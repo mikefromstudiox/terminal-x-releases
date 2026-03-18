@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vite:*)",
+      "Bash(npm run:*)",
+      "Bash(node -e \"const l = require\\(''lucide-react''\\); [''ReceiptText'',''TrendingUp'',''CircleDollarSign'',''Clock'',''Ban'',''SquareCheckBig'',''Eye'',''Printer''].forEach\\(n => console.log\\(n, n in l\\)\\)\")",
+      "Bash(node -e \"const l = require\\(''lucide-react''\\); [''TrendingUp'',''TrendingDown'',''Download'',''Printer'',''Car'',''CircleDollarSign'',''Clock'',''ReceiptText''].forEach\\(n => console.log\\(n, n in l\\)\\)\")",
+      "Bash(node -e \"const l = require\\(''lucide-react''\\); [''QrCode'',''Loader2'',''CheckCircle2'',''AlertTriangle''].forEach\\(n => console.log\\(n, n in l\\)\\)\")",
+      "Bash(node -e \"const l = require\\(''lucide-react''\\); [''Lock'',''Download'',''ChevronRight'',''Car'',''CircleDollarSign'',''Users'',''BarChart3''].forEach\\(n => console.log\\(n, n in l\\)\\)\")",
+      "Bash(node -e \"const l = require\\(''lucide-react''\\); [''CheckCircle2'',''AlertCircle'',''ChevronRight'',''X'',''History'',''Printer'',''Calculator'',''DollarSign'',''Lock''].forEach\\(n => console.log\\(n, !!l[n]\\)\\)\")",
+      "Bash(node --input-type=module:*)",
+      "Bash(node:*)",
+      "Bash(npm install:*)"
+    ]
+  }
+}

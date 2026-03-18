@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design tokens ────────────────────────────────────────────────────────── */
+:root {
+  --color-primary:        #0C447C;
+  --color-active-bg:      #f0f6ff;
+  --color-active-border:  #378ADD;
+  --color-success:        #3B6D11;
+  --color-warning:        #854F0B;
+  --color-danger:         #A32D2D;
+  --color-page-bg:        #f0f2f5;
+  --color-panel:          #ffffff;
+  --color-text-primary:   #1a1a1a;
+  --color-text-secondary: #888888;
+  --color-text-label:     #555555;
+  --color-login-biz:      #B91C3C;
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background-color: var(--color-page-bg);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  color: var(--color-text-primary);
+}
+
+/* Allow text selection in inputs */
+input, textarea { user-select: text; }
+
+/* ── Global input / select / textarea reset ───────────────────────────────── */
+/* Establishes consistent baseline across every screen — no more per-field hacks */
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"])),
+:where(select),
+:where(textarea) {
+  padding: 4px 7px;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.4;
+  border: 0.5px solid rgba(0, 0, 0, 0.18);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--color-text-primary);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
+}
+
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"])):focus,
+:where(select):focus,
+:where(textarea):focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(12, 68, 124, 0.10);
+}
+
+input::placeholder, textarea::placeholder {
+  color: #bbb;
+}
+
+/* Dark-background inputs (Login screen PIN mode) — override the white default */
+input.input-dark {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.15);
+  color: #ffffff;
+}
+input.input-dark::placeholder { color: rgba(255,255,255,0.3); }
+input.input-dark:focus {
+  border-color: rgba(255,255,255,0.4);
+  box-shadow: none;
+}
+
+/* ── Typography utilities ─────────────────────────────────────────────────── */
+.label-text {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-label);
+}
+
+.section-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.page-header {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+/* ── Animations ───────────────────────────────────────────────────────────── */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60%  { transform: translateX(-5px); }
+  40%, 80%  { transform: translateX(5px); }
+}
+.animate-shake { animation: shake 0.45s ease-in-out; }
+
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
