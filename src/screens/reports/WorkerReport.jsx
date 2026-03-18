@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Lock, Download, ChevronRight, Car, CircleDollarSign, Users, BarChart3 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useLang } from '../../i18n'
@@ -22,86 +22,39 @@ const PALETTE = [
   { bg: 'bg-rose-100',    text: 'text-rose-700',    bar: 'bg-rose-400'    },
 ]
 
-// ── Demo data ─────────────────────────────────────────────────────────────────
-const WASHERS = [
-  { id: 1, name: 'Juan',   pct: 20 },
-  { id: 2, name: 'Pedro',  pct: 20 },
-  { id: 3, name: 'Carlos', pct: 22 },
-  { id: 4, name: 'María',  pct: 18 },
-]
+// ── Date range helpers ────────────────────────────────────────────────────────
+function getDateRange(period, customY, customM) {
+  const now         = new Date()
+  const todayStr    = now.toISOString().slice(0, 10)
+  const tomorrow    = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1)
+  const tomorrowStr = tomorrow.toISOString().slice(0, 10)
 
-const _N = Date.now()
-const D  = (daysAgo, h = 10, m = 0) => new Date(_N - daysAgo * 86_400_000 + (h * 3600 + m * 60) * 1000)
-
-// Services: commissionable = wash / extras. false = beverages / snacks excluded from base.
-const TICKETS_RAW = [
-  // ── Today ──
-  { id: 1,  ticketNo: 'T-0850', washerId: 1, vehicle: 'Toyota Hilux Plateada',    client: 'Hotel Mirador del Mar',       date: D(0,14,30), estado: 'cobrado',   services: [{ name:'Full Detailing',price:3500,c:true},{name:'Encerado',price:300,c:true}] },
-  { id: 2,  ticketNo: 'T-0849', washerId: 3, vehicle: 'Kia Sportage Gris',         client: 'Walk-in',                     date: D(0,13,15), estado: 'cobrado',   services: [{ name:'Lavado Básico',price:300,c:true},{name:'Agua',price:50,c:false}] },
-  { id: 3,  ticketNo: 'T-0848', washerId: 2, vehicle: 'Nissan Sentra Negro',        client: 'Walk-in',                     date: D(0,11,45), estado: 'cobrado',   services: [{ name:'Lavado Completo',price:500,c:true},{name:'Aromatizante',price:100,c:true}] },
-  // ── Yesterday ──
-  { id: 4,  ticketNo: 'T-0847', washerId: 1, vehicle: 'Toyota Camry Rojo',          client: 'Supermercados La Cadena',     date: D(1,16,20), estado: 'pendiente', services: [{ name:'Lavado Completo',price:500,c:true},{name:'Encerado',price:300,c:true},{name:'Limpia Vidrios',price:50,c:true}] },
-  { id: 5,  ticketNo: 'T-0846', washerId: 4, vehicle: 'Honda CR-V Azul',            client: 'Walk-in',                     date: D(1,14,10), estado: 'cobrado',   services: [{ name:'Full Detailing',price:3500,c:true}] },
-  { id: 6,  ticketNo: 'T-0845', washerId: 3, vehicle: 'Ford F-150 Plateada',        client: 'Constructora Hernández',      date: D(1,10,30), estado: 'pendiente', services: [{ name:'Lavado Flota × 3',price:900,c:true}] },
-  // ── 2 days ago ──
-  { id: 7,  ticketNo: 'T-0844', washerId: 2, vehicle: 'Chevrolet Traverse Blanca',  client: 'Walk-in',                     date: D(2,15,50), estado: 'cobrado',   services: [{ name:'Lavado Premium',price:800,c:true},{name:'Silicon Tablero',price:80,c:true}] },
-  { id: 8,  ticketNo: 'T-0843', washerId: 1, vehicle: 'Jeep Wrangler Verde',         client: 'Walk-in',                     date: D(2,14,0),  estado: 'cobrado',   services: [{ name:'Tapizado',price:1200,c:true},{name:'Aromatizante',price:100,c:true},{name:'Refresco',price:60,c:false}] },
-  { id: 9,  ticketNo: 'T-0842', washerId: 3, vehicle: 'BMW 5 Series Negro',          client: 'Grupo Empresarial Mejía',     date: D(2,11,20), estado: 'pendiente', services: [{ name:'Lavado Premium',price:800,c:true}] },
-  { id: 10, ticketNo: 'T-0841', washerId: 4, vehicle: 'Toyota Corolla Rojo',         client: 'Walk-in',                     date: D(2, 9,30), estado: 'cobrado',   services: [{ name:'Lavado Básico',price:300,c:true}] },
-  // ── 3 days ago ──
-  { id: 11, ticketNo: 'T-0840', washerId: 2, vehicle: 'Hyundai Santa Fe Gris',       client: 'Walk-in',                     date: D(3,14,25), estado: 'cobrado',   services: [{ name:'Lavado Completo',price:500,c:true},{name:'Encerado',price:300,c:true},{name:'Pulido',price:250,c:true}] },
-  { id: 12, ticketNo: 'T-0839', washerId: 1, vehicle: 'Mazda CX-5 Azul',             client: 'Walk-in',                     date: D(3,13,0),  estado: 'cobrado',   services: [{ name:'Lavado Interior',price:400,c:true}] },
-  { id: 13, ticketNo: 'T-0838', washerId: 4, vehicle: 'Land Rover Defender Negro',   client: 'Hotel Mirador del Mar',       date: D(3,11,10), estado: 'pendiente', services: [{ name:'Lavado Completo',price:500,c:true},{name:'Tapizado',price:1200,c:true}] },
-  // ── 5 days ago ──
-  { id: 14, ticketNo: 'T-0837', washerId: 3, vehicle: 'Mitsubishi Outlander Blanco', client: 'Walk-in',                     date: D(5,15,0),  estado: 'cobrado',   services: [{ name:'Lavado Básico',price:300,c:true},{name:'Aromatizante',price:100,c:true}] },
-  { id: 15, ticketNo: 'T-0836', washerId: 1, vehicle: 'Honda Pilot Gris',             client: 'Farmacia El Alivio',          date: D(5,13,30), estado: 'pendiente', services: [{ name:'Full Detailing',price:3500,c:true},{name:'Encerado',price:300,c:true},{name:'Silicon Tablero',price:80,c:true},{name:'Café',price:80,c:false}] },
-  { id: 16, ticketNo: 'T-0835', washerId: 2, vehicle: 'Suzuki Vitara Rojo',           client: 'Walk-in',                     date: D(5,11,0),  estado: 'cobrado',   services: [{ name:'Lavado Completo',price:500,c:true}] },
-  { id: 17, ticketNo: 'T-0834', washerId: 4, vehicle: 'Kia Rio Plateado',             client: 'Walk-in',                     date: D(5, 9,45), estado: 'cobrado',   services: [{ name:'Lavado Básico',price:300,c:true}] },
-  // ── 10 days ago ──
-  { id: 18, ticketNo: 'T-0833', washerId: 3, vehicle: 'Toyota Prado Negro',           client: 'Constructora Hernández',      date: D(10,14,0), estado: 'cobrado',   services: [{ name:'Full Detailing',price:3500,c:true},{name:'Pulido',price:250,c:true}] },
-  { id: 19, ticketNo: 'T-0832', washerId: 1, vehicle: 'Volvo XC90 Blanco',            client: 'Walk-in',                     date: D(10,12,0), estado: 'cobrado',   services: [{ name:'Lavado Premium',price:800,c:true},{name:'Silicon Tablero',price:80,c:true}] },
-  { id: 20, ticketNo: 'T-0831', washerId: 2, vehicle: 'Ford Explorer Azul',           client: 'Walk-in',                     date: D(10,10,30),estado: 'cobrado',   services: [{ name:'Lavado Completo',price:500,c:true},{name:'Aromatizante',price:100,c:true}] },
-  { id: 21, ticketNo: 'T-0830', washerId: 4, vehicle: 'Audi A4 Gris',                 client: 'Walk-in',                     date: D(10, 9,15),estado: 'cobrado',   services: [{ name:'Full Detailing',price:3500,c:true},{name:'Encerado',price:300,c:true},{name:'Cera Carnauba',price:150,c:true}] },
-  // ── 15 days ago ──
-  { id: 22, ticketNo: 'T-0829', washerId: 1, vehicle: 'Jeep Cherokee Verde',          client: 'Walk-in',                     date: D(15,14,0), estado: 'cobrado',   services: [{ name:'Tapizado',price:1200,c:true},{name:'Aromatizante',price:100,c:true}] },
-  { id: 23, ticketNo: 'T-0828', washerId: 2, vehicle: 'Honda CRV Rojo',               client: 'Walk-in',                     date: D(15,12,30),estado: 'cobrado',   services: [{ name:'Lavado Premium',price:800,c:true}] },
-  { id: 24, ticketNo: 'T-0827', washerId: 3, vehicle: 'Toyota RAV4 Plateado',         client: 'Walk-in',                     date: D(15,11,0), estado: 'cobrado',   services: [{ name:'Lavado Completo',price:500,c:true},{name:'Limpia Vidrios',price:50,c:true}] },
-  { id: 25, ticketNo: 'T-0826', washerId: 4, vehicle: 'Mercedes GLA Azul',            client: 'Walk-in',                     date: D(15, 9,30),estado: 'cobrado',   services: [{ name:'Full Detailing',price:3500,c:true},{name:'Encerado',price:300,c:true}] },
-]
-
-// ── Computed ticket fields ────────────────────────────────────────────────────
-const TICKETS = TICKETS_RAW.map(t => {
-  const washer       = WASHERS.find(w => w.id === t.washerId)
-  const commBase     = t.services.filter(s => s.c).reduce((s, x) => s + x.price, 0)
-  const subtotal     = t.services.reduce((s, x) => s + x.price, 0)
-  const total        = subtotal * 1.28                         // × 1.28 = +18% ITBIS +10% Ley
-  const commission   = commBase * (washer?.pct ?? 0) / 100
-  const mainService  = t.services.find(s => s.c) ?? t.services[0]
-  return { ...t, washer, commBase, subtotal, total, commission, pct: washer?.pct ?? 0, mainService }
-})
-
-// ── Date period filter ────────────────────────────────────────────────────────
-const TODAY    = new Date()
-const CUR_Y    = TODAY.getFullYear()
-const CUR_M    = TODAY.getMonth()
-
-function inPeriod(date, period, cy, cm) {
-  const d   = new Date(date)
-  const now = new Date()
-  const t0  = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  if (period === 'hoy')   return d >= t0
-  if (period === 'semana') {
-    const mon = new Date(t0)
-    mon.setDate(mon.getDate() - (mon.getDay() === 0 ? 6 : mon.getDay() - 1))
-    return d >= mon
+  if (period === 'hoy') {
+    return { from: todayStr, to: tomorrowStr }
   }
-  if (period === 'mes')    return d >= new Date(now.getFullYear(), now.getMonth(), 1)
-  if (period === 'custom') return d >= new Date(cy, cm, 1) && d < new Date(cy, cm + 1, 1)
-  return true
+  if (period === 'semana') {
+    const mon = new Date(now)
+    const day = mon.getDay()
+    mon.setDate(mon.getDate() - (day === 0 ? 6 : day - 1))
+    return { from: mon.toISOString().slice(0, 10), to: tomorrowStr }
+  }
+  if (period === 'mes') {
+    const first = new Date(now.getFullYear(), now.getMonth(), 1)
+    return { from: first.toISOString().slice(0, 10), to: tomorrowStr }
+  }
+  if (period === 'custom') {
+    const first = new Date(customY, customM, 1)
+    const last  = new Date(customY, customM + 1, 1)
+    return { from: first.toISOString().slice(0, 10), to: last.toISOString().slice(0, 10) }
+  }
+  return { from: todayStr, to: tomorrowStr }
 }
 
 // ── Past 12 months for dropdown ───────────────────────────────────────────────
-const MES_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+const TODAY_OBJ = new Date()
+const CUR_Y     = TODAY_OBJ.getFullYear()
+const CUR_M     = TODAY_OBJ.getMonth()
+const MES_ES    = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
 const PAST_MONTHS = Array.from({ length: 12 }, (_, i) => {
   let m = CUR_M - i, y = CUR_Y
   while (m < 0) { m += 12; y-- }
@@ -112,14 +65,13 @@ const PAST_MONTHS = Array.from({ length: 12 }, (_, i) => {
 function exportCSV(tickets, washerName, period) {
   const rows = [
     [`Comisiones — ${washerName} — ${period}`], [],
-    ['#Ticket','Vehículo','Servicio','Total','Base s/ITBIS','%','Comisión','Estado'],
+    ['#Ticket','Vehículo','Servicio','Base s/ITBIS','%','Comisión','Estado'],
     ...tickets.map(t => [
       t.ticketNo, t.vehicle, t.mainService.name,
-      t.total.toFixed(2), t.commBase.toFixed(2), `${t.pct}%`, t.commission.toFixed(2), t.estado,
+      t.commBase.toFixed(2), `${t.pct}%`, t.commission.toFixed(2), t.estado,
     ]),
     [],
     ['','','TOTALES',
-      tickets.reduce((s, t) => s + t.total,      0).toFixed(2),
       tickets.reduce((s, t) => s + t.commBase,   0).toFixed(2), '',
       tickets.reduce((s, t) => s + t.commission, 0).toFixed(2), '',
     ],
@@ -159,7 +111,6 @@ const COLS = [
   { es: '#',            en: '#',              cls: 'w-[80px] shrink-0'           },
   { es: 'Cliente / Vehículo', en: 'Client / Vehicle', cls: 'flex-1 min-w-0'    },
   { es: 'Servicio',     en: 'Service',        cls: 'w-[148px] shrink-0'         },
-  { es: 'Total Ticket', en: 'Ticket Total',   cls: 'w-[100px] shrink-0 text-right' },
   { es: 'Base s/ITBIS', en: 'Base ex-ITBIS',  cls: 'w-[104px] shrink-0 text-right' },
   { es: '%',            en: '%',              cls: 'w-[48px]  shrink-0 text-center' },
   { es: 'Comisión',     en: 'Commission',     cls: 'w-[100px] shrink-0 text-right' },
@@ -167,10 +118,18 @@ const COLS = [
 ]
 
 // ── Individual washer ticket table ────────────────────────────────────────────
-function WasherTicketTable({ tickets, washerName, lang }) {
-  const totalTickets    = tickets.reduce((s, t) => s + t.total,      0)
+function WasherTicketTable({ tickets, washerName, lang, loading }) {
   const totalBase       = tickets.reduce((s, t) => s + t.commBase,   0)
   const totalCommission = tickets.reduce((s, t) => s + t.commission, 0)
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-32 text-slate-300 gap-3">
+        <div className="w-5 h-5 border-2 border-slate-200 border-t-sky-500 rounded-full animate-spin" />
+        <span className="text-[13px]">{lang === 'es' ? 'Cargando tickets…' : 'Loading tickets…'}</span>
+      </div>
+    )
+  }
 
   if (!tickets.length) {
     return (
@@ -208,15 +167,6 @@ function WasherTicketTable({ tickets, washerName, lang }) {
             {/* Service */}
             <div className="w-[148px] shrink-0 pr-3">
               <span className="text-[12px] text-slate-700 truncate block">{t.mainService.name}</span>
-              {t.services.some(s => !s.c) && (
-                <span className="text-[10px] text-slate-400">
-                  {lang === 'es' ? '(bebidas excluidas)' : '(beverages excluded)'}
-                </span>
-              )}
-            </div>
-            {/* Ticket Total */}
-            <div className="w-[100px] shrink-0 pr-3 text-right">
-              <span className="text-[12px] font-semibold text-slate-700">{fmtRD(t.total)}</span>
             </div>
             {/* Base s/ITBIS */}
             <div className="w-[104px] shrink-0 pr-3 text-right">
@@ -247,9 +197,6 @@ function WasherTicketTable({ tickets, washerName, lang }) {
         </div>
         <div className="flex-1 min-w-0 pr-3" />
         <div className="w-[148px] shrink-0 pr-3" />
-        <div className="w-[100px] shrink-0 pr-3 text-right">
-          <span className="text-[12px] font-bold text-slate-700">{fmtRD(totalTickets)}</span>
-        </div>
         <div className="w-[104px] shrink-0 pr-3 text-right">
           <span className="text-[12px] font-bold text-emerald-700">{fmtRD(totalBase)}</span>
         </div>
@@ -289,52 +236,113 @@ export default function WorkerReport() {
   const { user }  = useAuth()
   const { lang }  = useLang()
 
-  const [period,     setPeriod]     = useState('mes')      // 'hoy'|'semana'|'mes'|'custom'
-  const [customY,    setCustomY]    = useState(CUR_Y)
-  const [customM,    setCustomM]    = useState(CUR_M)
-  const [washerId,   setWasherId]   = useState('all')      // 'all' | washer id
+  const [period,          setPeriod]          = useState('mes')
+  const [customY,         setCustomY]         = useState(CUR_Y)
+  const [customM,         setCustomM]         = useState(CUR_M)
+  const [washerId,        setWasherId]        = useState('all')
+
+  // DB data
+  const [washers,         setWashers]         = useState([])   // from washers.allAdmin()
+  const [periodSummaries, setPeriodSummaries] = useState([])   // from commissions.byPeriod
+  const [washerTickets,   setWasherTickets]   = useState([])   // from commissions.byWasher
+  const [loadingSummary,  setLoadingSummary]  = useState(false)
+  const [loadingTickets,  setLoadingTickets]  = useState(false)
 
   if (!ALLOWED_ROLES.includes(user?.role)) return <AccessDenied lang={lang} />
 
-  // Filtered tickets
-  const periodTickets = useMemo(() =>
-    TICKETS.filter(t => inPeriod(t.date, period, customY, customM))
-  , [period, customY, customM])
+  // Load washers once on mount
+  useEffect(() => {
+    window.electronAPI.washers.allAdmin()
+      .then(rows => setWashers(rows || []))
+      .catch(() => setWashers([]))
+  }, [])
 
-  const visibleTickets = useMemo(() =>
-    washerId === 'all'
-      ? periodTickets
-      : periodTickets.filter(t => t.washerId === +washerId)
-  , [periodTickets, washerId])
+  // Load commission summaries when period changes
+  useEffect(() => {
+    let cancelled = false
+    setLoadingSummary(true)
+    setWasherId('all')
+    setWasherTickets([])
+    const range = getDateRange(period, customY, customM)
+    window.electronAPI.commissions.byPeriod(range)
+      .then(rows => { if (!cancelled) setPeriodSummaries(rows || []) })
+      .catch(() => { if (!cancelled) setPeriodSummaries([]) })
+      .finally(() => { if (!cancelled) setLoadingSummary(false) })
+    return () => { cancelled = true }
+  }, [period, customY, customM])
 
-  // Summary metrics
-  const summary = useMemo(() => {
-    const totalCommission = periodTickets.reduce((s, t) => s + t.commission, 0)
-    const totalCars       = periodTickets.length
-    const activeWashers   = new Set(periodTickets.map(t => t.washerId)).size
-    const avgCommission   = activeWashers > 0 ? totalCommission / activeWashers : 0
-    return { totalCommission, totalCars, activeWashers, avgCommission }
-  }, [periodTickets])
+  // Load per-washer ticket detail when a specific washer is selected
+  useEffect(() => {
+    if (washerId === 'all') {
+      setWasherTickets([])
+      return
+    }
+    let cancelled = false
+    setLoadingTickets(true)
+    const range = getDateRange(period, customY, customM)
+    window.electronAPI.commissions.byWasher({ washerId: +washerId, ...range })
+      .then(rows => {
+        if (!cancelled) {
+          setWasherTickets((rows || []).map(r => ({
+            id:          r.id,
+            ticketNo:    r.doc_number,
+            washerId:    r.washer_id,
+            vehicle:     r.vehicle_plate || '—',
+            client:      '—',
+            date:        new Date(r.ticket_date),
+            mainService: { name: r.services || '—' },
+            services:    [],
+            commBase:    r.base_amount || 0,
+            commission:  r.commission_amount || 0,
+            pct:         r.commission_pct || 0,
+            estado:      r.paid ? 'cobrado' : 'pendiente',
+          })))
+        }
+      })
+      .catch(() => { if (!cancelled) setWasherTickets([]) })
+      .finally(() => { if (!cancelled) setLoadingTickets(false) })
+    return () => { cancelled = true }
+  }, [washerId, period, customY, customM])
 
-  // Per-washer aggregates (for the summary strip)
-  const washerSummaries = useMemo(() =>
-    WASHERS.map((w, i) => {
-      const wt = periodTickets.filter(t => t.washerId === w.id)
+  // Build washer summaries with palette — merge byPeriod data with washers list
+  const washerSummaries = useMemo(() => {
+    // Use byPeriod results as the source of truth for active washers
+    return periodSummaries.map((ps, i) => {
+      // Find matching washer in washers list (for palette consistency)
+      const washerIdx = washers.findIndex(w => w.id === ps.washer_id)
+      const paletteIdx = washerIdx >= 0 ? washerIdx : i
       return {
-        ...w,
-        palette:    PALETTE[i % PALETTE.length],
-        cars:       wt.length,
-        commission: wt.reduce((s, t) => s + t.commission, 0),
-        commBase:   wt.reduce((s, t) => s + t.commBase, 0),
-        total:      wt.reduce((s, t) => s + t.total, 0),
+        id:         ps.washer_id,
+        name:       ps.washer_name,
+        pct:        ps.commission_pct,
+        palette:    PALETTE[paletteIdx % PALETTE.length],
+        cars:       ps.ticket_count || 0,
+        commission: ps.total_commission || 0,
+        commBase:   ps.total_base || 0,
+        total:      0, // not available from this endpoint
       }
     })
-  , [periodTickets])
+  }, [periodSummaries, washers])
 
-  // Individual washer summary cards
-  const selectedWasher    = WASHERS.find(w => w.id === +washerId)
-  const selectedPalette   = selectedWasher ? PALETTE[WASHERS.indexOf(selectedWasher) % PALETTE.length] : null
-  const selectedSummary   = washerSummaries.find(w => w.id === +washerId)
+  // Summary metrics computed from byPeriod data
+  const summary = useMemo(() => {
+    const totalCommission = washerSummaries.reduce((s, w) => s + w.commission, 0)
+    const totalCars       = washerSummaries.reduce((s, w) => s + w.cars, 0)
+    const activeWashers   = washerSummaries.length
+    const avgCommission   = activeWashers > 0 ? totalCommission / activeWashers : 0
+    return { totalCommission, totalCars, activeWashers, avgCommission }
+  }, [washerSummaries])
+
+  // Selected washer data
+  const selectedWasherData = washerSummaries.find(w => w.id === +washerId) ?? null
+  const selectedWasherRaw  = washers.find(w => w.id === +washerId) ?? null
+
+  // Washer dropdown list: prefer washers.allAdmin() for complete list,
+  // fall back to summaries if washers haven't loaded yet
+  const washerDropdownList = useMemo(() => {
+    if (washers.length > 0) return washers
+    return washerSummaries.map(w => ({ id: w.id, name: w.name, commission_pct: w.pct }))
+  }, [washers, washerSummaries])
 
   // Period label for export
   const periodLabel = period === 'hoy'    ? (lang === 'es' ? 'Hoy'          : 'Today')
@@ -344,12 +352,26 @@ export default function WorkerReport() {
 
   function handleExport() {
     if (washerId === 'all') {
-      WASHERS.forEach(w => {
-        const wt = periodTickets.filter(t => t.washerId === w.id)
-        if (wt.length > 0) exportCSV(wt, w.name, periodLabel)
-      })
+      // Export per washer is not ideal without ticket-level data for all washers;
+      // export the summary as a single CSV instead
+      const rows = [
+        [`Comisiones — Todos — ${periodLabel}`], [],
+        ['Lavador','%','Carros','Base s/ITBIS','Comisión'],
+        ...washerSummaries.map(w => [w.name, `${w.pct}%`, w.cars, w.commBase.toFixed(2), w.commission.toFixed(2)]),
+        [],
+        ['TOTAL','','',
+          washerSummaries.reduce((s, w) => s + w.commBase, 0).toFixed(2),
+          washerSummaries.reduce((s, w) => s + w.commission, 0).toFixed(2),
+        ],
+      ]
+      const csv  = rows.map(r => r.join(',')).join('\n')
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url; a.download = `comisiones-todos-${periodLabel.toLowerCase()}.csv`; a.click()
+      URL.revokeObjectURL(url)
     } else {
-      exportCSV(visibleTickets, selectedWasher?.name ?? 'Lavador', periodLabel)
+      exportCSV(washerTickets, selectedWasherData?.name ?? 'Lavador', periodLabel)
     }
   }
 
@@ -454,15 +476,17 @@ export default function WorkerReport() {
                 className="appearance-none pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-semibold text-slate-700 focus:outline-none focus:border-sky-400 cursor-pointer"
               >
                 <option value="all">{lang === 'es' ? 'Todos los lavadores' : 'All washers'}</option>
-                {WASHERS.map(w => (
-                  <option key={w.id} value={w.id}>{w.name} ({w.pct}%)</option>
+                {washerDropdownList.map(w => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}{w.commission_pct != null ? ` (${w.commission_pct}%)` : ''}
+                  </option>
                 ))}
               </select>
               <ChevronRight size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none rotate-90" />
             </div>
-            {washerId !== 'all' && selectedWasher && (
-              <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${selectedPalette?.bg} ${selectedPalette?.text}`}>
-                {selectedWasher.pct}% {lang === 'es' ? 'comisión' : 'commission'}
+            {washerId !== 'all' && selectedWasherData && (
+              <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${selectedWasherData.palette?.bg} ${selectedWasherData.palette?.text}`}>
+                {selectedWasherData.pct}% {lang === 'es' ? 'comisión' : 'commission'}
               </span>
             )}
           </div>
@@ -470,82 +494,94 @@ export default function WorkerReport() {
           {/* All washers summary strip */}
           {washerId === 'all' && (
             <div>
-              {washerSummaries.map((w, i) => {
-                const maxComm = Math.max(...washerSummaries.map(x => x.commission), 1)
-                return (
-                  <button
-                    key={w.id}
-                    onClick={() => setWasherId(String(w.id))}
-                    className="w-full flex items-center gap-4 px-5 py-3.5 border-b border-slate-50 hover:bg-slate-50 transition-colors text-left last:border-0 group"
-                  >
-                    {/* Avatar */}
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-[11px] font-bold shrink-0 ${w.palette.bg} ${w.palette.text}`}>
-                      {w.name.slice(0, 2).toUpperCase()}
-                    </div>
-                    {/* Name + % */}
+              {loadingSummary ? (
+                <div className="flex items-center justify-center h-24 text-slate-300 gap-3">
+                  <div className="w-5 h-5 border-2 border-slate-200 border-t-sky-500 rounded-full animate-spin" />
+                  <span className="text-[13px]">{lang === 'es' ? 'Cargando comisiones…' : 'Loading commissions…'}</span>
+                </div>
+              ) : washerSummaries.length === 0 ? (
+                <div className="flex items-center justify-center h-24 text-slate-300 text-[13px]">
+                  {lang === 'es' ? 'Sin datos para este período' : 'No data for this period'}
+                </div>
+              ) : (
+                <>
+                  {washerSummaries.map((w) => {
+                    const maxComm = Math.max(...washerSummaries.map(x => x.commission), 1)
+                    return (
+                      <button
+                        key={w.id}
+                        onClick={() => setWasherId(String(w.id))}
+                        className="w-full flex items-center gap-4 px-5 py-3.5 border-b border-slate-50 hover:bg-slate-50 transition-colors text-left last:border-0 group"
+                      >
+                        {/* Avatar */}
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-[11px] font-bold shrink-0 ${w.palette.bg} ${w.palette.text}`}>
+                          {w.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        {/* Name + % */}
+                        <div className="w-[120px] shrink-0">
+                          <p className="text-[13px] font-bold text-slate-800">{w.name}</p>
+                          <p className="text-[11px] text-slate-400">{w.pct}% {lang === 'es' ? 'comisión' : 'commission'}</p>
+                        </div>
+                        {/* Cars */}
+                        <div className="w-[80px] shrink-0 text-center">
+                          <p className="text-[15px] font-bold text-slate-700">{w.cars}</p>
+                          <p className="text-[10px] text-slate-400">{lang === 'es' ? 'carros' : 'cars'}</p>
+                        </div>
+                        {/* Base */}
+                        <div className="w-[120px] shrink-0 text-right">
+                          <p className="text-[12px] font-semibold text-emerald-700">{fmtRD(w.commBase)}</p>
+                          <p className="text-[10px] text-slate-400">{lang === 'es' ? 'base s/ITBIS' : 'base ex-ITBIS'}</p>
+                        </div>
+                        {/* Commission + bar */}
+                        <div className="flex-1 flex items-center gap-3">
+                          <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full ${w.palette.bar} rounded-full transition-all duration-500`}
+                              style={{ width: `${(w.commission / maxComm) * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-[14px] font-bold text-sky-700 w-[110px] text-right shrink-0">{fmtRD(w.commission)}</span>
+                        </div>
+                        {/* Drill arrow */}
+                        <ChevronRight size={14} className="text-slate-300 group-hover:text-sky-500 transition-colors shrink-0" />
+                      </button>
+                    )
+                  })}
+                  {/* Grand total */}
+                  <div className="flex items-center gap-4 px-5 py-3 bg-slate-50 border-t border-slate-200">
+                    <div className="w-9 shrink-0" />
                     <div className="w-[120px] shrink-0">
-                      <p className="text-[13px] font-bold text-slate-800">{w.name}</p>
-                      <p className="text-[11px] text-slate-400">{w.pct}% {lang === 'es' ? 'comisión' : 'commission'}</p>
+                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Total</p>
                     </div>
-                    {/* Cars */}
                     <div className="w-[80px] shrink-0 text-center">
-                      <p className="text-[15px] font-bold text-slate-700">{w.cars}</p>
-                      <p className="text-[10px] text-slate-400">{lang === 'es' ? 'carros' : 'cars'}</p>
+                      <p className="text-[14px] font-bold text-slate-700">{summary.totalCars}</p>
                     </div>
-                    {/* Base */}
                     <div className="w-[120px] shrink-0 text-right">
-                      <p className="text-[12px] font-semibold text-emerald-700">{fmtRD(w.commBase)}</p>
-                      <p className="text-[10px] text-slate-400">{lang === 'es' ? 'base s/ITBIS' : 'base ex-ITBIS'}</p>
+                      <p className="text-[12px] font-bold text-emerald-700">{fmtRD(washerSummaries.reduce((s, w) => s + w.commBase, 0))}</p>
                     </div>
-                    {/* Commission + bar */}
-                    <div className="flex-1 flex items-center gap-3">
-                      <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full ${w.palette.bar} rounded-full transition-all duration-500`}
-                          style={{ width: `${(w.commission / maxComm) * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-[14px] font-bold text-sky-700 w-[110px] text-right shrink-0">{fmtRD(w.commission)}</span>
+                    <div className="flex-1 text-right">
+                      <p className="text-[15px] font-bold text-sky-700">{fmtRD(summary.totalCommission)}</p>
                     </div>
-                    {/* Drill arrow */}
-                    <ChevronRight size={14} className="text-slate-300 group-hover:text-sky-500 transition-colors shrink-0" />
-                  </button>
-                )
-              })}
-              {/* Grand total */}
-              <div className="flex items-center gap-4 px-5 py-3 bg-slate-50 border-t border-slate-200">
-                <div className="w-9 shrink-0" />
-                <div className="w-[120px] shrink-0">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Total</p>
-                </div>
-                <div className="w-[80px] shrink-0 text-center">
-                  <p className="text-[14px] font-bold text-slate-700">{summary.totalCars}</p>
-                </div>
-                <div className="w-[120px] shrink-0 text-right">
-                  <p className="text-[12px] font-bold text-emerald-700">{fmtRD(washerSummaries.reduce((s, w) => s + w.commBase, 0))}</p>
-                </div>
-                <div className="flex-1 text-right">
-                  <p className="text-[15px] font-bold text-sky-700">{fmtRD(summary.totalCommission)}</p>
-                </div>
-                <div className="w-5 shrink-0" />
-              </div>
+                    <div className="w-5 shrink-0" />
+                  </div>
+                </>
+              )}
             </div>
           )}
 
           {/* Individual washer — summary cards */}
-          {washerId !== 'all' && selectedSummary && (
+          {washerId !== 'all' && selectedWasherData && (
             <div className="flex gap-3 px-5 py-4 border-b border-slate-100">
               {[
-                { label_es:'Carros lavados',    label_en:'Cars washed',       value: selectedSummary.cars },
-                { label_es:'Total facturado',   label_en:'Total billed',      value: fmtRD(selectedSummary.total) },
-                { label_es:'Base s/ITBIS',      label_en:'Base ex-ITBIS',     value: fmtRD(selectedSummary.commBase) },
-                { label_es:'Comisión ganada',   label_en:'Commission earned', value: fmtRD(selectedSummary.commission) },
+                { label_es:'Carros lavados',    label_en:'Cars washed',       value: selectedWasherData.cars },
+                { label_es:'Base s/ITBIS',      label_en:'Base ex-ITBIS',     value: fmtRD(selectedWasherData.commBase) },
+                { label_es:'Comisión ganada',   label_en:'Commission earned', value: fmtRD(selectedWasherData.commission) },
               ].map((card, i) => (
-                <div key={i} className={`flex-1 rounded-xl px-4 py-3 ${i === 3 ? 'bg-sky-50 border border-sky-100' : 'bg-slate-50 border border-slate-200'}`}>
+                <div key={i} className={`flex-1 rounded-xl px-4 py-3 ${i === 2 ? 'bg-sky-50 border border-sky-100' : 'bg-slate-50 border border-slate-200'}`}>
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                     {lang === 'es' ? card.label_es : card.label_en}
                   </p>
-                  <p className={`text-[18px] font-bold mt-0.5 ${i === 3 ? 'text-sky-700' : 'text-slate-800'}`}>
+                  <p className={`text-[18px] font-bold mt-0.5 ${i === 2 ? 'text-sky-700' : 'text-slate-800'}`}>
                     {card.value}
                   </p>
                 </div>
@@ -568,7 +604,12 @@ export default function WorkerReport() {
                   : '⚠ Commission on pre-ITBIS base only'}
               </p>
             </div>
-            <WasherTicketTable tickets={visibleTickets} washerName={selectedWasher?.name ?? ''} lang={lang} />
+            <WasherTicketTable
+              tickets={washerTickets}
+              washerName={selectedWasherData?.name ?? ''}
+              lang={lang}
+              loading={loadingTickets}
+            />
           </div>
         )}
       </div>

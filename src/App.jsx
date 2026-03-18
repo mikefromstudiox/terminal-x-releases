@@ -10,8 +10,9 @@ import POS from './screens/POS'
 import Queue from './screens/Queue'
 import Credits from './screens/Credits'
 import Clients from './screens/Clients'
-import Workers from './screens/Workers'
-import Services from './screens/Services'
+// Workers and Services are legacy routes — now redirect, imports not needed
+// import Workers from './screens/Workers'
+// import Services from './screens/Services'
 import DGII from './screens/DGII'
 import Admin from './screens/Admin'
 import CashReconciliation from './screens/CashReconciliation'
@@ -23,6 +24,17 @@ import DailyReport from './screens/reports/DailyReport'
 import MonthlyReport from './screens/reports/MonthlyReport'
 import WorkerReport from './screens/reports/WorkerReport'
 import SalespersonReport from './screens/reports/SalespersonReport'
+
+// Routes accessible only to non-cashier roles
+const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin']
+
+function ProtectedRoute({ element }) {
+  const { user } = useAuth()
+  const location = useLocation()
+  const restricted = RESTRICTED.some(p => location.pathname.startsWith(p))
+  if (restricted && user?.role === 'cashier') return <Navigate to="/pos" replace />
+  return element
+}
 
 export default function App() {
   const { user }                              = useAuth()
@@ -36,7 +48,7 @@ export default function App() {
           <div className="w-12 h-12 bg-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-pulse">
             <span className="text-white font-bold text-xl">TX</span>
           </div>
-          <p className="text-slate-400 text-sm">Verificando licencia…</p>
+          <p className="text-slate-400 text-sm">Terminal X…</p>
         </div>
       </div>
     )
@@ -71,22 +83,22 @@ export default function App() {
         <Route path="/pos"                   element={<POS />} />
         <Route path="/queue"                 element={<Queue />} />
         <Route path="/clients"               element={<Clients />} />
-        <Route path="/credits"               element={<Credits />} />
-        <Route path="/reports/daily"         element={<DailyReport />} />
-        <Route path="/reports/monthly"       element={<MonthlyReport />} />
-        <Route path="/reports/workers"       element={<WorkerReport />} />
-        <Route path="/reports/salesperson"   element={<SalespersonReport />} />
-        <Route path="/cash-recon"            element={<CashReconciliation />} />
-        <Route path="/dgii"                  element={<DGII />} />
-        <Route path="/petty-cash"            element={<PettyCash />} />
-        <Route path="/credit-notes"          element={<CreditNotes />} />
-        <Route path="/admin"                 element={<Admin />} />
-        <Route path="/remote"                element={<RemoteDashboard />} />
-        <Route path="/license-admin"         element={<LicenseAdmin />} />
-        {/* Legacy routes */}
-        <Route path="/workers"               element={<Workers />} />
-        <Route path="/services"              element={<Services />} />
-        <Route path="/settings"              element={<Admin />} />
+        <Route path="/credits"               element={<ProtectedRoute element={<Credits />} />} />
+        <Route path="/reports/daily"         element={<ProtectedRoute element={<DailyReport />} />} />
+        <Route path="/reports/monthly"       element={<ProtectedRoute element={<MonthlyReport />} />} />
+        <Route path="/reports/workers"       element={<ProtectedRoute element={<WorkerReport />} />} />
+        <Route path="/reports/salesperson"   element={<ProtectedRoute element={<SalespersonReport />} />} />
+        <Route path="/cash-recon"            element={<ProtectedRoute element={<CashReconciliation />} />} />
+        <Route path="/dgii"                  element={<ProtectedRoute element={<DGII />} />} />
+        <Route path="/petty-cash"            element={<ProtectedRoute element={<PettyCash />} />} />
+        <Route path="/credit-notes"          element={<ProtectedRoute element={<CreditNotes />} />} />
+        <Route path="/admin"                 element={<ProtectedRoute element={<Admin />} />} />
+        <Route path="/remote"                element={<ProtectedRoute element={<RemoteDashboard />} />} />
+        <Route path="/license-admin"         element={<ProtectedRoute element={<LicenseAdmin />} />} />
+        {/* Legacy routes — redirect to canonical destinations */}
+        <Route path="/workers"               element={<Navigate to="/reports/workers" replace />} />
+        <Route path="/services"              element={<Navigate to="/admin" replace />} />
+        <Route path="/settings"              element={<Navigate to="/admin" replace />} />
         <Route path="*"                      element={<Navigate to="/pos" replace />} />
       </Routes>
       </ErrorBoundary>

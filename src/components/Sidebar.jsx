@@ -14,21 +14,22 @@ import { useBackup } from '../context/BackupContext'
 import { useLicense } from '../context/LicenseContext'
 import LanguageToggle from './LanguageToggle'
 
+// Roles: undefined = all, array = only those roles
 const NAV = [
-  { to: '/pos',           icon: ShoppingCart, key: 'nav_pos',          badge: 0 },
-  { to: '/queue',         icon: ClipboardList,key: 'nav_queue',         badge: 3 },
-  { to: '/clients',       icon: Users,        key: 'nav_clients',       badge: 0 },
-  { to: '/credits',       icon: CreditCard,   key: 'nav_credits',       badge: 2 },
-  { to: '/reports/daily', icon: BarChart2,    key: 'nav_daily',         badge: 0 },
-  { to: '/reports/monthly',icon: Calendar,    key: 'nav_monthly',       badge: 0 },
-  { to: '/reports/workers',icon: DollarSign,  key: 'nav_worker_report', badge: 0 },
-  { to: '/cash-recon',    icon: Archive,      key: 'nav_cash_recon',    badge: 0 },
-  { to: '/dgii',          icon: FileText,     key: 'nav_dgii',          badge: 0 },
-  { to: '/petty-cash',    icon: PiggyBank,    key: 'nav_petty',         badge: 0 },
-  { to: '/credit-notes',  icon: FileMinus,    key: 'nav_credit_notes',  badge: 0 },
-  { to: '/admin',          icon: Settings,  key: 'nav_admin',         badge: 0 },
-  { to: '/remote',         icon: Globe,     key: 'nav_remote',        badge: 0 },
-  { to: '/license-admin',  icon: KeyRound,  key: 'nav_license_admin', badge: 0, adminOnly: true },
+  { to: '/pos',              icon: ShoppingCart, key: 'nav_pos',          badge: 0 },
+  { to: '/queue',            icon: ClipboardList,key: 'nav_queue',        badge: 0 },
+  { to: '/clients',          icon: Users,        key: 'nav_clients',      badge: 0 },
+  { to: '/credits',          icon: CreditCard,   key: 'nav_credits',      badge: 0, roles: ['owner','manager','cfo','accountant'] },
+  { to: '/reports/daily',    icon: BarChart2,    key: 'nav_daily',        badge: 0, roles: ['owner','manager','cfo','accountant'] },
+  { to: '/reports/monthly',  icon: Calendar,     key: 'nav_monthly',      badge: 0, roles: ['owner','manager','cfo','accountant'] },
+  { to: '/reports/workers',  icon: DollarSign,   key: 'nav_worker_report',badge: 0, roles: ['owner','manager','cfo','accountant'] },
+  { to: '/cash-recon',       icon: Archive,      key: 'nav_cash_recon',   badge: 0, roles: ['owner','manager','cfo','accountant'] },
+  { to: '/dgii',             icon: FileText,     key: 'nav_dgii',         badge: 0, roles: ['owner','manager','cfo','accountant'] },
+  { to: '/petty-cash',       icon: PiggyBank,    key: 'nav_petty',        badge: 0, roles: ['owner','manager','cfo','accountant'] },
+  { to: '/credit-notes',     icon: FileMinus,    key: 'nav_credit_notes', badge: 0, roles: ['owner','manager','cfo','accountant'] },
+  { to: '/admin',            icon: Settings,     key: 'nav_admin',        badge: 0, roles: ['owner','manager'] },
+  { to: '/remote',           icon: Globe,        key: 'nav_remote',       badge: 0, roles: ['owner','cfo','accountant'] },
+  { to: '/license-admin',    icon: KeyRound,     key: 'nav_license_admin',badge: 0, roles: ['owner'] },
 ]
 
 function NavItem({ to, icon: Icon, label, badge, collapsed }) {
@@ -80,12 +81,13 @@ function NavItem({ to, icon: Icon, label, badge, collapsed }) {
 
 function ConnectionDot({ collapsed }) {
   const { status, configured } = useBackup()
+  const { lang } = useLang()
   if (!configured) return null
 
   const meta = {
-    online:  { dot: 'bg-emerald-400', label: 'En línea',    Icon: Cloud       },
-    syncing: { dot: 'bg-amber-400 animate-pulse', label: 'Sincronizando', Icon: RefreshCw },
-    offline: { dot: 'bg-red-400',     label: 'Sin conexión', Icon: CloudOff    },
+    online:  { dot: 'bg-emerald-400', label: lang === 'es' ? 'En línea'       : 'Online',       Icon: Cloud    },
+    syncing: { dot: 'bg-amber-400 animate-pulse', label: lang === 'es' ? 'Sincronizando' : 'Syncing', Icon: RefreshCw },
+    offline: { dot: 'bg-red-400',     label: lang === 'es' ? 'Sin conexión'   : 'Offline',      Icon: CloudOff },
   }[status] || { dot: 'bg-slate-300', label: '', Icon: Cloud }
 
   if (collapsed) {
@@ -105,6 +107,7 @@ function ConnectionDot({ collapsed }) {
 
 function LicenseDot({ collapsed }) {
   const { result, isReadOnly } = useLicense()
+  const { lang } = useLang()
   if (!result) return null
 
   const isExpired  = result.status === 'expired' || result.status === 'grace'
@@ -112,7 +115,11 @@ function LicenseDot({ collapsed }) {
   if (!isExpired && !isWarning && !isReadOnly) return null
 
   const dot   = isReadOnly || isExpired ? 'bg-red-400' : 'bg-amber-400'
-  const label = isReadOnly ? 'Licencia inválida' : isExpired ? 'Licencia vencida' : result.warningMsg || ''
+  const label = isReadOnly
+    ? (lang === 'es' ? 'Licencia inválida'  : 'Invalid license')
+    : isExpired
+      ? (lang === 'es' ? 'Licencia vencida' : 'License expired')
+      : result.warningMsg || ''
 
   if (collapsed) {
     return (
@@ -130,14 +137,14 @@ function LicenseDot({ collapsed }) {
 }
 
 export default function Sidebar() {
-  const { t } = useLang()
+  const { t, lang } = useLang()
   const { user, logout } = useAuth()
   const { collapsed, setCollapsed } = useLayout()
   const { result } = useLicense()
 
-  // Only show license-admin to owner role
+  // Filter nav items by role
   const visibleNav = NAV.filter(item =>
-    !item.adminOnly || user?.role === 'owner'
+    !item.roles || item.roles.includes(user?.role)
   )
 
   return (
@@ -207,7 +214,7 @@ export default function Sidebar() {
             ? <ChevronRight size={15} />
             : <>
                 <ChevronLeft size={15} />
-                <span className="text-[12px]">Colapsar</span>
+                <span className="text-[12px]">{lang === 'es' ? 'Colapsar' : 'Collapse'}</span>
               </>
           }
         </button>

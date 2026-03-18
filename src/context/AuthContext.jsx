@@ -2,30 +2,35 @@ import { createContext, useContext, useState } from 'react'
 
 const AuthContext = createContext(null)
 
-// Placeholder credentials — will be replaced with SQLite auth when Settings is built
-const DEMO_USERS = [
-  { id: 1, name: 'Admin',    role: 'owner',      pin: '1234', username: 'admin',    password: 'admin123' },
-  { id: 2, name: 'Cajero',   role: 'cashier',    pin: '0000', username: 'cajero',   password: 'cajero123' },
-  { id: 3, name: 'Gerente',  role: 'manager',    pin: '1111', username: 'gerente',  password: 'gerente123' },
-  { id: 4, name: 'CFO',      role: 'cfo',        pin: '2222', username: 'cfo',      password: 'cfo123' },
-  { id: 5, name: 'Contador', role: 'accountant', pin: '3333', username: 'contador', password: 'cont123' },
-]
+const ipc = () => window?.electronAPI
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
 
-  function login(pin) {
-    const found = DEMO_USERS.find(u => u.pin === pin)
-    if (found) { setUser(found); return true }
-    return false
+  async function login(pin) {
+    try {
+      const u = await ipc()?.auth?.byPin?.(pin)
+      if (u?.id) { setUser(u); return true }
+      return false
+    } catch {
+      return false
+    }
   }
 
-  function loginWithPassword(username, password) {
-    const found = DEMO_USERS.find(
-      u => u.username === username.trim().toLowerCase() && u.password === password
-    )
-    if (found) { setUser(found); return true }
-    return false
+  // For username+password mode, verify username exists then use password as PIN
+  async function loginWithPassword(username, password) {
+    try {
+      // Try PIN-based auth using password field as the PIN
+      const u = await ipc()?.auth?.byPin?.(password)
+      if (u?.id && u.username?.toLowerCase() === username.trim().toLowerCase()) {
+        setUser(u); return true
+      }
+      // Fallback: match by PIN alone (for owner who might not know username)
+      if (u?.id) { setUser(u); return true }
+      return false
+    } catch {
+      return false
+    }
   }
 
   function logout() {

@@ -1,68 +1,68 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   PiggyBank, CheckCircle2, XCircle, Clock, AlertTriangle,
-  Send, RefreshCw, History, X, Receipt, Wallet, TrendingDown,
+  Send, RefreshCw, History, X, Receipt, Wallet, TrendingDown, Loader2,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { useLang } from '../i18n'
 
-// ── Constants ────────────────────────────────────────────────────────────────
-const FONDO_TOTAL  = 15000
-const CATEGORIAS   = ['Transporte', 'Limpieza', 'Alimentación', 'Mantenimiento', 'Oficina', 'Otros']
-const MANAGER_PIN  = '1111'
+// ── IPC guard ─────────────────────────────────────────────────────────────────
+const hasIPC = () => !!window?.electronAPI
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+const FONDO_TOTAL = 15000
+
+// DB type values map to display labels
 const TIPO_META = {
-  Gasto:   { label: 'Gasto',   bg: 'bg-amber-50',   border: 'border-amber-100',  badge: 'bg-amber-100 text-amber-700'   },
-  Compra:  { label: 'Compra',  bg: 'bg-emerald-50',  border: 'border-emerald-100', badge: 'bg-emerald-100 text-emerald-700' },
+  expense: { label_es: 'Gasto',   label_en: 'Expense', bg: 'bg-amber-50',   border: 'border-amber-100',  badge: 'bg-amber-100 text-amber-700'   },
+  deposit: { label_es: 'Depósito',label_en: 'Deposit', bg: 'bg-emerald-50', border: 'border-emerald-100', badge: 'bg-emerald-100 text-emerald-700' },
+  // Legacy UI values (kept for form toggle)
+  Gasto:   { label_es: 'Gasto',   label_en: 'Expense', bg: 'bg-amber-50',   border: 'border-amber-100',  badge: 'bg-amber-100 text-amber-700'   },
+  Compra:  { label_es: 'Compra',  label_en: 'Purchase',bg: 'bg-emerald-50', border: 'border-emerald-100', badge: 'bg-emerald-100 text-emerald-700' },
 }
 const ESTADO_META = {
-  aprobado:  { label: 'Aprobado',  icon: CheckCircle2,   cls: 'text-emerald-600' },
-  pendiente: { label: 'Pendiente', icon: Clock,           cls: 'text-amber-500'  },
-  rechazado: { label: 'Rechazado', icon: XCircle,         cls: 'text-red-500'    },
+  approved: { label_es: 'Aprobado',  label_en: 'Approved',  icon: CheckCircle2, cls: 'text-emerald-600' },
+  pending:  { label_es: 'Pendiente', label_en: 'Pending',   icon: Clock,        cls: 'text-amber-500'  },
+  rejected: { label_es: 'Rechazado', label_en: 'Rejected',  icon: XCircle,      cls: 'text-red-500'    },
+  // Legacy
+  aprobado:  { label_es: 'Aprobado',  label_en: 'Approved',  icon: CheckCircle2, cls: 'text-emerald-600' },
+  rechazado: { label_es: 'Rechazado', label_en: 'Rejected',  icon: XCircle,      cls: 'text-red-500'    },
+  pendiente: { label_es: 'Pendiente', label_en: 'Pending',   icon: Clock,        cls: 'text-amber-500'  },
 }
 
-// ── Demo data ────────────────────────────────────────────────────────────────
-let _id = 100
-function mk(desc, cat, tipo, monto, recibo, daysAgo, estado = 'aprobado') {
-  const d = new Date()
-  d.setDate(d.getDate() - daysAgo)
-  return { id: _id++, desc, cat, tipo, monto, recibo, fecha: d, estado }
-}
+const CATEGORIAS = ['Transporte', 'Limpieza', 'Alimentación', 'Mantenimiento', 'Oficina', 'Otros']
 
-const INIT_TXNS = [
-  mk('Gasolina delivery', 'Transporte',    'Gasto',  850,  'F-2201', 0,  'aprobado'),
-  mk('Cloro y escobas',   'Limpieza',      'Compra', 1240, 'F-1182', 1,  'aprobado'),
-  mk('Almuerzo técnico',  'Alimentación',  'Gasto',  600,  '',       1,  'aprobado'),
-  mk('Bombillo LED x4',   'Mantenimiento', 'Compra', 480,  'F-0940', 2,  'aprobado'),
-  mk('Papel bond A4',     'Oficina',       'Compra', 320,  'F-0887', 3,  'aprobado'),
-  mk('Taxi repuesto',     'Transporte',    'Gasto',  400,  '',       4,  'aprobado'),
-  mk('Detergente',        'Limpieza',      'Compra', 760,  'F-0731', 5,  'aprobado'),
-  mk('Cena reunión',      'Alimentación',  'Gasto',  1800, '',       6,  'pendiente'),
-  mk('Cable corriente',   'Mantenimiento', 'Compra', 950,  'F-0612', 7,  'pendiente'),
-  mk('Varios oficina',    'Oficina',       'Gasto',  270,  '',       8,  'rechazado'),
-]
-
-// ── Past reconciliations ─────────────────────────────────────────────────────
-const PAST_RECON = [
-  { date: '2026-02-28', fondo: 15000, gastado: 12840, restante: 2160, aprobador: 'Carlos Gerente' },
-  { date: '2026-01-31', fondo: 15000, gastado: 11520, restante: 3480, aprobador: 'Carlos Gerente' },
-  { date: '2025-12-31', fondo: 15000, gastado: 14100, restante:  900, aprobador: 'Carlos Gerente' },
-]
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n) {
   return 'RD$' + Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 function fmtDate(d) {
-  return d.toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })
+  if (!d) return '—'
+  return new Date(d).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-// ── Sub-components ───────────────────────────────────────────────────────────
+// Normalize a raw DB row to a consistent shape
+function normalizeRow(r) {
+  return {
+    id:      r.id,
+    desc:    r.description || r.desc || '',
+    cat:     r.category || r.cat || 'Otros',
+    tipo:    r.type || r.tipo || 'expense',
+    monto:   r.amount || r.monto || 0,
+    recibo:  r.recibo || '',
+    fecha:   r.created_at || r.fecha || new Date().toISOString(),
+    estado:  r.status || r.estado || 'pending',
+    approvedBy: r.approved_name || r.approvedBy || null,
+  }
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 function MetricCard({ label, value, sub, color = 'slate', icon: Icon }) {
   const colors = {
-    slate:   'bg-white border-slate-100',
-    green:   'bg-emerald-50 border-emerald-200',
-    red:     'bg-red-50 border-red-200',
-    amber:   'bg-amber-50 border-amber-200',
+    slate: 'bg-white border-slate-100',
+    green: 'bg-emerald-50 border-emerald-200',
+    red:   'bg-red-50 border-red-200',
+    amber: 'bg-amber-50 border-amber-200',
   }
   const valColors = {
     slate: 'text-slate-800',
@@ -82,51 +82,78 @@ function MetricCard({ label, value, sub, color = 'slate', icon: Icon }) {
   )
 }
 
-function TypeBadge({ tipo }) {
-  const m = TIPO_META[tipo] || {}
+function TypeBadge({ tipo, lang }) {
+  const m = TIPO_META[tipo] || TIPO_META.expense
+  const label = lang === 'es' ? m.label_es : m.label_en
   return (
-    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${m.badge}`}>{m.label}</span>
+    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${m.badge}`}>{label}</span>
   )
 }
 
-function EstadoBadge({ estado }) {
-  const m = ESTADO_META[estado] || ESTADO_META.pendiente
+function EstadoBadge({ estado, lang }) {
+  const m = ESTADO_META[estado] || ESTADO_META.pending
   const Icon = m.icon
+  const label = lang === 'es' ? m.label_es : m.label_en
   return (
     <span className={`flex items-center gap-1 text-xs ${m.cls}`}>
       <Icon size={12} />
-      {m.label}
+      {label}
     </span>
   )
 }
 
 // ── PIN Confirm Modal ─────────────────────────────────────────────────────────
-function PinModal({ title, onConfirm, onClose }) {
-  const [pin, setPin]   = useState('')
-  const [err, setErr]   = useState(false)
-  function submit() {
-    if (pin === MANAGER_PIN) onConfirm()
-    else { setErr(true); setPin('') }
+function PinModal({ title, onConfirm, onClose, lang }) {
+  const L = (es, en) => lang === 'es' ? es : en
+  const [pin, setPin]         = useState('')
+  const [err, setErr]         = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  async function submit() {
+    if (!pin) return
+    if (hasIPC()) {
+      setLoading(true)
+      try {
+        const manager = await window.electronAPI.auth.byPin(pin)
+        if (manager && ['owner', 'manager'].includes(manager.role)) {
+          onConfirm(manager)
+        } else {
+          setErr(true); setPin('')
+        }
+      } catch {
+        setErr(true); setPin('')
+      } finally {
+        setLoading(false)
+      }
+    } else {
+      // Dev fallback
+      if (pin === '1111') { onConfirm({ id: 0, name: 'Manager' }) }
+      else { setErr(true); setPin('') }
+    }
   }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-2xl shadow-2xl p-8 w-80">
         <h3 className="font-semibold text-slate-800 mb-1">{title}</h3>
-        <p className="text-sm text-slate-500 mb-4">PIN del gerente para continuar.</p>
+        <p className="text-sm text-slate-500 mb-4">{L('PIN del gerente para continuar.', 'Manager PIN to continue.')}</p>
         <input
           autoFocus
           type="password"
-          maxLength={4}
+          maxLength={6}
           value={pin}
           onChange={e => { setPin(e.target.value); setErr(false) }}
           onKeyDown={e => e.key === 'Enter' && submit()}
           placeholder="••••"
           className="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-center text-xl tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
-        {err && <p className="text-xs text-red-500 mt-1 text-center">PIN incorrecto</p>}
+        {err && <p className="text-xs text-red-500 mt-1 text-center">{L('PIN incorrecto o sin permisos', 'Incorrect PIN or insufficient permissions')}</p>}
         <div className="flex gap-3 mt-5">
-          <button onClick={onClose} className="flex-1 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
-          <button onClick={submit}  className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Confirmar</button>
+          <button onClick={onClose} className="flex-1 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">{L('Cancelar', 'Cancel')}</button>
+          <button onClick={submit} disabled={loading} className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1">
+            {loading && <Loader2 size={13} className="animate-spin" />}
+            {L('Confirmar', 'Confirm')}
+          </button>
         </div>
       </div>
     </div>
@@ -134,29 +161,18 @@ function PinModal({ title, onConfirm, onClose }) {
 }
 
 // ── History Panel ─────────────────────────────────────────────────────────────
-function HistoryPanel({ onClose }) {
+function HistoryPanel({ onClose, lang }) {
+  const L = (es, en) => lang === 'es' ? es : en
+  // History panel shows past closed periods (not available from current API,
+  // so we display a helpful placeholder)
   return (
     <div className="fixed inset-y-0 right-0 z-40 w-[420px] bg-white shadow-2xl flex flex-col">
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-        <h3 className="font-semibold text-slate-800">Historial de Cuadres</h3>
+        <h3 className="font-semibold text-slate-800">{L('Historial de Cuadres', 'Reconciliation History')}</h3>
         <button onClick={onClose} className="p-1 rounded hover:bg-slate-100"><X size={18} className="text-slate-500" /></button>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {PAST_RECON.map((r, i) => (
-          <div key={i} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-            <div className="flex justify-between items-center mb-2">
-              <span className="font-medium text-sm text-slate-800">{r.date}</span>
-              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${r.restante > 2000 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                Restante {fmt(r.restante)}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-1 text-xs text-slate-500">
-              <span>Fondo: <span className="text-slate-700 font-medium">{fmt(r.fondo)}</span></span>
-              <span>Gastado: <span className="text-red-600 font-medium">{fmt(r.gastado)}</span></span>
-              <span className="col-span-2">Aprobado por: {r.aprobador}</span>
-            </div>
-          </div>
-        ))}
+      <div className="flex-1 flex items-center justify-center text-slate-400 text-sm px-6 text-center">
+        {L('El historial de cuadres de caja chica se registra al cerrar el período.', 'Petty cash reconciliation history is recorded when the period is closed.')}
       </div>
     </div>
   )
@@ -179,44 +195,53 @@ function Toast({ msg, onDone }) {
 
 // ── COLS definition ───────────────────────────────────────────────────────────
 const COLS = [
-  { key: '#',     label: '#',           cls: 'w-10 text-center' },
-  { key: 'desc',  label: 'Descripción', cls: 'flex-1 min-w-0'   },
-  { key: 'cat',   label: 'Categoría',   cls: 'w-32'             },
-  { key: 'fecha', label: 'Fecha',       cls: 'w-28'             },
-  { key: 'monto', label: 'Monto',       cls: 'w-28 text-right'  },
-  { key: 'tipo',  label: 'Tipo',        cls: 'w-24 text-center' },
-  { key: 'estado',label: 'Estado',      cls: 'w-28'             },
-  { key: 'accion',label: '',            cls: 'w-36'             },
-]
-
-const TABS = [
-  { key: 'todos',     label: 'Todos',     fn: () => true                         },
-  { key: 'gastos',    label: 'Gastos',    fn: t => t.tipo === 'Gasto'            },
-  { key: 'compras',   label: 'Compras',   fn: t => t.tipo === 'Compra'           },
-  { key: 'pendientes',label: 'Pendientes',fn: t => t.estado === 'pendiente'      },
+  { key: '#',      label_es: '#',            label_en: '#',           cls: 'w-10 text-center' },
+  { key: 'desc',   label_es: 'Descripción',  label_en: 'Description', cls: 'flex-1 min-w-0'   },
+  { key: 'cat',    label_es: 'Categoría',    label_en: 'Category',    cls: 'w-32'             },
+  { key: 'fecha',  label_es: 'Fecha',        label_en: 'Date',        cls: 'w-28'             },
+  { key: 'monto',  label_es: 'Monto',        label_en: 'Amount',      cls: 'w-28 text-right'  },
+  { key: 'tipo',   label_es: 'Tipo',         label_en: 'Type',        cls: 'w-24 text-center' },
+  { key: 'estado', label_es: 'Estado',       label_en: 'Status',      cls: 'w-28'             },
+  { key: 'accion', label_es: '',             label_en: '',            cls: 'w-36'             },
 ]
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function PettyCash() {
-  const { user } = useAuth()
+  const { user }   = useAuth()
+  const { lang }   = useLang()
+  const L = (es, en) => lang === 'es' ? es : en
   const canApprove = ['owner', 'manager'].includes(user?.role)
 
-  const [txns, setTxns]             = useState(INIT_TXNS)
-  const [tab, setTab]               = useState('todos')
+  const [txns, setTxns]               = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [tab, setTab]                 = useState('todos')
   const [showHistory, setShowHistory] = useState(false)
-  const [toast, setToast]           = useState(null)
-  const [pinAction, setPinAction]   = useState(null) // { label, callback }
+  const [toast, setToast]             = useState(null)
+  const [pinAction, setPinAction]     = useState(null) // { label, callback }
+  const [saving, setSaving]           = useState(false)
 
   // Entry form state
-  const [desc, setDesc]       = useState('')
-  const [cat, setCat]         = useState('Transporte')
-  const [tipo, setTipo]       = useState('Gasto')
-  const [monto, setMonto]     = useState('')
-  const [recibo, setRecibo]   = useState('')
+  const [desc, setDesc]     = useState('')
+  const [cat, setCat]       = useState('Transporte')
+  const [tipo, setTipo]     = useState('Gasto')   // UI toggle: 'Gasto' | 'Compra'
+  const [monto, setMonto]   = useState('')
+  const [recibo, setRecibo] = useState('')
 
-  // ── Derived metrics ─────────────────────────────────────────────────────
-  const approved   = txns.filter(t => t.estado === 'aprobado')
-  const pending    = txns.filter(t => t.estado === 'pendiente')
+  // ── Load transactions from DB ────────────────────────────────────────────
+  function loadTxns() {
+    if (!hasIPC()) { setLoading(false); return }
+    setLoading(true)
+    window.electronAPI.cajaChica.all()
+      .then(rows => setTxns((rows || []).map(normalizeRow)))
+      .catch(() => setTxns([]))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { loadTxns() }, [])
+
+  // ── Derived metrics ──────────────────────────────────────────────────────
+  const approved   = txns.filter(t => t.estado === 'approved' || t.estado === 'aprobado')
+  const pending    = txns.filter(t => t.estado === 'pending'  || t.estado === 'pendiente')
   const gastado    = approved.reduce((s, t) => s + t.monto, 0)
   const disponible = FONDO_TOTAL - gastado
   const pendAmt    = pending.reduce((s, t) => s + t.monto, 0)
@@ -224,53 +249,96 @@ export default function PettyCash() {
   const montoNum   = parseFloat(monto) || 0
   const restante   = disponible - montoNum
 
-  // ── Filtered rows ───────────────────────────────────────────────────────
+  // ── Tabs ─────────────────────────────────────────────────────────────────
+  const TABS = [
+    { key: 'todos',      label_es: 'Todos',      label_en: 'All',       fn: () => true },
+    { key: 'gastos',     label_es: 'Gastos',     label_en: 'Expenses',  fn: t => ['expense','Gasto'].includes(t.tipo) },
+    { key: 'compras',    label_es: 'Compras',    label_en: 'Purchases', fn: t => ['deposit','Compra'].includes(t.tipo) },
+    { key: 'pendientes', label_es: 'Pendientes', label_en: 'Pending',   fn: t => ['pending','pendiente'].includes(t.estado) },
+  ]
+
   const tabFn     = TABS.find(t => t.key === tab)?.fn ?? (() => true)
   const tabCounts = useMemo(() => {
     const obj = {}
     TABS.forEach(t => { obj[t.key] = txns.filter(t.fn).length })
     return obj
   }, [txns])
-  const visible   = txns.filter(tabFn)
+  const visible = txns.filter(tabFn)
 
-  // ── Actions ─────────────────────────────────────────────────────────────
-  function doApprove(id) {
-    setTxns(prev => prev.map(t => t.id === id ? { ...t, estado: 'aprobado' } : t))
-    showToast('Gasto aprobado')
+  // ── Actions ──────────────────────────────────────────────────────────────
+  async function doApprove(id, approvedBy) {
+    if (hasIPC()) {
+      try {
+        await window.electronAPI.cajaChica.updateStatus({ id, status: 'approved', by: approvedBy ?? user?.id })
+        loadTxns()
+      } catch { loadTxns() }
+    } else {
+      setTxns(prev => prev.map(t => t.id === id ? { ...t, estado: 'approved' } : t))
+    }
+    showToast(L('Gasto aprobado', 'Expense approved'))
   }
-  function doReject(id) {
-    setTxns(prev => prev.map(t => t.id === id ? { ...t, estado: 'rechazado' } : t))
-    showToast('Gasto rechazado')
+
+  async function doReject(id, approvedBy) {
+    if (hasIPC()) {
+      try {
+        await window.electronAPI.cajaChica.updateStatus({ id, status: 'rejected', by: approvedBy ?? user?.id })
+        loadTxns()
+      } catch { loadTxns() }
+    } else {
+      setTxns(prev => prev.map(t => t.id === id ? { ...t, estado: 'rejected' } : t))
+    }
+    showToast(L('Gasto rechazado', 'Expense rejected'))
   }
+
   function requirePin(label, cb) {
-    if (canApprove) { cb() }
+    if (canApprove) { cb(user) }
     else { setPinAction({ label, callback: cb }) }
   }
+
   function showToast(msg) {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
   }
 
-  function handleGuardar() {
+  async function handleGuardar() {
     if (!desc.trim() || montoNum <= 0) return
-    const d = new Date()
-    const next = {
-      id: Date.now(),
-      desc: desc.trim(),
-      cat,
-      tipo,
-      monto: montoNum,
-      recibo: recibo.trim(),
-      fecha: d,
-      estado: canApprove ? 'aprobado' : 'pendiente',
+    setSaving(true)
+
+    // Map UI tipo to DB type
+    const dbType   = tipo === 'Gasto' ? 'expense' : 'deposit'
+    const dbStatus = canApprove ? 'approved' : 'pending'
+
+    const data = {
+      description: desc.trim(),
+      category:    cat,
+      type:        dbType,
+      amount:      montoNum,
+      recibo:      recibo.trim() || null,
+      status:      dbStatus,
+      cajero_id:   user?.id ?? 1,
     }
-    setTxns(prev => [next, ...prev])
+
+    if (hasIPC()) {
+      try {
+        await window.electronAPI.cajaChica.create(data)
+        loadTxns()
+      } catch { loadTxns() }
+    } else {
+      // Dev fallback
+      const next = normalizeRow({ ...data, id: Date.now(), created_at: new Date().toISOString() })
+      setTxns(prev => [next, ...prev])
+    }
+
     setDesc(''); setMonto(''); setRecibo('')
-    showToast(canApprove ? 'Gasto guardado y aprobado' : 'Gasto enviado para aprobación')
+    showToast(canApprove
+      ? L('Gasto guardado y aprobado', 'Expense saved and approved')
+      : L('Gasto enviado para aprobación', 'Expense submitted for approval')
+    )
+    setSaving(false)
   }
 
   function handleSolicitar() {
-    showToast('Solicitud de reposición enviada al gerente')
+    showToast(L('Solicitud de reposición enviada al gerente', 'Replenishment request sent to manager'))
   }
 
   const formValid = desc.trim().length > 0 && montoNum > 0
@@ -280,8 +348,9 @@ export default function PettyCash() {
       {/* PIN modal */}
       {pinAction && (
         <PinModal
+          lang={lang}
           title={pinAction.label}
-          onConfirm={() => { pinAction.callback(); setPinAction(null) }}
+          onConfirm={manager => { pinAction.callback(manager); setPinAction(null) }}
           onClose={() => setPinAction(null)}
         />
       )}
@@ -290,7 +359,7 @@ export default function PettyCash() {
       {showHistory && (
         <>
           <div className="fixed inset-0 z-30 bg-black/20" onClick={() => setShowHistory(false)} />
-          <HistoryPanel onClose={() => setShowHistory(false)} />
+          <HistoryPanel lang={lang} onClose={() => setShowHistory(false)} />
         </>
       )}
 
@@ -301,15 +370,15 @@ export default function PettyCash() {
       <div className="bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
           <PiggyBank size={20} className="text-slate-500" />
-          <h1 className="text-lg font-semibold text-slate-800">Caja Chica</h1>
-          <span className="text-xs text-slate-400 ml-1">Fondo {fmt(FONDO_TOTAL)}</span>
+          <h1 className="text-lg font-semibold text-slate-800">{L('Caja Chica', 'Petty Cash')}</h1>
+          <span className="text-xs text-slate-400 ml-1">{L('Fondo', 'Fund')} {fmt(FONDO_TOTAL)}</span>
         </div>
         <button
           onClick={() => setShowHistory(true)}
           className="flex items-center gap-1.5 text-sm text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50"
         >
           <History size={15} />
-          Ver Cuadres
+          {L('Ver Cuadres', 'View History')}
         </button>
       </div>
 
@@ -318,29 +387,29 @@ export default function PettyCash() {
         {/* ── Summary bar ── */}
         <div className="flex gap-3">
           <MetricCard
-            label="Fondo Asignado"
+            label={L('Fondo Asignado', 'Assigned Fund')}
             value={fmt(FONDO_TOTAL)}
-            sub="fondo total del período"
+            sub={L('fondo total del período', 'total period fund')}
             icon={Wallet}
           />
           <MetricCard
-            label="Disponible"
+            label={L('Disponible', 'Available')}
             value={fmt(disponible)}
-            sub={`${Math.round(disponible / FONDO_TOTAL * 100)}% restante`}
+            sub={`${Math.round(Math.max(disponible, 0) / FONDO_TOTAL * 100)}% ${L('restante', 'remaining')}`}
             color="green"
             icon={RefreshCw}
           />
           <MetricCard
-            label="Gastado este mes"
+            label={L('Gastado este mes', 'Spent this month')}
             value={fmt(gastado)}
-            sub={`${approved.length} transacciones aprobadas`}
+            sub={`${approved.length} ${L('transacciones aprobadas', 'approved transactions')}`}
             color="red"
             icon={TrendingDown}
           />
           <MetricCard
-            label="Pendiente Aprobar"
+            label={L('Pendiente Aprobar', 'Pending Approval')}
             value={fmt(pendAmt)}
-            sub={`${pending.length} transacciones`}
+            sub={`${pending.length} ${L('transacciones', 'transactions')}`}
             color={pending.length > 0 ? 'amber' : 'slate'}
             icon={AlertTriangle}
           />
@@ -361,7 +430,7 @@ export default function PettyCash() {
                     : 'text-slate-500 border-transparent hover:text-slate-700'
                 }`}
               >
-                {t.label}
+                {L(t.label_es, t.label_en)}
                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
                   tab === t.key ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'
                 }`}>
@@ -375,35 +444,40 @@ export default function PettyCash() {
           <div className="flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 flex-shrink-0">
             {COLS.map(c => (
               <span key={c.key} className={`text-[10px] font-semibold uppercase tracking-wider text-slate-400 ${c.cls}`}>
-                {c.label}
+                {L(c.label_es, c.label_en)}
               </span>
             ))}
           </div>
 
           {/* Table rows */}
           <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
-            {visible.length === 0 && (
-              <div className="py-12 text-center text-slate-400 text-sm">
-                No hay transacciones en esta categoría.
+            {loading && (
+              <div className="flex items-center justify-center gap-2 text-slate-400 text-sm py-10">
+                <Loader2 size={16} className="animate-spin" />
+                {L('Cargando…', 'Loading…')}
               </div>
             )}
-            {visible.map((t, idx) => {
-              const tipeMeta = TIPO_META[t.tipo] || {}
-              const rowBg = t.estado === 'rechazado'
-                ? 'bg-slate-50/80'
-                : tipeMeta.bg ?? ''
+            {!loading && visible.length === 0 && (
+              <div className="py-12 text-center text-slate-400 text-sm">
+                {L('No hay transacciones en esta categoría.', 'No transactions in this category.')}
+              </div>
+            )}
+            {!loading && visible.map((t, idx) => {
+              const tipeMeta = TIPO_META[t.tipo] || TIPO_META.expense
+              const isRejected = ['rejected','rechazado'].includes(t.estado)
+              const rowBg = isRejected ? 'bg-slate-50/80' : (tipeMeta.bg ?? '')
 
               return (
                 <div
                   key={t.id}
-                  className={`flex items-center px-4 h-12 gap-0 ${rowBg} ${t.estado === 'rechazado' ? 'opacity-50' : ''}`}
+                  className={`flex items-center px-4 h-12 gap-0 ${rowBg} ${isRejected ? 'opacity-50' : ''}`}
                 >
                   {/* # */}
                   <span className={`${COLS[0].cls} text-xs text-slate-400 tabular-nums`}>{idx + 1}</span>
 
                   {/* Descripción */}
                   <div className={`${COLS[1].cls} flex items-center gap-2 min-w-0`}>
-                    <span className={`text-sm text-slate-800 truncate ${t.estado === 'rechazado' ? 'line-through' : ''}`}>
+                    <span className={`text-sm text-slate-800 truncate ${isRejected ? 'line-through' : ''}`}>
                       {t.desc}
                     </span>
                     {t.recibo && (
@@ -421,42 +495,48 @@ export default function PettyCash() {
                   <span className={`${COLS[3].cls} text-xs text-slate-500`}>{fmtDate(t.fecha)}</span>
 
                   {/* Monto */}
-                  <span className={`${COLS[4].cls} text-sm font-medium tabular-nums ${t.estado === 'rechazado' ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+                  <span className={`${COLS[4].cls} text-sm font-medium tabular-nums ${isRejected ? 'line-through text-slate-400' : 'text-slate-800'}`}>
                     {fmt(t.monto)}
                   </span>
 
                   {/* Tipo badge */}
                   <div className={`${COLS[5].cls} flex justify-center`}>
-                    <TypeBadge tipo={t.tipo} />
+                    <TypeBadge tipo={t.tipo} lang={lang} />
                   </div>
 
                   {/* Estado */}
                   <div className={`${COLS[6].cls}`}>
-                    <EstadoBadge estado={t.estado} />
+                    <EstadoBadge estado={t.estado} lang={lang} />
                   </div>
 
                   {/* Acciones */}
                   <div className={`${COLS[7].cls} flex items-center gap-1.5 justify-end`}>
-                    {t.estado === 'pendiente' && canApprove && (
+                    {['pending','pendiente'].includes(t.estado) && canApprove && (
                       <>
                         <button
-                          onClick={() => doApprove(t.id)}
+                          onClick={() => requirePin(
+                            L('Aprobar gasto', 'Approve expense'),
+                            mgr => doApprove(t.id, mgr?.id)
+                          )}
                           className="flex items-center gap-1 text-xs text-emerald-600 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded-lg"
                         >
                           <CheckCircle2 size={12} />
-                          Aprobar
+                          {L('Aprobar', 'Approve')}
                         </button>
                         <button
-                          onClick={() => doReject(t.id)}
+                          onClick={() => requirePin(
+                            L('Rechazar gasto', 'Reject expense'),
+                            mgr => doReject(t.id, mgr?.id)
+                          )}
                           className="flex items-center gap-1 text-xs text-red-500 border border-red-200 bg-red-50 hover:bg-red-100 px-2 py-1 rounded-lg"
                         >
                           <XCircle size={12} />
-                          Rechazar
+                          {L('Rechazar', 'Reject')}
                         </button>
                       </>
                     )}
-                    {t.estado === 'pendiente' && !canApprove && (
-                      <span className="text-xs text-amber-500 italic">En revisión</span>
+                    {['pending','pendiente'].includes(t.estado) && !canApprove && (
+                      <span className="text-xs text-amber-500 italic">{L('En revisión', 'Under review')}</span>
                     )}
                   </div>
                 </div>
@@ -466,16 +546,20 @@ export default function PettyCash() {
 
           {/* Table footer */}
           <div className="border-t border-slate-100 px-4 py-2 flex items-center justify-between bg-slate-50">
-            <span className="text-xs text-slate-400">{visible.length} registro{visible.length !== 1 ? 's' : ''}</span>
+            <span className="text-xs text-slate-400">
+              {visible.length} {L('registro', 'record')}{visible.length !== 1 ? 's' : ''}
+            </span>
             <span className="text-sm font-bold text-slate-700 tabular-nums">
-              {fmt(visible.reduce((s, t) => s + (t.estado !== 'rechazado' ? t.monto : 0), 0))}
+              {fmt(visible.reduce((s, t) => s + (['rejected','rechazado'].includes(t.estado) ? 0 : t.monto), 0))}
             </span>
           </div>
         </div>
 
         {/* ── Entry form ── */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex-shrink-0">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-3">Registrar gasto</p>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-3">
+            {L('Registrar gasto', 'Log expense')}
+          </p>
 
           {/* Form row */}
           <div className="flex items-center gap-2 flex-wrap">
@@ -483,7 +567,7 @@ export default function PettyCash() {
             <input
               value={desc}
               onChange={e => setDesc(e.target.value)}
-              placeholder="Descripción del gasto…"
+              placeholder={L('Descripción del gasto…', 'Expense description…')}
               className="flex-1 min-w-[180px] border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
             />
 
@@ -510,7 +594,7 @@ export default function PettyCash() {
                       : 'text-slate-500 hover:bg-slate-50'
                   }`}
                 >
-                  {t}
+                  {t === 'Gasto' ? L('Gasto', 'Expense') : L('Compra', 'Purchase')}
                 </button>
               ))}
             </div>
@@ -534,7 +618,7 @@ export default function PettyCash() {
               <input
                 value={recibo}
                 onChange={e => setRecibo(e.target.value)}
-                placeholder="Recibo # (opc.)"
+                placeholder={L('Recibo # (opc.)', 'Receipt # (opt.)')}
                 className="w-36 pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
@@ -542,17 +626,18 @@ export default function PettyCash() {
             {/* Buttons */}
             <button
               onClick={handleGuardar}
-              disabled={!formValid}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+              disabled={!formValid || saving}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-1"
             >
-              Guardar gasto
+              {saving && <Loader2 size={13} className="animate-spin" />}
+              {L('Guardar gasto', 'Save expense')}
             </button>
             <button
               onClick={handleSolicitar}
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 whitespace-nowrap"
             >
               <Send size={14} />
-              Solicitar fondos
+              {L('Solicitar fondos', 'Request funds')}
             </button>
           </div>
 
@@ -565,24 +650,24 @@ export default function PettyCash() {
               : 'bg-slate-50 border border-slate-100'
           }`}>
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-slate-500">Disponible</span>
+              <span className="text-xs text-slate-500">{L('Disponible', 'Available')}</span>
               <span className="font-semibold tabular-nums text-slate-700">{fmt(disponible)}</span>
             </div>
             {montoNum > 0 && (
               <>
                 <span className="text-slate-300">→</span>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-slate-500">Este gasto</span>
+                  <span className="text-xs text-slate-500">{L('Este gasto', 'This expense')}</span>
                   <span className="font-semibold tabular-nums text-slate-700">− {fmt(montoNum)}</span>
                 </div>
                 <span className="text-slate-300">→</span>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-slate-500">Restante</span>
+                  <span className="text-xs text-slate-500">{L('Restante', 'Remaining')}</span>
                   <span className={`font-bold tabular-nums ${restante < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                     {fmt(restante)}
                   </span>
                   {restante < 0 && (
-                    <span className="text-xs text-red-500 ml-1">⚠ Excede disponible</span>
+                    <span className="text-xs text-red-500 ml-1">⚠ {L('Excede disponible', 'Exceeds available')}</span>
                   )}
                 </div>
               </>

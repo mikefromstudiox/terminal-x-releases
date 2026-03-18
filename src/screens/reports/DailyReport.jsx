@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Search, X, Eye, Printer, AlertTriangle, CheckCircle2,
   ChevronDown, ReceiptText, TrendingUp, CircleDollarSign,
   Clock, Ban,
 } from 'lucide-react'
 import { useLang } from '../../i18n'
+import { useAuth } from '../../context/AuthContext'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtRD(n) {
@@ -24,32 +25,55 @@ function payLabel(pm, lang) {
   return m[pm]?.[lang] ?? pm
 }
 
-// ── Demo data (relative to real Date.now() so date pills work live) ───────────
-const _now = Date.now()
-const D = (daysAgo, h = 10, m = 0) => new Date(_now - daysAgo * 86_400_000 + (h * 3600 + m * 60) * 1000)
+// ── DB → UI transform ─────────────────────────────────────────────────────────
+function dbToTxn(t) {
+  return {
+    id:         t.id,
+    ticketNo:   t.doc_number || `T-${String(t.id).padStart(4, '0')}`,
+    client:     t.client_name || 'Walk-in',
+    vehicle:    t.vehicle_plate || '—',
+    services:   [], // loaded on-demand in detail modal via tickets.byId
+    cashier:    t.cajero_name || '—',
+    date:       new Date(t.created_at),
+    subtotal:   t.subtotal || 0,
+    itbis:      t.itbis_amount || 0,
+    ley:        t.ley_amount || 0,
+    total:      t.total || 0,
+    payMethod:  t.payment_method || 'cash',
+    estado:     t.status === 'nula' ? 'nula' : 'normal',
+    ncfType:    t.comprobante_type || 'B02',
+    voidReason: t.void_reason,
+    voidedBy:   t.void_by,
+    voidedAt:   t.void_at ? new Date(t.void_at) : null,
+  }
+}
 
-const TRANSACTIONS_INIT = [
-  { id:  1, ticketNo:'T-0850', client:'Hotel Mirador del Mar, SAS',       vehicle:'Toyota Hilux Plateada',        services:[{name:'Full Detailing',price:3500},{name:'Encerado',price:300}],                                             cashier:'Admin',  date:D(0,14,30), subtotal:3800,  itbis:684,   ley:380,  total:4864,   payMethod:'credit',   estado:'normal', ncfType:'B01' },
-  { id:  2, ticketNo:'T-0849', client:'Walk-in',                           vehicle:'Kia Sportage Gris',             services:[{name:'Lavado Básico',price:300}],                                                                          cashier:'Carlos', date:D(0,13,15), subtotal:300,   itbis:54,    ley:30,   total:384,    payMethod:'cash',     estado:'normal', ncfType:'B02' },
-  { id:  3, ticketNo:'T-0848', client:'Walk-in',                           vehicle:'Nissan Sentra Negro',           services:[{name:'Lavado Completo',price:500},{name:'Aromatizante',price:100}],                                        cashier:'Admin',  date:D(0,11,45), subtotal:600,   itbis:108,   ley:60,   total:768,    payMethod:'cash',     estado:'nula',   ncfType:'B02', voidReason:'Error en el servicio registrado', voidedBy:'Admin', voidedAt:D(0,12,0) },
-  { id:  4, ticketNo:'T-0847', client:'Supermercados La Cadena, SRL',      vehicle:'Toyota Camry Rojo',             services:[{name:'Lavado Completo',price:500},{name:'Encerado',price:300},{name:'Limpia Vidrios',price:50}],            cashier:'Admin',  date:D(1,16,20), subtotal:850,   itbis:153,   ley:85,   total:1088,   payMethod:'credit',   estado:'normal', ncfType:'B01' },
-  { id:  5, ticketNo:'T-0846', client:'Walk-in',                           vehicle:'Honda CR-V Azul',               services:[{name:'Full Detailing',price:3500}],                                                                        cashier:'María',  date:D(1,14,10), subtotal:3500,  itbis:630,   ley:350,  total:4480,   payMethod:'card',     estado:'normal', ncfType:'B02' },
-  { id:  6, ticketNo:'T-0845', client:'Constructora Hernández & Asoc.',    vehicle:'Ford F-150 Plateada',           services:[{name:'Lavado Flota × 3',price:900}],                                                                      cashier:'Admin',  date:D(1,10,30), subtotal:900,   itbis:162,   ley:90,   total:1152,   payMethod:'credit',   estado:'normal', ncfType:'B01' },
-  { id:  7, ticketNo:'T-0844', client:'Walk-in',                           vehicle:'Chevrolet Traverse Blanca',     services:[{name:'Lavado Premium',price:800},{name:'Silicon Tablero',price:80}],                                       cashier:'Pedro',  date:D(2,15,50), subtotal:880,   itbis:158.4, ley:88,   total:1126.4, payMethod:'cash',     estado:'normal', ncfType:'B02' },
-  { id:  8, ticketNo:'T-0843', client:'Walk-in',                           vehicle:'Jeep Wrangler Verde',           services:[{name:'Tapizado',price:1200},{name:'Aromatizante',price:100}],                                              cashier:'Carlos', date:D(2,14,0),  subtotal:1300,  itbis:234,   ley:130,  total:1664,   payMethod:'transfer', estado:'normal', ncfType:'B02' },
-  { id:  9, ticketNo:'T-0842', client:'Grupo Empresarial Mejía, SA',       vehicle:'BMW 5 Series Negro',            services:[{name:'Lavado Premium',price:800}],                                                                         cashier:'Admin',  date:D(2,11,20), subtotal:800,   itbis:144,   ley:80,   total:1024,   payMethod:'credit',   estado:'normal', ncfType:'B01' },
-  { id: 10, ticketNo:'T-0841', client:'Walk-in',                           vehicle:'Toyota Corolla Rojo',           services:[{name:'Lavado Básico',price:300}],                                                                          cashier:'Juan',   date:D(3,16,40), subtotal:300,   itbis:54,    ley:30,   total:384,    payMethod:'cash',     estado:'normal', ncfType:'B02' },
-  { id: 11, ticketNo:'T-0840', client:'Walk-in',                           vehicle:'Hyundai Santa Fe Gris',         services:[{name:'Lavado Completo',price:500},{name:'Encerado',price:300},{name:'Pulido',price:250},{name:'Cera Carnauba',price:150}], cashier:'Pedro', date:D(3,14,25), subtotal:1200, itbis:216, ley:120, total:1536, payMethod:'card',   estado:'normal', ncfType:'B02' },
-  { id: 12, ticketNo:'T-0839', client:'Walk-in',                           vehicle:'Mazda CX-5 Azul',               services:[{name:'Lavado Interior',price:400}],                                                                       cashier:'María',  date:D(3,13,0),  subtotal:400,   itbis:72,    ley:40,   total:512,    payMethod:'cash',     estado:'nula',   ncfType:'B02', voidReason:'Cliente solicitó cancelación',    voidedBy:'Admin', voidedAt:D(3,13,30) },
-  { id: 13, ticketNo:'T-0838', client:'Hotel Mirador del Mar, SAS',        vehicle:'Land Rover Defender Negro',     services:[{name:'Lavado Completo',price:500},{name:'Tapizado',price:1200}],                                           cashier:'Admin',  date:D(5,15,10), subtotal:1700,  itbis:306,   ley:170,  total:2176,   payMethod:'credit',   estado:'normal', ncfType:'B01' },
-  { id: 14, ticketNo:'T-0837', client:'Walk-in',                           vehicle:'Mitsubishi Outlander Blanco',   services:[{name:'Lavado Básico',price:300},{name:'Aromatizante',price:100}],                                          cashier:'Juan',   date:D(5,11,0),  subtotal:400,   itbis:72,    ley:40,   total:512,    payMethod:'cash',     estado:'normal', ncfType:'B02' },
-  { id: 15, ticketNo:'T-0836', client:'Farmacia El Alivio, SRL',           vehicle:'Honda Pilot Gris',              services:[{name:'Full Detailing',price:3500},{name:'Encerado',price:300},{name:'Silicon Tablero',price:80}],          cashier:'Admin',  date:D(10,14,0), subtotal:3880,  itbis:698.4, ley:388,  total:4966.4, payMethod:'credit',   estado:'normal', ncfType:'B01' },
-  { id: 16, ticketNo:'T-0835', client:'Walk-in',                           vehicle:'Suzuki Vitara Rojo',            services:[{name:'Lavado Completo',price:500}],                                                                        cashier:'Carlos', date:D(10,10,30),subtotal:500,   itbis:90,    ley:50,   total:640,    payMethod:'cash',     estado:'normal', ncfType:'B02' },
-  { id: 17, ticketNo:'T-0834', client:'Constructora Hernández & Asoc.',    vehicle:'Toyota Prado Negro',            services:[{name:'Lavado Flota × 5',price:1500},{name:'Encerado',price:300}],                                         cashier:'Admin',  date:D(20,13,20),subtotal:1800,  itbis:324,   ley:180,  total:2304,   payMethod:'credit',   estado:'normal', ncfType:'B01' },
-  { id: 18, ticketNo:'T-0833', client:'Walk-in',                           vehicle:'Kia Rio Plateado',              services:[{name:'Lavado Básico',price:300}],                                                                          cashier:'Pedro',  date:D(20,11,45),subtotal:300,   itbis:54,    ley:30,   total:384,    payMethod:'card',     estado:'normal', ncfType:'B02' },
-]
+// ── Date range helpers ────────────────────────────────────────────────────────
+function getDateRange(pill) {
+  const now     = new Date()
+  const todayStr = now.toISOString().slice(0, 10)
+  const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1)
+  const tomorrowStr = tomorrow.toISOString().slice(0, 10)
 
-const CASHIERS = ['Admin', 'Carlos', 'María', 'Pedro', 'Juan']
+  if (pill === 'hoy') {
+    return { from: todayStr, to: tomorrowStr }
+  }
+  if (pill === 'ayer') {
+    const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1)
+    return { from: yesterday.toISOString().slice(0, 10), to: todayStr }
+  }
+  if (pill === 'semana') {
+    const mon = new Date(now)
+    const day = mon.getDay()
+    mon.setDate(mon.getDate() - (day === 0 ? 6 : day - 1))
+    return { from: mon.toISOString().slice(0, 10), to: tomorrowStr }
+  }
+  if (pill === 'mes') {
+    const first = new Date(now.getFullYear(), now.getMonth(), 1)
+    return { from: first.toISOString().slice(0, 10), to: tomorrowStr }
+  }
+  return { from: todayStr, to: tomorrowStr }
+}
 
 const DATE_PILLS = [
   { id: 'hoy',    es: 'Hoy',          en: 'Today'      },
@@ -70,29 +94,6 @@ const COLS = [
   { key: 'total',    es: 'Total',           en: 'Total',         cls: 'w-[104px] shrink-0 text-right'           },
   { key: 'estado',   es: 'Estado',          en: 'Status',        cls: 'w-[108px] shrink-0'                      },
 ]
-
-const MANAGER_PIN = '1111'
-
-// ── Date filter ───────────────────────────────────────────────────────────────
-function inPill(date, pill) {
-  const d       = new Date(date)
-  const now     = new Date()
-  const today   = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  if (pill === 'hoy')  return d >= today
-  if (pill === 'ayer') {
-    const y = new Date(today); y.setDate(y.getDate() - 1)
-    return d >= y && d < today
-  }
-  if (pill === 'semana') {
-    const mon = new Date(today)
-    mon.setDate(mon.getDate() - (mon.getDay() === 0 ? 6 : mon.getDay() - 1))
-    return d >= mon
-  }
-  if (pill === 'mes') {
-    return d >= new Date(now.getFullYear(), now.getMonth(), 1)
-  }
-  return true
-}
 
 // ── Estado badge ──────────────────────────────────────────────────────────────
 function EstadoBadge({ t, lang }) {
@@ -128,6 +129,26 @@ function MetricCard({ icon: Icon, label, value, sub, accent }) {
 
 // ── Detail modal ──────────────────────────────────────────────────────────────
 function DetailModal({ ticket: t, onClose, onReprint, lang }) {
+  const [services, setServices] = useState(t.services)
+  const [loadingItems, setLoadingItems] = useState(false)
+
+  useEffect(() => {
+    // If services are already loaded (from prior fetch), skip
+    if (services.length > 0) return
+    setLoadingItems(true)
+    window.electronAPI.tickets.byId(t.id)
+      .then(full => {
+        if (full?.items?.length) {
+          setServices(full.items.map(item => ({
+            name:  item.service_name || item.name || '—',
+            price: item.price || item.subtotal || 0,
+          })))
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingItems(false))
+  }, [t.id])
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
       <div className="bg-white rounded-2xl shadow-2xl w-[480px] max-h-[80vh] flex flex-col">
@@ -157,12 +178,23 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
 
           {/* Services */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
-            {t.services.map((s, i) => (
-              <div key={i} className="flex justify-between px-4 py-2.5 border-b border-slate-100 last:border-0 text-[12px]">
-                <span className="text-slate-700">{s.name}</span>
-                <span className="font-semibold text-slate-800">{fmtRD(s.price)}</span>
+            {loadingItems ? (
+              <div className="flex items-center justify-center h-16 text-slate-400 text-[12px] gap-2">
+                <div className="w-3 h-3 border-2 border-slate-300 border-t-sky-500 rounded-full animate-spin" />
+                {lang === 'es' ? 'Cargando servicios…' : 'Loading services…'}
               </div>
-            ))}
+            ) : services.length === 0 ? (
+              <div className="px-4 py-3 text-[12px] text-slate-400">
+                {lang === 'es' ? 'Sin servicios registrados' : 'No services recorded'}
+              </div>
+            ) : (
+              services.map((s, i) => (
+                <div key={i} className="flex justify-between px-4 py-2.5 border-b border-slate-100 last:border-0 text-[12px]">
+                  <span className="text-slate-700">{s.name}</span>
+                  <span className="font-semibold text-slate-800">{fmtRD(s.price)}</span>
+                </div>
+              ))
+            )}
           </div>
 
           {/* Totals */}
@@ -223,16 +255,36 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
 }
 
 // ── Anular modal ──────────────────────────────────────────────────────────────
-function AnularModal({ ticket: t, onConfirm, onClose, lang }) {
-  const [reason, setReason] = useState('')
-  const [pin,    setPin]    = useState('')
-  const [error,  setError]  = useState('')
+function AnularModal({ ticket: t, onConfirm, onClose, lang, currentUser }) {
+  const [reason,    setReason]    = useState('')
+  const [pin,       setPin]       = useState('')
+  const [error,     setError]     = useState('')
+  const [verifying, setVerifying] = useState(false)
 
-  function handleConfirm() {
+  async function handleConfirm() {
     setError('')
-    if (!reason.trim()) { setError(lang === 'es' ? 'El motivo es requerido.' : 'Reason is required.'); return }
-    if (pin !== MANAGER_PIN) { setError(lang === 'es' ? 'PIN de gerente incorrecto.' : 'Incorrect manager PIN.'); setPin(''); return }
-    onConfirm({ ticketId: t.id, reason: reason.trim(), voidedBy: 'Admin', voidedAt: new Date() })
+    if (!reason.trim()) {
+      setError(lang === 'es' ? 'El motivo es requerido.' : 'Reason is required.')
+      return
+    }
+    if (!pin.trim()) {
+      setError(lang === 'es' ? 'El PIN del gerente es requerido.' : 'Manager PIN is required.')
+      return
+    }
+    setVerifying(true)
+    try {
+      const manager = await window.electronAPI.auth.byPin(pin)
+      if (!manager) {
+        setError(lang === 'es' ? 'PIN de gerente incorrecto.' : 'Incorrect manager PIN.')
+        setPin('')
+        return
+      }
+      onConfirm({ ticketId: t.id, reason: reason.trim(), voidedBy: manager.name || manager.username || 'Manager', voidedAt: new Date() })
+    } catch {
+      setError(lang === 'es' ? 'Error al verificar el PIN.' : 'Error verifying PIN.')
+    } finally {
+      setVerifying(false)
+    }
   }
 
   return (
@@ -281,7 +333,6 @@ function AnularModal({ ticket: t, onConfirm, onClose, lang }) {
           <div>
             <label className="block text-[11px] font-semibold text-slate-500 mb-1.5">
               {lang === 'es' ? 'PIN del gerente' : 'Manager PIN'}
-              <span className="ml-2 text-[10px] font-normal text-slate-400">{lang === 'es' ? '(Demo: 1111)' : '(Demo: 1111)'}</span>
             </label>
             <input
               type="password"
@@ -309,9 +360,12 @@ function AnularModal({ ticket: t, onConfirm, onClose, lang }) {
           </button>
           <button
             onClick={handleConfirm}
-            className="flex-1 py-2.5 bg-red-500 hover:bg-red-400 text-white rounded-xl text-[13px] font-bold transition-colors"
+            disabled={verifying}
+            className="flex-1 py-2.5 bg-red-500 hover:bg-red-400 text-white rounded-xl text-[13px] font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {lang === 'es' ? 'Confirmar Anulación' : 'Confirm Void'}
+            {verifying
+              ? (lang === 'es' ? 'Verificando…' : 'Verifying…')
+              : (lang === 'es' ? 'Confirmar Anulación' : 'Confirm Void')}
           </button>
         </div>
       </div>
@@ -330,9 +384,11 @@ const TAB_FILTERS = [
 ]
 
 export default function DailyReport() {
-  const { lang } = useLang()
+  const { lang }   = useLang()
+  const { user: currentUser } = useAuth()
 
-  const [transactions, setTransactions] = useState(TRANSACTIONS_INIT)
+  const [transactions, setTransactions] = useState([])
+  const [loading,      setLoading]      = useState(false)
   const [tab,          setTab]          = useState('todas')
   const [datePill,     setDatePill]     = useState('mes')
   const [cashier,      setCashier]      = useState('all')
@@ -344,13 +400,34 @@ export default function DailyReport() {
 
   function flash(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
-  // Base set: date + cashier filtered (for summary metrics)
+  // Load tickets from DB whenever datePill changes
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setCashier('all')
+    setSelectedId(null)
+    const range = getDateRange(datePill)
+    window.electronAPI.tickets.byDateRange(range)
+      .then(rows => {
+        if (!cancelled) setTransactions((rows || []).map(dbToTxn))
+      })
+      .catch(() => { if (!cancelled) setTransactions([]) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [datePill])
+
+  // Unique cashier names from loaded data
+  const cashierOptions = useMemo(() => {
+    const names = [...new Set(transactions.map(t => t.cashier).filter(c => c && c !== '—'))]
+    return names.sort()
+  }, [transactions])
+
+  // Base set: cashier filtered (date already filtered at DB level)
   const baseFiltered = useMemo(() =>
     transactions.filter(t =>
-      inPill(t.date, datePill) &&
-      (cashier === 'all' || t.cashier === cashier)
+      cashier === 'all' || t.cashier === cashier
     )
-  , [transactions, datePill, cashier])
+  , [transactions, cashier])
 
   // Summary metrics (base, not tab/search filtered)
   const summary = useMemo(() => ({
@@ -379,15 +456,26 @@ export default function DailyReport() {
     return res
   }, [baseFiltered])
 
-  function handleVoid({ ticketId, reason, voidedBy, voidedAt }) {
-    setTransactions(ts => ts.map(t =>
-      t.id === ticketId
-        ? { ...t, estado: 'nula', voidReason: reason, voidedBy, voidedAt }
-        : t
-    ))
-    setAnularModal(null)
-    setSelectedId(null)
-    flash(lang === 'es' ? 'Factura anulada correctamente.' : 'Invoice voided successfully.')
+  async function handleVoid({ ticketId, reason, voidedBy, voidedAt }) {
+    try {
+      await window.electronAPI.tickets.void({ id: ticketId, reason, voidById: currentUser?.id })
+      setTransactions(ts => ts.map(t =>
+        t.id === ticketId
+          ? { ...t, estado: 'nula', voidReason: reason, voidedBy, voidedAt }
+          : t
+      ))
+      setAnularModal(null)
+      setSelectedId(null)
+      flash(lang === 'es' ? 'Factura anulada correctamente.' : 'Invoice voided successfully.')
+    } catch {
+      flash(lang === 'es' ? 'Error al anular la factura.' : 'Error voiding the invoice.')
+    }
+  }
+
+  // Services placeholder for row display — "—" when no items loaded yet
+  function getRowService(t) {
+    if (t.services.length > 0) return { name: t.services[0].name, extra: t.services.length - 1 }
+    return { name: '—', extra: 0 }
   }
 
   return (
@@ -411,7 +499,7 @@ export default function DailyReport() {
                 className="appearance-none pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[12px] text-slate-700 focus:outline-none focus:border-sky-400 cursor-pointer"
               >
                 <option value="all">{lang === 'es' ? 'Todos los cajeros' : 'All cashiers'}</option>
-                {CASHIERS.map(c => <option key={c} value={c}>{c}</option>)}
+                {cashierOptions.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
               <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             </div>
@@ -493,7 +581,12 @@ export default function DailyReport() {
 
         {/* Rows */}
         <div className="flex-1 overflow-y-auto">
-          {visible.length === 0 ? (
+          {loading ? (
+            <div className="flex flex-col items-center justify-center h-40 text-slate-300 gap-3">
+              <div className="w-6 h-6 border-2 border-slate-200 border-t-sky-500 rounded-full animate-spin" />
+              <p className="text-[13px]">{lang === 'es' ? 'Cargando transacciones…' : 'Loading transactions…'}</p>
+            </div>
+          ) : visible.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-40 text-slate-300 gap-2">
               <ReceiptText size={28} />
               <p className="text-[13px]">{lang === 'es' ? 'Sin resultados para este filtro' : 'No results for this filter'}</p>
@@ -503,8 +596,7 @@ export default function DailyReport() {
               const isSelected = t.id === selectedId
               const isNula     = t.estado === 'nula'
               const isCxC      = t.payMethod === 'credit' && !isNula
-              const main       = t.services[0]
-              const extra      = t.services.length - 1
+              const { name: mainName, extra } = getRowService(t)
 
               return (
                 <button
@@ -530,7 +622,7 @@ export default function DailyReport() {
 
                   {/* Service(s) */}
                   <div className="w-[160px] shrink-0 pr-4 flex items-center gap-1.5 min-w-0">
-                    <span className={`text-[12px] truncate ${isNula ? 'text-slate-400' : 'text-slate-700'}`}>{main.name}</span>
+                    <span className={`text-[12px] truncate ${isNula ? 'text-slate-400' : 'text-slate-700'}`}>{mainName}</span>
                     {extra > 0 && (
                       <span className="shrink-0 text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">+{extra}</span>
                     )}
@@ -650,6 +742,7 @@ export default function DailyReport() {
           onConfirm={handleVoid}
           onClose={() => setAnularModal(null)}
           lang={lang}
+          currentUser={currentUser}
         />
       )}
     </div>

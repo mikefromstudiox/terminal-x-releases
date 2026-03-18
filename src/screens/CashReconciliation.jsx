@@ -1,26 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   CheckCircle2, AlertCircle, ChevronRight, X, History,
-  Printer, Calculator, DollarSign, Lock,
+  Printer, Calculator, DollarSign, Lock, Loader2,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useLang } from '../i18n'
 
-// ── Demo day summary (replace with real DB queries) ─────────────────────────
-const DAY = {
-  efectivo:       12400,
-  tarjeta:        18750,
-  documento:       3200,
-  cheque:          1500,
-  transferencia:   8600,
-  creditosOtorg:   6800,
-  cxcPendiente:    4200,
-  reciboAnticipo:  1000,
-  totalVendido:   51250,
-  totalCobrado:   44450,
-}
+// ── IPC guard ─────────────────────────────────────────────────────────────────
+const hasIPC = () => !!window?.electronAPI
 
-// ── Denomination rows ────────────────────────────────────────────────────────
+// ── Denomination rows ─────────────────────────────────────────────────────────
 const BILLS = [
   { label: 'RD$2,000', value: 2000 },
   { label: 'RD$1,000', value: 1000 },
@@ -35,48 +24,26 @@ const BILLS = [
   { label: 'RD$1',     value: 1    },
 ]
 
-// Default qty that yields efectivo matching DAY.efectivo (demo green state)
-// 4×2000 + 8×1000 + 4×500 + 5×200 + 4×100 + 4×50 + 0+... = 8000+8000+2000+1000+400+200 = don't try to match exactly
-// Instead pre-fill a realistic count; live cierre will show diff
-const DEFAULT_QTY = {
-  2000: 4,   // 8,000
-  1000: 2,   // 2,000
-  500:  2,   // 1,000
-  200:  5,   // 1,000
-  100:  3,   //   300
-  50:   2,   //   100
-  25:   0,
-  20:   0,
-  10:   0,
-  5:    0,
-  1:    0,
-}
-// = 12,400 → matches DAY.efectivo → caja cuadrada demo
+const EMPTY_QTY = Object.fromEntries(BILLS.map(b => [b.value, 0]))
 
-// ── Past closings (demo) ─────────────────────────────────────────────────────
-const PAST_CIERRES = [
-  { date: '2026-03-16', cashier: 'María Rodríguez', total: 42800, diff:    0, estado: 'cuadrada' },
-  { date: '2026-03-15', cashier: 'María Rodríguez', total: 38500, diff: -200, estado: 'descuadre' },
-  { date: '2026-03-14', cashier: 'Carlos Díaz',     total: 51200, diff:    0, estado: 'cuadrada' },
-  { date: '2026-03-13', cashier: 'María Rodríguez', total: 44100, diff:  150, estado: 'descuadre' },
-  { date: '2026-03-12', cashier: 'Carlos Díaz',     total: 47600, diff:    0, estado: 'cuadrada' },
-]
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n) {
-  return 'RD$' + Number(n).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return 'RD$' + Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 function fmtUSD(n) {
-  return 'US$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return 'US$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
-function now() {
+function nowStr() {
   return new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
-function today() {
+function todayStr() {
   return new Date().toLocaleDateString('es-DO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 }
+function todayISO() {
+  return new Date().toISOString().slice(0, 10)
+}
 
-// ── Sub-components ───────────────────────────────────────────────────────────
+// ── Sub-components ────────────────────────────────────────────────────────────
 function SectionLabel({ children }) {
   return <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-2">{children}</p>
 }
@@ -123,17 +90,37 @@ function RightInput({ label, value, onChange }) {
   )
 }
 
-// ── PIN Modal ────────────────────────────────────────────────────────────────
-function PinModal({ onConfirm, onClose }) {
-  const [pin, setPin]     = useState('')
-  const [err, setErr]     = useState(false)
-  const inputRef          = useRef()
+// ── PIN Modal ─────────────────────────────────────────────────────────────────
+function PinModal({ onConfirm, onClose, lang }) {
+  const L = (es, en) => lang === 'es' ? es : en
+  const [pin, setPin]       = useState('')
+  const [err, setErr]       = useState(false)
+  const [loading, setLoading] = useState(false)
+  const inputRef            = useRef()
 
   useEffect(() => { inputRef.current?.focus() }, [])
 
-  function submit() {
-    if (pin === '1111') { onConfirm() }
-    else { setErr(true); setPin('') }
+  async function submit() {
+    if (!pin) return
+    if (hasIPC()) {
+      setLoading(true)
+      try {
+        const manager = await window.electronAPI.auth.byPin(pin)
+        if (manager && ['owner', 'manager'].includes(manager.role)) {
+          onConfirm(manager)
+        } else {
+          setErr(true); setPin('')
+        }
+      } catch {
+        setErr(true); setPin('')
+      } finally {
+        setLoading(false)
+      }
+    } else {
+      // Dev fallback
+      if (pin === '1111') { onConfirm({ name: 'Manager' }) }
+      else { setErr(true); setPin('') }
+    }
   }
 
   return (
@@ -141,26 +128,27 @@ function PinModal({ onConfirm, onClose }) {
       <div className="bg-white rounded-2xl shadow-2xl p-8 w-80">
         <div className="flex items-center gap-2 mb-6">
           <Lock size={18} className="text-slate-500" />
-          <h3 className="font-semibold text-slate-800">Autorización de Gerente</h3>
+          <h3 className="font-semibold text-slate-800">{L('Autorización de Gerente', 'Manager Authorization')}</h3>
         </div>
-        <p className="text-sm text-slate-500 mb-4">Ingrese el PIN del gerente para cerrar la caja.</p>
+        <p className="text-sm text-slate-500 mb-4">{L('Ingrese el PIN del gerente para cerrar la caja.', 'Enter manager PIN to close the register.')}</p>
         <input
           ref={inputRef}
           type="password"
-          maxLength={4}
+          maxLength={6}
           value={pin}
           onChange={e => { setPin(e.target.value); setErr(false) }}
           onKeyDown={e => e.key === 'Enter' && submit()}
           placeholder="••••"
           className="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-center text-xl tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
-        {err && <p className="text-xs text-red-500 mt-2 text-center">PIN incorrecto</p>}
+        {err && <p className="text-xs text-red-500 mt-2 text-center">{L('PIN incorrecto o sin permisos', 'Incorrect PIN or insufficient permissions')}</p>}
         <div className="flex gap-3 mt-5">
           <button onClick={onClose} className="flex-1 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
-            Cancelar
+            {L('Cancelar', 'Cancel')}
           </button>
-          <button onClick={submit} className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">
-            Confirmar
+          <button onClick={submit} disabled={loading} className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1">
+            {loading && <Loader2 size={13} className="animate-spin" />}
+            {L('Confirmar', 'Confirm')}
           </button>
         </div>
       </div>
@@ -168,48 +156,85 @@ function PinModal({ onConfirm, onClose }) {
   )
 }
 
-// ── History Panel ────────────────────────────────────────────────────────────
-function CierresPanel({ onClose }) {
+// ── History Panel ─────────────────────────────────────────────────────────────
+function CierresPanel({ onClose, lang }) {
+  const L = (es, en) => lang === 'es' ? es : en
+  const [history, setHistory]   = useState([])
+  const [loading, setLoading]   = useState(true)
+
+  useEffect(() => {
+    if (!hasIPC()) { setLoading(false); return }
+    window.electronAPI.cuadre.history()
+      .then(rows => setHistory(rows || []))
+      .catch(() => setHistory([]))
+      .finally(() => setLoading(false))
+  }, [])
+
   return (
     <div className="fixed inset-y-0 right-0 z-40 w-[420px] bg-white shadow-2xl flex flex-col">
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-        <h3 className="font-semibold text-slate-800">Historial de Cierres</h3>
+        <h3 className="font-semibold text-slate-800">{L('Historial de Cierres', 'Closing History')}</h3>
         <button onClick={onClose} className="p-1 rounded hover:bg-slate-100">
           <X size={18} className="text-slate-500" />
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {PAST_CIERRES.map((c, i) => (
-          <div key={i} className={`rounded-xl border p-4 ${c.estado === 'cuadrada' ? 'border-emerald-100 bg-emerald-50/40' : 'border-red-100 bg-red-50/40'}`}>
-            <div className="flex items-center justify-between mb-1">
-              <span className="font-medium text-sm text-slate-800">{c.date}</span>
-              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.estado === 'cuadrada' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                {c.estado === 'cuadrada' ? 'Cuadrada' : `Descuadre ${fmt(c.diff)}`}
-              </span>
-            </div>
-            <p className="text-xs text-slate-500">{c.cashier}</p>
-            <p className="text-sm font-bold text-slate-800 mt-1">{fmt(c.total)}</p>
+        {loading && (
+          <div className="flex items-center justify-center h-20 gap-2 text-slate-400">
+            <Loader2 size={16} className="animate-spin" />
+            <span className="text-sm">{L('Cargando…', 'Loading…')}</span>
           </div>
-        ))}
+        )}
+        {!loading && history.length === 0 && (
+          <div className="text-center text-slate-400 text-sm py-10">{L('Sin cierres registrados', 'No closings recorded')}</div>
+        )}
+        {!loading && history.map((c, i) => {
+          const diff = c.diferencia ?? 0
+          const cuadrada = Math.abs(diff) < 1
+          return (
+            <div key={i} className={`rounded-xl border p-4 ${cuadrada ? 'border-emerald-100 bg-emerald-50/40' : 'border-red-100 bg-red-50/40'}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-medium text-sm text-slate-800">{c.date}</span>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cuadrada ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                  {cuadrada ? L('Cuadrada', 'Balanced') : `${L('Descuadre', 'Difference')} ${fmt(diff)}`}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">{c.cajero_name || '—'}</p>
+              <p className="text-sm font-bold text-slate-800 mt-1">{fmt(c.cierre_total || c.total_cobrado || 0)}</p>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
 }
 
-// ── Main Component ───────────────────────────────────────────────────────────
+// ── Main Component ────────────────────────────────────────────────────────────
 export default function CashReconciliation() {
-  const { user } = useAuth()
-  const [time, setTime]       = useState(now())
-  const [fondo, setFondo]     = useState(5000)
+  const { user }  = useAuth()
+  const { lang }  = useLang()
+  const L = (es, en) => lang === 'es' ? es : en
+
+  const [time, setTime]           = useState(nowStr())
+  const [fondo, setFondo]         = useState(5000)
   const [comentario, setComentario] = useState('')
-  const [showPin, setShowPin] = useState(false)
+  const [showPin, setShowPin]     = useState(false)
   const [showHistory, setShowHistory] = useState(false)
-  const [closed, setClosed]   = useState(false)
+  const [closed, setClosed]       = useState(false)
+  const [saving, setSaving]       = useState(false)
+  const [managerName, setManagerName] = useState(null)
+
+  // Daily summary from DB (replaces hardcoded DAY)
+  const [daySummary, setDaySummary] = useState({
+    efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0,
+    totalVendido: 0, totalCobrado: 0, count: 0,
+  })
+  const [loadingDay, setLoadingDay] = useState(true)
 
   // Denomination qtys
-  const [qty, setQty] = useState({ ...DEFAULT_QTY })
+  const [qty, setQty]             = useState({ ...EMPTY_QTY })
   const [usdQty, setUsdQty]       = useState(0)
-  const [usdRate, setUsdRate]     = useState(59.50)   // from settings stub
+  const [usdRate, setUsdRate]     = useState(59.50)
 
   // Right column inputs
   const [vAzul, setVAzul]             = useState(0)
@@ -226,11 +251,27 @@ export default function CashReconciliation() {
 
   // Clock tick
   useEffect(() => {
-    const id = setInterval(() => setTime(now()), 1000)
+    const id = setInterval(() => setTime(nowStr()), 1000)
     return () => clearInterval(id)
   }, [])
 
-  // ── Derived totals ──────────────────────────────────────────────────────
+  // Load daily summary on mount
+  useEffect(() => {
+    if (!hasIPC()) { setLoadingDay(false); return }
+    window.electronAPI.cuadre.daily(todayISO())
+      .then(data => {
+        if (data) setDaySummary(data)
+        // Pre-fill transferencia and tarjeta from DB summary
+        if (data?.tarjeta)      setVAzul(data.tarjeta)
+        if (data?.transferencia) setTrans(data.transferencia)
+        if (data?.cheque)       setCheque(data.cheque)
+        if (data?.credito)      setFACreditos(data.credito)
+      })
+      .catch(() => {})
+      .finally(() => setLoadingDay(false))
+  }, [])
+
+  // ── Derived totals ────────────────────────────────────────────────────────
   const efectivoBills  = BILLS.reduce((s, b) => s + b.value * (qty[b.value] || 0), 0)
   const efectivoUSD    = usdQty * usdRate
   const efectivoNeto   = efectivoBills + efectivoUSD - fondo
@@ -240,28 +281,64 @@ export default function CashReconciliation() {
   const salidasTotal   = avances + devoluciones + desembolsos + comision
 
   const cierreTotal    = efectivoNeto + tarjetasTotal + transTotal + fACreditos - salidasTotal
-  const diferencia     = cierreTotal - DAY.totalCobrado
+  const diferencia     = cierreTotal - (daySummary.totalCobrado || 0)
   const cuadrada       = Math.abs(diferencia) < 1
 
   function handleCuadrar() {
     if (user?.role === 'cashier') { setShowPin(true) }
-    else { doClose() }
+    else { doClose(null) }
   }
-  function doClose() {
+
+  async function doClose(manager) {
     setShowPin(false)
-    setClosed(true)
+    setSaving(true)
+    const closeData = {
+      cajero_id:        user?.id ?? 1,
+      date:             todayISO(),
+      fondo:            fondo,
+      efectivo_conteo:  efectivoBills + efectivoUSD,
+      efectivo_sistema: daySummary.efectivo || 0,
+      tarjeta:          tarjetasTotal,
+      transferencia:    transTotal,
+      cheque:           cheque,
+      creditos:         fACreditos,
+      salidas:          salidasTotal,
+      total_vendido:    daySummary.totalVendido || 0,
+      total_cobrado:    daySummary.totalCobrado || 0,
+      cierre_total:     cierreTotal,
+      diferencia:       diferencia,
+      comentario:       comentario || null,
+      denominaciones:   qty,
+    }
+    try {
+      if (hasIPC()) {
+        await window.electronAPI.cuadre.create(closeData)
+      }
+      setManagerName(manager?.name ?? null)
+      setClosed(true)
+    } catch (err) {
+      console.error('cuadre:create error', err)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <div className="h-full flex flex-col bg-slate-50">
       {/* PIN Modal */}
-      {showPin && <PinModal onConfirm={doClose} onClose={() => setShowPin(false)} />}
+      {showPin && (
+        <PinModal
+          lang={lang}
+          onConfirm={mgr => doClose(mgr)}
+          onClose={() => setShowPin(false)}
+        />
+      )}
 
       {/* History Panel */}
       {showHistory && (
         <>
           <div className="fixed inset-0 z-30 bg-black/20" onClick={() => setShowHistory(false)} />
-          <CierresPanel onClose={() => setShowHistory(false)} />
+          <CierresPanel lang={lang} onClose={() => setShowHistory(false)} />
         </>
       )}
 
@@ -269,26 +346,27 @@ export default function CashReconciliation() {
       {closed && (
         <div className="bg-emerald-600 text-white text-center py-2 text-sm font-medium flex items-center justify-center gap-2">
           <CheckCircle2 size={16} />
-          Caja cerrada exitosamente el {today()} a las {time}
+          {L('Caja cerrada exitosamente el', 'Register successfully closed on')} {todayStr()} {L('a las', 'at')} {time}
+          {managerName && <span className="ml-1 opacity-80">· {L('Autorizado por', 'Authorized by')} {managerName}</span>}
         </div>
       )}
 
       {/* ── Top Bar ── */}
       <div className="bg-white border-b border-slate-100 px-6 py-3 flex items-center gap-6 flex-shrink-0">
         <div className="flex-1">
-          <p className="text-xs text-slate-400 uppercase tracking-wider">Cajero</p>
-          <p className="font-semibold text-slate-800">{user?.name ?? 'Caja'}</p>
+          <p className="text-xs text-slate-400 uppercase tracking-wider">{L('Cajero', 'Cashier')}</p>
+          <p className="font-semibold text-slate-800">{user?.name ?? L('Caja', 'Register')}</p>
         </div>
         <div className="flex-1">
-          <p className="text-xs text-slate-400 uppercase tracking-wider">Fecha</p>
-          <p className="font-medium text-slate-700 capitalize text-sm">{today()}</p>
+          <p className="text-xs text-slate-400 uppercase tracking-wider">{L('Fecha', 'Date')}</p>
+          <p className="font-medium text-slate-700 capitalize text-sm">{todayStr()}</p>
         </div>
         <div className="w-32 text-center">
-          <p className="text-xs text-slate-400 uppercase tracking-wider">Hora</p>
+          <p className="text-xs text-slate-400 uppercase tracking-wider">{L('Hora', 'Time')}</p>
           <p className="font-mono font-semibold text-slate-800">{time}</p>
         </div>
         <div className="flex items-center gap-2 ml-4">
-          <label className="text-xs text-slate-500 whitespace-nowrap">Fondo de caja</label>
+          <label className="text-xs text-slate-500 whitespace-nowrap">{L('Fondo de caja', 'Opening float')}</label>
           <div className="relative">
             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">RD$</span>
             <input
@@ -304,7 +382,7 @@ export default function CashReconciliation() {
           className="flex items-center gap-1.5 text-sm text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50"
         >
           <History size={15} />
-          Ver Cierres
+          {L('Ver Cierres', 'View History')}
         </button>
       </div>
 
@@ -316,31 +394,37 @@ export default function CashReconciliation() {
 
           {/* Resumen del día */}
           <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
-            <SectionLabel>Resumen del día</SectionLabel>
-            <ResumeRow label="Efectivo"            value={fmt(DAY.efectivo)} />
-            <ResumeRow label="Tarjeta"             value={fmt(DAY.tarjeta)} />
-            <ResumeRow label="Documento"           value={fmt(DAY.documento)} />
-            <ResumeRow label="Cheque"              value={fmt(DAY.cheque)} />
-            <ResumeRow label="Transferencia"       value={fmt(DAY.transferencia)} />
-            <ResumeRow divider />
-            <ResumeRow label="Créditos Otorgados"  value={fmt(DAY.creditosOtorg)}   muted />
-            <ResumeRow label="Cuentas x Cobrar"    value={fmt(DAY.cxcPendiente)}    muted />
-            <ResumeRow label="Recibo Anticipo"     value={fmt(DAY.reciboAnticipo)}  muted />
-            <ResumeRow divider />
-            <ResumeRow label="Total Vendido"       value={fmt(DAY.totalVendido)}    bold />
-            <ResumeRow label="Total Cobrado"       value={fmt(DAY.totalCobrado)}    bold />
+            <SectionLabel>{L('Resumen del día', "Day's Summary")}</SectionLabel>
+            {loadingDay ? (
+              <div className="flex items-center gap-2 text-slate-400 text-sm py-4">
+                <Loader2 size={14} className="animate-spin" />
+                {L('Cargando…', 'Loading…')}
+              </div>
+            ) : (
+              <>
+                <ResumeRow label={L('Efectivo', 'Cash')}            value={fmt(daySummary.efectivo)} />
+                <ResumeRow label={L('Tarjeta', 'Card')}             value={fmt(daySummary.tarjeta)} />
+                <ResumeRow label={L('Transferencia', 'Transfer')}   value={fmt(daySummary.transferencia)} />
+                <ResumeRow label={L('Cheque', 'Check')}             value={fmt(daySummary.cheque)} />
+                <ResumeRow divider />
+                <ResumeRow label={L('Créditos', 'Credits')}         value={fmt(daySummary.credito)}   muted />
+                <ResumeRow divider />
+                <ResumeRow label={L('Total Vendido', 'Total Sold')} value={fmt(daySummary.totalVendido)}   bold />
+                <ResumeRow label={L('Total Cobrado', 'Total Collected')} value={fmt(daySummary.totalCobrado)} bold />
+              </>
+            )}
           </div>
 
           {/* Cierre */}
           <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
-            <SectionLabel>Cierre</SectionLabel>
-            <ResumeRow label="Efectivo neto"   value={fmt(efectivoNeto)} />
-            <ResumeRow label="Tarjetas"        value={fmt(tarjetasTotal)} />
-            <ResumeRow label="Transferencias"  value={fmt(transTotal)} />
-            <ResumeRow label="F. A Créditos"   value={fmt(fACreditos)} />
-            <ResumeRow label="Salidas"         value={fmt(salidasTotal)} muted />
+            <SectionLabel>{L('Cierre', 'Closing')}</SectionLabel>
+            <ResumeRow label={L('Efectivo neto', 'Net cash')}     value={fmt(efectivoNeto)} />
+            <ResumeRow label={L('Tarjetas', 'Cards')}             value={fmt(tarjetasTotal)} />
+            <ResumeRow label={L('Transferencias', 'Transfers')}   value={fmt(transTotal)} />
+            <ResumeRow label={L('F. A Créditos', 'Credits')}      value={fmt(fACreditos)} />
+            <ResumeRow label={L('Salidas', 'Outflows')}           value={fmt(salidasTotal)} muted />
             <ResumeRow divider />
-            <ResumeRow label="Total Cobrado"   value={fmt(cierreTotal)} bold />
+            <ResumeRow label={L('Total Cobrado', 'Total Collected')} value={fmt(cierreTotal)} bold />
 
             {/* Difference box */}
             <div className={`mt-3 rounded-xl p-3 flex items-center gap-2 ${cuadrada ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}>
@@ -350,10 +434,16 @@ export default function CashReconciliation() {
               }
               <div>
                 <p className={`text-sm font-bold ${cuadrada ? 'text-emerald-700' : 'text-red-600'}`}>
-                  {cuadrada ? 'Caja cuadrada' : `Descuadre ${fmt(Math.abs(diferencia))}`}
+                  {cuadrada
+                    ? L('Caja cuadrada', 'Balanced')
+                    : `${L('Descuadre', 'Difference')} ${fmt(Math.abs(diferencia))}`}
                 </p>
                 <p className={`text-xs ${cuadrada ? 'text-emerald-500' : 'text-red-400'}`}>
-                  {cuadrada ? 'RD$0.00 de diferencia' : diferencia > 0 ? 'Sobrante en caja' : 'Faltante en caja'}
+                  {cuadrada
+                    ? 'RD$0.00'
+                    : diferencia > 0
+                    ? L('Sobrante en caja', 'Cash over')
+                    : L('Faltante en caja', 'Cash short')}
                 </p>
               </div>
             </div>
@@ -361,11 +451,11 @@ export default function CashReconciliation() {
 
           {/* Comentario */}
           <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
-            <SectionLabel>Comentario</SectionLabel>
+            <SectionLabel>{L('Comentario', 'Comments')}</SectionLabel>
             <textarea
               value={comentario}
               onChange={e => setComentario(e.target.value)}
-              placeholder="Observaciones del cierre..."
+              placeholder={L('Observaciones del cierre…', 'Closing observations…')}
               rows={3}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
             />
@@ -375,13 +465,13 @@ export default function CashReconciliation() {
         {/* ── CENTER: Conteo de Efectivo ── */}
         <div className="w-72 flex flex-col gap-4 overflow-y-auto">
           <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm flex-1">
-            <SectionLabel>Conteo de Efectivo</SectionLabel>
+            <SectionLabel>{L('Conteo de Efectivo', 'Cash Count')}</SectionLabel>
 
             {/* Header */}
             <div className="flex items-center justify-between mb-2 pb-1 border-b border-slate-100">
-              <span className="text-xs text-slate-400 w-24">Denominación</span>
-              <span className="text-xs text-slate-400 w-16 text-right">Cant.</span>
-              <span className="text-xs text-slate-400 w-24 text-right">Monto</span>
+              <span className="text-xs text-slate-400 w-24">{L('Denominación', 'Denomination')}</span>
+              <span className="text-xs text-slate-400 w-16 text-right">{L('Cant.', 'Qty.')}</span>
+              <span className="text-xs text-slate-400 w-24 text-right">{L('Monto', 'Amount')}</span>
             </div>
 
             {BILLS.map(b => {
@@ -405,17 +495,13 @@ export default function CashReconciliation() {
             <div className="mt-3 pt-3 border-t border-slate-100">
               <div className="flex items-center justify-between py-1">
                 <span className="text-sm text-slate-700 w-24">USD</span>
-                <SmallInput
-                  value={usdQty}
-                  onChange={setUsdQty}
-                  className="w-16"
-                />
+                <SmallInput value={usdQty} onChange={setUsdQty} className="w-16" />
                 <span className="text-sm tabular-nums text-slate-700 w-24 text-right">
                   {usdQty > 0 ? fmtUSD(usdQty) : <span className="text-slate-300">—</span>}
                 </span>
               </div>
               <div className="flex items-center justify-between mt-0.5">
-                <span className="text-xs text-slate-400">Tasa: {fmt(usdRate)}</span>
+                <span className="text-xs text-slate-400">{L('Tasa', 'Rate')}: {fmt(usdRate)}</span>
                 <span className="text-xs tabular-nums text-slate-500">
                   {usdQty > 0 ? `≈ ${fmt(efectivoUSD)}` : ''}
                 </span>
@@ -425,26 +511,26 @@ export default function CashReconciliation() {
             {/* Blue summary box */}
             <div className="mt-4 rounded-xl bg-blue-50 border border-blue-200 p-3 space-y-1">
               <div className="flex justify-between">
-                <span className="text-sm text-blue-700">Efectivo RD$</span>
+                <span className="text-sm text-blue-700">{L('Efectivo RD$', 'Cash RD$')}</span>
                 <span className="text-sm font-bold text-blue-800 tabular-nums">{fmt(efectivoBills)}</span>
               </div>
               {usdQty > 0 && (
                 <div className="flex justify-between">
-                  <span className="text-sm text-blue-700">Efectivo USD</span>
+                  <span className="text-sm text-blue-700">{L('Efectivo USD', 'Cash USD')}</span>
                   <span className="text-sm font-bold text-blue-800 tabular-nums">{fmtUSD(usdQty)} ≈ {fmt(efectivoUSD)}</span>
                 </div>
               )}
               <hr className="border-blue-200" />
               <div className="flex justify-between">
-                <span className="text-sm font-semibold text-blue-700">Total efectivo</span>
+                <span className="text-sm font-semibold text-blue-700">{L('Total efectivo', 'Total cash')}</span>
                 <span className="text-sm font-bold text-blue-900 tabular-nums">{fmt(efectivoBills + efectivoUSD)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-xs text-blue-500">− Fondo de caja</span>
+                <span className="text-xs text-blue-500">− {L('Fondo de caja', 'Opening float')}</span>
                 <span className="text-xs text-blue-500 tabular-nums">− {fmt(fondo)}</span>
               </div>
               <div className="flex justify-between pt-0.5 border-t border-blue-200">
-                <span className="text-sm font-bold text-blue-800">Efectivo neto</span>
+                <span className="text-sm font-bold text-blue-800">{L('Efectivo neto', 'Net cash')}</span>
                 <span className="text-sm font-bold text-blue-900 tabular-nums">{fmt(efectivoNeto)}</span>
               </div>
             </div>
@@ -456,23 +542,23 @@ export default function CashReconciliation() {
 
           {/* Tarjetas */}
           <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
-            <SectionLabel>Tarjetas</SectionLabel>
+            <SectionLabel>{L('Tarjetas', 'Cards')}</SectionLabel>
             <RightInput label="V. Azul"    value={vAzul}    onChange={setVAzul} />
             <RightInput label="V. Carnet"  value={vCarnet}  onChange={setVCarnet} />
             <RightInput label="V. Visanet" value={vVisanet} onChange={setVVisanet} />
             <div className="flex justify-between pt-2 mt-1 border-t border-slate-100">
-              <span className="text-sm font-semibold text-slate-700">Total tarjetas</span>
+              <span className="text-sm font-semibold text-slate-700">{L('Total tarjetas', 'Total cards')}</span>
               <span className="text-sm font-bold text-slate-800 tabular-nums">{fmt(tarjetasTotal)}</span>
             </div>
           </div>
 
           {/* Documentos y Transferencias */}
           <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
-            <SectionLabel>Documentos y Transferencias</SectionLabel>
-            <RightInput label="Cheque"        value={cheque}        onChange={setCheque} />
-            <RightInput label="Transferencia" value={transferencia} onChange={setTrans} />
-            <RightInput label="Documento"     value={documento}     onChange={setDoc} />
-            <RightInput label="F. A Créditos" value={fACreditos}   onChange={setFACreditos} />
+            <SectionLabel>{L('Documentos y Transferencias', 'Documents & Transfers')}</SectionLabel>
+            <RightInput label={L('Cheque', 'Check')}            value={cheque}        onChange={setCheque} />
+            <RightInput label={L('Transferencia', 'Transfer')}  value={transferencia} onChange={setTrans} />
+            <RightInput label={L('Documento', 'Document')}      value={documento}     onChange={setDoc} />
+            <RightInput label={L('F. A Créditos', 'Credits')}   value={fACreditos}   onChange={setFACreditos} />
             <div className="flex justify-between pt-2 mt-1 border-t border-slate-100">
               <span className="text-sm font-semibold text-slate-700">Subtotal</span>
               <span className="text-sm font-bold text-slate-800 tabular-nums">{fmt(transTotal + fACreditos)}</span>
@@ -481,13 +567,13 @@ export default function CashReconciliation() {
 
           {/* Salidas de Caja */}
           <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
-            <SectionLabel>Salidas de Caja</SectionLabel>
-            <RightInput label="Avances"       value={avances}       onChange={setAvances} />
-            <RightInput label="Devoluciones"  value={devoluciones}  onChange={setDevoluciones} />
-            <RightInput label="Desembolsos"   value={desembolsos}   onChange={setDesembolsos} />
-            <RightInput label="Comisión"      value={comision}      onChange={setComision} />
+            <SectionLabel>{L('Salidas de Caja', 'Cash Outflows')}</SectionLabel>
+            <RightInput label={L('Avances', 'Advances')}           value={avances}       onChange={setAvances} />
+            <RightInput label={L('Devoluciones', 'Refunds')}       value={devoluciones}  onChange={setDevoluciones} />
+            <RightInput label={L('Desembolsos', 'Disbursements')}  value={desembolsos}   onChange={setDesembolsos} />
+            <RightInput label={L('Comisión', 'Commission')}        value={comision}      onChange={setComision} />
             <div className="flex justify-between pt-2 mt-1 border-t border-slate-100">
-              <span className="text-sm font-semibold text-slate-700">Total salidas</span>
+              <span className="text-sm font-semibold text-slate-700">{L('Total salidas', 'Total outflows')}</span>
               <span className="text-sm font-bold text-red-600 tabular-nums">{fmt(salidasTotal)}</span>
             </div>
           </div>
@@ -496,11 +582,13 @@ export default function CashReconciliation() {
           <div className={`rounded-2xl border p-4 ${cuadrada ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
             <div className="flex justify-between items-center">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-0.5">Total cobrado (cierre)</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-0.5">
+                  {L('Total cobrado (cierre)', 'Total collected (closing)')}
+                </p>
                 <p className={`text-2xl font-bold tabular-nums ${cuadrada ? 'text-emerald-700' : 'text-red-600'}`}>{fmt(cierreTotal)}</p>
               </div>
               <div className="text-right">
-                <p className="text-xs text-slate-500 mb-0.5">Diferencia</p>
+                <p className="text-xs text-slate-500 mb-0.5">{L('Diferencia', 'Difference')}</p>
                 <p className={`text-lg font-bold tabular-nums ${cuadrada ? 'text-emerald-600' : 'text-red-600'}`}>
                   {diferencia === 0 ? 'RD$0.00' : (diferencia > 0 ? '+' : '') + fmt(diferencia)}
                 </p>
@@ -516,20 +604,19 @@ export default function CashReconciliation() {
           disabled={closed}
           className="px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
         >
-          Abrir Caja
+          {L('Abrir Caja', 'Open Register')}
         </button>
         <button
-          onClick={() => {/* recalculate is live, this is a no-op affordance */}}
           className="flex items-center gap-1.5 px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
         >
           <Calculator size={15} />
-          Calcular
+          {L('Calcular', 'Calculate')}
         </button>
         <button
           disabled={closed}
           className="px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
         >
-          Cancelar
+          {L('Cancelar', 'Cancel')}
         </button>
 
         <div className="flex-1" />
@@ -539,17 +626,20 @@ export default function CashReconciliation() {
           className="flex items-center gap-1.5 px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
         >
           <Printer size={15} />
-          Imprimir
+          {L('Imprimir', 'Print')}
         </button>
         <button
-          disabled={closed}
+          disabled={closed || saving}
           onClick={handleCuadrar}
           className={`flex items-center gap-1.5 px-6 py-2 rounded-lg text-sm font-semibold text-white transition disabled:opacity-40 ${
             cuadrada ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'
           }`}
         >
-          {user?.role === 'cashier' && <Lock size={14} />}
-          Cuadrar / Cerrar Caja
+          {saving
+            ? <Loader2 size={14} className="animate-spin" />
+            : user?.role === 'cashier' && <Lock size={14} />
+          }
+          {L('Cuadrar / Cerrar Caja', 'Balance / Close Register')}
         </button>
       </div>
     </div>

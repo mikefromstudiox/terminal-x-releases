@@ -71,6 +71,7 @@ function createWindow() {
     height: 800,
     minWidth: 1024,
     minHeight: 700,
+    title: 'Terminal X',
     icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

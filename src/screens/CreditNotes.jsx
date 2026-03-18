@@ -1,19 +1,15 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   FileMinus, Search, Plus, Printer, Lock,
   CheckCircle2, ExternalLink, RotateCcw, AlertCircle,
-  Tag, Scissors, X, ChevronDown,
+  Tag, Scissors, X, ChevronDown, RefreshCw,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { useLang } from '../i18n'
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const MANAGER_PIN   = '1111'
 const ITBIS_RATE    = 0.18
 const LEY_RATE      = 0.10
-
-// NCF B04 sequence stub — real impl pulls from Settings
-let _b04Seq = 41
-function nextB04() { return `B04${String(++_b04Seq).padStart(8, '0')}` }
 
 const MOTIVOS = ['Devolución', 'Descuento', 'Error']
 const FORMAS  = ['Efectivo', 'Crédito en cuenta', 'Transferencia']
@@ -24,50 +20,13 @@ const MOTIVO_META = {
   'Error':      { icon: Scissors,  badge: 'bg-red-100 text-red-700',       tab: 'errores'     },
 }
 
-// ── Demo original invoices (for lookup) ──────────────────────────────────────
-const ORIG_INVOICES = {
-  'F-2024-0081': { client: 'Grupo Mejía S.R.L.',    rnc: '130-12345-6', subtotal: 3500, total: 4480, ncf: 'B01000000081', services: ['Lavado Completo', 'Cera Premium'] },
-  'F-2024-0074': { client: 'Importadora Del Norte', rnc: '101-98765-4', subtotal: 1500, total: 1920, ncf: 'B01000000074', services: ['Lavado Básico'] },
-  'F-2024-0063': { client: 'Ferretería El Clavo',   rnc: '130-55512-1', subtotal: 2200, total: 2816, ncf: 'B01000000063', services: ['Lavado Completo', 'Aspirado'] },
-  'F-2024-0052': { client: 'Mueblería Don Pedro',   rnc: '130-77230-8', subtotal: 800,  total: 1024, ncf: 'B02000000052', services: ['Lavado Básico'] },
-  'F-2024-0041': { client: 'Seguros Caribe',        rnc: '101-44321-9', subtotal: 4500, total: 5760, ncf: 'B01000000041', services: ['Detailing Completo', 'Cera Premium', 'Ozono'] },
-}
-
-// ── Demo credit notes ────────────────────────────────────────────────────────
-let _nid = 0
-function mn(ncf, factOrig, motivo, monto, fecha, estado = 'emitida') {
-  const inv = ORIG_INVOICES[factOrig] || {}
-  return {
-    id:       ++_nid,
-    ncf,
-    factOrig,
-    client:   inv.client ?? 'Cliente',
-    rnc:      inv.rnc ?? '',
-    motivo,
-    monto,
-    fecha:    new Date(fecha),
-    estado,
-    itbisRev: parseFloat((monto * ITBIS_RATE / (1 + ITBIS_RATE)).toFixed(2)),
-    forma:    'Crédito en cuenta',
-    comentario: '',
-  }
-}
-
-const INIT_NOTES = [
-  mn('B04000000032', 'F-2024-0081', 'Devolución', 1120, '2026-03-15'),
-  mn('B04000000031', 'F-2024-0074', 'Error',       960,  '2026-03-12'),
-  mn('B04000000030', 'F-2024-0063', 'Descuento',   400,  '2026-03-10'),
-  mn('B04000000029', 'F-2024-0052', 'Devolución',  512,  '2026-03-08'),
-  mn('B04000000028', 'F-2024-0041', 'Error',      1440,  '2026-03-05'),
-  mn('B04000000027', 'F-2024-0041', 'Descuento',   288,  '2026-03-01'),
-]
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n) {
   return 'RD$' + Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 function fmtDate(d) {
-  return d.toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })
+  if (!d) return '—'
+  return new Date(d).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 // ── COLS ──────────────────────────────────────────────────────────────────────
@@ -120,10 +79,27 @@ function MotivoBadge({ motivo }) {
 function PinModal({ onConfirm, onClose }) {
   const [pin, setPin] = useState('')
   const [err, setErr] = useState(false)
-  function submit() {
-    if (pin === MANAGER_PIN) onConfirm()
-    else { setErr(true); setPin('') }
+  const [checking, setChecking] = useState(false)
+
+  async function submit() {
+    if (!pin) return
+    setChecking(true)
+    try {
+      const user = await window.electronAPI.auth.byPin(pin)
+      if (user && (user.role === 'manager' || user.role === 'admin')) {
+        onConfirm()
+      } else {
+        setErr(true)
+        setPin('')
+      }
+    } catch {
+      setErr(true)
+      setPin('')
+    } finally {
+      setChecking(false)
+    }
   }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-2xl shadow-2xl p-8 w-80">
@@ -135,17 +111,20 @@ function PinModal({ onConfirm, onClose }) {
         <input
           autoFocus
           type="password"
-          maxLength={4}
+          maxLength={6}
           value={pin}
           onChange={e => { setPin(e.target.value); setErr(false) }}
           onKeyDown={e => e.key === 'Enter' && submit()}
           placeholder="••••"
           className="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-center text-xl tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
-        {err && <p className="text-xs text-red-500 mt-1 text-center">PIN incorrecto</p>}
+        {err && <p className="text-xs text-red-500 mt-1 text-center">PIN incorrecto o sin permisos</p>}
         <div className="flex gap-3 mt-5">
           <button onClick={onClose}  className="flex-1 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
-          <button onClick={submit}   className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Confirmar</button>
+          <button onClick={submit} disabled={checking}
+            className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
+            {checking ? 'Verificando…' : 'Confirmar'}
+          </button>
         </div>
       </div>
     </div>
@@ -153,26 +132,20 @@ function PinModal({ onConfirm, onClose }) {
 }
 
 // ── Invoice Detail Popover ────────────────────────────────────────────────────
-function InvoicePopover({ factNo, onClose }) {
-  const inv = ORIG_INVOICES[factNo]
-  if (!inv) return null
+function InvoicePopover({ ticket, onClose }) {
+  if (!ticket) return null
   return (
     <div className="absolute z-30 top-8 left-0 w-72 bg-white rounded-xl shadow-2xl border border-slate-100 p-4">
       <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-semibold text-slate-800">{factNo}</p>
+        <p className="text-sm font-semibold text-slate-800">{ticket.doc_number}</p>
         <button onClick={onClose} className="p-0.5 rounded hover:bg-slate-100"><X size={14} className="text-slate-400" /></button>
       </div>
-      <p className="text-xs text-slate-500 mb-1">NCF: <span className="font-medium text-slate-700">{inv.ncf}</span></p>
-      <p className="text-xs text-slate-500 mb-1">Cliente: <span className="font-medium text-slate-700">{inv.client}</span></p>
-      <p className="text-xs text-slate-500 mb-2">RNC: <span className="font-medium text-slate-700">{inv.rnc}</span></p>
-      <div className="border-t border-slate-100 pt-2 space-y-0.5">
-        {inv.services.map((s, i) => (
-          <p key={i} className="text-xs text-slate-600">· {s}</p>
-        ))}
-      </div>
+      <p className="text-xs text-slate-500 mb-1">NCF: <span className="font-medium text-slate-700">{ticket.ncf || '—'}</span></p>
+      <p className="text-xs text-slate-500 mb-1">Cliente: <span className="font-medium text-slate-700">{ticket.client_name || 'Consumidor Final'}</span></p>
+      <p className="text-xs text-slate-500 mb-2">RNC: <span className="font-medium text-slate-700">{ticket.client_rnc || '—'}</span></p>
       <div className="border-t border-slate-100 mt-2 pt-2 flex justify-between">
         <span className="text-xs text-slate-500">Total factura</span>
-        <span className="text-sm font-bold text-slate-800">{fmt(inv.total)}</span>
+        <span className="text-sm font-bold text-slate-800">{fmt(ticket.total)}</span>
       </div>
     </div>
   )
@@ -192,90 +165,119 @@ function Toast({ msg }) {
   )
 }
 
-// ── RNC Lookup stub ───────────────────────────────────────────────────────────
-function useRncLookup() {
-  const [loading, setLoading] = useState(false)
-  const [result, setResult]   = useState(null)
-  async function lookup(rnc) {
-    if (!rnc || rnc.length < 9) { setResult(null); return }
-    setLoading(true)
-    await new Promise(r => setTimeout(r, 700))
-    // Demo: deterministic name from RNC digits
-    const names = ['Grupo Comercial S.R.L.', 'Importadora Del Norte', 'Inversiones Caribe', 'Distribuidora Central', 'Servicios Integrados']
-    const idx = parseInt(rnc.replace(/-/g, '').slice(-1)) % names.length
-    setResult({ name: names[idx], rnc })
-    setLoading(false)
-  }
-  return { lookup, loading, result, clear: () => setResult(null) }
-}
-
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function CreditNotes() {
   const { user } = useAuth()
+  const { lang } = useLang()
+  const L = (es, en) => lang === 'es' ? es : en
   const isCashier = user?.role === 'cashier'
 
-  const [notes, setNotes]       = useState(INIT_NOTES)
-  const [tab, setTab]           = useState('todas')
-  const [search, setSearch]     = useState('')
+  const [notes,    setNotes]    = useState([])
+  const [tickets,  setTickets]  = useState([])   // for invoice lookup
+  const [loading,  setLoading]  = useState(true)
+  const [tab,      setTab]      = useState('todas')
+  const [search,   setSearch]   = useState('')
   const [selected, setSelected] = useState(null)
-  const [showPin, setShowPin]   = useState(false)
-  const [toast, setToast]       = useState(null)
-  const [popover, setPopover]   = useState(null)  // factNo string
+  const [showPin,  setShowPin]  = useState(false)
+  const [toast,    setToast]    = useState(null)
+  const [popover,  setPopover]  = useState(null)  // ticket id
 
   // Form state
-  const [clientName, setClientName] = useState('')
-  const [clientRNC,  setClientRNC]  = useState('')
-  const [factNo,     setFactNo]     = useState('')
-  const [motivo,     setMotivo]     = useState('Devolución')
-  const [monto,      setMonto]      = useState('')
-  const [forma,      setForma]      = useState('Efectivo')
-  const [comentario, setComentario] = useState('')
-  const [factLookup, setFactLookup] = useState(null)   // loaded invoice
-  const [factLoading,setFactLoading]= useState(false)
-  const pendingEmit                 = useRef(null)
+  const [clientName,  setClientName]  = useState('')
+  const [clientRNC,   setClientRNC]   = useState('')
+  const [factNo,      setFactNo]      = useState('')
+  const [motivo,      setMotivo]      = useState('Devolución')
+  const [monto,       setMonto]       = useState('')
+  const [forma,       setForma]       = useState('Efectivo')
+  const [comentario,  setComentario]  = useState('')
+  const [factLookup,  setFactLookup]  = useState(null)   // matched ticket object
+  const [factLoading, setFactLoading] = useState(false)
+  const [submitting,  setSubmitting]  = useState(false)
+  const pendingEmit                   = useRef(null)
 
-  const rnc = useRncLookup()
+  // ── Load data from DB ──────────────────────────────────────────────────────
+  useEffect(() => {
+    loadAll()
+  }, [])
 
-  // ── Derived metrics ─────────────────────────────────────────────────────
-  const totalDevuelto = notes.reduce((s, n) => s + n.monto, 0)
-  const totalDevol    = notes.filter(n => n.motivo === 'Devolución').reduce((s, n) => s + n.monto, 0)
-  const totalOther    = notes.filter(n => n.motivo !== 'Devolución').reduce((s, n) => s + n.monto, 0)
+  async function loadAll() {
+    setLoading(true)
+    try {
+      const [notasData, ticketsData] = await Promise.all([
+        window.electronAPI.notas.all(),
+        window.electronAPI.tickets.byDateRange({ from: '2020-01-01', to: '2099-12-31' }),
+      ])
+      setNotes(notasData || [])
+      setTickets(ticketsData || [])
+    } catch (e) {
+      console.error('CreditNotes load error:', e)
+    } finally {
+      setLoading(false)
+    }
+  }
 
-  // ── Filter ──────────────────────────────────────────────────────────────
+  // ── Map DB nota to display shape ───────────────────────────────────────────
+  function mapNota(n) {
+    return {
+      id:         n.id,
+      ncf:        n.ncf || '—',
+      factOrig:   n.original_ticket_id ? `T-${String(n.original_ticket_id).padStart(4,'0')}` : '—',
+      ticketId:   n.original_ticket_id,
+      client:     n.client_name || 'Cliente',
+      rnc:        n.client_rnc  || '',
+      motivo:     n.motivo      || 'Devolución',
+      monto:      n.amount      || 0,
+      fecha:      n.created_at  || new Date().toISOString(),
+      estado:     'emitida',
+      itbisRev:   n.itbis_revertido || 0,
+      forma:      n.forma_devolucion || 'Efectivo',
+      comentario: n.comentario || '',
+    }
+  }
+
+  const displayNotes = useMemo(() => notes.map(mapNota), [notes])
+
+  // ── Derived metrics ─────────────────────────────────────────────────────────
+  const totalDevuelto = displayNotes.reduce((s, n) => s + n.monto, 0)
+  const totalDevol    = displayNotes.filter(n => n.motivo === 'Devolución').reduce((s, n) => s + n.monto, 0)
+  const totalOther    = displayNotes.filter(n => n.motivo !== 'Devolución').reduce((s, n) => s + n.monto, 0)
+
+  // ── Filter ──────────────────────────────────────────────────────────────────
   const tabFn    = TABS.find(t => t.key === tab)?.fn ?? (() => true)
   const tabCounts = useMemo(() => {
     const o = {}
-    TABS.forEach(t => { o[t.key] = notes.filter(t.fn).length })
+    TABS.forEach(t => { o[t.key] = displayNotes.filter(t.fn).length })
     return o
-  }, [notes])
+  }, [displayNotes])
 
   const q = search.trim().toLowerCase()
-  const visible = notes
+  const visible = displayNotes
     .filter(tabFn)
     .filter(n => !q || n.client.toLowerCase().includes(q) || n.ncf.toLowerCase().includes(q) || n.factOrig.toLowerCase().includes(q))
 
-  // ── Fact lookup ──────────────────────────────────────────────────────────
+  // ── Fact lookup (search tickets array) ───────────────────────────────────────
   async function handleFactBlur() {
     const key = factNo.trim().toUpperCase()
     if (!key) { setFactLookup(null); return }
     setFactLoading(true)
-    await new Promise(r => setTimeout(r, 500))
-    const inv = ORIG_INVOICES[key] ?? null
-    setFactLookup(inv ? { ...inv, key } : null)
-    if (inv) {
-      setClientName(inv.client)
-      setClientRNC(inv.rnc)
+    // Search loaded tickets by doc_number
+    const match = tickets.find(t => t.doc_number?.toUpperCase() === key)
+    if (match) {
+      setFactLookup(match)
+      setClientName(match.client_name || '')
+      setClientRNC(match.client_rnc || '')
+    } else {
+      setFactLookup(null)
     }
     setFactLoading(false)
   }
 
-  // ── Derived form calc ────────────────────────────────────────────────────
-  const montoNum   = parseFloat(monto) || 0
-  const itbisRev   = parseFloat((montoNum * ITBIS_RATE / (1 + ITBIS_RATE + LEY_RATE)).toFixed(2))
-  const nextNCF    = `B04${String(_b04Seq + 1).padStart(8, '0')}`
-  const formValid  = clientName.trim() && montoNum > 0
+  // ── Derived form calc ────────────────────────────────────────────────────────
+  const montoNum  = parseFloat(monto) || 0
+  const itbisRev  = parseFloat((montoNum * ITBIS_RATE / (1 + ITBIS_RATE + LEY_RATE)).toFixed(2))
+  const formValid = clientName.trim() && montoNum > 0
 
-  // ── Emit ─────────────────────────────────────────────────────────────────
+  // ── Emit ──────────────────────────────────────────────────────────────────────
   function tryEmit() {
     if (!formValid) return
     if (isCashier) {
@@ -285,31 +287,45 @@ export default function CreditNotes() {
       doEmit()
     }
   }
-  function doEmit() {
-    const ncf = nextB04()
-    const note = {
-      id:         Date.now(),
-      ncf,
-      factOrig:   factNo.trim().toUpperCase() || '—',
-      client:     clientName.trim(),
-      rnc:        clientRNC.trim(),
-      motivo,
-      monto:      montoNum,
-      fecha:      new Date(),
-      estado:     'emitida',
-      itbisRev,
-      forma,
-      comentario: comentario.trim(),
+
+  async function doEmit() {
+    setSubmitting(true)
+    try {
+      const data = {
+        ncf:               null,  // DB assigns from NCF sequence
+        client_id:         factLookup?.client_id || null,
+        original_ticket_id: factLookup?.id || null,
+        motivo,
+        amount:            montoNum,
+        itbis_revertido:   itbisRev,
+        forma_devolucion:  forma,
+        comentario:        comentario.trim(),
+        cajero_id:         user?.id || null,
+      }
+      await window.electronAPI.notas.create(data)
+      // Reload notes from DB
+      const fresh = await window.electronAPI.notas.all()
+      setNotes(fresh || [])
+      // Reset form
+      setClientName(''); setClientRNC(''); setFactNo(''); setMonto(''); setComentario('')
+      setFactLookup(null)
+      showToast(L('Nota de crédito emitida', 'Credit note issued'))
+    } catch (e) {
+      console.error('notaCreate error:', e)
+      showToast(L('Error al emitir nota', 'Error issuing note'))
+    } finally {
+      setSubmitting(false)
     }
-    setNotes(prev => [note, ...prev])
-    // reset form
-    setClientName(''); setClientRNC(''); setFactNo(''); setMonto(''); setComentario('')
-    setFactLookup(null); rnc.clear()
-    showToast(`Nota de crédito ${ncf} emitida`)
   }
+
   function showToast(msg) {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
+  }
+
+  // ── Popover ticket lookup ────────────────────────────────────────────────────
+  function getPopoverTicket(ticketId) {
+    return tickets.find(t => t.id === ticketId) || null
   }
 
   return (
@@ -326,26 +342,36 @@ export default function CreditNotes() {
       <div className="bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
           <FileMinus size={20} className="text-slate-500" />
-          <h1 className="text-lg font-semibold text-slate-800">Notas de Crédito</h1>
+          <h1 className="text-lg font-semibold text-slate-800">{L('Notas de Crédito', 'Credit Notes')}</h1>
           <span className="text-xs text-slate-400 ml-1">Secuencia B04</span>
         </div>
-        <button
-          onClick={() => document.getElementById('nc-form')?.scrollIntoView({ behavior: 'smooth' })}
-          className="flex items-center gap-1.5 text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700"
-        >
-          <Plus size={14} />
-          Nueva nota
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={loadAll}
+            disabled={loading}
+            className="flex items-center gap-1.5 text-sm border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            {L('Actualizar', 'Refresh')}
+          </button>
+          <button
+            onClick={() => document.getElementById('nc-form')?.scrollIntoView({ behavior: 'smooth' })}
+            className="flex items-center gap-1.5 text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700"
+          >
+            <Plus size={14} />
+            {L('Nueva nota', 'New note')}
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto flex flex-col gap-4 p-4">
 
         {/* ── Summary bar ── */}
         <div className="flex gap-3">
-          <MetricCard label="Total notas emitidas" value={notes.length}        sub="en todos los períodos"           icon={FileMinus}   />
-          <MetricCard label="Total devuelto"        value={fmt(totalDevuelto)}  sub="suma de todas las notas"        color="red"  icon={AlertCircle} />
-          <MetricCard label="Por devolución"        value={fmt(totalDevol)}     sub={`${notes.filter(n=>n.motivo==='Devolución').length} notas`} color="blue"   icon={RotateCcw} />
-          <MetricCard label="Por error / descuento" value={fmt(totalOther)}     sub={`${notes.filter(n=>n.motivo!=='Devolución').length} notas`} color="violet" icon={Tag}       />
+          <MetricCard label={L('Total notas emitidas', 'Total notes issued')} value={displayNotes.length} sub={L('en todos los períodos', 'all periods')} icon={FileMinus} />
+          <MetricCard label={L('Total devuelto', 'Total returned')} value={fmt(totalDevuelto)} sub={L('suma de todas las notas', 'sum of all notes')} color="red" icon={AlertCircle} />
+          <MetricCard label={L('Por devolución', 'Returns')} value={fmt(totalDevol)} sub={`${displayNotes.filter(n=>n.motivo==='Devolución').length} notas`} color="blue" icon={RotateCcw} />
+          <MetricCard label={L('Por error / descuento', 'Error / discount')} value={fmt(totalOther)} sub={`${displayNotes.filter(n=>n.motivo!=='Devolución').length} notas`} color="violet" icon={Tag} />
         </div>
 
         {/* ── Filter bar ── */}
@@ -371,7 +397,7 @@ export default function CreditNotes() {
                 <input
                   value={search}
                   onChange={e => setSearch(e.target.value)}
-                  placeholder="Cliente o # nota…"
+                  placeholder={L('Cliente o # nota…', 'Client or note #…')}
                   className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 w-48"
                 />
               </div>
@@ -390,10 +416,13 @@ export default function CreditNotes() {
 
           {/* Rows */}
           <div className="divide-y divide-slate-50">
-            {visible.length === 0 && (
-              <div className="py-12 text-center text-sm text-slate-400">No hay notas en esta categoría.</div>
+            {loading && (
+              <div className="py-12 text-center text-sm text-slate-400">{L('Cargando…', 'Loading…')}</div>
             )}
-            {visible.map(n => (
+            {!loading && visible.length === 0 && (
+              <div className="py-12 text-center text-sm text-slate-400">{L('No hay notas en esta categoría.', 'No notes in this category.')}</div>
+            )}
+            {!loading && visible.map(n => (
               <div
                 key={n.id}
                 onClick={() => setSelected(s => s?.id === n.id ? null : n)}
@@ -413,14 +442,14 @@ export default function CreditNotes() {
                 {/* Factura original */}
                 <div className={`${COLS[2].cls} relative`}>
                   <button
-                    onClick={e => { e.stopPropagation(); setPopover(v => v === n.factOrig ? null : n.factOrig) }}
+                    onClick={e => { e.stopPropagation(); setPopover(v => v === n.ticketId ? null : n.ticketId) }}
                     className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
                   >
                     {n.factOrig}
-                    <ExternalLink size={10} />
+                    {n.ticketId && <ExternalLink size={10} />}
                   </button>
-                  {popover === n.factOrig && (
-                    <InvoicePopover factNo={n.factOrig} onClose={() => setPopover(null)} />
+                  {popover === n.ticketId && n.ticketId && (
+                    <InvoicePopover ticket={getPopoverTicket(n.ticketId)} onClose={() => setPopover(null)} />
                   )}
                 </div>
 
@@ -476,7 +505,7 @@ export default function CreditNotes() {
             <div className="flex-1" />
             <button className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
               <Printer size={15} />
-              Imprimir nota
+              {L('Imprimir nota', 'Print note')}
             </button>
           </div>
         )}
@@ -484,11 +513,11 @@ export default function CreditNotes() {
         {/* ── Entry form ── */}
         <div id="nc-form" className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex-shrink-0">
           <div className="flex items-center justify-between mb-4">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Nueva nota de crédito</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">{L('Nueva nota de crédito', 'New credit note')}</p>
             {isCashier && (
               <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">
                 <Lock size={12} />
-                Requiere PIN de gerente
+                {L('Requiere PIN de gerente', 'Manager PIN required')}
               </span>
             )}
           </div>
@@ -497,56 +526,48 @@ export default function CreditNotes() {
           <div className="flex gap-3 mb-3 flex-wrap">
             {/* RNC */}
             <div className="w-44">
-              <label className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 block">RNC cliente</label>
-              <div className="relative">
-                <input
-                  value={clientRNC}
-                  onChange={e => { setClientRNC(e.target.value); rnc.lookup(e.target.value) }}
-                  placeholder="000-00000-0"
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                />
-                {rnc.loading && (
-                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 animate-pulse">buscando…</span>
-                )}
-              </div>
-              {rnc.result && (
-                <p className="text-[10px] text-emerald-600 mt-0.5 truncate">✓ {rnc.result.name}</p>
-              )}
+              <label className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 block">RNC {L('cliente', 'client')}</label>
+              <input
+                value={clientRNC}
+                onChange={e => setClientRNC(e.target.value)}
+                placeholder="000-00000-0"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
             </div>
 
             {/* Client name */}
             <div className="flex-1 min-w-[180px]">
-              <label className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 block">Nombre / empresa</label>
+              <label className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 block">{L('Nombre / empresa', 'Name / company')}</label>
               <input
                 value={clientName}
                 onChange={e => setClientName(e.target.value)}
-                placeholder="Nombre del cliente…"
+                placeholder={L('Nombre del cliente…', 'Client name…')}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
 
             {/* Factura original */}
             <div className="w-48">
-              <label className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 block">Factura original</label>
+              <label className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 block">{L('Factura original', 'Original invoice')}</label>
               <div className="relative">
                 <input
                   value={factNo}
                   onChange={e => { setFactNo(e.target.value); setFactLookup(null) }}
                   onBlur={handleFactBlur}
-                  placeholder="F-2024-0081"
+                  placeholder="T-0081"
                   className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 ${
                     factLookup ? 'border-emerald-300 bg-emerald-50/40' : 'border-slate-200'
                   }`}
                 />
                 {factLoading && (
-                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 animate-pulse">buscando…</span>
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 animate-pulse">{L('buscando…', 'searching…')}</span>
                 )}
               </div>
               {factLookup && (
-                <p className="text-[10px] text-emerald-600 mt-0.5 truncate">✓ {factLookup.client} · {fmt(factLookup.total)}</p>
+                <p className="text-[10px] text-emerald-600 mt-0.5 truncate">✓ {factLookup.client_name || 'Consumidor Final'} · {fmt(factLookup.total)}</p>
               )}
               {factNo && !factLookup && !factLoading && (
-                <p className="text-[10px] text-slate-400 mt-0.5">Factura no encontrada en demo</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">{L('Factura no encontrada', 'Invoice not found')}</p>
               )}
             </div>
           </div>
@@ -555,19 +576,19 @@ export default function CreditNotes() {
           {factLookup && (
             <div className="mb-3 rounded-xl bg-slate-50 border border-slate-200 p-3 flex gap-6 flex-wrap">
               <div>
-                <p className="text-[10px] text-slate-400 uppercase tracking-wider">NCF original</p>
-                <p className="text-xs font-mono font-medium text-slate-700">{factLookup.ncf}</p>
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider">NCF {L('original', 'original')}</p>
+                <p className="text-xs font-mono font-medium text-slate-700">{factLookup.ncf || '—'}</p>
               </div>
               <div>
-                <p className="text-[10px] text-slate-400 uppercase tracking-wider">Servicios</p>
-                <p className="text-xs text-slate-700">{factLookup.services.join(', ')}</p>
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider">{L('Estado', 'Status')}</p>
+                <p className="text-xs text-slate-700">{factLookup.status || '—'}</p>
               </div>
               <div>
                 <p className="text-[10px] text-slate-400 uppercase tracking-wider">Subtotal</p>
                 <p className="text-xs font-medium text-slate-700">{fmt(factLookup.subtotal)}</p>
               </div>
               <div>
-                <p className="text-[10px] text-slate-400 uppercase tracking-wider">Total facturado</p>
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider">{L('Total facturado', 'Total billed')}</p>
                 <p className="text-sm font-bold text-slate-800">{fmt(factLookup.total)}</p>
               </div>
             </div>
@@ -577,7 +598,7 @@ export default function CreditNotes() {
           <div className="flex gap-3 mb-3 flex-wrap items-end">
             {/* Motivo */}
             <div>
-              <label className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 block">Motivo</label>
+              <label className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 block">{L('Motivo', 'Reason')}</label>
               <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm">
                 {MOTIVOS.map(m => {
                   const meta = MOTIVO_META[m]
@@ -600,7 +621,7 @@ export default function CreditNotes() {
 
             {/* Monto */}
             <div className="w-36">
-              <label className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 block">Monto a devolver</label>
+              <label className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 block">{L('Monto a devolver', 'Amount to refund')}</label>
               <div className="relative">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400">RD$</span>
                 <input
@@ -616,7 +637,7 @@ export default function CreditNotes() {
 
             {/* Forma devolución */}
             <div className="w-48">
-              <label className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 block">Forma de devolución</label>
+              <label className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 block">{L('Forma de devolución', 'Refund method')}</label>
               <div className="relative">
                 <select
                   value={forma}
@@ -631,11 +652,11 @@ export default function CreditNotes() {
 
             {/* Comentario */}
             <div className="flex-1 min-w-[180px]">
-              <label className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 block">Comentario (opcional)</label>
+              <label className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 block">{L('Comentario (opcional)', 'Comment (optional)')}</label>
               <input
                 value={comentario}
                 onChange={e => setComentario(e.target.value)}
-                placeholder="Observaciones…"
+                placeholder={L('Observaciones…', 'Notes…')}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
@@ -643,11 +664,11 @@ export default function CreditNotes() {
             {/* Emit button */}
             <button
               onClick={tryEmit}
-              disabled={!formValid}
+              disabled={!formValid || submitting}
               className="flex items-center gap-1.5 px-5 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap self-end"
             >
               {isCashier && <Lock size={13} />}
-              Emitir nota de crédito
+              {submitting ? L('Emitiendo…', 'Issuing…') : L('Emitir nota de crédito', 'Issue credit note')}
             </button>
           </div>
 
@@ -657,7 +678,7 @@ export default function CreditNotes() {
           }`}>
             {/* Factura original total */}
             <div>
-              <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Factura original</p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">{L('Factura original', 'Original invoice')}</p>
               <p className="font-semibold text-slate-700 tabular-nums">
                 {factLookup ? fmt(factLookup.total) : <span className="text-slate-300">—</span>}
               </p>
@@ -665,7 +686,7 @@ export default function CreditNotes() {
             <span className="text-slate-300 text-lg">→</span>
             {/* Monto nota */}
             <div>
-              <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Monto nota</p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">{L('Monto nota', 'Note amount')}</p>
               <p className={`font-bold tabular-nums ${montoNum > 0 ? 'text-red-600' : 'text-slate-300'}`}>
                 {montoNum > 0 ? `− ${fmt(montoNum)}` : '—'}
               </p>
@@ -673,23 +694,17 @@ export default function CreditNotes() {
             <span className="text-slate-300 text-lg">→</span>
             {/* ITBIS a revertir */}
             <div>
-              <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">ITBIS a revertir</p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">{L('ITBIS a revertir', 'ITBIS reversal')}</p>
               <p className={`font-semibold tabular-nums ${montoNum > 0 ? 'text-red-500' : 'text-slate-300'}`}>
                 {montoNum > 0 ? `− ${fmt(itbisRev)}` : '—'}
               </p>
             </div>
             <span className="text-slate-300 text-lg">→</span>
-            {/* NCF asignado */}
-            <div>
-              <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">NCF a asignar</p>
-              <p className="font-mono font-semibold text-slate-700">{nextNCF}</p>
-            </div>
             {/* Forma */}
             {montoNum > 0 && (
               <>
-                <span className="text-slate-300 text-lg">→</span>
                 <div>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Vía</p>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">{L('Vía', 'Via')}</p>
                   <p className="font-medium text-slate-700">{forma}</p>
                 </div>
               </>
@@ -698,7 +713,7 @@ export default function CreditNotes() {
             {factLookup && montoNum > factLookup.total && (
               <span className="ml-auto flex items-center gap-1 text-xs text-red-500 bg-red-100 px-3 py-1 rounded-full">
                 <AlertCircle size={12} />
-                Monto excede factura original
+                {L('Monto excede factura original', 'Amount exceeds original invoice')}
               </span>
             )}
           </div>

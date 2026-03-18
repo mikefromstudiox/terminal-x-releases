@@ -140,8 +140,8 @@ export default function Login() {
   // Auto-submit when 4 digits entered
   useEffect(() => {
     if (pin.length !== 4) return
-    const timer = setTimeout(() => {
-      const ok = login(pin)
+    const timer = setTimeout(async () => {
+      const ok = await login(pin)
       if (!ok) {
         setError(t('login_wrong_pin'))
         setShake(true)
@@ -173,9 +173,9 @@ export default function Login() {
     setError(null)
   }
 
-  function handlePasswordSubmit(e) {
+  async function handlePasswordSubmit(e) {
     e.preventDefault()
-    const ok = loginWithPassword(username, password)
+    const ok = await loginWithPassword(username, password)
     if (!ok) setError(t('login_wrong_credentials'))
   }
 
