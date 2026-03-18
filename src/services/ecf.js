@@ -146,136 +146,231 @@ export const BUSINESS_TYPES = {
   otro:          { es: 'Otro',              en: 'Other',             enabled: ['E31','E32'] },
 }
 
-// ── Internal helpers ──────────────────────────────────────────────────────────
+// ── ef2.do config (Vite exposes VITE_* vars to the renderer) ──────────────────
+const BASE_URL     = import.meta.env.VITE_EF2_BASE_URL || 'https://master.ef2.do/api2'
+const EF2_USERNAME = import.meta.env.VITE_EF2_USERNAME  || ''
+const EF2_TOKEN    = import.meta.env.VITE_EF2_TOKEN     || ''
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Date format required by ef2.do — dd-mm-yyyy
+export function formatEF2Date(date = new Date()) {
+  return [
+    String(date.getDate()).padStart(2, '0'),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    date.getFullYear(),
+  ].join('-')
+}
+
+// RNC validation — 9 digits (empresa) or 11 digits (cédula)
+export function validateRNC(rnc) {
+  const clean = String(rnc || '').replace(/[-\s]/g, '')
+  return /^\d{9}$|^\d{11}$/.test(clean)
+}
+
+// ── Stub helpers (used when EF2_TOKEN is not set) ─────────────────────────────
 function simulateDelay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-// Deterministic-looking eNCF sequence from ticket data
 function generateENCF(ncfType, ticketId) {
   const seq = String((ticketId * 7919 + 10_000_000) % 90_000_000 + 10_000_000).slice(0, 8)
   return `${ncfType}${seq}`
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+async function signAndSubmitECFStub(invoiceData) {
+  console.log('[e-CF STUB] signAndSubmitECF →', invoiceData.ticket?.ticketNo, invoiceData.ncfType ?? `E${invoiceData.tipoECF}`, invoiceData.totales?.total ?? invoiceData.total)
+  await simulateDelay(1200)
+
+  const ncfType = invoiceData.ncfType ?? `E${invoiceData.tipoECF}`
+  const ticketId = invoiceData.ticket?.id ?? Date.now()
+  const eNCF = generateENCF(ncfType, ticketId)
+  const totalAmt = invoiceData.totales?.total ?? invoiceData.total ?? 0
+
+  return {
+    eNCF,
+    status:      'ACEPTADO',
+    trackId:     `ef2-stub-${Date.now()}`,
+    submittedAt: new Date().toISOString(),
+    xmlHash:     btoa(`${eNCF}:${totalAmt}`).slice(0, 32),
+    qrLink:      null,
+    pdfUrl:      null,
+    _stub:       true,
+  }
+}
+
+// ── Real ef2.do integration ───────────────────────────────────────────────────
 
 /**
  * signAndSubmitECF
  *
- * Builds the e-CF XML, signs it with the stored business certificate,
- * and submits to DGII via ef2.do. Returns the accepted eNCF and tracking info.
+ * If VITE_EF2_TOKEN is set, calls the real ef2.do API.
+ * Otherwise falls back to the stub (app works without e-CF configured).
  *
- * Real implementation: POST https://api.ef2.do/v1/ecf/submit
+ * Accepts EITHER:
+ *   - New format: { tipoECF, emisor, comprador, totales, items, fechaVencimiento }
+ *   - Legacy stub format: { ncfType, subtotal, itbis, total, ticket, ... }
  *
- * @param {object} invoiceData
- * @param {string}  invoiceData.ncfType      'E31' | 'E32'
- * @param {string}  invoiceData.rnc          Client RNC (required for E31)
- * @param {string}  invoiceData.rncName      Client company name
- * @param {string}  invoiceData.tipo         'contado' | 'credito'
- * @param {string}  invoiceData.formaPago    'cash' | 'card' | 'transfer' | 'cheque' | 'credit'
- * @param {number}  invoiceData.subtotal
- * @param {number}  invoiceData.itbis
- * @param {number}  invoiceData.ley
- * @param {number}  invoiceData.total
- * @param {object}  invoiceData.ticket       { id, ticketNo, vehicle, services[] }
- * @param {Date}    invoiceData.paidAt
- *
- * @returns {Promise<{eNCF, status, trackId, submittedAt, xmlHash}>}
+ * Returns: { eNCF, status, trackId, submittedAt, qrLink, pdfUrl }
  */
 export async function signAndSubmitECF(invoiceData) {
-  console.log('[e-CF] signAndSubmitECF →', invoiceData.ticket?.ticketNo, invoiceData.ncfType, invoiceData.total)
-
-  // Stub: simulate ef2.do signing + DGII round-trip (~1.2 s)
-  await simulateDelay(1200)
-
-  const eNCF = generateENCF(invoiceData.ncfType, invoiceData.ticket?.id ?? Date.now())
-
-  // Stub response — mirrors ef2.do response schema
-  return {
-    eNCF,
-    status:      'ACEPTADO',
-    trackId:     `ef2-${Date.now()}`,
-    submittedAt: new Date().toISOString(),
-    xmlHash:     btoa(`${eNCF}:${invoiceData.total}`).slice(0, 32),
+  if (!EF2_TOKEN) {
+    return signAndSubmitECFStub(invoiceData)
   }
 
-  /* Real implementation:
-  const response = await fetch('https://api.ef2.do/v1/ecf/submit', {
+  const {
+    tipoECF,           // "31", "32", etc.
+    emisor,            // { rnc, nombre, direccion, email }
+    comprador,         // { rnc, nombre, email, direccion } — null for E32
+    totales,           // { subtotal, itbis, total }
+    items,             // [{ nombre, precio }]
+    fechaVencimiento,  // "dd-mm-yyyy" or null
+  } = invoiceData
+
+  // Step 1 — Authenticate
+  const authRes = await fetch(`${BASE_URL}/auth/login.php`, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${EF2_API_KEY}` },
-    body: JSON.stringify({
-      ncf_type:    invoiceData.ncfType,
-      rnc_emisor:  BUSINESS_RNC,          // from Settings
-      rnc_receptor: invoiceData.rnc,
-      fecha:       invoiceData.paidAt.toISOString(),
-      subtotal:    invoiceData.subtotal,
-      itbis:       invoiceData.itbis,
-      total:       invoiceData.total,
-      items:       invoiceData.ticket.services.map(s => ({ descripcion: s.name, valor: s.price })),
-      forma_pago:  invoiceData.formaPago,
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ username: EF2_USERNAME, password: EF2_TOKEN }),
   })
-  if (!response.ok) throw new Error(`ef2.do error: ${response.status}`)
-  return response.json()
-  */
+  if (!authRes.ok) throw new Error(`Error de autenticación HTTP ${authRes.status}`)
+  const auth = await authRes.json()
+  if (!auth.success) throw new Error(`Error de autenticación ef2.do: ${auth.message || 'credenciales inválidas'}`)
+
+  // Step 2 — Build e-CF payload
+  const isE31 = tipoECF === '31'
+  const ecfType = ECF_TYPES[`E${tipoECF}`]
+
+  const factura = {
+    ECF: {
+      Encabezado: {
+        Version: '1.0',
+        IdDoc: {
+          TipoeCF: tipoECF,
+          // E32 does NOT use FechaVencimientoSecuencia per DGII spec
+          ...(fechaVencimiento && !ecfType?.noVencimiento
+            ? { FechaVencimientoSecuencia: fechaVencimiento }
+            : {}),
+          IndicadorMontoGravado: '0',
+          TipoIngresos:          '01',
+          TipoPago:              '1',
+        },
+        Emisor: {
+          RNCEmisor:         emisor.rnc        || '',
+          RazonSocialEmisor: emisor.nombre     || '',
+          NombreComercial:   emisor.nombre     || '',
+          DireccionEmisor:   emisor.direccion  || 'Santo Domingo',
+          Municipio:         '010100',
+          Provincia:         '010000',
+          CorreoEmisor:      emisor.email      || '',
+          FechaEmision:      formatEF2Date(),
+        },
+        // Comprador block — required for E31, optional for E32 above RD$250K
+        ...(comprador?.rnc ? {
+          Comprador: {
+            RNCComprador:        comprador.rnc,
+            RazonSocialComprador: comprador.nombre     || comprador.rnc,
+            CorreoComprador:     comprador.email       || '',
+            DireccionComprador:  comprador.direccion   || 'Santo Domingo',
+            MunicipioComprador:  '010100',
+            ProvinciaComprador:  '010000',
+          },
+        } : {}),
+        Totales: {
+          MontoGravadoTotal: totales.subtotal.toFixed(2),
+          MontoGravadoI1:    totales.subtotal.toFixed(2),
+          ITBIS1:            '18',
+          TotalITBIS:        totales.itbis.toFixed(2),
+          TotalITBIS1:       totales.itbis.toFixed(2),
+          MontoTotal:        totales.total.toFixed(2),
+        },
+      },
+      DetallesItems: {
+        Item: items.map((item, idx) => ({
+          NumeroLinea:            String(idx + 1),
+          IndicadorFacturacion:   '1',
+          NombreItem:             item.nombre,
+          IndicadorBienoServicio: '2',
+          CantidadItem:           '1',
+          UnidadMedida:           '43',
+          PrecioUnitarioItem:     item.precio.toFixed(2),
+          MontoItem:              item.precio.toFixed(2),
+        })),
+      },
+    },
+  }
+
+  // Step 3 — Submit to ef2.do
+  const res = await fetch(`${BASE_URL}/procesar_factura.php`, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${EF2_TOKEN}`,
+    },
+    body: JSON.stringify(factura),
+  })
+  if (!res.ok) throw new Error(`Error ef2.do HTTP ${res.status}`)
+  const result = await res.json()
+
+  // Step 4 — Parse response
+  if (result.success) {
+    return {
+      eNCF:        result.ncf,
+      status:      result.estado   || 'ACEPTADO',
+      trackId:     result.ncf,
+      submittedAt: new Date().toISOString(),
+      qrLink:      result.qr_link          || null,
+      pdfUrl:      result.pdf_cloud_url    || null,
+    }
+  } else {
+    throw new Error(result.message || 'Error al procesar comprobante en ef2.do')
+  }
 }
 
 /**
- * getQRCode
- *
- * Fetches the DGII verification QR code for the given e-NCF.
- * The QR encodes the official DGII verification URL so anyone can
- * scan and confirm the receipt is legitimate.
- *
- * Real implementation: GET https://api.ef2.do/v1/ecf/qr/{eNCF}
- *
- * @param   {string} eNCF  e.g. 'E3212345678'
- * @returns {Promise<{qrUrl, verificationUrl}>}
+ * testEF2Connection — calls auth endpoint to verify credentials.
+ * Used by the Admin panel test button.
+ */
+export async function testEF2Connection() {
+  if (!EF2_TOKEN) {
+    throw new Error('Token no configurado — agrega VITE_EF2_TOKEN a .env')
+  }
+  const res = await fetch(`${BASE_URL}/auth/login.php`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ username: EF2_USERNAME, password: EF2_TOKEN }),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  if (!data.success) throw new Error(data.message || 'Credenciales inválidas')
+  return { ok: true }
+}
+
+/**
+ * getQRCode — fallback QR generation used when ef2.do doesn't return qr_link.
+ * With real API the QR comes directly in the response so this is rarely used.
  */
 export async function getQRCode(eNCF) {
   console.log('[e-CF] getQRCode →', eNCF)
-
   await simulateDelay(400)
-
-  // DGII's official verification portal (test environment)
   const verificationUrl = `https://ecf.dgii.gov.do/testecf/consultatimbre?eNCF=${encodeURIComponent(eNCF)}`
-
-  // Stub: use qrserver.com to generate a real scannable QR for demo.
-  // Real implementation: ef2.do returns the QR as base64 in its response,
-  // no separate call needed — the QR is in signAndSubmitECF's result.
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=128x128&margin=4&data=${encodeURIComponent(verificationUrl)}`
-
   return { qrUrl, verificationUrl }
 }
 
 /**
- * validateECF
- *
- * Queries DGII (via ef2.do) to confirm the e-CF was accepted and
- * retrieve its current status. Use this for post-issuance verification
- * or when a customer disputes a receipt.
- *
- * Real implementation: GET https://api.ef2.do/v1/ecf/validate/{eNCF}
- *
- * @param   {string} eNCF
- * @returns {Promise<{valid, status, message, acceptedAt}>}
+ * validateECF — post-issuance verification stub.
  */
 export async function validateECF(eNCF) {
   console.log('[e-CF] validateECF →', eNCF)
-
   await simulateDelay(800)
-
   return {
     valid:      true,
     status:     'ACEPTADO',
     message:    'Comprobante fiscal electrónico aceptado por la DGII.',
     acceptedAt: new Date().toISOString(),
   }
-
-  /* Real implementation:
-  const response = await fetch(`https://api.ef2.do/v1/ecf/validate/${eNCF}`, {
-    headers: { 'Authorization': `Bearer ${EF2_API_KEY}` },
-  })
-  return response.json()
-  */
 }
+
+/** True if the real API is configured (token present in env) */
+export const EF2_CONFIGURED = Boolean(EF2_TOKEN)

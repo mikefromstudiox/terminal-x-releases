@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, Loader2, QrCode, User } from 'lucide-react'
 import { useLang } from '../i18n'
-import { signAndSubmitECF, getQRCode, ECF_TYPES } from '../services/ecf'
+import { signAndSubmitECF, getQRCode, ECF_TYPES, validateRNC, EF2_CONFIGURED } from '../services/ecf'
 import { hasIPC } from '../hooks/useDB'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -150,7 +150,7 @@ function ToggleBtn({ active, onClick, children }) {
 }
 
 // ── Success / receipt view ────────────────────────────────────────────────────
-function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang }) {
+function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, pdfUrl }) {
   const ecfType = ECF_TYPES[ncfType]
   const fmtISO  = s => new Date(s).toLocaleString('es-DO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
@@ -217,15 +217,19 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang }
 
       {/* Actions */}
       <div className="flex gap-3 w-full">
-        <button
-          onClick={() => console.log('[PRINT] e-CF receipt', ecfResult.eNCF, 'QR:', qrUrl)}
-          className="flex-1 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[13px] font-semibold hover:bg-slate-50 transition-colors"
-        >
-          {lang === 'es' ? 'Imprimir Recibo' : 'Print Receipt'}
-        </button>
+        {pdfUrl && (
+          <a
+            href={pdfUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 border border-sky-200 text-sky-600 rounded-xl text-[13px] font-semibold hover:bg-sky-50 transition-colors"
+          >
+            {lang === 'es' ? 'Ver PDF' : 'View PDF'}
+          </a>
+        )}
         <button
           onClick={onClose}
-          className="flex-[2] py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-[13px] font-bold transition-colors"
+          className={`${pdfUrl ? 'flex-[2]' : 'flex-1'} py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-[13px] font-bold transition-colors`}
         >
           {lang === 'es' ? 'Cerrar' : 'Close'}
         </button>
@@ -263,6 +267,10 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const [qrUrl,      setQrUrl]      = useState(null)
   const [ecfError,   setEcfError]   = useState('')
 
+  // ── Business settings (emisor data for ef2.do) ──────────────────────────────
+  const [bizSettings, setBizSettings] = useState(null)
+  const [ncfSeqs,     setNcfSeqs]     = useState([])
+
   // ── Client search ───────────────────────────────────────────────────────────
   const [allClients,    setAllClients]    = useState([])
   const [clientQuery,   setClientQuery]   = useState('')
@@ -273,6 +281,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   useEffect(() => {
     if (!hasIPC()) return
     window.electronAPI.clients.all().then(list => setAllClients(list || [])).catch(() => {})
+    window.electronAPI.settings.get().then(s => setBizSettings(s || {})).catch(() => setBizSettings({}))
   }, [])
 
   useEffect(() => {
@@ -282,9 +291,9 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
     }
     window.electronAPI.ncf.sequences()
       .then(rows => {
+        setNcfSeqs(rows || [])
         const enabled = (rows || []).filter(r => r.enabled === 1)
         if (enabled.length === 0) {
-          // Fallback: use E31 and E32
           setEnabledEcfTypes(Object.values(ECF_TYPES).filter(e => e.defaultEnabled))
         } else {
           setEnabledEcfTypes(
@@ -344,10 +353,10 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const canSubmit =
     (tipo === 'credito' || formaPago !== null) &&
     (tipo !== 'contado' || formaPago !== 'efectivo' || recibidoNum >= total) &&
-    (!ECF_TYPES[ncfType]?.requiresRnc || rnc.trim().length >= 9)
+    (!ECF_TYPES[ncfType]?.requiresRnc || validateRNC(rnc))
 
   function lookupRnc() {
-    if (rnc.trim().length >= 9) setRncName('Empresa Demo S.R.L.')
+    if (validateRNC(rnc)) setRncName(rncName || 'Empresa S.R.L.')
   }
 
   async function handleConfirm() {
@@ -361,13 +370,40 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
     const t2 = setTimeout(() => setSubmitStep(2), 850)
 
     try {
+      const tipoNum = ncfType.replace('E', '') // 'E31' → '31'
+      const seq     = ncfSeqs.find(s => s.type === ncfType)
+
+      // Convert valid_until yyyy-mm-dd → dd-mm-yyyy for ef2.do
+      let fechaVencimiento = null
+      if (seq?.valid_until && !ECF_TYPES[ncfType]?.noVencimiento) {
+        const [y, m, d] = seq.valid_until.split('-')
+        fechaVencimiento = `${d}-${m}-${y}`
+      }
+
       const invoiceData = {
+        // ef2.do format
+        tipoECF: tipoNum,
+        emisor: {
+          rnc:       bizSettings?.biz_rnc     || '',
+          nombre:    bizSettings?.biz_name    || 'Terminal X',
+          direccion: bizSettings?.biz_address || 'Santo Domingo',
+          email:     bizSettings?.biz_email   || '',
+        },
+        comprador: ECF_TYPES[ncfType]?.requiresRnc && validateRNC(rnc) ? {
+          rnc:       rnc.replace(/[-\s]/g, ''),
+          nombre:    rncName || rnc,
+          email:     selectedClient?.email   || '',
+          direccion: selectedClient?.address || 'Santo Domingo',
+        } : null,
+        totales: { subtotal, itbis, total },
+        items: ticket.services.map(s => ({ nombre: s.name, precio: s.price })),
+        fechaVencimiento,
+        // Legacy fields (used by stub fallback)
         ncfType, rnc, rncName, tipo,
-        formaPago: tipo === 'credito' ? 'credit' : formaPago,
-        subtotal, itbis, ley, total,
-        ticket: { id: ticket.id, ticketNo: ticket.ticketNo, vehicle: ticket.vehicle, services: ticket.services },
+        formaPago:  tipo === 'credito' ? 'credit' : formaPago,
+        ticket:     { id: ticket.id, ticketNo: ticket.ticketNo, vehicle: ticket.vehicle, services: ticket.services },
         comentario,
-        paidAt: new Date(),
+        paidAt:     new Date(),
       }
 
       const result = await signAndSubmitECF(invoiceData)
@@ -375,10 +411,14 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
       setEcfResult(result)
       setEcfState('success')
 
-      // Fetch QR non-blocking — receipt is valid regardless
-      getQRCode(result.eNCF)
-        .then(({ qrUrl: url }) => setQrUrl(url))
-        .catch(() => { /* QR optional — don't fail receipt */ })
+      // Use qrLink from ef2.do directly; fall back to stub QR generation
+      if (result.qrLink) {
+        setQrUrl(result.qrLink)
+      } else {
+        getQRCode(result.eNCF)
+          .then(({ qrUrl: url }) => setQrUrl(url))
+          .catch(() => { /* QR optional */ })
+      }
 
     } catch (err) {
       clearTimeout(t1); clearTimeout(t2)
@@ -441,6 +481,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
             ncfType={ncfType}
             onClose={handleSuccessClose}
             lang={lang}
+            pdfUrl={ecfResult?.pdfUrl || null}
           />
         ) : (
 

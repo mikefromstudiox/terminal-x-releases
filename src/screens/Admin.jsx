@@ -2,11 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Settings, Building2, Upload, X, CheckCircle2, Loader2, ImageOff,
   Users, UserCheck, KeyRound, LayoutGrid, Plus, Edit2, Power,
-  Eye, EyeOff, AlertCircle, Printer, FileText,
+  Eye, EyeOff, AlertCircle, Printer, FileText, Wifi, WifiOff, ExternalLink,
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { hasIPC } from '../hooks/useDB'
-import { ECF_TYPES, BUSINESS_TYPES } from '../services/ecf'
+import { ECF_TYPES, BUSINESS_TYPES, testEF2Connection, EF2_CONFIGURED } from '../services/ecf'
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
 
@@ -670,9 +670,12 @@ function FiscalNCF() {
   const L = (es, en) => lang === 'es' ? es : en
   const { toast, show } = useToast()
 
-  const [sequences, setSequences] = useState([])
-  const [saving,    setSaving]    = useState({})
-  const [saved,     setSaved]     = useState({})
+  const [sequences,  setSequences]  = useState([])
+  const [saving,     setSaving]     = useState({})
+  const [saved,      setSaved]      = useState({})
+  const [testing,    setTesting]    = useState(false)
+  const [testResult, setTestResult] = useState(null)  // null | 'ok' | 'error'
+  const [testMsg,    setTestMsg]    = useState('')
 
   const load = useCallback(async () => {
     if (!hasIPC()) return
@@ -727,11 +730,90 @@ function FiscalNCF() {
     }
   }
 
+  async function handleTest() {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      await testEF2Connection()
+      setTestResult('ok')
+      setTestMsg(L('Conectado a ef2.do ✓', 'Connected to ef2.do ✓'))
+      show(L('Conectado a ef2.do ✓', 'Connected to ef2.do ✓'))
+    } catch (err) {
+      setTestResult('error')
+      setTestMsg(err.message || L('Error de conexión', 'Connection error'))
+      show(err.message || L('Error de conexión', 'Connection error'), 'error')
+    } finally {
+      setTesting(false)
+    }
+  }
+
   const ecfList = Object.values(ECF_TYPES)
 
   return (
     <div className="max-w-2xl space-y-5">
       <Toast toast={toast} />
+
+      {/* ── e-CF connection status ─────────────────────────────────────────── */}
+      <div className="border border-slate-200 rounded-xl overflow-hidden">
+        <div className="bg-slate-50 border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
+          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            {L('Configuración e-CF — ef2.do', 'e-CF Configuration — ef2.do')}
+          </p>
+          {EF2_CONFIGURED
+            ? <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                <Wifi size={10} /> {L('Token configurado', 'Token configured')}
+              </span>
+            : <span className="flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                <WifiOff size={10} /> {L('Sin token — modo stub', 'No token — stub mode')}
+              </span>
+          }
+        </div>
+        <div className="px-4 py-4 flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            {EF2_CONFIGURED ? (
+              <p className="text-[12px] text-slate-600">
+                {L(
+                  'El API de ef2.do está configurado. Los comprobantes se enviarán a la DGII en tiempo real.',
+                  'ef2.do API is configured. Receipts will be submitted to DGII in real time.'
+                )}
+              </p>
+            ) : (
+              <p className="text-[12px] text-slate-500">
+                {L(
+                  'Sin token configurado — la app opera en modo stub. Los eNCF son simulados y no se envían a la DGII.',
+                  'No token configured — app runs in stub mode. eNCFs are simulated and not sent to DGII.'
+                )}
+                {' '}
+                <a href="https://ef2.do" target="_blank" rel="noreferrer"
+                  className="text-sky-600 hover:underline inline-flex items-center gap-0.5">
+                  ef2.do <ExternalLink size={10} className="inline" />
+                </a>
+              </p>
+            )}
+            {testResult && (
+              <div className={`mt-2 flex items-center gap-1.5 text-[12px] font-semibold ${
+                testResult === 'ok' ? 'text-emerald-600' : 'text-red-600'
+              }`}>
+                {testResult === 'ok' ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
+                {testMsg}
+              </div>
+            )}
+          </div>
+          {EF2_CONFIGURED && (
+            <button
+              onClick={handleTest}
+              disabled={testing}
+              className="shrink-0 flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-[12px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+            >
+              {testing
+                ? <><Loader2 size={12} className="animate-spin" /> {L('Probando…', 'Testing…')}</>
+                : <><Wifi size={12} /> {L('Probar conexión', 'Test connection')}</>
+              }
+            </button>
+          )}
+        </div>
+      </div>
+
       <div>
         <h3 className="text-[13px] font-bold text-slate-700 mb-1">
           {L('Secuencias NCF / e-CF', 'NCF / e-CF Sequences')}
