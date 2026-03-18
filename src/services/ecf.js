@@ -146,10 +146,20 @@ export const BUSINESS_TYPES = {
   otro:          { es: 'Otro',              en: 'Other',             enabled: ['E31','E32'] },
 }
 
-// ── ef2.do config (Vite exposes VITE_* vars to the renderer) ──────────────────
-const BASE_URL     = import.meta.env.VITE_EF2_BASE_URL || 'https://master.ef2.do/api2'
-const EF2_USERNAME = import.meta.env.VITE_EF2_USERNAME  || ''
-const EF2_TOKEN    = import.meta.env.VITE_EF2_TOKEN     || ''
+// ── ef2.do config ─────────────────────────────────────────────────────────────
+// BASE_URL is not used directly — all HTTP calls go through the main-process
+// IPC bridge (window.electronAPI.ef2.fetch) to avoid Chromium CORS enforcement.
+const EF2_USERNAME = import.meta.env.VITE_EF2_USERNAME || ''
+const EF2_TOKEN    = import.meta.env.VITE_EF2_TOKEN    || ''
+
+// IPC bridge to main process — no CORS, runs in Node.js
+async function ef2Post(urlPath, body, token) {
+  const api = window?.electronAPI?.ef2
+  if (!api) throw new Error('ef2 IPC bridge not available')
+  const res = await api.fetch({ method: 'POST', path: urlPath, body, token })
+  if (!res.ok) throw new Error(res.error || `ef2 IPC error on ${urlPath}`)
+  return res.data
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -227,15 +237,9 @@ export async function signAndSubmitECF(invoiceData) {
     fechaVencimiento,  // "dd-mm-yyyy" or null
   } = invoiceData
 
-  // Step 1 — Authenticate
-  const authRes = await fetch(`${BASE_URL}/auth/login.php`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ username: EF2_USERNAME, password: EF2_TOKEN }),
-  })
-  if (!authRes.ok) throw new Error(`Error de autenticación HTTP ${authRes.status}`)
-  const auth = await authRes.json()
-  if (!auth.success) throw new Error(`Error de autenticación ef2.do: ${auth.message || 'credenciales inválidas'}`)
+  // Step 1 — Authenticate (via main-process IPC — no CORS)
+  const auth = await ef2Post('/auth/login.php', { username: EF2_USERNAME, password: EF2_TOKEN })
+  if (!auth?.success) throw new Error(`Error de autenticación ef2.do: ${auth?.message || 'credenciales inválidas'}`)
 
   // Step 2 — Build e-CF payload
   const isE31 = tipoECF === '31'
@@ -300,30 +304,21 @@ export async function signAndSubmitECF(invoiceData) {
     },
   }
 
-  // Step 3 — Submit to ef2.do
-  const res = await fetch(`${BASE_URL}/procesar_factura.php`, {
-    method:  'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${EF2_TOKEN}`,
-    },
-    body: JSON.stringify(factura),
-  })
-  if (!res.ok) throw new Error(`Error ef2.do HTTP ${res.status}`)
-  const result = await res.json()
+  // Step 3 — Submit to ef2.do (via main-process IPC — no CORS)
+  const result = await ef2Post('/procesar_factura.php', factura, EF2_TOKEN)
 
   // Step 4 — Parse response
-  if (result.success) {
+  if (result?.success) {
     return {
       eNCF:        result.ncf,
-      status:      result.estado   || 'ACEPTADO',
+      status:      result.estado        || 'ACEPTADO',
       trackId:     result.ncf,
       submittedAt: new Date().toISOString(),
-      qrLink:      result.qr_link          || null,
-      pdfUrl:      result.pdf_cloud_url    || null,
+      qrLink:      result.qr_link       || null,
+      pdfUrl:      result.pdf_cloud_url || null,
     }
   } else {
-    throw new Error(result.message || 'Error al procesar comprobante en ef2.do')
+    throw new Error(result?.message || 'Error al procesar comprobante en ef2.do')
   }
 }
 
@@ -335,14 +330,8 @@ export async function testEF2Connection() {
   if (!EF2_TOKEN) {
     throw new Error('Token no configurado — agrega VITE_EF2_TOKEN a .env')
   }
-  const res = await fetch(`${BASE_URL}/auth/login.php`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ username: EF2_USERNAME, password: EF2_TOKEN }),
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const data = await res.json()
-  if (!data.success) throw new Error(data.message || 'Credenciales inválidas')
+  const data = await ef2Post('/auth/login.php', { username: EF2_USERNAME, password: EF2_TOKEN })
+  if (!data?.success) throw new Error(data?.message || 'Credenciales inválidas')
   return { ok: true }
 }
 

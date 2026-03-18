@@ -137,6 +137,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     hwid: () => ipcRenderer.invoke('license:hwid'),
   },
 
+  // ── ef2.do API proxy (bypasses CORS via main process) ─────────────────────
+  ef2: {
+    fetch: (params) => ipcRenderer.invoke('ef2:fetch', params),
+  },
+
   // ── Auto-updater ───────────────────────────────────────────────────────────
   updater: {
     install:  ()       => ipcRenderer.invoke('updater:install'),

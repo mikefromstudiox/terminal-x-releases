@@ -3,7 +3,52 @@ const path   = require('path')
 const os     = require('os')
 const fs     = require('fs')
 const crypto = require('crypto')
+const https  = require('https')
 const { initUpdater } = require('./updater')
+
+// ── ef2.do HTTP proxy (runs in main process — no CORS, no browser restrictions) ─
+// Renderer cannot call ef2.do directly due to Chromium CORS enforcement.
+// All ef2.do requests go through this IPC bridge instead.
+function ef2Fetch({ method = 'POST', path: urlPath, body, token }) {
+  return new Promise((resolve, reject) => {
+    const bodyStr = JSON.stringify(body || {})
+    const headers = {
+      'Content-Type':   'application/json',
+      'Content-Length': Buffer.byteLength(bodyStr),
+    }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+
+    const req = https.request({
+      hostname: 'master.ef2.do',
+      port:     443,
+      path:     `/api2${urlPath}`,
+      method,
+      headers,
+    }, res => {
+      let data = ''
+      res.on('data', chunk => { data += chunk })
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, json: JSON.parse(data) })
+        } catch {
+          resolve({ status: res.statusCode, json: null, raw: data })
+        }
+      })
+    })
+    req.on('error', err => reject(err))
+    req.write(bodyStr)
+    req.end()
+  })
+}
+
+ipcMain.handle('ef2:fetch', async (_, { method, path: urlPath, body, token }) => {
+  try {
+    const { status, json, raw } = await ef2Fetch({ method, path: urlPath, body, token })
+    return { ok: true, status, data: json, raw }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
 
 const isDev = process.argv.includes('--dev')
 
