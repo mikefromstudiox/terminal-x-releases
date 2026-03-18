@@ -58,13 +58,6 @@ function periodToDateRange(period) {
   return { from: '2020-01-01', to: '2099-12-31' }
 }
 
-// ── NCF Sequences (static reference display) ──────────────────────────────────
-const NCF_SEQS = {
-  B01: { name: 'Crédito Fiscal',       current: 81,  limit: 500, expires: '2026-12-31' },
-  B02: { name: 'Consumidor Final',     current: 217, limit: 500, expires: '2026-12-31' },
-  E31: { name: 'CF Electrónico',       current: 0,   limit: 0,   expires: '—'          },
-  E32: { name: 'CF Elec. Consumidor',  current: 0,   limit: 0,   expires: '—'          },
-}
 
 // ── Shared components ─────────────────────────────────────────────────────────
 function MetricCard({ label, value, sub, color = 'slate', icon: Icon }) {
@@ -196,11 +189,6 @@ function NCFSeqCard({ code, seq, accentColor }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // ── 606 SCREEN ────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-const TABS_606 = [
-  { key: 'todos',  label: 'Todos',  fn: () => true             },
-  { key: 'e31b01', label: 'E31/B01',fn: t => ['B01','E31'].includes(t.tipo) },
-  { key: 'e32b02', label: 'E32/B02',fn: t => ['B02','E32'].includes(t.tipo) },
-]
 const COLS_606 = [
   { key: 'ncf',    label: 'NCF / eNCF',   cls: 'w-40 font-mono text-xs'    },
   { key: 'client', label: 'Cliente / RNC', cls: 'flex-1 min-w-0'            },
@@ -216,12 +204,14 @@ function Screen606() {
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
 
-  const [period,  setPeriod]  = useState('Este mes')
-  const [txns,    setTxns]    = useState([])
-  const [loading, setLoading] = useState(false)
-  const [tab,     setTab]     = useState('todos')
-  const [search,  setSearch]  = useState('')
-  const [toast,   setToast]   = useState(null)
+  const [period,       setPeriod]       = useState('Este mes')
+  const [txns,         setTxns]         = useState([])
+  const [loading,      setLoading]      = useState(false)
+  const [tab,          setTab]          = useState('todos')
+  const [search,       setSearch]       = useState('')
+  const [toast,        setToast]        = useState(null)
+  const [enabledTypes, setEnabledTypes] = useState([])
+  const [sequences,    setSequences]    = useState([])
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -252,10 +242,47 @@ function Screen606() {
 
   useEffect(() => { loadData() }, [loadData])
 
+  useEffect(() => {
+    if (!window.electronAPI?.ncf?.sequences) return
+    window.electronAPI.ncf.sequences()
+      .then(rows => {
+        const enabled = (rows || []).filter(r => r.enabled === 1)
+        setSequences(enabled)
+        setEnabledTypes(enabled.length > 0 ? enabled.map(r => r.type) : ['E31','E32','B01','B02'])
+      })
+      .catch(() => { setEnabledTypes(['E31','E32','B01','B02']); setSequences([]) })
+  }, [])
+
+  // Build filter tabs dynamically from enabled e-CF types
+  const TABS_606 = useMemo(() => {
+    const tabs = [{ key: 'todos', label: L('Todos', 'All'), fn: () => true }]
+    // Group by e-CF family: E31/B01, E32/B02, E33, E34, E41, E43, E44, E45, E46, E47
+    const families = [
+      { key: 'e31', label: 'E31/B01', types: ['E31','B01'] },
+      { key: 'e32', label: 'E32/B02', types: ['E32','B02'] },
+      { key: 'e33', label: 'E33',     types: ['E33'] },
+      { key: 'e34', label: 'E34',     types: ['E34'] },
+      { key: 'e41', label: 'E41',     types: ['E41'] },
+      { key: 'e43', label: 'E43',     types: ['E43'] },
+      { key: 'e44', label: 'E44',     types: ['E44'] },
+      { key: 'e45', label: 'E45',     types: ['E45'] },
+      { key: 'e46', label: 'E46',     types: ['E46'] },
+      { key: 'e47', label: 'E47',     types: ['E47'] },
+    ]
+    for (const fam of families) {
+      // Show tab if any of this family's types are enabled OR if we have data for this type
+      const isEnabled = fam.types.some(t => enabledTypes.includes(t))
+      if (isEnabled) {
+        tabs.push({ key: fam.key, label: fam.label, fn: t => fam.types.includes(t.tipo) })
+      }
+    }
+    return tabs
+  }, [enabledTypes, lang])
+
   const tabFn = TABS_606.find(t => t.key === tab)?.fn ?? (() => true)
   const tabCounts = useMemo(() => {
     const o = {}; TABS_606.forEach(t => { o[t.key] = txns.filter(t.fn).length }); return o
-  }, [txns])
+  }, [txns, TABS_606])
 
   const q = search.trim().toLowerCase()
   const visible = txns.filter(tabFn).filter(t =>
@@ -304,19 +331,36 @@ function Screen606() {
       </div>
 
       {/* NCF Sequence cards */}
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-2 px-1">Secuencias NCF</p>
-        <div className="flex gap-3">
-          <NCFSeqCard code="E32 / B02" seq={NCF_SEQS.B02} accentColor="blue" />
-          <NCFSeqCard code="E31 / B01" seq={NCF_SEQS.B01} accentColor="blue" />
-        </div>
-        {(NCF_SEQS.B01.limit - NCF_SEQS.B01.current < 500 || NCF_SEQS.B02.limit - NCF_SEQS.B02.current < 500) && (
-          <div className="mt-2 flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2">
-            <AlertTriangle size={15} className="text-red-500" />
-            <span className="text-sm text-red-600">Una o más secuencias están bajas — solicite nuevas a la DGII.</span>
+      {sequences.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-2 px-1">
+            {L('Secuencias NCF habilitadas', 'Enabled NCF Sequences')}
+          </p>
+          <div className="flex gap-3 flex-wrap">
+            {sequences.map(seq => (
+              <NCFSeqCard
+                key={seq.type}
+                code={seq.type}
+                seq={{
+                  name:    seq.type,
+                  current: seq.current_number || 0,
+                  limit:   seq.limit_number   || 0,
+                  expires: seq.valid_until    || '—',
+                }}
+                accentColor="blue"
+              />
+            ))}
           </div>
-        )}
-      </div>
+          {sequences.some(s => s.limit_number > 0 && (s.limit_number - s.current_number) < 500) && (
+            <div className="mt-2 flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2">
+              <AlertTriangle size={15} className="text-red-500" />
+              <span className="text-sm text-red-600">
+                {L('Una o más secuencias están bajas — solicite nuevas a la DGII.', 'One or more sequences are low — request new ones from DGII.')}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Summary bar */}
       <div className="flex gap-3">

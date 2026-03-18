@@ -43,10 +43,29 @@ function init(userDataPath) {
   const migrations = [
     'ALTER TABLE washers ADD COLUMN start_date TEXT',
     'ALTER TABLE sellers ADD COLUMN phone TEXT',
+    'ALTER TABLE ncf_sequences ADD COLUMN enabled INTEGER NOT NULL DEFAULT 0',
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch { /* column already exists */ }
   }
+
+  // Ensure all 10 e-CF types exist in ncf_sequences (INSERT OR IGNORE — never overwrites existing)
+  const ECF_SEED = [
+    { type: 'E31', prefix: 'E310', enabled: 1 },
+    { type: 'E32', prefix: 'E320', enabled: 1 },
+    { type: 'E33', prefix: 'E330', enabled: 0 },
+    { type: 'E34', prefix: 'E340', enabled: 1 },
+    { type: 'E41', prefix: 'E410', enabled: 0 },
+    { type: 'E43', prefix: 'E430', enabled: 0 },
+    { type: 'E44', prefix: 'E440', enabled: 0 },
+    { type: 'E45', prefix: 'E450', enabled: 0 },
+    { type: 'E46', prefix: 'E460', enabled: 0 },
+    { type: 'E47', prefix: 'E470', enabled: 0 },
+  ]
+  const insertECF = db.prepare(
+    'INSERT OR IGNORE INTO ncf_sequences(type,prefix,current_number,limit_number,active,enabled) VALUES(?,?,0,500,1,?)'
+  )
+  for (const s of ECF_SEED) insertECF.run(s.type, s.prefix, s.enabled)
 
   // Seed if empty
   const userCount = db.prepare('SELECT COUNT(*) as n FROM users').get()
@@ -537,7 +556,7 @@ function ncfGetSequences() {
 }
 function ncfGetNext(type) {
   if (!db) return null
-  const row = db.prepare('SELECT * FROM ncf_sequences WHERE type=? AND active=1').get(type)
+  const row = db.prepare('SELECT * FROM ncf_sequences WHERE type=? AND active=1 AND enabled=1').get(type)
   if (!row) return null
   const next = row.current_number + 1
   db.prepare('UPDATE ncf_sequences SET current_number=? WHERE type=?').run(next, type)

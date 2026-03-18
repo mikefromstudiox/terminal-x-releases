@@ -213,12 +213,13 @@ CREATE TABLE IF NOT EXISTS washer_commissions (
 -- ── NCF Sequences ────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS ncf_sequences (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  type          TEXT    NOT NULL UNIQUE,  -- B01|B02|B04|E31|E32
+  type          TEXT    NOT NULL UNIQUE,  -- E31|E32|E33|E34|E41|E43|E44|E45|E46|E47 (also B01|B02 legacy)
   prefix        TEXT    NOT NULL,
   current_number INTEGER NOT NULL DEFAULT 0,
   limit_number  INTEGER NOT NULL DEFAULT 500,
   valid_until   TEXT,
-  active        INTEGER NOT NULL DEFAULT 1
+  active        INTEGER NOT NULL DEFAULT 1,
+  enabled       INTEGER NOT NULL DEFAULT 0
 );
 
 -- ── Backups ───────────────────────────────────────────────────────────────────

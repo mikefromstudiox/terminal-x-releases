@@ -244,6 +244,9 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const ley      = subtotal * LEY_RATE
   const total    = subtotal + itbis + ley
 
+  // Enabled e-CF types (loaded from NCF sequences)
+  const [enabledEcfTypes, setEnabledEcfTypes] = useState(null) // null = loading, [] after load
+
   // Form state
   const [ncfType,    setNcfType]    = useState('E32')
   const [rnc,        setRnc]        = useState('')
@@ -271,6 +274,41 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
     if (!hasIPC()) return
     window.electronAPI.clients.all().then(list => setAllClients(list || [])).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (!hasIPC()) {
+      setEnabledEcfTypes(Object.values(ECF_TYPES).filter(e => e.defaultEnabled))
+      return
+    }
+    window.electronAPI.ncf.sequences()
+      .then(rows => {
+        const enabled = (rows || []).filter(r => r.enabled === 1)
+        if (enabled.length === 0) {
+          // Fallback: use E31 and E32
+          setEnabledEcfTypes(Object.values(ECF_TYPES).filter(e => e.defaultEnabled))
+        } else {
+          setEnabledEcfTypes(
+            enabled
+              .map(r => ECF_TYPES[r.type])
+              .filter(Boolean)
+          )
+        }
+      })
+      .catch(() => {
+        setEnabledEcfTypes(Object.values(ECF_TYPES).filter(e => e.defaultEnabled))
+      })
+  }, [])
+
+  // Set ncfType to first enabled type once sequences load
+  useEffect(() => {
+    if (enabledEcfTypes && enabledEcfTypes.length > 0) {
+      setNcfType(prev => {
+        // Only update if current type is not in enabled list
+        const isCurrentEnabled = enabledEcfTypes.some(e => e.code === prev)
+        return isCurrentEnabled ? prev : enabledEcfTypes[0].code
+      })
+    }
+  }, [enabledEcfTypes])
 
   useEffect(() => {
     const handler = e => { if (clientRef.current && !clientRef.current.contains(e.target)) setShowClientDrop(false) }
@@ -306,7 +344,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const canSubmit =
     (tipo === 'credito' || formaPago !== null) &&
     (tipo !== 'contado' || formaPago !== 'efectivo' || recibidoNum >= total) &&
-    (ncfType !== 'E31' || rnc.trim().length >= 9)
+    (!ECF_TYPES[ncfType]?.requiresRnc || rnc.trim().length >= 9)
 
   function lookupRnc() {
     if (rnc.trim().length >= 9) setRncName('Empresa Demo S.R.L.')
@@ -492,19 +530,28 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                 {/* LEFT — Comprobante Electrónico */}
                 <div>
                   <SectionLabel>{tl('comp', lang)}</SectionLabel>
-                  <div className="flex gap-2">
-                    {Object.values(ECF_TYPES).map(ecf => (
-                      <ToggleBtn key={ecf.code} active={ncfType === ecf.code} onClick={() => setNcfType(ecf.code)}>
-                        {ecf.code}
-                        <span className="block text-[10px] font-normal opacity-60 mt-0.5">
-                          {lang === 'es' ? ecf.sub_es : ecf.sub_en}
-                        </span>
-                      </ToggleBtn>
-                    ))}
-                  </div>
+                  {enabledEcfTypes === null ? (
+                    <div className="flex items-center gap-2 h-10">
+                      <Loader2 size={13} className="animate-spin text-slate-400" />
+                      <span className="text-[12px] text-slate-400">
+                        {lang === 'es' ? 'Cargando…' : 'Loading…'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {enabledEcfTypes.map(ecf => (
+                        <ToggleBtn key={ecf.code} active={ncfType === ecf.code} onClick={() => setNcfType(ecf.code)}>
+                          {ecf.code}
+                          <span className="block text-[10px] font-normal opacity-60 mt-0.5">
+                            {lang === 'es' ? ecf.sub_es : ecf.sub_en}
+                          </span>
+                        </ToggleBtn>
+                      ))}
+                    </div>
+                  )}
 
-                  {/* E31 RNC fields — only when E31 selected */}
-                  {ncfType === 'E31' && (
+                  {/* RNC fields — only when selected type requires RNC */}
+                  {ECF_TYPES[ncfType]?.requiresRnc && (
                     <div className="mt-3 space-y-2">
                       <div className="flex gap-1.5">
                         <input
