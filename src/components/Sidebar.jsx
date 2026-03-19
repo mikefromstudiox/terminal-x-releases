@@ -2,10 +2,9 @@ import { NavLink } from 'react-router-dom'
 import { useState } from 'react'
 import {
   ShoppingCart, ClipboardList, Users, CreditCard,
-  BarChart2, Calendar, DollarSign, Archive,
-  FileText, PiggyBank, FileMinus, Settings,
-  ChevronLeft, ChevronRight, LogOut, Globe,
-  Cloud, CloudOff, RefreshCw, KeyRound,
+  Archive, FileText, PiggyBank, FileMinus, Settings,
+  ChevronLeft, ChevronRight, LogOut, Monitor,
+  Cloud, CloudOff, RefreshCw,
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAuth } from '../context/AuthContext'
@@ -16,20 +15,16 @@ import LanguageToggle from './LanguageToggle'
 
 // Roles: undefined = all, array = only those roles
 const NAV = [
-  { to: '/pos',              icon: ShoppingCart, key: 'nav_pos',          badge: 0 },
-  { to: '/queue',            icon: ClipboardList,key: 'nav_queue',        badge: 0 },
-  { to: '/clients',          icon: Users,        key: 'nav_clients',      badge: 0 },
-  { to: '/credits',          icon: CreditCard,   key: 'nav_credits',      badge: 0, roles: ['owner','manager','cfo','accountant'] },
-  { to: '/reports/daily',    icon: BarChart2,    key: 'nav_daily',        badge: 0, roles: ['owner','manager','cfo','accountant'] },
-  { to: '/reports/monthly',  icon: Calendar,     key: 'nav_monthly',      badge: 0, roles: ['owner','manager','cfo','accountant'] },
-  { to: '/reports/workers',  icon: DollarSign,   key: 'nav_worker_report',badge: 0, roles: ['owner','manager','cfo','accountant'] },
-  { to: '/cash-recon',       icon: Archive,      key: 'nav_cash_recon',   badge: 0, roles: ['owner','manager','cfo','accountant'] },
-  { to: '/dgii',             icon: FileText,     key: 'nav_dgii',         badge: 0, roles: ['owner','manager','cfo','accountant'] },
-  { to: '/petty-cash',       icon: PiggyBank,    key: 'nav_petty',        badge: 0, roles: ['owner','manager','cfo','accountant'] },
-  { to: '/credit-notes',     icon: FileMinus,    key: 'nav_credit_notes', badge: 0, roles: ['owner','manager','cfo','accountant'] },
-  { to: '/admin',            icon: Settings,     key: 'nav_admin',        badge: 0, roles: ['owner','manager'] },
-  { to: '/remote',           icon: Globe,        key: 'nav_remote',       badge: 0, roles: ['owner','cfo','accountant'] },
-  { to: '/license-admin',    icon: KeyRound,     key: 'nav_license_admin',badge: 0, roles: ['owner'] },
+  { to: '/pos',          icon: ShoppingCart, key: 'nav_pos',          badge: 0 },
+  { to: '/queue',        icon: ClipboardList,key: 'nav_queue',        badge: 0 },
+  { to: '/clients',      icon: Users,        key: 'nav_clients',      badge: 0 },
+  { to: '/credits',      icon: CreditCard,   key: 'nav_credits',      badge: 0, roles: ['owner','manager','cfo','accountant'] },
+  { to: '/cash-recon',   icon: Archive,      key: 'nav_cash_recon',   badge: 0, roles: ['owner','manager','cfo','accountant'] },
+  { to: '/dgii',         icon: FileText,     key: 'nav_dgii',         badge: 0, roles: ['owner','manager','cfo','accountant'] },
+  { to: '/petty-cash',   icon: PiggyBank,    key: 'nav_petty',        badge: 0, roles: ['owner','manager','cfo','accountant'] },
+  { to: '/credit-notes', icon: FileMinus,    key: 'nav_credit_notes', badge: 0, roles: ['owner','manager','cfo','accountant'] },
+  { to: '/admin',        icon: Settings,     key: 'nav_admin',        badge: 0, roles: ['owner','manager'] },
+  { to: '/sistema',      icon: Monitor,      key: 'nav_sistema',      badge: 0, roles: ['owner'] },
 ]
 
 function NavItem({ to, icon: Icon, label, badge, collapsed }) {

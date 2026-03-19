@@ -22,6 +22,7 @@ export const en = {
   nav_admin:         'Administration',
   nav_remote:        'Remote Dashboard',
   nav_license_admin: 'TX Licenses',
+  nav_sistema:       'System',
 
   // Auth
   login_title:              'Log In',

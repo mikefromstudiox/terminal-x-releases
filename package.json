@@ -4,14 +4,15 @@
   "description": "Terminal X - Car Wash POS System",
   "main": "electron/main.js",
   "scripts": {
-    "dev": "concurrently -k -n VITE,ELECTRON -c cyan,blue \"vite\" \"wait-on http://localhost:5173 && electron . --dev\"",
+    "dev": "concurrently -k -n VITE,ELECTRON -c cyan,blue \"vite\" \"wait-on http://localhost:5173 && env -u ELECTRON_RUN_AS_NODE electron . --dev\"",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "build:react": "vite build",
     "build:protected": "vite build --mode production && electron-builder",
     "dist": "npm run build:react && electron-builder",
     "dist:win": "npm run build:react && electron-builder --win",
     "dist:mac": "npm run build:react && electron-builder --mac",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "reset-db": "rm -f ~/Library/Application\\ Support/terminal-x/terminal-x.db"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",
@@ -27,7 +28,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.19",
     "concurrently": "^8.2.2",
-    "electron": "^30.0.0",
+    "electron": "^41.0.3",
     "electron-builder": "^24.13.3",
     "electron-rebuild": "^3.2.9",
     "postcss": "^8.4.38",
@@ -44,7 +45,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "YOUR_GITHUB_USERNAME",
+        "owner": "StudioXmike",
         "repo": "terminal-x-releases"
       }
     ],
@@ -53,7 +54,8 @@
         {
           "target": "nsis",
           "arch": [
-            "x64"
+            "x64",
+            "ia32"
           ]
         }
       ],
@@ -88,6 +90,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "db/**/*",
       "!electron/**/*.map",
       "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md,readme}",
       "!**/node_modules/*/{test,__tests__,tests,powered-by,spec}",

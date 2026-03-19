@@ -4,10 +4,46 @@ const { contextBridge, ipcRenderer } = require('electron')
 async function call(channel, ...args) {
   const res = await ipcRenderer.invoke(channel, ...args)
   if (res && res.ok === false) throw new Error(res.error || channel)
-  return res?.data ?? res
+  return 'data' in res ? res.data : res
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
+
+  // ── Admin panel — unified CRUD ─────────────────────────────────────────────
+  admin: {
+    // Empresa (single row — always update)
+    getEmpresa:        ()     => call('get-empresa'),
+    saveEmpresa:       (data) => call('save-empresa', data),
+
+    // Usuarios
+    getUsuarios:       ()     => call('get-usuarios'),
+    saveUsuario:       (data) => call('save-usuario', data),   // upsert: create if no id
+    deleteUsuario:     (id)   => call('delete-usuario', { id }),
+
+    // Lavadores
+    getLavadores:      ()     => call('get-lavadores'),
+    saveLavador:       (data) => call('save-lavador', data),
+    deleteLavador:     (id)   => call('delete-lavador', { id }),
+
+    // Vendedores
+    getVendedores:     ()     => call('get-vendedores'),
+    saveVendedor:      (data) => call('save-vendedor', data),
+    deleteVendedor:    (id)   => call('delete-vendedor', { id }),
+
+    // Servicios
+    getServicios:      ()     => call('get-servicios'),
+    saveServicio:      (data) => call('save-servicio', data),
+    deleteServicio:    (id)   => call('delete-servicio', { id }),
+    getCategorias:     ()     => call('get-categorias'),
+
+    // Secuencias NCF / e-CF
+    getSecuenciasNcf:  ()     => call('get-secuencias-ncf'),
+    saveSecuenciaNcf:  (data) => call('save-secuencia-ncf', data),
+
+    // Configuración general
+    getConfiguracion:  ()     => call('get-configuracion'),
+    saveConfiguracion: (data) => call('save-configuracion', data),
+  },
 
   // ── Settings ───────────────────────────────────────────────────────────────
   settings: {
@@ -25,6 +61,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     all:    ()     => call('users:all'),
     create: (data) => call('users:create', data),
     update: (data) => call('users:update', data),
+  },
+
+  // ── Categorías de Servicio ─────────────────────────────────────────────────
+  categorias: {
+    all:    ()     => call('categorias:all'),
+    create: (data) => call('categorias:create', data),
+    update: (data) => call('categorias:update', data),
+    delete: (id)   => call('categorias:delete', { id }),
   },
 
   // ── Services ───────────────────────────────────────────────────────────────
@@ -89,9 +133,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Cuadre de Caja ─────────────────────────────────────────────────────────
   cuadre: {
-    create:  (data) => call('cuadre:create', data),
-    history: ()     => call('cuadre:history'),
-    daily:   (date) => call('cuadre:daily', date),
+    create:  (data)    => call('cuadre:create', data),
+    history: ()        => call('cuadre:history'),
+    list:    (filters) => call('cuadre:list', filters),
+    daily:   (date)    => call('cuadre:daily', date),
   },
 
   // ── NCF ────────────────────────────────────────────────────────────────────
@@ -127,6 +172,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Printer ────────────────────────────────────────────────────────────────
   print:        (payload) => ipcRenderer.invoke('print:receipt', payload),
+  openDrawer:   ()        => ipcRenderer.invoke('print:open-drawer'),
   listPrinters: ()        => call('print:list-printers'),
 
   // ── File save ──────────────────────────────────────────────────────────────
@@ -134,7 +180,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── License ────────────────────────────────────────────────────────────────
   license: {
-    hwid: () => ipcRenderer.invoke('license:hwid'),
+    hwid:     ()    => ipcRenderer.invoke('license:hwid'),
+    isMaster: (key) => ipcRenderer.invoke('license:is-master', key),
+  },
+
+  // ── Env config (non-secret values from .env, exposed on request) ───────────
+  // Returns the value or '' if blank/unset. Never exposes MASTER_LICENSE_KEY.
+  env: {
+    get: (key) => ipcRenderer.invoke('env:get', key),
   },
 
   // ── ef2.do API proxy (bypasses CORS via main process) ─────────────────────
@@ -147,8 +200,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     install:  ()       => ipcRenderer.invoke('updater:install'),
     onStatus: (cb)     => {
       const events = ['checking','up-to-date','available','progress','downloaded','error']
-      events.forEach(e => ipcRenderer.on('updater:' + e, (_, data) => cb(e, data)))
-      return () => events.forEach(e => ipcRenderer.removeAllListeners('updater:' + e))
+      const handlers = {}
+      events.forEach(e => {
+        const handler = (_, data) => cb(e, data)
+        handlers[e] = handler
+        ipcRenderer.on('updater:' + e, handler)
+      })
+      return () => events.forEach(e => ipcRenderer.off('updater:' + e, handlers[e]))
     },
   },
 })

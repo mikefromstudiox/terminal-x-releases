@@ -2,7 +2,7 @@ import { LayoutProvider } from '../context/LayoutContext'
 import { BackupProvider } from '../context/BackupContext'
 import { useLicense } from '../context/LicenseContext'
 import Sidebar from './Sidebar'
-import { AlertTriangle, ShieldX } from 'lucide-react'
+import { AlertTriangle, ShieldX, KeyRound } from 'lucide-react'
 
 // Change to your WhatsApp number (must match LicenseGate.jsx)
 const WA_NUMBER = '18099999999'
@@ -12,7 +12,19 @@ const WA_URL    = `https://wa.me/${WA_NUMBER}?text=${WA_MSG}`
 // ── Read-only / expiry banner ─────────────────────────────────────────────────
 
 function LicenseBanner() {
-  const { isReadOnly, hasWarning, warningMsg, result } = useLicense()
+  const { isReadOnly, hasWarning, warningMsg, result, isMasterKey } = useLicense()
+
+  // ── Master key mode: amber "Setup Mode" badge ──────────────────────────────
+  if (isMasterKey) {
+    return (
+      <div className="shrink-0 flex items-center gap-2 px-4 py-1.5 bg-amber-400 text-amber-900 text-[12px] font-semibold">
+        <KeyRound size={13} className="shrink-0" />
+        <span className="flex-1">
+          Modo Configuración — Licencia provisional activa. Aplica una licencia real desde Administración → Sistema.
+        </span>
+      </div>
+    )
+  }
 
   if (!hasWarning && !isReadOnly) return null
 

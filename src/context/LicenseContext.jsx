@@ -17,6 +17,24 @@ export function useLicense() {
 
 const CHECK_INTERVAL = 4 * 60 * 60 * 1000  // 4 hours
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Ask the main process whether this key matches the hardcoded master key. */
+async function checkMasterKey(key) {
+  try {
+    return !!(await window.electronAPI?.license?.isMaster?.(key))
+  } catch {
+    return false
+  }
+}
+
+/** Synthesise a result object for non-server modes. */
+function makeResult(status, extra = {}) {
+  return { valid: true, status, readOnly: false, warning: false, ...extra }
+}
+
+// ── Provider ──────────────────────────────────────────────────────────────────
+
 export function LicenseProvider({ children }) {
   const [hwid,       setHwid]       = useState(null)
   const [licenseKey, setLicenseKey] = useState(getStoredLicenseKey())
@@ -47,11 +65,11 @@ export function LicenseProvider({ children }) {
     loadHwid()
   }, [])
 
-  // ── Validation ─────────────────────────────────────────────────────────────
+  // ── Core validation — check order: DEV → MASTER → REAL ────────────────────
   const runCheck = useCallback(async (key, id, rncOverride) => {
-    // ── Dev bypass: skip license check in development ──────────────────────
+    // ── 1. DEV MODE: skip all license checks in development ────────────────
     if (import.meta.env.DEV) {
-      setResult({ valid: true, status: 'active', readOnly: false, warning: false })
+      setResult(makeResult('dev'))
       setChecking(false)
       return
     }
@@ -65,16 +83,28 @@ export function LicenseProvider({ children }) {
       setChecking(false)
       return
     }
-    if (!h) return  // wait for hwid
+    if (!h) return   // wait for hwid to load
 
     setChecking(true)
     try {
+      // ── 2. MASTER KEY: bypass server, grant full access ─────────────────
+      if (await checkMasterKey(k)) {
+        setResult(makeResult('master'))
+        return
+      }
+
+      // ── 3. LICENSED MODE: validate against server ───────────────────────
       const res = await validateLicense(k, h, r)
       setResult(res)
     } catch (err) {
       console.error('[LicenseContext]', err)
-      setResult({ valid: true, status: 'offline_grace', readOnly: false, warning: true,
-                  warningMsg: 'Error al verificar licencia.' })
+      setResult({
+        valid:      true,
+        status:     'offline_grace',
+        readOnly:   false,
+        warning:    true,
+        warningMsg: 'Error al verificar licencia. Modo sin conexión activo.',
+      })
     } finally {
       setChecking(false)
     }
@@ -92,21 +122,39 @@ export function LicenseProvider({ children }) {
     return () => clearInterval(intervalRef.current)
   }, [hwid, licenseKey, runCheck])
 
-  // ── Activate a new license key + RNC ───────────────────────────────────────
+  // ── Activate a new key ─────────────────────────────────────────────────────
   async function activate(key, rncValue) {
     const k = key.toUpperCase().trim()
     const r = (rncValue || '').replace(/\D/g, '')
     setLicenseKey(k)
     setRnc(r)
-    await runCheck(k, hwid, r)
-    // Persist after successful check
-    const fresh = await validateLicense(k, hwid, r)
-    if (fresh.valid) {
+
+    // DEV: accept any key without validation
+    if (import.meta.env.DEV) {
+      setResult(makeResult('dev'))
+      return
+    }
+
+    // MASTER KEY: bypass server entirely
+    if (await checkMasterKey(k)) {
       setStoredLicenseKey(k, r)
-      setResult(fresh)
-    } else {
-      setResult(fresh)
-      throw new Error(statusMessage(fresh.status))
+      setResult(makeResult('master'))
+      return
+    }
+
+    // REAL LICENSE: validate online
+    setChecking(true)
+    try {
+      const res = await validateLicense(k, hwid, r)
+      if (res.valid) {
+        setStoredLicenseKey(k, r)
+        setResult(res)
+      } else {
+        setResult(res)
+        throw new Error(statusMessage(res.status))
+      }
+    } finally {
+      setChecking(false)
     }
   }
 
@@ -117,11 +165,13 @@ export function LicenseProvider({ children }) {
     setResult({ valid: false, status: 'no_key', readOnly: true })
   }
 
-  const isReadOnly = result ? (result.readOnly || !result.valid) : true
-  const isExpired  = result?.status === 'expired'
-  const isNoKey    = !licenseKey || result?.status === 'no_key'
-  const hasWarning = result?.warning ?? false
-  const warningMsg = result?.warningMsg ?? null
+  const isMasterKey = result?.status === 'master'
+  const isDevMode   = result?.status === 'dev'
+  const isReadOnly  = result ? (result.readOnly || !result.valid) : true
+  const isExpired   = result?.status === 'expired'
+  const isNoKey     = !licenseKey || result?.status === 'no_key'
+  const hasWarning  = result?.warning ?? false
+  const warningMsg  = result?.warningMsg ?? null
 
   return (
     <LicenseContext.Provider value={{
@@ -133,6 +183,8 @@ export function LicenseProvider({ children }) {
       isReadOnly,
       isExpired,
       isNoKey,
+      isMasterKey,
+      isDevMode,
       hasWarning,
       warningMsg,
       activate,
@@ -144,6 +196,7 @@ export function LicenseProvider({ children }) {
   )
 }
 
+// ── Status → message ──────────────────────────────────────────────────────────
 function statusMessage(status) {
   return {
     not_found:        'Clave de licencia no encontrada.',

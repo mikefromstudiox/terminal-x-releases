@@ -1,12 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
-  Settings, Building2, Upload, X, CheckCircle2, Loader2, ImageOff,
+  Building2, Upload, X, CheckCircle2, Loader2, ImageOff,
   Users, UserCheck, KeyRound, LayoutGrid, Plus, Edit2, Power,
-  Eye, EyeOff, AlertCircle, Printer, FileText, Wifi, WifiOff, ExternalLink,
+  Eye, EyeOff, AlertCircle, FileText, Wifi, WifiOff, ExternalLink,
+  BarChart2, Calendar, DollarSign, Globe,
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { hasIPC } from '../hooks/useDB'
 import { ECF_TYPES, BUSINESS_TYPES, testEF2Connection, EF2_CONFIGURED } from '../services/ecf'
+import DailyReport from './reports/DailyReport'
+import MonthlyReport from './reports/MonthlyReport'
+import WorkerReport from './reports/WorkerReport'
+import RemoteDashboard from './RemoteDashboard'
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
 
@@ -149,21 +154,26 @@ function SettingSection({ title, children }) {
 const EMPTY_WASHER = { name: '', phone: '', cedula: '', commission_pct: '20', start_date: '' }
 
 function Lavadores() {
-  const { lang }            = useLang()
-  const L                   = (es, en) => lang === 'es' ? es : en
-  const [list,   setList]   = useState([])
-  const [panel,  setPanel]  = useState(null)
-  const [form,   setForm]   = useState(EMPTY_WASHER)
-  const [saving, setSaving] = useState(false)
-  const [saved,  setSaved]  = useState(false)
-  const [error,  setError]  = useState('')
-  const { toast, show }     = useToast()
+  const { lang }                = useLang()
+  const L                       = (es, en) => lang === 'es' ? es : en
+  const [list,      setList]    = useState([])
+  const [loading,   setLoading] = useState(false)
+  const [loadErr,   setLoadErr] = useState('')
+  const [panel,     setPanel]   = useState(null)
+  const [form,      setForm]    = useState(EMPTY_WASHER)
+  const [saving,    setSaving]  = useState(false)
+  const [saved,     setSaved]   = useState(false)
+  const [error,     setError]   = useState('')
+  const { toast, show }         = useToast()
 
   useEffect(() => { load() }, [])
 
   async function load() {
     if (!hasIPC()) return
-    try { setList((await window.electronAPI.washers.allAdmin()) || []) } catch {}
+    setLoading(true); setLoadErr('')
+    try { setList((await window.electronAPI.washers.allAdmin()) || []) }
+    catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
+    finally { setLoading(false) }
   }
 
   function openAdd()   { setForm(EMPTY_WASHER); setError(''); setSaved(false); setPanel('add') }
@@ -211,7 +221,11 @@ function Lavadores() {
             <span className="w-24 text-center">{L('Estado', 'Status')}</span>
             <span className="w-16 text-right">{L('Acción', 'Action')}</span>
           </div>
-          {list.length === 0
+          {loading
+            ? <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-slate-300" size={20} /></div>
+            : loadErr
+            ? <div className="py-8 text-center text-[12px] text-red-500">{loadErr}</div>
+            : list.length === 0
             ? <div className="py-10 text-center text-[12px] text-slate-400">{L('No hay lavadores registrados.', 'No washers registered.')}</div>
             : list.map(w => (
               <div key={w.id} className="flex items-center px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
@@ -262,21 +276,26 @@ function Lavadores() {
 const EMPTY_SELLER = { name: '', commission_pct: '5', phone: '' }
 
 function Vendedores() {
-  const { lang }            = useLang()
-  const L                   = (es, en) => lang === 'es' ? es : en
-  const [list,   setList]   = useState([])
-  const [panel,  setPanel]  = useState(null)
-  const [form,   setForm]   = useState(EMPTY_SELLER)
-  const [saving, setSaving] = useState(false)
-  const [saved,  setSaved]  = useState(false)
-  const [error,  setError]  = useState('')
-  const { toast, show }     = useToast()
+  const { lang }                = useLang()
+  const L                       = (es, en) => lang === 'es' ? es : en
+  const [list,      setList]    = useState([])
+  const [loading,   setLoading] = useState(false)
+  const [loadErr,   setLoadErr] = useState('')
+  const [panel,     setPanel]   = useState(null)
+  const [form,      setForm]    = useState(EMPTY_SELLER)
+  const [saving,    setSaving]  = useState(false)
+  const [saved,     setSaved]   = useState(false)
+  const [error,     setError]   = useState('')
+  const { toast, show }         = useToast()
 
   useEffect(() => { load() }, [])
 
   async function load() {
     if (!hasIPC()) return
-    try { setList((await window.electronAPI.sellers.allAdmin()) || []) } catch {}
+    setLoading(true); setLoadErr('')
+    try { setList((await window.electronAPI.sellers.allAdmin()) || []) }
+    catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
+    finally { setLoading(false) }
   }
 
   function openAdd()   { setForm(EMPTY_SELLER); setError(''); setSaved(false); setPanel('add') }
@@ -324,7 +343,11 @@ function Vendedores() {
             <span className="w-24 text-center">{L('Estado', 'Status')}</span>
             <span className="w-16 text-right">{L('Acción', 'Action')}</span>
           </div>
-          {list.length === 0
+          {loading
+            ? <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-slate-300" size={20} /></div>
+            : loadErr
+            ? <div className="py-8 text-center text-[12px] text-red-500">{loadErr}</div>
+            : list.length === 0
             ? <div className="py-10 text-center text-[12px] text-slate-400">{L('No hay vendedores registrados.', 'No salespeople registered.')}</div>
             : list.map(s => (
               <div key={s.id} className="flex items-center px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
@@ -383,22 +406,27 @@ function RoleBadge({ role }) {
 const EMPTY_USER = { name: '', username: '', pin: '', role: 'cashier', discount_pct: '0' }
 
 function Usuarios() {
-  const { lang }              = useLang()
-  const L                     = (es, en) => lang === 'es' ? es : en
-  const [list,    setList]    = useState([])
-  const [panel,   setPanel]   = useState(null)
-  const [form,    setForm]    = useState(EMPTY_USER)
-  const [showPin, setShowPin] = useState(false)
-  const [saving,  setSaving]  = useState(false)
-  const [saved,   setSaved]   = useState(false)
-  const [error,   setError]   = useState('')
-  const { toast, show }       = useToast()
+  const { lang }                = useLang()
+  const L                       = (es, en) => lang === 'es' ? es : en
+  const [list,      setList]    = useState([])
+  const [loading,   setLoading] = useState(false)
+  const [loadErr,   setLoadErr] = useState('')
+  const [panel,     setPanel]   = useState(null)
+  const [form,      setForm]    = useState(EMPTY_USER)
+  const [showPin,   setShowPin] = useState(false)
+  const [saving,    setSaving]  = useState(false)
+  const [saved,     setSaved]   = useState(false)
+  const [error,     setError]   = useState('')
+  const { toast, show }         = useToast()
 
   useEffect(() => { load() }, [])
 
   async function load() {
     if (!hasIPC()) return
-    try { setList((await window.electronAPI.users.all()) || []) } catch {}
+    setLoading(true); setLoadErr('')
+    try { setList((await window.electronAPI.users.all()) || []) }
+    catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
+    finally { setLoading(false) }
   }
 
   function openAdd()   { setForm(EMPTY_USER); setShowPin(false); setError(''); setSaved(false); setPanel('add') }
@@ -454,7 +482,11 @@ function Usuarios() {
             <span className="w-24 text-center">{L('Estado', 'Status')}</span>
             <span className="w-16 text-right">{L('Acción', 'Action')}</span>
           </div>
-          {list.length === 0
+          {loading
+            ? <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-slate-300" size={20} /></div>
+            : loadErr
+            ? <div className="py-8 text-center text-[12px] text-red-500">{loadErr}</div>
+            : list.length === 0
             ? <div className="py-10 text-center text-[12px] text-slate-400">{L('No hay usuarios registrados.', 'No users registered.')}</div>
             : list.map(u => (
               <div key={u.id} className="flex items-center px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
@@ -522,6 +554,8 @@ function Servicios() {
   const { lang }                    = useLang()
   const L                           = (es, en) => lang === 'es' ? es : en
   const [list,       setList]       = useState([])
+  const [loading,    setLoading]    = useState(false)
+  const [loadErr,    setLoadErr]    = useState('')
   const [panel,      setPanel]      = useState(null)
   const [form,       setForm]       = useState(EMPTY_SERVICE)
   const [newCatMode, setNewCatMode] = useState(false)
@@ -535,7 +569,10 @@ function Servicios() {
 
   async function load() {
     if (!hasIPC()) return
-    try { setList((await window.electronAPI.services.allAdmin()) || []) } catch {}
+    setLoading(true); setLoadErr('')
+    try { setList((await window.electronAPI.services.allAdmin()) || []) }
+    catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
+    finally { setLoading(false) }
   }
 
   const categories = [...new Set(list.map(s => s.category))].sort()
@@ -602,7 +639,11 @@ function Servicios() {
             <span className="w-20 text-center">{L('Estado', 'Status')}</span>
             <span className="w-16 text-right">{L('Acción', 'Action')}</span>
           </div>
-          {visible.length === 0
+          {loading
+            ? <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-slate-300" size={20} /></div>
+            : loadErr
+            ? <div className="py-8 text-center text-[12px] text-red-500">{loadErr}</div>
+            : visible.length === 0
             ? <div className="py-10 text-center text-[12px] text-slate-400">{L('No hay servicios en esta categoría.', 'No services in this category.')}</div>
             : visible.map(s => (
               <div key={s.id} className={`flex items-center px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors ${!s.active ? 'opacity-50' : ''}`}>
@@ -663,6 +704,87 @@ function Servicios() {
   )
 }
 
+// ── Sequence card (shared by legacy B01/B02 and e-CF types) ──────────────────
+
+function SeqCard({ code, nameEs, nameEn, descEs, descEn, noVencimiento,
+                   seq, enabled, saving, saved, onToggle, onSave, onUpdate, lang, L }) {
+  return (
+    <div className={`border rounded-xl p-4 transition-colors ${
+      enabled ? 'border-sky-200 bg-sky-50/30' : 'border-slate-200 bg-white'
+    }`}>
+      <div className="flex items-start gap-3">
+        <span className="shrink-0 inline-flex items-center justify-center h-6 px-2 rounded-md text-[11px] font-bold bg-slate-100 text-slate-600 font-mono mt-0.5">
+          {code}
+        </span>
+
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-semibold text-slate-700 leading-tight">
+            {lang === 'es' ? nameEs : nameEn}
+          </p>
+          <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+            {lang === 'es' ? descEs : descEn}
+          </p>
+
+          {enabled && (
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                  {L('Número actual', 'Current #')}
+                </label>
+                <input
+                  type="number" min="0"
+                  value={seq.current_number}
+                  onChange={e => onUpdate(code, { current_number: e.target.value })}
+                  className="w-24 px-2.5 py-1.5 border border-slate-200 rounded-lg text-[12px] text-slate-700 bg-white focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/20"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                  {L('Límite', 'Limit')}
+                </label>
+                <input
+                  type="number" min="1"
+                  value={seq.limit_number}
+                  onChange={e => onUpdate(code, { limit_number: e.target.value })}
+                  className="w-28 px-2.5 py-1.5 border border-slate-200 rounded-lg text-[12px] text-slate-700 bg-white focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/20"
+                />
+              </div>
+              {!noVencimiento ? (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    {L('Válido hasta', 'Valid until')}
+                  </label>
+                  <input
+                    type="date"
+                    value={seq.valid_until || ''}
+                    onChange={e => onUpdate(code, { valid_until: e.target.value })}
+                    className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-[12px] text-slate-700 bg-white focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/20"
+                  />
+                </div>
+              ) : (
+                <p className="text-[10px] text-amber-600 font-medium self-end pb-2">
+                  {L('Sin fecha de vencimiento', 'No expiry date')}
+                </p>
+              )}
+              <button
+                onClick={() => onSave(code)}
+                disabled={saving[code]}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0C447C] hover:bg-[#0a3a6a] disabled:opacity-50 text-white text-[12px] font-bold rounded-lg transition-colors"
+              >
+                {saving[code] ? <><Loader2 size={11} className="animate-spin" /> {L('Guardando…', 'Saving…')}</>
+                 : saved[code] ? <><CheckCircle2 size={11} /> {L('Guardado', 'Saved')}</>
+                 : L('Guardar', 'Save')}
+              </button>
+            </div>
+          )}
+        </div>
+
+        <Toggle enabled={enabled} onChange={v => onToggle(code, v)} />
+      </div>
+    </div>
+  )
+}
+
 // ── FISCAL / NCF SEQUENCES ────────────────────────────────────────────────────
 
 function FiscalNCF() {
@@ -670,12 +792,14 @@ function FiscalNCF() {
   const L = (es, en) => lang === 'es' ? es : en
   const { toast, show } = useToast()
 
-  const [sequences,  setSequences]  = useState([])
-  const [saving,     setSaving]     = useState({})
-  const [saved,      setSaved]      = useState({})
-  const [testing,    setTesting]    = useState(false)
-  const [testResult, setTestResult] = useState(null)  // null | 'ok' | 'error'
-  const [testMsg,    setTestMsg]    = useState('')
+  const [sequences,   setSequences]   = useState([])
+  const [saving,      setSaving]      = useState({})
+  const [saved,       setSaved]       = useState({})
+  const [testing,     setTesting]     = useState(false)
+  const [testResult,  setTestResult]  = useState(null)  // null | 'ok' | 'error'
+  const [testMsg,     setTestMsg]     = useState('')
+  const [fiscalMode,  setFiscalMode]  = useState('ecf')  // 'legacy' | 'ecf'
+  const [modeLoaded,  setModeLoaded]  = useState(false)
 
   const load = useCallback(async () => {
     if (!hasIPC()) return
@@ -686,6 +810,24 @@ function FiscalNCF() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!hasIPC()) { setModeLoaded(true); return }
+    window.electronAPI.settings.get()
+      .then(s => { if (s?.fiscal_mode) setFiscalMode(s.fiscal_mode) })
+      .catch(() => {})
+      .finally(() => setModeLoaded(true))
+  }, [])
+
+  async function saveFiscalMode(mode) {
+    setFiscalMode(mode)
+    try {
+      await window.electronAPI.settings.update({ fiscal_mode: mode })
+      show(L('Modo de comprobantes actualizado ✓', 'Receipt mode updated ✓'))
+    } catch {
+      show(L('Error al guardar', 'Error saving'), 'error')
+    }
+  }
 
   function getSeq(type) {
     return sequences.find(s => s.type === type) || {
@@ -749,9 +891,90 @@ function FiscalNCF() {
 
   const ecfList = Object.values(ECF_TYPES)
 
+  const LEGACY_SEQ_TYPES = [
+    {
+      code: 'B01',
+      name_es: 'Crédito Fiscal',          name_en: 'Tax Credit Invoice',
+      desc_es: 'Para ventas a empresas con RNC. Requiere RNC del comprador.',
+      desc_en: 'For B2B sales with RNC. Buyer RNC required.',
+      noVencimiento: false,
+    },
+    {
+      code: 'B02',
+      name_es: 'Consumidor Final',         name_en: 'Consumer Final Invoice',
+      desc_es: 'Ventas al consumidor general. Sin RNC requerido.',
+      desc_en: 'Consumer sales. No RNC required.',
+      noVencimiento: false,
+    },
+  ]
+
   return (
     <div className="max-w-2xl space-y-5">
       <Toast toast={toast} />
+
+      {/* ── Fiscal Mode Toggle ─────────────────────────────────────────────── */}
+      <div className="border border-slate-200 rounded-xl overflow-hidden">
+        <div className="bg-slate-50 border-b border-slate-200 px-4 py-2.5">
+          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            {L('Sistema de Comprobantes Fiscales', 'Fiscal Receipt System')}
+          </p>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            {L(
+              'Elige entre NCF tradicional (B01/B02) o el nuevo sistema electrónico obligatorio desde mayo 2026.',
+              'Choose between traditional NCF (B01/B02) or the new electronic system mandatory from May 2026.'
+            )}
+          </p>
+        </div>
+        <div className="px-4 py-4 grid grid-cols-2 gap-3">
+          <button
+            onClick={() => saveFiscalMode('legacy')}
+            className={`flex flex-col gap-1.5 px-4 py-3.5 rounded-xl border-2 text-left transition-all ${
+              fiscalMode === 'legacy'
+                ? 'border-sky-500 bg-sky-50'
+                : 'border-slate-200 hover:border-slate-300 bg-white'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[13px] font-black text-slate-700">B01 / B02</span>
+              {fiscalMode === 'legacy' && (
+                <span className="text-[9px] font-bold bg-sky-500 text-white px-2 py-0.5 rounded-full">
+                  {L('ACTIVO', 'ACTIVE')}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 leading-snug">
+              {L('NCF Tradicional — papel o local', 'Traditional NCF — paper or local')}
+            </p>
+            <p className="text-[10px] text-slate-400">
+              {L('Sin conexión a ef2.do', 'No ef2.do connection required')}
+            </p>
+          </button>
+
+          <button
+            onClick={() => saveFiscalMode('ecf')}
+            className={`flex flex-col gap-1.5 px-4 py-3.5 rounded-xl border-2 text-left transition-all ${
+              fiscalMode === 'ecf'
+                ? 'border-sky-500 bg-sky-50'
+                : 'border-slate-200 hover:border-slate-300 bg-white'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[13px] font-black text-slate-700">e-CF</span>
+              {fiscalMode === 'ecf' && (
+                <span className="text-[9px] font-bold bg-sky-500 text-white px-2 py-0.5 rounded-full">
+                  {L('ACTIVO', 'ACTIVE')}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 leading-snug">
+              {L('Electrónico — E31/E32/etc.', 'Electronic — E31/E32/etc.')}
+            </p>
+            <p className="text-[10px] text-amber-600 font-medium">
+              {L('Obligatorio desde mayo 2026', 'Mandatory from May 2026')}
+            </p>
+          </button>
+        </div>
+      </div>
 
       {/* ── e-CF connection status ─────────────────────────────────────────── */}
       <div className="border border-slate-200 rounded-xl overflow-hidden">
@@ -820,97 +1043,68 @@ function FiscalNCF() {
         </h3>
         <p className="text-[11px] text-slate-400">
           {L(
-            'Habilita y configura los tipos de comprobantes fiscales electrónicos que usará este negocio.',
-            'Enable and configure the electronic fiscal receipt types this business will use.'
+            'Configura los rangos de comprobantes asignados por la DGII. El número actual se incrementa en cada cobro.',
+            'Configure the NCF ranges assigned by DGII. The current number increments with each payment.'
           )}
         </p>
       </div>
 
-      <div className="space-y-3">
-        {ecfList.map(ecf => {
-          const seq     = getSeq(ecf.code)
-          const enabled = seq.enabled === 1
+      {/* ── B01 / B02 legacy sequences ─────────────────────────────────────── */}
+      <div>
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+          <span className="font-mono">B01 / B02</span>
+          <span>— {L('NCF Tradicional (hasta mayo 2026)', 'Traditional NCF (until May 2026)')}</span>
+        </p>
+        <div className="space-y-3">
+          {LEGACY_SEQ_TYPES.map(ncf => {
+            const seq     = getSeq(ncf.code)
+            const enabled = seq.enabled === 1
+            return (
+              <SeqCard
+                key={ncf.code}
+                code={ncf.code}
+                nameEs={ncf.name_es} nameEn={ncf.name_en}
+                descEs={ncf.desc_es} descEn={ncf.desc_en}
+                noVencimiento={ncf.noVencimiento}
+                seq={seq} enabled={enabled}
+                saving={saving} saved={saved}
+                onToggle={handleToggle}
+                onSave={handleSaveSeq}
+                onUpdate={updateLocal}
+                lang={lang} L={L}
+              />
+            )
+          })}
+        </div>
+      </div>
 
-          return (
-            <div key={ecf.code} className={`border rounded-xl p-4 transition-colors ${
-              enabled ? 'border-sky-200 bg-sky-50/30' : 'border-slate-200 bg-white'
-            }`}>
-              <div className="flex items-start gap-3">
-                {/* Type badge */}
-                <span className="shrink-0 inline-flex items-center justify-center h-6 px-2 rounded-md text-[11px] font-bold bg-slate-100 text-slate-600 font-mono mt-0.5">
-                  {ecf.code}
-                </span>
-
-                {/* Info + sequence fields */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-semibold text-slate-700 leading-tight">
-                    {L(ecf.name_es, ecf.name_en)}
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
-                    {L(ecf.desc_es, ecf.desc_en)}
-                  </p>
-
-                  {enabled && (
-                    <div className="mt-3 flex flex-wrap items-end gap-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                          {L('Número actual', 'Current #')}
-                        </label>
-                        <input
-                          type="number" min="0"
-                          value={seq.current_number}
-                          onChange={e => updateLocal(ecf.code, { current_number: e.target.value })}
-                          className="w-24 px-2.5 py-1.5 border border-slate-200 rounded-lg text-[12px] text-slate-700 bg-white focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/20"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                          {L('Límite', 'Limit')}
-                        </label>
-                        <input
-                          type="number" min="1"
-                          value={seq.limit_number}
-                          onChange={e => updateLocal(ecf.code, { limit_number: e.target.value })}
-                          className="w-28 px-2.5 py-1.5 border border-slate-200 rounded-lg text-[12px] text-slate-700 bg-white focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/20"
-                        />
-                      </div>
-                      {!ecf.noVencimiento && (
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                            {L('Válido hasta', 'Valid until')}
-                          </label>
-                          <input
-                            type="date"
-                            value={seq.valid_until || ''}
-                            onChange={e => updateLocal(ecf.code, { valid_until: e.target.value })}
-                            className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-[12px] text-slate-700 bg-white focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/20"
-                          />
-                        </div>
-                      )}
-                      {ecf.noVencimiento && (
-                        <p className="text-[10px] text-amber-600 font-medium self-end pb-2">
-                          {L('Sin fecha de vencimiento (e-CF E32)', 'No expiry date (e-CF E32)')}
-                        </p>
-                      )}
-                      <button
-                        onClick={() => handleSaveSeq(ecf.code)}
-                        disabled={saving[ecf.code]}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0C447C] hover:bg-[#0a3a6a] disabled:opacity-50 text-white text-[12px] font-bold rounded-lg transition-colors"
-                      >
-                        {saving[ecf.code] ? <><Loader2 size={11} className="animate-spin" /> {L('Guardando…', 'Saving…')}</>
-                         : saved[ecf.code] ? <><CheckCircle2 size={11} /> {L('Guardado', 'Saved')}</>
-                         : L('Guardar', 'Save')}
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Toggle */}
-                <Toggle enabled={enabled} onChange={v => handleToggle(ecf.code, v)} />
-              </div>
-            </div>
-          )
-        })}
+      {/* ── e-CF electronic sequences ──────────────────────────────────────── */}
+      <div>
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+          <span className="font-mono">e-CF</span>
+          <span>— {L('Electrónico (obligatorio mayo 2026)', 'Electronic (mandatory May 2026)')}</span>
+        </p>
+        <div className="space-y-3">
+          {ecfList.map(ecf => {
+            const seq     = getSeq(ecf.code)
+            const enabled = seq.enabled === 1
+            return (
+              <SeqCard
+                key={ecf.code}
+                code={ecf.code}
+                nameEs={ecf.name_es} nameEn={ecf.name_en}
+                descEs={ecf.desc_es} descEn={ecf.desc_en}
+                noVencimiento={ecf.noVencimiento}
+                seq={seq} enabled={enabled}
+                saving={saving} saved={saved}
+                onToggle={handleToggle}
+                onSave={handleSaveSeq}
+                onUpdate={updateLocal}
+                lang={lang} L={L}
+              />
+            )
+          })}
+        </div>
       </div>
     </div>
   )
@@ -919,22 +1113,38 @@ function FiscalNCF() {
 // ── MI EMPRESA ────────────────────────────────────────────────────────────────
 
 function MiEmpresa() {
-  const { lang }            = useLang()
-  const L                   = (es, en) => lang === 'es' ? es : en
-  const [form, setForm]     = useState({ biz_name: '', biz_rnc: '', biz_address: '', biz_phone: '', biz_city: '', biz_type: '' })
-  const [logo, setLogo]     = useState('')
-  const [saving, setSaving] = useState(false)
-  const [saved,  setSaved]  = useState(false)
-  const [error,  setError]  = useState('')
+  const { lang }              = useLang()
+  const L                     = (es, en) => lang === 'es' ? es : en
+  const [form,    setForm]    = useState({ biz_name: '', biz_rnc: '', biz_address: '', biz_phone: '', biz_city: '', biz_type: '' })
+  const [logo,    setLogo]    = useState('')
+  const [loading, setLoading] = useState(false)
+  const [loadErr, setLoadErr] = useState('')
+  const [saving,  setSaving]  = useState(false)
+  const [saved,   setSaved]   = useState(false)
+  const [error,   setError]   = useState('')
+  const { toast, show }       = useToast()
   const fileRef = useRef()
 
   useEffect(() => {
-    if (!window.electronAPI?.settings?.get) return
-    window.electronAPI.settings.get().then(s => {
-      if (!s) return
-      setForm({ biz_name: s.biz_name||'', biz_rnc: s.biz_rnc||'', biz_address: s.biz_address||'', biz_phone: s.biz_phone||'', biz_city: s.biz_city||'', biz_type: s.biz_type||'' })
-      setLogo(s.biz_logo || '')
-    }).catch(() => {})
+    if (!hasIPC()) return
+    setLoading(true)
+    window.electronAPI.admin.getEmpresa()
+      .then(row => {
+        if (!row) return
+        let extra = {}
+        try { extra = JSON.parse(row.settings || '{}') } catch {}
+        setForm({
+          biz_name:    row.name    || '',
+          biz_rnc:     row.rnc     || '',
+          biz_address: row.address || '',
+          biz_phone:   row.phone   || '',
+          biz_city:    extra.biz_city  || '',
+          biz_type:    extra.biz_type  || '',
+        })
+        setLogo(row.logo || '')
+      })
+      .catch(e => setLoadErr(e.message || L('Error al cargar', 'Load error')))
+      .finally(() => setLoading(false))
   }, [])
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })) }
@@ -953,7 +1163,15 @@ function MiEmpresa() {
     if (!form.biz_name.trim()) { setError(L('El nombre del negocio es requerido.', 'Business name is required.')); return }
     setSaving(true); setError('')
     try {
-      await window.electronAPI.settings.update({ ...form, biz_logo: logo })
+      await window.electronAPI.admin.saveEmpresa({
+        name:     form.biz_name.trim(),
+        rnc:      form.biz_rnc.trim(),
+        address:  form.biz_address.trim(),
+        phone:    form.biz_phone.trim(),
+        logo:     logo || null,
+        settings: JSON.stringify({ biz_city: form.biz_city.trim(), biz_type: form.biz_type }),
+      })
+      show(L('Empresa guardada ✓', 'Business saved ✓'))
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (err) {
@@ -971,8 +1189,12 @@ function MiEmpresa() {
     { k: 'biz_phone',   label: L('Teléfono', 'Phone'),                        ph: '809-555-0123'              },
   ]
 
+  if (loading) return <div className="py-16 flex justify-center"><Loader2 className="animate-spin text-slate-300" size={22} /></div>
+  if (loadErr) return <div className="py-12 text-center text-[13px] text-red-500">{loadErr}</div>
+
   return (
     <div className="max-w-xl space-y-6">
+      <Toast toast={toast} />
       {/* Business type */}
       <div>
         <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
@@ -1065,251 +1287,19 @@ function MiEmpresa() {
   )
 }
 
-// ── SISTEMA ───────────────────────────────────────────────────────────────────
-
-const SISTEMA_DEFAULTS = {
-  ley_enabled:        '1',
-  itbis_pct:          '18',
-  usd_rate:           '61.00',
-  rnc_verify:         '1',
-  sucursales:         '0',
-  beverages_in_pos:   '1',
-  auto_backup:        '0',
-  printer:            '',
-  print_preticket:    '0',
-  print_factura_auto: '0',
-  print_conduce_auto: '0',
-}
-
-function Sistema() {
-  const { lang, setLang } = useLang()
-  const { toast, show }   = useToast()
-
-  const [cfg,      setCfg]      = useState(SISTEMA_DEFAULTS)
-  const [printers, setPrinters] = useState([])
-  const [saving,   setSaving]   = useState(false)
-  const [saved,    setSaved]    = useState(false)
-
-  useEffect(() => {
-    if (!hasIPC()) return
-    // Load persisted settings
-    window.electronAPI.settings.get().then(s => {
-      if (!s) return
-      setCfg(prev => ({
-        ...prev,
-        ...Object.fromEntries(
-          Object.keys(SISTEMA_DEFAULTS)
-            .filter(k => s[k] != null)
-            .map(k => [k, s[k]])
-        ),
-      }))
-    }).catch(() => {})
-
-    // Load printer list
-    window.electronAPI.listPrinters().then(list => {
-      if (Array.isArray(list)) setPrinters(list)
-    }).catch(() => {})
-  }, [])
-
-  function set(k, v) { setCfg(c => ({ ...c, [k]: v })) }
-  const on = k => cfg[k] === '1'
-
-  async function handleSave() {
-    setSaving(true)
-    try {
-      await window.electronAPI.settings.update(cfg)
-      setSaved(true)
-      show(lang === 'es' ? 'Configuración guardada ✓' : 'Settings saved ✓')
-      setTimeout(() => setSaved(false), 2500)
-    } catch {
-      show(lang === 'es' ? 'Error al guardar' : 'Error saving', 'error')
-    } finally { setSaving(false) }
-  }
-
-  async function testPrint() {
-    try {
-      await window.electronAPI.print({ type: 'test', data: {}, printerName: cfg.printer || undefined })
-      show(lang === 'es' ? 'Prueba de impresión enviada ✓' : 'Test print sent ✓')
-    } catch {
-      show(lang === 'es' ? 'Error al imprimir' : 'Printer error', 'error')
-    }
-  }
-
-  const L = (es, en) => lang === 'es' ? es : en
-
-  return (
-    <div className="max-w-2xl">
-      <Toast toast={toast} />
-
-      {/* ── Language ─────────────────────────────────────────────────────────── */}
-      <SettingSection title={L('Idioma del Sistema', 'System Language')}>
-        <SettingRow label={L('Idioma / Language', 'Language / Idioma')} hint={L('Cambia el idioma de toda la app inmediatamente', 'Changes app language immediately')}>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setLang('es')}
-              className={`px-3 py-1.5 rounded-lg text-[12px] font-bold border transition-colors ${
-                lang === 'es'
-                  ? 'bg-[#0C447C] border-[#0C447C] text-white'
-                  : 'border-slate-200 text-slate-500 hover:border-slate-400 hover:bg-slate-50'
-              }`}
-            >
-              🇩🇴 ES
-            </button>
-            <button
-              onClick={() => setLang('en')}
-              className={`px-3 py-1.5 rounded-lg text-[12px] font-bold border transition-colors ${
-                lang === 'en'
-                  ? 'bg-[#0C447C] border-[#0C447C] text-white'
-                  : 'border-slate-200 text-slate-500 hover:border-slate-400 hover:bg-slate-50'
-              }`}
-            >
-              🇺🇸 EN
-            </button>
-          </div>
-        </SettingRow>
-      </SettingSection>
-
-      {/* ── Calculations ─────────────────────────────────────────────────────── */}
-      <SettingSection title={L('Cálculos', 'Calculations')}>
-        <SettingRow
-          label="Ley 10%"
-          hint={L('Cargo de servicio aplicado a todas las facturas', 'Service charge applied to all invoices')}
-        >
-          <Toggle enabled={on('ley_enabled')} onChange={v => set('ley_enabled', v ? '1' : '0')} />
-        </SettingRow>
-
-        <SettingRow
-          label={L('ITBIS %', 'ITBIS %')}
-          hint={L('Porcentaje del impuesto (defecto: 18)', 'Tax rate percentage (default: 18)')}
-        >
-          <Input
-            type="number" min="0" max="100"
-            value={cfg.itbis_pct}
-            onChange={e => set('itbis_pct', e.target.value)}
-            className="w-20 text-center"
-          />
-        </SettingRow>
-
-        <SettingRow
-          label={L('Tasa Cambio USD', 'USD Exchange Rate')}
-          hint="RD$ por USD"
-        >
-          <Input
-            type="number" min="0" step="0.01"
-            value={cfg.usd_rate}
-            onChange={e => set('usd_rate', e.target.value)}
-            className="w-24 text-center"
-          />
-        </SettingRow>
-      </SettingSection>
-
-      {/* ── Fiscal ───────────────────────────────────────────────────────────── */}
-      <SettingSection title={L('Fiscal', 'Tax & Compliance')}>
-        <SettingRow
-          label={L('Verificar RNC/NCF', 'Verify RNC/NCF')}
-          hint={L('Valida RNC contra el API de DGII', 'Validates RNC against DGII API')}
-        >
-          <Toggle enabled={on('rnc_verify')} onChange={v => set('rnc_verify', v ? '1' : '0')} />
-        </SettingRow>
-
-        <SettingRow
-          label={L('Sucursales', 'Branches')}
-          hint={L('Próximamente — gestión multi-sucursal', 'Coming soon — multi-branch management')}
-        >
-          <Toggle enabled={on('sucursales')} onChange={v => set('sucursales', v ? '1' : '0')} disabled />
-        </SettingRow>
-      </SettingSection>
-
-      {/* ── POS ──────────────────────────────────────────────────────────────── */}
-      <SettingSection title={L('Punto de Venta', 'Point of Sale')}>
-        <SettingRow
-          label={L('Bebidas y Snacks en POS', 'Beverages & Snacks in POS')}
-          hint={L('Muestra la pestaña Extras en el POS', 'Shows the Extras tab in POS')}
-        >
-          <Toggle enabled={on('beverages_in_pos')} onChange={v => set('beverages_in_pos', v ? '1' : '0')} />
-        </SettingRow>
-
-        <SettingRow
-          label={L('Respaldo Automático', 'Auto Backup')}
-          hint={L('Genera copia de seguridad automáticamente cada día', 'Generates a backup automatically every day')}
-        >
-          <Toggle enabled={on('auto_backup')} onChange={v => set('auto_backup', v ? '1' : '0')} />
-        </SettingRow>
-      </SettingSection>
-
-      {/* ── Printing ─────────────────────────────────────────────────────────── */}
-      <SettingSection title={L('Impresión', 'Printing')}>
-        <SettingRow
-          label={L('Impresora', 'Printer')}
-          hint={L('Selecciona la impresora predeterminada del sistema', 'Select the default system printer')}
-        >
-          <div className="flex items-center gap-2">
-            <select
-              value={cfg.printer}
-              onChange={e => set('printer', e.target.value)}
-              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 bg-white focus:outline-none focus:border-sky-400 max-w-[220px]"
-            >
-              <option value="">{L('Predeterminada del sistema', 'System default')}</option>
-              {printers.map(p => (
-                <option key={p.name} value={p.name}>
-                  {p.name}{p.isDefault ? ' ★' : ''}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={testPrint}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors whitespace-nowrap"
-            >
-              <Printer size={12} />
-              {L('Prueba', 'Test')}
-            </button>
-          </div>
-        </SettingRow>
-
-        <SettingRow
-          label={L('Imprimir Pre-Ticket', 'Print Pre-Ticket')}
-          hint={L('Al añadir el vehículo a la cola', 'When adding the vehicle to the queue')}
-        >
-          <Toggle enabled={on('print_preticket')} onChange={v => set('print_preticket', v ? '1' : '0')} />
-        </SettingRow>
-
-        <SettingRow
-          label={L('Imprimir Factura Automáticamente', 'Auto-Print Invoice')}
-          hint={L('Al confirmar el cobro', 'On payment confirmation')}
-        >
-          <Toggle enabled={on('print_factura_auto')} onChange={v => set('print_factura_auto', v ? '1' : '0')} />
-        </SettingRow>
-
-        <SettingRow
-          label={L('Imprimir Conduce Automáticamente', 'Auto-Print Delivery Note')}
-          hint={L('Al confirmar el cobro', 'On payment confirmation')}
-        >
-          <Toggle enabled={on('print_conduce_auto')} onChange={v => set('print_conduce_auto', v ? '1' : '0')} />
-        </SettingRow>
-      </SettingSection>
-
-      <div className="flex justify-end mt-2">
-        <SaveBtn
-          saving={saving}
-          saved={saved}
-          label={L('Guardar Configuración', 'Save Settings')}
-          onClick={handleSave}
-        />
-      </div>
-    </div>
-  )
-}
-
 // ── MAIN ADMIN SCREEN ─────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'empresa',    es: 'Mi Empresa',  en: 'Business',    icon: Building2  },
-  { id: 'fiscal',     es: 'Fiscal / NCF',en: 'Fiscal / NCF',icon: FileText   },
-  { id: 'lavadores',  es: 'Lavadores',   en: 'Washers',     icon: Users      },
-  { id: 'vendedores', es: 'Vendedores',  en: 'Salespeople', icon: UserCheck  },
-  { id: 'usuarios',   es: 'Usuarios',    en: 'Users',       icon: KeyRound   },
-  { id: 'servicios',  es: 'Servicios',   en: 'Services',    icon: LayoutGrid },
-  { id: 'sistema',    es: 'Sistema',     en: 'System',      icon: Settings   },
+  { id: 'empresa',    es: 'Mi Empresa',    en: 'Business',          icon: Building2  },
+  { id: 'fiscal',     es: 'Fiscal / NCF',  en: 'Fiscal / NCF',      icon: FileText   },
+  { id: 'lavadores',  es: 'Lavadores',     en: 'Washers',           icon: Users      },
+  { id: 'vendedores', es: 'Vendedores',    en: 'Salespeople',       icon: UserCheck  },
+  { id: 'usuarios',   es: 'Usuarios',      en: 'Users',             icon: KeyRound   },
+  { id: 'servicios',  es: 'Servicios',     en: 'Services',          icon: LayoutGrid },
+  { id: 'daily',      es: 'Reporte Diario',en: 'Daily Report',      icon: BarChart2  },
+  { id: 'monthly',    es: 'Reporte Mensual',en: 'Monthly Report',   icon: Calendar   },
+  { id: 'comisiones', es: 'Comisiones',    en: 'Commissions',       icon: DollarSign },
+  { id: 'remote',     es: 'Dashboard Remoto',en: 'Remote Dashboard',icon: Globe      },
 ]
 
 export default function Admin() {
@@ -1338,15 +1328,24 @@ export default function Admin() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        {tab === 'empresa'    && <MiEmpresa />}
-        {tab === 'fiscal'     && <FiscalNCF />}
-        {tab === 'lavadores'  && <Lavadores />}
-        {tab === 'vendedores' && <Vendedores />}
-        {tab === 'usuarios'   && <Usuarios />}
-        {tab === 'servicios'  && <Servicios />}
-        {tab === 'sistema'    && <Sistema />}
-      </div>
+      {['empresa','fiscal','lavadores','vendedores','usuarios','servicios','daily','monthly','comisiones'].includes(tab) && (
+        <div className="flex-1 overflow-y-auto px-6 py-6">
+          {tab === 'empresa'    && <MiEmpresa />}
+          {tab === 'fiscal'     && <FiscalNCF />}
+          {tab === 'lavadores'  && <Lavadores />}
+          {tab === 'vendedores' && <Vendedores />}
+          {tab === 'usuarios'   && <Usuarios />}
+          {tab === 'servicios'  && <Servicios />}
+          {tab === 'daily'      && <DailyReport />}
+          {tab === 'monthly'    && <MonthlyReport />}
+          {tab === 'comisiones' && <WorkerReport />}
+        </div>
+      )}
+      {tab === 'remote' && (
+        <div className="flex-1 overflow-hidden">
+          <RemoteDashboard />
+        </div>
+      )}
     </div>
   )
 }

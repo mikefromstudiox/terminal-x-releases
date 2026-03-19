@@ -33,6 +33,9 @@ function init(userDataPath) {
 
   db = new Database(dbPath)
   db.pragma('journal_mode = WAL')
+  db.pragma('synchronous = NORMAL')
+  db.pragma('cache_size = -2000')
+  db.pragma('temp_store = MEMORY')
   db.pragma('foreign_keys = ON')
 
   // Apply schema
@@ -44,13 +47,21 @@ function init(userDataPath) {
     'ALTER TABLE washers ADD COLUMN start_date TEXT',
     'ALTER TABLE sellers ADD COLUMN phone TEXT',
     'ALTER TABLE ncf_sequences ADD COLUMN enabled INTEGER NOT NULL DEFAULT 0',
+    // v1.1 — categorias_servicio support
+    'ALTER TABLE services ADD COLUMN categoria_id INTEGER REFERENCES categorias_servicio(id)',
+    'ALTER TABLE services ADD COLUMN aplica_itbis INTEGER NOT NULL DEFAULT 1',
+    'ALTER TABLE users ADD COLUMN vendedor_id INTEGER REFERENCES sellers(id)',
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch { /* column already exists */ }
   }
 
-  // Ensure all 10 e-CF types exist in ncf_sequences (INSERT OR IGNORE — never overwrites existing)
+  // Ensure all sequence types exist in ncf_sequences (INSERT OR IGNORE — never overwrites existing)
   const ECF_SEED = [
+    // Legacy NCF (B01/B02) — valid until May 2026
+    { type: 'B01', prefix: 'B01', enabled: 1 },
+    { type: 'B02', prefix: 'B02', enabled: 1 },
+    // e-CF (electronic, mandatory from May 2026)
     { type: 'E31', prefix: 'E310', enabled: 1 },
     { type: 'E32', prefix: 'E320', enabled: 1 },
     { type: 'E33', prefix: 'E330', enabled: 0 },
@@ -76,6 +87,33 @@ function init(userDataPath) {
 
   console.log('[db] SQLite ready:', dbPath)
   return true
+}
+
+// ── CONFIGURACION ─────────────────────────────────────────────────────────────
+function configGet(key) {
+  if (!db) return null
+  const row = db.prepare('SELECT valor FROM configuracion WHERE clave=?').get(key)
+  return row?.valor ?? null
+}
+function configSet(key, value) {
+  if (!db) return
+  db.prepare('INSERT OR REPLACE INTO configuracion(clave,valor) VALUES(?,?)').run(key, String(value))
+}
+
+// ── EMPRESA ───────────────────────────────────────────────────────────────────
+function empresaGet() {
+  if (!db) return null
+  // Setup is complete only when configuracion.setup_complete = '1'
+  if (configGet('setup_complete') !== '1') return null
+  return db.prepare('SELECT id,name,rnc,address,phone,email,settings FROM businesses WHERE id=1').get() ?? null
+}
+function empresaSave(data) {
+  if (!db) return
+  const allowed = ['name', 'rnc', 'address', 'phone', 'email', 'logo', 'settings']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (!Object.keys(patch).length) return
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE businesses SET ${fields} WHERE id=1`).run(patch)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -122,7 +160,7 @@ function userCreate(data) {
   return db.prepare(`INSERT INTO users(name,username,pin_hash,role,discount_pct,active)
     VALUES(@name,@username,@pin_hash,@role,@discount_pct,1)`).run({
     ...data,
-    pin_hash: sha256(data.pin || '0000'),
+    pin_hash: (() => { if (!data.pin) throw new Error('PIN requerido'); return sha256(data.pin) })(),
   })
 }
 function userUpdate(id, data) {
@@ -132,6 +170,37 @@ function userUpdate(id, data) {
   const fields = Object.keys(rest).filter(k => k !== 'id').map(k => `${k}=@${k}`).join(',')
   if (!fields) return
   db.prepare(`UPDATE users SET ${fields} WHERE id=@id`).run({ ...rest, id })
+}
+function userDelete(id) {
+  if (!db) return
+  db.prepare('UPDATE users SET active=0 WHERE id=?').run(id)
+}
+
+// ── CATEGORIAS SERVICIO ───────────────────────────────────────────────────────
+function categoriasGetAll() {
+  if (!db) return []
+  return db.prepare('SELECT * FROM categorias_servicio ORDER BY orden, nombre').all()
+}
+function categoriaCreate(data) {
+  if (!db) return null
+  const r = db.prepare('INSERT INTO categorias_servicio(nombre, orden) VALUES(@nombre, @orden)')
+    .run({ nombre: data.nombre, orden: data.orden || 0 })
+  return { id: r.lastInsertRowid }
+}
+function categoriaUpdate(id, data) {
+  if (!db) return
+  const allowed = ['nombre', 'orden']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (!Object.keys(patch).length) return
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE categorias_servicio SET ${fields} WHERE id=@id`).run({ ...patch, id })
+}
+function categoriaDelete(id) {
+  if (!db) return
+  // Only delete if no services reference it
+  const count = db.prepare('SELECT COUNT(*) as n FROM services WHERE categoria_id=?').get(id)
+  if (count?.n > 0) throw new Error('Categoría tiene servicios asociados')
+  db.prepare('DELETE FROM categorias_servicio WHERE id=?').run(id)
 }
 
 // ── SERVICES ──────────────────────────────────────────────────────────────────
@@ -145,17 +214,26 @@ function servicesGetAllAdmin() {
 }
 function serviceCreate(data) {
   if (!db) return null
-  const r = db.prepare(`INSERT INTO services(name,name_en,category,price,is_wash,active,sort_order)
-    VALUES(@name,@name_en,@category,@price,@is_wash,1,COALESCE(@sort_order,0))`).run(data)
+  const r = db.prepare(`INSERT INTO services(name,name_en,category,categoria_id,price,aplica_itbis,is_wash,active,sort_order)
+    VALUES(@name,@name_en,@category,@categoria_id,@price,COALESCE(@aplica_itbis,1),@is_wash,1,COALESCE(@sort_order,0))`).run({
+    name: data.name, name_en: data.name_en || null,
+    category: data.category || 'Lavado', categoria_id: data.categoria_id || null,
+    price: data.price, aplica_itbis: data.aplica_itbis ?? 1,
+    is_wash: data.is_wash ?? 1, sort_order: data.sort_order || 0,
+  })
   return { id: r.lastInsertRowid }
 }
 function serviceUpdate(id, data) {
   if (!db) return
-  const allowed = ['name','name_en','category','price','is_wash','active','sort_order']
+  const allowed = ['name','name_en','category','categoria_id','price','aplica_itbis','is_wash','active','sort_order']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
   db.prepare(`UPDATE services SET ${fields} WHERE id=@id`).run({ ...patch, id })
+}
+function serviceDelete(id) {
+  if (!db) return
+  db.prepare('UPDATE services SET active=0 WHERE id=?').run(id)
 }
 
 // ── WASHERS ───────────────────────────────────────────────────────────────────
@@ -184,6 +262,10 @@ function washerUpdate(id, data) {
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
   db.prepare(`UPDATE washers SET ${fields} WHERE id=@id`).run({ ...patch, id })
 }
+function washerDelete(id) {
+  if (!db) return
+  db.prepare('UPDATE washers SET active=0 WHERE id=?').run(id)
+}
 
 // ── SELLERS ───────────────────────────────────────────────────────────────────
 function sellersGetAll() {
@@ -207,6 +289,10 @@ function sellerUpdate(id, data) {
   if (!Object.keys(patch).length) return
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
   db.prepare(`UPDATE sellers SET ${fields} WHERE id=@id`).run({ ...patch, id })
+}
+function sellerDelete(id) {
+  if (!db) return
+  db.prepare('UPDATE sellers SET active=0 WHERE id=?').run(id)
 }
 
 // ── CLIENTS ───────────────────────────────────────────────────────────────────
@@ -273,6 +359,7 @@ function collectCredit({ clientId, ticketIds, amount, paymentMethod, ncf, notes,
 // ── TICKETS ───────────────────────────────────────────────────────────────────
 function ticketsGetAll({ dateFrom, dateTo, status, limit = 200 } = {}) {
   if (!db) return []
+  const safeLimit = Math.min(limit || 200, 500)
   let sql  = `SELECT t.*, c.name as client_name, c.rnc as client_rnc,
                      u.name as cajero_name
               FROM tickets t
@@ -284,7 +371,7 @@ function ticketsGetAll({ dateFrom, dateTo, status, limit = 200 } = {}) {
   if (dateTo)   { sql += ' AND t.created_at <= ?'; params.push(dateTo)   }
   if (status)   { sql += ' AND t.status = ?';      params.push(status)   }
   sql += ' ORDER BY t.created_at DESC LIMIT ?'
-  params.push(limit)
+  params.push(safeLimit)
   return db.prepare(sql).all(...params)
 }
 function ticketGetById(id) {
@@ -482,7 +569,7 @@ function commissionsGetByWasher(washerId, dateFrom, dateTo) {
   const params = [washerId]
   if (dateFrom) { sql += ' AND t.created_at >= ?'; params.push(dateFrom) }
   if (dateTo)   { sql += ' AND t.created_at <= ?'; params.push(dateTo)   }
-  sql += ' GROUP BY wc.id ORDER BY t.created_at DESC'
+  sql += ' GROUP BY wc.id ORDER BY t.created_at DESC LIMIT 2000'
   return db.prepare(sql).all(...params)
 }
 function commissionsGetByPeriod(dateFrom, dateTo) {
@@ -527,6 +614,17 @@ function cuadreGetHistory(limit = 20) {
      LEFT JOIN users u ON u.id=c.cajero_id
      ORDER BY c.closed_at DESC LIMIT ?`
   ).all(limit)
+}
+function cuadreList({ dateFrom, dateTo, limit = 100 } = {}) {
+  if (!db) return []
+  let sql = `SELECT c.*, u.name as cajero_name FROM cuadre_caja c
+             LEFT JOIN users u ON u.id=c.cajero_id WHERE 1=1`
+  const params = []
+  if (dateFrom) { sql += ' AND c.date >= ?'; params.push(dateFrom) }
+  if (dateTo)   { sql += ' AND c.date <= ?'; params.push(dateTo) }
+  sql += ' ORDER BY c.closed_at DESC LIMIT ?'
+  params.push(limit)
+  return db.prepare(sql).all(...params)
 }
 function cuadreDailySummary(date) {
   if (!db) return {}
@@ -642,16 +740,21 @@ function get606Data(dateFrom, dateTo) {
 // ── Public API ────────────────────────────────────────────────────────────────
 module.exports = {
   init,
+  // Empresa
+  configGet, configSet,
+  empresaGet, empresaSave,
   // Settings
   settingsGet, settingsUpdate, getSetting, setSetting,
   // Auth
-  authByPin, usersGetAll, userCreate, userUpdate,
+  authByPin, usersGetAll, userCreate, userUpdate, userDelete,
+  // Categorías de servicio
+  categoriasGetAll, categoriaCreate, categoriaUpdate, categoriaDelete,
   // Services
-  servicesGetAll, servicesGetAllAdmin, serviceCreate, serviceUpdate,
+  servicesGetAll, servicesGetAllAdmin, serviceCreate, serviceUpdate, serviceDelete,
   // Washers
-  washersGetAll, washersGetAllAdmin, washerCreate, washerUpdate,
+  washersGetAll, washersGetAllAdmin, washerCreate, washerUpdate, washerDelete,
   // Sellers
-  sellersGetAll, sellersGetAllAdmin, sellerCreate, sellerUpdate,
+  sellersGetAll, sellersGetAllAdmin, sellerCreate, sellerUpdate, sellerDelete,
   // Clients
   clientsGetAll, clientGetById, clientCreate, clientUpdate, clientUpdateBalance, clientGetOpenTickets, collectCredit,
   // Tickets
@@ -661,7 +764,7 @@ module.exports = {
   // Commissions
   commissionsGetByWasher, commissionsGetByPeriod, commissionsMarkPaid,
   // Cuadre
-  cuadreCreate, cuadreGetHistory, cuadreDailySummary,
+  cuadreCreate, cuadreGetHistory, cuadreList, cuadreDailySummary,
   // NCF
   ncfGetSequences, ncfGetNext, ncfUpdateSequence,
   // Caja chica

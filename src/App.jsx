@@ -1,10 +1,12 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { useState, useEffect } from 'react'
 import { useAuth } from './context/AuthContext'
 import { useLicense } from './context/LicenseContext'
 import Layout from './components/Layout'
 import LicenseGate from './screens/LicenseGate'
 import UpdateBanner from './components/UpdateBanner'
 import ErrorBoundary from './components/ErrorBoundary'
+import FirstTimeSetup from './screens/FirstTimeSetup'
 import Login from './screens/Login'
 import POS from './screens/POS'
 import Queue from './screens/Queue'
@@ -20,13 +22,14 @@ import PettyCash from './screens/PettyCash'
 import CreditNotes from './screens/CreditNotes'
 import RemoteDashboard from './screens/RemoteDashboard'
 import LicenseAdmin from './screens/LicenseAdmin'
+import Sistema from './screens/Sistema'
 import DailyReport from './screens/reports/DailyReport'
 import MonthlyReport from './screens/reports/MonthlyReport'
 import WorkerReport from './screens/reports/WorkerReport'
 import SalespersonReport from './screens/reports/SalespersonReport'
 
 // Routes accessible only to non-cashier roles
-const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin']
+const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin','/sistema']
 
 function ProtectedRoute({ element }) {
   const { user } = useAuth()
@@ -36,22 +39,48 @@ function ProtectedRoute({ element }) {
   return element
 }
 
-export default function App() {
-  const { user }                              = useAuth()
-  const { result, checking, isReadOnly }     = useLicense()
-
-  // Still loading — show minimal spinner
-  if (checking && !result) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center bg-slate-900">
-        <div className="text-center">
-          <div className="w-12 h-12 bg-sky-500 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-pulse">
-            <span className="text-white font-bold text-xl">TX</span>
-          </div>
-          <p className="text-slate-400 text-sm">Terminal X…</p>
+// ── Startup spinner ───────────────────────────────────────────────────────────
+function Spinner() {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-black">
+      <div className="text-center">
+        <div className="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <img src="/assets/logo.png" alt="TX" className="w-8 h-8 object-contain" />
         </div>
+        <p className="text-zinc-500 text-sm">Cargando...</p>
       </div>
-    )
+    </div>
+  )
+}
+
+export default function App() {
+  const { user }                          = useAuth()
+  const { result, checking, isReadOnly } = useLicense()
+
+  // ── First-run detection ─────────────────────────────────────────────────────
+  const [setupChecked, setSetupChecked] = useState(false)
+  const [isFirstRun,   setIsFirstRun]   = useState(false)
+
+  useEffect(() => {
+    async function checkFirstRun() {
+      try {
+        const empresa = await window.electronAPI?.admin?.getEmpresa?.()
+        setIsFirstRun(!empresa)
+      } catch {
+        setIsFirstRun(false)   // IPC unavailable (dev/web) — skip setup
+      } finally {
+        setSetupChecked(true)
+      }
+    }
+    checkFirstRun()
+  }, [])
+
+  // ── Startup gate: wait for both setup check and license check ──────────────
+  if (!setupChecked || (checking && !result)) return <Spinner />
+
+  // ── First-run wizard ────────────────────────────────────────────────────────
+  if (isFirstRun) {
+    return <FirstTimeSetup onComplete={() => setIsFirstRun(false)} />  // setIsFirstRun(false) = setAppState('login')
   }
 
   // License missing or invalid (not just expired) → show gate
@@ -95,6 +124,7 @@ export default function App() {
         <Route path="/admin"                 element={<ProtectedRoute element={<Admin />} />} />
         <Route path="/remote"                element={<ProtectedRoute element={<RemoteDashboard />} />} />
         <Route path="/license-admin"         element={<ProtectedRoute element={<LicenseAdmin />} />} />
+        <Route path="/sistema"               element={<ProtectedRoute element={<Sistema />} />} />
         {/* Legacy routes — redirect to canonical destinations */}
         <Route path="/workers"               element={<Navigate to="/reports/workers" replace />} />
         <Route path="/services"              element={<Navigate to="/admin" replace />} />

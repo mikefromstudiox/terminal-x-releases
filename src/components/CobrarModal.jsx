@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, Loader2, QrCode, User } from 'lucide-react'
 import { useLang } from '../i18n'
 import { signAndSubmitECF, getQRCode, ECF_TYPES, validateRNC, EF2_CONFIGURED } from '../services/ecf'
@@ -20,6 +20,13 @@ const PAYMENT_METHODS = [
 ]
 
 const QUICK = [200, 500, 1000, 2000]
+
+// B01/B02 legacy types (pre-May 2026 NCF system)
+const LEGACY_TYPES = [
+  { code: 'SIN', sub_es: 'Sin Comprobante', sub_en: 'No Receipt',     requiresRnc: false },
+  { code: 'B02', sub_es: 'Consumidor Final', sub_en: 'Final Consumer', requiresRnc: false },
+  { code: 'B01', sub_es: 'Crédito Fiscal',   sub_en: 'Tax Credit',     requiresRnc: true  },
+]
 
 const L = (es, en) => ({ es, en })
 const LABELS = {
@@ -151,8 +158,11 @@ function ToggleBtn({ active, onClick, children }) {
 
 // ── Success / receipt view ────────────────────────────────────────────────────
 function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, pdfUrl }) {
-  const ecfType = ECF_TYPES[ncfType]
-  const fmtISO  = s => new Date(s).toLocaleString('es-DO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const isLegacy = ecfResult?._legacy
+  const isSin    = isLegacy && !ecfResult?.eNCF
+  const ecfType  = ECF_TYPES[ncfType]
+  const legacyType = LEGACY_TYPES.find(t => t.code === ncfType)
+  const fmtISO   = s => new Date(s).toLocaleString('es-DO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-8 py-6 gap-5 overflow-y-auto">
@@ -164,14 +174,29 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
       {/* Main info */}
       <div className="text-center">
         <p className="text-[13px] font-semibold text-slate-500 mb-1">
-          {lang === 'es' ? 'e-CF enviado a DGII' : 'e-CF submitted to DGII'}
+          {isSin
+            ? (lang === 'es' ? 'Cobrado — sin comprobante' : 'Charged — no receipt')
+            : isLegacy
+              ? (lang === 'es' ? 'Cobrado — NCF local' : 'Charged — local NCF')
+              : (lang === 'es' ? 'e-CF enviado a DGII' : 'e-CF submitted to DGII')}
         </p>
-        <p className="text-[26px] font-bold text-slate-800 font-mono tracking-wide">{ecfResult.eNCF}</p>
+        {isSin ? (
+          <p className="text-[22px] font-bold text-slate-400 italic">
+            {lang === 'es' ? 'Sin Comprobante' : 'No Receipt'}
+          </p>
+        ) : (
+          <p className="text-[26px] font-bold text-slate-800 font-mono tracking-wide">{ecfResult?.eNCF}</p>
+        )}
         <div className="flex items-center justify-center gap-2 mt-2">
           <span className="text-[11px] font-bold bg-green-50 text-green-700 border border-green-200 rounded-full px-3 py-0.5">
-            {ecfResult.status}
+            {isSin ? (lang === 'es' ? 'COBRADO' : 'CHARGED') : (ecfResult?.status ?? 'OK')}
           </span>
-          <span className="text-[11px] text-slate-400">{ecfType?.name_es ?? ncfType}</span>
+          {!isSin && (
+            <span className="text-[11px] text-slate-400">
+              {legacyType ? (lang === 'es' ? legacyType.sub_es : legacyType.sub_en)
+                           : (ecfType?.name_es ?? ncfType)}
+            </span>
+          )}
         </div>
       </div>
 
@@ -185,35 +210,41 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
           <p className="text-slate-400">Total</p>
           <p className="font-bold text-slate-800">{fmtRD(total)}</p>
         </div>
-        <div>
-          <p className="text-slate-400">{lang === 'es' ? 'Enviado' : 'Submitted'}</p>
-          <p className="font-semibold text-slate-700">{fmtISO(ecfResult.submittedAt)}</p>
-        </div>
-        <div>
-          <p className="text-slate-400">{lang === 'es' ? 'Ref. ef2.do' : 'ef2.do Ref.'}</p>
-          <p className="font-mono text-[11px] text-slate-600">{ecfResult.trackId}</p>
-        </div>
-      </div>
-
-      {/* QR code */}
-      <div className="flex flex-col items-center gap-2">
-        {qrUrl ? (
-          <img
-            src={qrUrl}
-            alt="QR verificación DGII"
-            width={128}
-            height={128}
-            className="rounded-xl border border-slate-200 shadow-sm"
-          />
-        ) : (
-          <div className="w-32 h-32 bg-slate-100 rounded-xl flex items-center justify-center">
-            <QrCode size={32} className="text-slate-300 animate-pulse" />
+        {!isSin && ecfResult?.submittedAt && (
+          <div>
+            <p className="text-slate-400">{lang === 'es' ? 'Registrado' : 'Recorded'}</p>
+            <p className="font-semibold text-slate-700">{fmtISO(ecfResult.submittedAt)}</p>
           </div>
         )}
-        <p className="text-[10px] text-slate-400 text-center">
-          {lang === 'es' ? 'Escanea para verificar en DGII' : 'Scan to verify on DGII portal'}
-        </p>
+        {!isSin && ecfResult?.trackId && (
+          <div>
+            <p className="text-slate-400">{isLegacy ? (lang === 'es' ? 'Ref. Local' : 'Local Ref.') : (lang === 'es' ? 'Ref. ef2.do' : 'ef2.do Ref.')}</p>
+            <p className="font-mono text-[11px] text-slate-600">{ecfResult.trackId}</p>
+          </div>
+        )}
       </div>
+
+      {/* QR code — only for e-CF */}
+      {!isLegacy && (
+        <div className="flex flex-col items-center gap-2">
+          {qrUrl ? (
+            <img
+              src={qrUrl}
+              alt="QR verificación DGII"
+              width={128}
+              height={128}
+              className="rounded-xl border border-slate-200 shadow-sm"
+            />
+          ) : (
+            <div className="w-32 h-32 bg-slate-100 rounded-xl flex items-center justify-center">
+              <QrCode size={32} className="text-slate-300 animate-pulse" />
+            </div>
+          )}
+          <p className="text-[10px] text-slate-400 text-center">
+            {lang === 'es' ? 'Escanea para verificar en DGII' : 'Scan to verify on DGII portal'}
+          </p>
+        </div>
+      )}
 
       {/* Actions */}
       <div className="flex gap-3 w-full">
@@ -248,11 +279,12 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const ley      = subtotal * LEY_RATE
   const total    = subtotal + itbis + ley
 
+  // Fiscal mode — derived from bizSettings once loaded
   // Enabled e-CF types (loaded from NCF sequences)
   const [enabledEcfTypes, setEnabledEcfTypes] = useState(null) // null = loading, [] after load
 
   // Form state
-  const [ncfType,    setNcfType]    = useState('E32')
+  const [ncfType,    setNcfType]    = useState('B02') // updated once bizSettings loads
   const [rnc,        setRnc]        = useState('')
   const [rncName,    setRncName]    = useState('')
   const [tipo,       setTipo]       = useState('contado')
@@ -279,9 +311,15 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const clientRef = useRef(null)
 
   useEffect(() => {
-    if (!hasIPC()) return
+    if (!hasIPC()) { setBizSettings({}); return }
     window.electronAPI.clients.all().then(list => setAllClients(list || [])).catch(() => {})
-    window.electronAPI.settings.get().then(s => setBizSettings(s || {})).catch(() => setBizSettings({}))
+    window.electronAPI.settings.get().then(s => {
+      const cfg = s || {}
+      setBizSettings(cfg)
+      // Set sensible ncfType default based on fiscal mode
+      const mode = cfg.fiscal_mode || 'ecf'
+      setNcfType(mode === 'legacy' ? 'B02' : 'E32')
+    }).catch(() => setBizSettings({}))
   }, [])
 
   useEffect(() => {
@@ -325,10 +363,13 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const clientResults = clientQuery.trim().length < 1 ? [] : allClients.filter(c => {
+  const clientResults = useMemo(() => {
+    if (clientQuery.trim().length < 1) return []
     const q = clientQuery.toLowerCase()
-    return c.name?.toLowerCase().includes(q) || c.rnc?.toLowerCase().includes(q)
-  }).slice(0, 8)
+    return allClients.filter(c =>
+      c.name?.toLowerCase().includes(q) || c.rnc?.toLowerCase().includes(q)
+    ).slice(0, 8)
+  }, [clientQuery, allClients])
 
   function selectClient(c) {
     setSelectedClient(c)
@@ -346,6 +387,11 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
     setRnc(''); setRncName('')
   }
 
+  const isLegacy     = (bizSettings?.fiscal_mode || 'ecf') === 'legacy'
+  const currentType  = isLegacy
+    ? LEGACY_TYPES.find(t => t.code === ncfType)
+    : ECF_TYPES[ncfType]
+
   const recibidoNum  = parseFloat(recibido.replace(/,/g, '')) || 0
   const devuelta     = recibidoNum - total
   const showEfectivo = tipo === 'contado' && formaPago === 'efectivo'
@@ -353,7 +399,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const canSubmit =
     (tipo === 'credito' || formaPago !== null) &&
     (tipo !== 'contado' || formaPago !== 'efectivo' || recibidoNum >= total) &&
-    (!ECF_TYPES[ncfType]?.requiresRnc || validateRNC(rnc))
+    (!currentType?.requiresRnc || validateRNC(rnc))
 
   function lookupRnc() {
     if (validateRNC(rnc)) setRncName(rncName || 'Empresa S.R.L.')
@@ -361,6 +407,37 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
 
   async function handleConfirm() {
     if (!canSubmit) return
+
+    // ── Legacy B01/B02 mode: use DB sequence, skip ECF ──────────────────────
+    if (isLegacy) {
+      const isSin = ncfType === 'SIN'
+      let eNCF = null
+      if (!isSin) {
+        try {
+          // Use real DGII-assigned sequence from DB (increments current_number)
+          eNCF = hasIPC() ? await window.electronAPI.ncf.nextSequence(ncfType) : null
+        } catch { /* fallback below */ }
+        if (!eNCF) {
+          // Fallback: generate from current seq in memory
+          const seq = ncfSeqs.find(s => s.type === ncfType)
+          const next = (seq?.current_number || 0) + 1
+          const prefix = seq?.prefix || ncfType
+          eNCF = `${prefix}${String(next).padStart(8, '0')}`
+        }
+      }
+      const legacyResult = isSin ? null : {
+        eNCF,
+        status:      'LOCAL',
+        trackId:     `local-${Date.now()}`,
+        submittedAt: new Date().toISOString(),
+        qrLink:      null,
+        pdfUrl:      null,
+        _legacy:     true,
+      }
+      setEcfResult(legacyResult)
+      setEcfState('success')
+      return
+    }
 
     setEcfState('submitting')
     setSubmitStep(0)
@@ -568,10 +645,27 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
               {/* ── Two-column: Comprobante (left) | Tipo + Cliente (right) ── */}
               <div className="grid grid-cols-2 gap-5 items-start">
 
-                {/* LEFT — Comprobante Electrónico */}
+                {/* LEFT — Comprobante */}
                 <div>
-                  <SectionLabel>{tl('comp', lang)}</SectionLabel>
-                  {enabledEcfTypes === null ? (
+                  <SectionLabel>
+                    {isLegacy
+                      ? (lang === 'es' ? 'Comprobante NCF' : 'NCF Receipt')
+                      : tl('comp', lang)}
+                  </SectionLabel>
+
+                  {/* Legacy B01/B02/SIN buttons */}
+                  {isLegacy ? (
+                    <div className="flex flex-wrap gap-2">
+                      {LEGACY_TYPES.map(lt => (
+                        <ToggleBtn key={lt.code} active={ncfType === lt.code} onClick={() => setNcfType(lt.code)}>
+                          {lt.code}
+                          <span className="block text-[10px] font-normal opacity-60 mt-0.5">
+                            {lang === 'es' ? lt.sub_es : lt.sub_en}
+                          </span>
+                        </ToggleBtn>
+                      ))}
+                    </div>
+                  ) : enabledEcfTypes === null ? (
                     <div className="flex items-center gap-2 h-10">
                       <Loader2 size={13} className="animate-spin text-slate-400" />
                       <span className="text-[12px] text-slate-400">
@@ -591,8 +685,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                     </div>
                   )}
 
-                  {/* RNC fields — only when selected type requires RNC */}
-                  {ECF_TYPES[ncfType]?.requiresRnc && (
+                  {/* RNC fields — when selected type requires RNC */}
+                  {currentType?.requiresRnc && (
                     <div className="mt-3 space-y-2">
                       <div className="flex gap-1.5">
                         <input

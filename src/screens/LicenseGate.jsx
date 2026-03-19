@@ -36,7 +36,8 @@ export default function LicenseGate() {
   async function handleActivate() {
     const trimmedKey = key.trim().toUpperCase()
     const trimmedRnc = rnc.replace(/\D/g, '')
-    if (!isValidKeyFormat(trimmedKey)) { setError('Formato inválido. Ejemplo: TXL-A1B2-C3D4-E5F6'); return }
+    const isMaster = await window.electronAPI?.license?.isMaster?.(trimmedKey)
+    if (!isMaster && !isValidKeyFormat(trimmedKey)) { setError('Formato inválido. Ejemplo: TXL-A1B2-C3D4-E5F6'); return }
     if (!trimmedRnc) { setError('Ingresa el RNC o cédula del negocio.'); return }
     setError('')
     setActivating(true)

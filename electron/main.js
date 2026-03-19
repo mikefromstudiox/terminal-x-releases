@@ -6,6 +6,30 @@ const crypto = require('crypto')
 const https  = require('https')
 const { initUpdater } = require('./updater')
 
+// ── Load .env from project root ───────────────────────────────────────────────
+// dotenv is a dev-dependency; in packaged builds the env vars must be set at
+// build time or via the OS environment — dotenv.config() is a no-op if the
+// file doesn't exist, so this is always safe to call.
+try {
+  require('dotenv').config({ path: path.join(__dirname, '../.env') })
+} catch { /* dotenv not available in packaged build — env vars must come from OS */ }
+
+// ── Env-var accessors (with safe fallbacks) ───────────────────────────────────
+const env = {
+  masterKey:    (process.env.MASTER_LICENSE_KEY || 'TX-MASTER-2026').toUpperCase().trim(),
+  ef2Token:     process.env.EF2_TOKEN     || '',
+  supabaseUrl:  process.env.SUPABASE_URL  || '',
+  supabaseAnon: process.env.SUPABASE_ANON_KEY || '',
+}
+
+// Expose non-secret config to the renderer on request.
+// ef2Token and supabase keys are NOT sent proactively — only when requested,
+// so the renderer can detect stub/offline mode.
+ipcMain.handle('env:get', (_, key) => {
+  const allowed = { ef2Token: env.ef2Token, supabaseUrl: env.supabaseUrl, supabaseAnon: env.supabaseAnon }
+  return allowed[key] ?? null
+})
+
 // ── ef2.do HTTP proxy (runs in main process — no CORS, no browser restrictions) ─
 // Renderer cannot call ef2.do directly due to Chromium CORS enforcement.
 // All ef2.do requests go through this IPC bridge instead.
@@ -42,15 +66,20 @@ function ef2Fetch({ method = 'POST', path: urlPath, body, token }) {
 }
 
 ipcMain.handle('ef2:fetch', async (_, { method, path: urlPath, body, token }) => {
+  // Use token from request, fall back to env, stub if neither is set
+  const resolvedToken = token || env.ef2Token
+  if (!resolvedToken) {
+    return { ok: false, error: 'ef2_token_missing', stub: true }
+  }
   try {
-    const { status, json, raw } = await ef2Fetch({ method, path: urlPath, body, token })
+    const { status, json, raw } = await ef2Fetch({ method, path: urlPath, body, token: resolvedToken })
     return { ok: true, status, data: json, raw }
   } catch (err) {
     return { ok: false, error: err.message }
   }
 })
 
-const isDev = process.argv.includes('--dev')
+const isDev = process.argv.includes('--dev') || process.env.NODE_ENV === 'development'
 
 // ── Hardware ID (MAC address + hostname fingerprint, stable per machine) ───────
 let _hwid = null
@@ -98,6 +127,14 @@ ipcMain.handle('license:hwid', () => {
   return getHardwareId()
 })
 
+// ── Master license key ────────────────────────────────────────────────────────
+ipcMain.handle('license:is-master', (_, key) => {
+  if (typeof key !== 'string') return false
+  const match = key.toUpperCase().trim() === env.masterKey
+  if (match) console.warn('⚠️  Master key active — real license not yet applied')
+  return match
+})
+
 // ── Database ──────────────────────────────────────────────────────────────────
 let db = null
 try {
@@ -122,6 +159,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
     backgroundColor: '#0f172a',
     show: false,
@@ -175,6 +213,45 @@ function handle(channel, fn) {
   })
 }
 
+// ── Admin panel — unified CRUD handlers ───────────────────────────────────────
+// Empresa
+handle('get-empresa',   ()     => db.empresaGet())
+handle('save-empresa',  (data) => { db.empresaSave(data); return true })
+
+// Usuarios
+handle('get-usuarios',    ()     => db.usersGetAll())
+handle('save-usuario',    (data) => data.id ? db.userUpdate(data.id, data) : db.userCreate(data))
+handle('delete-usuario',  ({id}) => { db.userDelete(id); return true })
+
+// Lavadores
+handle('get-lavadores',   ()     => db.washersGetAllAdmin())
+handle('save-lavador',    (data) => data.id ? db.washerUpdate(data.id, data) : db.washerCreate(data))
+handle('delete-lavador',  ({id}) => { db.washerDelete(id); return true })
+
+// Vendedores
+handle('get-vendedores',  ()     => db.sellersGetAllAdmin())
+handle('save-vendedor',   (data) => data.id ? db.sellerUpdate(data.id, data) : db.sellerCreate(data))
+handle('delete-vendedor', ({id}) => { db.sellerDelete(id); return true })
+
+// Servicios
+handle('get-servicios',   ()     => db.servicesGetAllAdmin())
+handle('save-servicio',   (data) => data.id ? db.serviceUpdate(data.id, data) : db.serviceCreate(data))
+handle('delete-servicio', ({id}) => { db.serviceDelete(id); return true })
+handle('get-categorias',  ()     => db.categoriasGetAll())
+
+// Secuencias NCF
+handle('get-secuencias-ncf',  ()     => db.ncfGetSequences())
+handle('save-secuencia-ncf',  (data) => { db.ncfUpdateSequence(data.type, data); return true })
+
+// Configuración
+handle('get-configuracion',   ()     => db.settingsGet())
+handle('save-configuracion',  (data) => {
+  db.settingsUpdate(data)
+  // Mirror setup_complete to configuracion table (used by empresaGet first-run check)
+  if ('setup_complete' in data) db.configSet('setup_complete', data.setup_complete)
+  return true
+})
+
 // ── Settings ──────────────────────────────────────────────────────────────────
 handle('settings:get',    ()     => db.settingsGet())
 handle('settings:update', (obj)  => { db.settingsUpdate(obj); return true })
@@ -184,6 +261,12 @@ handle('auth:pin',         (pin)  => db.authByPin(pin))
 handle('users:all',        ()     => db.usersGetAll())
 handle('users:create',     (data) => db.userCreate(data))
 handle('users:update',     ({id, ...data}) => db.userUpdate(id, data))
+
+// ── Categorías de Servicio ────────────────────────────────────────────────────
+handle('categorias:all',    ()              => db.categoriasGetAll())
+handle('categorias:create', (data)          => db.categoriaCreate(data))
+handle('categorias:update', ({id,...data})  => db.categoriaUpdate(id, data))
+handle('categorias:delete', ({id})          => db.categoriaDelete(id))
 
 // ── Services ──────────────────────────────────────────────────────────────────
 handle('services:all',       ()              => db.servicesGetAll())
@@ -230,9 +313,10 @@ handle('commissions:byPeriod', ({from,to})          => db.commissionsGetByPeriod
 handle('commissions:markPaid', (ids)                => db.commissionsMarkPaid(ids))
 
 // ── Cuadre de Caja ────────────────────────────────────────────────────────────
-handle('cuadre:create',  (data) => db.cuadreCreate(data))
-handle('cuadre:history', ()     => db.cuadreGetHistory())
-handle('cuadre:daily',   (date) => db.cuadreDailySummary(date))
+handle('cuadre:create',  (data)    => db.cuadreCreate(data))
+handle('cuadre:history', ()        => db.cuadreGetHistory())
+handle('cuadre:list',    (filters) => db.cuadreList(filters || {}))
+handle('cuadre:daily',   (date)    => db.cuadreDailySummary(date))
 
 // ── NCF ───────────────────────────────────────────────────────────────────────
 handle('ncf:sequences',        ()            => db.ncfGetSequences())
@@ -275,6 +359,23 @@ ipcMain.handle('print:receipt', async (event, { type, data, printerName }) => {
   } catch (err) {
     console.error('[print:receipt]', err)
     return { success: false, error: String(err.message) }
+  }
+})
+
+ipcMain.handle('print:open-drawer', async () => {
+  // ESC p m t1 t2 — kick cash drawer on pin 2
+  const drawerCmd = Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA])
+  try {
+    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
+    let printers = []
+    try { printers = await win.webContents.getPrintersAsync() } catch {}
+    const targetPrinter = printers.find(p => p.isDefault)?.name || printers[0]?.name
+    if (!targetPrinter) return { success: false, error: 'no_printer' }
+    return process.platform === 'win32'
+      ? await printWindows(drawerCmd.toString('binary'), targetPrinter)
+      : await printUnix(drawerCmd.toString('binary'), targetPrinter)
+  } catch (err) {
+    return { success: false, error: err.message }
   }
 })
 

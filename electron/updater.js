@@ -8,23 +8,35 @@
  * Set GH_TOKEN env var during CI builds.
  */
 
-const { autoUpdater } = require('electron-updater')
-const { ipcMain }     = require('electron')
-const log             = require('electron-log')
+const log = require('electron-log')
 
-let _mainWindow = null
+let _mainWindow  = null
+let _autoUpdater = null
 
-// Use electron-log so update events are written to the app log file
-autoUpdater.logger         = log
-autoUpdater.logger.transports.file.level = 'info'
-autoUpdater.autoDownload   = true   // download silently in background
-autoUpdater.autoInstallOnAppQuit = true
+function getAutoUpdater() {
+  if (!_autoUpdater) {
+    _autoUpdater = require('electron-updater').autoUpdater
+    _autoUpdater.logger = log
+    _autoUpdater.logger.transports.file.level = 'info'
+    _autoUpdater.autoDownload = true
+    _autoUpdater.autoInstallOnAppQuit = true
+  }
+  return _autoUpdater
+}
 
 function initUpdater(mainWindow) {
+  const { ipcMain } = require('electron')
   _mainWindow = mainWindow
+
+  // IPC: renderer requests install-and-restart
+  ipcMain.handle('updater:install', () => {
+    getAutoUpdater().quitAndInstall(false, true)
+  })
 
   // Don't check in dev mode
   if (process.argv.includes('--dev')) return
+
+  const autoUpdater = getAutoUpdater()
 
   function send(event, data) {
     if (_mainWindow && !_mainWindow.isDestroyed()) {
@@ -54,10 +66,5 @@ function initUpdater(mainWindow) {
   // Re-check every 6 hours
   setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000)
 }
-
-// IPC: renderer requests install-and-restart
-ipcMain.handle('updater:install', () => {
-  autoUpdater.quitAndInstall(false, true)
-})
 
 module.exports = { initUpdater }

@@ -22,6 +22,7 @@ export const es = {
   nav_admin:         'Administración',
   nav_remote:        'Dashboard Remoto',
   nav_license_admin: 'Licencias TX',
+  nav_sistema:       'Sistema',
 
   // Auth
   login_title:              'Iniciar Sesión',

@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  CheckCircle2, AlertCircle, ChevronRight, X, History,
-  Printer, Calculator, DollarSign, Lock, Loader2,
+  CheckCircle2, AlertCircle, ChevronRight, ChevronDown, X, History,
+  Printer, Calculator, DollarSign, Lock, Loader2, Search,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useLang } from '../i18n'
+import { printCuadreCaja } from '../services/printer'
 
 // ── IPC guard ─────────────────────────────────────────────────────────────────
 const hasIPC = () => !!window?.electronAPI
@@ -157,28 +158,82 @@ function PinModal({ onConfirm, onClose, lang }) {
 }
 
 // ── History Panel ─────────────────────────────────────────────────────────────
-function CierresPanel({ onClose, lang }) {
+function CierresPanel({ onClose, lang, biz }) {
   const L = (es, en) => lang === 'es' ? es : en
-  const [history, setHistory]   = useState([])
-  const [loading, setLoading]   = useState(true)
+  const today = new Date().toISOString().slice(0, 10)
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
 
-  useEffect(() => {
+  const [history,  setHistory]  = useState([])
+  const [loading,  setLoading]  = useState(true)
+  const [dateFrom, setDateFrom] = useState(thirtyDaysAgo)
+  const [dateTo,   setDateTo]   = useState(today)
+  const [expanded, setExpanded] = useState(null)
+  const mountedRef = useRef(true)
+
+  useEffect(() => () => { mountedRef.current = false }, [])
+
+  function runSearch(from, to) {
     if (!hasIPC()) { setLoading(false); return }
-    window.electronAPI.cuadre.history()
-      .then(rows => setHistory(rows || []))
-      .catch(() => setHistory([]))
-      .finally(() => setLoading(false))
-  }, [])
+    setLoading(true)
+    window.electronAPI.cuadre.list({ dateFrom: from, dateTo: to })
+      .then(rows => { if (mountedRef.current) setHistory(rows || []) })
+      .catch(() => { if (mountedRef.current) setHistory([]) })
+      .finally(() => { if (mountedRef.current) setLoading(false) })
+  }
+
+  useEffect(() => { runSearch(thirtyDaysAgo, today) }, [])
+
+  async function handleReprint(c) {
+    const storedQty = JSON.parse(c.denominaciones || '{}')
+    await printCuadreCaja({
+      biz:    biz || {},
+      cajero: c.cajero_name || '—',
+      day: {
+        efectivo:     c.efectivo_sistema || 0,
+        tarjeta:      c.tarjeta || 0,
+        transferencia: c.transferencia || 0,
+        cheque:       c.cheque || 0,
+        totalVendido: c.total_vendido || 0,
+        totalCobrado: c.total_cobrado || 0,
+      },
+      denominaciones: BILLS.map(b => ({ label: b.label, qty: storedQty[b.value] || 0, label_val: b.value })),
+      efectivoNeto: (c.efectivo_conteo || 0) - (c.fondo || 0),
+      cierreTotal:  c.cierre_total || 0,
+      diferencia:   c.diferencia   || 0,
+    }).catch(() => {})
+  }
 
   return (
-    <div className="fixed inset-y-0 right-0 z-40 w-[420px] bg-white shadow-2xl flex flex-col">
+    <div className="fixed inset-y-0 right-0 z-40 w-[500px] bg-white shadow-2xl flex flex-col">
+      {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
         <h3 className="font-semibold text-slate-800">{L('Historial de Cierres', 'Closing History')}</h3>
         <button onClick={onClose} className="p-1 rounded hover:bg-slate-100">
           <X size={18} className="text-slate-500" />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+
+      {/* Filters */}
+      <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+        <div className="flex flex-col gap-0.5 flex-1">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{L('Desde', 'From')}</label>
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+            className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+        </div>
+        <div className="flex flex-col gap-0.5 flex-1">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{L('Hasta', 'To')}</label>
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+            className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+        </div>
+        <button onClick={() => runSearch(dateFrom, dateTo)}
+          className="flex items-center gap-1.5 mt-4 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg">
+          <Search size={14} />
+          {L('Buscar', 'Search')}
+        </button>
+      </div>
+
+      {/* List */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {loading && (
           <div className="flex items-center justify-center h-20 gap-2 text-slate-400">
             <Loader2 size={16} className="animate-spin" />
@@ -186,21 +241,96 @@ function CierresPanel({ onClose, lang }) {
           </div>
         )}
         {!loading && history.length === 0 && (
-          <div className="text-center text-slate-400 text-sm py-10">{L('Sin cierres registrados', 'No closings recorded')}</div>
+          <div className="text-center text-slate-400 text-sm py-10">{L('Sin cierres en el período', 'No closings in period')}</div>
         )}
         {!loading && history.map((c, i) => {
-          const diff = c.diferencia ?? 0
-          const cuadrada = Math.abs(diff) < 1
+          const diff      = c.diferencia ?? 0
+          const cuadrada  = Math.abs(diff) < 1
+          const isOpen    = expanded === i
+          const storedQty = isOpen ? JSON.parse(c.denominaciones || '{}') : {}
           return (
-            <div key={i} className={`rounded-xl border p-4 ${cuadrada ? 'border-emerald-100 bg-emerald-50/40' : 'border-red-100 bg-red-50/40'}`}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-medium text-sm text-slate-800">{c.date}</span>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cuadrada ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                  {cuadrada ? L('Cuadrada', 'Balanced') : `${L('Descuadre', 'Difference')} ${fmt(diff)}`}
-                </span>
+            <div key={i} className={`rounded-xl border ${cuadrada ? 'border-emerald-100' : 'border-red-100'}`}>
+              {/* Row header */}
+              <div
+                className={`flex items-center gap-3 px-4 py-3 cursor-pointer rounded-xl ${cuadrada ? 'bg-emerald-50/40 hover:bg-emerald-50' : 'bg-red-50/40 hover:bg-red-50'}`}
+                onClick={() => setExpanded(isOpen ? null : i)}
+              >
+                <ChevronDown size={15} className={`text-slate-400 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm text-slate-800">{c.date}</span>
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${cuadrada ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                      {cuadrada ? L('Cuadrada', 'Balanced') : `${L('Desc.', 'Diff.')} ${fmt(diff)}`}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">{c.cajero_name || '—'}</p>
+                </div>
+                <span className="text-sm font-bold text-slate-800 tabular-nums flex-shrink-0">{fmt(c.cierre_total || 0)}</span>
               </div>
-              <p className="text-xs text-slate-500">{c.cajero_name || '—'}</p>
-              <p className="text-sm font-bold text-slate-800 mt-1">{fmt(c.cierre_total || c.total_cobrado || 0)}</p>
+
+              {/* Expanded detail */}
+              {isOpen && (
+                <div className="px-4 pb-4 pt-2 space-y-3 border-t border-slate-100">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                    <span className="text-slate-500">{L('Fondo de caja', 'Opening float')}</span>
+                    <span className="text-right tabular-nums text-slate-800">{fmt(c.fondo)}</span>
+                    <span className="text-slate-500">{L('Efectivo contado', 'Cash counted')}</span>
+                    <span className="text-right tabular-nums text-slate-800">{fmt(c.efectivo_conteo)}</span>
+                    <span className="text-slate-500">{L('Efectivo sistema', 'System cash')}</span>
+                    <span className="text-right tabular-nums text-slate-800">{fmt(c.efectivo_sistema)}</span>
+                    <span className="text-slate-500">{L('Tarjeta', 'Card')}</span>
+                    <span className="text-right tabular-nums text-slate-800">{fmt(c.tarjeta)}</span>
+                    <span className="text-slate-500">{L('Transferencia', 'Transfer')}</span>
+                    <span className="text-right tabular-nums text-slate-800">{fmt(c.transferencia)}</span>
+                    <span className="text-slate-500">{L('Cheque', 'Check')}</span>
+                    <span className="text-right tabular-nums text-slate-800">{fmt(c.cheque)}</span>
+                    <span className="text-slate-500">{L('F. A Créditos', 'Credits')}</span>
+                    <span className="text-right tabular-nums text-slate-800">{fmt(c.creditos)}</span>
+                    <span className="text-slate-500">{L('Salidas', 'Outflows')}</span>
+                    <span className="text-right tabular-nums text-red-600">{fmt(c.salidas)}</span>
+                    <hr className="col-span-2 border-slate-100 my-1" />
+                    <span className="font-semibold text-slate-700">{L('Total vendido', 'Total sold')}</span>
+                    <span className="text-right tabular-nums font-semibold text-slate-800">{fmt(c.total_vendido)}</span>
+                    <span className="font-semibold text-slate-700">{L('Total cobrado', 'Total collected')}</span>
+                    <span className="text-right tabular-nums font-semibold text-slate-800">{fmt(c.total_cobrado)}</span>
+                    <span className="font-bold text-slate-800">{L('Cierre total', 'Closing total')}</span>
+                    <span className="text-right tabular-nums font-bold text-slate-900">{fmt(c.cierre_total)}</span>
+                    <span className={`font-bold ${cuadrada ? 'text-emerald-700' : 'text-red-600'}`}>{L('Diferencia', 'Difference')}</span>
+                    <span className={`text-right tabular-nums font-bold ${cuadrada ? 'text-emerald-700' : 'text-red-600'}`}>
+                      {diff === 0 ? 'RD$0.00' : (diff > 0 ? '+' : '') + fmt(diff)}
+                    </span>
+                  </div>
+
+                  {/* Denominaciones */}
+                  {BILLS.some(b => storedQty[b.value] > 0) && (
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">{L('Conteo de efectivo', 'Cash count')}</p>
+                      <div className="space-y-0.5">
+                        {BILLS.filter(b => storedQty[b.value] > 0).map(b => (
+                          <div key={b.value} className="flex justify-between text-xs text-slate-600">
+                            <span>{b.label} × {storedQty[b.value]}</span>
+                            <span className="tabular-nums">{fmt(b.value * storedQty[b.value])}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Comentario */}
+                  {c.comentario && (
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">{L('Comentario', 'Note')}</p>
+                      <p className="text-xs text-slate-600 italic">{c.comentario}</p>
+                    </div>
+                  )}
+
+                  <button onClick={() => handleReprint(c)}
+                    className="flex items-center gap-1.5 w-full justify-center py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">
+                    <Printer size={14} />
+                    {L('Reimprimir', 'Reprint')}
+                  </button>
+                </div>
+              )}
             </div>
           )
         })}
@@ -223,6 +353,7 @@ export default function CashReconciliation() {
   const [closed, setClosed]       = useState(false)
   const [saving, setSaving]       = useState(false)
   const [managerName, setManagerName] = useState(null)
+  const [biz, setBiz]             = useState(null)
 
   // Daily summary from DB (replaces hardcoded DAY)
   const [daySummary, setDaySummary] = useState({
@@ -248,6 +379,12 @@ export default function CashReconciliation() {
   const [devoluciones, setDevoluciones] = useState(0)
   const [desembolsos, setDesembolsos] = useState(0)
   const [comision, setComision]       = useState(0)
+
+  // Load business info for print header
+  useEffect(() => {
+    if (!hasIPC()) return
+    window.electronAPI.admin.getEmpresa().then(setBiz).catch(() => {})
+  }, [])
 
   // Clock tick
   useEffect(() => {
@@ -284,6 +421,30 @@ export default function CashReconciliation() {
   const diferencia     = cierreTotal - (daySummary.totalCobrado || 0)
   const cuadrada       = Math.abs(diferencia) < 1
 
+  function buildPrintPayload() {
+    return {
+      biz:    biz || {},
+      cajero: user?.name || '—',
+      day: {
+        efectivo:      daySummary.efectivo     || 0,
+        tarjeta:       tarjetasTotal,
+        documento:     documento,
+        cheque:        cheque,
+        transferencia: transferencia,
+        totalVendido:  daySummary.totalVendido || 0,
+        totalCobrado:  daySummary.totalCobrado || 0,
+      },
+      denominaciones: BILLS.map(b => ({ label: b.label, qty: qty[b.value] || 0, label_val: b.value })),
+      efectivoNeto,
+      cierreTotal,
+      diferencia,
+    }
+  }
+
+  function doPrint() {
+    printCuadreCaja(buildPrintPayload()).catch(() => {})
+  }
+
   function handleCuadrar() {
     if (user?.role === 'cashier') { setShowPin(true) }
     else { doClose(null) }
@@ -316,6 +477,7 @@ export default function CashReconciliation() {
       }
       setManagerName(manager?.name ?? null)
       setClosed(true)
+      doPrint()
     } catch (err) {
       console.error('cuadre:create error', err)
     } finally {
@@ -338,7 +500,7 @@ export default function CashReconciliation() {
       {showHistory && (
         <>
           <div className="fixed inset-0 z-30 bg-black/20" onClick={() => setShowHistory(false)} />
-          <CierresPanel lang={lang} onClose={() => setShowHistory(false)} />
+          <CierresPanel lang={lang} biz={biz} onClose={() => setShowHistory(false)} />
         </>
       )}
 
@@ -601,10 +763,11 @@ export default function CashReconciliation() {
       {/* ── Footer ── */}
       <div className="bg-white border-t border-slate-100 px-6 py-3 flex items-center gap-3 flex-shrink-0">
         <button
-          disabled={closed}
-          className="px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          onClick={() => window.electronAPI?.openDrawer?.().catch?.(() => {})}
+          className="flex items-center gap-1.5 px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
         >
-          {L('Abrir Caja', 'Open Register')}
+          <DollarSign size={15} />
+          {L('Abrir Cajón', 'Open Drawer')}
         </button>
         <button
           className="flex items-center gap-1.5 px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
@@ -622,8 +785,8 @@ export default function CashReconciliation() {
         <div className="flex-1" />
 
         <button
-          disabled={closed}
-          className="flex items-center gap-1.5 px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          onClick={doPrint}
+          className="flex items-center gap-1.5 px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
         >
           <Printer size={15} />
           {L('Imprimir', 'Print')}

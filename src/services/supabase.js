@@ -144,5 +144,7 @@ export async function testConnection() {
 
 // ── Business ID helper ────────────────────────────────────────────────────────
 export function getBusinessId() {
-  return getStoredSetting('business_id') || 'demo-business-id'
+  const id = getStoredSetting('business_id')
+  if (!id) throw new Error('business_id no configurado — sincronización en la nube no disponible')
+  return id
 }

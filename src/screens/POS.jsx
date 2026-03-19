@@ -7,6 +7,25 @@ import CobrarModal from '../components/CobrarModal'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// Category name translations — Spanish DB value → English display label
+const CAT_EN = {
+  'Lavado':      'Wash',
+  'Lavados':     'Wash',
+  'Detallado':   'Detailing',
+  'Detailing':   'Detailing',
+  'Adicionales': 'Add-ons',
+  'Extra':       'Add-ons',
+  'Combos':      'Combos',
+  'Bebida':      'Beverages',
+  'Bebidas':     'Beverages',
+  'Snacks':      'Snacks',
+}
+
+function catLabel(cat, lang) {
+  if (lang === 'en') return CAT_EN[cat] ?? cat
+  return cat
+}
+
 const ITBIS = 0.18
 const LEY   = 0.10
 
@@ -242,6 +261,9 @@ export default function POS() {
   const { subtotal, itbis, ley, total } = calcTotals(allOrderItems)
   const gridCols = collapsed ? 'grid-cols-5' : 'grid-cols-4'
 
+  // O(1) lookup instead of O(n) items.some() per service button
+  const selectedIds = useMemo(() => new Set(items.map(i => i.id)), [items])
+
   function clearForm() {
     setItems([])
     setVehicle('')
@@ -383,6 +405,12 @@ export default function POS() {
       }
       clearForm()
       flash(`${result?.docNumber || 'Ticket'} · ${lang === 'es' ? 'Creado ✓' : 'Created ✓'}`)
+
+      // Open cash drawer for cash/check payments (not card or transfer)
+      const fm = paymentData.formaPago || ''
+      if (paymentData.tipo !== 'credito' && !['tarjeta', 'transferencia'].includes(fm)) {
+        window.electronAPI?.openDrawer?.().catch?.(() => {})
+      }
     } catch (err) {
       flash(`Error: ${err.message}`)
     }
@@ -412,7 +440,7 @@ export default function POS() {
                   : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
               }`}
             >
-              {cat.label}
+              {catLabel(cat.label, lang)}
             </button>
           ))}
         </div>
@@ -429,7 +457,7 @@ export default function POS() {
           ) : (
             <div className={`grid gap-2.5 ${gridCols}`}>
               {(servicesByCategory[category] ?? []).map(svc => {
-                const selected = items.some(i => i.id === svc.id)
+                const selected = selectedIds.has(svc.id)
                 return (
                   <button
                     key={svc.id}

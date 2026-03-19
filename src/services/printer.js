@@ -25,6 +25,7 @@ const DOUBLE_OFF   = GS  + '!' + '\x00'
 const UNDERLINE_ON = ESC + '-' + '\x01'
 const UNDERLINE_OFF= ESC + '-' + '\x00'
 const CUT          = GS  + 'V' + '\x41' + '\x03' // Partial cut
+const DRAWER_KICK  = ESC + 'p' + '\x00' + '\x19' + '\xFA' // Kick cash drawer (pin 2)
 
 const COL_WIDTH = 48  // Standard 80mm thermal paper ≈ 48 chars
 
@@ -593,9 +594,9 @@ function escapeHtml(s) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/** Print the full client invoice receipt */
+/** Print the full client invoice receipt (kicks drawer automatically) */
 export async function printClientReceipt(ticketData) {
-  const escpos = buildClientReceipt(ticketData)
+  const escpos = DRAWER_KICK + buildClientReceipt(ticketData)
   return sendToPrinter('client-receipt', escpos, ticketData.biz)
 }
 
@@ -609,6 +610,11 @@ export async function printWasherConduce(ticketData) {
 export async function printPreTicket(ticketData) {
   const escpos = buildPreTicket(ticketData)
   return sendToPrinter('pre-ticket', escpos, ticketData.biz)
+}
+
+/** Kick the cash drawer without printing anything */
+export async function openCashDrawer() {
+  return sendToPrinter('open-drawer', DRAWER_KICK, {})
 }
 
 /** Print end-of-day cash reconciliation report */
