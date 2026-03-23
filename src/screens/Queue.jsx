@@ -346,48 +346,46 @@ export default function Queue() {
 
     // ── Fire print + drawer BEFORE closing modal ──────────────────────────
     // This lets the cashier still see the total/change while the receipt prints
-    if (window.electronAPI) {
-      try {
-        const [cfg, empresa] = await Promise.all([
-          api.settings.get().catch(() => ({})),
-          api.admin.getEmpresa().catch(() => ({})),
-        ])
-        const biz = {
-          name:    empresa?.nombre    || empresa?.name    || '',
-          address: empresa?.direccion || empresa?.address || '',
-          phone:   empresa?.telefono  || empresa?.phone   || '',
-          rnc:     empresa?.rnc       || '',
-        }
-        const services = snapshot.services || []
-        const subtotal  = services.reduce((s, i) => s + (i.price || 0), 0)
-        const ticketData = {
-          ncf:          data.ecf?.eNCF    || '',
-          ncfType:      data.ncfType      || 'E32',
-          cajero:       '',
-          lavador:      snapshot.worker?.name || '',
-          docNo:        snapshot.ticketNo  || '',
-          paidAt:       new Date(),
-          client:       null,
-          vehiclePlate: snapshot.vehicle  || '',
-          tipo:         data.tipo         || 'contado',
-          formaPago:    data.formaPago    || 'cash',
-          services,
-          subtotal,
-          descuento:    0,
-          itbis:        parseFloat((subtotal - subtotal / 1.18).toFixed(2)),
-          ley:          0,
-          total:        subtotal,
-          biz,
-        }
-        if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice'))
-        if (cfg.print_conduce_auto === '1') printWasherConduce(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce'))
-        // Kick drawer for cash/check payments
-        const fm = data.formaPago || ''
-        if (data.tipo !== 'credito' && !['tarjeta', 'transferencia'].includes(fm)) {
-          printerApi?.openDrawer?.().catch?.(() => {})
-        }
-      } catch { /* print errors never block the queue flow */ }
-    }
+    try {
+      const [cfg, empresa] = await Promise.all([
+        api.settings.get().catch(() => ({})),
+        api.admin.getEmpresa().catch(() => ({})),
+      ])
+      const biz = {
+        name:    empresa?.nombre    || empresa?.name    || '',
+        address: empresa?.direccion || empresa?.address || '',
+        phone:   empresa?.telefono  || empresa?.phone   || '',
+        rnc:     empresa?.rnc       || '',
+      }
+      const services = snapshot.services || []
+      const subtotal  = services.reduce((s, i) => s + (i.price || 0), 0)
+      const ticketData = {
+        ncf:          data.ecf?.eNCF    || '',
+        ncfType:      data.ncfType      || 'E32',
+        cajero:       '',
+        lavador:      snapshot.worker?.name || '',
+        docNo:        snapshot.ticketNo  || '',
+        paidAt:       new Date(),
+        client:       null,
+        vehiclePlate: snapshot.vehicle  || '',
+        tipo:         data.tipo         || 'contado',
+        formaPago:    data.formaPago    || 'cash',
+        services,
+        subtotal,
+        descuento:    0,
+        itbis:        parseFloat((subtotal - subtotal / 1.18).toFixed(2)),
+        ley:          0,
+        total:        subtotal,
+        biz,
+      }
+      if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice'))
+      if (cfg.print_conduce_auto === '1') printWasherConduce(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce'))
+      // Kick drawer for cash/check payments
+      const fm = data.formaPago || ''
+      if (data.tipo !== 'credito' && !['tarjeta', 'transferencia'].includes(fm)) {
+        printerApi?.openDrawer?.().catch?.(() => {})
+      }
+    } catch { /* print errors never block the queue flow */ }
 
     // ── Close modal + update queue ────────────────────────────────────────
     setCobrarModal(null)

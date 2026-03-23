@@ -221,7 +221,7 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
           id:       t.id,
           ticketNo: t.doc_number || `T-${t.id}`,
           date:     t.created_at?.slice(0, 10) || '',
-          services: t.service_names || '',
+          services: t.service_names || (t.items || []).map(i => i.name).join(' + ') || '',
           amount:   t.total || 0,
         })))
       })

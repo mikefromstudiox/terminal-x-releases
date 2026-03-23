@@ -262,7 +262,7 @@ export default function PettyCash() {
   // ── Actions ──────────────────────────────────────────────────────────────
   async function doApprove(id, approvedBy) {
     try {
-      await api.cajaChica.updateStatus({ id, status: 'approved', by: approvedBy ?? user?.id })
+      await api.cajaChica.updateStatus({ id, status: 'approved', approvedBy: approvedBy ?? user?.id })
       loadTxns()
     } catch { loadTxns() }
     showToast(L('Gasto aprobado', 'Expense approved'))
@@ -270,7 +270,7 @@ export default function PettyCash() {
 
   async function doReject(id, approvedBy) {
     try {
-      await api.cajaChica.updateStatus({ id, status: 'rejected', by: approvedBy ?? user?.id })
+      await api.cajaChica.updateStatus({ id, status: 'rejected', approvedBy: approvedBy ?? user?.id })
       loadTxns()
     } catch { loadTxns() }
     showToast(L('Gasto rechazado', 'Expense rejected'))

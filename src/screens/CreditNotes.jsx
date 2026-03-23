@@ -88,7 +88,7 @@ function PinModal({ onConfirm, onClose }) {
     setChecking(true)
     try {
       const user = await api.auth.byPin(pin)
-      if (user && (user.role === 'manager' || user.role === 'admin')) {
+      if (user && (user.role === 'manager' || user.role === 'owner')) {
         onConfirm()
       } else {
         setErr(true)

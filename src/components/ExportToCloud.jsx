@@ -41,8 +41,8 @@ export default function ExportToCloud() {
 
       // Pull all data from local SQLite
       setCurrent(L('Leyendo base de datos local...', 'Reading local database...'))
-      const api = window.electronAPI
-      const data = await api.db.exportToSupabase()
+      if (!window.electronAPI) throw new Error(L('Solo disponible en la app de escritorio', 'Only available in desktop app'))
+      const data = await window.electronAPI.db.exportToSupabase()
 
       let totalRows = 0
 
