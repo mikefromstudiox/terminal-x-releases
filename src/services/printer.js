@@ -705,9 +705,9 @@ export async function printPreTicket(ticketData, api, printerApi) {
 export async function openCashDrawer(printerApi) {
   const pApi = printerApi || window.printerAPI
   if (pApi?.openDrawer) {
-    try { return await pApi.openDrawer() } catch {}
+    try { return await pApi.openDrawer() } catch { return false }
   }
-  return { success: false, error: 'printerAPI unavailable' }
+  return false
 }
 
 /** Print end-of-day cash reconciliation report */

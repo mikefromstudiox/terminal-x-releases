@@ -10,6 +10,7 @@ const ROLE_BADGE = {
 export default function Team({ getToken }) {
   const [list, setList] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadErr, setLoadErr] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ email: '', name: '', role: 'support' })
   const [error, setError] = useState('')
@@ -18,11 +19,12 @@ export default function Team({ getToken }) {
   useEffect(() => { load() }, [])
 
   async function load() {
-    setLoading(true)
+    setLoading(true); setLoadErr('')
     try {
       const resp = await fetch('/api/panel?action=users', { headers: { 'Authorization': `Bearer ${getToken()}` } })
       if (resp.ok) setList((await resp.json()).data || [])
-    } catch {}
+      else setLoadErr('Error al cargar equipo')
+    } catch { setLoadErr('Error al cargar equipo') }
     setLoading(false)
   }
 
@@ -95,6 +97,8 @@ export default function Team({ getToken }) {
 
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 className="animate-spin text-slate-300" size={20} /></div>
+      ) : loadErr ? (
+        <div className="py-12 text-center text-[13px] text-red-500">{loadErr}</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
           {list.length === 0 ? (

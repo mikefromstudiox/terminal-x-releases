@@ -204,7 +204,7 @@ function Lavadores() {
       await api.washers.update({ id: w.id, active: w.active ? 0 : 1 })
       show(w.active ? L('Desactivado', 'Deactivated') : L('Activado', 'Activated'))
       load()
-    } catch {}
+    } catch { show(L('Error al cambiar estado', 'Error toggling status'), 'error') }
   }
 
   return (
@@ -338,7 +338,7 @@ function Vendedores() {
       await api.sellers.update({ id: s.id, active: s.active ? 0 : 1 })
       show(s.active ? L('Desactivado', 'Deactivated') : L('Activado', 'Activated'))
       load()
-    } catch {}
+    } catch { show(L('Error al cambiar estado', 'Error toggling status'), 'error') }
   }
 
   return (
@@ -490,7 +490,7 @@ function Usuarios() {
       await api.users.update({ id: u.id, active: u.active ? 0 : 1 })
       show(u.active ? L('Usuario desactivado', 'User deactivated') : L('Usuario activado', 'User activated'))
       load()
-    } catch {}
+    } catch { show(L('Error al cambiar estado', 'Error toggling status'), 'error') }
   }
 
   return (
@@ -644,7 +644,7 @@ function Servicios() {
       await api.services.update({ id: s.id, active: s.active ? 0 : 1 })
       show(s.active ? L('Desactivado — no aparece en POS', 'Deactivated — hidden from POS') : L('Activado en POS ✓', 'Activated in POS ✓'))
       load()
-    } catch {}
+    } catch { show(L('Error al cambiar estado', 'Error toggling status'), 'error') }
   }
 
   function fmtRD(n) { return `RD$ ${Number(n).toLocaleString('en-US', { minimumFractionDigits: 0 })}` }
@@ -861,7 +861,7 @@ export function FiscalNCF() {
     try {
       const rows = await api?.ncf?.sequences?.()
       setSequences(rows || [])
-    } catch {}
+    } catch { show(L('Error al cargar secuencias NCF', 'Error loading NCF sequences'), 'error') }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -869,7 +869,7 @@ export function FiscalNCF() {
   useEffect(() => {
     api?.settings?.get?.()
       .then(s => { if (s?.fiscal_mode) setFiscalMode(s.fiscal_mode) })
-      .catch(() => {})
+      .catch(() => show(L('Error al cargar modo fiscal', 'Error loading fiscal mode'), 'error'))
       .finally(() => setModeLoaded(true))
   }, [])
 
@@ -1361,7 +1361,7 @@ function Cajeras() {
       const users = (await api?.users?.all?.()) || []
       // Show cashiers and any user with commission_pct > 0
       setList(users.filter(u => u.active && (u.role === 'cashier' || (u.commission_pct && u.commission_pct > 0))))
-    } catch {}
+    } catch { show(L('Error al cargar cajeras', 'Error loading cashiers'), 'error') }
     setLoading(false)
   }
 
@@ -1371,7 +1371,7 @@ function Cajeras() {
       await api.users.update({ id: userId, commission_pct: parseFloat(pct) || 0 })
       show(L('Comision actualizada', 'Commission updated'))
       load()
-    } catch {}
+    } catch { show(L('Error al actualizar comision', 'Error updating commission'), 'error') }
     setSaving(s => ({ ...s, [userId]: false }))
   }
 

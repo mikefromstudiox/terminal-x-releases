@@ -443,7 +443,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const clientRef = useRef(null)
 
   useEffect(() => {
-    api?.clients?.all?.().then(list => setAllClients(list || [])).catch(() => {})
+    api?.clients?.all?.().then(list => setAllClients(list || [])).catch(() => setAllClients([]))
     api.settings.get().then(s => {
       const cfg = s || {}
       setBizSettings(cfg)

@@ -243,7 +243,7 @@ export default function POS() {
 
   // Load clients once
   useEffect(() => {
-    api.clients?.all?.().then(r => setClients(r || [])).catch(() => {})
+    api.clients?.all?.().then(r => setClients(r || [])).catch(() => flash(lang === 'es' ? 'Error al cargar clientes' : 'Error loading clients'))
   }, [])
 
   // Form state
@@ -476,10 +476,10 @@ export default function POS() {
           total:        tot,
           biz,
         }
-        if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => {})
-        if (cfg.print_conduce_auto === '1') printWasherConduce(ticketData).catch(() => {})
+        if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice'))
+        if (cfg.print_conduce_auto === '1') printWasherConduce(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce'))
         // Save PDF copy to userData/receipts/
-        saveReceiptPDF(ticketData).catch(() => {})
+        saveReceiptPDF(ticketData).catch(() => flash(lang === 'es' ? 'Error al guardar PDF' : 'PDF save error'))
         // Kick drawer for cash/check payments
         const fm = paymentData.formaPago || ''
         if (paymentData.tipo !== 'credito' && !['tarjeta', 'transferencia'].includes(fm)) {
@@ -731,7 +731,7 @@ export default function POS() {
                 setShowNewClient(false)
                 setSelectedClient(newClient)
                 // Refresh clients list
-                api.clients?.all?.().then(r => setClients(r || [])).catch(() => {})
+                api.clients?.all?.().then(r => setClients(r || [])).catch(() => flash(lang === 'es' ? 'Error al cargar clientes' : 'Error loading clients'))
               }}
               lang={lang}
             />

@@ -379,8 +379,8 @@ export default function Queue() {
           total:        subtotal,
           biz,
         }
-        if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => {})
-        if (cfg.print_conduce_auto === '1') printWasherConduce(ticketData).catch(() => {})
+        if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice'))
+        if (cfg.print_conduce_auto === '1') printWasherConduce(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce'))
         // Kick drawer for cash/check payments
         const fm = data.formaPago || ''
         if (data.tipo !== 'credito' && !['tarjeta', 'transferencia'].includes(fm)) {
@@ -410,7 +410,7 @@ export default function Queue() {
           payment_method: data.tipo === 'credito' ? 'credit' : (data.formaPago || 'cash'),
           total:          data.total || 0,
           status:         'cobrado',
-        }, { docNumber: data.ticketNo || snapshot?.ticketNo }).catch(() => {})
+        }, { docNumber: data.ticketNo || snapshot?.ticketNo }).catch(() => flash(lang === 'es' ? 'Error al sincronizar' : 'Sync error'))
       } catch (err) {
         console.error('[Queue] markPaid error:', err)
       }

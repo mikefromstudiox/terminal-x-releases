@@ -115,7 +115,8 @@
       "Bash(cp web/api/signup/provision.js dist-web/api/signup/)",
       "Bash(cp \"A:\\\\Terminal X/web/api/panel.js\" \"A:\\\\Terminal X/dist-web/api/panel.js\")",
       "Bash(cp \"A:\\\\Terminal X/web/api/validate.js\" \"A:\\\\Terminal X/dist-web/api/validate.js\")",
-      "Bash(cp \"A:\\\\Terminal X/web/api/signup/provision.js\" \"A:\\\\Terminal X/dist-web/api/signup/provision.js\")"
+      "Bash(cp \"A:\\\\Terminal X/web/api/signup/provision.js\" \"A:\\\\Terminal X/dist-web/api/signup/provision.js\")",
+      "Bash(npx acorn-loose:*)"
     ]
   }
 }

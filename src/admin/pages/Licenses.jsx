@@ -12,18 +12,20 @@ const STATUS_BADGE = {
 export default function Licenses({ getToken, refreshToken }) {
   const [list, setList] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadErr, setLoadErr] = useState('')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
 
   useEffect(() => { load() }, [])
 
   async function load() {
-    setLoading(true)
+    setLoading(true); setLoadErr('')
     try {
       const token = getToken()
       const resp = await fetch('/api/panel?action=licenses', { headers: { 'Authorization': `Bearer ${token}` } })
       if (resp.ok) setList((await resp.json()).data || [])
-    } catch {}
+      else setLoadErr('Error al cargar licencias')
+    } catch { setLoadErr('Error al cargar licencias') }
     setLoading(false)
   }
 
@@ -78,6 +80,8 @@ export default function Licenses({ getToken, refreshToken }) {
       {/* Table */}
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 className="animate-spin text-slate-300" size={20} /></div>
+      ) : loadErr ? (
+        <div className="py-12 text-center text-[13px] text-red-500">{loadErr}</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
           <div className="hidden md:flex items-center px-5 py-2.5 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">

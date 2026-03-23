@@ -145,7 +145,7 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
           })))
         }
       })
-      .catch(() => {})
+      .catch(() => setServices([{ name: lang === 'es' ? 'Error al cargar servicios' : 'Error loading services', price: 0 }]))
       .finally(() => setLoadingItems(false))
   }, [t.id])
 

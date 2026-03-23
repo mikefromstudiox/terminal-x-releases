@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Lock, Download, ChevronRight, Car, CircleDollarSign, Users, BarChart3, Coffee } from 'lucide-react'
+import { Lock, Download, ChevronRight, Car, CircleDollarSign, Users, BarChart3, Coffee, AlertCircle } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
@@ -427,18 +427,21 @@ export default function WorkerReport() {
   const [cajeroTickets,    setCajeroTickets]    = useState([])
   const [loadingCS,        setLoadingCS]        = useState(false)
   const [loadingCT,        setLoadingCT]        = useState(false)
+  const [toast,            setToast]            = useState(null)
+
+  function flash(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
   if (!ALLOWED_ROLES.includes(user?.role)) return <AccessDenied lang={lang} />
 
   // Load people lists once
   useEffect(() => {
-    api.washers.allAdmin().then(r => setWashers(r || [])).catch(() => setWashers([]))
-    api.sellers.allAdmin().then(r => setSellers(r || [])).catch(() => setSellers([]))
+    api.washers.allAdmin().then(r => setWashers(r || [])).catch(() => { setWashers([]); flash(lang === 'es' ? 'Error al cargar lavadores' : 'Error loading washers') })
+    api.sellers.allAdmin().then(r => setSellers(r || [])).catch(() => { setSellers([]); flash(lang === 'es' ? 'Error al cargar vendedores' : 'Error loading sellers') })
     // Cajeros = users with cashier role or commission_pct > 0
     api.users?.all?.().then(r => {
       const users = (r || []).filter(u => u.role === 'cashier' || (u.commission_pct && u.commission_pct > 0))
       setCajeros(users)
-    }).catch(() => setCajeros([]))
+    }).catch(() => { setCajeros([]); flash(lang === 'es' ? 'Error al cargar cajeras' : 'Error loading cashiers') })
   }, [])
 
   const range = getDateRange(period, customY, customM)
@@ -450,7 +453,7 @@ export default function WorkerReport() {
     setLoadingWS(true); setWasherId('all'); setWasherTickets([])
     api.commissions.byPeriod(range)
       .then(rows => { if (!cancelled) setWasherSummaries(rows || []) })
-      .catch(() => { if (!cancelled) setWasherSummaries([]) })
+      .catch(() => { if (!cancelled) { setWasherSummaries([]); flash(lang === 'es' ? 'Error al cargar comisiones' : 'Error loading commissions') } })
       .finally(() => { if (!cancelled) setLoadingWS(false) })
     return () => { cancelled = true }
   }, [subTab, period, customY, customM])
@@ -468,7 +471,7 @@ export default function WorkerReport() {
           estado: r.paid ? 'cobrado' : 'pendiente',
         })))
       })
-      .catch(() => { if (!cancelled) setWasherTickets([]) })
+      .catch(() => { if (!cancelled) { setWasherTickets([]); flash(lang === 'es' ? 'Error al cargar detalle' : 'Error loading detail') } })
       .finally(() => { if (!cancelled) setLoadingWT(false) })
     return () => { cancelled = true }
   }, [subTab, washerId, period, customY, customM])
@@ -480,7 +483,7 @@ export default function WorkerReport() {
     setLoadingSS(true); setSellerId('all'); setSellerTickets([])
     api.sellerCommissions.byPeriod(range)
       .then(rows => { if (!cancelled) setSellerSummaries(rows || []) })
-      .catch(() => { if (!cancelled) setSellerSummaries([]) })
+      .catch(() => { if (!cancelled) { setSellerSummaries([]); flash(lang === 'es' ? 'Error al cargar comisiones' : 'Error loading commissions') } })
       .finally(() => { if (!cancelled) setLoadingSS(false) })
     return () => { cancelled = true }
   }, [subTab, period, customY, customM])
@@ -498,7 +501,7 @@ export default function WorkerReport() {
           estado: r.paid ? 'cobrado' : 'pendiente',
         })))
       })
-      .catch(() => { if (!cancelled) setSellerTickets([]) })
+      .catch(() => { if (!cancelled) { setSellerTickets([]); flash(lang === 'es' ? 'Error al cargar detalle' : 'Error loading detail') } })
       .finally(() => { if (!cancelled) setLoadingST(false) })
     return () => { cancelled = true }
   }, [subTab, sellerId, period, customY, customM])
@@ -510,7 +513,7 @@ export default function WorkerReport() {
     setLoadingCS(true); setCajeroId('all'); setCajeroTickets([])
     api.cajeroCommissions.byPeriod(range)
       .then(rows => { if (!cancelled) setCajeroSummaries(rows || []) })
-      .catch(() => { if (!cancelled) setCajeroSummaries([]) })
+      .catch(() => { if (!cancelled) { setCajeroSummaries([]); flash(lang === 'es' ? 'Error al cargar comisiones' : 'Error loading commissions') } })
       .finally(() => { if (!cancelled) setLoadingCS(false) })
     return () => { cancelled = true }
   }, [subTab, period, customY, customM])
@@ -528,7 +531,7 @@ export default function WorkerReport() {
           estado: r.paid ? 'cobrado' : 'pendiente',
         })))
       })
-      .catch(() => { if (!cancelled) setCajeroTickets([]) })
+      .catch(() => { if (!cancelled) { setCajeroTickets([]); flash(lang === 'es' ? 'Error al cargar detalle' : 'Error loading detail') } })
       .finally(() => { if (!cancelled) setLoadingCT(false) })
     return () => { cancelled = true }
   }, [subTab, cajeroId, period, customY, customM])
@@ -580,6 +583,13 @@ export default function WorkerReport() {
 
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-xl text-[13px] font-semibold bg-red-500 text-white">
+          <AlertCircle size={14} />{toast}
+        </div>
+      )}
 
       {/* Header */}
       <div className="shrink-0 bg-white border-b border-slate-200 px-6 py-4">

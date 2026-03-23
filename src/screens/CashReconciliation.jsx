@@ -194,7 +194,7 @@ function CierresPanel({ onClose, lang, biz }) {
       efectivoNeto: (c.efectivo_conteo || 0) - (c.fondo || 0),
       cierreTotal:  c.cierre_total || 0,
       diferencia:   c.diferencia   || 0,
-    }).catch(() => {})
+    }).catch(() => { /* reprint errors are non-critical in history panel */ })
   }
 
   return (
@@ -350,6 +350,9 @@ export default function CashReconciliation() {
   const [saving, setSaving]       = useState(false)
   const [managerName, setManagerName] = useState(null)
   const [biz, setBiz]             = useState(null)
+  const [toast, setToast]         = useState(null)
+
+  function flash(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
   // Daily summary from DB (replaces hardcoded DAY)
   const [daySummary, setDaySummary] = useState({
@@ -378,7 +381,7 @@ export default function CashReconciliation() {
 
   // Load business info for print header
   useEffect(() => {
-    api.admin.getEmpresa().then(setBiz).catch(() => {})
+    api.admin.getEmpresa().then(setBiz).catch(() => flash(L('Error al cargar empresa', 'Error loading business')))
   }, [])
 
   // Clock tick
@@ -398,7 +401,7 @@ export default function CashReconciliation() {
         if (data?.cheque)       setCheque(data.cheque)
         if (data?.credito)      setFACreditos(data.credito)
       })
-      .catch(() => {})
+      .catch(() => flash(L('Error al cargar resumen del dia', 'Error loading daily summary')))
       .finally(() => setLoadingDay(false))
   }, [])
 
@@ -436,7 +439,7 @@ export default function CashReconciliation() {
   }
 
   function doPrint() {
-    printCuadreCaja(buildPrintPayload()).catch(() => {})
+    printCuadreCaja(buildPrintPayload()).catch(() => flash(L('Error al imprimir cuadre', 'Error printing reconciliation')))
   }
 
   function handleCuadrar() {
@@ -479,6 +482,13 @@ export default function CashReconciliation() {
 
   return (
     <div className="h-full flex flex-col bg-slate-50">
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-xl text-[13px] font-semibold bg-red-500 text-white">
+          <AlertCircle size={14} />{toast}
+        </div>
+      )}
+
       {/* PIN Modal */}
       {showPin && (
         <PinModal
