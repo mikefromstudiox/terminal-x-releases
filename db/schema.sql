@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS services (
 -- ── Washers ───────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS washers (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  name          TEXT    NOT NULL,
+  name          TEXT    NOT NULL UNIQUE,
   phone         TEXT,
   cedula        TEXT,
   commission_pct REAL   NOT NULL DEFAULT 20,
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS washers (
 -- ── Sellers ───────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sellers (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  name          TEXT    NOT NULL,
+  name          TEXT    NOT NULL UNIQUE,
   commission_pct REAL   NOT NULL DEFAULT 5,
   active        INTEGER NOT NULL DEFAULT 1
 );
@@ -216,6 +216,32 @@ CREATE TABLE IF NOT EXISTS notas_credito (
 CREATE TABLE IF NOT EXISTS washer_commissions (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   washer_id       INTEGER NOT NULL REFERENCES washers(id),
+  ticket_id       INTEGER NOT NULL REFERENCES tickets(id),
+  base_amount     REAL    NOT NULL,
+  commission_pct  REAL    NOT NULL,
+  commission_amount REAL  NOT NULL,
+  paid            INTEGER NOT NULL DEFAULT 0,
+  paid_at         TEXT,
+  created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ── Seller Commissions ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS seller_commissions (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  seller_id       INTEGER NOT NULL REFERENCES sellers(id),
+  ticket_id       INTEGER NOT NULL REFERENCES tickets(id),
+  base_amount     REAL    NOT NULL,
+  commission_pct  REAL    NOT NULL,
+  commission_amount REAL  NOT NULL,
+  paid            INTEGER NOT NULL DEFAULT 0,
+  paid_at         TEXT,
+  created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ── Cajero Commissions ──────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS cajero_commissions (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  cajero_id       INTEGER NOT NULL REFERENCES users(id),
   ticket_id       INTEGER NOT NULL REFERENCES tickets(id),
   base_amount     REAL    NOT NULL,
   commission_pct  REAL    NOT NULL,

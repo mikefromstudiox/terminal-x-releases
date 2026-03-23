@@ -3,15 +3,20 @@ import {
   Building2, Upload, X, CheckCircle2, Loader2, ImageOff,
   Users, UserCheck, KeyRound, LayoutGrid, Plus, Edit2, Power,
   Eye, EyeOff, AlertCircle, FileText, Wifi, WifiOff, ExternalLink,
-  BarChart2, Calendar, DollarSign, Globe,
+  BarChart2, Calendar, DollarSign, Check, Coffee,
 } from 'lucide-react'
 import { useLang } from '../i18n'
-import { hasIPC } from '../hooks/useDB'
+import { useAPI } from '../context/DataContext'
 import { ECF_TYPES, BUSINESS_TYPES, testEF2Connection, EF2_CONFIGURED } from '../services/ecf'
+import {
+  getStoredSetting, setStoredSetting, resetSupabaseClient,
+  testConnection, ensureBusinessRegistered,
+} from '../services/supabase'
+import { syncService, syncWasher, syncSeller, syncUser, syncNCFSequence } from '../services/sync'
 import DailyReport from './reports/DailyReport'
 import MonthlyReport from './reports/MonthlyReport'
 import WorkerReport from './reports/WorkerReport'
-import RemoteDashboard from './RemoteDashboard'
+// RemoteDashboard moved to its own sidebar tab
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
 
@@ -96,7 +101,7 @@ function useToast() {
 
 function Panel({ title, onClose, children }) {
   return (
-    <div className="w-72 shrink-0 border border-slate-200 rounded-xl p-5 bg-white self-start">
+    <div className="fixed inset-0 z-40 bg-white md:relative md:inset-auto md:z-auto md:w-72 shrink-0 md:border md:border-slate-200 md:rounded-xl p-5 md:bg-white md:self-start overflow-y-auto">
       <div className="flex items-center justify-between mb-4">
         <h4 className="text-[13px] font-bold text-slate-800">{title}</h4>
         <button onClick={onClose} className="text-slate-300 hover:text-slate-500"><X size={15} /></button>
@@ -154,6 +159,7 @@ function SettingSection({ title, children }) {
 const EMPTY_WASHER = { name: '', phone: '', cedula: '', commission_pct: '20', start_date: '' }
 
 function Lavadores() {
+  const api                     = useAPI()
   const { lang }                = useLang()
   const L                       = (es, en) => lang === 'es' ? es : en
   const [list,      setList]    = useState([])
@@ -169,9 +175,8 @@ function Lavadores() {
   useEffect(() => { load() }, [])
 
   async function load() {
-    if (!hasIPC()) return
     setLoading(true); setLoadErr('')
-    try { setList((await window.electronAPI.washers.allAdmin()) || []) }
+    try { setList((await api?.washers?.allAdmin?.()) || []) }
     catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
     finally { setLoading(false) }
   }
@@ -186,8 +191,9 @@ function Lavadores() {
     setSaving(true); setError('')
     try {
       const p = { ...form, commission_pct: parseFloat(form.commission_pct) || 20 }
-      if (panel === 'add') await window.electronAPI.washers.create(p)
-      else                 await window.electronAPI.washers.update({ id: panel.id, ...p })
+      if (panel === 'add') await api.washers.create(p)
+      else                 await api.washers.update({ id: panel.id, ...p })
+      syncWasher(panel === 'add' ? p : { id: panel.id, ...p })
       setSaved(true)
       show(panel === 'add' ? L('Lavador agregado ✓', 'Washer added ✓') : L('Lavador actualizado ✓', 'Washer updated ✓'))
       setTimeout(() => { closePanel(); load() }, 1000)
@@ -197,24 +203,24 @@ function Lavadores() {
 
   async function toggleActive(w) {
     try {
-      await window.electronAPI.washers.update({ id: w.id, active: w.active ? 0 : 1 })
+      await api.washers.update({ id: w.id, active: w.active ? 0 : 1 })
       show(w.active ? L('Desactivado', 'Deactivated') : L('Activado', 'Activated'))
       load()
     } catch {}
   }
 
   return (
-    <div className="flex gap-6">
+    <div className="flex flex-col md:flex-row gap-4 md:gap-6">
       <Toast toast={toast} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-4">
           <p className="text-[12px] text-slate-400">{list.length} {L('lavadores', 'washers')}</p>
-          <button onClick={openAdd} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors">
+          <button onClick={openAdd} className="flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] md:min-h-0 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors">
             <Plus size={13} /> {L('Agregar Lavador', 'Add Washer')}
           </button>
         </div>
         <div className="border border-slate-200 rounded-xl overflow-hidden">
-          <div className="flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          <div className="hidden md:flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
             <span className="flex-1">{L('Nombre / Cédula', 'Name / ID')}</span>
             <span className="w-28">{L('Teléfono', 'Phone')}</span>
             <span className="w-20 text-center">{L('Comisión', 'Commission')}</span>
@@ -228,20 +234,31 @@ function Lavadores() {
             : list.length === 0
             ? <div className="py-10 text-center text-[12px] text-slate-400">{L('No hay lavadores registrados.', 'No washers registered.')}</div>
             : list.map(w => (
-              <div key={w.id} className="flex items-center px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+              <div key={w.id} className="md:flex md:items-center px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+                {/* Mobile card layout */}
                 <div className="flex items-center gap-2.5 flex-1 min-w-0">
                   <div className="w-8 h-8 rounded-full bg-[#f0f6ff] text-[#0C447C] flex items-center justify-center text-[11px] font-black shrink-0">
                     {w.name[0]?.toUpperCase()}
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="text-[13px] font-semibold text-slate-800 truncate">{w.name}</p>
                     {w.cedula && <p className="text-[10px] text-slate-400">{w.cedula}</p>}
+                    <div className="flex items-center gap-3 mt-1 md:hidden">
+                      <span className="text-[11px] text-slate-500">{w.phone || '—'}</span>
+                      <span className="text-[11px] font-semibold text-slate-700">{w.commission_pct}%</span>
+                      <ActiveBadge active={w.active} />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 md:hidden">
+                    <button onClick={() => openEdit(w)} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors"><Edit2 size={15} /></button>
+                    <button onClick={() => toggleActive(w)} className={`p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors ${w.active ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-slate-300 hover:text-green-600 hover:bg-green-50'}`}><Power size={15} /></button>
                   </div>
                 </div>
-                <span className="w-28 text-[12px] text-slate-500">{w.phone || '—'}</span>
-                <span className="w-20 text-center text-[12px] font-semibold text-slate-700">{w.commission_pct}%</span>
-                <span className="w-24 flex justify-center"><ActiveBadge active={w.active} /></span>
-                <div className="w-16 flex items-center justify-end gap-1">
+                {/* Desktop columns */}
+                <span className="hidden md:inline w-28 text-[12px] text-slate-500">{w.phone || '—'}</span>
+                <span className="hidden md:inline w-20 text-center text-[12px] font-semibold text-slate-700">{w.commission_pct}%</span>
+                <span className="hidden md:flex w-24 justify-center"><ActiveBadge active={w.active} /></span>
+                <div className="hidden md:flex w-16 items-center justify-end gap-1">
                   <button onClick={() => openEdit(w)} className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors"><Edit2 size={13} /></button>
                   <button onClick={() => toggleActive(w)} className={`p-1.5 rounded-lg transition-colors ${w.active ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-slate-300 hover:text-green-600 hover:bg-green-50'}`}><Power size={13} /></button>
                 </div>
@@ -276,6 +293,7 @@ function Lavadores() {
 const EMPTY_SELLER = { name: '', commission_pct: '5', phone: '' }
 
 function Vendedores() {
+  const api                     = useAPI()
   const { lang }                = useLang()
   const L                       = (es, en) => lang === 'es' ? es : en
   const [list,      setList]    = useState([])
@@ -291,9 +309,8 @@ function Vendedores() {
   useEffect(() => { load() }, [])
 
   async function load() {
-    if (!hasIPC()) return
     setLoading(true); setLoadErr('')
-    try { setList((await window.electronAPI.sellers.allAdmin()) || []) }
+    try { setList((await api?.sellers?.allAdmin?.()) || []) }
     catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
     finally { setLoading(false) }
   }
@@ -308,8 +325,9 @@ function Vendedores() {
     setSaving(true); setError('')
     try {
       const p = { ...form, commission_pct: parseFloat(form.commission_pct) || 5 }
-      if (panel === 'add') await window.electronAPI.sellers.create(p)
-      else                 await window.electronAPI.sellers.update({ id: panel.id, ...p })
+      if (panel === 'add') await api.sellers.create(p)
+      else                 await api.sellers.update({ id: panel.id, ...p })
+      syncSeller(panel === 'add' ? p : { id: panel.id, ...p })
       setSaved(true)
       show(panel === 'add' ? L('Vendedor agregado ✓', 'Salesperson added ✓') : L('Vendedor actualizado ✓', 'Salesperson updated ✓'))
       setTimeout(() => { closePanel(); load() }, 1000)
@@ -319,24 +337,24 @@ function Vendedores() {
 
   async function toggleActive(s) {
     try {
-      await window.electronAPI.sellers.update({ id: s.id, active: s.active ? 0 : 1 })
+      await api.sellers.update({ id: s.id, active: s.active ? 0 : 1 })
       show(s.active ? L('Desactivado', 'Deactivated') : L('Activado', 'Activated'))
       load()
     } catch {}
   }
 
   return (
-    <div className="flex gap-6">
+    <div className="flex flex-col md:flex-row gap-4 md:gap-6">
       <Toast toast={toast} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-4">
           <p className="text-[12px] text-slate-400">{list.length} {L('vendedores', 'salespeople')}</p>
-          <button onClick={openAdd} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors">
+          <button onClick={openAdd} className="flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] md:min-h-0 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors">
             <Plus size={13} /> {L('Agregar Vendedor', 'Add Salesperson')}
           </button>
         </div>
         <div className="border border-slate-200 rounded-xl overflow-hidden">
-          <div className="flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          <div className="hidden md:flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
             <span className="flex-1">{L('Nombre', 'Name')}</span>
             <span className="w-28">{L('Teléfono', 'Phone')}</span>
             <span className="w-24 text-center">{L('Comisión', 'Commission')}</span>
@@ -350,17 +368,28 @@ function Vendedores() {
             : list.length === 0
             ? <div className="py-10 text-center text-[12px] text-slate-400">{L('No hay vendedores registrados.', 'No salespeople registered.')}</div>
             : list.map(s => (
-              <div key={s.id} className="flex items-center px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+              <div key={s.id} className="md:flex md:items-center px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
                 <div className="flex items-center gap-2.5 flex-1 min-w-0">
                   <div className="w-8 h-8 rounded-full bg-violet-50 text-violet-700 flex items-center justify-center text-[11px] font-black shrink-0">
                     {s.name[0]?.toUpperCase()}
                   </div>
-                  <p className="text-[13px] font-semibold text-slate-800 truncate">{s.name}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-semibold text-slate-800 truncate">{s.name}</p>
+                    <div className="flex items-center gap-3 mt-1 md:hidden">
+                      <span className="text-[11px] text-slate-500">{s.phone || '—'}</span>
+                      <span className="text-[11px] font-semibold text-slate-700">{s.commission_pct}%</span>
+                      <ActiveBadge active={s.active} />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 md:hidden">
+                    <button onClick={() => openEdit(s)} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors"><Edit2 size={15} /></button>
+                    <button onClick={() => toggleActive(s)} className={`p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors ${s.active ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-slate-300 hover:text-green-600 hover:bg-green-50'}`}><Power size={15} /></button>
+                  </div>
                 </div>
-                <span className="w-28 text-[12px] text-slate-500">{s.phone || '—'}</span>
-                <span className="w-24 text-center text-[12px] font-semibold text-slate-700">{s.commission_pct}%</span>
-                <span className="w-24 flex justify-center"><ActiveBadge active={s.active} /></span>
-                <div className="w-16 flex items-center justify-end gap-1">
+                <span className="hidden md:inline w-28 text-[12px] text-slate-500">{s.phone || '—'}</span>
+                <span className="hidden md:inline w-24 text-center text-[12px] font-semibold text-slate-700">{s.commission_pct}%</span>
+                <span className="hidden md:flex w-24 justify-center"><ActiveBadge active={s.active} /></span>
+                <div className="hidden md:flex w-16 items-center justify-end gap-1">
                   <button onClick={() => openEdit(s)} className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors"><Edit2 size={13} /></button>
                   <button onClick={() => toggleActive(s)} className={`p-1.5 rounded-lg transition-colors ${s.active ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-slate-300 hover:text-green-600 hover:bg-green-50'}`}><Power size={13} /></button>
                 </div>
@@ -403,9 +432,10 @@ function RoleBadge({ role }) {
   return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${r.color}`}>{r.label}</span>
 }
 
-const EMPTY_USER = { name: '', username: '', pin: '', role: 'cashier', discount_pct: '0' }
+const EMPTY_USER = { name: '', username: '', pin: '', role: 'cashier', discount_pct: '0', commission_pct: '0' }
 
 function Usuarios() {
+  const api                     = useAPI()
   const { lang }                = useLang()
   const L                       = (es, en) => lang === 'es' ? es : en
   const [list,      setList]    = useState([])
@@ -422,15 +452,14 @@ function Usuarios() {
   useEffect(() => { load() }, [])
 
   async function load() {
-    if (!hasIPC()) return
     setLoading(true); setLoadErr('')
-    try { setList((await window.electronAPI.users.all()) || []) }
+    try { setList((await api?.users?.all?.()) || []) }
     catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
     finally { setLoading(false) }
   }
 
   function openAdd()   { setForm(EMPTY_USER); setShowPin(false); setError(''); setSaved(false); setPanel('add') }
-  function openEdit(u) { setForm({ name: u.name, username: u.username, pin: '', role: u.role, discount_pct: String(u.discount_pct || 0) }); setShowPin(false); setError(''); setSaved(false); setPanel(u) }
+  function openEdit(u) { setForm({ name: u.name, username: u.username, pin: '', role: u.role, discount_pct: String(u.discount_pct || 0), commission_pct: String(u.commission_pct || 0) }); setShowPin(false); setError(''); setSaved(false); setPanel(u) }
   function closePanel(){ setPanel(null) }
   function set(k, v)   { setForm(f => ({ ...f, [k]: v })) }
 
@@ -444,11 +473,13 @@ function Usuarios() {
         name:         form.name.trim(),
         username:     form.username.trim().toLowerCase(),
         role:         form.role,
-        discount_pct: parseFloat(form.discount_pct) || 0,
+        discount_pct:   parseFloat(form.discount_pct) || 0,
+        commission_pct: parseFloat(form.commission_pct) || 0,
         ...(form.pin.trim() && { pin: form.pin.trim() }),
       }
-      if (panel === 'add') await window.electronAPI.users.create({ ...payload, pin: form.pin.trim() })
-      else                 await window.electronAPI.users.update({ id: panel.id, ...payload })
+      if (panel === 'add') await api.users.create({ ...payload, pin: form.pin.trim() })
+      else                 await api.users.update({ id: panel.id, ...payload })
+      syncUser(panel === 'add' ? { ...payload, pin: form.pin.trim() } : { id: panel.id, ...payload })
       setSaved(true)
       show(panel === 'add' ? L('Usuario creado ✓', 'User created ✓') : L('Usuario actualizado ✓', 'User updated ✓'))
       setTimeout(() => { closePanel(); load() }, 1000)
@@ -458,24 +489,24 @@ function Usuarios() {
 
   async function toggleActive(u) {
     try {
-      await window.electronAPI.users.update({ id: u.id, active: u.active ? 0 : 1 })
+      await api.users.update({ id: u.id, active: u.active ? 0 : 1 })
       show(u.active ? L('Usuario desactivado', 'User deactivated') : L('Usuario activado', 'User activated'))
       load()
     } catch {}
   }
 
   return (
-    <div className="flex gap-6">
+    <div className="flex flex-col md:flex-row gap-4 md:gap-6">
       <Toast toast={toast} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-4">
           <p className="text-[12px] text-slate-400">{list.length} {L('usuarios', 'users')}</p>
-          <button onClick={openAdd} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors">
+          <button onClick={openAdd} className="flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] md:min-h-0 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors">
             <Plus size={13} /> {L('Agregar Usuario', 'Add User')}
           </button>
         </div>
         <div className="border border-slate-200 rounded-xl overflow-hidden">
-          <div className="flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          <div className="hidden md:flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
             <span className="flex-1">{L('Nombre / Usuario', 'Name / Username')}</span>
             <span className="w-28 text-center">{L('Rol', 'Role')}</span>
             <span className="w-20 text-center">{L('Dto%', 'Disc%')}</span>
@@ -489,20 +520,29 @@ function Usuarios() {
             : list.length === 0
             ? <div className="py-10 text-center text-[12px] text-slate-400">{L('No hay usuarios registrados.', 'No users registered.')}</div>
             : list.map(u => (
-              <div key={u.id} className="flex items-center px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+              <div key={u.id} className="md:flex md:items-center px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
                 <div className="flex items-center gap-2.5 flex-1 min-w-0">
                   <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[11px] font-black shrink-0">
                     {u.name[0]?.toUpperCase()}
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="text-[13px] font-semibold text-slate-800 truncate">{u.name}</p>
                     <p className="text-[10px] text-slate-400">@{u.username}</p>
+                    <div className="flex items-center gap-2 mt-1 md:hidden">
+                      <RoleBadge role={u.role} />
+                      <span className="text-[11px] text-slate-600">{u.discount_pct}%</span>
+                      <ActiveBadge active={u.active} />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 md:hidden">
+                    <button onClick={() => openEdit(u)} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors"><Edit2 size={15} /></button>
+                    <button onClick={() => toggleActive(u)} className={`p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors ${u.active ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-slate-300 hover:text-green-600 hover:bg-green-50'}`}><Power size={15} /></button>
                   </div>
                 </div>
-                <span className="w-28 flex justify-center"><RoleBadge role={u.role} /></span>
-                <span className="w-20 text-center text-[12px] text-slate-600">{u.discount_pct}%</span>
-                <span className="w-24 flex justify-center"><ActiveBadge active={u.active} /></span>
-                <div className="w-16 flex items-center justify-end gap-1">
+                <span className="hidden md:flex w-28 justify-center"><RoleBadge role={u.role} /></span>
+                <span className="hidden md:inline w-20 text-center text-[12px] text-slate-600">{u.discount_pct}%</span>
+                <span className="hidden md:flex w-24 justify-center"><ActiveBadge active={u.active} /></span>
+                <div className="hidden md:flex w-16 items-center justify-end gap-1">
                   <button onClick={() => openEdit(u)} className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors"><Edit2 size={13} /></button>
                   <button onClick={() => toggleActive(u)} className={`p-1.5 rounded-lg transition-colors ${u.active ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-slate-300 hover:text-green-600 hover:bg-green-50'}`}><Power size={13} /></button>
                 </div>
@@ -534,6 +574,7 @@ function Usuarios() {
               </Select>
             </div>
             <div><Label>{L('% Descuento', '% Discount')}</Label><Input type="number" min="0" max="100" value={form.discount_pct} onChange={e => set('discount_pct', e.target.value)} /></div>
+            <div><Label>{L('% Comision (Bebidas/Snacks)', '% Commission (Drinks/Snacks)')}</Label><Input type="number" min="0" max="100" value={form.commission_pct} onChange={e => set('commission_pct', e.target.value)} /></div>
           </div>
           {error && <p className="mt-3 text-[11px] text-red-500">{error}</p>}
           <div className="flex gap-2 mt-4">
@@ -551,6 +592,7 @@ function Usuarios() {
 const EMPTY_SERVICE = { name: '', name_en: '', category: '', price: '', is_wash: '1' }
 
 function Servicios() {
+  const api                         = useAPI()
   const { lang }                    = useLang()
   const L                           = (es, en) => lang === 'es' ? es : en
   const [list,       setList]       = useState([])
@@ -568,9 +610,8 @@ function Servicios() {
   useEffect(() => { load() }, [])
 
   async function load() {
-    if (!hasIPC()) return
     setLoading(true); setLoadErr('')
-    try { setList((await window.electronAPI.services.allAdmin()) || []) }
+    try { setList((await api?.services?.allAdmin?.()) || []) }
     catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
     finally { setLoading(false) }
   }
@@ -590,8 +631,9 @@ function Servicios() {
     setSaving(true); setError('')
     try {
       const p = { name: form.name.trim(), name_en: form.name_en.trim()||null, category: form.category.trim(), price: parseFloat(form.price)||0, is_wash: parseInt(form.is_wash), sort_order: panel !== 'add' ? panel.sort_order : list.length }
-      if (panel === 'add') await window.electronAPI.services.create(p)
-      else                 await window.electronAPI.services.update({ id: panel.id, ...p })
+      if (panel === 'add') await api.services.create(p)
+      else                 await api.services.update({ id: panel.id, ...p })
+      syncService(panel === 'add' ? p : { id: panel.id, ...p })
       setSaved(true)
       show(panel === 'add' ? L('Servicio agregado ✓', 'Service added ✓') : L('Servicio actualizado ✓', 'Service updated ✓'))
       setTimeout(() => { closePanel(); load() }, 1000)
@@ -601,7 +643,7 @@ function Servicios() {
 
   async function toggleActive(s) {
     try {
-      await window.electronAPI.services.update({ id: s.id, active: s.active ? 0 : 1 })
+      await api.services.update({ id: s.id, active: s.active ? 0 : 1 })
       show(s.active ? L('Desactivado — no aparece en POS', 'Deactivated — hidden from POS') : L('Activado en POS ✓', 'Activated in POS ✓'))
       load()
     } catch {}
@@ -610,28 +652,30 @@ function Servicios() {
   function fmtRD(n) { return `RD$ ${Number(n).toLocaleString('en-US', { minimumFractionDigits: 0 })}` }
 
   return (
-    <div className="flex gap-6">
+    <div className="flex flex-col md:flex-row gap-4 md:gap-6">
       <Toast toast={toast} />
       <div className="flex-1 min-w-0">
         {/* Category tabs row */}
-        <div className="flex items-center gap-0 border-b border-slate-200 mb-4 overflow-x-auto">
-          {[{ id: 'all', label: `${L('Todos', 'All')} (${list.length})` },
-            ...categories.map(c => ({ id: c, label: `${c} (${list.filter(s => s.category === c).length})` }))
-          ].map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`shrink-0 px-4 py-2.5 text-[12px] font-semibold border-b-2 -mb-px transition-colors ${
-                activeTab === tab.id ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}>
-              {tab.label}
-            </button>
-          ))}
-          <button onClick={openAdd} className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-1.5 mb-2 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors">
+        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-0 border-b border-slate-200 mb-4 overflow-x-auto">
+          <div className="flex items-center gap-0 overflow-x-auto flex-1">
+            {[{ id: 'all', label: `${L('Todos', 'All')} (${list.length})` },
+              ...categories.map(c => ({ id: c, label: `${c} (${list.filter(s => s.category === c).length})` }))
+            ].map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                className={`shrink-0 px-4 py-2.5 text-[12px] font-semibold border-b-2 -mb-px transition-colors ${
+                  activeTab === tab.id ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <button onClick={openAdd} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 mb-2 min-h-[44px] md:min-h-0 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors w-full md:w-auto justify-center md:justify-start md:ml-auto">
             <Plus size={13} /> {L('Agregar Servicio', 'Add Service')}
           </button>
         </div>
 
         <div className="border border-slate-200 rounded-xl overflow-hidden">
-          <div className="flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          <div className="hidden md:flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
             <span className="flex-1">{L('Nombre ES', 'Name ES')}</span>
             <span className="w-36">{L('Nombre EN', 'Name EN')}</span>
             <span className="w-24 text-center">{L('Categoría', 'Category')}</span>
@@ -646,15 +690,28 @@ function Servicios() {
             : visible.length === 0
             ? <div className="py-10 text-center text-[12px] text-slate-400">{L('No hay servicios en esta categoría.', 'No services in this category.')}</div>
             : visible.map(s => (
-              <div key={s.id} className={`flex items-center px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors ${!s.active ? 'opacity-50' : ''}`}>
-                <span className="flex-1 text-[13px] font-semibold text-slate-800 truncate">{s.name}</span>
-                <span className="w-36 text-[12px] text-slate-400 truncate">{s.name_en || '—'}</span>
-                <span className="w-24 flex justify-center">
+              <div key={s.id} className={`md:flex md:items-center px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors ${!s.active ? 'opacity-50' : ''}`}>
+                <div className="flex items-center justify-between md:contents">
+                  <div className="flex-1 min-w-0 md:flex-1">
+                    <span className="text-[13px] font-semibold text-slate-800 truncate block">{s.name}</span>
+                    <div className="flex items-center gap-2 mt-1 md:hidden">
+                      <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{s.category}</span>
+                      <span className="text-[12px] font-semibold text-slate-700">{fmtRD(s.price)}</span>
+                      <ActiveBadge active={s.active} />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 md:hidden">
+                    <button onClick={() => openEdit(s)} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors"><Edit2 size={15} /></button>
+                    <button onClick={() => toggleActive(s)} className={`p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors ${s.active ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-slate-300 hover:text-green-600 hover:bg-green-50'}`}><Power size={15} /></button>
+                  </div>
+                </div>
+                <span className="hidden md:inline w-36 text-[12px] text-slate-400 truncate">{s.name_en || '—'}</span>
+                <span className="hidden md:flex w-24 justify-center">
                   <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full truncate max-w-[88px]">{s.category}</span>
                 </span>
-                <span className="w-24 text-right text-[12px] font-semibold text-slate-700">{fmtRD(s.price)}</span>
-                <span className="w-20 flex justify-center"><ActiveBadge active={s.active} /></span>
-                <div className="w-16 flex items-center justify-end gap-1">
+                <span className="hidden md:inline w-24 text-right text-[12px] font-semibold text-slate-700">{fmtRD(s.price)}</span>
+                <span className="hidden md:flex w-20 justify-center"><ActiveBadge active={s.active} /></span>
+                <div className="hidden md:flex w-16 items-center justify-end gap-1">
                   <button onClick={() => openEdit(s)} className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors"><Edit2 size={13} /></button>
                   <button onClick={() => toggleActive(s)} className={`p-1.5 rounded-lg transition-colors ${s.active ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-slate-300 hover:text-green-600 hover:bg-green-50'}`}><Power size={13} /></button>
                 </div>
@@ -787,7 +844,8 @@ function SeqCard({ code, nameEs, nameEn, descEs, descEn, noVencimiento,
 
 // ── FISCAL / NCF SEQUENCES ────────────────────────────────────────────────────
 
-function FiscalNCF() {
+export function FiscalNCF() {
+  const api = useAPI()
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
   const { toast, show } = useToast()
@@ -802,9 +860,8 @@ function FiscalNCF() {
   const [modeLoaded,  setModeLoaded]  = useState(false)
 
   const load = useCallback(async () => {
-    if (!hasIPC()) return
     try {
-      const rows = await window.electronAPI.ncf.sequences()
+      const rows = await api?.ncf?.sequences?.()
       setSequences(rows || [])
     } catch {}
   }, [])
@@ -812,8 +869,7 @@ function FiscalNCF() {
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    if (!hasIPC()) { setModeLoaded(true); return }
-    window.electronAPI.settings.get()
+    api?.settings?.get?.()
       .then(s => { if (s?.fiscal_mode) setFiscalMode(s.fiscal_mode) })
       .catch(() => {})
       .finally(() => setModeLoaded(true))
@@ -822,7 +878,7 @@ function FiscalNCF() {
   async function saveFiscalMode(mode) {
     setFiscalMode(mode)
     try {
-      await window.electronAPI.settings.update({ fiscal_mode: mode })
+      await api.settings.update({ fiscal_mode: mode })
       show(L('Modo de comprobantes actualizado ✓', 'Receipt mode updated ✓'))
     } catch {
       show(L('Error al guardar', 'Error saving'), 'error')
@@ -846,7 +902,7 @@ function FiscalNCF() {
   async function handleToggle(type, enabled) {
     updateLocal(type, { enabled: enabled ? 1 : 0 })
     try {
-      await window.electronAPI.ncf.updateSequence({ type, enabled: enabled ? 1 : 0 })
+      await api.ncf.updateSequence({ type, enabled: enabled ? 1 : 0 })
     } catch {
       show(L('Error al actualizar', 'Error updating'), 'error')
     }
@@ -856,12 +912,13 @@ function FiscalNCF() {
     const seq = getSeq(type)
     setSaving(s => ({ ...s, [type]: true }))
     try {
-      await window.electronAPI.ncf.updateSequence({
+      await api.ncf.updateSequence({
         type,
         current_number: Number(seq.current_number) || 0,
         limit_number:   Number(seq.limit_number)   || 500,
         valid_until:    seq.valid_until || null,
       })
+      syncNCFSequence({ type, current_number: Number(seq.current_number) || 0, limit_number: Number(seq.limit_number) || 500, valid_until: seq.valid_until || null })
       setSaved(s => ({ ...s, [type]: true }))
       show(L('Secuencia guardada ✓', 'Sequence saved ✓'))
       setTimeout(() => setSaved(s => ({ ...s, [type]: false })), 2500)
@@ -1113,6 +1170,7 @@ function FiscalNCF() {
 // ── MI EMPRESA ────────────────────────────────────────────────────────────────
 
 function MiEmpresa() {
+  const api                   = useAPI()
   const { lang }              = useLang()
   const L                     = (es, en) => lang === 'es' ? es : en
   const [form,    setForm]    = useState({ biz_name: '', biz_rnc: '', biz_address: '', biz_phone: '', biz_city: '', biz_type: '' })
@@ -1126,9 +1184,8 @@ function MiEmpresa() {
   const fileRef = useRef()
 
   useEffect(() => {
-    if (!hasIPC()) return
     setLoading(true)
-    window.electronAPI.admin.getEmpresa()
+    api?.admin?.getEmpresa?.()
       .then(row => {
         if (!row) return
         let extra = {}
@@ -1163,7 +1220,7 @@ function MiEmpresa() {
     if (!form.biz_name.trim()) { setError(L('El nombre del negocio es requerido.', 'Business name is required.')); return }
     setSaving(true); setError('')
     try {
-      await window.electronAPI.admin.saveEmpresa({
+      await api.admin.saveEmpresa({
         name:     form.biz_name.trim(),
         rnc:      form.biz_rnc.trim(),
         address:  form.biz_address.trim(),
@@ -1287,19 +1344,112 @@ function MiEmpresa() {
   )
 }
 
+// ── CAJERAS ──────────────────────────────────────────────────────────────────
+
+function Cajeras() {
+  const api              = useAPI()
+  const { lang }         = useLang()
+  const L                = (es, en) => lang === 'es' ? es : en
+  const [list, setList]  = useState([])
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving]   = useState({})
+  const { toast, show }  = useToast()
+
+  useEffect(() => { load() }, [])
+
+  async function load() {
+    setLoading(true)
+    try {
+      const users = (await api?.users?.all?.()) || []
+      // Show cashiers and any user with commission_pct > 0
+      setList(users.filter(u => u.active && (u.role === 'cashier' || (u.commission_pct && u.commission_pct > 0))))
+    } catch {}
+    setLoading(false)
+  }
+
+  async function updateCommission(userId, pct) {
+    setSaving(s => ({ ...s, [userId]: true }))
+    try {
+      await api.users.update({ id: userId, commission_pct: parseFloat(pct) || 0 })
+      show(L('Comision actualizada', 'Commission updated'))
+      load()
+    } catch {}
+    setSaving(s => ({ ...s, [userId]: false }))
+  }
+
+  return (
+    <div>
+      <p className="text-[12px] text-slate-400 mb-4">
+        {L('Porcentaje de comision sobre bebidas y snacks para cada cajera/o.', 'Commission percentage on drinks and snacks for each cashier.')}
+      </p>
+      {loading ? (
+        <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-slate-300" size={20} /></div>
+      ) : list.length === 0 ? (
+        <div className="py-10 text-center text-[12px] text-slate-400">
+          {L('No hay cajeras registradas. Agrega usuarios con rol "Cajera" en la pestana Usuarios.', 'No cashiers registered. Add users with "Cashier" role in the Users tab.')}
+        </div>
+      ) : (
+        <div className="border border-slate-200 rounded-xl overflow-hidden">
+          <Toast toast={toast} />
+          <div className="hidden md:flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            <span className="flex-1">{L('Nombre', 'Name')}</span>
+            <span className="w-24 text-center">{L('Rol', 'Role')}</span>
+            <span className="w-32 text-center">{L('% Comision', '% Commission')}</span>
+            <span className="w-20 text-center"></span>
+          </div>
+          {list.map(u => (
+            <CajeraRow key={u.id} u={u} L={L} saving={saving[u.id]} onSave={updateCommission} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CajeraRow({ u, L, saving, onSave }) {
+  const [pct, setPct] = useState(String(u.commission_pct || 0))
+  const changed = parseFloat(pct) !== (u.commission_pct || 0)
+  return (
+    <div className="md:flex md:items-center px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+      <div className="flex items-center gap-2.5 flex-1 min-w-0">
+        <div className="w-8 h-8 rounded-full bg-sky-50 text-sky-600 flex items-center justify-center text-[11px] font-black shrink-0">
+          {u.name[0]?.toUpperCase()}
+        </div>
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold text-slate-800 truncate">{u.name}</p>
+          <p className="text-[10px] text-slate-400">@{u.username}</p>
+        </div>
+      </div>
+      <span className="hidden md:flex w-24 justify-center"><RoleBadge role={u.role} /></span>
+      <div className="w-32 flex items-center justify-center gap-1">
+        <input type="number" min="0" max="100" step="0.5" value={pct} onChange={e => setPct(e.target.value)}
+          className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-[12px] text-center text-slate-700 focus:outline-none focus:border-sky-400" />
+        <span className="text-[11px] text-slate-400">%</span>
+      </div>
+      <div className="w-20 flex items-center justify-center">
+        {changed && (
+          <button onClick={() => onSave(u.id, pct)} disabled={saving}
+            className="px-3 py-1 bg-[#0C447C] text-white text-[11px] font-semibold rounded-lg hover:bg-[#0a3a6b] disabled:opacity-40">
+            {saving ? <Loader2 className="animate-spin" size={12} /> : L('Guardar', 'Save')}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── MAIN ADMIN SCREEN ─────────────────────────────────────────────────────────
 
 const TABS = [
   { id: 'empresa',    es: 'Mi Empresa',    en: 'Business',          icon: Building2  },
-  { id: 'fiscal',     es: 'Fiscal / NCF',  en: 'Fiscal / NCF',      icon: FileText   },
   { id: 'lavadores',  es: 'Lavadores',     en: 'Washers',           icon: Users      },
   { id: 'vendedores', es: 'Vendedores',    en: 'Salespeople',       icon: UserCheck  },
+  { id: 'cajeras',    es: 'Cajeras',       en: 'Cashiers',          icon: Coffee     },
   { id: 'usuarios',   es: 'Usuarios',      en: 'Users',             icon: KeyRound   },
   { id: 'servicios',  es: 'Servicios',     en: 'Services',          icon: LayoutGrid },
   { id: 'daily',      es: 'Reporte Diario',en: 'Daily Report',      icon: BarChart2  },
   { id: 'monthly',    es: 'Reporte Mensual',en: 'Monthly Report',   icon: Calendar   },
   { id: 'comisiones', es: 'Comisiones',    en: 'Commissions',       icon: DollarSign },
-  { id: 'remote',     es: 'Dashboard Remoto',en: 'Remote Dashboard',icon: Globe      },
 ]
 
 export default function Admin() {
@@ -1309,16 +1459,16 @@ export default function Admin() {
   return (
     <div className="h-full flex flex-col bg-white">
       {/* Header */}
-      <div className="shrink-0 px-6 py-4 border-b border-slate-200">
-        <h2 className="text-[16px] font-bold text-slate-800">{t('nav_admin')}</h2>
-        <p className="text-[12px] text-slate-400 mt-0.5">{t('admin_desc')}</p>
+      <div className="shrink-0 px-3 md:px-6 py-3 md:py-4 border-b border-slate-200">
+        <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800">{t('nav_admin')}</h2>
+        <p className="text-[11px] md:text-[12px] text-slate-400 mt-0.5">{t('admin_desc')}</p>
       </div>
 
       {/* Tabs */}
-      <div className="shrink-0 flex border-b border-slate-200 px-6 overflow-x-auto">
+      <div className="shrink-0 flex border-b border-slate-200 px-2 md:px-6 overflow-x-auto scrollbar-none">
         {TABS.map(({ id, es, en, icon: Icon }) => (
           <button key={id} onClick={() => setTab(id)}
-            className={`flex items-center gap-1.5 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors shrink-0 ${
+            className={`flex items-center gap-1.5 px-3 md:px-4 py-3 text-xs md:text-[13px] font-semibold border-b-2 transition-colors shrink-0 whitespace-nowrap ${
               tab === id ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}>
             <Icon size={14} />
@@ -1328,24 +1478,104 @@ export default function Admin() {
       </div>
 
       {/* Content */}
-      {['empresa','fiscal','lavadores','vendedores','usuarios','servicios','daily','monthly','comisiones'].includes(tab) && (
-        <div className="flex-1 overflow-y-auto px-6 py-6">
-          {tab === 'empresa'    && <MiEmpresa />}
-          {tab === 'fiscal'     && <FiscalNCF />}
-          {tab === 'lavadores'  && <Lavadores />}
-          {tab === 'vendedores' && <Vendedores />}
-          {tab === 'usuarios'   && <Usuarios />}
-          {tab === 'servicios'  && <Servicios />}
-          {tab === 'daily'      && <DailyReport />}
-          {tab === 'monthly'    && <MonthlyReport />}
-          {tab === 'comisiones' && <WorkerReport />}
+      <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-6">
+        {tab === 'empresa'    && <MiEmpresa />}
+        {tab === 'lavadores'  && <Lavadores />}
+        {tab === 'vendedores' && <Vendedores />}
+        {tab === 'cajeras'    && <Cajeras />}
+        {tab === 'usuarios'   && <Usuarios />}
+        {tab === 'servicios'  && <Servicios />}
+        {tab === 'daily'      && <DailyReport />}
+        {tab === 'monthly'    && <MonthlyReport />}
+        {tab === 'comisiones' && <WorkerReport />}
+      </div>
+    </div>
+  )
+}
+
+// ── Respaldo / Supabase config ────────────────────────────────────────────────
+export function Respaldo() {
+  const [url,        setUrl]        = useState(() => getStoredSetting('supabase_url'))
+  const [anonKey,    setAnonKey]    = useState(() => getStoredSetting('supabase_anon_key'))
+  const [saved,      setSaved]      = useState(false)
+  const [testing,    setTesting]    = useState(false)
+  const [testResult, setTestResult] = useState(null)
+
+  async function handleSave() {
+    setStoredSetting('supabase_url',      url.trim())
+    setStoredSetting('supabase_anon_key', anonKey.trim())
+    setStoredSetting('business_id',       '')          // force re-register on next Dashboard visit
+    resetSupabaseClient()
+    if (url.trim() && anonKey.trim()) {
+      ensureBusinessRegistered().catch(() => {})
+    }
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  async function handleTest() {
+    setTesting(true); setTestResult(null)
+    const res = await testConnection()
+    setTesting(false); setTestResult(res)
+  }
+
+  return (
+    <div className="max-w-lg space-y-6">
+      <div>
+        <p className="text-[13px] font-bold text-slate-700 mb-1">Supabase — Credenciales</p>
+        <p className="text-[12px] text-slate-400 mb-4">
+          Conecta con Supabase para activar el Dashboard Remoto y sincronización en la nube.
+        </p>
+
+        <div className="space-y-3">
+          <div>
+            <Label>Project URL</Label>
+            <Input
+              value={url}
+              onChange={e => setUrl(e.target.value)}
+              placeholder="https://xxxxxxxxxxxx.supabase.co"
+            />
+          </div>
+          <div>
+            <Label>Anon Public Key</Label>
+            <input
+              type="password"
+              value={anonKey}
+              onChange={e => setAnonKey(e.target.value)}
+              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-[12px] text-slate-700 bg-white
+                focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/20 placeholder:text-slate-300"
+            />
+          </div>
         </div>
-      )}
-      {tab === 'remote' && (
-        <div className="flex-1 overflow-hidden">
-          <RemoteDashboard />
+
+        <div className="flex items-center gap-3 mt-4">
+          <button
+            onClick={handleSave}
+            disabled={!url || !anonKey}
+            className="flex items-center gap-1.5 px-4 py-2 bg-[#0C447C] text-white rounded-lg text-[12px] font-semibold disabled:opacity-40 hover:bg-[#0a3a6b]"
+          >
+            {saved ? <><Check size={13} /> Guardado</> : 'Guardar'}
+          </button>
+          <button
+            onClick={handleTest}
+            disabled={testing || !url || !anonKey}
+            className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-[12px] text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          >
+            <Wifi size={13} />
+            {testing ? 'Probando…' : 'Probar conexión'}
+          </button>
+          {testResult?.ok    && <span className="flex items-center gap-1 text-xs text-emerald-600"><Check size={12} /> Conexión exitosa</span>}
+          {testResult?.error && <span className="text-xs text-red-500">{testResult.error}</span>}
         </div>
-      )}
+      </div>
+
+      <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 text-[12px] text-slate-500 space-y-1">
+        <p className="font-semibold text-slate-600">¿Dónde encuentro estas credenciales?</p>
+        <p>1. Entra a tu proyecto en supabase.com</p>
+        <p>2. Haz clic en <strong>Connect</strong> (arriba) o ve a <strong>Project Settings → API</strong></p>
+        <p>3. Copia el <strong>Project URL</strong> y la clave <strong>anon public</strong></p>
+      </div>
     </div>
   )
 }

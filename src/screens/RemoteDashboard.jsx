@@ -1,126 +1,59 @@
-/**
- * RemoteDashboard — read-only web dashboard for remote access.
- *
- * Accessible to: owner, cfo, accountant roles only.
- * Auto-refreshes every 60 seconds.
- * No write operations — view only.
- *
- * To deploy as a standalone web app (outside Electron), export this component
- * and wrap it with its own auth flow that reads from Supabase directly.
- * The web URL would be: https://<your-app>.vercel.app/remote
- */
 import { useState, useEffect, useCallback } from 'react'
-import {
-  Globe, RefreshCw, Eye, TrendingUp, DollarSign,
-  Users, Clock, CheckCircle2, AlertCircle, WifiOff,
-} from 'lucide-react'
+import { Globe, Eye, WifiOff, RefreshCw, TrendingUp, ReceiptText, Banknote, CreditCard, ArrowRightLeft, Clock } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { getSupabaseClient } from '../services/supabase.js'
+import { useLang } from '../i18n'
+import { getSupabaseClient, getBusinessId, fetchDashboardData, ensureBusinessRegistered } from '../services/supabase.js'
 
-// ── Role guard ────────────────────────────────────────────────────────────────
 const ALLOWED = ['owner', 'cfo', 'accountant']
 
-// ── Demo data (replace with real Supabase queries) ────────────────────────────
-function buildDemoSnapshot() {
-  return {
-    fetchedAt: new Date().toISOString(),
-    today: {
-      totalVendido:  48600,
-      totalCobrado:  42800,
-      cxcPendiente:   5800,
-      carros:           24,
-      facturas:         31,
-      nulas:             1,
-    },
-    cxc: [
-      { client: 'Grupo Mejía S.R.L.',    pendiente: 26500, limite: 25000, dias: 12 },
-      { client: 'Importadora Del Norte', pendiente:  8400, limite: 20000, dias:  5 },
-      { client: 'Ferretería El Clavo',   pendiente:  3200, limite: 15000, dias:  3 },
-    ],
-    washers: [
-      { name: 'Juan Pérez',    cars: 8, commission: 1840 },
-      { name: 'Luis García',   cars: 7, commission: 1610 },
-      { name: 'Miguel Torres', cars: 6, commission: 1248 },
-      { name: 'Pedro Díaz',    cars: 3, commission:  624 },
-    ],
-    monthlyTrend: [
-      { label: 'Nov', amount: 182000 },
-      { label: 'Dic', amount: 209000 },
-      { label: 'Ene', amount: 196000 },
-      { label: 'Feb', amount: 188000 },
-      { label: 'Mar', amount: 142000 },  // current month partial
-    ],
-    recentTickets: [
-      { no: 'T-0241', client: 'Consumidor Final', service: 'Lavado Completo', total: 1280, time: '14:32' },
-      { no: 'T-0240', client: 'Grupo Mejía',      service: 'Detailing',        total: 5760, time: '13:58' },
-      { no: 'T-0239', client: 'Consumidor Final', service: 'Lavado Básico',    total:  768, time: '13:21' },
-      { no: 'T-0238', client: 'Seguros Caribe',   service: 'Cera Premium',     total: 3200, time: '12:44' },
-      { no: 'T-0237', client: 'Consumidor Final', service: 'Aspirado',         total:  512, time: '12:08' },
-    ],
+const REFRESH_MS = 30_000
+
+function fmtRD(n) {
+  return 'RD$' + Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+function fmtTime(iso) {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleString('es-DO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+function pctChange(current, previous) {
+  if (!previous) return null
+  return ((current - previous) / previous * 100).toFixed(1)
+}
+
+const PM_LABEL = {
+  efectivo:      { label: 'Efectivo',      icon: Banknote,        color: 'text-emerald-600 bg-emerald-50' },
+  cash:          { label: 'Efectivo',      icon: Banknote,        color: 'text-emerald-600 bg-emerald-50' },
+  tarjeta:       { label: 'Tarjeta',       icon: CreditCard,      color: 'text-blue-600 bg-blue-50'       },
+  transferencia: { label: 'Transferencia', icon: ArrowRightLeft,  color: 'text-violet-600 bg-violet-50'   },
+  credit:        { label: 'Crédito',       icon: Clock,           color: 'text-amber-600 bg-amber-50'     },
+  credito:       { label: 'Crédito',       icon: Clock,           color: 'text-amber-600 bg-amber-50'     },
+}
+
+function MetricCard({ label, value, sub, trend, accent = 'blue' }) {
+  const colors = {
+    blue:    'border-blue-100   bg-blue-50/60',
+    green:   'border-emerald-100 bg-emerald-50/60',
+    violet:  'border-violet-100  bg-violet-50/60',
+    amber:   'border-amber-100   bg-amber-50/60',
   }
-}
-
-// ── Data fetcher ──────────────────────────────────────────────────────────────
-async function fetchDashboardData() {
-  const sb = getSupabaseClient()
-  if (!sb) return buildDemoSnapshot()   // offline or not configured
-
-  try {
-    // Real queries would go here — for now return demo
-    // const { data: tickets } = await sb.from('tickets').select('*').gte('paid_at', todayISO)
-    return buildDemoSnapshot()
-  } catch {
-    return buildDemoSnapshot()
-  }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function fmt(n) {
-  return 'RD$' + Number(n||0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-function pct(part, total) {
-  return total > 0 ? Math.round(part / total * 100) : 0
-}
-
-function MetricCard({ label, value, sub, color = 'slate', icon: Icon }) {
-  const ring = { slate:'border-slate-100 bg-white', blue:'border-blue-200 bg-blue-50', green:'border-emerald-200 bg-emerald-50', red:'border-red-200 bg-red-50', amber:'border-amber-200 bg-amber-50' }
-  const val  = { slate:'text-slate-800', blue:'text-blue-700', green:'text-emerald-700', red:'text-red-600', amber:'text-amber-700' }
+  const trendColor = trend === null ? '' : Number(trend) >= 0 ? 'text-emerald-600' : 'text-red-500'
   return (
-    <div className={`rounded-2xl border p-5 flex-1 ${ring[color]}`}>
-      <div className="flex justify-between items-start mb-2">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
-        {Icon && <Icon size={15} className={val[color]} />}
-      </div>
-      <p className={`text-3xl font-bold tabular-nums ${val[color]}`}>{value}</p>
-      {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
+    <div className={`rounded-xl border p-4 ${colors[accent]}`}>
+      <p className="text-xs text-slate-500 mb-1">{label}</p>
+      <p className="text-2xl font-bold text-slate-800 tracking-tight">{value}</p>
+      {sub  && <p className="text-xs text-slate-500 mt-0.5">{sub}</p>}
+      {trend !== null && trend !== undefined && (
+        <p className={`text-xs font-medium mt-1 ${trendColor}`}>
+          {Number(trend) >= 0 ? '▲' : '▼'} {Math.abs(trend)}% vs ayer
+        </p>
+      )}
     </div>
   )
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
 export default function RemoteDashboard() {
   const { user } = useAuth()
-  const [data, setData]         = useState(null)
-  const [loading, setLoading]   = useState(true)
-  const [countdown, setCountdown] = useState(60)
-  const [lastFetch, setLastFetch] = useState(null)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    const snap = await fetchDashboardData()
-    setData(snap)
-    setLastFetch(new Date())
-    setLoading(false)
-    setCountdown(60)
-  }, [])
-
-  // Auto-refresh every 60s
-  useEffect(() => {
-    load()
-    const refresh = setInterval(load, 60_000)
-    const tick    = setInterval(() => setCountdown(c => Math.max(0, c - 1)), 1000)
-    return () => { clearInterval(refresh); clearInterval(tick) }
-  }, [load])
+  const { lang }  = useLang()
 
   if (!ALLOWED.includes(user?.role)) {
     return (
@@ -133,154 +66,263 @@ export default function RemoteDashboard() {
     )
   }
 
-  const d = data?.today || {}
-  const maxMonth = Math.max(...(data?.monthlyTrend || []).map(m => m.amount))
+  const sb = getSupabaseClient()
+
+  if (!sb) {
+    return (
+      <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
+        <Header />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center max-w-sm">
+            <WifiOff size={40} className="text-slate-300 mx-auto mb-4" />
+            <p className="text-slate-700 font-semibold mb-1">Supabase no configurado</p>
+            <p className="text-slate-400 text-sm">
+              Ve a Administración → Configuración → Respaldo y configura las credenciales de Supabase.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!getBusinessId()) {
+    return <RegisteringBusiness lang={lang} />
+  }
+
+  return <Dashboard lang={lang} />
+}
+
+function RegisteringBusiness({ lang }) {
+  const [status, setStatus] = useState('registering') // 'registering' | 'ok' | 'error'
+  const [error,  setError]  = useState(null)
+
+  useEffect(() => {
+    ensureBusinessRegistered().then(res => {
+      if (res.ok) setStatus('ok')
+      else { setStatus('error'); setError(res.error) }
+    })
+  }, [])
+
+  if (status === 'ok') return <Dashboard lang={lang} />
 
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-100 px-6 py-4 flex items-center gap-3 flex-shrink-0">
-        <Globe size={18} className="text-slate-500" />
-        <div>
-          <h1 className="text-lg font-semibold text-slate-800">Dashboard Remoto</h1>
-          <p className="text-xs text-slate-400">Solo lectura — actualización en {countdown}s</p>
-        </div>
-        <div className="ml-auto flex items-center gap-3">
-          {lastFetch && (
-            <span className="text-xs text-slate-400">
-              Actualizado: {lastFetch.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </span>
+      <Header />
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center max-w-sm">
+          {status === 'registering' ? (
+            <>
+              <RefreshCw size={32} className="text-slate-300 mx-auto mb-4 animate-spin" />
+              <p className="text-slate-600 text-sm">Registrando negocio en la nube…</p>
+            </>
+          ) : (
+            <>
+              <WifiOff size={40} className="text-red-300 mx-auto mb-4" />
+              <p className="text-slate-700 font-semibold mb-1">Error al registrar</p>
+              <p className="text-slate-400 text-sm">{error}</p>
+            </>
           )}
-          <button onClick={load} disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-            Actualizar
-          </button>
-          <span className="flex items-center gap-1.5 text-xs bg-amber-50 border border-amber-200 text-amber-600 px-3 py-1.5 rounded-lg">
-            <Eye size={12} />
-            Solo lectura
-          </span>
         </div>
       </div>
+    </div>
+  )
+}
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-5">
-        {/* Today's summary */}
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-3">
-            Resumen del día — {new Date().toLocaleDateString('es-DO', { weekday:'long', day:'2-digit', month:'long', year:'numeric' })}
-          </p>
-          <div className="flex gap-3">
-            <MetricCard label="Total facturado"  value={fmt(d.totalVendido)}  sub={`${d.facturas} facturas`}  color="slate" icon={TrendingUp}   />
-            <MetricCard label="Total cobrado"    value={fmt(d.totalCobrado)}  sub={`${pct(d.totalCobrado,d.totalVendido)}% cobrado`} color="green" icon={CheckCircle2} />
-            <MetricCard label="CxC pendiente"    value={fmt(d.cxcPendiente)}  sub="por cobrar"                color="amber" icon={Clock}        />
-            <MetricCard label="Carros lavados"   value={d.carros}             sub="hoy"                       color="blue"  icon={Users}        />
+function Header({ onRefresh, refreshing, lastUpdated }) {
+  return (
+    <div className="bg-white border-b border-slate-100 px-6 py-4 flex items-center gap-3 shrink-0">
+      <Globe size={18} className="text-slate-500" />
+      <div className="flex-1">
+        <h1 className="text-lg font-semibold text-slate-800">Dashboard Remoto</h1>
+        <p className="text-xs text-slate-400">
+          {lastUpdated ? `Actualizado ${fmtTime(lastUpdated)}` : 'Solo lectura — datos en tiempo real'}
+        </p>
+      </div>
+      {onRefresh && (
+        <button onClick={onRefresh} disabled={refreshing}
+          className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+          <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
+          Actualizar
+        </button>
+      )}
+    </div>
+  )
+}
+
+function Dashboard({ lang }) {
+  const [data,        setData]        = useState(null)
+  const [loading,     setLoading]     = useState(true)
+  const [error,       setError]       = useState(null)
+  const [refreshing,  setRefreshing]  = useState(false)
+  const [lastUpdated, setLastUpdated] = useState(null)
+
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true)
+    else           setLoading(true)
+    setError(null)
+
+    const result = await fetchDashboardData()
+
+    if (result?.error) {
+      setError(result.error)
+    } else if (result) {
+      setData(result)
+      setLastUpdated(new Date().toISOString())
+    }
+
+    setLoading(false)
+    setRefreshing(false)
+  }, [])
+
+  useEffect(() => {
+    load()
+    const interval = setInterval(() => load(true), REFRESH_MS)
+    return () => clearInterval(interval)
+  }, [load])
+
+  if (loading) {
+    return (
+      <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
+        <Header />
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-slate-400 text-sm">Cargando datos…</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
+        <Header onRefresh={() => load(true)} refreshing={refreshing} lastUpdated={lastUpdated} />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center max-w-sm">
+            <WifiOff size={36} className="text-red-300 mx-auto mb-3" />
+            <p className="text-slate-700 font-semibold mb-1">Error de conexión</p>
+            <p className="text-slate-400 text-sm">{error}</p>
           </div>
         </div>
+      </div>
+    )
+  }
 
-        <div className="grid grid-cols-2 gap-5">
-          {/* Monthly trend */}
-          <div className="bg-white rounded-2xl border border-slate-100 p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-4">Tendencia mensual</p>
-            <div className="flex items-end gap-3 h-32">
-              {(data?.monthlyTrend || []).map((m, i) => {
-                const h = maxMonth > 0 ? pct(m.amount, maxMonth) : 0
-                const isLast = i === (data.monthlyTrend.length - 1)
-                return (
-                  <div key={m.label} className="flex-1 flex flex-col items-center gap-1">
-                    <span className="text-[9px] text-slate-500 tabular-nums">{(m.amount/1000).toFixed(0)}k</span>
-                    <div className="w-full relative" style={{ height: '80px' }}>
-                      <div className={`absolute bottom-0 w-full rounded-t-md transition-all ${isLast ? 'bg-blue-400' : 'bg-slate-200'}`}
-                        style={{ height: `${Math.max(4, h)}%` }} />
+  if (!data) return null
+
+  const { today, yesterday, week, recentTickets, paymentBreakdown } = data
+  const trend = pctChange(today.revenue, yesterday.revenue)
+
+  return (
+    <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
+      <Header onRefresh={() => load(true)} refreshing={refreshing} lastUpdated={lastUpdated} />
+
+      <div className="flex-1 overflow-y-auto p-5 space-y-5">
+
+        {/* ── KPI row ────────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <MetricCard
+            label={lang === 'es' ? 'Hoy — Ingresos' : 'Today — Revenue'}
+            value={fmtRD(today.revenue)}
+            sub={`${today.count} ${today.count === 1 ? 'ticket' : 'tickets'}`}
+            trend={trend}
+            accent="green"
+          />
+          <MetricCard
+            label={lang === 'es' ? 'Ayer' : 'Yesterday'}
+            value={fmtRD(yesterday.revenue)}
+            sub={`${yesterday.count} tickets`}
+            accent="blue"
+          />
+          <MetricCard
+            label={lang === 'es' ? 'Últimos 7 días' : 'Last 7 days'}
+            value={fmtRD(week.revenue)}
+            sub={`${week.count} tickets`}
+            accent="violet"
+          />
+          <MetricCard
+            label={lang === 'es' ? 'Prom. por ticket' : 'Avg per ticket'}
+            value={today.count ? fmtRD(today.revenue / today.count) : '—'}
+            sub={lang === 'es' ? 'solo hoy' : 'today only'}
+            accent="amber"
+          />
+        </div>
+
+        {/* ── Payment breakdown + recent tickets ─────────────────────────── */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+
+          {/* Payment breakdown */}
+          <div className="bg-white rounded-xl border border-slate-100 p-4">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
+              {lang === 'es' ? 'Formas de pago — 7 días' : 'Payment methods — 7 days'}
+            </p>
+            {paymentBreakdown.length === 0 ? (
+              <p className="text-xs text-slate-400">Sin datos</p>
+            ) : (
+              <div className="space-y-2">
+                {paymentBreakdown.map(({ method, total }) => {
+                  const meta  = PM_LABEL[method] || { label: method, color: 'text-slate-600 bg-slate-50' }
+                  const Icon  = meta.icon || Banknote
+                  const pct   = week.revenue ? Math.round(total / week.revenue * 100) : 0
+                  return (
+                    <div key={method} className="flex items-center gap-2">
+                      <span className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${meta.color}`}>
+                        <Icon size={12} />
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between text-xs mb-0.5">
+                          <span className="text-slate-700 font-medium">{meta.label}</span>
+                          <span className="text-slate-500">{pct}%</span>
+                        </div>
+                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-blue-400 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                      <span className="text-xs text-slate-600 font-medium shrink-0">{fmtRD(total)}</span>
                     </div>
-                    <span className={`text-[9px] font-medium ${isLast ? 'text-blue-600' : 'text-slate-400'}`}>{m.label}</span>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* Recent tickets */}
-          <div className="bg-white rounded-2xl border border-slate-100 p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-3">Últimas transacciones</p>
-            <div className="space-y-1">
-              {(data?.recentTickets || []).map(t => (
-                <div key={t.no} className="flex items-center py-1.5 border-b border-slate-50 last:border-0">
-                  <span className="text-xs font-mono text-slate-400 w-16">{t.no}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-slate-800 truncate">{t.client}</p>
-                    <p className="text-[10px] text-slate-400">{t.service}</p>
-                  </div>
-                  <span className="text-sm font-medium text-slate-700 tabular-nums">{fmt(t.total)}</span>
-                  <span className="text-[10px] text-slate-400 ml-3 w-12 text-right">{t.time}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-5">
-          {/* CxC */}
-          <div className="bg-white rounded-2xl border border-slate-100 p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-3">Cuentas x Cobrar</p>
-            <div className="space-y-2">
-              {(data?.cxc || []).map((c, i) => {
-                const over = c.pendiente > c.limite
-                return (
-                  <div key={i} className={`p-3 rounded-xl ${over ? 'bg-red-50 border border-red-100' : 'bg-slate-50'}`}>
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-sm font-medium text-slate-800">{c.client}</span>
-                      <span className={`text-sm font-bold tabular-nums ${over ? 'text-red-600' : 'text-slate-700'}`}>{fmt(c.pendiente)}</span>
-                    </div>
-                    <div className="flex justify-between text-xs text-slate-400">
-                      <span>Límite: {fmt(c.limite)}</span>
-                      <span>{c.dias} días</span>
-                    </div>
-                    <div className="h-1 bg-white rounded-full mt-2 overflow-hidden">
-                      <div className={`h-full rounded-full ${over ? 'bg-red-400' : 'bg-emerald-400'}`}
-                        style={{ width: `${Math.min(pct(c.pendiente, c.limite), 100)}%` }} />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Washer commissions */}
-          <div className="bg-white rounded-2xl border border-slate-100 p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-3">Comisiones hoy</p>
-            <div className="space-y-2">
-              {(data?.washers || []).map((w, i) => {
-                const maxComm = Math.max(...data.washers.map(x => x.commission))
-                return (
-                  <div key={i} className="flex items-center gap-3">
-                    <div className="w-7 h-7 rounded-full bg-sky-100 flex items-center justify-center text-[10px] font-bold text-sky-700 flex-shrink-0">
-                      {w.name.split(' ').slice(0,2).map(p=>p[0]).join('')}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between mb-0.5">
-                        <span className="text-sm text-slate-700">{w.name}</span>
-                        <span className="text-sm font-medium tabular-nums text-emerald-700">{fmt(w.commission)}</span>
+          <div className="lg:col-span-2 bg-white rounded-xl border border-slate-100 p-4">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
+              {lang === 'es' ? 'Últimos tickets' : 'Recent tickets'}
+            </p>
+            {recentTickets.length === 0 ? (
+              <p className="text-xs text-slate-400">Sin tickets registrados</p>
+            ) : (
+              <div className="divide-y divide-slate-50">
+                {recentTickets.map((t, i) => {
+                  const pm   = PM_LABEL[t.payment_method] || { label: t.payment_method || '—', color: 'text-slate-500 bg-slate-50' }
+                  const Icon = pm.icon || Banknote
+                  return (
+                    <div key={i} className="py-2 flex items-center gap-3">
+                      <span className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${pm.color}`}>
+                        <Icon size={11} />
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-slate-800 truncate">
+                          {t.doc_number || '—'}
+                          {t.client_name ? <span className="text-slate-400 font-normal"> · {t.client_name}</span> : null}
+                        </p>
+                        <p className="text-[11px] text-slate-400 truncate">{t.services || '—'}</p>
                       </div>
-                      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-emerald-400 rounded-full"
-                          style={{ width: `${maxComm > 0 ? pct(w.commission, maxComm) : 0}%` }} />
+                      {t.ncf && (
+                        <span className="text-[10px] text-slate-400 font-mono shrink-0">{t.ncf}</span>
+                      )}
+                      <div className="text-right shrink-0">
+                        <p className="text-xs font-semibold text-slate-700">{fmtRD(t.total)}</p>
+                        <p className="text-[11px] text-slate-400">{fmtTime(t.paid_at)}</p>
                       </div>
                     </div>
-                    <span className="text-xs text-slate-400 w-12 text-right">{w.cars} carros</span>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Read-only notice */}
-        <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
-          <Eye size={15} className="text-blue-500 flex-shrink-0" />
-          <p className="text-sm text-blue-700">
-            Este dashboard es de solo lectura. Para registrar transacciones o modificar datos, use Terminal X POS en la caja.
-          </p>
-        </div>
       </div>
     </div>
   )

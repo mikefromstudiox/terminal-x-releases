@@ -42,7 +42,7 @@ function isOnline() {
  */
 async function exportLocalDB() {
   try {
-    if (window.electronAPI?.db?.exportAll) {
+    if (window.electronAPI?.db?.exportAll) { // TODO: accept api param for web compat
       return await window.electronAPI.db.exportAll()
     }
   } catch {}
@@ -64,7 +64,7 @@ async function exportLocalDB() {
 
 /** Restores a JSON snapshot to local SQLite via Electron IPC. */
 async function importToDB(snapshot) {
-  if (window.electronAPI?.db?.importAll) {
+  if (window.electronAPI?.db?.importAll) { // TODO: accept api param for web compat
     return window.electronAPI.db.importAll(snapshot)
   }
   console.warn('[backup] importToDB: no IPC handler — DB layer not yet connected')
@@ -167,10 +167,13 @@ export async function manualBackup() {
  * Called by scheduler at 02:00 local time.
  */
 export async function autoBackup() {
-  if (!isOnline()) return { success: false, reason: 'offline' }
-
   const autoEnabled = localStorage.getItem('tx_setting_auto_backup') !== 'false'
   if (!autoEnabled) return { success: false, reason: 'disabled' }
+
+  // Always run local SQLite copy — works offline, no Supabase needed
+  const localResult = await window.electronAPI?.backup?.local?.().catch(() => null) // TODO: accept api param for web compat
+
+  if (!isOnline()) return { success: !!localResult?.ok, reason: 'offline', localResult }
 
   try {
     const snapshot = await exportLocalDB()
@@ -181,11 +184,9 @@ export async function autoBackup() {
     await registerBackupRecord(filename, sizeBytes, 'auto')
 
     localStorage.setItem('tx_last_backup', new Date().toISOString())
-    console.info('[backup] autoBackup completed:', filename)
-    return { success: true, filename, sizeBytes }
+    return { success: true, filename, sizeBytes, localResult }
   } catch (err) {
-    console.error('[backup] autoBackup error:', err)
-    return { success: false, error: err.message }
+    return { success: false, error: err.message, localResult }
   }
 }
 
@@ -229,18 +230,9 @@ export async function restoreFromBackup(backupId) {
  * Falls back to demo history when offline or not configured.
  */
 export async function getBackupHistory() {
-  // Demo history (always visible in dev/offline)
-  const DEMO = [
-    { id: 'demo-1', filename: 'backup_auto_2026-03-17T02-00-00.json',   size_bytes: 486320, type: 'auto',   status: 'ok', created_at: '2026-03-17T02:00:00Z' },
-    { id: 'demo-2', filename: 'backup_manual_2026-03-16T15-22-10.json', size_bytes: 481200, type: 'manual', status: 'ok', created_at: '2026-03-16T15:22:10Z' },
-    { id: 'demo-3', filename: 'backup_auto_2026-03-16T02-00-00.json',   size_bytes: 478900, type: 'auto',   status: 'ok', created_at: '2026-03-16T02:00:00Z' },
-    { id: 'demo-4', filename: 'backup_auto_2026-03-15T02-00-00.json',   size_bytes: 471600, type: 'auto',   status: 'ok', created_at: '2026-03-15T02:00:00Z' },
-    { id: 'demo-5', filename: 'backup_auto_2026-03-14T02-00-01.json',   size_bytes: 465200, type: 'auto',   status: 'ok', created_at: '2026-03-14T02:00:01Z' },
-  ]
-
   try {
     const sb = getSupabaseClient()
-    if (!sb) return DEMO
+    if (!sb) return []
 
     const { data, error } = await sb.from('backups')
       .select('*')
@@ -248,10 +240,10 @@ export async function getBackupHistory() {
       .order('created_at', { ascending: false })
       .limit(50)
 
-    if (error) return DEMO
-    return data.length > 0 ? data : DEMO
+    if (error) return []
+    return data ?? []
   } catch {
-    return DEMO
+    return []
   }
 }
 
@@ -276,7 +268,7 @@ export async function syncToCloud() {
     // Export only changes from local DB
     let changes = { tickets: [], clients: [], payments: [] }
     try {
-      if (window.electronAPI?.db?.exportSince) {
+      if (window.electronAPI?.db?.exportSince) { // TODO: accept api param for web compat
         changes = await window.electronAPI.db.exportSince(since)
       }
     } catch {}

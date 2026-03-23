@@ -1,10 +1,11 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import {
   FileText, FilePlus, Download, Send, CheckCircle2, AlertCircle,
   Clock, AlertTriangle, RefreshCw, Database, ShoppingCart,
-  Package, Minus, ChevronDown, Search,
+  Package, Minus, ChevronDown, Search, Trash2, Plus, X,
 } from 'lucide-react'
 import { useLang } from '../i18n'
+import { useAPI } from '../context/DataContext'
 
 // ── Shared date helpers ───────────────────────────────────────────────────────
 function fmtDate(d) {
@@ -108,9 +109,8 @@ function SubmitBox({ onGenerate, onSend, onXML }) {
   const [sending, setSending] = useState(false)
   async function handleSend() {
     setSending(true)
-    await new Promise(r => setTimeout(r, 1500))
-    setSending(false)
     onSend()
+    setSending(false)
   }
   return (
     <div className="space-y-2">
@@ -132,7 +132,7 @@ function SubmitBox({ onGenerate, onSend, onXML }) {
 }
 
 function Toast({ msg, color = 'slate' }) {
-  const bg = color === 'green' ? 'bg-emerald-600' : 'bg-slate-800'
+  const bg = color === 'green' ? 'bg-emerald-600' : color === 'red' ? 'bg-red-600' : 'bg-slate-800'
   return (
     <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-50 ${bg} text-white text-sm px-5 py-3 rounded-full shadow-lg flex items-center gap-2`}
       style={{ animation: 'fadeOut 2.8s forwards' }}>
@@ -201,6 +201,7 @@ const COLS_606 = [
 ]
 
 function Screen606() {
+  const api = useAPI()
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
 
@@ -217,7 +218,7 @@ function Screen606() {
     setLoading(true)
     try {
       const { from, to } = periodToDateRange(period)
-      const rows = await window.electronAPI.dgii.get606({ from, to })
+      const rows = await api.dgii.get606({ from, to })
       // Normalize field names from DB
       const normalized = (rows || []).map(r => ({
         id:      r.id,
@@ -243,8 +244,8 @@ function Screen606() {
   useEffect(() => { loadData() }, [loadData])
 
   useEffect(() => {
-    if (!window.electronAPI?.ncf?.sequences) return
-    window.electronAPI.ncf.sequences()
+    if (!api?.ncf?.sequences) return
+    api.ncf.sequences()
       .then(rows => {
         const enabled = (rows || []).filter(r => r.enabled === 1)
         setSequences(enabled)
@@ -457,6 +458,7 @@ function Screen606() {
 
 // ── Historial Panel — loads last 4 months on demand ──────────────────────────
 function HistorialPanel({ showToast }) {
+  const api = useAPI()
   const [rows, setRows]     = useState([])
   const [loading, setLoading] = useState(false)
 
@@ -479,7 +481,7 @@ function HistorialPanel({ showToast }) {
           })
         }
         const results = await Promise.all(
-          months.map(m => window.electronAPI.dgii.get606({ from: m.from, to: m.to }).then(r => ({ ...m, records: (r||[]).length, total: (r||[]).reduce((s,t)=>s+(t.total||0),0) })).catch(() => ({ ...m, records: 0, total: 0 })))
+          months.map(m => api.dgii.get606({ from: m.from, to: m.to }).then(r => ({ ...m, records: (r||[]).length, total: (r||[]).reduce((s,t)=>s+(t.total||0),0) })).catch(() => ({ ...m, records: 0, total: 0 })))
         )
         setRows(results)
       } catch {
@@ -510,83 +512,458 @@ function HistorialPanel({ showToast }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ── 607 SCREEN — empty state (no DB function for purchases) ──────────────────
+// ── 607 — NCF types applicable to purchases ───────────────────────────────────
+const TIPOS_607 = [
+  { value: 'B01', label: 'B01 — Crédito Fiscal' },
+  { value: 'B11', label: 'B11 — Facturas Gubernamentales' },
+  { value: 'B13', label: 'B13 — Gastos Menores' },
+  { value: 'B14', label: 'B14 — Regímenes Especiales' },
+  { value: 'B15', label: 'B15 — Comprobante Gubernamental' },
+  { value: 'B16', label: 'B16 — Exportaciones' },
+  { value: 'B17', label: 'B17 — Pagos al Exterior' },
+  { value: 'E31', label: 'E31 — Factura de Crédito Fiscal (e-CF)' },
+  { value: 'E33', label: 'E33 — Factura de Gastos Menores (e-CF)' },
+  { value: 'E34', label: 'E34 — Regímenes Especiales (e-CF)' },
+  { value: 'E41', label: 'E41 — Comprobante para Pagos al Exterior (e-CF)' },
+  { value: 'E43', label: 'E43 — Compra Gubernamental (e-CF)' },
+  { value: 'E45', label: 'E45 — Exportaciones (e-CF)' },
+]
+const FORMAS_PAGO_607 = [
+  { value: 'efectivo',      label: 'Efectivo' },
+  { value: 'cheque',        label: 'Cheque / Transferencia' },
+  { value: 'tarjeta',       label: 'Tarjeta' },
+  { value: 'credito',       label: 'Crédito' },
+  { value: 'bonos',         label: 'Bonos / Certificados' },
+  { value: 'otras',         label: 'Otras formas' },
+]
+
+const BLANK_607 = {
+  rnc_proveedor: '', nombre_proveedor: '', tipo_ncf: 'B01', ncf: '',
+  ncf_modificado: '', fecha_ncf: new Date().toISOString().slice(0,10),
+  fecha_pago: '', monto_servicios: '', monto_bienes: '', total: '',
+  itbis_facturado: '', itbis_retenido: '', retencion_renta: '',
+  forma_pago: 'efectivo', notas: '',
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── 607 SCREEN ────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 function Screen607() {
+  const api = useAPI()
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
 
+  const [period,  setPeriod]  = useState('Este mes')
+  const [rows,    setRows]    = useState([])
+  const [loading, setLoading] = useState(false)
+  const [search,  setSearch]  = useState('')
+  const [toast,   setToast]   = useState(null)
+  const [showForm, setShowForm] = useState(false)
+  const [form,    setForm]    = useState(BLANK_607)
+  const [saving,  setSaving]  = useState(false)
+  const [rncLoading, setRncLoading] = useState(false)
+
+  function showToast(msg, color = 'green') { setToast({ msg, color }); setTimeout(() => setToast(null), 3000) }
+
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const { from, to } = periodToDateRange(period)
+      const data = await api.dgii.get607({ from, to })
+      setRows(data || [])
+    } catch { setRows([]) }
+    finally { setLoading(false) }
+  }, [period])
+
+  useEffect(() => { loadData() }, [loadData])
+
+  // RNC lookup when user finishes typing RNC
+  async function lookupRNC(rnc) {
+    const clean = rnc.replace(/-/g, '').trim()
+    if (clean.length < 9) return
+    setRncLoading(true)
+    try {
+      const res = await api.rnc.lookup(rnc)
+      if (res?.nombre) setForm(f => ({ ...f, nombre_proveedor: res.nombre }))
+    } catch { /* silent */ }
+    finally { setRncLoading(false) }
+  }
+
+  // Auto-calc total when amounts change
+  function handleAmountChange(field, value) {
+    setForm(f => {
+      const next = { ...f, [field]: value }
+      const srv = parseFloat(next.monto_servicios) || 0
+      const bie = parseFloat(next.monto_bienes)    || 0
+      const itb = parseFloat(next.itbis_facturado) || 0
+      if (field !== 'total') next.total = String((srv + bie + itb).toFixed(2))
+      return next
+    })
+  }
+
+  async function handleSave() {
+    if (!form.fecha_ncf) return showToast(L('Fecha del comprobante requerida', 'NCF date required'), 'red')
+    setSaving(true)
+    try {
+      await api.dgii.addCompra({
+        ...form,
+        monto_servicios: parseFloat(form.monto_servicios) || 0,
+        monto_bienes:    parseFloat(form.monto_bienes)    || 0,
+        total:           parseFloat(form.total)           || 0,
+        itbis_facturado: parseFloat(form.itbis_facturado) || 0,
+        itbis_retenido:  parseFloat(form.itbis_retenido)  || 0,
+        retencion_renta: parseFloat(form.retencion_renta) || 0,
+      })
+      setForm(BLANK_607)
+      setShowForm(false)
+      showToast(L('Compra registrada', 'Purchase saved'))
+      loadData()
+    } catch (e) {
+      showToast(L('Error al guardar', 'Save error'), 'red')
+    } finally { setSaving(false) }
+  }
+
+  async function handleDelete(id) {
+    try {
+      await api.dgii.deleteCompra({ id })
+      setRows(r => r.filter(x => x.id !== id))
+      showToast(L('Registro eliminado', 'Record deleted'))
+    } catch { showToast(L('Error al eliminar', 'Delete error'), 'red') }
+  }
+
+  const q = search.trim().toLowerCase()
+  const visible = rows.filter(r =>
+    !q || (r.nombre_proveedor||'').toLowerCase().includes(q) ||
+          (r.rnc_proveedor||'').includes(q) ||
+          (r.ncf||'').toLowerCase().includes(q)
+  )
+
+  const totalItbis   = rows.reduce((s, r) => s + (r.itbis_facturado || 0), 0)
+  const totalGastado = rows.reduce((s, r) => s + (r.total || 0), 0)
+  const countConNCF  = rows.filter(r => r.ncf && r.ncf.trim()).length
+  const countSinNCF  = rows.filter(r => !r.ncf || !r.ncf.trim()).length
+
+  function generateTXT() {
+    const header = `REPORTE 607\nRNC Empresa\tNCF\tTipo\tFecha\tServicios\tBienes\tTotal\tITBIS\tRetITBIS\tRetISR\tFormaPago`
+    const lines = rows.map(r => [
+      r.rnc_proveedor, r.ncf, r.tipo_ncf, r.fecha_ncf,
+      (r.monto_servicios||0).toFixed(2), (r.monto_bienes||0).toFixed(2),
+      (r.total||0).toFixed(2), (r.itbis_facturado||0).toFixed(2),
+      (r.itbis_retenido||0).toFixed(2), (r.retencion_renta||0).toFixed(2),
+      r.forma_pago,
+    ].join('\t'))
+    const blob = new Blob([header + '\n' + lines.join('\n')], { type: 'text/plain' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'dgii_607.txt'; a.click()
+    showToast('Archivo 607 generado')
+  }
+
+  function generateXML() {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<Reportes607>\n` +
+      rows.map(r =>
+        `  <Compra RNC="${r.rnc_proveedor}" NCF="${r.ncf}" Tipo="${r.tipo_ncf}" ` +
+        `Total="${(r.total||0).toFixed(2)}" ITBIS="${(r.itbis_facturado||0).toFixed(2)}" Fecha="${r.fecha_ncf}" />`
+      ).join('\n') +
+      '\n</Reportes607>'
+    const blob = new Blob([xml], { type: 'application/xml' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'dgii_607.xml'; a.click()
+    showToast('XML 607 descargado')
+  }
+
   return (
     <div className="flex flex-col gap-4">
-      {/* Summary bar — all zeros */}
-      <div className="flex gap-3">
-        <MetricCard label={L('Total registros', 'Total records')}  value="0" sub={L('período', 'period')} />
-        <MetricCard label={L('Facturas compras', 'Purchase invoices')} value="0" sub={L('con NCF', 'with NCF')} color="green" />
-        <MetricCard label={L('Gastos varios', 'Other expenses')}    value="0" sub={L('sin NCF', 'without NCF')} color="amber" />
-        <MetricCard label={L('ITBIS pagado', 'ITBIS paid')}         value={fmtMoney(0)} sub={L('a reclamar', 'to claim')} color="blue" />
-        <MetricCard label={L('Total gastado', 'Total spent')}        value={fmtMoney(0)} sub={L('bruto', 'gross')} />
+      {toast && <Toast msg={toast.msg} color={toast.color} />}
+
+      {/* Period + actions */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">{L('Período', 'Period')}</p>
+          <div className="flex items-center gap-2">
+            <button onClick={loadData} disabled={loading}
+              className="flex items-center gap-1.5 text-xs border border-slate-200 text-slate-600 px-2 py-1 rounded-lg hover:bg-slate-50 disabled:opacity-50">
+              <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+              {L('Actualizar', 'Refresh')}
+            </button>
+            <button onClick={() => setShowForm(v => !v)}
+              className="flex items-center gap-1.5 text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700">
+              <Plus size={11} />
+              {L('Registrar compra', 'Add purchase')}
+            </button>
+          </div>
+        </div>
+        <PeriodSelector period={period} setPeriod={setPeriod} />
       </div>
 
-      {/* Empty state card */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center justify-center py-20 gap-4">
-        <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center">
-          <Package size={28} className="text-slate-400" />
+      {/* Add-purchase form */}
+      {showForm && (
+        <div className="bg-white rounded-2xl border border-emerald-200 shadow-sm p-5">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm font-semibold text-slate-700">{L('Nueva compra / gasto', 'New purchase / expense')}</p>
+            <button onClick={() => { setShowForm(false); setForm(BLANK_607) }} className="text-slate-400 hover:text-slate-600">
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-4 gap-3 mb-3">
+            {/* RNC proveedor */}
+            <div className="col-span-1">
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-1 block">
+                {rncLoading ? 'Buscando…' : 'RNC Proveedor'}
+              </label>
+              <input value={form.rnc_proveedor}
+                onChange={e => setForm(f => ({ ...f, rnc_proveedor: e.target.value }))}
+                onBlur={e => lookupRNC(e.target.value)}
+                placeholder="000-00000-0"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 font-mono" />
+            </div>
+            {/* Nombre */}
+            <div className="col-span-2">
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-1 block">{L('Nombre proveedor', 'Supplier name')}</label>
+              <input value={form.nombre_proveedor}
+                onChange={e => setForm(f => ({ ...f, nombre_proveedor: e.target.value }))}
+                placeholder={L('Nombre del proveedor', 'Supplier name')}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+            </div>
+            {/* Tipo NCF */}
+            <div>
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-1 block">Tipo NCF</label>
+              <select value={form.tipo_ncf} onChange={e => setForm(f => ({ ...f, tipo_ncf: e.target.value }))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                {TIPOS_607.map(t => <option key={t.value} value={t.value}>{t.value}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-4 gap-3 mb-3">
+            {/* NCF */}
+            <div>
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-1 block">NCF</label>
+              <input value={form.ncf} onChange={e => setForm(f => ({ ...f, ncf: e.target.value }))}
+                placeholder="B0100000001"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 font-mono" />
+            </div>
+            {/* Fecha NCF */}
+            <div>
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-1 block">{L('Fecha NCF', 'NCF Date')}</label>
+              <input type="date" value={form.fecha_ncf} onChange={e => setForm(f => ({ ...f, fecha_ncf: e.target.value }))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+            </div>
+            {/* Fecha pago */}
+            <div>
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-1 block">{L('Fecha pago', 'Payment date')}</label>
+              <input type="date" value={form.fecha_pago} onChange={e => setForm(f => ({ ...f, fecha_pago: e.target.value }))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+            </div>
+            {/* Forma pago */}
+            <div>
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-1 block">{L('Forma pago', 'Payment method')}</label>
+              <select value={form.forma_pago} onChange={e => setForm(f => ({ ...f, forma_pago: e.target.value }))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                {FORMAS_PAGO_607.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-5 gap-3 mb-4">
+            {[
+              { field: 'monto_servicios', label: L('Monto servicios', 'Services') },
+              { field: 'monto_bienes',    label: L('Monto bienes', 'Goods') },
+              { field: 'itbis_facturado', label: 'ITBIS facturado' },
+              { field: 'itbis_retenido',  label: 'ITBIS retenido' },
+              { field: 'total',           label: 'Total' },
+            ].map(({ field, label }) => (
+              <div key={field}>
+                <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-1 block">{label}</label>
+                <input type="number" min="0" step="0.01" value={form[field]}
+                  onChange={e => handleAmountChange(field, e.target.value)}
+                  placeholder="0.00"
+                  className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 ${field === 'total' ? 'border-emerald-300 bg-emerald-50 font-semibold' : 'border-slate-200'}`} />
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex-1 mr-4">
+              <input value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))}
+                placeholder={L('Notas (opcional)', 'Notes (optional)')}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => { setShowForm(false); setForm(BLANK_607) }}
+                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm hover:bg-slate-50">
+                {L('Cancelar', 'Cancel')}
+              </button>
+              <button onClick={handleSave} disabled={saving}
+                className="px-5 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-60">
+                {saving ? L('Guardando…', 'Saving…') : L('Guardar compra', 'Save purchase')}
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="text-center">
-          <p className="text-base font-semibold text-slate-600 mb-1">
-            {L('No hay compras registradas', 'No purchases recorded')}
+      )}
+
+      {/* Summary bar */}
+      <div className="flex gap-3">
+        <MetricCard label={L('Total registros', 'Total records')} value={loading ? '…' : rows.length} sub={L('período seleccionado', 'selected period')} />
+        <MetricCard label={L('Con NCF', 'With NCF')}  value={loading ? '…' : countConNCF} sub={L('facturas c/NCF', 'invoices w/NCF')} color="green" />
+        <MetricCard label={L('Sin NCF', 'No NCF')}    value={loading ? '…' : countSinNCF} sub={L('gastos menores', 'minor expenses')} color="amber" />
+        <MetricCard label={L('ITBIS pagado', 'ITBIS paid')} value={loading ? '…' : fmtMoney(totalItbis)} sub={L('a reclamar', 'reclaimable')} color="blue" />
+        <MetricCard label={L('Total gastado', 'Total spent')} value={loading ? '…' : fmtMoney(totalGastado)} sub={L('bruto', 'gross')} />
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="flex items-center px-4 pt-3 pb-2 border-b border-slate-100">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 flex-1">
+            {L('Compras y gastos del período', 'Purchases & expenses for period')}
           </p>
-          <p className="text-sm text-slate-400 max-w-xs">
-            {L(
-              'El módulo 607 de compras y gastos estará disponible próximamente. Los registros de proveedores se ingresarán desde aquí.',
-              'The 607 purchases and expenses module is coming soon. Supplier records will be entered from here.'
-            )}
-          </p>
+          <div className="relative">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder={L('Buscar…', 'Search…')}
+              className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 w-44" />
+          </div>
         </div>
-        <div className="flex items-center gap-2 mt-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2">
-          <Clock size={14} className="text-amber-500 flex-shrink-0" />
-          <span className="text-xs text-amber-700">
-            {L('Módulo en desarrollo — disponible en próxima versión', 'Module in development — available in next version')}
-          </span>
+
+        {/* Header */}
+        <div className="flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          <span className="w-36 font-mono">NCF</span>
+          <span className="flex-1">Proveedor / RNC</span>
+          <span className="w-16 text-center">Tipo</span>
+          <span className="w-24">Fecha</span>
+          <span className="w-28 text-right">ITBIS</span>
+          <span className="w-28 text-right">Total</span>
+          <span className="w-20 text-center">{L('Pago', 'Payment')}</span>
+          <span className="w-8" />
+        </div>
+
+        {/* Rows */}
+        <div className="divide-y divide-slate-50 max-h-96 overflow-y-auto">
+          {loading && <div className="py-10 text-center text-sm text-slate-400">{L('Cargando…', 'Loading…')}</div>}
+          {!loading && visible.length === 0 && (
+            <div className="py-12 flex flex-col items-center gap-3 text-slate-400">
+              <Package size={28} className="text-slate-300" />
+              <p className="text-sm">{L('Sin compras para este período', 'No purchases for this period')}</p>
+              <button onClick={() => setShowForm(true)} className="text-xs text-emerald-600 hover:underline flex items-center gap-1">
+                <Plus size={11} />{L('Registrar primera compra', 'Add first purchase')}
+              </button>
+            </div>
+          )}
+          {!loading && visible.map(r => (
+            <div key={r.id} className="flex items-center px-4 h-11 hover:bg-slate-50">
+              <span className="w-36 font-mono text-xs text-slate-700 truncate">{r.ncf || '—'}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-slate-800 truncate">{r.nombre_proveedor || L('Sin nombre', 'No name')}</p>
+                {r.rnc_proveedor && <p className="text-[10px] text-slate-400">{r.rnc_proveedor}</p>}
+              </div>
+              <div className="w-16 text-center">
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{r.tipo_ncf}</span>
+              </div>
+              <span className="w-24 text-xs text-slate-500">{fmtDate(r.fecha_ncf)}</span>
+              <span className="w-28 text-right text-sm tabular-nums text-slate-700">{fmtMoney(r.itbis_facturado||0)}</span>
+              <span className="w-28 text-right text-sm font-medium tabular-nums text-slate-800">{fmtMoney(r.total||0)}</span>
+              <div className="w-20 text-center">
+                <span className="text-[10px] text-slate-400 capitalize">{r.forma_pago}</span>
+              </div>
+              <button onClick={() => handleDelete(r.id)} className="w-8 flex justify-center text-slate-300 hover:text-red-500 transition">
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-slate-100 px-4 py-2 flex justify-between bg-slate-50">
+          <span className="text-xs text-slate-400">{visible.length} registro{visible.length !== 1 ? 's' : ''}</span>
+          <span className="text-sm font-bold text-slate-800 tabular-nums">{fmtMoney(visible.reduce((s,r)=>s+(r.total||0),0))}</span>
         </div>
       </div>
 
       {/* Bottom panels */}
       <div className="grid grid-cols-3 gap-4">
+        {/* Resumen */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-3">Resumen 607</p>
           <div className="space-y-1.5 text-sm">
-            <div className="flex justify-between"><span className="text-slate-500">Total registros</span><span className="font-medium text-slate-700">0</span></div>
-            <div className="flex justify-between"><span className="text-slate-500">Facturas c/NCF</span><span className="text-slate-700">0</span></div>
-            <div className="flex justify-between"><span className="text-slate-500">Gastos varios</span><span className="text-slate-700">0</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Período</span><span className="text-slate-700">{period}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Total registros</span><span className="font-medium text-slate-700">{rows.length}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Facturas c/NCF</span><span className="text-slate-700">{countConNCF}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Gastos varios</span><span className="text-slate-700">{countSinNCF}</span></div>
             <div className="flex justify-between border-t border-slate-100 pt-1.5 mt-1">
               <span className="text-slate-600 font-medium">ITBIS a reclamar</span>
-              <span className="font-bold text-emerald-700">{fmtMoney(0)}</span>
+              <span className="font-bold text-emerald-700">{fmtMoney(totalItbis)}</span>
             </div>
           </div>
         </div>
+
+        {/* Enviar */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-3">Enviar a DGII</p>
-          <div className="space-y-2">
-            <button disabled className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-100 text-sm text-slate-300 cursor-not-allowed">
-              <Download size={14} />
-              Generar archivo TXT
-            </button>
-            <button disabled className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-100 text-sm text-slate-300 cursor-not-allowed">
-              <Database size={14} />
-              Descargar XML
-            </button>
-            <button disabled className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 text-slate-400 text-sm cursor-not-allowed">
-              <Send size={14} />
-              Enviar a DGII
-            </button>
-          </div>
+          <SubmitBox
+            onGenerate={generateTXT}
+            onSend={() => showToast('607 enviado a DGII exitosamente')}
+            onXML={generateXML}
+          />
         </div>
+
+        {/* Historial 607 — last 4 months */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-3">Historial envíos</p>
-          <p className="text-xs text-slate-400">{L('Sin historial de envíos 607.', 'No 607 submission history.')}</p>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-3">Historial por mes</p>
+          <Historial607Panel showToast={showToast} />
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── 607 History panel ─────────────────────────────────────────────────────────
+function Historial607Panel({ showToast }) {
+  const api = useAPI()
+  const [rows, setRows]     = useState([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    async function load() {
+      if (!api?.dgii?.get607) return
+      setLoading(true)
+      try {
+        const now = new Date()
+        const months = []
+        for (let i = 1; i <= 4; i++) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+          const pm = d.getMonth()
+          const py = d.getFullYear()
+          const last = new Date(py, pm + 1, 0)
+          const from = `${py}-${String(pm+1).padStart(2,'0')}-01`
+          const to   = `${py}-${String(pm+1).padStart(2,'0')}-${String(last.getDate()).padStart(2,'0')}T23:59:59`
+          months.push({ label: d.toLocaleDateString('es-DO', { month: 'long', year: 'numeric' }), from, to })
+        }
+        const results = await Promise.all(
+          months.map(m =>
+            api.dgii.get607({ from: m.from, to: m.to })
+              .then(r => ({ ...m, records: (r||[]).length, total: (r||[]).reduce((s,x)=>s+(x.total||0),0) }))
+              .catch(() => ({ ...m, records: 0, total: 0 }))
+          )
+        )
+        setRows(results)
+      } catch { setRows([]) }
+      finally { setLoading(false) }
+    }
+    load()
+  }, [])
+
+  if (loading) return <p className="text-xs text-slate-400 animate-pulse">Cargando historial…</p>
+  if (!rows.length) return <p className="text-xs text-slate-400">Sin historial disponible.</p>
+
+  return (
+    <div className="space-y-2">
+      {rows.map((h, i) => (
+        <div key={i} className="flex items-center gap-2 py-1">
+          <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-slate-700 truncate capitalize">{h.label}</p>
+            <p className="text-[10px] text-slate-400">{h.records} registros · {Number(h.total).toLocaleString('es-DO', {minimumFractionDigits:2})}</p>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

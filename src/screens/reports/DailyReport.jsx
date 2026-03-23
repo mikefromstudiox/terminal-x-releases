@@ -5,6 +5,7 @@ import {
   Clock, Ban,
 } from 'lucide-react'
 import { useLang } from '../../i18n'
+import { useAPI } from '../../context/DataContext'
 import { useAuth } from '../../context/AuthContext'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -16,9 +17,6 @@ function fmtDate(d) {
 }
 function fmtTime(d) {
   return d.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
-}
-function ncfNumber(t) {
-  return `${t.ncfType}000000${String(t.id).padStart(2, '0')}`
 }
 function payLabel(pm, lang) {
   const m = { cash: { es: 'Efectivo', en: 'Cash' }, card: { es: 'Tarjeta', en: 'Card' }, transfer: { es: 'Transferencia', en: 'Transfer' }, credit: { es: 'Crédito', en: 'Credit' } }
@@ -42,6 +40,7 @@ function dbToTxn(t) {
     payMethod:  t.payment_method || 'cash',
     estado:     t.status === 'nula' ? 'nula' : 'normal',
     ncfType:    t.comprobante_type || 'B02',
+    ncf:        t.ncf || null,
     voidReason: t.void_reason,
     voidedBy:   t.void_by,
     voidedAt:   t.void_at ? new Date(t.void_at) : null,
@@ -129,6 +128,7 @@ function MetricCard({ icon: Icon, label, value, sub, accent }) {
 
 // ── Detail modal ──────────────────────────────────────────────────────────────
 function DetailModal({ ticket: t, onClose, onReprint, lang }) {
+  const api = useAPI()
   const [services, setServices] = useState(t.services)
   const [loadingItems, setLoadingItems] = useState(false)
 
@@ -136,7 +136,7 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
     // If services are already loaded (from prior fetch), skip
     if (services.length > 0) return
     setLoadingItems(true)
-    window.electronAPI.tickets.byId(t.id)
+    api.tickets.byId(t.id)
       .then(full => {
         if (full?.items?.length) {
           setServices(full.items.map(item => ({
@@ -151,14 +151,14 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-      <div className="bg-white rounded-2xl shadow-2xl w-[480px] max-h-[80vh] flex flex-col">
+      <div className="bg-white rounded-none md:rounded-2xl shadow-2xl w-full h-full md:w-[480px] md:h-auto md:max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
           <div>
             <h3 className="text-[15px] font-bold text-slate-800">
               {lang === 'es' ? 'Detalle de Factura' : 'Invoice Detail'} · <span className="text-sky-600">{t.ticketNo}</span>
             </h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">NCF: {ncfNumber(t)}</p>
+            {t.ncf && <p className="text-[11px] text-slate-400 mt-0.5">NCF: {t.ncf}</p>}
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100">
             <X size={16} />
@@ -238,7 +238,7 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
         <div className="shrink-0 px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
           {t.estado !== 'nula' && (
             <button
-              onClick={() => { console.log('[REPRINT]', t.ticketNo); onReprint?.() }}
+              onClick={() => onReprint?.()}
               className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
             >
               <Printer size={14} />
@@ -256,6 +256,7 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
 
 // ── Anular modal ──────────────────────────────────────────────────────────────
 function AnularModal({ ticket: t, onConfirm, onClose, lang, currentUser }) {
+  const api = useAPI()
   const [reason,    setReason]    = useState('')
   const [pin,       setPin]       = useState('')
   const [error,     setError]     = useState('')
@@ -273,7 +274,7 @@ function AnularModal({ ticket: t, onConfirm, onClose, lang, currentUser }) {
     }
     setVerifying(true)
     try {
-      const manager = await window.electronAPI.auth.byPin(pin)
+      const manager = await api.auth.byPin(pin)
       if (!manager) {
         setError(lang === 'es' ? 'PIN de gerente incorrecto.' : 'Incorrect manager PIN.')
         setPin('')
@@ -384,6 +385,7 @@ const TAB_FILTERS = [
 ]
 
 export default function DailyReport() {
+  const api = useAPI()
   const { lang }   = useLang()
   const { user: currentUser } = useAuth()
 
@@ -407,7 +409,7 @@ export default function DailyReport() {
     setCashier('all')
     setSelectedId(null)
     const range = getDateRange(datePill)
-    window.electronAPI.tickets.byDateRange(range)
+    api.tickets.byDateRange(range)
       .then(rows => {
         if (!cancelled) setTransactions((rows || []).map(dbToTxn))
       })
@@ -458,7 +460,7 @@ export default function DailyReport() {
 
   async function handleVoid({ ticketId, reason, voidedBy, voidedAt }) {
     try {
-      await window.electronAPI.tickets.void({ id: ticketId, reason, voidById: currentUser?.id })
+      await api.tickets.void({ id: ticketId, reason, voidById: currentUser?.id })
       setTransactions(ts => ts.map(t =>
         t.id === ticketId
           ? { ...t, estado: 'nula', voidReason: reason, voidedBy, voidedAt }
@@ -485,18 +487,18 @@ export default function DailyReport() {
       <div className="shrink-0 bg-white border-b border-slate-200">
 
         {/* Row 1: title + cashier + search */}
-        <div className="flex items-center justify-between px-6 pt-4 pb-3 gap-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between px-3 md:px-6 pt-3 md:pt-4 pb-2 md:pb-3 gap-2 md:gap-4">
           <div>
-            <h2 className="text-[16px] font-bold text-slate-800">{lang === 'es' ? 'Ventas / Facturas' : 'Sales / Invoices'}</h2>
-            <p className="text-[11px] text-slate-400 mt-0.5">{lang === 'es' ? 'Historial completo de transacciones' : 'Complete transaction history'}</p>
+            <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800">{lang === 'es' ? 'Ventas / Facturas' : 'Sales / Invoices'}</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5 hidden md:block">{lang === 'es' ? 'Historial completo de transacciones' : 'Complete transaction history'}</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
             {/* Cashier dropdown */}
-            <div className="relative">
+            <div className="relative flex-1 md:flex-none">
               <select
                 value={cashier}
                 onChange={e => setCashier(e.target.value)}
-                className="appearance-none pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[12px] text-slate-700 focus:outline-none focus:border-sky-400 cursor-pointer"
+                className="appearance-none w-full md:w-auto pl-3 pr-8 py-2 min-h-[44px] md:min-h-0 bg-slate-50 border border-slate-200 rounded-xl text-[12px] text-slate-700 focus:outline-none focus:border-sky-400 cursor-pointer"
               >
                 <option value="all">{lang === 'es' ? 'Todos los cajeros' : 'All cashiers'}</option>
                 {cashierOptions.map(c => <option key={c} value={c}>{c}</option>)}
@@ -504,28 +506,28 @@ export default function DailyReport() {
               <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             </div>
             {/* Search */}
-            <div className="relative">
+            <div className="relative flex-1 md:flex-none">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder={lang === 'es' ? 'Buscar cliente o # factura...' : 'Search client or invoice #...'}
-                className="pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[12px] text-slate-700 focus:outline-none focus:border-sky-400 w-56 placeholder:text-slate-400"
+                className="w-full md:w-56 pl-8 pr-4 py-2 min-h-[44px] md:min-h-0 bg-slate-50 border border-slate-200 rounded-xl text-[12px] text-slate-700 focus:outline-none focus:border-sky-400 placeholder:text-slate-400"
               />
             </div>
           </div>
         </div>
 
         {/* Row 2: type tabs + date pills */}
-        <div className="flex items-center justify-between px-6 pb-0">
+        <div className="flex flex-col md:flex-row md:items-center justify-between px-3 md:px-6 pb-0 gap-1 md:gap-0">
           {/* Type tabs */}
-          <div className="flex gap-0.5">
+          <div className="flex gap-0.5 overflow-x-auto scrollbar-none">
             {TAB_FILTERS.map(f => (
               <button
                 key={f.id}
                 onClick={() => setTab(f.id)}
-                className={`flex items-center gap-2 px-3.5 py-2.5 text-[12px] font-medium border-b-2 -mb-px transition-colors ${
+                className={`flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3.5 py-2.5 text-[11px] md:text-[12px] font-medium border-b-2 -mb-px transition-colors shrink-0 ${
                   tab === f.id ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
@@ -540,12 +542,12 @@ export default function DailyReport() {
           </div>
 
           {/* Date pills */}
-          <div className="flex items-center gap-1.5 pb-2.5">
+          <div className="flex items-center gap-1.5 pb-2.5 overflow-x-auto scrollbar-none">
             {DATE_PILLS.map(p => (
               <button
                 key={p.id}
                 onClick={() => setDatePill(p.id)}
-                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors shrink-0 ${
                   datePill === p.id
                     ? 'bg-slate-800 text-white'
                     : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
@@ -559,7 +561,7 @@ export default function DailyReport() {
       </div>
 
       {/* ── Summary bar ────────────────────────────────────────────────────── */}
-      <div className="shrink-0 flex gap-3 px-6 py-3">
+      <div className="shrink-0 grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 px-3 md:px-6 py-2 md:py-3">
         <MetricCard icon={ReceiptText}      label={lang === 'es' ? 'Total Facturas'      : 'Total Invoices'}   value={summary.count}            accent="sky"    />
         <MetricCard icon={TrendingUp}       label={lang === 'es' ? 'Total Facturado'     : 'Total Billed'}     value={fmtRD(summary.total)}     accent="green"  />
         <MetricCard icon={CircleDollarSign} label="ITBIS Generado"                                             value={fmtRD(summary.itbis)}     accent="violet" />
@@ -568,19 +570,18 @@ export default function DailyReport() {
       </div>
 
       {/* ── Table ──────────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col bg-white mx-6 mb-3 rounded-2xl border border-slate-200 overflow-hidden">
-
-        {/* Column headers */}
-        <div className="flex items-center h-9 bg-slate-50 border-b border-slate-200 px-5 shrink-0">
-          {COLS.map(col => (
-            <div key={col.key} className={`${col.cls} text-[10px] font-bold text-slate-400 uppercase tracking-wider pr-4`}>
-              {lang === 'es' ? col.es : col.en}
-            </div>
-          ))}
-        </div>
+      <div className="flex-1 flex flex-col bg-white mx-2 md:mx-6 mb-3 rounded-2xl border border-slate-200 overflow-hidden">
 
         {/* Rows */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto overflow-x-auto">
+          {/* Column headers — sticky inside scroll so they share the same width as rows */}
+          <div className="hidden md:flex items-center h-9 bg-slate-50 border-b border-slate-200 px-5 sticky top-0 z-10">
+            {COLS.map(col => (
+              <div key={col.key} className={`${col.cls} text-[10px] font-bold text-slate-400 uppercase tracking-wider pr-4`}>
+                {lang === 'es' ? col.es : col.en}
+              </div>
+            ))}
+          </div>
           {loading ? (
             <div className="flex flex-col items-center justify-center h-40 text-slate-300 gap-3">
               <div className="w-6 h-6 border-2 border-slate-200 border-t-sky-500 rounded-full animate-spin" />
@@ -602,61 +603,80 @@ export default function DailyReport() {
                 <button
                   key={t.id}
                   onClick={() => setSelectedId(t.id === selectedId ? null : t.id)}
-                  className={`w-full flex items-center h-14 px-5 border-b border-slate-100 text-left transition-colors ${
+                  className={`w-full text-left transition-colors border-b border-slate-100 ${
                     isSelected ? 'bg-sky-50 border-l-2 border-l-sky-500'
                     : isNula   ? 'bg-red-50/60 hover:bg-red-50 border-l-2 border-l-transparent'
                     : isCxC    ? 'bg-amber-50/50 hover:bg-amber-50 border-l-2 border-l-transparent'
                     :            'bg-white hover:bg-slate-50 border-l-2 border-l-transparent'
                   }`}
                 >
-                  {/* # */}
-                  <div className="w-[80px] shrink-0 pr-4">
-                    <span className={`text-[13px] font-bold ${isNula ? 'text-red-400 line-through' : 'text-sky-600'}`}>{t.ticketNo}</span>
+                  {/* Mobile card layout */}
+                  <div className="md:hidden px-3 py-3 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[13px] font-bold ${isNula ? 'text-red-400 line-through' : 'text-sky-600'}`}>{t.ticketNo}</span>
+                      <span className={`text-[13px] font-bold ${isNula ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{fmtRD(t.total)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <p className={`text-[12px] font-semibold truncate flex-1 ${isNula ? 'text-slate-400' : 'text-slate-800'}`}>{t.client}</p>
+                      <EstadoBadge t={t} lang={lang} />
+                    </div>
+                    <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                      <span>{t.vehicle}</span>
+                      <span>{fmtDate(t.date)} {fmtTime(t.date)}</span>
+                    </div>
                   </div>
 
-                  {/* Client / Vehicle */}
-                  <div className="flex-1 min-w-0 pr-4">
-                    <p className={`text-[12px] font-semibold truncate ${isNula ? 'text-slate-400' : 'text-slate-800'}`}>{t.client}</p>
-                    <p className="text-[11px] text-slate-400 truncate">{t.vehicle}</p>
-                  </div>
+                  {/* Desktop row layout */}
+                  <div className="hidden md:flex items-center h-14 px-5">
+                    {/* # */}
+                    <div className="w-[80px] shrink-0 pr-4">
+                      <span className={`text-[13px] font-bold ${isNula ? 'text-red-400 line-through' : 'text-sky-600'}`}>{t.ticketNo}</span>
+                    </div>
 
-                  {/* Service(s) */}
-                  <div className="w-[160px] shrink-0 pr-4 flex items-center gap-1.5 min-w-0">
-                    <span className={`text-[12px] truncate ${isNula ? 'text-slate-400' : 'text-slate-700'}`}>{mainName}</span>
-                    {extra > 0 && (
-                      <span className="shrink-0 text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">+{extra}</span>
-                    )}
-                  </div>
+                    {/* Client / Vehicle */}
+                    <div className="flex-1 min-w-0 pr-4">
+                      <p className={`text-[12px] font-semibold truncate ${isNula ? 'text-slate-400' : 'text-slate-800'}`}>{t.client}</p>
+                      <p className="text-[11px] text-slate-400 truncate">{t.vehicle}</p>
+                    </div>
 
-                  {/* Cashier */}
-                  <div className="w-[90px] shrink-0 pr-4">
-                    <span className={`text-[12px] ${isNula ? 'text-slate-400' : 'text-slate-600'}`}>{t.cashier}</span>
-                  </div>
+                    {/* Service(s) */}
+                    <div className="w-[160px] shrink-0 pr-4 flex items-center gap-1.5 min-w-0">
+                      <span className={`text-[12px] truncate ${isNula ? 'text-slate-400' : 'text-slate-700'}`}>{mainName}</span>
+                      {extra > 0 && (
+                        <span className="shrink-0 text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">+{extra}</span>
+                      )}
+                    </div>
 
-                  {/* Date / Time */}
-                  <div className="w-[120px] shrink-0 pr-4">
-                    <p className={`text-[11px] ${isNula ? 'text-slate-400' : 'text-slate-700'}`}>{fmtDate(t.date)}</p>
-                    <p className="text-[10px] text-slate-400">{fmtTime(t.date)}</p>
-                  </div>
+                    {/* Cashier */}
+                    <div className="w-[90px] shrink-0 pr-4">
+                      <span className={`text-[12px] ${isNula ? 'text-slate-400' : 'text-slate-600'}`}>{t.cashier}</span>
+                    </div>
 
-                  {/* Subtotal */}
-                  <div className="w-[96px] shrink-0 pr-4 text-right">
-                    <span className={`text-[12px] ${isNula ? 'text-slate-400 line-through' : 'text-slate-600'}`}>{fmtRD(t.subtotal)}</span>
-                  </div>
+                    {/* Date / Time */}
+                    <div className="w-[120px] shrink-0 pr-4">
+                      <p className={`text-[11px] ${isNula ? 'text-slate-400' : 'text-slate-700'}`}>{fmtDate(t.date)}</p>
+                      <p className="text-[10px] text-slate-400">{fmtTime(t.date)}</p>
+                    </div>
 
-                  {/* ITBIS */}
-                  <div className="w-[84px] shrink-0 pr-4 text-right">
-                    <span className={`text-[12px] ${isNula ? 'text-slate-400 line-through' : 'text-slate-500'}`}>{fmtRD(t.itbis)}</span>
-                  </div>
+                    {/* Subtotal */}
+                    <div className="w-[96px] shrink-0 pr-4 text-right">
+                      <span className={`text-[12px] ${isNula ? 'text-slate-400 line-through' : 'text-slate-600'}`}>{fmtRD(t.subtotal)}</span>
+                    </div>
 
-                  {/* Total */}
-                  <div className="w-[104px] shrink-0 pr-4 text-right">
-                    <span className={`text-[13px] font-bold ${isNula ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{fmtRD(t.total)}</span>
-                  </div>
+                    {/* ITBIS */}
+                    <div className="w-[84px] shrink-0 pr-4 text-right">
+                      <span className={`text-[12px] ${isNula ? 'text-slate-400 line-through' : 'text-slate-500'}`}>{fmtRD(t.itbis)}</span>
+                    </div>
 
-                  {/* Estado */}
-                  <div className="w-[108px] shrink-0">
-                    <EstadoBadge t={t} lang={lang} />
+                    {/* Total */}
+                    <div className="w-[104px] shrink-0 pr-4 text-right">
+                      <span className={`text-[13px] font-bold ${isNula ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{fmtRD(t.total)}</span>
+                    </div>
+
+                    {/* Estado */}
+                    <div className="w-[108px] shrink-0">
+                      <EstadoBadge t={t} lang={lang} />
+                    </div>
                   </div>
                 </button>
               )
@@ -696,7 +716,7 @@ export default function DailyReport() {
               {lang === 'es' ? 'Ver Detalle' : 'View Detail'}
             </button>
             <button
-              onClick={() => console.log('[REPRINT]', selectedTicket.ticketNo)}
+              onClick={() => {}}
               className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
             >
               <Printer size={13} />

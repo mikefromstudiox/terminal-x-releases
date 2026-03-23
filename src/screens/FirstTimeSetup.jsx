@@ -1,20 +1,26 @@
 import { useState, useRef } from 'react'
+import logoImg from '../assets/logo.png'
 import {
   Building2, User, KeyRound, CheckCircle2,
   ChevronRight, ChevronLeft, Upload, Loader2,
   AlertTriangle, Globe, X, Eye, EyeOff,
+  ReceiptText, Printer, Wifi, ArrowRight, Mail,
 } from 'lucide-react'
 import { isValidKeyFormat } from '../services/license'
+import { useAPI } from '../context/DataContext'
 import { useLicense } from '../context/LicenseContext'
+import { getSupabaseClient, setStoredSetting, getStoredSetting, ensureBusinessRegistered } from '../services/supabase'
 
 // ── Bilingual copy ─────────────────────────────────────────────────────────────
 const COPY = {
   es: {
     // Step labels
     step1: 'Negocio',
-    step2: 'Administrador',
-    step3: 'Licencia',
-    step4: 'Listo',
+    step2: 'Cuenta',
+    step3: 'Administrador',
+    step4: 'Licencia',
+    step5: 'Fiscal',
+    step6: 'Listo',
 
     // Welcome
     welcome_title:   '¡Bienvenido a Terminal X!',
@@ -42,7 +48,25 @@ const COPY = {
     s1_logo_remove:  'Quitar',
     s1_err_nombre:   'El nombre del negocio es requerido.',
 
-    // Step 2 — Usuario
+    // Step 2 — Cuenta Principal
+    s2a_title:       'Cuenta Principal',
+    s2a_sub:         'Este email te permite acceder desde cualquier dispositivo (web, tablet, otro PC).',
+    s2a_email:       'Email',
+    s2a_email_ph:    'tu@correo.com',
+    s2a_pass:        'Contrasena',
+    s2a_pass_ph:     'Minimo 6 caracteres',
+    s2a_confirm:     'Confirmar contrasena',
+    s2a_confirm_ph:  'Repite la contrasena',
+    s2a_register:    'Crear cuenta',
+    s2a_registering: 'Creando cuenta...',
+    s2a_skip:        'Omitir — solo usar offline',
+    s2a_skip_note:   'Podras vincularlo despues en Configuracion.',
+    s2a_err_email:   'Ingresa un email valido.',
+    s2a_err_pass:    'La contrasena debe tener al menos 6 caracteres.',
+    s2a_err_mismatch:'Las contrasenas no coinciden.',
+    s2a_success:     'Cuenta creada. Podras iniciar sesion en la version web con este email.',
+
+    // Step 3 — Usuario
     s2_title:        'Usuario Administrador',
     s2_sub:          'Este usuario tendrá acceso total al sistema.',
     s2_nombre:       'Nombre completo',
@@ -77,10 +101,30 @@ const COPY = {
     s3_err_rnc:      'Ingresa el RNC o cédula.',
     s3_hwid:         'ID de equipo',
 
-    // Step 4 — Done
-    s4_title:        '¡Terminal X está listo!',
-    s4_sub:          'Tu sistema ha sido configurado exitosamente.',
-    s4_go:           'Ir al inicio de sesión',
+    // Step 4 — Fiscal
+    s4_title:        'Comprobantes Fiscales',
+    s4_sub:          'Selecciona el modo de facturación de tu negocio.',
+    s4_paper:        'B01 / B02 — Papel (NCF tradicional)',
+    s4_paper_desc:   'Talonarios físicos autorizados por la DGII.',
+    s4_ecf:          'E31 / E32 — e-CF (Electrónico)',
+    s4_ecf_desc:     'Obligatorio para nuevos contribuyentes. Ley 32-23.',
+    s4_ecf_warn:     'Debes tener contrato activo con ef2.do u otro PSP.',
+    s4_ef2_title:    'Credenciales ef2.do',
+    s4_ef2_sub:      'Opcional — puedes ingresarlas después en Configuración → e-CF.',
+    s4_ef2_user:     'Usuario ef2.do',
+    s4_ef2_user_ph:  'tu@correo.com',
+    s4_ef2_token:    'Token ef2.do',
+    s4_ef2_token_ph: 'Token de autenticación',
+    s4_saving:       'Guardando…',
+
+    // Step 5 — Done
+    s5_title:        '¡Terminal X está listo!',
+    s5_sub:          'Tu sistema ha sido configurado exitosamente.',
+    s5_go:           'Ir al inicio de sesión',
+    s5_next:         'Próximos pasos',
+    s5_step_services:'Agrega tus servicios en Configuración → Servicios',
+    s5_step_printer: 'Conecta tu impresora en Configuración → Impresora',
+    s5_step_test:    'Realiza una venta de prueba en el POS',
 
     // Shared
     next:            'Continuar',
@@ -89,9 +133,11 @@ const COPY = {
 
   en: {
     step1: 'Business',
-    step2: 'Admin',
-    step3: 'License',
-    step4: 'Done',
+    step2: 'Account',
+    step3: 'Admin',
+    step4: 'License',
+    step5: 'Fiscal',
+    step6: 'Done',
 
     welcome_title:   'Welcome to Terminal X!',
     welcome_sub:     "Let's set up your system in just a few minutes.",
@@ -116,6 +162,23 @@ const COPY = {
     s1_logo_change:  'Change',
     s1_logo_remove:  'Remove',
     s1_err_nombre:   'Business name is required.',
+
+    s2a_title:       'Main Account',
+    s2a_sub:         'This email lets you access from any device (web, tablet, another PC).',
+    s2a_email:       'Email',
+    s2a_email_ph:    'you@email.com',
+    s2a_pass:        'Password',
+    s2a_pass_ph:     'Minimum 6 characters',
+    s2a_confirm:     'Confirm password',
+    s2a_confirm_ph:  'Repeat password',
+    s2a_register:    'Create account',
+    s2a_registering: 'Creating account...',
+    s2a_skip:        'Skip — offline only',
+    s2a_skip_note:   'You can link it later in Settings.',
+    s2a_err_email:   'Enter a valid email.',
+    s2a_err_pass:    'Password must be at least 6 characters.',
+    s2a_err_mismatch:'Passwords do not match.',
+    s2a_success:     'Account created. You can log in to the web version with this email.',
 
     s2_title:        'Admin User',
     s2_sub:          'This user will have full access to the system.',
@@ -150,9 +213,30 @@ const COPY = {
     s3_err_rnc:      'Enter the business Tax ID / RNC.',
     s3_hwid:         'Machine ID',
 
-    s4_title:        'Terminal X is Ready!',
-    s4_sub:          'Your system has been successfully configured.',
-    s4_go:           'Go to login',
+    // Step 4 — Fiscal
+    s4_title:        'Fiscal Receipts',
+    s4_sub:          'Select the billing mode for your business.',
+    s4_paper:        'B01 / B02 — Paper (traditional NCF)',
+    s4_paper_desc:   'Physical receipt books authorized by DGII.',
+    s4_ecf:          'E31 / E32 — e-CF (Electronic)',
+    s4_ecf_desc:     'Required for new taxpayers. Law 32-23.',
+    s4_ecf_warn:     'You must have an active contract with ef2.do or another PSP.',
+    s4_ef2_title:    'ef2.do Credentials',
+    s4_ef2_sub:      'Optional — you can enter them later in Settings → e-CF.',
+    s4_ef2_user:     'ef2.do username',
+    s4_ef2_user_ph:  'your@email.com',
+    s4_ef2_token:    'ef2.do token',
+    s4_ef2_token_ph: 'Authentication token',
+    s4_saving:       'Saving…',
+
+    // Step 5 — Done
+    s5_title:        'Terminal X is Ready!',
+    s5_sub:          'Your system has been successfully configured.',
+    s5_go:           'Go to login',
+    s5_next:         'Next steps',
+    s5_step_services:'Add your services in Settings → Services',
+    s5_step_printer: 'Connect your printer in Settings → Printer',
+    s5_step_test:    'Run a test sale in the POS',
 
     next:            'Continue',
     back:            'Back',
@@ -160,7 +244,7 @@ const COPY = {
 }
 
 // ── Shared field IDs for a11y ──────────────────────────────────────────────────
-const ipc = () => window?.electronAPI
+// ipc() helper removed — use `const api = useAPI()` inside each component
 
 // ── Input component ───────────────────────────────────────────────────────────
 function Field({ label, id, error, children }) {
@@ -202,14 +286,16 @@ function TextInput({ id, value, onChange, placeholder, type = 'text', autoFocus,
 // ── Step progress (left panel) ────────────────────────────────────────────────
 const STEP_META = [
   { n: 1, icon: Building2 },
-  { n: 2, icon: User },
-  { n: 3, icon: KeyRound },
-  { n: 4, icon: CheckCircle2 },
+  { n: 2, icon: Mail },
+  { n: 3, icon: User },
+  { n: 4, icon: KeyRound },
+  { n: 5, icon: ReceiptText },
+  { n: 6, icon: CheckCircle2 },
 ]
 
 function StepProgress({ step, lang }) {
   const t = k => COPY[lang][k] || k
-  const labels = [t('step1'), t('step2'), t('step3'), t('step4')]
+  const labels = [t('step1'), t('step2'), t('step3'), t('step4'), t('step5'), t('step6')]
 
   return (
     <div className="flex flex-col items-start gap-0 w-full">
@@ -258,14 +344,14 @@ function LeftPanel({ step, lang, setLang }) {
       {/* Logo */}
       <div className="flex flex-col items-center mb-12">
         <div className="w-16 h-16 bg-white rounded-[14px] flex items-center justify-center mb-4 shadow-lg">
-          <img src="/assets/logo.png" alt="Terminal X" className="w-11 h-11 object-contain" draggable={false} />
+          <img src={logoImg} alt="Terminal X" className="w-11 h-11 object-contain" draggable={false} />
         </div>
         <p className="text-white font-[500] tracking-[3px] text-[18px]">TERMINAL X</p>
         <p className="text-zinc-500 text-[11px] mt-1 tracking-wider">CONFIGURACIÓN INICIAL</p>
       </div>
 
-      {/* Step progress — only shown during steps 1-4 */}
-      {step >= 1 && step <= 4 && (
+      {/* Step progress — only shown during steps 1-5 */}
+      {step >= 1 && step <= 6 && (
         <div className="flex-1">
           <p className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest mb-5">Pasos</p>
           <StepProgress step={step} lang={lang} />
@@ -292,7 +378,7 @@ function StepWelcome({ t, onNext }) {
       {/* Mobile logo */}
       <div className="md:hidden flex flex-col items-center mb-10">
         <div className="w-16 h-16 bg-white rounded-[14px] flex items-center justify-center mb-3 shadow-lg">
-          <img src="/assets/logo.png" alt="Terminal X" className="w-11 h-11 object-contain" draggable={false} />
+          <img src={logoImg} alt="Terminal X" className="w-11 h-11 object-contain" draggable={false} />
         </div>
         <p className="text-white font-[500] tracking-[3px] text-[18px]">TERMINAL X</p>
       </div>
@@ -334,6 +420,7 @@ function StepWelcome({ t, onNext }) {
 
 // ── Step 1 — Empresa ──────────────────────────────────────────────────────────
 function StepEmpresa({ t, onNext, onBack }) {
+  const api = useAPI()
   const [nombre,   setNombre]   = useState('')
   const [rnc,      setRnc]      = useState('')
   const [dir,      setDir]      = useState('')
@@ -360,7 +447,7 @@ function StepEmpresa({ t, onNext, onBack }) {
     setErr('')
     setSaving(true)
     try {
-      await ipc()?.admin?.saveEmpresa?.({
+      await api?.admin?.saveEmpresa?.({
         name:    nombre.trim(),
         rnc:     rnc.trim(),
         address: dir.trim(),
@@ -469,8 +556,172 @@ function StepEmpresa({ t, onNext, onBack }) {
   )
 }
 
-// ── Step 2 — Admin User ───────────────────────────────────────────────────────
+// ── Step 2 — Main Account (Supabase Auth) ─────────────────────────────────────
+function StepCuenta({ t, onNext, onBack, empresaNombre, empresaRnc }) {
+  const api = useAPI()
+  const [email,      setEmail]      = useState('')
+  const [pass,       setPass]       = useState('')
+  const [confirm,    setConfirm]    = useState('')
+  const [showPass,   setShowPass]   = useState(false)
+  const [err,        setErr]        = useState('')
+  const [saving,     setSaving]     = useState(false)
+  const [success,    setSuccess]    = useState(false)
+
+  async function handleRegister() {
+    // Validate
+    if (!email.trim() || !email.includes('@')) { setErr(t('s2a_err_email')); return }
+    if (pass.length < 6)  { setErr(t('s2a_err_pass')); return }
+    if (pass !== confirm)  { setErr(t('s2a_err_mismatch')); return }
+    setErr('')
+    setSaving(true)
+
+    try {
+      const sb = getSupabaseClient()
+      if (!sb) throw new Error('Supabase no configurado. Verifica las credenciales en .env')
+
+      // 1. Create Supabase Auth user
+      const { data: authData, error: authErr } = await sb.auth.signUp({
+        email: email.trim(),
+        password: pass,
+      })
+      if (authErr) throw authErr
+      const userId = authData.user?.id
+      if (!userId) throw new Error('No se pudo crear el usuario')
+
+      // 2. Store the Supabase URL/key so desktop can sync
+      // (already in .env, but also persist to app_settings for runtime)
+      try {
+        await api?.settings?.update?.({
+          supabase_auth_email: email.trim(),
+          supabase_user_id:    userId,
+        })
+      } catch {}
+
+      // 3. Create/update business row with owner_id
+      // First check if business exists from desktop sync
+      const existingBizId = getStoredSetting('business_id')
+      if (existingBizId) {
+        // Update existing business with owner_id
+        await sb.from('businesses').update({ owner_id: userId }).eq('id', existingBizId)
+      } else {
+        // Create new business
+        const { data: biz, error: bizErr } = await sb.from('businesses')
+          .insert({
+            owner_id: userId,
+            name:     empresaNombre || 'Mi Negocio',
+            rnc:      empresaRnc || '',
+          })
+          .select('id')
+          .single()
+        if (bizErr) throw bizErr
+        setStoredSetting('business_id', biz.id)
+      }
+
+      // 4. Create staff row linking auth user to business
+      const bizId = getStoredSetting('business_id')
+      if (bizId) {
+        await sb.from('staff').upsert({
+          business_id:  bizId,
+          auth_user_id: userId,
+          name:         'Owner',
+          username:     'owner',
+          role:         'owner',
+        }, { onConflict: 'business_id,auth_user_id' }).select()
+      }
+
+      setSuccess(true)
+    } catch (e) {
+      setErr(e?.message || 'Error al crear la cuenta')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (success) {
+    return (
+      <div className="w-full max-w-md">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
+          <div className="w-14 h-14 bg-green-600/10 border border-green-600/20 rounded-full flex items-center justify-center mx-auto mb-5">
+            <CheckCircle2 size={28} className="text-green-500" />
+          </div>
+          <h2 className="text-white text-[20px] font-bold mb-2">{t('s2a_success')}</h2>
+          <p className="text-zinc-500 text-[13px] mb-6">{email}</p>
+          <button onClick={() => onNext()} className="w-full py-3.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-[14px] transition-colors flex items-center justify-center gap-2">
+            {t('next')} <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-full max-w-md">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
+        <div className="mb-7">
+          <div className="w-10 h-10 rounded-xl bg-red-600/10 border border-red-600/20 flex items-center justify-center mb-4">
+            <Mail size={18} className="text-red-500" />
+          </div>
+          <h2 className="text-white text-[22px] font-bold">{t('s2a_title')}</h2>
+          <p className="text-zinc-500 text-[13px] mt-1">{t('s2a_sub')}</p>
+        </div>
+
+        <div className="space-y-5">
+          <Field label={t('s2a_email')} id="acct-email" error={err && !email.includes('@') ? err : ''}>
+            <TextInput id="acct-email" value={email} onChange={v => { setEmail(v); setErr('') }}
+              placeholder={t('s2a_email_ph')} type="email" autoFocus />
+          </Field>
+
+          <Field label={t('s2a_pass')} id="acct-pass" error={err && pass.length < 6 ? err : ''}>
+            <div className="relative">
+              <TextInput id="acct-pass" value={pass} onChange={v => { setPass(v); setErr('') }}
+                placeholder={t('s2a_pass_ph')} type={showPass ? 'text' : 'password'} />
+              <button type="button" onClick={() => setShowPass(p => !p)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">
+                {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+          </Field>
+
+          <Field label={t('s2a_confirm')} id="acct-confirm" error={err && pass !== confirm ? err : ''}>
+            <TextInput id="acct-confirm" value={confirm} onChange={v => { setConfirm(v); setErr('') }}
+              placeholder={t('s2a_confirm_ph')} type={showPass ? 'text' : 'password'} />
+          </Field>
+
+          {err && email.includes('@') && pass.length >= 6 && pass === confirm && (
+            <p className="text-[12px] text-red-400 flex items-center gap-1">
+              <AlertTriangle size={11} /> {err}
+            </p>
+          )}
+        </div>
+
+        <div className="flex gap-3 mt-8">
+          <button onClick={onBack}
+            className="flex items-center gap-1.5 px-5 py-3 border border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 rounded-xl text-[13px] font-medium transition-colors">
+            <ChevronLeft size={14} /> {t('back')}
+          </button>
+          <button onClick={handleRegister} disabled={saving}
+            className="flex-1 py-3 bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white font-bold rounded-xl text-[14px] transition-colors flex items-center justify-center gap-2">
+            {saving ? <><Loader2 size={15} className="animate-spin" /> {t('s2a_registering')}</>
+                    : <>{t('s2a_register')} <ChevronRight size={16} /></>}
+          </button>
+        </div>
+
+        {/* Skip option */}
+        <div className="mt-5 text-center">
+          <button onClick={() => onNext()}
+            className="text-zinc-500 hover:text-zinc-300 text-[12px] underline underline-offset-2 transition-colors">
+            {t('s2a_skip')}
+          </button>
+          <p className="text-zinc-600 text-[11px] mt-1">{t('s2a_skip_note')}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Step 3 — Admin User ───────────────────────────────────────────────────────
 function StepUsuario({ t, onNext, onBack }) {
+  const api = useAPI()
   const [nombre,   setNombre]   = useState('')
   const [username, setUsername] = useState('')
   const [pin,      setPin]      = useState('')
@@ -502,7 +753,7 @@ function StepUsuario({ t, onNext, onBack }) {
     setErr('')
     setSaving(true)
     try {
-      await ipc()?.admin?.saveUsuario?.({
+      await api?.admin?.saveUsuario?.({
         name:     nombre.trim(),
         username: (username.trim() || nombre.trim().toLowerCase().replace(/\s+/g, '.')).slice(0, 30),
         pin,
@@ -624,6 +875,7 @@ function StepUsuario({ t, onNext, onBack }) {
 
 // ── Step 3 — License ──────────────────────────────────────────────────────────
 function StepLicencia({ t, onNext, onBack, prefillRnc, hwid }) {
+  const api = useAPI()
   const { activate } = useLicense()
 
   const [key,        setKey]        = useState('')
@@ -636,7 +888,7 @@ function StepLicencia({ t, onNext, onBack, prefillRnc, hwid }) {
   async function handleActivate() {
     const k = key.trim().toUpperCase()
     const r = rnc.trim().replace(/\D/g, '')
-    const isMaster = await window.electronAPI?.license?.isMaster?.(k)
+    const isMaster = await api?.license?.isMaster?.(k)
     if (!isMaster && !isValidKeyFormat(k)) { setErr(t('s3_err_format')); return }
     if (!r) { setErr(t('s3_err_rnc')); return }
     setErr('')
@@ -654,7 +906,7 @@ function StepLicencia({ t, onNext, onBack, prefillRnc, hwid }) {
 
   function handleSkip() {
     setSkipWarn(true)
-    setTimeout(() => onNext(), 2200)
+    onNext()
   }
 
   return (
@@ -687,9 +939,9 @@ function StepLicencia({ t, onNext, onBack, prefillRnc, hwid }) {
                 type="text"
                 value={key}
                 onChange={e => {
-                  let v = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '')
-                  // Auto-insert dashes at TXL- positions
-                  setKey(v)
+                  const raw = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 15)
+                  const parts = [raw.slice(0,3), raw.slice(3,7), raw.slice(7,11), raw.slice(11,15)].filter(Boolean)
+                  setKey(parts.join('-'))
                   setErr('')
                 }}
                 onKeyDown={e => e.key === 'Enter' && handleActivate()}
@@ -758,8 +1010,137 @@ function StepLicencia({ t, onNext, onBack, prefillRnc, hwid }) {
   )
 }
 
-// ── Step 4 — Done ─────────────────────────────────────────────────────────────
+// ── Step 4 — Fiscal ───────────────────────────────────────────────────────────
+function StepFiscal({ t, onNext, onBack }) {
+  const api = useAPI()
+  const [mode,     setMode]     = useState('paper')   // 'paper' | 'ecf'
+  const [ef2User,  setEf2User]  = useState('')
+  const [ef2Token, setEf2Token] = useState('')
+  const [showToken,setShowToken]= useState(false)
+  const [saving,   setSaving]   = useState(false)
+  const [err,      setErr]      = useState('')
+
+  async function handleNext() {
+    setSaving(true)
+    try {
+      const biz = await api?.admin?.getEmpresa?.()
+      const s   = biz?.settings ? JSON.parse(biz.settings) : {}
+      await api?.admin?.saveEmpresa?.({
+        settings: JSON.stringify({ ...s, facturacion_mode: mode }),
+      })
+      if (mode === 'ecf' && ef2Token.trim()) {
+        await api?.safe?.set?.('ef2_token', ef2Token.trim())
+      }
+      onNext()
+    } catch (e) {
+      setErr(e?.message || 'Error al guardar.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="w-full max-w-md">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
+        <div className="mb-7">
+          <div className="w-10 h-10 rounded-xl bg-red-600/10 border border-red-600/20 flex items-center justify-center mb-4">
+            <ReceiptText size={18} className="text-red-500" />
+          </div>
+          <h2 className="text-white text-[22px] font-bold">{t('s4_title')}</h2>
+          <p className="text-zinc-500 text-[13px] mt-1">{t('s4_sub')}</p>
+        </div>
+
+        {/* Mode selector */}
+        <div className="space-y-3 mb-6">
+          {[
+            { value: 'paper', icon: ReceiptText, label: t('s4_paper'), desc: t('s4_paper_desc') },
+            { value: 'ecf',   icon: Wifi,        label: t('s4_ecf'),   desc: t('s4_ecf_desc')   },
+          ].map(({ value, icon: Icon, label, desc }) => (
+            <button
+              key={value}
+              onClick={() => setMode(value)}
+              className={`w-full flex items-start gap-4 px-4 py-4 rounded-xl border-2 text-left transition-all
+                ${mode === value
+                  ? 'border-red-500 bg-red-500/5'
+                  : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-500'
+                }`}
+            >
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5
+                ${mode === value ? 'bg-red-600/20' : 'bg-zinc-700'}`}>
+                <Icon size={15} className={mode === value ? 'text-red-400' : 'text-zinc-400'} />
+              </div>
+              <div>
+                <p className={`text-[13px] font-semibold ${mode === value ? 'text-white' : 'text-zinc-300'}`}>{label}</p>
+                <p className="text-[11px] text-zinc-500 mt-0.5">{desc}</p>
+              </div>
+              <div className={`ml-auto w-4 h-4 rounded-full border-2 shrink-0 mt-1 transition-all
+                ${mode === value ? 'border-red-500 bg-red-500' : 'border-zinc-600'}`} />
+            </button>
+          ))}
+        </div>
+
+        {/* e-CF credentials (optional) */}
+        {mode === 'ecf' && (
+          <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-xl p-5 mb-4 space-y-4">
+            <div>
+              <p className="text-[12px] font-bold text-zinc-300 mb-0.5">{t('s4_ef2_title')}</p>
+              <p className="text-[11px] text-zinc-500">{t('s4_ef2_sub')}</p>
+            </div>
+            <Field label={t('s4_ef2_user')} id="fiscal-ef2user">
+              <TextInput id="fiscal-ef2user" value={ef2User} onChange={setEf2User}
+                placeholder={t('s4_ef2_user_ph')} type="email" />
+            </Field>
+            <div>
+              <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
+                {t('s4_ef2_token')}
+              </label>
+              <div className="relative">
+                <input
+                  type={showToken ? 'text' : 'password'}
+                  value={ef2Token}
+                  onChange={e => setEf2Token(e.target.value)}
+                  placeholder={t('s4_ef2_token_ph')}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white text-[13px] font-mono
+                             placeholder-zinc-600 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/30 transition-colors pr-10"
+                />
+                <button type="button" onClick={() => setShowToken(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors">
+                  {showToken ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {err && (
+          <p className="text-[12px] text-red-400 flex items-center gap-1 mb-4">
+            <AlertTriangle size={11} /> {err}
+          </p>
+        )}
+
+        <div className="flex gap-3">
+          <button onClick={onBack}
+            className="flex items-center gap-1.5 px-5 py-3 border border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 rounded-xl text-[13px] font-medium transition-colors">
+            <ChevronLeft size={14} /> {t('back')}
+          </button>
+          <button onClick={handleNext} disabled={saving}
+            className="flex-1 py-3 bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl text-[14px] transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+            {saving ? <><Loader2 size={15} className="animate-spin" /> {t('s4_saving')}</> : <>{t('next')} <ChevronRight size={15} /></>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Step 5 — Done ─────────────────────────────────────────────────────────────
 function StepDone({ t, empresaNombre, onComplete }) {
+  const nextSteps = [
+    { icon: ReceiptText, text: t('s5_step_services') },
+    { icon: Printer,     text: t('s5_step_printer')  },
+    { icon: ArrowRight,  text: t('s5_step_test')     },
+  ]
+
   return (
     <div className="w-full max-w-md text-center">
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-10">
@@ -768,19 +1149,34 @@ function StepDone({ t, empresaNombre, onComplete }) {
           <CheckCircle2 size={44} className="text-green-400" />
         </div>
 
-        <h2 className="text-white text-[26px] font-bold mb-3">{t('s4_title')}</h2>
-        <p className="text-zinc-400 text-[14px] mb-2">{t('s4_sub')}</p>
+        <h2 className="text-white text-[26px] font-bold mb-3">{t('s5_title')}</h2>
+        <p className="text-zinc-400 text-[14px] mb-2">{t('s5_sub')}</p>
         {empresaNombre && (
-          <p className="text-zinc-600 text-[13px] mb-8">
+          <p className="text-zinc-600 text-[13px] mb-6">
             <span className="text-zinc-400 font-semibold">{empresaNombre}</span>
           </p>
         )}
+
+        {/* Next steps */}
+        <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-xl p-4 mb-7 text-left">
+          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3">{t('s5_next')}</p>
+          <div className="space-y-2.5">
+            {nextSteps.map(({ icon: Icon, text }, i) => (
+              <div key={i} className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-lg bg-zinc-700 flex items-center justify-center shrink-0 mt-0.5">
+                  <Icon size={12} className="text-zinc-400" />
+                </div>
+                <p className="text-[12px] text-zinc-400 leading-relaxed">{text}</p>
+              </div>
+            ))}
+          </div>
+        </div>
 
         <button
           onClick={onComplete}
           className="w-full py-4 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-bold rounded-xl text-[15px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg shadow-red-600/20"
         >
-          {t('s4_go')}
+          {t('s5_go')}
           <ChevronRight size={18} />
         </button>
       </div>
@@ -790,6 +1186,7 @@ function StepDone({ t, empresaNombre, onComplete }) {
 
 // ── Root wizard ───────────────────────────────────────────────────────────────
 export default function FirstTimeSetup({ onComplete }) {
+  const api = useAPI()
   const { hwid } = useLicense()
 
   const [lang,         setLang]         = useState('es')
@@ -801,7 +1198,7 @@ export default function FirstTimeSetup({ onComplete }) {
 
   async function markSetupComplete() {
     try {
-      await ipc()?.admin?.saveConfiguracion?.({ setup_complete: '1' })
+      await api?.admin?.saveConfiguracion?.({ setup_complete: '1' })
     } catch {}
     onComplete()
   }
@@ -839,24 +1236,42 @@ export default function FirstTimeSetup({ onComplete }) {
         )}
 
         {step === 2 && (
-          <StepUsuario
+          <StepCuenta
             t={t}
             onBack={() => setStep(1)}
             onNext={() => setStep(3)}
+            empresaNombre={empresaNombre}
+            empresaRnc={empresaRnc}
           />
         )}
 
         {step === 3 && (
-          <StepLicencia
+          <StepUsuario
             t={t}
             onBack={() => setStep(2)}
             onNext={() => setStep(4)}
+          />
+        )}
+
+        {step === 4 && (
+          <StepLicencia
+            t={t}
+            onBack={() => setStep(3)}
+            onNext={() => setStep(5)}
             prefillRnc={empresaRnc}
             hwid={hwid}
           />
         )}
 
-        {step === 4 && (
+        {step === 5 && (
+          <StepFiscal
+            t={t}
+            onBack={() => setStep(4)}
+            onNext={() => setStep(6)}
+          />
+        )}
+
+        {step === 6 && (
           <StepDone
             t={t}
             empresaNombre={empresaNombre}

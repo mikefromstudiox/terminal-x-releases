@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Settings, KeyRound, CheckCircle2, Loader2, AlertCircle, Printer,
+  RefreshCw, Download, ArrowDownToLine, FileText, HardDrive,
 } from 'lucide-react'
 import { useLang } from '../i18n'
-import { hasIPC } from '../hooks/useDB'
+import { useAPI, usePrinterAPI } from '../context/DataContext'
 import LicenseAdmin from './LicenseAdmin'
+import { FiscalNCF, Respaldo } from './Admin'
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
 
@@ -101,31 +103,34 @@ function SaveBtn({ saving, saved, label, onClick }) {
 // ── Configuración (System Settings) ──────────────────────────────────────────
 
 const SISTEMA_DEFAULTS = {
-  ley_enabled:        '1',
-  itbis_pct:          '18',
-  usd_rate:           '61.00',
-  rnc_verify:         '1',
-  sucursales:         '0',
-  beverages_in_pos:   '1',
-  auto_backup:        '0',
-  printer:            '',
-  print_preticket:    '0',
-  print_factura_auto: '0',
-  print_conduce_auto: '0',
+  ley_enabled:          '1',
+  itbis_pct:            '18',
+  usd_rate:             '61.00',
+  rnc_verify:           '1',
+  sucursales:           '0',
+  beverages_in_pos:     '1',
+  auto_backup:          '0',
+  printer:              '',
+  print_preticket:      '0',
+  print_factura_auto:   '0',
+  print_conduce_auto:   '0',
+  whatsapp_instance:    'instance166620',
+  whatsapp_token:       'frctimeqrl7dkfff',
 }
 
 function Configuracion() {
+  const api               = useAPI()
+  const printerApi        = usePrinterAPI()
   const { lang, setLang } = useLang()
   const { toast, show }   = useToast()
 
-  const [cfg,      setCfg]      = useState(SISTEMA_DEFAULTS)
-  const [printers, setPrinters] = useState([])
-  const [saving,   setSaving]   = useState(false)
-  const [saved,    setSaved]    = useState(false)
+  const [cfg,         setCfg]         = useState(SISTEMA_DEFAULTS)
+  const [printers,    setPrinters]    = useState([])
+  const [saving,      setSaving]      = useState(false)
+  const [saved,       setSaved]       = useState(false)
 
   useEffect(() => {
-    if (!hasIPC()) return
-    window.electronAPI.settings.get().then(s => {
+    api.settings.get().then(s => {
       if (!s) return
       setCfg(prev => ({
         ...prev,
@@ -137,8 +142,8 @@ function Configuracion() {
       }))
     }).catch(() => {})
 
-    window.electronAPI.listPrinters().then(list => {
-      if (Array.isArray(list)) setPrinters(list)
+    printerApi?.listPrinters().then(res => {
+      if (res?.ok && Array.isArray(res.data)) setPrinters(res.data)
     }).catch(() => {})
   }, [])
 
@@ -148,7 +153,7 @@ function Configuracion() {
   async function handleSave() {
     setSaving(true)
     try {
-      await window.electronAPI.settings.update(cfg)
+      await api.settings.update(cfg)
       setSaved(true)
       show(lang === 'es' ? 'Configuración guardada ✓' : 'Settings saved ✓')
       setTimeout(() => setSaved(false), 2500)
@@ -159,10 +164,10 @@ function Configuracion() {
 
   async function testPrint() {
     try {
-      await window.electronAPI.print({ type: 'test', data: {}, printerName: cfg.printer || undefined })
-      show(lang === 'es' ? 'Prueba de impresión enviada ✓' : 'Test print sent ✓')
+      await api.print({ type: 'test', data: {}, printerName: cfg.printer || undefined })
+      show(L('Prueba de impresión enviada ✓', 'Test print sent ✓'))
     } catch {
-      show(lang === 'es' ? 'Error al imprimir' : 'Printer error', 'error')
+      show(L('Error al imprimir', 'Printer error'), 'error')
     }
   }
 
@@ -270,9 +275,10 @@ function Configuracion() {
 
       {/* ── Printing ─────────────────────────────────────────────────────────── */}
       <SettingSection title={L('Impresión', 'Printing')}>
+
         <SettingRow
-          label={L('Impresora', 'Printer')}
-          hint={L('Selecciona la impresora predeterminada del sistema', 'Select the default system printer')}
+          label={L('Impresora del sistema', 'System Printer')}
+          hint={L('Impresora configurada en Windows/macOS', 'Printer configured in Windows/macOS')}
         >
           <div className="flex items-center gap-2">
             <select
@@ -283,7 +289,7 @@ function Configuracion() {
               <option value="">{L('Predeterminada del sistema', 'System default')}</option>
               {printers.map(p => (
                 <option key={p.name} value={p.name}>
-                  {p.name}{p.isDefault ? ' ★' : ''}
+                  {p.displayName || p.name}{p.isDefault ? ' ★' : ''}
                 </option>
               ))}
             </select>
@@ -319,6 +325,34 @@ function Configuracion() {
         </SettingRow>
       </SettingSection>
 
+      {/* ── WhatsApp ─────────────────────────────────────────────────────────── */}
+      <SettingSection title="WhatsApp (UltraMsg)">
+        <SettingRow
+          label={L('Instance ID', 'Instance ID')}
+          hint={L('ID de tu instancia en UltraMsg (ej. instance166620)', 'Your UltraMsg instance ID (e.g. instance166620)')}
+        >
+          <Input
+            type="text"
+            value={cfg.whatsapp_instance}
+            onChange={e => set('whatsapp_instance', e.target.value)}
+            placeholder="instance166620"
+            className="w-44"
+          />
+        </SettingRow>
+        <SettingRow
+          label="Token"
+          hint={L('Token de autenticación de UltraMsg', 'UltraMsg authentication token')}
+        >
+          <Input
+            type="text"
+            value={cfg.whatsapp_token}
+            onChange={e => set('whatsapp_token', e.target.value)}
+            placeholder="token..."
+            className="w-44"
+          />
+        </SettingRow>
+      </SettingSection>
+
       <div className="flex justify-end mt-2">
         <SaveBtn
           saving={saving}
@@ -331,11 +365,160 @@ function Configuracion() {
   )
 }
 
+// ── Actualizaciones ────────────────────────────────────────────────────────────
+
+function Actualizaciones() {
+  const api = useAPI()
+  const { lang } = useLang()
+  const L = (es, en) => lang === 'es' ? es : en
+
+  const [version,  setVersion]  = useState('—')
+  const [status,   setStatus]   = useState('idle')   // idle | checking | up-to-date | available | downloading | downloaded | error
+  const [progress, setProgress] = useState(0)
+  const [info,     setInfo]     = useState(null)      // { version } or error string
+  const unsubRef = useRef(null)
+
+  useEffect(() => {
+    if (!api?.version) return
+    api.version().then(v => setVersion(v)).catch(() => {})
+
+    if (!api?.updater?.onStatus) return
+    const unsub = api.updater.onStatus((event, data) => {
+      if (event === 'checking')   { setStatus('checking');   setInfo(null) }
+      if (event === 'up-to-date') { setStatus('up-to-date'); setInfo(null) }
+      if (event === 'available')  { setStatus('available');  setInfo(data) }
+      if (event === 'progress')   { setStatus('downloading'); setProgress(data ?? 0) }
+      if (event === 'downloaded') { setStatus('downloaded'); setInfo(data) }
+      if (event === 'error')      { setStatus('error');      setInfo(data) }
+    })
+    unsubRef.current = unsub
+    return () => { if (typeof unsubRef.current === 'function') unsubRef.current() }
+  }, [])
+
+  function handleInstall() {
+    api.updater.install()
+  }
+
+  const statusMap = {
+    idle:        { color: 'text-slate-400', label: L('Sin verificar', 'Not checked') },
+    checking:    { color: 'text-sky-500',   label: L('Verificando…', 'Checking…') },
+    'up-to-date':{ color: 'text-emerald-600', label: L('Terminal X está al día', 'Terminal X is up to date') },
+    available:   { color: 'text-amber-600', label: L('Actualización disponible', 'Update available') },
+    downloading: { color: 'text-sky-500',   label: L(`Descargando… ${progress}%`, `Downloading… ${progress}%`) },
+    downloaded:  { color: 'text-emerald-600', label: L('Lista para instalar', 'Ready to install') },
+    error:       { color: 'text-red-500',   label: L('Error al verificar', 'Update check failed') },
+  }
+
+  const s = statusMap[status] ?? statusMap.idle
+
+  return (
+    <div className="max-w-2xl">
+      {/* Current version card */}
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-5 flex items-center justify-between">
+        <div>
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+            {L('Versión instalada', 'Installed version')}
+          </p>
+          <p className="text-[22px] font-bold text-slate-800 font-mono">v{version}</p>
+          <p className="text-[12px] text-slate-500 mt-0.5">Terminal X · Studio X Tech</p>
+        </div>
+        <div className="text-right">
+          <p className={`text-[12px] font-semibold ${s.color}`}>{s.label}</p>
+          {info?.version && (
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {L('Nueva versión', 'New version')}: v{info.version}
+            </p>
+          )}
+          {status === 'error' && info && (
+            <p className="text-[11px] text-red-400 mt-0.5 max-w-[200px]">{info}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Progress bar while downloading */}
+      {status === 'downloading' && (
+        <div className="mb-5">
+          <div className="flex justify-between text-[11px] text-slate-500 mb-1.5">
+            <span>{L('Descargando actualización…', 'Downloading update…')}</span>
+            <span>{progress}%</span>
+          </div>
+          <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+            <div
+              className="h-2 bg-sky-500 rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-3">
+        {status === 'downloaded' ? (
+          <button
+            onClick={handleInstall}
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-bold rounded-lg transition-colors"
+          >
+            <ArrowDownToLine size={14} />
+            {L('Instalar y reiniciar', 'Install & restart')}
+          </button>
+        ) : (
+          <p className="text-[12px] text-slate-400 italic">
+            {status === 'downloading'
+              ? L('Espere mientras se descarga…', 'Waiting for download to finish…')
+              : status === 'checking'
+              ? L('Verificando el servidor…', 'Checking update server…')
+              : L('Las actualizaciones se verifican automáticamente al iniciar la app y cada 6 horas.', 'Updates are checked automatically on startup and every 6 hours.')}
+          </p>
+        )}
+      </div>
+
+      {/* Release notes placeholder */}
+      {(status === 'available' || status === 'downloaded') && info?.version && (
+        <div className="mt-5 border border-amber-200 bg-amber-50 rounded-xl p-4">
+          <p className="text-[12px] font-bold text-amber-800 mb-1">
+            {L('Novedades en', 'What\'s new in')} v{info.version}
+          </p>
+          <p className="text-[12px] text-amber-700">
+            {status === 'downloaded'
+              ? L('La actualización está lista. Haz clic en "Instalar y reiniciar" para aplicarla.', 'The update is ready. Click "Install & restart" to apply it.')
+              : L('Descargando en segundo plano…', 'Downloading in the background…')}
+          </p>
+        </div>
+      )}
+
+      {/* How updates work */}
+      <div className="mt-6 border-t border-slate-100 pt-5">
+        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">
+          {L('Cómo funcionan las actualizaciones', 'How updates work')}
+        </p>
+        <ul className="space-y-2">
+          {[
+            L('Terminal X verifica actualizaciones automáticamente al iniciar.', 'Terminal X checks for updates automatically on startup.'),
+            L('Las actualizaciones se descargan en segundo plano sin interrumpir el trabajo.', 'Updates download in the background without interrupting your work.'),
+            L('Cuando la descarga termine, aparecerá el botón "Instalar y reiniciar".', 'When the download finishes, the "Install & restart" button will appear.'),
+            L('La instalación tarda menos de 30 segundos.', 'Installation takes less than 30 seconds.'),
+          ].map((item, i) => (
+            <li key={i} className="flex items-start gap-2 text-[12px] text-slate-500">
+              <span className="mt-0.5 w-4 h-4 shrink-0 rounded-full bg-slate-100 text-slate-400 text-[10px] font-bold flex items-center justify-center">
+                {i + 1}
+              </span>
+              {item}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
 // ── MAIN SISTEMA SCREEN ───────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'config',    es: 'Configuración', en: 'Settings',   icon: Settings  },
-  { id: 'licencias', es: 'Licencias TX',  en: 'TX Licenses', icon: KeyRound },
+  { id: 'config',          es: 'Configuración',   en: 'Settings',      icon: Settings  },
+  { id: 'fiscal',          es: 'Fiscal / NCF',    en: 'Fiscal / NCF',  icon: FileText  },
+  { id: 'respaldo',        es: 'Respaldo / Nube', en: 'Backup / Cloud',icon: HardDrive },
+  { id: 'actualizaciones', es: 'Actualizaciones', en: 'Updates',       icon: Download  },
+  { id: 'licencias',       es: 'Licencias TX',    en: 'TX Licenses',   icon: KeyRound  },
 ]
 
 export default function Sistema() {
@@ -345,8 +528,8 @@ export default function Sistema() {
   return (
     <div className="h-full flex flex-col bg-white">
       {/* Header */}
-      <div className="shrink-0 px-6 py-4 border-b border-slate-200">
-        <h2 className="text-[16px] font-bold text-slate-800">
+      <div className="shrink-0 px-3 md:px-6 py-3 md:py-4 border-b border-slate-200">
+        <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800">
           {lang === 'es' ? 'Sistema' : 'System'}
         </h2>
         <p className="text-[12px] text-slate-400 mt-0.5">
@@ -355,10 +538,10 @@ export default function Sistema() {
       </div>
 
       {/* Tabs */}
-      <div className="shrink-0 flex border-b border-slate-200 px-6 overflow-x-auto">
+      <div className="shrink-0 flex border-b border-slate-200 px-2 md:px-6 overflow-x-auto scrollbar-none">
         {TABS.map(({ id, es, en, icon: Icon }) => (
           <button key={id} onClick={() => setTab(id)}
-            className={`flex items-center gap-1.5 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors shrink-0 ${
+            className={`flex items-center gap-1.5 px-3 md:px-4 py-3 text-xs md:text-[13px] font-semibold border-b-2 transition-colors shrink-0 whitespace-nowrap ${
               tab === id ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}>
             <Icon size={14} />
@@ -369,8 +552,23 @@ export default function Sistema() {
 
       {/* Content */}
       {tab === 'config' && (
-        <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-6">
           <Configuracion />
+        </div>
+      )}
+      {tab === 'fiscal' && (
+        <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-6">
+          <FiscalNCF />
+        </div>
+      )}
+      {tab === 'respaldo' && (
+        <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-6">
+          <Respaldo />
+        </div>
+      )}
+      {tab === 'actualizaciones' && (
+        <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-6">
+          <Actualizaciones />
         </div>
       )}
       {tab === 'licencias' && (

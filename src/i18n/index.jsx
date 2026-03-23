@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
+import { useAPI } from '../context/DataContext'
 import { es } from './es'
 import { en } from './en'
 
@@ -7,12 +8,13 @@ const translations = { es, en }
 const LangContext = createContext(null)
 
 export function LangProvider({ children }) {
+  const api = useAPI()
   const [lang, setLangState] = useState('es')
 
   // Load persisted language on mount
   useEffect(() => {
-    if (!window?.electronAPI?.settings?.get) return
-    window.electronAPI.settings.get().then(s => {
+    if (!api?.settings?.get) return
+    api.settings.get().then(s => {
       if (s?.app_lang === 'en') setLangState('en')
     }).catch(() => {})
   }, [])
@@ -20,7 +22,7 @@ export function LangProvider({ children }) {
   // setLang applies immediately and persists to DB
   function setLang(l) {
     setLangState(l)
-    window?.electronAPI?.settings?.update?.({ app_lang: l })?.catch?.(() => {})
+    api?.settings?.update?.({ app_lang: l })?.catch?.(() => {})
   }
 
   function t(key) {

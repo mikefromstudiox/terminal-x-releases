@@ -4,10 +4,9 @@ import {
   Send, RefreshCw, History, X, Receipt, Wallet, TrendingDown, Loader2,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { useAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
 
-// ── IPC guard ─────────────────────────────────────────────────────────────────
-const hasIPC = () => !!window?.electronAPI
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const FONDO_TOTAL = 15000
@@ -71,13 +70,13 @@ function MetricCard({ label, value, sub, color = 'slate', icon: Icon }) {
     amber: 'text-amber-600',
   }
   return (
-    <div className={`rounded-2xl border p-4 flex-1 ${colors[color]}`}>
+    <div className={`rounded-2xl border p-3 md:p-4 ${colors[color]}`}>
       <div className="flex items-start justify-between mb-1">
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+        <p className="text-[10px] md:text-xs font-semibold uppercase tracking-wider text-slate-400">{label}</p>
         {Icon && <Icon size={15} className={valColors[color]} />}
       </div>
-      <p className={`text-2xl font-bold tabular-nums ${valColors[color]}`}>{value}</p>
-      {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+      <p className={`text-lg md:text-2xl font-bold tabular-nums ${valColors[color]}`}>{value}</p>
+      {sub && <p className="text-[10px] md:text-xs text-slate-400 mt-0.5">{sub}</p>}
     </div>
   )
 }
@@ -104,6 +103,7 @@ function EstadoBadge({ estado, lang }) {
 
 // ── PIN Confirm Modal ─────────────────────────────────────────────────────────
 function PinModal({ title, onConfirm, onClose, lang }) {
+  const api = useAPI()
   const L = (es, en) => lang === 'es' ? es : en
   const [pin, setPin]         = useState('')
   const [err, setErr]         = useState(false)
@@ -111,24 +111,18 @@ function PinModal({ title, onConfirm, onClose, lang }) {
 
   async function submit() {
     if (!pin) return
-    if (hasIPC()) {
-      setLoading(true)
-      try {
-        const manager = await window.electronAPI.auth.byPin(pin)
-        if (manager && ['owner', 'manager'].includes(manager.role)) {
-          onConfirm(manager)
-        } else {
-          setErr(true); setPin('')
-        }
-      } catch {
+    setLoading(true)
+    try {
+      const manager = await api.auth.byPin(pin)
+      if (manager && ['owner', 'manager'].includes(manager.role)) {
+        onConfirm(manager)
+      } else {
         setErr(true); setPin('')
-      } finally {
-        setLoading(false)
       }
-    } else {
-      // Dev fallback
-      if (pin === '1111') { onConfirm({ id: 0, name: 'Manager' }) }
-      else { setErr(true); setPin('') }
+    } catch {
+      setErr(true); setPin('')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -166,7 +160,7 @@ function HistoryPanel({ onClose, lang }) {
   // History panel shows past closed periods (not available from current API,
   // so we display a helpful placeholder)
   return (
-    <div className="fixed inset-y-0 right-0 z-40 w-[420px] bg-white shadow-2xl flex flex-col">
+    <div className="fixed inset-y-0 right-0 z-40 w-full md:w-[420px] bg-white shadow-2xl flex flex-col">
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
         <h3 className="font-semibold text-slate-800">{L('Historial de Cuadres', 'Reconciliation History')}</h3>
         <button onClick={onClose} className="p-1 rounded hover:bg-slate-100"><X size={18} className="text-slate-500" /></button>
@@ -207,6 +201,7 @@ const COLS = [
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function PettyCash() {
+  const api = useAPI()
   const { user }   = useAuth()
   const { lang }   = useLang()
   const L = (es, en) => lang === 'es' ? es : en
@@ -229,9 +224,8 @@ export default function PettyCash() {
 
   // ── Load transactions from DB ────────────────────────────────────────────
   function loadTxns() {
-    if (!hasIPC()) { setLoading(false); return }
     setLoading(true)
-    window.electronAPI.cajaChica.all()
+    api.cajaChica.all()
       .then(rows => setTxns((rows || []).map(normalizeRow)))
       .catch(() => setTxns([]))
       .finally(() => setLoading(false))
@@ -267,26 +261,18 @@ export default function PettyCash() {
 
   // ── Actions ──────────────────────────────────────────────────────────────
   async function doApprove(id, approvedBy) {
-    if (hasIPC()) {
-      try {
-        await window.electronAPI.cajaChica.updateStatus({ id, status: 'approved', by: approvedBy ?? user?.id })
-        loadTxns()
-      } catch { loadTxns() }
-    } else {
-      setTxns(prev => prev.map(t => t.id === id ? { ...t, estado: 'approved' } : t))
-    }
+    try {
+      await api.cajaChica.updateStatus({ id, status: 'approved', by: approvedBy ?? user?.id })
+      loadTxns()
+    } catch { loadTxns() }
     showToast(L('Gasto aprobado', 'Expense approved'))
   }
 
   async function doReject(id, approvedBy) {
-    if (hasIPC()) {
-      try {
-        await window.electronAPI.cajaChica.updateStatus({ id, status: 'rejected', by: approvedBy ?? user?.id })
-        loadTxns()
-      } catch { loadTxns() }
-    } else {
-      setTxns(prev => prev.map(t => t.id === id ? { ...t, estado: 'rejected' } : t))
-    }
+    try {
+      await api.cajaChica.updateStatus({ id, status: 'rejected', by: approvedBy ?? user?.id })
+      loadTxns()
+    } catch { loadTxns() }
     showToast(L('Gasto rechazado', 'Expense rejected'))
   }
 
@@ -318,16 +304,10 @@ export default function PettyCash() {
       cajero_id:   user?.id ?? 1,
     }
 
-    if (hasIPC()) {
-      try {
-        await window.electronAPI.cajaChica.create(data)
-        loadTxns()
-      } catch { loadTxns() }
-    } else {
-      // Dev fallback
-      const next = normalizeRow({ ...data, id: Date.now(), created_at: new Date().toISOString() })
-      setTxns(prev => [next, ...prev])
-    }
+    try {
+      await api.cajaChica.create(data)
+      loadTxns()
+    } catch { loadTxns() }
 
     setDesc(''); setMonto(''); setRecibo('')
     showToast(canApprove
@@ -367,25 +347,26 @@ export default function PettyCash() {
       {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
 
       {/* ── Header ── */}
-      <div className="bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between flex-shrink-0">
+      <div className="bg-white border-b border-slate-100 px-3 md:px-6 py-3 md:py-4 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
-          <PiggyBank size={20} className="text-slate-500" />
-          <h1 className="text-lg font-semibold text-slate-800">{L('Caja Chica', 'Petty Cash')}</h1>
-          <span className="text-xs text-slate-400 ml-1">{L('Fondo', 'Fund')} {fmt(FONDO_TOTAL)}</span>
+          <PiggyBank size={18} className="text-slate-500" />
+          <h1 className="text-base md:text-lg font-semibold text-slate-800">{L('Caja Chica', 'Petty Cash')}</h1>
+          <span className="text-xs text-slate-400 ml-1 hidden md:inline">{L('Fondo', 'Fund')} {fmt(FONDO_TOTAL)}</span>
         </div>
         <button
           onClick={() => setShowHistory(true)}
-          className="flex items-center gap-1.5 text-sm text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50"
+          className="flex items-center gap-1.5 text-sm text-slate-600 border border-slate-200 px-3 py-1.5 min-h-[44px] md:min-h-0 rounded-lg hover:bg-slate-50"
         >
           <History size={15} />
-          {L('Ver Cuadres', 'View History')}
+          <span className="hidden md:inline">{L('Ver Cuadres', 'View History')}</span>
+          <span className="md:hidden">{L('Cuadres', 'History')}</span>
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto flex flex-col gap-4 p-4">
+      <div className="flex-1 overflow-y-auto flex flex-col gap-3 md:gap-4 p-2 md:p-4">
 
         {/* ── Summary bar ── */}
-        <div className="flex gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
           <MetricCard
             label={L('Fondo Asignado', 'Assigned Fund')}
             value={fmt(FONDO_TOTAL)}
@@ -419,7 +400,7 @@ export default function PettyCash() {
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col overflow-hidden">
 
           {/* Tab bar */}
-          <div className="flex items-center gap-1 px-4 pt-3 border-b border-slate-100">
+          <div className="flex items-center gap-1 px-3 md:px-4 pt-3 border-b border-slate-100 overflow-x-auto scrollbar-none">
             {TABS.map(t => (
               <button
                 key={t.key}
@@ -441,7 +422,7 @@ export default function PettyCash() {
           </div>
 
           {/* Table header */}
-          <div className="flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 flex-shrink-0">
+          <div className="hidden md:flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 flex-shrink-0">
             {COLS.map(c => (
               <span key={c.key} className={`text-[10px] font-semibold uppercase tracking-wider text-slate-400 ${c.cls}`}>
                 {L(c.label_es, c.label_en)}
@@ -470,55 +451,40 @@ export default function PettyCash() {
               return (
                 <div
                   key={t.id}
-                  className={`flex items-center px-4 h-12 gap-0 ${rowBg} ${isRejected ? 'opacity-50' : ''}`}
+                  className={`${rowBg} ${isRejected ? 'opacity-50' : ''}`}
                 >
-                  {/* # */}
-                  <span className={`${COLS[0].cls} text-xs text-slate-400 tabular-nums`}>{idx + 1}</span>
-
-                  {/* Descripción */}
-                  <div className={`${COLS[1].cls} flex items-center gap-2 min-w-0`}>
-                    <span className={`text-sm text-slate-800 truncate ${isRejected ? 'line-through' : ''}`}>
-                      {t.desc}
-                    </span>
-                    {t.recibo && (
-                      <span className="flex items-center gap-0.5 text-[10px] text-slate-400 flex-shrink-0">
-                        <Receipt size={10} />
-                        {t.recibo}
+                  {/* Mobile card layout */}
+                  <div className="md:hidden px-3 py-3 space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <span className={`text-sm text-slate-800 ${isRejected ? 'line-through' : ''}`}>
+                          {t.desc}
+                        </span>
+                        {t.recibo && (
+                          <span className="flex items-center gap-0.5 text-[10px] text-slate-400 mt-0.5">
+                            <Receipt size={10} />
+                            {t.recibo}
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-sm font-medium tabular-nums shrink-0 ${isRejected ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+                        {fmt(t.monto)}
                       </span>
-                    )}
-                  </div>
-
-                  {/* Categoría */}
-                  <span className={`${COLS[2].cls} text-xs text-slate-600`}>{t.cat}</span>
-
-                  {/* Fecha */}
-                  <span className={`${COLS[3].cls} text-xs text-slate-500`}>{fmtDate(t.fecha)}</span>
-
-                  {/* Monto */}
-                  <span className={`${COLS[4].cls} text-sm font-medium tabular-nums ${isRejected ? 'line-through text-slate-400' : 'text-slate-800'}`}>
-                    {fmt(t.monto)}
-                  </span>
-
-                  {/* Tipo badge */}
-                  <div className={`${COLS[5].cls} flex justify-center`}>
-                    <TypeBadge tipo={t.tipo} lang={lang} />
-                  </div>
-
-                  {/* Estado */}
-                  <div className={`${COLS[6].cls}`}>
-                    <EstadoBadge estado={t.estado} lang={lang} />
-                  </div>
-
-                  {/* Acciones */}
-                  <div className={`${COLS[7].cls} flex items-center gap-1.5 justify-end`}>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-slate-600">{t.cat}</span>
+                      <span className="text-xs text-slate-500">{fmtDate(t.fecha)}</span>
+                      <TypeBadge tipo={t.tipo} lang={lang} />
+                      <EstadoBadge estado={t.estado} lang={lang} />
+                    </div>
                     {['pending','pendiente'].includes(t.estado) && canApprove && (
-                      <>
+                      <div className="flex items-center gap-2 pt-1">
                         <button
                           onClick={() => requirePin(
                             L('Aprobar gasto', 'Approve expense'),
                             mgr => doApprove(t.id, mgr?.id)
                           )}
-                          className="flex items-center gap-1 text-xs text-emerald-600 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded-lg"
+                          className="flex items-center gap-1 text-xs text-emerald-600 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 min-h-[44px] rounded-lg"
                         >
                           <CheckCircle2 size={12} />
                           {L('Aprobar', 'Approve')}
@@ -528,16 +494,87 @@ export default function PettyCash() {
                             L('Rechazar gasto', 'Reject expense'),
                             mgr => doReject(t.id, mgr?.id)
                           )}
-                          className="flex items-center gap-1 text-xs text-red-500 border border-red-200 bg-red-50 hover:bg-red-100 px-2 py-1 rounded-lg"
+                          className="flex items-center gap-1 text-xs text-red-500 border border-red-200 bg-red-50 hover:bg-red-100 px-3 py-1.5 min-h-[44px] rounded-lg"
                         >
                           <XCircle size={12} />
                           {L('Rechazar', 'Reject')}
                         </button>
-                      </>
+                      </div>
                     )}
                     {['pending','pendiente'].includes(t.estado) && !canApprove && (
                       <span className="text-xs text-amber-500 italic">{L('En revisión', 'Under review')}</span>
                     )}
+                  </div>
+
+                  {/* Desktop row layout */}
+                  <div className="hidden md:flex items-center px-4 h-12 gap-0">
+                    {/* # */}
+                    <span className={`${COLS[0].cls} text-xs text-slate-400 tabular-nums`}>{idx + 1}</span>
+
+                    {/* Descripción */}
+                    <div className={`${COLS[1].cls} flex items-center gap-2 min-w-0`}>
+                      <span className={`text-sm text-slate-800 truncate ${isRejected ? 'line-through' : ''}`}>
+                        {t.desc}
+                      </span>
+                      {t.recibo && (
+                        <span className="flex items-center gap-0.5 text-[10px] text-slate-400 flex-shrink-0">
+                          <Receipt size={10} />
+                          {t.recibo}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Categoría */}
+                    <span className={`${COLS[2].cls} text-xs text-slate-600`}>{t.cat}</span>
+
+                    {/* Fecha */}
+                    <span className={`${COLS[3].cls} text-xs text-slate-500`}>{fmtDate(t.fecha)}</span>
+
+                    {/* Monto */}
+                    <span className={`${COLS[4].cls} text-sm font-medium tabular-nums ${isRejected ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+                      {fmt(t.monto)}
+                    </span>
+
+                    {/* Tipo badge */}
+                    <div className={`${COLS[5].cls} flex justify-center`}>
+                      <TypeBadge tipo={t.tipo} lang={lang} />
+                    </div>
+
+                    {/* Estado */}
+                    <div className={`${COLS[6].cls}`}>
+                      <EstadoBadge estado={t.estado} lang={lang} />
+                    </div>
+
+                    {/* Acciones */}
+                    <div className={`${COLS[7].cls} flex items-center gap-1.5 justify-end`}>
+                      {['pending','pendiente'].includes(t.estado) && canApprove && (
+                        <>
+                          <button
+                            onClick={() => requirePin(
+                              L('Aprobar gasto', 'Approve expense'),
+                              mgr => doApprove(t.id, mgr?.id)
+                            )}
+                            className="flex items-center gap-1 text-xs text-emerald-600 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded-lg"
+                          >
+                            <CheckCircle2 size={12} />
+                            {L('Aprobar', 'Approve')}
+                          </button>
+                          <button
+                            onClick={() => requirePin(
+                              L('Rechazar gasto', 'Reject expense'),
+                              mgr => doReject(t.id, mgr?.id)
+                            )}
+                            className="flex items-center gap-1 text-xs text-red-500 border border-red-200 bg-red-50 hover:bg-red-100 px-2 py-1 rounded-lg"
+                          >
+                            <XCircle size={12} />
+                            {L('Rechazar', 'Reject')}
+                          </button>
+                        </>
+                      )}
+                      {['pending','pendiente'].includes(t.estado) && !canApprove && (
+                        <span className="text-xs text-amber-500 italic">{L('En revisión', 'Under review')}</span>
+                      )}
+                    </div>
                   </div>
                 </div>
               )
@@ -556,89 +593,95 @@ export default function PettyCash() {
         </div>
 
         {/* ── Entry form ── */}
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex-shrink-0">
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 md:p-4 flex-shrink-0">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-3">
             {L('Registrar gasto', 'Log expense')}
           </p>
 
           {/* Form row */}
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-col md:flex-row md:items-center gap-2 md:flex-wrap">
             {/* Descripción */}
             <input
               value={desc}
               onChange={e => setDesc(e.target.value)}
               placeholder={L('Descripción del gasto…', 'Expense description…')}
-              className="flex-1 min-w-[180px] border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="w-full md:flex-1 md:min-w-[180px] border border-slate-200 rounded-lg px-3 py-2 min-h-[44px] md:min-h-0 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
             />
 
-            {/* Categoría */}
-            <select
-              value={cat}
-              onChange={e => setCat(e.target.value)}
-              className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
-            >
-              {CATEGORIAS.map(c => <option key={c}>{c}</option>)}
-            </select>
+            <div className="flex gap-2 flex-wrap">
+              {/* Categoría */}
+              <select
+                value={cat}
+                onChange={e => setCat(e.target.value)}
+                className="flex-1 md:flex-none border border-slate-200 rounded-lg px-3 py-2 min-h-[44px] md:min-h-0 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+              >
+                {CATEGORIAS.map(c => <option key={c}>{c}</option>)}
+              </select>
 
-            {/* Tipo toggle */}
-            <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm">
-              {['Gasto', 'Compra'].map(t => (
-                <button
-                  key={t}
-                  onClick={() => setTipo(t)}
-                  className={`px-3 py-2 font-medium transition ${
-                    tipo === t
-                      ? t === 'Gasto'
-                        ? 'bg-amber-500 text-white'
-                        : 'bg-emerald-500 text-white'
-                      : 'text-slate-500 hover:bg-slate-50'
-                  }`}
-                >
-                  {t === 'Gasto' ? L('Gasto', 'Expense') : L('Compra', 'Purchase')}
-                </button>
-              ))}
+              {/* Tipo toggle */}
+              <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm">
+                {['Gasto', 'Compra'].map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setTipo(t)}
+                    className={`px-3 py-2 min-h-[44px] md:min-h-0 font-medium transition ${
+                      tipo === t
+                        ? t === 'Gasto'
+                          ? 'bg-amber-500 text-white'
+                          : 'bg-emerald-500 text-white'
+                        : 'text-slate-500 hover:bg-slate-50'
+                    }`}
+                  >
+                    {t === 'Gasto' ? L('Gasto', 'Expense') : L('Compra', 'Purchase')}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Monto */}
-            <div className="relative">
-              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400">RD$</span>
-              <input
-                type="number"
-                min="0"
-                value={monto}
-                onChange={e => setMonto(e.target.value)}
-                placeholder="0.00"
-                className="w-32 pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400"
-              />
-            </div>
+            <div className="flex gap-2">
+              {/* Monto */}
+              <div className="relative flex-1 md:flex-none">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400">RD$</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={monto}
+                  onChange={e => setMonto(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full md:w-32 pl-9 pr-3 py-2 min-h-[44px] md:min-h-0 border border-slate-200 rounded-lg text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
 
-            {/* Recibo */}
-            <div className="relative">
-              <Receipt size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                value={recibo}
-                onChange={e => setRecibo(e.target.value)}
-                placeholder={L('Recibo # (opc.)', 'Receipt # (opt.)')}
-                className="w-36 pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              />
+              {/* Recibo */}
+              <div className="relative flex-1 md:flex-none">
+                <Receipt size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={recibo}
+                  onChange={e => setRecibo(e.target.value)}
+                  placeholder={L('Recibo # (opc.)', 'Receipt # (opt.)')}
+                  className="w-full md:w-36 pl-8 pr-3 py-2 min-h-[44px] md:min-h-0 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
             </div>
 
             {/* Buttons */}
-            <button
-              onClick={handleGuardar}
-              disabled={!formValid || saving}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-1"
-            >
-              {saving && <Loader2 size={13} className="animate-spin" />}
-              {L('Guardar gasto', 'Save expense')}
-            </button>
-            <button
-              onClick={handleSolicitar}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 whitespace-nowrap"
-            >
-              <Send size={14} />
-              {L('Solicitar fondos', 'Request funds')}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleGuardar}
+                disabled={!formValid || saving}
+                className="flex-1 md:flex-none px-4 py-2 min-h-[44px] md:min-h-0 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap flex items-center justify-center gap-1"
+              >
+                {saving && <Loader2 size={13} className="animate-spin" />}
+                {L('Guardar gasto', 'Save expense')}
+              </button>
+              <button
+                onClick={handleSolicitar}
+                className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2 min-h-[44px] md:min-h-0 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 whitespace-nowrap"
+              >
+                <Send size={14} />
+                {L('Solicitar fondos', 'Request funds')}
+              </button>
+            </div>
           </div>
 
           {/* Balance strip */}

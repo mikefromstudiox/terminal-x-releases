@@ -5,6 +5,7 @@ import {
   Tag, Scissors, X, ChevronDown, RefreshCw,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { useAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -77,6 +78,7 @@ function MotivoBadge({ motivo }) {
 
 // ── PIN Modal ─────────────────────────────────────────────────────────────────
 function PinModal({ onConfirm, onClose }) {
+  const api = useAPI()
   const [pin, setPin] = useState('')
   const [err, setErr] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -85,7 +87,7 @@ function PinModal({ onConfirm, onClose }) {
     if (!pin) return
     setChecking(true)
     try {
-      const user = await window.electronAPI.auth.byPin(pin)
+      const user = await api.auth.byPin(pin)
       if (user && (user.role === 'manager' || user.role === 'admin')) {
         onConfirm()
       } else {
@@ -167,6 +169,7 @@ function Toast({ msg }) {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function CreditNotes() {
+  const api = useAPI()
   const { user } = useAuth()
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
@@ -204,8 +207,8 @@ export default function CreditNotes() {
     setLoading(true)
     try {
       const [notasData, ticketsData] = await Promise.all([
-        window.electronAPI.notas.all(),
-        window.electronAPI.tickets.byDateRange({ from: '2020-01-01', to: '2099-12-31' }),
+        api.notas.all(),
+        api.tickets.byDateRange({ from: '2020-01-01', to: '2099-12-31' }),
       ])
       setNotes(notasData || [])
       setTickets(ticketsData || [])
@@ -291,28 +294,61 @@ export default function CreditNotes() {
   async function doEmit() {
     setSubmitting(true)
     try {
+      const biz      = await api.admin.getEmpresa()
+      const settings = biz?.settings ? JSON.parse(biz.settings) : {}
+      const isECF    = settings.facturacion_mode === 'ecf'
+
+      let assignedNCF = null
+
+      if (isECF) {
+        const { signAndSubmitECF } = await import('../services/ecf')
+        const subtotal  = parseFloat((montoNum / (1 + ITBIS_RATE + LEY_RATE)).toFixed(2))
+        const ecfResult = await signAndSubmitECF({
+          tipoECF:    '34',
+          emisor: {
+            rnc:             biz.rnc     || '',
+            nombre:          biz.name    || '',
+            nombreComercial: biz.name    || '',
+            direccion:       biz.address || 'Santo Domingo',
+            email:           biz.email   || '',
+          },
+          comprador:  clientRNC.trim()
+            ? { rnc: clientRNC.trim(), nombre: clientName }
+            : null,
+          totales:    { subtotal, itbis: itbisRev, total: montoNum },
+          items:      [{ nombre: `Nota Crédito - ${motivo}`, precio: subtotal, cantidad: 1 }],
+          metodoPago: forma === 'Efectivo' ? 'efectivo' : forma === 'Transferencia' ? 'transferencia' : 'nota_credito',
+          referencia: {
+            ncfModificado:      factLookup?.ncf || factNo || '',
+            razonModificacion:  comentario.trim() || motivo,
+            codigoModificacion: motivo === 'Devolución' ? '1' : motivo === 'Descuento' ? '2' : '3',
+          },
+        })
+        assignedNCF = ecfResult.eNCF
+      } else {
+        assignedNCF = await api.ncf.next('B04')
+      }
+
       const data = {
-        ncf:               null,  // DB assigns from NCF sequence
-        client_id:         factLookup?.client_id || null,
+        ncf:                assignedNCF,
+        client_id:          factLookup?.client_id || null,
         original_ticket_id: factLookup?.id || null,
         motivo,
-        amount:            montoNum,
-        itbis_revertido:   itbisRev,
-        forma_devolucion:  forma,
-        comentario:        comentario.trim(),
-        cajero_id:         user?.id || null,
+        amount:             montoNum,
+        itbis_revertido:    itbisRev,
+        forma_devolucion:   forma,
+        comentario:         comentario.trim(),
+        cajero_id:          user?.id || null,
       }
-      await window.electronAPI.notas.create(data)
-      // Reload notes from DB
-      const fresh = await window.electronAPI.notas.all()
+      await api.notas.create(data)
+      const fresh = await api.notas.all()
       setNotes(fresh || [])
-      // Reset form
       setClientName(''); setClientRNC(''); setFactNo(''); setMonto(''); setComentario('')
       setFactLookup(null)
       showToast(L('Nota de crédito emitida', 'Credit note issued'))
     } catch (e) {
       console.error('notaCreate error:', e)
-      showToast(L('Error al emitir nota', 'Error issuing note'))
+      showToast(e.message || L('Error al emitir nota', 'Error issuing note'))
     } finally {
       setSubmitting(false)
     }

@@ -1,15 +1,25 @@
 import { createContext, useContext, useState } from 'react'
+import { useAPI } from './DataContext'
 
 const AuthContext = createContext(null)
 
-const ipc = () => window?.electronAPI
+const DEV_USER = import.meta.env.DEV
+  ? { id: 0, name: 'Dev Owner', username: 'dev', role: 'owner', active: 1 }
+  : null
+
+// On web, provide a default owner user (Supabase auth already verified identity)
+const isWeb = typeof window !== 'undefined' && !window.electronAPI
+const WEB_USER = isWeb
+  ? { id: 'web', name: 'Owner', username: 'owner', role: 'owner', active: 1 }
+  : null
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)
+  const api = useAPI()
+  const [user, setUser] = useState(DEV_USER || WEB_USER)
 
   async function login(pin) {
     try {
-      const u = await ipc()?.auth?.byPin?.(pin)
+      const u = await api?.auth?.byPin?.(pin)
       if (u?.id) { setUser(u); return true }
       return false
     } catch {
@@ -21,7 +31,7 @@ export function AuthProvider({ children }) {
   async function loginWithPassword(username, password) {
     try {
       // Try PIN-based auth using password field as the PIN
-      const u = await ipc()?.auth?.byPin?.(password)
+      const u = await api?.auth?.byPin?.(password)
       if (u?.id && u.username?.toLowerCase() === username.trim().toLowerCase()) {
         setUser(u); return true
       }

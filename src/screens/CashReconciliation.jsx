@@ -4,11 +4,10 @@ import {
   Printer, Calculator, DollarSign, Lock, Loader2, Search,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { useAPI, usePrinterAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
 import { printCuadreCaja } from '../services/printer'
 
-// ── IPC guard ─────────────────────────────────────────────────────────────────
-const hasIPC = () => !!window?.electronAPI
 
 // ── Denomination rows ─────────────────────────────────────────────────────────
 const BILLS = [
@@ -70,7 +69,7 @@ function SmallInput({ value, onChange, className = '' }) {
       min="0"
       value={value}
       onChange={e => onChange(Number(e.target.value) || 0)}
-      className={`w-16 text-right border border-slate-200 rounded px-1.5 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 ${className}`}
+      className={`w-16 text-right border border-slate-200 rounded px-1.5 py-1 md:py-0.5 text-sm min-h-[44px] md:min-h-0 focus:outline-none focus:ring-1 focus:ring-blue-400 ${className}`}
     />
   )
 }
@@ -85,7 +84,7 @@ function RightInput({ label, value, onChange }) {
         value={value || ''}
         onChange={e => onChange(Number(e.target.value) || 0)}
         placeholder="0"
-        className="w-28 text-right border border-slate-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+        className="w-28 text-right border border-slate-200 rounded px-2 py-1 md:py-0.5 text-sm min-h-[44px] md:min-h-0 focus:outline-none focus:ring-1 focus:ring-blue-400"
       />
     </div>
   )
@@ -93,6 +92,7 @@ function RightInput({ label, value, onChange }) {
 
 // ── PIN Modal ─────────────────────────────────────────────────────────────────
 function PinModal({ onConfirm, onClose, lang }) {
+  const api = useAPI()
   const L = (es, en) => lang === 'es' ? es : en
   const [pin, setPin]       = useState('')
   const [err, setErr]       = useState(false)
@@ -103,24 +103,18 @@ function PinModal({ onConfirm, onClose, lang }) {
 
   async function submit() {
     if (!pin) return
-    if (hasIPC()) {
-      setLoading(true)
-      try {
-        const manager = await window.electronAPI.auth.byPin(pin)
-        if (manager && ['owner', 'manager'].includes(manager.role)) {
-          onConfirm(manager)
-        } else {
-          setErr(true); setPin('')
-        }
-      } catch {
+    setLoading(true)
+    try {
+      const manager = await api.auth.byPin(pin)
+      if (manager && ['owner', 'manager'].includes(manager.role)) {
+        onConfirm(manager)
+      } else {
         setErr(true); setPin('')
-      } finally {
-        setLoading(false)
       }
-    } else {
-      // Dev fallback
-      if (pin === '1111') { onConfirm({ name: 'Manager' }) }
-      else { setErr(true); setPin('') }
+    } catch {
+      setErr(true); setPin('')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -159,6 +153,7 @@ function PinModal({ onConfirm, onClose, lang }) {
 
 // ── History Panel ─────────────────────────────────────────────────────────────
 function CierresPanel({ onClose, lang, biz }) {
+  const api = useAPI()
   const L = (es, en) => lang === 'es' ? es : en
   const today = new Date().toISOString().slice(0, 10)
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
@@ -173,9 +168,8 @@ function CierresPanel({ onClose, lang, biz }) {
   useEffect(() => () => { mountedRef.current = false }, [])
 
   function runSearch(from, to) {
-    if (!hasIPC()) { setLoading(false); return }
     setLoading(true)
-    window.electronAPI.cuadre.list({ dateFrom: from, dateTo: to })
+    api.cuadre.list({ dateFrom: from, dateTo: to })
       .then(rows => { if (mountedRef.current) setHistory(rows || []) })
       .catch(() => { if (mountedRef.current) setHistory([]) })
       .finally(() => { if (mountedRef.current) setLoading(false) })
@@ -204,7 +198,7 @@ function CierresPanel({ onClose, lang, biz }) {
   }
 
   return (
-    <div className="fixed inset-y-0 right-0 z-40 w-[500px] bg-white shadow-2xl flex flex-col">
+    <div className="fixed inset-y-0 right-0 z-40 w-full md:w-[500px] bg-white shadow-2xl flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
         <h3 className="font-semibold text-slate-800">{L('Historial de Cierres', 'Closing History')}</h3>
@@ -341,6 +335,8 @@ function CierresPanel({ onClose, lang, biz }) {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function CashReconciliation() {
+  const api = useAPI()
+  const printerApi = usePrinterAPI()
   const { user }  = useAuth()
   const { lang }  = useLang()
   const L = (es, en) => lang === 'es' ? es : en
@@ -382,8 +378,7 @@ export default function CashReconciliation() {
 
   // Load business info for print header
   useEffect(() => {
-    if (!hasIPC()) return
-    window.electronAPI.admin.getEmpresa().then(setBiz).catch(() => {})
+    api.admin.getEmpresa().then(setBiz).catch(() => {})
   }, [])
 
   // Clock tick
@@ -394,8 +389,7 @@ export default function CashReconciliation() {
 
   // Load daily summary on mount
   useEffect(() => {
-    if (!hasIPC()) { setLoadingDay(false); return }
-    window.electronAPI.cuadre.daily(todayISO())
+    api.cuadre.daily(todayISO())
       .then(data => {
         if (data) setDaySummary(data)
         // Pre-fill transferencia and tarjeta from DB summary
@@ -472,9 +466,7 @@ export default function CashReconciliation() {
       denominaciones:   qty,
     }
     try {
-      if (hasIPC()) {
-        await window.electronAPI.cuadre.create(closeData)
-      }
+      await api.cuadre.create(closeData)
       setManagerName(manager?.name ?? null)
       setClosed(true)
       doPrint()
@@ -514,48 +506,51 @@ export default function CashReconciliation() {
       )}
 
       {/* ── Top Bar ── */}
-      <div className="bg-white border-b border-slate-100 px-6 py-3 flex items-center gap-6 flex-shrink-0">
-        <div className="flex-1">
-          <p className="text-xs text-slate-400 uppercase tracking-wider">{L('Cajero', 'Cashier')}</p>
-          <p className="font-semibold text-slate-800">{user?.name ?? L('Caja', 'Register')}</p>
-        </div>
-        <div className="flex-1">
-          <p className="text-xs text-slate-400 uppercase tracking-wider">{L('Fecha', 'Date')}</p>
-          <p className="font-medium text-slate-700 capitalize text-sm">{todayStr()}</p>
-        </div>
-        <div className="w-32 text-center">
-          <p className="text-xs text-slate-400 uppercase tracking-wider">{L('Hora', 'Time')}</p>
-          <p className="font-mono font-semibold text-slate-800">{time}</p>
-        </div>
-        <div className="flex items-center gap-2 ml-4">
-          <label className="text-xs text-slate-500 whitespace-nowrap">{L('Fondo de caja', 'Opening float')}</label>
-          <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">RD$</span>
-            <input
-              type="number"
-              value={fondo}
-              onChange={e => setFondo(Number(e.target.value) || 0)}
-              className="w-28 pl-8 pr-2 py-1.5 border border-slate-200 rounded-lg text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400"
-            />
+      <div className="bg-white border-b border-slate-100 px-3 md:px-6 py-3 flex-shrink-0">
+        <div className="flex flex-wrap items-center gap-3 md:gap-6">
+          <div className="flex-1 min-w-[120px]">
+            <p className="text-xs text-slate-400 uppercase tracking-wider">{L('Cajero', 'Cashier')}</p>
+            <p className="font-semibold text-slate-800 text-sm md:text-base">{user?.name ?? L('Caja', 'Register')}</p>
           </div>
+          <div className="hidden md:block flex-1">
+            <p className="text-xs text-slate-400 uppercase tracking-wider">{L('Fecha', 'Date')}</p>
+            <p className="font-medium text-slate-700 capitalize text-sm">{todayStr()}</p>
+          </div>
+          <div className="w-20 md:w-32 text-center">
+            <p className="text-xs text-slate-400 uppercase tracking-wider">{L('Hora', 'Time')}</p>
+            <p className="font-mono font-semibold text-slate-800 text-sm md:text-base">{time}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-slate-500 whitespace-nowrap hidden md:inline">{L('Fondo de caja', 'Opening float')}</label>
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">RD$</span>
+              <input
+                type="number"
+                value={fondo}
+                onChange={e => setFondo(Number(e.target.value) || 0)}
+                className="w-28 pl-8 pr-2 py-1.5 min-h-[44px] md:min-h-0 border border-slate-200 rounded-lg text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
+          </div>
+          <button
+            onClick={() => setShowHistory(true)}
+            className="flex items-center gap-1.5 text-sm text-slate-600 border border-slate-200 px-3 py-1.5 min-h-[44px] md:min-h-0 rounded-lg hover:bg-slate-50"
+          >
+            <History size={15} />
+            <span className="hidden md:inline">{L('Ver Cierres', 'View History')}</span>
+            <span className="md:hidden">{L('Cierres', 'History')}</span>
+          </button>
         </div>
-        <button
-          onClick={() => setShowHistory(true)}
-          className="flex items-center gap-1.5 text-sm text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50"
-        >
-          <History size={15} />
-          {L('Ver Cierres', 'View History')}
-        </button>
       </div>
 
-      {/* ── 3-Column Body ── */}
-      <div className="flex-1 overflow-hidden flex gap-4 p-4">
+      {/* ── Two-column layout ── */}
+      <div className="flex-1 overflow-hidden p-2 md:p-4 flex flex-col md:flex-row gap-3 md:gap-4 min-h-0 overflow-y-auto md:overflow-hidden">
 
-        {/* ── LEFT: Resumen + Cierre ── */}
-        <div className="w-72 flex flex-col gap-4 overflow-y-auto">
+        {/* LEFT: Day summary + Cash count */}
+        <div className="flex flex-col gap-3 md:w-[48%] md:overflow-y-auto min-h-0 shrink-0">
 
           {/* Resumen del día */}
-          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
+          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm flex-shrink-0">
             <SectionLabel>{L('Resumen del día', "Day's Summary")}</SectionLabel>
             {loadingDay ? (
               <div className="flex items-center gap-2 text-slate-400 text-sm py-4">
@@ -564,87 +559,38 @@ export default function CashReconciliation() {
               </div>
             ) : (
               <>
-                <ResumeRow label={L('Efectivo', 'Cash')}            value={fmt(daySummary.efectivo)} />
-                <ResumeRow label={L('Tarjeta', 'Card')}             value={fmt(daySummary.tarjeta)} />
-                <ResumeRow label={L('Transferencia', 'Transfer')}   value={fmt(daySummary.transferencia)} />
-                <ResumeRow label={L('Cheque', 'Check')}             value={fmt(daySummary.cheque)} />
+                <ResumeRow label={L('Efectivo', 'Cash')}                 value={fmt(daySummary.efectivo)} />
+                <ResumeRow label={L('Tarjeta', 'Card')}                  value={fmt(daySummary.tarjeta)} />
+                <ResumeRow label={L('Transferencia', 'Transfer')}        value={fmt(daySummary.transferencia)} />
+                <ResumeRow label={L('Cheque', 'Check')}                  value={fmt(daySummary.cheque)} />
                 <ResumeRow divider />
-                <ResumeRow label={L('Créditos', 'Credits')}         value={fmt(daySummary.credito)}   muted />
+                <ResumeRow label={L('Créditos', 'Credits')}              value={fmt(daySummary.credito)} muted />
                 <ResumeRow divider />
-                <ResumeRow label={L('Total Vendido', 'Total Sold')} value={fmt(daySummary.totalVendido)}   bold />
+                <ResumeRow label={L('Total Vendido', 'Total Sold')}      value={fmt(daySummary.totalVendido)} bold />
                 <ResumeRow label={L('Total Cobrado', 'Total Collected')} value={fmt(daySummary.totalCobrado)} bold />
               </>
             )}
           </div>
 
-          {/* Cierre */}
-          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
-            <SectionLabel>{L('Cierre', 'Closing')}</SectionLabel>
-            <ResumeRow label={L('Efectivo neto', 'Net cash')}     value={fmt(efectivoNeto)} />
-            <ResumeRow label={L('Tarjetas', 'Cards')}             value={fmt(tarjetasTotal)} />
-            <ResumeRow label={L('Transferencias', 'Transfers')}   value={fmt(transTotal)} />
-            <ResumeRow label={L('F. A Créditos', 'Credits')}      value={fmt(fACreditos)} />
-            <ResumeRow label={L('Salidas', 'Outflows')}           value={fmt(salidasTotal)} muted />
-            <ResumeRow divider />
-            <ResumeRow label={L('Total Cobrado', 'Total Collected')} value={fmt(cierreTotal)} bold />
-
-            {/* Difference box */}
-            <div className={`mt-3 rounded-xl p-3 flex items-center gap-2 ${cuadrada ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}>
-              {cuadrada
-                ? <CheckCircle2 size={18} className="text-emerald-600 flex-shrink-0" />
-                : <AlertCircle  size={18} className="text-red-500 flex-shrink-0" />
-              }
-              <div>
-                <p className={`text-sm font-bold ${cuadrada ? 'text-emerald-700' : 'text-red-600'}`}>
-                  {cuadrada
-                    ? L('Caja cuadrada', 'Balanced')
-                    : `${L('Descuadre', 'Difference')} ${fmt(Math.abs(diferencia))}`}
-                </p>
-                <p className={`text-xs ${cuadrada ? 'text-emerald-500' : 'text-red-400'}`}>
-                  {cuadrada
-                    ? 'RD$0.00'
-                    : diferencia > 0
-                    ? L('Sobrante en caja', 'Cash over')
-                    : L('Faltante en caja', 'Cash short')}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Comentario */}
-          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
-            <SectionLabel>{L('Comentario', 'Comments')}</SectionLabel>
-            <textarea
-              value={comentario}
-              onChange={e => setComentario(e.target.value)}
-              placeholder={L('Observaciones del cierre…', 'Closing observations…')}
-              rows={3}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
-            />
-          </div>
-        </div>
-
-        {/* ── CENTER: Conteo de Efectivo ── */}
-        <div className="w-72 flex flex-col gap-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm flex-1">
+          {/* Conteo de Efectivo */}
+          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm flex-shrink-0">
             <SectionLabel>{L('Conteo de Efectivo', 'Cash Count')}</SectionLabel>
 
-            {/* Header */}
-            <div className="flex items-center justify-between mb-2 pb-1 border-b border-slate-100">
-              <span className="text-xs text-slate-400 w-24">{L('Denominación', 'Denomination')}</span>
-              <span className="text-xs text-slate-400 w-16 text-right">{L('Cant.', 'Qty.')}</span>
+            <div className="flex items-center justify-between mb-1 pb-1 border-b border-slate-100">
+              <span className="text-xs text-slate-400 flex-1">{L('Denominación', 'Denomination')}</span>
+              <span className="text-xs text-slate-400 w-14 text-right">{L('Cant.', 'Qty.')}</span>
               <span className="text-xs text-slate-400 w-24 text-right">{L('Monto', 'Amount')}</span>
             </div>
 
             {BILLS.map(b => {
               const amount = b.value * (qty[b.value] || 0)
               return (
-                <div key={b.value} className="flex items-center justify-between py-1">
-                  <span className="text-sm text-slate-700 w-24">{b.label}</span>
+                <div key={b.value} className="flex items-center justify-between py-0.5">
+                  <span className="text-sm text-slate-700 flex-1">{b.label}</span>
                   <SmallInput
                     value={qty[b.value] || 0}
                     onChange={v => setQty(q => ({ ...q, [b.value]: v }))}
-                    className="w-16"
+                    className="w-14"
                   />
                   <span className="text-sm tabular-nums text-slate-700 w-24 text-right">
                     {amount > 0 ? fmt(amount) : <span className="text-slate-300">—</span>}
@@ -654,10 +600,10 @@ export default function CashReconciliation() {
             })}
 
             {/* USD row */}
-            <div className="mt-3 pt-3 border-t border-slate-100">
-              <div className="flex items-center justify-between py-1">
-                <span className="text-sm text-slate-700 w-24">USD</span>
-                <SmallInput value={usdQty} onChange={setUsdQty} className="w-16" />
+            <div className="mt-2 pt-2 border-t border-slate-100">
+              <div className="flex items-center justify-between py-0.5">
+                <span className="text-sm text-slate-700 flex-1">USD</span>
+                <SmallInput value={usdQty} onChange={setUsdQty} className="w-14" />
                 <span className="text-sm tabular-nums text-slate-700 w-24 text-right">
                   {usdQty > 0 ? fmtUSD(usdQty) : <span className="text-slate-300">—</span>}
                 </span>
@@ -671,7 +617,7 @@ export default function CashReconciliation() {
             </div>
 
             {/* Blue summary box */}
-            <div className="mt-4 rounded-xl bg-blue-50 border border-blue-200 p-3 space-y-1">
+            <div className="mt-3 rounded-xl bg-blue-50 border border-blue-200 p-3 space-y-1">
               <div className="flex justify-between">
                 <span className="text-sm text-blue-700">{L('Efectivo RD$', 'Cash RD$')}</span>
                 <span className="text-sm font-bold text-blue-800 tabular-nums">{fmt(efectivoBills)}</span>
@@ -697,13 +643,14 @@ export default function CashReconciliation() {
               </div>
             </div>
           </div>
+
         </div>
 
-        {/* ── RIGHT: Otros Ingresos / Salidas ── */}
-        <div className="flex-1 flex flex-col gap-4 overflow-y-auto min-w-0">
+        {/* RIGHT: Cards + Transfers + Outflows + Closing + Comment */}
+        <div className="flex flex-col gap-3 flex-1 md:overflow-y-auto min-h-0">
 
           {/* Tarjetas */}
-          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
+          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm flex-shrink-0">
             <SectionLabel>{L('Tarjetas', 'Cards')}</SectionLabel>
             <RightInput label="V. Azul"    value={vAzul}    onChange={setVAzul} />
             <RightInput label="V. Carnet"  value={vCarnet}  onChange={setVCarnet} />
@@ -715,12 +662,12 @@ export default function CashReconciliation() {
           </div>
 
           {/* Documentos y Transferencias */}
-          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
+          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm flex-shrink-0">
             <SectionLabel>{L('Documentos y Transferencias', 'Documents & Transfers')}</SectionLabel>
-            <RightInput label={L('Cheque', 'Check')}            value={cheque}        onChange={setCheque} />
-            <RightInput label={L('Transferencia', 'Transfer')}  value={transferencia} onChange={setTrans} />
-            <RightInput label={L('Documento', 'Document')}      value={documento}     onChange={setDoc} />
-            <RightInput label={L('F. A Créditos', 'Credits')}   value={fACreditos}   onChange={setFACreditos} />
+            <RightInput label={L('Cheque', 'Check')}           value={cheque}        onChange={setCheque} />
+            <RightInput label={L('Transferencia', 'Transfer')} value={transferencia} onChange={setTrans} />
+            <RightInput label={L('Documento', 'Document')}     value={documento}     onChange={setDoc} />
+            <RightInput label={L('F. A Créditos', 'Credits')}  value={fACreditos}    onChange={setFACreditos} />
             <div className="flex justify-between pt-2 mt-1 border-t border-slate-100">
               <span className="text-sm font-semibold text-slate-700">Subtotal</span>
               <span className="text-sm font-bold text-slate-800 tabular-nums">{fmt(transTotal + fACreditos)}</span>
@@ -728,82 +675,113 @@ export default function CashReconciliation() {
           </div>
 
           {/* Salidas de Caja */}
-          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
+          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm flex-shrink-0">
             <SectionLabel>{L('Salidas de Caja', 'Cash Outflows')}</SectionLabel>
-            <RightInput label={L('Avances', 'Advances')}           value={avances}       onChange={setAvances} />
-            <RightInput label={L('Devoluciones', 'Refunds')}       value={devoluciones}  onChange={setDevoluciones} />
-            <RightInput label={L('Desembolsos', 'Disbursements')}  value={desembolsos}   onChange={setDesembolsos} />
-            <RightInput label={L('Comisión', 'Commission')}        value={comision}      onChange={setComision} />
+            <RightInput label={L('Avances', 'Advances')}          value={avances}      onChange={setAvances} />
+            <RightInput label={L('Devoluciones', 'Refunds')}      value={devoluciones} onChange={setDevoluciones} />
+            <RightInput label={L('Desembolsos', 'Disbursements')} value={desembolsos}  onChange={setDesembolsos} />
+            <RightInput label={L('Comisión', 'Commission')}       value={comision}     onChange={setComision} />
             <div className="flex justify-between pt-2 mt-1 border-t border-slate-100">
               <span className="text-sm font-semibold text-slate-700">{L('Total salidas', 'Total outflows')}</span>
               <span className="text-sm font-bold text-red-600 tabular-nums">{fmt(salidasTotal)}</span>
             </div>
           </div>
 
-          {/* Grand total recap */}
-          <div className={`rounded-2xl border p-4 ${cuadrada ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
-            <div className="flex justify-between items-center">
+          {/* Cierre */}
+          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm flex-shrink-0">
+            <SectionLabel>{L('Cierre', 'Closing')}</SectionLabel>
+            <ResumeRow label={L('Efectivo neto', 'Net cash')}        value={fmt(efectivoNeto)} />
+            <ResumeRow label={L('Tarjetas', 'Cards')}                value={fmt(tarjetasTotal)} />
+            <ResumeRow label={L('Transferencias', 'Transfers')}      value={fmt(transTotal)} />
+            <ResumeRow label={L('F. A Créditos', 'Credits')}         value={fmt(fACreditos)} />
+            <ResumeRow label={L('Salidas', 'Outflows')}              value={fmt(salidasTotal)} muted />
+            <ResumeRow divider />
+            <ResumeRow label={L('Total Cobrado', 'Total Collected')} value={fmt(cierreTotal)} bold />
+
+            <div className={`mt-3 rounded-xl p-3 flex items-center gap-2 ${cuadrada ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}>
+              {cuadrada
+                ? <CheckCircle2 size={18} className="text-emerald-600 flex-shrink-0" />
+                : <AlertCircle  size={18} className="text-red-500 flex-shrink-0" />
+              }
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-0.5">
-                  {L('Total cobrado (cierre)', 'Total collected (closing)')}
+                <p className={`text-sm font-bold ${cuadrada ? 'text-emerald-700' : 'text-red-600'}`}>
+                  {cuadrada
+                    ? L('Caja cuadrada', 'Balanced')
+                    : `${L('Descuadre', 'Difference')} ${fmt(Math.abs(diferencia))}`}
                 </p>
-                <p className={`text-2xl font-bold tabular-nums ${cuadrada ? 'text-emerald-700' : 'text-red-600'}`}>{fmt(cierreTotal)}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs text-slate-500 mb-0.5">{L('Diferencia', 'Difference')}</p>
-                <p className={`text-lg font-bold tabular-nums ${cuadrada ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {diferencia === 0 ? 'RD$0.00' : (diferencia > 0 ? '+' : '') + fmt(diferencia)}
+                <p className={`text-xs ${cuadrada ? 'text-emerald-500' : 'text-red-400'}`}>
+                  {cuadrada
+                    ? 'RD$0.00'
+                    : diferencia > 0
+                    ? L('Sobrante en caja', 'Cash over')
+                    : L('Faltante en caja', 'Cash short')}
                 </p>
               </div>
             </div>
           </div>
+
+          {/* Comentario */}
+          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm flex-shrink-0">
+            <SectionLabel>{L('Comentario', 'Comments')}</SectionLabel>
+            <textarea
+              value={comentario}
+              onChange={e => setComentario(e.target.value)}
+              placeholder={L('Observaciones del cierre…', 'Closing observations…')}
+              rows={2}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+            />
+          </div>
+
         </div>
       </div>
 
       {/* ── Footer ── */}
-      <div className="bg-white border-t border-slate-100 px-6 py-3 flex items-center gap-3 flex-shrink-0">
-        <button
-          onClick={() => window.electronAPI?.openDrawer?.().catch?.(() => {})}
-          className="flex items-center gap-1.5 px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
-        >
-          <DollarSign size={15} />
-          {L('Abrir Cajón', 'Open Drawer')}
-        </button>
-        <button
-          className="flex items-center gap-1.5 px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
-        >
-          <Calculator size={15} />
-          {L('Calcular', 'Calculate')}
-        </button>
-        <button
-          disabled={closed}
-          className="px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-        >
-          {L('Cancelar', 'Cancel')}
-        </button>
+      <div className="bg-white border-t border-slate-100 px-3 md:px-6 py-3 flex-shrink-0">
+        <div className="flex flex-wrap items-center gap-2 md:gap-3">
+          <button
+            onClick={() => printerApi?.openDrawer?.().catch?.(() => {})}
+            className="flex items-center gap-1.5 px-3 md:px-5 py-2 min-h-[44px] md:min-h-0 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            <DollarSign size={15} />
+            <span className="hidden md:inline">{L('Abrir Cajón', 'Open Drawer')}</span>
+            <span className="md:hidden">{L('Cajón', 'Drawer')}</span>
+          </button>
+          <button
+            className="hidden md:flex items-center gap-1.5 px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            <Calculator size={15} />
+            {L('Calcular', 'Calculate')}
+          </button>
+          <button
+            disabled={closed}
+            className="hidden md:block px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          >
+            {L('Cancelar', 'Cancel')}
+          </button>
 
-        <div className="flex-1" />
+          <div className="flex-1" />
 
-        <button
-          onClick={doPrint}
-          className="flex items-center gap-1.5 px-5 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
-        >
-          <Printer size={15} />
-          {L('Imprimir', 'Print')}
-        </button>
-        <button
-          disabled={closed || saving}
-          onClick={handleCuadrar}
-          className={`flex items-center gap-1.5 px-6 py-2 rounded-lg text-sm font-semibold text-white transition disabled:opacity-40 ${
-            cuadrada ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'
-          }`}
-        >
-          {saving
-            ? <Loader2 size={14} className="animate-spin" />
-            : user?.role === 'cashier' && <Lock size={14} />
-          }
-          {L('Cuadrar / Cerrar Caja', 'Balance / Close Register')}
-        </button>
+          <button
+            onClick={doPrint}
+            className="flex items-center gap-1.5 px-3 md:px-5 py-2 min-h-[44px] md:min-h-0 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            <Printer size={15} />
+            <span className="hidden md:inline">{L('Imprimir', 'Print')}</span>
+          </button>
+          <button
+            disabled={closed || saving}
+            onClick={handleCuadrar}
+            className={`flex items-center gap-1.5 px-4 md:px-6 py-2 min-h-[44px] md:min-h-0 rounded-lg text-xs md:text-sm font-semibold text-white transition disabled:opacity-40 ${
+              cuadrada ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'
+            }`}
+          >
+            {saving
+              ? <Loader2 size={14} className="animate-spin" />
+              : user?.role === 'cashier' && <Lock size={14} />
+            }
+            {L('Cuadrar / Cerrar Caja', 'Balance / Close Register')}
+          </button>
+        </div>
       </div>
     </div>
   )

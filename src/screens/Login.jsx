@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import logoImg from '../assets/logo.png'
 import { Delete } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAuth } from '../context/AuthContext'
@@ -198,7 +199,7 @@ export default function Login() {
         {/* Logo box */}
         <div className="w-20 h-20 bg-white flex items-center justify-center mb-6 shrink-0" style={{ borderRadius: 14 }}>
           <img
-            src="/assets/logo.png"
+            src={logoImg}
             alt="Terminal X"
             className="w-14 h-14 object-contain"
             draggable={false}
@@ -222,7 +223,7 @@ export default function Login() {
         {/* Mobile-only logo */}
         <div className="md:hidden flex flex-col items-center gap-2 mb-8">
           <div className="w-16 h-16 bg-black rounded-[12px] flex items-center justify-center">
-            <img src="/assets/logo.png" alt="Terminal X" className="w-11 h-11 object-contain" draggable={false} />
+            <img src={logoImg} alt="Terminal X" className="w-11 h-11 object-contain" draggable={false} />
           </div>
           <p className="text-slate-800 text-[16px] font-[500] tracking-[2px]">TERMINAL X</p>
         </div>
@@ -261,10 +262,7 @@ export default function Login() {
             </button>
           </div>
 
-          {/* Demo hint */}
-          <p className="text-slate-300 text-xs text-center mt-4">
-            Demo PIN: 1234 (owner) · 0000 (cajero)
-          </p>
+
         </div>
       </div>
     </div>

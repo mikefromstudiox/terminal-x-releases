@@ -3,11 +3,23 @@ const express  = require('express')
 const cors     = require('cors')
 const path     = require('path')
 const db       = require('./db')
+const { createClient } = require('@supabase/supabase-js')
 
 const app       = express()
 const PORT      = process.env.PORT      || 3000
 const ADMIN_KEY = process.env.ADMIN_KEY || 'changeme-set-in-env'
 const GRACE_DAYS = 3
+
+// ── Supabase audit log ────────────────────────────────────────────────────────
+const supabase = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
+  : null
+
+function auditLog(key, hwid, action, status, business_name, ip) {
+  if (!supabase) return
+  supabase.from('license_events').insert({ key, hwid, action, status, business_name, ip })
+    .then(() => {}).catch(() => {})
+}
 
 app.use(cors())
 app.use(express.json())
@@ -31,30 +43,38 @@ function requireAdmin(req, res, next) {
 app.post('/api/validate', (req, res) => {
   try {
     const { key, rnc, hwid } = req.body || {}
+    const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress
     if (!key || !hwid) {
       return res.status(400).json({ valid: false, status: 'invalid_request' })
     }
 
     const license = db.getLicenseByKey(key)
-    if (!license) return res.json({ valid: false, status: 'not_found' })
+    if (!license) {
+      auditLog(key, hwid, 'validate', 'not_found', null, ip)
+      return res.json({ valid: false, status: 'not_found' })
+    }
 
     // Optional RNC verification (normalize: digits only)
     if (rnc) {
       const normalizeRnc = s => (s || '').replace(/\D/g, '')
       if (normalizeRnc(license.business_rnc) !== normalizeRnc(rnc)) {
+        auditLog(key, hwid, 'validate', 'rnc_mismatch', license.business_name, ip)
         return res.json({ valid: false, status: 'rnc_mismatch' })
       }
     }
 
     if (license.status === 'inactive') {
+      auditLog(key, hwid, 'validate', 'inactive', license.business_name, ip)
       return res.json({ valid: false, status: 'inactive', businessName: license.business_name })
     }
     if (license.status === 'suspended') {
+      auditLog(key, hwid, 'validate', 'suspended', license.business_name, ip)
       return res.json({ valid: false, status: 'suspended', businessName: license.business_name })
     }
 
     // Hardware binding check
     if (license.hardware_id && license.hardware_id !== hwid) {
+      auditLog(key, hwid, 'validate', 'hardware_mismatch', license.business_name, ip)
       return res.json({ valid: false, status: 'hardware_mismatch', businessName: license.business_name })
     }
 
@@ -65,6 +85,7 @@ app.post('/api/validate', (req, res) => {
         activated_at: new Date().toISOString(),
         status:       'active',
       })
+      auditLog(key, hwid, 'activate', 'active', license.business_name, ip)
     }
 
     // Update last seen
@@ -88,6 +109,7 @@ app.post('/api/validate', (req, res) => {
         status   = 'expired'
         valid    = false
         readOnly = true
+        auditLog(key, hwid, 'validate', 'expired', license.business_name, ip)
       } else if (diffDays < 0) {
         status     = 'grace'
         warning    = true
@@ -97,6 +119,8 @@ app.post('/api/validate', (req, res) => {
         warningMsg = `Tu licencia vence en ${diffDays} días. Renueva pronto.`
       }
     }
+
+    if (valid) auditLog(key, hwid, 'validate', status, license.business_name, ip)
 
     return res.json({
       valid,

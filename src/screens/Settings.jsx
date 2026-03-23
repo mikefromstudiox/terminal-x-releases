@@ -7,10 +7,13 @@ import {
   Pencil, Check, KeyRound, Printer, Server, X, Lock,
   Cloud, CloudUpload, RotateCcw, AlertTriangle, RefreshCw,
 } from 'lucide-react'
+import { useRNC } from '../hooks/useRNC'
 import { useAuth } from '../context/AuthContext'
+import { useAPI, usePrinterAPI } from '../context/DataContext'
 import { useBackup } from '../context/BackupContext'
 import { manualBackup, restoreFromBackup } from '../services/backup.js'
-import { testConnection, setStoredSetting, getStoredSetting, resetSupabaseClient } from '../services/supabase.js'
+import { testConnection, setStoredSetting, getStoredSetting, resetSupabaseClient, ensureBusinessRegistered } from '../services/supabase.js'
+import ExportToCloud from '../components/ExportToCloud'
 
 // ── Sidebar nav structure ─────────────────────────────────────────────────────
 const NAV = [
@@ -63,31 +66,9 @@ const NAV = [
   },
 ]
 
-// ── Demo users ────────────────────────────────────────────────────────────────
-const INIT_USERS = [
-  { id: 1, name: 'Admin Owner',      username: 'admin',   role: 'owner',     desc: 25, status: 'activo',   pin: '1234' },
-  { id: 2, name: 'Carlos Gerente',   username: 'carlos',  role: 'manager',   desc: 15, status: 'activo',   pin: '1111' },
-  { id: 3, name: 'María Cajera',     username: 'maria',   role: 'cashier',   desc: 5,  status: 'activo',   pin: '0000' },
-  { id: 4, name: 'Ana Contadora',    username: 'ana',     role: 'accountant',desc: 0,  status: 'activo',   pin: '3333' },
-  { id: 5, name: 'Pedro CFO',        username: 'pedro',   role: 'cfo',       desc: 10, status: 'inactivo', pin: '2222' },
-]
-
-// ── Demo washers ──────────────────────────────────────────────────────────────
-const INIT_WASHERS = [
-  { id: 1, name: 'Juan Pérez',    comm: 20, start: '2024-01-15', status: 'activo'   },
-  { id: 2, name: 'Luis García',   comm: 20, start: '2024-03-01', status: 'activo'   },
-  { id: 3, name: 'Miguel Torres', comm: 18, start: '2023-09-10', status: 'activo'   },
-  { id: 4, name: 'Pedro Díaz',    comm: 22, start: '2024-06-20', status: 'inactivo' },
-]
-
-// ── NCF Sequences ─────────────────────────────────────────────────────────────
-const INIT_NCF = [
-  { seq: 'B01', name: 'Crédito Fiscal',     current: 81,  from: 1,  to: 500, expires: '2026-12-31', status: 'ok'      },
-  { seq: 'B02', name: 'Consumidor Final',   current: 217, from: 1,  to: 500, expires: '2026-12-31', status: 'ok'      },
-  { seq: 'B04', name: 'Nota de Crédito',    current: 41,  from: 1,  to: 200, expires: '2026-12-31', status: 'ok'      },
-  { seq: 'E31', name: 'CF Electrónico',     current: 0,   from: 1,  to: 0,   expires: '—',          status: 'pending' },
-  { seq: 'E32', name: 'CF Elec. Consumidor',current: 0,   from: 1,  to: 0,   expires: '—',          status: 'pending' },
-]
+const INIT_USERS   = []
+const INIT_WASHERS = []
+const INIT_NCF     = []
 
 // ── Permissions matrix ────────────────────────────────────────────────────────
 const PERM_FUNCS = [
@@ -131,8 +112,8 @@ function SectionLabel({ children }) {
 }
 function FieldRow({ label, children }) {
   return (
-    <div className="flex items-center gap-4 py-2 border-b border-slate-50 last:border-0">
-      <label className="w-40 text-sm text-slate-500 flex-shrink-0">{label}</label>
+    <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4 py-2 border-b border-slate-50 last:border-0">
+      <label className="md:w-40 text-sm text-slate-500 md:flex-shrink-0">{label}</label>
       <div className="flex-1">{children}</div>
     </div>
   )
@@ -203,8 +184,8 @@ function UserForm({ user: u, onSave, onClose }) {
 
   return (
     <div className="fixed inset-0 z-40 flex">
-      <div className="flex-1 bg-black/30" onClick={onClose} />
-      <div className="w-[420px] bg-white shadow-2xl flex flex-col h-full">
+      <div className="hidden md:block flex-1 bg-black/30" onClick={onClose} />
+      <div className="w-full md:w-[420px] bg-white shadow-2xl flex flex-col h-full">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <h3 className="font-semibold text-slate-800">{u ? 'Editar usuario' : 'Nuevo usuario'}</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-slate-100"><X size={17} className="text-slate-400" /></button>
@@ -251,21 +232,73 @@ function UserForm({ user: u, onSave, onClose }) {
 // ── PANEL COMPONENTS ──────────────────────────────────────────────────────────
 
 function PanelEmpresa({ onSave }) {
-  const [nombre, setNombre]   = useState('Car Wash Express')
-  const [rnc, setRnc]         = useState('130-12345-6')
-  const [tel, setTel]         = useState('809-555-0123')
-  const [email, setEmail]     = useState('info@carwashexpress.do')
-  const [dir, setDir]         = useState('Av. Winston Churchill 1099')
-  const [ciudad, setCiudad]   = useState('Santo Domingo')
+  const api = useAPI()
+  const [nombre, setNombre]   = useState('')
+  const [rnc, setRnc]         = useState('')
+  const [tel, setTel]         = useState('')
+  const [email, setEmail]     = useState('')
+  const [dir, setDir]         = useState('')
+  const [ciudad, setCiudad]   = useState('')
+  const [logo, setLogo]       = useState(null)
+
+  useEffect(() => {
+    api.admin.getEmpresa().then(biz => {
+      if (!biz) return
+      setNombre(biz.name   ?? '')
+      setRnc(biz.rnc       ?? '')
+      setTel(biz.phone     ?? '')
+      setEmail(biz.email   ?? '')
+      setDir(biz.address   ?? '')
+      const s = biz.settings ? JSON.parse(biz.settings) : {}
+      setCiudad(s.ciudad   ?? '')
+      if (biz.logo) setLogo(biz.logo)
+    })
+  }, [])
+
+  function handleLogoClick() {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/png,image/jpeg,image/svg+xml,image/webp'
+    input.onchange = e => {
+      const file = e.target.files[0]
+      if (!file) return
+      const reader = new FileReader()
+      reader.onload = ev => setLogo(ev.target.result)
+      reader.readAsDataURL(file)
+    }
+    input.click()
+  }
+
+  async function handleSave() {
+    const biz = await api.admin.getEmpresa()
+    const s = biz?.settings ? JSON.parse(biz.settings) : {}
+    if (ciudad) s.ciudad = ciudad
+    await api.admin.saveEmpresa({
+      name: nombre, rnc, phone: tel, email, address: dir,
+      logo: logo ?? '',
+      settings: JSON.stringify(s),
+    })
+    onSave()
+  }
+
   return (
     <div>
       <SectionLabel>Mi Empresa</SectionLabel>
       {/* Logo */}
       <div className="mb-5">
         <label className="text-xs text-slate-400 mb-2 block">Logo del negocio</label>
-        <div className="w-32 h-32 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition">
-          <Upload size={20} className="text-slate-400" />
-          <span className="text-xs text-slate-400">Subir logo</span>
+        <div
+          onClick={handleLogoClick}
+          className="w-32 h-32 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition overflow-hidden"
+        >
+          {logo ? (
+            <img src={logo} alt="logo" className="w-full h-full object-contain" />
+          ) : (
+            <>
+              <Upload size={20} className="text-slate-400" />
+              <span className="text-xs text-slate-400">Subir logo</span>
+            </>
+          )}
         </div>
       </div>
       <FieldRow label="Nombre del negocio"><SmInput value={nombre} onChange={setNombre} /></FieldRow>
@@ -274,14 +307,20 @@ function PanelEmpresa({ onSave }) {
       <FieldRow label="Email"><SmInput value={email} onChange={setEmail} type="email" /></FieldRow>
       <FieldRow label="Dirección"><SmInput value={dir} onChange={setDir} /></FieldRow>
       <FieldRow label="Ciudad"><SmInput value={ciudad} onChange={setCiudad} /></FieldRow>
-      <div className="mt-5 flex justify-end"><SaveBtn onClick={onSave} /></div>
+      <div className="mt-5 flex justify-end"><SaveBtn onClick={handleSave} /></div>
     </div>
   )
 }
 
 function PanelUsuarios({ onSave }) {
+  const api = useAPI()
   const [users, setUsers]   = useState(INIT_USERS)
   const [form, setForm]     = useState(null)   // null | {user} | 'new'
+
+  useEffect(() => {
+    api?.users?.all().then(rows => { if (rows) setUsers(rows) }).catch(() => {})
+  }, [])
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -514,16 +553,52 @@ function PanelNCF({ onSave }) {
 }
 
 function PanelECF({ onSave }) {
+  const api = useAPI()
   const [apiKey, setApiKey]   = useState('')
   const [mode, setMode]       = useState('paper')   // 'paper' | 'ecf'
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState(null)
+  const { sync, syncing, syncProgress, dbStatus } = useRNC()
+
+  useEffect(() => {
+    async function load() {
+      const biz = await api.admin.getEmpresa()
+      if (!biz) return
+      const s = biz.settings ? JSON.parse(biz.settings) : {}
+      if (s.facturacion_mode) setMode(s.facturacion_mode)
+      const safeToken = await api.safe.get('ef2_token').catch(() => '')
+      setApiKey(safeToken || s.ef2_token || '')
+    }
+    load()
+  }, [])
+
   async function testConn() {
     setTesting(true); setTestResult(null)
-    await new Promise(r => setTimeout(r, 1200))
-    setTesting(false)
-    setTestResult(apiKey ? 'ok' : 'error')
+    try {
+      const { testEF2Connection } = await import('../services/ecf')
+      await testEF2Connection(apiKey || undefined)
+      setTestResult('ok')
+    } catch {
+      setTestResult('error')
+    } finally {
+      setTesting(false)
+    }
   }
+
+  async function handleSave() {
+    await api.safe.set('ef2_token', apiKey)
+    const biz = await api.admin.getEmpresa()
+    const s = biz?.settings ? JSON.parse(biz.settings) : {}
+    await api.admin.saveEmpresa({
+      settings: JSON.stringify({ ...s, ef2_token: apiKey, facturacion_mode: mode }),
+    })
+    onSave()
+  }
+
+  const lastSyncLabel = dbStatus.lastSync
+    ? new Date(dbStatus.lastSync).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })
+    : 'Nunca'
+
   return (
     <div>
       <SectionLabel>Configuración e-CF (Ley 32-23)</SectionLabel>
@@ -571,32 +646,163 @@ function PanelECF({ onSave }) {
           <p className="text-xs text-amber-500 mt-1.5">Modo papel — cambia a e-CF antes del 15 mayo 2026 (Ley 32-23)</p>
         )}
       </FieldRow>
-      <div className="mt-5 flex justify-end"><SaveBtn onClick={onSave} /></div>
+      <SectionLabel>Base de Datos RNC (DGII)</SectionLabel>
+      <FieldRow label="Contribuyentes cargados">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-semibold text-slate-700">
+            {dbStatus.count > 0 ? dbStatus.count.toLocaleString('es-DO') : 'Sin datos'}
+          </span>
+          {dbStatus.count > 0 && (
+            <span className="text-xs text-slate-400">Última sync: {lastSyncLabel}</span>
+          )}
+        </div>
+      </FieldRow>
+      <FieldRow label="Sincronizar con DGII">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-3">
+            <button onClick={sync} disabled={syncing}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition">
+              <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
+              {syncing ? 'Sincronizando...' : 'Sincronizar ahora'}
+            </button>
+            {dbStatus.count === 0 && !syncing && (
+              <span className="text-xs text-amber-500">Requerido para lookup offline</span>
+            )}
+          </div>
+          {syncing && syncProgress && (
+            <div className="w-full max-w-sm">
+              <div className="flex justify-between text-xs text-slate-500 mb-1">
+                <span className="truncate">{syncProgress.message}</span>
+                <span>{syncProgress.percent}%</span>
+              </div>
+              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                  style={{ width: `${syncProgress.percent}%` }} />
+              </div>
+            </div>
+          )}
+          {!syncing && syncProgress?.percent === 100 && (
+            <p className="text-xs text-emerald-600 flex items-center gap-1">
+              <Check size={11} />{syncProgress.message}
+            </p>
+          )}
+          {!syncing && syncProgress?.percent === 0 && syncProgress?.message?.startsWith('❌') && (
+            <p className="text-xs text-red-500">{syncProgress.message}</p>
+          )}
+          <p className="text-xs text-slate-400">
+            Descarga la base oficial de ~900K contribuyentes de la DGII. Permite lookup instantáneo sin internet.
+          </p>
+        </div>
+      </FieldRow>
+
+      <div className="mt-5 flex justify-end"><SaveBtn onClick={handleSave} /></div>
     </div>
   )
 }
 
 function PanelImpresoras({ onSave }) {
-  const [printer, setPrinter]     = useState('EPSON TM-T20III')
-  const [preTicket, setPreTicket] = useState(true)
-  const [factura, setFactura]     = useState(true)
-  const [cuadre, setCuadre]       = useState(true)
-  const [compacto, setCompacto]   = useState(false)
-  const PRINTERS = ['EPSON TM-T20III', 'Star TSP100', 'Bixolon SRP-350III', 'PDF (virtual)']
+  const api = useAPI()
+  const printerApi = usePrinterAPI()
+  const [printers,   setPrinters]   = useState([])
+  const [printer,    setPrinter]    = useState('')
+  const [preTicket,  setPreTicket]  = useState(true)
+  const [factura,    setFactura]    = useState(true)
+  const [cuadre,     setCuadre]     = useState(true)
+  const [compacto,   setCompacto]   = useState(false)
+  const [loading,    setLoading]    = useState(true)
+  const [testing,    setTesting]    = useState(false)
+  const [testResult, setTestResult] = useState(null)
+
+  async function loadPrinters() {
+    const list = await printerApi?.listPrinters()
+    if (list?.ok) setPrinters(list.data || [])
+    return list?.data || []
+  }
+
+  useEffect(() => {
+    async function load() {
+      const [cfg, list] = await Promise.all([
+        api?.settings?.get(),
+        printerApi?.listPrinters(),
+      ])
+      if (list?.ok) setPrinters(list.data || [])
+      const c = cfg || {}
+      setPrinter(c.printer || list?.data?.[0]?.name || '')
+      setPreTicket(c.print_pre_ticket !== '0')
+      setFactura(c.print_factura !== '0')
+      setCuadre(c.print_cuadre !== '0')
+      setCompacto(c.print_compacto === '1')
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  async function handleSave() {
+    await api?.settings?.update({
+      printer,
+      print_pre_ticket: preTicket ? '1' : '0',
+      print_factura:    factura   ? '1' : '0',
+      print_cuadre:     cuadre    ? '1' : '0',
+      print_compacto:   compacto  ? '1' : '0',
+    })
+    onSave()
+  }
+
+  async function handleTest() {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      await printerApi?.testDrawerVariants?.(printer)
+      setTestResult('ok')
+    } catch {
+      setTestResult('error')
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  if (loading) return <div className="py-8 text-center text-slate-400 text-sm">Cargando impresoras…</div>
+
   return (
     <div>
       <SectionLabel>Impresoras</SectionLabel>
       <FieldRow label="Impresora principal">
-        <select value={printer} onChange={e => setPrinter(e.target.value)}
-          className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 w-56">
-          {PRINTERS.map(p => <option key={p}>{p}</option>)}
-        </select>
+        <div className="flex gap-2 items-center w-full">
+          <select value={printer} onChange={e => setPrinter(e.target.value)}
+            className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 flex-1">
+            {printers.length === 0 && <option value="">— Sin impresoras detectadas —</option>}
+            {printers.map(p => (
+              <option key={p.name} value={p.name}>
+                {p.displayName || p.name}{p.isDefault ? ' (predeterminada)' : ''}
+              </option>
+            ))}
+          </select>
+          <button onClick={loadPrinters} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors" title="Actualizar lista">
+            <RefreshCw size={14} />
+          </button>
+        </div>
+        {printers.length === 0 && (
+          <p className="text-xs text-amber-500 mt-1.5">No se detectaron impresoras. Asegúrate que esté encendida y conectada por USB.</p>
+        )}
       </FieldRow>
+
+      <FieldRow label="Probar cajón de dinero">
+        <div className="flex items-center gap-3">
+          <button onClick={handleTest} disabled={testing || !printer}
+            className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-colors flex items-center gap-1.5">
+            <Printer size={13} />
+            {testing ? 'Probando…' : 'Abrir cajón'}
+          </button>
+          {testResult === 'ok'    && <span className="text-xs text-green-600">Señal enviada</span>}
+          {testResult === 'error' && <span className="text-xs text-red-500">Error al abrir</span>}
+        </div>
+      </FieldRow>
+
       <FieldRow label="Imprimir Pre-Ticket"><Toggle on={preTicket} onToggle={() => setPreTicket(v => !v)} /></FieldRow>
       <FieldRow label="Imprimir Factura"><Toggle on={factura} onToggle={() => setFactura(v => !v)} /></FieldRow>
       <FieldRow label="Imprimir Cuadre"><Toggle on={cuadre} onToggle={() => setCuadre(v => !v)} /></FieldRow>
       <FieldRow label="Formato compacto"><Toggle on={compacto} onToggle={() => setCompacto(v => !v)} label={compacto ? 'Compacto' : 'Normal'} /></FieldRow>
-      <div className="mt-5 flex justify-end"><SaveBtn onClick={onSave} /></div>
+      <div className="mt-5 flex justify-end"><SaveBtn onClick={handleSave} /></div>
     </div>
   )
 }
@@ -677,6 +883,10 @@ function PanelBackup({ onSave }) {
     markConfigured(!!(url.trim() && anonKey.trim()))
     localStorage.setItem('tx_setting_auto_backup', autoBackupOn ? 'true' : 'false')
     localStorage.setItem('tx_setting_cloud_sync',  syncOn       ? 'true' : 'false')
+    // Register this business in Supabase so RemoteDashboard can filter by business_id
+    if (url.trim() && anonKey.trim()) {
+      ensureBusinessRegistered().catch(() => {})
+    }
     onSave()
   }
 
@@ -799,6 +1009,9 @@ function PanelBackup({ onSave }) {
         )}
       </div>
 
+      {/* Export to Cloud */}
+      <ExportToCloud />
+
       {/* Backup history */}
       <div>
         <div className="flex items-center justify-between mb-3">
@@ -892,11 +1105,35 @@ export default function Settings() {
   }
 
   return (
-    <div className="h-full flex bg-slate-50 overflow-hidden">
+    <div className="h-full flex flex-col md:flex-row bg-slate-50 overflow-hidden">
       {toast && <Toast msg={toast} />}
 
-      {/* ── Sidebar ── */}
-      <aside className="w-56 bg-white border-r border-slate-100 flex flex-col overflow-y-auto flex-shrink-0">
+      {/* ── Mobile: horizontal scroll tabs ── */}
+      <div className="md:hidden shrink-0 bg-white border-b border-slate-100 overflow-x-auto scrollbar-none">
+        <div className="flex px-2 py-2 gap-1">
+          {allItems.map(item => {
+            const Icon = item.icon
+            const isActive = active === item.key
+            return (
+              <button
+                key={item.key}
+                onClick={() => setActive(item.key)}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition whitespace-nowrap min-h-[44px] ${
+                  isActive
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                <Icon size={13} className={isActive ? 'text-blue-600' : 'text-slate-400'} />
+                {item.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ── Desktop: Sidebar ── */}
+      <aside className="hidden md:flex w-56 bg-white border-r border-slate-100 flex-col overflow-y-auto flex-shrink-0">
         <div className="px-4 py-4 border-b border-slate-100">
           <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Ajustes</p>
         </div>
@@ -932,11 +1169,11 @@ export default function Settings() {
       {/* ── Content area ── */}
       <main className="flex-1 overflow-y-auto">
         {/* Content header */}
-        <div className="bg-white border-b border-slate-100 px-8 py-4 flex items-center gap-2 sticky top-0 z-10 flex-shrink-0">
+        <div className="bg-white border-b border-slate-100 px-4 md:px-8 py-3 md:py-4 flex items-center gap-2 sticky top-0 z-10 flex-shrink-0">
           {activeItem && <activeItem.icon size={16} className="text-slate-500" />}
-          <h2 className="font-semibold text-slate-800">{activeItem?.label ?? 'Ajustes'}</h2>
+          <h2 className="font-semibold text-slate-800 text-sm md:text-base">{activeItem?.label ?? 'Ajustes'}</h2>
         </div>
-        <div className="p-8 max-w-3xl">
+        <div className="p-3 md:p-8 max-w-3xl">
           <PanelContent active={active} onSave={handleSave} />
         </div>
       </main>

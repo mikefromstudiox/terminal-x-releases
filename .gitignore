@@ -8,3 +8,5 @@ release/
 .env.local
 .env.*.local
 .claude/
+
+.vercel

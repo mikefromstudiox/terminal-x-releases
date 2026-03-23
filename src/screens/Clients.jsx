@@ -3,10 +3,13 @@ import {
   Search, Plus, X, AlertTriangle, CheckCircle2,
   Phone, MapPin, Mail, CreditCard, Banknote,
   ArrowRightLeft, Landmark, Building2, ChevronRight,
-  SquareCheckBig, Square, Loader2, RefreshCw, AlertCircle,
+  SquareCheckBig, Square, Loader2, RefreshCw, AlertCircle, Pencil,
 } from 'lucide-react'
 import { useLang } from '../i18n'
-import { useClients, useMutation, hasIPC } from '../hooks/useDB'
+import { useAPI } from '../context/DataContext'
+import { useClients, useMutation } from '../hooks/useDB'
+import { useRNC } from '../hooks/useRNC'
+import { syncClient } from '../services/sync'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -140,6 +143,7 @@ function SkeletonCard() {
 // ── Client detail panel ───────────────────────────────────────────────────────
 
 function ClientDetail({ client, onClose, onUpdateClient, lang }) {
+  const api = useAPI()
   const [openTickets,   setOpenTickets]   = useState([])
   const [loadingTix,    setLoadingTix]    = useState(true)
   const [checked,       setChecked]       = useState(new Set())
@@ -149,6 +153,57 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
   const [comentario,    setComentario]    = useState('')
   const [toast,         setToast]         = useState(null)
   const [savingPayment, setSavingPayment] = useState(false)
+
+  // ── Edit mode ──────────────────────────────────────────────────────────────
+  const [editing,       setEditing]       = useState(false)
+  const [editForm,      setEditForm]      = useState({})
+  const [editSaving,    setEditSaving]    = useState(false)
+
+  function startEdit() {
+    setEditForm({
+      name:        client.name || '',
+      phone:       client.phone || '',
+      email:       client.email || '',
+      address:     client.address || '',
+      rnc:         client.rnc || '',
+      creditLimit: String(client.creditLimit || 0),
+      notes:       client.notes || '',
+    })
+    setEditing(true)
+  }
+
+  async function saveEdit() {
+    setEditSaving(true)
+    try {
+      const data = {
+        id:           client.id,
+        name:         editForm.name.trim(),
+        phone:        editForm.phone.trim(),
+        email:        editForm.email.trim(),
+        address:      editForm.address.trim(),
+        rnc:          editForm.rnc.trim(),
+        credit_limit: parseFloat(editForm.creditLimit) || 0,
+        notes:        editForm.notes.trim(),
+      }
+      await api?.clients?.update?.(data)
+      syncClient(data)
+      onUpdateClient(client.id, {
+        name:        data.name,
+        phone:       data.phone,
+        email:       data.email,
+        address:     data.address,
+        rnc:         data.rnc,
+        creditLimit: data.credit_limit,
+        notes:       data.notes,
+      })
+      setEditing(false)
+      flash(lang === 'es' ? 'Cliente actualizado' : 'Client updated')
+    } catch (e) {
+      flash(`Error: ${e?.message || 'Error'}`)
+    } finally {
+      setEditSaving(false)
+    }
+  }
 
   // Load open (credit, unpaid) tickets for this client
   useEffect(() => {
@@ -160,13 +215,7 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
     setOpenTickets([])
     setLoadingTix(true)
 
-    if (!hasIPC()) {
-      setOpenTickets(client.openTickets || [])
-      setLoadingTix(false)
-      return
-    }
-
-    window.electronAPI.clients.openTickets(client.id)
+    api?.clients?.openTickets?.(client.id)
       .then(rows => {
         setOpenTickets(rows.map(t => ({
           id:       t.id,
@@ -210,10 +259,8 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
     setSavingPayment(true)
 
     try {
-      if (hasIPC()) {
-        // Update client balance (reduce by paid amount)
-        await window.electronAPI.clients.updateBalance({ id: client.id, delta: -selectedAmt })
-      }
+      // Update client balance (reduce by paid amount)
+      await api?.clients?.updateBalance?.({ id: client.id, delta: -selectedAmt })
 
       const paidCount = checked.size
       onUpdateClient(client.id, {
@@ -233,11 +280,18 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
   }
 
   return (
-    <div className="h-full flex flex-col bg-white border-l border-slate-200">
+    <div className="h-full flex flex-col bg-white md:border-l border-slate-200">
 
       {/* Header */}
-      <div className="shrink-0 flex items-start justify-between px-6 py-4 border-b border-slate-100">
-        <div className="flex items-start gap-3">
+      <div className="shrink-0 flex items-start justify-between px-3 py-3 md:px-6 md:py-4 border-b border-slate-100">
+        <div className="flex items-start gap-2 md:gap-3">
+          {/* Back button — mobile only */}
+          <button
+            onClick={onClose}
+            className="md:hidden w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg shrink-0 mt-0.5"
+          >
+            <ChevronRight size={18} className="rotate-180" />
+          </button>
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-[12px] font-bold shrink-0 ${
             status === 'overlimit' ? 'bg-red-100 text-red-600' : 'bg-sky-100 text-sky-700'
           }`}>
@@ -248,16 +302,58 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
             {client.rnc && <p className="text-[12px] text-slate-400 mt-0.5">RNC {client.rnc}</p>}
           </div>
         </div>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors">
-          <X size={16} />
-        </button>
+        <div className="flex items-center gap-1">
+          {!editing && (
+            <button onClick={startEdit} className="text-slate-400 hover:text-sky-600 p-1.5 rounded-lg hover:bg-sky-50 transition-colors" title={lang === 'es' ? 'Editar' : 'Edit'}>
+              <Pencil size={14} />
+            </button>
+          )}
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
       </div>
+
+      {/* Edit form */}
+      {editing && (
+        <div className="px-6 py-4 border-b border-slate-100 bg-sky-50/50 space-y-3">
+          <p className="text-[11px] font-bold text-sky-600 uppercase tracking-wider">{lang === 'es' ? 'Editar Cliente' : 'Edit Client'}</p>
+          {[
+            { key: 'name',        label: lang === 'es' ? 'Nombre' : 'Name',          type: 'text' },
+            { key: 'phone',       label: lang === 'es' ? 'Telefono' : 'Phone',       type: 'tel' },
+            { key: 'email',       label: 'Email',                                     type: 'email' },
+            { key: 'address',     label: lang === 'es' ? 'Direccion' : 'Address',    type: 'text' },
+            { key: 'rnc',         label: 'RNC',                                       type: 'text' },
+            { key: 'creditLimit', label: lang === 'es' ? 'Limite de Credito' : 'Credit Limit', type: 'number' },
+            { key: 'notes',       label: lang === 'es' ? 'Notas' : 'Notes',          type: 'text' },
+          ].map(f => (
+            <div key={f.key}>
+              <label className="block text-[10px] text-slate-500 mb-0.5">{f.label}</label>
+              <input
+                type={f.type}
+                value={editForm[f.key] || ''}
+                onChange={e => setEditForm(p => ({ ...p, [f.key]: e.target.value }))}
+                className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[12px] text-slate-700 focus:outline-none focus:border-sky-400"
+              />
+            </div>
+          ))}
+          <div className="flex gap-2 pt-1">
+            <button onClick={() => setEditing(false)} className="px-4 py-1.5 border border-slate-200 text-slate-500 text-[12px] rounded-lg hover:bg-slate-100 transition-colors">
+              {lang === 'es' ? 'Cancelar' : 'Cancel'}
+            </button>
+            <button onClick={saveEdit} disabled={editSaving} className="flex-1 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white text-[12px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5">
+              {editSaving && <Loader2 size={11} className="animate-spin" />}
+              {lang === 'es' ? 'Guardar' : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto">
 
         {/* Contact info */}
-        <div className="px-6 py-4 border-b border-slate-100 grid grid-cols-2 gap-y-2.5 gap-x-4">
+        <div className="px-3 py-3 md:px-6 md:py-4 border-b border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-y-2.5 gap-x-4">
           {client.phone && (
             <div className="flex items-center gap-2 text-[12px] text-slate-600">
               <Phone size={12} className="text-slate-400 shrink-0" />
@@ -284,7 +380,7 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
         </div>
 
         {/* Stats row */}
-        <div className="px-6 py-3 border-b border-slate-100 flex gap-6">
+        <div className="px-3 py-3 md:px-6 border-b border-slate-100 flex flex-wrap gap-4 md:gap-6">
           <div className="text-center">
             <p className="text-[18px] font-bold text-slate-800">{client.totalVisits}</p>
             <p className="text-[10px] text-slate-400">{lang === 'es' ? 'Visitas' : 'Visits'}</p>
@@ -302,8 +398,8 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
         </div>
 
         {/* Credit block */}
-        {client.creditLimit > 0 && (
-          <div className="px-6 py-4 border-b border-slate-100">
+        {(client.creditLimit > 0 || client.balance > 0) && (
+          <div className="px-3 py-3 md:px-6 md:py-4 border-b border-slate-100">
             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">
               {lang === 'es' ? 'Crédito' : 'Credit Account'}
             </p>
@@ -344,7 +440,7 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
         )}
 
         {/* Open tickets */}
-        <div className="px-6 py-4 border-b border-slate-100">
+        <div className="px-3 py-3 md:px-6 md:py-4 border-b border-slate-100">
           <div className="flex items-center justify-between mb-3">
             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
               {lang === 'es' ? `Tickets a Crédito` : 'Credit Tickets'}
@@ -409,7 +505,7 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
 
         {/* Payment form — only when tickets selected */}
         {checked.size > 0 && (
-          <div className="px-6 py-4">
+          <div className="px-3 py-3 md:px-6 md:py-4">
             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">
               {lang === 'es' ? 'Cobrar Pago' : 'Collect Payment'}
             </p>
@@ -453,7 +549,7 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
                 <button
                   key={id}
                   onClick={() => setFormaPago(id)}
-                  className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-[12px] font-semibold transition-all ${
+                  className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-[12px] font-semibold transition-all min-h-[44px] ${
                     formaPago === id
                       ? 'bg-sky-600 border-sky-600 text-white'
                       : 'bg-white border-slate-200 text-slate-600 hover:border-sky-300'
@@ -504,20 +600,20 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
 const EMPTY_FORM = { name: '', rnc: '', phone: '', address: '', email: '', creditLimit: '', notes: '' }
 
 function NewClientForm({ onClose, onSave, lang }) {
-  const [form,       setForm]       = useState(EMPTY_FORM)
-  const [rncLoading, setRncLoading] = useState(false)
-  const [errors,     setErrors]     = useState({})
-  const [saving,     setSaving]     = useState(false)
+  const api = useAPI()
+  const [form,   setForm]   = useState(EMPTY_FORM)
+  const [errors, setErrors] = useState({})
+  const [saving, setSaving] = useState(false)
+  const { lookup: rncLookup, lookupLoading: rncLoading } = useRNC()
 
   function set(field, val) { setForm(f => ({ ...f, [field]: val })) }
 
-  function lookupRNC() {
-    if (form.rnc.replace(/\D/g, '').length < 9) return
-    setRncLoading(true)
-    setTimeout(() => {
-      setForm(f => ({ ...f, name: f.name || 'Empresa Demo, SRL' }))
-      setRncLoading(false)
-    }, 800)
+  async function lookupRNC() {
+    const clean = form.rnc.replace(/\D/g, '')
+    if (clean.length < 9) return
+    const res = await rncLookup(clean)
+    if (res?.nombre) set('name', res.nombre)
+    else if (res?.name) set('name', res.name)
   }
 
   function validate() {
@@ -543,17 +639,12 @@ function NewClientForm({ onClose, onSave, lang }) {
     }
 
     try {
-      if (hasIPC()) {
-        const result = await window.electronAPI.clients.create(newClientData)
-        const newId  = result?.lastInsertRowid || Date.now()
-        onSave({
-          ...mapClient({ ...newClientData, id: newId, visits: 0, total_spent: 0, balance: 0, last_service_date: null }),
-        })
-      } else {
-        onSave({
-          ...mapClient({ ...newClientData, id: Date.now(), visits: 0, total_spent: 0, balance: 0, last_service_date: null }),
-        })
-      }
+      const result = await api?.clients?.create?.(newClientData)
+      const newId  = result?.lastInsertRowid || Date.now()
+      syncClient({ ...newClientData, id: newId })
+      onSave({
+        ...mapClient({ ...newClientData, id: newId, visits: 0, total_spent: 0, balance: 0, last_service_date: null }),
+      })
     } catch (err) {
       console.error('[clientCreate]', err)
     } finally {
@@ -572,7 +663,7 @@ function NewClientForm({ onClose, onSave, lang }) {
   return (
     <div className="fixed inset-0 z-40 flex">
       <div className="flex-1 bg-black/20" onClick={onClose} />
-      <div className="w-[420px] h-full bg-white shadow-2xl flex flex-col">
+      <div className="w-full md:w-[420px] h-full bg-white shadow-2xl flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
           <h3 className="text-[15px] font-bold text-slate-800">
             {lang === 'es' ? 'Nuevo Cliente' : 'New Client'}
@@ -636,17 +727,17 @@ function NewClientForm({ onClose, onSave, lang }) {
           </div>
         </div>
 
-        <div className="shrink-0 px-6 py-4 border-t border-slate-200 flex gap-3">
+        <div className="shrink-0 px-6 py-4 pb-20 md:pb-4 border-t border-slate-200 flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 py-2.5 rounded-xl border border-slate-200 text-[13px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+            className="flex-1 py-3 md:py-2.5 rounded-xl border border-slate-200 text-[13px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors min-h-[44px]"
           >
             {lang === 'es' ? 'Cancelar' : 'Cancel'}
           </button>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="flex-1 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white text-[13px] font-bold transition-colors flex items-center justify-center gap-2"
+            className="flex-1 py-3 md:py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white text-[13px] font-bold transition-colors flex items-center justify-center gap-2 min-h-[44px]"
           >
             {saving && <Loader2 size={13} className="animate-spin" />}
             {lang === 'es' ? 'Guardar Cliente' : 'Save Client'}
@@ -704,15 +795,17 @@ export default function Clients() {
   }
 
   return (
-    <div className="h-full flex bg-white overflow-hidden">
+    <div className="h-full flex flex-col md:flex-row bg-white overflow-hidden">
 
-      {/* Left: client list */}
-      <div className={`flex flex-col border-r border-slate-200 transition-all ${selectedClient ? 'w-[360px] shrink-0' : 'flex-1 max-w-xl'}`}>
+      {/* Left: client list — hidden on mobile when a client is selected */}
+      <div className={`flex flex-col border-r border-slate-200 transition-all ${
+        selectedClient ? 'hidden md:flex w-full md:w-[360px] md:shrink-0' : 'flex flex-1 md:max-w-xl'
+      }`}>
 
-        <div className="shrink-0 px-4 py-4 border-b border-slate-200">
-          <div className="flex items-center justify-between mb-3">
+        <div className="shrink-0 px-3 py-3 md:px-4 md:py-4 border-b border-slate-200">
+          <div className="flex items-center justify-between mb-2 md:mb-3">
             <div>
-              <h2 className="text-[16px] font-bold text-slate-800">
+              <h2 className="text-[15px] md:text-[16px] font-bold text-slate-800">
                 {lang === 'es' ? 'Clientes' : 'Clients'}
               </h2>
               <p className="text-[11px] text-slate-400 mt-0.5">
@@ -729,7 +822,7 @@ export default function Clients() {
               </button>
               <button
                 onClick={() => setShowNewForm(true)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white text-[12px] font-bold rounded-xl transition-colors"
+                className="flex items-center gap-1.5 px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white text-[12px] font-bold rounded-xl transition-colors min-h-[44px]"
               >
                 <Plus size={14} />
                 {lang === 'es' ? 'Nuevo' : 'New'}
@@ -779,7 +872,7 @@ export default function Clients() {
         </div>
       </div>
 
-      {/* Right: detail panel */}
+      {/* Right: detail panel — full screen on mobile */}
       {selectedClient ? (
         <div className="flex-1 overflow-hidden">
           <ClientDetail
@@ -791,7 +884,7 @@ export default function Clients() {
           />
         </div>
       ) : (
-        <div className="flex-1 flex items-center justify-center text-slate-300 gap-3 flex-col">
+        <div className="hidden md:flex flex-1 items-center justify-center text-slate-300 gap-3 flex-col">
           <Building2 size={36} />
           <p className="text-[14px]">{lang === 'es' ? 'Selecciona un cliente' : 'Select a client'}</p>
         </div>

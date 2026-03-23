@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { Search, Plus, ChevronDown, CheckCircle2, Loader2, RefreshCw, AlertCircle } from 'lucide-react'
 import { useLang } from '../i18n'
-import { useQueueActive, useWashers, hasIPC } from '../hooks/useDB'
+import { useAPI, usePrinterAPI } from '../context/DataContext'
+import { useQueueActive, useWashers } from '../hooks/useDB'
 import CobrarModal from '../components/CobrarModal'
+import { printClientReceipt, printWasherConduce } from '../services/printer'
+import { syncTicket } from '../services/supabase'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -69,6 +72,73 @@ function AssignDropdown({ ticketId, washers, onAssign, onClose }) {
 }
 
 // ── Table row ─────────────────────────────────────────────────────────────────
+
+// ── Mobile card for queue ──────────────────────────────────────────────────────
+
+function QueueCard({ ticket, washers, assigningId, setAssigningId, onCycle, onAssign, onCobrar, lang }) {
+  const sc   = STATUS[ticket.status]
+  const main = ticket.services[0]?.name || ticket.servicesStr
+
+  return (
+    <div className={`border-b border-slate-100 px-3 py-3 ${sc.bg}`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[13px] font-bold text-sky-600">{ticket.ticketNo}</span>
+        <span className="text-[11px] text-slate-400">{fmtTime(ticket.createdAt)}</span>
+      </div>
+      <p className="text-[13px] font-semibold text-slate-800 truncate">{ticket.vehicle}</p>
+      <p className="text-[12px] text-slate-500 truncate mt-0.5">{main}</p>
+      <div className="flex items-center justify-between mt-2">
+        <span className="text-[13px] font-semibold text-slate-700">{fmtRD(ticket.amount)}</span>
+        {ticket.worker ? (
+          <div className="flex items-center gap-1.5">
+            <div className="w-5 h-5 bg-slate-100 rounded-full flex items-center justify-center text-[9px] font-bold text-slate-600 shrink-0">
+              {ticket.worker.name[0]}
+            </div>
+            <span className="text-[12px] text-slate-600 truncate max-w-[80px]">{ticket.worker.name}</span>
+          </div>
+        ) : (
+          <div className="relative">
+            <button
+              onClick={() => setAssigningId(assigningId === ticket.id ? null : ticket.id)}
+              className="flex items-center gap-1 text-[11px] font-medium text-amber-600 border border-amber-200 rounded-lg px-2.5 py-1.5 min-h-[44px] transition-colors"
+            >
+              <Plus size={11} />
+              {lang === 'es' ? 'Asignar' : 'Assign'}
+            </button>
+            {assigningId === ticket.id && (
+              <AssignDropdown
+                ticketId={ticket.id}
+                washers={washers}
+                onAssign={onAssign}
+                onClose={() => setAssigningId(null)}
+              />
+            )}
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-2 mt-2.5">
+        <button
+          onClick={() => onCycle(ticket.id)}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-full border text-[11px] font-semibold min-h-[44px] transition-all active:scale-95 ${sc.bg} ${sc.text} ${sc.border}`}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${sc.dot}`} />
+          {lang === 'es' ? sc.es : sc.en}
+          <ChevronDown size={9} className="ml-0.5 opacity-50" />
+        </button>
+        {ticket.status === 'listo' && (
+          <button
+            onClick={() => onCobrar(ticket)}
+            className="flex-1 py-2 bg-green-500 hover:bg-green-400 text-white text-[12px] font-bold rounded-lg min-h-[44px] transition-all active:scale-95"
+          >
+            {lang === 'es' ? 'Cobrar' : 'Collect'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Desktop table row ─────────────────────────────────────────────────────────
 
 function QueueRow({ ticket, washers, assigningId, setAssigningId, onCycle, onAssign, onCobrar, lang }) {
   const sc   = STATUS[ticket.status]
@@ -180,6 +250,8 @@ function SkeletonRow() {
 // ── Main Queue Screen ─────────────────────────────────────────────────────────
 
 export default function Queue() {
+  const api = useAPI()
+  const printerApi = usePrinterAPI()
   const { lang } = useLang()
 
   const { data: dbQueue, loading, error, reload } = useQueueActive()
@@ -214,18 +286,16 @@ export default function Queue() {
     // Optimistic update
     setQueue(q => q.map(t => t.id === id ? { ...t, status: nextUI } : t))
 
-    if (hasIPC()) {
-      try {
-        await window.electronAPI.queue.updateStatus({
-          id,
-          status:   nextDB,
-          washerId: ticket.worker?.id || null,
-        })
-      } catch (err) {
-        // Revert on error
-        setQueue(q => q.map(t => t.id === id ? { ...t, status: ticket.status } : t))
-        flash(`Error: ${err.message}`)
-      }
+    try {
+      await api.queue.updateStatus({
+        id,
+        status:   nextDB,
+        washerId: ticket.worker?.id || null,
+      })
+    } catch (err) {
+      // Revert on error
+      setQueue(q => q.map(t => t.id === id ? { ...t, status: ticket.status } : t))
+      flash(`Error: ${err.message}`)
     }
   }
 
@@ -233,44 +303,30 @@ export default function Queue() {
     setQueue(q => q.map(t => t.id === queueId ? { ...t, worker: washer } : t))
     flash(`${washer.name} → ${queue.find(t => t.id === queueId)?.ticketNo}`)
 
-    if (hasIPC()) {
-      try {
-        await window.electronAPI.queue.updateStatus({
-          id:       queueId,
-          status:   TO_DB[queue.find(t => t.id === queueId)?.status || 'pendiente'],
-          washerId: washer.id,
-        })
-      } catch (err) {
-        flash(`Error: ${err.message}`)
-      }
+    try {
+      await api.queue.updateStatus({
+        id:       queueId,
+        status:   TO_DB[queue.find(t => t.id === queueId)?.status || 'pendiente'],
+        washerId: washer.id,
+      })
+    } catch (err) {
+      flash(`Error: ${err.message}`)
     }
   }
 
   async function cobrar(ticket) {
-    if (hasIPC()) {
-      setLoadingTicket(true)
-      try {
-        const full = await window.electronAPI.tickets.byId(ticket.ticketId)
-        setCobrarModal({
-          id:       full?.id ?? ticket.ticketId,
-          queueId:  ticket.id,
-          ticketNo: full?.doc_number ?? ticket.ticketNo,
-          vehicle:  full?.vehicle_plate ?? ticket.vehicle,
-          services: full?.items?.map(i => ({ name: i.name, price: i.price }))
-                    ?? [{ name: ticket.servicesStr, price: ticket.amount }],
-        })
-      } catch {
-        setCobrarModal({
-          id:       ticket.ticketId,
-          queueId:  ticket.id,
-          ticketNo: ticket.ticketNo,
-          vehicle:  ticket.vehicle,
-          services: [{ name: ticket.servicesStr, price: ticket.amount }],
-        })
-      } finally {
-        setLoadingTicket(false)
-      }
-    } else {
+    setLoadingTicket(true)
+    try {
+      const full = await api.tickets.byId(ticket.ticketId)
+      setCobrarModal({
+        id:       full?.id ?? ticket.ticketId,
+        queueId:  ticket.id,
+        ticketNo: full?.doc_number ?? ticket.ticketNo,
+        vehicle:  full?.vehicle_plate ?? ticket.vehicle,
+        services: full?.items?.map(i => ({ name: i.name, price: i.price }))
+                  ?? [{ name: ticket.servicesStr, price: ticket.amount }],
+      })
+    } catch {
       setCobrarModal({
         id:       ticket.ticketId,
         queueId:  ticket.id,
@@ -278,19 +334,70 @@ export default function Queue() {
         vehicle:  ticket.vehicle,
         services: ticket.services.length ? ticket.services : [{ name: ticket.servicesStr, price: ticket.amount }],
       })
+    } finally {
+      setLoadingTicket(false)
     }
   }
 
   async function handlePaymentConfirm(data) {
-    const queueId  = cobrarModal.queueId
-    const ticketId = cobrarModal.id
+    const snapshot = cobrarModal
+    const queueId  = snapshot.queueId
+    const ticketId = snapshot.id
+
+    // ── Fire print + drawer BEFORE closing modal ──────────────────────────
+    // This lets the cashier still see the total/change while the receipt prints
+    if (window.electronAPI) {
+      try {
+        const [cfg, empresa] = await Promise.all([
+          api.settings.get().catch(() => ({})),
+          api.admin.getEmpresa().catch(() => ({})),
+        ])
+        const biz = {
+          name:    empresa?.nombre    || empresa?.name    || '',
+          address: empresa?.direccion || empresa?.address || '',
+          phone:   empresa?.telefono  || empresa?.phone   || '',
+          rnc:     empresa?.rnc       || '',
+        }
+        const services = snapshot.services || []
+        const subtotal  = services.reduce((s, i) => s + (i.price || 0), 0)
+        const ticketData = {
+          ncf:          data.ecf?.eNCF    || '',
+          ncfType:      data.ncfType      || 'E32',
+          cajero:       '',
+          lavador:      snapshot.worker?.name || '',
+          docNo:        snapshot.ticketNo  || '',
+          paidAt:       new Date(),
+          client:       null,
+          vehiclePlate: snapshot.vehicle  || '',
+          tipo:         data.tipo         || 'contado',
+          formaPago:    data.formaPago    || 'cash',
+          services,
+          subtotal,
+          descuento:    0,
+          itbis:        subtotal * 0.18,
+          ley:          subtotal * 0.10,
+          total:        subtotal * 1.28,
+          biz,
+        }
+        if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => {})
+        if (cfg.print_conduce_auto === '1') printWasherConduce(ticketData).catch(() => {})
+        // Kick drawer for cash/check payments
+        const fm = data.formaPago || ''
+        if (data.tipo !== 'credito' && !['tarjeta', 'transferencia'].includes(fm)) {
+          printerApi?.openDrawer?.().catch?.(() => {})
+        }
+      } catch { /* print errors never block the queue flow */ }
+    }
+
+    // ── Close modal + update queue ────────────────────────────────────────
     setCobrarModal(null)
     setQueue(q => q.filter(t => t.id !== queueId))
     flash(`${data.ticketNo} · ${lang === 'es' ? 'Cobrado' : 'Collected'} ✓`)
 
-    if (hasIPC() && ticketId) {
+    // ── Persist to DB ─────────────────────────────────────────────────────
+    if (ticketId) {
       try {
-        await window.electronAPI.tickets.markPaid({
+        const markResult = await api.tickets.markPaid({
           id:            ticketId,
           paymentMethod: data.tipo === 'credito' ? 'credit' : (data.formaPago || 'cash'),
           ncf:           data.ecf?.eNCF || null,
@@ -298,6 +405,12 @@ export default function Queue() {
           clientId:      data.clientId || null,
           tipoVenta:     data.tipo || null,
         })
+        syncTicket({
+          client_name:    data.clientId ? String(data.clientId) : null,
+          payment_method: data.tipo === 'credito' ? 'credit' : (data.formaPago || 'cash'),
+          total:          data.total || 0,
+          status:         'cobrado',
+        }, { docNumber: data.ticketNo || snapshot?.ticketNo }).catch(() => {})
       } catch (err) {
         console.error('[Queue] markPaid error:', err)
       }
@@ -346,12 +459,12 @@ export default function Queue() {
     <div className="h-full flex flex-col bg-white">
 
       <div className="shrink-0 border-b border-slate-200">
-        <div className="flex items-center justify-between px-6 pt-4 pb-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between px-3 md:px-6 pt-3 md:pt-4 pb-2 md:pb-3 gap-2 md:gap-0">
           <div>
-            <h2 className="text-lg font-bold text-slate-800">
+            <h2 className="text-base md:text-lg font-bold text-slate-800">
               {lang === 'es' ? 'Cola de Espera' : 'Service Queue'}
             </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-400 mt-0.5 hidden md:block">
               {lang === 'es' ? 'Actualiza el estado haciendo clic en el badge' : 'Click the badge to update status'}
             </p>
           </div>
@@ -368,25 +481,25 @@ export default function Queue() {
             </button>
 
             {/* Search */}
-            <div className="relative">
+            <div className="relative flex-1 md:flex-none">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder={lang === 'es' ? 'Buscar ticket o vehículo...' : 'Search ticket or vehicle...'}
-                className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:border-sky-400 w-64 placeholder:text-slate-400"
+                className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:border-sky-400 w-full md:w-64 placeholder:text-slate-400"
               />
             </div>
           </div>
         </div>
 
-        <div className="flex px-6 gap-1">
+        <div className="flex px-3 md:px-6 gap-1 overflow-x-auto">
           {FILTERS.map(f => (
             <button
               key={f.id}
               onClick={() => setFilter(f.id)}
-              className={`flex items-center gap-2 px-3.5 py-2.5 text-[13px] font-medium border-b-2 -mb-px transition-colors ${
+              className={`flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3.5 py-2.5 text-[12px] md:text-[13px] font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
                 filter === f.id
                   ? 'border-sky-500 text-sky-600'
                   : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -403,8 +516,8 @@ export default function Queue() {
         </div>
       </div>
 
-      {/* Column headers */}
-      <div className="flex items-center h-9 bg-slate-50 border-b border-slate-200 px-5 shrink-0">
+      {/* Column headers — desktop only */}
+      <div className="hidden md:flex items-center h-9 bg-slate-50 border-b border-slate-200 px-5 shrink-0">
         {COL_HEADERS.map((col, i) => (
           <div key={i} className={`${col.w} text-[10px] font-bold text-slate-400 uppercase tracking-wider pr-4`}>
             {lang === 'es' ? col.label_es : col.label_en}
@@ -430,29 +543,50 @@ export default function Queue() {
             <p className="text-sm">{lang === 'es' ? 'No hay tickets en esta vista' : 'No tickets in this view'}</p>
           </div>
         ) : (
-          visible.map(ticket => (
-            <QueueRow
-              key={ticket.id}
-              ticket={ticket}
-              washers={washers}
-              assigningId={assigningId}
-              setAssigningId={setAssigningId}
-              onCycle={cycleStatus}
-              onAssign={assignWorker}
-              onCobrar={cobrar}
-              lang={lang}
-            />
-          ))
+          <>
+            {/* Mobile card layout */}
+            <div className="block md:hidden">
+              {visible.map(ticket => (
+                <QueueCard
+                  key={ticket.id}
+                  ticket={ticket}
+                  washers={washers}
+                  assigningId={assigningId}
+                  setAssigningId={setAssigningId}
+                  onCycle={cycleStatus}
+                  onAssign={assignWorker}
+                  onCobrar={cobrar}
+                  lang={lang}
+                />
+              ))}
+            </div>
+            {/* Desktop table layout */}
+            <div className="hidden md:block">
+              {visible.map(ticket => (
+                <QueueRow
+                  key={ticket.id}
+                  ticket={ticket}
+                  washers={washers}
+                  assigningId={assigningId}
+                  setAssigningId={setAssigningId}
+                  onCycle={cycleStatus}
+                  onAssign={assignWorker}
+                  onCobrar={cobrar}
+                  lang={lang}
+                />
+              ))}
+            </div>
+          </>
         )}
       </div>
 
       {/* Summary bar */}
-      <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-3 flex items-center gap-6">
-        <SumStat dot="bg-green-500" label={lang === 'es' ? 'Listos para cobrar' : 'Ready to collect'} value={counts.listo} highlight={counts.listo > 0} />
-        <SumStat dot="bg-blue-500"  label={lang === 'es' ? 'En proceso' : 'In progress'}             value={counts.proceso} />
-        <SumStat dot="bg-amber-500" label={lang === 'es' ? 'Sin asignar' : 'Unassigned'}             value={counts.unassigned} warn={counts.unassigned > 0} />
-        <div className="ml-auto pl-6 border-l border-slate-200">
-          <SumStat dot="bg-slate-400" label={lang === 'es' ? 'Total en cola' : 'Total in queue'} value={counts.all} />
+      <div className="shrink-0 border-t border-slate-200 bg-white px-3 md:px-6 py-2 md:py-3 flex items-center gap-3 md:gap-6 flex-wrap">
+        <SumStat dot="bg-green-500" label={lang === 'es' ? 'Listos' : 'Ready'} value={counts.listo} highlight={counts.listo > 0} />
+        <SumStat dot="bg-blue-500"  label={lang === 'es' ? 'Proceso' : 'Progress'}  value={counts.proceso} />
+        <SumStat dot="bg-amber-500" label={lang === 'es' ? 'Sin asignar' : 'Unassigned'} value={counts.unassigned} warn={counts.unassigned > 0} />
+        <div className="ml-auto pl-3 md:pl-6 border-l border-slate-200">
+          <SumStat dot="bg-slate-400" label={lang === 'es' ? 'Total' : 'Total'} value={counts.all} />
         </div>
       </div>
 

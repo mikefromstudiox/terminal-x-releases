@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, Loader2, QrCode, User } from 'lucide-react'
+import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, Loader2, QrCode, User, MessageSquare } from 'lucide-react'
 import { useLang } from '../i18n'
+import { useAPI } from '../context/DataContext'
 import { signAndSubmitECF, getQRCode, ECF_TYPES, validateRNC, EF2_CONFIGURED } from '../services/ecf'
-import { hasIPC } from '../hooks/useDB'
+import { buildReceiptPDFBase64 } from '../services/pdf'
+import { useRNC } from '../hooks/useRNC'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtRD(n) {
@@ -57,6 +59,35 @@ const LABELS = {
 }
 
 function tl(key, lang) { return LABELS[key]?.[lang] ?? key }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function normalizeWaPhone(raw = '') {
+  const digits = raw.replace(/\D/g, '')
+  // DR / US: 10-digit numbers starting with 8 or 9 → prepend country code 1
+  if (digits.length === 10 && (digits[0] === '8' || digits[0] === '9')) return '1' + digits
+  if (digits.length === 11 && digits[0] === '1') return digits
+  return digits // return as-is for other formats
+}
+
+function buildReceiptMsg({ bizName, ticket, services, total, ncf, lang }) {
+  const date = new Date().toLocaleDateString('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const lines = [
+    `*${bizName}*`,
+    lang === 'es' ? `Recibo de Pago` : `Payment Receipt`,
+    ``,
+    `Ticket: #${ticket.ticketNo}`,
+    lang === 'es' ? `Fecha: ${date}` : `Date: ${date}`,
+    ncf ? `NCF: ${ncf}` : '',
+    ``,
+    lang === 'es' ? `Servicios:` : `Services:`,
+    ...services.map(s => `• ${s.name} - RD$ ${s.price.toLocaleString('en-US', { minimumFractionDigits: 2 })}`),
+    ``,
+    `*Total: RD$ ${total.toLocaleString('en-US', { minimumFractionDigits: 2 })}*`,
+    ``,
+    lang === 'es' ? `Gracias por su preferencia.` : `Thank you for your business.`,
+  ].filter(l => l !== undefined)
+  return lines.join('\n')
+}
 
 // ── Submission steps shown during loading ─────────────────────────────────────
 const STEPS_ES = ['Generando XML…', 'Firmando digitalmente…', 'Enviando a DGII…']
@@ -145,7 +176,7 @@ function ToggleBtn({ active, onClick, children }) {
   return (
     <button
       onClick={onClick}
-      className={`flex-1 py-2.5 px-3 rounded-xl border text-[13px] font-semibold transition-all text-center ${
+      className={`flex-1 py-3 md:py-2.5 px-3 rounded-xl border text-[13px] font-semibold transition-all text-center min-h-[48px] md:min-h-0 ${
         active
           ? 'bg-slate-800 border-slate-800 text-white'
           : 'border-slate-200 text-slate-600 hover:border-slate-400 hover:bg-slate-50'
@@ -157,15 +188,79 @@ function ToggleBtn({ active, onClick, children }) {
 }
 
 // ── Success / receipt view ────────────────────────────────────────────────────
-function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, pdfUrl }) {
+function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, pdfUrl, client, bizName, subtotal, itbis, ley, formaPago, bizSettings }) {
+  const api = useAPI()
   const isLegacy = ecfResult?._legacy
   const isSin    = isLegacy && !ecfResult?.eNCF
   const ecfType  = ECF_TYPES[ncfType]
   const legacyType = LEGACY_TYPES.find(t => t.code === ncfType)
   const fmtISO   = s => new Date(s).toLocaleString('es-DO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
+  const [waState, setWaState] = useState('idle') // idle | sending | sent | error
+  const [waPhone, setWaPhone] = useState(client?.phone || '')
+  const [showWaInput, setShowWaInput] = useState(false)
+
+  async function sendWhatsApp() {
+    const phone = waPhone.trim()
+    if (!phone) { setShowWaInput(true); return }
+    const to = normalizeWaPhone(phone)
+    setWaState('sending')
+    try {
+      const bName = bizSettings?.biz_name || bizName || 'Terminal X'
+      const bRnc  = bizSettings?.biz_rnc  || ''
+      const ncf   = ecfResult?.eNCF || null
+      const svcs  = ticket?.services || []
+      const docNo = ticket?.ticketNo || ticket?.docNumber || ''
+
+      // Build formatted text receipt
+      const lines = [
+        `*${bName}*`,
+        bRnc ? `RNC: ${bRnc}` : '',
+        ``,
+        `📋 ${lang === 'es' ? 'Recibo de Pago' : 'Payment Receipt'}`,
+        `Ticket: #${docNo}`,
+        `${lang === 'es' ? 'Fecha' : 'Date'}: ${new Date().toLocaleDateString('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' })}`,
+        ncf ? `NCF: ${ncf}` : '',
+        client?.name ? `${lang === 'es' ? 'Cliente' : 'Client'}: ${client.name}` : '',
+        ``,
+        `${lang === 'es' ? 'Servicios' : 'Services'}:`,
+        ...svcs.map(s => `• ${s.name} — RD$ ${Number(s.price).toLocaleString('en-US', { minimumFractionDigits: 2 })}`),
+        ``,
+        subtotal ? `Subtotal: RD$ ${Number(subtotal).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '',
+        itbis ? `ITBIS 18%: RD$ ${Number(itbis).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '',
+        ley ? `Ley 10%: RD$ ${Number(ley).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '',
+        `*Total: RD$ ${Number(total).toLocaleString('en-US', { minimumFractionDigits: 2 })}*`,
+        ``,
+        `${lang === 'es' ? 'Forma de pago' : 'Payment'}: ${formaPago || 'Efectivo'}`,
+        ncf?.startsWith('E') ? `🔗 https://ecf.dgii.gov.do/consultatimbre?eNCF=${encodeURIComponent(ncf)}` : '',
+        ``,
+        `${lang === 'es' ? 'Gracias por su preferencia.' : 'Thank you for your business.'}`,
+        `_Powered by Terminal X_`,
+      ].filter(l => l !== '').join('\n')
+
+      // Try PDF first, fall back to text
+      try {
+        const pdfData = {
+          ncf: ncf || '', ncfType: ncfType || 'E32', cajero: '', docNo,
+          paidAt: new Date(), client: client || null, services: svcs,
+          subtotal: subtotal || 0, itbis: itbis || 0, ley: ley || 0,
+          descuento: 0, total: total || 0, formaPago: formaPago || 'Efectivo',
+          biz: { name: bName, address: bizSettings?.biz_address || '', phone: bizSettings?.biz_phone || '', rnc: bRnc },
+        }
+        const { base64, filename } = await buildReceiptPDFBase64(pdfData)
+        await api.whatsapp.sendDocument({ to, base64, filename, caption: `${bName} - Recibo #${docNo}` })
+      } catch {
+        // PDF failed (free plan) — send text instead
+        await api.whatsapp.send({ to, body: lines })
+      }
+      setWaState('sent')
+    } catch {
+      setWaState('error')
+    }
+  }
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-8 py-6 gap-5 overflow-y-auto">
+    <div className="flex-1 flex flex-col items-center justify-center px-4 py-4 md:px-8 md:py-6 gap-4 md:gap-5 overflow-y-auto">
       {/* Green check */}
       <div className="w-14 h-14 bg-green-50 border-2 border-green-200 rounded-full flex items-center justify-center">
         <CheckCircle2 size={28} className="text-green-500" />
@@ -246,8 +341,22 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
         </div>
       )}
 
+      {/* WhatsApp phone input — shown when no client phone or user clicks WA button */}
+      {(showWaInput || (!client?.phone && waState === 'idle')) && waState !== 'sent' && (
+        <div className="flex gap-2 w-full">
+          <input
+            type="tel"
+            inputMode="numeric"
+            value={waPhone}
+            onChange={e => setWaPhone(e.target.value)}
+            placeholder={lang === 'es' ? 'Numero WhatsApp (ej. 8091234567)' : 'WhatsApp number (e.g. 8091234567)'}
+            className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-[12px] text-slate-700 focus:outline-none focus:border-[#25D366] placeholder:text-slate-400"
+          />
+        </div>
+      )}
+
       {/* Actions */}
-      <div className="flex gap-3 w-full">
+      <div className="flex gap-3 w-full flex-wrap">
         {pdfUrl && (
           <a
             href={pdfUrl}
@@ -259,8 +368,28 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
           </a>
         )}
         <button
+          onClick={() => { if (waPhone.trim()) sendWhatsApp(); else setShowWaInput(true) }}
+          disabled={waState === 'sending' || waState === 'sent'}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[13px] font-semibold border transition-colors disabled:opacity-60 ${
+            waState === 'sent'
+              ? 'bg-green-50 border-green-200 text-green-700'
+              : waState === 'error'
+              ? 'bg-red-50 border-red-200 text-red-600'
+              : 'border-[#25D366]/40 text-[#25D366] hover:bg-[#25D366]/10'
+          }`}
+        >
+          {waState === 'sending' ? <Loader2 size={13} className="animate-spin" />
+           : waState === 'sent'  ? <CheckCircle2 size={13} />
+           : <MessageSquare size={13} />}
+          {waState === 'sent'
+            ? (lang === 'es' ? 'Enviado' : 'Sent')
+            : waState === 'error'
+            ? (lang === 'es' ? 'Error WA' : 'WA Error')
+            : 'WhatsApp'}
+        </button>
+        <button
           onClick={onClose}
-          className={`${pdfUrl ? 'flex-[2]' : 'flex-1'} py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-[13px] font-bold transition-colors`}
+          className="flex-[2] py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-[13px] font-bold transition-colors"
         >
           {lang === 'es' ? 'Cerrar' : 'Close'}
         </button>
@@ -271,6 +400,7 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
 export default function CobrarModal({ ticket, onConfirm, onClose }) {
+  const api = useAPI()
   const { lang } = useLang()
 
   // Totals
@@ -282,6 +412,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   // Fiscal mode — derived from bizSettings once loaded
   // Enabled e-CF types (loaded from NCF sequences)
   const [enabledEcfTypes, setEnabledEcfTypes] = useState(null) // null = loading, [] after load
+
+  const { lookup: rncLookup } = useRNC()
 
   // Form state
   const [ncfType,    setNcfType]    = useState('B02') // updated once bizSettings loads
@@ -311,9 +443,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const clientRef = useRef(null)
 
   useEffect(() => {
-    if (!hasIPC()) { setBizSettings({}); return }
-    window.electronAPI.clients.all().then(list => setAllClients(list || [])).catch(() => {})
-    window.electronAPI.settings.get().then(s => {
+    api?.clients?.all?.().then(list => setAllClients(list || [])).catch(() => {})
+    api.settings.get().then(s => {
       const cfg = s || {}
       setBizSettings(cfg)
       // Set sensible ncfType default based on fiscal mode
@@ -323,11 +454,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   }, [])
 
   useEffect(() => {
-    if (!hasIPC()) {
-      setEnabledEcfTypes(Object.values(ECF_TYPES).filter(e => e.defaultEnabled))
-      return
-    }
-    window.electronAPI.ncf.sequences()
+    api?.ncf?.sequences?.()
       .then(rows => {
         setNcfSeqs(rows || [])
         const enabled = (rows || []).filter(r => r.enabled === 1)
@@ -377,8 +504,6 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
     setShowClientDrop(false)
     // Auto-fill RNC fields if E31
     if (c.rnc) { setRnc(c.rnc); setRncName(c.name) }
-    // Auto-switch to A Crédito if client has a credit balance
-    if (c.balance > 0 || c.credit_limit > 0) setTipo('credito')
   }
 
   function clearClient() {
@@ -401,8 +526,18 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
     (tipo !== 'contado' || formaPago !== 'efectivo' || recibidoNum >= total) &&
     (!currentType?.requiresRnc || validateRNC(rnc))
 
-  function lookupRnc() {
-    if (validateRNC(rnc)) setRncName(rncName || 'Empresa S.R.L.')
+  async function lookupRnc() {
+    const clean = rnc.replace(/[-\s]/g, '')
+    if (clean.length < 9) { setRncName('Min 9 digitos'); return }
+    setRncName('Buscando...')
+    try {
+      const res = await rncLookup(clean)
+      if (res?.nombre) setRncName(res.nombre)
+      else if (res?.name) setRncName(res.name)
+      else setRncName(res ? `(${JSON.stringify(res).slice(0,80)})` : '(no result)')
+    } catch (err) {
+      setRncName(`Error: ${err?.message || err}`)
+    }
   }
 
   async function handleConfirm() {
@@ -415,7 +550,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
       if (!isSin) {
         try {
           // Use real DGII-assigned sequence from DB (increments current_number)
-          eNCF = hasIPC() ? await window.electronAPI.ncf.nextSequence(ncfType) : null
+          eNCF = await api?.ncf?.next?.(ncfType) || null
         } catch { /* fallback below */ }
         if (!eNCF) {
           // Fallback: generate from current seq in memory
@@ -425,9 +560,9 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
           eNCF = `${prefix}${String(next).padStart(8, '0')}`
         }
       }
-      const legacyResult = isSin ? null : {
-        eNCF,
-        status:      'LOCAL',
+      const legacyResult = {
+        eNCF:        isSin ? null : eNCF,
+        status:      isSin ? 'SIN' : 'LOCAL',
         trackId:     `local-${Date.now()}`,
         submittedAt: new Date().toISOString(),
         qrLink:      null,
@@ -524,13 +659,13 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-6"
-      onMouseDown={e => { if (e.target === e.currentTarget && !isSubmitting && ecfState !== 'success') onClose() }}
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-0 md:p-6"
+      onMouseDown={e => { if (e.target === e.currentTarget && !isSubmitting) ecfState === 'success' ? handleSuccessClose() : onClose() }}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[660px] flex flex-col max-h-[93vh]">
+      <div className="bg-white shadow-2xl w-full h-full md:w-auto md:h-auto md:max-w-[660px] md:rounded-2xl flex flex-col md:max-h-[93vh]">
 
         {/* ── Header ──────────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-slate-100 shrink-0">
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-slate-800">{tl('title', lang)}</h3>
@@ -540,11 +675,11 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
             </p>
           </div>
           <button
-            onClick={() => { if (!isSubmitting && ecfState !== 'success') onClose() }}
+            onClick={() => { if (!isSubmitting) ecfState === 'success' ? handleSuccessClose() : onClose() }}
             disabled={isSubmitting}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-10 h-10 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <X size={17} />
+            <X size={18} />
           </button>
         </div>
 
@@ -559,12 +694,19 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
             onClose={handleSuccessClose}
             lang={lang}
             pdfUrl={ecfResult?.pdfUrl || null}
+            client={selectedClient}
+            bizName={bizSettings?.biz_name || 'Terminal X'}
+            subtotal={subtotal}
+            itbis={itbis}
+            ley={ley}
+            formaPago={formaPago}
+            bizSettings={bizSettings}
           />
         ) : (
 
           <>
             {/* ── Body (payment form) ────────────────────────────────────── */}
-            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 relative">
+            <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-5 space-y-4 md:space-y-5 relative">
 
               {/* ── Submitting overlay ─────────────────────────────────── */}
               {isSubmitting && (
@@ -643,7 +785,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
               </div>
 
               {/* ── Two-column: Comprobante (left) | Tipo + Cliente (right) ── */}
-              <div className="grid grid-cols-2 gap-5 items-start">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5 items-start">
 
                 {/* LEFT — Comprobante */}
                 <div>
@@ -800,12 +942,12 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
               ) : (
                 <div>
                   <SectionLabel>{tl('formaPago', lang)}</SectionLabel>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                     {PAYMENT_METHODS.map(({ id, icon: Icon, es, en }) => (
                       <button
                         key={id}
                         onClick={() => setFormaPago(id)}
-                        className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border text-[12px] font-semibold transition-all ${
+                        className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border text-[12px] font-semibold transition-all min-h-[48px] ${
                           formaPago === id
                             ? 'bg-sky-500 border-sky-500 text-white shadow-md shadow-sky-500/20'
                             : 'border-slate-200 text-slate-600 hover:border-sky-300 hover:bg-sky-50/50'
@@ -829,7 +971,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                         <button
                           key={amt}
                           onClick={() => setRecibido(String(amt))}
-                          className={`px-3 py-1.5 rounded-lg border text-[12px] font-semibold transition-all ${
+                          className={`px-3 py-2 md:py-1.5 rounded-lg border text-[12px] font-semibold transition-all min-h-[44px] md:min-h-0 ${
                             recibidoNum === amt
                               ? 'bg-slate-800 border-slate-800 text-white'
                               : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'
@@ -908,7 +1050,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
             </div>
 
             {/* ── Footer ────────────────────────────────────────────────── */}
-            <div className="flex gap-3 px-6 py-4 border-t border-slate-100 shrink-0">
+            <div className="flex gap-2 md:gap-3 px-4 py-3 md:px-6 md:py-4 border-t border-slate-100 shrink-0">
               <button
                 onClick={onClose}
                 disabled={isSubmitting}

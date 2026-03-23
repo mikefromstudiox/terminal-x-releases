@@ -16,6 +16,7 @@ export const es = {
   nav_dgii:          'DGII / 606',
   nav_settings:      'Configuración',
   nav_queue:         'Cola de Espera',
+  nav_inventory:     'Inventario',
   nav_cash_recon:    'Cuadre de Caja',
   nav_petty:         'Caja Chica',
   nav_credit_notes:  'Notas de Crédito',

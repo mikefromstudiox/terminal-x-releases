@@ -5,18 +5,27 @@ import App from './App'
 import { LangProvider } from './i18n'
 import { AuthProvider } from './context/AuthContext'
 import { LicenseProvider } from './context/LicenseContext'
+import { DataProvider } from './context/DataContext'
+import { createElectronAPI, createElectronPrinterAPI, isElectron } from './data/electron'
+import { createWebAPI, createWebPrinterAPI } from './data/web'
 import './index.css'
+
+// Platform detection: Electron (preload.js present) vs Web browser
+const api       = isElectron() ? createElectronAPI()        : createWebAPI()
+const printerApi = isElectron() ? createElectronPrinterAPI() : createWebPrinterAPI()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <HashRouter>
-      <LangProvider>
-        <AuthProvider>
-          <LicenseProvider>
-            <App />
-          </LicenseProvider>
-        </AuthProvider>
-      </LangProvider>
-    </HashRouter>
+    <DataProvider api={api} printerApi={printerApi}>
+      <HashRouter>
+        <LangProvider>
+          <AuthProvider>
+            <LicenseProvider>
+              <App />
+            </LicenseProvider>
+          </AuthProvider>
+        </LangProvider>
+      </HashRouter>
+    </DataProvider>
   </React.StrictMode>
 )

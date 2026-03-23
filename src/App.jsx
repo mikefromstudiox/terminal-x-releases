@@ -1,5 +1,20 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import logoImg from './assets/logo.png'
 import { useState, useEffect } from 'react'
+import { useAPI } from './context/DataContext'
+import { setStoredSetting, getStoredSetting } from './services/supabase'
+import { startSyncScheduler, stopSyncScheduler } from './services/sync'
+
+// In dev mode, pre-load Supabase credentials from .env so Remote Dashboard works immediately
+if (import.meta.env.DEV) {
+  const devUrl = import.meta.env.VITE_DEV_SUPABASE_URL
+  const devKey = import.meta.env.VITE_DEV_SUPABASE_KEY
+  if (devUrl && !getStoredSetting('supabase_url')) {
+    setStoredSetting('supabase_url', devUrl)
+    setStoredSetting('business_id', '') // force re-register when credentials are new
+  }
+  if (devKey && !getStoredSetting('supabase_anon_key')) setStoredSetting('supabase_anon_key', devKey)
+}
 import { useAuth } from './context/AuthContext'
 import { useLicense } from './context/LicenseContext'
 import Layout from './components/Layout'
@@ -23,13 +38,14 @@ import CreditNotes from './screens/CreditNotes'
 import RemoteDashboard from './screens/RemoteDashboard'
 import LicenseAdmin from './screens/LicenseAdmin'
 import Sistema from './screens/Sistema'
+import Inventory from './screens/Inventory'
 import DailyReport from './screens/reports/DailyReport'
 import MonthlyReport from './screens/reports/MonthlyReport'
 import WorkerReport from './screens/reports/WorkerReport'
 import SalespersonReport from './screens/reports/SalespersonReport'
 
 // Routes accessible only to non-cashier roles
-const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin','/sistema']
+const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin','/sistema','/inventory']
 
 function ProtectedRoute({ element }) {
   const { user } = useAuth()
@@ -45,7 +61,7 @@ function Spinner() {
     <div className="fixed inset-0 flex items-center justify-center bg-black">
       <div className="text-center">
         <div className="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <img src="/assets/logo.png" alt="TX" className="w-8 h-8 object-contain" />
+          <img src={logoImg} alt="TX" className="w-8 h-8 object-contain" />
         </div>
         <p className="text-zinc-500 text-sm">Cargando...</p>
       </div>
@@ -54,6 +70,7 @@ function Spinner() {
 }
 
 export default function App() {
+  const api = useAPI()
   const { user }                          = useAuth()
   const { result, checking, isReadOnly } = useLicense()
 
@@ -64,7 +81,7 @@ export default function App() {
   useEffect(() => {
     async function checkFirstRun() {
       try {
-        const empresa = await window.electronAPI?.admin?.getEmpresa?.()
+        const empresa = await api?.admin?.getEmpresa?.()
         setIsFirstRun(!empresa)
       } catch {
         setIsFirstRun(false)   // IPC unavailable (dev/web) — skip setup
@@ -75,32 +92,40 @@ export default function App() {
     checkFirstRun()
   }, [])
 
+  // ── Background sync: desktop SQLite → Supabase (every 15 min) ──────────────
+  useEffect(() => {
+    if (user && api) startSyncScheduler(api)
+    return () => stopSyncScheduler()
+  }, [user, api])
+
   // ── Startup gate: wait for both setup check and license check ──────────────
-  if (!setupChecked || (checking && !result)) return <Spinner />
+  const isWeb = !window.electronAPI
+  if (!setupChecked || (!isWeb && checking && !result)) return <Spinner />
 
   // ── First-run wizard ────────────────────────────────────────────────────────
-  if (isFirstRun) {
+  if (isFirstRun && !import.meta.env.DEV && !isWeb) {
     return <FirstTimeSetup onComplete={() => setIsFirstRun(false)} />  // setIsFirstRun(false) = setAppState('login')
   }
 
-  // License missing or invalid (not just expired) → show gate
-  const blockingStatuses = ['no_key', 'not_found', 'invalid_format', 'hardware_mismatch', 'inactive', 'suspended']
-  if (!result || blockingStatuses.includes(result.status)) {
-    return <LicenseGate />
-  }
-
-  // Expired beyond grace period → show gate in expired mode (read-only bypass available)
-  if (result.status === 'expired') {
-    // App still renders but isReadOnly = true + expired banner shown
-    // The LicenseGate for expired shows a continue-in-read-only option handled within LicenseGate
-    // We show the expired gate unless user explicitly chose read-only mode
-    const readOnlyChosen = sessionStorage.getItem('tx_read_only_chosen')
-    if (!readOnlyChosen) {
+  // Skip license gate in dev mode and on web (web uses Supabase auth, not license keys)
+  if (!import.meta.env.DEV && !isWeb) {
+    // License missing or invalid (not just expired) → show gate
+    const blockingStatuses = ['no_key', 'not_found', 'invalid_format', 'hardware_mismatch', 'inactive', 'suspended']
+    if (!result || blockingStatuses.includes(result.status)) {
       return <LicenseGate />
+    }
+
+    // Expired beyond grace period → show gate in expired mode (read-only bypass available)
+    if (result.status === 'expired') {
+      const readOnlyChosen = sessionStorage.getItem('tx_read_only_chosen')
+      if (!readOnlyChosen) {
+        return <LicenseGate />
+      }
     }
   }
 
-  if (!user) return <Login />
+  // On web, Supabase auth already handled login — skip PIN screen
+  if (!user && !isWeb) return <Login />
 
   return (
     <>
@@ -117,6 +142,7 @@ export default function App() {
         <Route path="/reports/monthly"       element={<ProtectedRoute element={<MonthlyReport />} />} />
         <Route path="/reports/workers"       element={<ProtectedRoute element={<WorkerReport />} />} />
         <Route path="/reports/salesperson"   element={<ProtectedRoute element={<SalespersonReport />} />} />
+        <Route path="/inventory"             element={<ProtectedRoute element={<Inventory />} />} />
         <Route path="/cash-recon"            element={<ProtectedRoute element={<CashReconciliation />} />} />
         <Route path="/dgii"                  element={<ProtectedRoute element={<DGII />} />} />
         <Route path="/petty-cash"            element={<ProtectedRoute element={<PettyCash />} />} />

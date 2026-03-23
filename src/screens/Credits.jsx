@@ -5,6 +5,9 @@ import {
   Check, ChevronRight, StickyNote, RefreshCw,
 } from 'lucide-react'
 import { useLang } from '../i18n'
+import { useAPI } from '../context/DataContext'
+import { useRNC } from '../hooks/useRNC'
+import { printCreditPayment } from '../services/printer'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -18,10 +21,6 @@ function fmtDate(d) {
 function initials(name) {
   return (name || '?').split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()
 }
-function hasIPC() {
-  return typeof window !== 'undefined' && !!window.electronAPI
-}
-
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function Avatar({ name, overLimit, size = 40 }) {
@@ -47,18 +46,28 @@ function CreditBar({ balance, limit, height = 'h-1.5' }) {
 // ── New Client slide-in panel ─────────────────────────────────────────────────
 
 function NewClientPanel({ onClose, onSaved }) {
+  const api = useAPI()
+  const { lookup: rncLookup, lookupLoading: rncLoading } = useRNC()
   const [form, setForm]     = useState({ name:'', rnc:'', phone:'', email:'', address:'', credit_limit:'', notes:'' })
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })) }
 
+  async function lookupRNC() {
+    const clean = form.rnc.replace(/\D/g, '')
+    if (clean.length < 9) return
+    const res = await rncLookup(clean)
+    if (res?.nombre) set('name', res.nombre)
+    else if (res?.name) set('name', res.name)
+  }
+
   async function handleSave() {
     if (!form.name.trim()) { setError('El nombre es requerido.'); return }
     const limit = parseFloat(form.credit_limit) || 0
     setSaving(true); setError('')
     try {
-      await window.electronAPI.clients.create({
+      await api.clients.create({
         name:         form.name.trim(),
         rnc:          form.rnc.trim(),
         phone:        form.phone.trim(),
@@ -77,7 +86,6 @@ function NewClientPanel({ onClose, onSaved }) {
 
   const fields = [
     { k:'name',         label:'Nombre / Empresa *', ph:'Importadora Del Norte SRL', type:'text' },
-    { k:'rnc',          label:'RNC',                ph:'130-12345-6',               type:'text' },
     { k:'phone',        label:'Teléfono',           ph:'809-555-0000',              type:'text' },
     { k:'email',        label:'Email',              ph:'contacto@empresa.com',      type:'email' },
     { k:'address',      label:'Dirección',          ph:'Av. Winston Churchill 1099',type:'text' },
@@ -87,7 +95,7 @@ function NewClientPanel({ onClose, onSaved }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <div className="relative w-[380px] bg-white h-full shadow-2xl flex flex-col">
+      <div className="relative w-full md:w-[380px] bg-white h-full shadow-2xl flex flex-col">
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <h3 className="text-[15px] font-bold text-slate-800">Nuevo Cliente</h3>
@@ -98,6 +106,28 @@ function NewClientPanel({ onClose, onSaved }) {
 
         {/* Form */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+          {/* RNC with lookup */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">RNC</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={form.rnc}
+                onChange={e => set('rnc', e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && lookupRNC()}
+                placeholder="130-12345-6"
+                className="flex-1 min-w-0"
+              />
+              <button
+                onClick={lookupRNC}
+                disabled={rncLoading}
+                className="px-3 py-2 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-xl text-[12px] font-semibold text-sky-700 transition-colors whitespace-nowrap min-h-[44px]"
+              >
+                {rncLoading ? '...' : 'Buscar'}
+              </button>
+            </div>
+          </div>
+
           {fields.map(f => (
             <div key={f.k}>
               <label className="block text-[11px] font-semibold text-slate-500 mb-1">{f.label}</label>
@@ -123,11 +153,11 @@ function NewClientPanel({ onClose, onSaved }) {
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 px-5 py-4 border-t border-slate-100">
+        <div className="shrink-0 px-5 py-4 pb-20 md:pb-4 border-t border-slate-100">
           <button
             onClick={handleSave}
             disabled={saving}
-            className="w-full py-2.5 bg-[#0C447C] hover:bg-[#0a3a6b] disabled:opacity-60 text-white font-bold rounded-xl text-[13px] transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3 md:py-2.5 bg-[#0C447C] hover:bg-[#0a3a6b] disabled:opacity-60 text-white font-bold rounded-xl text-[13px] transition-colors flex items-center justify-center gap-2 min-h-[44px]"
           >
             {saving ? <><Loader2 size={14} className="animate-spin" /> Guardando…</> : 'Guardar Cliente'}
           </button>
@@ -247,10 +277,10 @@ function PaymentForm({ total, clientRnc, onPay, paying, isManual = false }) {
       )}
 
       {/* Payment method */}
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
         {PAYMENT_METHODS.map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setMethod(id)}
-            className={`flex flex-col items-center gap-1 py-2 rounded-xl border text-[11px] font-semibold transition-colors ${
+            className={`flex flex-col items-center gap-1 py-2.5 md:py-2 rounded-xl border text-[11px] font-semibold transition-colors min-h-[48px] ${
               method === id
                 ? 'bg-[#E6F1FB] border-[#0C447C] text-[#0C447C]'
                 : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
@@ -285,6 +315,7 @@ function PaymentForm({ total, clientRnc, onPay, paying, isManual = false }) {
 // ── Client detail panel ───────────────────────────────────────────────────────
 
 function ClientDetail({ client, onReload }) {
+  const api = useAPI()
   const [tickets,  setTickets]  = useState([])
   const [loading,  setLoading]  = useState(true)
   const [checked,  setChecked]  = useState(new Set())
@@ -292,10 +323,9 @@ function ClientDetail({ client, onReload }) {
   const [toast,    setToast]    = useState(null)
 
   const loadTickets = useCallback(async () => {
-    if (!hasIPC()) { setLoading(false); return }
     setLoading(true)
     try {
-      const rows = await window.electronAPI.clients.openTickets(client.id)
+      const rows = await api?.clients?.openTickets?.(client.id)
       setTickets(rows || [])
     } catch { setTickets([]) }
     finally  { setLoading(false) }
@@ -321,12 +351,13 @@ function ClientDetail({ client, onReload }) {
   }
 
   async function handlePay({ ncfType, rnc, method, comentario, amount: manualAmount }) {
-    const ticketIds = [...checked]
-    const amount    = ticketIds.length > 0 ? selectedTotal : (manualAmount || 0)
+    const ticketIds      = [...checked]
+    const selectedTickets = tickets.filter(t => checked.has(t.id))
+    const amount         = ticketIds.length > 0 ? selectedTotal : (manualAmount || 0)
     if (amount <= 0) return
     setPaying(true)
     try {
-      await window.electronAPI.credits.collect({
+      await api.credits.collect({
         clientId:      client.id,
         ticketIds,
         amount,
@@ -340,6 +371,26 @@ function ClientDetail({ client, onReload }) {
       setChecked(new Set())
       await loadTickets()
       onReload()
+
+      // Print credit payment receipt
+      try {
+        const empresa = await api.admin.getEmpresa().catch(() => ({}))
+        const biz = {
+          name:    empresa?.nombre    || empresa?.name    || '',
+          address: empresa?.direccion || empresa?.address || '',
+          phone:   empresa?.telefono  || empresa?.phone   || '',
+          rnc:     empresa?.rnc       || '',
+        }
+        printCreditPayment({
+          biz,
+          client:     { name: client.name, rnc: client.rnc },
+          ncfType,
+          formaPago:  method,
+          tickets:    selectedTickets,
+          amount,
+          comentario: comentario || '',
+        }).catch(() => {})
+      } catch { /* print errors never block the payment flow */ }
     } catch (e) {
       setToast('Error: ' + (e.message || 'No se pudo registrar el cobro.'))
       setTimeout(() => setToast(null), 4000)
@@ -577,6 +628,7 @@ function ClientDetail({ client, onReload }) {
 // ── Main Credits screen ───────────────────────────────────────────────────────
 
 export default function Credits() {
+  const api = useAPI()
   const { t } = useLang()
   const [clients,   setClients]   = useState([])
   const [loading,   setLoading]   = useState(true)
@@ -585,10 +637,9 @@ export default function Credits() {
   const [showNew,   setShowNew]   = useState(false)
 
   const loadClients = useCallback(async () => {
-    if (!hasIPC()) { setLoading(false); return }
     setLoading(true)
     try {
-      const rows = await window.electronAPI.clients.all()
+      const rows = await api?.clients?.all?.()
       setClients(rows || [])
     } catch { setClients([]) }
     finally  { setLoading(false) }
@@ -617,18 +668,20 @@ export default function Credits() {
   const selectedClient = clients.find(c => c.id === selectedId) || null
 
   return (
-    <div className="h-full flex bg-white">
+    <div className="h-full flex flex-col md:flex-row bg-white">
 
-      {/* ── Left panel — client list ──────────────────────────────────────── */}
-      <div className="w-[300px] shrink-0 border-r border-slate-100 flex flex-col">
+      {/* ── Left panel — client list (hidden on mobile when detail is open) ── */}
+      <div className={`border-r border-slate-100 flex flex-col ${
+        selectedClient ? 'hidden md:flex w-full md:w-[300px] md:shrink-0' : 'flex flex-1'
+      }`}>
 
         {/* Header */}
-        <div className="shrink-0 px-4 py-3 border-b border-slate-100">
+        <div className="shrink-0 px-3 py-2.5 md:px-4 md:py-3 border-b border-slate-100">
           <div className="flex items-center justify-between mb-2.5">
             <h2 className="text-[14px] font-bold text-slate-800">Cuentas x Cobrar</h2>
             <button
               onClick={() => setShowNew(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0C447C] hover:bg-[#0a3a6b] text-white text-[11px] font-bold rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0C447C] hover:bg-[#0a3a6b] text-white text-[11px] font-bold rounded-lg transition-colors min-h-[44px]"
             >
               <Plus size={12} /> Nuevo
             </button>
@@ -671,16 +724,28 @@ export default function Credits() {
         </div>
       </div>
 
-      {/* ── Right panel — detail ──────────────────────────────────────────── */}
+      {/* ── Right panel — detail (full screen on mobile) ──────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {selectedClient ? (
-          <ClientDetail
-            key={selectedClient.id}
-            client={selectedClient}
-            onReload={loadClients}
-          />
+          <>
+            {/* Mobile back button */}
+            <div className="md:hidden shrink-0 flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+              <button
+                onClick={() => setSelectedId(null)}
+                className="flex items-center gap-1.5 text-[12px] font-medium text-slate-500 hover:text-slate-700 min-h-[44px]"
+              >
+                <ChevronRight size={16} className="rotate-180" />
+                Volver
+              </button>
+            </div>
+            <ClientDetail
+              key={selectedClient.id}
+              client={selectedClient}
+              onReload={loadClients}
+            />
+          </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
+          <div className="hidden md:flex flex-1 flex-col items-center justify-center text-center px-8">
             <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center mb-4">
               <CreditCard size={24} className="text-slate-300" />
             </div>

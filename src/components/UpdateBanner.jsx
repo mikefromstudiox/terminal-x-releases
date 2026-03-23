@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react'
 import { Download, RefreshCw, X } from 'lucide-react'
+import { useAPI } from '../context/DataContext'
 
 export default function UpdateBanner() {
+  const api = useAPI()
   const [state, setState] = useState(null)  // null | { type, data }
 
   useEffect(() => {
-    if (!window.electronAPI?.updater?.onStatus) return
+    if (!api?.updater?.onStatus) return
 
-    const off = window.electronAPI.updater.onStatus((event, data) => {
+    const off = api.updater.onStatus((event, data) => {
       if (event === 'available')   setState({ type: 'available',   data })
       if (event === 'progress')    setState({ type: 'progress',    data })
       if (event === 'downloaded')  setState({ type: 'downloaded',  data })
@@ -21,7 +23,7 @@ export default function UpdateBanner() {
   if (!state) return null
 
   async function install() {
-    await window.electronAPI.updater.install()
+    await api.updater.install()
   }
 
   if (state.type === 'downloaded') {

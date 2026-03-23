@@ -22,12 +22,107 @@ const env = {
   supabaseAnon: process.env.SUPABASE_ANON_KEY || '',
 }
 
+// ── Safe storage (OS-encrypted key-value store) ───────────────────────────────
+// Uses Electron safeStorage (Windows DPAPI / macOS Keychain / Linux secret-service).
+// Falls back to base64 if encryption is unavailable (CI, headless envs).
+ipcMain.handle('safe:set', (_, key, val) => {
+  const storePath = path.join(app.getPath('userData'), 'safe_store.json')
+  let store = {}
+  try { store = JSON.parse(fs.readFileSync(storePath, 'utf8')) } catch {}
+  if (app.safeStorage.isEncryptionAvailable()) {
+    store[key] = { enc: true,  data: app.safeStorage.encryptString(val).toString('base64') }
+  } else {
+    store[key] = { enc: false, data: Buffer.from(val).toString('base64') }
+  }
+  try { fs.writeFileSync(storePath, JSON.stringify(store)) } catch {}
+  return true
+})
+
+ipcMain.handle('safe:get', (_, key) => {
+  const storePath = path.join(app.getPath('userData'), 'safe_store.json')
+  let store = {}
+  try { store = JSON.parse(fs.readFileSync(storePath, 'utf8')) } catch {}
+  const entry = store[key]
+  if (!entry) return ''
+  try {
+    if (entry.enc) return app.safeStorage.decryptString(Buffer.from(entry.data, 'base64'))
+    return Buffer.from(entry.data, 'base64').toString('utf8')
+  } catch { return '' }
+})
+
 // Expose non-secret config to the renderer on request.
 // ef2Token and supabase keys are NOT sent proactively — only when requested,
 // so the renderer can detect stub/offline mode.
 ipcMain.handle('env:get', (_, key) => {
   const allowed = { ef2Token: env.ef2Token, supabaseUrl: env.supabaseUrl, supabaseAnon: env.supabaseAnon }
   return allowed[key] ?? null
+})
+
+ipcMain.handle('app:version', () => app.getVersion())
+
+// ── WhatsApp (UltraMsg) ───────────────────────────────────────────────────────
+ipcMain.handle('whatsapp:send', (_, { to, body }) => {
+  return new Promise((resolve, reject) => {
+    const instance = db?.getSetting('whatsapp_instance') || ''
+    const token    = db?.getSetting('whatsapp_token')    || ''
+    if (!instance || !token) return reject(new Error('WhatsApp no configurado'))
+
+    const postData = `token=${encodeURIComponent(token)}&to=${encodeURIComponent(to)}&body=${encodeURIComponent(body)}`
+    const req = https.request({
+      hostname: 'api.ultramsg.com',
+      path:     `/${instance}/messages/chat`,
+      method:   'POST',
+      headers: {
+        'Content-Type':   'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(postData),
+      },
+    }, res => {
+      let raw = ''
+      res.on('data', chunk => { raw += chunk })
+      res.on('end',  ()    => {
+        try { resolve(JSON.parse(raw)) } catch { resolve({ sent: true }) }
+      })
+    })
+    req.on('error', reject)
+    req.write(postData)
+    req.end()
+  })
+})
+
+// Send a PDF document via WhatsApp (UltraMsg document endpoint)
+ipcMain.handle('whatsapp:sendDocument', (_, { to, base64, filename, caption }) => {
+  return new Promise((resolve, reject) => {
+    const instance = db?.getSetting('whatsapp_instance') || ''
+    const token    = db?.getSetting('whatsapp_token')    || ''
+    if (!instance || !token) return reject(new Error('WhatsApp no configurado'))
+
+    const postData = [
+      `token=${encodeURIComponent(token)}`,
+      `to=${encodeURIComponent(to)}`,
+      `filename=${encodeURIComponent(filename || 'recibo.pdf')}`,
+      `document=data:application/pdf;base64,${base64}`,
+      caption ? `caption=${encodeURIComponent(caption)}` : '',
+    ].filter(Boolean).join('&')
+
+    const req = https.request({
+      hostname: 'api.ultramsg.com',
+      path:     `/${instance}/messages/document`,
+      method:   'POST',
+      headers: {
+        'Content-Type':   'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(postData),
+      },
+    }, res => {
+      let raw = ''
+      res.on('data', chunk => { raw += chunk })
+      res.on('end',  ()    => {
+        try { resolve(JSON.parse(raw)) } catch { resolve({ sent: true }) }
+      })
+    })
+    req.on('error', reject)
+    req.write(postData)
+    req.end()
+  })
 })
 
 // ── ef2.do HTTP proxy (runs in main process — no CORS, no browser restrictions) ─
@@ -65,9 +160,18 @@ function ef2Fetch({ method = 'POST', path: urlPath, body, token }) {
   })
 }
 
+const NETWORK_ERRORS = ['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET']
+
 ipcMain.handle('ef2:fetch', async (_, { method, path: urlPath, body, token }) => {
-  // Use token from request, fall back to env, stub if neither is set
-  const resolvedToken = token || env.ef2Token
+  // Token resolution: request param → env var → business DB settings
+  let resolvedToken = token || env.ef2Token
+  if (!resolvedToken && db) {
+    try {
+      const biz = db.empresaGet()
+      const s = JSON.parse(biz?.settings || '{}')
+      resolvedToken = s.ef2_token || ''
+    } catch {}
+  }
   if (!resolvedToken) {
     return { ok: false, error: 'ef2_token_missing', stub: true }
   }
@@ -75,9 +179,41 @@ ipcMain.handle('ef2:fetch', async (_, { method, path: urlPath, body, token }) =>
     const { status, json, raw } = await ef2Fetch({ method, path: urlPath, body, token: resolvedToken })
     return { ok: true, status, data: json, raw }
   } catch (err) {
+    const isNetwork = NETWORK_ERRORS.some(c => err.code === c || err.message.includes(c))
+    // Queue invoice submissions on network failure — DGII allows 72h contingency
+    if (isNetwork && urlPath === '/procesar_factura.php' && db) {
+      db.ecfQueueAdd(urlPath, body, resolvedToken)
+      return { ok: false, error: err.message, queued: true }
+    }
     return { ok: false, error: err.message }
   }
 })
+
+// ── e-CF offline queue retry ──────────────────────────────────────────────────
+
+ipcMain.handle('ecf:queue-count', () => db ? db.ecfQueueCount() : 0)
+
+async function processEcfQueue() {
+  if (!db) return
+  const pending = db.ecfQueueGetPending(10)
+  for (const item of pending) {
+    try {
+      const { status, json } = await ef2Fetch({
+        method: 'POST',
+        path:   item.url_path,
+        body:   JSON.parse(item.body_json),
+        token:  item.token,
+      })
+      if (status >= 200 && status < 300 && json?.success) {
+        db.ecfQueueDelete(item.id)
+      } else {
+        db.ecfQueueIncrAttempts(item.id)
+      }
+    } catch {
+      // Still offline — retry next interval
+    }
+  }
+}
 
 const isDev = process.argv.includes('--dev') || process.env.NODE_ENV === 'development'
 
@@ -144,9 +280,9 @@ try {
 }
 
 function createWindow() {
-  const iconPath = isDev
-    ? path.join(__dirname, '../public/assets/logo.png')
-    : path.join(__dirname, '../dist/assets/logo.png')
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'icon.png')
+    : path.join(__dirname, '../assets/icon.png')
 
   const win = new BrowserWindow({
     width: 1280,
@@ -171,9 +307,14 @@ function createWindow() {
     initUpdater(win)
   })
 
+  // F12 toggles DevTools in all builds (needed for production debugging)
+  win.webContents.on('before-input-event', (_, input) => {
+    if (input.key === 'F12' && input.type === 'keyDown') win.webContents.toggleDevTools()
+  })
+
   if (isDev) {
-    win.loadURL('http://localhost:5173')
     win.webContents.openDevTools()
+    win.loadURL('http://localhost:5173')
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'))
   }
@@ -189,6 +330,8 @@ app.whenReady().then(() => {
     }
   }
   createWindow()
+  // Retry any queued e-CF submissions every 30s (DGII 72h contingency compliance)
+  setInterval(processEcfQueue, 30_000)
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -207,6 +350,12 @@ function handle(channel, fn) {
       const data = await fn(...args)
       return { ok: true, data }
     } catch (err) {
+      // FK violations: log the exact args so we can see which value failed
+      if (err.message?.includes('FOREIGN KEY')) {
+        const argSummary = JSON.stringify(args).slice(0, 800)
+        console.error(`[ipc:${channel}] FOREIGN KEY constraint failed. Args: ${argSummary}`)
+        return { ok: false, error: `FOREIGN KEY constraint failed — channel: ${channel}. Verify washer_id, seller_id, service_id, and cajero_id all exist in their respective tables.` }
+      }
       console.error(`[ipc:${channel}]`, err.message)
       return { ok: false, error: err.message }
     }
@@ -311,6 +460,12 @@ handle('queue:updateStatus', ({id,status,washerId})   => db.queueUpdateStatus(id
 handle('commissions:byWasher', ({washerId,from,to}) => db.commissionsGetByWasher(washerId, from, to))
 handle('commissions:byPeriod', ({from,to})          => db.commissionsGetByPeriod(from, to))
 handle('commissions:markPaid', (ids)                => db.commissionsMarkPaid(ids))
+handle('sellerCommissions:bySeller', ({sellerId,from,to}) => db.sellerCommissionsBySeller(sellerId, from, to))
+handle('sellerCommissions:byPeriod', ({from,to})          => db.sellerCommissionsByPeriod(from, to))
+handle('sellerCommissions:markPaid', (ids)                => db.sellerCommissionsMarkPaid(ids))
+handle('cajeroCommissions:byCajero', ({cajeroId,from,to}) => db.cajeroCommissionsByCajero(cajeroId, from, to))
+handle('cajeroCommissions:byPeriod', ({from,to})          => db.cajeroCommissionsByPeriod(from, to))
+handle('cajeroCommissions:markPaid', (ids)                => db.cajeroCommissionsMarkPaid(ids))
 
 // ── Cuadre de Caja ────────────────────────────────────────────────────────────
 handle('cuadre:create',  (data)    => db.cuadreCreate(data))
@@ -333,43 +488,246 @@ handle('notas:all',    ()     => db.notasGetAll())
 handle('notas:create', (data) => db.notaCreate(data))
 
 // ── DGII ──────────────────────────────────────────────────────────────────────
-handle('dgii:606', ({from,to}) => db.get606Data(from, to))
+handle('dgii:606',        ({from,to}) => db.get606Data(from, to))
+handle('dgii:607:get',    ({from,to}) => db.getCompras607(from, to))
+handle('dgii:607:add',    (data)      => db.addCompra607(data))
+handle('dgii:607:delete', ({id})      => db.deleteCompra607(id))
+
+// ── RNC — helpers ─────────────────────────────────────────────────────────────
+
+// Download any URL to a Buffer — handles HTTP redirects
+function downloadBuffer(url, onProgress) {
+  return new Promise((resolve, reject) => {
+    const request = (reqUrl) => {
+      https.get(reqUrl, { timeout: 120000 }, res => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          return request(res.headers.location)
+        }
+        if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
+        const total  = parseInt(res.headers['content-length'] || '0', 10)
+        const chunks = []
+        let  received = 0
+        res.on('data', chunk => {
+          chunks.push(chunk)
+          received += chunk.length
+          if (onProgress && total) onProgress(Math.round((received / total) * 100))
+        })
+        res.on('end',   () => resolve(Buffer.concat(chunks)))
+        res.on('error', reject)
+      }).on('error', reject).on('timeout', () => reject(new Error('Timeout descargando')))
+    }
+    request(url)
+  })
+}
+
+// Full DGII RNC sync — downloads official ZIP, parses, inserts into SQLite
+async function dgiiRncSync(sendProgress) {
+  sendProgress({ percent: 2, message: 'Descargando base de datos DGII...' })
+
+  const zipBuffer = await downloadBuffer(
+    'https://dgii.gov.do/app/WebApps/Consultas/RNC/DGII_RNC.zip',
+    pct => sendProgress({ percent: Math.round(pct * 0.2), message: `Descargando... ${pct}%` })
+  )
+
+  sendProgress({ percent: 22, message: 'Descomprimiendo archivo...' })
+  const AdmZip = require('adm-zip')
+  const zip    = new AdmZip(zipBuffer)
+  const entry  = zip.getEntry('DGII_RNC.TXT') || zip.getEntry('DGII_RNC.txt') || zip.getEntries()[0]
+  if (!entry) throw new Error('No se encontró DGII_RNC.TXT en el ZIP')
+
+  const content = entry.getData().toString('latin1')  // DGII uses latin1 encoding
+  const lines   = content.split('\n').filter(l => l.trim())
+
+  sendProgress({ percent: 28, message: `Importando ${lines.length.toLocaleString()} contribuyentes...` })
+
+  const BATCH = 50000
+  const batch = []
+  for (let i = 0; i < lines.length; i++) {
+    const c = lines[i].split('|').map(s => s.trim())
+    batch.push({
+      rnc:             c[0]  || '',
+      nombre:          c[1]  || '',
+      nombre_comercial: c[2] || '',
+      actividad:       c[3]  || '',
+      estado:          c[10] || 'ACTIVO',   // column index current as of 2026
+      regimen:         c[11] || 'NORMAL',
+      provincia:       c[8]  || '',
+    })
+    if (batch.length >= BATCH || i === lines.length - 1) {
+      db.rncBulkSync(batch.splice(0))
+      const pct = 28 + Math.round((i / lines.length) * 70)
+      sendProgress({ percent: pct, message: `Importando... ${(i + 1).toLocaleString()} / ${lines.length.toLocaleString()}` })
+    }
+  }
+
+  sendProgress({ percent: 100, message: `✅ ${lines.length.toLocaleString()} contribuyentes sincronizados` })
+  return lines.length
+}
+
+// ── RNC IPC handlers ──────────────────────────────────────────────────────────
+
+ipcMain.handle('rnc:status', () => ({
+  count:    db.rncCount(),
+  lastSync: db.rncLastSync(),
+}))
+
+ipcMain.handle('rnc:sync', async (event) => {
+  try {
+    const send = data => event.sender.send('rnc:sync-progress', data)
+    const count = await dgiiRncSync(send)
+    return { ok: true, count }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('rnc:lookup', async (_, { rnc }) => {
+  const clean = String(rnc || '').replace(/[-\s]/g, '')
+  if (!/^\d{9}$|^\d{11}$/.test(clean)) return { ok: false, error: 'RNC inválido' }
+
+  // 1 — Local DB first (instant, works offline — includes full DGII sync data)
+  const local = db.rncLookupLocal(clean)
+  if (local) return {
+    ok: true,
+    nombre:          local.nombre,
+    nombreComercial: local.nombre_comercial,
+    estado:          local.estado,
+    actividad:       local.actividad,
+    provincia:       local.provincia,
+    fromLocal:       true,
+  }
+
+  // 2 — Live fallback via megaplus.com.do (no API key required)
+  return new Promise(resolve => {
+    const req = https.get(`https://rnc.megaplus.com.do/api/consulta?rnc=${clean}`, { timeout: 8000 }, res => {
+      let body = ''
+      res.on('data', chunk => body += chunk)
+      res.on('end', () => {
+        try {
+          const data = JSON.parse(body)
+          const nombre = data?.nombre_razon_social || data?.nombre || ''
+          if (nombre) {
+            const normalized = {
+              nombre:            nombre,
+              nombreComercial:   data.nombre_comercial   || '',
+              actividadEconomica:data.actividad_economica|| '',
+              estado:            data.estado             || 'ACTIVO',
+              regimen:           data.regimen_de_pagos   || 'NORMAL',
+            }
+            db.rncSave(clean, normalized, 'api')
+            resolve({ ok: true, nombre, nombreComercial: normalized.nombreComercial, estado: normalized.estado, actividad: normalized.actividadEconomica })
+          } else {
+            resolve({ ok: false, error: 'RNC no encontrado' })
+          }
+        } catch {
+          resolve({ ok: false, error: 'Respuesta inválida' })
+        }
+      })
+    })
+    req.on('error',   ()  => resolve({ ok: false, error: 'Sin conexión' }))
+    req.on('timeout', ()  => { req.destroy(); resolve({ ok: false, error: 'Tiempo agotado' }) })
+  })
+})
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+handle('inventory:all',          ()                              => db.inventoryGetAll())
+handle('inventory:create',       (data)                         => db.inventoryCreate(data))
+handle('inventory:update',       ({id, ...data})                => { db.inventoryUpdate(id, data); return true })
+handle('inventory:delete',       ({id})                         => { db.inventoryDelete(id); return true })
+handle('inventory:adjust',       ({id, delta, notes, userId})   => db.inventoryAdjust(id, delta, notes, userId))
+handle('inventory:transactions', ({id})                         => db.inventoryTransactions(id))
 
 // ── Backup / Export ───────────────────────────────────────────────────────────
 handle('db:exportAll',   ()      => db.exportAll())
 handle('db:exportSince', (since) => db.exportSince(since))
 
-// ── Print receipt ─────────────────────────────────────────────────────────────
-ipcMain.handle('print:receipt', async (event, { type, data, printerName }) => {
+// ── Export to Supabase (full dump) ───────────────────────────────────────────
+ipcMain.handle('db:exportToSupabase', () => {
+  if (!db) return { ok: false, error: 'DB not initialized' }
   try {
-    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
-    let printers = []
-    try { printers = await win.webContents.getPrintersAsync() } catch {}
+    return { ok: true, data: db.exportToSupabase() }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
 
-    const targetPrinter = printerName
-      || printers.find(p => p.isDefault)?.name
-      || printers[0]?.name
+// ── List system printers ──────────────────────────────────────────────────────
+ipcMain.handle('print:list-usb-printers', async () => {
+  try {
+    const mainWindow = BrowserWindow.getAllWindows()[0]
+    if (!mainWindow) return { ok: false, error: 'no_window_available', data: [] }
 
-    if (!targetPrinter && printers.length === 0) {
-      return await openHtmlPreview(data, win)
+    const allPrinters = await mainWindow.webContents.getPrintersAsync()
+
+    const thermalPrinters = allPrinters.filter(p => {
+      const n = p.name.toLowerCase()
+      return n.includes('thermal') || n.includes('epson')   ||
+             n.includes('bixolon') || n.includes('star')    ||
+             n.includes('pos')     || n.includes('receipt') ||
+             n.includes('xprinter')|| n.includes('rongta')  ||
+             n.includes('citizen') || p.status === 0
+    })
+
+    const list = thermalPrinters.length > 0 ? thermalPrinters : allPrinters
+
+    return {
+      ok: true,
+      data: list.map(p => ({
+        name:        p.name,
+        displayName: p.displayName || p.name,
+        description: p.description || '',
+        isDefault:   p.isDefault   || false,
+        status:      p.status,
+      })),
     }
+  } catch (err) {
+    console.error('getPrintersAsync failed:', err)
+    return { ok: false, error: 'printer_list_failed', detail: err.message, data: [] }
+  }
+})
+
+// ── Print receipt ─────────────────────────────────────────────────────────────
+ipcMain.handle('print:receipt', async (_, { data, printerName }) => {
+  try {
+    let targetPrinter = printerName
+    if (!targetPrinter) {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (win) {
+        const printers = await win.webContents.getPrintersAsync().catch(() => [])
+        targetPrinter = printers.find(p => p.isDefault)?.name || printers[0]?.name
+      }
+    }
+
+    if (!targetPrinter) {
+      const win = BrowserWindow.getAllWindows()[0]
+      return win ? await openHtmlPreview(data) : { success: false, error: 'no_printer' }
+    }
+
     return process.platform === 'win32'
       ? await printWindows(data, targetPrinter)
       : await printUnix(data, targetPrinter)
   } catch (err) {
-    console.error('[print:receipt]', err)
+    if (isDev) console.error('[print:receipt]', err)
     return { success: false, error: String(err.message) }
   }
 })
 
 ipcMain.handle('print:open-drawer', async () => {
-  // ESC p m t1 t2 — kick cash drawer on pin 2
+  // ESC p m t1 t2 kick on pin 2
   const drawerCmd = Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA])
   try {
-    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
-    let printers = []
-    try { printers = await win.webContents.getPrintersAsync() } catch {}
-    const targetPrinter = printers.find(p => p.isDefault)?.name || printers[0]?.name
+    // Prefer saved printer from settings; fall back to system default
+    let targetPrinter
+    try { targetPrinter = db?.settingsGet?.()?.printer || undefined } catch {}
+
+    if (!targetPrinter) {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (win) {
+        const printers = await win.webContents.getPrintersAsync().catch(() => [])
+        targetPrinter = printers.find(p => p.isDefault)?.name || printers[0]?.name
+      }
+    }
+
     if (!targetPrinter) return { success: false, error: 'no_printer' }
     return process.platform === 'win32'
       ? await printWindows(drawerCmd.toString('binary'), targetPrinter)
@@ -379,14 +737,43 @@ ipcMain.handle('print:open-drawer', async () => {
   }
 })
 
-ipcMain.handle('print:list-printers', async () => {
-  try {
-    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
-    const printers = await win.webContents.getPrintersAsync()
-    return { ok: true, data: printers.map(p => ({ name: p.name, isDefault: p.isDefault })) }
-  } catch (err) {
-    return { ok: false, data: [], error: String(err.message) }
+// ── Drawer kick variant tester ────────────────────────────────────────────────
+// Tries multiple ESC/POS drawer-kick sequences with a 2-second gap between each.
+// Returns an array of { variant, hex, success, error? } for diagnosis.
+ipcMain.handle('print:test-drawer-variants', async (_, printerName) => {
+  const VARIANTS = [
+    { desc: 'Original (m=0, t1=25, t2=250)',    hex: '1B700019FA' },
+    { desc: 'Longer pulse (m=0, t1=50, t2=250)', hex: '1B700032FA' },
+    { desc: 'Epson alt (m=0, t1=30, t2=255)',    hex: '1B70001EFF' },
+    { desc: 'm=48 decimal pin2 (clone fix)',      hex: '1B703019FA' },
+    { desc: 'Pin5 variant (m=1)',                 hex: '1B700119FA' },
+  ]
+
+  let targetPrinter = printerName
+  if (!targetPrinter) {
+    try { targetPrinter = db?.settingsGet?.()?.printer || undefined } catch {}
   }
+  if (!targetPrinter) {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win) {
+      const printers = await win.webContents.getPrintersAsync().catch(() => [])
+      targetPrinter = printers.find(p => p.isDefault)?.name || printers[0]?.name
+    }
+  }
+  if (!targetPrinter) return [{ success: false, error: 'no_printer' }]
+
+  const results = []
+  for (const v of VARIANTS) {
+    const buf = Buffer.from(v.hex, 'hex')
+    const result = process.platform === 'win32'
+      ? await printWindows(buf.toString('binary'), targetPrinter)
+      : await printUnix(buf.toString('binary'), targetPrinter)
+    results.push({ variant: v.desc, hex: v.hex, ...result })
+    if (!result.success) continue
+    // Wait 2 s so the solenoid resets before next attempt
+    await new Promise(r => setTimeout(r, 2000))
+  }
+  return results
 })
 
 // ── File save dialog ──────────────────────────────────────────────────────────
@@ -406,6 +793,51 @@ ipcMain.handle('fs:save-file', async (_, { filename, content, defaultPath }) => 
   return { ok: true, filePath: result.filePath }
 })
 
+// ── PDF receipt save ──────────────────────────────────────────────────────────
+// Saves a PDF buffer (base64) to userData/receipts/
+ipcMain.handle('pdf:save', (_, { filename, base64 }) => {
+  try {
+    const dir = path.join(app.getPath('userData'), 'receipts')
+    fs.mkdirSync(dir, { recursive: true })
+    const filePath = path.join(dir, filename)
+    fs.writeFileSync(filePath, Buffer.from(base64, 'base64'))
+    return { ok: true, filePath }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+// ── Local SQLite backup ───────────────────────────────────────────────────────
+// Copies terminal-x.db to userData/backups/, keeps the 7 newest files.
+ipcMain.handle('backup:local', () => {
+  try {
+    const dbPath   = path.join(app.getPath('userData'), 'terminal-x.db')
+    if (!fs.existsSync(dbPath)) return { ok: false, error: 'DB not found' }
+
+    const backupDir = path.join(app.getPath('userData'), 'backups')
+    fs.mkdirSync(backupDir, { recursive: true })
+
+    const ts       = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const filename = `backup_${ts}.db`
+    const destPath = path.join(backupDir, filename)
+
+    fs.copyFileSync(dbPath, destPath)
+
+    // Prune: keep newest 7
+    const files = fs.readdirSync(backupDir)
+      .filter(f => f.endsWith('.db'))
+      .sort()
+      .reverse()
+    files.slice(7).forEach(f => {
+      try { fs.unlinkSync(path.join(backupDir, f)) } catch {}
+    })
+
+    return { ok: true, filename, path: destPath }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
 // ── Print helpers ─────────────────────────────────────────────────────────────
 async function printUnix(escposData, printerName) {
   return new Promise((resolve) => {
@@ -418,17 +850,81 @@ async function printUnix(escposData, printerName) {
   })
 }
 async function printWindows(escposData, printerName) {
+  const ts     = Date.now()
+  const tmpBin = path.join(os.tmpdir(), `tx_${ts}.bin`)
+  const tmpPs  = path.join(os.tmpdir(), `tx_${ts}.ps1`)
+
+  try {
+    fs.writeFileSync(tmpBin, Buffer.from(escposData, 'binary'))
+  } catch (e) {
+    return { success: false, error: 'bin_write: ' + e.message }
+  }
+
+  // Escape for PowerShell single-quoted strings
+  const psBin  = tmpBin.replace(/\\/g, '\\\\').replace(/'/g, "''")
+  const psName = printerName.replace(/'/g, "''")
+
+  // Uses Windows Spooler API (winspool.Drv) via P/Invoke to send RAW bytes.
+  // Works for any installed local printer without requiring printer sharing.
+  const psScript = `Add-Type -TypeDefinition @"
+using System;using System.Runtime.InteropServices;
+public class TxRaw {
+    [DllImport("winspool.Drv",CharSet=CharSet.Auto,SetLastError=true)]
+    public static extern bool OpenPrinter(string n,out IntPtr h,IntPtr d);
+    [DllImport("winspool.Drv",SetLastError=true)]
+    public static extern bool ClosePrinter(IntPtr h);
+    [DllImport("winspool.Drv",CharSet=CharSet.Auto,SetLastError=true)]
+    public static extern int StartDocPrinter(IntPtr h,int lev,ref Doc1 d);
+    [DllImport("winspool.Drv",SetLastError=true)]
+    public static extern bool EndDocPrinter(IntPtr h);
+    [DllImport("winspool.Drv",SetLastError=true)]
+    public static extern bool StartPagePrinter(IntPtr h);
+    [DllImport("winspool.Drv",SetLastError=true)]
+    public static extern bool EndPagePrinter(IntPtr h);
+    [DllImport("winspool.Drv",SetLastError=true)]
+    public static extern bool WritePrinter(IntPtr h,IntPtr b,int n,out int w);
+    [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Auto)]
+    public struct Doc1{public string pDocName;public string pOutputFile;public string pDatatype;}
+}
+"@ -Language CSharp
+$bytes = [System.IO.File]::ReadAllBytes('${psBin}')
+$h = [IntPtr]::Zero
+if(-not [TxRaw]::OpenPrinter('${psName}',[ref]$h,[IntPtr]::Zero)){exit 2}
+$d = New-Object TxRaw+Doc1
+$d.pDocName  = 'TXReceipt'
+$d.pDatatype = 'RAW'
+[TxRaw]::StartDocPrinter($h,1,[ref]$d) | Out-Null
+[TxRaw]::StartPagePrinter($h) | Out-Null
+$p = [Runtime.InteropServices.Marshal]::AllocHGlobal($bytes.Length)
+[Runtime.InteropServices.Marshal]::Copy($bytes,0,$p,$bytes.Length)
+$w = 0; [TxRaw]::WritePrinter($h,$p,$bytes.Length,[ref]$w) | Out-Null
+[Runtime.InteropServices.Marshal]::FreeHGlobal($p)
+[TxRaw]::EndPagePrinter($h) | Out-Null
+[TxRaw]::EndDocPrinter($h) | Out-Null
+[TxRaw]::ClosePrinter($h) | Out-Null
+exit 0`
+
+  try {
+    fs.writeFileSync(tmpPs, psScript, 'utf8')
+  } catch (e) {
+    fs.unlink(tmpBin, () => {})
+    return { success: false, error: 'ps_write: ' + e.message }
+  }
+
   return new Promise((resolve) => {
-    const tmpFile = path.join(os.tmpdir(), `tx_receipt_${Date.now()}.bin`)
-    fs.writeFileSync(tmpFile, Buffer.from(escposData, 'binary'))
-    const cmd = printerName ? `copy /b "${tmpFile}" "\\\\localhost\\${printerName}"` : `print "${tmpFile}"`
-    require('child_process').exec(cmd, (err) => {
-      fs.unlink(tmpFile, () => {})
-      resolve(err ? { success: false, error: err.message } : { success: true })
-    })
+    require('child_process').exec(
+      `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${tmpPs}"`,
+      { timeout: 15000 },
+      (err, _stdout, stderr) => {
+        fs.unlink(tmpBin, () => {})
+        fs.unlink(tmpPs, () => {})
+        if (err) return resolve({ success: false, error: (stderr || err.message).trim().slice(0, 300) })
+        resolve({ success: true })
+      }
+    )
   })
 }
-async function openHtmlPreview(escposText, win) {
+async function openHtmlPreview(escposText) {
   const text = escposText.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g,'').replace(/\x1B[@Eaem!\-]/g,'').replace(/\x1D[!V(]/g,'')
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Recibo — Terminal X</title>
 <style>*{margin:0;padding:0;box-sizing:border-box}body{background:#e5e5e5;display:flex;justify-content:center;padding:24px}

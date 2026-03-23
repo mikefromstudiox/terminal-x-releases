@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { KeyRound, Loader2, CheckCircle2, AlertTriangle, ShieldX, Copy, RefreshCw } from 'lucide-react'
+import { useAPI } from '../context/DataContext'
 import { useLicense } from '../context/LicenseContext'
 import { isValidKeyFormat } from '../services/license'
 
 // ─── Change this to your WhatsApp number (include country code, no +) ─────────
-const WHATSAPP_NUMBER = '18099999999'
+const WHATSAPP_NUMBER = '18098282971'
 const WHATSAPP_MSG    = encodeURIComponent('Hola, necesito activar/renovar mi licencia de Terminal X.')
 const WHATSAPP_URL    = `https://wa.me/${WHATSAPP_NUMBER}?text=${WHATSAPP_MSG}`
 
@@ -22,6 +23,7 @@ const STATUS_INFO = {
 }
 
 export default function LicenseGate() {
+  const api = useAPI()
   const { result, hwid, checking, activate, isExpired } = useLicense()
   const [key,        setKey]        = useState('')
   const [rnc,        setRnc]        = useState('')
@@ -36,7 +38,7 @@ export default function LicenseGate() {
   async function handleActivate() {
     const trimmedKey = key.trim().toUpperCase()
     const trimmedRnc = rnc.replace(/\D/g, '')
-    const isMaster = await window.electronAPI?.license?.isMaster?.(trimmedKey)
+    const isMaster = await api?.license?.isMaster?.(trimmedKey)
     if (!isMaster && !isValidKeyFormat(trimmedKey)) { setError('Formato inválido. Ejemplo: TXL-A1B2-C3D4-E5F6'); return }
     if (!trimmedRnc) { setError('Ingresa el RNC o cédula del negocio.'); return }
     setError('')

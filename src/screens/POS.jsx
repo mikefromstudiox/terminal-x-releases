@@ -1,9 +1,18 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
-import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useLayout } from '../context/LayoutContext'
-import { useServices, useWashers, useSellers, hasIPC } from '../hooks/useDB'
+import { useAuth } from '../context/AuthContext'
+import { useAPI, usePrinterAPI } from '../context/DataContext'
+import { useServices, useWashers, useSellers } from '../hooks/useDB'
+import { useRNC } from '../hooks/useRNC'
 import CobrarModal from '../components/CobrarModal'
+import { printClientReceipt, printWasherConduce } from '../services/printer'
+import { syncTicket } from '../services/supabase'
+import { syncTicketFull } from '../services/sync'
+import { saveReceiptPDF } from '../services/pdf'
+import logoImg from '../assets/logo.png'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -49,26 +58,6 @@ const STATUS = {
   pendiente: { dot: 'bg-amber-500', pill: 'bg-amber-100 text-amber-700', label_es: 'Pendiente',  label_en: 'Pending'     },
 }
 
-// ── Demo services fallback (shown when DB returns empty) ──────────────────────
-const DEMO_SERVICES = [
-  { id:1,  name:'Lavado Básico',      name_en:'Basic Wash',        category:'Lavados',  price:500,  is_wash:1, sort_order:1 },
-  { id:2,  name:'Lavado Completo',    name_en:'Full Wash',         category:'Lavados',  price:800,  is_wash:1, sort_order:2 },
-  { id:3,  name:'Lavado de Motor',    name_en:'Engine Wash',       category:'Lavados',  price:1200, is_wash:1, sort_order:3 },
-  { id:4,  name:'Lavado Jeepeta',     name_en:'SUV Wash',          category:'Lavados',  price:1000, is_wash:1, sort_order:4 },
-  { id:5,  name:'Lavado Camión',      name_en:'Truck Wash',        category:'Lavados',  price:1800, is_wash:1, sort_order:5 },
-  { id:6,  name:'Aromatizante',       name_en:'Air Freshener',     category:'Extra',    price:150,  is_wash:1, sort_order:6 },
-  { id:7,  name:'Brillo de Gomas',    name_en:'Tire Shine',        category:'Extra',    price:200,  is_wash:1, sort_order:7 },
-  { id:8,  name:'Aspirado Interior',  name_en:'Interior Vacuum',   category:'Extra',    price:400,  is_wash:1, sort_order:8 },
-  { id:9,  name:'Ozono',              name_en:'Ozone Treatment',   category:'Extra',    price:1200, is_wash:1, sort_order:9 },
-  { id:10, name:'Lavado + Cera',      name_en:'Wash + Wax',        category:'Combos',   price:2000, is_wash:1, sort_order:10 },
-  { id:11, name:'Lavado + Aspirado',  name_en:'Wash + Vacuum',     category:'Combos',   price:1100, is_wash:1, sort_order:11 },
-  { id:12, name:'Detailing Completo', name_en:'Full Detailing',    category:'Combos',   price:4500, is_wash:1, sort_order:12 },
-  { id:13, name:'Agua Fría',          name_en:'Cold Water',        category:'Bebidas',  price:50,   is_wash:0, sort_order:13 },
-  { id:14, name:'Refresco',           name_en:'Soda',              category:'Bebidas',  price:100,  is_wash:0, sort_order:14 },
-  { id:15, name:'Café',               name_en:'Coffee',            category:'Bebidas',  price:75,   is_wash:0, sort_order:15 },
-  { id:16, name:'Papitas',            name_en:'Chips',             category:'Snacks',   price:80,   is_wash:0, sort_order:16 },
-  { id:17, name:'Galletas',           name_en:'Cookies',           category:'Snacks',   price:60,   is_wash:0, sort_order:17 },
-]
 
 // ── Skeleton loader ───────────────────────────────────────────────────────────
 
@@ -127,7 +116,7 @@ function WorkerSelect({ selected, onChange, washers, t }) {
 
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between bg-white border border-slate-200 rounded-lg px-3 py-2 text-[12px] text-slate-500 hover:border-slate-400 transition-colors"
+        className="w-full flex items-center justify-between bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm md:text-[12px] text-slate-500 hover:border-slate-400 transition-colors min-h-[44px] md:min-h-0"
       >
         <span>
           {selected.length === 0
@@ -149,7 +138,7 @@ function WorkerSelect({ selected, onChange, washers, t }) {
                 <button
                   key={w.id}
                   onClick={() => toggle(w)}
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-slate-50 transition-colors text-left"
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-slate-50 transition-colors text-left min-h-[44px] md:min-h-0"
                 >
                   <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
                     checked ? 'bg-sky-500 border-sky-500' : 'border-slate-300'
@@ -202,17 +191,21 @@ function QueueStrip({ queue, lang }) {
 // ── Main POS Screen ───────────────────────────────────────────────────────────
 
 export default function POS() {
+  const api = useAPI()
+  const printerApi = usePrinterAPI()
   const { t, lang } = useLang()
   const { collapsed } = useLayout()
+  const { user } = useAuth()
+  const navigate = useNavigate()
 
   // ── DB data
   const { data: rawServicesDB, loading: svcLoading, error: svcError } = useServices()
-  // Fall back to demo services if DB returns nothing
-  const rawServices = (!svcLoading && (!rawServicesDB || rawServicesDB.length === 0))
-    ? DEMO_SERVICES
-    : (rawServicesDB || [])
-  const { data: rawWashers, loading: wsrLoading }                   = useWashers()
-  const { data: rawSellers }                                         = useSellers()
+  const rawServices = rawServicesDB || []
+  const { data: rawWashersDB, loading: wsrLoading }                  = useWashers()
+  const rawWashers = rawWashersDB || []
+  const { data: rawSellersDB }                                       = useSellers()
+  const rawSellers = rawSellersDB || []
+  const { lookup: rncLookup }                                        = useRNC()
 
   // ── Derived: categories + services grouped
   const categories = useMemo(() => {
@@ -259,7 +252,11 @@ export default function POS() {
 
   const allOrderItems = items
   const { subtotal, itbis, ley, total } = calcTotals(allOrderItems)
-  const gridCols = collapsed ? 'grid-cols-5' : 'grid-cols-4'
+  const gridCols = collapsed ? 'grid-cols-2 md:grid-cols-4 lg:grid-cols-5' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
+
+  // Mobile cart visibility
+  const [mobileCartOpen, setMobileCartOpen] = useState(false)
+  const cartRef = useRef(null)
 
   // O(1) lookup instead of O(n) items.some() per service button
   const selectedIds = useMemo(() => new Set(items.map(i => i.id)), [items])
@@ -278,6 +275,28 @@ export default function POS() {
     setTimeout(() => setToast(null), 3000)
   }
 
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  useEffect(() => {
+    function onKey(e) {
+      // Ignore when typing inside an input / textarea / select
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
+      if (e.key === 'F1') {
+        e.preventDefault()
+        clearForm()
+      } else if (e.key === 'F2') {
+        e.preventDefault()
+        if (allOrderItems.length > 0) {
+          setCobrarModal({ vehicle, items: allOrderItems, workers, salesperson, clientId: null, clientName: rncName || '', client: null })
+        }
+      } else if (e.key === 'F3') {
+        e.preventDefault()
+        navigate('/queue')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [allOrderItems, vehicle, workers, salesperson, rncName, navigate])
+
   function toggleService(svc) {
     setItems(prev =>
       prev.some(i => i.id === svc.id)
@@ -290,27 +309,14 @@ export default function POS() {
     setItems(prev => prev.filter(i => i.id !== item.id))
   }
 
-  function handleRncLookup() {
-    if (rnc.length >= 9) setRncName('Empresa Demo S.R.L.')
+  async function handleRncLookup() {
+    if (rnc.replace(/\D/g, '').length < 9) return
+    const res = await rncLookup(rnc)
+    if (res?.ok && res.nombre) setRncName(res.nombre)
   }
 
   async function handleEncolar() {
     if (allOrderItems.length === 0 && !vehicle.trim()) return
-
-    if (!hasIPC()) {
-      // Dev fallback — just show in local queue strip
-      const ticketNo = `T-${String(queue.length + 1).padStart(3, '0')}`
-      setQueue(prev => [...prev, {
-        id:      Date.now(),
-        ticketNo,
-        vehicle: vehicle.trim() || '—',
-        service: allOrderItems[0]?.name ?? '—',
-        status:  'pendiente',
-      }])
-      clearForm()
-      flash(`${ticketNo} · ${lang === 'es' ? 'Puesto en cola' : 'Added to queue'}`)
-      return
-    }
 
     try {
       const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(allOrderItems)
@@ -318,10 +324,11 @@ export default function POS() {
         .filter(s => s.is_wash === 0)
         .reduce((s, i) => s + i.price, 0)
 
-      const result = await window.electronAPI.tickets.create({
+      const result = await api.tickets.create({
         vehicle_plate:     vehicle.trim() || null,
         washer_ids:        workers.map(w => w.id),
-        seller_id:         salesperson ? parseInt(salesperson) : null,
+        seller_id:         salesperson || null,
+        cajero_id:         (user?.id && user.id !== 'web') ? user.id : null,
         comprobante_type:  'B02',
         payment_method:    'cash',
         tipo_venta:        'contado',
@@ -340,7 +347,13 @@ export default function POS() {
       })
 
       clearForm()
-      flash(`${result?.docNumber || 'Ticket'} · ${lang === 'es' ? 'Puesto en cola ✓' : 'Added to queue ✓'}`)
+      if (result?.offlineReason) {
+        flash(`OFFLINE: ${result.offlineReason}`)
+      } else if (result?.queueError) {
+        flash(`${result.docNumber} · Queue error: ${result.queueError}`)
+      } else {
+        flash(`${result?.docNumber || 'Ticket'} · ${lang === 'es' ? 'Puesto en cola ✓' : 'Added to queue ✓'}`)
+      }
     } catch (err) {
       flash(`Error: ${err.message}`)
     }
@@ -350,32 +363,18 @@ export default function POS() {
     const pending = cobrarModal
     setCobrarModal(null)
 
-    if (!hasIPC()) {
-      // Dev mode: just add to local queue strip
-      const ticketNo = `T-${String(queue.length + 1).padStart(3, '0')}`
-      setQueue(prev => [...prev, {
-        id:      Date.now(),
-        ticketNo,
-        vehicle: pending.vehicle,
-        service: pending.items[0]?.name ?? '—',
-        status:  'pendiente',
-      }])
-      clearForm()
-      flash(`${ticketNo} · ${lang === 'es' ? 'Puesto en cola' : 'Added to queue'}`)
-      return
-    }
-
     try {
       const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(pending.items)
       const beverageSubtotal = pending.items
         .filter(s => s.is_wash === 0)
         .reduce((s, i) => s + i.price, 0)
 
-      const result = await window.electronAPI.tickets.create({
+      const result = await api.tickets.create({
         vehicle_plate:    pending.vehicle,
         client_id:        pending.clientId || null,
         washer_ids:       pending.workers.map(w => w.id),
-        seller_id:        pending.salesperson ? parseInt(pending.salesperson) : null,
+        seller_id:        pending.salesperson || null,
+        cajero_id:        (user?.id && user.id !== 'web') ? user.id : null,
         comprobante_type: paymentData.ncfType || 'E32',
         payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
         tipo_venta:       paymentData.tipo || 'contado',
@@ -406,24 +405,97 @@ export default function POS() {
       clearForm()
       flash(`${result?.docNumber || 'Ticket'} · ${lang === 'es' ? 'Creado ✓' : 'Created ✓'}`)
 
-      // Open cash drawer for cash/check payments (not card or transfer)
-      const fm = paymentData.formaPago || ''
-      if (paymentData.tipo !== 'credito' && !['tarjeta', 'transferencia'].includes(fm)) {
-        window.electronAPI?.openDrawer?.().catch?.(() => {})
-      }
+      // Sync to Supabase for RemoteDashboard — fire and forget
+      syncTicket({
+        client_name:      pending.clientName || null,
+        comprobante_type: paymentData.ncfType || 'E32',
+        payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
+        tipo_venta:       paymentData.tipo || 'contado',
+        subtotal: sub, itbis: itp, ley: ly, total: tot,
+        status:           'cobrado',
+        cajero_name:      user?.name || null,
+        items:            pending.items,
+        ecf_result:       paymentData.ecf || {},
+      }, result).catch(() => {})
+
+      // Full sync via sync service — fire and forget
+      syncTicketFull({
+        client_name:      pending.clientName || null,
+        comprobante_type: paymentData.ncfType || 'E32',
+        payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
+        tipo_venta:       paymentData.tipo || 'contado',
+        subtotal: sub, itbis: itp, ley: ly, total: tot,
+        status:           'cobrado',
+        cajero_name:      user?.name || null,
+        items:            pending.items,
+        ecf_result:       paymentData.ecf || {},
+      }, result)
+
+      // ── Auto-print receipt + conduce ────────────────────────────────────────
+      try {
+        const [cfg, empresa] = await Promise.all([
+          api.settings.get().catch(() => ({})),
+          api.admin.getEmpresa().catch(() => ({})),
+        ])
+        const biz = {
+          name:    empresa?.nombre   || empresa?.name    || '',
+          address: empresa?.direccion || empresa?.address || '',
+          phone:   empresa?.telefono  || empresa?.phone   || '',
+          rnc:     empresa?.rnc       || '',
+          logo:    empresa?.logo      || '',
+        }
+        const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(pending.items)
+        const ticketData = {
+          ncf:          result?.ncf       || '',
+          ncfType:      paymentData.ncfType || 'E32',
+          cajero:       user?.name         || '',
+          lavador:      pending.workers?.map(w => w.name).join(', ') || '',
+          docNo:        result?.docNumber  || '',
+          paidAt:       new Date(),
+          client:       pending.client     || null,
+          vehiclePlate: pending.vehicle    || '',
+          tipo:         paymentData.tipo   || 'contado',
+          formaPago:    paymentData.formaPago || 'cash',
+          services:     pending.items,
+          subtotal:     sub,
+          descuento:    0,
+          itbis:        itp,
+          ley:          ly,
+          total:        tot,
+          biz,
+        }
+        if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => {})
+        if (cfg.print_conduce_auto === '1') printWasherConduce(ticketData).catch(() => {})
+        // Save PDF copy to userData/receipts/
+        saveReceiptPDF(ticketData).catch(() => {})
+        // Kick drawer for cash/check payments
+        const fm = paymentData.formaPago || ''
+        if (paymentData.tipo !== 'credito' && !['tarjeta', 'transferencia'].includes(fm)) {
+          printerApi?.openDrawer?.().catch?.(() => {})
+        }
+      } catch { /* print errors never block the POS flow */ }
     } catch (err) {
       flash(`Error: ${err.message}`)
     }
   }, [cobrarModal, queue.length, lang])
 
   return (
-    <div className="h-full flex">
+    <div className="h-full flex flex-col md:flex-row">
 
       {/* ══ CENTER ══════════════════════════════════════════════════════════ */}
       <div className="flex-1 flex flex-col overflow-hidden">
 
-        {/* Category tabs */}
-        <div className="flex border-b border-slate-200 bg-white shrink-0 overflow-x-auto">
+        {/* Mobile header with logo — matches desktop sidebar style */}
+        <div className="md:hidden flex items-center justify-between px-4 py-2 bg-white border-b border-slate-200 shrink-0">
+          <div className="flex items-center gap-0.5">
+            <span className="text-[#0C447C] font-black text-[15px] tracking-[3px]">TERMINAL</span>
+            <img src={logoImg} alt="X" className="h-6 w-auto object-contain -ml-0.5" draggable={false} />
+          </div>
+          <span className="text-xs text-slate-400">{new Date().toLocaleDateString('es-DO')}</span>
+        </div>
+
+        {/* Category tabs — horizontal scroll on mobile */}
+        <div className="flex border-b border-slate-200 bg-white shrink-0 overflow-x-auto scrollbar-hide">
           {svcLoading ? (
             <div className="flex gap-1 px-4 py-2">
               {[1,2,3,4].map(i => (
@@ -434,7 +506,7 @@ export default function POS() {
             <button
               key={cat.id}
               onClick={() => setCategory(cat.id)}
-              className={`px-5 py-3.5 text-sm font-semibold transition-colors border-b-2 -mb-px shrink-0 ${
+              className={`px-4 md:px-5 py-3 md:py-3.5 text-xs md:text-sm font-semibold transition-colors border-b-2 -mb-px shrink-0 min-h-[44px] ${
                 category === cat.id
                   ? 'border-[#0C447C] text-[#0C447C]'
                   : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
@@ -446,7 +518,7 @@ export default function POS() {
         </div>
 
         {/* Service grid */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-3 md:p-4 pb-24 md:pb-4">
           {svcLoading ? (
             <GridSkeleton cols={gridCols} />
           ) : svcError ? (
@@ -455,23 +527,23 @@ export default function POS() {
               <p className="text-sm">{lang === 'es' ? 'Error al cargar servicios' : 'Error loading services'}</p>
             </div>
           ) : (
-            <div className={`grid gap-2.5 ${gridCols}`}>
+            <div className={`grid gap-2 md:gap-2.5 ${gridCols}`}>
               {(servicesByCategory[category] ?? []).map(svc => {
                 const selected = selectedIds.has(svc.id)
                 return (
                   <button
                     key={svc.id}
                     onClick={() => toggleService(svc)}
-                    className={`rounded-xl p-3.5 text-left transition-all border ${
+                    className={`rounded-xl p-3 md:p-3.5 text-left transition-all border min-h-[44px] ${
                       selected
                         ? 'bg-[#E6F1FB] border-[#0C447C] text-[#0C447C] shadow-sm'
                         : 'bg-white border-slate-200 text-slate-700 hover:border-[#0C447C]/40 hover:shadow-sm'
                     }`}
                   >
-                    <p className="text-[13px] font-semibold leading-snug">
+                    <p className="text-xs md:text-[13px] font-semibold leading-snug">
                       {lang === 'es' ? svc.name : (svc.name_en || svc.name)}
                     </p>
-                    <p className={`text-[12px] font-bold mt-1.5 ${selected ? 'text-[#0C447C]/70' : 'text-slate-400'}`}>
+                    <p className={`text-[11px] md:text-[12px] font-bold mt-1 md:mt-1.5 ${selected ? 'text-[#0C447C]/70' : 'text-slate-400'}`}>
                       {fmtRD(svc.price)}
                     </p>
                   </button>
@@ -482,15 +554,61 @@ export default function POS() {
         </div>
 
         {/* Queue strip */}
-        <QueueStrip queue={queue} lang={lang} />
+        <div className="hidden md:block">
+          <QueueStrip queue={queue} lang={lang} />
+        </div>
       </div>
 
-      {/* ══ RIGHT PANEL ═════════════════════════════════════════════════════ */}
-      <div className="w-[220px] shrink-0 border-l border-slate-200 flex flex-col bg-white">
+      {/* ══ MOBILE: Floating cart button ═════════════════════════════════ */}
+      {allOrderItems.length > 0 && !mobileCartOpen && (
+        <button
+          onClick={() => setMobileCartOpen(true)}
+          className="md:hidden fixed bottom-20 left-1/2 -translate-x-1/2 z-40 bg-[#0C447C] text-white font-bold py-3 px-6 rounded-full shadow-lg shadow-[#0C447C]/30 flex items-center gap-2 min-h-[44px] active:scale-95 transition-transform"
+        >
+          <ShoppingCart size={18} />
+          <span className="text-sm">
+            {lang === 'es' ? 'Ver Carrito' : 'View Cart'} ({allOrderItems.length})
+          </span>
+          <span className="text-xs opacity-70">{fmtRD(total)}</span>
+        </button>
+      )}
+
+      {/* ══ MOBILE: Cart overlay backdrop ════════════════════════════════ */}
+      {mobileCartOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/40 z-40"
+          onClick={() => setMobileCartOpen(false)}
+        />
+      )}
+
+      {/* ══ RIGHT PANEL / MOBILE SLIDE-UP CART ══════════════════════════ */}
+      <div
+        ref={cartRef}
+        className={`
+          md:w-[220px] md:shrink-0 md:border-l md:border-slate-200 md:flex md:flex-col md:bg-white md:static md:translate-y-0 md:rounded-none md:z-auto md:max-h-none
+          fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl flex flex-col max-h-[85vh] transition-transform duration-300 ease-out
+          ${mobileCartOpen ? 'translate-y-0' : 'translate-y-full md:translate-y-0'}
+        `}
+      >
+        {/* Mobile drag handle + close */}
+        <div className="md:hidden flex items-center justify-center pt-2 pb-1 shrink-0">
+          <div className="w-10 h-1 rounded-full bg-slate-300" />
+        </div>
+        <div className="md:hidden flex items-center justify-between px-4 pb-2 shrink-0">
+          <p className="text-sm font-bold text-slate-700">
+            {lang === 'es' ? 'Carrito' : 'Cart'} ({allOrderItems.length})
+          </p>
+          <button
+            onClick={() => setMobileCartOpen(false)}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400 min-h-[44px] min-w-[44px]"
+          >
+            <X size={18} />
+          </button>
+        </div>
 
         <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
 
-          {/* RNC / Cédula */}
+          {/* RNC / Cedula */}
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
               {t('pos_rnc_cedula')}
@@ -502,14 +620,15 @@ export default function POS() {
                 onChange={e => { setRnc(e.target.value); setRncName('') }}
                 placeholder="000-00000-0"
                 maxLength={11}
-                className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-[12px] focus:outline-none focus:border-sky-400 placeholder:text-slate-300"
+                className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-sm md:text-[12px] min-h-[44px] md:min-h-0 focus:outline-none focus:border-sky-400 placeholder:text-slate-300"
               />
               <button
                 onClick={handleRncLookup}
                 title="Buscar DGII"
-                className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-sky-50 hover:text-sky-600 text-slate-500 rounded-lg transition-colors shrink-0"
+                className="w-10 h-10 md:w-8 md:h-8 flex items-center justify-center bg-slate-100 hover:bg-sky-50 hover:text-sky-600 text-slate-500 rounded-lg transition-colors shrink-0 min-h-[44px] md:min-h-0"
               >
-                <Search size={13} />
+                <Search size={16} className="md:hidden" />
+                <Search size={13} className="hidden md:block" />
               </button>
             </div>
             {rncName && (
@@ -517,47 +636,50 @@ export default function POS() {
             )}
           </div>
 
-          {/* Vehicle */}
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-              {t('pos_vehicle')}
-            </label>
-            <input
-              type="text"
-              value={vehicle}
-              onChange={e => setVehicle(e.target.value)}
-              placeholder={t('pos_vehicle_placeholder')}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-[12px] focus:outline-none focus:border-sky-400 placeholder:text-slate-300"
-            />
-          </div>
+          {/* Vehicle + Workers + Seller — stack vertically always, full width on mobile */}
+          <div className="grid grid-cols-1 gap-3.5">
+            {/* Vehicle */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                {t('pos_vehicle')}
+              </label>
+              <input
+                type="text"
+                value={vehicle}
+                onChange={e => setVehicle(e.target.value)}
+                placeholder={t('pos_vehicle_placeholder')}
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-sm md:text-[12px] min-h-[44px] md:min-h-0 focus:outline-none focus:border-sky-400 placeholder:text-slate-300"
+              />
+            </div>
 
-          {/* Workers */}
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-              {t('pos_workers_label')}
-            </label>
-            {wsrLoading ? (
-              <div className="h-9 bg-slate-100 rounded-lg animate-pulse" />
-            ) : (
-              <WorkerSelect selected={workers} onChange={setWorkers} washers={rawWashers} t={t} />
-            )}
-          </div>
+            {/* Workers */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                {t('pos_workers_label')}
+              </label>
+              {wsrLoading ? (
+                <div className="h-9 bg-slate-100 rounded-lg animate-pulse" />
+              ) : (
+                <WorkerSelect selected={workers} onChange={setWorkers} washers={rawWashers} t={t} />
+              )}
+            </div>
 
-          {/* Sold by */}
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-              {t('pos_sold_by')}
-            </label>
-            <select
-              value={salesperson}
-              onChange={e => setSalesperson(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-[12px] text-slate-700 focus:outline-none focus:border-sky-400 cursor-pointer"
-            >
-              <option value="">{t('pos_walkin')}</option>
-              {rawSellers.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
+            {/* Sold by */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                {t('pos_sold_by')}
+              </label>
+              <select
+                value={salesperson}
+                onChange={e => setSalesperson(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-sm md:text-[12px] text-slate-700 min-h-[44px] md:min-h-0 focus:outline-none focus:border-sky-400 cursor-pointer"
+              >
+                <option value="">{t('pos_walkin')}</option>
+                {rawSellers.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="border-t border-slate-100" />
@@ -570,20 +692,21 @@ export default function POS() {
             {allOrderItems.length === 0 ? (
               <p className="text-[11px] text-slate-300 italic">{t('pos_order_empty')}</p>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-1.5 md:space-y-1">
                 {allOrderItems.map(item => (
                   <div key={item.id} className="flex items-center justify-between gap-1 group">
                     <div className="flex-1 min-w-0">
-                      <p className="text-[12px] text-slate-700 font-medium truncate leading-snug">
+                      <p className="text-sm md:text-[12px] text-slate-700 font-medium truncate leading-snug">
                         {item.name}
                       </p>
-                      <p className="text-[11px] text-slate-400 leading-none">{fmtRD(item.price)}</p>
+                      <p className="text-xs md:text-[11px] text-slate-400 leading-none">{fmtRD(item.price)}</p>
                     </div>
                     <button
                       onClick={() => removeOrderItem(item)}
-                      className="w-5 h-5 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                      className="w-8 h-8 md:w-5 md:h-5 flex items-center justify-center rounded-full text-slate-400 md:text-slate-300 hover:text-red-500 hover:bg-red-50 md:opacity-0 md:group-hover:opacity-100 transition-all shrink-0 min-h-[44px] md:min-h-0 min-w-[44px] md:min-w-0"
                     >
-                      <X size={11} />
+                      <X size={14} className="md:hidden" />
+                      <X size={11} className="hidden md:block" />
                     </button>
                   </div>
                 ))}
@@ -592,24 +715,24 @@ export default function POS() {
           </div>
         </div>
 
-        {/* ── Totals + Button ─────────────────────────────────────────────── */}
+        {/* ── Totals + Buttons ─────────────────────────────────────────────── */}
         <div className="shrink-0 border-t border-slate-200 p-3.5 space-y-3">
 
           {allOrderItems.length > 0 ? (
             <div className="space-y-1">
-              <div className="flex justify-between text-[12px] text-slate-500">
+              <div className="flex justify-between text-xs md:text-[12px] text-slate-500">
                 <span>{t('pos_subtotal')}</span>
                 <span>{fmtRD(subtotal)}</span>
               </div>
-              <div className="flex justify-between text-[12px] text-slate-500">
+              <div className="flex justify-between text-xs md:text-[12px] text-slate-500">
                 <span>{t('pos_itbis')}</span>
                 <span>{fmtRD(itbis)}</span>
               </div>
-              <div className="flex justify-between text-[12px] text-slate-500">
+              <div className="flex justify-between text-xs md:text-[12px] text-slate-500">
                 <span>{t('pos_ley')}</span>
                 <span>{fmtRD(ley)}</span>
               </div>
-              <div className="flex justify-between text-[13px] font-bold text-slate-800 border-t border-slate-100 pt-1.5 mt-1">
+              <div className="flex justify-between text-sm md:text-[13px] font-bold text-slate-800 border-t border-slate-100 pt-1.5 mt-1">
                 <span>{t('pos_total')}</span>
                 <span>{fmtRD(total)}</span>
               </div>
@@ -620,19 +743,38 @@ export default function POS() {
             </div>
           )}
 
-          <button
-            onClick={handleEncolar}
-            disabled={allOrderItems.length === 0 && !vehicle.trim()}
-            className="w-full bg-green-500 hover:bg-green-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl text-[13px] transition-all active:scale-[0.98] shadow-md shadow-green-500/20"
-          >
-            {t('pos_queue_btn')}
-          </button>
+          {/* Mobile: side-by-side buttons. Desktop: stacked */}
+          <div className="flex gap-2 md:flex-col md:gap-3">
+            <button
+              onClick={handleEncolar}
+              disabled={allOrderItems.length === 0 && !vehicle.trim()}
+              className="flex-1 md:flex-none w-full bg-green-500 hover:bg-green-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl text-sm md:text-[13px] transition-all active:scale-[0.98] shadow-md shadow-green-500/20 min-h-[44px]"
+            >
+              <span className="flex items-center justify-center gap-2">
+                <span>{t('pos_queue_btn')}</span>
+              </span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (allOrderItems.length > 0) {
+                  setMobileCartOpen(false)
+                  setCobrarModal({ vehicle, items: allOrderItems, workers, salesperson, clientId: null, clientName: rncName || '', client: null })
+                }
+              }}
+              disabled={allOrderItems.length === 0}
+              className="flex-1 md:flex-none w-full bg-[#0C447C] hover:bg-[#0a3868] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl text-sm md:text-[13px] transition-all active:scale-[0.98] shadow-md shadow-[#0C447C]/20 flex items-center justify-center gap-2 min-h-[44px]"
+            >
+              <span>{lang === 'es' ? 'Cobrar' : 'Charge'}</span>
+              <span className="text-[10px] opacity-60 font-normal hidden md:inline">F2</span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* ── Toast ─────────────────────────────────────────────────────────── */}
       {toast && (
-        <div className="fixed bottom-6 right-6 flex items-center gap-2.5 bg-slate-800 text-white text-sm font-medium px-4 py-3 rounded-xl shadow-xl z-50">
+        <div className="fixed bottom-20 md:bottom-6 right-4 md:right-6 flex items-center gap-2.5 bg-slate-800 text-white text-sm font-medium px-4 py-3 rounded-xl shadow-xl z-50">
           <CheckCircle2 size={15} className="text-green-400 shrink-0" />
           {toast}
         </div>

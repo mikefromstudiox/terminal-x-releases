@@ -1,10 +1,8 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Lock, Download, ChevronRight, TrendingUp, CircleDollarSign, Users, BarChart3 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
+import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
-
-// ── IPC guard ─────────────────────────────────────────────────────────────────
-const hasIPC = () => !!window?.electronAPI
 
 // ── Access control ────────────────────────────────────────────────────────────
 const ALLOWED_ROLES = ['owner', 'manager', 'cfo', 'accountant']
@@ -244,6 +242,7 @@ function AccessDenied({ lang }) {
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 export default function SalespersonReport() {
+  const api = useAPI()
   const { user } = useAuth()
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
@@ -263,20 +262,19 @@ export default function SalespersonReport() {
   // Load sellers once on mount
   useEffect(() => {
     if (!allowed) return
-    if (!hasIPC()) return
-    window.electronAPI.sellers.allAdmin()
+    api.sellers.allAdmin()
       .then(rows => setSellers(rows || []))
       .catch(() => setSellers([]))
   }, [])
 
   // Load tickets when period changes
   useEffect(() => {
-    if (!allowed || !hasIPC()) return
+    if (!allowed) return
     let cancelled = false
     setLoadingTickets(true)
     setSellerId('all')
     const range = getDateRange(period, customY, customM)
-    window.electronAPI.tickets.byDateRange(range)
+    api.tickets.byDateRange(range)
       .then(rows => { if (!cancelled) setTickets(rows || []) })
       .catch(() => { if (!cancelled) setTickets([]) })
       .finally(() => { if (!cancelled) setLoadingTickets(false) })

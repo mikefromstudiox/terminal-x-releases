@@ -16,6 +16,7 @@ export const en = {
   nav_dgii:          'DGII / 606',
   nav_settings:      'Settings',
   nav_queue:         'Service Queue',
+  nav_inventory:     'Inventory',
   nav_cash_recon:    'Cash Reconciliation',
   nav_petty:         'Petty Cash',
   nav_credit_notes:  'Credit Notes',

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { TrendingUp, TrendingDown, Download, Printer, Car, CircleDollarSign, Clock, ReceiptText } from 'lucide-react'
 import { useLang } from '../../i18n'
+import { useAPI } from '../../context/DataContext'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MES_ES   = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
@@ -342,6 +343,7 @@ const PILLS = [
 ]
 
 export default function MonthlyReport() {
+  const api = useAPI()
   const { lang } = useLang()
 
   const [mode,       setMode]      = useState('mes')
@@ -365,8 +367,8 @@ export default function MonthlyReport() {
       const prevRange = periodToRange(prevPeriodOf(period))
 
       const [cur, prev] = await Promise.all([
-        window.electronAPI.tickets.byDateRange({ from: range.from,     to: range.to     }),
-        window.electronAPI.tickets.byDateRange({ from: prevRange.from, to: prevRange.to }),
+        api.tickets.byDateRange({ from: range.from,     to: range.to     }),
+        api.tickets.byDateRange({ from: prevRange.from, to: prevRange.to }),
       ])
       setTickets(cur     ?? [])
       setPrevTickets(prev ?? [])
@@ -427,26 +429,26 @@ export default function MonthlyReport() {
 
   return (
     <div className="h-full overflow-y-auto bg-slate-50">
-      <div className="px-6 py-4 space-y-4 min-h-full">
+      <div className="px-3 md:px-6 py-3 md:py-4 space-y-3 md:space-y-4 min-h-full">
 
         {/* ── Header ───────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
           <div>
-            <h2 className="text-[16px] font-bold text-slate-800">{lang === 'es' ? 'Reporte Mensual' : 'Monthly Report'}</h2>
+            <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800">{lang === 'es' ? 'Reporte Mensual' : 'Monthly Report'}</h2>
             <p className="text-[12px] text-slate-400 mt-0.5 font-medium">{label}</p>
           </div>
           <div className="flex gap-2">
             <button
               onClick={() => data && exportCSV(data, label)}
               disabled={!data || loading}
-              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 bg-white rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40"
+              className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] md:min-h-0 border border-slate-200 bg-white rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40"
             >
               <Download size={13} />
               {lang === 'es' ? 'Exportar CSV' : 'Export CSV'}
             </button>
             <button
               onClick={() => window.print()}
-              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 bg-white rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+              className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] md:min-h-0 border border-slate-200 bg-white rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
             >
               <Printer size={13} />
               {lang === 'es' ? 'Imprimir' : 'Print'}
@@ -498,7 +500,7 @@ export default function MonthlyReport() {
               {gridYears.map(year => (
                 <div key={year} className="flex items-center gap-2">
                   <span className="text-[11px] font-bold text-slate-400 w-10 text-right shrink-0">{year}</span>
-                  <div className="flex-1 grid grid-cols-12 gap-1">
+                  <div className="flex-1 grid grid-cols-6 md:grid-cols-12 gap-1">
                     {Array.from({ length: 12 }, (_, m) => {
                       const state = monthState(year, m)
                       return (
@@ -524,34 +526,34 @@ export default function MonthlyReport() {
 
           {/* Rango mode */}
           {mode === 'rango' && (
-            <div className="flex items-end gap-4">
-              <div>
+            <div className="flex flex-col md:flex-row md:items-end gap-3 md:gap-4">
+              <div className="flex-1">
                 <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">{lang === 'es' ? 'Desde' : 'From'}</label>
                 <div className="flex gap-2">
                   <select value={rangeFrom.month} onChange={e => setRangeFrom(f => ({ ...f, month: +e.target.value }))}
-                    className="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[12px] focus:outline-none focus:border-sky-400">
+                    className="flex-1 px-2 py-2 min-h-[44px] md:min-h-0 bg-slate-50 border border-slate-200 rounded-xl text-[12px] focus:outline-none focus:border-sky-400">
                     {MONTH_LABELS.map((m, i) => <option key={i} value={i}>{m}</option>)}
                   </select>
                   <select value={rangeFrom.year} onChange={e => setRangeFrom(f => ({ ...f, year: +e.target.value }))}
-                    className="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[12px] focus:outline-none focus:border-sky-400">
+                    className="px-2 py-2 min-h-[44px] md:min-h-0 bg-slate-50 border border-slate-200 rounded-xl text-[12px] focus:outline-none focus:border-sky-400">
                     {[CUR_Y - 1, CUR_Y].map(y => <option key={y} value={y}>{y}</option>)}
                   </select>
                 </div>
               </div>
-              <div>
+              <div className="flex-1">
                 <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">{lang === 'es' ? 'Hasta' : 'To'}</label>
                 <div className="flex gap-2">
                   <select value={rangeTo.month} onChange={e => setRangeTo(f => ({ ...f, month: +e.target.value }))}
-                    className="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[12px] focus:outline-none focus:border-sky-400">
+                    className="flex-1 px-2 py-2 min-h-[44px] md:min-h-0 bg-slate-50 border border-slate-200 rounded-xl text-[12px] focus:outline-none focus:border-sky-400">
                     {MONTH_LABELS.map((m, i) => <option key={i} value={i}>{m}</option>)}
                   </select>
                   <select value={rangeTo.year} onChange={e => setRangeTo(f => ({ ...f, year: +e.target.value }))}
-                    className="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[12px] focus:outline-none focus:border-sky-400">
+                    className="px-2 py-2 min-h-[44px] md:min-h-0 bg-slate-50 border border-slate-200 rounded-xl text-[12px] focus:outline-none focus:border-sky-400">
                     {[CUR_Y - 1, CUR_Y].map(y => <option key={y} value={y}>{y}</option>)}
                   </select>
                 </div>
               </div>
-              <button onClick={applyRange} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-[12px] font-bold rounded-xl transition-colors">
+              <button onClick={applyRange} className="w-full md:w-auto px-4 py-2 min-h-[44px] md:min-h-0 bg-sky-600 hover:bg-sky-500 text-white text-[12px] font-bold rounded-xl transition-colors">
                 {lang === 'es' ? 'Aplicar' : 'Apply'}
               </button>
             </div>
@@ -574,7 +576,7 @@ export default function MonthlyReport() {
           <>
 
             {/* ── Metric cards ─────────────────────────────────────────── */}
-            <div className="flex gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
               <MetricCard icon={ReceiptText}      label={lang === 'es' ? 'Total Facturado' : 'Total Billed'}       value={fmtRD(data.metrics.facturado)} change={chg('facturado')} accent="sky"   />
               <MetricCard icon={CircleDollarSign} label={lang === 'es' ? 'Total Cobrado'   : 'Total Collected'}    value={fmtRD(data.metrics.cobrado)}   change={chg('cobrado')}   accent="green" />
               <MetricCard icon={Clock}            label={lang === 'es' ? 'Pendiente Cobrar': 'Pending Collection'} value={fmtRD(data.metrics.pendiente)} change={chg('pendiente')} accent="amber" />
@@ -582,7 +584,7 @@ export default function MonthlyReport() {
             </div>
 
             {/* ── Charts row ───────────────────────────────────────────── */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
               {/* Weekly / monthly bar chart */}
               <div className="bg-white border border-slate-200 rounded-2xl p-5">
@@ -604,7 +606,7 @@ export default function MonthlyReport() {
             </div>
 
             {/* ── Top clients + top services ───────────────────────────── */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
               {/* Top 5 clients */}
               <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
@@ -679,7 +681,7 @@ export default function MonthlyReport() {
             </div>
 
             {/* ── CxC summary (full width) ─────────────────────────────── */}
-            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden overflow-x-auto">
               <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                 <p className="text-[12px] font-bold text-slate-700">
                   {lang === 'es' ? 'Resumen CxC — Cuentas por Cobrar' : 'A/R Summary — Accounts Receivable'}

@@ -51,10 +51,141 @@ function init(userDataPath) {
     'ALTER TABLE services ADD COLUMN categoria_id INTEGER REFERENCES categorias_servicio(id)',
     'ALTER TABLE services ADD COLUMN aplica_itbis INTEGER NOT NULL DEFAULT 1',
     'ALTER TABLE users ADD COLUMN vendedor_id INTEGER REFERENCES sellers(id)',
+    'ALTER TABLE users ADD COLUMN commission_pct REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE tickets ADD COLUMN beverage_subtotal REAL NOT NULL DEFAULT 0',
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch { /* column already exists */ }
   }
+
+  // ── Dedup washers & sellers (fix: INSERT OR IGNORE had no UNIQUE constraint) ─
+  // Reassign FK references from duplicate rows to the original (lowest id) before deleting.
+  try {
+    const dupWashers = db.prepare(`SELECT w.id AS dup_id, keeper.id AS keep_id
+      FROM washers w JOIN (SELECT MIN(id) AS id, name FROM washers GROUP BY name) keeper
+      ON w.name = keeper.name WHERE w.id != keeper.id`).all()
+    for (const { dup_id, keep_id } of dupWashers) {
+      db.prepare('UPDATE washer_commissions SET washer_id=? WHERE washer_id=?').run(keep_id, dup_id)
+      db.prepare('UPDATE queue SET washer_id=? WHERE washer_id=?').run(keep_id, dup_id)
+      // Remap washer IDs inside the tickets.washer_ids JSON array
+      const rows = db.prepare("SELECT id, washer_ids FROM tickets WHERE washer_ids LIKE ?").all(`%${dup_id}%`)
+      for (const row of rows) {
+        try {
+          const ids = JSON.parse(row.washer_ids || '[]')
+          const fixed = ids.map(id => id === dup_id ? keep_id : id)
+          db.prepare('UPDATE tickets SET washer_ids=? WHERE id=?').run(JSON.stringify(fixed), row.id)
+        } catch { /* skip malformed JSON */ }
+      }
+    }
+    db.exec(`DELETE FROM washers WHERE id NOT IN (SELECT MIN(id) FROM washers GROUP BY name)`)
+
+    const dupSellers = db.prepare(`SELECT s.id AS dup_id, keeper.id AS keep_id
+      FROM sellers s JOIN (SELECT MIN(id) AS id, name FROM sellers GROUP BY name) keeper
+      ON s.name = keeper.name WHERE s.id != keeper.id`).all()
+    for (const { dup_id, keep_id } of dupSellers) {
+      db.prepare('UPDATE tickets SET seller_id=? WHERE seller_id=?').run(keep_id, dup_id)
+      db.prepare('UPDATE users SET vendedor_id=? WHERE vendedor_id=?').run(keep_id, dup_id)
+    }
+    db.exec(`DELETE FROM sellers WHERE id NOT IN (SELECT MIN(id) FROM sellers GROUP BY name)`)
+  } catch { /* safe to ignore on fresh DB */ }
+  // Add unique index so INSERT OR IGNORE works correctly going forward
+  try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_washers_name ON washers(name)`) } catch { /* already exists */ }
+  try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sellers_name ON sellers(name)`) } catch { /* already exists */ }
+
+  // Seller & Cajero commissions tables (v1.2)
+  db.exec(`CREATE TABLE IF NOT EXISTS seller_commissions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    seller_id       INTEGER NOT NULL REFERENCES sellers(id),
+    ticket_id       INTEGER NOT NULL REFERENCES tickets(id),
+    base_amount     REAL    NOT NULL,
+    commission_pct  REAL    NOT NULL,
+    commission_amount REAL  NOT NULL,
+    paid            INTEGER NOT NULL DEFAULT 0,
+    paid_at         TEXT,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec(`CREATE TABLE IF NOT EXISTS cajero_commissions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    cajero_id       INTEGER NOT NULL REFERENCES users(id),
+    ticket_id       INTEGER NOT NULL REFERENCES tickets(id),
+    base_amount     REAL    NOT NULL,
+    commission_pct  REAL    NOT NULL,
+    commission_amount REAL  NOT NULL,
+    paid            INTEGER NOT NULL DEFAULT 0,
+    paid_at         TEXT,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`)
+
+  // RNC contribuyentes — full DGII database + API lookup cache
+  db.exec(`CREATE TABLE IF NOT EXISTS rnc_contribuyentes (
+    rnc              TEXT PRIMARY KEY,
+    nombre           TEXT NOT NULL DEFAULT '',
+    nombre_comercial TEXT         DEFAULT '',
+    actividad        TEXT         DEFAULT '',
+    estado           TEXT         DEFAULT 'ACTIVO',
+    regimen          TEXT         DEFAULT 'NORMAL',
+    provincia        TEXT         DEFAULT '',
+    source           TEXT NOT NULL DEFAULT 'api',
+    synced_at        TEXT NOT NULL
+  )`)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_rnc_contrib ON rnc_contribuyentes(rnc)')
+
+  // e-CF offline queue — stores failed submissions for auto-retry (DGII 72h contingency)
+  db.exec(`CREATE TABLE IF NOT EXISTS ecf_queue (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    url_path    TEXT NOT NULL,
+    body_json   TEXT NOT NULL,
+    token       TEXT NOT NULL DEFAULT '',
+    attempts    INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    last_tried  TEXT
+  )`)
+
+  // Inventory items + transaction log
+  db.exec(`CREATE TABLE IF NOT EXISTS inventory_items (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    sku          TEXT UNIQUE,
+    name         TEXT NOT NULL,
+    category     TEXT NOT NULL DEFAULT '',
+    quantity     INTEGER NOT NULL DEFAULT 0,
+    min_quantity INTEGER NOT NULL DEFAULT 5,
+    price        REAL NOT NULL DEFAULT 0,
+    cost         REAL NOT NULL DEFAULT 0,
+    active       INTEGER NOT NULL DEFAULT 1,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec(`CREATE TABLE IF NOT EXISTS inventory_transactions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id    INTEGER NOT NULL REFERENCES inventory_items(id),
+    type       TEXT NOT NULL,
+    delta      INTEGER NOT NULL,
+    notes      TEXT NOT NULL DEFAULT '',
+    user_id    INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_inv_item ON inventory_transactions(item_id)')
+
+  // 607 — Compras y gastos de proveedores
+  db.exec(`CREATE TABLE IF NOT EXISTS compras_607 (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    rnc_proveedor    TEXT NOT NULL DEFAULT '',
+    nombre_proveedor TEXT NOT NULL DEFAULT '',
+    tipo_ncf         TEXT NOT NULL DEFAULT 'B01',
+    ncf              TEXT NOT NULL DEFAULT '',
+    ncf_modificado   TEXT         DEFAULT '',
+    fecha_ncf        TEXT NOT NULL,
+    fecha_pago       TEXT         DEFAULT '',
+    monto_servicios  REAL NOT NULL DEFAULT 0,
+    monto_bienes     REAL NOT NULL DEFAULT 0,
+    total            REAL NOT NULL DEFAULT 0,
+    itbis_facturado  REAL NOT NULL DEFAULT 0,
+    itbis_retenido   REAL NOT NULL DEFAULT 0,
+    retencion_renta  REAL NOT NULL DEFAULT 0,
+    forma_pago       TEXT NOT NULL DEFAULT 'efectivo',
+    notas            TEXT         DEFAULT '',
+    created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_compras607_fecha ON compras_607(fecha_ncf)')
 
   // Ensure all sequence types exist in ncf_sequences (INSERT OR IGNORE — never overwrites existing)
   const ECF_SEED = [
@@ -78,14 +209,46 @@ function init(userDataPath) {
   )
   for (const s of ECF_SEED) insertECF.run(s.type, s.prefix, s.enabled)
 
+  // Seed default services if none exist — prevents FK failures when POS falls back to DEMO_SERVICES
+  // (DEMO_SERVICES uses hardcoded IDs 1-17; without real rows those IDs fail ticket_items FK check)
+  const svcCount = db.prepare('SELECT COUNT(*) as n FROM services').get()
+  if (svcCount.n === 0) {
+    const insDefSvc = db.prepare(`INSERT OR IGNORE INTO services
+      (id,name,name_en,category,price,aplica_itbis,is_wash,active,sort_order)
+      VALUES (?,?,?,?,?,1,?,1,?)`)
+    const defServices = [
+      [1,  'Lavado Básico',      'Basic Wash',        'Lavado',       500,  1, 1],
+      [2,  'Lavado Completo',    'Full Wash',         'Lavado',       800,  1, 2],
+      [3,  'Lavado de Motor',    'Engine Wash',       'Lavado',       1200, 1, 3],
+      [4,  'Lavado Jeepeta',     'SUV Wash',          'Lavado',       1000, 1, 4],
+      [5,  'Lavado Camión',      'Truck Wash',        'Lavado',       1800, 1, 5],
+      [6,  'Aromatizante',       'Air Freshener',     'Adicionales',  150,  1, 1],
+      [7,  'Brillo de Gomas',    'Tire Shine',        'Adicionales',  200,  1, 2],
+      [8,  'Aspirado Interior',  'Interior Vacuum',   'Adicionales',  400,  1, 3],
+      [9,  'Ozono',              'Ozone Treatment',   'Adicionales',  1200, 1, 4],
+      [10, 'Lavado + Cera',      'Wash + Wax',        'Detallado',    2000, 1, 1],
+      [11, 'Lavado + Aspirado',  'Wash + Vacuum',     'Detallado',    1100, 1, 2],
+      [12, 'Detailing Completo', 'Full Detailing',    'Detallado',    4500, 1, 3],
+      [13, 'Agua Fría',          'Cold Water',        'Bebidas',      50,   0, 1],
+      [14, 'Refresco',           'Soda',              'Bebidas',      100,  0, 2],
+      [15, 'Café',               'Coffee',            'Bebidas',      75,   0, 3],
+      [16, 'Papitas',            'Chips',             'Bebidas',      80,   0, 4],
+      [17, 'Galletas',           'Cookies',           'Bebidas',      60,   0, 5],
+    ]
+    db.transaction(() => defServices.forEach(r => insDefSvc.run(...r)))()
+  }
+
   // Seed if empty
   const userCount = db.prepare('SELECT COUNT(*) as n FROM users').get()
   if (userCount.n === 0 && fs.existsSync(seedPath)) {
-    const seed = require(seedPath)
-    seed(db)
+    try {
+      const seed = require(seedPath)
+      seed(db)
+    } catch (err) {
+      console.error('[SEED ERROR]', err)
+    }
   }
 
-  console.log('[db] SQLite ready:', dbPath)
   return true
 }
 
@@ -105,7 +268,7 @@ function empresaGet() {
   if (!db) return null
   // Setup is complete only when configuracion.setup_complete = '1'
   if (configGet('setup_complete') !== '1') return null
-  return db.prepare('SELECT id,name,rnc,address,phone,email,settings FROM businesses WHERE id=1').get() ?? null
+  return db.prepare('SELECT id,name,rnc,address,phone,email,logo,settings FROM businesses WHERE id=1').get() ?? null
 }
 function empresaSave(data) {
   if (!db) return
@@ -414,18 +577,19 @@ function ticketCreate(data) {
 
     const result = db.prepare(`INSERT INTO tickets
       (doc_number,client_id,washer_ids,seller_id,cajero_id,subtotal,descuento,itbis,ley,total,
-       payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
+       beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,created_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
       docNumber,
       data.client_id || null,
       JSON.stringify(data.washer_ids || []),
       data.seller_id || null,
-      data.cajero_id || 1,
+      data.cajero_id || null,
       data.subtotal,
       data.descuento || 0,
       data.itbis,
       data.ley || 0,
       data.total,
+      data.beverage_subtotal || 0,
       data.payment_method || 'cash',
       data.comprobante_type || 'B02',
       ncf,
@@ -436,11 +600,13 @@ function ticketCreate(data) {
     )
     const ticketId = result.lastInsertRowid
 
-    // Insert items
+    // Insert items — pre-validate service IDs to avoid FK violations from stale/demo IDs
+    const validSvcIds = new Set(db.prepare('SELECT id FROM services').all().map(r => r.id))
     const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,itbis,is_wash)
       VALUES(?,?,?,?,?,?)`)
     for (const item of (data.items || [])) {
-      insItem.run(ticketId, item.service_id || null, item.name, item.price,
+      const svcId = (item.service_id && validSvcIds.has(item.service_id)) ? item.service_id : null
+      insItem.run(ticketId, svcId, item.name, item.price,
         parseFloat((item.price * 0.18).toFixed(2)), item.is_wash ?? 1)
     }
 
@@ -467,8 +633,39 @@ function ticketCreate(data) {
         VALUES(?,?,?,?,?,0)`).run(wid, ticketId, parseFloat(commBase.toFixed(2)), washer.commission_pct, commAmount)
     }
 
+    // Seller commission — same base as washers (services excluding beverages)
+    if (data.seller_id) {
+      const seller = db.prepare('SELECT commission_pct FROM sellers WHERE id=?').get(data.seller_id)
+      if (seller && seller.commission_pct > 0) {
+        const commBase   = (data.subtotal - (data.beverage_subtotal || 0)) / divisor
+        const commAmount = parseFloat((commBase * seller.commission_pct / 100).toFixed(2))
+        db.prepare(`INSERT INTO seller_commissions
+          (seller_id,ticket_id,base_amount,commission_pct,commission_amount,paid)
+          VALUES(?,?,?,?,?,0)`).run(data.seller_id, ticketId, parseFloat(commBase.toFixed(2)), seller.commission_pct, commAmount)
+      }
+    }
+
+    // Cajero commission — on beverages/snacks only
+    if (data.cajero_id && (data.beverage_subtotal || 0) > 0) {
+      const cajero = db.prepare('SELECT commission_pct FROM users WHERE id=?').get(data.cajero_id)
+      if (cajero && cajero.commission_pct > 0) {
+        const bevBase    = (data.beverage_subtotal || 0) / divisor
+        const commAmount = parseFloat((bevBase * cajero.commission_pct / 100).toFixed(2))
+        db.prepare(`INSERT INTO cajero_commissions
+          (cajero_id,ticket_id,base_amount,commission_pct,commission_amount,paid)
+          VALUES(?,?,?,?,?,0)`).run(data.cajero_id, ticketId, parseFloat(bevBase.toFixed(2)), cajero.commission_pct, commAmount)
+      }
+    }
+
     // Add to queue — seed with first washer so it shows immediately on Cola de Espera
-    const firstWasherId = (data.washer_ids || [])[0] || null
+    // Validate washer ID exists in washers table before using as FK
+    const rawFirstWasher = (data.washer_ids || [])[0] || null
+    const firstWasherId = rawFirstWasher
+      ? (db.prepare('SELECT 1 FROM washers WHERE id=?').get(rawFirstWasher) ? rawFirstWasher : null)
+      : null
+    if (rawFirstWasher && !firstWasherId) {
+      console.warn(`[ticketCreate] washer_id ${rawFirstWasher} not found in washers — inserting queue with null washer_id`)
+    }
     db.prepare(`INSERT INTO queue(ticket_id,status,washer_id) VALUES(?,?,?)`).run(ticketId, 'waiting', firstWasherId)
 
     return { ticketId, docNumber, ncf }
@@ -591,6 +788,82 @@ function commissionsMarkPaid(washerCommissionIds) {
   if (!db) return
   const stmt = db.prepare(`UPDATE washer_commissions SET paid=1,paid_at=datetime('now') WHERE id=?`)
   db.transaction(() => washerCommissionIds.forEach(id => stmt.run(id)))()
+}
+
+// ── SELLER COMMISSIONS ────────────────────────────────────────────────────────
+function sellerCommissionsBySeller(sellerId, dateFrom, dateTo) {
+  if (!db) return []
+  let sql = `SELECT sc.*, t.doc_number, t.created_at as ticket_date, t.vehicle_plate,
+                    s.name as seller_name, s.commission_pct,
+                    GROUP_CONCAT(ti.name, ' + ') as services
+             FROM seller_commissions sc
+             JOIN tickets t ON t.id = sc.ticket_id
+             JOIN sellers s ON s.id = sc.seller_id
+             LEFT JOIN ticket_items ti ON ti.ticket_id = t.id AND ti.is_wash=1
+             WHERE sc.seller_id=? AND t.status='cobrado'`
+  const params = [sellerId]
+  if (dateFrom) { sql += ' AND t.created_at >= ?'; params.push(dateFrom) }
+  if (dateTo)   { sql += ' AND t.created_at <= ?'; params.push(dateTo)   }
+  sql += ' GROUP BY sc.id ORDER BY t.created_at DESC LIMIT 2000'
+  return db.prepare(sql).all(...params)
+}
+function sellerCommissionsByPeriod(dateFrom, dateTo) {
+  if (!db) return []
+  return db.prepare(
+    `SELECT sc.seller_id, s.name as seller_name, s.commission_pct,
+            COUNT(sc.id) as ticket_count,
+            SUM(sc.base_amount) as total_base,
+            SUM(sc.commission_amount) as total_commission
+     FROM seller_commissions sc
+     JOIN tickets t ON t.id = sc.ticket_id
+     JOIN sellers s ON s.id = sc.seller_id
+     WHERE t.status='cobrado'
+       AND t.created_at >= ? AND t.created_at <= ?
+     GROUP BY sc.seller_id ORDER BY total_commission DESC`
+  ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
+}
+function sellerCommissionsMarkPaid(ids) {
+  if (!db) return
+  const stmt = db.prepare(`UPDATE seller_commissions SET paid=1,paid_at=datetime('now') WHERE id=?`)
+  db.transaction(() => ids.forEach(id => stmt.run(id)))()
+}
+
+// ── CAJERO COMMISSIONS ───────────────────────────────────────────────────────
+function cajeroCommissionsByCajero(cajeroId, dateFrom, dateTo) {
+  if (!db) return []
+  let sql = `SELECT cc.*, t.doc_number, t.created_at as ticket_date, t.vehicle_plate,
+                    u.name as cajero_name, u.commission_pct,
+                    GROUP_CONCAT(ti.name, ' + ') as services
+             FROM cajero_commissions cc
+             JOIN tickets t ON t.id = cc.ticket_id
+             JOIN users u ON u.id = cc.cajero_id
+             LEFT JOIN ticket_items ti ON ti.ticket_id = t.id AND ti.is_wash=0
+             WHERE cc.cajero_id=? AND t.status='cobrado'`
+  const params = [cajeroId]
+  if (dateFrom) { sql += ' AND t.created_at >= ?'; params.push(dateFrom) }
+  if (dateTo)   { sql += ' AND t.created_at <= ?'; params.push(dateTo)   }
+  sql += ' GROUP BY cc.id ORDER BY t.created_at DESC LIMIT 2000'
+  return db.prepare(sql).all(...params)
+}
+function cajeroCommissionsByPeriod(dateFrom, dateTo) {
+  if (!db) return []
+  return db.prepare(
+    `SELECT cc.cajero_id, u.name as cajero_name, u.commission_pct,
+            COUNT(cc.id) as ticket_count,
+            SUM(cc.base_amount) as total_base,
+            SUM(cc.commission_amount) as total_commission
+     FROM cajero_commissions cc
+     JOIN tickets t ON t.id = cc.ticket_id
+     JOIN users u ON u.id = cc.cajero_id
+     WHERE t.status='cobrado'
+       AND t.created_at >= ? AND t.created_at <= ?
+     GROUP BY cc.cajero_id ORDER BY total_commission DESC`
+  ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
+}
+function cajeroCommissionsMarkPaid(ids) {
+  if (!db) return
+  const stmt = db.prepare(`UPDATE cajero_commissions SET paid=1,paid_at=datetime('now') WHERE id=?`)
+  db.transaction(() => ids.forEach(id => stmt.run(id)))()
 }
 
 // ── CUADRE DE CAJA ────────────────────────────────────────────────────────────
@@ -723,6 +996,68 @@ function exportSince(since) {
   }
 }
 
+// ── Export to Supabase (full dump for cloud sync) ─────────────────────────────
+function exportToSupabase() {
+  if (!db) return {}
+  return {
+    business:        db.prepare('SELECT * FROM businesses WHERE id=1').get() || null,
+    users:           db.prepare('SELECT * FROM users WHERE active=1').all(),
+    services:        db.prepare('SELECT * FROM services').all(),
+    washers:         db.prepare('SELECT * FROM washers WHERE active=1').all(),
+    sellers:         db.prepare('SELECT * FROM sellers WHERE active=1').all(),
+    clients:         db.prepare('SELECT * FROM clients WHERE active=1').all(),
+    tickets:         db.prepare('SELECT * FROM tickets ORDER BY created_at DESC LIMIT 500').all(),
+    ticket_items:    db.prepare('SELECT * FROM ticket_items').all(),
+    ncf_sequences:   db.prepare('SELECT * FROM ncf_sequences').all(),
+    inventory_items: db.prepare('SELECT * FROM inventory_items WHERE active=1').all(),
+  }
+}
+
+// ── DGII 607 — Compras ────────────────────────────────────────────────────────
+function getCompras607(dateFrom, dateTo) {
+  if (!db) return []
+  return db.prepare(
+    `SELECT * FROM compras_607 WHERE fecha_ncf BETWEEN ? AND ? ORDER BY fecha_ncf DESC`
+  ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
+}
+
+function addCompra607(data) {
+  if (!db) return null
+  const stmt = db.prepare(`
+    INSERT INTO compras_607
+      (rnc_proveedor, nombre_proveedor, tipo_ncf, ncf, ncf_modificado,
+       fecha_ncf, fecha_pago, monto_servicios, monto_bienes, total,
+       itbis_facturado, itbis_retenido, retencion_renta, forma_pago, notas)
+    VALUES
+      (@rnc_proveedor, @nombre_proveedor, @tipo_ncf, @ncf, @ncf_modificado,
+       @fecha_ncf, @fecha_pago, @monto_servicios, @monto_bienes, @total,
+       @itbis_facturado, @itbis_retenido, @retencion_renta, @forma_pago, @notas)
+  `)
+  const result = stmt.run({
+    rnc_proveedor:    data.rnc_proveedor    || '',
+    nombre_proveedor: data.nombre_proveedor || '',
+    tipo_ncf:         data.tipo_ncf         || 'B01',
+    ncf:              data.ncf              || '',
+    ncf_modificado:   data.ncf_modificado   || '',
+    fecha_ncf:        data.fecha_ncf        || new Date().toISOString().slice(0,10),
+    fecha_pago:       data.fecha_pago       || '',
+    monto_servicios:  Number(data.monto_servicios)  || 0,
+    monto_bienes:     Number(data.monto_bienes)     || 0,
+    total:            Number(data.total)            || 0,
+    itbis_facturado:  Number(data.itbis_facturado)  || 0,
+    itbis_retenido:   Number(data.itbis_retenido)   || 0,
+    retencion_renta:  Number(data.retencion_renta)  || 0,
+    forma_pago:       data.forma_pago       || 'efectivo',
+    notas:            data.notas            || '',
+  })
+  return { id: result.lastInsertRowid }
+}
+
+function deleteCompra607(id) {
+  if (!db) return null
+  return db.prepare('DELETE FROM compras_607 WHERE id=?').run(id)
+}
+
 // ── DGII data ─────────────────────────────────────────────────────────────────
 function get606Data(dateFrom, dateTo) {
   if (!db) return []
@@ -735,6 +1070,139 @@ function get606Data(dateFrom, dateTo) {
      WHERE t.created_at BETWEEN ? AND ?
      ORDER BY t.created_at DESC`
   ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
+}
+
+// ── RNC contribuyentes ────────────────────────────────────────────────────────
+
+// Single lookup — DGII-synced rows never expire; API-cached rows expire in 90d
+function rncLookupLocal(rnc) {
+  if (!db) return null
+  const row = db.prepare('SELECT * FROM rnc_contribuyentes WHERE rnc=?').get(rnc)
+  if (!row) return null
+  if (row.source === 'api') {
+    const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+    if (row.synced_at < cutoff) return null
+  }
+  return row
+}
+
+// Save a single API-lookup result
+function rncSave(rnc, data, source = 'api') {
+  if (!db) return
+  db.prepare(`INSERT OR REPLACE INTO rnc_contribuyentes
+    (rnc,nombre,nombre_comercial,actividad,estado,regimen,provincia,source,synced_at)
+    VALUES(?,?,?,?,?,?,?,?,?)`).run(
+    rnc,
+    data.nombre            || '',
+    data.nombreComercial   || data.nombre_comercial || '',
+    data.actividadEconomica|| data.actividad        || '',
+    data.estado            || 'ACTIVO',
+    data.regimen           || 'NORMAL',
+    data.provincia         || '',
+    source,
+    new Date().toISOString()
+  )
+}
+
+// Bulk insert from DGII ZIP sync — called inside a transaction batch
+function rncBulkSync(rows) {
+  if (!db || !rows.length) return 0
+  const stmt = db.prepare(`INSERT OR REPLACE INTO rnc_contribuyentes
+    (rnc,nombre,nombre_comercial,actividad,estado,regimen,provincia,source,synced_at)
+    VALUES(?,?,?,?,?,?,?,?,?)`)
+  const now = new Date().toISOString()
+  const tx  = db.transaction(items => {
+    for (const r of items) {
+      stmt.run(r.rnc, r.nombre, r.nombre_comercial, r.actividad, r.estado, r.regimen, r.provincia, 'dgii_sync', now)
+    }
+  })
+  tx(rows)
+  return rows.length
+}
+
+function rncCount() {
+  if (!db) return 0
+  return db.prepare('SELECT COUNT(*) as c FROM rnc_contribuyentes').get()?.c || 0
+}
+
+function rncLastSync() {
+  if (!db) return null
+  return db.prepare("SELECT MAX(synced_at) as last FROM rnc_contribuyentes WHERE source='dgii_sync'").get()?.last || null
+}
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+
+function inventoryGetAll() {
+  if (!db) return []
+  return db.prepare('SELECT * FROM inventory_items WHERE active=1 ORDER BY name COLLATE NOCASE').all()
+}
+function inventoryCreate(data) {
+  if (!db) return null
+  const r = db.prepare(`INSERT INTO inventory_items(sku,name,category,quantity,min_quantity,price,cost)
+    VALUES(@sku,@name,@category,@quantity,@min_quantity,@price,@cost)`).run({
+    sku: data.sku || null, name: data.name, category: data.category || '',
+    quantity: data.quantity || 0, min_quantity: data.min_quantity ?? 5,
+    price: data.price || 0, cost: data.cost || 0,
+  })
+  return r.lastInsertRowid
+}
+function inventoryUpdate(id, data) {
+  if (!db) return
+  db.prepare(`UPDATE inventory_items
+    SET sku=@sku, name=@name, category=@category, min_quantity=@min_quantity, price=@price, cost=@cost
+    WHERE id=@id`).run({ sku: data.sku || null, name: data.name, category: data.category || '',
+    min_quantity: data.min_quantity ?? 5, price: data.price || 0, cost: data.cost || 0, id })
+}
+function inventoryDelete(id) {
+  if (!db) return
+  db.prepare('UPDATE inventory_items SET active=0 WHERE id=?').run(id)
+}
+function inventoryAdjust(id, delta, notes, userId) {
+  if (!db) return null
+  const run = db.transaction(() => {
+    db.prepare('UPDATE inventory_items SET quantity = quantity + ? WHERE id=?').run(delta, id)
+    db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id) VALUES(?,?,?,?,?)')
+      .run(id, delta >= 0 ? 'in' : 'out', delta, notes || '', userId || null)
+  })
+  run()
+  return db.prepare('SELECT quantity FROM inventory_items WHERE id=?').get(id)?.quantity ?? null
+}
+function inventoryTransactions(itemId) {
+  if (!db) return []
+  return db.prepare(`SELECT t.*, u.name as user_name FROM inventory_transactions t
+    LEFT JOIN users u ON u.id = t.user_id
+    WHERE t.item_id=? ORDER BY t.created_at DESC LIMIT 50`).all(itemId)
+}
+
+// ── e-CF offline queue ────────────────────────────────────────────────────────
+
+function ecfQueueAdd(urlPath, bodyJson, token) {
+  if (!db) return
+  db.prepare('INSERT INTO ecf_queue (url_path, body_json, token) VALUES (?,?,?)')
+    .run(urlPath, typeof bodyJson === 'string' ? bodyJson : JSON.stringify(bodyJson), token || '')
+}
+
+// Only items within DGII's 72h contingency window
+function ecfQueueGetPending(limit = 10) {
+  if (!db) return []
+  return db.prepare(
+    `SELECT * FROM ecf_queue WHERE attempts < 500 AND created_at > datetime('now','-72 hours') ORDER BY id ASC LIMIT ?`
+  ).all(limit)
+}
+
+function ecfQueueDelete(id) {
+  if (!db) return
+  db.prepare('DELETE FROM ecf_queue WHERE id=?').run(id)
+}
+
+function ecfQueueIncrAttempts(id) {
+  if (!db) return
+  db.prepare(`UPDATE ecf_queue SET attempts=attempts+1, last_tried=datetime('now') WHERE id=?`).run(id)
+}
+
+function ecfQueueCount() {
+  if (!db) return 0
+  return db.prepare(`SELECT COUNT(*) as c FROM ecf_queue WHERE created_at > datetime('now','-72 hours')`).get()?.c || 0
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -763,6 +1231,8 @@ module.exports = {
   queueGetActive, queueUpdateStatus,
   // Commissions
   commissionsGetByWasher, commissionsGetByPeriod, commissionsMarkPaid,
+  sellerCommissionsBySeller, sellerCommissionsByPeriod, sellerCommissionsMarkPaid,
+  cajeroCommissionsByCajero, cajeroCommissionsByPeriod, cajeroCommissionsMarkPaid,
   // Cuadre
   cuadreCreate, cuadreGetHistory, cuadreList, cuadreDailySummary,
   // NCF
@@ -772,7 +1242,14 @@ module.exports = {
   // Notas
   notasGetAll, notaCreate,
   // Backup / export
-  exportAll, exportSince,
+  exportAll, exportSince, exportToSupabase,
   // DGII
   get606Data,
+  getCompras607, addCompra607, deleteCompra607,
+  // RNC contribuyentes
+  rncLookupLocal, rncSave, rncBulkSync, rncCount, rncLastSync,
+  // Inventory
+  inventoryGetAll, inventoryCreate, inventoryUpdate, inventoryDelete, inventoryAdjust, inventoryTransactions,
+  // e-CF offline queue
+  ecfQueueAdd, ecfQueueGetPending, ecfQueueDelete, ecfQueueIncrAttempts, ecfQueueCount,
 }

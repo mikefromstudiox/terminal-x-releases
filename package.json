@@ -2,38 +2,47 @@
   "name": "terminal-x",
   "version": "1.0.0",
   "description": "Terminal X - Car Wash POS System",
+  "author": "Studio X",
   "main": "electron/main.js",
   "scripts": {
-    "dev": "concurrently -k -n VITE,ELECTRON -c cyan,blue \"vite\" \"wait-on http://localhost:5173 && env -u ELECTRON_RUN_AS_NODE electron . --dev\"",
-    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "dev": "concurrently -k -n VITE,ELECTRON -c cyan,blue \"vite\" \"wait-on http://localhost:5173 && electron . --dev\"",
     "build:react": "vite build",
     "build:protected": "vite build --mode production && electron-builder",
     "dist": "npm run build:react && electron-builder",
-    "dist:win": "npm run build:react && electron-builder --win",
+    "dist:win": "npm run build:react && node scripts/win-prebuilt.js && electron-builder --win",
     "dist:mac": "npm run build:react && electron-builder --mac",
     "preview": "vite preview",
+    "dev:web": "vite --config vite.web.config.js",
+    "build:web": "vite build --config vite.web.config.js",
+    "preview:web": "vite preview --config vite.web.config.js",
     "reset-db": "rm -f ~/Library/Application\\ Support/terminal-x/terminal-x.db"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.99.2",
+    "@vercel/speed-insights": "^2.0.0",
+    "adm-zip": "^0.5.16",
     "better-sqlite3": "^12.8.0",
     "electron-log": "^5.4.3",
     "electron-updater": "^6.8.3",
-    "lucide-react": "^0.378.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.23.0"
+    "idb": "^8.0.3",
+    "pdf-lib": "^1.17.1",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
+    "@supabase/supabase-js": "^2.99.3",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.19",
     "concurrently": "^8.2.2",
-    "electron": "^41.0.3",
-    "electron-builder": "^24.13.3",
-    "electron-rebuild": "^3.2.9",
+    "electron": "^28.3.3",
+    "electron-builder": "^26.8.1",
+    "lucide-react": "^0.378.0",
+    "png-to-ico": "^3.0.1",
     "postcss": "^8.4.38",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.23.0",
     "tailwindcss": "^3.4.3",
-    "vite": "^5.2.0",
+    "terser": "^5.46.1",
+    "vite": "^5.4.21",
     "wait-on": "^7.2.0"
   },
   "build": {
@@ -41,7 +50,17 @@
     "productName": "Terminal X",
     "copyright": "Copyright © 2024 Terminal X",
     "asar": true,
+    "npmRebuild": false,
+    "asarUnpack": [
+      "**/*.node"
+    ],
     "compression": "maximum",
+    "extraResources": [
+      {
+        "from": "assets/icon.png",
+        "to": "icon.png"
+      }
+    ],
     "publish": [
       {
         "provider": "github",
@@ -54,12 +73,11 @@
         {
           "target": "nsis",
           "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         }
       ],
-      "icon": "assets/icon.ico",
+      "icon": "assets/icon.png",
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "mac": {
@@ -91,10 +109,21 @@
       "dist/**/*",
       "electron/**/*",
       "db/**/*",
-      "!electron/**/*.map",
-      "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md,readme}",
-      "!**/node_modules/*/{test,__tests__,tests,powered-by,spec}",
-      "!**/node_modules/.bin"
+      "!**/*.map",
+      "!**/*.{md,ts,d.ts}",
+      "!**/node_modules/.bin/**",
+      "!**/node_modules/*/{test,tests,__tests__,spec,specs,powered-by}/**",
+      "!**/node_modules/*/{CHANGELOG,CHANGELOG.md,README,README.md,readme,readme.md,LICENSE,license}",
+      "!**/node_modules/*/.{travis.yml,eslintrc,eslintrc.js,eslintrc.json,npmignore,editorconfig}",
+      "!**/node_modules/better-sqlite3/deps/**",
+      "!**/node_modules/better-sqlite3/src/**",
+      "!**/node_modules/better-sqlite3/binding.gyp",
+      "!**/node_modules/prebuild-install/**",
+      "!**/node_modules/napi-build-utils/**",
+      "!**/node_modules/node-abi/**",
+      "!**/node_modules/detect-libc/**",
+      "!**/node_modules/expand-template/**",
+      "!**/node_modules/github-from-package/**"
     ],
     "extraMetadata": {
       "main": "electron/main.js"

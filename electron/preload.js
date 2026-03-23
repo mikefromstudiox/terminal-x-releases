@@ -51,6 +51,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     update: (obj) => call('settings:update', obj),
   },
 
+  // ── Inventory ──────────────────────────────────────────────────────────────
+  inventory: {
+    all:          ()                            => call('inventory:all'),
+    create:       (data)                        => call('inventory:create', data),
+    update:       (data)                        => call('inventory:update', data),
+    delete:       (data)                        => call('inventory:delete', data),
+    adjust:       ({id, delta, notes, userId})  => call('inventory:adjust', {id, delta, notes, userId}),
+    transactions: ({id})                        => call('inventory:transactions', {id}),
+  },
+
   // ── Auth ───────────────────────────────────────────────────────────────────
   auth: {
     byPin:  (pin)  => call('auth:pin', pin),
@@ -130,6 +140,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     byPeriod: (params) => call('commissions:byPeriod', params),
     markPaid: (ids)    => call('commissions:markPaid', ids),
   },
+  sellerCommissions: {
+    bySeller: (params) => call('sellerCommissions:bySeller', params),
+    byPeriod: (params) => call('sellerCommissions:byPeriod', params),
+    markPaid: (ids)    => call('sellerCommissions:markPaid', ids),
+  },
+  cajeroCommissions: {
+    byCajero: (params) => call('cajeroCommissions:byCajero', params),
+    byPeriod: (params) => call('cajeroCommissions:byPeriod', params),
+    markPaid: (ids)    => call('cajeroCommissions:markPaid', ids),
+  },
 
   // ── Cuadre de Caja ─────────────────────────────────────────────────────────
   cuadre: {
@@ -161,19 +181,39 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── DGII ───────────────────────────────────────────────────────────────────
   dgii: {
-    get606: (params) => call('dgii:606', params),
+    get606:       (params) => call('dgii:606',        params),
+    get607:       (params) => call('dgii:607:get',    params),
+    addCompra:    (data)   => call('dgii:607:add',    data),
+    deleteCompra: ({id})   => call('dgii:607:delete', {id}),
+  },
+
+  // ── RNC Lookup ─────────────────────────────────────────────────────────────
+  rnc: {
+    lookup:         (rnc) => ipcRenderer.invoke('rnc:lookup', { rnc }),
+    sync:           ()    => ipcRenderer.invoke('rnc:sync'),
+    status:         ()    => ipcRenderer.invoke('rnc:status'),
+    onSyncProgress: (cb)  => ipcRenderer.on('rnc:sync-progress', (_, data) => cb(data)),
   },
 
   // ── Backup / DB export ─────────────────────────────────────────────────────
   db: {
-    exportAll:   ()      => call('db:exportAll'),
-    exportSince: (since) => call('db:exportSince', since),
+    exportAll:        ()      => call('db:exportAll'),
+    exportSince:      (since) => call('db:exportSince', since),
+    exportToSupabase: ()      => ipcRenderer.invoke('db:exportToSupabase').then(r => r.ok ? r.data : Promise.reject(new Error(r.error))),
+  },
+
+  // ── PDF receipts ───────────────────────────────────────────────────────────
+  pdf: {
+    save: (payload) => ipcRenderer.invoke('pdf:save', payload),
+  },
+
+  // ── Local SQLite backup ────────────────────────────────────────────────────
+  backup: {
+    local: () => ipcRenderer.invoke('backup:local'),
   },
 
   // ── Printer ────────────────────────────────────────────────────────────────
-  print:        (payload) => ipcRenderer.invoke('print:receipt', payload),
-  openDrawer:   ()        => ipcRenderer.invoke('print:open-drawer'),
-  listPrinters: ()        => call('print:list-printers'),
+  print: (payload) => ipcRenderer.invoke('print:receipt', payload),
 
   // ── File save ──────────────────────────────────────────────────────────────
   saveFile: (payload) => ipcRenderer.invoke('fs:save-file', payload),
@@ -184,15 +224,35 @@ contextBridge.exposeInMainWorld('electronAPI', {
     isMaster: (key) => ipcRenderer.invoke('license:is-master', key),
   },
 
+  // ── App version ────────────────────────────────────────────────────────────
+  version: () => ipcRenderer.invoke('app:version'),
+
+  // ── WhatsApp (UltraMsg) ────────────────────────────────────────────────────
+  whatsapp: {
+    send:         (params) => call('whatsapp:send', params),
+    sendDocument: (params) => call('whatsapp:sendDocument', params),
+  },
+
   // ── Env config (non-secret values from .env, exposed on request) ───────────
   // Returns the value or '' if blank/unset. Never exposes MASTER_LICENSE_KEY.
   env: {
     get: (key) => ipcRenderer.invoke('env:get', key),
   },
 
+  // ── Safe storage (OS-encrypted key-value store) ────────────────────────────
+  safe: {
+    get: (key)       => ipcRenderer.invoke('safe:get', key),
+    set: (key, val)  => ipcRenderer.invoke('safe:set', key, val),
+  },
+
   // ── ef2.do API proxy (bypasses CORS via main process) ─────────────────────
   ef2: {
     fetch: (params) => ipcRenderer.invoke('ef2:fetch', params),
+  },
+
+  // ── e-CF offline queue ─────────────────────────────────────────────────────
+  ecf: {
+    queueCount: () => ipcRenderer.invoke('ecf:queue-count'),
   },
 
   // ── Auto-updater ───────────────────────────────────────────────────────────
@@ -209,4 +269,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => events.forEach(e => ipcRenderer.off('updater:' + e, handlers[e]))
     },
   },
+})
+
+contextBridge.exposeInMainWorld('printerAPI', {
+  listPrinters:       ()             => ipcRenderer.invoke('print:list-usb-printers'),
+  openDrawer:         ()             => ipcRenderer.invoke('print:open-drawer'),
+  testDrawerVariants: (printerName)  => ipcRenderer.invoke('print:test-drawer-variants', printerName),
 })

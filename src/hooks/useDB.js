@@ -4,17 +4,18 @@
  * Every hook returns { data, loading, error, reload }.
  * Writes return { execute, loading, error }.
  *
- * Falls back gracefully when window.electronAPI is not available
- * (e.g., running in a plain browser during development).
+ * All hooks go through the DataContext abstraction (useAPI)
+ * so they work on both Electron and Web platforms.
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useAPI } from '../context/DataContext'
 
-// ── Check if IPC is available ─────────────────────────────────────────────────
+// ── Check if API is available (legacy compat — prefer useHasAPI from DataContext) ─
 export function hasIPC() {
   return typeof window !== 'undefined' && !!window.electronAPI
 }
 
-// ── Generic read hook ─────────────────────────────────────────────────────────
+// ── Generic read hook ─────────────────────────────────────────────────
 export function useQuery(fetcher, deps = [], fallback = null) {
   const [data,    setData]    = useState(fallback ?? null)
   const [loading, setLoading] = useState(true)
@@ -26,10 +27,16 @@ export function useQuery(fetcher, deps = [], fallback = null) {
     setError(null)
     try {
       const result = await fetcher()
-      if (mounted.current) setData(result ?? fallback)
+      if (!mounted.current) return
+      // Guard: if result is an error-shaped object, treat as failure
+      if (result && result.ok === false && result.error) {
+        setError(result.error)
+        setData(fallback)
+      } else {
+        setData(result ?? fallback)
+      }
     } catch (err) {
-      console.error('[useQuery]', err)
-      if (mounted.current) { setError(err.message); setData(fallback) }
+      if (mounted.current) { setError(err?.message || String(err)); setData(fallback) }
     } finally {
       if (mounted.current) setLoading(false)
     }
@@ -45,7 +52,7 @@ export function useQuery(fetcher, deps = [], fallback = null) {
   return { data, loading, error, reload: load }
 }
 
-// ── Generic mutation hook ─────────────────────────────────────────────────────
+// ── Generic mutation hook ─────────────────────────────────────────────
 export function useMutation(mutator) {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
@@ -57,7 +64,6 @@ export function useMutation(mutator) {
       const result = await mutator(...args)
       return { ok: true, data: result }
     } catch (err) {
-      console.error('[useMutation]', err)
       setError(err.message)
       return { ok: false, error: err.message }
     } finally {
@@ -68,103 +74,74 @@ export function useMutation(mutator) {
   return { execute, loading, error }
 }
 
-// ── Specific hooks ────────────────────────────────────────────────────────────
-
+// ── Specific hooks (platform-agnostic via useAPI) ────────────────────
 export function useSettings() {
-  return useQuery(
-    () => hasIPC() ? window.electronAPI.settings.get() : Promise.resolve({}),
-    [], {}
-  )
+  const api = useAPI()
+  return useQuery(() => api ? api.settings.get() : {}, [], {})
 }
 
 export function useServices() {
-  return useQuery(
-    () => hasIPC() ? window.electronAPI.services.all() : Promise.resolve([]),
-    [], []
-  )
+  const api = useAPI()
+  return useQuery(() => api ? api.services.all() : [], [], [])
 }
 
 export function useWashers() {
-  return useQuery(
-    () => hasIPC() ? window.electronAPI.washers.all() : Promise.resolve([]),
-    [], []
-  )
+  const api = useAPI()
+  return useQuery(() => api ? api.washers.all() : [], [], [])
 }
 
 export function useClients() {
-  return useQuery(
-    () => hasIPC() ? window.electronAPI.clients.all() : Promise.resolve([]),
-    [], []
-  )
+  const api = useAPI()
+  return useQuery(() => api ? api.clients.all() : [], [], [])
 }
 
 export function useTickets(params = {}) {
+  const api = useAPI()
   const key = JSON.stringify(params)
-  return useQuery(
-    () => hasIPC() ? window.electronAPI.tickets.all(params) : Promise.resolve([]),
-    [key], []
-  )
+  return useQuery(() => api ? api.tickets.all(params) : [], [key], [])
 }
 
 export function useQueueActive() {
-  return useQuery(
-    () => hasIPC() ? window.electronAPI.queue.active() : Promise.resolve([]),
-    [], []
-  )
+  const api = useAPI()
+  return useQuery(() => api ? api.queue.active() : [], [], [])
 }
 
 export function useCommissionsByPeriod(from, to) {
-  return useQuery(
-    () => hasIPC() ? window.electronAPI.commissions.byPeriod({ from, to }) : Promise.resolve([]),
-    [from, to], []
-  )
+  const api = useAPI()
+  return useQuery(() => api ? api.commissions.byPeriod({ from, to }) : [], [from, to], [])
 }
 
 export function useCuadreHistory() {
-  return useQuery(
-    () => hasIPC() ? window.electronAPI.cuadre.history() : Promise.resolve([]),
-    [], []
-  )
+  const api = useAPI()
+  return useQuery(() => api ? api.cuadre.history() : [], [], [])
 }
 
 export function useDailySummary(date) {
-  return useQuery(
-    () => hasIPC() ? window.electronAPI.cuadre.daily(date) : Promise.resolve({}),
-    [date], {}
-  )
+  const api = useAPI()
+  return useQuery(() => api ? api.cuadre.daily(date) : {}, [date], {})
 }
 
 export function useNCFSequences() {
-  return useQuery(
-    () => hasIPC() ? window.electronAPI.ncf.sequences() : Promise.resolve([]),
-    [], []
-  )
+  const api = useAPI()
+  return useQuery(() => api ? api.ncf.sequences() : [], [], [])
 }
 
 export function useCajaChica() {
-  return useQuery(
-    () => hasIPC() ? window.electronAPI.cajaChica.all() : Promise.resolve([]),
-    [], []
-  )
+  const api = useAPI()
+  return useQuery(() => api ? api.cajaChica.all() : [], [], [])
 }
 
 export function useNotas() {
-  return useQuery(
-    () => hasIPC() ? window.electronAPI.notas.all() : Promise.resolve([]),
-    [], []
-  )
+  const api = useAPI()
+  return useQuery(() => api ? api.notas.all() : [], [], [])
 }
 
 export function useSellers() {
-  return useQuery(
-    () => hasIPC() ? window.electronAPI.sellers.all() : Promise.resolve([]),
-    [], []
-  )
+  const api = useAPI()
+  return useQuery(() => api ? api.sellers.all() : [], [], [])
 }
 
 export function useUsers() {
-  return useQuery(
-    () => hasIPC() ? window.electronAPI.users.all() : Promise.resolve([]),
-    [], []
-  )
+  const api = useAPI()
+  return useQuery(() => api ? api.users.all() : [], [], [])
 }

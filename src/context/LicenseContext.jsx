@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import { useAPI } from './DataContext'
 import {
   validateLicense,
   getStoredLicenseKey,
@@ -20,9 +21,9 @@ const CHECK_INTERVAL = 4 * 60 * 60 * 1000  // 4 hours
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Ask the main process whether this key matches the hardcoded master key. */
-async function checkMasterKey(key) {
+async function checkMasterKey(api, key) {
   try {
-    return !!(await window.electronAPI?.license?.isMaster?.(key))
+    return !!(await api?.license?.isMaster?.(key))
   } catch {
     return false
   }
@@ -36,6 +37,7 @@ function makeResult(status, extra = {}) {
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function LicenseProvider({ children }) {
+  const api = useAPI()
   const [hwid,       setHwid]       = useState(null)
   const [licenseKey, setLicenseKey] = useState(getStoredLicenseKey())
   const [rnc,        setRnc]        = useState(getStoredRnc())
@@ -46,9 +48,9 @@ export function LicenseProvider({ children }) {
   // ── Load hardware ID from Electron ─────────────────────────────────────────
   useEffect(() => {
     async function loadHwid() {
-      if (typeof window !== 'undefined' && window.electronAPI?.license?.hwid) {
+      if (typeof window !== 'undefined' && api?.license?.hwid) {
         try {
-          const id = await window.electronAPI.license.hwid()
+          const id = await api.license.hwid()
           setHwid(id || 'browser-dev')
         } catch {
           setHwid('browser-dev')
@@ -88,7 +90,7 @@ export function LicenseProvider({ children }) {
     setChecking(true)
     try {
       // ── 2. MASTER KEY: bypass server, grant full access ─────────────────
-      if (await checkMasterKey(k)) {
+      if (await checkMasterKey(api, k)) {
         setResult(makeResult('master'))
         return
       }
@@ -136,7 +138,7 @@ export function LicenseProvider({ children }) {
     }
 
     // MASTER KEY: bypass server entirely
-    if (await checkMasterKey(k)) {
+    if (await checkMasterKey(api, k)) {
       setStoredLicenseKey(k, r)
       setResult(makeResult('master'))
       return

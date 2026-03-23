@@ -5,7 +5,7 @@ import Sidebar from './Sidebar'
 import { AlertTriangle, ShieldX, KeyRound } from 'lucide-react'
 
 // Change to your WhatsApp number (must match LicenseGate.jsx)
-const WA_NUMBER = '18099999999'
+const WA_NUMBER = '18098282971'
 const WA_MSG    = encodeURIComponent('Hola, necesito renovar mi licencia de Terminal X.')
 const WA_URL    = `https://wa.me/${WA_NUMBER}?text=${WA_MSG}`
 
@@ -75,11 +75,11 @@ function LicenseBanner() {
 
 function AppLayout({ children }) {
   return (
-    <div className="flex h-screen bg-[#f0f2f5] overflow-hidden flex-col">
+    <div className="flex h-screen bg-[#f0f2f5] dark:bg-zinc-950 overflow-hidden flex-col">
       <LicenseBanner />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1 overflow-hidden dark:bg-zinc-900 pb-20 md:pb-0">
           {children}
         </main>
       </div>
