@@ -241,10 +241,10 @@ export default function POS() {
   const [showNewClient,  setShowNewClient]  = useState(false)
   const [clientSearch,   setClientSearch]   = useState('')
 
-  // Load clients once
+  // Load clients once (re-run when api becomes available)
   useEffect(() => {
     api.clients?.all?.().then(r => setClients(r || [])).catch(() => flash(lang === 'es' ? 'Error al cargar clientes' : 'Error loading clients'))
-  }, [])
+  }, [api])
 
   // Form state
   const [rnc,         setRnc]         = useState('')

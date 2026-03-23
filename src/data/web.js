@@ -1411,11 +1411,12 @@ export function createWebAPI(supabase, businessId) {
     ef2: {
       fetch: (params) => tryOr(async () => {
         const { data, error } = await supabase.functions.invoke('ef2-proxy', {
-          body: { ...params, business_id: bid },
+          body: { ...params, businessId: bid },
         })
         if (error) throw error
-        return data
-      }),
+        // Wrap in same shape as Electron IPC: { ok, data }
+        return { ok: true, data }
+      }, { ok: false, error: 'ef2 edge function failed' }),
     },
 
     // ── e-CF offline queue ───────────────────────────────────────────────────

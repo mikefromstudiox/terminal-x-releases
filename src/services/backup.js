@@ -14,6 +14,8 @@
 
 import { getSupabaseClient, getBusinessId } from './supabase.js'
 
+const isWeb = typeof window !== 'undefined' && !window.electronAPI
+
 // ── Internal state ────────────────────────────────────────────────────────────
 let _syncTimer    = null
 let _backupTimer  = null
@@ -41,12 +43,21 @@ function isOnline() {
  * Falls back to demo data if DB not yet wired.
  */
 async function exportLocalDB() {
+  if (isWeb) {
+    // On web, data lives in Supabase — no local DB to export
+    return {
+      exported_at: new Date().toISOString(),
+      version:     '1.0.0',
+      business_id: getBusinessId(),
+      tables: {},
+      _web: true,
+    }
+  }
   try {
-    if (window.electronAPI?.db?.exportAll) { // TODO: accept api param for web compat
+    if (window.electronAPI?.db?.exportAll) {
       return await window.electronAPI.db.exportAll()
     }
   } catch {}
-  // Demo stub — replace with real DB export when SQLite layer is added
   return {
     exported_at: new Date().toISOString(),
     version:     '1.0.0',
@@ -130,6 +141,12 @@ async function registerBackupRecord(filename, sizeBytes, type) {
 export async function manualBackup() {
   if (!isOnline()) return { success: false, error: 'Sin conexión a internet' }
 
+  if (isWeb) {
+    // On web, data is already in Supabase — no local backup needed
+    localStorage.setItem('tx_last_backup', new Date().toISOString())
+    return { success: true, _web: true, message: 'Backup automatico via Supabase' }
+  }
+
   try {
     setStatus('syncing')
     setProgress(10, 'Exportando base de datos local…')
@@ -170,8 +187,11 @@ export async function autoBackup() {
   const autoEnabled = localStorage.getItem('tx_setting_auto_backup') !== 'false'
   if (!autoEnabled) return { success: false, reason: 'disabled' }
 
+  // On web, skip local SQLite backup — data is in Supabase
+  if (isWeb) return { success: true, _web: true, reason: 'web-auto-sync' }
+
   // Always run local SQLite copy — works offline, no Supabase needed
-  const localResult = await window.electronAPI?.backup?.local?.().catch(() => null) // TODO: accept api param for web compat
+  const localResult = await window.electronAPI?.backup?.local?.().catch(() => null)
 
   if (!isOnline()) return { success: !!localResult?.ok, reason: 'offline', localResult }
 
@@ -196,6 +216,9 @@ export async function autoBackup() {
  * @param {string} backupId  The 'id' UUID from the backups table
  */
 export async function restoreFromBackup(backupId) {
+  if (isWeb) {
+    return { success: false, error: 'Restaurar backup solo disponible en la aplicacion de escritorio' }
+  }
   setStatus('syncing')
   setProgress(10, 'Descargando backup…')
   try {

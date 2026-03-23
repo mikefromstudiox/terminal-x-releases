@@ -254,8 +254,10 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
         await api.whatsapp.send({ to, body: lines })
       }
       setWaState('sent')
-    } catch {
+    } catch (err) {
       setWaState('error')
+      const msg = err?.message || err?.error || (lang === 'es' ? 'Error al enviar WhatsApp' : 'WhatsApp send failed')
+      try { alert(msg) } catch {}
     }
   }
 

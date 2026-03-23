@@ -159,11 +159,26 @@ async function ef2Post(urlPath, body, token, api) {
 }
 
 // Runtime token lookup — safeStorage first, then SQLite settings JSON, then env.
+// On web, api comes from DataContext (no window.electronAPI).
 async function getActiveToken(api) {
   if (EF2_TOKEN) return EF2_TOKEN
-  const eApi = api || window.electronAPI
+  // Try the passed-in api first (works on both Electron and web)
+  if (api) {
+    try {
+      const val = await api.safe?.get?.('ef2_token')
+      if (val) return val
+    } catch {}
+    try {
+      const biz = await api.admin?.getEmpresa?.()
+      const s = typeof biz?.settings === 'string' ? JSON.parse(biz.settings) : (biz?.settings || {})
+      if (s.ef2_token) return s.ef2_token
+    } catch {}
+  }
+  // Fallback to electronAPI (Electron only)
+  const eApi = window.electronAPI
+  if (!eApi) return ''
   try {
-    const val = await eApi?.safe?.get?.('ef2_token')
+    const val = await eApi.safe?.get?.('ef2_token')
     if (val) return val
   } catch {}
   try {

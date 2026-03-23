@@ -669,10 +669,23 @@ function openPrintPreview(escposText, biz = {}) {
 <script>setTimeout(() => { window.print() }, 400)</script>
 </body></html>`
 
-  const blob = new Blob([html], { type: 'text/html' })
-  const url  = URL.createObjectURL(blob)
-  window.open(url, '_blank', 'width=400,height=700,menubar=no,toolbar=no')
-  setTimeout(() => URL.revokeObjectURL(url), 5000)
+  // Use iframe instead of window.open to avoid popup blockers on mobile
+  const iframe = document.createElement('iframe')
+  iframe.style.cssText = 'position:fixed;width:0;height:0;border:none;left:-9999px;top:-9999px;'
+  document.body.appendChild(iframe)
+  const doc = iframe.contentDocument || iframe.contentWindow.document
+  doc.open()
+  doc.write(html)
+  doc.close()
+  // Wait for content to render, then trigger print
+  iframe.contentWindow.onafterprint = () => {
+    document.body.removeChild(iframe)
+  }
+  setTimeout(() => {
+    try { iframe.contentWindow.print() } catch {}
+    // Remove iframe after a timeout if onafterprint doesn't fire
+    setTimeout(() => { try { document.body.removeChild(iframe) } catch {} }, 10000)
+  }, 500)
 }
 
 function escapeHtml(s) {
