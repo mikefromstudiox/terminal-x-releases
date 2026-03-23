@@ -81,7 +81,7 @@ export function createWebAPI(supabase, businessId) {
         if (!data.pin) throw new Error('PIN requerido')
         const pin_hash = await hashPin(data.pin)
         const { pin: _p, ...rest } = data
-        const row = throwSupaError(await supabase.from('users').insert({ ...rest, pin_hash, business_id: bid }).select('id').single())
+        const row = throwSupaError(await supabase.from('users').insert({ id: crypto.randomUUID(), ...rest, pin_hash, business_id: bid }).select('id').single())
         return row
       }),
 
@@ -255,7 +255,7 @@ export function createWebAPI(supabase, businessId) {
         if (!data.pin) throw new Error('PIN requerido')
         const pin_hash = await hashPin(data.pin)
         const { pin: _p, ...rest } = data
-        const row = throwSupaError(await supabase.from('users').insert({ ...rest, pin_hash, business_id: bid, active: true }).select('id').single())
+        const row = throwSupaError(await supabase.from('users').insert({ id: crypto.randomUUID(), ...rest, pin_hash, business_id: bid, active: true }).select('id').single())
         return row
       }),
 
