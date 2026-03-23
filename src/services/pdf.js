@@ -170,9 +170,24 @@ export async function saveReceiptPDF(data, api) {
   try {
     const { pdfBytes, filename } = await buildPDF(data)
     const base64 = btoa(String.fromCharCode(...pdfBytes))
+
+    // Electron: save via IPC
     const pdfApi = api?.pdf || window.electronAPI?.pdf
-    const result = await pdfApi?.save({ filename, base64 })
-    return result || { ok: false, error: 'IPC unavailable' }
+    if (pdfApi?.save) {
+      const result = await pdfApi.save({ filename, base64 })
+      return result || { ok: false, error: 'IPC unavailable' }
+    }
+
+    // Web: download as file
+    const byteChars = atob(base64)
+    const byteArray = new Uint8Array(byteChars.length)
+    for (let i = 0; i < byteChars.length; i++) byteArray[i] = byteChars.charCodeAt(i)
+    const blob = new Blob([byteArray], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = filename; a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+    return { ok: true, filePath: filename }
   } catch (err) {
     return { ok: false, error: err.message }
   }
