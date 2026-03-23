@@ -599,7 +599,7 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
 
 const EMPTY_FORM = { name: '', rnc: '', phone: '', address: '', email: '', creditLimit: '', notes: '' }
 
-function NewClientForm({ onClose, onSave, lang }) {
+export function NewClientForm({ onClose, onSave, lang }) {
   const api = useAPI()
   const [form,   setForm]   = useState(EMPTY_FORM)
   const [errors, setErrors] = useState({})

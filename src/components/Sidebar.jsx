@@ -7,8 +7,9 @@ import {
   Archive, FileText, PiggyBank, FileMinus, Settings,
   ChevronLeft, ChevronRight, LogOut, Monitor, Globe,
   Cloud, CloudOff, RefreshCw, Sun, Moon, Package,
-  BarChart3, Menu, X,
+  BarChart3, Menu, X, Lock,
 } from 'lucide-react'
+import { usePlan } from '../hooks/usePlan.jsx'
 import { useLang } from '../i18n'
 import { useAuth } from '../context/AuthContext'
 import { useLayout } from '../context/LayoutContext'
@@ -17,25 +18,27 @@ import { useLicense } from '../context/LicenseContext'
 import LanguageToggle from './LanguageToggle'
 
 // Roles: undefined = all, array = only those roles
+// feature: plan feature key — shows lock icon if not in current plan
 const NAV = [
-  { to: '/pos',          icon: ShoppingCart, key: 'nav_pos',          badge: 0 },
-  { to: '/queue',        icon: ClipboardList,key: 'nav_queue',        badge: 0 },
-  { to: '/clients',      icon: Users,        key: 'nav_clients',      badge: 0 },
-  { to: '/credits',      icon: CreditCard,   key: 'nav_credits',      badge: 0, roles: ['owner','manager','cfo','accountant'] },
-  { to: '/inventory',    icon: Package,      key: 'nav_inventory',    badge: 0, roles: ['owner','manager','cfo','accountant'] },
-  { to: '/cash-recon',   icon: Archive,      key: 'nav_cash_recon',   badge: 0, roles: ['owner','manager','cfo','accountant'] },
-  { to: '/dgii',         icon: FileText,     key: 'nav_dgii',         badge: 0, roles: ['owner','manager','cfo','accountant'] },
-  { to: '/petty-cash',   icon: PiggyBank,    key: 'nav_petty',        badge: 0, roles: ['owner','manager','cfo','accountant'] },
-  { to: '/credit-notes', icon: FileMinus,    key: 'nav_credit_notes', badge: 0, roles: ['owner','manager','cfo','accountant'] },
-  { to: '/remote',       icon: Globe,        key: 'nav_remote',       badge: 0, roles: ['owner','manager'] },
+  { to: '/pos',          icon: ShoppingCart, key: 'nav_pos',          badge: 0, feature: 'pos' },
+  { to: '/queue',        icon: ClipboardList,key: 'nav_queue',        badge: 0, feature: 'queue' },
+  { to: '/clients',      icon: Users,        key: 'nav_clients',      badge: 0, feature: 'clients' },
+  { to: '/credits',      icon: CreditCard,   key: 'nav_credits',      badge: 0, roles: ['owner','manager','cfo','accountant'], feature: 'credits' },
+  { to: '/inventory',    icon: Package,      key: 'nav_inventory',    badge: 0, roles: ['owner','manager','cfo','accountant'], feature: 'inventory' },
+  { to: '/cash-recon',   icon: Archive,      key: 'nav_cash_recon',   badge: 0, roles: ['owner','manager','cfo','accountant'], feature: 'cash_recon' },
+  { to: '/dgii',         icon: FileText,     key: 'nav_dgii',         badge: 0, roles: ['owner','manager','cfo','accountant'], feature: 'dgii' },
+  { to: '/petty-cash',   icon: PiggyBank,    key: 'nav_petty',        badge: 0, roles: ['owner','manager','cfo','accountant'], feature: 'petty_cash' },
+  { to: '/credit-notes', icon: FileMinus,    key: 'nav_credit_notes', badge: 0, roles: ['owner','manager','cfo','accountant'], feature: 'credit_notes' },
+  { to: '/reports',      icon: BarChart3,    key: 'nav_reports',      badge: 0, roles: ['owner','manager','cfo','accountant'], feature: 'reports' },
+  { to: '/remote',       icon: Globe,        key: 'nav_remote',       badge: 0, roles: ['owner','manager'], feature: 'remote_dashboard' },
   { to: '/admin',        icon: Settings,     key: 'nav_admin',        badge: 0, roles: ['owner','manager'] },
   { to: '/sistema',      icon: Monitor,      key: 'nav_sistema',      badge: 0, roles: ['owner'] },
 ]
 
 // Bottom nav shows these 4 routes + a Menu button for the rest
-const BOTTOM_NAV_ROUTES = ['/pos', '/queue', '/clients', '/reports/daily']
+const BOTTOM_NAV_ROUTES = ['/pos', '/queue', '/clients', '/reports']
 
-function NavItem({ to, icon: Icon, label, badge, collapsed }) {
+function NavItem({ to, icon: Icon, label, badge, collapsed, locked }) {
   return (
     <NavLink
       to={to}
@@ -43,7 +46,7 @@ function NavItem({ to, icon: Icon, label, badge, collapsed }) {
       className={({ isActive }) =>
         `flex items-center rounded-xl transition-all group select-none ${
           collapsed ? 'justify-center w-10 h-10 mx-auto' : 'relative gap-3 px-3 py-2.5 w-full'
-        } ${
+        } ${locked ? 'opacity-40' : ''} ${
           isActive
             ? `bg-[#f0f6ff] text-[#0C447C]${collapsed ? '' : ' border-l-2 border-[#378ADD]'}`
             : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
@@ -51,10 +54,10 @@ function NavItem({ to, icon: Icon, label, badge, collapsed }) {
       }
     >
       {collapsed ? (
-        /* Icon wrapper — position:relative here so badge anchors to the icon, not the nav item */
         <span className="relative flex items-center justify-center w-[22px] h-[22px]">
           <Icon size={17} strokeWidth={1.75} />
-          {badge > 0 && (
+          {locked && <Lock size={8} className="absolute -top-0.5 -right-0.5 text-slate-400" />}
+          {!locked && badge > 0 && (
             <span className="absolute top-0 right-0 w-4 h-4 rounded-full flex items-center justify-center leading-none pointer-events-none"
               style={{ background: '#E24B4A', color: '#fff', fontSize: 9, fontWeight: 500 }}>
               {badge}
@@ -65,17 +68,17 @@ function NavItem({ to, icon: Icon, label, badge, collapsed }) {
         <>
           <Icon size={17} strokeWidth={1.75} className="shrink-0" />
           <span className="text-[13px] font-medium flex-1 leading-none">{label}</span>
-          {badge > 0 && (
+          {locked && <Lock size={12} className="text-slate-400 shrink-0" />}
+          {!locked && badge > 0 && (
             <span className="w-[18px] h-[18px] text-[10px] bg-[#E24B4A] text-white font-bold rounded-full flex items-center justify-center leading-none">
               {badge}
             </span>
           )}
         </>
       )}
-      {/* Tooltip when collapsed */}
       {collapsed && (
         <span className="pointer-events-none absolute left-full ml-3 px-2.5 py-1.5 bg-slate-800 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-lg">
-          {label}
+          {label}{locked ? ' (Pro)' : ''}
         </span>
       )}
     </NavLink>
@@ -169,7 +172,7 @@ function MobileBottomNav({ visibleNav, ecfQueue }) {
     { to: '/pos',            icon: ShoppingCart,  key: 'nav_pos' },
     { to: '/queue',          icon: ClipboardList, key: 'nav_queue' },
     { to: '/clients',        icon: Users,         key: 'nav_clients' },
-    { to: '/reports/daily',  icon: BarChart3,     key: 'nav_reports', label: lang === 'es' ? 'Reportes' : 'Reports' },
+    { to: '/reports',         icon: BarChart3,     key: 'nav_reports', label: lang === 'es' ? 'Reportes' : 'Reports' },
   ]
 
   // Items that go into the drawer = all visible nav items NOT in bottom bar
@@ -288,6 +291,7 @@ export default function Sidebar() {
   const { user, logout } = useAuth()
   const { collapsed, setCollapsed, darkMode, toggleDark } = useLayout()
   const { result } = useLicense()
+  const { hasFeature } = usePlan()
   const [ecfQueue, setEcfQueue] = useState(0)
 
   useEffect(() => {
@@ -335,6 +339,7 @@ export default function Sidebar() {
               label={t(item.key)}
               badge={item.to === '/dgii' ? ecfQueue : item.badge}
               collapsed={collapsed}
+              locked={item.feature && !hasFeature(item.feature)}
             />
           ))}
         </nav>

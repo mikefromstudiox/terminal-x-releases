@@ -374,9 +374,9 @@ export default function Queue() {
           services,
           subtotal,
           descuento:    0,
-          itbis:        subtotal * 0.18,
-          ley:          subtotal * 0.10,
-          total:        subtotal * 1.28,
+          itbis:        parseFloat((subtotal - subtotal / 1.18).toFixed(2)),
+          ley:          0,
+          total:        subtotal,
           biz,
         }
         if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => {})

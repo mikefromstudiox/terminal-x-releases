@@ -6,6 +6,7 @@ import { LangProvider } from './i18n'
 import { AuthProvider } from './context/AuthContext'
 import { LicenseProvider } from './context/LicenseContext'
 import { DataProvider } from './context/DataContext'
+import { PlanProvider } from './hooks/usePlan.jsx'
 import { createElectronAPI, createElectronPrinterAPI, isElectron } from './data/electron'
 import { createWebAPI, createWebPrinterAPI } from './data/web'
 import './index.css'
@@ -17,15 +18,17 @@ const printerApi = isElectron() ? createElectronPrinterAPI() : createWebPrinterA
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <DataProvider api={api} printerApi={printerApi}>
-      <HashRouter>
-        <LangProvider>
-          <AuthProvider>
-            <LicenseProvider>
-              <App />
-            </LicenseProvider>
-          </AuthProvider>
-        </LangProvider>
-      </HashRouter>
+      <PlanProvider>
+        <HashRouter>
+          <LangProvider>
+            <AuthProvider>
+              <LicenseProvider>
+                <App />
+              </LicenseProvider>
+            </AuthProvider>
+          </LangProvider>
+        </HashRouter>
+      </PlanProvider>
     </DataProvider>
   </React.StrictMode>
 )

@@ -403,11 +403,11 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const api = useAPI()
   const { lang } = useLang()
 
-  // Totals
-  const subtotal = ticket.services.reduce((s, svc) => s + svc.price, 0)
-  const itbis    = subtotal * ITBIS_RATE
-  const ley      = subtotal * LEY_RATE
-  const total    = subtotal + itbis + ley
+  // Totals — prices already include 18% ITBIS, extract it for display
+  const total    = ticket.services.reduce((s, svc) => s + svc.price, 0)
+  const subtotal = parseFloat((total / (1 + ITBIS_RATE)).toFixed(2))
+  const itbis    = parseFloat((total - subtotal).toFixed(2))
+  const ley      = 0
 
   // Fiscal mode — derived from bizSettings once loaded
   // Enabled e-CF types (loaded from NCF sequences)
@@ -534,9 +534,9 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
       const res = await rncLookup(clean)
       if (res?.nombre) setRncName(res.nombre)
       else if (res?.name) setRncName(res.name)
-      else setRncName(res ? `(${JSON.stringify(res).slice(0,80)})` : '(no result)')
-    } catch (err) {
-      setRncName(`Error: ${err?.message || err}`)
+      else setRncName('No encontrado')
+    } catch {
+      setRncName('No encontrado')
     }
   }
 

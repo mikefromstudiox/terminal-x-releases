@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { createClient } from '@supabase/supabase-js'
 import App from '@/App'
 import ErrorBoundary from '@/components/ErrorBoundary'
@@ -8,15 +8,21 @@ import { LangProvider } from '@/i18n'
 import { AuthProvider } from '@/context/AuthContext'
 import { LicenseProvider } from '@/context/LicenseContext'
 import { DataProvider } from '@/context/DataContext'
+import { PlanProvider } from '@/hooks/usePlan.jsx'
 import { createWebAPI, createWebPrinterAPI } from '@/data/web'
 import { startOfflineSync } from '@/services/offline-queue'
 import { injectSpeedInsights } from '@vercel/speed-insights'
 import '@/index.css'
 
+// Lazy load landing and admin (code-split)
+const LandingPage = React.lazy(() => import('@/landing/LandingPage'))
+const SignupPage  = React.lazy(() => import('@/landing/SignupPage'))
+const AdminApp    = React.lazy(() => import('@/admin/AdminApp'))
+
 injectSpeedInsights()
 
 // ---------------------------------------------------------------------------
-// Supabase client (reads env vars injected by Vite)
+// Supabase client
 // ---------------------------------------------------------------------------
 const supabaseUrl  = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnon = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -25,8 +31,11 @@ const supabase = (supabaseUrl && supabaseAnon)
   ? createClient(supabaseUrl, supabaseAnon)
   : null
 
+// Expose for admin/signup pages
+export { supabase }
+
 // ---------------------------------------------------------------------------
-// Service Worker registration
+// Service Worker
 // ---------------------------------------------------------------------------
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -35,7 +44,18 @@ if ('serviceWorker' in navigator) {
 }
 
 // ---------------------------------------------------------------------------
-// SupabaseAuthGate — blocks rendering until user is authenticated
+// Suspense fallback
+// ---------------------------------------------------------------------------
+function PageLoader() {
+  return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="text-white text-lg">Cargando...</div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SupabaseAuthGate — blocks POS rendering until user is authenticated
 // ---------------------------------------------------------------------------
 function SupabaseAuthGate({ children }) {
   const [session, setSession]       = useState(null)
@@ -46,18 +66,15 @@ function SupabaseAuthGate({ children }) {
   const [password, setPassword]     = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  // Hooks must be called unconditionally (Rules of Hooks)
   const api = useMemo(() => businessId ? createWebAPI(supabase, businessId) : null, [businessId])
   const printerApi = useMemo(() => createWebPrinterAPI(), [])
 
-  // Offline sync — must be before any conditional returns
   useEffect(() => {
     if (supabase && businessId) {
       return startOfflineSync(supabase, businessId)
     }
   }, [businessId])
 
-  // Listen for auth state changes
   useEffect(() => {
     if (!supabase) { setLoading(false); return }
 
@@ -78,7 +95,6 @@ function SupabaseAuthGate({ children }) {
 
   async function fetchBusinessId(userId) {
     try {
-      // Try staff table first (employee linked to Supabase Auth)
       let { data, error: err } = await supabase
         .from('staff')
         .select('business_id')
@@ -86,7 +102,6 @@ function SupabaseAuthGate({ children }) {
         .limit(1)
         .maybeSingle()
 
-      // If not staff, check if they're a business owner
       if (!data) {
         const { data: biz, error: bizErr } = await supabase
           .from('businesses')
@@ -99,7 +114,7 @@ function SupabaseAuthGate({ children }) {
         else if (err) throw err
       }
 
-      if (err) throw err
+      if (!data) throw new Error('No business found')
       setBusinessId(data.business_id)
     } catch (e) {
       setError('No se encontro negocio asociado a esta cuenta.')
@@ -110,19 +125,15 @@ function SupabaseAuthGate({ children }) {
 
   async function handleLogin(e) {
     e.preventDefault()
-    setSubmitting(true)
-    setError(null)
+    setSubmitting(true); setError(null)
     try {
       const { error: err } = await supabase.auth.signInWithPassword({ email, password })
       if (err) throw err
     } catch (err) {
       setError(typeof err === 'string' ? err : err?.message || 'Error al iniciar sesion')
-    } finally {
-      setSubmitting(false)
-    }
+    } finally { setSubmitting(false) }
   }
 
-  // No Supabase configured — render app with stub API
   if (!supabase) {
     return (
       <DataProvider api={createWebAPI()} printerApi={printerApi}>
@@ -131,15 +142,8 @@ function SupabaseAuthGate({ children }) {
     )
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="text-white text-lg">Cargando...</div>
-      </div>
-    )
-  }
+  if (loading) return <PageLoader />
 
-  // Not authenticated — show login form
   if (!session) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -150,51 +154,33 @@ function SupabaseAuthGate({ children }) {
           </div>
           <p className="text-slate-400 text-center text-sm">Iniciar sesion</p>
           {error && <div className="bg-red-500/20 text-red-300 text-sm p-3 rounded-lg">{error}</div>}
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            className="w-full px-4 py-3 rounded-lg bg-slate-700 text-white placeholder-slate-400 outline-none focus:ring-2 focus:ring-sky-500"
-            required
-          />
-          <input
-            type="password"
-            placeholder="Contrasena"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            className="w-full px-4 py-3 rounded-lg bg-slate-700 text-white placeholder-slate-400 outline-none focus:ring-2 focus:ring-sky-500"
-            required
-          />
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full py-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold disabled:opacity-50 transition-colors"
-          >
+          <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)}
+            className="w-full px-4 py-3 rounded-lg bg-slate-700 text-white placeholder-slate-400 outline-none focus:ring-2 focus:ring-sky-500" required />
+          <input type="password" placeholder="Contrasena" value={password} onChange={e => setPassword(e.target.value)}
+            className="w-full px-4 py-3 rounded-lg bg-slate-700 text-white placeholder-slate-400 outline-none focus:ring-2 focus:ring-sky-500" required />
+          <button type="submit" disabled={submitting}
+            className="w-full py-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold disabled:opacity-50 transition-colors">
             {submitting ? 'Entrando...' : 'Entrar'}
           </button>
-          <a
-            href="/landing.html"
-            className="block mt-4 text-center text-sky-400 hover:text-sky-300 text-sm transition-colors"
-          >
+          <a href="/" className="block mt-4 text-center text-sky-400 hover:text-sky-300 text-sm transition-colors">
             Ver mas sobre Terminal X
+          </a>
+          <a href="/signup" className="block text-center text-sky-400 hover:text-sky-300 text-sm transition-colors">
+            Crear cuenta nueva
           </a>
         </form>
       </div>
     )
   }
 
-  // Authenticated but no businessId
   if (!businessId) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
         <div className="bg-slate-800 rounded-xl p-8 w-full max-w-sm text-center space-y-4">
           <h1 className="text-xl font-bold text-white">Sin negocio asignado</h1>
           <p className="text-slate-400 text-sm">{error || 'Contacte al administrador para vincular su cuenta a un negocio.'}</p>
-          <button
-            onClick={() => supabase.auth.signOut()}
-            className="px-6 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm transition-colors"
-          >
+          <button onClick={() => supabase.auth.signOut()}
+            className="px-6 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm transition-colors">
             Cerrar sesion
           </button>
         </div>
@@ -202,31 +188,56 @@ function SupabaseAuthGate({ children }) {
     )
   }
 
-  // Authenticated + businessId resolved — provide data layer
   return (
     <DataProvider api={api} printerApi={printerApi}>
-      {children}
+      <PlanProvider>
+        {children}
+      </PlanProvider>
     </DataProvider>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Mount
+// Mount — Top-level router: landing (public), /pos (auth), /admin (admin auth)
 // ---------------------------------------------------------------------------
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <SupabaseAuthGate>
-        <BrowserRouter>
-          <LangProvider>
-            <AuthProvider>
-              <LicenseProvider>
-                <App />
-              </LicenseProvider>
-            </AuthProvider>
-          </LangProvider>
-        </BrowserRouter>
-      </SupabaseAuthGate>
+      <BrowserRouter>
+        <React.Suspense fallback={<PageLoader />}>
+          <Routes>
+            {/* Public landing pages */}
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/pricing" element={<LandingPage section="pricing" />} />
+            <Route path="/signup" element={<SignupPage supabase={supabase} />} />
+
+            {/* POS app (auth required) */}
+            <Route path="/pos/*" element={
+              <SupabaseAuthGate>
+                <LangProvider>
+                  <AuthProvider>
+                    <LicenseProvider>
+                      <App />
+                    </LicenseProvider>
+                  </AuthProvider>
+                </LangProvider>
+              </SupabaseAuthGate>
+            } />
+
+            {/* Admin panel */}
+            <Route path="/admin/*" element={<AdminApp supabase={supabase} />} />
+
+            {/* Legacy redirect: old root POS users go to /pos */}
+            <Route path="/queue" element={<Navigate to="/pos/queue" replace />} />
+            <Route path="/clients" element={<Navigate to="/pos/clients" replace />} />
+            <Route path="/credits" element={<Navigate to="/pos/credits" replace />} />
+            <Route path="/settings" element={<Navigate to="/pos/admin" replace />} />
+
+            {/* Catch-all */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </React.Suspense>
+      </BrowserRouter>
     </ErrorBoundary>
   </React.StrictMode>
 )

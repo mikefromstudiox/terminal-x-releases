@@ -3,7 +3,7 @@ import {
   Building2, Upload, X, CheckCircle2, Loader2, ImageOff,
   Users, UserCheck, KeyRound, LayoutGrid, Plus, Edit2, Power,
   Eye, EyeOff, AlertCircle, FileText, Wifi, WifiOff, ExternalLink,
-  BarChart2, Calendar, DollarSign, Check, Coffee,
+  Check, Coffee,
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
@@ -13,9 +13,7 @@ import {
   testConnection, ensureBusinessRegistered,
 } from '../services/supabase'
 import { syncService, syncWasher, syncSeller, syncUser, syncNCFSequence } from '../services/sync'
-import DailyReport from './reports/DailyReport'
-import MonthlyReport from './reports/MonthlyReport'
-import WorkerReport from './reports/WorkerReport'
+// Reports moved to dedicated Reportes screen
 // RemoteDashboard moved to its own sidebar tab
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
@@ -1447,9 +1445,6 @@ const TABS = [
   { id: 'cajeras',    es: 'Cajeras',       en: 'Cashiers',          icon: Coffee     },
   { id: 'usuarios',   es: 'Usuarios',      en: 'Users',             icon: KeyRound   },
   { id: 'servicios',  es: 'Servicios',     en: 'Services',          icon: LayoutGrid },
-  { id: 'daily',      es: 'Reporte Diario',en: 'Daily Report',      icon: BarChart2  },
-  { id: 'monthly',    es: 'Reporte Mensual',en: 'Monthly Report',   icon: Calendar   },
-  { id: 'comisiones', es: 'Comisiones',    en: 'Commissions',       icon: DollarSign },
 ]
 
 export default function Admin() {
@@ -1485,9 +1480,6 @@ export default function Admin() {
         {tab === 'cajeras'    && <Cajeras />}
         {tab === 'usuarios'   && <Usuarios />}
         {tab === 'servicios'  && <Servicios />}
-        {tab === 'daily'      && <DailyReport />}
-        {tab === 'monthly'    && <MonthlyReport />}
-        {tab === 'comisiones' && <WorkerReport />}
       </div>
     </div>
   )

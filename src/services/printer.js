@@ -335,9 +335,10 @@ export function buildClientReceipt(data, logoBytes = '') {
  */
 export function buildWasherConduce(data, logoBytes = '') {
   const washServices = (data.services || []).filter(s => s.c !== false)
-  const commBase   = washServices.reduce((s, x) => s + x.price, 0)
+  const rawBase    = washServices.reduce((s, x) => s + x.price, 0)
+  const commBase   = rawBase / 1.18  // strip embedded 18% ITBIS
   const commPct    = data.commPct || 20
-  const commEarned = commBase / (1 + 0.18 + 0.10) * commPct / 100
+  const commEarned = commBase * commPct / 100
 
   const lines = []
   lines.push(buildHeader(data.biz || {}, logoBytes))
@@ -406,7 +407,7 @@ export function buildWasherConduce(data, logoBytes = '') {
   lines.push(ALIGN_LEFT)
   lines.push(SEP)
   lines.push(LF)
-  lines.push(cols('Base s/ITBIS:', fmt(commBase / 1.28)))
+  lines.push(cols('Base servicios:', fmt(commBase)))
   lines.push(LF)
   lines.push(cols('% Comision:', `${commPct}%`))
   lines.push(LF)
@@ -774,12 +775,47 @@ export function buildCreditPaymentReceipt(data) {
     lines.push(ALIGN_LEFT)
     lines.push(SEP)
     lines.push(LF)
+
     data.tickets.forEach(t => {
+      // Ticket header
+      lines.push(BOLD_ON)
       lines.push(cols(t.doc_number || String(t.id), fmt(t.total || 0)))
       lines.push(LF)
+      lines.push(BOLD_OFF)
+
+      // Vehicle info
+      const vehicle = [t.vehicle_make, t.vehicle_color, t.vehicle_plate].filter(Boolean).join(' - ')
+      if (vehicle) {
+        lines.push('  Vehiculo: ' + vehicle.substring(0, COL_WIDTH - 12))
+        lines.push(LF)
+      }
+
+      // Items detail
+      if (t.items && t.items.length > 0) {
+        t.items.forEach(item => {
+          const itemName = '  ' + (item.name || '').substring(0, COL_WIDTH - 14)
+          lines.push(cols(itemName, fmt(item.price || 0)))
+          lines.push(LF)
+        })
+      }
+
+      // NCF / Comprobante
+      if (t.ncf) {
+        lines.push('  NCF: ' + t.ncf)
+        lines.push(LF)
+      }
+
+      // QR code for e-CF
+      if (t.ncf && t.ncf.startsWith('E')) {
+        lines.push(ALIGN_CENTER)
+        const verUrl = `ecf.dgii.gov.do/consulta?eNCF=${t.ncf}`
+        lines.push(buildQRCommand(verUrl))
+        lines.push(ALIGN_LEFT)
+      }
+
+      lines.push(SEP)
+      lines.push(LF)
     })
-    lines.push(SEP)
-    lines.push(LF)
   }
 
   lines.push(BOLD_ON)

@@ -24,20 +24,16 @@ A running list of planned improvements. Check these off as they ship.
   - RemoteDashboard now uses `fetchDashboardData()` from `supabase.js` — real queries, no demo data
   - Shows "Supabase no configurado" when credentials are missing
 
-- [ ] **WhatsApp receipt delivery**
-  - Integrate Twilio/WhatsApp Business API (or RD-friendly alternative)
+- [x] **WhatsApp receipt delivery**
+  - ~~Integrate Twilio/WhatsApp Business API (or RD-friendly alternative)~~ Done
   - Sends factura instantly after cobrar — reduces print costs, huge viral potential
-  - Phase 1 clients will request this day one
 
 ### Phase 3 — Web Version & Tablet/Android (Q3 2026 start → Q1 2027 goal)
-- [ ] **Parallel web version (PWA-capable by Q1 2027)**
-  - Reuse existing React/Vite components
-  - Replace IPC/SQLite with lightweight API (Node/Express or Supabase Edge Functions)
-  - Auth + DB: Supabase PostgreSQL + Row Level Security
-  - Printing: browser-compatible via qz-tray (USB) or cloud print
-  - ef2.do calls: server-side to bypass CORS (replaces Electron IPC bridge)
-  - Licensing: rethink to Supabase user-based or device fingerprint
-  - Unlocks tablets, Android, multi-device owners — expands addressable market dramatically
+- [x] **Parallel web version (PWA-capable)**
+  - ~~Reuse existing React/Vite components~~ Done — live at terminalxpos.com
+  - ~~Replace IPC/SQLite with lightweight API~~ Done — Supabase data layer in `src/data/web.js`
+  - ~~Auth + DB: Supabase PostgreSQL + Row Level Security~~ Done
+  - Unlocks tablets, Android, multi-device owners
 
 ### Phase 4 — Payments & Inventory (Q4 2026 / Phase 2 clients)
 - [ ] **Azul payment gateway integration**

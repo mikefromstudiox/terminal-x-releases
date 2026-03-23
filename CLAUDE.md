@@ -91,6 +91,33 @@ npm run dist:win     # production Windows installer → dist/Terminal X-Setup-x.
 npm run dist:mac     # macOS DMG
 ```
 
+## Web / PWA Version (terminalxpos.com)
+The app also runs as a web PWA deployed to **Vercel**, backed by **Supabase** instead of SQLite.
+
+### Key files
+- `src/data/web.js` — Supabase data layer (same API shape as electron preload.js)
+- `src/data/electron.js` — desktop data layer wrapper
+- `src/context/DataContext.jsx` — platform abstraction (`useAPI()` returns either)
+- `web/vercel.json` — SPA rewrites + API route config
+- `web/api/rnc.js` — Vercel serverless function proxying megaplus.com.do for RNC lookup
+
+### Deploy workflow (MUST run after any code changes that affect the web version)
+```bash
+npm run build:web
+cp web/vercel.json dist-web/
+mkdir -p dist-web/api && cp web/api/rnc.js dist-web/api/
+cd dist-web && npx vercel deploy --prod --yes
+npx vercel alias <deployment-url> terminalxpos.com
+```
+
+### Web rules
+11. After changing src/ or web/ files, always build and deploy the web version
+12. `dist-web/` is the deploy folder — vercel.json and api/ MUST be copied in before deploy
+13. Supabase uses UUIDs — never `parseInt()` on IDs from Supabase
+14. Web user ID may be `'web'` — guard with `(user?.id && user.id !== 'web') ? user.id : null`
+15. RNC lookup on web: rnc_cache table → rnc_contribuyentes → `/api/rnc` proxy (megaplus.com.do)
+16. Commission tables: washer_commissions, seller_commissions, cajero_commissions — all created on ticket insert
+
 ## Key Rules
 1. Always read a file before editing it
 2. Use `require()` in electron/ files, `import` in src/ files

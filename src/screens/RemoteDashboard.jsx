@@ -77,7 +77,7 @@ export default function RemoteDashboard() {
             <WifiOff size={40} className="text-slate-300 mx-auto mb-4" />
             <p className="text-slate-700 font-semibold mb-1">Supabase no configurado</p>
             <p className="text-slate-400 text-sm">
-              Ve a Administración → Configuración → Respaldo y configura las credenciales de Supabase.
+              Ve a Sistema → Respaldo y configura las credenciales de Supabase.
             </p>
           </div>
         </div>

@@ -86,12 +86,12 @@ function exportCSV(tickets, personName, period) {
 function MetricCard({ icon: Icon, label, value, sub, accent }) {
   const a = { sky:'bg-sky-50 text-sky-600 border-sky-100', green:'bg-green-50 text-green-600 border-green-100', violet:'bg-violet-50 text-violet-600 border-violet-100', slate:'bg-slate-100 text-slate-600 border-slate-200' }
   return (
-    <div className="flex-1 bg-white border border-slate-200 rounded-2xl px-5 py-4">
-      <div className={`w-9 h-9 rounded-xl flex items-center justify-center border ${a[accent]} mb-3`}>
-        <Icon size={16} />
+    <div className="flex-1 min-w-0 bg-white border border-slate-200 rounded-2xl px-3 md:px-5 py-3 md:py-4">
+      <div className={`w-7 h-7 md:w-9 md:h-9 rounded-xl flex items-center justify-center border ${a[accent]} mb-2 md:mb-3`}>
+        <Icon size={14} />
       </div>
-      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
-      <p className="text-[21px] font-bold text-slate-800 leading-tight mt-0.5">{value}</p>
+      <p className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">{label}</p>
+      <p className="text-[15px] md:text-[21px] font-bold text-slate-800 leading-tight mt-0.5 truncate">{value}</p>
       {sub && <p className="text-[11px] text-slate-400 mt-0.5">{sub}</p>}
     </div>
   )
@@ -255,7 +255,7 @@ function CommissionPanel({
     return { totalCommission, totalCars, active, avg }
   }, [summaries])
 
-  const selectedData = summaries.find(w => w.id === +selectedId) ?? null
+  const selectedData = summaries.find(w => String(w.id) === String(selectedId)) ?? null
 
   const dropdownList = useMemo(() => {
     if (people.length > 0) return people
@@ -265,7 +265,7 @@ function CommissionPanel({
   return (
     <>
       {/* Summary cards */}
-      <div className="flex gap-3">
+      <div className="grid grid-cols-2 md:flex gap-2 md:gap-3">
         <MetricCard icon={CircleDollarSign} label={metricLabels.total} value={fmtRD(summary.totalCommission)} accent="sky" />
         <MetricCard icon={Car}              label={metricLabels.count} value={summary.totalCars}              accent="green" />
         <MetricCard icon={Users}            label={metricLabels.active} value={summary.active}                accent="violet" />
@@ -323,42 +323,30 @@ function CommissionPanel({
                       <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-[11px] font-bold shrink-0 ${w.palette.bg} ${w.palette.text}`}>
                         {w.name.slice(0, 2).toUpperCase()}
                       </div>
-                      <div className="w-[120px] shrink-0">
-                        <p className="text-[13px] font-bold text-slate-800">{w.name}</p>
-                        <p className="text-[11px] text-slate-400">{w.pct}% {lang === 'es' ? 'comision' : 'commission'}</p>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-bold text-slate-800 truncate">{w.name}</p>
+                        <p className="text-[11px] text-slate-400">{w.pct}% · {w.cars} tickets</p>
                       </div>
-                      <div className="w-[80px] shrink-0 text-center">
-                        <p className="text-[15px] font-bold text-slate-700">{w.cars}</p>
-                        <p className="text-[10px] text-slate-400">{lang === 'es' ? 'tickets' : 'tickets'}</p>
-                      </div>
-                      <div className="w-[120px] shrink-0 text-right">
+                      <div className="hidden md:block w-[120px] shrink-0 text-right">
                         <p className="text-[12px] font-semibold text-emerald-700">{fmtRD(w.commBase)}</p>
                         <p className="text-[10px] text-slate-400">{baseLabel}</p>
                       </div>
-                      <div className="flex-1 flex items-center gap-3">
+                      <div className="hidden md:flex flex-1 items-center gap-3">
                         <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
                           <div className={`h-full ${w.palette.bar} rounded-full transition-all duration-500`} style={{ width: `${(w.commission / maxComm) * 100}%` }} />
                         </div>
-                        <span className="text-[14px] font-bold text-sky-700 w-[110px] text-right shrink-0">{fmtRD(w.commission)}</span>
                       </div>
+                      <span className="text-[13px] md:text-[14px] font-bold text-sky-700 shrink-0">{fmtRD(w.commission)}</span>
                       <ChevronRight size={14} className="text-slate-300 group-hover:text-sky-500 transition-colors shrink-0" />
                     </button>
                   )
                 })}
                 <div className="flex items-center gap-4 px-5 py-3 bg-slate-50 border-t border-slate-200">
                   <div className="w-9 shrink-0" />
-                  <div className="w-[120px] shrink-0">
-                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Total</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Total · {summary.totalCars} tickets</p>
                   </div>
-                  <div className="w-[80px] shrink-0 text-center">
-                    <p className="text-[14px] font-bold text-slate-700">{summary.totalCars}</p>
-                  </div>
-                  <div className="w-[120px] shrink-0 text-right">
-                    <p className="text-[12px] font-bold text-emerald-700">{fmtRD(summaries.reduce((s, w) => s + w.commBase, 0))}</p>
-                  </div>
-                  <div className="flex-1 text-right">
-                    <p className="text-[15px] font-bold text-sky-700">{fmtRD(summary.totalCommission)}</p>
-                  </div>
+                  <span className="text-[15px] font-bold text-sky-700 shrink-0">{fmtRD(summary.totalCommission)}</span>
                   <div className="w-5 shrink-0" />
                 </div>
               </>
@@ -368,7 +356,7 @@ function CommissionPanel({
 
         {/* Individual summary cards */}
         {selectedId !== 'all' && selectedData && (
-          <div className="flex gap-3 px-5 py-4 border-b border-slate-100">
+          <div className="grid grid-cols-3 gap-2 md:gap-3 px-4 md:px-5 py-3 md:py-4 border-b border-slate-100">
             {[
               { label_es: 'Tickets',          label_en: 'Tickets',            value: selectedData.cars },
               { label_es: 'Base s/ITBIS',     label_en: 'Base ex-ITBIS',     value: fmtRD(selectedData.commBase) },
@@ -471,7 +459,7 @@ export default function WorkerReport() {
   useEffect(() => {
     if (subTab !== 'lavadores' || washerId === 'all') { setWasherTickets([]); return }
     let cancelled = false; setLoadingWT(true)
-    api.commissions.byWasher({ washerId: +washerId, ...range })
+    api.commissions.byWasher({ washerId: washerId, ...range })
       .then(rows => {
         if (!cancelled) setWasherTickets((rows || []).map(r => ({
           id: r.id, ticketNo: r.doc_number, vehicle: r.vehicle_plate || '—', client: '—',
@@ -501,7 +489,7 @@ export default function WorkerReport() {
   useEffect(() => {
     if (subTab !== 'vendedores' || sellerId === 'all') { setSellerTickets([]); return }
     let cancelled = false; setLoadingST(true)
-    api.sellerCommissions.bySeller({ sellerId: +sellerId, ...range })
+    api.sellerCommissions.bySeller({ sellerId: sellerId, ...range })
       .then(rows => {
         if (!cancelled) setSellerTickets((rows || []).map(r => ({
           id: r.id, ticketNo: r.doc_number, vehicle: r.vehicle_plate || '—', client: '—',
@@ -531,7 +519,7 @@ export default function WorkerReport() {
   useEffect(() => {
     if (subTab !== 'cajeras' || cajeroId === 'all') { setCajeroTickets([]); return }
     let cancelled = false; setLoadingCT(true)
-    api.cajeroCommissions.byCajero({ cajeroId: +cajeroId, ...range })
+    api.cajeroCommissions.byCajero({ cajeroId: cajeroId, ...range })
       .then(rows => {
         if (!cancelled) setCajeroTickets((rows || []).map(r => ({
           id: r.id, ticketNo: r.doc_number, vehicle: r.vehicle_plate || '—', client: '—',
@@ -552,9 +540,9 @@ export default function WorkerReport() {
 
   function handleExport() {
     let summaries, tickets, name, allLabel
-    if (subTab === 'lavadores') { summaries = washerSummaries; tickets = washerTickets; name = washers.find(w => w.id === +washerId)?.name; allLabel = 'Lavadores' }
-    else if (subTab === 'vendedores') { summaries = sellerSummaries; tickets = sellerTickets; name = sellers.find(s => s.id === +sellerId)?.name; allLabel = 'Vendedores' }
-    else { summaries = cajeroSummaries; tickets = cajeroTickets; name = cajeros.find(c => c.id === +cajeroId)?.name; allLabel = 'Cajeras' }
+    if (subTab === 'lavadores') { summaries = washerSummaries; tickets = washerTickets; name = washers.find(w => String(w.id) === String(washerId))?.name; allLabel = 'Lavadores' }
+    else if (subTab === 'vendedores') { summaries = sellerSummaries; tickets = sellerTickets; name = sellers.find(s => String(s.id) === String(sellerId))?.name; allLabel = 'Vendedores' }
+    else { summaries = cajeroSummaries; tickets = cajeroTickets; name = cajeros.find(c => String(c.id) === String(cajeroId))?.name; allLabel = 'Cajeras' }
     const curId = subTab === 'lavadores' ? washerId : subTab === 'vendedores' ? sellerId : cajeroId
     if (curId === 'all') {
       const rows = [

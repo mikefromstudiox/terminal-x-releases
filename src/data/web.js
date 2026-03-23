@@ -424,13 +424,23 @@ export function createWebAPI(supabase, businessId) {
 
       openTickets: (clientId) => tryOr(async () => {
         const { data: tickets } = await supabase.from('tickets')
-          .select('*, ticket_items(name, price, is_wash)')
+          .select('*')
           .eq('business_id', bid).eq('client_id', clientId)
           .eq('tipo_venta', 'credito').eq('status', 'pendiente')
           .order('created_at', { ascending: true })
-        return (tickets || []).map(t => ({
+        if (!tickets?.length) return []
+        // Fetch items separately
+        const ticketIds = tickets.map(t => t.id)
+        const { data: allItems } = await supabase.from('ticket_items')
+          .select('ticket_id, name, price, is_wash').in('ticket_id', ticketIds)
+        const itemsMap = {}
+        for (const i of (allItems || [])) {
+          if (!itemsMap[i.ticket_id]) itemsMap[i.ticket_id] = []
+          itemsMap[i.ticket_id].push(i)
+        }
+        return tickets.map(t => ({
           ...t,
-          items: (t.ticket_items || []).filter(i => i.name != null),
+          items: (itemsMap[t.id] || []).filter(i => i.name != null),
         }))
       }, []),
     },
@@ -456,44 +466,77 @@ export function createWebAPI(supabase, businessId) {
       all: (params = {}) => tryOr(async () => {
         const { dateFrom, dateTo, status, limit = 200 } = params
         const safeLimit = Math.min(limit || 200, 500)
-        let q = supabase.from('tickets')
-          .select('*, clients!client_id(name, rnc), staff!cajero_id(name)')
-          .eq('business_id', bid)
+        let q = supabase.from('tickets').select('*').eq('business_id', bid)
         if (dateFrom) q = q.gte('created_at', dateFrom)
         if (dateTo)   q = q.lte('created_at', dateTo)
         if (status)   q = q.eq('status', status)
         q = q.order('created_at', { ascending: false }).limit(safeLimit)
         const rows = throwSupaError(await q)
-        return (rows || []).map(r => ({
+        if (!rows?.length) return []
+
+        // Fetch client names
+        const clientIds = [...new Set(rows.map(r => r.client_id).filter(Boolean))]
+        let clientMap = {}
+        if (clientIds.length) {
+          const { data: cls } = await supabase.from('clients').select('id, name, rnc').in('id', clientIds)
+          for (const c of (cls || [])) clientMap[c.id] = c
+        }
+
+        // Fetch cajero names
+        const cajeroIds = [...new Set(rows.map(r => r.cajero_id).filter(Boolean))]
+        let cajeroMap = {}
+        if (cajeroIds.length) {
+          const { data: staff } = await supabase.from('staff').select('id, name').in('id', cajeroIds)
+          for (const s of (staff || [])) cajeroMap[s.id] = s
+        }
+
+        return rows.map(r => ({
           ...r,
-          client_name: r.clients?.name || null,
-          client_rnc:  r.clients?.rnc  || null,
-          cajero_name: r.staff?.name   || null,
-          clients: undefined,
-          staff: undefined,
+          client_name: clientMap[r.client_id]?.name || null,
+          client_rnc:  clientMap[r.client_id]?.rnc  || null,
+          cajero_name: cajeroMap[r.cajero_id]?.name  || null,
         }))
       }, []),
 
       byId: (id) => tryOr(async () => {
         const { data: ticket } = await supabase.from('tickets')
-          .select('*, clients!client_id(name, rnc), staff!cajero_id(name), ticket_items(*)')
+          .select('*')
           .eq('id', id).eq('business_id', bid).single()
         if (!ticket) return null
+
+        // Fetch items separately (PostgREST joins can fail on FK naming)
+        const { data: itemRows } = await supabase.from('ticket_items')
+          .select('*').eq('ticket_id', id)
+        const items = (itemRows || []).filter(i => i.name != null)
+
+        // Fetch client name
+        let client_name = null, client_rnc = null
+        if (ticket.client_id) {
+          const { data: cl } = await supabase.from('clients')
+            .select('name, rnc').eq('id', ticket.client_id).single()
+          if (cl) { client_name = cl.name; client_rnc = cl.rnc }
+        }
+
+        // Fetch cajero name
+        let cajero_name = null
+        if (ticket.cajero_id) {
+          const { data: cj } = await supabase.from('staff')
+            .select('name').eq('id', ticket.cajero_id).single()
+          if (cj) cajero_name = cj.name
+        }
+
         let ecf_result = {}
         try { ecf_result = typeof ticket.ecf_result === 'string' ? JSON.parse(ticket.ecf_result) : (ticket.ecf_result || {}) } catch {}
         let washer_ids = []
         try { washer_ids = typeof ticket.washer_ids === 'string' ? JSON.parse(ticket.washer_ids) : (ticket.washer_ids || []) } catch {}
         return {
           ...ticket,
-          client_name: ticket.clients?.name || null,
-          client_rnc:  ticket.clients?.rnc  || null,
-          cajero_name: ticket.users?.name   || null,
-          items: ticket.ticket_items || [],
+          client_name,
+          client_rnc,
+          cajero_name,
+          items,
           ecf_result,
           washer_ids,
-          clients: undefined,
-          staff: undefined,
-          ticket_items: undefined,
         }
       }, null),
 
@@ -530,34 +573,41 @@ export function createWebAPI(supabase, businessId) {
               notes:           data.notes || null,
             }).select().single())
 
-            // Insert ticket items
+            // Insert ticket items — try with business_id first, fall back without
             const items = data.items || []
             if (items.length && ticket?.id) {
-              await supabase.from('ticket_items').insert(
-                items.map(i => ({
-                  business_id: bid,
-                  ticket_id:   ticket.id,
-                  service_id:  i.service_id || null,
-                  name:        i.name,
-                  price:       i.price,
-                  itbis:       i.itbis || 0,
-                  is_wash:     i.is_wash ?? true,
-                }))
+              const itemRows = items.map(i => ({
+                ticket_id:   ticket.id,
+                service_id:  i.service_id || null,
+                name:        i.name,
+                price:       i.price,
+                itbis:       i.itbis || 0,
+                is_wash:     i.is_wash ?? true,
+              }))
+              // Try with business_id (some Supabase schemas have it)
+              const { error: err1 } = await supabase.from('ticket_items').insert(
+                itemRows.map(r => ({ ...r, business_id: bid }))
               )
+              if (err1) {
+                // Retry without business_id
+                const { error: err2 } = await supabase.from('ticket_items').insert(itemRows)
+                if (err2) console.warn('[ticket_items insert]', err2.message)
+              }
             }
 
-            // Commission calculations
+            // Commission calculations — service prices include 18% ITBIS, strip it out
             const bevSub = data.beverage_subtotal || 0
-            const commBase = parseFloat(((data.subtotal - bevSub) / 1.28).toFixed(2)) // 1 + 0.18 ITBIS + 0.10 Ley
-            const bevBase  = bevSub > 0 ? parseFloat((bevSub / 1.28).toFixed(2)) : 0
+            const commBase = parseFloat(((data.subtotal - bevSub) / 1.18).toFixed(2))
+            const bevBase  = bevSub > 0 ? parseFloat((bevSub / 1.18).toFixed(2)) : 0
 
-            // Washer commissions (same as desktop database.js)
-            if (ticket?.id && Array.isArray(data.washer_ids) && data.washer_ids.length) {
+            // Washer commissions — only on wash/service items (NOT beverages/snacks)
+            if (ticket?.id && commBase > 0 && Array.isArray(data.washer_ids) && data.washer_ids.length) {
               try {
                 const { data: washerRows } = await supabase.from('washers')
                   .select('id, commission_pct').in('id', data.washer_ids)
                 for (const w of (washerRows || [])) {
                   const pct = w.commission_pct || 0
+                  if (pct <= 0) continue
                   const amt = parseFloat((commBase * pct / 100).toFixed(2))
                   await supabase.from('washer_commissions').insert({
                     business_id: bid, washer_id: w.id, ticket_id: ticket.id,
@@ -567,8 +617,8 @@ export function createWebAPI(supabase, businessId) {
               } catch { /* commission insert failed — non-fatal */ }
             }
 
-            // Seller commission — same base as washers (services excluding beverages)
-            if (ticket?.id && data.seller_id) {
+            // Seller commission — only on wash/service items (NOT beverages/snacks)
+            if (ticket?.id && commBase > 0 && data.seller_id) {
               try {
                 const { data: seller } = await supabase.from('sellers')
                   .select('id, commission_pct').eq('id', data.seller_id).single()
@@ -582,10 +632,10 @@ export function createWebAPI(supabase, businessId) {
               } catch { /* seller commission insert failed — non-fatal */ }
             }
 
-            // Cajero commission — on beverages/snacks only
-            if (ticket?.id && data.cajero_id && bevBase > 0) {
+            // Cajero commission — on beverages/snacks ONLY
+            if (ticket?.id && bevBase > 0 && data.cajero_id) {
               try {
-                const { data: cajero } = await supabase.from('users')
+                const { data: cajero } = await supabase.from('staff')
                   .select('id, commission_pct').eq('id', data.cajero_id).single()
                 if (cajero && cajero.commission_pct > 0) {
                   const amt = parseFloat((bevBase * cajero.commission_pct / 100).toFixed(2))
@@ -666,7 +716,42 @@ export function createWebAPI(supabase, businessId) {
         if (dateFrom) q = q.gte('created_at', dateFrom)
         if (dateTo)   q = q.lte('created_at', dateTo)
         q = q.order('created_at', { ascending: false }).limit(500)
-        return throwSupaError(await q)
+        const rows = throwSupaError(await q)
+        if (!rows?.length) return []
+
+        // Fetch items for all tickets
+        const ticketIds = rows.map(r => r.id)
+        const { data: allItems } = await supabase.from('ticket_items')
+          .select('ticket_id, name, price, is_wash').in('ticket_id', ticketIds)
+        const itemsMap = {}
+        for (const i of (allItems || [])) {
+          if (!itemsMap[i.ticket_id]) itemsMap[i.ticket_id] = []
+          itemsMap[i.ticket_id].push(i)
+        }
+
+        // Fetch client names
+        const clientIds = [...new Set(rows.map(r => r.client_id).filter(Boolean))]
+        let clientMap = {}
+        if (clientIds.length) {
+          const { data: cls } = await supabase.from('clients').select('id, name, rnc').in('id', clientIds)
+          for (const c of (cls || [])) clientMap[c.id] = c
+        }
+
+        // Fetch cajero names
+        const cajeroIds = [...new Set(rows.map(r => r.cajero_id).filter(Boolean))]
+        let cajeroMap = {}
+        if (cajeroIds.length) {
+          const { data: staff } = await supabase.from('staff').select('id, name').in('id', cajeroIds)
+          for (const s of (staff || [])) cajeroMap[s.id] = s
+        }
+
+        return rows.map(r => ({
+          ...r,
+          items: (itemsMap[r.id] || []).filter(i => i.name != null),
+          client_name: clientMap[r.client_id]?.name || null,
+          client_rnc:  clientMap[r.client_id]?.rnc  || null,
+          cajero_name: cajeroMap[r.cajero_id]?.name  || null,
+        }))
       }, []),
     },
 
@@ -734,46 +819,82 @@ export function createWebAPI(supabase, businessId) {
 
     commissions: {
       byWasher: (params) => tryOr(async () => {
-        const { washerId, dateFrom, dateTo } = params
+        const washerId = params.washerId
+        const dateFrom = params.from || params.dateFrom
+        const dateTo   = params.to   || params.dateTo
         let q = supabase.from('washer_commissions')
-          .select('*, tickets!ticket_id(doc_number, created_at, vehicle_plate, status), washers!washer_id(name, commission_pct)')
+          .select('*')
           .eq('business_id', bid).eq('washer_id', washerId)
-        if (dateFrom) q = q.gte('tickets.created_at', dateFrom)
-        if (dateTo)   q = q.lte('tickets.created_at', dateTo)
+        if (dateFrom) q = q.gte('created_at', dateFrom)
+        if (dateTo)   q = q.lte('created_at', dateTo)
         q = q.order('created_at', { ascending: false }).limit(2000)
         const rows = throwSupaError(await q)
-        return (rows || []).map(r => ({
-          ...r,
-          doc_number:     r.tickets?.doc_number  || null,
-          ticket_date:    r.tickets?.created_at   || null,
-          vehicle_plate:  r.tickets?.vehicle_plate || null,
-          washer_name:    r.washers?.name          || null,
-          commission_pct: r.washers?.commission_pct || 0,
-          tickets: undefined,
-          washers: undefined,
-        }))
+        if (!rows?.length) return []
+
+        // Fetch ticket details separately
+        const ticketIds = [...new Set(rows.map(r => r.ticket_id))]
+        const { data: ticketRows } = await supabase.from('tickets')
+          .select('id, doc_number, created_at, vehicle_plate, status')
+          .in('id', ticketIds)
+        const ticketMap = {}
+        for (const t of (ticketRows || [])) ticketMap[t.id] = t
+
+        // Fetch wash-only items (is_wash = true) — exclude beverages/snacks
+        const { data: itemRows } = await supabase.from('ticket_items')
+          .select('ticket_id, name').in('ticket_id', ticketIds).eq('is_wash', true)
+        const itemsMap = {}
+        for (const i of (itemRows || [])) {
+          if (!itemsMap[i.ticket_id]) itemsMap[i.ticket_id] = []
+          itemsMap[i.ticket_id].push(i.name)
+        }
+
+        // Fetch washer info
+        const { data: washerRow } = await supabase.from('washers')
+          .select('name, commission_pct').eq('id', washerId).single()
+
+        return rows.map(r => {
+          const t = ticketMap[r.ticket_id] || {}
+          return {
+            ...r,
+            doc_number:     t.doc_number   || null,
+            ticket_date:    t.created_at    || r.created_at,
+            vehicle_plate:  t.vehicle_plate || null,
+            washer_name:    washerRow?.name  || null,
+            commission_pct: washerRow?.commission_pct || r.commission_pct || 0,
+            services:       (itemsMap[r.ticket_id] || []).join(' + '),
+          }
+        })
       }, []),
 
       byPeriod: (params) => tryOr(async () => {
-        const { dateFrom, dateTo } = params
-        // Direct query instead of RPC (no custom Postgres function needed)
+        const dateFrom = params.from || params.dateFrom
+        const dateTo   = params.to   || params.dateTo
+        // Fetch commissions (flat — no joins that might break)
         const { data: rows, error } = await supabase.from('washer_commissions')
-          .select('washer_id, base_amount, commission_amount, washers!washer_id(name, commission_pct), tickets!ticket_id(created_at, status)')
+          .select('washer_id, ticket_id, base_amount, commission_pct, commission_amount, created_at')
           .eq('business_id', bid)
         if (error) throw new Error(error.message)
-        // Filter by date and status in JS (PostgREST nested filters are limited)
+        if (!rows?.length) return []
+
+        // Filter by date range using commission's own created_at
         const from = dateFrom || '2000-01-01'
         const to   = dateTo   || '2099-12-31'
-        const filtered = (rows || []).filter(r =>
-          r.tickets?.status === 'cobrado' &&
-          r.tickets?.created_at >= from &&
-          r.tickets?.created_at <= to
-        )
+        const filtered = rows.filter(r => r.created_at >= from && r.created_at <= to)
+        if (!filtered.length) return []
+
+        // Fetch washer names
+        const washerIds = [...new Set(filtered.map(r => r.washer_id))]
+        const { data: washerRows } = await supabase.from('washers')
+          .select('id, name, commission_pct').in('id', washerIds)
+        const washerMap = {}
+        for (const w of (washerRows || [])) washerMap[w.id] = w
+
         // Group by washer
         const map = {}
         for (const r of filtered) {
           const wid = r.washer_id
-          if (!map[wid]) map[wid] = { washer_id: wid, washer_name: r.washers?.name || '', commission_pct: r.washers?.commission_pct || 0, ticket_count: 0, total_base: 0, total_commission: 0 }
+          const w = washerMap[wid] || {}
+          if (!map[wid]) map[wid] = { washer_id: wid, washer_name: w.name || '', commission_pct: w.commission_pct || r.commission_pct || 0, ticket_count: 0, total_base: 0, total_commission: 0 }
           map[wid].ticket_count++
           map[wid].total_base       += r.base_amount || 0
           map[wid].total_commission += r.commission_amount || 0
@@ -792,40 +913,45 @@ export function createWebAPI(supabase, businessId) {
 
     sellerCommissions: {
       bySeller: (params) => tryOr(async () => {
-        const { sellerId, dateFrom, dateTo } = params
-        let q = supabase.from('seller_commissions')
-          .select('*, tickets!ticket_id(doc_number, created_at, vehicle_plate, status), sellers!seller_id(name, commission_pct)')
+        const sellerId = params.sellerId
+        const dateFrom = params.from || params.dateFrom
+        const dateTo   = params.to   || params.dateTo
+        let q = supabase.from('seller_commissions').select('*')
           .eq('business_id', bid).eq('seller_id', sellerId)
         if (dateFrom) q = q.gte('created_at', dateFrom)
         if (dateTo)   q = q.lte('created_at', dateTo)
         q = q.order('created_at', { ascending: false }).limit(2000)
         const rows = throwSupaError(await q)
-        return (rows || []).map(r => ({
-          ...r,
-          doc_number:     r.tickets?.doc_number   || null,
-          ticket_date:    r.tickets?.created_at    || null,
-          vehicle_plate:  r.tickets?.vehicle_plate || null,
-          seller_name:    r.sellers?.name           || null,
-          commission_pct: r.sellers?.commission_pct || 0,
-          tickets: undefined, sellers: undefined,
-        }))
+        if (!rows?.length) return []
+        const ticketIds = [...new Set(rows.map(r => r.ticket_id))]
+        const { data: ticketRows } = await supabase.from('tickets').select('id, doc_number, created_at, vehicle_plate').in('id', ticketIds)
+        const tMap = {}; for (const t of (ticketRows || [])) tMap[t.id] = t
+        const { data: sellerRow } = await supabase.from('sellers').select('name, commission_pct').eq('id', sellerId).single()
+        return rows.map(r => {
+          const t = tMap[r.ticket_id] || {}
+          return { ...r, doc_number: t.doc_number || null, ticket_date: t.created_at || r.created_at, vehicle_plate: t.vehicle_plate || null, seller_name: sellerRow?.name || null, commission_pct: sellerRow?.commission_pct || r.commission_pct || 0 }
+        })
       }, []),
 
       byPeriod: (params) => tryOr(async () => {
-        const { dateFrom, dateTo } = params
+        const dateFrom = params.from || params.dateFrom
+        const dateTo   = params.to   || params.dateTo
         const { data: rows, error } = await supabase.from('seller_commissions')
-          .select('seller_id, base_amount, commission_amount, sellers!seller_id(name, commission_pct), tickets!ticket_id(created_at, status)')
+          .select('seller_id, base_amount, commission_pct, commission_amount, created_at')
           .eq('business_id', bid)
         if (error) throw new Error(error.message)
+        if (!rows?.length) return []
         const from = dateFrom || '2000-01-01', to = dateTo || '2099-12-31'
-        const filtered = (rows || []).filter(r => r.tickets?.status === 'cobrado' && r.tickets?.created_at >= from && r.tickets?.created_at <= to)
+        const filtered = rows.filter(r => r.created_at >= from && r.created_at <= to)
+        if (!filtered.length) return []
+        const sellerIds = [...new Set(filtered.map(r => r.seller_id))]
+        const { data: sellerRows } = await supabase.from('sellers').select('id, name, commission_pct').in('id', sellerIds)
+        const sMap = {}; for (const s of (sellerRows || [])) sMap[s.id] = s
         const map = {}
         for (const r of filtered) {
-          const sid = r.seller_id
-          if (!map[sid]) map[sid] = { seller_id: sid, seller_name: r.sellers?.name || '', commission_pct: r.sellers?.commission_pct || 0, ticket_count: 0, total_base: 0, total_commission: 0 }
-          map[sid].ticket_count++
-          map[sid].total_base       += r.base_amount || 0
-          map[sid].total_commission += r.commission_amount || 0
+          const sid = r.seller_id; const s = sMap[sid] || {}
+          if (!map[sid]) map[sid] = { seller_id: sid, seller_name: s.name || '', commission_pct: s.commission_pct || r.commission_pct || 0, ticket_count: 0, total_base: 0, total_commission: 0 }
+          map[sid].ticket_count++; map[sid].total_base += r.base_amount || 0; map[sid].total_commission += r.commission_amount || 0
         }
         return Object.values(map).sort((a, b) => b.total_commission - a.total_commission)
       }, []),
@@ -841,40 +967,45 @@ export function createWebAPI(supabase, businessId) {
 
     cajeroCommissions: {
       byCajero: (params) => tryOr(async () => {
-        const { cajeroId, dateFrom, dateTo } = params
-        let q = supabase.from('cajero_commissions')
-          .select('*, tickets!ticket_id(doc_number, created_at, vehicle_plate, status), users!cajero_id(name, commission_pct)')
+        const cajeroId = params.cajeroId
+        const dateFrom = params.from || params.dateFrom
+        const dateTo   = params.to   || params.dateTo
+        let q = supabase.from('cajero_commissions').select('*')
           .eq('business_id', bid).eq('cajero_id', cajeroId)
         if (dateFrom) q = q.gte('created_at', dateFrom)
         if (dateTo)   q = q.lte('created_at', dateTo)
         q = q.order('created_at', { ascending: false }).limit(2000)
         const rows = throwSupaError(await q)
-        return (rows || []).map(r => ({
-          ...r,
-          doc_number:     r.tickets?.doc_number   || null,
-          ticket_date:    r.tickets?.created_at    || null,
-          vehicle_plate:  r.tickets?.vehicle_plate || null,
-          cajero_name:    r.users?.name             || null,
-          commission_pct: r.users?.commission_pct   || 0,
-          tickets: undefined, users: undefined,
-        }))
+        if (!rows?.length) return []
+        const ticketIds = [...new Set(rows.map(r => r.ticket_id))]
+        const { data: ticketRows } = await supabase.from('tickets').select('id, doc_number, created_at, vehicle_plate').in('id', ticketIds)
+        const tMap = {}; for (const t of (ticketRows || [])) tMap[t.id] = t
+        const { data: userRow } = await supabase.from('staff').select('name, commission_pct').eq('id', cajeroId).single()
+        return rows.map(r => {
+          const t = tMap[r.ticket_id] || {}
+          return { ...r, doc_number: t.doc_number || null, ticket_date: t.created_at || r.created_at, vehicle_plate: t.vehicle_plate || null, cajero_name: userRow?.name || null, commission_pct: userRow?.commission_pct || r.commission_pct || 0 }
+        })
       }, []),
 
       byPeriod: (params) => tryOr(async () => {
-        const { dateFrom, dateTo } = params
+        const dateFrom = params.from || params.dateFrom
+        const dateTo   = params.to   || params.dateTo
         const { data: rows, error } = await supabase.from('cajero_commissions')
-          .select('cajero_id, base_amount, commission_amount, users!cajero_id(name, commission_pct), tickets!ticket_id(created_at, status)')
+          .select('cajero_id, base_amount, commission_pct, commission_amount, created_at')
           .eq('business_id', bid)
         if (error) throw new Error(error.message)
+        if (!rows?.length) return []
         const from = dateFrom || '2000-01-01', to = dateTo || '2099-12-31'
-        const filtered = (rows || []).filter(r => r.tickets?.status === 'cobrado' && r.tickets?.created_at >= from && r.tickets?.created_at <= to)
+        const filtered = rows.filter(r => r.created_at >= from && r.created_at <= to)
+        if (!filtered.length) return []
+        const cajeroIds = [...new Set(filtered.map(r => r.cajero_id))]
+        const { data: userRows } = await supabase.from('staff').select('id, name, commission_pct').in('id', cajeroIds)
+        const cMap = {}; for (const u of (userRows || [])) cMap[u.id] = u
         const map = {}
         for (const r of filtered) {
-          const cid = r.cajero_id
-          if (!map[cid]) map[cid] = { cajero_id: cid, cajero_name: r.users?.name || '', commission_pct: r.users?.commission_pct || 0, ticket_count: 0, total_base: 0, total_commission: 0 }
-          map[cid].ticket_count++
-          map[cid].total_base       += r.base_amount || 0
-          map[cid].total_commission += r.commission_amount || 0
+          const cid = r.cajero_id; const u = cMap[cid] || {}
+          if (!map[cid]) map[cid] = { cajero_id: cid, cajero_name: u.name || '', commission_pct: u.commission_pct || r.commission_pct || 0, ticket_count: 0, total_base: 0, total_commission: 0 }
+          map[cid].ticket_count++; map[cid].total_base += r.base_amount || 0; map[cid].total_commission += r.commission_amount || 0
         }
         return Object.values(map).sort((a, b) => b.total_commission - a.total_commission)
       }, []),

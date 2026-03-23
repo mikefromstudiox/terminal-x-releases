@@ -6,8 +6,8 @@ import {
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
-import { useRNC } from '../hooks/useRNC'
 import { printCreditPayment } from '../services/printer'
+import { NewClientForm } from './Clients'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -44,128 +44,6 @@ function CreditBar({ balance, limit, height = 'h-1.5' }) {
 }
 
 // ── New Client slide-in panel ─────────────────────────────────────────────────
-
-function NewClientPanel({ onClose, onSaved }) {
-  const api = useAPI()
-  const { lookup: rncLookup, lookupLoading: rncLoading } = useRNC()
-  const [form, setForm]     = useState({ name:'', rnc:'', phone:'', email:'', address:'', credit_limit:'', notes:'' })
-  const [saving, setSaving] = useState(false)
-  const [error, setError]   = useState('')
-
-  function set(k, v) { setForm(f => ({ ...f, [k]: v })) }
-
-  async function lookupRNC() {
-    const clean = form.rnc.replace(/\D/g, '')
-    if (clean.length < 9) return
-    const res = await rncLookup(clean)
-    if (res?.nombre) set('name', res.nombre)
-    else if (res?.name) set('name', res.name)
-  }
-
-  async function handleSave() {
-    if (!form.name.trim()) { setError('El nombre es requerido.'); return }
-    const limit = parseFloat(form.credit_limit) || 0
-    setSaving(true); setError('')
-    try {
-      await api.clients.create({
-        name:         form.name.trim(),
-        rnc:          form.rnc.trim(),
-        phone:        form.phone.trim(),
-        email:        form.email.trim(),
-        address:      form.address.trim(),
-        credit_limit: limit,
-        notes:        form.notes.trim(),
-      })
-      onSaved()
-    } catch (e) {
-      setError(e.message || 'Error al guardar.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const fields = [
-    { k:'name',         label:'Nombre / Empresa *', ph:'Importadora Del Norte SRL', type:'text' },
-    { k:'phone',        label:'Teléfono',           ph:'809-555-0000',              type:'text' },
-    { k:'email',        label:'Email',              ph:'contacto@empresa.com',      type:'email' },
-    { k:'address',      label:'Dirección',          ph:'Av. Winston Churchill 1099',type:'text' },
-    { k:'credit_limit', label:'Límite de Crédito',  ph:'10000',                    type:'number' },
-  ]
-
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <div className="relative w-full md:w-[380px] bg-white h-full shadow-2xl flex flex-col">
-        {/* Header */}
-        <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <h3 className="text-[15px] font-bold text-slate-800">Nuevo Cliente</h3>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* Form */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
-          {/* RNC with lookup */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">RNC</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={form.rnc}
-                onChange={e => set('rnc', e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && lookupRNC()}
-                placeholder="130-12345-6"
-                className="flex-1 min-w-0"
-              />
-              <button
-                onClick={lookupRNC}
-                disabled={rncLoading}
-                className="px-3 py-2 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-xl text-[12px] font-semibold text-sky-700 transition-colors whitespace-nowrap min-h-[44px]"
-              >
-                {rncLoading ? '...' : 'Buscar'}
-              </button>
-            </div>
-          </div>
-
-          {fields.map(f => (
-            <div key={f.k}>
-              <label className="block text-[11px] font-semibold text-slate-500 mb-1">{f.label}</label>
-              <input
-                type={f.type}
-                value={form[f.k]}
-                onChange={e => set(f.k, e.target.value)}
-                placeholder={f.ph}
-              />
-            </div>
-          ))}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Notas</label>
-            <textarea
-              value={form.notes}
-              onChange={e => set('notes', e.target.value)}
-              placeholder="Observaciones internas…"
-              rows={3}
-              className="resize-none"
-            />
-          </div>
-          {error && <p className="text-[12px] text-red-500">{error}</p>}
-        </div>
-
-        {/* Footer */}
-        <div className="shrink-0 px-5 py-4 pb-20 md:pb-4 border-t border-slate-100">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="w-full py-3 md:py-2.5 bg-[#0C447C] hover:bg-[#0a3a6b] disabled:opacity-60 text-white font-bold rounded-xl text-[13px] transition-colors flex items-center justify-center gap-2 min-h-[44px]"
-          >
-            {saving ? <><Loader2 size={14} className="animate-spin" /> Guardando…</> : 'Guardar Cliente'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // ── Client list card ──────────────────────────────────────────────────────────
 
@@ -759,9 +637,10 @@ export default function Credits() {
 
       {/* New client panel */}
       {showNew && (
-        <NewClientPanel
+        <NewClientForm
           onClose={() => setShowNew(false)}
-          onSaved={() => { setShowNew(false); loadClients() }}
+          onSave={() => { setShowNew(false); loadClients() }}
+          lang="es"
         />
       )}
     </div>

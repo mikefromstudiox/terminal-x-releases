@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart } from 'lucide-react'
+import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useLayout } from '../context/LayoutContext'
 import { useAuth } from '../context/AuthContext'
@@ -8,6 +8,7 @@ import { useAPI, usePrinterAPI } from '../context/DataContext'
 import { useServices, useWashers, useSellers } from '../hooks/useDB'
 import { useRNC } from '../hooks/useRNC'
 import CobrarModal from '../components/CobrarModal'
+import { NewClientForm } from './Clients'
 import { printClientReceipt, printWasherConduce } from '../services/printer'
 import { syncTicket } from '../services/supabase'
 import { syncTicketFull } from '../services/sync'
@@ -39,13 +40,10 @@ const ITBIS = 0.18
 const LEY   = 0.10
 
 function calcTotals(items) {
-  const subtotal = items.reduce((s, i) => s + i.price, 0)
-  return {
-    subtotal,
-    itbis: subtotal * ITBIS,
-    ley:   subtotal * LEY,
-    total: subtotal * (1 + ITBIS + LEY),
-  }
+  const total    = items.reduce((s, i) => s + i.price, 0) // prices already include ITBIS
+  const subtotal = parseFloat((total / (1 + ITBIS)).toFixed(2))  // extract pre-ITBIS base
+  const itbis    = parseFloat((total - subtotal).toFixed(2))
+  return { subtotal, itbis, ley: 0, total }
 }
 
 function fmtRD(n) {
@@ -236,6 +234,18 @@ export default function POS() {
   const [toast,     setToast]     = useState(null)
   const [cobrarModal, setCobrarModal] = useState(null)
 
+  // Client state
+  const [clients,        setClients]        = useState([])
+  const [selectedClient, setSelectedClient] = useState(null) // { id, name, rnc }
+  const [showClientPicker, setShowClientPicker] = useState(false)
+  const [showNewClient,  setShowNewClient]  = useState(false)
+  const [clientSearch,   setClientSearch]   = useState('')
+
+  // Load clients once
+  useEffect(() => {
+    api.clients?.all?.().then(r => setClients(r || [])).catch(() => {})
+  }, [])
+
   // Form state
   const [rnc,         setRnc]         = useState('')
   const [rncName,     setRncName]     = useState('')
@@ -266,6 +276,7 @@ export default function POS() {
     setVehicle('')
     setRnc('')
     setRncName('')
+    setSelectedClient(null)
     setWorkers([])
     setSalesperson('')
   }
@@ -286,7 +297,7 @@ export default function POS() {
       } else if (e.key === 'F2') {
         e.preventDefault()
         if (allOrderItems.length > 0) {
-          setCobrarModal({ vehicle, items: allOrderItems, workers, salesperson, clientId: null, clientName: rncName || '', client: null })
+          setCobrarModal({ vehicle, items: allOrderItems, workers, salesperson, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null })
         }
       } else if (e.key === 'F3') {
         e.preventDefault()
@@ -326,6 +337,7 @@ export default function POS() {
 
       const result = await api.tickets.create({
         vehicle_plate:     vehicle.trim() || null,
+        client_id:         selectedClient?.id || null,
         washer_ids:        workers.map(w => w.id),
         seller_id:         salesperson || null,
         cajero_id:         (user?.id && user.id !== 'web') ? user.id : null,
@@ -608,33 +620,122 @@ export default function POS() {
 
         <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
 
-          {/* RNC / Cedula */}
+          {/* Client selector */}
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-              {t('pos_rnc_cedula')}
+              {lang === 'es' ? 'Cliente' : 'Client'}
             </label>
-            <div className="flex gap-1.5">
-              <input
-                type="text"
-                value={rnc}
-                onChange={e => { setRnc(e.target.value); setRncName('') }}
-                placeholder="000-00000-0"
-                maxLength={11}
-                className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-sm md:text-[12px] min-h-[44px] md:min-h-0 focus:outline-none focus:border-sky-400 placeholder:text-slate-300"
-              />
-              <button
-                onClick={handleRncLookup}
-                title="Buscar DGII"
-                className="w-10 h-10 md:w-8 md:h-8 flex items-center justify-center bg-slate-100 hover:bg-sky-50 hover:text-sky-600 text-slate-500 rounded-lg transition-colors shrink-0 min-h-[44px] md:min-h-0"
-              >
-                <Search size={16} className="md:hidden" />
-                <Search size={13} className="hidden md:block" />
-              </button>
-            </div>
-            {rncName && (
-              <p className="mt-1 text-[11px] text-sky-600 font-medium truncate">{rncName}</p>
+            {selectedClient ? (
+              <div className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-lg px-2.5 py-2 min-h-[44px] md:min-h-0">
+                <UserRound size={14} className="text-sky-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-semibold text-sky-800 truncate">{selectedClient.name}</p>
+                  {selectedClient.rnc && <p className="text-[10px] text-sky-500">{selectedClient.rnc}</p>}
+                </div>
+                <button onClick={() => setSelectedClient(null)} className="text-sky-400 hover:text-sky-600 p-1">
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => setShowClientPicker(true)}
+                  className="flex items-center gap-1.5 flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-sm md:text-[12px] min-h-[44px] md:min-h-0 text-slate-400 hover:border-sky-300 hover:text-sky-500 transition-colors"
+                >
+                  <UserRound size={14} />
+                  <span className="truncate">{lang === 'es' ? 'Seleccionar cliente...' : 'Select client...'}</span>
+                </button>
+              </div>
             )}
           </div>
+
+          {/* Client picker modal */}
+          {showClientPicker && (
+            <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30" onClick={() => setShowClientPicker(false)}>
+              <div className="bg-white w-full md:w-[380px] md:rounded-2xl shadow-2xl max-h-[70vh] flex flex-col rounded-t-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100">
+                  <Search size={14} className="text-slate-400" />
+                  <input
+                    type="text"
+                    autoFocus
+                    value={clientSearch}
+                    onChange={e => setClientSearch(e.target.value)}
+                    placeholder={lang === 'es' ? 'Buscar cliente...' : 'Search client...'}
+                    className="flex-1 text-[13px] focus:outline-none placeholder:text-slate-300"
+                  />
+                  <button onClick={() => setShowClientPicker(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                  {/* New client + Consumidor Final */}
+                  <button
+                    onClick={() => { setShowClientPicker(false); setShowNewClient(true); setClientSearch('') }}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-emerald-50 border-b border-slate-100 text-left"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 text-[14px] font-bold">+</div>
+                    <span className="text-[13px] font-semibold text-emerald-700">{lang === 'es' ? 'Nuevo Cliente' : 'New Client'}</span>
+                  </button>
+                  <button
+                    onClick={() => { setSelectedClient(null); setShowClientPicker(false); setClientSearch('') }}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 border-b border-slate-50 text-left"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400"><UserRound size={14} /></div>
+                    <span className="text-[13px] text-slate-500 italic">{lang === 'es' ? 'Consumidor Final (sin cliente)' : 'Walk-in (no client)'}</span>
+                  </button>
+                  {clients
+                    .filter(c => {
+                      if (!clientSearch.trim()) return true
+                      const q = clientSearch.toLowerCase()
+                      return (c.name || '').toLowerCase().includes(q) || (c.rnc || '').includes(q) || (c.phone || '').includes(q)
+                    })
+                    .slice(0, 50)
+                    .map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => { setSelectedClient(c); setShowClientPicker(false); setClientSearch(''); if (c.rnc) { setRnc(c.rnc); setRncName(c.name) } }}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-sky-50 border-b border-slate-50 text-left transition-colors"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-[#0C447C] flex items-center justify-center text-white text-[11px] font-bold shrink-0">
+                          {(c.name || '?')[0].toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-semibold text-slate-800 truncate">{c.name}</p>
+                          <p className="text-[10px] text-slate-400 truncate">
+                            {[c.rnc, c.phone].filter(Boolean).join(' · ') || '—'}
+                          </p>
+                        </div>
+                        {c.balance > 0 && (
+                          <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full shrink-0">
+                            {lang === 'es' ? 'Debe' : 'Owes'} {fmtRD(c.balance)}
+                          </span>
+                        )}
+                      </button>
+                    ))
+                  }
+                  {clients.length === 0 && (
+                    <p className="text-center py-8 text-[12px] text-slate-400">
+                      {lang === 'es' ? 'No hay clientes registrados' : 'No clients registered'}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* New client form */}
+          {showNewClient && (
+            <NewClientForm
+              onClose={() => setShowNewClient(false)}
+              onSave={(newClient) => {
+                setShowNewClient(false)
+                setSelectedClient(newClient)
+                // Refresh clients list
+                api.clients?.all?.().then(r => setClients(r || [])).catch(() => {})
+              }}
+              lang={lang}
+            />
+          )}
 
           {/* Vehicle + Workers + Seller — stack vertically always, full width on mobile */}
           <div className="grid grid-cols-1 gap-3.5">
@@ -759,7 +860,7 @@ export default function POS() {
               onClick={() => {
                 if (allOrderItems.length > 0) {
                   setMobileCartOpen(false)
-                  setCobrarModal({ vehicle, items: allOrderItems, workers, salesperson, clientId: null, clientName: rncName || '', client: null })
+                  setCobrarModal({ vehicle, items: allOrderItems, workers, salesperson, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null })
                 }
               }}
               disabled={allOrderItems.length === 0}

@@ -619,25 +619,24 @@ function ticketCreate(data) {
         .run(data.total, data.client_id)
     }
 
-    // Washer commissions
-    const itbisRate = parseFloat(getSetting('itbis_pct') || '18') / 100
-    const leyRate   = parseFloat(getSetting('ley_pct')   || '10') / 100
-    const divisor   = 1 + itbisRate + leyRate
-    for (const wid of (data.washer_ids || [])) {
-      const washer  = db.prepare('SELECT commission_pct FROM washers WHERE id=?').get(wid)
-      if (!washer) continue
-      const commBase   = (data.subtotal - (data.beverage_subtotal || 0)) / divisor
-      const commAmount = parseFloat((commBase * washer.commission_pct / 100).toFixed(2))
-      db.prepare(`INSERT INTO washer_commissions
-        (washer_id,ticket_id,base_amount,commission_pct,commission_amount,paid)
-        VALUES(?,?,?,?,?,0)`).run(wid, ticketId, parseFloat(commBase.toFixed(2)), washer.commission_pct, commAmount)
+    // Washer commissions — only on wash/service items (NOT beverages/snacks)
+    // Service prices include 18% ITBIS — strip it out for commission base
+    const commBase  = parseFloat((((data.subtotal || 0) - (data.beverage_subtotal || 0)) / 1.18).toFixed(2))
+    if (commBase > 0) {
+      for (const wid of (data.washer_ids || [])) {
+        const washer  = db.prepare('SELECT commission_pct FROM washers WHERE id=?').get(wid)
+        if (!washer || washer.commission_pct <= 0) continue
+        const commAmount = parseFloat((commBase * washer.commission_pct / 100).toFixed(2))
+        db.prepare(`INSERT INTO washer_commissions
+          (washer_id,ticket_id,base_amount,commission_pct,commission_amount,paid)
+          VALUES(?,?,?,?,?,0)`).run(wid, ticketId, parseFloat(commBase.toFixed(2)), washer.commission_pct, commAmount)
+      }
     }
 
-    // Seller commission — same base as washers (services excluding beverages)
-    if (data.seller_id) {
+    // Seller commission — only on wash/service items (NOT beverages/snacks)
+    if (data.seller_id && commBase > 0) {
       const seller = db.prepare('SELECT commission_pct FROM sellers WHERE id=?').get(data.seller_id)
       if (seller && seller.commission_pct > 0) {
-        const commBase   = (data.subtotal - (data.beverage_subtotal || 0)) / divisor
         const commAmount = parseFloat((commBase * seller.commission_pct / 100).toFixed(2))
         db.prepare(`INSERT INTO seller_commissions
           (seller_id,ticket_id,base_amount,commission_pct,commission_amount,paid)
@@ -645,15 +644,15 @@ function ticketCreate(data) {
       }
     }
 
-    // Cajero commission — on beverages/snacks only
-    if (data.cajero_id && (data.beverage_subtotal || 0) > 0) {
+    // Cajero commission — on beverages/snacks only (prices include 18% ITBIS)
+    const bevBase = parseFloat(((data.beverage_subtotal || 0) / 1.18).toFixed(2))
+    if (data.cajero_id && bevBase > 0) {
       const cajero = db.prepare('SELECT commission_pct FROM users WHERE id=?').get(data.cajero_id)
       if (cajero && cajero.commission_pct > 0) {
-        const bevBase    = (data.beverage_subtotal || 0) / divisor
         const commAmount = parseFloat((bevBase * cajero.commission_pct / 100).toFixed(2))
         db.prepare(`INSERT INTO cajero_commissions
           (cajero_id,ticket_id,base_amount,commission_pct,commission_amount,paid)
-          VALUES(?,?,?,?,?,0)`).run(data.cajero_id, ticketId, parseFloat(bevBase.toFixed(2)), cajero.commission_pct, commAmount)
+          VALUES(?,?,?,?,?,0)`).run(data.cajero_id, ticketId, bevBase, cajero.commission_pct, commAmount)
       }
     }
 

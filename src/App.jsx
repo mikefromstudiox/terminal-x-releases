@@ -43,6 +43,8 @@ import DailyReport from './screens/reports/DailyReport'
 import MonthlyReport from './screens/reports/MonthlyReport'
 import WorkerReport from './screens/reports/WorkerReport'
 import SalespersonReport from './screens/reports/SalespersonReport'
+import Reportes from './screens/Reportes'
+import PlanGate from './components/PlanGate'
 
 // Routes accessible only to non-cashier roles
 const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin','/sistema','/inventory']
@@ -133,29 +135,30 @@ export default function App() {
     <Layout>
       <ErrorBoundary>
       <Routes>
-        <Route path="/"                      element={<Navigate to="/pos" replace />} />
+        <Route path="/"                      element={<POS />} />
         <Route path="/pos"                   element={<POS />} />
         <Route path="/queue"                 element={<Queue />} />
         <Route path="/clients"               element={<Clients />} />
-        <Route path="/credits"               element={<ProtectedRoute element={<Credits />} />} />
-        <Route path="/reports/daily"         element={<ProtectedRoute element={<DailyReport />} />} />
-        <Route path="/reports/monthly"       element={<ProtectedRoute element={<MonthlyReport />} />} />
-        <Route path="/reports/workers"       element={<ProtectedRoute element={<WorkerReport />} />} />
-        <Route path="/reports/salesperson"   element={<ProtectedRoute element={<SalespersonReport />} />} />
-        <Route path="/inventory"             element={<ProtectedRoute element={<Inventory />} />} />
-        <Route path="/cash-recon"            element={<ProtectedRoute element={<CashReconciliation />} />} />
-        <Route path="/dgii"                  element={<ProtectedRoute element={<DGII />} />} />
-        <Route path="/petty-cash"            element={<ProtectedRoute element={<PettyCash />} />} />
-        <Route path="/credit-notes"          element={<ProtectedRoute element={<CreditNotes />} />} />
+        <Route path="/credits"               element={<ProtectedRoute element={<PlanGate feature="credits"><Credits /></PlanGate>} />} />
+        <Route path="/reports"              element={<ProtectedRoute element={<PlanGate feature="reports"><Reportes /></PlanGate>} />} />
+        <Route path="/reports/daily"         element={<Navigate to="/reports" replace />} />
+        <Route path="/reports/monthly"       element={<Navigate to="/reports" replace />} />
+        <Route path="/reports/workers"       element={<Navigate to="/reports" replace />} />
+        <Route path="/reports/salesperson"   element={<Navigate to="/reports" replace />} />
+        <Route path="/inventory"             element={<ProtectedRoute element={<PlanGate feature="inventory"><Inventory /></PlanGate>} />} />
+        <Route path="/cash-recon"            element={<ProtectedRoute element={<PlanGate feature="cash_recon"><CashReconciliation /></PlanGate>} />} />
+        <Route path="/dgii"                  element={<ProtectedRoute element={<PlanGate feature="dgii"><DGII /></PlanGate>} />} />
+        <Route path="/petty-cash"            element={<ProtectedRoute element={<PlanGate feature="petty_cash"><PettyCash /></PlanGate>} />} />
+        <Route path="/credit-notes"          element={<ProtectedRoute element={<PlanGate feature="credit_notes"><CreditNotes /></PlanGate>} />} />
         <Route path="/admin"                 element={<ProtectedRoute element={<Admin />} />} />
-        <Route path="/remote"                element={<ProtectedRoute element={<RemoteDashboard />} />} />
+        <Route path="/remote"                element={<ProtectedRoute element={<PlanGate feature="remote_dashboard"><RemoteDashboard /></PlanGate>} />} />
         <Route path="/license-admin"         element={<ProtectedRoute element={<LicenseAdmin />} />} />
         <Route path="/sistema"               element={<ProtectedRoute element={<Sistema />} />} />
         {/* Legacy routes — redirect to canonical destinations */}
         <Route path="/workers"               element={<Navigate to="/reports/workers" replace />} />
         <Route path="/services"              element={<Navigate to="/admin" replace />} />
         <Route path="/settings"              element={<Navigate to="/admin" replace />} />
-        <Route path="*"                      element={<Navigate to="/pos" replace />} />
+        <Route path="*"                      element={<Navigate to="/" replace />} />
       </Routes>
       </ErrorBoundary>
     </Layout>

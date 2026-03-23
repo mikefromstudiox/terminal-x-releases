@@ -98,7 +98,24 @@
       "Bash(reg query:*)",
       "Bash(ELECTRON_ENABLE_LOGGING=1 node_modules/electron/dist/electron.exe -e \"console.log\\(''''test''''\\)\")",
       "Bash(ELECTRON_ENABLE_LOGGING=1 ELECTRON_NO_ATTACH_CONSOLE=1 node_modules/electron/dist/electron.exe --enable-logging -e \":*)",
-      "Bash(\"a:/Terminal X/node_modules/electron/dist/electron.exe\" --disable-gpu /c/tmp/etest)"
+      "Bash(\"a:/Terminal X/node_modules/electron/dist/electron.exe\" --disable-gpu /c/tmp/etest)",
+      "Bash(mv 001_initial.sql 20260301000000_initial.sql)",
+      "Bash(mv 002_upgrade_existing.sql 20260301000001_upgrade_existing.sql)",
+      "Bash(mv 003_add_local_id.sql 20260301000002_add_local_id.sql)",
+      "Bash(mv 004_queue_fks.sql 20260301000003_queue_fks.sql)",
+      "Bash(mv 005_seller_cajero_commissions.sql 20260322000000_seller_cajero_commissions.sql)",
+      "Bash(cd:*)",
+      "Bash(curl:*)",
+      "Bash(mv web/api/admin.js web/api/panel.js)",
+      "Bash(cp web/api/panel.js dist-web/api/panel.js)",
+      "Bash(rm -f dist-web/api/admin.js)",
+      "Bash(cp web/api/panel.js dist-web/api/)",
+      "Bash(cp web/api/validate.js dist-web/api/)",
+      "Bash(mkdir -p dist-web/api/signup)",
+      "Bash(cp web/api/signup/provision.js dist-web/api/signup/)",
+      "Bash(cp \"A:\\\\Terminal X/web/api/panel.js\" \"A:\\\\Terminal X/dist-web/api/panel.js\")",
+      "Bash(cp \"A:\\\\Terminal X/web/api/validate.js\" \"A:\\\\Terminal X/dist-web/api/validate.js\")",
+      "Bash(cp \"A:\\\\Terminal X/web/api/signup/provision.js\" \"A:\\\\Terminal X/dist-web/api/signup/provision.js\")"
     ]
   }
 }
