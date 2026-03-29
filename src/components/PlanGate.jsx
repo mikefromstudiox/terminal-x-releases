@@ -3,8 +3,8 @@ import { useLang } from '../i18n'
 import { Lock, ArrowUpCircle } from 'lucide-react'
 
 const FEATURE_PLAN_MIN = {
-  credits: 'pro', reports: 'pro', petty_cash: 'pro', credit_notes: 'pro', cash_recon: 'pro',
-  ecf: 'pro_plus', dgii: 'pro_plus', inventory: 'pro_plus', commissions: 'pro_plus',
+  credits: 'pro', reports: 'pro', petty_cash: 'pro', credit_notes: 'pro', cash_recon: 'pro', commissions: 'pro', inventory: 'pro',
+  ecf: 'pro_plus', dgii: 'pro_plus',
   remote_dashboard: 'pro_max', whatsapp_receipts: 'pro_max', multi_location: 'pro_max',
 }
 
@@ -33,7 +33,7 @@ export default function PlanGate({ feature, children }) {
             : `This feature requires ${planName} or higher. Upgrade your plan to unlock all the tools you need.`}
         </p>
       </div>
-      <a href="https://terminalxpos.com/pricing" target="_blank" rel="noopener noreferrer"
+      <a href="https://terminalxpos.com" target="_blank" rel="noopener noreferrer"
         className="flex items-center gap-2 px-5 py-2.5 bg-[#0C447C] text-white text-[13px] font-bold rounded-xl hover:bg-[#0a3a6a] transition-colors">
         <ArrowUpCircle size={16} />
         {lang === 'es' ? 'Ver Planes' : 'View Plans'}

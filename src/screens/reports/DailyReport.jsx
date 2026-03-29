@@ -2,11 +2,13 @@ import { useState, useMemo, useEffect } from 'react'
 import {
   Search, X, Eye, Printer, AlertTriangle, CheckCircle2,
   ChevronDown, ReceiptText, TrendingUp, CircleDollarSign,
-  Clock, Ban,
+  Clock, Ban, Download,
 } from 'lucide-react'
 import { useLang } from '../../i18n'
 import { useAPI } from '../../context/DataContext'
 import { useAuth } from '../../context/AuthContext'
+import { exportDailyReport } from '../../services/csv'
+import { printDailyReport } from '../../services/report-html'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtRD(n) {
@@ -30,7 +32,9 @@ function dbToTxn(t) {
     ticketNo:   t.doc_number || `T-${String(t.id).padStart(4, '0')}`,
     client:     t.client_name || 'Walk-in',
     vehicle:    t.vehicle_plate || '—',
-    services:   (t.items || []).map(i => ({ name: i.name || i.service_name || '—', price: i.price || 0 })),
+    services:   t.service_names
+                  ? t.service_names.split(' + ').map(n => ({ name: n, price: 0 }))
+                  : (t.items || []).map(i => ({ name: i.name || i.service_name || '—', price: i.price || 0 })),
     cashier:    t.cajero_name || '—',
     date:       new Date(t.created_at),
     subtotal:   t.subtotal || 0,
@@ -290,7 +294,7 @@ function AnularModal({ ticket: t, onConfirm, onClose, lang, currentUser }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-      <div className="bg-white rounded-2xl shadow-2xl w-[420px] flex flex-col">
+      <div className="bg-white rounded-none md:rounded-2xl shadow-2xl w-full md:w-[420px] h-full md:h-auto flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -399,8 +403,15 @@ export default function DailyReport() {
   const [detailModal,  setDetailModal]  = useState(null)
   const [anularModal,  setAnularModal]  = useState(null)
   const [toast,        setToast]        = useState(null)
+  const [biz,          setBiz]          = useState({})
 
   function flash(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
+
+  useEffect(() => {
+    api.admin?.getEmpresa?.().then(e => {
+      if (e) setBiz({ name: e.nombre || e.name, rnc: e.rnc, address: e.direccion || e.address, phone: e.telefono || e.phone, email: e.email })
+    }).catch(() => {})
+  }, [])
 
   // Load tickets from DB whenever datePill changes
   useEffect(() => {
@@ -528,12 +539,12 @@ export default function DailyReport() {
                 key={f.id}
                 onClick={() => setTab(f.id)}
                 className={`flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3.5 py-2.5 text-[11px] md:text-[12px] font-medium border-b-2 -mb-px transition-colors shrink-0 ${
-                  tab === f.id ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800'
+                  tab === f.id ? 'border-slate-800 text-slate-800' : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
                 {lang === 'es' ? f.es : f.en}
                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center ${
-                  tab === f.id ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-400'
+                  tab === f.id ? 'bg-slate-200 text-slate-800' : 'bg-slate-100 text-slate-400'
                 }`}>
                   {tabCounts[f.id] ?? 0}
                 </span>
@@ -541,7 +552,7 @@ export default function DailyReport() {
             ))}
           </div>
 
-          {/* Date pills */}
+          {/* Date pills + export */}
           <div className="flex items-center gap-1.5 pb-2.5 overflow-x-auto scrollbar-none">
             {DATE_PILLS.map(p => (
               <button
@@ -556,6 +567,30 @@ export default function DailyReport() {
                 {lang === 'es' ? p.es : p.en}
               </button>
             ))}
+            <button
+              onClick={() => {
+                const pill = DATE_PILLS.find(p => p.id === datePill)
+                const label = pill ? (lang === 'es' ? pill.es : pill.en) : datePill
+                exportDailyReport(biz, baseFiltered, summary, label)
+              }}
+              disabled={baseFiltered.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors shrink-0 disabled:opacity-40"
+            >
+              <Download size={12} />
+              CSV
+            </button>
+            <button
+              onClick={() => {
+                const pill = DATE_PILLS.find(p => p.id === datePill)
+                const label = pill ? (lang === 'es' ? pill.es : pill.en) : datePill
+                printDailyReport(biz, baseFiltered, summary, label)
+              }}
+              disabled={baseFiltered.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors shrink-0 disabled:opacity-40"
+            >
+              <Printer size={12} />
+              Imprimir
+            </button>
           </div>
         </div>
       </div>

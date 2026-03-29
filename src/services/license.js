@@ -13,9 +13,7 @@
  */
 
 // ── Config ────────────────────────────────────────────────────────────────────
-// Change VITE_LICENSE_API in .env to your deployed server URL
-// e.g.  VITE_LICENSE_API=https://terminal-x-licenses.railway.app
-const LICENSE_API  = import.meta.env.VITE_LICENSE_API || 'https://terminal-x-licenses.railway.app'
+const LICENSE_API  = import.meta.env.VITE_LICENSE_API || 'https://terminalxpos.com'
 const CACHE_TTL_MS = 72 * 60 * 60 * 1000  // 72 hours offline grace
 const GRACE_DAYS   = 3
 const WARNING_DAYS = 30
@@ -88,22 +86,27 @@ export async function validateLicense(licenseKey, hardwareId, rnc = '') {
   }
 
   try {
-    const response = await fetch(`${LICENSE_API}/api/validate`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        key:  licenseKey.toUpperCase().trim(),
-        hwid: hardwareId,
-        rnc:  rnc || getStoredRnc(),
-      }),
-      signal: AbortSignal.timeout(10000),  // 10s timeout
-    })
-
-    if (!response.ok) {
-      throw new Error(`Server error: ${response.status}`)
+    const payload = {
+      key:  licenseKey.toUpperCase().trim(),
+      hwid: hardwareId,
+      rnc:  rnc || getStoredRnc(),
     }
 
-    const data = await response.json()
+    let data
+    if (window.electronAPI?.remote) {
+      // Desktop: use IPC (no CORS issues)
+      data = await window.electronAPI.remote.validate(payload)
+    } else {
+      // Web: use fetch
+      const response = await fetch(`${LICENSE_API}/api/validate`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+        signal: AbortSignal.timeout(10000),
+      })
+      if (!response.ok) throw new Error(`Server error: ${response.status}`)
+      data = await response.json()
+    }
 
     // Rehydrate date strings from server
     const result = {

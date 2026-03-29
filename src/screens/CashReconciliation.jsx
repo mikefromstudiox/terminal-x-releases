@@ -120,7 +120,7 @@ function PinModal({ onConfirm, onClose, lang }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 w-80">
+      <div className="bg-white rounded-2xl shadow-2xl p-6 md:p-8 w-full max-w-sm mx-4">
         <div className="flex items-center gap-2 mb-6">
           <Lock size={18} className="text-slate-500" />
           <h3 className="font-semibold text-slate-800">{L('Autorización de Gerente', 'Manager Authorization')}</h3>
@@ -141,7 +141,7 @@ function PinModal({ onConfirm, onClose, lang }) {
           <button onClick={onClose} className="flex-1 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
             {L('Cancelar', 'Cancel')}
           </button>
-          <button onClick={submit} disabled={loading} className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1">
+          <button onClick={submit} disabled={loading} className="flex-1 py-2 rounded-lg bg-black text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-50 flex items-center justify-center gap-1">
             {loading && <Loader2 size={13} className="animate-spin" />}
             {L('Confirmar', 'Confirm')}
           </button>
@@ -165,7 +165,10 @@ function CierresPanel({ onClose, lang, biz }) {
   const [expanded, setExpanded] = useState(null)
   const mountedRef = useRef(true)
 
-  useEffect(() => () => { mountedRef.current = false }, [])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   function runSearch(from, to) {
     setLoading(true)
@@ -200,8 +203,8 @@ function CierresPanel({ onClose, lang, biz }) {
   return (
     <div className="fixed inset-y-0 right-0 z-40 w-full md:w-[500px] bg-white shadow-2xl flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-        <h3 className="font-semibold text-slate-800">{L('Historial de Cierres', 'Closing History')}</h3>
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+        <h3 className="text-[14px] md:text-[16px] font-bold text-slate-800">{L('Historial de Cierres', 'Closing History')}</h3>
         <button onClick={onClose} className="p-1 rounded hover:bg-slate-100">
           <X size={18} className="text-slate-500" />
         </button>
@@ -220,7 +223,7 @@ function CierresPanel({ onClose, lang, biz }) {
             className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
         </div>
         <button onClick={() => runSearch(dateFrom, dateTo)}
-          className="flex items-center gap-1.5 mt-4 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg">
+          className="flex items-center gap-1.5 mt-4 px-4 py-1.5 bg-black hover:bg-slate-800 text-white text-sm font-medium rounded-lg">
           <Search size={14} />
           {L('Buscar', 'Search')}
         </button>
@@ -516,7 +519,7 @@ export default function CashReconciliation() {
       )}
 
       {/* ── Top Bar ── */}
-      <div className="bg-white border-b border-slate-100 px-3 md:px-6 py-3 flex-shrink-0">
+      <div className="bg-white border-b border-slate-200 px-3 md:px-6 py-3 flex-shrink-0">
         <div className="flex flex-wrap items-center gap-3 md:gap-6">
           <div className="flex-1 min-w-[120px]">
             <p className="text-xs text-slate-400 uppercase tracking-wider">{L('Cajero', 'Cashier')}</p>
@@ -782,7 +785,7 @@ export default function CashReconciliation() {
             disabled={closed || saving}
             onClick={handleCuadrar}
             className={`flex items-center gap-1.5 px-4 md:px-6 py-2 min-h-[44px] md:min-h-0 rounded-lg text-xs md:text-sm font-semibold text-white transition disabled:opacity-40 ${
-              cuadrada ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'
+              cuadrada ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-black hover:bg-slate-800'
             }`}
           >
             {saving

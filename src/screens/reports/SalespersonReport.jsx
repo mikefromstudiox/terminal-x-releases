@@ -1,8 +1,10 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Lock, Download, ChevronRight, TrendingUp, CircleDollarSign, Users, BarChart3 } from 'lucide-react'
+import { Lock, Download, Printer, ChevronRight, TrendingUp, CircleDollarSign, Users, BarChart3 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
+import { exportSellerDetail, exportSellerSummary } from '../../services/csv'
+import { printCommissionDetail, printCommissionSummary } from '../../services/report-html'
 
 // ── Access control ────────────────────────────────────────────────────────────
 const ALLOWED_ROLES = ['owner', 'manager', 'cfo', 'accountant']
@@ -62,33 +64,7 @@ const PAST_MONTHS = Array.from({ length: 12 }, (_, i) => {
   return { year: y, month: m }
 })
 
-// ── CSV export ────────────────────────────────────────────────────────────────
-function exportCSV(tickets, sellerName, period, lang) {
-  const L = (es, en) => lang === 'es' ? es : en
-  const rows = [
-    [`${L('Comisiones de Vendedor','Salesperson Commissions')} — ${sellerName} — ${period}`], [],
-    ['#Ticket', L('Cliente','Client'), L('Subtotal','Subtotal'), '%', L('Comisión','Commission'), L('Estado','Status')],
-    ...tickets.map(t => [
-      t.doc_number,
-      t.client_name || '—',
-      t.commBase.toFixed(2),
-      `${t.pct}%`,
-      t.commission.toFixed(2),
-      t.status,
-    ]),
-    [],
-    ['', L('TOTALES','TOTALS'),
-      tickets.reduce((s, t) => s + t.commBase,   0).toFixed(2), '',
-      tickets.reduce((s, t) => s + t.commission, 0).toFixed(2), '',
-    ],
-  ]
-  const csv  = rows.map(r => r.join(',')).join('\n')
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
-  const url  = URL.createObjectURL(blob)
-  const a    = document.createElement('a')
-  a.href = url; a.download = `comisiones-vendedor-${sellerName.toLowerCase().replace(/\s+/g,'-')}.csv`; a.click()
-  URL.revokeObjectURL(url)
-}
+// ── CSV export (now uses shared professional utility) ─────────────────────────
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 function MetricCard({ icon: Icon, label, value, sub, accent }) {
@@ -256,15 +232,19 @@ export default function SalespersonReport() {
   const [sellers,        setSellers]        = useState([])
   const [tickets,        setTickets]        = useState([])
   const [loadingTickets, setLoadingTickets] = useState(false)
+  const [biz,            setBiz]            = useState({})
 
   const allowed = ALLOWED_ROLES.includes(user?.role)
 
-  // Load sellers once on mount
+  // Load sellers + biz once on mount
   useEffect(() => {
     if (!allowed) return
     api.sellers.allAdmin()
       .then(rows => setSellers(rows || []))
       .catch(() => setSellers([]))
+    api.admin?.getEmpresa?.().then(e => {
+      if (e) setBiz({ name: e.nombre || e.name, rnc: e.rnc, address: e.direccion || e.address, phone: e.telefono || e.phone, email: e.email })
+    }).catch(() => {})
   }, [])
 
   // Load tickets when period changes
@@ -354,24 +334,17 @@ export default function SalespersonReport() {
 
   function handleExport() {
     if (sellerId === 'all') {
-      const rows = [
-        [`${L('Comisiones — Todos los vendedores','Commissions — All salespersons')} — ${periodLabel}`], [],
-        [L('Vendedor','Salesperson'), '%', L('Tickets','Tickets'), L('Subtotal','Subtotal'), L('Comisión','Commission')],
-        ...sellerSummaries.map(g => [g.name, `${g.commissionPct}%`, g.ticketCount, g.totalBilled.toFixed(2), g.commission.toFixed(2)]),
-        [],
-        ['TOTAL','','',
-          sellerSummaries.reduce((s, g) => s + g.totalBilled, 0).toFixed(2),
-          sellerSummaries.reduce((s, g) => s + g.commission, 0).toFixed(2),
-        ],
-      ]
-      const csv  = rows.map(r => r.join(',')).join('\n')
-      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href = url; a.download = `comisiones-vendedores-${periodLabel.toLowerCase().replace(/\s+/g,'-')}.csv`; a.click()
-      URL.revokeObjectURL(url)
+      exportSellerSummary(biz, sellerSummaries, periodLabel)
     } else {
-      exportCSV(selectedTickets, selectedSummary?.name ?? 'Vendedor', periodLabel, lang)
+      exportSellerDetail(biz, selectedTickets, selectedSummary?.name ?? 'Vendedor', selectedSummary?.commissionPct || 0, periodLabel)
+    }
+  }
+
+  function handlePrint() {
+    if (sellerId === 'all') {
+      printCommissionSummary(biz, sellerSummaries, 'Vendedores', periodLabel)
+    } else {
+      printCommissionDetail(biz, selectedTickets, selectedSummary?.name ?? 'Vendedor', selectedSummary?.commissionPct || 0, periodLabel)
     }
   }
 
@@ -390,20 +363,29 @@ export default function SalespersonReport() {
       <div className="shrink-0 bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-[16px] font-bold text-slate-800">
+            <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800">
               {L('Comisiones de Vendedores', 'Salesperson Commissions')}
             </h2>
             <p className="text-[11px] text-slate-400 mt-0.5">
               {L('Calculado sobre subtotal del ticket (pre-ITBIS/Ley).', 'Calculated on ticket subtotal (pre-ITBIS/Ley).')}
             </p>
           </div>
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 bg-white rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
-          >
-            <Download size={13} />
-            {L('Exportar CSV', 'Export CSV')}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 bg-white rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+            >
+              <Download size={13} />
+              {L('Exportar CSV', 'Export CSV')}
+            </button>
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 bg-white rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+            >
+              <Printer size={13} />
+              Imprimir
+            </button>
+          </div>
         </div>
 
         {/* Period selector */}

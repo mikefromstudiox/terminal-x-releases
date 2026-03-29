@@ -8,7 +8,11 @@ function getClient() {
 
 export default async function handler(req, res) {
   const origin = req.headers.origin || ''
-  if (ALLOWED_ORIGINS.includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin)
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+  } else if (!origin || origin === 'null') {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
   if (req.method === 'OPTIONS') return res.status(204).end()
@@ -28,13 +32,13 @@ export default async function handler(req, res) {
     const { data: existing } = await supabase.from('businesses').select('id').eq('owner_id', user.id).maybeSingle()
     if (existing) return res.status(409).json({ error: 'Business already exists', business_id: existing.id })
 
-    const planName = plan || 'free'
+    const planName = plan || 'pro'
     const { data: planRow } = await supabase.from('plans').select('id, name, max_users').eq('name', planName).maybeSingle()
 
     const { data: biz, error: bizErr } = await supabase.from('businesses').insert({
       owner_id: user.id, name: business_name.trim(), rnc: (rnc || '').trim(),
       phone: (phone || '').trim(), plan: planName,
-      settings: { itbis_pct: 18, ley_pct: 10, language: 'es', facturacion_mode: 'b_series' },
+      settings: { itbis_pct: 18, ley_pct: 10, language: 'es', facturacion_mode: ['pro_plus', 'pro_max'].includes(planName) ? 'ecf' : 'b_series' },
     }).select('id').single()
     if (bizErr) throw bizErr
 
@@ -48,11 +52,12 @@ export default async function handler(req, res) {
       platform: 'web', activated_at: new Date().toISOString(), max_users: planRow?.max_users || 3,
     })
 
-    const ncfTypes = ['B01', 'B02', 'B14', 'B15']
+    const ncfTypes = ['B01', 'B02', 'B14', 'B15', 'E31', 'E32', 'E33', 'E34']
     for (const type of ncfTypes) {
-      await supabase.from('ncf_sequences').insert({
+      const { error: ncfErr } = await supabase.from('ncf_sequences').upsert({
         business_id: biz.id, type, prefix: type, next_number: 1, max_number: 999999999,
-      }).catch(() => {})
+      }, { onConflict: 'business_id,type', ignoreDuplicates: true })
+      if (ncfErr && !ncfErr.message?.includes('duplicate')) throw ncfErr
     }
 
     return res.json({ ok: true, business_id: biz.id })

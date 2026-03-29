@@ -1,5 +1,9 @@
 {
     "rewrites": [
+    { "source": "/fe/autenticacion/api/semilla", "destination": "/api/fe/semilla" },
+    { "source": "/fe/autenticacion/api/validacioncertificado", "destination": "/api/fe/validarcertificado" },
+    { "source": "/fe/recepcion/api/ecf", "destination": "/api/fe/recepcion" },
+    { "source": "/fe/aprobacioncomercial/api/ecf", "destination": "/api/fe/aprobacion" },
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],

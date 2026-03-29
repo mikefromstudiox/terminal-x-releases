@@ -388,6 +388,39 @@ export function createWebAPI(supabase, businessId) {
       }),
     },
 
+    // ── Empleados (payroll) ────────────────────────────────────────────────
+
+    empleados: {
+      all: () => tryOr(async () => {
+        return throwSupaError(await supabase.from('empleados').select('*').eq('business_id', bid).eq('active', true).order('nombre'))
+      }, []),
+
+      allAdmin: () => tryOr(async () => {
+        return throwSupaError(await supabase.from('empleados').select('*').eq('business_id', bid).order('nombre'))
+      }, []),
+
+      create: (data) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('empleados').insert({
+          nombre: data.nombre, tipo: data.tipo, ref_id: data.ref_id || null,
+          salary: data.salary || 0, start_date: data.start_date,
+          cedula: data.cedula || null, phone: data.phone || null,
+          active: true, business_id: bid,
+        }).select('id').single())
+        return { id: row.id }
+      }),
+
+      update: (data) => tryOr(async () => {
+        const { id, ...rest } = data
+        const allowed = ['nombre', 'tipo', 'ref_id', 'salary', 'start_date', 'cedula', 'phone', 'active']
+        const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
+        throwSupaError(await supabase.from('empleados').update(patch).eq('id', id).eq('business_id', bid))
+      }),
+
+      delete: (id) => tryOr(async () => {
+        throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid))
+      }),
+    },
+
     // ── Clients ──────────────────────────────────────────────────────────────
 
     clients: {
@@ -745,13 +778,17 @@ export function createWebAPI(supabase, businessId) {
           for (const s of (staff || [])) cajeroMap[s.id] = s
         }
 
-        return rows.map(r => ({
-          ...r,
-          items: (itemsMap[r.id] || []).filter(i => i.name != null),
-          client_name: clientMap[r.client_id]?.name || null,
-          client_rnc:  clientMap[r.client_id]?.rnc  || null,
-          cajero_name: cajeroMap[r.cajero_id]?.name  || null,
-        }))
+        return rows.map(r => {
+          const items = (itemsMap[r.id] || []).filter(i => i.name != null)
+          return {
+            ...r,
+            items,
+            service_names: items.map(i => i.name).join(' + ') || null,
+            client_name: clientMap[r.client_id]?.name || null,
+            client_rnc:  clientMap[r.client_id]?.rnc  || null,
+            cajero_name: cajeroMap[r.cajero_id]?.name  || null,
+          }
+        })
       }, []),
     },
 
@@ -1404,19 +1441,6 @@ export function createWebAPI(supabase, businessId) {
         } catch { /* quota exceeded or private browsing */ }
         return Promise.resolve()
       },
-    },
-
-    // ── ef2.do API proxy (via Edge Function) ─────────────────────────────────
-
-    ef2: {
-      fetch: (params) => tryOr(async () => {
-        const { data, error } = await supabase.functions.invoke('ef2-proxy', {
-          body: { ...params, businessId: bid },
-        })
-        if (error) throw error
-        // Wrap in same shape as Electron IPC: { ok, data }
-        return { ok: true, data }
-      }, { ok: false, error: 'ef2 edge function failed' }),
     },
 
     // ── e-CF offline queue ───────────────────────────────────────────────────

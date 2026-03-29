@@ -475,6 +475,9 @@ export default function POS() {
           ley:          ly,
           total:        tot,
           biz,
+          signatureDate: paymentData.ecf?.signatureDate || null,
+          securityCode:  paymentData.ecf?.securityCode || null,
+          qrLink:        paymentData.ecf?.qrLink || null,
         }
         if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice'))
         if (cfg.print_conduce_auto === '1') printWasherConduce(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce'))

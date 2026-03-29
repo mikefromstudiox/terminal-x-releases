@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import logoImg from '../assets/logo.png'
 import {
   Building2, User, KeyRound, CheckCircle2,
@@ -18,8 +18,8 @@ const COPY = {
     step1: 'Negocio',
     step2: 'Cuenta',
     step3: 'Administrador',
-    step4: 'Licencia',
-    step5: 'Fiscal',
+    step4: 'Fiscal',
+    step5: 'Activacion',
     step6: 'Listo',
 
     // Welcome
@@ -85,21 +85,14 @@ const COPY = {
     s2_err_mismatch: 'Los PINes no coinciden.',
     s2_saving:       'Guardando…',
 
-    // Step 3 — Licencia
-    s3_title:        'Clave de Licencia',
-    s3_sub:          'Ingresa la clave que recibiste al adquirir Terminal X.',
-    s3_key:          'Clave de licencia',
-    s3_key_ph:       'TXL-XXXX-XXXX-XXXX',
-    s3_rnc:          'RNC / Cédula del negocio',
-    s3_rnc_ph:       'Ej: 130123456',
-    s3_activate:     'Activar licencia',
-    s3_activating:   'Verificando…',
-    s3_success:      'Licencia activada correctamente.',
-    s3_skip:         'Activar más tarde',
-    s3_skip_note:    'Podrás activarlo desde Administración → Sistema.',
-    s3_err_format:   'Formato inválido. Ejemplo: TXL-A1B2-C3D4-E5F6',
-    s3_err_rnc:      'Ingresa el RNC o cédula.',
+    // Step — Activation
+    s3_title:        'Registro del Negocio',
+    s3_sub:          'Tu negocio ha sido registrado. Esperando activacion por el equipo de Terminal X.',
+    s3_registering:  'Registrando tu negocio...',
+    s3_waiting:      'Esperando activacion...',
+    s3_waiting_sub:  'Nuestro equipo activara tu cuenta en breve. Esta pantalla se actualizara automaticamente.',
     s3_hwid:         'ID de equipo',
+    s3_err_register: 'Error al registrar. Verifica tu conexion a internet.',
 
     // Step 4 — Fiscal
     s4_title:        'Comprobantes Fiscales',
@@ -108,22 +101,22 @@ const COPY = {
     s4_paper_desc:   'Talonarios físicos autorizados por la DGII.',
     s4_ecf:          'E31 / E32 — e-CF (Electrónico)',
     s4_ecf_desc:     'Obligatorio para nuevos contribuyentes. Ley 32-23.',
-    s4_ecf_warn:     'Debes tener contrato activo con ef2.do u otro PSP.',
-    s4_ef2_title:    'Credenciales ef2.do',
-    s4_ef2_sub:      'Opcional — puedes ingresarlas después en Configuración → e-CF.',
-    s4_ef2_user:     'Usuario ef2.do',
-    s4_ef2_user_ph:  'tu@correo.com',
-    s4_ef2_token:    'Token ef2.do',
-    s4_ef2_token_ph: 'Token de autenticación',
+    s4_ecf_warn:     'Requiere certificado digital (.p12) de la DGII.',
+    s4_ef2_title:    'Configuración DGII',
+    s4_ef2_sub:      'Opcional — puedes configurarlo después en Configuración → e-CF.',
+    s4_ef2_user:     'RNC Emisor',
+    s4_ef2_user_ph:  'XXX-XXXXX-X',
+    s4_ef2_token:    'Certificado .p12',
+    s4_ef2_token_ph: 'Se configura en Configuración → e-CF',
     s4_saving:       'Guardando…',
 
-    // Step 5 — Done
-    s5_title:        '¡Terminal X está listo!',
-    s5_sub:          'Tu sistema ha sido configurado exitosamente.',
-    s5_go:           'Ir al inicio de sesión',
-    s5_next:         'Próximos pasos',
-    s5_step_services:'Agrega tus servicios en Configuración → Servicios',
-    s5_step_printer: 'Conecta tu impresora en Configuración → Impresora',
+    // Step — Done / Welcome
+    s5_title:        '¡Bienvenido a Terminal X POS!',
+    s5_sub:          'Tu negocio ha sido registrado exitosamente.',
+    s5_go:           'Comenzar a usar Terminal X',
+    s5_next:         'Proximos pasos',
+    s5_step_services:'Agrega tus servicios en Configuracion → Servicios',
+    s5_step_printer: 'Conecta tu impresora en Configuracion → Impresora',
     s5_step_test:    'Realiza una venta de prueba en el POS',
 
     // Shared
@@ -135,8 +128,8 @@ const COPY = {
     step1: 'Business',
     step2: 'Account',
     step3: 'Admin',
-    step4: 'License',
-    step5: 'Fiscal',
+    step4: 'Fiscal',
+    step5: 'Activation',
     step6: 'Done',
 
     welcome_title:   'Welcome to Terminal X!',
@@ -198,20 +191,13 @@ const COPY = {
     s2_err_mismatch: 'PINs do not match.',
     s2_saving:       'Saving…',
 
-    s3_title:        'License Key',
-    s3_sub:          'Enter the key you received when purchasing Terminal X.',
-    s3_key:          'License key',
-    s3_key_ph:       'TXL-XXXX-XXXX-XXXX',
-    s3_rnc:          'Tax ID / RNC',
-    s3_rnc_ph:       'e.g. 130123456',
-    s3_activate:     'Activate license',
-    s3_activating:   'Verifying…',
-    s3_success:      'License activated successfully.',
-    s3_skip:         'Activate later',
-    s3_skip_note:    'You can activate it from Administration → System.',
-    s3_err_format:   'Invalid format. Example: TXL-A1B2-C3D4-E5F6',
-    s3_err_rnc:      'Enter the business Tax ID / RNC.',
+    s3_title:        'Business Registration',
+    s3_sub:          'Your business has been registered. Waiting for activation by the Terminal X team.',
+    s3_registering:  'Registering your business...',
+    s3_waiting:      'Waiting for activation...',
+    s3_waiting_sub:  'Our team will activate your account shortly. This screen will update automatically.',
     s3_hwid:         'Machine ID',
+    s3_err_register: 'Registration failed. Check your internet connection.',
 
     // Step 4 — Fiscal
     s4_title:        'Fiscal Receipts',
@@ -220,19 +206,19 @@ const COPY = {
     s4_paper_desc:   'Physical receipt books authorized by DGII.',
     s4_ecf:          'E31 / E32 — e-CF (Electronic)',
     s4_ecf_desc:     'Required for new taxpayers. Law 32-23.',
-    s4_ecf_warn:     'You must have an active contract with ef2.do or another PSP.',
-    s4_ef2_title:    'ef2.do Credentials',
-    s4_ef2_sub:      'Optional — you can enter them later in Settings → e-CF.',
-    s4_ef2_user:     'ef2.do username',
-    s4_ef2_user_ph:  'your@email.com',
-    s4_ef2_token:    'ef2.do token',
-    s4_ef2_token_ph: 'Authentication token',
+    s4_ecf_warn:     'Requires a digital certificate (.p12) from DGII.',
+    s4_ef2_title:    'DGII Configuration',
+    s4_ef2_sub:      'Optional — you can configure this later in Settings → e-CF.',
+    s4_ef2_user:     'Emisor RNC',
+    s4_ef2_user_ph:  'XXX-XXXXX-X',
+    s4_ef2_token:    '.p12 Certificate',
+    s4_ef2_token_ph: 'Configure in Settings → e-CF',
     s4_saving:       'Saving…',
 
     // Step 5 — Done
-    s5_title:        'Terminal X is Ready!',
-    s5_sub:          'Your system has been successfully configured.',
-    s5_go:           'Go to login',
+    s5_title:        'Welcome to Terminal X POS!',
+    s5_sub:          'Your business has been registered successfully.',
+    s5_go:           'Start using Terminal X',
     s5_next:         'Next steps',
     s5_step_services:'Add your services in Settings → Services',
     s5_step_printer: 'Connect your printer in Settings → Printer',
@@ -288,8 +274,8 @@ const STEP_META = [
   { n: 1, icon: Building2 },
   { n: 2, icon: Mail },
   { n: 3, icon: User },
-  { n: 4, icon: KeyRound },
-  { n: 5, icon: ReceiptText },
+  { n: 4, icon: ReceiptText },
+  { n: 5, icon: KeyRound },
   { n: 6, icon: CheckCircle2 },
 ]
 
@@ -516,12 +502,20 @@ function StepEmpresa({ t, onNext, onBack }) {
 
           <div className="grid grid-cols-2 gap-4">
             <Field label={t('s1_rnc')} id="emp-rnc">
-              <TextInput id="emp-rnc" value={rnc} onChange={setRnc}
-                placeholder={t('s1_rnc_ph')} inputMode="numeric" />
+              <TextInput id="emp-rnc" value={rnc} onChange={v => {
+                const digits = v.replace(/\D/g, '').slice(0, 9)
+                if (digits.length <= 3) setRnc(digits)
+                else if (digits.length <= 8) setRnc(digits.slice(0,3) + '-' + digits.slice(3))
+                else setRnc(digits.slice(0,3) + '-' + digits.slice(3,8) + '-' + digits.slice(8))
+              }} placeholder="XXX-XXXXX-X" inputMode="numeric" maxLength={11} />
             </Field>
             <Field label={t('s1_tel')} id="emp-tel">
-              <TextInput id="emp-tel" value={tel} onChange={setTel}
-                placeholder={t('s1_tel_ph')} inputMode="tel" />
+              <TextInput id="emp-tel" value={tel} onChange={v => {
+                const digits = v.replace(/\D/g, '').slice(0, 10)
+                if (digits.length <= 3) setTel(digits)
+                else if (digits.length <= 6) setTel(digits.slice(0,3) + '-' + digits.slice(3))
+                else setTel(digits.slice(0,3) + '-' + digits.slice(3,6) + '-' + digits.slice(6))
+              }} placeholder="809-555-0123" inputMode="tel" maxLength={12} />
             </Field>
           </div>
 
@@ -724,16 +718,17 @@ function StepUsuario({ t, onNext, onBack }) {
   const api = useAPI()
   const [nombre,   setNombre]   = useState('')
   const [username, setUsername] = useState('')
+  const [userEdited, setUserEdited] = useState(false) // true once user manually edits username
   const [pin,      setPin]      = useState('')
   const [confirm,  setConfirm]  = useState('')
   const [showPin,  setShowPin]  = useState(false)
   const [err,      setErr]      = useState('')
   const [saving,   setSaving]   = useState(false)
 
-  // Auto-generate username from nombre
+  // Auto-generate username from nombre (until user edits it manually)
   function handleNombreChange(v) {
     setNombre(v)
-    if (!username) {
+    if (!userEdited) {
       const slug = v.trim().toLowerCase().split(' ')[0].replace(/[^a-z0-9]/g, '')
       setUsername(slug || '')
     }
@@ -753,13 +748,16 @@ function StepUsuario({ t, onNext, onBack }) {
     setErr('')
     setSaving(true)
     try {
-      await api?.admin?.saveUsuario?.({
+      const result = await api?.admin?.saveUsuario?.({
         name:     nombre.trim(),
         username: (username.trim() || nombre.trim().toLowerCase().replace(/\s+/g, '.')).slice(0, 30),
         pin,
         role:     'owner',
         discount_pct: 0,
       })
+      // Verify the user was actually created
+      const users = await api?.admin?.getUsuarios?.()
+      if (!users || users.length === 0) throw new Error('No se pudo crear el usuario. Intenta de nuevo.')
       onNext()
     } catch (e) {
       setErr(e?.message || 'Error al guardar usuario.')
@@ -794,7 +792,7 @@ function StepUsuario({ t, onNext, onBack }) {
           </Field>
 
           <Field label={t('s2_username')} id="usr-username">
-            <TextInput id="usr-username" value={username} onChange={v => setUsername(v.replace(/\s/g, '').toLowerCase())}
+            <TextInput id="usr-username" value={username} onChange={v => { setUserEdited(true); setUsername(v.replace(/\s/g, '').toLowerCase()) }}
               placeholder={t('s2_username_ph')} />
           </Field>
 
@@ -874,40 +872,73 @@ function StepUsuario({ t, onNext, onBack }) {
 }
 
 // ── Step 3 — License ──────────────────────────────────────────────────────────
-function StepLicencia({ t, onNext, onBack, prefillRnc, hwid }) {
+function StepActivation({ t, onNext, onBack, empresaNombre, empresaRnc, hwid }) {
   const api = useAPI()
   const { activate } = useLicense()
+  const [phase, setPhase] = useState('registering')
+  const [err, setErr] = useState('')
+  const [licenseKey, setLicenseKey] = useState('')
 
-  const [key,        setKey]        = useState('')
-  const [rnc,        setRnc]        = useState(prefillRnc || '')
-  const [activating, setActivating] = useState(false)
-  const [activated,  setActivated]  = useState(false)
-  const [err,        setErr]        = useState('')
-  const [skipWarn,   setSkipWarn]   = useState(false)
-
-  async function handleActivate() {
-    const k = key.trim().toUpperCase()
-    const r = rnc.trim().replace(/\D/g, '')
-    const isMaster = await api?.license?.isMaster?.(k)
-    if (!isMaster && !isValidKeyFormat(k)) { setErr(t('s3_err_format')); return }
-    if (!r) { setErr(t('s3_err_rnc')); return }
-    setErr('')
-    setActivating(true)
-    try {
-      await activate(k, r)
-      setActivated(true)
-      setErr('')
-    } catch (e) {
-      setErr(e?.message || 'Error al verificar la licencia.')
-    } finally {
-      setActivating(false)
+  useEffect(() => {
+    if (!hwid) return // wait for hwid to load
+    let cancelled = false
+    async function register() {
+      try {
+        const empresa = await api?.admin?.getEmpresa?.()
+        const name = empresa?.name || empresaNombre || 'Business'
+        const rnc = empresa?.rnc || empresaRnc || ''
+        const phone = empresa?.phone || ''
+        const email = empresa?.email || ''
+        const body = { business_name: name, rnc, phone, email, hwid, language: t('next') === 'Continue' ? 'en' : 'es' }
+        // Use IPC on desktop (no CORS), fetch on web
+        const result = window.electronAPI?.remote
+          ? await window.electronAPI.remote.register(body)
+          : await fetch('https://terminalxpos.com/api/panel?action=register', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            }).then(r => { if (!r.ok) throw new Error('fail'); return r.json() })
+        if (!cancelled) {
+          if (result.data?.license_key) setLicenseKey(result.data.license_key)
+          setPhase('waiting')
+        }
+      } catch {
+        if (!cancelled) { setErr(t('s3_err_register')); setPhase('error') }
+      }
     }
-  }
+    register()
+    return () => { cancelled = true }
+  }, [hwid])
 
-  function handleSkip() {
-    setSkipWarn(true)
-    onNext()
-  }
+  useEffect(() => {
+    if (phase !== 'waiting' || !licenseKey) return
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const body = { key: licenseKey, hwid, rnc: (empresaRnc || '').replace(/\D/g, '') }
+        // Use IPC on desktop (no CORS), fetch on web
+        const data = window.electronAPI?.remote
+          ? await window.electronAPI.remote.validate(body)
+          : await fetch('https://terminalxpos.com/api/validate', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            }).then(r => r.json())
+        if (!cancelled && data.valid && data.status === 'active') {
+          setPhase('activated')
+          try { await activate(licenseKey, (empresaRnc || '').replace(/\D/g, '')) } catch {}
+        }
+      } catch {}
+    }
+    poll()
+    const id = setInterval(poll, 10000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [phase, licenseKey])
+
+  useEffect(() => {
+    if (phase === 'activated') {
+      const timer = setTimeout(onNext, 2500)
+      return () => clearTimeout(timer)
+    }
+  }, [phase])
 
   return (
     <div className="w-full max-w-md">
@@ -917,95 +948,65 @@ function StepLicencia({ t, onNext, onBack, prefillRnc, hwid }) {
             <KeyRound size={18} className="text-red-500" />
           </div>
           <h2 className="text-white text-[22px] font-bold">{t('s3_title')}</h2>
-          <p className="text-zinc-500 text-[13px] mt-1">{t('s3_sub')}</p>
         </div>
 
-        {activated ? (
+        {(phase === 'registering') && (
+          <div className="flex flex-col items-center py-12 gap-4">
+            <Loader2 size={32} className="animate-spin text-red-500" />
+            <p className="text-zinc-400 text-[14px] font-medium">{t('s3_registering')}</p>
+          </div>
+        )}
+
+        {phase === 'error' && (
           <div className="flex flex-col items-center py-8 gap-4">
-            <div className="w-16 h-16 rounded-full bg-green-500/10 border border-green-500/30 flex items-center justify-center">
-              <CheckCircle2 size={32} className="text-green-400" />
-            </div>
-            <p className="text-green-400 font-semibold text-[15px]">{t('s3_success')}</p>
-            <button onClick={onNext}
-              className="mt-4 w-full py-3.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-[14px] transition-all active:scale-[0.98] flex items-center justify-center gap-2">
-              {t('next')} <ChevronRight size={15} />
+            <AlertTriangle size={32} className="text-red-400" />
+            <p className="text-red-400 text-[13px] text-center">{err}</p>
+            <button onClick={onBack}
+              className="px-5 py-2.5 border border-zinc-700 text-zinc-400 hover:bg-zinc-800 rounded-xl text-[13px] font-medium transition-colors">
+              <ChevronLeft size={14} className="inline mr-1" /> {t('back')}
             </button>
           </div>
-        ) : (
-          <div className="space-y-4">
-            <Field label={t('s3_key')} id="lic-key" error={err.includes('format') || err.includes('nválid') || err.includes('nvalid') ? err : ''}>
-              <input
-                id="lic-key"
-                type="text"
-                value={key}
-                onChange={e => {
-                  const raw = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 15)
-                  const parts = [raw.slice(0,3), raw.slice(3,7), raw.slice(7,11), raw.slice(11,15)].filter(Boolean)
-                  setKey(parts.join('-'))
-                  setErr('')
-                }}
-                onKeyDown={e => e.key === 'Enter' && handleActivate()}
-                placeholder={t('s3_key_ph')}
-                autoFocus
-                maxLength={19}
-                spellCheck={false}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white text-[14px] font-mono tracking-widest
-                           placeholder-zinc-600 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/30 transition-colors text-center uppercase"
-              />
-            </Field>
+        )}
 
-            <Field label={t('s3_rnc')} id="lic-rnc" error={err.includes('RNC') || err.includes('Tax') || err.includes('edula') ? err : ''}>
-              <TextInput id="lic-rnc" value={rnc}
-                onChange={v => { setRnc(v); setErr('') }}
-                placeholder={t('s3_rnc_ph')} inputMode="numeric" />
-            </Field>
-
-            {err && !err.includes('format') && !err.includes('nválid') && !err.includes('nvalid') &&
-              !err.includes('RNC') && !err.includes('Tax') && !err.includes('edula') && (
-              <p className="text-[12px] text-red-400 flex items-center gap-1">
-                <AlertTriangle size={11} /> {err}
-              </p>
-            )}
-
-            <button onClick={handleActivate} disabled={activating || !key.trim()}
-              className="w-full py-3.5 bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl text-[14px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-md shadow-red-600/20">
-              {activating
-                ? <><Loader2 size={15} className="animate-spin" /> {t('s3_activating')}</>
-                : <><KeyRound size={15} /> {t('s3_activate')}</>
-              }
-            </button>
-
-            {/* HWID for support */}
-            {hwid && (
-              <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl px-4 py-3 mt-2">
-                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">{t('s3_hwid')}</p>
-                <code className="text-[11px] text-zinc-400 font-mono break-all">{hwid}</code>
+        {phase === 'waiting' && (
+          <div className="flex flex-col items-center py-6 gap-5">
+            <div className="w-20 h-20 rounded-full bg-amber-500/10 border-2 border-amber-500/20 flex items-center justify-center">
+              <Loader2 size={28} className="animate-spin text-amber-400" />
+            </div>
+            <div className="text-center">
+              <p className="text-amber-400 font-semibold text-[16px]">{t('s3_waiting')}</p>
+              <p className="text-zinc-500 text-[12px] mt-2 max-w-xs">{t('s3_waiting_sub')}</p>
+            </div>
+            {empresaNombre && (
+              <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-xl p-4 w-full text-center">
+                <p className="text-white text-[15px] font-semibold">{empresaNombre}</p>
+                {empresaRnc && <p className="text-zinc-500 text-[12px] mt-0.5">{empresaRnc}</p>}
               </div>
             )}
-
-            {/* Skip */}
-            {skipWarn ? (
-              <p className="text-center text-[12px] text-amber-400 flex items-center justify-center gap-1.5">
-                <AlertTriangle size={12} /> {t('s3_skip_note')}
-              </p>
-            ) : (
-              <button onClick={handleSkip}
-                className="w-full text-center text-zinc-600 hover:text-zinc-400 text-[12px] transition-colors pt-1">
-                {t('s3_skip')}
-              </button>
+            {hwid && (
+              <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-xl p-3 w-full">
+                <span className="text-[10px] font-bold text-zinc-500 uppercase">{t('s3_hwid')}</span>
+                <p className="text-[11px] text-zinc-400 font-mono mt-0.5 select-all">{hwid}</p>
+              </div>
             )}
+            <button onClick={onBack}
+              className="mt-2 px-5 py-2.5 border border-zinc-700 text-zinc-400 hover:bg-zinc-800 rounded-xl text-[13px] font-medium transition-colors">
+              <ChevronLeft size={14} className="inline mr-1" /> {t('back')}
+            </button>
+          </div>
+        )}
+
+        {phase === 'activated' && (
+          <div className="flex flex-col items-center py-8 gap-4">
+            <div className="w-20 h-20 rounded-full bg-green-500/10 border-2 border-green-500/30 flex items-center justify-center animate-pulse">
+              <CheckCircle2 size={36} className="text-green-400" />
+            </div>
+            <p className="text-green-400 font-bold text-[18px]">{t('s5_title')}</p>
+            <p className="text-zinc-400 text-[13px]">{t('s5_sub')}</p>
+            {empresaNombre && <p className="text-white font-semibold text-[15px]">{empresaNombre}</p>}
           </div>
         )}
       </div>
-
-      {!activated && (
-        <div className="mt-3">
-          <button onClick={onBack}
-            className="flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 text-[13px] transition-colors">
-            <ChevronLeft size={14} /> {t('back')}
-          </button>
-        </div>
-      )}
     </div>
   )
 }
@@ -1230,7 +1231,8 @@ export default function FirstTimeSetup({ onComplete }) {
             onNext={({ rnc, nombre }) => {
               setEmpresaRnc(rnc)
               setEmpresaNombre(nombre)
-              setStep(2)
+              // On desktop, skip Supabase account step (no credentials available)
+              setStep(window.electronAPI ? 3 : 2)
             }}
           />
         )}
@@ -1248,26 +1250,27 @@ export default function FirstTimeSetup({ onComplete }) {
         {step === 3 && (
           <StepUsuario
             t={t}
-            onBack={() => setStep(2)}
+            onBack={() => setStep(window.electronAPI ? 1 : 2)}
             onNext={() => setStep(4)}
           />
         )}
 
         {step === 4 && (
-          <StepLicencia
+          <StepFiscal
             t={t}
             onBack={() => setStep(3)}
             onNext={() => setStep(5)}
-            prefillRnc={empresaRnc}
-            hwid={hwid}
           />
         )}
 
         {step === 5 && (
-          <StepFiscal
+          <StepActivation
             t={t}
             onBack={() => setStep(4)}
             onNext={() => setStep(6)}
+            empresaNombre={empresaNombre}
+            empresaRnc={empresaRnc}
+            hwid={hwid}
           />
         )}
 

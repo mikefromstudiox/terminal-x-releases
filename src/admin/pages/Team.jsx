@@ -1,13 +1,20 @@
 import { useState, useEffect } from 'react'
 import { Loader2, Plus, Shield, ShieldCheck, Eye } from 'lucide-react'
 
-const ROLE_BADGE = {
-  super_admin: { label: 'Super Admin', cls: 'bg-red-50 text-red-700 border-red-200', icon: ShieldCheck },
-  admin:       { label: 'Admin',       cls: 'bg-sky-50 text-sky-700 border-sky-200', icon: Shield },
-  support:     { label: 'Soporte',     cls: 'bg-slate-100 text-slate-600 border-slate-200', icon: Eye },
+const ROLE_LABELS = {
+  super_admin: { es: 'Super Admin', en: 'Super Admin' },
+  admin:       { es: 'Admin',       en: 'Admin' },
+  support:     { es: 'Soporte',     en: 'Support' },
 }
 
-export default function Team({ getToken }) {
+const ROLE_CLS = {
+  super_admin: { cls: 'bg-red-50 text-red-700 border-red-200', icon: ShieldCheck },
+  admin:       { cls: 'bg-sky-50 text-sky-700 border-sky-200', icon: Shield },
+  support:     { cls: 'bg-slate-100 text-slate-600 border-slate-200', icon: Eye },
+}
+
+export default function Team({ getToken, refreshToken, isDark, lang }) {
+  const L = (es, en) => lang === 'es' ? es : en
   const [list, setList] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState('')
@@ -23,14 +30,14 @@ export default function Team({ getToken }) {
     try {
       const resp = await fetch('/api/panel?action=users', { headers: { 'Authorization': `Bearer ${getToken()}` } })
       if (resp.ok) setList((await resp.json()).data || [])
-      else setLoadErr('Error al cargar equipo')
-    } catch { setLoadErr('Error al cargar equipo') }
+      else setLoadErr(L('Error al cargar equipo', 'Error loading team'))
+    } catch { setLoadErr(L('Error al cargar equipo', 'Error loading team')) }
     setLoading(false)
   }
 
   async function addUser(e) {
     e.preventDefault()
-    if (!form.email || !form.name) { setError('Email y nombre requeridos'); return }
+    if (!form.email || !form.name) { setError(L('Email y nombre requeridos', 'Email and name required')); return }
     setSaving(true); setError('')
     try {
       const resp = await fetch('/api/panel?action=users', {
@@ -60,12 +67,12 @@ export default function Team({ getToken }) {
     <div className="p-6 md:p-8 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-[18px] font-bold text-slate-800">Equipo Admin</h1>
-          <p className="text-[12px] text-slate-400">Administradores de Terminal X</p>
+          <h1 className={`text-[18px] font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{L('Equipo Admin', 'Admin Team')}</h1>
+          <p className="text-[12px] text-slate-400">{L('Administradores de Terminal X', 'Terminal X administrators')}</p>
         </div>
         <button onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1.5 px-3 py-2 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors">
-          <Plus size={13} /> Agregar
+          className="flex items-center gap-1.5 px-3 py-2 bg-[#b3001e] text-white text-[12px] font-bold rounded-lg hover:bg-[#8c0017] transition-colors">
+          <Plus size={13} /> {L('Agregar', 'Add')}
         </button>
       </div>
 
@@ -75,22 +82,22 @@ export default function Team({ getToken }) {
           <div className="grid grid-cols-3 gap-3">
             <input placeholder="Email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
               className="px-3 py-2 border border-slate-200 rounded-lg text-[12px] outline-none focus:border-sky-400" />
-            <input placeholder="Nombre" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            <input placeholder={L('Nombre', 'Name')} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
               className="px-3 py-2 border border-slate-200 rounded-lg text-[12px] outline-none focus:border-sky-400" />
             <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
               className="px-3 py-2 border border-slate-200 rounded-lg text-[12px] outline-none focus:border-sky-400">
-              <option value="support">Soporte</option>
+              <option value="support">{L('Soporte', 'Support')}</option>
               <option value="admin">Admin</option>
               <option value="super_admin">Super Admin</option>
             </select>
           </div>
           <div className="flex gap-2">
             <button type="submit" disabled={saving}
-              className="px-4 py-2 bg-[#0C447C] text-white text-[12px] font-semibold rounded-lg hover:bg-[#0a3a6a] disabled:opacity-50 transition-colors">
-              {saving ? 'Guardando...' : 'Guardar'}
+              className="px-4 py-2 bg-[#b3001e] text-white text-[12px] font-semibold rounded-lg hover:bg-[#8c0017] disabled:opacity-50 transition-colors">
+              {saving ? L('Guardando...', 'Saving...') : L('Guardar', 'Save')}
             </button>
             <button type="button" onClick={() => { setShowAdd(false); setError('') }}
-              className="px-4 py-2 text-[12px] text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50">Cancelar</button>
+              className="px-4 py-2 text-[12px] text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50">{L('Cancelar', 'Cancel')}</button>
           </div>
         </form>
       )}
@@ -102,23 +109,24 @@ export default function Team({ getToken }) {
       ) : (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
           {list.length === 0 ? (
-            <div className="py-12 text-center text-[12px] text-slate-400">No hay administradores.</div>
+            <div className="py-12 text-center text-[12px] text-slate-400">{L('No hay administradores.', 'No administrators.')}</div>
           ) : list.map(u => {
-            const role = ROLE_BADGE[u.role] || ROLE_BADGE.support
+            const roleMeta = ROLE_CLS[u.role] || ROLE_CLS.support
+            const roleLabel = ROLE_LABELS[u.role]?.[lang] || u.role
             return (
               <div key={u.id} className="flex items-center px-5 py-3.5 border-b border-slate-100 last:border-0">
                 <div className="flex-1 min-w-0">
                   <p className="text-[13px] font-semibold text-slate-800">{u.name}</p>
                 </div>
-                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${role.cls} mr-4`}>
-                  {role.label}
+                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${roleMeta.cls} mr-4`}>
+                  {roleLabel}
                 </span>
                 <span className={`text-[11px] font-semibold mr-4 ${u.active ? 'text-green-600' : 'text-slate-400'}`}>
-                  {u.active ? 'Activo' : 'Inactivo'}
+                  {u.active ? L('Activo', 'Active') : L('Inactivo', 'Inactive')}
                 </span>
                 <button onClick={() => toggleActive(u)}
                   className="text-[11px] text-slate-400 hover:text-sky-600 transition-colors">
-                  {u.active ? 'Desactivar' : 'Activar'}
+                  {u.active ? L('Desactivar', 'Deactivate') : L('Activar', 'Activate')}
                 </button>
               </div>
             )

@@ -1,0 +1,68 @@
+[
+  {
+    "fileName": "ACECF_133410321E310000000001.xml",
+    "eNCF": "E310000000001",
+    "tipo": "ACECF",
+    "securityCode": "e061b8"
+  },
+  {
+    "fileName": "ACECF_133410321E310000000002.xml",
+    "eNCF": "E310000000002",
+    "tipo": "ACECF",
+    "securityCode": "519eb3"
+  },
+  {
+    "fileName": "ACECF_133410321E310000000003.xml",
+    "eNCF": "E310000000003",
+    "tipo": "ACECF",
+    "securityCode": "5c5d3b"
+  },
+  {
+    "fileName": "ACECF_133410321E310000000004.xml",
+    "eNCF": "E310000000004",
+    "tipo": "ACECF",
+    "securityCode": "a66521"
+  },
+  {
+    "fileName": "ACECF_133410321E310000000005.xml",
+    "eNCF": "E310000000005",
+    "tipo": "ACECF",
+    "securityCode": "5d070d"
+  },
+  {
+    "fileName": "ACECF_133410321E310000000006.xml",
+    "eNCF": "E310000000006",
+    "tipo": "ACECF",
+    "securityCode": "5865d1"
+  },
+  {
+    "fileName": "ACECF_133410321E310000000007.xml",
+    "eNCF": "E310000000007",
+    "tipo": "ACECF",
+    "securityCode": "79319c"
+  },
+  {
+    "fileName": "ACECF_133410321E310000000008.xml",
+    "eNCF": "E310000000008",
+    "tipo": "ACECF",
+    "securityCode": "8929ce"
+  },
+  {
+    "fileName": "ACECF_133410321E310000000009.xml",
+    "eNCF": "E310000000009",
+    "tipo": "ACECF",
+    "securityCode": "c9c31a"
+  },
+  {
+    "fileName": "ACECF_133410321E310000000010.xml",
+    "eNCF": "E310000000010",
+    "tipo": "ACECF",
+    "securityCode": "5cbc28"
+  },
+  {
+    "fileName": "ACECF_133410321E310000000011.xml",
+    "eNCF": "E310000000011",
+    "tipo": "ACECF",
+    "securityCode": "8cd22f"
+  }
+]

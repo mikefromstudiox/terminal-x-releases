@@ -1,0 +1,158 @@
+[
+  {
+    "fileName": "133410321E310000000001.xml",
+    "eNCF": "E310000000001",
+    "tipo": "31",
+    "securityCode": "6fe254"
+  },
+  {
+    "fileName": "133410321E310000000002.xml",
+    "eNCF": "E310000000002",
+    "tipo": "31",
+    "securityCode": "787566"
+  },
+  {
+    "fileName": "133410321E310000000003.xml",
+    "eNCF": "E310000000003",
+    "tipo": "31",
+    "securityCode": "8ebdc8"
+  },
+  {
+    "fileName": "133410321E310000000004.xml",
+    "eNCF": "E310000000004",
+    "tipo": "31",
+    "securityCode": "ee3711"
+  },
+  {
+    "fileName": "133410321E320000000005.xml",
+    "eNCF": "E320000000005",
+    "tipo": "32",
+    "securityCode": "1bf75b"
+  },
+  {
+    "fileName": "133410321E320000000006.xml",
+    "eNCF": "E320000000006",
+    "tipo": "32",
+    "securityCode": "e6cb06"
+  },
+  {
+    "fileName": "133410321E320000000007.xml",
+    "eNCF": "E320000000007",
+    "tipo": "32",
+    "securityCode": "255465"
+  },
+  {
+    "fileName": "133410321E320000000008.xml",
+    "eNCF": "E320000000008",
+    "tipo": "32",
+    "securityCode": "d5f9b8"
+  },
+  {
+    "fileName": "133410321E320000000009.xml",
+    "eNCF": "E320000000009",
+    "tipo": "32",
+    "securityCode": "385775"
+  },
+  {
+    "fileName": "RFCE_133410321E320000000009.xml",
+    "eNCF": "E320000000009",
+    "tipo": "RFCE",
+    "securityCode": "a10505"
+  },
+  {
+    "fileName": "133410321E320000000010.xml",
+    "eNCF": "E320000000010",
+    "tipo": "32",
+    "securityCode": "706adf"
+  },
+  {
+    "fileName": "RFCE_133410321E320000000010.xml",
+    "eNCF": "E320000000010",
+    "tipo": "RFCE",
+    "securityCode": "d0234a"
+  },
+  {
+    "fileName": "133410321E320000000011.xml",
+    "eNCF": "E320000000011",
+    "tipo": "32",
+    "securityCode": "ca4b5e"
+  },
+  {
+    "fileName": "RFCE_133410321E320000000011.xml",
+    "eNCF": "E320000000011",
+    "tipo": "RFCE",
+    "securityCode": "e54290"
+  },
+  {
+    "fileName": "133410321E320000000012.xml",
+    "eNCF": "E320000000012",
+    "tipo": "32",
+    "securityCode": "0eebf3"
+  },
+  {
+    "fileName": "RFCE_133410321E320000000012.xml",
+    "eNCF": "E320000000012",
+    "tipo": "RFCE",
+    "securityCode": "f3827d"
+  },
+  {
+    "fileName": "133410321E330000000013.xml",
+    "eNCF": "E330000000013",
+    "tipo": "33",
+    "securityCode": "81464e"
+  },
+  {
+    "fileName": "133410321E340000000014.xml",
+    "eNCF": "E340000000014",
+    "tipo": "34",
+    "securityCode": "74d3cc"
+  },
+  {
+    "fileName": "133410321E340000000015.xml",
+    "eNCF": "E340000000015",
+    "tipo": "34",
+    "securityCode": "51a5fd"
+  },
+  {
+    "fileName": "133410321E410000000016.xml",
+    "eNCF": "E410000000016",
+    "tipo": "41",
+    "securityCode": "14e9e7"
+  },
+  {
+    "fileName": "133410321E410000000017.xml",
+    "eNCF": "E410000000017",
+    "tipo": "41",
+    "securityCode": "81a313"
+  },
+  {
+    "fileName": "133410321E430000000018.xml",
+    "eNCF": "E430000000018",
+    "tipo": "43",
+    "securityCode": "31fcda"
+  },
+  {
+    "fileName": "133410321E440000000019.xml",
+    "eNCF": "E440000000019",
+    "tipo": "44",
+    "securityCode": "740bd8"
+  },
+  {
+    "fileName": "133410321E450000000020.xml",
+    "eNCF": "E450000000020",
+    "tipo": "45",
+    "securityCode": "d52798"
+  },
+  {
+    "fileName": "133410321E460000000021.xml",
+    "eNCF": "E460000000021",
+    "tipo": "46",
+    "securityCode": "c37c29"
+  },
+  {
+    "fileName": "133410321E470000000022.xml",
+    "eNCF": "E470000000022",
+    "tipo": "47",
+    "securityCode": "2cc64f"
+  }
+]

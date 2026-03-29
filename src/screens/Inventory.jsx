@@ -129,7 +129,7 @@ function ItemModal({ item, onSave, onClose }) {
         <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
           <button onClick={onClose} className="flex-1 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
           <button onClick={handleSave} disabled={saving}
-            className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5">
+            className="flex-1 py-2 bg-black text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50 flex items-center justify-center gap-1.5">
             {saving && <Loader2 size={13} className="animate-spin" />}
             {item ? 'Guardar cambios' : 'Crear item'}
           </button>
@@ -209,7 +209,7 @@ function AdjustModal({ item, onSave, onClose }) {
         <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
           <button onClick={onClose} className="flex-1 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
           <button onClick={handleSave} disabled={saving}
-            className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5">
+            className="flex-1 py-2 bg-black text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50 flex items-center justify-center gap-1.5">
             {saving && <Loader2 size={13} className="animate-spin" />}
             Confirmar
           </button>
@@ -316,14 +316,14 @@ export default function Inventory() {
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-slate-50">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between gap-4 shrink-0">
+      <div className="bg-white border-b border-slate-200 px-3 py-3 md:px-6 md:py-4 flex items-center justify-between gap-4 shrink-0">
         <div className="flex items-center gap-3">
           <Package size={20} className="text-slate-500" />
-          <h1 className="text-[17px] font-bold text-slate-800">{lang === 'en' ? 'Inventory' : 'Inventario'}</h1>
+          <h1 className="text-[14px] md:text-[16px] font-bold text-slate-800">{lang === 'en' ? 'Inventory' : 'Inventario'}</h1>
         </div>
         <button
           onClick={() => setModal({ type: 'item', item: null })}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors">
+          className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-xl text-sm font-medium hover:bg-slate-800 transition-colors">
           <Plus size={15} /> Agregar item
         </button>
       </div>
@@ -353,7 +353,7 @@ export default function Inventory() {
         <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm">
           {[['all', 'Todos'], ['low', `Stock bajo (${lowCount})`]].map(([v, label]) => (
             <button key={v} onClick={() => setFilter(v)}
-              className={`px-4 py-1.5 font-medium transition ${filter === v ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
+              className={`px-4 py-1.5 font-medium transition ${filter === v ? 'bg-black text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
               {label}
             </button>
           ))}
@@ -375,7 +375,8 @@ export default function Inventory() {
           </div>
         ) : (
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-            <table className="w-full text-sm">
+            {/* Desktop table */}
+            <table className="hidden md:table w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left">
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Nombre</th>
@@ -433,6 +434,45 @@ export default function Inventory() {
                 })}
               </tbody>
             </table>
+
+            {/* Mobile cards */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {filtered.map(item => {
+                const isLow = item.quantity <= item.min_quantity
+                return (
+                  <div key={item.id} className="px-4 py-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-semibold text-slate-800 truncate">{item.name}</p>
+                        <p className="text-[11px] text-slate-400">{item.category || '—'}{item.sku ? ` / ${item.sku}` : ''}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className={`text-[15px] font-bold ${isLow ? 'text-amber-600' : 'text-slate-700'}`}>{item.quantity}</span>
+                        {isLow && <p className="text-[10px] text-amber-500">min {item.min_quantity}</p>}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-slate-500">Precio: <span className="font-semibold text-slate-700">{fmtRD(item.price)}</span></span>
+                      <span className="text-slate-400">Valor: {fmtRD(item.quantity * item.price)}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setModal({ type: 'adjust', item })}
+                        className="flex-1 py-2 text-[11px] font-medium border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">
+                        Ajustar
+                      </button>
+                      <button onClick={() => setModal({ type: 'item', item })}
+                        className="px-3 py-2 text-[11px] border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50">
+                        <Pencil size={13} />
+                      </button>
+                      <button onClick={() => setDelConfirm(item)}
+                        className="px-3 py-2 text-[11px] border border-red-200 rounded-lg text-red-500 hover:bg-red-50">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
       </div>

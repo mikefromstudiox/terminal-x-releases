@@ -32,6 +32,7 @@ import Clients from './screens/Clients'
 // import Services from './screens/Services'
 import DGII from './screens/DGII'
 import Admin from './screens/Admin'
+import Config from './screens/Config'
 import CashReconciliation from './screens/CashReconciliation'
 import PettyCash from './screens/PettyCash'
 import CreditNotes from './screens/CreditNotes'
@@ -47,7 +48,7 @@ import Reportes from './screens/Reportes'
 import PlanGate from './components/PlanGate'
 
 // Routes accessible only to non-cashier roles
-const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin','/sistema','/inventory']
+const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin','/sistema','/inventory','/config']
 
 function ProtectedRoute({ element }) {
   const { user } = useAuth()
@@ -84,9 +85,15 @@ export default function App() {
     async function checkFirstRun() {
       try {
         const empresa = await api?.admin?.getEmpresa?.()
-        setIsFirstRun(!empresa)
+        if (!empresa) { setIsFirstRun(true); return }
+        // Also check if any users exist — if setup completed but user creation failed, re-run setup
+        const users = await api?.admin?.getUsuarios?.()
+        if (!users || users.length === 0) { setIsFirstRun(true); return }
+        setIsFirstRun(false)
       } catch {
-        setIsFirstRun(false)   // IPC unavailable (dev/web) — skip setup
+        // On desktop: if DB fails, still show setup (will surface the real error there)
+        // On web: skip setup (Supabase auth handles identity)
+        setIsFirstRun(!!window.electronAPI)
       } finally {
         setSetupChecked(true)
       }
@@ -150,6 +157,8 @@ export default function App() {
         <Route path="/dgii"                  element={<ProtectedRoute element={<PlanGate feature="dgii"><DGII /></PlanGate>} />} />
         <Route path="/petty-cash"            element={<ProtectedRoute element={<PlanGate feature="petty_cash"><PettyCash /></PlanGate>} />} />
         <Route path="/credit-notes"          element={<ProtectedRoute element={<PlanGate feature="credit_notes"><CreditNotes /></PlanGate>} />} />
+        <Route path="/config/:section"         element={<ProtectedRoute element={<Config />} />} />
+        <Route path="/config"                element={<ProtectedRoute element={<Config />} />} />
         <Route path="/admin"                 element={<ProtectedRoute element={<Admin />} />} />
         <Route path="/remote"                element={<ProtectedRoute element={<PlanGate feature="remote_dashboard"><RemoteDashboard /></PlanGate>} />} />
         <Route path="/license-admin"         element={<ProtectedRoute element={<LicenseAdmin />} />} />

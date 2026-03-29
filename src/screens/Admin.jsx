@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
-import { ECF_TYPES, BUSINESS_TYPES, testEF2Connection, EF2_CONFIGURED } from '../services/ecf'
+import { ECF_TYPES, BUSINESS_TYPES, testDGIIConnection, DGII_CONFIGURED } from '../services/ecf'
 import {
   getStoredSetting, setStoredSetting, resetSupabaseClient,
   testConnection, ensureBusinessRegistered,
@@ -931,10 +931,10 @@ export function FiscalNCF() {
     setTesting(true)
     setTestResult(null)
     try {
-      await testEF2Connection()
+      await testDGIIConnection()
       setTestResult('ok')
-      setTestMsg(L('Conectado a ef2.do ✓', 'Connected to ef2.do ✓'))
-      show(L('Conectado a ef2.do ✓', 'Connected to ef2.do ✓'))
+      setTestMsg(L('Conectado a DGII ✓', 'Connected to DGII ✓'))
+      show(L('Conectado a DGII ✓', 'Connected to DGII ✓'))
     } catch (err) {
       setTestResult('error')
       setTestMsg(err.message || L('Error de conexión', 'Connection error'))
@@ -1001,7 +1001,7 @@ export function FiscalNCF() {
               {L('NCF Tradicional — papel o local', 'Traditional NCF — paper or local')}
             </p>
             <p className="text-[10px] text-slate-400">
-              {L('Sin conexión a ef2.do', 'No ef2.do connection required')}
+              {L('Sin conexión a DGII', 'No DGII connection required')}
             </p>
           </button>
 
@@ -1035,9 +1035,9 @@ export function FiscalNCF() {
       <div className="border border-slate-200 rounded-xl overflow-hidden">
         <div className="bg-slate-50 border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            {L('Configuración e-CF — ef2.do', 'e-CF Configuration — ef2.do')}
+            {L('Configuración e-CF — DGII Directo', 'e-CF Configuration — DGII Direct')}
           </p>
-          {EF2_CONFIGURED
+          {DGII_CONFIGURED
             ? <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
                 <Wifi size={10} /> {L('Token configurado', 'Token configured')}
               </span>
@@ -1048,24 +1048,19 @@ export function FiscalNCF() {
         </div>
         <div className="px-4 py-4 flex items-start gap-3">
           <div className="flex-1 min-w-0">
-            {EF2_CONFIGURED ? (
+            {DGII_CONFIGURED ? (
               <p className="text-[12px] text-slate-600">
                 {L(
-                  'El API de ef2.do está configurado. Los comprobantes se enviarán a la DGII en tiempo real.',
-                  'ef2.do API is configured. Receipts will be submitted to DGII in real time.'
+                  'Certificado DGII configurado. Los comprobantes se enviarán a la DGII en tiempo real.',
+                  'DGII certificate configured. Receipts will be submitted to DGII in real time.'
                 )}
               </p>
             ) : (
               <p className="text-[12px] text-slate-500">
                 {L(
-                  'Sin token configurado — la app opera en modo stub. Los eNCF son simulados y no se envían a la DGII.',
-                  'No token configured — app runs in stub mode. eNCFs are simulated and not sent to DGII.'
+                  'Sin certificado configurado — la app opera en modo stub. Los eNCF son simulados y no se envían a la DGII.',
+                  'No certificate configured — app runs in stub mode. eNCFs are simulated and not sent to DGII.'
                 )}
-                {' '}
-                <a href="https://ef2.do" target="_blank" rel="noreferrer"
-                  className="text-sky-600 hover:underline inline-flex items-center gap-0.5">
-                  ef2.do <ExternalLink size={10} className="inline" />
-                </a>
               </p>
             )}
             {testResult && (
@@ -1077,7 +1072,7 @@ export function FiscalNCF() {
               </div>
             )}
           </div>
-          {EF2_CONFIGURED && (
+          {DGII_CONFIGURED && (
             <button
               onClick={handleTest}
               disabled={testing}
@@ -1447,30 +1442,39 @@ const TABS = [
   { id: 'servicios',  es: 'Servicios',     en: 'Services',          icon: LayoutGrid },
 ]
 
-export default function Admin() {
+export default function Admin({ initialTab, hideHeader }) {
   const { lang, t } = useLang()
-  const [tab, setTab] = useState('empresa')
+  const [tab, setTab] = useState(initialTab || 'empresa')
+
+  // Sync with external tab override (from Config.jsx)
+  useEffect(() => {
+    if (initialTab && initialTab !== tab) setTab(initialTab)
+  }, [initialTab])
 
   return (
     <div className="h-full flex flex-col bg-white">
-      {/* Header */}
-      <div className="shrink-0 px-3 md:px-6 py-3 md:py-4 border-b border-slate-200">
-        <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800">{t('nav_admin')}</h2>
-        <p className="text-[11px] md:text-[12px] text-slate-400 mt-0.5">{t('admin_desc')}</p>
-      </div>
+      {!hideHeader && (
+        <>
+          {/* Header */}
+          <div className="shrink-0 px-3 md:px-6 py-3 md:py-4 border-b border-slate-200">
+            <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800">{t('nav_admin')}</h2>
+            <p className="text-[11px] md:text-[12px] text-slate-400 mt-0.5">{t('admin_desc')}</p>
+          </div>
 
-      {/* Tabs */}
-      <div className="shrink-0 flex border-b border-slate-200 px-2 md:px-6 overflow-x-auto scrollbar-none">
-        {TABS.map(({ id, es, en, icon: Icon }) => (
-          <button key={id} onClick={() => setTab(id)}
-            className={`flex items-center gap-1.5 px-3 md:px-4 py-3 text-xs md:text-[13px] font-semibold border-b-2 transition-colors shrink-0 whitespace-nowrap ${
-              tab === id ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}>
-            <Icon size={14} />
-            {lang === 'es' ? es : en}
-          </button>
-        ))}
-      </div>
+          {/* Tabs */}
+          <div className="shrink-0 flex border-b border-slate-200 px-2 md:px-6 overflow-x-auto scrollbar-none">
+            {TABS.map(({ id, es, en, icon: Icon }) => (
+              <button key={id} onClick={() => setTab(id)}
+                className={`flex items-center gap-1.5 px-3 md:px-4 py-3 text-xs md:text-[13px] font-semibold border-b-2 transition-colors shrink-0 whitespace-nowrap ${
+                  tab === id ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}>
+                <Icon size={14} />
+                {lang === 'es' ? es : en}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-6">

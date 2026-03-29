@@ -97,6 +97,10 @@ export function LicenseProvider({ children }) {
 
       // ── 3. LICENSED MODE: validate against server ───────────────────────
       const res = await validateLicense(k, h, r)
+      // Sync remote config to local settings if available
+      if (res.valid && res.remoteConfig && api?.settings?.update) {
+        try { await api.settings.update(res.remoteConfig) } catch {}
+      }
       setResult(res)
     } catch (err) {
       console.error('[LicenseContext]', err)

@@ -67,6 +67,33 @@ function fmtDate(d = new Date()) {
     + ' ' + d.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
 }
 
+function fmtFirmaDateESC(isoStr) {
+  const d = new Date(isoStr)
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yyyy = d.getFullYear()
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mi = String(d.getMinutes()).padStart(2, '0')
+  const ss = String(d.getSeconds()).padStart(2, '0')
+  return `${dd}-${mm}-${yyyy} ${hh}:${mi}:${ss}`
+}
+
+function buildQRUrlESC(data) {
+  const enc = encodeURIComponent
+  const ncf = data.ncf || ''
+  const rnc = data.biz?.rnc || ''
+  const isConsumerUnder250K = ncf.startsWith('E32') && (data.total || 0) < 250000
+  if (isConsumerUnder250K) {
+    return `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${enc(rnc)}&ENCF=${enc(ncf)}&MontoTotal=${enc(Number(data.total || 0).toFixed(2))}&CodigoSeguridad=${enc(data.securityCode || '')}`
+  }
+  const fechaEmision = fmtFirmaDateESC(data.paidAt || new Date()).split(' ')[0]
+  const fechaFirma = data.signatureDate ? fmtFirmaDateESC(data.signatureDate) : ''
+  // E43 (gastos menores) and E47 (pagos al exterior) — omit RncComprador
+  const omitComprador = ncf.startsWith('E43') || ncf.startsWith('E47')
+  const compradorParam = omitComprador ? '' : `&RncComprador=${enc(data.client?.rnc || '')}`
+  return `https://ecf.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${enc(rnc)}${compradorParam}&ENCF=${enc(ncf)}&FechaEmision=${enc(fechaEmision)}&MontoTotal=${enc(Number(data.total || 0).toFixed(2))}&FechaFirma=${enc(fechaFirma)}&CodigoSeguridad=${enc(data.securityCode || '')}`
+}
+
 // ── ESC/POS logo bitmap (GS v 0) ─────────────────────────────────────────────
 // Converts a logo image URL to an ESC/POS GS v 0 raster command string.
 // Target width is ~200px for 80mm paper. Returns '' on error or no logo.
@@ -318,9 +345,20 @@ export function buildClientReceipt(data, logoBytes = '') {
     lines.push(BOLD_OFF)
     lines.push(center('Escanee para verificar en DGII:'))
     lines.push(LF)
-    const verUrl = `ecf.dgii.gov.do/consulta?eNCF=${data.ncf}`
-    wrapText(verUrl, COL_WIDTH).forEach(l => { lines.push(center(l)); lines.push(LF) })
+    const verUrl = data.qrLink || buildQRUrlESC(data)
     lines.push(buildQRCommand(verUrl))
+    if (data.securityCode) {
+      lines.push(LF)
+      lines.push(center(`Cod. Seguridad: ${data.securityCode}`))
+      lines.push(LF)
+    }
+    if (data.signatureDate) {
+      const firmaStr = fmtFirmaDateESC(data.signatureDate)
+      lines.push(center('Fecha de Firma Digital:'))
+      lines.push(LF)
+      lines.push(center(firmaStr))
+      lines.push(LF)
+    }
     lines.push(ALIGN_LEFT)
   }
 
@@ -341,7 +379,9 @@ export function buildWasherConduce(data, logoBytes = '') {
   const commEarned = commBase * commPct / 100
 
   const lines = []
-  lines.push(buildHeader(data.biz || {}, logoBytes))
+  // Washer conduce: no business header/logo, no footer — just the dispatch slip
+  lines.push(INIT)
+  lines.push(CHARSET_858)
 
   // Conduce title — centered, large
   lines.push(ALIGN_CENTER)
@@ -418,7 +458,9 @@ export function buildWasherConduce(data, logoBytes = '') {
   lines.push(LARGE_OFF)
   lines.push(BOLD_OFF)
 
-  lines.push(buildFooter())
+  lines.push(LF)
+  lines.push(LF)
+  lines.push(CUT)
   return lines.join('')
 }
 
@@ -598,8 +640,11 @@ function buildQRCommand(data) {
 
 // ── Forma de pago label ───────────────────────────────────────────────────────
 function formatFormaPago(f) {
-  const map = { cash: 'Efectivo', card: 'Tarjeta', transfer: 'Transferencia', cheque: 'Cheque', credit: 'A credito' }
-  return map[f] || f || 'Efectivo'
+  const map = {
+    cash: 'Efectivo', card: 'Tarjeta', transfer: 'Transferencia', cheque: 'Cheque', credit: 'A credito',
+    efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia',
+  }
+  return map[f] || (f ? f.charAt(0).toUpperCase() + f.slice(1) : 'Efectivo')
 }
 
 // ── Public print functions (renderer side) ────────────────────────────────────
@@ -614,9 +659,13 @@ async function sendToPrinter(type, escposString, biz, api) {
         const cfg = await eApi.settings.get()
         printerName = cfg?.printer || undefined
       } catch {}
-      const result = await eApi.print({ type, data: escposString, printerName })
-      if (result?.success) return { success: true }
-      // Fall through to HTML preview if IPC fails
+      // Only send to IPC if a thermal printer is explicitly configured
+      // Otherwise fall through to HTML preview (avoids sending ESC/POS to "Print to PDF")
+      if (printerName) {
+        const result = await eApi.print({ type, data: escposString, printerName })
+        if (result?.success) return { success: true }
+      }
+      // Fall through to HTML preview if no printer configured or IPC fails
     } catch {
       // Fall through to HTML preview
     }
@@ -631,61 +680,100 @@ async function sendToPrinter(type, escposString, biz, api) {
  * Shows business logo (if available) at top. No Terminal X branding in body.
  */
 function openPrintPreview(escposText, biz = {}) {
-  // Strip ESC/POS binary control codes for HTML display
+  // Strip ALL ESC/POS binary control codes for clean HTML display
   const text = escposText
-    .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
-    .replace(/\x1B[@Eaem!\-]/g, '')
-    .replace(/\x1D[!V(]/g, '')
+    .replace(/\x1B\x70[\s\S]{0,3}/g, '')     // ESC p — drawer kick
+    .replace(/\x1B@/g, '')                     // ESC @ — initialize
+    .replace(/\x1Bt./g, '')                    // ESC t — charset select
+    .replace(/\x1Ba./g, '')                    // ESC a — alignment
+    .replace(/\x1BE./g, '')                    // ESC E — bold on/off
+    .replace(/\x1B!./g, '')                    // ESC ! — print mode (large)
+    .replace(/\x1B-./g, '')                    // ESC - — underline
+    .replace(/\x1D!./g, '')                    // GS ! — character size
+    .replace(/\x1DV[\s\S]{0,2}/g, '')         // GS V — paper cut
+    .replace(/\x1D\([\s\S]*?\x1D\\/g, '')     // GS ( — QR code commands
+    .replace(/\x1Dv0[\s\S]*?\n/g, '')         // GS v 0 — raster bitmap
+    .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '') // remaining control chars
+    .replace(/\x1B[\x20-\x7E][\s\S]?/g, '')  // catch-all ESC sequences
+    .replace(/\x1D[\x20-\x7E][\s\S]?/g, '')  // catch-all GS sequences
 
-  // Business logo or name header for HTML preview
+  // Business logo
   const logoHtml = biz.logo
-    ? `<div class="biz-logo"><img src="${biz.logo}" alt="${escapeHtml(biz.name || '')}" style="max-height:60px;max-width:160px;object-fit:contain;display:block;margin:0 auto"></div>`
-    : biz.name
-      ? `<div class="biz-name">${escapeHtml(biz.name)}</div>`
-      : ''
+    ? `<img src="${escapeHtml(biz.logo)}" style="max-height:60px;max-width:160px;object-fit:contain;display:block;margin:0 auto 8px">`
+    : ''
 
   const html = `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
-<title>Recibo -- ${escapeHtml(biz.name || 'Terminal X')}</title>
+<title>Recibo — ${escapeHtml(biz.name || 'Terminal X')}</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #e5e5e5; display: flex; justify-content: center; padding: 24px; font-family: monospace; }
-  .receipt {
-    background: white; width: 72mm; padding: 8mm;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.15);
-    white-space: pre-wrap; font-size: 12px; line-height: 1.5;
-    border-radius: 2px;
-  }
-  .biz-logo { text-align: center; padding-bottom: 8px; border-bottom: 1px dashed #ccc; margin-bottom: 8px; }
-  .biz-name { text-align: center; font-weight: bold; font-size: 15px; padding-bottom: 8px; border-bottom: 1px dashed #ccc; margin-bottom: 8px; }
+  body { background: #1a1a1a; display: flex; flex-direction: column; align-items: center; padding: 24px; font-family: system-ui, sans-serif; min-height: 100vh; }
+  .toolbar { display: flex; gap: 10px; margin-bottom: 20px; }
+  .toolbar button { padding: 10px 20px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .btn-print { background: #b3001e; color: #fff; }
+  .btn-print:hover { background: #8c0017; }
+  .btn-wa { background: #25D366; color: #fff; }
+  .btn-wa:hover { background: #1fb855; }
+  .btn-close { background: #333; color: #fff; }
+  .btn-close:hover { background: #555; }
+  .receipt-wrap { background: white; width: 80mm; padding: 10mm 8mm; box-shadow: 0 8px 40px rgba(0,0,0,0.4); border-radius: 2px; }
+  .receipt { white-space: pre-wrap; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.5; color: #000; }
+  .receipt .line-bold { font-weight: bold; }
+  .receipt .line-large { font-size: 16px; font-weight: bold; }
+  .receipt .line-center { text-align: center; }
+  .receipt .line-double { font-size: 18px; font-weight: bold; text-align: center; }
   @media print {
     body { background: white; padding: 0; }
-    .receipt { box-shadow: none; width: 100%; }
+    .toolbar { display: none; }
+    .receipt-wrap { box-shadow: none; width: 80mm; margin: 0; }
   }
 </style>
 </head><body>
-<div class="receipt">${logoHtml}${escapeHtml(text)}</div>
-<script>setTimeout(() => { window.print() }, 400)</script>
+<div class="toolbar">
+  <button class="btn-print" onclick="window.print()">🖨 Imprimir</button>
+  <button class="btn-wa" onclick="sendWhatsApp()">💬 WhatsApp</button>
+  <button class="btn-close" onclick="window.close()">Cerrar</button>
+</div>
+<div class="receipt-wrap">
+  ${logoHtml}
+  <div class="receipt">${formatReceiptHtml(text)}</div>
+</div>
+<script>
+function sendWhatsApp() {
+  var text = document.querySelector('.receipt').innerText;
+  var url = 'https://wa.me/?text=' + encodeURIComponent(text);
+  window.open(url, '_blank');
+}
+</script>
 </body></html>`
 
-  // Use iframe instead of window.open to avoid popup blockers on mobile
-  const iframe = document.createElement('iframe')
-  iframe.style.cssText = 'position:fixed;width:0;height:0;border:none;left:-9999px;top:-9999px;'
-  document.body.appendChild(iframe)
-  const doc = iframe.contentDocument || iframe.contentWindow.document
-  doc.open()
-  doc.write(html)
-  doc.close()
-  // Wait for content to render, then trigger print
-  iframe.contentWindow.onafterprint = () => {
-    document.body.removeChild(iframe)
+  const w = window.open('', '_blank', 'width=420,height=700')
+  if (w) {
+    w.document.write(html)
+    w.document.close()
   }
-  setTimeout(() => {
-    try { iframe.contentWindow.print() } catch {}
-    // Remove iframe after a timeout if onafterprint doesn't fire
-    setTimeout(() => { try { document.body.removeChild(iframe) } catch {} }, 10000)
-  }, 500)
+}
+
+function formatReceiptHtml(text) {
+  // Convert plain text receipt into styled HTML
+  return escapeHtml(text)
+    .split('\n')
+    .map(line => {
+      const trimmed = line.trim()
+      // Detect centered lines (lines with leading spaces that look centered)
+      const leadSpaces = line.length - line.trimStart().length
+      const isCentered = leadSpaces > 5 && trimmed.length < 38
+      // Detect separator lines
+      if (/^-{10,}$/.test(trimmed)) return `<span style="color:#999">${line}</span>`
+      // Detect TOTAL lines (all caps with RD$)
+      if (/TOTAL/.test(trimmed) && /RD\$/.test(trimmed)) return `<span class="line-large">${line}</span>`
+      // Detect title lines (all caps, centered, short)
+      if (isCentered && trimmed === trimmed.toUpperCase() && trimmed.length > 3 && !/RD\$/.test(trimmed) && !/[-]{3,}/.test(trimmed))
+        return `<span class="line-bold line-center">${line}</span>`
+      return line
+    })
+    .join('\n')
 }
 
 function escapeHtml(s) {

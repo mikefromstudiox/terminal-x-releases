@@ -13,6 +13,7 @@ import { createWebAPI, createWebPrinterAPI } from '@/data/web'
 import { startOfflineSync } from '@/services/offline-queue'
 import { injectSpeedInsights } from '@vercel/speed-insights'
 import '@/index.css'
+import xMark from '@/assets/x-mark.png'
 
 // Lazy load landing and admin (code-split)
 const LandingPage = React.lazy(() => import('@/landing/LandingPage'))
@@ -146,26 +147,34 @@ function SupabaseAuthGate({ children }) {
 
   if (!session) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <form onSubmit={handleLogin} className="bg-slate-800 rounded-xl p-8 w-full max-w-sm space-y-4">
-          <div className="flex items-center justify-center gap-2 mb-1">
-            <span className="text-2xl font-black text-white tracking-[3px]">TERMINAL</span>
-            <img src="/icons/icon-192.png" alt="X" className="h-8 w-8 object-contain" />
+      <div className="min-h-screen bg-white flex items-center justify-center p-4">
+        <form onSubmit={handleLogin} className="bg-black rounded-2xl p-8 w-full max-w-sm space-y-5 shadow-2xl">
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-1">
+              <span className="text-3xl font-black text-white tracking-[3px]">TERMINAL</span>
+              <img src={xMark} alt="X" className="h-28 w-28 object-contain mt-1" />
+            </div>
+            <p className="text-slate-400 text-sm mt-3">Iniciar sesion</p>
           </div>
-          <p className="text-slate-400 text-center text-sm">Iniciar sesion</p>
           {error && <div className="bg-red-500/20 text-red-300 text-sm p-3 rounded-lg">{error}</div>}
-          <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)}
-            className="w-full px-4 py-3 rounded-lg bg-slate-700 text-white placeholder-slate-400 outline-none focus:ring-2 focus:ring-sky-500" required />
-          <input type="password" placeholder="Contrasena" value={password} onChange={e => setPassword(e.target.value)}
-            className="w-full px-4 py-3 rounded-lg bg-slate-700 text-white placeholder-slate-400 outline-none focus:ring-2 focus:ring-sky-500" required />
+          <div>
+            <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">Email</label>
+            <input type="email" placeholder="tu@email.com" value={email} onChange={e => setEmail(e.target.value)}
+              className="w-full px-4 py-3 rounded-lg bg-slate-800 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-[#b3001e]" required />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">Contrasena</label>
+            <input type="password" placeholder="Tu contrasena" value={password} onChange={e => setPassword(e.target.value)}
+              className="w-full px-4 py-3 rounded-lg bg-slate-800 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-[#b3001e]" required />
+          </div>
           <button type="submit" disabled={submitting}
-            className="w-full py-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold disabled:opacity-50 transition-colors">
+            className="w-full py-3 rounded-xl bg-[#b3001e] hover:bg-[#8c0017] text-white font-bold disabled:opacity-50 transition-colors">
             {submitting ? 'Entrando...' : 'Entrar'}
           </button>
-          <a href="/" className="block mt-4 text-center text-sky-400 hover:text-sky-300 text-sm transition-colors">
+          <a href="/" className="block text-center text-slate-500 hover:text-[#b3001e] text-sm transition-colors">
             Ver mas sobre Terminal X
           </a>
-          <a href="/signup" className="block text-center text-sky-400 hover:text-sky-300 text-sm transition-colors">
+          <a href="/signup" className="block text-center text-[#b3001e] hover:text-[#cc1a33] text-sm transition-colors">
             Crear cuenta nueva
           </a>
         </form>
@@ -175,12 +184,12 @@ function SupabaseAuthGate({ children }) {
 
   if (!businessId) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="bg-slate-800 rounded-xl p-8 w-full max-w-sm text-center space-y-4">
+      <div className="min-h-screen bg-white flex items-center justify-center p-4">
+        <div className="bg-black rounded-2xl p-8 w-full max-w-sm text-center space-y-4 shadow-2xl">
           <h1 className="text-xl font-bold text-white">Sin negocio asignado</h1>
           <p className="text-slate-400 text-sm">{error || 'Contacte al administrador para vincular su cuenta a un negocio.'}</p>
           <button onClick={() => supabase.auth.signOut()}
-            className="px-6 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm transition-colors">
+            className="px-6 py-2 rounded-lg bg-[#b3001e] hover:bg-[#8c0017] text-white text-sm font-bold transition-colors">
             Cerrar sesion
           </button>
         </div>
@@ -225,7 +234,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             } />
 
             {/* Admin panel */}
-            <Route path="/admin/*" element={<AdminApp supabase={supabase} />} />
+            <Route path="/admin/*" element={<LangProvider><AdminApp supabase={supabase} /></LangProvider>} />
 
             {/* Legacy redirect: old root POS users go to /pos */}
             <Route path="/queue" element={<Navigate to="/pos/queue" replace />} />

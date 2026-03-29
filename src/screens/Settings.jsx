@@ -6,6 +6,7 @@ import {
   Upload, ToggleLeft, ToggleRight, ChevronRight, Save, Plus,
   Pencil, Check, KeyRound, Printer, Server, X, Lock,
   Cloud, CloudUpload, RotateCcw, AlertTriangle, RefreshCw,
+  ShieldCheck, FileText, Download, FolderOpen,
 } from 'lucide-react'
 import { useRNC } from '../hooks/useRNC'
 import { useAuth } from '../context/AuthContext'
@@ -554,10 +555,16 @@ function PanelNCF({ onSave }) {
 
 function PanelECF({ onSave }) {
   const api = useAPI()
-  const [apiKey, setApiKey]   = useState('')
   const [mode, setMode]       = useState('paper')   // 'paper' | 'ecf'
+  const [dgiiEnv, setDgiiEnv] = useState('testecf') // 'testecf' | 'certecf' | 'ecf'
+  const [certInfo, setCertInfo] = useState(null)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState(null)
+  const [passphrase, setPassphrase] = useState('')
+  const [installing, setInstalling] = useState(false)
+  const [installMsg, setInstallMsg] = useState(null)
+  const [generating, setGenerating] = useState(false)
+  const [genResult, setGenResult] = useState(null)
   const { sync, syncing, syncProgress, dbStatus } = useRNC()
 
   useEffect(() => {
@@ -566,17 +573,48 @@ function PanelECF({ onSave }) {
       if (!biz) return
       const s = biz.settings ? JSON.parse(biz.settings) : {}
       if (s.facturacion_mode) setMode(s.facturacion_mode)
-      const safeToken = await api.safe.get('ef2_token').catch(() => '')
-      setApiKey(safeToken || s.ef2_token || '')
+      if (s.dgii_environment) setDgiiEnv(s.dgii_environment)
+      // Load cert info (desktop only)
+      const dgii = window.electronAPI?.dgii_ecf
+      if (dgii) {
+        try {
+          const info = await dgii.certInfo()
+          setCertInfo(info)
+        } catch {}
+        try {
+          const env = await dgii.getEnv()
+          if (env) setDgiiEnv(env)
+        } catch {}
+      }
     }
     load()
   }, [])
 
+  async function handleInstallCert() {
+    const dgii = window.electronAPI?.dgii_ecf
+    if (!dgii) return
+    setInstalling(true); setInstallMsg(null)
+    try {
+      const result = await dgii.installCert({ passphrase })
+      if (result?.ok || result?.serialNumber) {
+        setInstallMsg({ type: 'ok', text: `Certificado instalado (SN: ${result.serialNumber?.slice(0, 12)}...)` })
+        setCertInfo({ installed: true, ...result })
+        setPassphrase('')
+      } else {
+        setInstallMsg({ type: 'error', text: result?.error || 'Error al instalar certificado' })
+      }
+    } catch (err) {
+      setInstallMsg({ type: 'error', text: err.message })
+    } finally {
+      setInstalling(false)
+    }
+  }
+
   async function testConn() {
     setTesting(true); setTestResult(null)
     try {
-      const { testEF2Connection } = await import('../services/ecf')
-      await testEF2Connection(apiKey || undefined)
+      const { testDGIIConnection } = await import('../services/ecf')
+      await testDGIIConnection()
       setTestResult('ok')
     } catch {
       setTestResult('error')
@@ -585,13 +623,28 @@ function PanelECF({ onSave }) {
     }
   }
 
+  async function handleGenerateTestSet(step) {
+    const dgii = window.electronAPI?.dgii_ecf
+    if (!dgii) return
+    setGenerating(true); setGenResult(null)
+    try {
+      const result = await dgii.generateTestSet(step)
+      setGenResult({ ok: true, count: result.count, dir: result.dir })
+    } catch (err) {
+      setGenResult({ ok: false, error: err.message })
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   async function handleSave() {
-    await api.safe.set('ef2_token', apiKey)
     const biz = await api.admin.getEmpresa()
     const s = biz?.settings ? JSON.parse(biz.settings) : {}
     await api.admin.saveEmpresa({
-      settings: JSON.stringify({ ...s, ef2_token: apiKey, facturacion_mode: mode }),
+      settings: JSON.stringify({ ...s, facturacion_mode: mode, dgii_environment: dgiiEnv }),
     })
+    // Also persist dgii_environment to app settings for main process
+    try { await api.settings.update({ dgii_environment: dgiiEnv }) } catch {}
     onSave()
   }
 
@@ -599,32 +652,96 @@ function PanelECF({ onSave }) {
     ? new Date(dbStatus.lastSync).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })
     : 'Nunca'
 
+  const isDesktop = !!window.electronAPI?.dgii_ecf
+
   return (
     <div>
-      <SectionLabel>Configuración e-CF (Ley 32-23)</SectionLabel>
-      <FieldRow label="ef2.do API Key">
-        <div className="flex gap-2">
-          <div className="relative flex-1 max-w-xs">
-            <KeyRound size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="ef2_live_xxxxxxxx…"
-              className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+      <SectionLabel>Certificado Digital (DGII Directo)</SectionLabel>
+
+      {/* Certificate status */}
+      <FieldRow label="Estado del certificado">
+        {certInfo?.installed ? (
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
+              <ShieldCheck size={15} />
+              Instalado
+            </span>
+            <span className="text-xs text-slate-400">
+              {certInfo.subject} | Expira: {certInfo.expiry ? new Date(certInfo.expiry).toLocaleDateString('es-DO') : '—'}
+            </span>
+            {certInfo.expired && <span className="text-xs text-red-500 font-medium">EXPIRADO</span>}
           </div>
-          <button onClick={testConn} disabled={testing}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">
-            <Wifi size={13} />
-            {testing ? 'Probando…' : 'Probar conexión'}
-          </button>
-          {testResult === 'ok'    && <span className="flex items-center gap-1 text-xs text-emerald-600"><Check size={13} />Conectado</span>}
-          {testResult === 'error' && <span className="text-xs text-red-500">Fallo — verifique la clave</span>}
+        ) : (
+          <span className="text-sm text-amber-500">No instalado — suba su archivo .p12 de Viafirma</span>
+        )}
+      </FieldRow>
+
+      {/* Install certificate */}
+      {isDesktop && (
+        <FieldRow label="Instalar certificado .p12">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 max-w-[200px]">
+                <Lock size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input type="password" value={passphrase} onChange={e => setPassphrase(e.target.value)}
+                  placeholder="Contraseña del .p12"
+                  className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+              <button onClick={handleInstallCert} disabled={installing || !passphrase}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 transition">
+                <Upload size={13} />
+                {installing ? 'Instalando...' : 'Seleccionar .p12'}
+              </button>
+            </div>
+            {installMsg?.type === 'ok' && <p className="text-xs text-emerald-600 flex items-center gap-1"><Check size={11} />{installMsg.text}</p>}
+            {installMsg?.type === 'error' && <p className="text-xs text-red-500">{installMsg.text}</p>}
+          </div>
+        </FieldRow>
+      )}
+
+      {/* Test DGII connection */}
+      {isDesktop && certInfo?.installed && (
+        <FieldRow label="Probar conexión DGII">
+          <div className="flex items-center gap-2">
+            <button onClick={testConn} disabled={testing}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition">
+              <Wifi size={13} />
+              {testing ? 'Probando...' : 'Probar autenticación'}
+            </button>
+            {testResult === 'ok' && <span className="flex items-center gap-1 text-xs text-emerald-600"><Check size={13} />Conectado a DGII</span>}
+            {testResult === 'error' && <span className="text-xs text-red-500">Fallo — certificado no autorizado aún por DGII</span>}
+          </div>
+        </FieldRow>
+      )}
+
+      <SectionLabel>Configuración e-CF</SectionLabel>
+
+      {/* DGII Environment selector */}
+      <FieldRow label="Entorno DGII">
+        <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm">
+          {[
+            { key: 'testecf',  label: 'Pruebas' },
+            { key: 'certecf',  label: 'Certificación' },
+            { key: 'ecf',      label: 'Producción' },
+          ].map(env => (
+            <button key={env.key} onClick={() => setDgiiEnv(env.key)}
+              className={`px-3 py-1.5 font-medium transition ${
+                dgiiEnv === env.key
+                  ? env.key === 'ecf' ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white'
+                  : 'text-slate-500 hover:bg-slate-50'
+              }`}>
+              {env.label}
+            </button>
+          ))}
         </div>
+        <p className="text-xs text-slate-400 mt-1">
+          {dgiiEnv === 'testecf' && 'Pre-certificación — XMLs de prueba'}
+          {dgiiEnv === 'certecf' && 'Proceso de certificación con DGII'}
+          {dgiiEnv === 'ecf' && 'Producción — comprobantes fiscales reales'}
+        </p>
       </FieldRow>
-      <FieldRow label="Certificado digital">
-        <label className="flex items-center gap-2 cursor-pointer border border-dashed border-slate-200 rounded-lg px-3 py-2 hover:border-blue-400 hover:bg-blue-50/30 w-56 transition">
-          <Upload size={14} className="text-slate-400" />
-          <span className="text-sm text-slate-500">Subir .p12 / .pfx</span>
-          <input type="file" accept=".p12,.pfx" className="hidden" />
-        </label>
-      </FieldRow>
+
+      {/* Billing mode */}
       <FieldRow label="Modo de facturación">
         <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm">
           <button onClick={() => setMode('paper')}
@@ -639,13 +756,39 @@ function PanelECF({ onSave }) {
         {mode === 'ecf' && (
           <p className="text-xs text-blue-600 mt-1.5 flex items-center gap-1">
             <Check size={11} />
-            Modo electrónico activo — facturas firmadas digitalmente vía ef2.do
+            Modo electrónico activo — facturas firmadas digitalmente directo a DGII
           </p>
         )}
         {mode === 'paper' && (
           <p className="text-xs text-amber-500 mt-1.5">Modo papel — cambia a e-CF antes del 15 mayo 2026 (Ley 32-23)</p>
         )}
       </FieldRow>
+
+      {/* Certification test set generator */}
+      {isDesktop && certInfo?.installed && (
+        <>
+          <SectionLabel>Herramientas de Certificación</SectionLabel>
+          <FieldRow label="Generar XMLs de prueba">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <button onClick={() => handleGenerateTestSet(2)} disabled={generating}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition">
+                  <FileText size={13} />
+                  {generating ? 'Generando...' : 'Paso 2 — Datos e-CF (26 XMLs)'}
+                </button>
+                <button onClick={() => handleGenerateTestSet(3)} disabled={generating}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition">
+                  <FileText size={13} />
+                  Paso 3 — Aprobación (11 XMLs)
+                </button>
+              </div>
+              {genResult?.ok && <p className="text-xs text-emerald-600 flex items-center gap-1"><Check size={11} />{genResult.count} XMLs generados — carpeta abierta</p>}
+              {genResult && !genResult.ok && <p className="text-xs text-red-500">{genResult.error}</p>}
+              <p className="text-xs text-slate-400">Genera XMLs firmados con su certificado para subir al portal DGII</p>
+            </div>
+          </FieldRow>
+        </>
+      )}
       <SectionLabel>Base de Datos RNC (DGII)</SectionLabel>
       <FieldRow label="Contribuyentes cargados">
         <div className="flex items-center gap-3">
@@ -831,7 +974,7 @@ function PanelSistema({ onSave }) {
           </div>
         </FieldRow>
         <FieldRow label="Sucursales"><Toggle on={sucursales} onToggle={() => setSuc(v => !v)} label={sucursales ? 'Habilitado' : 'Deshabilitado'} /></FieldRow>
-        <FieldRow label="Bebidas/Snacks en POS"><Toggle on={bebidas} onToggle={() => setBebidas(v => !v)} label={bebidas ? 'Visible' : 'Oculto'} /></FieldRow>
+
         <FieldRow label="Respaldo automático"><Toggle on={backup} onToggle={() => setBackup(v => !v)} label={backup ? 'Activo' : 'Inactivo'} /></FieldRow>
         <FieldRow label="Aplicar Ley 10%"><Toggle on={ley10} onToggle={() => setLey10(v => !v)} label={ley10 ? 'Sí' : 'No'} /></FieldRow>
         <FieldRow label="Verificar RNC/NCF (DGII)"><Toggle on={verRNC} onToggle={() => setVerRNC(v => !v)} label={verRNC ? 'Activo' : 'Inactivo'} /></FieldRow>

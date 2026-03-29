@@ -2,19 +2,18 @@ import { useState, useEffect, useCallback, createContext, useContext } from 'rea
 import { useAPI } from '../context/DataContext'
 
 const PLAN_FEATURES = {
-  free:      ['pos', 'queue', 'clients'],
-  pro:       ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon'],
-  pro_plus:  ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon', 'ecf', 'dgii', 'inventory', 'commissions'],
-  pro_max:   ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon', 'ecf', 'dgii', 'inventory', 'commissions', 'remote_dashboard', 'whatsapp_receipts', 'multi_location'],
+  pro:       ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory'],
+  pro_plus:  ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory', 'ecf', 'dgii'],
+  pro_max:   ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'ecf', 'dgii', 'inventory', 'remote_dashboard', 'whatsapp_receipts', 'multi_location'],
 }
 
-const PLAN_DISPLAY = { free: 'Free', pro: 'Pro', pro_plus: 'Pro+', pro_max: 'Pro Max' }
+const PLAN_DISPLAY = { pro: 'Pro', pro_plus: 'Pro PLUS', pro_max: 'Pro MAX' }
 
 const PlanContext = createContext(null)
 
 export function PlanProvider({ children }) {
   const api = useAPI()
-  const [plan, setPlan] = useState('free')
+  const [plan, setPlan] = useState('pro')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -30,12 +29,11 @@ export function PlanProvider({ children }) {
     return () => { cancelled = true }
   }, [api])
 
-  const features = PLAN_FEATURES[plan] || PLAN_FEATURES.free
+  const features = PLAN_FEATURES[plan] || PLAN_FEATURES.pro
   const hasFeature = useCallback((key) => features.includes(key), [features])
-  const isFreePlan = plan === 'free'
-  const displayName = PLAN_DISPLAY[plan] || 'Free'
+  const displayName = PLAN_DISPLAY[plan] || 'Pro'
 
-  const value = { plan, displayName, features, hasFeature, isFreePlan, loading }
+  const value = { plan, displayName, features, hasFeature, loading }
 
   return (
     <PlanContext.Provider value={value}>
@@ -46,7 +44,7 @@ export function PlanProvider({ children }) {
 
 export function usePlan() {
   const ctx = useContext(PlanContext)
-  if (!ctx) return { plan: 'pro_max', displayName: 'Pro Max', features: PLAN_FEATURES.pro_max, hasFeature: () => true, isFreePlan: false, loading: false }
+  if (!ctx) return { plan: 'pro', displayName: 'Pro', features: PLAN_FEATURES.pro, hasFeature: (k) => PLAN_FEATURES.pro.includes(k), loading: false }
   return ctx
 }
 

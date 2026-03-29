@@ -23,6 +23,17 @@ function fmtDate(d = new Date()) {
     + ' ' + d.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
 }
 
+function fmtFirmaDate(isoStr) {
+  const d = new Date(isoStr)
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yyyy = d.getFullYear()
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mi = String(d.getMinutes()).padStart(2, '0')
+  const ss = String(d.getSeconds()).padStart(2, '0')
+  return `${dd}-${mm}-${yyyy} ${hh}:${mi}:${ss}`
+}
+
 function fmtRD(n) {
   return 'RD$ ' + Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
@@ -31,16 +42,27 @@ function fmtRD(n) {
  * Generate a QR code PNG as a data URL, then extract the base64 portion.
  * Returns null if generation fails or no eNCF provided.
  */
-async function generateQRPng(eNCF) {
-  if (!eNCF) return null
+async function generateQRPng(url) {
+  if (!url) return null
   try {
-    const verificationUrl = `https://ecf.dgii.gov.do/consultatimbre?eNCF=${encodeURIComponent(eNCF)}`
-    const dataUrl = await QRCode.toDataURL(verificationUrl, { width: QR_SIZE * 2, margin: 1 })
-    // Strip the data:image/png;base64, prefix
+    const dataUrl = await QRCode.toDataURL(url, { width: QR_SIZE * 2, margin: 1 })
     return dataUrl.split(',')[1]
   } catch {
     return null
   }
+}
+
+function buildQRUrl(data) {
+  const enc = encodeURIComponent
+  const ncf = data.ncf || ''
+  const rnc = data.biz?.rnc || ''
+  const isConsumerUnder250K = ncf.startsWith('E32') && (data.total || 0) < 250000
+  if (isConsumerUnder250K) {
+    return `https://fc.dgii.gov.do/ecf/ConsultaTimbreFC?RncEmisor=${enc(rnc)}&ENCF=${enc(ncf)}&MontoTotal=${enc(Number(data.total || 0).toFixed(2))}&CodigoSeguridad=${enc(data.securityCode || '')}`
+  }
+  const fechaEmision = fmtFirmaDate(data.paidAt || new Date()).split(' ')[0]
+  const fechaFirma = data.signatureDate ? fmtFirmaDate(data.signatureDate) : ''
+  return `https://ecf.dgii.gov.do/ecf/ConsultaTimbre?RncEmisor=${enc(rnc)}&RncComprador=${enc(data.client?.rnc || '')}&ENCF=${enc(ncf)}&FechaEmision=${enc(fechaEmision)}&MontoTotal=${enc(Number(data.total || 0).toFixed(2))}&FechaFirma=${enc(fechaFirma)}&CodigoSeguridad=${enc(data.securityCode || '')}`
 }
 
 /**
@@ -59,10 +81,11 @@ async function buildPDF(data) {
   const lines = buildLines(data)
   const isECF = data.ncf && data.ncf.startsWith('E')
 
-  // Generate QR for e-CF receipts
+  // Generate QR for e-CF receipts — use qrLink from DGII submission or build locally
   let qrPngBase64 = null
   if (isECF) {
-    qrPngBase64 = await generateQRPng(data.ncf)
+    const qrUrl = data.qrLink || buildQRUrl(data)
+    qrPngBase64 = await generateQRPng(qrUrl)
   }
 
   // Try to embed business logo
@@ -91,7 +114,9 @@ async function buildPDF(data) {
   }
 
   const logoBlockH = logoImage ? LOGO_H + 6 : 0
-  const qrBlockH = qrPngBase64 ? QR_SIZE + 20 : 0
+  const secCodeH = (qrPngBase64 && data.securityCode) ? 10 : 0
+  const firmaH = (qrPngBase64 && data.signatureDate) ? 14 : 0
+  const qrBlockH = qrPngBase64 ? QR_SIZE + 20 + secCodeH + firmaH : 0
   const pageH = MARGIN * 2 + logoBlockH + lines.reduce((h, l) => h + l.height, 0) + qrBlockH + 10
 
   const page = doc.addPage([PAGE_W, pageH])
@@ -153,6 +178,19 @@ async function buildPDF(data) {
     const label = 'Verificar en DGII'
     const labelW = font.widthOfTextAtSize(label, 7)
     page.drawText(label, { x: MARGIN + (COL_W - labelW) / 2, y: y - 8, size: 7, font, color: rgb(0.4, 0.4, 0.4) })
+    y -= 18
+    if (data.securityCode) {
+      const scLabel = `Codigo de Seguridad: ${data.securityCode}`
+      const scW = font.widthOfTextAtSize(scLabel, 6)
+      page.drawText(scLabel, { x: MARGIN + (COL_W - scW) / 2, y: y - 2, size: 6, font, color: rgb(0.4, 0.4, 0.4) })
+      y -= 10
+    }
+    if (data.signatureDate) {
+      const firmaStr = fmtFirmaDate(data.signatureDate)
+      const firmaLabel = `Fecha de Firma Digital: ${firmaStr}`
+      const firmaW = font.widthOfTextAtSize(firmaLabel, 6)
+      page.drawText(firmaLabel, { x: MARGIN + (COL_W - firmaW) / 2, y: y - 2, size: 6, font, color: rgb(0.4, 0.4, 0.4) })
+    }
   }
 
   const pdfBytes = await doc.save()

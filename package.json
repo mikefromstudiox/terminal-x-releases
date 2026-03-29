@@ -9,7 +9,7 @@
     "build:react": "vite build",
     "build:protected": "vite build --mode production && electron-builder",
     "dist": "npm run build:react && electron-builder",
-    "dist:win": "npm run build:react && node scripts/win-prebuilt.js && electron-builder --win",
+    "dist:win": "npm run build:react && electron-builder --win",
     "dist:mac": "npm run build:react && electron-builder --mac",
     "preview": "vite preview",
     "dev:web": "vite --config vite.web.config.js",
@@ -19,20 +19,25 @@
   },
   "dependencies": {
     "@vercel/speed-insights": "^2.0.0",
+    "@xmldom/xmldom": "^0.8.11",
     "adm-zip": "^0.5.16",
     "better-sqlite3": "^12.8.0",
+    "dgii-ecf": "^1.6.8",
     "electron-log": "^5.4.3",
     "electron-updater": "^6.8.3",
     "idb": "^8.0.3",
+    "node-forge": "^1.3.3",
     "pdf-lib": "^1.17.1",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "xlsx": "^0.18.5",
+    "xml-crypto": "^6.1.2"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.99.3",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.19",
     "concurrently": "^8.2.2",
-    "electron": "^28.3.3",
+    "electron": "^41.1.0",
     "electron-builder": "^26.8.1",
     "lucide-react": "^0.378.0",
     "png-to-ico": "^3.0.1",
@@ -50,7 +55,7 @@
     "productName": "Terminal X",
     "copyright": "Copyright © 2024 Terminal X",
     "asar": true,
-    "npmRebuild": false,
+    "npmRebuild": true,
     "asarUnpack": [
       "**/*.node"
     ],

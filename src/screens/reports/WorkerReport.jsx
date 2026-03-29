@@ -1,8 +1,10 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Lock, Download, ChevronRight, Car, CircleDollarSign, Users, BarChart3, Coffee, AlertCircle } from 'lucide-react'
+import { Lock, Download, Printer, ChevronRight, Car, CircleDollarSign, Users, BarChart3, Coffee, AlertCircle } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
+import { exportCommissionDetail, exportCommissionSummary } from '../../services/csv'
+import { printCommissionDetail, printCommissionSummary } from '../../services/report-html'
 
 // ── Access control ────────────────────────────────────────────────────────────
 const ALLOWED_ROLES = ['owner', 'manager', 'cfo', 'accountant']
@@ -58,28 +60,7 @@ const PAST_MONTHS = Array.from({ length: 12 }, (_, i) => {
   return { year: y, month: m }
 })
 
-// ── CSV export ────────────────────────────────────────────────────────────────
-function exportCSV(tickets, personName, period) {
-  const rows = [
-    [`Comisiones — ${personName} — ${period}`], [],
-    ['#Ticket','Vehiculo','Servicio','Base s/ITBIS','%','Comision','Estado'],
-    ...tickets.map(t => [
-      t.ticketNo, t.vehicle, t.mainService.name,
-      t.commBase.toFixed(2), `${t.pct}%`, t.commission.toFixed(2), t.estado,
-    ]),
-    [],
-    ['','','TOTALES',
-      tickets.reduce((s, t) => s + t.commBase,   0).toFixed(2), '',
-      tickets.reduce((s, t) => s + t.commission, 0).toFixed(2), '',
-    ],
-  ]
-  const csv  = rows.map(r => r.join(',')).join('\n')
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
-  const url  = URL.createObjectURL(blob)
-  const a    = document.createElement('a')
-  a.href = url; a.download = `comisiones-${personName.toLowerCase()}.csv`; a.click()
-  URL.revokeObjectURL(url)
-}
+// ── CSV export (removed — now uses services/csv.js) ──────────────────────────
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -377,7 +358,7 @@ function CommissionPanel({
 
       {/* Ticket table (individual) */}
       {selectedId !== 'all' && (
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden flex flex-col" style={{ minHeight: 320 }}>
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden flex flex-col max-h-[500px]" style={{ minHeight: 320 }}>
           <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between shrink-0">
             <p className="text-[12px] font-bold text-slate-700">
               {lang === 'es' ? 'Tickets del periodo' : 'Period tickets'}
@@ -428,13 +409,15 @@ export default function WorkerReport() {
   const [loadingCS,        setLoadingCS]        = useState(false)
   const [loadingCT,        setLoadingCT]        = useState(false)
   const [toast,            setToast]            = useState(null)
+  const [biz,              setBiz]              = useState({})
 
   function flash(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
-  if (!ALLOWED_ROLES.includes(user?.role)) return <AccessDenied lang={lang} />
+  const hasAccess = ALLOWED_ROLES.includes(user?.role)
 
   // Load people lists once
   useEffect(() => {
+    if (!hasAccess) return
     api.washers.allAdmin().then(r => setWashers(r || [])).catch(() => { setWashers([]); flash(lang === 'es' ? 'Error al cargar lavadores' : 'Error loading washers') })
     api.sellers.allAdmin().then(r => setSellers(r || [])).catch(() => { setSellers([]); flash(lang === 'es' ? 'Error al cargar vendedores' : 'Error loading sellers') })
     // Cajeros = users with cashier role or commission_pct > 0
@@ -442,13 +425,14 @@ export default function WorkerReport() {
       const users = (r || []).filter(u => u.role === 'cashier' || (u.commission_pct && u.commission_pct > 0))
       setCajeros(users)
     }).catch(() => { setCajeros([]); flash(lang === 'es' ? 'Error al cargar cajeras' : 'Error loading cashiers') })
+    api.admin?.getEmpresa?.().then(e => e && setBiz({ name: e.nombre, rnc: e.rnc, address: e.direccion, phone: e.telefono, email: e.email })).catch(() => {})
   }, [])
 
   const range = getDateRange(period, customY, customM)
 
   // Load washer summaries
   useEffect(() => {
-    if (subTab !== 'lavadores') return
+    if (!hasAccess || subTab !== 'lavadores') return
     let cancelled = false
     setLoadingWS(true); setWasherId('all'); setWasherTickets([])
     api.commissions.byPeriod(range)
@@ -460,7 +444,7 @@ export default function WorkerReport() {
 
   // Load washer detail
   useEffect(() => {
-    if (subTab !== 'lavadores' || washerId === 'all') { setWasherTickets([]); return }
+    if (!hasAccess || subTab !== 'lavadores' || washerId === 'all') { setWasherTickets([]); return }
     let cancelled = false; setLoadingWT(true)
     api.commissions.byWasher({ washerId: washerId, ...range })
       .then(rows => {
@@ -478,7 +462,7 @@ export default function WorkerReport() {
 
   // Load seller summaries
   useEffect(() => {
-    if (subTab !== 'vendedores') return
+    if (!hasAccess || subTab !== 'vendedores') return
     let cancelled = false
     setLoadingSS(true); setSellerId('all'); setSellerTickets([])
     api.sellerCommissions.byPeriod(range)
@@ -490,7 +474,7 @@ export default function WorkerReport() {
 
   // Load seller detail
   useEffect(() => {
-    if (subTab !== 'vendedores' || sellerId === 'all') { setSellerTickets([]); return }
+    if (!hasAccess || subTab !== 'vendedores' || sellerId === 'all') { setSellerTickets([]); return }
     let cancelled = false; setLoadingST(true)
     api.sellerCommissions.bySeller({ sellerId: sellerId, ...range })
       .then(rows => {
@@ -508,7 +492,7 @@ export default function WorkerReport() {
 
   // Load cajero summaries
   useEffect(() => {
-    if (subTab !== 'cajeras') return
+    if (!hasAccess || subTab !== 'cajeras') return
     let cancelled = false
     setLoadingCS(true); setCajeroId('all'); setCajeroTickets([])
     api.cajeroCommissions.byPeriod(range)
@@ -520,7 +504,7 @@ export default function WorkerReport() {
 
   // Load cajero detail
   useEffect(() => {
-    if (subTab !== 'cajeras' || cajeroId === 'all') { setCajeroTickets([]); return }
+    if (!hasAccess || subTab !== 'cajeras' || cajeroId === 'all') { setCajeroTickets([]); return }
     let cancelled = false; setLoadingCT(true)
     api.cajeroCommissions.byCajero({ cajeroId: cajeroId, ...range })
       .then(rows => {
@@ -536,6 +520,8 @@ export default function WorkerReport() {
     return () => { cancelled = true }
   }, [subTab, cajeroId, period, customY, customM])
 
+  if (!hasAccess) return <AccessDenied lang={lang} />
+
   const periodLabel = period === 'hoy'    ? (lang === 'es' ? 'Hoy'          : 'Today')
                     : period === 'semana' ? (lang === 'es' ? 'Esta semana'  : 'This week')
                     : period === 'mes'    ? (lang === 'es' ? 'Este mes'     : 'This month')
@@ -548,24 +534,24 @@ export default function WorkerReport() {
     else { summaries = cajeroSummaries; tickets = cajeroTickets; name = cajeros.find(c => String(c.id) === String(cajeroId))?.name; allLabel = 'Cajeras' }
     const curId = subTab === 'lavadores' ? washerId : subTab === 'vendedores' ? sellerId : cajeroId
     if (curId === 'all') {
-      const rows = [
-        [`Comisiones — ${allLabel} — ${periodLabel}`], [],
-        ['Nombre','%','Tickets','Base s/ITBIS','Comision'],
-        ...summaries.map(w => [(w.washer_name||w.seller_name||w.cajero_name), `${w.commission_pct}%`, w.ticket_count, (w.total_base||0).toFixed(2), (w.total_commission||0).toFixed(2)]),
-        [],
-        ['TOTAL','','',
-          summaries.reduce((s, w) => s + (w.total_base||0), 0).toFixed(2),
-          summaries.reduce((s, w) => s + (w.total_commission||0), 0).toFixed(2),
-        ],
-      ]
-      const csv  = rows.map(r => r.join(',')).join('\n')
-      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href = url; a.download = `comisiones-${allLabel.toLowerCase()}-${periodLabel.toLowerCase()}.csv`; a.click()
-      URL.revokeObjectURL(url)
+      exportCommissionSummary(biz, summaries, allLabel, periodLabel)
     } else {
-      exportCSV(tickets, name ?? allLabel, periodLabel)
+      const pct = tickets[0]?.pct || 0
+      exportCommissionDetail(biz, tickets, name ?? allLabel, pct, periodLabel)
+    }
+  }
+
+  function handlePrint() {
+    let summaries, tickets, name, allLabel
+    if (subTab === 'lavadores') { summaries = washerSummaries; tickets = washerTickets; name = washers.find(w => String(w.id) === String(washerId))?.name; allLabel = 'Lavadores' }
+    else if (subTab === 'vendedores') { summaries = sellerSummaries; tickets = sellerTickets; name = sellers.find(s => String(s.id) === String(sellerId))?.name; allLabel = 'Vendedores' }
+    else { summaries = cajeroSummaries; tickets = cajeroTickets; name = cajeros.find(c => String(c.id) === String(cajeroId))?.name; allLabel = 'Cajeras' }
+    const curId = subTab === 'lavadores' ? washerId : subTab === 'vendedores' ? sellerId : cajeroId
+    if (curId === 'all') {
+      printCommissionSummary(biz, summaries, allLabel, periodLabel)
+    } else {
+      const pct = tickets[0]?.pct || 0
+      printCommissionDetail(biz, tickets, name ?? allLabel, pct, periodLabel)
     }
   }
 
@@ -595,16 +581,23 @@ export default function WorkerReport() {
       <div className="shrink-0 bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h2 className="text-[16px] font-bold text-slate-800">{lang === 'es' ? 'Comisiones' : 'Commissions'}</h2>
+            <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800">{lang === 'es' ? 'Comisiones' : 'Commissions'}</h2>
             <p className="text-[11px] text-slate-400 mt-0.5">
               {lang === 'es' ? 'Calculado sobre base pre-ITBIS. Bebidas y snacks excluidos para lavadores/vendedores.' : 'Calculated on pre-ITBIS base. Beverages excluded for washers/sellers.'}
             </p>
           </div>
-          <button onClick={handleExport}
-            className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 bg-white rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
-            <Download size={13} />
-            {lang === 'es' ? 'Exportar CSV' : 'Export CSV'}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={handleExport}
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 bg-white rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+              <Download size={13} />
+              {lang === 'es' ? 'Exportar CSV' : 'Export CSV'}
+            </button>
+            <button onClick={handlePrint}
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 bg-white rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+              <Printer size={13} />
+              Imprimir
+            </button>
+          </div>
         </div>
 
         {/* Sub-tabs: Lavadores / Vendedores / Cajeras */}
@@ -655,7 +648,7 @@ export default function WorkerReport() {
       </div>
 
       {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto flex flex-col gap-4 px-6 py-4">
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 px-6 py-4">
 
         {subTab === 'lavadores' && (
           <CommissionPanel

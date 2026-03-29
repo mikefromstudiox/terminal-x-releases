@@ -16,7 +16,7 @@ import {
 import { generateLicenseKey, isAdminSession, startAdminSession, endAdminSession } from '../services/license'
 import { useLicense } from '../context/LicenseContext'
 
-const LICENSE_API = import.meta.env.VITE_LICENSE_API || 'https://terminal-x-licenses.railway.app'
+const LICENSE_API = import.meta.env.VITE_LICENSE_API || 'https://terminalxpos.com'
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 async function apiAdmin(method, path, adminKey, body) {

@@ -17,7 +17,6 @@ try {
 // ── Env-var accessors (with safe fallbacks) ───────────────────────────────────
 const env = {
   masterKey:    (process.env.MASTER_LICENSE_KEY || 'TX-MASTER-2026').toUpperCase().trim(),
-  ef2Token:     process.env.EF2_TOKEN     || '',
   supabaseUrl:  process.env.SUPABASE_URL  || '',
   supabaseAnon: process.env.SUPABASE_ANON_KEY || '',
 }
@@ -125,89 +124,250 @@ ipcMain.handle('whatsapp:sendDocument', (_, { to, base64, filename, caption }) =
   })
 })
 
-// ── ef2.do HTTP proxy (runs in main process — no CORS, no browser restrictions) ─
-// Renderer cannot call ef2.do directly due to Chromium CORS enforcement.
-// All ef2.do requests go through this IPC bridge instead.
-function ef2Fetch({ method = 'POST', path: urlPath, body, token }) {
-  return new Promise((resolve, reject) => {
-    const bodyStr = JSON.stringify(body || {})
-    const headers = {
-      'Content-Type':   'application/json',
-      'Content-Length': Buffer.byteLength(bodyStr),
-    }
-    if (token) headers['Authorization'] = `Bearer ${token}`
+// ── e-CF offline queue ────────────────────────────────────────────────────────
 
-    const req = https.request({
-      hostname: 'master.ef2.do',
-      port:     443,
-      path:     `/api2${urlPath}`,
-      method,
-      headers,
-    }, res => {
-      let data = ''
-      res.on('data', chunk => { data += chunk })
-      res.on('end', () => {
-        try {
-          resolve({ status: res.statusCode, json: JSON.parse(data) })
-        } catch {
-          resolve({ status: res.statusCode, json: null, raw: data })
-        }
-      })
-    })
-    req.on('error', err => reject(err))
-    req.write(bodyStr)
-    req.end()
-  })
+ipcMain.handle('ecf:queue-count', () => db ? db.ecfQueueCount() : 0)
+
+// ── DGII Direct e-CF ──────────────────────────────────────────────────────────
+
+const certManager = require('./cert-manager')
+const xmlBuilder  = require('./xml-builder')
+const xmlSigner   = require('./xml-signer')
+const dgiiClient  = require('./dgii-client')
+
+// Get current DGII environment from app settings (default: testecf)
+function getDgiiEnv() {
+  if (!db) return 'testecf'
+  return db.getSetting('dgii_environment') || 'testecf'
 }
 
-const NETWORK_ERRORS = ['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET']
-
-ipcMain.handle('ef2:fetch', async (_, { method, path: urlPath, body, token }) => {
-  // Token resolution: request param → env var → business DB settings
-  let resolvedToken = token || env.ef2Token
-  if (!resolvedToken && db) {
-    try {
-      const biz = db.empresaGet()
-      const s = JSON.parse(biz?.settings || '{}')
-      resolvedToken = s.ef2_token || ''
-    } catch {}
-  }
-  if (!resolvedToken) {
-    return { ok: false, error: 'ef2_token_missing', stub: true }
-  }
+// dgii:submit — full flow: build XML → sign → authenticate → submit → poll status
+ipcMain.handle('dgii:submit', async (_, invoiceData) => {
   try {
-    const { status, json, raw } = await ef2Fetch({ method, path: urlPath, body, token: resolvedToken })
-    return { ok: true, status, data: json, raw }
+    const { privateKeyPem, certificatePem } = certManager.loadCert()
+    const env = getDgiiEnv()
+
+    // 1. Build the JSON payload (same shape as ecf.js buildEXX())
+    // invoiceData.payload is the pre-built ECF payload from the renderer
+    const payload = invoiceData.payload
+    const eNCF = invoiceData.eNCF
+    const tipoECF = invoiceData.tipoECF
+
+    // 2. Build XML from payload
+    const xml = xmlBuilder.buildECFXml(payload, eNCF)
+
+    // 3. Sign XML
+    const { signedXml, securityCode, signatureDate } = xmlSigner.signXML(xml, privateKeyPem, certificatePem)
+
+    // 4. Authenticate with DGII
+    const token = await dgiiClient.authenticate(env, privateKeyPem, certificatePem)
+
+    // 5. Submit to DGII
+    const isE32Under250K = tipoECF === '32' && Number(invoiceData.montoTotal) < 250000
+    let submitResult
+
+    if (isE32Under250K) {
+      // Build and sign RFCE for consumer < 250K
+      const rfceXml = xmlBuilder.buildRFCEXml({
+        emisor: invoiceData.emisor,
+        totales: {
+          montoGravadoTotal: invoiceData.totales?.subtotal,
+          montoGravadoI1: invoiceData.totales?.subtotal,
+          totalITBIS: invoiceData.totales?.itbis,
+          totalITBIS1: invoiceData.totales?.itbis,
+          montoTotal: invoiceData.totales?.total,
+        },
+        eNCF,
+        tipoIngresos: invoiceData.tipoIngresos || '01',
+        tipoPago: invoiceData.tipoPago || '1',
+        comprador: invoiceData.comprador,
+        fechaEmision: invoiceData.fechaEmision,
+        securityCode,
+      })
+      const signedRFCE = xmlSigner.signXML(rfceXml, privateKeyPem, certificatePem)
+      submitResult = await dgiiClient.submitRFCE(signedRFCE.signedXml, token, env)
+    } else {
+      submitResult = await dgiiClient.submitECF(signedXml, token, env)
+    }
+
+    // 6. Poll for status
+    const trackId = submitResult.trackId || submitResult.encf || eNCF
+    let status = { codigo: 3, estado: 'EN_PROCESO' }
+    if (!isE32Under250K && trackId) {
+      status = await dgiiClient.pollStatus(trackId, token, env, { maxRetries: 5, delayMs: 1000 })
+    } else if (isE32Under250K) {
+      // RFCE returns status directly
+      status = { codigo: submitResult.codigo === 0 ? 1 : submitResult.codigo, estado: submitResult.estado || 'ACEPTADO' }
+    }
+
+    // 7. Build QR URL
+    const qrUrl = dgiiClient.buildQRUrl({
+      env,
+      rncEmisor: invoiceData.emisor?.rnc,
+      rncComprador: invoiceData.comprador?.rnc || '',
+      eNCF,
+      fechaEmision: invoiceData.fechaEmision,
+      montoTotal: String(invoiceData.totales?.total || 0),
+      fechaFirma: signatureDate,
+      codigoSeguridad: securityCode,
+      isRFCE: isE32Under250K,
+    })
+
+    // 8. Save to ecf_submissions
+    const xmlHash = require('crypto').createHash('sha256').update(signedXml).digest('hex').slice(0, 32)
+    db.ecfSubmissionAdd({
+      encf: eNCF,
+      tipoEcf: tipoECF,
+      ticketId: invoiceData.ticketId,
+      xmlHash,
+      trackId,
+      dgiiStatus: status.codigo,
+      dgiiMessage: status.mensajes?.join('; ') || status.estado,
+      securityCode,
+      signatureDate,
+      environment: env,
+    })
+
+    return {
+      ok: true,
+      data: {
+        eNCF,
+        status: status.estado || 'ACEPTADO',
+        trackId,
+        submittedAt: new Date().toISOString(),
+        securityCode,
+        signatureDate,
+        qrLink: qrUrl,
+        dgiiCodigo: status.codigo,
+      },
+    }
   } catch (err) {
-    const isNetwork = NETWORK_ERRORS.some(c => err.code === c || err.message.includes(c))
-    // Queue invoice submissions on network failure — DGII allows 72h contingency
-    if (isNetwork && urlPath === '/procesar_factura.php' && db) {
-      db.ecfQueueAdd(urlPath, body, resolvedToken)
+    // Queue for retry on network errors
+    const isNetwork = ['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET', 'timeout'].some(
+      c => err.message?.includes(c)
+    )
+    if (isNetwork && invoiceData.payload && invoiceData.eNCF) {
+      db.ecfQueueAdd('dgii:submit', invoiceData, '', {
+        encf: invoiceData.eNCF,
+        tipoEcf: invoiceData.tipoECF,
+        environment: getDgiiEnv(),
+      })
       return { ok: false, error: err.message, queued: true }
     }
     return { ok: false, error: err.message }
   }
 })
 
-// ── e-CF offline queue retry ──────────────────────────────────────────────────
+// dgii:install-cert — open file dialog, install .p12, return cert info
+ipcMain.handle('dgii:install-cert', async (_, { filePath, passphrase } = {}) => {
+  try {
+    let certPath = filePath
+    if (!certPath) {
+      const result = await dialog.showOpenDialog({
+        title: 'Seleccionar certificado digital (.p12)',
+        filters: [{ name: 'Certificado PKCS12', extensions: ['p12', 'pfx'] }],
+        properties: ['openFile'],
+      })
+      if (result.canceled || !result.filePaths[0]) return { ok: false, error: 'Cancelado' }
+      certPath = result.filePaths[0]
+    }
+    const info = certManager.installCert(certPath, passphrase || '')
+    return { ok: info.ok, data: info }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
 
-ipcMain.handle('ecf:queue-count', () => db ? db.ecfQueueCount() : 0)
+// dgii:cert-info — get current certificate info
+ipcMain.handle('dgii:cert-info', () => {
+  try {
+    return { ok: true, data: certManager.getCertInfo() }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
 
-async function processEcfQueue() {
+// dgii:auth-test — test DGII authentication (seed dance)
+ipcMain.handle('dgii:auth-test', async () => {
+  try {
+    const { privateKeyPem, certificatePem } = certManager.loadCert()
+    const env = getDgiiEnv()
+    dgiiClient.clearTokenCache()
+    const token = await dgiiClient.authenticate(env, privateKeyPem, certificatePem)
+    return { ok: true, data: { token: token.substring(0, 20) + '...', env } }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+// dgii:check-status — check trackId status
+ipcMain.handle('dgii:check-status', async (_, trackId) => {
+  try {
+    const { privateKeyPem, certificatePem } = certManager.loadCert()
+    const env = getDgiiEnv()
+    const token = await dgiiClient.authenticate(env, privateKeyPem, certificatePem)
+    const result = await dgiiClient.checkStatus(trackId, token, env)
+    return { ok: true, data: result }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+// dgii:get-env — returns current DGII environment
+ipcMain.handle('dgii:get-env', () => getDgiiEnv())
+
+// dgii:generate-test-set — generate test XMLs for certification steps 2-3
+ipcMain.handle('dgii:generate-test-set', async (_, step) => {
+  try {
+    const certData = certManager.loadCert()
+    const testGen = require('./test-xml-generator')
+    const outputDir = path.join(app.getPath('userData'), 'test-xmls')
+    const result = testGen.generateAndSign(step || 2, certData, outputDir)
+    // Open folder in explorer
+    shell.openPath(result.outputDir)
+    return { ok: true, data: { count: result.count, dir: result.outputDir, manifest: result.manifest } }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+// dgii:submissions — list recent e-CF submissions
+ipcMain.handle('dgii:submissions', (_, limit) => {
+  return db ? db.ecfSubmissionGetAll(limit || 50) : []
+})
+
+// Updated queue processor — uses DGII direct when xml_signed is present
+async function processDgiiQueue() {
   if (!db) return
   const pending = db.ecfQueueGetPending(10)
   for (const item of pending) {
     try {
-      const { status, json } = await ef2Fetch({
-        method: 'POST',
-        path:   item.url_path,
-        body:   JSON.parse(item.body_json),
-        token:  item.token,
-      })
-      if (status >= 200 && status < 300 && json?.success) {
-        db.ecfQueueDelete(item.id)
+      if (item.xml_signed) {
+        // New DGII direct path
+        const { privateKeyPem, certificatePem } = certManager.loadCert()
+        const env = item.environment || getDgiiEnv()
+        const token = await dgiiClient.authenticate(env, privateKeyPem, certificatePem)
+        const result = await dgiiClient.submitECF(item.xml_signed, token, env)
+        if (result.trackId) {
+          const status = await dgiiClient.pollStatus(result.trackId, token, env, { maxRetries: 3, delayMs: 1000 })
+          if (status.codigo === 1 || status.codigo === 4) {
+            db.ecfSubmissionUpdate(result.trackId, { dgiiStatus: status.codigo, dgiiMessage: status.estado })
+          }
+          db.ecfQueueDelete(item.id)
+        } else {
+          db.ecfQueueIncrAttempts(item.id)
+        }
       } else {
-        db.ecfQueueIncrAttempts(item.id)
+        // Legacy ef2.do path
+        const { status, json } = await ef2Fetch({
+          method: 'POST', path: item.url_path,
+          body: JSON.parse(item.body_json), token: item.token,
+        })
+        if (status >= 200 && status < 300 && json?.success) {
+          db.ecfQueueDelete(item.id)
+        } else {
+          db.ecfQueueIncrAttempts(item.id)
+        }
       }
     } catch {
       // Still offline — retry next interval
@@ -271,6 +431,29 @@ ipcMain.handle('license:is-master', (_, key) => {
   return match
 })
 
+// ── Remote API calls (bypass CORS) ────────────────────────────────────────────
+const API_BASE = 'https://terminalxpos.com'
+
+ipcMain.handle('remote:register', async (_, body) => {
+  const resp = await fetch(`${API_BASE}/api/panel?action=register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await resp.json()
+  if (!resp.ok) throw new Error(data.error || 'Registration failed')
+  return data
+})
+
+ipcMain.handle('remote:validate', async (_, body) => {
+  const resp = await fetch(`${API_BASE}/api/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return resp.json()
+})
+
 // ── Database ──────────────────────────────────────────────────────────────────
 let db = null
 try {
@@ -324,14 +507,20 @@ app.whenReady().then(() => {
   // Init database
   if (db) {
     try {
-      db.init(app.getPath('userData'))
+      const ok = db.init(app.getPath('userData'))
+      if (!ok) console.error('[main] DB init returned false:', db.getError?.())
+      else console.log('[main] DB initialized at', app.getPath('userData'))
     } catch (err) {
       console.error('[main] DB init failed:', err.message)
     }
+  } else {
+    console.error('[main] DB module not loaded')
   }
+  // Init certificate manager for DGII direct e-CF
+  certManager.init(app)
   createWindow()
   // Retry any queued e-CF submissions every 30s (DGII 72h contingency compliance)
-  setInterval(processEcfQueue, 30_000)
+  setInterval(processDgiiQueue, 30_000)
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -345,7 +534,7 @@ app.on('window-all-closed', () => {
 // Wraps every handler in try/catch and returns { ok, data } or { ok:false, error }
 function handle(channel, fn) {
   ipcMain.handle(channel, async (event, ...args) => {
-    if (!db) return { ok: false, error: 'Base de datos no disponible' }
+    if (!db || !db.isReady()) return { ok: false, error: db?.getError?.() || 'Base de datos no disponible' }
     try {
       const data = await fn(...args)
       return { ok: true, data }
@@ -434,6 +623,13 @@ handle('sellers:all',       ()              => db.sellersGetAll())
 handle('sellers:all-admin', ()              => db.sellersGetAllAdmin())
 handle('sellers:create',    (data)          => db.sellerCreate(data))
 handle('sellers:update',    ({id,...data})  => db.sellerUpdate(id, data))
+
+// ── Empleados (payroll) ──────────────────────────────────────────────────────
+handle('empleados:all',       ()              => db.empleadosGetAll())
+handle('empleados:all-admin', ()              => db.empleadosGetAllAdmin())
+handle('empleados:create',    (data)          => db.empleadoCreate(data))
+handle('empleados:update',    ({id,...data})  => db.empleadoUpdate(id, data))
+handle('empleados:delete',    ({id})          => { db.empleadoDelete(id); return true })
 
 // ── Clients ───────────────────────────────────────────────────────────────────
 handle('clients:all',          ()          => db.clientsGetAll())

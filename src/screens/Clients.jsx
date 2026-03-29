@@ -3,13 +3,14 @@ import {
   Search, Plus, X, AlertTriangle, CheckCircle2,
   Phone, MapPin, Mail, CreditCard, Banknote,
   ArrowRightLeft, Landmark, Building2, ChevronRight,
-  SquareCheckBig, Square, Loader2, RefreshCw, AlertCircle, Pencil,
+  SquareCheckBig, Square, Loader2, RefreshCw, AlertCircle, Pencil, Trash2,
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
 import { useClients, useMutation } from '../hooks/useDB'
 import { useRNC } from '../hooks/useRNC'
 import { syncClient } from '../services/sync'
+import { printClientReceipt } from '../services/printer'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -142,7 +143,7 @@ function SkeletonCard() {
 
 // ── Client detail panel ───────────────────────────────────────────────────────
 
-function ClientDetail({ client, onClose, onUpdateClient, lang }) {
+function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
   const api = useAPI()
   const [openTickets,   setOpenTickets]   = useState([])
   const [loadingTix,    setLoadingTix]    = useState(true)
@@ -205,6 +206,18 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
     }
   }
 
+  async function handleDelete() {
+    const msg = lang === 'es' ? 'Eliminar este cliente?' : 'Delete this client?'
+    if (!confirm(msg)) return
+    try {
+      await api?.clients?.update?.({ id: client.id, active: 0 })
+      if (onDelete) onDelete(client.id)
+      flash(lang === 'es' ? 'Cliente eliminado' : 'Client deleted')
+    } catch (e) {
+      flash(`Error: ${e?.message || 'Error'}`)
+    }
+  }
+
   // Load open (credit, unpaid) tickets for this client
   useEffect(() => {
     setChecked(new Set())
@@ -217,8 +230,8 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
 
     api?.clients?.openTickets?.(client.id)
       .then(rows => {
-        setOpenTickets(rows.map(t => ({
-          id:       t.id,
+        setOpenTickets((rows || []).map(t => ({
+          ...t,
           ticketNo: t.doc_number || `T-${t.id}`,
           date:     t.created_at?.slice(0, 10) || '',
           services: t.service_names || (t.items || []).map(i => i.name).join(' + ') || '',
@@ -263,6 +276,10 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
       await api?.clients?.updateBalance?.({ id: client.id, delta: -selectedAmt })
 
       const paidCount = checked.size
+      const paidTickets = openTickets.filter(t => checked.has(t.id))
+      const paidAmt = selectedAmt
+      const paidMethod = formaPago
+
       onUpdateClient(client.id, {
         balance:     Math.max(0, newBalance),
         openTickets: openTickets.filter(t => !checked.has(t.id)),
@@ -271,7 +288,48 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
       setChecked(new Set())
       setFormaPago(null)
       setComentario('')
-      flash(`${paidCount} ${lang === 'es' ? 'ticket(s) cobrado(s)' : 'ticket(s) collected'} · ${fmtRD(selectedAmt)}`)
+      flash(`${paidCount} ${lang === 'es' ? 'ticket(s) cobrado(s)' : 'ticket(s) collected'} · ${fmtRD(paidAmt)}`)
+
+      // Print proper invoice receipt for each paid ticket (same as POS receipt)
+      try {
+        const empresa = await api?.admin?.getEmpresa?.().catch(() => null) || {}
+        const biz = {
+          name:    empresa?.nombre    || empresa?.name    || '',
+          address: empresa?.direccion || empresa?.address || '',
+          phone:   empresa?.telefono  || empresa?.phone   || '',
+          rnc:     empresa?.rnc       || '',
+          logo:    empresa?.logo      || '',
+        }
+        for (const ticket of paidTickets) {
+          const items = ticket.items || []
+          const subtotal = items.reduce((s, i) => s + (i.price || 0), 0)
+          const itbis = items.reduce((s, i) => s + (i.is_wash ? Math.round(i.price * 0.18 * 100) / 100 : 0), 0)
+          await printClientReceipt({
+            ncf:          ticket.ncf || '',
+            ncfType:      ncfType || ticket.comprobante_type || 'B02',
+            cajero:       '',
+            lavador:      '',
+            docNo:        ticket.doc_number || `T-${ticket.id}`,
+            paidAt:       new Date(),
+            client:       { name: client.name, rnc: client.rnc, phone: client.phone },
+            vehiclePlate: ticket.vehicle_plate || '',
+            tipo:         'credito',
+            formaPago:    paidMethod,
+            services:     items,
+            subtotal,
+            descuento:    ticket.descuento || 0,
+            itbis,
+            ley:          ticket.ley || 0,
+            total:        ticket.total || 0,
+            biz,
+            securityCode:  null,
+            signatureDate: null,
+            qrLink:        null,
+          }).catch(err => console.error('[Clients] print ticket failed:', err))
+        }
+      } catch (printErr) {
+        console.error('[Clients] printClientReceipt failed:', printErr)
+      }
     } catch (err) {
       flash(`Error: ${err.message}`)
     } finally {
@@ -304,9 +362,14 @@ function ClientDetail({ client, onClose, onUpdateClient, lang }) {
         </div>
         <div className="flex items-center gap-1">
           {!editing && (
-            <button onClick={startEdit} className="text-slate-400 hover:text-sky-600 p-1.5 rounded-lg hover:bg-sky-50 transition-colors" title={lang === 'es' ? 'Editar' : 'Edit'}>
-              <Pencil size={14} />
-            </button>
+            <>
+              <button onClick={startEdit} className="text-slate-400 hover:text-sky-600 p-1.5 rounded-lg hover:bg-sky-50 transition-colors" title={lang === 'es' ? 'Editar' : 'Edit'}>
+                <Pencil size={14} />
+              </button>
+              <button onClick={handleDelete} className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title={lang === 'es' ? 'Eliminar' : 'Delete'}>
+                <Trash2 size={14} />
+              </button>
+            </>
           )}
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors">
             <X size={16} />
@@ -805,7 +868,7 @@ export default function Clients() {
         <div className="shrink-0 px-3 py-3 md:px-4 md:py-4 border-b border-slate-200">
           <div className="flex items-center justify-between mb-2 md:mb-3">
             <div>
-              <h2 className="text-[15px] md:text-[16px] font-bold text-slate-800">
+              <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800">
                 {lang === 'es' ? 'Clientes' : 'Clients'}
               </h2>
               <p className="text-[11px] text-slate-400 mt-0.5">
@@ -822,7 +885,7 @@ export default function Clients() {
               </button>
               <button
                 onClick={() => setShowNewForm(true)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white text-[12px] font-bold rounded-xl transition-colors min-h-[44px]"
+                className="flex items-center gap-2 px-4 py-2 bg-black hover:bg-slate-800 text-white rounded-xl text-sm font-medium transition-colors"
               >
                 <Plus size={14} />
                 {lang === 'es' ? 'Nuevo' : 'New'}
@@ -880,6 +943,7 @@ export default function Clients() {
             client={selectedClient}
             onClose={() => setSelectedId(null)}
             onUpdateClient={handleUpdate}
+            onDelete={() => { setSelectedId(null); reload() }}
             lang={lang}
           />
         </div>

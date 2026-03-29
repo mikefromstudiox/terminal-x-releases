@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
-import { printCreditPayment } from '../services/printer'
+import { printClientReceipt } from '../services/printer'
 import { NewClientForm } from './Clients'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -250,25 +250,46 @@ function ClientDetail({ client, onReload }) {
       await loadTickets()
       onReload()
 
-      // Print credit payment receipt
+      // Print proper invoice receipt for each paid ticket (same as POS)
       try {
-        const empresa = await api.admin.getEmpresa().catch(() => ({}))
+        const empresa = await api?.admin?.getEmpresa?.().catch(() => null) || {}
         const biz = {
           name:    empresa?.nombre    || empresa?.name    || '',
           address: empresa?.direccion || empresa?.address || '',
           phone:   empresa?.telefono  || empresa?.phone   || '',
           rnc:     empresa?.rnc       || '',
+          logo:    empresa?.logo      || '',
         }
-        printCreditPayment({
-          biz,
-          client:     { name: client.name, rnc: client.rnc },
-          ncfType,
-          formaPago:  method,
-          tickets:    selectedTickets,
-          amount,
-          comentario: comentario || '',
-        }).catch(() => {})
-      } catch { /* print errors never block the payment flow */ }
+        for (const ticket of selectedTickets) {
+          const items = ticket.items || []
+          const subtotal = items.reduce((s, i) => s + (i.price || 0), 0)
+          const itbis = items.reduce((s, i) => s + (i.is_wash ? Math.round(i.price * 0.18 * 100) / 100 : 0), 0)
+          await printClientReceipt({
+            ncf:          ticket.ncf || '',
+            ncfType:      ncfType || ticket.comprobante_type || 'B02',
+            cajero:       '',
+            lavador:      '',
+            docNo:        ticket.doc_number || `T-${ticket.id}`,
+            paidAt:       new Date(),
+            client:       { name: client.name, rnc: client.rnc, phone: client.phone },
+            vehiclePlate: ticket.vehicle_plate || '',
+            tipo:         'credito',
+            formaPago:    method,
+            services:     items,
+            subtotal,
+            descuento:    ticket.descuento || 0,
+            itbis,
+            ley:          ticket.ley || 0,
+            total:        ticket.total || 0,
+            biz,
+            securityCode:  null,
+            signatureDate: null,
+            qrLink:        null,
+          }).catch(err => console.error('[Credits] print ticket failed:', err))
+        }
+      } catch (printErr) {
+        console.error('[Credits] printClientReceipt failed:', printErr)
+      }
     } catch (e) {
       setToast('Error: ' + (e.message || 'No se pudo registrar el cobro.'))
       setTimeout(() => setToast(null), 4000)
@@ -554,12 +575,12 @@ export default function Credits() {
       }`}>
 
         {/* Header */}
-        <div className="shrink-0 px-3 py-2.5 md:px-4 md:py-3 border-b border-slate-100">
+        <div className="shrink-0 px-3 py-2.5 md:px-4 md:py-3 border-b border-slate-200">
           <div className="flex items-center justify-between mb-2.5">
-            <h2 className="text-[14px] font-bold text-slate-800">Cuentas x Cobrar</h2>
+            <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800">Cuentas x Cobrar</h2>
             <button
               onClick={() => setShowNew(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0C447C] hover:bg-[#0a3a6b] text-white text-[11px] font-bold rounded-lg transition-colors min-h-[44px]"
+              className="flex items-center gap-2 px-4 py-2 bg-black hover:bg-slate-800 text-white rounded-xl text-sm font-medium transition-colors min-h-[44px]"
             >
               <Plus size={12} /> Nuevo
             </button>

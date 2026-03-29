@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import logoImg from '../assets/logo.png'
+import xMark from '../assets/x-mark.png'
 import { Delete } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAuth } from '../context/AuthContext'
@@ -8,13 +9,13 @@ import LanguageToggle from '../components/LanguageToggle'
 // ── PIN Dots ──────────────────────────────────────────────────────────────────
 function PinDots({ filled, shake }) {
   return (
-    <div className={`flex items-center justify-center gap-4 h-8 ${shake ? 'animate-shake' : ''}`}>
-      {Array.from({ length: 4 }).map((_, i) => (
+    <div className={`flex items-center justify-center gap-3 h-8 ${shake ? 'animate-shake' : ''}`}>
+      {Array.from({ length: 6 }).map((_, i) => (
         <div
           key={i}
-          className={`w-3.5 h-3.5 rounded-full transition-all duration-150 ${
+          className={`w-3 h-3 rounded-full transition-all duration-150 ${
             i < filled
-              ? 'bg-[#0C447C] scale-110'
+              ? 'bg-[#b3001e] scale-110'
               : 'bg-slate-200 border border-slate-300'
           }`}
         />
@@ -26,7 +27,7 @@ function PinDots({ filled, shake }) {
 // ── Pad Button ────────────────────────────────────────────────────────────────
 function PadBtn({ children, onClick, variant = 'digit' }) {
   const styles = {
-    digit:  'bg-slate-50 hover:bg-slate-100 active:bg-[#0C447C] active:text-white text-slate-800 text-xl font-semibold border border-slate-200',
+    digit:  'bg-slate-50 hover:bg-slate-100 active:bg-[#b3001e] active:text-white text-slate-800 text-xl font-semibold border border-slate-200',
     action: 'bg-transparent hover:bg-slate-100 text-slate-400 hover:text-slate-600 text-sm font-medium',
   }
   return (
@@ -124,7 +125,7 @@ export default function Login() {
     if (mode !== 'pin') return
     function onKey(e) {
       if (e.key >= '0' && e.key <= '9') {
-        setPin(p => p.length < 4 ? p + e.key : p)
+        setPin(p => p.length < 6 ? p + e.key : p)
         setError(null)
       } else if (e.key === 'Backspace') {
         setPin(p => p.slice(0, -1))
@@ -132,29 +133,36 @@ export default function Login() {
       } else if (e.key === 'Escape') {
         setPin('')
         setError(null)
+      } else if (e.key === 'Enter') {
+        // Allow manual submit for PINs > 4 digits
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [mode])
 
-  // Auto-submit when 4 digits entered
+  // Auto-submit when 4+ digits entered (tries at each length, waits briefly for more digits)
   useEffect(() => {
-    if (pin.length !== 4) return
+    if (pin.length < 4) return
+    const delay = pin.length === 6 ? 100 : 400 // instant at max, wait at 4-5 for more digits
     const timer = setTimeout(async () => {
       const ok = await login(pin)
       if (!ok) {
-        setError(t('login_wrong_pin'))
-        setShake(true)
-        setPin('')
-        setTimeout(() => setShake(false), 500)
+        if (pin.length >= 6) {
+          // Max length reached and wrong — reset
+          setError(t('login_wrong_pin'))
+          setShake(true)
+          setPin('')
+          setTimeout(() => setShake(false), 500)
+        }
+        // For 4-5 digits, don't reset — let user keep typing
       }
-    }, 150)
+    }, delay)
     return () => clearTimeout(timer)
   }, [pin, login, t])
 
   function handleDigit(d) {
-    setPin(p => p.length < 4 ? p + d : p)
+    setPin(p => p.length < 6 ? p + d : p)
     setError(null)
   }
 
@@ -194,22 +202,13 @@ export default function Login() {
       {/* ── Left panel — brand ─────────────────────────────────────────────── */}
       <div
         className="hidden md:flex flex-col items-center justify-center bg-black shrink-0 px-8 py-10 relative overflow-hidden"
-        style={{ width: 280 }}
+        style={{ width: 320 }}
       >
-        {/* Logo box */}
-        <div className="w-20 h-20 bg-white flex items-center justify-center mb-6 shrink-0" style={{ borderRadius: 14 }}>
-          <img
-            src={logoImg}
-            alt="Terminal X"
-            className="w-14 h-14 object-contain"
-            draggable={false}
-          />
+        <div className="flex items-center justify-center gap-1">
+          <span className="text-3xl font-black text-white tracking-[3px]">TERMINAL</span>
+          <img src={xMark} alt="X" className="h-28 w-28 object-contain mt-1" />
         </div>
-
-        {/* Brand name */}
-        <p className="text-white font-[500] tracking-[3px] leading-none text-center w-full" style={{ fontSize: 24 }}>TERMINAL X</p>
-        <p className="text-white/40 leading-none mt-2 text-center w-full" style={{ fontSize: 12 }}>POS</p>
-
+        <p className="text-white/40 leading-none mt-2 text-center w-full text-[12px]">POS</p>
       </div>
 
       {/* ── Right panel — login form ───────────────────────────────────────── */}
@@ -221,11 +220,9 @@ export default function Login() {
         </div>
 
         {/* Mobile-only logo */}
-        <div className="md:hidden flex flex-col items-center gap-2 mb-8">
-          <div className="w-16 h-16 bg-black rounded-[12px] flex items-center justify-center">
-            <img src={logoImg} alt="Terminal X" className="w-11 h-11 object-contain" draggable={false} />
-          </div>
-          <p className="text-slate-800 text-[16px] font-[500] tracking-[2px]">TERMINAL X</p>
+        <div className="md:hidden flex items-center justify-center gap-1 mb-8">
+          <span className="text-2xl font-black text-slate-900 tracking-[3px]">TERMINAL</span>
+          <img src={xMark} alt="X" className="h-20 w-20 object-contain mt-1" />
         </div>
 
         <div className="w-full max-w-xs">

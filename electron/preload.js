@@ -105,6 +105,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     update:   (data) => call('sellers:update', data),
   },
 
+  // ── Empleados (payroll) ──────────────────────────────────────────────────
+  empleados: {
+    all:      ()     => call('empleados:all'),
+    allAdmin: ()     => call('empleados:all-admin'),
+    create:   (data) => call('empleados:create', data),
+    update:   (data) => call('empleados:update', data),
+    delete:   (id)   => call('empleados:delete', { id }),
+  },
+
   // ── Clients ────────────────────────────────────────────────────────────────
   clients: {
     all:           ()                   => call('clients:all'),
@@ -224,6 +233,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     isMaster: (key) => ipcRenderer.invoke('license:is-master', key),
   },
 
+  // ── Remote API (main process, no CORS) ────────────────────────────────────
+  remote: {
+    register: (body) => ipcRenderer.invoke('remote:register', body),
+    validate: (body) => ipcRenderer.invoke('remote:validate', body),
+  },
+
   // ── App version ────────────────────────────────────────────────────────────
   version: () => ipcRenderer.invoke('app:version'),
 
@@ -245,9 +260,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     set: (key, val)  => ipcRenderer.invoke('safe:set', key, val),
   },
 
-  // ── ef2.do API proxy (bypasses CORS via main process) ─────────────────────
-  ef2: {
-    fetch: (params) => ipcRenderer.invoke('ef2:fetch', params),
+  // ── DGII Direct e-CF ──────────────────────────────────────────────────────
+  dgii_ecf: {
+    submit:          (invoiceData) => call('dgii:submit', invoiceData),
+    installCert:     (opts)        => call('dgii:install-cert', opts),
+    certInfo:        ()            => call('dgii:cert-info'),
+    authTest:        ()            => call('dgii:auth-test'),
+    checkStatus:     (trackId)     => call('dgii:check-status', trackId),
+    getEnv:          ()            => ipcRenderer.invoke('dgii:get-env'),
+    submissions:     (limit)       => ipcRenderer.invoke('dgii:submissions', limit),
+    generateTestSet: (step)        => call('dgii:generate-test-set', step),
   },
 
   // ── e-CF offline queue ─────────────────────────────────────────────────────

@@ -108,7 +108,6 @@ const SISTEMA_DEFAULTS = {
   usd_rate:             '61.00',
   rnc_verify:           '1',
   sucursales:           '0',
-  beverages_in_pos:     '1',
   auto_backup:          '0',
   printer:              '',
   print_preticket:      '0',
@@ -118,30 +117,22 @@ const SISTEMA_DEFAULTS = {
   whatsapp_token:       'frctimeqrl7dkfff',
 }
 
-function Configuracion() {
-  const api               = useAPI()
-  const printerApi        = usePrinterAPI()
-  const { lang, setLang } = useLang()
-  const { toast, show }   = useToast()
-
-  const [cfg,         setCfg]         = useState(SISTEMA_DEFAULTS)
-  const [printers,    setPrinters]    = useState([])
-  const [saving,      setSaving]      = useState(false)
-  const [saved,       setSaved]       = useState(false)
+// Shared settings hook — loads cfg from DB once, provides set/save
+function useSettings() {
+  const api = useAPI()
+  const printerApi = usePrinterAPI()
+  const { lang } = useLang()
+  const { toast, show } = useToast()
+  const [cfg, setCfg] = useState(SISTEMA_DEFAULTS)
+  const [printers, setPrinters] = useState([])
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     api.settings.get().then(s => {
       if (!s) return
-      setCfg(prev => ({
-        ...prev,
-        ...Object.fromEntries(
-          Object.keys(SISTEMA_DEFAULTS)
-            .filter(k => s[k] != null)
-            .map(k => [k, s[k]])
-        ),
-      }))
+      setCfg(prev => ({ ...prev, ...Object.fromEntries(Object.keys(SISTEMA_DEFAULTS).filter(k => s[k] != null).map(k => [k, s[k]])) }))
     }).catch(() => {})
-
     printerApi?.listPrinters().then(res => {
       if (res?.ok && Array.isArray(res.data)) setPrinters(res.data)
     }).catch(() => {})
@@ -155,212 +146,139 @@ function Configuracion() {
     try {
       await api.settings.update(cfg)
       setSaved(true)
-      show(lang === 'es' ? 'Configuración guardada ✓' : 'Settings saved ✓')
+      show(lang === 'es' ? 'Guardado' : 'Saved')
       setTimeout(() => setSaved(false), 2500)
-    } catch {
-      show(lang === 'es' ? 'Error al guardar' : 'Error saving', 'error')
-    } finally { setSaving(false) }
+    } catch { show(lang === 'es' ? 'Error al guardar' : 'Error saving', 'error') }
+    finally { setSaving(false) }
   }
 
-  async function testPrint() {
-    try {
-      await api.print({ type: 'test', data: {}, printerName: cfg.printer || undefined })
-      show(L('Prueba de impresión enviada ✓', 'Test print sent ✓'))
-    } catch {
-      show(L('Error al imprimir', 'Printer error'), 'error')
-    }
-  }
+  return { cfg, set, on, handleSave, saving, saved, printers, toast, show, api, printerApi }
+}
 
+// ── Preferencias (General settings: language, taxes, POS toggles) ─────────
+
+export function Preferencias() {
+  const { cfg, set, on, handleSave, saving, saved, toast } = useSettings()
+  const { lang, setLang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
 
   return (
     <div className="max-w-2xl">
       <Toast toast={toast} />
-
-      {/* ── Language ─────────────────────────────────────────────────────────── */}
-      <SettingSection title={L('Idioma del Sistema', 'System Language')}>
-        <SettingRow label={L('Idioma / Language', 'Language / Idioma')} hint={L('Cambia el idioma de toda la app inmediatamente', 'Changes app language immediately')}>
+      <SettingSection title={L('Idioma', 'Language')}>
+        <SettingRow label={L('Idioma / Language', 'Language / Idioma')} hint={L('Cambia el idioma de toda la app', 'Changes app language')}>
           <div className="flex gap-2">
-            <button
-              onClick={() => setLang('es')}
-              className={`px-3 py-1.5 rounded-lg text-[12px] font-bold border transition-colors ${
-                lang === 'es'
-                  ? 'bg-[#0C447C] border-[#0C447C] text-white'
-                  : 'border-slate-200 text-slate-500 hover:border-slate-400 hover:bg-slate-50'
-              }`}
-            >
-              🇩🇴 ES
-            </button>
-            <button
-              onClick={() => setLang('en')}
-              className={`px-3 py-1.5 rounded-lg text-[12px] font-bold border transition-colors ${
-                lang === 'en'
-                  ? 'bg-[#0C447C] border-[#0C447C] text-white'
-                  : 'border-slate-200 text-slate-500 hover:border-slate-400 hover:bg-slate-50'
-              }`}
-            >
-              🇺🇸 EN
-            </button>
+            <button onClick={() => setLang('es')} className={`px-3 py-1.5 rounded-lg text-[12px] font-bold border transition-colors ${lang === 'es' ? 'bg-[#0C447C] border-[#0C447C] text-white' : 'border-slate-200 text-slate-500 hover:border-slate-400'}`}>ES</button>
+            <button onClick={() => setLang('en')} className={`px-3 py-1.5 rounded-lg text-[12px] font-bold border transition-colors ${lang === 'en' ? 'bg-[#0C447C] border-[#0C447C] text-white' : 'border-slate-200 text-slate-500 hover:border-slate-400'}`}>EN</button>
           </div>
         </SettingRow>
       </SettingSection>
 
-      {/* ── Calculations ─────────────────────────────────────────────────────── */}
-      <SettingSection title={L('Cálculos', 'Calculations')}>
-        <SettingRow
-          label="Ley 10%"
-          hint={L('Cargo de servicio aplicado a todas las facturas', 'Service charge applied to all invoices')}
-        >
+      <SettingSection title={L('Impuestos y Cargos', 'Taxes & Charges')}>
+        <SettingRow label="Ley 10%" hint={L('Cargo de servicio en facturas', 'Service charge on invoices')}>
           <Toggle enabled={on('ley_enabled')} onChange={v => set('ley_enabled', v ? '1' : '0')} />
         </SettingRow>
-
-        <SettingRow
-          label={L('ITBIS %', 'ITBIS %')}
-          hint={L('Porcentaje del impuesto (defecto: 18)', 'Tax rate percentage (default: 18)')}
-        >
-          <Input
-            type="number" min="0" max="100"
-            value={cfg.itbis_pct}
-            onChange={e => set('itbis_pct', e.target.value)}
-            className="w-20 text-center"
-          />
+        <SettingRow label="ITBIS %" hint={L('Porcentaje del impuesto (defecto: 18)', 'Tax rate (default: 18)')}>
+          <Input type="number" min="0" max="100" value={cfg.itbis_pct} onChange={e => set('itbis_pct', e.target.value)} className="w-20 text-center" />
         </SettingRow>
-
-        <SettingRow
-          label={L('Tasa Cambio USD', 'USD Exchange Rate')}
-          hint="RD$ por USD"
-        >
-          <Input
-            type="number" min="0" step="0.01"
-            value={cfg.usd_rate}
-            onChange={e => set('usd_rate', e.target.value)}
-            className="w-24 text-center"
-          />
+        <SettingRow label={L('Tasa USD', 'USD Rate')} hint="RD$ por USD">
+          <Input type="number" min="0" step="0.01" value={cfg.usd_rate} onChange={e => set('usd_rate', e.target.value)} className="w-24 text-center" />
         </SettingRow>
-      </SettingSection>
-
-      {/* ── Fiscal ───────────────────────────────────────────────────────────── */}
-      <SettingSection title={L('Fiscal', 'Tax & Compliance')}>
-        <SettingRow
-          label={L('Verificar RNC/NCF', 'Verify RNC/NCF')}
-          hint={L('Valida RNC contra el API de DGII', 'Validates RNC against DGII API')}
-        >
+        <SettingRow label={L('Verificar RNC', 'Verify RNC')} hint={L('Valida RNC contra DGII', 'Validates RNC against DGII')}>
           <Toggle enabled={on('rnc_verify')} onChange={v => set('rnc_verify', v ? '1' : '0')} />
         </SettingRow>
-
-        <SettingRow
-          label={L('Sucursales', 'Branches')}
-          hint={L('Próximamente — gestión multi-sucursal', 'Coming soon — multi-branch management')}
-        >
-          <Toggle enabled={on('sucursales')} onChange={v => set('sucursales', v ? '1' : '0')} disabled />
-        </SettingRow>
       </SettingSection>
 
-      {/* ── POS ──────────────────────────────────────────────────────────────── */}
-      <SettingSection title={L('Punto de Venta', 'Point of Sale')}>
-        <SettingRow
-          label={L('Bebidas y Snacks en POS', 'Beverages & Snacks in POS')}
-          hint={L('Muestra la pestaña Extras en el POS', 'Shows the Extras tab in POS')}
-        >
-          <Toggle enabled={on('beverages_in_pos')} onChange={v => set('beverages_in_pos', v ? '1' : '0')} />
-        </SettingRow>
 
-        <SettingRow
-          label={L('Respaldo Automático', 'Auto Backup')}
-          hint={L('Genera copia de seguridad automáticamente cada día', 'Generates a backup automatically every day')}
-        >
-          <Toggle enabled={on('auto_backup')} onChange={v => set('auto_backup', v ? '1' : '0')} />
-        </SettingRow>
-      </SettingSection>
+      <div className="flex justify-end mt-2">
+        <SaveBtn saving={saving} saved={saved} label={L('Guardar', 'Save')} onClick={handleSave} />
+      </div>
+    </div>
+  )
+}
 
-      {/* ── Printing ─────────────────────────────────────────────────────────── */}
-      <SettingSection title={L('Impresión', 'Printing')}>
+// ── Impresion (Printing settings only) ────────────────────────────────────
 
-        <SettingRow
-          label={L('Impresora del sistema', 'System Printer')}
-          hint={L('Impresora configurada en Windows/macOS', 'Printer configured in Windows/macOS')}
-        >
+export function ImpresionSettings() {
+  const { cfg, set, on, handleSave, saving, saved, printers, toast, show, printerApi } = useSettings()
+  const { lang } = useLang()
+  const L = (es, en) => lang === 'es' ? es : en
+
+  async function testPrint() {
+    try {
+      const api = printerApi
+      if (api?.print) await api.print({ type: 'test', data: {}, printerName: cfg.printer || undefined })
+      show(L('Prueba enviada', 'Test sent'))
+    } catch { show(L('Error al imprimir', 'Print error'), 'error') }
+  }
+
+  return (
+    <div className="max-w-2xl">
+      <Toast toast={toast} />
+      <SettingSection title={L('Impresora', 'Printer')}>
+        <SettingRow label={L('Impresora del sistema', 'System Printer')} hint={L('Impresora configurada en el OS', 'OS-configured printer')}>
           <div className="flex items-center gap-2">
-            <select
-              value={cfg.printer}
-              onChange={e => set('printer', e.target.value)}
-              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 bg-white focus:outline-none focus:border-sky-400 max-w-[220px]"
-            >
-              <option value="">{L('Predeterminada del sistema', 'System default')}</option>
-              {printers.map(p => (
-                <option key={p.name} value={p.name}>
-                  {p.displayName || p.name}{p.isDefault ? ' ★' : ''}
-                </option>
-              ))}
+            <select value={cfg.printer} onChange={e => set('printer', e.target.value)}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 bg-white focus:outline-none focus:border-sky-400 max-w-[220px]">
+              <option value="">{L('Predeterminada', 'Default')}</option>
+              {printers.map(p => <option key={p.name} value={p.name}>{p.displayName || p.name}{p.isDefault ? ' *' : ''}</option>)}
             </select>
-            <button
-              onClick={testPrint}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors whitespace-nowrap"
-            >
-              <Printer size={12} />
-              {L('Prueba', 'Test')}
+            <button onClick={testPrint} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 whitespace-nowrap">
+              <Printer size={12} />{L('Prueba', 'Test')}
             </button>
           </div>
         </SettingRow>
+      </SettingSection>
 
-        <SettingRow
-          label={L('Imprimir Pre-Ticket', 'Print Pre-Ticket')}
-          hint={L('Al añadir el vehículo a la cola', 'When adding the vehicle to the queue')}
-        >
+      <SettingSection title={L('Impresion Automatica', 'Auto Print')}>
+        <SettingRow label={L('Pre-Ticket', 'Pre-Ticket')} hint={L('Al agregar vehiculo a cola', 'When adding vehicle to queue')}>
           <Toggle enabled={on('print_preticket')} onChange={v => set('print_preticket', v ? '1' : '0')} />
         </SettingRow>
-
-        <SettingRow
-          label={L('Imprimir Factura Automáticamente', 'Auto-Print Invoice')}
-          hint={L('Al confirmar el cobro', 'On payment confirmation')}
-        >
+        <SettingRow label={L('Factura', 'Invoice')} hint={L('Al confirmar cobro', 'On payment')}>
           <Toggle enabled={on('print_factura_auto')} onChange={v => set('print_factura_auto', v ? '1' : '0')} />
         </SettingRow>
-
-        <SettingRow
-          label={L('Imprimir Conduce Automáticamente', 'Auto-Print Delivery Note')}
-          hint={L('Al confirmar el cobro', 'On payment confirmation')}
-        >
+        <SettingRow label={L('Conduce', 'Delivery Note')} hint={L('Al confirmar cobro', 'On payment')}>
           <Toggle enabled={on('print_conduce_auto')} onChange={v => set('print_conduce_auto', v ? '1' : '0')} />
         </SettingRow>
       </SettingSection>
 
-      {/* ── WhatsApp ─────────────────────────────────────────────────────────── */}
+      <div className="flex justify-end mt-2">
+        <SaveBtn saving={saving} saved={saved} label={L('Guardar', 'Save')} onClick={handleSave} />
+      </div>
+    </div>
+  )
+}
+
+// ── WhatsApp settings only ────────────────────────────────────────────────
+
+export function WhatsAppSettings() {
+  const { cfg, set, handleSave, saving, saved, toast } = useSettings()
+  const { lang } = useLang()
+  const L = (es, en) => lang === 'es' ? es : en
+
+  return (
+    <div className="max-w-2xl">
+      <Toast toast={toast} />
       <SettingSection title="WhatsApp (UltraMsg)">
-        <SettingRow
-          label={L('Instance ID', 'Instance ID')}
-          hint={L('ID de tu instancia en UltraMsg (ej. instance166620)', 'Your UltraMsg instance ID (e.g. instance166620)')}
-        >
-          <Input
-            type="text"
-            value={cfg.whatsapp_instance}
-            onChange={e => set('whatsapp_instance', e.target.value)}
-            placeholder="instance166620"
-            className="w-44"
-          />
+        <SettingRow label="Instance ID" hint={L('ID de instancia UltraMsg', 'UltraMsg instance ID')}>
+          <Input type="text" value={cfg.whatsapp_instance} onChange={e => set('whatsapp_instance', e.target.value)} placeholder="instance166620" className="w-44" />
         </SettingRow>
-        <SettingRow
-          label="Token"
-          hint={L('Token de autenticación de UltraMsg', 'UltraMsg authentication token')}
-        >
-          <Input
-            type="text"
-            value={cfg.whatsapp_token}
-            onChange={e => set('whatsapp_token', e.target.value)}
-            placeholder="token..."
-            className="w-44"
-          />
+        <SettingRow label="Token" hint={L('Token de autenticacion', 'Auth token')}>
+          <Input type="text" value={cfg.whatsapp_token} onChange={e => set('whatsapp_token', e.target.value)} placeholder="token..." className="w-44" />
         </SettingRow>
       </SettingSection>
-
       <div className="flex justify-end mt-2">
-        <SaveBtn
-          saving={saving}
-          saved={saved}
-          label={L('Guardar Configuración', 'Save Settings')}
-          onClick={handleSave}
-        />
+        <SaveBtn saving={saving} saved={saved} label={L('Guardar', 'Save')} onClick={handleSave} />
       </div>
+    </div>
+  )
+}
+
+// Legacy combined view (used when Sistema is rendered directly via /sistema)
+function Configuracion() {
+  return (
+    <div className="space-y-6">
+      <Preferencias />
     </div>
   )
 }
@@ -521,34 +439,42 @@ const TABS = [
   { id: 'licencias',       es: 'Licencias TX',    en: 'TX Licenses',   icon: KeyRound  },
 ]
 
-export default function Sistema() {
+export default function Sistema({ initialTab, hideHeader }) {
   const { lang } = useLang()
-  const [tab, setTab] = useState('config')
+  const [tab, setTab] = useState(initialTab || 'config')
+
+  useEffect(() => {
+    if (initialTab && initialTab !== tab) setTab(initialTab)
+  }, [initialTab])
 
   return (
     <div className="h-full flex flex-col bg-white">
-      {/* Header */}
-      <div className="shrink-0 px-3 md:px-6 py-3 md:py-4 border-b border-slate-200">
-        <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800">
-          {lang === 'es' ? 'Sistema' : 'System'}
-        </h2>
-        <p className="text-[12px] text-slate-400 mt-0.5">
-          {lang === 'es' ? 'Configuración del sistema y gestión de licencias' : 'System settings and license management'}
-        </p>
-      </div>
+      {!hideHeader && (
+        <>
+          {/* Header */}
+          <div className="shrink-0 px-3 md:px-6 py-3 md:py-4 border-b border-slate-200">
+            <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800">
+              {lang === 'es' ? 'Sistema' : 'System'}
+            </h2>
+            <p className="text-[12px] text-slate-400 mt-0.5">
+              {lang === 'es' ? 'Configuración del sistema y gestión de licencias' : 'System settings and license management'}
+            </p>
+          </div>
 
-      {/* Tabs */}
-      <div className="shrink-0 flex border-b border-slate-200 px-2 md:px-6 overflow-x-auto scrollbar-none">
-        {TABS.map(({ id, es, en, icon: Icon }) => (
-          <button key={id} onClick={() => setTab(id)}
-            className={`flex items-center gap-1.5 px-3 md:px-4 py-3 text-xs md:text-[13px] font-semibold border-b-2 transition-colors shrink-0 whitespace-nowrap ${
-              tab === id ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}>
-            <Icon size={14} />
-            {lang === 'es' ? es : en}
-          </button>
-        ))}
-      </div>
+          {/* Tabs */}
+          <div className="shrink-0 flex border-b border-slate-200 px-2 md:px-6 overflow-x-auto scrollbar-none">
+            {TABS.map(({ id, es, en, icon: Icon }) => (
+              <button key={id} onClick={() => setTab(id)}
+                className={`flex items-center gap-1.5 px-3 md:px-4 py-3 text-xs md:text-[13px] font-semibold border-b-2 transition-colors shrink-0 whitespace-nowrap ${
+                  tab === id ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}>
+                <Icon size={14} />
+                {lang === 'es' ? es : en}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Content */}
       {tab === 'config' && (

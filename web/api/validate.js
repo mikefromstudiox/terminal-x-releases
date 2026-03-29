@@ -18,7 +18,11 @@ function rateLimit(ip) {
 
 export default async function handler(req, res) {
   const origin = req.headers.origin || ''
-  if (ALLOWED_ORIGINS.includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin)
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+  } else if (!origin || origin === 'null') {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
   if (req.method === 'OPTIONS') return res.status(204).end()
@@ -56,7 +60,11 @@ export default async function handler(req, res) {
 
     const expiresAt = license.expires_at ? new Date(license.expires_at) : null
     const now = new Date()
-    let status = license.status === 'pending' ? 'active' : license.status
+    if (license.status === 'pending') {
+      await audit(supabase, license.id, key, hwid, 'validate', 'pending', ip)
+      return res.json({ valid: false, status: 'pending', businessName: bizName })
+    }
+    let status = license.status
     let valid = true, readOnly = false, warning = false, warningMsg = null, daysUntilExpiry = null
 
     if (expiresAt) {
@@ -67,7 +75,14 @@ export default async function handler(req, res) {
       else if (diff <= 30) { warning = true; warningMsg = 'Tu licencia vence en ' + diff + ' dias.' }
     }
 
-    const resp = { valid, readOnly, status, warning, warningMsg, daysUntilExpiry, plan: license.plans?.name || 'free', planDisplay: license.plans?.display_name || 'Free', features: license.plans?.features || [], expiresAt: license.expires_at, activatedAt: license.activated_at, maxUsers: license.plans?.max_users || license.max_users || 3 }
+    // Fetch remote config (app_settings) for this business to sync to desktop
+    let remoteConfig = {}
+    if (valid && license.business_id) {
+      const { data: cfgRows } = await supabase.from('app_settings').select('key, value').eq('business_id', license.business_id)
+      if (cfgRows) remoteConfig = Object.fromEntries(cfgRows.map(r => [r.key, r.value]))
+    }
+    const bizSettings = license.businesses?.settings || {}
+    const resp = { valid, readOnly, status, warning, warningMsg, daysUntilExpiry, plan: license.plans?.name || 'free', planDisplay: license.plans?.display_name || 'Free', features: license.plans?.features || [], expiresAt: license.expires_at, activatedAt: license.activated_at, maxUsers: license.plans?.max_users || license.max_users || 3, remoteConfig, bizSettings }
     if (valid) { resp.businessName = bizName; resp.businessRnc = bizRnc }
     if (status === 'expired' && daysUntilExpiry !== null) resp.daysExpired = -daysUntilExpiry
     return res.json(resp)

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, Loader2, QrCode, User, MessageSquare } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
-import { signAndSubmitECF, getQRCode, ECF_TYPES, validateRNC, EF2_CONFIGURED } from '../services/ecf'
+import { signAndSubmitECF, getQRCode, ECF_TYPES, validateRNC } from '../services/ecf'
 import { buildReceiptPDFBase64 } from '../services/pdf'
 import { useRNC } from '../hooks/useRNC'
 
@@ -246,6 +246,9 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
           subtotal: subtotal || 0, itbis: itbis || 0, ley: ley || 0,
           descuento: 0, total: total || 0, formaPago: formaPago || 'Efectivo',
           biz: { name: bName, address: bizSettings?.biz_address || '', phone: bizSettings?.biz_phone || '', rnc: bRnc },
+          signatureDate: ecfResult?.signatureDate || null,
+          securityCode:  ecfResult?.securityCode || null,
+          qrLink:        ecfResult?.qrLink || null,
         }
         const { base64, filename } = await buildReceiptPDFBase64(pdfData)
         await api.whatsapp.sendDocument({ to, base64, filename, caption: `${bName} - Recibo #${docNo}` })
@@ -315,7 +318,7 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
         )}
         {!isSin && ecfResult?.trackId && (
           <div>
-            <p className="text-slate-400">{isLegacy ? (lang === 'es' ? 'Ref. Local' : 'Local Ref.') : (lang === 'es' ? 'Ref. ef2.do' : 'ef2.do Ref.')}</p>
+            <p className="text-slate-400">{isLegacy ? (lang === 'es' ? 'Ref. Local' : 'Local Ref.') : (lang === 'es' ? 'Ref. DGII' : 'DGII Ref.')}</p>
             <p className="font-mono text-[11px] text-slate-600">{ecfResult.trackId}</p>
           </div>
         )}
@@ -625,18 +628,14 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
       setEcfResult(result)
       setEcfState('success')
 
-      // Use qrLink from ef2.do directly; fall back to stub QR generation
-      if (result.qrLink) {
-        setQrUrl(result.qrLink)
-      } else {
-        getQRCode(result.eNCF)
-          .then(({ qrUrl: url }) => setQrUrl(url))
-          .catch(() => { /* QR optional */ })
-      }
+      // Use qrLink from DGII directly; fall back to QR generation
+      getQRCode(result.eNCF, result)
+        .then(({ qrUrl: url }) => setQrUrl(url))
+        .catch(() => { /* QR optional */ })
 
     } catch (err) {
       clearTimeout(t1); clearTimeout(t2)
-      setEcfError(err?.message || 'Error al conectar con ef2.do')
+      setEcfError(err?.message || 'Error al enviar e-CF a DGII')
       setEcfState('error')
     }
   }
@@ -730,8 +729,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                   </div>
                   <p className="text-[10px] text-slate-400 max-w-[240px] text-center">
                     {lang === 'es'
-                      ? 'Enviando a DGII vía ef2.do. No cierres esta ventana.'
-                      : 'Submitting to DGII via ef2.do. Do not close this window.'}
+                      ? 'Enviando a DGII. No cierres esta ventana.'
+                      : 'Submitting to DGII. Do not close this window.'}
                   </p>
                 </div>
               )}

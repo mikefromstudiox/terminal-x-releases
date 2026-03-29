@@ -104,7 +104,7 @@ function PinModal({ onConfirm, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 w-80">
+      <div className="bg-white rounded-2xl shadow-2xl p-6 md:p-8 w-full max-w-sm mx-4">
         <div className="flex items-center gap-2 mb-1">
           <Lock size={16} className="text-slate-500" />
           <h3 className="font-semibold text-slate-800">Autorización requerida</h3>
@@ -375,10 +375,10 @@ export default function CreditNotes() {
       {toast && <Toast msg={toast} />}
 
       {/* ── Header ── */}
-      <div className="bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between flex-shrink-0">
+      <div className="bg-white border-b border-slate-200 px-3 py-3 md:px-6 md:py-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <FileMinus size={20} className="text-slate-500" />
-          <h1 className="text-lg font-semibold text-slate-800">{L('Notas de Crédito', 'Credit Notes')}</h1>
+          <h1 className="text-[14px] md:text-[16px] font-bold text-slate-800">{L('Notas de Crédito', 'Credit Notes')}</h1>
           <span className="text-xs text-slate-400 ml-1">Secuencia B04</span>
         </div>
         <div className="flex items-center gap-2">
@@ -392,7 +392,7 @@ export default function CreditNotes() {
           </button>
           <button
             onClick={() => document.getElementById('nc-form')?.scrollIntoView({ behavior: 'smooth' })}
-            className="flex items-center gap-1.5 text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700"
+            className="flex items-center gap-2 px-4 py-2 bg-black hover:bg-slate-800 text-white rounded-xl text-sm font-medium transition-colors"
           >
             <Plus size={14} />
             {L('Nueva nota', 'New note')}
@@ -403,7 +403,7 @@ export default function CreditNotes() {
       <div className="flex-1 overflow-y-auto flex flex-col gap-4 p-4">
 
         {/* ── Summary bar ── */}
-        <div className="flex gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
           <MetricCard label={L('Total notas emitidas', 'Total notes issued')} value={displayNotes.length} sub={L('en todos los períodos', 'all periods')} icon={FileMinus} />
           <MetricCard label={L('Total devuelto', 'Total returned')} value={fmt(totalDevuelto)} sub={L('suma de todas las notas', 'sum of all notes')} color="red" icon={AlertCircle} />
           <MetricCard label={L('Por devolución', 'Returns')} value={fmt(totalDevol)} sub={`${displayNotes.filter(n=>n.motivo==='Devolución').length} notas`} color="blue" icon={RotateCcw} />
@@ -412,36 +412,38 @@ export default function CreditNotes() {
 
         {/* ── Filter bar ── */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col overflow-hidden">
-          <div className="flex items-center gap-1 px-4 pt-3 border-b border-slate-100">
-            {TABS.map(t => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-t border-b-2 -mb-px transition ${
-                  tab === t.key ? 'text-blue-600 border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-700'
-                }`}
-              >
-                {t.label}
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${tab === t.key ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
-                  {tabCounts[t.key]}
-                </span>
-              </button>
-            ))}
-            <div className="ml-auto flex items-center gap-2 pb-2">
+          <div className="flex flex-col md:flex-row md:items-center gap-2 px-3 md:px-4 pt-3 border-b border-slate-100">
+            <div className="flex gap-0.5 overflow-x-auto scrollbar-none">
+              {TABS.map(t => (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`flex items-center gap-1 px-2.5 md:px-3 py-2 text-[11px] md:text-sm font-medium rounded-t border-b-2 -mb-px transition shrink-0 ${
+                    tab === t.key ? 'text-blue-600 border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-700'
+                  }`}
+                >
+                  {t.label}
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${tab === t.key ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
+                    {tabCounts[t.key]}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="md:ml-auto pb-2">
               <div className="relative">
                 <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder={L('Cliente o # nota…', 'Client or note #…')}
-                  className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 w-48"
+                  className="pl-8 pr-3 py-2 min-h-[44px] md:min-h-0 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 w-full md:w-48"
                 />
               </div>
             </div>
           </div>
 
-          {/* Table header */}
-          <div className="flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100">
+          {/* Table header — desktop only */}
+          <div className="hidden md:flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100">
             {COLS.map(c => (
               <span key={c.key} className={`text-[10px] font-semibold uppercase tracking-wider text-slate-400 ${c.cls}`}>
                 {c.label}
@@ -462,10 +464,27 @@ export default function CreditNotes() {
               <div
                 key={n.id}
                 onClick={() => setSelected(s => s?.id === n.id ? null : n)}
-                className={`flex items-center px-4 h-12 cursor-pointer transition ${
+                className={`cursor-pointer transition ${
                   selected?.id === n.id ? 'bg-blue-50 border-l-2 border-blue-500' : 'hover:bg-slate-50'
                 }`}
               >
+                {/* Mobile card */}
+                <div className="md:hidden px-4 py-3 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[12px] font-mono text-slate-700">{n.ncf}</span>
+                    <MotivoBadge motivo={n.motivo} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[13px] font-semibold text-slate-800 truncate flex-1">{n.client}</p>
+                    <span className="text-[13px] font-bold text-red-600 shrink-0">-{fmt(n.monto)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-400">
+                    <span>{fmtDate(n.fecha)}</span>
+                    <span>ITBIS: -{fmt(n.itbisRev)}</span>
+                  </div>
+                </div>
+                {/* Desktop row */}
+                <div className="hidden md:flex items-center px-4 h-12">
                 {/* NCF */}
                 <span className={`${COLS[0].cls} text-xs font-mono text-slate-700`}>{n.ncf}</span>
 
@@ -518,6 +537,7 @@ export default function CreditNotes() {
                 {/* Chevron */}
                 <div className="w-10 flex justify-end">
                   <ChevronDown size={14} className={`text-slate-300 transition ${selected?.id === n.id ? 'rotate-180' : ''}`} />
+                </div>
                 </div>
               </div>
             ))}

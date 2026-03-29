@@ -1,14 +1,16 @@
 import { useState } from 'react'
-import { BarChart2, Calendar, DollarSign } from 'lucide-react'
+import { BarChart2, Calendar, DollarSign, Users } from 'lucide-react'
 import { useLang } from '../i18n'
 import DailyReport from './reports/DailyReport'
 import MonthlyReport from './reports/MonthlyReport'
 import WorkerReport from './reports/WorkerReport'
+import PayrollReport from './reports/PayrollReport'
 
 const TABS = [
   { id: 'daily',      es: 'Diario',     en: 'Daily',       icon: BarChart2  },
   { id: 'monthly',    es: 'Mensual',    en: 'Monthly',     icon: Calendar   },
   { id: 'comisiones', es: 'Comisiones', en: 'Commissions', icon: DollarSign },
+  { id: 'nominas',    es: 'Nominas',    en: 'Payroll',     icon: Users      },
 ]
 
 export default function Reportes() {
@@ -25,7 +27,7 @@ export default function Reportes() {
         {TABS.map(({ id, es, en, icon: Icon }) => (
           <button key={id} onClick={() => setTab(id)}
             className={`flex items-center gap-1.5 px-3 md:px-4 py-3 text-xs md:text-[13px] font-semibold border-b-2 transition-colors shrink-0 whitespace-nowrap ${
-              tab === id ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+              tab === id ? 'border-slate-800 text-slate-800' : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}>
             <Icon size={14} />
             {lang === 'es' ? es : en}
@@ -37,6 +39,7 @@ export default function Reportes() {
         {tab === 'daily'      && <DailyReport />}
         {tab === 'monthly'    && <MonthlyReport />}
         {tab === 'comisiones' && <WorkerReport />}
+        {tab === 'nominas'    && <PayrollReport />}
       </div>
     </div>
   )

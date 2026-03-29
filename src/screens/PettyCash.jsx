@@ -144,7 +144,7 @@ function PinModal({ title, onConfirm, onClose, lang }) {
         {err && <p className="text-xs text-red-500 mt-1 text-center">{L('PIN incorrecto o sin permisos', 'Incorrect PIN or insufficient permissions')}</p>}
         <div className="flex gap-3 mt-5">
           <button onClick={onClose} className="flex-1 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">{L('Cancelar', 'Cancel')}</button>
-          <button onClick={submit} disabled={loading} className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1">
+          <button onClick={submit} disabled={loading} className="flex-1 py-2 rounded-lg bg-black text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-50 flex items-center justify-center gap-1">
             {loading && <Loader2 size={13} className="animate-spin" />}
             {L('Confirmar', 'Confirm')}
           </button>
@@ -347,10 +347,10 @@ export default function PettyCash() {
       {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
 
       {/* ── Header ── */}
-      <div className="bg-white border-b border-slate-100 px-3 md:px-6 py-3 md:py-4 flex items-center justify-between flex-shrink-0">
+      <div className="bg-white border-b border-slate-200 px-3 py-3 md:px-6 md:py-4 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
           <PiggyBank size={18} className="text-slate-500" />
-          <h1 className="text-base md:text-lg font-semibold text-slate-800">{L('Caja Chica', 'Petty Cash')}</h1>
+          <h1 className="text-[14px] md:text-[16px] font-bold text-slate-800">{L('Caja Chica', 'Petty Cash')}</h1>
           <span className="text-xs text-slate-400 ml-1 hidden md:inline">{L('Fondo', 'Fund')} {fmt(FONDO_TOTAL)}</span>
         </div>
         <button
@@ -400,7 +400,7 @@ export default function PettyCash() {
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col overflow-hidden">
 
           {/* Tab bar */}
-          <div className="flex items-center gap-1 px-3 md:px-4 pt-3 border-b border-slate-100 overflow-x-auto scrollbar-none">
+          <div className="flex items-center gap-1 px-3 md:px-4 pt-3 border-b border-slate-100">
             {TABS.map(t => (
               <button
                 key={t.key}
@@ -669,7 +669,7 @@ export default function PettyCash() {
               <button
                 onClick={handleGuardar}
                 disabled={!formValid || saving}
-                className="flex-1 md:flex-none px-4 py-2 min-h-[44px] md:min-h-0 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap flex items-center justify-center gap-1"
+                className="flex-1 md:flex-none px-4 py-2 min-h-[44px] md:min-h-0 rounded-lg bg-black text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap flex items-center justify-center gap-1"
               >
                 {saving && <Loader2 size={13} className="animate-spin" />}
                 {L('Guardar gasto', 'Save expense')}

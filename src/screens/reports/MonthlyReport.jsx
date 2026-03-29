@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { TrendingUp, TrendingDown, Download, Printer, Car, CircleDollarSign, Clock, ReceiptText } from 'lucide-react'
 import { useLang } from '../../i18n'
 import { useAPI } from '../../context/DataContext'
+import { exportMonthlyReport } from '../../services/csv'
+import { printMonthlyReport } from '../../services/report-html'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MES_ES   = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
@@ -207,27 +209,7 @@ function periodLabel(period, lang) {
   return `${from} – ${to} ${period.toYear}`
 }
 
-// ── Export CSV ────────────────────────────────────────────────────────────────
-function exportCSV(data, label) {
-  const { metrics, topClients, topServices, cxc } = data
-  const rows = [
-    [`Reporte Mensual — ${label}`], [],
-    ['MÉTRICAS'], ['Total Facturado', metrics.facturado], ['Total Cobrado', metrics.cobrado],
-    ['Pendiente Cobrar', metrics.pendiente], ['Carros/Tickets', metrics.carros], [],
-    ['TOP 5 CLIENTES'], ['#','Cliente','Tickets','Total'],
-    ...topClients.map((c, i) => [i + 1, c.name, c.tickets, c.total]), [],
-    ['TOP SERVICIOS'], ['Servicio','Veces','Total'],
-    ...topServices.map(s => [s.name, s.count, s.total]), [],
-    ['CXC RESUMEN'], ['Cliente','Facturado','Cobrado','Pendiente'],
-    ...cxc.map(c => [c.client, c.facturado, c.cobrado, c.pendiente]),
-  ]
-  const csv  = rows.map(r => r.join(',')).join('\n')
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
-  const url  = URL.createObjectURL(blob)
-  const a    = document.createElement('a')
-  a.href = url; a.download = `reporte-${label.replace(/\s+/g, '-').toLowerCase()}.csv`; a.click()
-  URL.revokeObjectURL(url)
-}
+// ── Export CSV (removed — now uses services/csv.js) ──────────────────────────
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -358,6 +340,9 @@ export default function MonthlyReport() {
   const [tickets,     setTickets]     = useState(null)   // null = not yet loaded
   const [prevTickets, setPrevTickets] = useState(null)
   const [loading,     setLoading]     = useState(false)
+  const [biz,         setBiz]         = useState({})
+
+  useEffect(() => { api.admin?.getEmpresa?.().then(e => e && setBiz({ name: e.nombre, rnc: e.rnc, address: e.direccion, phone: e.telefono, email: e.email })).catch(() => {}) }, [])
 
   // ── Fetch tickets for current period and previous period ──────────────────
   const loadTickets = useCallback(async () => {
@@ -439,7 +424,7 @@ export default function MonthlyReport() {
           </div>
           <div className="flex gap-2">
             <button
-              onClick={() => data && exportCSV(data, label)}
+              onClick={() => data && exportMonthlyReport(biz, data, label)}
               disabled={!data || loading}
               className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] md:min-h-0 border border-slate-200 bg-white rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40"
             >
@@ -447,8 +432,9 @@ export default function MonthlyReport() {
               {lang === 'es' ? 'Exportar CSV' : 'Export CSV'}
             </button>
             <button
-              onClick={() => window.print()}
-              className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] md:min-h-0 border border-slate-200 bg-white rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+              onClick={() => data && printMonthlyReport(biz, data, label)}
+              disabled={!data || loading}
+              className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] md:min-h-0 border border-slate-200 bg-white rounded-xl text-[12px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40"
             >
               <Printer size={13} />
               {lang === 'es' ? 'Imprimir' : 'Print'}
@@ -485,8 +471,8 @@ export default function MonthlyReport() {
                 onClick={() => selectPill(p)}
                 className={`px-3 py-1.5 rounded-full text-[11px] font-semibold border transition-colors ${
                   activePill === p.id
-                    ? 'bg-sky-600 border-sky-600 text-white'
-                    : 'bg-white border-slate-200 text-slate-500 hover:border-sky-300 hover:text-sky-600'
+                    ? 'bg-slate-800 border-slate-800 text-white'
+                    : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'
                 }`}
               >
                 {lang === 'es' ? p.es : p.en}
@@ -510,7 +496,7 @@ export default function MonthlyReport() {
                           disabled={state === 'future'}
                           className={`py-1.5 rounded-lg text-[11px] font-semibold transition-all ${
                             state === 'selected' ? 'bg-slate-800 text-white'
-                            : state === 'past'   ? 'bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-100'
+                            : state === 'past'   ? 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
                             :                      'bg-slate-50 text-slate-300 cursor-not-allowed'
                           }`}
                         >
@@ -553,7 +539,7 @@ export default function MonthlyReport() {
                   </select>
                 </div>
               </div>
-              <button onClick={applyRange} className="w-full md:w-auto px-4 py-2 min-h-[44px] md:min-h-0 bg-sky-600 hover:bg-sky-500 text-white text-[12px] font-bold rounded-xl transition-colors">
+              <button onClick={applyRange} className="w-full md:w-auto px-4 py-2 min-h-[44px] md:min-h-0 bg-slate-800 hover:bg-slate-700 text-white text-[12px] font-bold rounded-xl transition-colors">
                 {lang === 'es' ? 'Aplicar' : 'Apply'}
               </button>
             </div>

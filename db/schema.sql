@@ -370,3 +370,6 @@ CREATE INDEX IF NOT EXISTS idx_commissions_washer ON washer_commissions(washer_i
 CREATE INDEX IF NOT EXISTS idx_commissions_date  ON washer_commissions(created_at);
 CREATE INDEX IF NOT EXISTS idx_cuadre_date       ON cuadre_caja(date);
 CREATE INDEX IF NOT EXISTS idx_caja_chica_status ON caja_chica(status);
+CREATE INDEX IF NOT EXISTS idx_credit_pay_date   ON credit_payments(created_at);
+CREATE INDEX IF NOT EXISTS idx_credit_pay_client ON credit_payments(client_id);
+CREATE INDEX IF NOT EXISTS idx_cuadre_cajero     ON cuadre_caja(cajero_id);

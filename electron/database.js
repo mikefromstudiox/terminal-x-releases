@@ -14,18 +14,24 @@ const fs      = require('fs')
 const crypto  = require('crypto')
 
 let Database
+let dbLoadError = null
 try {
   Database = require('better-sqlite3')
-} catch {
-  console.error('[db] better-sqlite3 not available — using in-memory stub')
+} catch (err) {
+  dbLoadError = err.message
+  console.error('[db] better-sqlite3 not available:', err.message)
   Database = null
 }
 
 let db = null
+let dbInitError = null
 
 // ── Initialise ────────────────────────────────────────────────────────────────
+function isReady() { return !!db }
+function getError() { return dbInitError || dbLoadError || null }
+
 function init(userDataPath) {
-  if (!Database) return false
+  if (!Database) { dbInitError = dbLoadError || 'better-sqlite3 not available'; return false }
 
   const dbPath     = path.join(userDataPath, 'terminal-x.db')
   const schemaPath = path.join(__dirname, '../db/schema.sql')
@@ -53,6 +59,11 @@ function init(userDataPath) {
     'ALTER TABLE users ADD COLUMN vendedor_id INTEGER REFERENCES sellers(id)',
     'ALTER TABLE users ADD COLUMN commission_pct REAL NOT NULL DEFAULT 0',
     'ALTER TABLE tickets ADD COLUMN beverage_subtotal REAL NOT NULL DEFAULT 0',
+    // v1.2 — DGII direct e-CF: add columns to ecf_queue for XML storage
+    "ALTER TABLE ecf_queue ADD COLUMN xml_signed TEXT",
+    "ALTER TABLE ecf_queue ADD COLUMN encf TEXT",
+    "ALTER TABLE ecf_queue ADD COLUMN tipo_ecf TEXT",
+    "ALTER TABLE ecf_queue ADD COLUMN environment TEXT NOT NULL DEFAULT 'testecf'",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch { /* column already exists */ }
@@ -136,10 +147,35 @@ function init(userDataPath) {
     url_path    TEXT NOT NULL,
     body_json   TEXT NOT NULL,
     token       TEXT NOT NULL DEFAULT '',
+    xml_signed  TEXT,
+    encf        TEXT,
+    tipo_ecf    TEXT,
+    environment TEXT NOT NULL DEFAULT 'testecf',
     attempts    INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     last_tried  TEXT
   )`)
+
+  // e-CF submission log — tracks every e-CF sent to DGII with status
+  db.exec(`CREATE TABLE IF NOT EXISTS ecf_submissions (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    encf           TEXT NOT NULL,
+    tipo_ecf       TEXT NOT NULL,
+    ticket_id      INTEGER,
+    xml_hash       TEXT,
+    track_id       TEXT,
+    dgii_status    INTEGER DEFAULT 3,
+    dgii_message   TEXT,
+    security_code  TEXT,
+    signature_date TEXT,
+    submitted_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    confirmed_at   TEXT,
+    xml_path       TEXT,
+    environment    TEXT NOT NULL DEFAULT 'testecf',
+    UNIQUE(encf, environment)
+  )`)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_ecf_sub_track ON ecf_submissions(track_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_ecf_sub_ticket ON ecf_submissions(ticket_id)')
 
   // Inventory items + transaction log
   db.exec(`CREATE TABLE IF NOT EXISTS inventory_items (
@@ -165,6 +201,20 @@ function init(userDataPath) {
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS idx_inv_item ON inventory_transactions(item_id)')
 
+  // Empleados — unified payroll table for all worker types
+  db.exec(`CREATE TABLE IF NOT EXISTS empleados (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre      TEXT NOT NULL,
+    tipo        TEXT NOT NULL CHECK(tipo IN ('lavador','vendedor','cajero')),
+    ref_id      INTEGER,
+    salary      REAL NOT NULL DEFAULT 0,
+    start_date  TEXT NOT NULL,
+    cedula      TEXT,
+    phone       TEXT,
+    active      INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+
   // 607 — Compras y gastos de proveedores
   db.exec(`CREATE TABLE IF NOT EXISTS compras_607 (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -186,6 +236,19 @@ function init(userDataPath) {
     created_at       TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS idx_compras607_fecha ON compras_607(fecha_ncf)')
+
+  // Performance indexes for report queries at scale
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_created ON tickets(created_at)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_client ON tickets(client_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_cajero ON tickets(cajero_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_ticket_items_ticket ON ticket_items(ticket_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_credit_pay_date ON credit_payments(created_at)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_credit_pay_client ON credit_payments(client_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cuadre_date ON cuadre_caja(date)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cuadre_cajero ON cuadre_caja(cajero_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_commissions_date ON washer_commissions(created_at)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_commissions_washer ON washer_commissions(washer_id)')
 
   // Ensure all sequence types exist in ncf_sequences (INSERT OR IGNORE — never overwrites existing)
   const ECF_SEED = [
@@ -238,14 +301,15 @@ function init(userDataPath) {
     db.transaction(() => defServices.forEach(r => insDefSvc.run(...r)))()
   }
 
-  // Seed if empty
+  // Seed if empty — DEV ONLY (skip in packaged production builds)
+  const isProd = typeof process !== 'undefined' && process.resourcesPath && !process.defaultApp
   const userCount = db.prepare('SELECT COUNT(*) as n FROM users').get()
-  if (userCount.n === 0 && fs.existsSync(seedPath)) {
+  if (userCount.n === 0 && !isProd && fs.existsSync(seedPath)) {
     try {
       const seed = require(seedPath)
       seed(db)
     } catch (err) {
-      console.error('[SEED ERROR]', err)
+      console.error('[SEED ERROR]', err.message, err.stack)
     }
   }
 
@@ -320,6 +384,13 @@ function usersGetAll() {
 }
 function userCreate(data) {
   if (!db) return null
+  // Check if username exists — update PIN if so (re-run setup), otherwise insert
+  const existing = db.prepare('SELECT id FROM users WHERE username=?').get(data.username)
+  if (existing) {
+    const hash = (() => { if (!data.pin) throw new Error('PIN requerido'); return sha256(data.pin) })()
+    return db.prepare('UPDATE users SET name=@name, pin_hash=@pin_hash, role=@role, discount_pct=@discount_pct, active=1 WHERE id=@id')
+      .run({ name: data.name, pin_hash: hash, role: data.role, discount_pct: data.discount_pct, id: existing.id })
+  }
   return db.prepare(`INSERT INTO users(name,username,pin_hash,role,discount_pct,active)
     VALUES(@name,@username,@pin_hash,@role,@discount_pct,1)`).run({
     ...data,
@@ -430,6 +501,38 @@ function washerDelete(id) {
   db.prepare('UPDATE washers SET active=0 WHERE id=?').run(id)
 }
 
+// ── Empleados (payroll) ─────────────────────────────────────────────────────
+function empleadosGetAll() {
+  if (!db) return []
+  return db.prepare('SELECT * FROM empleados WHERE active=1 ORDER BY nombre').all()
+}
+function empleadosGetAllAdmin() {
+  if (!db) return []
+  return db.prepare('SELECT * FROM empleados ORDER BY nombre').all()
+}
+function empleadoCreate(data) {
+  if (!db) return null
+  const r = db.prepare(`INSERT INTO empleados(nombre,tipo,ref_id,salary,start_date,cedula,phone,active)
+    VALUES(@nombre,@tipo,@ref_id,@salary,@start_date,@cedula,@phone,1)`).run({
+    nombre: data.nombre, tipo: data.tipo, ref_id: data.ref_id || null,
+    salary: data.salary || 0, start_date: data.start_date,
+    cedula: data.cedula || null, phone: data.phone || null,
+  })
+  return { id: r.lastInsertRowid }
+}
+function empleadoUpdate(id, data) {
+  if (!db) return
+  const allowed = ['nombre','tipo','ref_id','salary','start_date','cedula','phone','active']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (!Object.keys(patch).length) return
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE empleados SET ${fields} WHERE id=@id`).run({ ...patch, id })
+}
+function empleadoDelete(id) {
+  if (!db) return
+  db.prepare('UPDATE empleados SET active=0 WHERE id=?').run(id)
+}
+
 // ── SELLERS ───────────────────────────────────────────────────────────────────
 function sellersGetAll() {
   if (!db) return []
@@ -474,7 +577,7 @@ function clientCreate(data) {
 }
 function clientUpdate(id, data) {
   if (!db) return
-  const allowed = ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','active']
+  const allowed = ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active']
   const patch   = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (Object.keys(patch).length === 0) return
   const fields  = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
@@ -524,16 +627,18 @@ function ticketsGetAll({ dateFrom, dateTo, status, limit = 200 } = {}) {
   if (!db) return []
   const safeLimit = Math.min(limit || 200, 500)
   let sql  = `SELECT t.*, c.name as client_name, c.rnc as client_rnc,
-                     u.name as cajero_name
+                     u.name as cajero_name,
+                     GROUP_CONCAT(ti.name, ' + ') as service_names
               FROM tickets t
               LEFT JOIN clients c ON c.id = t.client_id
               LEFT JOIN users u ON u.id = t.cajero_id
+              LEFT JOIN ticket_items ti ON ti.ticket_id = t.id
               WHERE 1=1`
   const params = []
   if (dateFrom) { sql += ' AND t.created_at >= ?'; params.push(dateFrom) }
   if (dateTo)   { sql += ' AND t.created_at <= ?'; params.push(dateTo)   }
   if (status)   { sql += ' AND t.status = ?';      params.push(status)   }
-  sql += ' ORDER BY t.created_at DESC LIMIT ?'
+  sql += ' GROUP BY t.id ORDER BY t.created_at DESC LIMIT ?'
   params.push(safeLimit)
   return db.prepare(sql).all(...params)
 }
@@ -1175,10 +1280,11 @@ function inventoryTransactions(itemId) {
 
 // ── e-CF offline queue ────────────────────────────────────────────────────────
 
-function ecfQueueAdd(urlPath, bodyJson, token) {
+function ecfQueueAdd(urlPath, bodyJson, token, { xmlSigned, encf, tipoEcf, environment } = {}) {
   if (!db) return
-  db.prepare('INSERT INTO ecf_queue (url_path, body_json, token) VALUES (?,?,?)')
-    .run(urlPath, typeof bodyJson === 'string' ? bodyJson : JSON.stringify(bodyJson), token || '')
+  db.prepare('INSERT INTO ecf_queue (url_path, body_json, token, xml_signed, encf, tipo_ecf, environment) VALUES (?,?,?,?,?,?,?)')
+    .run(urlPath, typeof bodyJson === 'string' ? bodyJson : JSON.stringify(bodyJson), token || '',
+         xmlSigned || null, encf || null, tipoEcf || null, environment || 'testecf')
 }
 
 // Only items within DGII's 72h contingency window
@@ -1204,9 +1310,49 @@ function ecfQueueCount() {
   return db.prepare(`SELECT COUNT(*) as c FROM ecf_queue WHERE created_at > datetime('now','-72 hours')`).get()?.c || 0
 }
 
+// ── e-CF submissions log ──────────────────────────────────────────────────────
+
+function ecfSubmissionAdd({ encf, tipoEcf, ticketId, xmlHash, trackId, dgiiStatus, dgiiMessage, securityCode, signatureDate, xmlPath, environment }) {
+  if (!db) return null
+  const info = db.prepare(`INSERT OR REPLACE INTO ecf_submissions
+    (encf, tipo_ecf, ticket_id, xml_hash, track_id, dgii_status, dgii_message, security_code, signature_date, xml_path, environment)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(encf, tipoEcf, ticketId || null, xmlHash || null, trackId || null,
+         dgiiStatus ?? 3, dgiiMessage || null, securityCode || null,
+         signatureDate || null, xmlPath || null, environment || 'testecf')
+  return info.lastInsertRowid
+}
+
+function ecfSubmissionUpdate(trackId, { dgiiStatus, dgiiMessage, confirmedAt }) {
+  if (!db) return
+  db.prepare(`UPDATE ecf_submissions SET dgii_status=?, dgii_message=?, confirmed_at=? WHERE track_id=?`)
+    .run(dgiiStatus, dgiiMessage || null, confirmedAt || new Date().toISOString(), trackId)
+}
+
+function ecfSubmissionGetByTrackId(trackId) {
+  if (!db) return null
+  return db.prepare('SELECT * FROM ecf_submissions WHERE track_id=?').get(trackId)
+}
+
+function ecfSubmissionGetByTicket(ticketId) {
+  if (!db) return null
+  return db.prepare('SELECT * FROM ecf_submissions WHERE ticket_id=? ORDER BY submitted_at DESC LIMIT 1').get(ticketId)
+}
+
+function ecfSubmissionGetPending(env) {
+  if (!db) return []
+  return db.prepare('SELECT * FROM ecf_submissions WHERE dgii_status=3 AND environment=? ORDER BY submitted_at ASC LIMIT 20')
+    .all(env || 'testecf')
+}
+
+function ecfSubmissionGetAll(limit = 50) {
+  if (!db) return []
+  return db.prepare('SELECT * FROM ecf_submissions ORDER BY submitted_at DESC LIMIT ?').all(limit)
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 module.exports = {
-  init,
+  init, isReady, getError,
   // Empresa
   configGet, configSet,
   empresaGet, empresaSave,
@@ -1222,6 +1368,8 @@ module.exports = {
   washersGetAll, washersGetAllAdmin, washerCreate, washerUpdate, washerDelete,
   // Sellers
   sellersGetAll, sellersGetAllAdmin, sellerCreate, sellerUpdate, sellerDelete,
+  // Empleados (payroll)
+  empleadosGetAll, empleadosGetAllAdmin, empleadoCreate, empleadoUpdate, empleadoDelete,
   // Clients
   clientsGetAll, clientGetById, clientCreate, clientUpdate, clientUpdateBalance, clientGetOpenTickets, collectCredit,
   // Tickets
@@ -1251,4 +1399,7 @@ module.exports = {
   inventoryGetAll, inventoryCreate, inventoryUpdate, inventoryDelete, inventoryAdjust, inventoryTransactions,
   // e-CF offline queue
   ecfQueueAdd, ecfQueueGetPending, ecfQueueDelete, ecfQueueIncrAttempts, ecfQueueCount,
+  // e-CF submissions log
+  ecfSubmissionAdd, ecfSubmissionUpdate, ecfSubmissionGetByTrackId, ecfSubmissionGetByTicket,
+  ecfSubmissionGetPending, ecfSubmissionGetAll,
 }

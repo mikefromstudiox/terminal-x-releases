@@ -79,7 +79,7 @@ function AppLayout({ children }) {
       <LicenseBanner />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-hidden dark:bg-zinc-900 pb-20 md:pb-0">
+        <main className="flex-1 flex flex-col overflow-hidden dark:bg-zinc-900 pb-20 md:pb-0">
           {children}
         </main>
       </div>

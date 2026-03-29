@@ -1,20 +1,11 @@
 /**
- * e-CF Service — ef2.do API integration
+ * e-CF Service — DGII Direct Integration
  *
  * Dominican Republic Ley 32-23 — mandatory e-CF effective May 15, 2026.
- * All fiscal comprobantes must be submitted to DGII via ef2.do.
+ * All fiscal comprobantes submitted directly to DGII (no intermediary).
  *
- * API base (via IPC): https://master.ef2.do/api2
- * Docs: https://doc.ef2.do
- * Postman: EF2_API_Collection.json (linked from doc.ef2.do)
- *
- * Two endpoints only:
- *   POST /auth/login.php        — validate credentials (skipped for tok_ tokens)
- *   POST /procesar_factura.php  — submit any e-CF type
- *
- * Sandbox credentials (2BUY ELECTRONICS AND SERVICES SRL, RNC 132596161):
- *   VITE_EF2_USERNAME=api_2buy_mliec4sb
- *   VITE_EF2_TOKEN=tok_e0f3065a8a7df34785d30b744bf4715b3c3b96759a1a7ca19f354817e4471e2e
+ * Desktop: XML built + signed + submitted in main process via IPC dgii:submit
+ * Web: (future) via Supabase Edge Function dgii-submit
  */
 
 // ── e-CF type definitions ──────────────────────────────────────────────────────
@@ -145,61 +136,19 @@ export const BUSINESS_TYPES = {
   otro:          { es: 'Otro',               en: 'Other',             enabled: ['E31','E32'] },
 }
 
-// ── ef2.do config ──────────────────────────────────────────────────────────────
-const EF2_USERNAME = import.meta.env.VITE_EF2_USERNAME || ''
-const EF2_TOKEN    = import.meta.env.VITE_EF2_TOKEN    || ''
-
-// IPC bridge — all HTTP to master.ef2.do/api2 runs in main process (no CORS)
-async function ef2Post(urlPath, body, token, api) {
-  const ef2 = api?.ef2 || window?.electronAPI?.ef2
-  if (!ef2) throw new Error('ef2 IPC bridge not available')
-  const res = await ef2.fetch({ method: 'POST', path: urlPath, body, token })
-  if (!res.ok) throw new Error(res.error || `ef2 IPC error on ${urlPath}`)
-  return res.data
-}
-
-// Runtime token lookup — safeStorage first, then SQLite settings JSON, then env.
-// On web, api comes from DataContext (no window.electronAPI).
-async function getActiveToken(api) {
-  if (EF2_TOKEN) return EF2_TOKEN
-  // Try the passed-in api first (works on both Electron and web)
-  if (api) {
-    try {
-      const val = await api.safe?.get?.('ef2_token')
-      if (val) return val
-    } catch {}
-    try {
-      const biz = await api.admin?.getEmpresa?.()
-      const s = typeof biz?.settings === 'string' ? JSON.parse(biz.settings) : (biz?.settings || {})
-      if (s.ef2_token) return s.ef2_token
-    } catch {}
-  }
-  // Fallback to electronAPI (Electron only)
-  const eApi = window.electronAPI
-  if (!eApi) return ''
-  try {
-    const val = await eApi.safe?.get?.('ef2_token')
-    if (val) return val
-  } catch {}
-  try {
-    const biz = await eApi.admin.getEmpresa()
-    const s = JSON.parse(biz?.settings || '{}')
-    return s.ef2_token || ''
-  } catch {
-    return ''
-  }
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// Date format required by ef2.do — dd-mm-yyyy
-export function formatEF2Date(date = new Date()) {
+// Date format required by DGII — dd-mm-yyyy
+export function formatDGIIDate(date = new Date()) {
   return [
     String(date.getDate()).padStart(2, '0'),
     String(date.getMonth() + 1).padStart(2, '0'),
     date.getFullYear(),
   ].join('-')
 }
+
+// Legacy alias
+export const formatEF2Date = formatDGIIDate
 
 // RNC validation — 9 digits (empresa) or 11 digits (cédula)
 export function validateRNC(rnc) {
@@ -232,7 +181,7 @@ function buildEmisor(emisor, includeGeo = true) {
     DireccionEmisor:   emisor.direccion        || 'Santo Domingo',
     ...(includeGeo ? { Municipio: emisor.municipio || '010100', Provincia: emisor.provincia || '010000' } : {}),
     CorreoEmisor:      emisor.email            || '',
-    FechaEmision:      formatEF2Date(),
+    FechaEmision:      formatDGIIDate(),
   }
 }
 
@@ -304,7 +253,6 @@ function buildE31(d) {
 
 function buildE32(d) {
   const comprador = buildComprador(d.comprador)
-  // Comprador required when total >= RD$250,000
   const above250k = Number(d.totales?.total) >= 250000
   return {
     ECF: {
@@ -315,7 +263,7 @@ function buildE32(d) {
           IndicadorMontoGravado: '0',
           TipoIngresos:          d.tipoIngresos || '01',
           TipoPago:              mapTipoPago(d.metodoPago),
-          FechaLimitePago:       d.fechaLimitePago || formatEF2Date(),
+          FechaLimitePago:       d.fechaLimitePago || formatDGIIDate(),
         },
         Emisor: buildEmisor(d.emisor),
         ...(above250k && comprador ? { Comprador: comprador } : {}),
@@ -328,8 +276,6 @@ function buildE32(d) {
 
 function buildE33(d) {
   if (!d.referencia?.ncfModificado) throw new Error('E33 requiere referencia.ncfModificado')
-  // NOTE: FechaVencimientoSecuencia must NOT be sent for E33 — DGII rejects it (rule 145).
-  // ef2.do may still inject a default; if that happens report to ef2.do support.
   return {
     ECF: {
       Encabezado: {
@@ -341,11 +287,10 @@ function buildE33(d) {
         },
         Emisor: buildEmisor(d.emisor),
         ...(buildComprador(d.comprador) ? { Comprador: buildComprador(d.comprador) } : {}),
-        // InformacionReferencia belongs INSIDE Encabezado, not at ECF root
         InformacionReferencia: {
           NCFModificado:      d.referencia.ncfModificado,
           RazonModificacion:  d.referencia.razonModificacion  || '',
-          FechaNCFModificado: d.referencia.fechaNCFModificado || formatEF2Date(),
+          FechaNCFModificado: d.referencia.fechaNCFModificado || formatDGIIDate(),
           CodigoModificacion: d.referencia.codigoModificacion || '3',
         },
         Totales: buildTotales18(d.totales),
@@ -357,7 +302,6 @@ function buildE33(d) {
 
 function buildE34(d) {
   if (!d.referencia?.ncfModificado) throw new Error('E34 requiere referencia.ncfModificado')
-  // NOTE: FechaVencimientoSecuencia must NOT be sent for E34 — same DGII rule as E33.
   return {
     ECF: {
       Encabezado: {
@@ -371,11 +315,10 @@ function buildE34(d) {
         },
         Emisor: buildEmisor(d.emisor),
         ...(buildComprador(d.comprador) ? { Comprador: buildComprador(d.comprador) } : {}),
-        // InformacionReferencia belongs INSIDE Encabezado
         InformacionReferencia: {
           NCFModificado:      d.referencia.ncfModificado,
           RazonModificacion:  d.referencia.razonModificacion  || '',
-          FechaNCFModificado: d.referencia.fechaNCFModificado || formatEF2Date(),
+          FechaNCFModificado: d.referencia.fechaNCFModificado || formatDGIIDate(),
           CodigoModificacion: d.referencia.codigoModificacion || '3',
         },
         Totales: buildTotales18(d.totales),
@@ -446,7 +389,6 @@ function buildE44(d) {
           FechaVencimientoSecuencia: d.fechaVencimiento || '31-12-2028',
           TipoIngresos:              d.tipoIngresos || '01',
           TipoPago:                  mapTipoPago(d.metodoPago),
-          // Bank fields go inside IdDoc for E44
           ...(banco.tipoCuenta    ? { TipoCuentaPago:   banco.tipoCuenta    } : {}),
           ...(banco.numeroCuenta  ? { NumeroCuentaPago: banco.numeroCuenta  } : {}),
           ...(banco.nombre        ? { BancoPago:        banco.nombre        } : {}),
@@ -503,15 +445,13 @@ function buildE46(d) {
           FechaVencimientoSecuencia: d.fechaVencimiento || '31-12-2028',
           TipoIngresos:              d.tipoIngresos || '01',
           TipoPago:                  mapTipoPago(d.metodoPago),
-          FechaLimitePago:           d.fechaLimitePago || formatEF2Date(),
+          FechaLimitePago:           d.fechaLimitePago || formatDGIIDate(),
           ...(d.terminoPago ? { TerminoPago: d.terminoPago } : {}),
         },
-        // E46: Emisor has NO Municipio/Provincia
         Emisor: buildEmisor(d.emisor, false),
         ...(comprador ? { Comprador: comprador } : {}),
         ...(Object.keys(infAd).length ? { InformacionesAdicionales: infAd } : {}),
         ...(transporte.numeroAlbaran ? { Transporte: { NumeroAlbaran: transporte.numeroAlbaran } } : {}),
-        // E46 uses ITBIS3 (0%) not ITBIS1
         Totales: {
           MontoGravadoTotal: Number(d.totales.subtotal).toFixed(2),
           MontoGravadoI3:    Number(d.totales.subtotal).toFixed(2),
@@ -537,7 +477,6 @@ function buildE47(d) {
           TipoeCF:                   '47',
           FechaVencimientoSecuencia: d.fechaVencimiento || '31-12-2028',
         },
-        // E47 uses IdentificadorExtranjero, not RNCComprador
         Comprador: {
           IdentificadorExtranjero: extranjero.identificadorExtranjero || extranjero.rnc || '',
           RazonSocialComprador:    extranjero.nombre || '',
@@ -562,7 +501,7 @@ function buildE47(d) {
 }
 
 // Route to the correct payload builder
-function buildECFPayload(d) {
+export function buildECFPayload(d) {
   switch (String(d.tipoECF)) {
     case '31': return buildE31(d)
     case '32': return buildE32(d)
@@ -578,7 +517,7 @@ function buildECFPayload(d) {
   }
 }
 
-// ── Stub (no token configured) ────────────────────────────────────────────────
+// ── Stub (no certificate configured) ──────────────────────────────────────────
 
 function generateENCF(ncfType, ticketId) {
   const seq = String((ticketId * 7919 + 10_000_000) % 90_000_000 + 10_000_000).slice(0, 8)
@@ -594,7 +533,7 @@ function signAndSubmitECFStub(invoiceData) {
   return Promise.resolve({
     eNCF,
     status:      'ACEPTADO',
-    trackId:     `ef2-stub-${Date.now()}`,
+    trackId:     `stub-${Date.now()}`,
     submittedAt: new Date().toISOString(),
     xmlHash:     btoa(`${eNCF}:${totalAmt}`).slice(0, 32),
     qrLink:      null,
@@ -603,97 +542,130 @@ function signAndSubmitECFStub(invoiceData) {
   })
 }
 
-// ── Real ef2.do integration ───────────────────────────────────────────────────
+// ── Check if DGII direct is configured ───────────────────────────────────────
+
+async function isDGIIConfigured(api) {
+  const eApi = api?.dgii_ecf || window?.electronAPI?.dgii_ecf
+  if (!eApi) return false
+  try {
+    const info = await eApi.certInfo()
+    return info?.installed === true
+  } catch {
+    return false
+  }
+}
+
+// ── DGII Direct submission ───────────────────────────────────────────────────
 
 /**
- * signAndSubmitECF
+ * signAndSubmitECF — submits an e-CF directly to DGII.
  *
- * invoiceData fields:
- *   tipoECF           "31"|"32"|"33"|"34"|"41"|"43"|"44"|"45"|"46"|"47"
- *   emisor            { rnc, nombre, nombreComercial?, direccion, email, municipio?, provincia? }
- *   comprador         { rnc, nombre, email?, direccion?, municipio?, provincia? } — null for some types
- *   totales           { subtotal, itbis, total, totalIsrRetencion? }
- *   items             [{ nombre, precio, cantidad?, indicadorFacturacion?, indicadorBienoServicio?, unidadMedida? }]
- *   metodoPago        "efectivo"|"tarjeta"|"transferencia"|"credito"|"mixto"... → TipoPago 1-7
- *   fechaVencimiento  "dd-mm-yyyy" — for E31/E33/E34/E41/E43/E44/E45/E46/E47
- *   fechaLimitePago   "dd-mm-yyyy" — for E32, E46
- *   tipoIngresos      "01"-"06" — default "01" (Operaciones)
- *   referencia        { ncfModificado, razonModificacion, fechaNCFModificado, codigoModificacion } — E33/E34
- *   retencion         { montoItbisRetenido, montoIsrRetenido, indicador } — E41
- *   banco             { nombre, tipoCuenta, numeroCuenta } — E44
- *   informacionesAdicionales  { FechaEmbarque, NumeroEmbarque, ... } — E46
- *   transporte        { numeroAlbaran } — E46
- *   otraMoneda        { tipoMoneda, tipoCambio, monto } — E47
+ * On desktop: builds JSON payload, sends to main process via IPC dgii:submit
+ * which handles XML generation, signing, authentication, and submission.
  *
- * Returns: { eNCF, status, trackId, submittedAt, qrLink, pdfUrl }
+ * On web (future): will send to Supabase Edge Function.
+ *
+ * Returns: { eNCF, status, trackId, submittedAt, qrLink, securityCode, signatureDate }
  */
 export async function signAndSubmitECF(invoiceData, api) {
-  const activeToken = await getActiveToken(api)
-  if (!activeToken) {
+  // Check if DGII direct is available
+  const dgiiApi = api?.dgii_ecf || window?.electronAPI?.dgii_ecf
+  if (!dgiiApi) {
     return signAndSubmitECFStub(invoiceData)
   }
 
-  // tok_ tokens are API keys — send directly as Bearer, no login call needed.
-  // Other credential formats require login first to obtain a session token.
-  let bearerToken = activeToken
-  if (!activeToken.startsWith('tok_')) {
-    const auth = await ef2Post('/auth/login.php', { username: EF2_USERNAME, password: activeToken }, activeToken, api)
-    if (!auth?.success) throw new Error(`Error de autenticación ef2.do: ${auth?.message || 'credenciales inválidas'}`)
-    bearerToken = auth.token || activeToken
+  // Check if certificate is installed
+  let certInfo
+  try {
+    certInfo = await dgiiApi.certInfo()
+  } catch {}
+
+  if (!certInfo?.installed) {
+    return signAndSubmitECFStub(invoiceData)
   }
 
+  // Build the payload JSON
   const payload = buildECFPayload(invoiceData)
-  const result  = await ef2Post('/procesar_factura.php', payload, bearerToken, api)
 
-  if (result?.success) {
-    return {
-      eNCF:        result.ncf,
-      status:      (result.estado || 'ACEPTADO').toUpperCase(),
-      trackId:     result.ncf,
-      submittedAt: new Date().toISOString(),
-      qrLink:      result.qr_link       || null,
-      pdfUrl:      result.pdf_cloud_url || null,
-    }
+  // Send to main process for XML build + sign + submit
+  const result = await dgiiApi.submit({
+    payload,
+    eNCF: invoiceData.eNCF,
+    tipoECF: String(invoiceData.tipoECF),
+    emisor: invoiceData.emisor,
+    comprador: invoiceData.comprador,
+    totales: invoiceData.totales,
+    montoTotal: invoiceData.totales?.total,
+    tipoIngresos: invoiceData.tipoIngresos || '01',
+    tipoPago: mapTipoPago(invoiceData.metodoPago),
+    fechaEmision: formatDGIIDate(),
+    ticketId: invoiceData.ticket?.id,
+  })
+
+  return {
+    eNCF:          result.eNCF,
+    status:        result.status,
+    trackId:       result.trackId,
+    submittedAt:   result.submittedAt,
+    securityCode:  result.securityCode,
+    signatureDate: result.signatureDate,
+    qrLink:        result.qrLink,
+    dgiiCodigo:    result.dgiiCodigo,
+    pdfUrl:        null,
+  }
+}
+
+/**
+ * testDGIIConnection — tests DGII authentication (seed dance).
+ */
+export async function testDGIIConnection(api) {
+  const dgiiApi = api?.dgii_ecf || window?.electronAPI?.dgii_ecf
+  if (!dgiiApi) throw new Error('DGII API no disponible')
+  return dgiiApi.authTest()
+}
+
+/**
+ * getQRCode — builds the DGII QR verification URL.
+ * For direct DGII: the full consultatimbre URL with all parameters.
+ * Returns both the verification URL (for QR) and a QR image URL.
+ */
+export function getQRCode(eNCF, ecfResult) {
+  // If we have a full qrLink from DGII submission, use it
+  if (ecfResult?.qrLink) {
+    const verificationUrl = ecfResult.qrLink
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=128x128&margin=4&data=${encodeURIComponent(verificationUrl)}`
+    return Promise.resolve({ qrUrl, verificationUrl })
   }
 
-  throw new Error(result?.message || 'Error al procesar comprobante en ef2.do')
-}
-
-/**
- * testEF2Connection — verifies credentials against the auth endpoint.
- * Pass tokenOverride to test a token before saving it (e.g. from Settings input).
- */
-export async function testEF2Connection(tokenOverride, api) {
-  const token = tokenOverride || await getActiveToken(api)
-  if (!token) throw new Error('Token no configurado')
-  const data = await ef2Post('/auth/login.php', { username: EF2_USERNAME, password: token }, token, api)
-  if (!data?.success) throw new Error(data?.message || 'Credenciales inválidas')
-  return { ok: true }
-}
-
-/**
- * getQRCode — fallback QR when ef2.do doesn't return qr_link in response.
- * With real credentials qr_link comes back directly — this is rarely needed.
- */
-export function getQRCode(eNCF) {
-  const verificationUrl = `https://ecf.dgii.gov.do/consultatimbre?eNCF=${encodeURIComponent(eNCF)}`
+  // Fallback — basic URL
+  const verificationUrl = `https://ecf.dgii.gov.do/ecf/ConsultaTimbre?ENCF=${encodeURIComponent(eNCF)}`
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=128x128&margin=4&data=${encodeURIComponent(verificationUrl)}`
   return Promise.resolve({ qrUrl, verificationUrl })
 }
 
 /**
- * validateECF — post-issuance check stub.
- * DGII status is returned synchronously by procesar_factura.php so this
- * is only needed for manual re-checks from the admin panel.
+ * validateECF — checks the status of a submitted e-CF via DGII.
  */
-export function validateECF(_eNCF) {
-  return Promise.resolve({
-    valid:      true,
-    status:     'ACEPTADO',
-    message:    'Comprobante fiscal electrónico aceptado por la DGII.',
-    acceptedAt: new Date().toISOString(),
-  })
+export async function validateECF(trackId, api) {
+  const dgiiApi = api?.dgii_ecf || window?.electronAPI?.dgii_ecf
+  if (!dgiiApi) {
+    return { valid: true, status: 'ACEPTADO', message: 'Verificación no disponible sin certificado.' }
+  }
+  try {
+    const result = await dgiiApi.checkStatus(trackId)
+    return {
+      valid:      result.codigo === 1 || result.codigo === 4,
+      status:     result.estado,
+      message:    result.mensajes?.join('; ') || result.estado,
+      acceptedAt: new Date().toISOString(),
+    }
+  } catch (err) {
+    return { valid: false, status: 'ERROR', message: err.message }
+  }
 }
 
-/** True if the real API is configured */
-export const EF2_CONFIGURED = Boolean(EF2_TOKEN)
+/** True if DGII direct is ready (cert installed) — checked async */
+export const DGII_CONFIGURED = isDGIIConfigured()
+
+/** @deprecated Use DGII_CONFIGURED */
+export const EF2_CONFIGURED = false
