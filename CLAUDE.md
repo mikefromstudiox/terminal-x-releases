@@ -13,8 +13,8 @@ Terminal X is one product under the Studio X Group umbrella:
 - **Studio X Tech SRL** — computer store, camera installs, IT services (studioxrdtech.com)
 - **Studio X Media SRL** — social media, content production, software dev (studioxmedia.io)
 - **Terminal X SRL** — this POS system (terminalxpos.com)
-- **Group hub site** — studioxrd.com (separate project at `A:\HUB`)
-- Full business strategy: `A:\HUB\Business-Expansion-Master-Plan.md`
+- **Group hub site** — studioxrd.com (separate project at `A:\Studio X HUB`)
+- Full business strategy: `A:\Studio X HUB\Business-Expansion-Master-Plan.md`
 
 ## What This App Is
 Terminal X is a full-featured desktop POS system built for the Dominican Republic market.
@@ -158,7 +158,7 @@ The app also runs as a web PWA deployed to **Vercel**, backed by **Supabase** in
 
 ### Deploy workflow (MUST run after any code changes that affect the web version)
 ```bash
-cd "A:\Terminal X"
+cd "A:\Studio X HUB\Terminal X"
 npm run build:web
 echo '{"private":true,"dependencies":{"@supabase/supabase-js":"^2.49.4","xml-crypto":"^2.1.5","@xmldom/xmldom":"^0.8.6","jsonwebtoken":"^9.0.2"}}' > dist-web/package.json
 cp web/vercel.json dist-web/

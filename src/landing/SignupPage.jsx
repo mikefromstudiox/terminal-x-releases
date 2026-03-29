@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Loader2, ArrowLeft, Check } from 'lucide-react'
-import xMark from '../assets/x-mark.png'
+import logoImg from '../assets/logo.png'
 
 const VALID_PLANS = { pro: 'Pro', pro_plus: 'Pro PLUS', pro_max: 'Pro MAX' }
 
@@ -81,9 +81,9 @@ export default function SignupPage({ supabase }) {
         </button>
 
         <div className="text-center">
-          <div className="flex items-center justify-center gap-1">
-            <span className="text-3xl font-black text-white tracking-[3px]">TERMINAL</span>
-            <img src={xMark} alt="X" className="h-28 w-28 object-contain mt-1" />
+          <div className="flex items-center justify-center gap-0">
+            <span className="text-4xl font-black tracking-[3px] text-white sm:text-5xl leading-none -mt-1">TERMINAL</span>
+            <img src={logoImg} alt="X" className="h-12 w-auto object-contain sm:h-14" draggable="false" />
           </div>
           <p className="text-slate-400 text-sm mt-3">
             {step === 1 ? 'Datos del negocio' : 'Crear cuenta'}
