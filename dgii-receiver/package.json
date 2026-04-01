@@ -1,0 +1,10 @@
+{
+  "name": "dgii-receiver",
+  "private": true,
+  "dependencies": {
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
+    "xml-crypto": "^2.1.5",
+    "@xmldom/xmldom": "^0.8.6"
+  }
+}

@@ -33,14 +33,14 @@ Complete guide for the DGII electronic invoicing (Facturacion Electronica) certi
 | 1-3 | Setup / Authorization | DONE |
 | 4 | Pruebas Simulacion (submit test e-CFs) | DONE (2026-03-27) |
 | 5 | Validacion Representacion Impresa (PDFs with QR) | DONE (2026-03-27) |
-| 6 | DGII reviews and approves | WAITING |
-| 7 | URL Servicios Prueba | Vercel endpoints deployed |
-| 8 | Inicio Prueba Recepcion e-CF | PENDING |
-| 9 | Recepcion e-CF | PENDING |
-| 10 | Inicio Prueba Recepcion Aprobacion Comercial | PENDING |
-| 11 | Recepcion Aprobacion Comercial | PENDING |
-| 12 | URL Servicios Produccion | PENDING |
-| 13 | Declaracion Jurada | PENDING |
+| 6 | DGII reviews and approves | DONE (2026-03-30) |
+| 7 | URL Servicios Prueba | DONE (2026-03-31) — fe.terminalxpos.com |
+| 8 | Inicio Prueba Recepcion e-CF | DONE (2026-04-01) — 6 bugs fixed |
+| 9 | Recepcion e-CF | DONE (2026-04-01) |
+| 10 | Inicio Prueba Aprobacion Comercial | DONE (2026-04-01) |
+| 11 | Aprobacion Comercial | DONE (2026-04-01) |
+| 12 | URL Servicios Produccion | DONE (2026-04-01) |
+| 13 | Declaracion Jurada | IN PROGRESS — OFV activation needed |
 | 14 | Verificacion Estatus | PENDING |
 | 15 | Finalizado | PENDING |
 
@@ -229,11 +229,29 @@ const securityCode = sigValue.substring(0, 6)
 
 ## Steps 7-11 — Receiver Endpoints
 
-Already deployed to Vercel at `terminalxpos.com`:
-- `web/api/fe/semilla.js` — seed endpoint
-- `web/api/fe/validarcertificado.js` — certificate validation
-- `web/api/fe/recepcion.js` — e-CF reception
-- `web/api/fe/aprobacion.js` — commercial approval
+**LIVE at `fe.terminalxpos.com`** (Hostinger VPS, Express.js + Docker nginx proxy):
+- `https://fe.terminalxpos.com/fe/autenticacion/api/semilla` — seed endpoint
+- `https://fe.terminalxpos.com/fe/autenticacion/api/ValidacionCertificado` — certificate validation
+- `https://fe.terminalxpos.com/fe/recepcion/api/ecf` — e-CF reception (returns signed ARECF)
+- `https://fe.terminalxpos.com/fe/aprobacioncomercial/api/ecf` — commercial approval (returns signed ACECF)
+
+**Server:** `/root/dgii-receiver/server.js` on port 3100, systemd service `dgii-receiver`
+**Proxy:** Docker nginx → `host.docker.internal:3100` (UFW rules allow Docker subnets)
+**Certs:** Letsencrypt at `/etc/letsencrypt/live/fe.terminalxpos.com/`
+**DGII certs:** `/root/dgii-receiver/dgii-key.pem` + `dgii-cert.pem`
+
+### Step 7 — URL Servicios Prueba (DONE 2026-03-31)
+Submit these URLs in the DGII portal:
+- Semilla: `https://fe.terminalxpos.com/fe/autenticacion/api/semilla`
+- ValidacionCertificado: `https://fe.terminalxpos.com/fe/autenticacion/api/ValidacionCertificado`
+- Recepcion: `https://fe.terminalxpos.com/fe/recepcion/api/ecf`
+- AprobacionComercial: `https://fe.terminalxpos.com/fe/aprobacioncomercial/api/ecf`
+
+### Step 8 — Inicio Prueba Recepcion e-CF (NEXT)
+DGII will send test e-CFs to our receiver endpoints. Monitor VPS logs:
+```bash
+ssh root@187.124.152.42 "journalctl -u dgii-receiver -f"
+```
 
 ---
 
