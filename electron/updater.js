@@ -33,6 +33,17 @@ function initUpdater(mainWindow) {
     getAutoUpdater().quitAndInstall(false, true)
   })
 
+  // IPC: renderer requests manual update check
+  ipcMain.handle('updater:check', async () => {
+    if (process.argv.includes('--dev')) return { error: 'dev-mode' }
+    try {
+      const result = await getAutoUpdater().checkForUpdates()
+      return { ok: true, version: result?.updateInfo?.version || null }
+    } catch (err) {
+      return { error: err.message }
+    }
+  })
+
   // Don't check in dev mode
   if (process.argv.includes('--dev')) return
 

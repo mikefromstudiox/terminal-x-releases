@@ -32,8 +32,6 @@ export default async function handler(req, res) {
     const chunks = []
     for await (const chunk of req) chunks.push(chunk)
     const bodyStr = Buffer.concat(chunks).toString('utf8')
-    console.log('[validarcertificado] Content-Type:', contentType)
-    console.log('[validarcertificado] Body length:', bodyStr.length, 'has xml:', bodyStr.includes('<?xml'), 'has SemillaModel:', bodyStr.includes('SemillaModel'))
     let signedXml = null
 
     if (contentType.includes('multipart')) {

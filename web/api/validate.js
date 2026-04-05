@@ -37,7 +37,7 @@ export default async function handler(req, res) {
 
   try {
     const { data: license, error } = await supabase.from('licenses')
-      .select('*, businesses!business_id(name, rnc), plans!plan_id(name, display_name, features, max_users)')
+      .select('*, businesses!business_id(name, rnc, phone, address, logo_url, settings), plans!plan_id(name, display_name, features, max_users)')
       .eq('license_key', key.toUpperCase().trim()).maybeSingle()
     if (error) throw error
     if (!license) { await audit(supabase, null, key, hwid, 'validate', 'not_found', ip); return res.json({ valid: false, status: 'not_found' }) }
@@ -52,18 +52,23 @@ export default async function handler(req, res) {
     if (license.status === 'suspended') { await audit(supabase, license.id, key, hwid, 'validate', 'suspended', ip); return res.json({ valid: false, status: 'suspended' }) }
     if (license.hardware_id && license.hardware_id !== hwid) { await audit(supabase, license.id, key, hwid, 'validate', 'hardware_mismatch', ip); return res.json({ valid: false, status: 'hardware_mismatch' }) }
 
+    if (license.status === 'pending' && !license.hardware_id) {
+      await audit(supabase, license.id, key, hwid, 'validate', 'pending', ip)
+      return res.json({ valid: false, status: 'pending', businessName: bizName })
+    }
+
     if (!license.hardware_id) {
       await supabase.from('licenses').update({ hardware_id: hwid, activated_at: new Date().toISOString(), status: 'active', updated_at: new Date().toISOString() }).eq('id', license.id)
+      license.status = 'active'
       await audit(supabase, license.id, key, hwid, 'activate', 'active', ip)
+    } else if (license.status === 'pending') {
+      await supabase.from('licenses').update({ status: 'active', updated_at: new Date().toISOString() }).eq('id', license.id)
+      license.status = 'active'
     }
     await supabase.from('licenses').update({ last_seen: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', license.id)
 
     const expiresAt = license.expires_at ? new Date(license.expires_at) : null
     const now = new Date()
-    if (license.status === 'pending') {
-      await audit(supabase, license.id, key, hwid, 'validate', 'pending', ip)
-      return res.json({ valid: false, status: 'pending', businessName: bizName })
-    }
     let status = license.status
     let valid = true, readOnly = false, warning = false, warningMsg = null, daysUntilExpiry = null
 
@@ -81,12 +86,13 @@ export default async function handler(req, res) {
       const { data: cfgRows } = await supabase.from('app_settings').select('key, value').eq('business_id', license.business_id)
       if (cfgRows) remoteConfig = Object.fromEntries(cfgRows.map(r => [r.key, r.value]))
     }
-    const bizSettings = license.businesses?.settings || {}
+    const biz = license.businesses || {}
+    const bizSettings = { name: biz.name, rnc: biz.rnc, phone: biz.phone, address: biz.address, logo: biz.logo_url, plan: license.plans?.name || 'pro', ...(biz.settings || {}) }
     const resp = { valid, readOnly, status, warning, warningMsg, daysUntilExpiry, plan: license.plans?.name || 'free', planDisplay: license.plans?.display_name || 'Free', features: license.plans?.features || [], expiresAt: license.expires_at, activatedAt: license.activated_at, maxUsers: license.plans?.max_users || license.max_users || 3, remoteConfig, bizSettings }
     if (valid) { resp.businessName = bizName; resp.businessRnc = bizRnc }
     if (status === 'expired' && daysUntilExpiry !== null) resp.daysExpired = -daysUntilExpiry
     return res.json(resp)
-  } catch (err) { return res.status(500).json({ valid: false, status: 'server_error' }) }
+  } catch (err) { console.error('[validate]', err.message || err); return res.status(500).json({ valid: false, status: 'server_error' }) }
 }
 
 async function audit(supabase, licenseId, key, hwid, action, status, ip) {

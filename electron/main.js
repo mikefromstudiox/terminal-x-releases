@@ -16,7 +16,7 @@ try {
 
 // ── Env-var accessors (with safe fallbacks) ───────────────────────────────────
 const env = {
-  masterKey:    (process.env.MASTER_LICENSE_KEY || 'TX-MASTER-2026').toUpperCase().trim(),
+  masterKey:    process.env.MASTER_LICENSE_KEY ? process.env.MASTER_LICENSE_KEY.toUpperCase().trim() : '',
   supabaseUrl:  process.env.SUPABASE_URL  || '',
   supabaseAnon: process.env.SUPABASE_ANON_KEY || '',
 }
@@ -425,9 +425,9 @@ ipcMain.handle('license:hwid', () => {
 
 // ── Master license key ────────────────────────────────────────────────────────
 ipcMain.handle('license:is-master', (_, key) => {
-  if (typeof key !== 'string') return false
+  if (typeof key !== 'string' || !env.masterKey) return false
   const match = key.toUpperCase().trim() === env.masterKey
-  if (match) console.warn('⚠️  Master key active — real license not yet applied')
+  if (match) console.warn('Master key active — real license not yet applied')
   return match
 })
 
@@ -490,10 +490,12 @@ function createWindow() {
     initUpdater(win)
   })
 
-  // F12 toggles DevTools in all builds (needed for production debugging)
-  win.webContents.on('before-input-event', (_, input) => {
-    if (input.key === 'F12' && input.type === 'keyDown') win.webContents.toggleDevTools()
-  })
+  // F12 toggles DevTools only in dev mode
+  if (isDev) {
+    win.webContents.on('before-input-event', (_, input) => {
+      if (input.key === 'F12' && input.type === 'keyDown') win.webContents.toggleDevTools()
+    })
+  }
 
   if (isDev) {
     win.webContents.openDevTools()
@@ -651,6 +653,7 @@ handle('tickets:byDateRange', ({from,to}) => db.ticketGetByDateRange(from, to))
 // ── Queue ─────────────────────────────────────────────────────────────────────
 handle('queue:active',       ()                        => db.queueGetActive())
 handle('queue:updateStatus', ({id,status,washerId})   => db.queueUpdateStatus(id, status, washerId))
+handle('queue:delete',       ({id,deletedBy})         => db.queueDelete(id, deletedBy))
 
 // ── Commissions ───────────────────────────────────────────────────────────────
 handle('commissions:byWasher', ({washerId,from,to}) => db.commissionsGetByWasher(washerId, from, to))

@@ -64,6 +64,8 @@ function init(userDataPath) {
     "ALTER TABLE ecf_queue ADD COLUMN encf TEXT",
     "ALTER TABLE ecf_queue ADD COLUMN tipo_ecf TEXT",
     "ALTER TABLE ecf_queue ADD COLUMN environment TEXT NOT NULL DEFAULT 'testecf'",
+    // v1.3 — plan column on businesses for license sync
+    "ALTER TABLE businesses ADD COLUMN plan TEXT NOT NULL DEFAULT 'pro'",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch { /* column already exists */ }
@@ -237,6 +239,16 @@ function init(userDataPath) {
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS idx_compras607_fecha ON compras_607(fecha_ncf)')
 
+  db.exec(`CREATE TABLE IF NOT EXISTS queue_deletions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    queue_id    INTEGER NOT NULL,
+    ticket_id   INTEGER,
+    doc_number  TEXT DEFAULT '',
+    deleted_by  TEXT NOT NULL DEFAULT 'unknown',
+    deleted_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    reason      TEXT DEFAULT 'manual'
+  )`)
+
   // Performance indexes for report queries at scale
   db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_created ON tickets(created_at)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_client ON tickets(client_id)')
@@ -332,11 +344,11 @@ function empresaGet() {
   if (!db) return null
   // Setup is complete only when configuracion.setup_complete = '1'
   if (configGet('setup_complete') !== '1') return null
-  return db.prepare('SELECT id,name,rnc,address,phone,email,logo,settings FROM businesses WHERE id=1').get() ?? null
+  return db.prepare('SELECT id,name,rnc,address,phone,email,logo,settings,plan FROM businesses WHERE id=1').get() ?? null
 }
 function empresaSave(data) {
   if (!db) return
-  const allowed = ['name', 'rnc', 'address', 'phone', 'email', 'logo', 'settings']
+  const allowed = ['name', 'rnc', 'address', 'phone', 'email', 'logo', 'settings', 'plan']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
@@ -399,11 +411,13 @@ function userCreate(data) {
 }
 function userUpdate(id, data) {
   if (!db) return
+  const allowed = ['name', 'username', 'pin_hash', 'role', 'discount_pct', 'vendedor_id', 'commission_pct', 'active']
   const { pin, ...rest } = data
   if (pin) rest.pin_hash = sha256(pin)
-  const fields = Object.keys(rest).filter(k => k !== 'id').map(k => `${k}=@${k}`).join(',')
-  if (!fields) return
-  db.prepare(`UPDATE users SET ${fields} WHERE id=@id`).run({ ...rest, id })
+  const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
+  if (!Object.keys(patch).length) return
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE users SET ${fields} WHERE id=@id`).run({ ...patch, id })
 }
 function userDelete(id) {
   if (!db) return
@@ -725,8 +739,8 @@ function ticketCreate(data) {
     }
 
     // Washer commissions — only on wash/service items (NOT beverages/snacks)
-    // Service prices include 18% ITBIS — strip it out for commission base
-    const commBase  = parseFloat((((data.subtotal || 0) - (data.beverage_subtotal || 0)) / 1.18).toFixed(2))
+    // total and beverage_subtotal are both ITBIS-inclusive — strip ITBIS for commission base
+    const commBase  = parseFloat((((data.total || 0) - (data.beverage_subtotal || 0)) / 1.18).toFixed(2))
     if (commBase > 0) {
       for (const wid of (data.washer_ids || [])) {
         const washer  = db.prepare('SELECT commission_pct FROM washers WHERE id=?').get(wid)
@@ -839,7 +853,7 @@ function queueGetActive() {
      LEFT JOIN clients c ON c.id = t.client_id
      LEFT JOIN ticket_items ti ON ti.ticket_id = t.id
      LEFT JOIN washers w ON w.id = q.washer_id
-     WHERE q.status != 'done'
+     WHERE q.status NOT IN ('done', 'cancelled')
      GROUP BY q.id
      ORDER BY q.created_at ASC`
   ).all()
@@ -854,6 +868,20 @@ function queueUpdateStatus(id, status, washerId = null) {
   } else {
     db.prepare(`UPDATE queue SET status=? WHERE id=?`).run(status, id)
   }
+}
+
+function queueDelete(id, deletedBy) {
+  if (!db) return null
+  const row = db.prepare('SELECT q.*, t.doc_number FROM queue q LEFT JOIN tickets t ON t.id = q.ticket_id WHERE q.id=?').get(id)
+  if (!row) return null
+  const now = new Date().toISOString()
+  db.transaction(() => {
+    db.prepare(`UPDATE queue SET status='cancelled', completed_at=? WHERE id=?`).run(now, id)
+    db.prepare(`UPDATE tickets SET status='anulado' WHERE id=?`).run(row.ticket_id)
+    db.prepare(`INSERT OR IGNORE INTO queue_deletions (queue_id, ticket_id, doc_number, deleted_by, deleted_at, reason) VALUES (?,?,?,?,?,?)`)
+      .run(id, row.ticket_id, row.doc_number || '', deletedBy || 'unknown', now, 'manual')
+  })()
+  return { id, ticketId: row.ticket_id }
 }
 
 // ── COMMISSIONS ───────────────────────────────────────────────────────────────
@@ -1039,8 +1067,11 @@ function ncfGetNext(type) {
 }
 function ncfUpdateSequence(type, data) {
   if (!db) return
-  const fields = Object.keys(data).map(k => `${k}=@${k}`).join(',')
-  db.prepare(`UPDATE ncf_sequences SET ${fields} WHERE type=@type`).run({ ...data, type })
+  const allowed = ['prefix', 'current_number', 'max_number', 'active', 'enabled', 'expires_at']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (!Object.keys(patch).length) return
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE ncf_sequences SET ${fields} WHERE type=@type`).run({ ...patch, type })
 }
 
 // ── CAJA CHICA ────────────────────────────────────────────────────────────────
@@ -1375,7 +1406,7 @@ module.exports = {
   // Tickets
   ticketsGetAll, ticketGetById, ticketCreate, ticketMarkPaid, ticketVoid, ticketGetByDateRange,
   // Queue
-  queueGetActive, queueUpdateStatus,
+  queueGetActive, queueUpdateStatus, queueDelete,
   // Commissions
   commissionsGetByWasher, commissionsGetByPeriod, commissionsMarkPaid,
   sellerCommissionsBySeller, sellerCommissionsByPeriod, sellerCommissionsMarkPaid,

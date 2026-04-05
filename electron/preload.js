@@ -141,6 +141,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   queue: {
     active:       ()     => call('queue:active'),
     updateStatus: (data) => call('queue:updateStatus', data),
+    delete:       (data) => call('queue:delete', data),
   },
 
   // ── Commissions ────────────────────────────────────────────────────────────
@@ -280,6 +281,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Auto-updater ───────────────────────────────────────────────────────────
   updater: {
     install:  ()       => ipcRenderer.invoke('updater:install'),
+    check:    ()       => ipcRenderer.invoke('updater:check'),
     onStatus: (cb)     => {
       const events = ['checking','up-to-date','available','progress','downloaded','error']
       const handlers = {}

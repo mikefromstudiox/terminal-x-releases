@@ -9,8 +9,8 @@ import { AuthProvider } from '@/context/AuthContext'
 import { LicenseProvider } from '@/context/LicenseContext'
 import { DataProvider } from '@/context/DataContext'
 import { PlanProvider } from '@/hooks/usePlan.jsx'
-import { createWebAPI, createWebPrinterAPI } from '@/data/web'
-import { startOfflineSync } from '@/services/offline-queue'
+import { createWebAPI, createWebPrinterAPI } from '@terminal-x/data/web'
+import { startOfflineSync } from '@terminal-x/services/offline-queue'
 import { injectSpeedInsights } from '@vercel/speed-insights'
 import '@/index.css'
 import xMark from '@/assets/x-mark.png'
@@ -199,9 +199,7 @@ function SupabaseAuthGate({ children }) {
 
   return (
     <DataProvider api={api} printerApi={printerApi}>
-      <PlanProvider>
-        {children}
-      </PlanProvider>
+      {children}
     </DataProvider>
   )
 }
@@ -226,7 +224,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <LangProvider>
                   <AuthProvider>
                     <LicenseProvider>
-                      <App />
+                      <PlanProvider>
+                        <App />
+                      </PlanProvider>
                     </LicenseProvider>
                   </AuthProvider>
                 </LangProvider>
