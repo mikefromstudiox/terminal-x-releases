@@ -266,3 +266,80 @@ export function exportSellerSummary(biz, summaries, period) {
   ]
   downloadCSV(rows, `comisiones-vendedores-${period.toLowerCase().replace(/\s+/g, '-')}.csv`)
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// NÓMINA REPORTS (v1.5)
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── TSS + INFOTEP report ──────────────────────────────────────────────────────
+export function exportTSSReport(biz, rows, period) {
+  const totals = rows.reduce((a, r) => {
+    a.base += Number(r.base || 0)
+    a.sfsEmp += Number(r.sfs_employee || 0)
+    a.afpEmp += Number(r.afp_employee || 0)
+    a.sfsEmpr += Number(r.sfs_employer || 0)
+    a.afpEmpr += Number(r.afp_employer || 0)
+    a.infotep += Number(r.infotep_employer || 0)
+    return a
+  }, { base: 0, sfsEmp: 0, afpEmp: 0, sfsEmpr: 0, afpEmpr: 0, infotep: 0 })
+
+  const csv = [
+    ...buildHeader(biz, 'REPORTE TSS + INFOTEP', period),
+    ['No.', 'Empleado', 'Cedula', 'TSS-ID', 'Base', 'SFS Emp 3.04%', 'AFP Emp 2.87%', 'SFS Empr 7.09%', 'AFP Empr 7.10%', 'INFOTEP 1%'],
+    ...rows.map((r, i) => [
+      i + 1, r.empleado_nombre || '', r.cedula || '', r.tss_id || '',
+      fmtMoney(r.base), fmtMoney(r.sfs_employee), fmtMoney(r.afp_employee),
+      fmtMoney(r.sfs_employer), fmtMoney(r.afp_employer), fmtMoney(r.infotep_employer),
+    ]),
+    [],
+    ['', 'TOTALES', '', '',
+      fmtMoney(totals.base), fmtMoney(totals.sfsEmp), fmtMoney(totals.afpEmp),
+      fmtMoney(totals.sfsEmpr), fmtMoney(totals.afpEmpr), fmtMoney(totals.infotep)],
+    [],
+    ['Total empleado retenido:',   fmtMoney(totals.sfsEmp + totals.afpEmp)],
+    ['Total empleador (TSS+INFOTEP):', fmtMoney(totals.sfsEmpr + totals.afpEmpr + totals.infotep)],
+    ['GRAN TOTAL:',                fmtMoney(totals.sfsEmp + totals.afpEmp + totals.sfsEmpr + totals.afpEmpr + totals.infotep)],
+    [],
+    [`Generado: ${todayFormatted()}`],
+  ]
+  downloadCSV(csv, `tss-infotep-${period.toLowerCase().replace(/\s+/g, '-')}.csv`)
+}
+
+// ── ISR report ────────────────────────────────────────────────────────────────
+export function exportISRReport(biz, rows, period) {
+  const totalIsr = rows.reduce((s, r) => s + Number(r.isr || 0), 0)
+  const csv = [
+    ...buildHeader(biz, 'REPORTE ISR (IMPUESTO SOBRE LA RENTA)', period),
+    ['No.', 'Empleado', 'Cedula', 'Base del periodo', 'Salario anual proyectado', 'ISR retenido'],
+    ...rows.map((r, i) => {
+      const periodGross = Number(r.base || 0) + Number(r.commissions || 0) + Number(r.bonuses || 0)
+      const annual = periodGross * (r.cycle === 'quincenal' ? 24 : 12)
+      return [i + 1, r.empleado_nombre || '', r.cedula || '', fmtMoney(periodGross), fmtMoney(annual), fmtMoney(r.isr)]
+    }),
+    [],
+    ['', 'TOTAL ISR RETENIDO', '', '', '', fmtMoney(totalIsr)],
+    [],
+    [`Generado: ${todayFormatted()}`],
+  ]
+  downloadCSV(csv, `isr-${period.toLowerCase().replace(/\s+/g, '-')}.csv`)
+}
+
+// ── Nómina completa (QuickBooks/Alegra compatible) ────────────────────────────
+export function exportNominaPeriod(biz, rows, period) {
+  const csv = [
+    ...buildHeader(biz, 'NOMINA COMPLETA', period),
+    ['No.', 'Empleado', 'Cedula', 'Puesto', 'Tipo', 'Periodo', 'Base', 'Comisiones', 'Bonos', 'SFS Emp', 'AFP Emp', 'ISR', 'Otros desc.', 'Total desc.', 'Neto'],
+    ...rows.map((r, i) => [
+      i + 1, r.empleado_nombre || '', r.cedula || '', r.puesto || '', r.empleado_tipo || '',
+      `${r.period_start} - ${r.period_end}`,
+      fmtMoney(r.base), fmtMoney(r.commissions), fmtMoney(r.bonuses),
+      fmtMoney(r.sfs_employee), fmtMoney(r.afp_employee), fmtMoney(r.isr),
+      fmtMoney(r.other_deductions), fmtMoney(r.deductions), fmtMoney(r.net),
+    ]),
+    [],
+    [`Total empleados: ${rows.length}`],
+    [`Total neto pagado: ${fmtMoney(rows.reduce((s, r) => s + Number(r.net || 0), 0))}`],
+    [`Generado: ${todayFormatted()}`],
+  ]
+  downloadCSV(csv, `nomina-${period.toLowerCase().replace(/\s+/g, '-')}.csv`)
+}

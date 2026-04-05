@@ -195,16 +195,21 @@ The first admin hire handles all client-facing technical work:
 - [x] Add date indexes on tickets, ticket_items, credit_payments, cuadre tables for fast report queries at scale
 - [x] Monorepo migration — complete (packages/ui, services, data with npm workspaces)
 
-### Nóminas (Payroll) — Expand into a mini HR database
-Currently the payroll screen only shows the current calculation (liquidación per empleado). Expand into a full employee history module:
-- [ ] **Paycheck history per employee** — every period's payroll run recorded with amounts, breakdown, date paid
-- [ ] **Search by date range** — "show me Juan's last 6 paychecks" or "first paycheck"
-- [ ] **Salary change log** — track when salary was raised/lowered, who approved it
-- [ ] **Commission history chart** — monthly commission earnings over time for lavadores/vendedores/cajeros
-- [ ] **Print individual paycheck stubs** — formal "recibo de pago" with breakdown (base, horas extra, comisiones, deducciones, neto)
-- [ ] **Export payroll runs** — CSV/PDF for accountant, includes TSS + ISR withholding estimates
-- [ ] **Employee profile page** — /payroll/:id showing personal info, start date, antiguedad, current salary, all historical pay data
-- [ ] New DB table: `payroll_runs` (id, employee_id, period_start, period_end, base, commissions, deductions, net, paid_at, paid_by)
+### Nóminas (Payroll) — Full in-house payroll center (COMPLETE 2026-04-05)
+Expanded Reportes → Nómina from a single severance calculator into a 5-view payroll app so Michael + accountant can run payroll + fiscal filings in-house without an external accountant.
+- [x] **5 sub-views**: Dashboard · Empleados · Pagos · Reportes · Ajustes (all under `packages/ui/screens/reports/nomina/`)
+- [x] **Paycheck history table** (`payroll_runs`) with itemised deductions: SFS/AFP empleado, ISR, otros, + employer liabilities (SFS/AFP empleador, INFOTEP)
+- [x] **Salary change audit log** (`salary_changes`) — auto-recorded on every salary edit with old/new/effective_date/reason
+- [x] **Per-business payroll settings** (`payroll_settings`) — pay cycle, editable rates, TSS caps 2026, ISR brackets, legal constants
+- [x] **Bulk pay run (Pagos view)** — quincenal/mensual/custom period, auto-computed table for all active employees, transactional bulkCreate, auto-marks commissions paid
+- [x] **Auto-computed deductions** using `lib/isr.js` (DR progressive brackets with cycle-aware annualization) and `lib/tss.js` (separate SFS/AFP caps)
+- [x] **INFOTEP 1% employer** (no cap) calculated and tracked per run
+- [x] **Accountant reports** (NominaReportes view): TSS+INFOTEP PDF/CSV, ISR PDF/CSV with YTD, Nómina completa CSV (QuickBooks/Alegra format), Recibos batch print, Liquidaciones acumuladas (termination liability snapshot)
+- [x] **Individual pay stubs** (`printPaycheckStub`) — formal Recibo de Pago with business letterhead, itemised breakdown, signature lines
+- [x] **Dashboard view** — metric cards, pending actions, activity feed, 6-month SVG commission trends chart (stacked by tipo)
+- [x] **Empleados view** — profile, stats, inner sub-tabs: Historial de Pagos · Comisiones · Liquidación · Cambios de salario
+- [x] **Commission-only workers** — lavadores/vendedores/cajeros can be paid without fixed salary (auto-base from period's commissions)
+- [x] **Supabase mirror** — migration `20260405000002_nomina_expansion.sql` with full RLS per tenant
 
 ### Reports — Net Profit Tracking
 - [ ] Reports currently show gross revenue only (`Total Facturado`). Add net profit calculation:

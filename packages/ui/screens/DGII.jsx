@@ -384,10 +384,10 @@ function Screen606() {
             </button>
           ))}
           <div className="ml-auto pb-2">
-            <div className="relative">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 pointer-events-none" />
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus-within:ring-2 focus-within:ring-blue-400 w-48">
+              <Search size={13} className="text-slate-400 dark:text-white/40 shrink-0" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder={L('Buscar…', 'Search…')}
-                className="pl-8 pr-3 py-1.5 border border-slate-200 dark:border-white/10 dark:bg-white/5 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 w-48" />
+                className="flex-1 min-w-0 bg-transparent outline-none text-sm text-slate-700 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40" />
             </div>
           </div>
         </div>
@@ -816,10 +816,10 @@ function Screen607() {
           <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-white/40 flex-1">
             {L('Compras y gastos del período', 'Purchases & expenses for period')}
           </p>
-          <div className="relative">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 pointer-events-none" />
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus-within:ring-2 focus-within:ring-emerald-400 w-44">
+            <Search size={13} className="text-slate-400 dark:text-white/40 shrink-0" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder={L('Buscar…', 'Search…')}
-              className="pl-8 pr-3 py-1.5 border border-slate-200 dark:border-white/10 dark:bg-white/5 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 w-44" />
+              className="flex-1 min-w-0 bg-transparent outline-none text-sm text-slate-700 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40" />
           </div>
         </div>
 

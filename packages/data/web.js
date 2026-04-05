@@ -39,6 +39,59 @@ async function hashPin(pin) {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
+// ── Payroll helpers (shared by payrollRuns.create + bulkCreate) ────────────────
+function buildPayrollRunRow(data, businessId) {
+  const sfs_employee     = Number(data.sfs_employee || 0)
+  const afp_employee     = Number(data.afp_employee || 0)
+  const isr              = Number(data.isr || 0)
+  const other_deductions = Number(data.other_deductions || 0)
+  const deductions = data.deductions != null
+    ? Number(data.deductions)
+    : sfs_employee + afp_employee + isr + other_deductions
+  return {
+    empleado_id:      data.empleado_id,
+    period_start:     data.period_start,
+    period_end:       data.period_end,
+    base:             Number(data.base || 0),
+    commissions:      Number(data.commissions || 0),
+    bonuses:          Number(data.bonuses || 0),
+    sfs_employee, afp_employee, isr, other_deductions, deductions,
+    sfs_employer:     Number(data.sfs_employer || 0),
+    afp_employer:     Number(data.afp_employer || 0),
+    infotep_employer: Number(data.infotep_employer || 0),
+    net:              Number(data.net),
+    notes:            data.notes || null,
+    paid_by:          data.paid_by || null,
+    business_id:      businessId,
+  }
+}
+
+// Mark unpaid commissions within [from, to] as paid for an employee, based on tipo → ref_id.
+// Commissions attach to tickets whose created_at falls in the date range.
+async function markCommissionsPaidForEmpleado(supabase, businessId, empleadoId, from, to) {
+  const { data: emp } = await supabase.from('empleados').select('tipo, ref_id').eq('id', empleadoId).single()
+  if (!emp || !emp.ref_id) return 0
+  const table = emp.tipo === 'lavador'  ? 'washer_commissions'
+              : emp.tipo === 'vendedor' ? 'seller_commissions'
+              : emp.tipo === 'cajero'   ? 'cajero_commissions'
+              : null
+  if (!table) return 0
+  const col = emp.tipo === 'lavador' ? 'washer_id' : emp.tipo === 'vendedor' ? 'seller_id' : 'cajero_id'
+  // Find tickets in the date range, then update only rows whose ticket_id is in that set
+  const { data: tickets } = await supabase.from('tickets').select('id')
+    .eq('business_id', businessId)
+    .gte('created_at', from)
+    .lte('created_at', to + ' 23:59:59')
+  const ticketIds = (tickets || []).map(t => t.id)
+  if (ticketIds.length === 0) return 0
+  const { data: updated } = await supabase.from(table)
+    .update({ paid: true, paid_at: new Date().toISOString() })
+    .eq('business_id', businessId).eq(col, emp.ref_id).eq('paid', false)
+    .in('ticket_id', ticketIds)
+    .select('id')
+  return (updated || []).length
+}
+
 // ── Main factory ───────────────────────────────────────────────────────────────
 
 export function createWebAPI(supabase, businessId) {
@@ -404,15 +457,31 @@ export function createWebAPI(supabase, businessId) {
           nombre: data.nombre, tipo: data.tipo, ref_id: data.ref_id || null,
           salary: data.salary || 0, start_date: data.start_date,
           cedula: data.cedula || null, phone: data.phone || null,
+          puesto: data.puesto || null, email: data.email || null,
+          bank_account: data.bank_account || null, tss_id: data.tss_id || null,
           active: true, business_id: bid,
         }).select('id').single())
         return { id: row.id }
       }),
 
       update: (data) => tryOr(async () => {
-        const { id, ...rest } = data
-        const allowed = ['nombre', 'tipo', 'ref_id', 'salary', 'start_date', 'cedula', 'phone', 'active']
+        const { id, salary_change_reason, changed_by, ...rest } = data
+        const allowed = ['nombre','tipo','ref_id','salary','start_date','cedula','phone','puesto','email','bank_account','tss_id','active']
         const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
+        // Auto-log salary change: fetch current, compare, insert salary_changes row.
+        if (patch.salary != null) {
+          const { data: current } = await supabase.from('empleados').select('salary').eq('id', id).eq('business_id', bid).single()
+          const oldSalary = Number(current?.salary || 0)
+          const newSalary = Number(patch.salary || 0)
+          if (current && oldSalary !== newSalary) {
+            await supabase.from('salary_changes').insert({
+              empleado_id: id, old_salary: oldSalary, new_salary: newSalary,
+              effective_date: new Date().toISOString().slice(0, 10),
+              reason: salary_change_reason || null,
+              business_id: bid,
+            })
+          }
+        }
         throwSupaError(await supabase.from('empleados').update(patch).eq('id', id).eq('business_id', bid))
       }),
 
@@ -424,21 +493,27 @@ export function createWebAPI(supabase, businessId) {
     // ── Payroll runs (paycheck history) ─────────────────────────────────────
     payrollRuns: {
       create: (data) => tryOr(async () => {
-        const row = throwSupaError(await supabase.from('payroll_runs').insert({
-          empleado_id:  data.empleado_id,
-          period_start: data.period_start,
-          period_end:   data.period_end,
-          base:         data.base || 0,
-          commissions:  data.commissions || 0,
-          bonuses:      data.bonuses || 0,
-          deductions:   data.deductions || 0,
-          net:          data.net,
-          notes:        data.notes || null,
-          paid_by:      data.paid_by || null,
-          business_id:  bid,
-        }).select('id').single())
+        const row = throwSupaError(await supabase.from('payroll_runs').insert(
+          buildPayrollRunRow(data, bid)
+        ).select('id').single())
+        // Auto-mark underlying commissions as paid
+        if ((Number(data.commissions) || 0) > 0) {
+          try { await markCommissionsPaidForEmpleado(supabase, bid, data.empleado_id, data.period_start, data.period_end) } catch {}
+        }
         return { id: row.id }
       }),
+      bulkCreate: (runs) => tryOr(async () => {
+        if (!Array.isArray(runs) || runs.length === 0) return { created: 0, ids: [] }
+        const rows = runs.map(r => buildPayrollRunRow(r, bid))
+        const inserted = throwSupaError(await supabase.from('payroll_runs').insert(rows).select('id'))
+        // Fire-and-forget mark-paid for each employee's commissions in its period
+        for (const r of runs) {
+          if ((Number(r.commissions) || 0) > 0) {
+            try { await markCommissionsPaidForEmpleado(supabase, bid, r.empleado_id, r.period_start, r.period_end) } catch {}
+          }
+        }
+        return { created: (inserted || []).length, ids: (inserted || []).map(x => x.id) }
+      }, { created: 0, ids: [] }),
       byEmpleado: (empleadoId, limit = 100) => tryOr(async () => {
         return throwSupaError(
           await supabase.from('payroll_runs').select('*')
@@ -463,6 +538,41 @@ export function createWebAPI(supabase, businessId) {
       remove: (id) => tryOr(async () => {
         throwSupaError(await supabase.from('payroll_runs').delete().eq('id', id).eq('business_id', bid))
       }),
+    },
+
+    // ── Payroll settings (per-business config) ──────────────────────────────
+    payrollSettings: {
+      get: () => tryOr(async () => {
+        const { data } = await supabase.from('payroll_settings').select('*').eq('business_id', bid).maybeSingle()
+        if (!data) return null
+        // Supabase returns isr_brackets already parsed (jsonb). Leave as-is.
+        return data
+      }, null),
+      update: (data) => tryOr(async () => {
+        const allowed = [
+          'pay_cycle',
+          'sfs_employee_rate','afp_employee_rate',
+          'sfs_employer_rate','afp_employer_rate','infotep_employer_rate',
+          'sfs_monthly_cap','afp_monthly_cap',
+          'isr_enabled','isr_brackets',
+          'navidad_enabled','vacation_days','daily_divisor',
+        ]
+        const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+        // Upsert: one row per business (UNIQUE constraint on business_id)
+        throwSupaError(await supabase.from('payroll_settings')
+          .upsert({ ...patch, business_id: bid, updated_at: new Date().toISOString() }, { onConflict: 'business_id' }))
+      }),
+    },
+
+    // ── Salary changes (audit log) ──────────────────────────────────────────
+    salaryChanges: {
+      byEmpleado: (empleadoId) => tryOr(async () => {
+        return throwSupaError(
+          await supabase.from('salary_changes').select('*')
+            .eq('business_id', bid).eq('empleado_id', empleadoId)
+            .order('effective_date', { ascending: false }).order('id', { ascending: false })
+        )
+      }, []),
     },
 
     // ── Clients ──────────────────────────────────────────────────────────────

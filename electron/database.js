@@ -69,6 +69,19 @@ function init(userDataPath) {
     // v1.4 — cost tracking for profit margins (services + ticket_items snapshot)
     'ALTER TABLE services ADD COLUMN cost REAL NOT NULL DEFAULT 0',
     'ALTER TABLE ticket_items ADD COLUMN cost REAL NOT NULL DEFAULT 0',
+    // v1.5 — nómina expansion: employee fields for TSS/ISR filings
+    'ALTER TABLE empleados ADD COLUMN puesto TEXT',
+    'ALTER TABLE empleados ADD COLUMN email TEXT',
+    'ALTER TABLE empleados ADD COLUMN bank_account TEXT',
+    'ALTER TABLE empleados ADD COLUMN tss_id TEXT',
+    // v1.5 — payroll_runs: itemised deductions + employer liabilities
+    'ALTER TABLE payroll_runs ADD COLUMN sfs_employee REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE payroll_runs ADD COLUMN afp_employee REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE payroll_runs ADD COLUMN isr REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE payroll_runs ADD COLUMN other_deductions REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE payroll_runs ADD COLUMN sfs_employer REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE payroll_runs ADD COLUMN afp_employer REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE payroll_runs ADD COLUMN infotep_employer REAL NOT NULL DEFAULT 0',
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch { /* column already exists */ }
@@ -220,24 +233,68 @@ function init(userDataPath) {
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
 
-  // Payroll runs — paycheck history per employee (v1.4)
+  // Payroll runs — paycheck history per employee (v1.4, extended v1.5)
+  // Fresh installs get the full schema; existing DBs pick up new columns via ALTER migrations above.
   db.exec(`CREATE TABLE IF NOT EXISTS payroll_runs (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    empleado_id   INTEGER NOT NULL REFERENCES empleados(id) ON DELETE CASCADE,
-    period_start  TEXT    NOT NULL,
-    period_end    TEXT    NOT NULL,
-    base          REAL    NOT NULL DEFAULT 0,
-    commissions   REAL    NOT NULL DEFAULT 0,
-    bonuses       REAL    NOT NULL DEFAULT 0,
-    deductions    REAL    NOT NULL DEFAULT 0,
-    net           REAL    NOT NULL,
-    notes         TEXT,
-    paid_at       TEXT    NOT NULL DEFAULT (datetime('now')),
-    paid_by       INTEGER REFERENCES users(id),
-    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    empleado_id      INTEGER NOT NULL REFERENCES empleados(id) ON DELETE CASCADE,
+    period_start     TEXT    NOT NULL,
+    period_end       TEXT    NOT NULL,
+    base             REAL    NOT NULL DEFAULT 0,
+    commissions      REAL    NOT NULL DEFAULT 0,
+    bonuses          REAL    NOT NULL DEFAULT 0,
+    sfs_employee     REAL    NOT NULL DEFAULT 0,
+    afp_employee     REAL    NOT NULL DEFAULT 0,
+    isr              REAL    NOT NULL DEFAULT 0,
+    other_deductions REAL    NOT NULL DEFAULT 0,
+    deductions       REAL    NOT NULL DEFAULT 0,
+    sfs_employer     REAL    NOT NULL DEFAULT 0,
+    afp_employer     REAL    NOT NULL DEFAULT 0,
+    infotep_employer REAL    NOT NULL DEFAULT 0,
+    net              REAL    NOT NULL,
+    notes            TEXT,
+    paid_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+    paid_by          INTEGER REFERENCES users(id),
+    created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS idx_payroll_runs_empleado ON payroll_runs(empleado_id)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_payroll_runs_paid_at ON payroll_runs(paid_at)')
+
+  // Payroll settings — per-business config for pay cycle, TSS/ISR rates, caps (v1.5)
+  db.exec(`CREATE TABLE IF NOT EXISTS payroll_settings (
+    id                    INTEGER PRIMARY KEY,
+    business_id           INTEGER NOT NULL DEFAULT 1,
+    pay_cycle             TEXT NOT NULL DEFAULT 'quincenal',
+    sfs_employee_rate     REAL NOT NULL DEFAULT 0.0304,
+    afp_employee_rate     REAL NOT NULL DEFAULT 0.0287,
+    sfs_employer_rate     REAL NOT NULL DEFAULT 0.0709,
+    afp_employer_rate     REAL NOT NULL DEFAULT 0.0710,
+    infotep_employer_rate REAL NOT NULL DEFAULT 0.01,
+    sfs_monthly_cap       REAL NOT NULL DEFAULT 232230,
+    afp_monthly_cap       REAL NOT NULL DEFAULT 464460,
+    isr_enabled           INTEGER NOT NULL DEFAULT 1,
+    isr_brackets          TEXT NOT NULL DEFAULT '[[0,416220,0],[416220,624329,0.15],[624329,867123,0.20],[867123,999999999,0.25]]',
+    navidad_enabled       INTEGER NOT NULL DEFAULT 1,
+    vacation_days         INTEGER NOT NULL DEFAULT 14,
+    daily_divisor         REAL NOT NULL DEFAULT 23.83,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  // Ensure a default row exists (business_id=1, single-tenant on desktop)
+  db.prepare(`INSERT OR IGNORE INTO payroll_settings (id, business_id) VALUES (1, 1)`).run()
+
+  // Salary changes — audit log for raises and cuts (v1.5)
+  db.exec(`CREATE TABLE IF NOT EXISTS salary_changes (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    empleado_id    INTEGER NOT NULL REFERENCES empleados(id) ON DELETE CASCADE,
+    old_salary     REAL NOT NULL,
+    new_salary     REAL NOT NULL,
+    effective_date TEXT NOT NULL,
+    reason         TEXT,
+    changed_by     INTEGER REFERENCES users(id),
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_salary_changes_empleado ON salary_changes(empleado_id)')
 
   // 607 — Compras y gastos de proveedores
   db.exec(`CREATE TABLE IF NOT EXISTS compras_607 (
@@ -548,19 +605,36 @@ function empleadosGetAllAdmin() {
 }
 function empleadoCreate(data) {
   if (!db) return null
-  const r = db.prepare(`INSERT INTO empleados(nombre,tipo,ref_id,salary,start_date,cedula,phone,active)
-    VALUES(@nombre,@tipo,@ref_id,@salary,@start_date,@cedula,@phone,1)`).run({
+  const r = db.prepare(`INSERT INTO empleados(nombre,tipo,ref_id,salary,start_date,cedula,phone,puesto,email,bank_account,tss_id,active)
+    VALUES(@nombre,@tipo,@ref_id,@salary,@start_date,@cedula,@phone,@puesto,@email,@bank_account,@tss_id,1)`).run({
     nombre: data.nombre, tipo: data.tipo, ref_id: data.ref_id || null,
     salary: data.salary || 0, start_date: data.start_date,
     cedula: data.cedula || null, phone: data.phone || null,
+    puesto: data.puesto || null, email: data.email || null,
+    bank_account: data.bank_account || null, tss_id: data.tss_id || null,
   })
   return { id: r.lastInsertRowid }
 }
 function empleadoUpdate(id, data) {
   if (!db) return
-  const allowed = ['nombre','tipo','ref_id','salary','start_date','cedula','phone','active']
+  const allowed = ['nombre','tipo','ref_id','salary','start_date','cedula','phone','puesto','email','bank_account','tss_id','active']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
+
+  // Auto-log salary changes
+  if (patch.salary != null) {
+    const current = db.prepare('SELECT salary FROM empleados WHERE id=?').get(id)
+    const oldSalary = Number(current?.salary || 0)
+    const newSalary = Number(patch.salary || 0)
+    if (current && oldSalary !== newSalary) {
+      db.prepare(`INSERT INTO salary_changes
+        (empleado_id, old_salary, new_salary, effective_date, reason, changed_by)
+        VALUES (?, ?, ?, date('now'), ?, ?)`).run(
+        id, oldSalary, newSalary, data.salary_change_reason || null, data.changed_by || null
+      )
+    }
+  }
+
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
   db.prepare(`UPDATE empleados SET ${fields} WHERE id=@id`).run({ ...patch, id })
 }
@@ -570,23 +644,90 @@ function empleadoDelete(id) {
 }
 
 // ── PAYROLL RUNS (paycheck history) ───────────────────────────────────────────
+const PAYROLL_RUN_INSERT_SQL = `INSERT INTO payroll_runs
+  (empleado_id, period_start, period_end, base, commissions, bonuses,
+   sfs_employee, afp_employee, isr, other_deductions, deductions,
+   sfs_employer, afp_employer, infotep_employer,
+   net, notes, paid_by)
+  VALUES (@empleado_id, @period_start, @period_end, @base, @commissions, @bonuses,
+          @sfs_employee, @afp_employee, @isr, @other_deductions, @deductions,
+          @sfs_employer, @afp_employer, @infotep_employer,
+          @net, @notes, @paid_by)`
+
+function normalizePayrollRun(data) {
+  const sfs_employee     = Number(data.sfs_employee || 0)
+  const afp_employee     = Number(data.afp_employee || 0)
+  const isr              = Number(data.isr || 0)
+  const other_deductions = Number(data.other_deductions || 0)
+  // Back-compat: if caller passed a single `deductions` total (old shape), use it.
+  // Otherwise compute it from the itemised fields.
+  const deductions = data.deductions != null
+    ? Number(data.deductions)
+    : sfs_employee + afp_employee + isr + other_deductions
+  return {
+    empleado_id:      data.empleado_id,
+    period_start:     data.period_start,
+    period_end:       data.period_end,
+    base:             Number(data.base || 0),
+    commissions:      Number(data.commissions || 0),
+    bonuses:          Number(data.bonuses || 0),
+    sfs_employee, afp_employee, isr, other_deductions, deductions,
+    sfs_employer:     Number(data.sfs_employer || 0),
+    afp_employer:     Number(data.afp_employer || 0),
+    infotep_employer: Number(data.infotep_employer || 0),
+    net:              Number(data.net),
+    notes:            data.notes || null,
+    paid_by:          data.paid_by || null,
+  }
+}
+
+// Mark unpaid commissions within [from, to] as paid for an employee, based on tipo → ref_id.
+function markCommissionsPaidForEmpleado(empleadoId, from, to) {
+  if (!db) return 0
+  const emp = db.prepare('SELECT tipo, ref_id FROM empleados WHERE id=?').get(empleadoId)
+  if (!emp || !emp.ref_id) return 0
+  const table = emp.tipo === 'lavador'  ? 'washer_commissions'
+              : emp.tipo === 'vendedor' ? 'seller_commissions'
+              : emp.tipo === 'cajero'   ? 'cajero_commissions'
+              : null
+  if (!table) return 0
+  const col = emp.tipo === 'lavador' ? 'washer_id' : emp.tipo === 'vendedor' ? 'seller_id' : 'cajero_id'
+  // Note: commissions are attached to tickets whose created_at falls in the range.
+  const res = db.prepare(`UPDATE ${table}
+    SET paid = 1, paid_at = datetime('now')
+    WHERE ${col} = ? AND paid = 0
+      AND ticket_id IN (SELECT id FROM tickets WHERE DATE(created_at) BETWEEN DATE(?) AND DATE(?))`)
+    .run(emp.ref_id, from, to)
+  return res.changes
+}
+
 function payrollRunCreate(data) {
   if (!db) return null
-  const r = db.prepare(`INSERT INTO payroll_runs
-    (empleado_id, period_start, period_end, base, commissions, bonuses, deductions, net, notes, paid_by)
-    VALUES (@empleado_id, @period_start, @period_end, @base, @commissions, @bonuses, @deductions, @net, @notes, @paid_by)`).run({
-    empleado_id:  data.empleado_id,
-    period_start: data.period_start,
-    period_end:   data.period_end,
-    base:         data.base || 0,
-    commissions:  data.commissions || 0,
-    bonuses:      data.bonuses || 0,
-    deductions:   data.deductions || 0,
-    net:          data.net,
-    notes:        data.notes || null,
-    paid_by:      data.paid_by || null,
-  })
+  const row = normalizePayrollRun(data)
+  const r = db.prepare(PAYROLL_RUN_INSERT_SQL).run(row)
+  // Auto-mark underlying commissions as paid for this employee/period
+  if (row.commissions > 0) {
+    try { markCommissionsPaidForEmpleado(row.empleado_id, row.period_start, row.period_end) } catch {}
+  }
   return { id: r.lastInsertRowid }
+}
+
+function payrollRunsBulkCreate(runs) {
+  if (!db || !Array.isArray(runs) || runs.length === 0) return { created: 0, ids: [] }
+  const stmt = db.prepare(PAYROLL_RUN_INSERT_SQL)
+  const ids = []
+  const tx = db.transaction((list) => {
+    for (const data of list) {
+      const row = normalizePayrollRun(data)
+      const r = stmt.run(row)
+      ids.push(r.lastInsertRowid)
+      if (row.commissions > 0) {
+        try { markCommissionsPaidForEmpleado(row.empleado_id, row.period_start, row.period_end) } catch {}
+      }
+    }
+  })
+  tx(runs)
+  return { created: ids.length, ids }
 }
 function payrollRunsByEmpleado(empleadoId, limit = 100) {
   if (!db) return []
@@ -617,6 +758,48 @@ function payrollRunsByPeriod(from, to) {
 function payrollRunDelete(id) {
   if (!db) return
   db.prepare('DELETE FROM payroll_runs WHERE id=?').run(id)
+}
+
+// ── PAYROLL SETTINGS ──────────────────────────────────────────────────────────
+function payrollSettingsGet() {
+  if (!db) return null
+  const row = db.prepare('SELECT * FROM payroll_settings WHERE id = 1').get()
+  if (!row) return null
+  // Parse isr_brackets JSON for consumer convenience
+  try { row.isr_brackets = JSON.parse(row.isr_brackets || '[]') } catch { row.isr_brackets = [] }
+  return row
+}
+function payrollSettingsUpdate(data) {
+  if (!db) return
+  const allowed = [
+    'pay_cycle',
+    'sfs_employee_rate','afp_employee_rate',
+    'sfs_employer_rate','afp_employer_rate','infotep_employer_rate',
+    'sfs_monthly_cap','afp_monthly_cap',
+    'isr_enabled','isr_brackets',
+    'navidad_enabled','vacation_days','daily_divisor',
+  ]
+  const patch = {}
+  for (const [k, v] of Object.entries(data)) {
+    if (!allowed.includes(k)) continue
+    // Serialize isr_brackets if caller passed an array
+    patch[k] = k === 'isr_brackets' && typeof v !== 'string' ? JSON.stringify(v) : v
+  }
+  if (!Object.keys(patch).length) return
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE payroll_settings SET ${fields}, updated_at=datetime('now') WHERE id=1`).run(patch)
+}
+
+// ── SALARY CHANGES ────────────────────────────────────────────────────────────
+function salaryChangesByEmpleado(empleadoId) {
+  if (!db) return []
+  return db.prepare(`
+    SELECT sc.*, u.name AS changed_by_name
+    FROM salary_changes sc
+    LEFT JOIN users u ON u.id = sc.changed_by
+    WHERE sc.empleado_id = ?
+    ORDER BY sc.effective_date DESC, sc.id DESC
+  `).all(empleadoId)
 }
 
 // ── SELLERS ───────────────────────────────────────────────────────────────────
@@ -1480,7 +1663,8 @@ module.exports = {
   sellersGetAll, sellersGetAllAdmin, sellerCreate, sellerUpdate, sellerDelete,
   // Empleados (payroll)
   empleadosGetAll, empleadosGetAllAdmin, empleadoCreate, empleadoUpdate, empleadoDelete,
-  payrollRunCreate, payrollRunsByEmpleado, payrollRunsByPeriod, payrollRunDelete,
+  payrollRunCreate, payrollRunsByEmpleado, payrollRunsByPeriod, payrollRunDelete, payrollRunsBulkCreate,
+  payrollSettingsGet, payrollSettingsUpdate, salaryChangesByEmpleado,
   // Clients
   clientsGetAll, clientGetById, clientCreate, clientUpdate, clientUpdateBalance, clientGetOpenTickets, collectCredit,
   // Tickets

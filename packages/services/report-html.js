@@ -378,3 +378,271 @@ export async function printLiquidacion(biz, emp, liq, tipo) {
   </body></html>`
   openReport(html)
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// NÓMINA REPORTS (v1.5)
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── TSS + INFOTEP monthly report ──────────────────────────────────────────────
+export async function printTSSReport(biz, rows, period) {
+  const logo = await getLogoDataUrl(biz)
+  const totals = rows.reduce((acc, r) => {
+    acc.base += Number(r.base || 0)
+    acc.sfsEmp += Number(r.sfs_employee || 0)
+    acc.afpEmp += Number(r.afp_employee || 0)
+    acc.sfsEmpr += Number(r.sfs_employer || 0)
+    acc.afpEmpr += Number(r.afp_employer || 0)
+    acc.infotep += Number(r.infotep_employer || 0)
+    return acc
+  }, { base: 0, sfsEmp: 0, afpEmp: 0, sfsEmpr: 0, afpEmpr: 0, infotep: 0 })
+  const totalEmpleado = totals.sfsEmp + totals.afpEmp
+  const totalEmpleador = totals.sfsEmpr + totals.afpEmpr + totals.infotep
+  const granTotal = totalEmpleado + totalEmpleador
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reporte TSS — ${period}</title><style>${STYLES}</style></head><body>
+    <div class="page">
+      ${buildLetterhead(biz, logo)}
+      <div class="print-bar no-print">
+        <button class="btn btn-primary" onclick="window.print()">Imprimir / Guardar PDF</button>
+        <button class="btn btn-secondary" onclick="window.close()">Cerrar</button>
+      </div>
+      <div class="report-title"><h2>Reporte TSS + INFOTEP</h2><div class="period">Periodo: ${period}</div></div>
+      <div class="summary-grid">
+        <div class="summary-card"><div class="label">Empleados</div><div class="value">${rows.length}</div></div>
+        <div class="summary-card"><div class="label">Base salarial total</div><div class="value">${fmtMoney(totals.base)}</div></div>
+        <div class="summary-card"><div class="label">Retenciones empleado</div><div class="value">${fmtMoney(totalEmpleado)}</div></div>
+        <div class="summary-card"><div class="label">Cargas empleador</div><div class="value">${fmtMoney(totalEmpleador)}</div></div>
+        <div class="summary-card"><div class="label">Gran total</div><div class="value">${fmtMoney(granTotal)}</div></div>
+      </div>
+      <div class="section">
+        <div class="section-title">Detalle por empleado</div>
+        <table>
+          <thead><tr>
+            <th>Empleado</th><th>Cédula</th><th>TSS-ID</th>
+            <th class="right">Base</th>
+            <th class="right">SFS Emp (3.04%)</th><th class="right">AFP Emp (2.87%)</th>
+            <th class="right">SFS Empr (7.09%)</th><th class="right">AFP Empr (7.10%)</th>
+            <th class="right">INFOTEP (1%)</th>
+          </tr></thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td class="bold">${r.empleado_nombre || '—'}</td>
+                <td>${r.cedula || '—'}</td>
+                <td>${r.tss_id || '—'}</td>
+                <td class="right money">${fmtMoney(r.base)}</td>
+                <td class="right">${fmtMoney(r.sfs_employee)}</td>
+                <td class="right">${fmtMoney(r.afp_employee)}</td>
+                <td class="right">${fmtMoney(r.sfs_employer)}</td>
+                <td class="right">${fmtMoney(r.afp_employer)}</td>
+                <td class="right">${fmtMoney(r.infotep_employer)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot><tr>
+            <td colspan="3">TOTALES</td>
+            <td class="right">${fmtMoney(totals.base)}</td>
+            <td class="right">${fmtMoney(totals.sfsEmp)}</td>
+            <td class="right">${fmtMoney(totals.afpEmp)}</td>
+            <td class="right">${fmtMoney(totals.sfsEmpr)}</td>
+            <td class="right">${fmtMoney(totals.afpEmpr)}</td>
+            <td class="right">${fmtMoney(totals.infotep)}</td>
+          </tr></tfoot>
+        </table>
+      </div>
+      <div class="note">SFS cap 2026: RD$232,230 · AFP cap 2026: RD$464,460 · INFOTEP: 1% sobre gross completo (sin tope)</div>
+      ${buildFooterHtml()}
+    </div>
+  </body></html>`
+  openReport(html)
+}
+
+// ── ISR monthly withholding report ────────────────────────────────────────────
+export async function printISRReport(biz, rows, period) {
+  const logo = await getLogoDataUrl(biz)
+  const totalIsr = rows.reduce((s, r) => s + Number(r.isr || 0), 0)
+  const totalBase = rows.reduce((s, r) => s + Number(r.base || 0) + Number(r.commissions || 0), 0)
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reporte ISR — ${period}</title><style>${STYLES}</style></head><body>
+    <div class="page">
+      ${buildLetterhead(biz, logo)}
+      <div class="print-bar no-print">
+        <button class="btn btn-primary" onclick="window.print()">Imprimir / Guardar PDF</button>
+        <button class="btn btn-secondary" onclick="window.close()">Cerrar</button>
+      </div>
+      <div class="report-title"><h2>Reporte ISR (Impuesto Sobre la Renta)</h2><div class="period">Periodo: ${period}</div></div>
+      <div class="summary-grid">
+        <div class="summary-card"><div class="label">Empleados</div><div class="value">${rows.length}</div></div>
+        <div class="summary-card"><div class="label">Base gravable total</div><div class="value">${fmtMoney(totalBase)}</div></div>
+        <div class="summary-card"><div class="label">ISR retenido total</div><div class="value">${fmtMoney(totalIsr)}</div></div>
+      </div>
+      <div class="section">
+        <div class="section-title">Detalle por empleado</div>
+        <table>
+          <thead><tr>
+            <th>Empleado</th><th>Cédula</th>
+            <th class="right">Base del período</th>
+            <th class="right">Salario anual proyectado</th>
+            <th class="right">ISR retenido</th>
+          </tr></thead>
+          <tbody>
+            ${rows.map(r => {
+              const periodGross = Number(r.base || 0) + Number(r.commissions || 0) + Number(r.bonuses || 0)
+              const annual = periodGross * (r.cycle === 'quincenal' ? 24 : 12)
+              return `
+                <tr>
+                  <td class="bold">${r.empleado_nombre || '—'}</td>
+                  <td>${r.cedula || '—'}</td>
+                  <td class="right money">${fmtMoney(periodGross)}</td>
+                  <td class="right">${fmtMoney(annual)}</td>
+                  <td class="right money">${fmtMoney(r.isr)}</td>
+                </tr>
+              `
+            }).join('')}
+          </tbody>
+          <tfoot><tr>
+            <td colspan="4">TOTAL ISR RETENIDO</td>
+            <td class="right">${fmtMoney(totalIsr)}</td>
+          </tr></tfoot>
+        </table>
+      </div>
+      <div class="note">
+        Escalas DGII 2026: Exento hasta RD$416,220/año · 15% hasta RD$624,329 · 20% hasta RD$867,123 · 25% en adelante.
+        Marginal: solo el exceso de cada escala se grava a la tasa de esa escala.
+      </div>
+      ${buildFooterHtml()}
+    </div>
+  </body></html>`
+  openReport(html)
+}
+
+// ── Liquidaciones acumuladas (termination liability snapshot) ─────────────────
+export async function printLiquidacionesAcumuladas(biz, liquidaciones) {
+  const logo = await getLogoDataUrl(biz)
+  const totals = liquidaciones.reduce((acc, l) => {
+    acc.vacaciones += Number(l.vacaciones?.amount || 0)
+    acc.navidad    += Number(l.navidad?.amount || 0)
+    acc.preaviso   += Number(l.preaviso?.amount || 0)
+    acc.cesantia   += Number(l.cesantia?.amount || 0)
+    acc.total      += Number(l.total || 0)
+    return acc
+  }, { vacaciones: 0, navidad: 0, preaviso: 0, cesantia: 0, total: 0 })
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Liquidaciones Acumuladas</title><style>${STYLES}</style></head><body>
+    <div class="page">
+      ${buildLetterhead(biz, logo)}
+      <div class="print-bar no-print">
+        <button class="btn btn-primary" onclick="window.print()">Imprimir / Guardar PDF</button>
+        <button class="btn btn-secondary" onclick="window.close()">Cerrar</button>
+      </div>
+      <div class="report-title"><h2>Liquidaciones Acumuladas</h2><div class="period">Pasivo laboral al día de hoy (Art. 80 Cesantía, Art. 76 Preaviso, Art. 177 Vacaciones, Art. 219 Navidad)</div></div>
+      <div class="summary-grid">
+        <div class="summary-card"><div class="label">Empleados</div><div class="value">${liquidaciones.length}</div></div>
+        <div class="summary-card"><div class="label">Vacaciones</div><div class="value">${fmtMoney(totals.vacaciones)}</div></div>
+        <div class="summary-card"><div class="label">Navidad prorrata</div><div class="value">${fmtMoney(totals.navidad)}</div></div>
+        <div class="summary-card"><div class="label">Preaviso+Cesantía</div><div class="value">${fmtMoney(totals.preaviso + totals.cesantia)}</div></div>
+        <div class="summary-card"><div class="label">PASIVO TOTAL</div><div class="value">${fmtMoney(totals.total)}</div></div>
+      </div>
+      <div class="section">
+        <table>
+          <thead><tr>
+            <th>Empleado</th><th>Antig.</th>
+            <th class="right">Salario</th>
+            <th class="right">Vacaciones</th>
+            <th class="right">Navidad</th>
+            <th class="right">Preaviso</th>
+            <th class="right">Cesantía</th>
+            <th class="right">Total</th>
+          </tr></thead>
+          <tbody>
+            ${liquidaciones.map(l => `
+              <tr>
+                <td class="bold">${l.nombre}</td>
+                <td>${l.antiguedad?.years || 0}a ${l.antiguedad?.months || 0}m</td>
+                <td class="right">${fmtMoney(l.monthlySalary)}</td>
+                <td class="right">${fmtMoney(l.vacaciones?.amount)}</td>
+                <td class="right">${fmtMoney(l.navidad?.amount)}</td>
+                <td class="right">${fmtMoney(l.preaviso?.amount)}</td>
+                <td class="right">${fmtMoney(l.cesantia?.amount)}</td>
+                <td class="right money bold">${fmtMoney(l.total)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot><tr>
+            <td colspan="3">TOTALES</td>
+            <td class="right">${fmtMoney(totals.vacaciones)}</td>
+            <td class="right">${fmtMoney(totals.navidad)}</td>
+            <td class="right">${fmtMoney(totals.preaviso)}</td>
+            <td class="right">${fmtMoney(totals.cesantia)}</td>
+            <td class="right">${fmtMoney(totals.total)}</td>
+          </tr></tfoot>
+        </table>
+      </div>
+      <div class="note">Este reporte muestra cuánto debería pagar la empresa si terminara hoy a todos los empleados (escenario desahucio).</div>
+      ${buildFooterHtml()}
+    </div>
+  </body></html>`
+  openReport(html)
+}
+
+// ── Batch paycheck stubs (one HTML window with all stubs stacked) ─────────────
+export async function printBatchStubs(biz, runs, employeeLookup) {
+  // runs: payroll_runs rows; employeeLookup: map id → emp object
+  const logo = await getLogoDataUrl(biz)
+  const stubStyle = `
+    body { font-family: system-ui, sans-serif; color: #1e293b; background: #f5f5f5; margin: 0; padding: 20px; }
+    .stub { max-width: 600px; margin: 0 auto 20px; background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); page-break-after: always; }
+    .stub:last-child { page-break-after: auto; }
+    h1 { font-size: 18px; margin: 0; }
+    .muted { color: #64748b; font-size: 11px; }
+    .box { border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 16px 0; }
+    .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
+    .row:last-child { border-bottom: none; }
+    .row.neg span:last-child { color: #dc2626; }
+    .total { background: #ecfdf5; border-top: 2px solid #10b981; font-weight: bold; color: #047857; }
+    @media print { body { background: #fff; } .stub { box-shadow: none; margin: 0; } .no-print { display: none; } }
+  `
+  const fmt = (n) => `RD$ ${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+  const buildStub = (run) => {
+    const emp = employeeLookup[run.empleado_id] || { nombre: run.empleado_nombre || '—', tipo: run.empleado_tipo || '', cedula: '', puesto: '', tss_id: '' }
+    return `
+      <div class="stub">
+        <div style="display:flex; justify-content:space-between; align-items:start;">
+          <div>
+            <h1>${biz?.name || 'Empresa'}</h1>
+            ${biz?.rnc ? `<p class="muted">RNC: ${biz.rnc}</p>` : ''}
+          </div>
+          <div style="text-align:right;">
+            <h1>RECIBO DE PAGO</h1>
+            <p class="muted">#${run.id}</p>
+          </div>
+        </div>
+        <div class="box">
+          <div class="row"><span class="muted">Empleado</span><span><strong>${emp.nombre}</strong></span></div>
+          ${emp.cedula ? `<div class="row"><span class="muted">Cédula</span><span>${emp.cedula}</span></div>` : ''}
+          ${emp.tss_id ? `<div class="row"><span class="muted">ID TSS</span><span>${emp.tss_id}</span></div>` : ''}
+          <div class="row"><span class="muted">Período</span><span>${run.period_start} → ${run.period_end}</span></div>
+        </div>
+        <div class="box">
+          <div class="row"><span>Salario base</span><span>${fmt(run.base)}</span></div>
+          ${Number(run.commissions || 0) > 0 ? `<div class="row"><span>Comisiones</span><span>${fmt(run.commissions)}</span></div>` : ''}
+          ${Number(run.bonuses || 0) > 0 ? `<div class="row"><span>Bonos</span><span>${fmt(run.bonuses)}</span></div>` : ''}
+          ${Number(run.sfs_employee || 0) > 0 ? `<div class="row neg"><span>SFS empleado</span><span>− ${fmt(run.sfs_employee)}</span></div>` : ''}
+          ${Number(run.afp_employee || 0) > 0 ? `<div class="row neg"><span>AFP empleado</span><span>− ${fmt(run.afp_employee)}</span></div>` : ''}
+          ${Number(run.isr || 0) > 0 ? `<div class="row neg"><span>ISR</span><span>− ${fmt(run.isr)}</span></div>` : ''}
+          <div class="row total"><span>NETO A PAGAR</span><span>${fmt(run.net)}</span></div>
+        </div>
+      </div>
+    `
+  }
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Recibos de Pago (${runs.length})</title><style>${stubStyle}</style></head><body>
+    <div class="no-print" style="text-align:center; margin-bottom:20px;">
+      <button onclick="window.print()" style="background:#0f172a; color:#fff; border:none; padding:10px 20px; border-radius:6px; font-weight:bold; cursor:pointer; margin-right:8px;">Imprimir todos (${runs.length})</button>
+      <button onclick="window.close()" style="background:#e2e8f0; color:#1e293b; border:none; padding:10px 20px; border-radius:6px; font-weight:bold; cursor:pointer;">Cerrar</button>
+    </div>
+    ${runs.map(buildStub).join('')}
+  </body></html>`
+  openReport(html)
+}

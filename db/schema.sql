@@ -144,22 +144,70 @@ CREATE TABLE IF NOT EXISTS ticket_items (
 -- search by date range, compute "last paycheck / first paycheck", and
 -- drive accountant exports.
 CREATE TABLE IF NOT EXISTS payroll_runs (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  empleado_id   INTEGER NOT NULL REFERENCES empleados(id) ON DELETE CASCADE,
-  period_start  TEXT    NOT NULL,                      -- YYYY-MM-DD
-  period_end    TEXT    NOT NULL,                      -- YYYY-MM-DD
-  base          REAL    NOT NULL DEFAULT 0,            -- base salary for period
-  commissions   REAL    NOT NULL DEFAULT 0,            -- sum of commissions in period
-  bonuses       REAL    NOT NULL DEFAULT 0,            -- optional bonuses
-  deductions    REAL    NOT NULL DEFAULT 0,            -- TSS + ISR + other withholdings
-  net           REAL    NOT NULL,                      -- final amount paid
-  notes         TEXT,                                  -- optional comment
-  paid_at       TEXT    NOT NULL DEFAULT (datetime('now')),
-  paid_by       INTEGER REFERENCES users(id),          -- who ran payroll
-  created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  empleado_id     INTEGER NOT NULL REFERENCES empleados(id) ON DELETE CASCADE,
+  period_start    TEXT    NOT NULL,                      -- YYYY-MM-DD
+  period_end      TEXT    NOT NULL,                      -- YYYY-MM-DD
+  base            REAL    NOT NULL DEFAULT 0,            -- base salary for period
+  commissions     REAL    NOT NULL DEFAULT 0,            -- sum of commissions in period
+  bonuses         REAL    NOT NULL DEFAULT 0,            -- optional bonuses
+  -- Employee-side withholdings (subtracted from gross)
+  sfs_employee    REAL    NOT NULL DEFAULT 0,
+  afp_employee    REAL    NOT NULL DEFAULT 0,
+  isr             REAL    NOT NULL DEFAULT 0,
+  other_deductions REAL   NOT NULL DEFAULT 0,
+  deductions      REAL    NOT NULL DEFAULT 0,            -- sum of employee-side withholdings (kept for back-compat)
+  -- Employer-side liabilities (NOT withheld; tracked for TSS filing)
+  sfs_employer    REAL    NOT NULL DEFAULT 0,
+  afp_employer    REAL    NOT NULL DEFAULT 0,
+  infotep_employer REAL   NOT NULL DEFAULT 0,
+  net             REAL    NOT NULL,                      -- final amount paid
+  notes           TEXT,                                  -- optional comment
+  paid_at         TEXT    NOT NULL DEFAULT (datetime('now')),
+  paid_by         INTEGER REFERENCES users(id),          -- who ran payroll
+  created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_payroll_runs_empleado ON payroll_runs(empleado_id);
 CREATE INDEX IF NOT EXISTS idx_payroll_runs_paid_at  ON payroll_runs(paid_at);
+
+-- ── Payroll settings (one row per business) ───────────────────────────────────
+CREATE TABLE IF NOT EXISTS payroll_settings (
+  id                    INTEGER PRIMARY KEY,
+  business_id           INTEGER NOT NULL DEFAULT 1,
+  pay_cycle             TEXT NOT NULL DEFAULT 'quincenal',  -- quincenal | mensual
+  -- Employee-side TSS (withheld from paycheck)
+  sfs_employee_rate     REAL NOT NULL DEFAULT 0.0304,
+  afp_employee_rate     REAL NOT NULL DEFAULT 0.0287,
+  -- Employer-side TSS + INFOTEP (employer liability, not withheld)
+  sfs_employer_rate     REAL NOT NULL DEFAULT 0.0709,
+  afp_employer_rate     REAL NOT NULL DEFAULT 0.0710,
+  infotep_employer_rate REAL NOT NULL DEFAULT 0.01,
+  -- 2026 TSS cotization caps (editable in case DGII raises them)
+  sfs_monthly_cap       REAL NOT NULL DEFAULT 232230,
+  afp_monthly_cap       REAL NOT NULL DEFAULT 464460,
+  -- ISR
+  isr_enabled           INTEGER NOT NULL DEFAULT 1,
+  isr_brackets          TEXT NOT NULL DEFAULT '[[0,416220,0],[416220,624329,0.15],[624329,867123,0.20],[867123,999999999,0.25]]',
+  -- Other
+  navidad_enabled       INTEGER NOT NULL DEFAULT 1,
+  vacation_days         INTEGER NOT NULL DEFAULT 14,
+  daily_divisor         REAL NOT NULL DEFAULT 23.83,
+  created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ── Salary changes (audit log for raises/cuts) ────────────────────────────────
+CREATE TABLE IF NOT EXISTS salary_changes (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  empleado_id    INTEGER NOT NULL REFERENCES empleados(id) ON DELETE CASCADE,
+  old_salary     REAL NOT NULL,
+  new_salary     REAL NOT NULL,
+  effective_date TEXT NOT NULL,
+  reason         TEXT,
+  changed_by     INTEGER REFERENCES users(id),
+  created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_salary_changes_empleado ON salary_changes(empleado_id);
 
 -- ── Credit payments ───────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS credit_payments (

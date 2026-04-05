@@ -12,10 +12,14 @@ const PLAN_DISPLAY = { pro: 'Pro', pro_plus: 'Pro PLUS', pro_max: 'Pro MAX' }
 
 const PlanContext = createContext(null)
 
+// Dev override: force Pro MAX in vite dev mode so all features are visible
+// without touching the DB. Production builds ignore this entirely.
+const DEV_PLAN_OVERRIDE = import.meta.env.DEV ? 'pro_max' : null
+
 export function PlanProvider({ children }) {
   const api = useAPI()
   const { result: licenseResult } = useLicense()
-  const [plan, setPlan] = useState('pro')
+  const [plan, setPlan] = useState(DEV_PLAN_OVERRIDE || 'pro')
   const [loading, setLoading] = useState(true)
 
   // Load from local DB first, then override with server response
@@ -24,7 +28,7 @@ export function PlanProvider({ children }) {
     async function load() {
       try {
         const emp = await api?.admin?.getEmpresa?.()
-        if (!cancelled && emp?.plan) setPlan(emp.plan)
+        if (!cancelled && emp?.plan && !DEV_PLAN_OVERRIDE) setPlan(emp.plan)
       } catch {}
       if (!cancelled) setLoading(false)
     }
@@ -34,6 +38,7 @@ export function PlanProvider({ children }) {
 
   // Sync plan from license server response (updates every 4h)
   useEffect(() => {
+    if (DEV_PLAN_OVERRIDE) return
     if (licenseResult?.plan && PLAN_FEATURES[licenseResult.plan]) {
       setPlan(licenseResult.plan)
     }

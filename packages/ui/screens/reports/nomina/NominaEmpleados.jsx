@@ -1,0 +1,633 @@
+/**
+ * NominaEmpleados.jsx — Employee list + detail view.
+ *
+ * Left: scrollable list with search + type filter
+ * Right: selected employee profile with inner sub-tabs:
+ *   - Historial de Pagos (PayrollHistoryPanel)
+ *   - Comisiones (monthly earnings chart)
+ *   - Liquidación (Ley 16-92 severance calc)
+ *   - Cambios de salario (audit log from salary_changes)
+ */
+
+import { useState, useMemo, useEffect } from 'react'
+import {
+  Plus, Edit2, Power, Search, AlertCircle, Banknote, History, TrendingUp,
+  Calculator, ClipboardList, Mail, Phone, CreditCard, IdCard, Calendar,
+  Briefcase,
+} from 'lucide-react'
+import { useAuth } from '../../../context/AuthContext'
+import { useAPI } from '../../../context/DataContext'
+import { useLang } from '../../../i18n'
+import {
+  fmtRD, TYPE_COLORS, MetricCard, TypeBadge, EmployeePanel, PayPayrollModal,
+  PayrollHistoryPanel, printPaycheckStub,
+} from './shared'
+import { calcLiquidacion, calcAntiguedad } from './lib/calcLiquidacion'
+
+export default function NominaEmpleados() {
+  const api = useAPI()
+  const { user } = useAuth()
+  const { lang } = useLang()
+  const L = (es, en) => lang === 'es' ? es : en
+
+  const [empleados,       setEmpleados]       = useState([])
+  const [loading,         setLoading]         = useState(true)
+  const [selectedId,      setSelectedId]      = useState(null)
+  const [search,          setSearch]          = useState('')
+  const [filterTipo,      setFilterTipo]      = useState('all')
+  const [innerTab,        setInnerTab]        = useState('historial')  // historial | comisiones | liquidacion | salary-log
+  const [showPanel,       setShowPanel]       = useState(null)          // null | 'add' | emp
+  const [showPayModal,    setShowPayModal]    = useState(false)
+  const [settings,        setSettings]        = useState(null)
+  const [biz,             setBiz]             = useState({})
+  // Selected employee state
+  const [runs,            setRuns]            = useState([])
+  const [loadingRuns,     setLoadingRuns]     = useState(false)
+  const [salaryChanges,   setSalaryChanges]   = useState([])
+  const [commRows,        setCommRows]        = useState([])
+  // Commission totals (all-time per employee for liquidación calc)
+  const [commTotals,      setCommTotals]      = useState({ washers: {}, sellers: {}, cajeros: {} })
+  const [liqTipo,         setLiqTipo]         = useState('desahucio')
+  const [toast,           setToast]           = useState(null)
+
+  function showToast(msg, variant = 'ok') {
+    setToast({ msg, variant })
+    setTimeout(() => setToast(null), 2500)
+  }
+
+  // ── Initial load ────────────────────────────────────────────────────────────
+  useEffect(() => { loadAll() }, [])
+
+  async function loadAll() {
+    setLoading(true)
+    try {
+      const [list, sets, empresa, washerComm, sellerComm, cajeroComm] = await Promise.all([
+        api?.empleados?.all?.() || [],
+        api?.payrollSettings?.get?.() || null,
+        api?.admin?.getEmpresa?.() || null,
+        api?.commissions?.byPeriod?.({}) || [],
+        api?.sellerCommissions?.byPeriod?.({}) || [],
+        api?.cajeroCommissions?.byPeriod?.({}) || [],
+      ])
+      setEmpleados(list || [])
+      setSettings(sets)
+      if (empresa) setBiz({ name: empresa.name || empresa.nombre, rnc: empresa.rnc, address: empresa.address || empresa.direccion, phone: empresa.phone || empresa.telefono, email: empresa.email, logo: empresa.logo })
+      // Build per-ref_id commission totals
+      const build = (rows, idKey) => {
+        const map = {}
+        for (const r of (rows || [])) {
+          const id = String(r[idKey])
+          map[id] = (map[id] || 0) + (r.total_commission || r.commission_amount || 0)
+        }
+        return map
+      }
+      setCommTotals({
+        washers: build(washerComm, 'washer_id'),
+        sellers: build(sellerComm, 'seller_id'),
+        cajeros: build(cajeroComm, 'cajero_id'),
+      })
+    } catch {}
+    setLoading(false)
+  }
+
+  // ── Selected employee ───────────────────────────────────────────────────────
+  const selected = useMemo(() => empleados.find(e => String(e.id) === String(selectedId)) || null, [selectedId, empleados])
+
+  function getCommissionTotal(emp) {
+    if (!emp?.ref_id) return 0
+    const ref = String(emp.ref_id)
+    if (emp.tipo === 'lavador')  return commTotals.washers[ref] || 0
+    if (emp.tipo === 'vendedor') return commTotals.sellers[ref] || 0
+    if (emp.tipo === 'cajero')   return commTotals.cajeros[ref] || 0
+    return 0
+  }
+
+  // Load history + salary changes when selection changes
+  useEffect(() => {
+    if (!selected?.id) { setRuns([]); setSalaryChanges([]); return }
+    let cancelled = false
+    setLoadingRuns(true)
+    Promise.all([
+      api?.payrollRuns?.byEmpleado?.(selected.id, 100) || [],
+      api?.salaryChanges?.byEmpleado?.(selected.id) || [],
+    ])
+    .then(([runRows, salRows]) => {
+      if (cancelled) return
+      setRuns(runRows || [])
+      setSalaryChanges(salRows || [])
+    })
+    .catch(() => { if (!cancelled) { setRuns([]); setSalaryChanges([]) } })
+    .finally(() => { if (!cancelled) setLoadingRuns(false) })
+    return () => { cancelled = true }
+  }, [selected?.id])
+
+  // ── Filtering ──────────────────────────────────────────────────────────────
+  const visible = useMemo(() => {
+    let list = empleados
+    if (filterTipo !== 'all') list = list.filter(e => e.tipo === filterTipo)
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      list = list.filter(e =>
+        e.nombre.toLowerCase().includes(q) ||
+        (e.cedula || '').toLowerCase().includes(q) ||
+        (e.puesto || '').toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [empleados, search, filterTipo])
+
+  // ── Per-employee stats ─────────────────────────────────────────────────────
+  const stats = useMemo(() => {
+    if (!selected) return null
+    const year = new Date().getFullYear()
+    const thisYear = runs.filter(r => new Date(r.paid_at).getFullYear() === year)
+    const totalYear = thisYear.reduce((s, r) => s + (r.net || 0), 0)
+    const lastPaid = runs.length > 0 ? runs[0] : null
+    const monthsActive = Math.max(1, calcAntiguedad(selected.start_date).totalMonths)
+    const avgMonthly = totalYear / Math.min(12, monthsActive)
+    const commissionsPending = Math.max(0, getCommissionTotal(selected))  // Simplified: total across all tickets
+    return {
+      totalYear,
+      lastPaid,
+      avgMonthly,
+      commissionsPending,
+    }
+  }, [selected, runs, commTotals])
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+  async function handleSave(data) {
+    try {
+      if (data.id) await api.empleados.update({ ...data, changed_by: user?.id })
+      else         await api.empleados.create(data)
+      setShowPanel(null)
+      await loadAll()
+      showToast(L('Empleado guardado', 'Employee saved'))
+    } catch (e) {
+      showToast(e?.message || L('Error al guardar', 'Error saving'), 'error')
+    }
+  }
+
+  async function handleDeactivate(emp) {
+    if (!confirm(L('¿Desactivar este empleado?', 'Deactivate this employee?'))) return
+    try {
+      await api.empleados.update({ id: emp.id, active: 0 })
+      if (String(selectedId) === String(emp.id)) setSelectedId(null)
+      await loadAll()
+      showToast(L('Empleado desactivado', 'Employee deactivated'))
+    } catch (e) { showToast(e?.message || L('Error', 'Error'), 'error') }
+  }
+
+  async function handleRecordPayment(payload) {
+    try {
+      await api.payrollRuns.create({
+        empleado_id: selected.id,
+        ...payload,
+        paid_by: user?.id || null,
+      })
+      const rows = await api.payrollRuns.byEmpleado(selected.id, 100)
+      setRuns(rows || [])
+      setShowPayModal(false)
+      showToast(L('Nómina registrada ✓', 'Paycheck recorded ✓'))
+    } catch (e) {
+      showToast(e?.message || L('Error al guardar nómina', 'Error saving paycheck'), 'error')
+    }
+  }
+
+  async function handleDeleteRun(runId) {
+    if (!confirm(L('¿Eliminar este pago del historial?', 'Delete this paycheck from history?'))) return
+    try {
+      await api.payrollRuns.remove(runId)
+      setRuns(runs.filter(r => r.id !== runId))
+      showToast(L('Eliminado', 'Deleted'))
+    } catch { showToast(L('Error al eliminar', 'Error deleting'), 'error') }
+  }
+
+  // ── Liquidación (current selection) ─────────────────────────────────────────
+  const liq = useMemo(() => {
+    if (!selected) return null
+    return calcLiquidacion(selected, liqTipo, getCommissionTotal(selected))
+  }, [selected, liqTipo, commTotals])
+
+  return (
+    <div className="flex-1 flex flex-col md:flex-row overflow-hidden p-3 md:p-4 gap-3 md:gap-4">
+      {/* ── Left: employee list ──────────────────────────────────────────── */}
+      <div className="md:w-[320px] shrink-0 flex flex-col bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden">
+        <div className="shrink-0 px-4 py-3 border-b border-slate-100 dark:border-white/10 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-[12px] font-bold text-slate-500 dark:text-white/60">{empleados.length} {L('empleados', 'employees')}</p>
+            <button onClick={() => setShowPanel('add')}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-[#0C447C] text-white text-[11px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors">
+              <Plus size={12} /> {L('Agregar', 'Add')}
+            </button>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus-within:border-sky-400">
+            <Search size={13} className="text-slate-400 dark:text-white/40 shrink-0" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder={L('Nombre, cédula…', 'Name, ID…')}
+              className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-slate-700 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40" />
+          </div>
+          <div className="flex gap-1">
+            {[
+              { id: 'all', label: L('Todos', 'All') },
+              { id: 'lavador', label: L('Lavadores', 'Washers') },
+              { id: 'vendedor', label: L('Vendedores', 'Sellers') },
+              { id: 'cajero', label: L('Cajeros', 'Cashiers') },
+            ].map(f => (
+              <button key={f.id} onClick={() => setFilterTipo(f.id)}
+                className={`flex-1 px-1 py-1 rounded-lg text-[10px] font-semibold transition-colors ${
+                  filterTipo === f.id
+                    ? 'bg-slate-800 text-white dark:bg-white dark:text-black'
+                    : 'text-slate-500 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10'
+                }`}>{f.label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="flex items-center justify-center h-32 text-slate-300 dark:text-white/30">
+              <div className="w-5 h-5 border-2 border-slate-200 dark:border-white/10 border-t-sky-500 rounded-full animate-spin" />
+            </div>
+          ) : visible.length === 0 ? (
+            <div className="flex items-center justify-center h-32 text-slate-300 dark:text-white/30 text-[12px]">
+              {empleados.length === 0 ? L('Sin empleados', 'No employees') : L('Sin resultados', 'No results')}
+            </div>
+          ) : (
+            visible.map(emp => {
+              const ant = calcAntiguedad(emp.start_date)
+              const isSelected = String(emp.id) === String(selectedId)
+              const commTotal = getCommissionTotal(emp)
+              return (
+                <button key={emp.id} onClick={() => setSelectedId(String(emp.id))}
+                  className={`w-full flex items-center gap-3 px-4 py-3 border-b border-slate-50 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors text-left ${isSelected ? 'bg-sky-50/60 dark:bg-sky-900/20 border-l-2 border-l-sky-500' : ''}`}>
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-[11px] font-bold shrink-0 ${TYPE_COLORS[emp.tipo]?.bg || ''} ${TYPE_COLORS[emp.tipo]?.text || ''}`}>
+                    {emp.nombre.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-bold text-slate-800 dark:text-white truncate">{emp.nombre}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <TypeBadge tipo={emp.tipo} />
+                      {ant.totalMonths > 0 && (
+                        <span className="text-[10px] text-slate-400 dark:text-white/40">
+                          {ant.years > 0 ? `${ant.years}a ` : ''}{ant.months}m
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    {emp.salary > 0 ? (
+                      <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">{fmtRD(emp.salary)}</p>
+                    ) : commTotal > 0 ? (
+                      <div>
+                        <p className="text-[11px] font-semibold text-sky-700 dark:text-sky-400">{fmtRD(commTotal)}</p>
+                        <p className="text-[9px] text-sky-500 dark:text-sky-400/70">{L('comisiones', 'commissions')}</p>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                        <AlertCircle size={10} /> {L('Sin salario', 'No salary')}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              )
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ── Right: detail ──────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden min-h-0">
+        {!selected ? (
+          <div className="flex-1 flex items-center justify-center text-slate-300 dark:text-white/30">
+            <div className="text-center">
+              <ClipboardList size={40} className="mx-auto mb-3 text-slate-200 dark:text-white/20" />
+              <p className="text-[13px]">{L('Seleccione un empleado para ver sus detalles', 'Select an employee to see details')}</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Profile header */}
+            <div className="shrink-0 px-5 py-4 border-b border-slate-200 dark:border-white/10">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-[15px] font-bold shrink-0 ${TYPE_COLORS[selected.tipo]?.bg} ${TYPE_COLORS[selected.tipo]?.text}`}>
+                    {selected.nombre.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-[16px] font-bold text-slate-800 dark:text-white truncate">{selected.nombre}</h3>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <TypeBadge tipo={selected.tipo} />
+                      {selected.puesto && (
+                        <span className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-white/60">
+                          <Briefcase size={10} /> {selected.puesto}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 flex-wrap text-[11px] text-slate-400 dark:text-white/40">
+                      {selected.cedula && <span className="flex items-center gap-1"><IdCard size={10} />{selected.cedula}</span>}
+                      {selected.phone && <span className="flex items-center gap-1"><Phone size={10} />{selected.phone}</span>}
+                      {selected.email && <span className="flex items-center gap-1 truncate"><Mail size={10} />{selected.email}</span>}
+                      {selected.start_date && <span className="flex items-center gap-1"><Calendar size={10} />{selected.start_date}</span>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={() => setShowPayModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-bold rounded-lg transition-colors">
+                    <Banknote size={13} /> {L('Pagar', 'Pay')}
+                  </button>
+                  <button onClick={() => setShowPanel(selected)}
+                    className="p-2 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors">
+                    <Edit2 size={14} />
+                  </button>
+                  <button onClick={() => handleDeactivate(selected)}
+                    className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors">
+                    <Power size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Stats row */}
+            {stats && (
+              <div className="shrink-0 px-5 py-3 grid grid-cols-2 md:grid-cols-4 gap-2 border-b border-slate-100 dark:border-white/10">
+                <MiniStat label={L('Pagado este año', 'Paid this year')} value={fmtRD(stats.totalYear)} />
+                <MiniStat label={L('Último pago', 'Last paid')} value={stats.lastPaid ? fmtRD(stats.lastPaid.net) : '—'} sub={stats.lastPaid ? new Date(stats.lastPaid.paid_at).toLocaleDateString('es-DO', { day: '2-digit', month: 'short' }) : null} />
+                <MiniStat label={L('Promedio mensual', 'Monthly avg')} value={fmtRD(stats.avgMonthly)} />
+                <MiniStat label={L('Comisiones ac.', 'Commissions')} value={fmtRD(stats.commissionsPending)} />
+              </div>
+            )}
+
+            {/* Inner sub-tabs */}
+            <div className="shrink-0 flex items-center gap-1 px-5 py-2 border-b border-slate-100 dark:border-white/10 overflow-x-auto">
+              {[
+                { id: 'historial',   icon: History,    label: L('Historial de Pagos', 'Payment History'), count: runs.length },
+                { id: 'comisiones',  icon: TrendingUp, label: L('Comisiones', 'Commissions') },
+                { id: 'liquidacion', icon: Calculator, label: L('Liquidación', 'Severance') },
+                { id: 'salary-log',  icon: ClipboardList, label: L('Cambios de salario', 'Salary Changes'), count: salaryChanges.length },
+              ].map(tab => {
+                const Icon = tab.icon
+                const active = innerTab === tab.id
+                return (
+                  <button key={tab.id} onClick={() => setInnerTab(tab.id)}
+                    className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${
+                      active
+                        ? 'bg-slate-800 text-white dark:bg-white dark:text-black'
+                        : 'text-slate-500 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/10'
+                    }`}>
+                    <Icon size={12} />
+                    {tab.label}
+                    {tab.count != null && tab.count > 0 && (
+                      <span className={`ml-0.5 text-[9px] px-1.5 py-0.5 rounded-full ${
+                        active ? 'bg-white/20 dark:bg-black/20' : 'bg-slate-200 dark:bg-white/10'
+                      }`}>{tab.count}</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Inner view content */}
+            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+              {innerTab === 'historial' && (
+                <PayrollHistoryPanel
+                  runs={runs}
+                  loading={loadingRuns}
+                  onDelete={handleDeleteRun}
+                  onPrint={(run) => printPaycheckStub(biz, selected, run, L)}
+                  lang={lang}
+                />
+              )}
+              {innerTab === 'comisiones' && (
+                <CommissionsTab emp={selected} commTotal={getCommissionTotal(selected)} lang={lang} />
+              )}
+              {innerTab === 'liquidacion' && (
+                <LiquidacionTab emp={selected} liq={liq} tipo={liqTipo} onTipoChange={setLiqTipo} lang={lang} />
+              )}
+              {innerTab === 'salary-log' && (
+                <SalaryChangesTab changes={salaryChanges} lang={lang} />
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Employee add/edit panel */}
+      {showPanel && (
+        <EmployeePanel
+          emp={showPanel === 'add' ? null : showPanel}
+          onSave={handleSave}
+          onClose={() => setShowPanel(null)}
+          lang={lang}
+        />
+      )}
+
+      {/* Pay modal */}
+      {showPayModal && selected && (
+        <PayPayrollModal
+          emp={selected}
+          settings={settings}
+          currentCommissionTotal={getCommissionTotal(selected)}
+          onSave={handleRecordPayment}
+          onClose={() => setShowPayModal(false)}
+          lang={lang}
+        />
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 text-white text-sm px-5 py-3 rounded-full shadow-lg ${
+          toast.variant === 'error' ? 'bg-red-600' : 'bg-emerald-600'
+        }`}>
+          {toast.msg}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Mini stat card ─────────────────────────────────────────────────────────────
+function MiniStat({ label, value, sub }) {
+  return (
+    <div className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2.5">
+      <p className="text-[9px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">{label}</p>
+      <p className="text-[14px] font-bold text-slate-800 dark:text-white mt-0.5">{value}</p>
+      {sub && <p className="text-[10px] text-slate-400 dark:text-white/40">{sub}</p>}
+    </div>
+  )
+}
+
+// ── Commissions tab ────────────────────────────────────────────────────────────
+function CommissionsTab({ emp, commTotal, lang }) {
+  const L = (es, en) => lang === 'es' ? es : en
+  // Simplified view: show total + note. A full chart would require querying by month.
+  return (
+    <div className="flex-1 overflow-y-auto p-5">
+      <div className="max-w-md">
+        <p className="text-[11px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-2">{L('Resumen de comisiones', 'Commissions summary')}</p>
+        <div className="bg-sky-50 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/20 rounded-xl px-5 py-4">
+          <p className="text-[12px] text-slate-500 dark:text-white/60">{L('Total acumulado (todos los tiempos)', 'All-time total')}</p>
+          <p className="text-[24px] font-bold text-sky-700 dark:text-sky-400">{fmtRD(commTotal)}</p>
+        </div>
+        {commTotal === 0 && (
+          <p className="text-[11px] text-slate-400 dark:text-white/40 mt-3 italic">
+            {L('Este empleado aún no tiene comisiones registradas. Las comisiones se acumulan automáticamente al facturar tickets.',
+               'This employee has no commissions yet. Commissions accrue automatically on ticket sales.')}
+          </p>
+        )}
+        <p className="text-[10px] text-slate-400 dark:text-white/40 mt-4">
+          {L('Nota: el gráfico de tendencias mensuales se añadirá en el Dashboard.',
+             'Note: monthly trend chart will be added to the Dashboard view.')}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// ── Liquidación tab ────────────────────────────────────────────────────────────
+function LiquidacionTab({ emp, liq, tipo, onTipoChange, lang }) {
+  const L = (es, en) => lang === 'es' ? es : en
+  if (!liq) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-amber-500 p-5">
+        <div className="text-center">
+          <AlertCircle size={32} className="mx-auto mb-2" />
+          <p className="text-[13px] font-semibold">
+            {!emp.start_date ? L('Sin fecha de inicio', 'No start date') : L('No hay datos suficientes', 'Not enough data')}
+          </p>
+          <p className="text-[11px] text-slate-400 dark:text-white/40 mt-1">
+            {L('Edite el empleado para completar los datos', 'Edit the employee to complete required data')}
+          </p>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="flex-1 overflow-y-auto p-5">
+      <div className="max-w-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <span className="text-[11px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider">{L('Tipo de salida', 'Exit type')}</span>
+          <div className="flex bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden">
+            {['desahucio', 'renuncia'].map(t => (
+              <button key={t} onClick={() => onTipoChange(t)}
+                className={`px-4 py-2 text-[12px] font-semibold transition-colors ${tipo === t ? 'bg-[#0C447C] text-white' : 'text-slate-500 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10'}`}>
+                {t === 'desahucio' ? L('Desahucio', 'Dismissal') : L('Renuncia', 'Resignation')}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {liq.isCommissionBased && (
+          <div className="mb-4 px-4 py-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl">
+            <p className="text-[11px] text-amber-700 dark:text-amber-300 font-medium">
+              {L(`Base: promedio mensual de comisiones (${fmtRD(liq.commissionTotal)} / ${liq.antiguedad.totalMonths.toFixed(1)} meses = ${fmtRD(liq.monthlySalary)}/mes)`,
+                 `Base: avg monthly commissions (${fmtRD(liq.commissionTotal)} / ${liq.antiguedad.totalMonths.toFixed(1)} months = ${fmtRD(liq.monthlySalary)}/mo)`)}
+            </p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <StatBox label={L('Antigüedad', 'Seniority')} value={`${liq.antiguedad.years}a ${liq.antiguedad.months}m`} sub={`${liq.antiguedad.days} ${L('días', 'days')}`} />
+          <StatBox label={L('Salario mensual', 'Monthly salary')} value={fmtRD(liq.monthlySalary)} sub={`${fmtRD(liq.dailyRate)} /día`} />
+          <StatBox label={L('Total a pagar', 'Total payable')} value={fmtRD(liq.total)} sub={tipo === 'desahucio' ? L('desahucio', 'dismissal') : L('renuncia', 'resignation')} accent="sky" />
+        </div>
+
+        <div className="border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden">
+          <div className="flex items-center px-4 py-2.5 bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/10 text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">
+            <span className="flex-1">{L('Concepto', 'Concept')}</span>
+            <span className="w-[80px] text-right">{L('Días', 'Days')}</span>
+            <span className="w-[130px] text-right">{L('Monto', 'Amount')}</span>
+          </div>
+          {[
+            { key: 'vacaciones', label: L('Vacaciones (Art. 177)', 'Vacation (Art. 177)'), days: liq.vacaciones.days, amount: liq.vacaciones.amount, show: true },
+            { key: 'navidad',    label: L('Salario de Navidad (Art. 219)', 'Christmas bonus (Art. 219)'), days: null, amount: liq.navidad.amount, show: true },
+            { key: 'preaviso',   label: L('Preaviso (Art. 76)', 'Notice (Art. 76)'), days: liq.preaviso.days, amount: liq.preaviso.amount, show: tipo === 'desahucio' },
+            { key: 'cesantia',   label: L('Cesantía (Art. 80)', 'Severance (Art. 80)'), days: liq.cesantia.days, amount: liq.cesantia.amount, show: tipo === 'desahucio' },
+          ].filter(r => r.show).map(row => (
+            <div key={row.key} className="flex items-center px-4 py-3 border-b border-slate-100 dark:border-white/10 last:border-0">
+              <span className="flex-1 text-[13px] text-slate-700 dark:text-white font-medium">{row.label}</span>
+              <span className="w-[80px] text-right text-[12px] text-slate-500 dark:text-white/60">
+                {row.days != null ? row.days.toFixed(1) : '—'}
+              </span>
+              <span className="w-[130px] text-right text-[13px] font-semibold text-emerald-700 dark:text-emerald-400">{fmtRD(row.amount)}</span>
+            </div>
+          ))}
+          <div className="flex items-center px-4 py-3 bg-sky-50 dark:bg-sky-500/10 border-t-2 border-sky-200 dark:border-sky-500/30">
+            <span className="flex-1 text-[13px] font-bold text-sky-800 dark:text-sky-300 uppercase">Total</span>
+            <span className="w-[80px]" />
+            <span className="w-[130px] text-right text-[16px] font-bold text-sky-700 dark:text-sky-400">{fmtRD(liq.total)}</span>
+          </div>
+        </div>
+
+        <p className="text-[10px] text-slate-400 dark:text-white/40 mt-4">
+          {L('Base legal: Código de Trabajo, Ley 16-92. Divisor legal: 23.83 días/mes.',
+             'Legal basis: Dominican Labor Code, Law 16-92. Legal divisor: 23.83 days/month.')}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function StatBox({ label, value, sub, accent }) {
+  const bg = accent === 'sky'
+    ? 'bg-sky-50 dark:bg-sky-500/10 border-sky-200 dark:border-sky-500/20'
+    : 'bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10'
+  const valColor = accent === 'sky' ? 'text-sky-700 dark:text-sky-400' : 'text-slate-800 dark:text-white'
+  return (
+    <div className={`rounded-xl border px-4 py-3 ${bg}`}>
+      <p className="text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">{label}</p>
+      <p className={`text-[16px] font-bold ${valColor} mt-0.5`}>{value}</p>
+      {sub && <p className="text-[10px] text-slate-400 dark:text-white/40">{sub}</p>}
+    </div>
+  )
+}
+
+// ── Salary changes tab ─────────────────────────────────────────────────────────
+function SalaryChangesTab({ changes, lang }) {
+  const L = (es, en) => lang === 'es' ? es : en
+  if (!changes.length) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-slate-300 dark:text-white/30 p-5">
+        <div className="text-center">
+          <ClipboardList size={40} className="mx-auto mb-3 text-slate-200 dark:text-white/20" />
+          <p className="text-[13px]">{L('Sin cambios de salario registrados', 'No salary changes recorded')}</p>
+          <p className="text-[11px] text-slate-400 dark:text-white/40 mt-1">
+            {L('Los cambios se registran automáticamente al editar el salario del empleado',
+               'Changes are recorded automatically when editing the employee salary')}
+          </p>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <div className="divide-y divide-slate-100 dark:divide-white/5">
+        {changes.map(c => {
+          const delta = Number(c.new_salary) - Number(c.old_salary)
+          const positive = delta >= 0
+          return (
+            <div key={c.id} className="px-5 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[13px] font-bold text-slate-800 dark:text-white">
+                    {new Date(c.effective_date).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-white/60 mt-0.5">
+                    <span className="line-through text-slate-400 dark:text-white/40">{fmtRD(c.old_salary)}</span>
+                    {' → '}
+                    <strong className="text-slate-700 dark:text-white">{fmtRD(c.new_salary)}</strong>
+                  </p>
+                  {c.changed_by_name && <p className="text-[10px] text-slate-400 dark:text-white/40 mt-0.5">{L('Por:', 'By:')} {c.changed_by_name}</p>}
+                  {c.reason && <p className="text-[10px] text-slate-500 dark:text-white/60 italic mt-0.5">{c.reason}</p>}
+                </div>
+                <div className={`text-right shrink-0 ${positive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                  <p className="text-[13px] font-bold">{positive ? '+' : ''}{fmtRD(delta)}</p>
+                  <p className="text-[10px]">{positive ? L('aumento', 'increase') : L('reducción', 'decrease')}</p>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}

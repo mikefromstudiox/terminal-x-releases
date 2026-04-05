@@ -635,9 +635,15 @@ handle('empleados:delete',    ({id})          => { db.empleadoDelete(id); return
 
 // ── Payroll runs (paycheck history) ──────────────────────────────────────────
 handle('payroll-runs:create',      (data)                => db.payrollRunCreate(data))
+handle('payroll-runs:bulk-create', (runs)                => db.payrollRunsBulkCreate(runs))
 handle('payroll-runs:by-empleado', ({empleadoId, limit}) => db.payrollRunsByEmpleado(empleadoId, limit || 100))
 handle('payroll-runs:by-period',   ({from, to})          => db.payrollRunsByPeriod(from, to))
 handle('payroll-runs:delete',      ({id})                => { db.payrollRunDelete(id); return true })
+
+// ── Payroll settings + salary changes ────────────────────────────────────────
+handle('payroll-settings:get',     ()                    => db.payrollSettingsGet())
+handle('payroll-settings:update',  (data)                => { db.payrollSettingsUpdate(data); return true })
+handle('salary-changes:by-empleado', ({empleadoId})      => db.salaryChangesByEmpleado(empleadoId))
 
 // ── Clients ───────────────────────────────────────────────────────────────────
 handle('clients:all',          ()          => db.clientsGetAll())

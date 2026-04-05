@@ -115,9 +115,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   payrollRuns: {
     create:      (data)                    => call('payroll-runs:create', data),
+    bulkCreate:  (runs)                    => call('payroll-runs:bulk-create', runs),
     byEmpleado:  (empleadoId, limit)       => call('payroll-runs:by-empleado', { empleadoId, limit }),
     byPeriod:    (from, to)                => call('payroll-runs:by-period', { from, to }),
     remove:      (id)                      => call('payroll-runs:delete', { id }),
+  },
+  payrollSettings: {
+    get:         ()                        => call('payroll-settings:get'),
+    update:      (data)                    => call('payroll-settings:update', data),
+  },
+  salaryChanges: {
+    byEmpleado:  (empleadoId)              => call('salary-changes:by-empleado', { empleadoId }),
   },
 
   // ── Clients ────────────────────────────────────────────────────────────────
