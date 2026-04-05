@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
-import { Monitor, Shield, Zap, BarChart3, Receipt, Users, ArrowRight, Check, X, Wifi, WifiOff, Printer, MessageSquare, ChevronDown, ChevronUp, Clock, CreditCard, FileText, Lock, Smartphone, Star, TrendingUp, Headphones, Menu, ExternalLink, Globe } from 'lucide-react'
+import { Monitor, Shield, Zap, BarChart3, Receipt, Users, ArrowRight, Check, X, Wifi, WifiOff, Printer, MessageSquare, ChevronDown, ChevronUp, Clock, CreditCard, FileText, Lock, Smartphone, Star, TrendingUp, Headphones, Menu, ExternalLink, Globe, Banknote, Calculator, Crown } from 'lucide-react'
 import logoImg from '../assets/logo.png'
 
 function useBrowserLang() {
@@ -34,7 +34,21 @@ const PLANS = {
     {
       name: 'Pro MAX', key: 'pro_max', price: 'RD$6,990', annual: 'RD$5,942/mes facturado anual (15% OFF)',
       sub: '/mes', desc: 'Para cadenas y alto volumen', users: 'Usuarios ilimitados',
-      features: ['Todo en Pro PLUS, mas:', 'Recibos por WhatsApp automatico', 'Dashboard Remoto en tiempo real', 'Cuenta dedicada con tu ejecutivo', 'Visita tecnica mensual a tu negocio', 'Onboarding el mismo dia', 'Soporte WhatsApp prioritario'],
+      features: [
+        'Todo en Pro PLUS, mas:',
+        'Nomina in-house: pagos quincenales y mensuales masivos',
+        'TSS + INFOTEP automatico (topes 2026)',
+        'ISR progresivo automatico (escalas DGII 2026)',
+        'Reportes fiscales para el portal DGII (TSS, ISR, 606)',
+        'Recibos de pago formales + liquidaciones acumuladas',
+        'Log automatico de cambios de salario',
+        'Recibos por WhatsApp automatico',
+        'Dashboard Remoto en tiempo real',
+        'Cuenta dedicada con tu ejecutivo',
+        'Visita tecnica mensual a tu negocio',
+        'Onboarding el mismo dia',
+        'Soporte WhatsApp prioritario',
+      ],
       support: 'Soporte prioritario + ejecutivo dedicado', cta: 'Comenzar con Pro MAX', highlight: false,
     },
   ],
@@ -54,7 +68,21 @@ const PLANS = {
     {
       name: 'Pro MAX', key: 'pro_max', price: 'RD$6,990', annual: 'RD$5,942/mo billed annually (15% OFF)',
       sub: '/mo', desc: 'For chains and high volume', users: 'Unlimited users',
-      features: ['Everything in Pro PLUS, plus:', 'WhatsApp receipts automatic', 'Remote Dashboard real-time', 'Dedicated account executive', 'Monthly on-site tech visit', 'Same-day onboarding', 'Priority WhatsApp support'],
+      features: [
+        'Everything in Pro PLUS, plus:',
+        'In-house payroll: bulk biweekly + monthly runs',
+        'Auto TSS + INFOTEP (2026 caps)',
+        'Auto progressive ISR (2026 DGII brackets)',
+        'Tax reports for DGII portal (TSS, ISR, 606)',
+        'Formal paycheck stubs + accrued severance',
+        'Automatic salary change log',
+        'WhatsApp receipts automatic',
+        'Remote Dashboard real-time',
+        'Dedicated account executive',
+        'Monthly on-site tech visit',
+        'Same-day onboarding',
+        'Priority WhatsApp support',
+      ],
       support: 'Priority support + dedicated executive', cta: 'Start with Pro MAX', highlight: false,
     },
   ],
@@ -65,7 +93,7 @@ const FEATURES = {
     { icon: Receipt, title: 'e-CF Directo con DGII', desc: 'Facturacion electronica sin intermediarios. Los 10 tipos de e-CF con QR code. 100% Ley 32-23. Sin PSFE, sin costos ocultos.' },
     { icon: Monitor, title: 'Desktop + Web + Movil', desc: 'App nativa para Windows, web PWA para cualquier navegador y celular. Una sola cuenta, todas las plataformas.' },
     { icon: WifiOff, title: '100% Offline', desc: 'Funciona sin internet. Cola inteligente con reintento automatico 72 horas. Se sincroniza cuando vuelve la conexion.' },
-    { icon: BarChart3, title: 'Reportes + Comisiones', desc: 'Ventas diarias, mensuales, por vendedor. Comisiones automaticas por empleado/vendedor/cajera. Nomina Ley 16-92.' },
+    { icon: BarChart3, title: 'Nomina in-house (Pro MAX)', desc: 'Despidete del contador externo. Pagos quincenales/mensuales masivos, TSS + INFOTEP + ISR progresivo automatico (topes 2026), reportes para el portal DGII, recibos formales y log de cambios de salario.' },
     { icon: Shield, title: 'DGII Integrado', desc: 'Reportes 606, 607. RNC lookup automatico con 900,000+ registros. NCF B01/B02 + todos los e-CF.' },
     { icon: Users, title: 'Multi-usuario + Roles', desc: '5 niveles de acceso: dueno, gerente, CFO, contador, cajero. Cada rol ve solo lo que necesita.' },
     { icon: Printer, title: 'Impresion Termica', desc: 'Impresora 80mm con cajon de dinero integrado. Facturas con NCF/e-CF, QR code, conduce de servicio.' },
@@ -76,7 +104,7 @@ const FEATURES = {
     { icon: Receipt, title: 'Direct e-CF with DGII', desc: 'Electronic invoicing with no middlemen. All 10 e-CF types with QR code. 100% Law 32-23. No PSFE, no hidden costs.' },
     { icon: Monitor, title: 'Desktop + Web + Mobile', desc: 'Native Windows app, web PWA for any browser and phone. One account, all platforms.' },
     { icon: WifiOff, title: '100% Offline', desc: 'Works without internet. Smart queue with auto-retry for 72 hours. Syncs when connection returns.' },
-    { icon: BarChart3, title: 'Reports + Commissions', desc: 'Daily, monthly, by seller sales. Auto commissions per employee/seller/cashier. Payroll Law 16-92.' },
+    { icon: BarChart3, title: 'In-house Payroll (Pro MAX)', desc: 'Say goodbye to your external accountant. Biweekly/monthly bulk runs, auto TSS + INFOTEP + progressive ISR (2026 caps), DGII portal reports, formal pay stubs and salary change log.' },
     { icon: Shield, title: 'DGII Integrated', desc: 'Reports 606, 607. Auto RNC lookup with 900,000+ records. NCF B01/B02 + all e-CF types.' },
     { icon: Users, title: 'Multi-user + Roles', desc: '5 access levels: owner, manager, CFO, accountant, cashier. Each role sees only what they need.' },
     { icon: Printer, title: 'Thermal Printing', desc: '80mm printer with built-in cash drawer. Invoices with NCF/e-CF, QR code, service dispatch.' },
@@ -93,7 +121,11 @@ const COMPARISON = {
     { feature: 'Modo offline real (72 horas)', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'App Desktop nativa + Web/PWA', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Cola de servicio en tiempo real', tx: true, alegra: false, wil: false, otros: false },
-    { feature: 'Nomina Ley 16-92 + liquidacion', tx: true, alegra: false, wil: false, otros: false },
+    { feature: 'Nomina in-house completa (Pro MAX)', tx: true, alegra: false, wil: false, otros: false },
+    { feature: 'Pagos de nomina quincenales + mensuales masivos', tx: true, alegra: false, wil: false, otros: false },
+    { feature: 'TSS + INFOTEP + ISR automatico (topes DGII 2026)', tx: true, alegra: false, wil: false, otros: false },
+    { feature: 'Reportes TSS/ISR listos para el portal DGII', tx: true, alegra: false, wil: false, otros: false },
+    { feature: 'Liquidacion Ley 16-92 + pasivo acumulado', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Comisiones por empleado/vendedor/cajero', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Impresora termica + cajon', tx: true, alegra: true, wil: true, otros: false },
     { feature: 'Configuracion remota por nuestro equipo', tx: true, alegra: false, wil: false, otros: false },
@@ -108,7 +140,11 @@ const COMPARISON = {
     { feature: 'Real offline mode (72 hours)', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Native Desktop app + Web/PWA', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Real-time service queue', tx: true, alegra: false, wil: false, otros: false },
-    { feature: 'Payroll Law 16-92 + liquidation', tx: true, alegra: false, wil: false, otros: false },
+    { feature: 'Full in-house payroll (Pro MAX)', tx: true, alegra: false, wil: false, otros: false },
+    { feature: 'Bulk biweekly + monthly payroll runs', tx: true, alegra: false, wil: false, otros: false },
+    { feature: 'Auto TSS + INFOTEP + ISR (2026 DGII caps)', tx: true, alegra: false, wil: false, otros: false },
+    { feature: 'TSS/ISR reports ready for DGII portal', tx: true, alegra: false, wil: false, otros: false },
+    { feature: 'Law 16-92 severance + accrued liability', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Commissions per employee/seller/cashier', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Thermal printer + cash drawer', tx: true, alegra: true, wil: true, otros: false },
     { feature: 'Remote config by our team', tx: true, alegra: false, wil: false, otros: false },
@@ -127,6 +163,7 @@ const FAQ = {
     { q: 'Que es e-CF y por que lo necesito?', a: 'e-CF (Comprobante Fiscal Electronico) es el nuevo formato obligatorio de la DGII bajo la Ley 32-23. Todos los negocios deben migrar antes de mayo 2026. Terminal X es el unico POS que se conecta directo a la DGII, sin intermediarios ni costos adicionales.' },
     { q: 'Funciona para mi tipo de negocio?', a: 'Si. Terminal X sirve para cualquier negocio de servicios en RD: Car Wash, talleres mecanicos, barber shops, dealers, tiendas, colmados, y mas. El sistema se adapta a tus servicios y productos.' },
     { q: 'Como funciona el soporte?', a: 'Pro: autoservicio con guias. Pro PLUS: nuestro equipo te configura todo remotamente y soporte por WhatsApp en horario laboral. Pro MAX: ejecutivo dedicado + soporte prioritario + visita tecnica mensual.' },
+    { q: 'Puedo manejar la nomina sin contratar un contador externo?', a: 'Si, y es una de las ventajas mas grandes de Pro MAX. Terminal X incluye nomina in-house completa: pagos quincenales o mensuales masivos en un click, calculo automatico de TSS (SFS + AFP con topes oficiales 2026), INFOTEP 1%, ISR progresivo (escalas DGII 2026), reportes listos para subir al portal TSS y DGII, recibos formales de pago, y log automatico de cambios de salario. Un contador externo en RD cobra entre RD$8,000 y RD$15,000/mes solo por esto — Pro MAX lo incluye por RD$6,990/mes.' },
     { q: 'Puedo importar datos de mi sistema anterior?', a: 'Si. Nuestro equipo puede importar tu historial de ventas, clientes y productos desde Starsisa, WilPOS u otros sistemas.' },
   ],
   en: [
@@ -137,6 +174,7 @@ const FAQ = {
     { q: 'What is e-CF and why do I need it?', a: 'e-CF (Electronic Fiscal Receipt) is the new mandatory DGII format under Law 32-23. All businesses must migrate before May 2026. Terminal X is the only POS that connects directly to DGII, with no middlemen or additional costs.' },
     { q: 'Does it work for my type of business?', a: 'Yes. Terminal X works for any service business in DR: Car Wash, auto shops, barber shops, dealers, stores, colmados, and more. The system adapts to your services and products.' },
     { q: 'How does support work?', a: 'Pro: self-service with guides. Pro PLUS: our team configures everything remotely + WhatsApp support during business hours. Pro MAX: dedicated executive + priority support + monthly on-site visit.' },
+    { q: 'Can I run payroll without hiring an external accountant?', a: 'Yes — this is one of the biggest Pro MAX advantages. Terminal X includes full in-house payroll: biweekly or monthly bulk runs in one click, auto TSS (SFS + AFP with official 2026 caps), INFOTEP 1%, progressive ISR (2026 DGII brackets), reports ready for the TSS and DGII portals, formal pay stubs, and automatic salary change logs. An external accountant in DR charges RD$8,000–15,000/month for this alone — Pro MAX includes it for RD$6,990/month.' },
     { q: 'Can I import data from my previous system?', a: 'Yes. Our team can import your sales history, clients, and products from Starsisa, WilPOS, or other systems.' },
   ],
 }
@@ -313,6 +351,91 @@ export default function LandingPage({ section }) {
                 <p className="text-sm text-gray-600 leading-relaxed">{f.desc}</p>
               </div>
             ))}
+          </div>
+
+          {/* ── Nómina in-house showcase (Pro MAX) — inverted dark card inside white section to preserve WHITE→BLACK alternation ── */}
+          <div id="nomina" className="mt-20 scroll-mt-32">
+            <div className="rounded-3xl bg-black border border-white/10 p-8 sm:p-12 lg:p-16">
+              <div className="text-center">
+                <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">
+                  {L('Exclusivo Pro MAX', 'Pro MAX Exclusive')}
+                </p>
+                <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-white">
+                  {L('Maneja tu nómina in-house', 'Run payroll in-house')}
+                </h2>
+                <p className="mt-4 text-lg text-white/50 max-w-3xl mx-auto">
+                  {L(
+                    'Despídete del contador externo. Paga a tu equipo en minutos con cálculos automáticos de TSS, INFOTEP e ISR según las tasas oficiales DGII 2026. Reportes listos para el portal TSS, todo desde la misma pantalla donde cobras.',
+                    'Say goodbye to the external accountant. Pay your team in minutes with automatic TSS, INFOTEP and ISR calculations per official 2026 DGII rates. Reports ready for the TSS portal, all from the same screen where you charge.'
+                  )}
+                </p>
+              </div>
+
+              {/* Savings stat card */}
+              <div className="max-w-4xl mx-auto mt-12">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-8">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
+                    <div>
+                      <p className="text-4xl sm:text-5xl font-extrabold text-white">RD$8–15K</p>
+                      <p className="mt-2 text-xs uppercase tracking-wider text-white/50">
+                        {L('cobra un contador externo / mes', 'external accountant / mo')}
+                      </p>
+                    </div>
+                    <div className="sm:border-x sm:border-white/10 sm:px-6 pt-6 sm:pt-0 border-t sm:border-t-0 border-white/10">
+                      <p className="text-4xl sm:text-5xl font-extrabold text-white">RD$6,990</p>
+                      <p className="mt-2 text-xs uppercase tracking-wider text-white/50">
+                        {L('Pro MAX incluye TODO esto / mes', 'Pro MAX includes ALL this / mo')}
+                      </p>
+                    </div>
+                    <div className="pt-6 sm:pt-0 border-t sm:border-t-0 border-white/10">
+                      <p className="text-4xl sm:text-5xl font-extrabold text-[#b3001e]">50%+</p>
+                      <p className="mt-2 text-xs uppercase tracking-wider text-white/50">
+                        {L('ahorro vs contador externo', 'savings vs external accountant')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Feature grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mt-12">
+                {[
+                  { icon: Banknote,   title: L('Pagos masivos',          'Bulk runs'),             desc: L('Quincenales o mensuales con un click. Selecciona empleados, confirma, listo.', 'Biweekly or monthly with one click. Select employees, confirm, done.') },
+                  { icon: Calculator, title: L('TSS + INFOTEP auto',     'Auto TSS + INFOTEP'),    desc: L('SFS 3.04% + AFP 2.87% empleado. SFS 7.09% + AFP 7.10% + INFOTEP 1% empleador. Topes 2026 aplicados por fondo.', 'SFS 3.04% + AFP 2.87% employee. SFS 7.09% + AFP 7.10% + INFOTEP 1% employer. 2026 caps applied per fund.') },
+                  { icon: FileText,   title: L('ISR progresivo',         'Progressive ISR'),       desc: L('Escalas DGII 2026: exento hasta RD$416,220/año, 15%, 20%, 25%. Cálculo marginal por empleado.', 'DGII 2026 brackets: exempt up to RD$416,220/yr, 15%, 20%, 25%. Marginal calculation per employee.') },
+                  { icon: BarChart3,  title: L('Reportes para DGII',     'Reports for DGII'),      desc: L('TSS + INFOTEP, ISR con proyección anual, 606 retenciones. PDF con membrete + CSV para el portal.', 'TSS + INFOTEP, ISR with annual projection, 606 withholdings. PDF with letterhead + CSV for portal.') },
+                  { icon: Receipt,    title: L('Recibos de pago',        'Pay stubs'),             desc: L('Recibo formal por empleado con desglose completo, cédula, TSS-ID, firma. Impresión masiva disponible.', 'Formal stub per employee with full breakdown, ID, TSS-ID, signature. Bulk print available.') },
+                  { icon: Shield,     title: L('Liquidaciones Ley 16-92','Law 16-92 severance'),   desc: L('Vacaciones Art. 177, Navidad Art. 219, Preaviso Art. 76, Cesantía Art. 80. Pasivo laboral acumulado en tiempo real.', 'Vacation Art. 177, Christmas Art. 219, Notice Art. 76, Severance Art. 80. Accrued liability in real-time.') },
+                  { icon: Clock,      title: L('Historial completo',     'Full history'),          desc: L('Todos los pagos por empleado con filtro de fechas, búsqueda, y log automático de cambios de salario.', 'Every payment per employee with date filters, search, and automatic salary change log.') },
+                  { icon: Users,      title: L('Comisión-only OK',       'Commission-only OK'),    desc: L('Lavadores, vendedores y cajeros sin salario fijo se pagan de sus comisiones automáticamente.', 'Washers, sellers and cashiers with no fixed salary pay from commissions automatically.') },
+                  { icon: TrendingUp, title: L('Dashboard visual',       'Visual dashboard'),      desc: L('Nómina mensual total, próximo pago, última actividad, tendencias de comisiones de 6 meses.', 'Monthly payroll total, next payment, recent activity, 6-month commission trends.') },
+                ].map((f, i) => (
+                  <div key={i} className="rounded-2xl border border-white/10 bg-white/5 p-8 hover:border-white/20 hover:bg-white/10 transition-all">
+                    <div className="w-12 h-12 rounded-xl bg-[#b3001e]/20 flex items-center justify-center mb-5">
+                      <f.icon size={22} className="text-[#b3001e]" />
+                    </div>
+                    <h3 className="text-lg font-bold text-white mb-2">{f.title}</h3>
+                    <p className="text-sm leading-relaxed text-white/50">{f.desc}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* CTA row */}
+              <div className="mt-12 flex flex-col sm:flex-row gap-3 justify-center">
+                <button onClick={() => document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })}
+                  className="inline-flex items-center justify-center gap-2 bg-[#b3001e] hover:bg-[#d4002a] px-6 py-3 text-sm font-bold text-white rounded-lg shadow-lg shadow-red-500/25 transition-colors">
+                  <Crown size={16} />
+                  {L('Ver plan Pro MAX', 'See Pro MAX plan')}
+                  <ArrowRight size={16} />
+                </button>
+                <a href="https://wa.me/18098282971?text=Hola%2C%20quiero%20m%C3%A1s%20info%20sobre%20N%C3%B3mina%20in-house%20en%20Pro%20MAX"
+                   target="_blank" rel="noopener noreferrer"
+                   className="inline-flex items-center justify-center gap-2 border border-white/20 text-white hover:border-white/40 hover:bg-white/5 px-6 py-3 text-sm font-bold rounded-lg transition-colors">
+                  <MessageSquare size={16} />
+                  {L('Hablar con un experto', 'Talk to an expert')}
+                </a>
+              </div>
+            </div>
           </div>
         </div>
       </section>

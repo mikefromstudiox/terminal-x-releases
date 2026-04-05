@@ -212,7 +212,8 @@
       "Bash(grep -n \"cost\\\\|profit\\\\|margen\\\\|ganancia\" packages/ui/screens/Inventory.jsx packages/ui/screens/reports/*.jsx)",
       "Bash(grep -n \"CREATE TABLE.*ticket_items\\\\|ticket_items.*CREATE\" electron/database.js db/*.sql)",
       "Bash(grep -rn \"from\\('tickets'\\).upsert\\\\|from\\('clients'\\).upsert\\\\|\\\\\\\\.upsert\\(\" packages/ packages/services/ electron/)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(grep -n \"className=\\\\\"bg-white\\\\\\\\|className=\\\\\"bg-black\\\\\\\\|^      {/\\\\\\\\* SECTION\" packages/ui/landing/LandingPage.jsx)"
     ]
   }
 }
