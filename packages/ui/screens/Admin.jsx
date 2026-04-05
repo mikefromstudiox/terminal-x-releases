@@ -587,7 +587,7 @@ function Usuarios() {
 
 // ── SERVICIOS ─────────────────────────────────────────────────────────────────
 
-const EMPTY_SERVICE = { name: '', name_en: '', category: '', price: '', is_wash: '1' }
+const EMPTY_SERVICE = { name: '', name_en: '', category: '', price: '', cost: '', is_wash: '1' }
 
 function Servicios() {
   const api                         = useAPI()
@@ -618,7 +618,7 @@ function Servicios() {
   const visible    = activeTab === 'all' ? list : list.filter(s => s.category === activeTab)
 
   function openAdd()   { setForm({ ...EMPTY_SERVICE, category: categories[0] || '' }); setNewCatMode(false); setError(''); setSaved(false); setPanel('add') }
-  function openEdit(s) { setForm({ name: s.name, name_en: s.name_en||'', category: s.category, price: String(s.price), is_wash: String(s.is_wash) }); setNewCatMode(false); setError(''); setSaved(false); setPanel(s) }
+  function openEdit(s) { setForm({ name: s.name, name_en: s.name_en||'', category: s.category, price: String(s.price), cost: s.cost ? String(s.cost) : '', is_wash: String(s.is_wash) }); setNewCatMode(false); setError(''); setSaved(false); setPanel(s) }
   function closePanel(){ setPanel(null) }
   function set(k, v)   { setForm(f => ({ ...f, [k]: v })) }
 
@@ -628,7 +628,7 @@ function Servicios() {
     if (!form.price)           { setError(L('El precio es requerido.', 'Price is required.')); return }
     setSaving(true); setError('')
     try {
-      const p = { name: form.name.trim(), name_en: form.name_en.trim()||null, category: form.category.trim(), price: parseFloat(form.price)||0, is_wash: parseInt(form.is_wash), sort_order: panel !== 'add' ? panel.sort_order : list.length }
+      const p = { name: form.name.trim(), name_en: form.name_en.trim()||null, category: form.category.trim(), price: parseFloat(form.price)||0, cost: parseFloat(form.cost)||0, is_wash: parseInt(form.is_wash), sort_order: panel !== 'add' ? panel.sort_order : list.length }
       if (panel === 'add') await api.services.create(p)
       else                 await api.services.update({ id: panel.id, ...p })
       syncService(panel === 'add' ? p : { id: panel.id, ...p })
@@ -739,7 +739,8 @@ function Servicios() {
                   </Select>
               }
             </div>
-            <div><Label>{L('Precio RD$ *', 'Price RD$ *')}</Label><Input type="number" min="0" value={form.price} onChange={e => set('price', e.target.value)} placeholder="500" /></div>
+            <div><Label>{L('Precio RD$ *', 'Price RD$ *')}</Label><Input type="number" min="0" step="0.01" value={form.price} onChange={e => set('price', e.target.value)} placeholder="500" /></div>
+            <div><Label>{L('Costo RD$', 'Cost RD$')}</Label><Input type="number" min="0" step="0.01" value={form.cost} onChange={e => set('cost', e.target.value)} placeholder="0" /></div>
             <div>
               <Label>{L('Tipo', 'Type')}</Label>
               <Select value={form.is_wash} onChange={e => set('is_wash', e.target.value)}>
@@ -748,6 +749,13 @@ function Servicios() {
               </Select>
             </div>
           </div>
+          {form.price && form.cost && parseFloat(form.cost) > 0 && parseFloat(form.price) > 0 && (
+            <p className="mt-2 text-[11px] text-slate-500 dark:text-white/60">
+              {L('Margen:', 'Margin:')} <span className={parseFloat(form.price) > parseFloat(form.cost) ? 'font-semibold text-emerald-600 dark:text-emerald-400' : 'font-semibold text-red-500 dark:text-red-400'}>
+                {fmtRD(parseFloat(form.price) - parseFloat(form.cost))} ({Math.round(((parseFloat(form.price) - parseFloat(form.cost)) / parseFloat(form.price)) * 100)}%)
+              </span>
+            </p>
+          )}
           {error && <p className="mt-3 text-[11px] text-red-500 dark:text-red-400">{error}</p>}
           <div className="flex gap-2 mt-4">
             <SaveBtn saving={saving} saved={saved} onClick={handleSave} />

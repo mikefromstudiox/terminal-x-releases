@@ -113,6 +113,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     update:   (data) => call('empleados:update', data),
     delete:   (id)   => call('empleados:delete', { id }),
   },
+  payrollRuns: {
+    create:      (data)                    => call('payroll-runs:create', data),
+    byEmpleado:  (empleadoId, limit)       => call('payroll-runs:by-empleado', { empleadoId, limit }),
+    byPeriod:    (from, to)                => call('payroll-runs:by-period', { from, to }),
+    remove:      (id)                      => call('payroll-runs:delete', { id }),
+  },
 
   // ── Clients ────────────────────────────────────────────────────────────────
   clients: {

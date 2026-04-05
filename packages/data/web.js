@@ -318,7 +318,7 @@ export function createWebAPI(supabase, businessId) {
         const row = throwSupaError(await supabase.from('services').insert({
           name: data.name, name_en: data.name_en || null,
           category: data.category || 'Lavado', categoria_id: data.categoria_id || null,
-          price: data.price, aplica_itbis: data.aplica_itbis ?? 1,
+          price: data.price, cost: data.cost || 0, aplica_itbis: data.aplica_itbis ?? 1,
           is_wash: data.is_wash ?? 1, active: true, sort_order: data.sort_order || 0,
           business_id: bid,
         }).select('id').single())
@@ -327,7 +327,7 @@ export function createWebAPI(supabase, businessId) {
 
       update: (data) => tryOr(async () => {
         const { id, ...rest } = data
-        const allowed = ['name', 'name_en', 'category', 'categoria_id', 'price', 'aplica_itbis', 'is_wash', 'active', 'sort_order']
+        const allowed = ['name', 'name_en', 'category', 'categoria_id', 'price', 'cost', 'aplica_itbis', 'is_wash', 'active', 'sort_order']
         const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
         throwSupaError(await supabase.from('services').update(patch).eq('id', id).eq('business_id', bid))
       }),
@@ -418,6 +418,50 @@ export function createWebAPI(supabase, businessId) {
 
       delete: (id) => tryOr(async () => {
         throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid))
+      }),
+    },
+
+    // ── Payroll runs (paycheck history) ─────────────────────────────────────
+    payrollRuns: {
+      create: (data) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('payroll_runs').insert({
+          empleado_id:  data.empleado_id,
+          period_start: data.period_start,
+          period_end:   data.period_end,
+          base:         data.base || 0,
+          commissions:  data.commissions || 0,
+          bonuses:      data.bonuses || 0,
+          deductions:   data.deductions || 0,
+          net:          data.net,
+          notes:        data.notes || null,
+          paid_by:      data.paid_by || null,
+          business_id:  bid,
+        }).select('id').single())
+        return { id: row.id }
+      }),
+      byEmpleado: (empleadoId, limit = 100) => tryOr(async () => {
+        return throwSupaError(
+          await supabase.from('payroll_runs').select('*')
+            .eq('business_id', bid).eq('empleado_id', empleadoId)
+            .order('paid_at', { ascending: false }).limit(limit)
+        )
+      }, []),
+      byPeriod: (from, to) => tryOr(async () => {
+        let q = supabase.from('payroll_runs')
+          .select('*, empleados(nombre, tipo)')
+          .eq('business_id', bid)
+          .order('paid_at', { ascending: false })
+        if (from) q = q.gte('paid_at', from)
+        if (to)   q = q.lte('paid_at', to + ' 23:59:59')
+        const rows = throwSupaError(await q)
+        return (rows || []).map(r => ({
+          ...r,
+          empleado_nombre: r.empleados?.nombre || null,
+          empleado_tipo:   r.empleados?.tipo || null,
+        }))
+      }, []),
+      remove: (id) => tryOr(async () => {
+        throwSupaError(await supabase.from('payroll_runs').delete().eq('id', id).eq('business_id', bid))
       }),
     },
 
@@ -607,13 +651,22 @@ export function createWebAPI(supabase, businessId) {
             }).select().single())
 
             // Insert ticket items — try with business_id first, fall back without
+            // Snapshot each item's cost at sale time for historical profit accuracy.
+            // Look up current service costs once, then fall back to explicit item.cost.
             const items = data.items || []
+            let svcCostById = new Map()
             if (items.length && ticket?.id) {
+              const svcIds = items.map(i => i.service_id).filter(Boolean)
+              if (svcIds.length) {
+                const { data: svcRows } = await supabase.from('services').select('id, cost').in('id', svcIds)
+                svcCostById = new Map((svcRows || []).map(r => [r.id, r.cost || 0]))
+              }
               const itemRows = items.map(i => ({
                 ticket_id:   ticket.id,
                 service_id:  i.service_id || null,
                 name:        i.name,
                 price:       i.price,
+                cost:        i.cost != null ? Number(i.cost) : (i.service_id ? (svcCostById.get(i.service_id) || 0) : 0),
                 itbis:       i.itbis || 0,
                 is_wash:     i.is_wash ?? true,
               }))

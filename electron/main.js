@@ -633,6 +633,12 @@ handle('empleados:create',    (data)          => db.empleadoCreate(data))
 handle('empleados:update',    ({id,...data})  => db.empleadoUpdate(id, data))
 handle('empleados:delete',    ({id})          => { db.empleadoDelete(id); return true })
 
+// ── Payroll runs (paycheck history) ──────────────────────────────────────────
+handle('payroll-runs:create',      (data)                => db.payrollRunCreate(data))
+handle('payroll-runs:by-empleado', ({empleadoId, limit}) => db.payrollRunsByEmpleado(empleadoId, limit || 100))
+handle('payroll-runs:by-period',   ({from, to})          => db.payrollRunsByPeriod(from, to))
+handle('payroll-runs:delete',      ({id})                => { db.payrollRunDelete(id); return true })
+
 // ── Clients ───────────────────────────────────────────────────────────────────
 handle('clients:all',          ()          => db.clientsGetAll())
 handle('clients:byId',         (id)        => db.clientGetById(id))

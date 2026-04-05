@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS services (
   category      TEXT    NOT NULL DEFAULT 'Lavado',  -- Lavado | Detallado | Adicionales | Bebidas
   categoria_id  INTEGER REFERENCES categorias_servicio(id),
   price         REAL    NOT NULL,
+  cost          REAL    NOT NULL DEFAULT 0,   -- unit cost (for profit margin tracking)
   aplica_itbis  INTEGER NOT NULL DEFAULT 1,   -- 1 = ITBIS applies, 0 = exempt
   active        INTEGER NOT NULL DEFAULT 1,
   is_wash       INTEGER NOT NULL DEFAULT 1,   -- 0 = beverage/snack, excluded from commission
@@ -133,9 +134,32 @@ CREATE TABLE IF NOT EXISTS ticket_items (
   service_id    INTEGER REFERENCES services(id),
   name          TEXT    NOT NULL,
   price         REAL    NOT NULL,
+  cost          REAL    NOT NULL DEFAULT 0,   -- snapshot of unit cost at sale time (profit = price - cost)
   itbis         REAL    NOT NULL DEFAULT 0,
   is_wash       INTEGER NOT NULL DEFAULT 1
 );
+
+-- ── Payroll runs (paycheck history) ────────────────────────────────────────────
+-- Each row is one paycheck event for an employee. Lets us show history,
+-- search by date range, compute "last paycheck / first paycheck", and
+-- drive accountant exports.
+CREATE TABLE IF NOT EXISTS payroll_runs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  empleado_id   INTEGER NOT NULL REFERENCES empleados(id) ON DELETE CASCADE,
+  period_start  TEXT    NOT NULL,                      -- YYYY-MM-DD
+  period_end    TEXT    NOT NULL,                      -- YYYY-MM-DD
+  base          REAL    NOT NULL DEFAULT 0,            -- base salary for period
+  commissions   REAL    NOT NULL DEFAULT 0,            -- sum of commissions in period
+  bonuses       REAL    NOT NULL DEFAULT 0,            -- optional bonuses
+  deductions    REAL    NOT NULL DEFAULT 0,            -- TSS + ISR + other withholdings
+  net           REAL    NOT NULL,                      -- final amount paid
+  notes         TEXT,                                  -- optional comment
+  paid_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+  paid_by       INTEGER REFERENCES users(id),          -- who ran payroll
+  created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_payroll_runs_empleado ON payroll_runs(empleado_id);
+CREATE INDEX IF NOT EXISTS idx_payroll_runs_paid_at  ON payroll_runs(paid_at);
 
 -- ── Credit payments ───────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS credit_payments (

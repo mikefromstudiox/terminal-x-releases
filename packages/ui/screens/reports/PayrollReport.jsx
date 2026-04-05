@@ -1,10 +1,16 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Lock, Download, Printer, Plus, Edit2, Power, Users, Calculator, Calendar, DollarSign, AlertCircle, X } from 'lucide-react'
+import { Lock, Download, Printer, Plus, Edit2, Power, Users, Calculator, Calendar, DollarSign, AlertCircle, X, Banknote, History, Trash2, Check } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
 import { exportLiquidacion } from '@terminal-x/services/csv'
 import { printLiquidacion } from '@terminal-x/services/report-html'
+
+// ── Dominican payroll deductions (approximate, owner-adjustable) ───────────────
+// TSS = SFS 3.04% + AFP 2.87% = 5.91% (employee share)
+// ISR is progressive; for UX simplicity we leave it as 0 by default and let
+// the user type a custom deduction if applicable.
+const TSS_RATE = 0.0591
 
 // ── Access control ────────────────────────────────────────────────────────────
 const ALLOWED_ROLES = ['owner', 'manager', 'cfo', 'accountant']
@@ -296,6 +302,284 @@ function EmployeePanel({ emp, onSave, onClose, lang, t }) {
   )
 }
 
+// ── Pay Payroll Modal ─────────────────────────────────────────────────────────
+function PayPayrollModal({ emp, currentCommissionTotal, onSave, onClose, lang }) {
+  const L = (es, en) => lang === 'es' ? es : en
+  // Default period = previous full calendar month (1st to last day)
+  const today = new Date()
+  const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0)
+  const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+  const iso = (d) => d.toISOString().slice(0, 10)
+
+  const [periodStart, setPeriodStart] = useState(iso(lastMonthStart))
+  const [periodEnd,   setPeriodEnd]   = useState(iso(lastMonthEnd))
+  const [base,        setBase]        = useState(String(emp.salary || 0))
+  const [commissions, setCommissions] = useState('0')
+  const [bonuses,     setBonuses]     = useState('0')
+  const [deductions,  setDeductions]  = useState('')
+  const [notes,       setNotes]       = useState('')
+  const [saving,      setSaving]      = useState(false)
+
+  const baseNum = parseFloat(base) || 0
+  const commNum = parseFloat(commissions) || 0
+  const bonusNum = parseFloat(bonuses) || 0
+  const deductNum = deductions === '' ? parseFloat(((baseNum + commNum) * TSS_RATE).toFixed(2)) : (parseFloat(deductions) || 0)
+  const gross = baseNum + commNum + bonusNum
+  const net = gross - deductNum
+
+  async function handleSave() {
+    if (net <= 0) return
+    setSaving(true)
+    try {
+      await onSave({
+        period_start: periodStart,
+        period_end:   periodEnd,
+        base:         baseNum,
+        commissions:  commNum,
+        bonuses:      bonusNum,
+        deductions:   deductNum,
+        net,
+        notes:        notes.trim() || null,
+      })
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-white/10">
+          <div>
+            <h3 className="font-bold text-slate-800 dark:text-white">{L('Registrar Pago de Nómina', 'Record Payroll Payment')}</h3>
+            <p className="text-[11px] text-slate-400 dark:text-white/40">{emp.nombre}</p>
+          </div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-white/10">
+            <X size={18} className="text-slate-500 dark:text-white/60" />
+          </button>
+        </div>
+
+        <div className="px-6 py-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider mb-1">{L('Desde', 'From')}</label>
+              <input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)}
+                className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider mb-1">{L('Hasta', 'To')}</label>
+              <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)}
+                className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider mb-1">{L('Salario base', 'Base salary')}</label>
+            <input type="number" min="0" step="0.01" value={base} onChange={e => setBase(e.target.value)}
+              className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+          </div>
+
+          <div>
+            <label className="flex items-center justify-between text-[10px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider mb-1">
+              <span>{L('Comisiones', 'Commissions')}</span>
+              {currentCommissionTotal > 0 && (
+                <button type="button" onClick={() => setCommissions(String(currentCommissionTotal))}
+                  className="text-[10px] text-emerald-600 dark:text-emerald-400 normal-case tracking-normal hover:underline">
+                  {L(`Usar total: ${fmtRD(currentCommissionTotal)}`, `Use total: ${fmtRD(currentCommissionTotal)}`)}
+                </button>
+              )}
+            </label>
+            <input type="number" min="0" step="0.01" value={commissions} onChange={e => setCommissions(e.target.value)}
+              className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider mb-1">{L('Bonos', 'Bonuses')}</label>
+              <input type="number" min="0" step="0.01" value={bonuses} onChange={e => setBonuses(e.target.value)}
+                className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider mb-1">
+                {L('Descuentos', 'Deductions')} <span className="text-slate-400 dark:text-white/30 normal-case">({L('auto TSS', 'auto TSS')})</span>
+              </label>
+              <input type="number" min="0" step="0.01" value={deductions} placeholder={String(parseFloat(((baseNum + commNum) * TSS_RATE).toFixed(2)))} onChange={e => setDeductions(e.target.value)}
+                className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider mb-1">{L('Notas', 'Notes')}</label>
+            <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder={L('Opcional', 'Optional')}
+              className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+          </div>
+
+          {/* Live summary */}
+          <div className="rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 px-4 py-3 space-y-1">
+            <div className="flex justify-between text-[12px] text-slate-600 dark:text-white/60">
+              <span>{L('Bruto', 'Gross')}</span>
+              <span className="font-semibold text-slate-800 dark:text-white">{fmtRD(gross)}</span>
+            </div>
+            <div className="flex justify-between text-[12px] text-slate-600 dark:text-white/60">
+              <span>{L('Descuentos', 'Deductions')}</span>
+              <span className="font-semibold text-red-600 dark:text-red-400">− {fmtRD(deductNum)}</span>
+            </div>
+            <div className="flex justify-between pt-1 border-t border-emerald-200 dark:border-emerald-500/20">
+              <span className="text-[13px] font-bold text-emerald-700 dark:text-emerald-400">{L('NETO A PAGAR', 'NET TO PAY')}</span>
+              <span className="text-[16px] font-bold text-emerald-700 dark:text-emerald-400">{fmtRD(net)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-4 border-t border-slate-100 dark:border-white/10 flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2 rounded-lg border border-slate-200 dark:border-white/10 text-sm text-slate-600 dark:text-white/70 hover:bg-slate-50 dark:hover:bg-white/10">
+            {L('Cancelar', 'Cancel')}
+          </button>
+          <button onClick={handleSave} disabled={saving || net <= 0}
+            className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-50">
+            {saving ? L('Guardando…', 'Saving…') : L('Registrar Pago', 'Record Payment')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Payroll History Panel (shown when viewMode === 'history') ─────────────────
+function PayrollHistoryPanel({ runs, loading, onDelete, onPrint, lang }) {
+  const L = (es, en) => lang === 'es' ? es : en
+  if (loading) {
+    return <div className="flex-1 flex items-center justify-center text-slate-300 dark:text-white/30 text-sm">{L('Cargando historial…', 'Loading history…')}</div>
+  }
+  if (!runs.length) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-slate-300 dark:text-white/30">
+        <div className="text-center">
+          <History size={40} className="mx-auto mb-3 text-slate-200 dark:text-white/20" />
+          <p className="text-[13px]">{L('Sin pagos registrados aún', 'No payments recorded yet')}</p>
+          <p className="text-[11px] text-slate-400 dark:text-white/40 mt-1">{L('Presione "Pagar Nómina" para registrar el primero', 'Click "Pay Payroll" to record the first one')}</p>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <div className="divide-y divide-slate-100 dark:divide-white/5">
+        {runs.map(r => (
+          <div key={r.id} className="px-5 py-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div>
+                <p className="text-[13px] font-bold text-slate-800 dark:text-white">
+                  {new Date(r.paid_at).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </p>
+                <p className="text-[11px] text-slate-400 dark:text-white/40">
+                  {L('Período:', 'Period:')} {r.period_start} → {r.period_end}
+                </p>
+                {r.paid_by_name && <p className="text-[10px] text-slate-400 dark:text-white/40 mt-0.5">{L('Pagó:', 'Paid by:')} {r.paid_by_name}</p>}
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-[15px] font-bold text-emerald-600 dark:text-emerald-400">{fmtRD(r.net)}</p>
+                <p className="text-[10px] text-slate-400 dark:text-white/40">{L('neto', 'net')}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 text-[11px] mb-2">
+              <div>
+                <p className="text-slate-400 dark:text-white/40">{L('Base', 'Base')}</p>
+                <p className="text-slate-700 dark:text-white/80 font-semibold">{fmtRD(r.base || 0)}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 dark:text-white/40">{L('Comisiones', 'Commissions')}</p>
+                <p className="text-slate-700 dark:text-white/80 font-semibold">{fmtRD(r.commissions || 0)}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 dark:text-white/40">{L('Bonos', 'Bonuses')}</p>
+                <p className="text-slate-700 dark:text-white/80 font-semibold">{fmtRD(r.bonuses || 0)}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 dark:text-white/40">{L('Descuentos', 'Deductions')}</p>
+                <p className="text-red-500 dark:text-red-400 font-semibold">− {fmtRD(r.deductions || 0)}</p>
+              </div>
+            </div>
+
+            {r.notes && <p className="text-[11px] text-slate-500 dark:text-white/60 italic mb-2">{r.notes}</p>}
+
+            <div className="flex justify-end gap-1.5">
+              <button onClick={() => onPrint(r)}
+                className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold text-slate-500 dark:text-white/60 border border-slate-200 dark:border-white/10 rounded-md hover:bg-slate-100 dark:hover:bg-white/10">
+                <Printer size={11} /> {L('Imprimir recibo', 'Print stub')}
+              </button>
+              <button onClick={() => onDelete(r.id)}
+                className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold text-red-500 dark:text-red-400 border border-red-200 dark:border-red-500/20 rounded-md hover:bg-red-50 dark:hover:bg-red-500/10">
+                <Trash2 size={11} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Paycheck stub printer ─────────────────────────────────────────────────────
+function printPaycheckStub(biz, emp, run, L) {
+  const fmt = (n) => `RD$ ${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${L('Recibo de Pago', 'Paycheck Stub')} — ${emp.nombre}</title><style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 20px auto; padding: 20px; color: #1e293b; }
+    h1 { font-size: 18px; margin: 0; }
+    .muted { color: #64748b; font-size: 11px; }
+    .box { border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 16px 0; }
+    .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
+    .row:last-child { border-bottom: none; }
+    .total { background: #ecfdf5; border-top: 2px solid #10b981; font-weight: bold; color: #047857; }
+    .footer { text-align: center; font-size: 10px; color: #94a3b8; margin-top: 20px; }
+    @media print { .no-print { display: none; } }
+  </style></head><body>
+    <div style="display:flex; justify-content:space-between; align-items:start;">
+      <div>
+        <h1>${biz?.name || 'Empresa'}</h1>
+        ${biz?.rnc ? `<p class="muted">RNC: ${biz.rnc}</p>` : ''}
+        ${biz?.address ? `<p class="muted">${biz.address}</p>` : ''}
+      </div>
+      <div style="text-align:right;">
+        <h1>${L('RECIBO DE PAGO', 'PAYCHECK STUB')}</h1>
+        <p class="muted">#${run.id}</p>
+      </div>
+    </div>
+
+    <div class="box">
+      <div class="row"><span class="muted">${L('Empleado', 'Employee')}</span><span><strong>${emp.nombre}</strong></span></div>
+      ${emp.cedula ? `<div class="row"><span class="muted">${L('Cédula', 'ID')}</span><span>${emp.cedula}</span></div>` : ''}
+      <div class="row"><span class="muted">${L('Tipo', 'Type')}</span><span style="text-transform:capitalize;">${emp.tipo}</span></div>
+      <div class="row"><span class="muted">${L('Período', 'Period')}</span><span>${run.period_start} → ${run.period_end}</span></div>
+      <div class="row"><span class="muted">${L('Fecha de pago', 'Payment date')}</span><span>${new Date(run.paid_at).toLocaleDateString('es-DO', { day: '2-digit', month: 'long', year: 'numeric' })}</span></div>
+    </div>
+
+    <div class="box">
+      <div class="row"><span>${L('Salario base', 'Base salary')}</span><span>${fmt(run.base)}</span></div>
+      <div class="row"><span>${L('Comisiones', 'Commissions')}</span><span>${fmt(run.commissions)}</span></div>
+      <div class="row"><span>${L('Bonos', 'Bonuses')}</span><span>${fmt(run.bonuses)}</span></div>
+      <div class="row"><span>${L('Descuentos (TSS/ISR)', 'Deductions (TSS/ISR)')}</span><span style="color:#dc2626;">− ${fmt(run.deductions)}</span></div>
+      <div class="row total"><span>${L('NETO A PAGAR', 'NET TO PAY')}</span><span>${fmt(run.net)}</span></div>
+    </div>
+
+    ${run.notes ? `<p class="muted" style="font-style:italic;">${L('Notas:', 'Notes:')} ${run.notes}</p>` : ''}
+
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 40px;">
+      <div style="text-align:center; border-top: 1px solid #334155; padding-top: 6px;" class="muted">${L('Firma del empleado', 'Employee signature')}</div>
+      <div style="text-align:center; border-top: 1px solid #334155; padding-top: 6px;" class="muted">${L('Firma autorizada', 'Authorized signature')}</div>
+    </div>
+
+    <p class="footer">${L('Generado', 'Generated')}: ${new Date().toLocaleString('es-DO')}</p>
+
+    <div class="no-print" style="text-align:center; margin-top:20px;">
+      <button onclick="window.print()" style="background:#0f172a; color:#fff; border:none; padding:10px 20px; border-radius:6px; font-weight:bold; cursor:pointer; margin-right:8px;">${L('Imprimir', 'Print')}</button>
+      <button onclick="window.close()" style="background:#e2e8f0; color:#1e293b; border:none; padding:10px 20px; border-radius:6px; font-weight:bold; cursor:pointer;">${L('Cerrar', 'Close')}</button>
+    </div>
+  </body></html>`
+  const w = window.open('', '_blank', 'width=720,height=900')
+  if (!w) { alert(L('Habilite ventanas emergentes', 'Enable popups')); return }
+  w.document.write(html); w.document.close()
+}
+
 // ── CSV export ────────────────────────────────────────────────────────────────
 // ── CSV export (removed — now uses services/csv.js) ──────────────────────────
 
@@ -318,6 +602,11 @@ export default function PayrollReport() {
   const [tipo, setTipo] = useState('desahucio')
   const [showPanel, setShowPanel] = useState(null) // null | 'add' | empleado object
   const [biz, setBiz] = useState({})
+  const [viewMode, setViewMode] = useState('liquidacion') // 'liquidacion' | 'history'
+  const [runs, setRuns] = useState([])
+  const [loadingRuns, setLoadingRuns] = useState(false)
+  const [showPayModal, setShowPayModal] = useState(false)
+  const [toast, setToast] = useState(null)
 
   useEffect(() => { load() }, [])
   useEffect(() => { api.admin?.getEmpresa?.().then(e => e && setBiz({ name: e.name || e.nombre, rnc: e.rnc, address: e.address || e.direccion, phone: e.phone || e.telefono, email: e.email, logo: e.logo })).catch(() => {}) }, [])
@@ -382,6 +671,48 @@ export default function PayrollReport() {
     await api.empleados.update({ id: emp.id, active: 0 })
     if (String(selectedId) === String(emp.id)) setSelectedId(null)
     await load()
+  }
+
+  // Load payroll history for the selected employee whenever the selection changes
+  useEffect(() => {
+    if (!selected?.id) { setRuns([]); return }
+    let cancelled = false
+    setLoadingRuns(true)
+    Promise.resolve(api?.payrollRuns?.byEmpleado?.(selected.id, 50) || [])
+      .then(rows => { if (!cancelled) setRuns(rows || []) })
+      .catch(() => { if (!cancelled) setRuns([]) })
+      .finally(() => { if (!cancelled) setLoadingRuns(false) })
+    return () => { cancelled = true }
+  }, [selected?.id])
+
+  async function handleRecordRun(payload) {
+    try {
+      await api.payrollRuns.create({
+        empleado_id: selected.id,
+        ...payload,
+        paid_by: user?.id || null,
+      })
+      const rows = await api.payrollRuns.byEmpleado(selected.id, 50)
+      setRuns(rows || [])
+      setShowPayModal(false)
+      showToast(L('Nómina registrada ✓', 'Paycheck recorded ✓'))
+    } catch (e) {
+      showToast(L('Error al guardar nómina', 'Error saving paycheck'), 'error')
+    }
+  }
+
+  async function handleDeleteRun(runId) {
+    if (!confirm(L('¿Eliminar este pago del historial?', 'Delete this paycheck from history?'))) return
+    try {
+      await api.payrollRuns.remove(runId)
+      setRuns(runs.filter(r => r.id !== runId))
+      showToast(L('Eliminado', 'Deleted'))
+    } catch { showToast(L('Error al eliminar', 'Error deleting'), 'error') }
+  }
+
+  function showToast(msg, variant = 'ok') {
+    setToast({ msg, variant })
+    setTimeout(() => setToast(null), 2500)
   }
 
   // Summary metrics
@@ -492,16 +823,57 @@ export default function PayrollReport() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  <button onClick={() => setShowPayModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-bold rounded-lg transition-colors">
+                    <Banknote size={13} /> {L('Pagar Nómina', 'Pay Payroll')}
+                  </button>
                   <button onClick={() => setShowPanel(selected)}
-                    className="p-2 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors">
+                    className="p-2 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors">
                     <Edit2 size={14} />
                   </button>
                   <button onClick={() => handleDeactivate(selected)}
-                    className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                    className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors">
                     <Power size={14} />
                   </button>
                 </div>
               </div>
+
+              {/* View mode toggle: Liquidación / Historial */}
+              <div className="shrink-0 flex items-center gap-2 px-5 py-2.5 border-b border-slate-100 dark:border-white/10">
+                {[
+                  { id: 'liquidacion', icon: Calculator, label: L('Liquidación', 'Severance') },
+                  { id: 'history',     icon: History,    label: L('Historial de Nómina', 'Payroll History'), count: runs.length },
+                ].map(m => {
+                  const Icon = m.icon
+                  const active = viewMode === m.id
+                  return (
+                    <button key={m.id} onClick={() => setViewMode(m.id)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors ${
+                        active
+                          ? 'bg-slate-800 text-white dark:bg-white dark:text-black'
+                          : 'text-slate-500 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/10'
+                      }`}>
+                      <Icon size={13} />
+                      {m.label}
+                      {m.count != null && m.count > 0 && (
+                        <span className={`ml-0.5 text-[10px] px-1.5 py-0.5 rounded-full ${
+                          active ? 'bg-white/20 dark:bg-black/20' : 'bg-slate-200 dark:bg-white/10'
+                        }`}>{m.count}</span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {viewMode === 'history' ? (
+                <PayrollHistoryPanel
+                  runs={runs}
+                  loading={loadingRuns}
+                  onDelete={handleDeleteRun}
+                  onPrint={(run) => printPaycheckStub(biz, selected, run, L)}
+                  lang={lang}
+                />
+              ) : (<>
 
               {/* Renuncia / Desahucio toggle */}
               <div className="shrink-0 flex items-center gap-3 px-5 py-3 border-b border-slate-100 dark:border-white/10 bg-slate-50/50 dark:bg-white/5">
@@ -640,6 +1012,7 @@ export default function PayrollReport() {
                   </div>
                 </div>
               )}
+              </>)}
             </>
           )}
         </div>
@@ -654,6 +1027,26 @@ export default function PayrollReport() {
           lang={lang}
           t={t}
         />
+      )}
+
+      {/* Pay Payroll modal */}
+      {showPayModal && selected && (
+        <PayPayrollModal
+          emp={selected}
+          currentCommissionTotal={getCommissionTotal(selected)}
+          onSave={handleRecordRun}
+          onClose={() => setShowPayModal(false)}
+          lang={lang}
+        />
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 text-white text-sm px-5 py-3 rounded-full shadow-lg flex items-center gap-2 ${
+          toast.variant === 'error' ? 'bg-red-600' : 'bg-emerald-600'
+        }`}>
+          <Check size={15} /> {toast.msg}
+        </div>
       )}
     </div>
   )

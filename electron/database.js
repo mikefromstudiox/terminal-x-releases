@@ -66,6 +66,9 @@ function init(userDataPath) {
     "ALTER TABLE ecf_queue ADD COLUMN environment TEXT NOT NULL DEFAULT 'testecf'",
     // v1.3 — plan column on businesses for license sync
     "ALTER TABLE businesses ADD COLUMN plan TEXT NOT NULL DEFAULT 'pro'",
+    // v1.4 — cost tracking for profit margins (services + ticket_items snapshot)
+    'ALTER TABLE services ADD COLUMN cost REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE ticket_items ADD COLUMN cost REAL NOT NULL DEFAULT 0',
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch { /* column already exists */ }
@@ -216,6 +219,25 @@ function init(userDataPath) {
     active      INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
+
+  // Payroll runs — paycheck history per employee (v1.4)
+  db.exec(`CREATE TABLE IF NOT EXISTS payroll_runs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    empleado_id   INTEGER NOT NULL REFERENCES empleados(id) ON DELETE CASCADE,
+    period_start  TEXT    NOT NULL,
+    period_end    TEXT    NOT NULL,
+    base          REAL    NOT NULL DEFAULT 0,
+    commissions   REAL    NOT NULL DEFAULT 0,
+    bonuses       REAL    NOT NULL DEFAULT 0,
+    deductions    REAL    NOT NULL DEFAULT 0,
+    net           REAL    NOT NULL,
+    notes         TEXT,
+    paid_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+    paid_by       INTEGER REFERENCES users(id),
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_payroll_runs_empleado ON payroll_runs(empleado_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_payroll_runs_paid_at ON payroll_runs(paid_at)')
 
   // 607 — Compras y gastos de proveedores
   db.exec(`CREATE TABLE IF NOT EXISTS compras_607 (
@@ -462,18 +484,18 @@ function servicesGetAllAdmin() {
 }
 function serviceCreate(data) {
   if (!db) return null
-  const r = db.prepare(`INSERT INTO services(name,name_en,category,categoria_id,price,aplica_itbis,is_wash,active,sort_order)
-    VALUES(@name,@name_en,@category,@categoria_id,@price,COALESCE(@aplica_itbis,1),@is_wash,1,COALESCE(@sort_order,0))`).run({
+  const r = db.prepare(`INSERT INTO services(name,name_en,category,categoria_id,price,cost,aplica_itbis,is_wash,active,sort_order)
+    VALUES(@name,@name_en,@category,@categoria_id,@price,COALESCE(@cost,0),COALESCE(@aplica_itbis,1),@is_wash,1,COALESCE(@sort_order,0))`).run({
     name: data.name, name_en: data.name_en || null,
     category: data.category || 'Lavado', categoria_id: data.categoria_id || null,
-    price: data.price, aplica_itbis: data.aplica_itbis ?? 1,
+    price: data.price, cost: data.cost || 0, aplica_itbis: data.aplica_itbis ?? 1,
     is_wash: data.is_wash ?? 1, sort_order: data.sort_order || 0,
   })
   return { id: r.lastInsertRowid }
 }
 function serviceUpdate(id, data) {
   if (!db) return
-  const allowed = ['name','name_en','category','categoria_id','price','aplica_itbis','is_wash','active','sort_order']
+  const allowed = ['name','name_en','category','categoria_id','price','cost','aplica_itbis','is_wash','active','sort_order']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
@@ -545,6 +567,56 @@ function empleadoUpdate(id, data) {
 function empleadoDelete(id) {
   if (!db) return
   db.prepare('UPDATE empleados SET active=0 WHERE id=?').run(id)
+}
+
+// ── PAYROLL RUNS (paycheck history) ───────────────────────────────────────────
+function payrollRunCreate(data) {
+  if (!db) return null
+  const r = db.prepare(`INSERT INTO payroll_runs
+    (empleado_id, period_start, period_end, base, commissions, bonuses, deductions, net, notes, paid_by)
+    VALUES (@empleado_id, @period_start, @period_end, @base, @commissions, @bonuses, @deductions, @net, @notes, @paid_by)`).run({
+    empleado_id:  data.empleado_id,
+    period_start: data.period_start,
+    period_end:   data.period_end,
+    base:         data.base || 0,
+    commissions:  data.commissions || 0,
+    bonuses:      data.bonuses || 0,
+    deductions:   data.deductions || 0,
+    net:          data.net,
+    notes:        data.notes || null,
+    paid_by:      data.paid_by || null,
+  })
+  return { id: r.lastInsertRowid }
+}
+function payrollRunsByEmpleado(empleadoId, limit = 100) {
+  if (!db) return []
+  return db.prepare(`
+    SELECT pr.*, u.name AS paid_by_name
+    FROM payroll_runs pr
+    LEFT JOIN users u ON u.id = pr.paid_by
+    WHERE pr.empleado_id = ?
+    ORDER BY pr.paid_at DESC
+    LIMIT ?
+  `).all(empleadoId, limit)
+}
+function payrollRunsByPeriod(from, to) {
+  if (!db) return []
+  const params = []
+  let where = '1=1'
+  if (from) { where += ' AND pr.paid_at >= ?'; params.push(from) }
+  if (to)   { where += ' AND pr.paid_at <= ?'; params.push(to + ' 23:59:59') }
+  return db.prepare(`
+    SELECT pr.*, e.nombre AS empleado_nombre, e.tipo AS empleado_tipo, u.name AS paid_by_name
+    FROM payroll_runs pr
+    LEFT JOIN empleados e ON e.id = pr.empleado_id
+    LEFT JOIN users u     ON u.id = pr.paid_by
+    WHERE ${where}
+    ORDER BY pr.paid_at DESC
+  `).all(...params)
+}
+function payrollRunDelete(id) {
+  if (!db) return
+  db.prepare('DELETE FROM payroll_runs WHERE id=?').run(id)
 }
 
 // ── SELLERS ───────────────────────────────────────────────────────────────────
@@ -720,12 +792,19 @@ function ticketCreate(data) {
     const ticketId = result.lastInsertRowid
 
     // Insert items — pre-validate service IDs to avoid FK violations from stale/demo IDs
-    const validSvcIds = new Set(db.prepare('SELECT id FROM services').all().map(r => r.id))
-    const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,itbis,is_wash)
-      VALUES(?,?,?,?,?,?)`)
+    // Snapshot cost from services table into ticket_items at sale time so historical
+    // profit reports stay accurate even if a service's cost changes later.
+    const svcRows = db.prepare('SELECT id, cost FROM services').all()
+    const validSvcIds = new Set(svcRows.map(r => r.id))
+    const svcCostById = new Map(svcRows.map(r => [r.id, r.cost || 0]))
+    const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,cost,itbis,is_wash)
+      VALUES(?,?,?,?,?,?,?)`)
     for (const item of (data.items || [])) {
       const svcId = (item.service_id && validSvcIds.has(item.service_id)) ? item.service_id : null
-      insItem.run(ticketId, svcId, item.name, item.price,
+      // Explicit item.cost wins (e.g. inventory products with dynamic cost);
+      // otherwise look up the current service cost by id.
+      const itemCost = item.cost != null ? Number(item.cost) : (svcId ? svcCostById.get(svcId) : 0)
+      insItem.run(ticketId, svcId, item.name, item.price, itemCost,
         parseFloat((item.price * 0.18).toFixed(2)), item.is_wash ?? 1)
     }
 
@@ -1401,6 +1480,7 @@ module.exports = {
   sellersGetAll, sellersGetAllAdmin, sellerCreate, sellerUpdate, sellerDelete,
   // Empleados (payroll)
   empleadosGetAll, empleadosGetAllAdmin, empleadoCreate, empleadoUpdate, empleadoDelete,
+  payrollRunCreate, payrollRunsByEmpleado, payrollRunsByPeriod, payrollRunDelete,
   // Clients
   clientsGetAll, clientGetById, clientCreate, clientUpdate, clientUpdateBalance, clientGetOpenTickets, collectCredit,
   // Tickets

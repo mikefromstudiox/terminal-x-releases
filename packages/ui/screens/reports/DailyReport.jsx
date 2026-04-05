@@ -33,8 +33,9 @@ function dbToTxn(t) {
     client:     t.client_name || 'Walk-in',
     vehicle:    t.vehicle_plate || '—',
     services:   t.service_names
-                  ? t.service_names.split(' + ').map(n => ({ name: n, price: 0 }))
-                  : (t.items || []).map(i => ({ name: i.name || i.service_name || '—', price: i.price || 0 })),
+                  ? t.service_names.split(' + ').map(n => ({ name: n, price: 0, cost: 0 }))
+                  : (t.items || []).map(i => ({ name: i.name || i.service_name || '—', price: i.price || 0, cost: i.cost || 0 })),
+    items:      t.items || [],
     cashier:    t.cajero_name || '—',
     date:       new Date(t.created_at),
     subtotal:   t.subtotal || 0,
@@ -443,13 +444,32 @@ export default function DailyReport() {
   , [transactions, cashier])
 
   // Summary metrics (base, not tab/search filtered)
-  const summary = useMemo(() => ({
-    count:    baseFiltered.filter(t => t.estado !== 'nula').length,
-    total:    baseFiltered.filter(t => t.estado !== 'nula').reduce((s, t) => s + t.total,  0),
-    itbis:    baseFiltered.filter(t => t.estado !== 'nula').reduce((s, t) => s + t.itbis,  0),
-    cxc:      baseFiltered.filter(t => t.payMethod === 'credit' && t.estado !== 'nula').reduce((s, t) => s + t.total, 0),
-    nulas:    baseFiltered.filter(t => t.estado === 'nula').length,
-  }), [baseFiltered])
+  const summary = useMemo(() => {
+    const active = baseFiltered.filter(t => t.estado !== 'nula')
+    // Net profit: sum of (price - cost) across all line items on non-void tickets.
+    // Only tickets with at least one item that has a non-zero cost contribute.
+    let itemCostTotal = 0
+    let itemRevenueTotal = 0
+    let hasAnyCost = false
+    for (const t of active) {
+      for (const it of (t.items || [])) {
+        const price = Number(it.price) || 0
+        const cost  = Number(it.cost)  || 0
+        itemRevenueTotal += price
+        itemCostTotal    += cost
+        if (cost > 0) hasAnyCost = true
+      }
+    }
+    return {
+      count:    active.length,
+      total:    active.reduce((s, t) => s + t.total,  0),
+      itbis:    active.reduce((s, t) => s + t.itbis,  0),
+      cxc:      baseFiltered.filter(t => t.payMethod === 'credit' && t.estado !== 'nula').reduce((s, t) => s + t.total, 0),
+      nulas:    baseFiltered.filter(t => t.estado === 'nula').length,
+      profit:   hasAnyCost ? itemRevenueTotal - itemCostTotal : null,
+      hasAnyCost,
+    }
+  }, [baseFiltered])
 
   // Visible rows: base + tab + search
   const visible = useMemo(() => {
@@ -599,6 +619,9 @@ export default function DailyReport() {
       <div className="shrink-0 grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 px-3 md:px-6 py-2 md:py-3">
         <MetricCard icon={ReceiptText}      label={lang === 'es' ? 'Total Facturas'      : 'Total Invoices'}   value={summary.count}            accent="sky"    />
         <MetricCard icon={TrendingUp}       label={lang === 'es' ? 'Total Facturado'     : 'Total Billed'}     value={fmtRD(summary.total)}     accent="green"  />
+        {summary.hasAnyCost && (
+          <MetricCard icon={CircleDollarSign} label={lang === 'es' ? 'Ganancia Neta' : 'Net Profit'} value={fmtRD(summary.profit || 0)} sub={summary.total > 0 ? `${Math.round(((summary.profit || 0) / summary.total) * 100)}% margen` : null} accent="green" />
+        )}
         <MetricCard icon={CircleDollarSign} label="ITBIS Generado"                                             value={fmtRD(summary.itbis)}     accent="violet" />
         <MetricCard icon={Clock}            label={lang === 'es' ? 'CxC Pendiente'       : 'Pending A/R'}      value={fmtRD(summary.cxc)}       accent="amber"  />
         <MetricCard icon={Ban}              label={lang === 'es' ? 'Facturas Nulas'      : 'Voided Invoices'}  value={summary.nulas}            accent="red"    />
