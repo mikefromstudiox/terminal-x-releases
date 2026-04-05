@@ -653,13 +653,13 @@ export default function PettyCash() {
               </div>
 
               {/* Recibo */}
-              <div className="relative flex-1 md:flex-none">
-                <Receipt size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40" />
+              <div className="flex items-center gap-2 px-3 py-2 min-h-[44px] md:min-h-0 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus-within:ring-2 focus-within:ring-blue-400 w-full md:w-36 flex-1 md:flex-none">
+                <Receipt size={13} className="text-slate-400 dark:text-white/40 shrink-0" />
                 <input
                   value={recibo}
                   onChange={e => setRecibo(e.target.value)}
                   placeholder={L('Recibo # (opc.)', 'Receipt # (opt.)')}
-                  className="w-full md:w-36 pl-8 pr-3 py-2 min-h-[44px] md:min-h-0 border border-slate-200 dark:border-white/10 dark:bg-white/5 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="flex-1 min-w-0 bg-transparent outline-none text-sm text-slate-700 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40"
                 />
               </div>
             </div>

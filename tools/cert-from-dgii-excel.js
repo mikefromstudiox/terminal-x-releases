@@ -1,8 +1,19 @@
 /**
- * dgii-test-submit.js — Generates DGII-compliant XMLs from their test Excel data,
- * signs them with dgii-ecf package, and submits via CerteCF API.
+ * cert-from-dgii-excel.js — PERSONAL REFERENCE (Studio X Tech RNC 133410321)
  *
- * Usage: node electron/dgii-test-submit.js
+ * Generates DGII-compliant XMLs directly from DGII's reference Excel (Step 2),
+ * signs them, and submits via CerteCF API. Reads DGII's exact test data row-by-row
+ * so the output mirrors what DGII itself expects.
+ *
+ * Use this when a client gets stuck on edge cases and you want to prove the
+ * workflow against DGII's ground-truth Excel instead of generated templates.
+ *
+ * Paths below are HARDCODED to Michael's certification run — update CERT_PATH,
+ * CERT_PASS, and EXCEL_PATH before running for a different RNC.
+ *
+ * For the reusable client-facing workflow, use tools/ecf-gen.js + ecf-submit.js.
+ *
+ * Usage: node tools/cert-from-dgii-excel.js
  */
 
 const fs = require('fs')

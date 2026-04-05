@@ -18,7 +18,7 @@ function todayFormatted() {
 
 function buildHeader(biz, reportTitle, period) {
   return [
-    [biz?.name || 'Terminal X POS'],
+    [biz?.name || 'Empresa'],
     [biz?.rnc ? `RNC: ${biz.rnc}` : ''],
     [biz?.address || ''],
     [[biz?.phone, biz?.email].filter(Boolean).join(' | ')],

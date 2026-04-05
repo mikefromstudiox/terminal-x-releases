@@ -85,7 +85,7 @@ function buildLetterhead(biz, logoDataUrl) {
     <div class="header">
       ${logoHtml}
       <div class="header-info">
-        <h1>${biz?.name || 'Terminal X POS'}</h1>
+        <h1>${biz?.name || 'Empresa'}</h1>
         ${biz?.rnc ? `<p>RNC: ${biz.rnc}</p>` : ''}
         ${biz?.address ? `<p>${biz.address}</p>` : ''}
         <p>${[biz?.phone, biz?.email].filter(Boolean).join(' | ')}</p>

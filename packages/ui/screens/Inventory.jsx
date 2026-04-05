@@ -310,8 +310,10 @@ export default function Inventory() {
     return list
   }, [items, search, filter])
 
-  const lowCount   = items.filter(i => i.quantity <= i.min_quantity).length
-  const totalValue = items.reduce((s, i) => s + (i.quantity * i.price), 0)
+  const lowCount    = items.filter(i => i.quantity <= i.min_quantity).length
+  const totalValue  = items.reduce((s, i) => s + (i.quantity * i.price), 0)
+  const totalCost   = items.reduce((s, i) => s + (i.quantity * (i.cost || 0)), 0)
+  const totalProfit = totalValue - totalCost
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-slate-50 dark:bg-black">
@@ -329,11 +331,12 @@ export default function Inventory() {
       </div>
 
       {/* Stats */}
-      <div className="px-6 py-4 grid grid-cols-3 gap-4 shrink-0">
+      <div className="px-6 py-4 grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0">
         {[
-          { label: 'Total items',     value: items.length,         color: 'text-slate-700 dark:text-white' },
-          { label: 'Stock bajo',      value: lowCount,             color: lowCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-700 dark:text-white' },
-          { label: 'Valor en stock',  value: fmtRD(totalValue),    color: 'text-slate-700 dark:text-white' },
+          { label: 'Total items',         value: items.length,         color: 'text-slate-700 dark:text-white' },
+          { label: 'Stock bajo',          value: lowCount,             color: lowCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-700 dark:text-white' },
+          { label: 'Valor en stock',      value: fmtRD(totalValue),    color: 'text-slate-700 dark:text-white' },
+          { label: 'Ganancia potencial',  value: fmtRD(totalProfit),   color: totalProfit > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-white' },
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-white dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10 px-4 py-3">
             <p className="text-xs text-slate-400 dark:text-white/40 mb-1">{label}</p>
@@ -344,11 +347,11 @@ export default function Inventory() {
 
       {/* Filters + search */}
       <div className="px-6 pb-3 flex items-center gap-3 shrink-0">
-        <div className="relative flex-1 max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40" />
+        <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus-within:ring-2 focus-within:ring-blue-400 flex-1 max-w-xs">
+          <Search size={14} className="text-slate-400 dark:text-white/40 shrink-0" />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Buscar por nombre, SKU, categoría…"
-            className="w-full pl-9 pr-3 py-2 border border-slate-200 dark:border-white/10 rounded-xl text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            className="flex-1 min-w-0 bg-transparent outline-none text-sm text-slate-700 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40" />
         </div>
         <div className="flex rounded-lg border border-slate-200 dark:border-white/10 overflow-hidden text-sm">
           {[['all', 'Todos'], ['low', `Stock bajo (${lowCount})`]].map(([v, label]) => (
@@ -382,7 +385,9 @@ export default function Inventory() {
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide">Nombre</th>
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide">Categoría</th>
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">Stock</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">Costo</th>
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">Precio</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">Margen</th>
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">Valor</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -407,7 +412,15 @@ export default function Inventory() {
                           </span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-right text-slate-500 dark:text-white/50 text-xs">{item.cost > 0 ? fmtRD(item.cost) : '—'}</td>
                       <td className="px-4 py-3 text-right text-slate-600 dark:text-white/60">{fmtRD(item.price)}</td>
+                      <td className="px-4 py-3 text-right text-xs">
+                        {item.cost > 0 && item.price > 0 ? (
+                          <span className={`font-semibold ${item.price > item.cost ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}>
+                            {Math.round(((item.price - item.cost) / item.price) * 100)}%
+                          </span>
+                        ) : <span className="text-slate-300 dark:text-white/20">—</span>}
+                      </td>
                       <td className="px-4 py-3 text-right text-slate-500 dark:text-white/60 text-xs">{fmtRD(item.quantity * item.price)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">

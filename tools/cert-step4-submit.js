@@ -1,10 +1,12 @@
 /**
- * dgii-step4-submit.js — Submit Step 4 simulation XMLs to DGII CerteCF API
+ * cert-step4-submit.js — PERSONAL REFERENCE (Studio X Tech RNC 133410321)
  *
- * Uses dgii-ecf package for authentication and submission.
- * Reads signed XMLs from test-xmls/step4-sim/, submits each, polls for status.
+ * Submits Step 4 simulation XMLs to DGII CerteCF. Reads signed XMLs from
+ * test-xmls/step4-sim/, submits each, polls for status. Hardcoded cert paths.
  *
- * Usage: node electron/dgii-step4-submit.js
+ * For the reusable client-facing version, see tools/ecf-submit.js (config-driven).
+ *
+ * Usage: node tools/cert-step4-submit.js
  */
 const fs = require('fs')
 const path = require('path')

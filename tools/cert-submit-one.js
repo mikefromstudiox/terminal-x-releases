@@ -1,11 +1,15 @@
 /**
- * dgii-submit-one.js — Submit a single e-CF XML to DGII CerteCF
+ * cert-submit-one.js — PERSONAL REFERENCE (Studio X Tech RNC 133410321)
  *
- * Usage: node electron/dgii-submit-one.js <filename>
- *   e.g.: node electron/dgii-submit-one.js 133410321E310000000007.xml
+ * Debug helper: submits a single e-CF XML to DGII CerteCF. Useful for
+ * re-submitting a specific failed e-CF during Step 4 without re-running
+ * the full batch. Hardcoded cert paths.
  *
- * Also: node electron/dgii-submit-one.js rfce <filename>
- *   e.g.: node electron/dgii-submit-one.js rfce RFCE_133410321E320000000013.xml
+ * Usage: node tools/cert-submit-one.js <filename>
+ *   e.g.: node tools/cert-submit-one.js 133410321E310000000007.xml
+ *
+ * Also: node tools/cert-submit-one.js rfce <filename>
+ *   e.g.: node tools/cert-submit-one.js rfce RFCE_133410321E320000000013.xml
  */
 
 const https = require('https')

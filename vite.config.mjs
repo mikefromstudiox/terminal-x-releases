@@ -46,11 +46,13 @@ export default defineConfig(({ mode }) => ({
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor:  ['react', 'react-dom', 'react-router-dom'],
-          lucide:  ['lucide-react'],
+          vendor:   ['react', 'react-dom', 'react-router-dom'],
+          lucide:   ['lucide-react'],
           supabase: ['@supabase/supabase-js'],
+          pdf:      ['pdf-lib', 'qrcode'],
         },
       },
     },
+    chunkSizeWarningLimit: 800,
   },
 }))

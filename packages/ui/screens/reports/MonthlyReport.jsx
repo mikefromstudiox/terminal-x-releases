@@ -342,7 +342,7 @@ export default function MonthlyReport() {
   const [loading,     setLoading]     = useState(false)
   const [biz,         setBiz]         = useState({})
 
-  useEffect(() => { api.admin?.getEmpresa?.().then(e => e && setBiz({ name: e.nombre, rnc: e.rnc, address: e.direccion, phone: e.telefono, email: e.email })).catch(() => {}) }, [])
+  useEffect(() => { api.admin?.getEmpresa?.().then(e => e && setBiz({ name: e.name || e.nombre, rnc: e.rnc, address: e.address || e.direccion, phone: e.phone || e.telefono, email: e.email, logo: e.logo })).catch(() => {}) }, [])
 
   // ── Fetch tickets for current period and previous period ──────────────────
   const loadTickets = useCallback(async () => {

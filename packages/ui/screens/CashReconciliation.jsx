@@ -197,6 +197,7 @@ function CierresPanel({ onClose, lang, biz }) {
       efectivoNeto: (c.efectivo_conteo || 0) - (c.fondo || 0),
       cierreTotal:  c.cierre_total || 0,
       diferencia:   c.diferencia   || 0,
+      comentario:   c.comentario   || null,
     }).catch(() => { /* reprint errors are non-critical in history panel */ })
   }
 

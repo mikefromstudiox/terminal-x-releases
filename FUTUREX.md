@@ -1,6 +1,6 @@
 # FUTUREX — Terminal X Roadmap
 
-Updated: 2026-03-28
+Updated: 2026-04-05
 
 ---
 
@@ -190,8 +190,25 @@ The first admin hire handles all client-facing technical work:
 - [ ] Azul payment gateway integration
 - [ ] Sucursales (multi-branch) — hidden from UI, reintroduce when built
 - [ ] Auto-backup always-on (remove toggle, make sync automatic)
-- [ ] Payroll history — track salary changes over time
 - [ ] Concurrent Electron + Web usage testing (same business, same data)
 - [ ] Starsisa data import — SQL Server on old system, SSMS access in progress
 - [x] Add date indexes on tickets, ticket_items, credit_payments, cuadre tables for fast report queries at scale
-- [ ] Monorepo migration — plan exists in `MONOREPO-MIGRATION.md`, BLOCKED until DGII certification complete
+- [x] Monorepo migration — complete (packages/ui, services, data with npm workspaces)
+
+### Nóminas (Payroll) — Expand into a mini HR database
+Currently the payroll screen only shows the current calculation (liquidación per empleado). Expand into a full employee history module:
+- [ ] **Paycheck history per employee** — every period's payroll run recorded with amounts, breakdown, date paid
+- [ ] **Search by date range** — "show me Juan's last 6 paychecks" or "first paycheck"
+- [ ] **Salary change log** — track when salary was raised/lowered, who approved it
+- [ ] **Commission history chart** — monthly commission earnings over time for lavadores/vendedores/cajeros
+- [ ] **Print individual paycheck stubs** — formal "recibo de pago" with breakdown (base, horas extra, comisiones, deducciones, neto)
+- [ ] **Export payroll runs** — CSV/PDF for accountant, includes TSS + ISR withholding estimates
+- [ ] **Employee profile page** — /payroll/:id showing personal info, start date, antiguedad, current salary, all historical pay data
+- [ ] New DB table: `payroll_runs` (id, employee_id, period_start, period_end, base, commissions, deductions, net, paid_at, paid_by)
+
+### Reports — Net Profit Tracking
+- [ ] Reports currently show gross revenue only (`Total Facturado`). Add net profit calculation:
+  - Snapshot item cost into `ticket_items.cost` at time of sale
+  - Sum `(price - cost) × qty` across line items for each ticket
+  - Show "Ganancia Neta" metric alongside "Total Facturado"
+  - Only meaningful for resale/product businesses; service-only clients can hide it

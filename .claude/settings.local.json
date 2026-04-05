@@ -204,7 +204,12 @@
       "Bash(taskkill //F //IM electron.exe)",
       "Bash(grep -l \"bg-white\\\\|text-slate\" packages/ui/**/*.jsx)",
       "Bash(python:*)",
-      "Bash(/c/Python314/python:*)"
+      "Bash(/c/Python314/python:*)",
+      "Bash(sort -k5 -h -r)",
+      "Bash(grep -n \"__dirname\\\\|'\\\\\\\\.\\\\\\\\./'\" tools/cert-*.js)",
+      "Bash(grep -n \"C:/Users\\\\|C:\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\Users\\\\|/Users/\" tools/cert-*.js)",
+      "Bash(grep -rn \"Terminal X POS\\\\|Terminal X Pos\\\\|TERMINAL X POS\" packages/services/*.js)",
+      "Bash(grep -n \"cost\\\\|profit\\\\|margen\\\\|ganancia\" packages/ui/screens/Inventory.jsx packages/ui/screens/reports/*.jsx)"
     ]
   }
 }

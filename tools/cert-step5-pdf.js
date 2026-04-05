@@ -1,8 +1,12 @@
 /**
- * dgii-step5-pdf.js — Generate Step 5 PDFs (Representación Impresa) for each e-CF type
- * Reads actual signed XMLs from step4-sim/ to extract exact data for QR timbre.
+ * cert-step5-pdf.js — PERSONAL REFERENCE (Studio X Tech RNC 133410321)
  *
- * Usage: node electron/dgii-step5-pdf.js
+ * Generates Step 5 PDFs (Representación Impresa) for each e-CF type. Reads
+ * actual signed XMLs from test-xmls/step4-sim/ to extract exact data for QR timbre.
+ *
+ * For the reusable client-facing version, see tools/ecf-pdf.js (config-driven).
+ *
+ * Usage: node tools/cert-step5-pdf.js
  * Output: test-xmls/step5-pdfs/
  */
 const fs = require('fs')

@@ -1,5 +1,10 @@
 /**
- * dgii-step4-gen.js — Generate Step 4 simulation XMLs with Studio X real data
+ * cert-step4-gen.js — PERSONAL REFERENCE (Studio X Tech RNC 133410321)
+ *
+ * Generates Step 4 simulation XMLs with Michael's real Studio X data. Used during
+ * his own DGII certification (Steps 1-15 complete). Hardcoded paths below.
+ *
+ * For the reusable client-facing version, see tools/ecf-gen.js (config-driven).
  */
 const fs = require('fs')
 const path = require('path')

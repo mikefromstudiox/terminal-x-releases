@@ -512,14 +512,14 @@ export default function Queue() {
             </button>
 
             {/* Search */}
-            <div className="relative flex-1 md:flex-none">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40" />
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus-within:border-sky-400 w-full md:w-64 flex-1 md:flex-none">
+              <Search size={14} className="text-slate-400 dark:text-white/40 shrink-0" />
               <input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder={lang === 'es' ? 'Buscar ticket o vehículo...' : 'Search ticket or vehicle...'}
-                className="pl-9 pr-4 py-2 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-700 dark:text-white focus:outline-none focus:border-sky-400 w-full md:w-64 placeholder:text-slate-400 dark:placeholder:text-white/40"
+                className="flex-1 min-w-0 bg-transparent outline-none text-sm text-slate-700 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40"
               />
             </div>
           </div>

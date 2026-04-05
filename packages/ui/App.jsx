@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import logoImg from './assets/logo.png'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { useAPI } from './context/DataContext'
 import { setStoredSetting, getStoredSetting } from '@terminal-x/services/supabase'
 import { startSyncScheduler, stopSyncScheduler } from '@terminal-x/services/sync'
@@ -18,34 +18,31 @@ if (import.meta.env.DEV) {
 import { useAuth } from './context/AuthContext'
 import { useLicense } from './context/LicenseContext'
 import Layout from './components/Layout'
-import LicenseGate from './screens/LicenseGate'
 import UpdateBanner from './components/UpdateBanner'
 import ErrorBoundary from './components/ErrorBoundary'
+import PlanGate from './components/PlanGate'
+
+// Eager — core POS flow, auth/gate screens (shown on startup)
+import LicenseGate from './screens/LicenseGate'
 import FirstTimeSetup from './screens/FirstTimeSetup'
 import Login from './screens/Login'
 import POS from './screens/POS'
 import Queue from './screens/Queue'
-import Credits from './screens/Credits'
 import Clients from './screens/Clients'
-// Workers and Services are legacy routes — now redirect, imports not needed
-// import Workers from './screens/Workers'
-// import Services from './screens/Services'
-import DGII from './screens/DGII'
-import Admin from './screens/Admin'
-import Config from './screens/Config'
-import CashReconciliation from './screens/CashReconciliation'
-import PettyCash from './screens/PettyCash'
-import CreditNotes from './screens/CreditNotes'
-import RemoteDashboard from './screens/RemoteDashboard'
-import LicenseAdmin from './screens/LicenseAdmin'
-import Sistema from './screens/Sistema'
-import Inventory from './screens/Inventory'
-import DailyReport from './screens/reports/DailyReport'
-import MonthlyReport from './screens/reports/MonthlyReport'
-import WorkerReport from './screens/reports/WorkerReport'
-import SalespersonReport from './screens/reports/SalespersonReport'
-import Reportes from './screens/Reportes'
-import PlanGate from './components/PlanGate'
+
+// Lazy — heavy or rarely-used screens (loaded on navigation)
+const Credits             = lazy(() => import('./screens/Credits'))
+const DGII                = lazy(() => import('./screens/DGII'))
+const Admin               = lazy(() => import('./screens/Admin'))
+const Config              = lazy(() => import('./screens/Config'))
+const CashReconciliation  = lazy(() => import('./screens/CashReconciliation'))
+const PettyCash           = lazy(() => import('./screens/PettyCash'))
+const CreditNotes         = lazy(() => import('./screens/CreditNotes'))
+const RemoteDashboard     = lazy(() => import('./screens/RemoteDashboard'))
+const LicenseAdmin        = lazy(() => import('./screens/LicenseAdmin'))
+const Sistema             = lazy(() => import('./screens/Sistema'))
+const Inventory           = lazy(() => import('./screens/Inventory'))
+const Reportes            = lazy(() => import('./screens/Reportes'))
 
 // Routes accessible only to non-cashier roles
 const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin','/sistema','/inventory','/config']
@@ -141,6 +138,11 @@ export default function App() {
     <UpdateBanner />
     <Layout>
       <ErrorBoundary>
+      <Suspense fallback={
+        <div className="flex items-center justify-center h-full">
+          <div className="w-8 h-8 border-2 border-white/10 border-t-[#b3001e] rounded-full animate-spin" />
+        </div>
+      }>
       <Routes>
         <Route path="/"                      element={<POS />} />
         <Route path="/pos"                   element={<POS />} />
@@ -169,6 +171,7 @@ export default function App() {
         <Route path="/settings"              element={<Navigate to="/admin" replace />} />
         <Route path="*"                      element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
       </ErrorBoundary>
     </Layout>
     </>

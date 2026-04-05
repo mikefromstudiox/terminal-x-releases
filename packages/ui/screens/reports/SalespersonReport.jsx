@@ -243,7 +243,7 @@ export default function SalespersonReport() {
       .then(rows => setSellers(rows || []))
       .catch(() => setSellers([]))
     api.admin?.getEmpresa?.().then(e => {
-      if (e) setBiz({ name: e.nombre || e.name, rnc: e.rnc, address: e.direccion || e.address, phone: e.telefono || e.phone, email: e.email })
+      if (e) setBiz({ name: e.name || e.nombre, rnc: e.rnc, address: e.address || e.direccion, phone: e.phone || e.telefono, email: e.email, logo: e.logo })
     }).catch(() => {})
   }, [])
 

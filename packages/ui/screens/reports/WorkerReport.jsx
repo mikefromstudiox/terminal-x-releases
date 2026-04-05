@@ -425,7 +425,7 @@ export default function WorkerReport() {
       const users = (r || []).filter(u => u.role === 'cashier' || (u.commission_pct && u.commission_pct > 0))
       setCajeros(users)
     }).catch(() => { setCajeros([]); flash(lang === 'es' ? 'Error al cargar cajeras' : 'Error loading cashiers') })
-    api.admin?.getEmpresa?.().then(e => e && setBiz({ name: e.nombre, rnc: e.rnc, address: e.direccion, phone: e.telefono, email: e.email })).catch(() => {})
+    api.admin?.getEmpresa?.().then(e => e && setBiz({ name: e.name || e.nombre, rnc: e.rnc, address: e.address || e.direccion, phone: e.phone || e.telefono, email: e.email, logo: e.logo })).catch(() => {})
   }, [])
 
   const range = getDateRange(period, customY, customM)

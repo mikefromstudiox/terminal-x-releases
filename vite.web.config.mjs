@@ -48,8 +48,10 @@ export default defineConfig(({ mode }) => ({
           vendor:   ['react', 'react-dom', 'react-router-dom'],
           lucide:   ['lucide-react'],
           supabase: ['@supabase/supabase-js'],
+          pdf:      ['pdf-lib', 'qrcode'],
         },
       },
     },
+    chunkSizeWarningLimit: 800,
   },
 }))

@@ -104,10 +104,12 @@ function calcLiquidacion(emp, tipo, commissionTotal) {
 
   const ant = calcAntiguedad(startDate)
 
-  // For commission-based workers (lavadores), use average monthly commissions as salary base
+  // For commission-based workers (lavador / vendedor / cajero), use average
+  // monthly commissions as the salary base when no fixed salary is set.
   let monthlySalary = emp.salary || 0
   let isCommissionBased = false
-  if (emp.tipo === 'lavador' && commissionTotal > 0 && ant.totalMonths > 0) {
+  const commissionTipos = ['lavador', 'vendedor', 'cajero']
+  if (commissionTipos.includes(emp.tipo) && commissionTotal > 0 && ant.totalMonths > 0 && !emp.salary) {
     monthlySalary = parseFloat((commissionTotal / ant.totalMonths).toFixed(2))
     isCommissionBased = true
   }
@@ -308,7 +310,9 @@ export default function PayrollReport() {
   if (!ALLOWED_ROLES.includes(user?.role)) return <AccessDenied lang={lang} />
 
   const [empleados, setEmpleados] = useState([])
-  const [washerCommTotals, setWasherCommTotals] = useState({}) // washer_id -> total_commission
+  const [washerCommTotals, setWasherCommTotals] = useState({}) // washer_id -> total
+  const [sellerCommTotals, setSellerCommTotals] = useState({}) // seller_id -> total
+  const [cajeroCommTotals, setCajeroCommTotals] = useState({}) // cajero_id -> total
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState(null)
   const [tipo, setTipo] = useState('desahucio')
@@ -316,23 +320,29 @@ export default function PayrollReport() {
   const [biz, setBiz] = useState({})
 
   useEffect(() => { load() }, [])
-  useEffect(() => { api.admin?.getEmpresa?.().then(e => e && setBiz({ name: e.nombre, rnc: e.rnc, address: e.direccion, phone: e.telefono, email: e.email })).catch(() => {}) }, [])
+  useEffect(() => { api.admin?.getEmpresa?.().then(e => e && setBiz({ name: e.name || e.nombre, rnc: e.rnc, address: e.address || e.direccion, phone: e.phone || e.telefono, email: e.email, logo: e.logo })).catch(() => {}) }, [])
 
   async function load() {
     setLoading(true)
     try {
-      const [list, commData] = await Promise.all([
+      const [list, washerData, sellerData, cajeroData] = await Promise.all([
         api?.empleados?.all?.() || [],
         api?.commissions?.byPeriod?.({}) || [],
+        api?.sellerCommissions?.byPeriod?.({}) || [],
+        api?.cajeroCommissions?.byPeriod?.({}) || [],
       ])
       setEmpleados(list || [])
-      // Build washer_id -> total_commission map
-      const map = {}
-      for (const row of (commData || [])) {
-        const wid = String(row.washer_id)
-        map[wid] = (map[wid] || 0) + (row.total_commission || 0)
+      const buildMap = (rows, idKey) => {
+        const map = {}
+        for (const row of (rows || [])) {
+          const id = String(row[idKey])
+          map[id] = (map[id] || 0) + (row.total_commission || row.commission_amount || 0)
+        }
+        return map
       }
-      setWasherCommTotals(map)
+      setWasherCommTotals(buildMap(washerData, 'washer_id'))
+      setSellerCommTotals(buildMap(sellerData, 'seller_id'))
+      setCajeroCommTotals(buildMap(cajeroData, 'cajero_id'))
     } catch {}
     setLoading(false)
   }
@@ -342,15 +352,20 @@ export default function PayrollReport() {
     return empleados.find(e => String(e.id) === String(selectedId)) || null
   }, [selectedId, empleados])
 
+  // Get total commissions for any employee type based on their ref_id
+  function getCommissionTotal(emp) {
+    if (!emp?.ref_id) return 0
+    const ref = String(emp.ref_id)
+    if (emp.tipo === 'lavador')  return washerCommTotals[ref] || 0
+    if (emp.tipo === 'vendedor') return sellerCommTotals[ref] || 0
+    if (emp.tipo === 'cajero')   return cajeroCommTotals[ref] || 0
+    return 0
+  }
+
   const liq = useMemo(() => {
     if (!selected) return null
-    // For lavadores, look up their total commissions via ref_id (links to washers.id)
-    let commTotal = 0
-    if (selected.tipo === 'lavador' && selected.ref_id) {
-      commTotal = washerCommTotals[String(selected.ref_id)] || 0
-    }
-    return calcLiquidacion(selected, tipo, commTotal)
-  }, [selected, tipo, washerCommTotals])
+    return calcLiquidacion(selected, tipo, getCommissionTotal(selected))
+  }, [selected, tipo, washerCommTotals, sellerCommTotals, cajeroCommTotals])
 
   async function handleSave(data) {
     if (data.id) {
@@ -372,7 +387,7 @@ export default function PayrollReport() {
   // Summary metrics
   const totalNomina = useMemo(() => empleados.reduce((s, e) => s + (e.salary || 0), 0), [empleados])
   const conSalario = useMemo(() => empleados.filter(e => e.salary > 0).length, [empleados])
-  const conComision = useMemo(() => empleados.filter(e => e.tipo === 'lavador' && !e.salary && e.ref_id && washerCommTotals[String(e.ref_id)] > 0).length, [empleados, washerCommTotals])
+  const conComision = useMemo(() => empleados.filter(e => !e.salary && getCommissionTotal(e) > 0).length, [empleados, washerCommTotals, sellerCommTotals, cajeroCommTotals])
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
