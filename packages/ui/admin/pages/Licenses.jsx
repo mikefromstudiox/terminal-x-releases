@@ -120,10 +120,11 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10 ${isDark ? 'text-white/30' : 'text-slate-400'}`} />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder={L('Buscar por nombre, RNC o clave...', 'Search by name, RNC, or key...')}
-            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-[12px] outline-none focus:border-sky-400" />
+            style={{ paddingLeft: 36 }}
+            className={`w-full pr-3 py-2 border rounded-lg text-[12px] outline-none focus:ring-1 focus:ring-sky-400 ${isDark ? 'bg-white/5 border-white/10 text-white placeholder-white/30' : 'border-slate-200 bg-white text-slate-900 placeholder-slate-400'}`} />
         </div>
         {['all', 'active', 'pending', 'suspended', 'expired'].map(f => (
           <button key={f} onClick={() => setFilter(f)}

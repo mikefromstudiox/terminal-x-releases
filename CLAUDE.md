@@ -1,19 +1,4 @@
-# Terminal X — POS System (Claude Project Context)
-
-## Who I Am
-- Michael Mejia, owner of Studio X Group — a group of interconnected businesses in the Dominican Republic
-- Non-developer — I give direction, Claude writes the code
-- Keep responses short and direct. Don't explain what you just did unless I ask
-- Never summarize changes at the end of a response — I can read the diff
-- Never add emojis unless I ask
-
-## Studio X Group (Parent)
-Terminal X is one product under the Studio X Group umbrella:
-- **Studio X Detailing SRL** — car wash, detailing, tints, ceramic (studioxdetailing.com)
-- **Studio X Tech SRL** — computer store, camera installs, IT services (studioxrdtech.com)
-- **Studio X Media SRL** — social media, content production, software dev (studioxmedia.io)
-- **Terminal X SRL** — this POS system (terminalxpos.com)
-- **Group hub site** — studioxrd.com (separate project at `A:\Studio X HUB`)
+# Terminal X — POS System
 
 ## What This App Is
 Terminal X is a full-featured desktop POS system built for the Dominican Republic market.
@@ -122,7 +107,7 @@ Key tables: businesses, users, services, tickets, clients, credit_payments,
 
 ## SaaS Infrastructure
 - **Admin panel:** `/admin` — Dashboard/Clients/ClientDetail/Licenses/Team/Certifications
-- **Landing page:** `/` — pricing (Pro RD$2,490 / Pro PLUS RD$4,490 / Pro MAX RD$6,990), annual 15% OFF
+- **Landing page:** `/` — pricing (Pro RD$2,490 / Pro PLUS RD$4,490 / Pro MAX RD$6,990), annual 15% OFF, 7-day free trial on Pro MAX for all signups
 - **Signup:** `/signup` → auto-registration flow (pending → admin activates)
 - **Remote config sync:** validate.js returns `remoteConfig`, desktop syncs every 4h
 - **Plan gating:** `usePlan()` hook + `PlanGate` component — Pro/Pro PLUS/Pro MAX
@@ -140,7 +125,7 @@ npm run dist:mac     # macOS DMG
 
 ## Web Deploy (terminalxpos.com)
 ```bash
-cd "A:\Studio X HUB\Terminal X OLD"
+cd "A:\Studio X HUB\Terminal X"
 npm run build:web
 echo '{"private":true,"dependencies":{"@supabase/supabase-js":"^2.49.4","xml-crypto":"^2.1.5","@xmldom/xmldom":"^0.8.6","jsonwebtoken":"^9.0.2"}}' > dist-web/package.json
 cp web/vercel.json dist-web/
@@ -164,26 +149,20 @@ cd dist-web && npm install --silent && npx vercel --prod --yes
 9. All Vercel API routes must use ESM (`export default`) not CJS
 10. Vercel Hobby plan = 12 serverless functions max — admin routes consolidated into `panel.js` with `?action=` param
 11. Output deploy commands, SQL, and code blocks as single long lines for easy copy-paste
-12. **Never add `Co-Authored-By: Claude` (or any Claude/Anthropic attribution) to commit messages.** No co-author trailer at all.
 
-## Current Status (as of April 5, 2026)
-- Desktop POS production-ready, all screens wired to real SQLite DB
-- Web/PWA live at terminalxpos.com — Supabase backend, Vercel hosting
-- SaaS infrastructure complete: admin panel, landing page, signup, plan gating, license validation
-- DGII e-CF CERTIFIED — direct Emisor Electrónico (no intermediary)
-- **Monorepo restructure complete** — packages/ui, packages/services, packages/data with npm workspaces + Vite aliases. Electron/web/db/assets stayed at root (no __dirname path surgery).
-- **Stack upgraded:** React 18 → 19, Tailwind 3 → 4 (via @tailwindcss/vite plugin, @theme block in index.css replaces tailwind.config.js), react-router-dom 6 → 7, lucide-react 0.378 → 1.7
-- **Vite configs renamed to .mjs** (vite.config.mjs, vite.web.config.mjs) to avoid ESM/CJS conflict with electron CommonJS
-- **Dark mode support added to all screens** (Tailwind `dark:` variants). Pattern: `bg-white → dark:bg-white/5`, `bg-slate-50 → dark:bg-black` (containers) or `dark:bg-white/5` (cards), `text-slate-800/700 → dark:text-white`, `text-slate-500/600 → dark:text-white/60`, `text-slate-400 → dark:text-white/40`, `border-slate-100/200 → dark:border-white/10`, `hover:bg-slate-50 → dark:hover:bg-white/10`. Inputs get `dark:bg-white/5 dark:text-white dark:border-white/10`.
-- **e-CF fully wired into POS flow:** CobrarModal.jsx calls `signAndSubmitECF()` on submit → `window.electronAPI.dgii_ecf.submit()` → IPC `dgii:submit` handler in electron/main.js → xml-builder + xml-signer + dgii-client do direct DGII submission. Offline queue fallback included.
-- **Nómina expansion complete (2026-04-05):** Replaced single-screen PayrollReport with a 5-view payroll center under `packages/ui/screens/reports/nomina/` — Dashboard, Empleados, Pagos, Reportes, Ajustes. Features:
-  - **Data layer:** new `payroll_settings` + `salary_changes` tables, extended `payroll_runs` with itemised deductions (sfs_employee, afp_employee, isr, other_deductions) and employer liabilities (sfs_employer, afp_employer, infotep_employer), extended `empleados` with puesto, email, bank_account, tss_id. SQLite migrations v1.5 + Supabase migration `20260405000002`.
-  - **Helper libs:** `lib/isr.js` (DR 2026 brackets: 0% / 15% / 20% / 25% · 416,220 / 624,329 / 867,123 thresholds · cycle-aware annualization), `lib/tss.js` (separate SFS cap RD$232,230 + AFP cap RD$464,460 + INFOTEP 1% employer, no cap), `lib/payPeriod.js` (quincenal/mensual helpers), `lib/calcLiquidacion.js` (Ley 16-92 functions extracted from legacy file).
-  - **Bulk pay run:** NominaPagos view lets user select period (quincenal 1-15 / 16-end / mensual / custom) and pay all active employees at once with auto-computed base, commissions, TSS, ISR, INFOTEP, net. Transactional `payrollRunsBulkCreate` auto-marks the underlying commissions as paid in the `washer_commissions`/`seller_commissions`/`cajero_commissions` tables.
-  - **Accountant reports:** TSS+INFOTEP (PDF+CSV), ISR with YTD (PDF+CSV), Nómina completa (QuickBooks/Alegra CSV), Recibos batch print, Liquidaciones acumuladas (termination liability snapshot). New export functions in `csv.js` and `report-html.js`.
-  - **Auto salary change log:** `empleadoUpdate` detects salary changes and inserts a `salary_changes` row automatically with old/new/effective_date/reason.
-  - **Pay stub printer:** `printPaycheckStub` in `nomina/shared.jsx` with business letterhead, itemised breakdown, signature lines.
-  - **Goal:** let Michael + an accountant run payroll + fiscal filings in-house without paying an external accountant.
-- **Commission-only workers:** Payroll supports lavadores, vendedores, AND cajeros paid from commissions alone (no fixed salary required). `calcLiquidacion` auto-uses avg monthly commissions as base.
-- **Dev Pro MAX override:** `packages/ui/hooks/usePlan.jsx` forces `pro_max` in `import.meta.env.DEV` so all gated features (DGII, Remote Dashboard, WhatsApp receipts) are visible during local dev. Production builds ignore it.
-- **Next:** Publish v1.2.0 to GitHub releases, first client onboarding, PSFE application
+## Architecture Notes
+- **Monorepo:** packages/ui, packages/services, packages/data with npm workspaces + Vite aliases. Electron/web/db/assets at root.
+- **Vite configs:** .mjs extension (vite.config.mjs, vite.web.config.mjs) to avoid ESM/CJS conflict with electron CommonJS.
+- **Dark mode:** All screens support Tailwind `dark:` variants. Pattern: `bg-white → dark:bg-white/5`, `bg-slate-50 → dark:bg-black`, `text-slate-800 → dark:text-white`, `border-slate-200 → dark:border-white/10`.
+- **e-CF flow:** CobrarModal → `signAndSubmitECF()` → IPC `dgii:submit` → xml-builder + xml-signer + dgii-client → DGII API. Offline queue fallback included.
+- **Nómina:** 5-view payroll center under `packages/ui/screens/reports/nomina/`. Helper libs: `lib/isr.js` (DR 2026 brackets), `lib/tss.js` (SFS/AFP/INFOTEP caps), `lib/payPeriod.js`, `lib/calcLiquidacion.js` (Ley 16-92). Supports commission-only workers.
+- **Dev override:** `usePlan.jsx` forces `pro_max` in dev mode so all gated features are visible.
+- **Business Type System:** `useBusinessType()` hook + `BusinessTypeProvider` in `packages/ui/hooks/useBusinessType.jsx`. Stores `business_type` in `app_settings` (values: `carwash`, `tienda`, `otro`). Switches POS between `CarWashPOS` (service grid + queue + washers) and `RetailPOS` (product search + barcode + cart with qty). Sidebar nav filters items via `businessTypes` array prop. Settings panel at Configuración → Tipo de Negocio. FirstTimeSetup Step 1 includes business type selector.
+- **Retail POS:** `RetailPOS` component in `POS.jsx` — barcode/SKU search bar, product grid from inventory, services tab for hybrid mode, cart with qty +/- buttons. Uses `api.inventory.search()` and `api.inventory.lookupSku()`. Tickets store `quantity`, `sku`, `inventory_item_id` on `ticket_items`. Auto-deducts stock on sale, reverses on void. CobrarModal, printer, PDF all quantity-aware (`qty > 1` shows `2x Product Name`).
+- **CSV Import:** Inventory screen has "Importar CSV" button. Parses CSV/TSV, auto-maps columns (Spanish + English headers), preview table with manual re-mapping, bulk insert. Supports SKU, Barcode, Name, Category, Price, Cost, Stock, Min Stock.
+- **Products Report:** `packages/ui/screens/reports/ProductsReport.jsx` — "Productos" tab in Reports (tienda/otro mode only). Units sold, revenue, cost, profit by SKU. Date range, search, sortable columns.
+- **Web entry point:** `web/main.jsx` — landing page is eager-loaded (LCP), everything else lazy. Supabase SDK lazy-loaded via dynamic import (only fetches on /pos, /signup, /admin). GA deferred 3s after load. qz-tray only loads on /pos routes.
+- **Free trial:** All signups get 7-day Pro MAX trial. Provision API (`web/api/signup/provision.js`) sets `trial_end` and `expires_at` on license.
+- **Security headers:** CSP, HSTS with preload, COOP, X-Frame-Options DENY, X-Content-Type-Options nosniff — all in `web/vercel.json`.
+- **Images:** WebP format, resized to 2x display size (logo 150px, x-mark 200px). All `<img>` tags have explicit `width`/`height` attributes.
+- **SEO:** `<html lang="es-DO">`, hreflang tags, geo.region DO, FAQPage + SoftwareApplication + Organization JSON-LD schemas, `<noscript>` fallback content, Google Analytics (G-WV4EDKWVJP).

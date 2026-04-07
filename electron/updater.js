@@ -10,6 +10,9 @@
 
 const log = require('electron-log')
 
+// Token MUST be set before requiring electron-updater — it reads GH_TOKEN at import time
+process.env.GH_TOKEN = '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'
+
 let _mainWindow  = null
 let _autoUpdater = null
 

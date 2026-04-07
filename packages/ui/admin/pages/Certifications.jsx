@@ -113,10 +113,11 @@ export default function Certifications({ getToken, refreshToken, isDark, lang })
           ))}
         </div>
         <div className="relative max-w-xs">
-          <Search size={14} className={`absolute left-3 top-1/2 -translate-y-1/2 ${isDark ? 'text-white/30' : 'text-black/30'}`} />
+          <Search size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10 ${isDark ? 'text-white/30' : 'text-black/30'}`} />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder={L('Buscar por nombre o RNC...', 'Search by name or RNC...')}
-            className={`w-full pl-9 pr-3 py-2 border rounded-lg text-[12px] outline-none focus:ring-1 focus:ring-[#b3001e] ${
+            style={{ paddingLeft: 36 }}
+            className={`w-full pr-3 py-2 border rounded-lg text-[12px] outline-none focus:ring-1 focus:ring-[#b3001e] ${
               isDark ? 'bg-white/5 border-white/10 text-white placeholder-white/30' : 'bg-white border-black/10 text-black placeholder-black/30'
             }`} />
         </div>

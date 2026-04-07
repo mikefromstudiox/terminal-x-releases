@@ -19,8 +19,8 @@ class AdminErrorBoundary extends Component {
     return this.props.children
   }
 }
-import logoImg from '../assets/logo.png'
-import xMark from '../assets/x-mark.png'
+import logoImg from '../assets/logo.webp'
+import xMark from '../assets/x-mark.webp'
 import { useLang } from '../i18n'
 import Dashboard from './pages/Dashboard'
 import Licenses from './pages/Licenses'

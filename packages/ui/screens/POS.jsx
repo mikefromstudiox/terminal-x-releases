@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound } from 'lucide-react'
+import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useLayout } from '../context/LayoutContext'
 import { useAuth } from '../context/AuthContext'
@@ -13,7 +13,8 @@ import { printClientReceipt, printWasherConduce } from '@terminal-x/services/pri
 import { syncTicket } from '@terminal-x/services/supabase'
 import { syncTicketFull } from '@terminal-x/services/sync'
 import { saveReceiptPDF } from '@terminal-x/services/pdf'
-import logoImg from '../assets/logo.png'
+import { useBusinessType } from '../hooks/useBusinessType.jsx'
+import logoImg from '../assets/logo.webp'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ const ITBIS = 0.18
 const LEY   = 0.10
 
 function calcTotals(items) {
-  const total    = items.reduce((s, i) => s + i.price, 0) // prices already include ITBIS
+  const total    = items.reduce((s, i) => s + i.price * (i.qty || 1), 0) // prices already include ITBIS
   const subtotal = parseFloat((total / (1 + ITBIS)).toFixed(2))  // extract pre-ITBIS base
   const itbis    = parseFloat((total - subtotal).toFixed(2))
   return { subtotal, itbis, ley: 0, total }
@@ -188,7 +189,7 @@ function QueueStrip({ queue, lang }) {
 
 // ── Main POS Screen ───────────────────────────────────────────────────────────
 
-export default function POS() {
+function CarWashPOS() {
   const api = useAPI()
   const printerApi = usePrinterAPI()
   const { t, lang } = useLang()
@@ -899,4 +900,651 @@ export default function POS() {
       )}
     </div>
   )
+}
+
+// ── Retail POS ────────────────────────────────────────────────────────────────
+
+function RetailPOS() {
+  const api = useAPI()
+  const printerApi = usePrinterAPI()
+  const { t, lang } = useLang()
+  const { collapsed } = useLayout()
+  const { user } = useAuth()
+  const navigate = useNavigate()
+
+  // Services for hybrid mode (services tab)
+  const { data: rawServicesDB } = useServices()
+  const rawServices = rawServicesDB || []
+
+  // ── UI state
+  const [cart, setCart] = useState([])        // { id, inventory_item_id, service_id, sku, name, price, cost, qty, aplica_itbis }
+  const [toast, setToast] = useState(null)
+  const [cobrarModal, setCobrarModal] = useState(null)
+  const [tab, setTab] = useState('products')  // 'products' | 'services'
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [searching, setSearching] = useState(false)
+  const searchRef = useRef(null)
+  const debounceRef = useRef(null)
+
+  // Client state
+  const [clients, setClients] = useState([])
+  const [selectedClient, setSelectedClient] = useState(null)
+  const [showClientPicker, setShowClientPicker] = useState(false)
+  const [showNewClient, setShowNewClient] = useState(false)
+  const [clientSearch, setClientSearch] = useState('')
+
+  // RNC
+  const [rnc, setRnc] = useState('')
+  const [rncName, setRncName] = useState('')
+  const [salesperson, setSalesperson] = useState('')
+
+  // Mobile cart
+  const [mobileCartOpen, setMobileCartOpen] = useState(false)
+
+  useEffect(() => {
+    api.clients?.all?.().then(r => setClients(r || [])).catch(() => {})
+  }, [api])
+
+  // Service categories for hybrid tab
+  const serviceCategories = useMemo(() => {
+    const seen = new Set()
+    return rawServices.reduce((cats, svc) => {
+      if (!seen.has(svc.category)) { seen.add(svc.category); cats.push(svc.category) }
+      return cats
+    }, [])
+  }, [rawServices])
+  const [svcCategory, setSvcCategory] = useState(null)
+  useEffect(() => { if (serviceCategories.length && !svcCategory) setSvcCategory(serviceCategories[0]) }, [serviceCategories])
+
+  const { subtotal, itbis, total } = calcTotals(cart)
+  const cartCount = cart.reduce((s, i) => s + (i.qty || 1), 0)
+
+  function flash(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
+
+  function clearForm() {
+    setCart([])
+    setSelectedClient(null)
+    setRnc('')
+    setRncName('')
+    setSalesperson('')
+    setSearchQuery('')
+    setSearchResults([])
+  }
+
+  // ── Search / barcode lookup ────────────────────────────────────────────────
+  function handleSearchInput(value) {
+    setSearchQuery(value)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (!value.trim()) { setSearchResults([]); return }
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true)
+      try {
+        const results = await api.inventory.search(value.trim())
+        setSearchResults(results || [])
+      } catch { setSearchResults([]) }
+      setSearching(false)
+    }, 300)
+  }
+
+  async function handleBarcodeScan(e) {
+    if (e.key !== 'Enter') return
+    const val = searchQuery.trim()
+    if (!val) return
+    try {
+      const item = await api.inventory.lookupSku(val)
+      if (item) {
+        addToCart(item)
+        setSearchQuery('')
+        setSearchResults([])
+        return
+      }
+    } catch {}
+    handleSearchInput(val)
+  }
+
+  // ── Cart operations ────────────────────────────────────────────────────────
+  function addToCart(product) {
+    setCart(prev => {
+      const existing = prev.find(i => i.inventory_item_id === product.id)
+      if (existing) {
+        return prev.map(i => i.inventory_item_id === product.id ? { ...i, qty: i.qty + 1 } : i)
+      }
+      return [...prev, {
+        id: `inv-${product.id}`,
+        inventory_item_id: product.id,
+        service_id: null,
+        sku: product.sku || product.barcode || '',
+        name: product.name,
+        price: product.price,
+        cost: product.cost || 0,
+        qty: 1,
+        aplica_itbis: product.aplica_itbis ?? 1,
+        is_wash: 0,
+        stock: product.quantity,
+      }]
+    })
+  }
+
+  function addServiceToCart(svc) {
+    setCart(prev => {
+      const existing = prev.find(i => i.service_id === svc.id)
+      if (existing) {
+        return prev.map(i => i.service_id === svc.id ? { ...i, qty: i.qty + 1 } : i)
+      }
+      return [...prev, {
+        id: `svc-${svc.id}`,
+        inventory_item_id: null,
+        service_id: svc.id,
+        sku: '',
+        name: lang === 'es' ? svc.name : (svc.name_en || svc.name),
+        price: svc.price,
+        cost: svc.cost || 0,
+        qty: 1,
+        aplica_itbis: svc.aplica_itbis ?? 1,
+        is_wash: svc.is_wash ?? 0,
+      }]
+    })
+  }
+
+  function updateQty(cartId, delta) {
+    setCart(prev => prev.map(i => {
+      if (i.id !== cartId) return i
+      const newQty = Math.max(1, i.qty + delta)
+      return { ...i, qty: newQty }
+    }))
+  }
+
+  function removeFromCart(cartId) {
+    setCart(prev => prev.filter(i => i.id !== cartId))
+  }
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  useEffect(() => {
+    function onKey(e) {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
+      if (e.key === 'F1') { e.preventDefault(); clearForm() }
+      else if (e.key === 'F2') {
+        e.preventDefault()
+        if (cart.length > 0) {
+          setCobrarModal({ items: cart, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, salesperson })
+        }
+      }
+      else if (e.key === 'F4') { e.preventDefault(); searchRef.current?.focus() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [cart, selectedClient, rncName, salesperson])
+
+  // ── Payment confirm ────────────────────────────────────────────────────────
+  const handlePaymentConfirm = useCallback(async (paymentData) => {
+    const pending = cobrarModal
+    setCobrarModal(null)
+
+    try {
+      const { subtotal: sub, itbis: itp, total: tot } = calcTotals(pending.items)
+
+      const result = await api.tickets.create({
+        vehicle_plate:    null,
+        client_id:        pending.clientId || null,
+        washer_ids:       [],
+        seller_id:        pending.salesperson || null,
+        cajero_id:        (user?.id && user.id !== 'web') ? user.id : null,
+        comprobante_type: paymentData.ncfType || 'E32',
+        payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
+        tipo_venta:       paymentData.tipo || 'contado',
+        subtotal:         sub,
+        itbis:            itp,
+        ley:              0,
+        total:            tot,
+        beverage_subtotal: 0,
+        ecf_result:       paymentData.ecf || {},
+        items:            pending.items.map(i => ({
+          service_id:        i.service_id || null,
+          inventory_item_id: i.inventory_item_id || null,
+          name:              i.name,
+          price:             i.price,
+          quantity:          i.qty || 1,
+          sku:               i.sku || null,
+          is_wash:           i.is_wash ?? 0,
+        })),
+        comentario: paymentData.comentario || '',
+      })
+
+      clearForm()
+      flash(`${result?.docNumber || 'Ticket'} · ${lang === 'es' ? 'Creado ✓' : 'Created ✓'}`)
+
+      syncTicket({
+        client_name:      pending.clientName || null,
+        comprobante_type: paymentData.ncfType || 'E32',
+        payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
+        tipo_venta:       paymentData.tipo || 'contado',
+        subtotal: sub, itbis: itp, ley: 0, total: tot,
+        status:           'cobrado',
+        cajero_name:      user?.name || null,
+        items:            pending.items,
+        ecf_result:       paymentData.ecf || {},
+      }, result).catch(() => {})
+
+      syncTicketFull({
+        client_name:      pending.clientName || null,
+        comprobante_type: paymentData.ncfType || 'E32',
+        payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
+        tipo_venta:       paymentData.tipo || 'contado',
+        subtotal: sub, itbis: itp, ley: 0, total: tot,
+        status:           'cobrado',
+        cajero_name:      user?.name || null,
+        items:            pending.items,
+        ecf_result:       paymentData.ecf || {},
+      }, result)
+
+      try {
+        const [cfg, empresa] = await Promise.all([
+          api.settings.get().catch(() => ({})),
+          api.admin.getEmpresa().catch(() => ({})),
+        ])
+        const biz = {
+          name: empresa?.nombre || empresa?.name || '',
+          address: empresa?.direccion || empresa?.address || '',
+          phone: empresa?.telefono || empresa?.phone || '',
+          rnc: empresa?.rnc || '',
+          logo: empresa?.logo || '',
+        }
+        const ticketData = {
+          ncf: result?.ncf || '',
+          ncfType: paymentData.ncfType || 'E32',
+          cajero: user?.name || '',
+          lavador: '',
+          docNo: result?.docNumber || '',
+          paidAt: new Date(),
+          client: pending.client || null,
+          vehiclePlate: '',
+          tipo: paymentData.tipo || 'contado',
+          formaPago: paymentData.formaPago || 'cash',
+          services: pending.items,
+          subtotal: sub, descuento: 0, itbis: itp, ley: 0, total: tot,
+          biz,
+          signatureDate: paymentData.ecf?.signatureDate || null,
+          securityCode: paymentData.ecf?.securityCode || null,
+          qrLink: paymentData.ecf?.qrLink || null,
+        }
+        if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => {})
+        saveReceiptPDF(ticketData).catch(() => {})
+        const fm = paymentData.formaPago || ''
+        if (paymentData.tipo !== 'credito' && !['tarjeta', 'transferencia'].includes(fm)) {
+          printerApi?.openDrawer?.().catch?.(() => {})
+        }
+      } catch {}
+    } catch (err) {
+      flash(`Error: ${err.message}`)
+    }
+  }, [cobrarModal, lang])
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  const gridCols = collapsed ? 'grid-cols-2 md:grid-cols-4 lg:grid-cols-5' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
+
+  return (
+    <div className="h-full flex flex-col md:flex-row">
+      {/* ── Left: Product browser ─────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        {/* Search bar */}
+        <div className="p-3 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-black">
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              ref={searchRef}
+              type="text"
+              value={searchQuery}
+              onChange={e => handleSearchInput(e.target.value)}
+              onKeyDown={handleBarcodeScan}
+              placeholder={lang === 'es' ? 'Buscar producto, SKU o codigo de barras...' : 'Search product, SKU or barcode...'}
+              className="w-full pl-9 pr-4 py-2.5 text-sm bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0C447C]/30 focus:border-[#0C447C]"
+            />
+            {searching && <Loader2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin" />}
+            {!searching && searchQuery && (
+              <button onClick={() => { setSearchQuery(''); setSearchResults([]) }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Tab switcher */}
+        <div className="flex border-b border-slate-200 dark:border-white/10 bg-white dark:bg-black">
+          {[
+            { key: 'products', icon: Package, es: 'Productos', en: 'Products' },
+            { key: 'services', icon: LayoutGrid, es: 'Servicios', en: 'Services' },
+          ].map(({ key, icon: Icon, es, en }) => (
+            <button key={key} onClick={() => setTab(key)}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-[13px] font-medium border-b-2 transition-colors ${
+                tab === key
+                  ? 'border-[#0C447C] text-[#0C447C] dark:text-blue-400'
+                  : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-white/60'
+              }`}>
+              <Icon size={15} />
+              {lang === 'es' ? es : en}
+            </button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-3 bg-slate-50 dark:bg-black">
+          {/* Search results overlay */}
+          {searchQuery && tab === 'products' && (
+            <div className="mb-4">
+              {searchResults.length === 0 && !searching && (
+                <p className="text-center text-slate-400 text-sm py-8">
+                  {lang === 'es' ? 'No se encontraron productos' : 'No products found'}
+                </p>
+              )}
+              <div className={`grid ${gridCols} gap-2`}>
+                {searchResults.map(item => (
+                  <button key={item.id} onClick={() => addToCart(item)}
+                    className="flex flex-col items-start p-3 rounded-xl border-2 border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-[#0C447C] hover:bg-[#E6F1FB] dark:hover:bg-[#0C447C]/10 transition-all text-left">
+                    <p className="text-[13px] font-semibold text-slate-800 dark:text-white leading-tight line-clamp-2">{item.name}</p>
+                    {item.sku && <p className="text-[10px] text-slate-400 mt-0.5">{item.sku}</p>}
+                    <div className="flex items-center justify-between w-full mt-2">
+                      <p className="text-[13px] font-bold text-[#0C447C] dark:text-blue-400">{fmtRD(item.price)}</p>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                        item.quantity <= 0 ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400'
+                        : item.quantity <= (item.min_quantity || 5) ? 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'
+                        : 'bg-green-100 text-green-600 dark:bg-green-500/20 dark:text-green-400'
+                      }`}>
+                        {item.quantity <= 0 ? (lang === 'es' ? 'Agotado' : 'Out') : `${item.quantity} disp.`}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Products tab — show all inventory */}
+          {tab === 'products' && !searchQuery && (
+            <ProductGrid api={api} lang={lang} gridCols={gridCols} onAdd={addToCart} />
+          )}
+
+          {/* Services tab */}
+          {tab === 'services' && (
+            <div>
+              <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3 scrollbar-hide">
+                {serviceCategories.map(cat => (
+                  <button key={cat} onClick={() => setSvcCategory(cat)}
+                    className={`px-3 py-1.5 rounded-full text-[12px] font-medium whitespace-nowrap transition-all border ${
+                      svcCategory === cat
+                        ? 'bg-[#0C447C] text-white border-[#0C447C]'
+                        : 'bg-white dark:bg-white/5 text-slate-500 border-slate-200 dark:border-white/10 hover:border-[#0C447C]'
+                    }`}>
+                    {catLabel(cat, lang)}
+                  </button>
+                ))}
+              </div>
+              <div className={`grid ${gridCols} gap-2`}>
+                {rawServices.filter(s => s.category === svcCategory).map(svc => (
+                  <button key={svc.id} onClick={() => addServiceToCart(svc)}
+                    className="flex flex-col items-start p-3 rounded-xl border-2 border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-[#0C447C] hover:bg-[#E6F1FB] dark:hover:bg-[#0C447C]/10 transition-all text-left">
+                    <p className="text-[13px] font-semibold text-slate-800 dark:text-white leading-tight">{lang === 'es' ? svc.name : (svc.name_en || svc.name)}</p>
+                    <p className="text-[13px] font-bold text-[#0C447C] dark:text-blue-400 mt-1">{fmtRD(svc.price)}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Mobile floating cart button ──────────────────────────────────── */}
+      {cart.length > 0 && !mobileCartOpen && (
+        <button
+          onClick={() => setMobileCartOpen(true)}
+          className="md:hidden fixed bottom-20 right-4 z-30 bg-[#0C447C] text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center"
+        >
+          <ShoppingCart size={22} />
+          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">{cartCount}</span>
+        </button>
+      )}
+
+      {/* ── Right: Cart panel ────────────────────────────────────────────── */}
+      <div className={`${mobileCartOpen ? 'fixed inset-0 z-40 bg-white dark:bg-black' : 'hidden'} md:flex md:relative md:w-[340px] lg:w-[380px] flex-col border-l border-slate-200 dark:border-white/10 bg-white dark:bg-black`}>
+        {/* Cart header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-white/10">
+          <h2 className="text-[15px] font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <ShoppingCart size={16} />
+            {lang === 'es' ? 'Carrito' : 'Cart'}
+            {cart.length > 0 && <span className="text-[11px] font-medium text-slate-400">({cartCount})</span>}
+          </h2>
+          <div className="flex items-center gap-2">
+            {cart.length > 0 && (
+              <button onClick={clearForm} className="text-[11px] text-red-500 hover:text-red-600 font-medium">
+                {lang === 'es' ? 'Vaciar' : 'Clear'}
+              </button>
+            )}
+            <button onClick={() => setMobileCartOpen(false)} className="md:hidden text-slate-400 hover:text-slate-600">
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Client selector */}
+        <div className="px-4 py-2 border-b border-slate-100 dark:border-white/5">
+          {selectedClient ? (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <UserRound size={14} className="text-[#0C447C]" />
+                <span className="text-[13px] font-medium text-slate-800 dark:text-white">{selectedClient.name}</span>
+              </div>
+              <button onClick={() => setSelectedClient(null)} className="text-slate-400 hover:text-red-500"><X size={14} /></button>
+            </div>
+          ) : (
+            <button onClick={() => setShowClientPicker(true)}
+              className="w-full text-left text-[12px] text-slate-400 hover:text-[#0C447C] flex items-center gap-2 py-1">
+              <UserRound size={13} />
+              {lang === 'es' ? '+ Agregar cliente' : '+ Add client'}
+            </button>
+          )}
+        </div>
+
+        {/* Cart items */}
+        <div className="flex-1 overflow-y-auto px-4 py-2">
+          {cart.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-slate-300 dark:text-white/20 gap-2">
+              <ShoppingCart size={40} strokeWidth={1} />
+              <p className="text-[13px]">{lang === 'es' ? 'Carrito vacio' : 'Cart empty'}</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {cart.map(item => (
+                <div key={item.id} className="flex items-center gap-2 py-2 border-b border-slate-50 dark:border-white/5 last:border-0">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-medium text-slate-800 dark:text-white truncate">{item.name}</p>
+                    {item.sku && <p className="text-[10px] text-slate-400">{item.sku}</p>}
+                    <p className="text-[12px] text-[#0C447C] dark:text-blue-400 font-semibold">{fmtRD(item.price * item.qty)}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => item.qty <= 1 ? removeFromCart(item.id) : updateQty(item.id, -1)}
+                      className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-500 hover:bg-red-100 hover:text-red-500 transition-colors">
+                      {item.qty <= 1 ? <X size={12} /> : <Minus size={12} />}
+                    </button>
+                    <span className="w-7 text-center text-[13px] font-bold text-slate-800 dark:text-white">{item.qty}</span>
+                    <button onClick={() => updateQty(item.id, 1)}
+                      className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-500 hover:bg-[#E6F1FB] hover:text-[#0C447C] transition-colors">
+                      <Plus size={12} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Totals + Cobrar */}
+        <div className="border-t border-slate-200 dark:border-white/10 px-4 py-3 space-y-2">
+          <div className="flex justify-between text-[12px] text-slate-400"><span>Subtotal</span><span>{fmtRD(subtotal)}</span></div>
+          <div className="flex justify-between text-[12px] text-slate-400"><span>ITBIS (18%)</span><span>{fmtRD(itbis)}</span></div>
+          <div className="flex justify-between text-[15px] font-bold text-slate-800 dark:text-white border-t border-slate-200 dark:border-white/10 pt-2">
+            <span>Total</span><span>{fmtRD(total)}</span>
+          </div>
+          <button
+            onClick={() => {
+              if (cart.length > 0) {
+                setMobileCartOpen(false)
+                setCobrarModal({
+                  items: cart, salesperson,
+                  clientId: selectedClient?.id || null,
+                  clientName: selectedClient?.name || rncName || '',
+                  client: selectedClient || null,
+                })
+              }
+            }}
+            disabled={cart.length === 0}
+            className="w-full py-3 bg-[#0C447C] hover:bg-[#0a3a6a] disabled:opacity-40 text-white font-bold rounded-xl text-[14px] transition-colors flex items-center justify-center gap-2"
+          >
+            <ShoppingCart size={16} />
+            {lang === 'es' ? 'Cobrar' : 'Charge'} — {fmtRD(total)}
+          </button>
+        </div>
+      </div>
+
+      {/* Client picker modal */}
+      {showClientPicker && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowClientPicker(false)}>
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl w-full max-w-sm max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-slate-200 dark:border-white/10">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input value={clientSearch} onChange={e => setClientSearch(e.target.value)} autoFocus
+                  placeholder={lang === 'es' ? 'Buscar cliente...' : 'Search client...'}
+                  className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]/30" />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {clients.filter(c => !clientSearch || c.name?.toLowerCase().includes(clientSearch.toLowerCase()) || c.rnc?.includes(clientSearch))
+                .map(c => (
+                  <button key={c.id} onClick={() => { setSelectedClient(c); setShowClientPicker(false); setClientSearch('') }}
+                    className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/5 border-b border-slate-100 dark:border-white/5 last:border-0">
+                    <p className="text-[13px] font-medium text-slate-800 dark:text-white">{c.name}</p>
+                    {c.rnc && <p className="text-[11px] text-slate-400">{c.rnc}</p>}
+                  </button>
+                ))}
+            </div>
+            <div className="p-3 border-t border-slate-200 dark:border-white/10">
+              <button onClick={() => { setShowClientPicker(false); setShowNewClient(true) }}
+                className="w-full py-2 text-[13px] text-[#0C447C] font-medium hover:bg-[#E6F1FB] rounded-lg transition-colors">
+                + {lang === 'es' ? 'Nuevo cliente' : 'New client'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNewClient && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowNewClient(false)}>
+          <div onClick={e => e.stopPropagation()} className="bg-white dark:bg-zinc-900 rounded-2xl p-6 w-full max-w-md">
+            <NewClientForm
+              onCreated={c => { setClients(prev => [c, ...prev]); setSelectedClient(c); setShowNewClient(false) }}
+              onCancel={() => setShowNewClient(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-slate-800 text-white text-sm px-5 py-3 rounded-full shadow-lg flex items-center gap-2">
+          <CheckCircle2 size={15} className="text-green-400" />
+          {toast}
+        </div>
+      )}
+
+      {/* CobrarModal */}
+      {cobrarModal && (
+        <CobrarModal
+          ticket={{
+            id: null,
+            ticketNo: lang === 'es' ? 'NUEVO' : 'NEW',
+            vehicle: '',
+            services: cobrarModal.items,
+          }}
+          onConfirm={handlePaymentConfirm}
+          onClose={() => setCobrarModal(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Product grid (lazy-loaded inventory) ──────────────────────────────────────
+
+function ProductGrid({ api, lang, gridCols, onAdd }) {
+  const [products, setProducts] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.inventory?.all?.().then(items => {
+      setProducts(items || [])
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [api])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 size={24} className="animate-spin text-slate-400" />
+      </div>
+    )
+  }
+
+  if (products.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+        <Package size={40} strokeWidth={1} />
+        <p className="text-sm">{lang === 'es' ? 'No hay productos en inventario' : 'No inventory products'}</p>
+        <p className="text-xs text-slate-300">{lang === 'es' ? 'Agrega productos en Inventario' : 'Add products in Inventory'}</p>
+      </div>
+    )
+  }
+
+  const groups = {}
+  for (const p of products) {
+    const cat = p.category || (lang === 'es' ? 'Sin Categoria' : 'Uncategorized')
+    if (!groups[cat]) groups[cat] = []
+    groups[cat].push(p)
+  }
+
+  return (
+    <div className="space-y-4">
+      {Object.entries(groups).map(([cat, items]) => (
+        <div key={cat}>
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">{cat}</p>
+          <div className={`grid ${gridCols} gap-2`}>
+            {items.map(item => (
+              <button key={item.id} onClick={() => onAdd(item)}
+                className="flex flex-col items-start p-3 rounded-xl border-2 border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-[#0C447C] hover:bg-[#E6F1FB] dark:hover:bg-[#0C447C]/10 transition-all text-left">
+                <p className="text-[13px] font-semibold text-slate-800 dark:text-white leading-tight line-clamp-2">{item.name}</p>
+                {item.sku && <p className="text-[10px] text-slate-400 mt-0.5">{item.sku}</p>}
+                <div className="flex items-center justify-between w-full mt-2">
+                  <p className="text-[13px] font-bold text-[#0C447C] dark:text-blue-400">{fmtRD(item.price)}</p>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                    item.quantity <= 0 ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400'
+                    : item.quantity <= (item.min_quantity || 5) ? 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'
+                    : 'bg-green-100 text-green-600 dark:bg-green-500/20 dark:text-green-400'
+                  }`}>
+                    {item.quantity <= 0 ? (lang === 'es' ? 'Agotado' : 'Out') : `${item.quantity}`}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── POS Wrapper ───────────────────────────────────────────────────────────────
+
+export default function POS() {
+  const { isRetail } = useBusinessType()
+  return isRetail ? <RetailPOS /> : <CarWashPOS />
 }

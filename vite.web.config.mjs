@@ -44,11 +44,14 @@ export default defineConfig(({ mode }) => ({
     },
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor:   ['react', 'react-dom', 'react-router-dom'],
-          lucide:   ['lucide-react'],
-          supabase: ['@supabase/supabase-js'],
-          pdf:      ['pdf-lib', 'qrcode'],
+        manualChunks(id) {
+          if (id.includes('node_modules/react-dom')) return 'vendor'
+          if (id.includes('node_modules/react/') || id.includes('node_modules/react-router')) return 'vendor'
+          if (id.includes('node_modules/lucide-react')) return 'lucide'
+          if (id.includes('node_modules/@supabase')) return 'supabase'
+          if (id.includes('node_modules/pdf-lib') || id.includes('node_modules/qrcode')) return 'pdf'
+          if (id.includes('packages/services/ecf') || id.includes('packages/services/printer') || id.includes('packages/services/pdf')) return 'services'
+          if (id.includes('packages/data/web')) return 'data'
         },
       },
     },

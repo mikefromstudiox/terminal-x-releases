@@ -5,6 +5,7 @@ const fs     = require('fs')
 const crypto = require('crypto')
 const https  = require('https')
 const { initUpdater } = require('./updater')
+const sync = require('./sync')
 
 // ── Load .env from project root ───────────────────────────────────────────────
 // dotenv is a dev-dependency; in packaged builds the env vars must be set at
@@ -138,14 +139,14 @@ const dgiiClient  = require('./dgii-client')
 // Get current DGII environment from app settings (default: testecf)
 function getDgiiEnv() {
   if (!db) return 'testecf'
-  return db.getSetting('dgii_environment') || 'testecf'
+  return db.getSetting('dgii_environment') || 'certecf'
 }
 
 // dgii:submit — full flow: build XML → sign → authenticate → submit → poll status
 ipcMain.handle('dgii:submit', async (_, invoiceData) => {
   try {
     const { privateKeyPem, certificatePem } = certManager.loadCert()
-    const env = getDgiiEnv()
+    const dgiiEnv = getDgiiEnv()
 
     // 1. Build the JSON payload (same shape as ecf.js buildEXX())
     // invoiceData.payload is the pre-built ECF payload from the renderer
@@ -160,7 +161,7 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
     const { signedXml, securityCode, signatureDate } = xmlSigner.signXML(xml, privateKeyPem, certificatePem)
 
     // 4. Authenticate with DGII
-    const token = await dgiiClient.authenticate(env, privateKeyPem, certificatePem)
+    const token = await dgiiClient.authenticate(dgiiEnv, privateKeyPem, certificatePem)
 
     // 5. Submit to DGII
     const isE32Under250K = tipoECF === '32' && Number(invoiceData.montoTotal) < 250000
@@ -185,16 +186,16 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
         securityCode,
       })
       const signedRFCE = xmlSigner.signXML(rfceXml, privateKeyPem, certificatePem)
-      submitResult = await dgiiClient.submitRFCE(signedRFCE.signedXml, token, env)
+      submitResult = await dgiiClient.submitRFCE(signedRFCE.signedXml, token, dgiiEnv)
     } else {
-      submitResult = await dgiiClient.submitECF(signedXml, token, env)
+      submitResult = await dgiiClient.submitECF(signedXml, token, dgiiEnv)
     }
 
     // 6. Poll for status
     const trackId = submitResult.trackId || submitResult.encf || eNCF
     let status = { codigo: 3, estado: 'EN_PROCESO' }
     if (!isE32Under250K && trackId) {
-      status = await dgiiClient.pollStatus(trackId, token, env, { maxRetries: 5, delayMs: 1000 })
+      status = await dgiiClient.pollStatus(trackId, token, dgiiEnv, { maxRetries: 5, delayMs: 1000 })
     } else if (isE32Under250K) {
       // RFCE returns status directly
       status = { codigo: submitResult.codigo === 0 ? 1 : submitResult.codigo, estado: submitResult.estado || 'ACEPTADO' }
@@ -202,7 +203,7 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
 
     // 7. Build QR URL
     const qrUrl = dgiiClient.buildQRUrl({
-      env,
+      env: dgiiEnv,
       rncEmisor: invoiceData.emisor?.rnc,
       rncComprador: invoiceData.comprador?.rnc || '',
       eNCF,
@@ -225,7 +226,7 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
       dgiiMessage: status.mensajes?.join('; ') || status.estado,
       securityCode,
       signatureDate,
-      environment: env,
+      environment: dgiiEnv,
     })
 
     return {
@@ -259,11 +260,12 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
 })
 
 // dgii:install-cert — open file dialog, install .p12, return cert info
-ipcMain.handle('dgii:install-cert', async (_, { filePath, passphrase } = {}) => {
+ipcMain.handle('dgii:install-cert', async (event, { filePath, passphrase } = {}) => {
   try {
     let certPath = filePath
     if (!certPath) {
-      const result = await dialog.showOpenDialog({
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const result = await dialog.showOpenDialog(win, {
         title: 'Seleccionar certificado digital (.p12)',
         filters: [{ name: 'Certificado PKCS12', extensions: ['p12', 'pfx'] }],
         properties: ['openFile'],
@@ -484,7 +486,15 @@ function createWindow() {
     show: false,
   })
 
-  if (!isDev) Menu.setApplicationMenu(null)
+  // Minimal menu to enable Ctrl+C/V/X/A keyboard shortcuts in production
+  if (!isDev) {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { label: 'Edit', submenu: [
+        { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+        { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
+      ]},
+    ]))
+  }
   win.once('ready-to-show', () => {
     win.show()
     initUpdater(win)
@@ -505,7 +515,17 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Clear renderer cache when app version changes (prevents stale UI after update)
+  const versionPath = path.join(app.getPath('userData'), '.last-version')
+  const currentVersion = app.getVersion()
+  let lastVersion = ''
+  try { lastVersion = fs.readFileSync(versionPath, 'utf8').trim() } catch {}
+  if (lastVersion !== currentVersion) {
+    try { await require('electron').session.defaultSession.clearCache() } catch {}
+    try { fs.writeFileSync(versionPath, currentVersion) } catch {}
+  }
+
   // Init database
   if (db) {
     try {
@@ -520,6 +540,11 @@ app.whenReady().then(() => {
   }
   // Init certificate manager for DGII direct e-CF
   certManager.init(app)
+  // Init cloud sync (SQLite → Supabase backup)
+  if (db) {
+    sync.init(db, { supabaseUrl: env.supabaseUrl, supabaseKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '' })
+    sync.startAutoSync(5 * 60 * 1000) // every 5 min
+  }
   createWindow()
   // Retry any queued e-CF submissions every 30s (DGII 72h contingency compliance)
   setInterval(processDgiiQueue, 30_000)
@@ -596,6 +621,10 @@ handle('save-configuracion',  (data) => {
 handle('settings:get',    ()     => db.settingsGet())
 handle('settings:update', (obj)  => { db.settingsUpdate(obj); return true })
 
+// ── Cloud Sync ───────────────────────────────────────────────────────────────
+handle('sync:status', () => sync.getStatus())
+handle('sync:now',    async () => { await sync.syncNow(); return sync.getStatus() })
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 handle('auth:pin',         (pin)  => db.authByPin(pin))
 handle('users:all',        ()     => db.usersGetAll())
@@ -657,10 +686,13 @@ handle('credits:collect',      (data)      => db.collectCredit(data))
 // ── Tickets ───────────────────────────────────────────────────────────────────
 handle('tickets:all',         (params)    => db.ticketsGetAll(params))
 handle('tickets:byId',        (id)        => db.ticketGetById(id))
-handle('tickets:create',      (data)      => db.ticketCreate(data))
-handle('tickets:markPaid',    ({id,...d})            => db.ticketMarkPaid(id, d))
-handle('tickets:void',        ({id,reason,voidById}) => db.ticketVoid(id, reason, voidById))
+handle('tickets:create',      (data)      => { const r = db.ticketCreate(data); sync.syncNow().catch(() => {}); return r })
+handle('tickets:markPaid',    ({id,...d})            => { const r = db.ticketMarkPaid(id, d); sync.syncNow().catch(() => {}); return r })
+handle('tickets:void',        ({id,reason,voidById}) => { const r = db.ticketVoid(id, reason, voidById); sync.syncNow().catch(() => {}); return r })
 handle('tickets:byDateRange', ({from,to}) => db.ticketGetByDateRange(from, to))
+handle('tickets:updateItemPrice', (data) => db.ticketItemUpdatePrice(data))
+handle('tickets:priceChanges',    ({ticketId}) => db.priceChangesGetByTicket(ticketId))
+handle('tickets:allPriceChanges', ({from,to}) => db.priceChangesGetAll(from, to))
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
 handle('queue:active',       ()                        => db.queueGetActive())
@@ -777,14 +809,17 @@ async function dgiiRncSync(sendProgress) {
 
 // ── RNC IPC handlers ──────────────────────────────────────────────────────────
 
-ipcMain.handle('rnc:status', () => ({
-  count:    db.rncCount(),
-  lastSync: db.rncLastSync(),
-}))
+ipcMain.handle('rnc:status', () => {
+  try {
+    return { ok: true, count: db.rncCount(), lastSync: db.rncLastSync() }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
 
 ipcMain.handle('rnc:sync', async (event) => {
   try {
-    const send = data => event.sender.send('rnc:sync-progress', data)
+    const send = data => { if (!event.sender.isDestroyed()) event.sender.send('rnc:sync-progress', data) }
     const count = await dgiiRncSync(send)
     return { ok: true, count }
   } catch (err) {
@@ -793,51 +828,55 @@ ipcMain.handle('rnc:sync', async (event) => {
 })
 
 ipcMain.handle('rnc:lookup', async (_, { rnc }) => {
-  const clean = String(rnc || '').replace(/[-\s]/g, '')
-  if (!/^\d{9}$|^\d{11}$/.test(clean)) return { ok: false, error: 'RNC inválido' }
+  try {
+    const clean = String(rnc || '').replace(/[-\s]/g, '')
+    if (!/^\d{9}$|^\d{11}$/.test(clean)) return { ok: false, error: 'RNC inválido' }
 
-  // 1 — Local DB first (instant, works offline — includes full DGII sync data)
-  const local = db.rncLookupLocal(clean)
-  if (local) return {
-    ok: true,
-    nombre:          local.nombre,
-    nombreComercial: local.nombre_comercial,
-    estado:          local.estado,
-    actividad:       local.actividad,
-    provincia:       local.provincia,
-    fromLocal:       true,
-  }
+    // 1 — Local DB first (instant, works offline — includes full DGII sync data)
+    const local = db.rncLookupLocal(clean)
+    if (local) return {
+      ok: true,
+      nombre:          local.nombre,
+      nombreComercial: local.nombre_comercial,
+      estado:          local.estado,
+      actividad:       local.actividad,
+      provincia:       local.provincia,
+      fromLocal:       true,
+    }
 
-  // 2 — Live fallback via megaplus.com.do (no API key required)
-  return new Promise(resolve => {
-    const req = https.get(`https://rnc.megaplus.com.do/api/consulta?rnc=${clean}`, { timeout: 8000 }, res => {
-      let body = ''
-      res.on('data', chunk => body += chunk)
-      res.on('end', () => {
-        try {
-          const data = JSON.parse(body)
-          const nombre = data?.nombre_razon_social || data?.nombre || ''
-          if (nombre) {
-            const normalized = {
-              nombre:            nombre,
-              nombreComercial:   data.nombre_comercial   || '',
-              actividadEconomica:data.actividad_economica|| '',
-              estado:            data.estado             || 'ACTIVO',
-              regimen:           data.regimen_de_pagos   || 'NORMAL',
+    // 2 — Live fallback via megaplus.com.do (no API key required)
+    return new Promise(resolve => {
+      const req = https.get(`https://rnc.megaplus.com.do/api/consulta?rnc=${clean}`, { timeout: 8000 }, res => {
+        let body = ''
+        res.on('data', chunk => body += chunk)
+        res.on('end', () => {
+          try {
+            const data = JSON.parse(body)
+            const nombre = data?.nombre_razon_social || data?.nombre || ''
+            if (nombre) {
+              const normalized = {
+                nombre:            nombre,
+                nombreComercial:   data.nombre_comercial   || '',
+                actividadEconomica:data.actividad_economica|| '',
+                estado:            data.estado             || 'ACTIVO',
+                regimen:           data.regimen_de_pagos   || 'NORMAL',
+              }
+              db.rncSave(clean, normalized, 'api')
+              resolve({ ok: true, nombre, nombreComercial: normalized.nombreComercial, estado: normalized.estado, actividad: normalized.actividadEconomica })
+            } else {
+              resolve({ ok: false, error: 'RNC no encontrado' })
             }
-            db.rncSave(clean, normalized, 'api')
-            resolve({ ok: true, nombre, nombreComercial: normalized.nombreComercial, estado: normalized.estado, actividad: normalized.actividadEconomica })
-          } else {
-            resolve({ ok: false, error: 'RNC no encontrado' })
+          } catch {
+            resolve({ ok: false, error: 'Respuesta inválida' })
           }
-        } catch {
-          resolve({ ok: false, error: 'Respuesta inválida' })
-        }
+        })
       })
+      req.on('error',   ()  => resolve({ ok: false, error: 'Sin conexión' }))
+      req.on('timeout', ()  => { req.destroy(); resolve({ ok: false, error: 'Tiempo agotado' }) })
     })
-    req.on('error',   ()  => resolve({ ok: false, error: 'Sin conexión' }))
-    req.on('timeout', ()  => { req.destroy(); resolve({ ok: false, error: 'Tiempo agotado' }) })
-  })
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
 })
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
@@ -847,6 +886,9 @@ handle('inventory:update',       ({id, ...data})                => { db.inventor
 handle('inventory:delete',       ({id})                         => { db.inventoryDelete(id); return true })
 handle('inventory:adjust',       ({id, delta, notes, userId})   => db.inventoryAdjust(id, delta, notes, userId))
 handle('inventory:transactions', ({id})                         => db.inventoryTransactions(id))
+handle('inventory:lookupSku',    (sku)                          => db.inventoryLookupBySku(sku))
+handle('inventory:search',       (query)                        => db.inventorySearch(query))
+handle('inventory:lowStockCount', ()                             => db.inventoryLowStockCount())
 
 // ── Backup / Export ───────────────────────────────────────────────────────────
 handle('db:exportAll',   ()      => db.exportAll())

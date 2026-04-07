@@ -213,7 +213,26 @@
       "Bash(grep -n \"CREATE TABLE.*ticket_items\\\\|ticket_items.*CREATE\" electron/database.js db/*.sql)",
       "Bash(grep -rn \"from\\('tickets'\\).upsert\\\\|from\\('clients'\\).upsert\\\\|\\\\\\\\.upsert\\(\" packages/ packages/services/ electron/)",
       "Bash(mv:*)",
-      "Bash(grep -n \"className=\\\\\"bg-white\\\\\\\\|className=\\\\\"bg-black\\\\\\\\|^      {/\\\\\\\\* SECTION\" packages/ui/landing/LandingPage.jsx)"
+      "Bash(grep -n \"className=\\\\\"bg-white\\\\\\\\|className=\\\\\"bg-black\\\\\\\\|^      {/\\\\\\\\* SECTION\" packages/ui/landing/LandingPage.jsx)",
+      "Bash(gh --version)",
+      "Bash(gh release:*)",
+      "Read(//c/Users/tmogul/**)",
+      "Read(//mnt/c/Users/tmogul/**)",
+      "Bash(grep -n \"enabled.*E3\\\\|ncf_sequences.*enabled\" \"A:\\\\Studio X HUB\\\\Terminal X\\\\packages\\\\ui\\\\screens\"/*.jsx)",
+      "mcp__ide__getDiagnostics",
+      "Bash(sort -t'|' -k1 -rn)",
+      "Bash(find packages/ui/assets -type f -exec ls -lh {} \\\\;)",
+      "Bash(sort -k5 -rh)",
+      "Bash(find web/public -type f -exec ls -lh {} \\\\;)",
+      "Bash(npx sharp-cli:*)",
+      "Bash(sort -t'│' -k1 -rn)",
+      "Bash(sed:*)",
+      "Bash(sed -i 's|<img src={xMark} alt=\"TX\" className=\"\\\\\\([^\"]*\\\\\\)\" draggable={false} />|<img src={xMark} alt=\"TX\" width=\"32\" height=\"32\" className=\"\\\\1\" draggable={false} />|g' packages/ui/components/Sidebar.jsx)",
+      "Bash(sed -i 's|<img src={logoImg} alt=\"X\" className=\"\\\\\\([^\"]*\\\\\\)\" draggable={false} />|<img src={logoImg} alt=\"X\" width=\"24\" height=\"24\" className=\"\\\\1\" draggable={false} />|g' packages/ui/components/Sidebar.jsx)",
+      "Bash(npx sharp:*)",
+      "Read(//c/Users/City/AppData/**)",
+      "Bash(sed 's/Terminal-X-Setup/Terminal X-Setup/g' dist/latest.yml)",
+      "Read(//tmp/**)"
     ]
   }
 }

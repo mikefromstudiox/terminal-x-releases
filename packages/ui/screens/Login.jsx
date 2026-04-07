@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import logoImg from '../assets/logo.png'
-import xMark from '../assets/x-mark.png'
+import logoImg from '../assets/logo.webp'
+import xMark from '../assets/x-mark.webp'
 import { Delete } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAuth } from '../context/AuthContext'
@@ -203,12 +203,12 @@ export default function Login() {
 
       {/* ── Left panel — brand ─────────────────────────────────────────────── */}
       <div
-        className="hidden md:flex flex-col items-center justify-center bg-black shrink-0 px-8 py-10 relative overflow-hidden"
-        style={{ width: 320 }}
+        className="hidden md:flex flex-col items-center justify-center bg-black shrink-0 px-10 py-10 relative overflow-hidden"
+        style={{ width: 360 }}
       >
-        <div className="flex items-center justify-center gap-0">
-          <span className="text-4xl font-black tracking-[3px] text-white sm:text-5xl leading-none -mt-1">TERMINAL</span>
-          <img src={logoImg} alt="X" className="h-12 w-auto object-contain sm:h-14" draggable="false" />
+        <div className="flex items-center justify-center gap-1">
+          <span className="text-3xl font-black tracking-[2px] text-white lg:text-4xl leading-none">TERMINAL</span>
+          <img src={logoImg} alt="X" className="h-10 w-auto object-contain lg:h-12" draggable="false" />
         </div>
         <p className="text-white/40 leading-none mt-2 text-center w-full text-[12px]">POS</p>
       </div>

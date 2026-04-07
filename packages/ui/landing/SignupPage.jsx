@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Loader2, ArrowLeft, Check } from 'lucide-react'
-import logoImg from '../assets/logo.png'
+import logoImg from '../assets/logo.webp'
 
 function detectLang() {
   const stored = localStorage.getItem('tx_landing_lang')
@@ -97,7 +97,7 @@ export default function SignupPage({ supabase }) {
             {step === 1 ? L('Datos del negocio', 'Business details') : L('Crear cuenta', 'Create account')}
           </p>
           <div className="inline-block mt-2 px-3 py-1 bg-[#b3001e]/20 text-white text-xs font-bold rounded-full">
-            Plan {VALID_PLANS[plan]}
+            {L('7 dias gratis — Plan Pro MAX', '7 days free — Pro MAX Plan')}
           </div>
         </div>
 

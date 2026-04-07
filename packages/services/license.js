@@ -80,7 +80,7 @@ function setCachedResult(result) {
  * @param {string} [rnc]
  * @returns {Promise<LicenseResult>}
  */
-export async function validateLicense(licenseKey, hardwareId, rnc = '') {
+export async function validateLicense(licenseKey, hardwareId, rnc = '', bizSync = null) {
   if (!isValidKeyFormat(licenseKey)) {
     return { valid: false, status: 'invalid_format', readOnly: true }
   }
@@ -91,16 +91,26 @@ export async function validateLicense(licenseKey, hardwareId, rnc = '') {
       hwid: hardwareId,
       rnc:  rnc || getStoredRnc(),
     }
+    if (bizSync) payload.bizSync = bizSync
 
     let data
     if (window.electronAPI?.remote) {
       // Desktop: use IPC (no CORS issues)
       data = await window.electronAPI.remote.validate(payload)
     } else {
-      // Web: use fetch
+      // Web: use fetch — include Supabase auth token for web-client HWID verification
+      const hdrs = { 'Content-Type': 'application/json' }
+      try {
+        const { getSupabaseClient } = await import('./supabase.js')
+        const sb = getSupabaseClient()
+        if (sb) {
+          const { data: { session } } = await sb.auth.getSession()
+          if (session?.access_token) hdrs['Authorization'] = `Bearer ${session.access_token}`
+        }
+      } catch {}
       const response = await fetch(`${LICENSE_API}/api/validate`, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: hdrs,
         body:    JSON.stringify(payload),
         signal: AbortSignal.timeout(10000),
       })

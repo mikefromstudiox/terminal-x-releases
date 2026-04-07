@@ -59,6 +59,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete:       (data)                        => call('inventory:delete', data),
     adjust:       ({id, delta, notes, userId})  => call('inventory:adjust', {id, delta, notes, userId}),
     transactions: ({id})                        => call('inventory:transactions', {id}),
+    lookupSku:    (sku)                         => call('inventory:lookupSku', sku),
+    search:       (query)                       => call('inventory:search', query),
+    lowStockCount: ()                           => call('inventory:lowStockCount'),
   },
 
   // ── Auth ───────────────────────────────────────────────────────────────────
@@ -149,6 +152,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     markPaid:    (data)   => call('tickets:markPaid', data),
     void:        (data)   => call('tickets:void', data),
     byDateRange: (params) => call('tickets:byDateRange', params),
+    updateItemPrice: (data) => call('tickets:updateItemPrice', data),
+    priceChanges:    (data) => call('tickets:priceChanges', data),
+    allPriceChanges: (data) => call('tickets:allPriceChanges', data),
   },
 
   // ── Queue ──────────────────────────────────────────────────────────────────
@@ -252,6 +258,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   remote: {
     register: (body) => ipcRenderer.invoke('remote:register', body),
     validate: (body) => ipcRenderer.invoke('remote:validate', body),
+  },
+
+  // ── Cloud Sync ─────────────────────────────────────────────────────────────
+  sync: {
+    status: () => ipcRenderer.invoke('sync:status'),
+    now:    () => ipcRenderer.invoke('sync:now'),
   },
 
   // ── App version ────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ import {
   Building2, Upload, X, CheckCircle2, Loader2, ImageOff,
   Users, UserCheck, KeyRound, LayoutGrid, Plus, Edit2, Power,
   Eye, EyeOff, AlertCircle, FileText, Wifi, WifiOff, ExternalLink,
-  Check, Coffee,
+  Check, Coffee, Lock,
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
@@ -864,6 +864,9 @@ export function FiscalNCF() {
   const [testMsg,     setTestMsg]     = useState('')
   const [fiscalMode,  setFiscalMode]  = useState('ecf')  // 'legacy' | 'ecf'
   const [modeLoaded,  setModeLoaded]  = useState(false)
+  const [certPass,    setCertPass]    = useState('')
+  const [certInstalling, setCertInstalling] = useState(false)
+  const [certMsg,     setCertMsg]     = useState(null)
 
   const load = useCallback(async () => {
     try {
@@ -949,6 +952,29 @@ export function FiscalNCF() {
       show(err.message || L('Error de conexión', 'Connection error'), 'error')
     } finally {
       setTesting(false)
+    }
+  }
+
+  async function handleInstallCert() {
+    const dgii = window.electronAPI?.dgii_ecf
+    if (!dgii) return
+    setCertInstalling(true); setCertMsg(null)
+    try {
+      const result = await dgii.installCert({ passphrase: certPass })
+      if (result?.ok || result?.serialNumber) {
+        setCertMsg({ type: 'ok', text: L(`Certificado instalado (SN: ${result.serialNumber?.slice(0, 12)}…)`, `Certificate installed (SN: ${result.serialNumber?.slice(0, 12)}…)`) })
+        setCertPass('')
+        show(L('Certificado instalado ✓', 'Certificate installed ✓'))
+      } else {
+        setCertMsg({ type: 'error', text: result?.error || L('Error al instalar certificado', 'Error installing certificate') })
+      }
+    } catch (err) {
+      const msg = err.message?.includes('isEncryptionAvailable') || err.message?.includes('safeStorage')
+        ? L('Error de cifrado del sistema. Reinicie la aplicación e intente de nuevo.', 'System encryption error. Restart the app and try again.')
+        : err.message?.includes('Cancelado') ? L('Operación cancelada', 'Cancelled') : (err.message || L('Error desconocido', 'Unknown error'))
+      setCertMsg({ type: 'error', text: msg })
+    } finally {
+      setCertInstalling(false)
     }
   }
 
@@ -1093,6 +1119,26 @@ export function FiscalNCF() {
             </button>
           )}
         </div>
+        {/* ── Cert install ── */}
+        {!!window.electronAPI?.dgii_ecf && (
+          <div className="border-t border-slate-200 dark:border-white/10 px-4 py-4">
+            <p className="text-[11px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider mb-3">
+              {L('Instalar / Reinstalar Certificado .p12', 'Install / Reinstall Certificate .p12')}
+            </p>
+            <div className="flex items-center gap-2">
+              <input type="password" value={certPass} onChange={e => setCertPass(e.target.value)}
+                placeholder={L('Contraseña del .p12', '.p12 password')}
+                className="flex-1 max-w-[220px] px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              <button onClick={handleInstallCert} disabled={certInstalling || !certPass}
+                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition">
+                <Upload size={14} />
+                {certInstalling ? L('Instalando…', 'Installing…') : L('Seleccionar .p12', 'Select .p12')}
+              </button>
+            </div>
+            {certMsg?.type === 'ok' && <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mt-2"><Check size={11} />{certMsg.text}</p>}
+            {certMsg?.type === 'error' && <p className="text-xs text-red-500 dark:text-red-400 mt-2">{certMsg.text}</p>}
+          </div>
+        )}
       </div>
 
       <div>

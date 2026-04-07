@@ -1,21 +1,201 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es-DO">
   <head>
+    <!-- Google Analytics — delayed 3s after load to avoid main-thread blocking -->
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-WV4EDKWVJP');
+      window.addEventListener('load', function() {
+        setTimeout(function() {
+          var s = document.createElement('script');
+          s.src = 'https://www.googletagmanager.com/gtag/js?id=G-WV4EDKWVJP';
+          document.head.appendChild(s);
+        }, 3000);
+      });
+    </script>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#000000" />
-    <meta name="mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="description" content="Terminal X POS - Sistema de punto de venta" />
+
+    <!-- SEO Meta -->
+    <title>Terminal X — Sistema POS y Facturacion Electronica e-CF | Republica Dominicana</title>
+    <meta name="description" content="Sistema de punto de venta con facturacion electronica e-CF certificado por DGII (Ley 32-23). Para car wash, tiendas, retail y servicios. Inventario con codigo de barras, funciona offline. Desde RD$2,490/mes." />
+    <meta name="keywords" content="sistema POS Republica Dominicana, punto de venta RD, facturacion electronica DGII, e-CF certificado, software facturacion dominicana, sistema inventario codigo barras, POS car wash, POS tienda retail, caja registradora digital, comprobantes fiscales electronicos, Ley 32-23, sistema de facturacion RD, programa para facturar DGII" />
+    <meta name="robots" content="index, follow" />
+    <meta name="author" content="Studio X SRL" />
+    <meta name="geo.region" content="DO" />
+    <meta name="geo.placename" content="Santo Domingo" />
+    <link rel="canonical" href="https://terminalxpos.com/" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="Terminal X — Sistema POS y Facturacion Electronica e-CF | Republica Dominicana" />
+    <meta property="og:description" content="Punto de venta certificado por DGII con e-CF (Ley 32-23). Para car wash, tiendas y retail. Inventario, codigo de barras, nomina, funciona offline. Desde RD$2,490/mes." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://terminalxpos.com" />
+    <meta property="og:site_name" content="Terminal X POS" />
+    <meta property="og:locale" content="es_DO" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Terminal X — Sistema POS con e-CF Certificado DGII" />
+    <meta name="twitter:description" content="El sistema POS dominicano con facturacion electronica directa a DGII. Car wash, tiendas, retail. Desde RD$2,490/mes." />
+
+    <!-- hreflang -->
+    <link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/" />
+    <link rel="alternate" hreflang="en" href="https://terminalxpos.com/" />
+    <link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/" />
+
+    <!-- Icons & PWA -->
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-    <title>Terminal X POS</title>
+
+    <!-- Structured Data: SoftwareApplication -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Terminal X POS",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Windows, Web, Android, iOS",
+      "url": "https://terminalxpos.com",
+      "description": "Sistema de punto de venta para Republica Dominicana con facturacion electronica e-CF directa a DGII. Para car wash, tiendas, retail y servicios profesionales. Inventario con codigo de barras, nomina, impresion termica.",
+      "offers": {
+        "@type": "AggregateOffer",
+        "priceCurrency": "DOP",
+        "lowPrice": "2490",
+        "highPrice": "6990",
+        "offerCount": "3"
+      },
+      "author": {
+        "@type": "Organization",
+        "name": "Studio X SRL",
+        "url": "https://studioxrd.com",
+        "address": {
+          "@type": "PostalAddress",
+          "addressLocality": "Santo Domingo",
+          "addressRegion": "Distrito Nacional",
+          "addressCountry": "DO"
+        },
+        "telephone": "+18098282971",
+        "contactPoint": {
+          "@type": "ContactPoint",
+          "telephone": "+18098282971",
+          "contactType": "sales",
+          "availableLanguage": ["Spanish", "English"]
+        }
+      },
+      "featureList": "Facturacion e-CF directa DGII, Inventario con codigo de barras, POS para car wash y tiendas, Modo offline 72h, Impresion termica 80mm, Nomina in-house, Multi-usuario con roles, Creditos y cobros, Reportes DGII 606/607"
+    }
+    </script>
+
+    <!-- Structured Data: FAQPage -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Que es la facturacion electronica e-CF en Republica Dominicana?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Los e-CF (Comprobantes Fiscales Electronicos) son el nuevo formato obligatorio de facturacion de la DGII bajo la Ley 32-23. Terminal X es un Emisor Electronico certificado que envia facturas directamente a la DGII sin intermediarios."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Cuanto cuesta Terminal X POS?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Terminal X tiene 3 planes: Pro desde RD$2,490/mes, Pro PLUS desde RD$4,490/mes, y Pro MAX desde RD$6,990/mes. Todos incluyen facturacion electronica e-CF certificada."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Terminal X funciona para tiendas y retail?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Si. Terminal X soporta car wash, tiendas/retail con inventario y codigo de barras, y servicios profesionales. El sistema se adapta automaticamente segun el tipo de negocio."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Funciona sin internet?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Si. La version desktop de Terminal X funciona completamente offline con SQLite local. Los datos se sincronizan automaticamente cuando se recupera la conexion."
+          }
+        }
+      ]
+    }
+    </script>
+
+    <!-- Structured Data: Organization -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "Studio X SRL",
+      "url": "https://studioxrd.com",
+      "logo": "https://terminalxpos.com/icons/icon-512.png",
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Santo Domingo",
+        "addressRegion": "Distrito Nacional",
+        "addressCountry": "DO"
+      },
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "telephone": "+18098282971",
+        "contactType": "customer service",
+        "areaServed": "DO",
+        "availableLanguage": ["Spanish", "English"]
+      },
+      "sameAs": [
+        "https://wa.me/18098282971"
+      ]
+    }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
-    <script src="https://cdn.jsdelivr.net/npm/qz-tray@2/qz-tray.js"></script>
+    <main id="root"></main>
+
+    <!-- SEO: Static content for crawlers that don't execute JS -->
+    <noscript>
+      <h1>Terminal X — Sistema POS y Facturacion Electronica e-CF</h1>
+      <p>El sistema de punto de venta para Republica Dominicana con facturacion electronica e-CF certificado por DGII (Ley 32-23). Para car wash, tiendas, retail y servicios profesionales.</p>
+      <h2>Funciones Principales</h2>
+      <ul>
+        <li>Facturacion electronica e-CF directa a DGII — sin intermediarios, sin PSFE</li>
+        <li>POS para car wash con cola de servicios, lavadores y comisiones</li>
+        <li>POS para tiendas y retail con inventario, codigo de barras y cantidades</li>
+        <li>Modo offline — funciona sin internet con sincronizacion automatica</li>
+        <li>Impresion termica 80mm, recibos PDF, envio por WhatsApp</li>
+        <li>Nomina in-house con TSS, INFOTEP, ISR segun Ley 16-92</li>
+        <li>Reportes diarios, mensuales, comisiones, productos vendidos</li>
+        <li>Multi-usuario con roles: dueno, gerente, cajero, contador</li>
+      </ul>
+      <h2>Planes desde RD$2,490/mes</h2>
+      <p>Pro — RD$2,490/mes | Pro PLUS — RD$4,490/mes | Pro MAX — RD$6,990/mes</p>
+      <p>7 dias gratis en Plan Pro MAX. Prueba todas las funciones sin compromiso.</p>
+      <p>Contacto: WhatsApp +1 809-828-2971 | Santo Domingo, Republica Dominicana</p>
+      <a href="https://wa.me/18098282971">Contactar por WhatsApp</a>
+    </noscript>
+
     <script type="module" src="./main.jsx"></script>
+    <!-- qz-tray: only load for POS routes, not landing page -->
+    <script>
+      if (location.pathname.startsWith('/pos')) {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/qz-tray@2/qz-tray.js';
+        document.head.appendChild(s);
+      }
+    </script>
   </body>
 </html>

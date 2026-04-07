@@ -96,7 +96,19 @@ export function LicenseProvider({ children }) {
       }
 
       // ── 3. LICENSED MODE: validate against server ───────────────────────
-      const res = await validateLicense(k, h, r)
+      // Gather local biz settings to sync to Supabase
+      let bizSync = null
+      try {
+        const s = await api?.settings?.get?.()
+        if (s && (s.biz_name || s.biz_rnc)) {
+          bizSync = { name: s.biz_name, rnc: s.biz_rnc, address: s.biz_address, phone: s.biz_phone, email: s.biz_email }
+        }
+      } catch {}
+      const res = await validateLicense(k, h, r, bizSync)
+      // Store business_id for cloud sync
+      if (res.valid && res.businessId && api?.settings?.update) {
+        try { await api.settings.update({ supabase_business_id: res.businessId }) } catch {}
+      }
       // Sync remote config to local settings if available
       if (res.valid && res.remoteConfig && api?.settings?.update) {
         try { await api.settings.update(res.remoteConfig) } catch {}

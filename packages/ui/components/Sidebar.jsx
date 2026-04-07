@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import logoImg from '../assets/logo.png'
-import xMark from '../assets/x-mark.png'
+import logoImg from '../assets/logo.webp'
+import xMark from '../assets/x-mark.webp'
 import { useState, useEffect } from 'react'
 import { useAPI } from '../context/DataContext'
 import {
@@ -20,6 +20,7 @@ import { useLayout } from '../context/LayoutContext'
 import { useBackup } from '../context/BackupContext'
 import { useLicense } from '../context/LicenseContext'
 import LanguageToggle from './LanguageToggle'
+import { useBusinessType } from '../hooks/useBusinessType.jsx'
 
 // ── Navigation structure ────────────────────────────────────────────────────
 
@@ -33,6 +34,7 @@ const NAV = [
     id: 'queue', to: '/queue', icon: ClipboardList,
     es: 'Cola', en: 'Queue',
     feature: 'queue',
+    businessTypes: ['carwash'],
   },
   {
     id: 'clients', icon: Users,
@@ -58,6 +60,7 @@ const NAV = [
     es: 'Inventario', en: 'Inventory',
     feature: 'inventory',
     roles: ['owner','manager','cfo','accountant'],
+    hasBadge: 'lowStock',
   },
   {
     id: 'reports', icon: BarChart3,
@@ -83,7 +86,7 @@ const NAV = [
     children: [
       { to: '/config/empresa',       es: 'Mi Empresa',      en: 'Business',        icon: Building2 },
       { to: '/config/servicios',     es: 'Servicios',       en: 'Services',        icon: LayoutGrid },
-      { to: '/config/lavadores',     es: 'Lavadores',       en: 'Washers',         icon: Users },
+      { to: '/config/lavadores',     es: 'Lavadores',       en: 'Washers',         icon: Users, businessTypes: ['carwash'] },
       { to: '/config/vendedores',    es: 'Vendedores',      en: 'Salespeople',     icon: UserCheck },
       { to: '/config/cajeras',       es: 'Cajeras',         en: 'Cashiers',        icon: Coffee },
       { to: '/config/usuarios',      es: 'Usuarios',        en: 'Users',           icon: KeyRound },
@@ -109,7 +112,7 @@ function isChildActive(children, pathname) {
 
 // ── Desktop Nav Item ────────────────────────────────────────────────────────
 
-function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, pathname }) {
+function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowStock, pathname, businessType }) {
   const isGroup = !!item.children
   const locked = item.feature && !hasFeature(item.feature)
   const active = isGroup
@@ -124,11 +127,14 @@ function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, pathna
 
   const label = lang === 'es' ? item.es : item.en
   const Icon = item.icon
-  const badge = item.hasBadge ? ecfQueue : 0
+  const badge = item.hasBadge === 'lowStock' ? lowStock : item.hasBadge ? ecfQueue : 0
 
-  // Filter children by role
+  // Filter children by role and business type
   const visibleChildren = isGroup
-    ? item.children.filter(c => !c.roles || c.roles.includes(userRole))
+    ? item.children.filter(c =>
+        (!c.roles || c.roles.includes(userRole)) &&
+        (!c.businessTypes || c.businessTypes.includes(businessType))
+      )
     : []
 
   if (isGroup && collapsed) {
@@ -314,7 +320,7 @@ function LicenseDot({ collapsed }) {
 
 // ── Mobile Bottom Nav ───────────────────────────────────────────────────────
 
-function MobileBottomNav({ visibleNav, ecfQueue }) {
+function MobileBottomNav({ visibleNav, ecfQueue, businessType }) {
   const { lang } = useLang()
   const { user, logout } = useAuth()
   const { darkMode, toggleDark, themePreference } = useLayout()
@@ -325,12 +331,14 @@ function MobileBottomNav({ visibleNav, ecfQueue }) {
 
   useEffect(() => { setDrawerOpen(false) }, [pathname])
 
-  const bottomItems = [
-    { id: 'pos',     to: '/pos',     icon: ShoppingCart,  label: 'POS' },
-    { id: 'queue',   to: '/queue',   icon: ClipboardList, label: 'Cola' },
-    { id: 'clients', to: '/clients', icon: Users,         label: lang === 'es' ? 'Clientes' : 'Clients' },
-    { id: 'reports', to: '/reports', icon: BarChart3,     label: lang === 'es' ? 'Reportes' : 'Reports' },
+  const allBottomItems = [
+    { id: 'pos',       to: '/pos',       icon: ShoppingCart,  label: 'POS' },
+    { id: 'queue',     to: '/queue',     icon: ClipboardList, label: 'Cola',       businessTypes: ['carwash'] },
+    { id: 'inventory', to: '/inventory', icon: Package,       label: lang === 'es' ? 'Inventario' : 'Inventory', businessTypes: ['tienda', 'otro'] },
+    { id: 'clients',   to: '/clients',   icon: Users,         label: lang === 'es' ? 'Clientes' : 'Clients' },
+    { id: 'reports',   to: '/reports',   icon: BarChart3,     label: lang === 'es' ? 'Reportes' : 'Reports' },
   ]
+  const bottomItems = allBottomItems.filter(i => !i.businessTypes || i.businessTypes.includes(businessType))
 
   // Drawer items = everything not in bottom bar, flattened
   const drawerItems = []
@@ -458,8 +466,10 @@ export default function Sidebar() {
   const { collapsed, setCollapsed, darkMode, toggleDark, themePreference } = useLayout()
   const { result } = useLicense()
   const { hasFeature } = usePlan()
+  const { businessType } = useBusinessType()
   const location = useLocation()
   const [ecfQueue, setEcfQueue] = useState(0)
+  const [lowStock, setLowStock] = useState(0)
 
   useEffect(() => {
     async function poll() {
@@ -471,9 +481,21 @@ export default function Sidebar() {
     return () => clearInterval(id)
   }, [])
 
-  // Filter nav items by role
+  useEffect(() => {
+    if (businessType !== 'tienda' && businessType !== 'otro') return
+    async function poll() {
+      const count = await api?.inventory?.lowStockCount?.() ?? 0
+      setLowStock(count)
+    }
+    poll()
+    const id = setInterval(poll, 60_000)
+    return () => clearInterval(id)
+  }, [businessType, api])
+
+  // Filter nav items by role and business type
   const visibleNav = NAV.filter(item =>
-    !item.roles || item.roles.includes(user?.role)
+    (!item.roles || item.roles.includes(user?.role)) &&
+    (!item.businessTypes || item.businessTypes.includes(businessType))
   )
 
   return (
@@ -488,10 +510,10 @@ export default function Sidebar() {
           collapsed ? 'justify-center' : 'px-4'
         }`}>
           {collapsed
-            ? <img src={xMark} alt="TX" className="w-8 h-8 object-contain" draggable={false} />
+            ? <img src={xMark} alt="TX" width="32" height="32" className="w-8 h-8 object-contain" draggable={false} />
             : <div className="flex items-center gap-0">
                 <span className="text-[15px] font-black tracking-[3px] text-white leading-none -mt-1">TERMINAL</span>
-                <img src={logoImg} alt="X" className="h-6 w-auto object-contain" draggable={false} />
+                <img src={logoImg} alt="X" width="24" height="24" className="h-6 w-auto object-contain" draggable={false} />
               </div>
           }
         </div>
@@ -507,7 +529,9 @@ export default function Sidebar() {
               hasFeature={hasFeature}
               userRole={user?.role}
               ecfQueue={ecfQueue}
+              lowStock={lowStock}
               pathname={location.pathname}
+              businessType={businessType}
             />
           ))}
         </nav>
@@ -564,7 +588,7 @@ export default function Sidebar() {
       </aside>
 
       {/* ── Mobile bottom nav ────────────────────────────────────────────── */}
-      <MobileBottomNav visibleNav={visibleNav} ecfQueue={ecfQueue} />
+      <MobileBottomNav visibleNav={visibleNav} ecfQueue={ecfQueue} businessType={businessType} />
     </>
   )
 }

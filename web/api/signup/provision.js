@@ -32,13 +32,18 @@ export default async function handler(req, res) {
     const { data: existing } = await supabase.from('businesses').select('id').eq('owner_id', user.id).maybeSingle()
     if (existing) return res.status(409).json({ error: 'Business already exists', business_id: existing.id })
 
-    const planName = plan || 'pro'
-    const { data: planRow } = await supabase.from('plans').select('id, name, max_users').eq('name', planName).maybeSingle()
+    // All signups get 7-day free trial on Pro MAX
+    const trialPlan = 'pro_max'
+    const trialDays = 7
+    const trialEnd = new Date(Date.now() + trialDays * 86400000).toISOString()
+    const requestedPlan = plan || 'pro'
+
+    const { data: planRow } = await supabase.from('plans').select('id, name, max_users').eq('name', trialPlan).maybeSingle()
 
     const { data: biz, error: bizErr } = await supabase.from('businesses').insert({
       owner_id: user.id, name: business_name.trim(), rnc: (rnc || '').trim(),
-      phone: (phone || '').trim(), plan: planName,
-      settings: { itbis_pct: 18, ley_pct: 10, language: 'es', facturacion_mode: ['pro_plus', 'pro_max'].includes(planName) ? 'ecf' : 'b_series' },
+      phone: (phone || '').trim(), plan: trialPlan,
+      settings: { itbis_pct: 18, ley_pct: 10, language: 'es', facturacion_mode: 'ecf', trial_end: trialEnd, requested_plan: requestedPlan },
     }).select('id').single()
     if (bizErr) throw bizErr
 
@@ -49,7 +54,8 @@ export default async function handler(req, res) {
 
     await supabase.from('licenses').insert({
       business_id: biz.id, plan_id: planRow?.id || null, status: 'active',
-      platform: 'web', activated_at: new Date().toISOString(), max_users: planRow?.max_users || 3,
+      platform: 'web', activated_at: new Date().toISOString(), max_users: planRow?.max_users || 999,
+      expires_at: trialEnd,
     })
 
     const ncfTypes = ['B01', 'B02', 'B14', 'B15', 'E31', 'E32', 'E33', 'E34']

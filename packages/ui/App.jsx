@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import logoImg from './assets/logo.png'
+import logoImg from './assets/logo.webp'
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { useAPI } from './context/DataContext'
 import { setStoredSetting, getStoredSetting } from '@terminal-x/services/supabase'
@@ -22,15 +22,15 @@ import UpdateBanner from './components/UpdateBanner'
 import ErrorBoundary from './components/ErrorBoundary'
 import PlanGate from './components/PlanGate'
 
-// Eager — core POS flow, auth/gate screens (shown on startup)
+// Eager — auth/gate screens only (shown on startup)
 import LicenseGate from './screens/LicenseGate'
 import FirstTimeSetup from './screens/FirstTimeSetup'
 import Login from './screens/Login'
-import POS from './screens/POS'
-import Queue from './screens/Queue'
-import Clients from './screens/Clients'
 
-// Lazy — heavy or rarely-used screens (loaded on navigation)
+// Lazy — all feature screens (loaded on navigation)
+const POS                 = lazy(() => import('./screens/POS'))
+const Queue               = lazy(() => import('./screens/Queue'))
+const Clients             = lazy(() => import('./screens/Clients'))
 const Credits             = lazy(() => import('./screens/Credits'))
 const DGII                = lazy(() => import('./screens/DGII'))
 const Admin               = lazy(() => import('./screens/Admin'))

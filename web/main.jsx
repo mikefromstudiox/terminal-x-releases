@@ -1,39 +1,71 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { createClient } from '@supabase/supabase-js'
-import App from '@/App'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import ErrorBoundary from '@/components/ErrorBoundary'
-import { LangProvider } from '@/i18n'
-import { AuthProvider } from '@/context/AuthContext'
-import { LicenseProvider } from '@/context/LicenseContext'
-import { DataProvider } from '@/context/DataContext'
-import { PlanProvider } from '@/hooks/usePlan.jsx'
-import { createWebAPI, createWebPrinterAPI } from '@terminal-x/data/web'
-import { startOfflineSync } from '@terminal-x/services/offline-queue'
-import { injectSpeedInsights } from '@vercel/speed-insights'
 import '@/index.css'
-import xMark from '@/assets/x-mark.png'
+import xMark from '@/assets/x-mark.webp'
 
-// Lazy load landing and admin (code-split)
-const LandingPage = React.lazy(() => import('@/landing/LandingPage'))
+// Landing page eager-loaded (it's the entry route — must render fast for LCP)
+import LandingPage from '@/landing/LandingPage'
+
+// Everything else lazy
 const SignupPage  = React.lazy(() => import('@/landing/SignupPage'))
 const AdminApp    = React.lazy(() => import('@/admin/AdminApp'))
 
-injectSpeedInsights()
+// Lazy load Supabase — only resolves when needed (saves 172KB on landing page)
+let _supabase = null
+const supabaseReady = (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+  ? import('@supabase/supabase-js').then(({ createClient }) => {
+      _supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY)
+      return _supabase
+    })
+  : Promise.resolve(null)
 
-// ---------------------------------------------------------------------------
-// Supabase client
-// ---------------------------------------------------------------------------
-const supabaseUrl  = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnon = import.meta.env.VITE_SUPABASE_ANON_KEY
+export { _supabase as supabase }
 
-const supabase = (supabaseUrl && supabaseAnon)
-  ? createClient(supabaseUrl, supabaseAnon)
-  : null
+// Lazy load POS dependencies — only fetched when /pos/* is visited
+const POSRoute = React.lazy(() =>
+  Promise.all([
+    import('@/App'),
+    import('@/i18n'),
+    import('@/context/AuthContext'),
+    import('@/context/LicenseContext'),
+    import('@/context/DataContext'),
+    import('@/hooks/usePlan.jsx'),
+    import('@/hooks/useBusinessType.jsx'),
+    import('@terminal-x/data/web'),
+    import('@terminal-x/services/offline-queue'),
+    supabaseReady,
+  ]).then(([App, i18n, Auth, License, Data, Plan, BizType, WebData, Offline]) => ({
+    default: function POSShell() {
+      return (
+        <SupabaseAuthGate
+          supabase={_supabase}
+          createWebAPI={WebData.createWebAPI}
+          createWebPrinterAPI={WebData.createWebPrinterAPI}
+          startOfflineSync={Offline.startOfflineSync}
+        >
+          <i18n.LangProvider>
+            <Auth.AuthProvider>
+              <License.LicenseProvider>
+                <Plan.PlanProvider>
+                  <BizType.BusinessTypeProvider>
+                    <App.default />
+                  </BizType.BusinessTypeProvider>
+                </Plan.PlanProvider>
+              </License.LicenseProvider>
+            </Auth.AuthProvider>
+          </i18n.LangProvider>
+        </SupabaseAuthGate>
+      )
+    }
+  }))
+)
 
-// Expose for admin/signup pages
-export { supabase }
+// Speed insights — defer to after load
+window.addEventListener('load', () => {
+  import('@vercel/speed-insights').then(m => m.injectSpeedInsights()).catch(() => {})
+})
 
 // ---------------------------------------------------------------------------
 // Service Worker
@@ -58,7 +90,7 @@ function PageLoader() {
 // ---------------------------------------------------------------------------
 // SupabaseAuthGate — blocks POS rendering until user is authenticated
 // ---------------------------------------------------------------------------
-function SupabaseAuthGate({ children }) {
+function SupabaseAuthGate({ children, supabase, createWebAPI, createWebPrinterAPI, startOfflineSync }) {
   const [session, setSession]       = useState(null)
   const [businessId, setBusinessId] = useState(null)
   const [loading, setLoading]       = useState(true)
@@ -117,6 +149,22 @@ function SupabaseAuthGate({ children }) {
 
       if (!data) throw new Error('No business found')
       setBusinessId(data.business_id)
+
+      // Auto-fetch license key for web users so they don't need to enter it manually
+      if (!localStorage.getItem('tx_license_key')) {
+        try {
+          const { data: lic } = await supabase
+            .from('licenses')
+            .select('license_key')
+            .eq('business_id', data.business_id)
+            .eq('status', 'active')
+            .limit(1)
+            .maybeSingle()
+          if (lic?.license_key) {
+            localStorage.setItem('tx_license_key', lic.license_key)
+          }
+        } catch {}
+      }
     } catch (e) {
       setError('No se encontro negocio asociado a esta cuenta.')
     } finally {
@@ -152,7 +200,7 @@ function SupabaseAuthGate({ children }) {
           <div className="text-center">
             <div className="flex items-center justify-center gap-1">
               <span className="text-3xl font-black text-white tracking-[3px]">TERMINAL</span>
-              <img src={xMark} alt="X" className="h-28 w-28 object-contain mt-1" />
+              <img src={xMark} alt="X" width="112" height="112" className="h-28 w-28 object-contain mt-1" />
             </div>
             <p className="text-slate-400 text-sm mt-3">Iniciar sesion</p>
           </div>
@@ -197,15 +245,54 @@ function SupabaseAuthGate({ children }) {
     )
   }
 
+  // Need to import DataProvider from the lazy-loaded module
+  const DataProvider = React.lazy(() => import('@/context/DataContext').then(m => ({ default: m.DataProvider })))
+
   return (
-    <DataProvider api={api} printerApi={printerApi}>
-      {children}
-    </DataProvider>
+    <React.Suspense fallback={<PageLoader />}>
+      <DataProvider api={api} printerApi={printerApi}>
+        {children}
+      </DataProvider>
+    </React.Suspense>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Mount — Top-level router: landing (public), /pos (auth), /admin (admin auth)
+// Lazy admin wrapper — loads supabase before rendering
+// ---------------------------------------------------------------------------
+const AdminRoute = React.lazy(() =>
+  Promise.all([
+    import('@/i18n'),
+    import('@/admin/AdminApp'),
+    supabaseReady,
+  ]).then(([i18n, AdminApp]) => ({
+    default: function AdminShell() {
+      return <i18n.LangProvider><AdminApp.default supabase={_supabase} /></i18n.LangProvider>
+    }
+  }))
+)
+
+// ---------------------------------------------------------------------------
+// Lazy signup wrapper
+// ---------------------------------------------------------------------------
+const SignupRoute = React.lazy(() =>
+  Promise.all([
+    import('@/landing/SignupPage'),
+    supabaseReady,
+  ]).then(([SignupPage]) => ({
+    default: function SignupShell() {
+      return <SignupPage.default supabase={_supabase} />
+    }
+  }))
+)
+
+function ConfigRedirect() {
+  const { section } = useParams()
+  return <Navigate to={`/pos/config/${section}`} replace />
+}
+
+// ---------------------------------------------------------------------------
+// Mount
 // ---------------------------------------------------------------------------
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -213,33 +300,33 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <BrowserRouter>
         <React.Suspense fallback={<PageLoader />}>
           <Routes>
-            {/* Public landing pages */}
+            {/* Public landing pages — no Supabase needed */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/pricing" element={<LandingPage section="pricing" />} />
-            <Route path="/signup" element={<SignupPage supabase={supabase} />} />
 
-            {/* POS app (auth required) */}
-            <Route path="/pos/*" element={
-              <SupabaseAuthGate>
-                <LangProvider>
-                  <AuthProvider>
-                    <LicenseProvider>
-                      <PlanProvider>
-                        <App />
-                      </PlanProvider>
-                    </LicenseProvider>
-                  </AuthProvider>
-                </LangProvider>
-              </SupabaseAuthGate>
-            } />
+            {/* Signup — lazy loads Supabase */}
+            <Route path="/signup" element={<SignupRoute />} />
 
-            {/* Admin panel */}
-            <Route path="/admin/*" element={<LangProvider><AdminApp supabase={supabase} /></LangProvider>} />
+            {/* POS app — lazy loads everything */}
+            <Route path="/pos/*" element={<POSRoute />} />
 
-            {/* Legacy redirect: old root POS users go to /pos */}
+            {/* Admin panel — lazy loads Supabase */}
+            <Route path="/admin/*" element={<AdminRoute />} />
+
+            {/* Redirect bare POS routes to /pos/* */}
             <Route path="/queue" element={<Navigate to="/pos/queue" replace />} />
             <Route path="/clients" element={<Navigate to="/pos/clients" replace />} />
             <Route path="/credits" element={<Navigate to="/pos/credits" replace />} />
+            <Route path="/reports" element={<Navigate to="/pos/reports" replace />} />
+            <Route path="/inventory" element={<Navigate to="/pos/inventory" replace />} />
+            <Route path="/dgii" element={<Navigate to="/pos/dgii" replace />} />
+            <Route path="/cash-recon" element={<Navigate to="/pos/cash-recon" replace />} />
+            <Route path="/petty-cash" element={<Navigate to="/pos/petty-cash" replace />} />
+            <Route path="/credit-notes" element={<Navigate to="/pos/credit-notes" replace />} />
+            <Route path="/config/:section" element={<ConfigRedirect />} />
+            <Route path="/config" element={<Navigate to="/pos/config" replace />} />
+            <Route path="/remote" element={<Navigate to="/pos/remote" replace />} />
+            <Route path="/sistema" element={<Navigate to="/pos/sistema" replace />} />
             <Route path="/settings" element={<Navigate to="/pos/admin" replace />} />
 
             {/* Catch-all */}

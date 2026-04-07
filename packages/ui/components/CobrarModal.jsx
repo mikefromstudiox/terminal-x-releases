@@ -5,6 +5,7 @@ import { useAPI } from '../context/DataContext'
 import { signAndSubmitECF, getQRCode, ECF_TYPES, validateRNC } from '@terminal-x/services/ecf'
 import { buildReceiptPDFBase64 } from '@terminal-x/services/pdf'
 import { useRNC } from '../hooks/useRNC'
+import { usePlan } from '../hooks/usePlan'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtRD(n) {
@@ -80,7 +81,7 @@ function buildReceiptMsg({ bizName, ticket, services, total, ncf, lang }) {
     ncf ? `NCF: ${ncf}` : '',
     ``,
     lang === 'es' ? `Servicios:` : `Services:`,
-    ...services.map(s => `• ${s.name} - RD$ ${s.price.toLocaleString('en-US', { minimumFractionDigits: 2 })}`),
+    ...services.map(s => `• ${(s.qty || 1) > 1 ? s.qty + 'x ' : ''}${s.name} - RD$ ${(s.price * (s.qty || 1)).toLocaleString('en-US', { minimumFractionDigits: 2 })}`),
     ``,
     `*Total: RD$ ${total.toLocaleString('en-US', { minimumFractionDigits: 2 })}*`,
     ``,
@@ -190,6 +191,8 @@ function ToggleBtn({ active, onClick, children }) {
 // ── Success / receipt view ────────────────────────────────────────────────────
 function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, pdfUrl, client, bizName, subtotal, itbis, ley, formaPago, bizSettings }) {
   const api = useAPI()
+  const { hasFeature } = usePlan()
+  const canWhatsApp = hasFeature('whatsapp_receipts')
   const isLegacy = ecfResult?._legacy
   const isSin    = isLegacy && !ecfResult?.eNCF
   const ecfType  = ECF_TYPES[ncfType]
@@ -346,8 +349,8 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
         </div>
       )}
 
-      {/* WhatsApp phone input — shown when no client phone or user clicks WA button */}
-      {(showWaInput || (!client?.phone && waState === 'idle')) && waState !== 'sent' && (
+      {/* WhatsApp phone input — shown when no client phone or user clicks WA button (Pro MAX only) */}
+      {canWhatsApp && (showWaInput || (!client?.phone && waState === 'idle')) && waState !== 'sent' && (
         <div className="flex gap-2 w-full">
           <input
             type="tel"
@@ -372,6 +375,7 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
             {lang === 'es' ? 'Ver PDF' : 'View PDF'}
           </a>
         )}
+        {canWhatsApp && (
         <button
           onClick={() => { if (waPhone.trim()) sendWhatsApp(); else setShowWaInput(true) }}
           disabled={waState === 'sending' || waState === 'sent'}
@@ -392,6 +396,7 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
             ? (lang === 'es' ? 'Error WA' : 'WA Error')
             : 'WhatsApp'}
         </button>
+        )}
         <button
           onClick={onClose}
           className="flex-[2] py-2.5 bg-slate-800 dark:bg-white/10 hover:bg-slate-700 dark:hover:bg-white/20 text-white rounded-xl text-[13px] font-bold transition-colors"
@@ -409,7 +414,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const { lang } = useLang()
 
   // Totals — prices already include 18% ITBIS, extract it for display
-  const total    = ticket.services.reduce((s, svc) => s + svc.price, 0)
+  const total    = ticket.services.reduce((s, svc) => s + svc.price * (svc.qty || 1), 0)
   const subtotal = parseFloat((total / (1 + ITBIS_RATE)).toFixed(2))
   const itbis    = parseFloat((total - subtotal).toFixed(2))
   const ley      = 0
@@ -428,6 +433,11 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const [formaPago,  setFormaPago]  = useState(null)
   const [recibido,   setRecibido]   = useState('')
   const [comentario, setComentario] = useState('')
+  // e-CF referencia fields (E33/E34 — credit/debit notes)
+  const [refNCF,    setRefNCF]    = useState('')  // NCFModificado — original e-CF being modified
+  const [refRazon,  setRefRazon]  = useState('')  // RazonModificacion — reason
+  const [refFecha,  setRefFecha]  = useState('')  // FechaNCFModificado — original date
+  const [refCodigo, setRefCodigo] = useState('3') // CodigoModificacion — default '3' (error adjustment)
 
   // e-CF submission state
   const [ecfState,   setEcfState]   = useState('idle')   // 'idle'|'submitting'|'success'|'error'
@@ -529,7 +539,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const canSubmit =
     (tipo === 'credito' || formaPago !== null) &&
     (tipo !== 'contado' || formaPago !== 'efectivo' || recibidoNum >= total) &&
-    (!currentType?.requiresRnc || validateRNC(rnc))
+    (!currentType?.requiresRnc || validateRNC(rnc)) &&
+    (!currentType?.requiresReferencia || (refNCF.trim().length >= 11 && refRazon.trim().length > 0))
 
   async function lookupRnc() {
     const clean = rnc.replace(/[-\s]/g, '')
@@ -613,8 +624,20 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
           direccion: selectedClient?.address || 'Santo Domingo',
         } : null,
         totales: { subtotal, itbis, total },
-        items: ticket.services.map(s => ({ nombre: s.name, precio: s.price })),
+        items: ticket.services.map(s => ({
+          nombre: s.name,
+          precio: s.price,
+          cantidad: s.qty || 1,
+          indicadorBienoServicio: s.inventory_item_id ? '1' : '2',
+          unidadMedida: s.inventory_item_id ? '43' : '43',
+        })),
         fechaVencimiento,
+        referencia: currentType?.requiresReferencia ? {
+          ncfModificado: refNCF.trim(),
+          razonModificacion: refRazon.trim(),
+          fechaNCFModificado: refFecha || undefined,
+          codigoModificacion: refCodigo,
+        } : undefined,
         // Legacy fields (used by stub fallback)
         ncfType, rnc, rncName, tipo,
         formaPago:  tipo === 'credito' ? 'credit' : formaPago,
@@ -760,8 +783,10 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                 <div className="space-y-1.5 mb-3">
                   {ticket.services.map((svc, i) => (
                     <div key={i} className="flex justify-between">
-                      <span className="text-[13px] text-slate-700 dark:text-white">{svc.name}</span>
-                      <span className="text-[13px] text-slate-600 dark:text-white/60 font-medium tabular-nums">{fmtRD(svc.price)}</span>
+                      <span className="text-[13px] text-slate-700 dark:text-white">
+                        {(svc.qty || 1) > 1 ? `${svc.qty}x ` : ''}{svc.name}
+                      </span>
+                      <span className="text-[13px] text-slate-600 dark:text-white/60 font-medium tabular-nums">{fmtRD(svc.price * (svc.qty || 1))}</span>
                     </div>
                   ))}
                 </div>
@@ -855,6 +880,47 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                         placeholder={tl('nombre', lang)}
                         className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] dark:text-white focus:outline-none focus:border-sky-400 placeholder:text-slate-400 dark:placeholder:text-white/40"
                       />
+                    </div>
+                  )}
+
+                  {/* Reference fields — E33/E34 (credit/debit notes) */}
+                  {currentType?.requiresReferencia && (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-[11px] font-semibold text-slate-500 dark:text-white/50 uppercase tracking-wider">
+                        {lang === 'es' ? 'Documento Original' : 'Original Document'}
+                      </p>
+                      <input
+                        type="text"
+                        value={refNCF}
+                        onChange={e => setRefNCF(e.target.value)}
+                        placeholder={lang === 'es' ? 'e-NCF original (ej: E310000000001)' : 'Original e-NCF (e.g. E310000000001)'}
+                        className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] dark:text-white focus:outline-none focus:border-sky-400 placeholder:text-slate-400 dark:placeholder:text-white/40"
+                      />
+                      <input
+                        type="text"
+                        value={refRazon}
+                        onChange={e => setRefRazon(e.target.value)}
+                        placeholder={lang === 'es' ? 'Razon de modificacion' : 'Modification reason'}
+                        className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] dark:text-white focus:outline-none focus:border-sky-400 placeholder:text-slate-400 dark:placeholder:text-white/40"
+                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="date"
+                          value={refFecha}
+                          onChange={e => setRefFecha(e.target.value)}
+                          className="flex-1 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] dark:text-white focus:outline-none focus:border-sky-400"
+                        />
+                        <select
+                          value={refCodigo}
+                          onChange={e => setRefCodigo(e.target.value)}
+                          className="flex-1 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] dark:text-white focus:outline-none focus:border-sky-400"
+                        >
+                          <option value="1">{lang === 'es' ? '1 — Cambio de cantidad' : '1 — Qty change'}</option>
+                          <option value="2">{lang === 'es' ? '2 — Cambio de precio' : '2 — Price change'}</option>
+                          <option value="3">{lang === 'es' ? '3 — Ajuste por error' : '3 — Error adjustment'}</option>
+                          <option value="4">{lang === 'es' ? '4 — Reversion total' : '4 — Full reversal'}</option>
+                        </select>
+                      </div>
                     </div>
                   )}
                 </div>

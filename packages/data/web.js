@@ -282,6 +282,35 @@ export function createWebAPI(supabase, businessId) {
             .eq('item_id', id).order('created_at', { ascending: false }).limit(50)
         )
       }, []),
+
+      lowStockCount: () => tryOr(async () => {
+        // Supabase can't compare column-to-column with .lte(), so fetch and filter client-side
+        const items = throwSupaError(await supabase.from('inventory_items')
+          .select('quantity, min_quantity')
+          .eq('business_id', bid).eq('active', true))
+        return (items || []).filter(i => i.quantity <= (i.min_quantity || 5)).length
+      }, 0),
+
+      lookupSku: (sku) => tryOr(async () => {
+        if (!sku) return null
+        const safe = String(sku).replace(/[,.()"'\\]/g, '')
+        const { data } = await supabase.from('inventory_items').select('*')
+          .eq('business_id', bid).eq('active', true)
+          .or(`sku.eq."${safe}",barcode.eq."${safe}"`)
+          .limit(1).maybeSingle()
+        return data || null
+      }),
+
+      search: (query) => tryOr(async () => {
+        if (!query) return []
+        const safe = String(query).replace(/[%_,.()"'\\]/g, '')
+        return throwSupaError(
+          await supabase.from('inventory_items').select('*')
+            .eq('business_id', bid).eq('active', true)
+            .or(`name.ilike."%${safe}%",sku.ilike."%${safe}%",barcode.ilike."%${safe}%",category.ilike."%${safe}%"`)
+            .order('name').limit(20)
+        )
+      }, []),
     },
 
     // ── Auth ─────────────────────────────────────────────────────────────────
@@ -772,13 +801,16 @@ export function createWebAPI(supabase, businessId) {
                 svcCostById = new Map((svcRows || []).map(r => [r.id, r.cost || 0]))
               }
               const itemRows = items.map(i => ({
-                ticket_id:   ticket.id,
-                service_id:  i.service_id || null,
-                name:        i.name,
-                price:       i.price,
-                cost:        i.cost != null ? Number(i.cost) : (i.service_id ? (svcCostById.get(i.service_id) || 0) : 0),
-                itbis:       i.itbis || 0,
-                is_wash:     i.is_wash ?? true,
+                ticket_id:          ticket.id,
+                service_id:         i.service_id || null,
+                inventory_item_id:  i.inventory_item_id || null,
+                name:               i.name,
+                price:              i.price,
+                cost:               i.cost != null ? Number(i.cost) : (i.service_id ? (svcCostById.get(i.service_id) || 0) : 0),
+                itbis:              i.itbis || 0,
+                is_wash:            i.is_wash ?? true,
+                quantity:           i.quantity || 1,
+                sku:                i.sku || null,
               }))
               // Try with business_id (some Supabase schemas have it)
               const { error: err1 } = await supabase.from('ticket_items').insert(
@@ -788,6 +820,19 @@ export function createWebAPI(supabase, businessId) {
                 // Retry without business_id
                 const { error: err2 } = await supabase.from('ticket_items').insert(itemRows)
                 if (err2) console.warn('[ticket_items insert]', err2.message)
+              }
+
+              // Auto-deduct inventory stock for product items
+              for (const item of items) {
+                if (item.inventory_item_id) {
+                  const qty = item.quantity || 1
+                  try {
+                    await supabase.rpc('inventory_adjust', {
+                      p_business_id: bid, p_item_id: item.inventory_item_id, p_delta: -qty,
+                      p_notes: `Ticket #${ticket.id}`, p_user_id: null,
+                    })
+                  } catch { /* stock deduction failed — non-fatal */ }
+                }
               }
             }
 
@@ -904,6 +949,21 @@ export function createWebAPI(supabase, businessId) {
           void_by: voidBy || null,
           void_at: new Date().toISOString(),
         }).eq('id', id).eq('business_id', bid))
+
+        // Reverse inventory stock for product items
+        try {
+          const { data: items } = await supabase.from('ticket_items')
+            .select('inventory_item_id, quantity')
+            .eq('ticket_id', id)
+            .not('inventory_item_id', 'is', null)
+          for (const item of (items || [])) {
+            const qty = item.quantity || 1
+            await supabase.rpc('inventory_adjust', {
+              p_business_id: bid, p_item_id: item.inventory_item_id, p_delta: qty,
+              p_notes: `Void ticket #${id}`, p_user_id: null,
+            })
+          }
+        } catch { /* stock reversal failed — non-fatal */ }
       }),
 
       byDateRange: (params) => tryOr(async () => {

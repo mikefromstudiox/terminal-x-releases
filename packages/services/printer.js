@@ -285,9 +285,11 @@ export function buildClientReceipt(data, logoBytes = '') {
   // Service lines
   const services = data.services || []
   services.forEach(s => {
-    const itbisAmt = s.itbis != null ? fmt(s.itbis) : ''
-    const totalAmt = fmt(s.price)
-    const name = String(s.name)
+    const qty = s.qty || s.quantity || 1
+    const lineTotal = s.price * qty
+    const itbisAmt = s.itbis != null ? fmt(s.itbis * qty) : ''
+    const totalAmt = fmt(lineTotal)
+    const name = qty > 1 ? `${qty}x ${s.name}` : String(s.name)
     const rightPart = itbisAmt ? `${itbisAmt}  ${totalAmt}` : totalAmt
     if (name.length + rightPart.length + 1 > COL_WIDTH) {
       // Name too long — print name on its own line, amounts right-aligned below

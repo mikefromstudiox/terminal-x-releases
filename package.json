@@ -1,8 +1,8 @@
 {
   "name": "terminal-x",
-  "version": "1.2.0",
+  "version": "1.6.0",
   "private": true,
-  "description": "Terminal X - Car Wash POS System",
+  "description": "Terminal X - POS System for Car Wash, Retail & Services",
   "author": "Studio X",
   "main": "electron/main.js",
   "workspaces": [

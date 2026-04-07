@@ -82,6 +82,13 @@ function init(userDataPath) {
     'ALTER TABLE payroll_runs ADD COLUMN sfs_employer REAL NOT NULL DEFAULT 0',
     'ALTER TABLE payroll_runs ADD COLUMN afp_employer REAL NOT NULL DEFAULT 0',
     'ALTER TABLE payroll_runs ADD COLUMN infotep_employer REAL NOT NULL DEFAULT 0',
+    // v1.4 — business type + retail support
+    "INSERT OR IGNORE INTO app_settings(key, value) VALUES('business_type', 'carwash')",
+    'ALTER TABLE ticket_items ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1',
+    'ALTER TABLE ticket_items ADD COLUMN sku TEXT',
+    'ALTER TABLE ticket_items ADD COLUMN inventory_item_id INTEGER REFERENCES inventory_items(id)',
+    'ALTER TABLE inventory_items ADD COLUMN barcode TEXT',
+    'ALTER TABLE inventory_items ADD COLUMN aplica_itbis INTEGER NOT NULL DEFAULT 1',
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch { /* column already exists */ }
@@ -317,6 +324,20 @@ function init(userDataPath) {
     created_at       TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS idx_compras607_fecha ON compras_607(fecha_ncf)')
+
+  db.exec(`CREATE TABLE IF NOT EXISTS price_changes (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id       INTEGER NOT NULL REFERENCES tickets(id),
+    ticket_item_id  INTEGER NOT NULL REFERENCES ticket_items(id),
+    item_name       TEXT    NOT NULL DEFAULT '',
+    old_price       REAL    NOT NULL,
+    new_price       REAL    NOT NULL,
+    reason          TEXT    NOT NULL,
+    authorized_by   INTEGER NOT NULL REFERENCES users(id),
+    authorizer_name TEXT    NOT NULL DEFAULT '',
+    changed_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_price_changes_ticket ON price_changes(ticket_id)')
 
   db.exec(`CREATE TABLE IF NOT EXISTS queue_deletions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -980,15 +1001,25 @@ function ticketCreate(data) {
     const svcRows = db.prepare('SELECT id, cost FROM services').all()
     const validSvcIds = new Set(svcRows.map(r => r.id))
     const svcCostById = new Map(svcRows.map(r => [r.id, r.cost || 0]))
-    const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,cost,itbis,is_wash)
-      VALUES(?,?,?,?,?,?,?)`)
+    const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,cost,itbis,is_wash,quantity,sku,inventory_item_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?)`)
     for (const item of (data.items || [])) {
       const svcId = (item.service_id && validSvcIds.has(item.service_id)) ? item.service_id : null
+      const qty = item.quantity || 1
       // Explicit item.cost wins (e.g. inventory products with dynamic cost);
       // otherwise look up the current service cost by id.
       const itemCost = item.cost != null ? Number(item.cost) : (svcId ? svcCostById.get(svcId) : 0)
       insItem.run(ticketId, svcId, item.name, item.price, itemCost,
-        parseFloat((item.price * 0.18).toFixed(2)), item.is_wash ?? 1)
+        parseFloat((item.price * 0.18).toFixed(2)), item.is_wash ?? 1,
+        qty, item.sku || null, item.inventory_item_id || null)
+
+      // Auto-deduct inventory stock
+      if (item.inventory_item_id) {
+        db.prepare('UPDATE inventory_items SET quantity = quantity - ? WHERE id = ?')
+          .run(qty, item.inventory_item_id)
+        db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id) VALUES(?,?,?,?,?)')
+          .run(item.inventory_item_id, 'sale', -qty, `Ticket #${ticketId}`, data.cajero_id || null)
+      }
     }
 
     // Update client balance if credit
@@ -1096,10 +1127,74 @@ function ticketVoid(id, reason, voidById) {
     if (ticket.client_id && ticket.tipo_venta === 'credito') {
       db.prepare('UPDATE clients SET balance=balance-? WHERE id=?').run(ticket.total, ticket.client_id)
     }
+    // Reverse inventory stock for product items
+    const items = db.prepare('SELECT * FROM ticket_items WHERE ticket_id=? AND inventory_item_id IS NOT NULL').all(id)
+    for (const item of items) {
+      const qty = item.quantity || 1
+      db.prepare('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?').run(qty, item.inventory_item_id)
+      db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id) VALUES(?,?,?,?,?)')
+        .run(item.inventory_item_id, 'void_reversal', qty, `Void ticket #${id}`, voidById || null)
+    }
   })()
 }
 function ticketGetByDateRange(dateFrom, dateTo) {
   return ticketsGetAll({ dateFrom, dateTo })
+}
+
+// ── PRICE CHANGES (queued ticket item price modification) ────────────────────
+function ticketItemUpdatePrice({ ticketItemId, newPrice, reason, adminPin }) {
+  if (!db) return { ok: false, error: 'DB not ready' }
+
+  // 1. Verify admin PIN
+  const crypto = require('crypto')
+  const hash = crypto.createHash('sha256').update(String(adminPin)).digest('hex')
+  const admin = db.prepare("SELECT id, name, role FROM users WHERE pin_hash=? AND active=1 AND role IN ('owner','manager')").get(hash)
+  if (!admin) return { ok: false, error: 'PIN invalido o no tiene permisos de administrador' }
+
+  // 2. Get current item + ticket
+  const item = db.prepare('SELECT * FROM ticket_items WHERE id=?').get(ticketItemId)
+  if (!item) return { ok: false, error: 'Item no encontrado' }
+
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id=?').get(item.ticket_id)
+  if (!ticket) return { ok: false, error: 'Ticket no encontrado' }
+  if (ticket.status === 'cobrado') return { ok: false, error: 'No se puede modificar un ticket ya cobrado' }
+
+  const oldPrice = item.price
+
+  // 3. Update item price + recalculate ticket totals
+  db.transaction(() => {
+    const newItbis = item.aplica_itbis !== 0 ? newPrice * 0.18 / 1.18 : 0
+    db.prepare('UPDATE ticket_items SET price=?, itbis=? WHERE id=?').run(newPrice, newItbis, ticketItemId)
+
+    // Recalculate ticket totals from all items
+    const items = db.prepare('SELECT price, is_wash FROM ticket_items WHERE ticket_id=?').all(item.ticket_id)
+    // Replace old price with new for the changed item
+    const allPrices = items.map(i => i.id === ticketItemId ? newPrice : i.price)
+    const total = allPrices.reduce((s, p) => s + p, 0)
+    const subtotal = total / 1.18
+    const itbis = total - subtotal
+    const beverageSub = items.filter(i => !i.is_wash).reduce((s, i) => s + (i.id === ticketItemId ? newPrice : i.price), 0)
+
+    db.prepare('UPDATE tickets SET subtotal=?, itbis=?, total=?, beverage_subtotal=? WHERE id=?')
+      .run(subtotal, itbis, total, beverageSub, item.ticket_id)
+
+    // 4. Log to audit table
+    db.prepare(`INSERT INTO price_changes (ticket_id, ticket_item_id, item_name, old_price, new_price, reason, authorized_by, authorizer_name)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(item.ticket_id, ticketItemId, item.name, oldPrice, newPrice, reason, admin.id, admin.name)
+  })()
+
+  return { ok: true, ticketId: item.ticket_id, oldPrice, newPrice, authorizedBy: admin.name }
+}
+
+function priceChangesGetByTicket(ticketId) {
+  if (!db) return []
+  return db.prepare('SELECT * FROM price_changes WHERE ticket_id=? ORDER BY changed_at DESC').all(ticketId)
+}
+
+function priceChangesGetAll(dateFrom, dateTo) {
+  if (!db) return []
+  return db.prepare('SELECT pc.*, t.doc_number FROM price_changes pc JOIN tickets t ON pc.ticket_id=t.id WHERE pc.changed_at BETWEEN ? AND ? ORDER BY pc.changed_at DESC')
+    .all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
 }
 
 // ── QUEUE ─────────────────────────────────────────────────────────────────────
@@ -1535,20 +1630,22 @@ function inventoryGetAll() {
 }
 function inventoryCreate(data) {
   if (!db) return null
-  const r = db.prepare(`INSERT INTO inventory_items(sku,name,category,quantity,min_quantity,price,cost)
-    VALUES(@sku,@name,@category,@quantity,@min_quantity,@price,@cost)`).run({
+  const r = db.prepare(`INSERT INTO inventory_items(sku,name,category,quantity,min_quantity,price,cost,barcode,aplica_itbis)
+    VALUES(@sku,@name,@category,@quantity,@min_quantity,@price,@cost,@barcode,@aplica_itbis)`).run({
     sku: data.sku || null, name: data.name, category: data.category || '',
     quantity: data.quantity || 0, min_quantity: data.min_quantity ?? 5,
     price: data.price || 0, cost: data.cost || 0,
+    barcode: data.barcode || null, aplica_itbis: data.aplica_itbis ?? 1,
   })
   return r.lastInsertRowid
 }
 function inventoryUpdate(id, data) {
   if (!db) return
   db.prepare(`UPDATE inventory_items
-    SET sku=@sku, name=@name, category=@category, min_quantity=@min_quantity, price=@price, cost=@cost
+    SET sku=@sku, name=@name, category=@category, min_quantity=@min_quantity, price=@price, cost=@cost, barcode=@barcode, aplica_itbis=@aplica_itbis
     WHERE id=@id`).run({ sku: data.sku || null, name: data.name, category: data.category || '',
-    min_quantity: data.min_quantity ?? 5, price: data.price || 0, cost: data.cost || 0, id })
+    min_quantity: data.min_quantity ?? 5, price: data.price || 0, cost: data.cost || 0,
+    barcode: data.barcode || null, aplica_itbis: data.aplica_itbis ?? 1, id })
 }
 function inventoryDelete(id) {
   if (!db) return
@@ -1569,6 +1666,25 @@ function inventoryTransactions(itemId) {
   return db.prepare(`SELECT t.*, u.name as user_name FROM inventory_transactions t
     LEFT JOIN users u ON u.id = t.user_id
     WHERE t.item_id=? ORDER BY t.created_at DESC LIMIT 50`).all(itemId)
+}
+
+function inventoryLowStockCount() {
+  if (!db) return 0
+  const row = db.prepare('SELECT COUNT(*) as cnt FROM inventory_items WHERE active=1 AND quantity <= min_quantity').get()
+  return row?.cnt || 0
+}
+
+function inventoryLookupBySku(sku) {
+  if (!db || !sku) return null
+  return db.prepare('SELECT * FROM inventory_items WHERE active=1 AND (sku=? OR barcode=?) LIMIT 1').get(sku, sku) || null
+}
+
+function inventorySearch(query) {
+  if (!db || !query) return []
+  const q = `%${query}%`
+  return db.prepare(`SELECT * FROM inventory_items WHERE active=1
+    AND (name LIKE ? OR sku LIKE ? OR barcode LIKE ? OR category LIKE ?)
+    ORDER BY name COLLATE NOCASE LIMIT 20`).all(q, q, q, q)
 }
 
 // ── e-CF offline queue ────────────────────────────────────────────────────────
@@ -1669,6 +1785,8 @@ module.exports = {
   clientsGetAll, clientGetById, clientCreate, clientUpdate, clientUpdateBalance, clientGetOpenTickets, collectCredit,
   // Tickets
   ticketsGetAll, ticketGetById, ticketCreate, ticketMarkPaid, ticketVoid, ticketGetByDateRange,
+  // Price changes
+  ticketItemUpdatePrice, priceChangesGetByTicket, priceChangesGetAll,
   // Queue
   queueGetActive, queueUpdateStatus, queueDelete,
   // Commissions
@@ -1692,6 +1810,7 @@ module.exports = {
   rncLookupLocal, rncSave, rncBulkSync, rncCount, rncLastSync,
   // Inventory
   inventoryGetAll, inventoryCreate, inventoryUpdate, inventoryDelete, inventoryAdjust, inventoryTransactions,
+  inventoryLookupBySku, inventorySearch, inventoryLowStockCount,
   // e-CF offline queue
   ecfQueueAdd, ecfQueueGetPending, ecfQueueDelete, ecfQueueIncrAttempts, ecfQueueCount,
   // e-CF submissions log

@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import { Monitor, Shield, Zap, BarChart3, Receipt, Users, ArrowRight, Check, X, Wifi, WifiOff, Printer, MessageSquare, ChevronDown, ChevronUp, Clock, CreditCard, FileText, Lock, Smartphone, Star, TrendingUp, Headphones, Menu, ExternalLink, Globe, Banknote, Calculator, Crown } from 'lucide-react'
-import logoImg from '../assets/logo.png'
+import logoImg from '../assets/logo.webp'
 
 function useBrowserLang() {
   const [lang, setLang] = useState(() => {
@@ -28,7 +28,7 @@ const PLANS = {
     {
       name: 'Pro PLUS', key: 'pro_plus', price: 'RD$4,490', annual: 'RD$3,817/mes facturado anual (15% OFF)',
       sub: '/mes', badge: 'Mas popular', desc: 'Para negocios que quieren crecer', users: '5 usuarios',
-      features: ['Todo en Pro, mas:', 'Creditos + Notas de Credito', 'Inventario con alertas de stock', 'Comisiones por empleado/vendedor/cajera', 'e-CF electronico directo DGII', 'Reportes avanzados + Nomina Ley 16-92', 'Soporte WhatsApp horario laboral', 'Configuracion remota por nuestro equipo'],
+      features: ['Todo en Pro, mas:', 'Creditos + Notas de Credito', 'Inventario con alertas de stock', 'Comisiones por empleado/vendedor/cajera', 'e-CF DIRECTO A DGII — sin PSFE, sin costo por comprobante', 'Reportes avanzados + Nomina Ley 16-92', 'Soporte WhatsApp horario laboral', 'Configuracion remota por nuestro equipo'],
       support: 'Nuestro equipo te configura todo remoto', cta: 'Comenzar con Pro PLUS', highlight: true,
     },
     {
@@ -62,7 +62,7 @@ const PLANS = {
     {
       name: 'Pro PLUS', key: 'pro_plus', price: 'RD$4,490', annual: 'RD$3,817/mo billed annually (15% OFF)',
       sub: '/mo', badge: 'Most popular', desc: 'For growing businesses', users: '5 users',
-      features: ['Everything in Pro, plus:', 'Credits + Credit Notes', 'Inventory with stock alerts', 'Commissions per employee/seller/cashier', 'e-CF electronic direct DGII', 'Advanced reports + Payroll Law 16-92', 'WhatsApp support business hours', 'Remote config by our team'],
+      features: ['Everything in Pro, plus:', 'Credits + Credit Notes', 'Inventory with stock alerts', 'Commissions per employee/seller/cashier', 'e-CF DIRECT TO DGII — no PSFE, no per-invoice fees', 'Advanced reports + Payroll Law 16-92', 'WhatsApp support business hours', 'Remote config by our team'],
       support: 'Our team configures everything remotely', cta: 'Start with Pro PLUS', highlight: true,
     },
     {
@@ -90,7 +90,7 @@ const PLANS = {
 
 const FEATURES = {
   es: [
-    { icon: Receipt, title: 'e-CF Directo con DGII', desc: 'Facturacion electronica sin intermediarios. Los 10 tipos de e-CF con QR code. 100% Ley 32-23. Sin PSFE, sin costos ocultos.' },
+    { icon: Receipt, title: 'e-CF Directo con DGII', desc: <span>Emisor Electronico certificado (Solicitud #42483). Firma digital RSA-SHA256 con certificado X.509 de Viafirma. Codigo de seguridad y QR verificable en cada comprobante.<br /><strong className="text-[#b3001e]">Sin PSFE &bull; Sin costo por factura</strong></span> },
     { icon: Monitor, title: 'Desktop + Web + Movil', desc: 'App nativa para Windows, web PWA para cualquier navegador y celular. Una sola cuenta, todas las plataformas.' },
     { icon: WifiOff, title: '100% Offline', desc: 'Funciona sin internet. Cola inteligente con reintento automatico 72 horas. Se sincroniza cuando vuelve la conexion.' },
     { icon: BarChart3, title: 'Nomina in-house (Pro MAX)', desc: 'Despidete del contador externo. Pagos quincenales/mensuales masivos, TSS + INFOTEP + ISR progresivo automatico (topes 2026), reportes para el portal DGII, recibos formales y log de cambios de salario.' },
@@ -99,9 +99,10 @@ const FEATURES = {
     { icon: Printer, title: 'Impresion Termica', desc: 'Impresora 80mm con cajon de dinero integrado. Facturas con NCF/e-CF, QR code, conduce de servicio.' },
     { icon: Headphones, title: 'Soporte Humano', desc: 'Nuestro equipo configura tu sistema remotamente. No tienes que ser experto en tecnologia.' },
     { icon: CreditCard, title: 'Creditos + Cobros', desc: 'Clientes a credito, pagos parciales, notas de credito. Control total de cuentas por cobrar.' },
+    { icon: Star, title: 'Certificacion DGII como Servicio', desc: 'Quieres ser Emisor Electronico directo tu tambien? Nosotros te guiamos y hacemos todo el proceso completo. Precio especial para clientes Terminal X.', cta: true },
   ],
   en: [
-    { icon: Receipt, title: 'Direct e-CF with DGII', desc: 'Electronic invoicing with no middlemen. All 10 e-CF types with QR code. 100% Law 32-23. No PSFE, no hidden costs.' },
+    { icon: Receipt, title: 'Direct e-CF with DGII', desc: <span>Certified Electronic Issuer (Application #42483). RSA-SHA256 digital signature with Viafirma X.509 certificate. Security code and verifiable QR on every invoice.<br /><strong className="text-[#b3001e]">No PSFE &bull; No per-invoice cost</strong></span> },
     { icon: Monitor, title: 'Desktop + Web + Mobile', desc: 'Native Windows app, web PWA for any browser and phone. One account, all platforms.' },
     { icon: WifiOff, title: '100% Offline', desc: 'Works without internet. Smart queue with auto-retry for 72 hours. Syncs when connection returns.' },
     { icon: BarChart3, title: 'In-house Payroll (Pro MAX)', desc: 'Say goodbye to your external accountant. Biweekly/monthly bulk runs, auto TSS + INFOTEP + progressive ISR (2026 caps), DGII portal reports, formal pay stubs and salary change log.' },
@@ -110,12 +111,14 @@ const FEATURES = {
     { icon: Printer, title: 'Thermal Printing', desc: '80mm printer with built-in cash drawer. Invoices with NCF/e-CF, QR code, service dispatch.' },
     { icon: Headphones, title: 'Human Support', desc: 'Our team configures your system remotely. You don\'t have to be a tech expert.' },
     { icon: CreditCard, title: 'Credits + Collections', desc: 'Credit clients, partial payments, credit notes. Full control of accounts receivable.' },
+    { icon: Star, title: 'DGII Certification as a Service', desc: 'Want to become a direct Electronic Issuer too? We guide you and handle the entire process. Special pricing for Terminal X clients.', cta: true },
   ],
 }
 
 const COMPARISON = {
   es: [
     { feature: 'Facturacion directa DGII (sin intermediario)', tx: true, alegra: false, wil: false, otros: false },
+    { feature: 'Emisor Electronico propio (sin PSFE)', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Todos los 10 tipos de e-CF + RFCE', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'QR code en facturas electronicas', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Modo offline real (72 horas)', tx: true, alegra: false, wil: false, otros: false },
@@ -135,6 +138,7 @@ const COMPARISON = {
   ],
   en: [
     { feature: 'Direct DGII invoicing (no middleman)', tx: true, alegra: false, wil: false, otros: false },
+    { feature: 'Own Electronic Issuer (no PSFE)', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'All 10 e-CF types + RFCE', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'QR code on electronic invoices', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Real offline mode (72 hours)', tx: true, alegra: false, wil: false, otros: false },
@@ -161,10 +165,11 @@ const FAQ = {
     { q: 'Que pasa si me quedo sin internet?', a: 'Todo sigue funcionando 100% offline. Puedes cobrar, imprimir facturas, ver reportes. Se sincroniza automaticamente cuando vuelve la conexion (hasta 72 horas de cola).' },
     { q: 'Necesito comprar impresora especial?', a: 'Terminal X funciona con cualquier impresora termica de 80mm con conexion USB. Nosotros podemos recomendarte e instalarte la impresora y el cajon de dinero.' },
     { q: 'Que es e-CF y por que lo necesito?', a: 'e-CF (Comprobante Fiscal Electronico) es el nuevo formato obligatorio de la DGII bajo la Ley 32-23. Todos los negocios deben migrar antes de mayo 2026. Terminal X es el unico POS que se conecta directo a la DGII, sin intermediarios ni costos adicionales.' },
-    { q: 'Funciona para mi tipo de negocio?', a: 'Si. Terminal X sirve para cualquier negocio de servicios en RD: Car Wash, talleres mecanicos, barber shops, dealers, tiendas, colmados, y mas. El sistema se adapta a tus servicios y productos.' },
+    { q: 'Funciona para mi tipo de negocio?', a: 'Si. Terminal X tiene modo Car Wash (cola de servicios, lavadores, comisiones), modo Tienda/Retail (inventario con codigo de barras, carrito con cantidades, stock automatico), y modo Servicios (talleres, salones, barber shops). El sistema se adapta automaticamente.' },
     { q: 'Como funciona el soporte?', a: 'Pro: autoservicio con guias. Pro PLUS: nuestro equipo te configura todo remotamente y soporte por WhatsApp en horario laboral. Pro MAX: ejecutivo dedicado + soporte prioritario + visita tecnica mensual.' },
     { q: 'Puedo manejar la nomina sin contratar un contador externo?', a: 'Si, y es una de las ventajas mas grandes de Pro MAX. Terminal X incluye nomina in-house completa: pagos quincenales o mensuales masivos en un click, calculo automatico de TSS (SFS + AFP con topes oficiales 2026), INFOTEP 1%, ISR progresivo (escalas DGII 2026), reportes listos para subir al portal TSS y DGII, recibos formales de pago, y log automatico de cambios de salario. Un contador externo en RD cobra entre RD$8,000 y RD$15,000/mes solo por esto — Pro MAX lo incluye por RD$6,990/mes.' },
     { q: 'Puedo importar datos de mi sistema anterior?', a: 'Si. Nuestro equipo puede importar tu historial de ventas, clientes y productos desde Starsisa, WilPOS u otros sistemas.' },
+    { q: 'Que pasa si mi proveedor de facturacion electronica (PSFE) se cae?', a: 'Nada — porque no usamos uno. Terminal X es Emisor Electronico directo ante DGII. No dependemos de ef2.do, Indexa, ni ningun otro PSFE. Tu sistema firma y transmite los e-CF directamente al portal de DGII. Si un PSFE se cae, tus competidores dejan de facturar. Tu no.' },
   ],
   en: [
     { q: 'Can I change plans anytime?', a: 'Yes, you can upgrade or downgrade at any time from the admin panel. Changes apply immediately.' },
@@ -176,6 +181,7 @@ const FAQ = {
     { q: 'How does support work?', a: 'Pro: self-service with guides. Pro PLUS: our team configures everything remotely + WhatsApp support during business hours. Pro MAX: dedicated executive + priority support + monthly on-site visit.' },
     { q: 'Can I run payroll without hiring an external accountant?', a: 'Yes — this is one of the biggest Pro MAX advantages. Terminal X includes full in-house payroll: biweekly or monthly bulk runs in one click, auto TSS (SFS + AFP with official 2026 caps), INFOTEP 1%, progressive ISR (2026 DGII brackets), reports ready for the TSS and DGII portals, formal pay stubs, and automatic salary change logs. An external accountant in DR charges RD$8,000–15,000/month for this alone — Pro MAX includes it for RD$6,990/month.' },
     { q: 'Can I import data from my previous system?', a: 'Yes. Our team can import your sales history, clients, and products from Starsisa, WilPOS, or other systems.' },
+    { q: 'What happens if my e-invoicing provider (PSFE) goes down?', a: 'Nothing — because we don\'t use one. Terminal X is a direct Electronic Issuer with DGII. We don\'t depend on ef2.do, Indexa, or any other PSFE. Your system signs and transmits e-CFs directly to DGII\'s portal. If a PSFE goes down, your competitors stop invoicing. You don\'t.' },
   ],
 }
 
@@ -185,12 +191,14 @@ const STATS = {
     { value: '900K+', label: 'RNCs integrados' },
     { value: '72h', label: 'modo offline' },
     { value: '100%', label: 'Ley 32-23' },
+    { value: '0', label: 'intermediarios' },
   ],
   en: [
     { value: '10', label: 'e-CF types' },
     { value: '900K+', label: 'RNCs integrated' },
     { value: '72h', label: 'offline mode' },
     { value: '100%', label: 'Law 32-23' },
+    { value: '0', label: 'middlemen' },
   ],
 }
 
@@ -212,7 +220,7 @@ function FaqItem({ q, a }) {
     <div className="rounded-2xl border border-gray-100 bg-gray-50 overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-lg">
       <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-6 py-5 text-left">
         <span className="font-bold text-[15px] text-black pr-4">{q}</span>
-        {open ? <ChevronUp size={18} className="text-gray-400 shrink-0" /> : <ChevronDown size={18} className="text-gray-400 shrink-0" />}
+        {open ? <ChevronUp size={18} className="text-gray-500 shrink-0" /> : <ChevronDown size={18} className="text-gray-500 shrink-0" />}
       </button>
       {open && <p className="px-6 pb-5 text-sm text-gray-500 leading-relaxed">{a}</p>}
     </div>
@@ -239,7 +247,7 @@ export default function LandingPage({ section }) {
         <div className="max-w-7xl mx-auto h-full flex items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-0">
             <span className="text-2xl font-black tracking-[3px] text-white leading-none -mt-1">TERMINAL</span>
-            <img src={logoImg} alt="X" className="h-9 w-auto object-contain" draggable="false" />
+            <img src={logoImg} alt="X" width="48" height="48" className="h-9 w-auto object-contain" draggable="false" />
           </div>
           <div className="hidden md:flex items-center gap-8">
             {navLinks.map(link => (
@@ -254,7 +262,7 @@ export default function LandingPage({ section }) {
           </div>
           <div className="md:hidden flex items-center gap-2">
             <button onClick={toggleLang} className="text-white/50 hover:text-white text-xs font-bold">{lang === 'es' ? 'EN' : 'ES'}</button>
-            <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="text-white/70 hover:text-white">
+            <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Menu" className="text-white/70 hover:text-white">
               <Menu size={24} />
             </button>
           </div>
@@ -275,15 +283,15 @@ export default function LandingPage({ section }) {
       {/* SECTION 1: Hero — WHITE */}
       <section className="bg-white px-4 py-24 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto text-center">
-          <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('El unico POS en RD con e-CF directo DGII', 'The only POS in DR with direct DGII e-CF')}</p>
+          <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Emisor Electronico Certificado DGII', 'Certified DGII Electronic Issuer')}</p>
           <h1 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">
-            {L(<>El sistema POS mas completo de <span className="text-[#b3001e]">Republica Dominicana</span></>, <>The most complete POS system in the <span className="text-[#b3001e]">Dominican Republic</span></>)}
+            {L(<>El unico POS en RD certificado como <span className="text-[#b3001e]">Emisor Electronico directo</span> ante DGII</>, <>The only POS in DR certified as a <span className="text-[#b3001e]">direct Electronic Issuer</span> with DGII</>)}
           </h1>
           <p className="mt-4 text-lg text-gray-500 max-w-2xl mx-auto">
-            {L('Facturacion electronica directa con DGII. Desktop + Web + Movil. Modo offline. Nuestro equipo configura todo por ti.', 'Direct electronic invoicing with DGII. Desktop + Web + Mobile. Offline mode. Our team configures everything for you.')}
+            {L('Facturacion electronica directa a DGII — sin intermediarios, sin PSFE, sin costo por comprobante. Desktop + Web + Movil. Modo offline. Configuracion remota por nuestro equipo.', 'Direct electronic invoicing to DGII — no middlemen, no PSFE, no per-invoice fees. Desktop + Web + Mobile. Offline mode. Remote setup by our team.')}
           </p>
           <p className="mt-2 text-sm text-gray-500">
-            {L('Car Wash, talleres, barber shops, dealers, tiendas — cualquier negocio de servicios en RD.', 'Car Wash, auto shops, barber shops, dealers, stores — any service business in DR.')}
+            {L('Car Wash, tiendas, retail, talleres, barber shops, dealers — cualquier negocio en RD. Inventario con codigo de barras, POS con cantidades, stock automatico. Cumple la Ley 32-23.', 'Car Wash, stores, retail, workshops, barber shops, dealers — any business in DR. Inventory with barcode, POS with quantities, auto stock. Meet Ley 32-23.')}
           </p>
           <div className="flex items-center justify-center gap-4 flex-wrap mt-10">
             <button onClick={() => navigate('/signup?plan=pro_plus')}
@@ -294,9 +302,21 @@ export default function LandingPage({ section }) {
               className="border border-gray-300 text-gray-700 hover:border-gray-400 hover:shadow-lg px-6 py-3 text-sm font-bold rounded-lg transition-all">
               {L('Hablar con ventas', 'Talk to sales')}
             </a>
+            <a href="https://wa.me/18098282971?text=Hola%2C%20quiero%20ver%20un%20demo%20de%20Terminal%20X" target="_blank" rel="noopener noreferrer"
+              className="border border-gray-300 text-gray-700 hover:border-gray-400 hover:shadow-lg px-6 py-3 text-sm font-bold rounded-lg transition-all flex items-center gap-2">
+              <Smartphone size={16} />
+              {L('Ver demo', 'See demo')}
+            </a>
+          </div>
+          {/* Certification badge */}
+          <div className="mt-8 flex items-center justify-center">
+            <div className="flex items-center gap-2 px-6 py-3 rounded-2xl border border-[#b3001e] bg-[#b3001e]/10 text-sm font-bold uppercase tracking-widest text-black">
+              <Shield className="w-5 h-5 text-[#b3001e]" />
+              <span>{L('Emisor Electronico Certificado DGII — Solicitud #42483', 'Certified Electronic Issuer DGII — Application #42483')}</span>
+            </div>
           </div>
           {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 max-w-2xl mx-auto mt-16">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-6 max-w-3xl mx-auto mt-16">
             {STATS[lang].map((s, i) => (
               <div key={i} className="text-center">
                 <p className="text-3xl sm:text-4xl font-extrabold text-[#b3001e]">{s.value}</p>
@@ -304,6 +324,13 @@ export default function LandingPage({ section }) {
               </div>
             ))}
           </div>
+          {/* Trust bar */}
+          <p className="mt-10 text-xs text-gray-500 tracking-wide text-center">
+            {L(
+              'Certificado digital Viafirma \u00B7 Solicitud DGII #42483 \u00B7 RNC 133410321 \u00B7 Santo Domingo, RD',
+              'Viafirma digital certificate \u00B7 DGII Application #42483 \u00B7 RNC 133410321 \u00B7 Santo Domingo, DR'
+            )}
+          </p>
         </div>
       </section>
 
@@ -339,16 +366,23 @@ export default function LandingPage({ section }) {
           <div className="text-center">
             <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Funciones', 'Features')}</p>
             <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">{L('Todo lo que necesitas en un solo sistema', 'Everything you need in one system')}</h2>
-            <p className="mt-4 text-lg text-gray-500 max-w-2xl mx-auto">{L('Terminal X es el unico POS en RD que combina facturacion electronica directa con DGII, modo offline 100% y herramientas completas para negocios de servicios.', 'Terminal X is the only POS in DR that combines direct electronic invoicing with DGII, 100% offline mode and complete tools for service businesses.')}</p>
+            <p className="mt-4 text-lg text-gray-500 max-w-2xl mx-auto">{L('Terminal X es el unico sistema de punto de venta en Republica Dominicana que combina facturacion electronica e-CF directa con DGII, inventario con codigo de barras, modo offline 100% y herramientas completas para car wash, tiendas y negocios de servicios.', 'Terminal X is the only POS system in the Dominican Republic that combines direct e-CF electronic invoicing with DGII, barcode inventory, 100% offline mode, and complete tools for car washes, stores, and service businesses.')}</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
             {FEATURES[lang].map((f, i) => (
-              <div key={i} className="rounded-2xl border border-gray-100 bg-gray-50 p-8 transition-all hover:-translate-y-2 hover:shadow-2xl">
+              <div key={i} className={`rounded-2xl border p-8 transition-all hover:-translate-y-2 hover:shadow-2xl ${f.cta ? 'border-[#b3001e] bg-[#b3001e]/5' : 'border-gray-100 bg-gray-50'}`}>
                 <div className="w-12 h-12 bg-[#b3001e]/10 rounded-xl flex items-center justify-center mb-5">
                   <f.icon size={22} className="text-[#b3001e]" />
                 </div>
                 <h3 className="text-base font-bold text-black mb-2">{f.title}</h3>
                 <p className="text-sm text-gray-600 leading-relaxed">{f.desc}</p>
+                {f.cta && (
+                  <a href="https://wa.me/18098282971?text=Quiero%20el%20servicio%20de%20certificaci%C3%B3n%20DGII" target="_blank" rel="noopener noreferrer"
+                    className="mt-4 inline-flex items-center gap-2 bg-[#b3001e] hover:bg-[#d4002a] px-4 py-2 text-xs font-bold text-white rounded-lg transition-colors">
+                    <MessageSquare size={14} />
+                    {L('Solicitar certificacion', 'Request certification')}
+                  </a>
+                )}
               </div>
             ))}
           </div>
@@ -440,6 +474,85 @@ export default function LandingPage({ section }) {
         </div>
       </section>
 
+      {/* SECTION 3.5: Multi-Business Type — WHITE */}
+      <section className="bg-white px-4 py-24 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center">
+            <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Multi-Negocio', 'Multi-Business')}</p>
+            <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">
+              {L('Un sistema, cualquier tipo de negocio', 'One system, any business type')}
+            </h2>
+            <p className="mt-4 text-lg text-gray-500 max-w-2xl mx-auto">
+              {L(
+                'Terminal X se adapta automaticamente a tu tipo de negocio. Car wash, tienda, retail, taller, salon — el mismo sistema con la interfaz perfecta para cada uno.',
+                'Terminal X automatically adapts to your business type. Car wash, store, retail, workshop, salon — the same system with the perfect interface for each.'
+              )}
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
+            {[
+              {
+                title: L('Car Wash / Detailing', 'Car Wash / Detailing'),
+                desc: L('Cola de servicios, asignacion de lavadores, comisiones automaticas, placa de vehiculo, conduce impreso.', 'Service queue, washer assignment, automatic commissions, vehicle plate, printed conduce.'),
+                items: [L('Cola en tiempo real', 'Real-time queue'), L('Comisiones por lavador', 'Washer commissions'), L('Placa + conduce', 'Plate + conduce')],
+              },
+              {
+                title: L('Tienda / Retail', 'Store / Retail'),
+                desc: L('Inventario con codigo de barras, busqueda por SKU, carrito con cantidades, deduccion automatica de stock al vender.', 'Inventory with barcode, SKU search, cart with quantities, automatic stock deduction on sale.'),
+                items: [L('Codigo de barras / SKU', 'Barcode / SKU'), L('Carrito con cantidades', 'Cart with quantities'), L('Stock automatico', 'Auto stock deduction')],
+                highlight: true,
+              },
+              {
+                title: L('Servicios / Otro', 'Services / Other'),
+                desc: L('Talleres, salones, barber shops, dealers — cualquier negocio de servicios con facturacion DGII incluida.', 'Workshops, salons, barber shops, dealers — any service business with DGII invoicing included.'),
+                items: [L('Servicios + productos', 'Services + products'), L('Creditos a clientes', 'Client credits'), L('Reportes 606/607', '606/607 reports')],
+              },
+            ].map((biz, i) => (
+              <div key={i} className={`rounded-2xl border p-8 transition-all hover:-translate-y-2 hover:shadow-2xl ${biz.highlight ? 'border-[#b3001e] bg-[#b3001e]/5' : 'border-gray-100 bg-gray-50'}`}>
+                <h3 className="text-lg font-bold text-black mb-2">{biz.title}</h3>
+                <p className="text-sm text-gray-600 leading-relaxed mb-4">{biz.desc}</p>
+                <ul className="space-y-2">
+                  {biz.items.map((item, j) => (
+                    <li key={j} className="flex items-center gap-2 text-sm text-black">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#b3001e] shrink-0" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 3.6: Studio X Car Wash — Live Client — BLACK */}
+      <section className="bg-black px-4 py-16 sm:px-6 lg:px-8 border-t border-white/5">
+        <div className="max-w-4xl mx-auto text-center">
+          <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Cliente en produccion real', 'Live production client')}</p>
+          <h2 className="mt-3 text-3xl sm:text-4xl font-extrabold text-white">{L('Studio X Car Wash ya factura 100% con Terminal X', 'Studio X Car Wash invoices 100% with Terminal X')}</h2>
+          <p className="mt-4 text-lg text-white/50 max-w-2xl mx-auto">
+            {L(
+              'Car wash en Santo Domingo operando diariamente con e-CF directo a DGII, cola de servicios, caja chica, reportes y cuadre automatico.',
+              'Car wash in Santo Domingo operating daily with direct e-CF to DGII, service queue, petty cash, reports and automatic cash reconciliation.'
+            )}
+          </p>
+          <div className="flex justify-center gap-12 mt-10">
+            <div className="text-center">
+              <div className="text-4xl sm:text-5xl font-extrabold text-[#b3001e]">{L('Directo', 'Direct')}</div>
+              <div className="text-white/50 text-sm mt-1">{L('a DGII', 'to DGII')}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-4xl sm:text-5xl font-extrabold text-[#b3001e]">100%</div>
+              <div className="text-white/50 text-sm mt-1">Offline</div>
+            </div>
+            <div className="text-center">
+              <div className="text-4xl sm:text-5xl font-extrabold text-[#b3001e]">1</div>
+              <div className="text-white/50 text-sm mt-1">{L('Terminal, todo incluido', 'Terminal, all-in-one')}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* SECTION 4: Pricing — BLACK */}
       <section id="pricing" className="bg-black px-4 py-24 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
@@ -469,12 +582,18 @@ export default function LandingPage({ section }) {
                 <p className="text-xs font-semibold text-[#b3001e] mb-6">{plan.users}</p>
                 <ul className="space-y-3 mb-6 flex-1">
                   {plan.features.map((f, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-white/70">
+                    <li key={i} className={`flex items-start gap-2 text-sm ${f.includes('DGII') && f.includes('DIRECT') ? 'text-white font-bold' : 'text-white/70'}`}>
                       <Check size={14} className="text-[#b3001e] shrink-0 mt-0.5" />
                       {f}
                     </li>
                   ))}
                 </ul>
+                {(plan.key === 'pro_plus' || plan.key === 'pro_max') && (
+                  <div className="flex items-center gap-1.5 px-3 py-2 mb-4 rounded-lg border border-[#b3001e]/30 bg-[#b3001e]/10 text-[10px] font-bold uppercase tracking-wider text-[#b3001e]">
+                    <Shield size={12} />
+                    {L('e-CF Directo DGII — Certificado', 'Direct e-CF DGII — Certified')}
+                  </div>
+                )}
                 <div className={`rounded-lg px-3 py-2 mb-5 text-xs font-semibold ${plan.highlight ? 'bg-[#b3001e]/20 text-[#b3001e]' : 'bg-white/5 text-white/50'}`}>
                   <Headphones size={12} className="inline mr-1.5" />
                   {plan.support}
@@ -546,7 +665,7 @@ export default function LandingPage({ section }) {
           <div className="text-center">
             <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Comparacion', 'Comparison')}</p>
             <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-white flex items-center justify-center">
-              {L('Por que', 'Why')}&nbsp;<span className="font-black tracking-[3px] leading-none">TERMINAL</span><img src={logoImg} alt="X" className="h-10 sm:h-12 w-auto object-contain" draggable="false" />?
+              {L('Por que', 'Why')}&nbsp;<span className="font-black tracking-[3px] leading-none">TERMINAL</span><img src={logoImg} alt="X" width="48" height="48" className="h-10 sm:h-12 w-auto object-contain" draggable="false" />?
             </h2>
             <p className="mt-4 text-lg text-white/50">{L('Comparado con Alegra, WilPOS, Facturador y otros sistemas POS en RD.', 'Compared to Alegra, WilPOS, Facturador and other POS systems in DR.')}</p>
           </div>
@@ -556,11 +675,11 @@ export default function LandingPage({ section }) {
                 <tr className="border-b-2 border-white/20">
                   <th className="text-left py-3 px-4 font-bold text-white">{L('Caracteristica', 'Feature')}</th>
                   <th className="py-3 px-3 font-bold text-[#b3001e] text-center">
-                    <span className="flex items-center justify-center gap-0"><span className="text-sm font-black tracking-[2px] leading-none -mt-1">TERMINAL</span><img src={logoImg} alt="X" className="h-4 w-auto object-contain" draggable="false" /></span>
+                    <span className="flex items-center justify-center gap-0"><span className="text-sm font-black tracking-[2px] leading-none -mt-1">TERMINAL</span><img src={logoImg} alt="X" width="48" height="48" className="h-4 w-auto object-contain" draggable="false" /></span>
                   </th>
-                  <th className="py-3 px-3 font-medium text-white/40 text-center">Alegra</th>
-                  <th className="py-3 px-3 font-medium text-white/40 text-center">WilPOS</th>
-                  <th className="py-3 px-3 font-medium text-white/40 text-center">{L('Otros', 'Others')}</th>
+                  <th className="py-3 px-3 font-medium text-white/60 text-center">Alegra</th>
+                  <th className="py-3 px-3 font-medium text-white/60 text-center">WilPOS</th>
+                  <th className="py-3 px-3 font-medium text-white/60 text-center">{L('Otros', 'Others')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -603,7 +722,7 @@ export default function LandingPage({ section }) {
           <div className="text-center">
             <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Ecosistema', 'Ecosystem')}</p>
             <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-white flex items-center justify-center">
-              {L('Parte de', 'Part of')}&nbsp;<span className="font-black tracking-[3px] leading-none">STUDIO</span><img src={logoImg} alt="X" className="h-10 sm:h-12 w-auto object-contain" draggable="false" />
+              {L('Parte de', 'Part of')}&nbsp;<span className="font-black tracking-[3px] leading-none">STUDIO</span><img src={logoImg} alt="X" width="48" height="48" className="h-10 sm:h-12 w-auto object-contain" draggable="false" />
             </h2>
             <p className="mt-4 text-lg text-white/50">{L('Un grupo de empresas interconectadas en Republica Dominicana.', 'A group of interconnected businesses in the Dominican Republic.')}</p>
           </div>
@@ -617,9 +736,9 @@ export default function LandingPage({ section }) {
                 }`}>
                 <div className="flex items-center gap-0 mb-2">
                   <span className="text-sm font-black tracking-[2px] text-white leading-none">{brand.name}</span>
-                  <img src={logoImg} alt="X" className="h-4 w-auto object-contain" draggable="false" />
+                  <img src={logoImg} alt="X" width="48" height="48" className="h-4 w-auto object-contain" draggable="false" />
                 </div>
-                <p className="text-[10px] text-white/40 leading-snug">{lang === 'es' ? brand.es : brand.en}</p>
+                <p className="text-[10px] text-white/60 leading-snug">{lang === 'es' ? brand.es : brand.en}</p>
                 <ExternalLink size={10} className="text-white/20 mt-2" />
               </a>
             ))}
@@ -634,6 +753,7 @@ export default function LandingPage({ section }) {
           <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">{L('Listo para modernizar tu negocio?', 'Ready to modernize your business?')}</h2>
           <p className="mt-4 text-lg text-gray-500 max-w-lg mx-auto">{L('Facturacion electronica directa con DGII, sin intermediarios. El unico POS en RD con e-CF directo, modo offline y configuracion remota.', 'Direct electronic invoicing with DGII, no middlemen. The only POS in DR with direct e-CF, offline mode and remote configuration.')}</p>
           <p className="mt-3 text-[#b3001e] font-bold text-lg">{L('Desde RD$2,490/mes. Sin contrato. Sin sorpresas.', 'From RD$2,490/mo. No contract. No surprises.')}</p>
+          <p className="mt-2 text-sm text-gray-500 font-medium">{L('La Ley 32-23 es obligatoria desde mayo 2026. No esperes a que tu PSFE te resuelva — resuelve tu mismo.', 'Ley 32-23 is mandatory from May 2026. Don\'t wait for your PSFE to figure it out — take control.')}</p>
           <div className="flex items-center justify-center gap-4 flex-wrap mt-10">
             <button onClick={() => navigate('/signup?plan=pro_plus')}
               className="bg-[#b3001e] hover:bg-[#d4002a] px-6 py-3 text-sm font-bold text-white rounded-lg transition-colors shadow-lg shadow-red-500/25">
@@ -655,43 +775,53 @@ export default function LandingPage({ section }) {
             <div className="md:col-span-1">
               <div className="flex items-center gap-0 mb-3">
                 <span className="text-2xl font-black tracking-[3px] text-white leading-none -mt-1">TERMINAL</span>
-                <img src={logoImg} alt="X" className="h-9 w-auto object-contain" draggable="false" />
+                <img src={logoImg} alt="X" width="48" height="48" className="h-9 w-auto object-contain" draggable="false" />
               </div>
-              <p className="text-sm text-white/40 flex items-center">{L('Parte de', 'Part of')}&nbsp;<span className="text-sm font-black tracking-[2px] text-white/40 leading-none">STUDIO</span><img src={logoImg} alt="X" className="h-3.5 w-auto object-contain opacity-40" draggable="false" /></p>
-              <p className="text-xs text-white/30 mt-1">Santo Domingo, Republica Dominicana</p>
+              <p className="text-sm text-white/60 flex items-center">{L('Parte de', 'Part of')}&nbsp;<span className="text-sm font-black tracking-[2px] text-white/60 leading-none">STUDIO</span><img src={logoImg} alt="X" width="48" height="48" className="h-3.5 w-auto object-contain opacity-40" draggable="false" /></p>
+              <p className="text-xs text-white/50 mt-1">Santo Domingo, Republica Dominicana</p>
+              <div className="flex flex-wrap gap-2 mt-4">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-[10px] font-bold uppercase tracking-wider text-white/50">
+                  <Shield size={12} className="text-[#b3001e]" />
+                  {L('Emisor Electronico Certificado', 'Certified Electronic Issuer')}
+                </div>
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-[10px] font-bold uppercase tracking-wider text-white/50">
+                  <Check size={12} className="text-[#b3001e]" />
+                  100% Ley 32-23
+                </div>
+              </div>
             </div>
             {/* Product */}
             <div>
               <p className="text-sm font-bold uppercase tracking-wider text-white/50 mb-4">{L('Producto', 'Product')}</p>
               <div className="space-y-2">
-                <a href="#features" className="block text-sm text-white/40 hover:text-white transition-colors">{L('Funciones', 'Features')}</a>
-                <a href="#pricing" className="block text-sm text-white/40 hover:text-white transition-colors">{L('Planes', 'Plans')}</a>
-                <a href="#compare" className="block text-sm text-white/40 hover:text-white transition-colors">{L('Comparar', 'Compare')}</a>
-                <a href="#faq" className="block text-sm text-white/40 hover:text-white transition-colors">FAQ</a>
+                <a href="#features" className="block text-sm text-white/60 hover:text-white transition-colors">{L('Funciones', 'Features')}</a>
+                <a href="#pricing" className="block text-sm text-white/60 hover:text-white transition-colors">{L('Planes', 'Plans')}</a>
+                <a href="#compare" className="block text-sm text-white/60 hover:text-white transition-colors">{L('Comparar', 'Compare')}</a>
+                <a href="#faq" className="block text-sm text-white/60 hover:text-white transition-colors">FAQ</a>
               </div>
             </div>
             {/* Company */}
             <div>
               <p className="text-sm font-bold uppercase tracking-wider text-white/50 mb-4">{L('Empresa', 'Company')}</p>
               <div className="space-y-2">
-                <a href="https://studioxrd.com" target="_blank" rel="noopener noreferrer" className="block text-sm text-white/40 hover:text-white transition-colors">Studio X Group</a>
-                <a href="https://studioxmedia.io" target="_blank" rel="noopener noreferrer" className="block text-sm text-white/40 hover:text-white transition-colors">Studio X Media</a>
-                <a href="https://studioxrdtech.com" target="_blank" rel="noopener noreferrer" className="block text-sm text-white/40 hover:text-white transition-colors">Studio X Tech</a>
-                <a href="https://studioxdetailing.com" target="_blank" rel="noopener noreferrer" className="block text-sm text-white/40 hover:text-white transition-colors">Studio X Detailing</a>
+                <a href="https://studioxrd.com" target="_blank" rel="noopener noreferrer" className="block text-sm text-white/60 hover:text-white transition-colors">Studio X Group</a>
+                <a href="https://studioxmedia.io" target="_blank" rel="noopener noreferrer" className="block text-sm text-white/60 hover:text-white transition-colors">Studio X Media</a>
+                <a href="https://studioxrdtech.com" target="_blank" rel="noopener noreferrer" className="block text-sm text-white/60 hover:text-white transition-colors">Studio X Tech</a>
+                <a href="https://studioxdetailing.com" target="_blank" rel="noopener noreferrer" className="block text-sm text-white/60 hover:text-white transition-colors">Studio X Detailing</a>
               </div>
             </div>
             {/* Contact */}
             <div>
               <p className="text-sm font-bold uppercase tracking-wider text-white/50 mb-4">{L('Contacto', 'Contact')}</p>
               <div className="space-y-2">
-                <a href="https://wa.me/18098282971" target="_blank" rel="noopener noreferrer" className="block text-sm text-white/40 hover:text-white transition-colors">WhatsApp: +1 (809) 828-2971</a>
-                <a href="mailto:info@studioxmedia.io" className="block text-sm text-white/40 hover:text-white transition-colors">info@studioxmedia.io</a>
-                <a href="https://terminalxpos.com" className="block text-sm text-white/40 hover:text-white transition-colors">terminalxpos.com</a>
+                <a href="https://wa.me/18098282971" target="_blank" rel="noopener noreferrer" className="block text-sm text-white/60 hover:text-white transition-colors">WhatsApp: +1 (809) 828-2971</a>
+                <a href="mailto:info@studioxmedia.io" className="block text-sm text-white/60 hover:text-white transition-colors">info@studioxmedia.io</a>
+                <a href="https://terminalxpos.com" className="block text-sm text-white/60 hover:text-white transition-colors">terminalxpos.com</a>
               </div>
             </div>
           </div>
           <div className="border-t border-white/10 mt-12 pt-8 text-center">
-            <p className="text-xs text-white/30">&copy; {new Date().getFullYear()} Terminal X SRL. {L('Todos los derechos reservados.', 'All rights reserved.')}</p>
+            <p className="text-xs text-white/50">&copy; {new Date().getFullYear()} Terminal X SRL. {L('Todos los derechos reservados.', 'All rights reserved.')}</p>
           </div>
         </div>
       </footer>

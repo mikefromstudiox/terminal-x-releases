@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { KeyRound, Loader2, CheckCircle2, AlertTriangle, ShieldX, Copy, RefreshCw } from 'lucide-react'
-import logoImg from '../assets/logo.png'
+import logoImg from '../assets/logo.webp'
 import { useAPI } from '../context/DataContext'
 import { useLicense } from '../context/LicenseContext'
 import { isValidKeyFormat } from '@terminal-x/services/license'

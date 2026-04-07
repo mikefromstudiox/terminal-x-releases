@@ -45,7 +45,7 @@ export const ECF_TYPES = {
     sub_es: 'Nota de Débito',
     sub_en: 'Debit Note',
     requiresReferencia: true,
-    defaultEnabled: false,
+    defaultEnabled: true,
   },
   E34: {
     code: 'E34',

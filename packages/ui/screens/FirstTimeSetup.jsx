@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
-import logoImg from '../assets/logo.png'
+import logoImg from '../assets/logo.webp'
 import {
   Building2, User, KeyRound, CheckCircle2,
   ChevronRight, ChevronLeft, Upload, Loader2,
   AlertTriangle, Globe, X, Eye, EyeOff,
   ReceiptText, Printer, Wifi, ArrowRight, Mail,
+  Car, Store, Briefcase,
 } from 'lucide-react'
 import { isValidKeyFormat } from '@terminal-x/services/license'
 import { useAPI } from '../context/DataContext'
@@ -31,8 +32,15 @@ const COPY = {
     // Step 1 — Empresa
     s1_title:        'Tu Negocio',
     s1_sub:          'Esta información aparecerá en los recibos y reportes.',
+    s1_btype:        'Tipo de negocio',
+    s1_btype_carwash:'Car Wash',
+    s1_btype_cw_desc:'Lavado de vehículos, detailing, servicios automotrices.',
+    s1_btype_tienda: 'Tienda / Retail',
+    s1_btype_ti_desc:'Venta de productos con inventario, SKU y código de barras.',
+    s1_btype_otro:   'Otro',
+    s1_btype_ot_desc:'Servicios profesionales, salón, taller, etc.',
     s1_nombre:       'Nombre del negocio',
-    s1_nombre_ph:    'Ej: Car Wash Express',
+    s1_nombre_ph:    'Ej: Mi Negocio',
     s1_rnc:          'RNC / Cédula',
     s1_rnc_ph:       'Ej: 130123456  (opcional)',
     s1_dir:          'Dirección',
@@ -139,8 +147,15 @@ const COPY = {
 
     s1_title:        'Your Business',
     s1_sub:          'This information will appear on receipts and reports.',
+    s1_btype:        'Business type',
+    s1_btype_carwash:'Car Wash',
+    s1_btype_cw_desc:'Vehicle washing, detailing, automotive services.',
+    s1_btype_tienda: 'Store / Retail',
+    s1_btype_ti_desc:'Product sales with inventory, SKU, and barcode support.',
+    s1_btype_otro:   'Other',
+    s1_btype_ot_desc:'Professional services, salon, workshop, etc.',
     s1_nombre:       'Business name',
-    s1_nombre_ph:    'e.g. Car Wash Express',
+    s1_nombre_ph:    'e.g. My Business',
     s1_rnc:          'Tax ID / RNC',
     s1_rnc_ph:       'e.g. 130123456  (optional)',
     s1_dir:          'Address',
@@ -405,8 +420,15 @@ function StepWelcome({ t, onNext }) {
 }
 
 // ── Step 1 — Empresa ──────────────────────────────────────────────────────────
+const BIZ_TYPES = [
+  { value: 'carwash', icon: Car,       labelKey: 's1_btype_carwash', descKey: 's1_btype_cw_desc' },
+  { value: 'tienda',  icon: Store,     labelKey: 's1_btype_tienda',  descKey: 's1_btype_ti_desc' },
+  { value: 'otro',    icon: Briefcase, labelKey: 's1_btype_otro',    descKey: 's1_btype_ot_desc' },
+]
+
 function StepEmpresa({ t, onNext, onBack }) {
   const api = useAPI()
+  const [bizType,  setBizType]  = useState('carwash')
   const [nombre,   setNombre]   = useState('')
   const [rnc,      setRnc]      = useState('')
   const [dir,      setDir]      = useState('')
@@ -441,6 +463,7 @@ function StepEmpresa({ t, onNext, onBack }) {
         email:   email.trim(),
         logo:    logo || undefined,
       })
+      await api?.settings?.update?.({ business_type: bizType })
       onNext({ rnc: rnc.trim(), nombre: nombre.trim() })
     } catch (e) {
       setErr(e?.message || 'Error al guardar.')
@@ -461,6 +484,36 @@ function StepEmpresa({ t, onNext, onBack }) {
         </div>
 
         <div className="space-y-5">
+          {/* Business type selector */}
+          <div>
+            <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+              {t('s1_btype')}
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {BIZ_TYPES.map(({ value, icon: Icon, labelKey, descKey }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setBizType(value)}
+                  className={`flex flex-col items-center gap-1.5 px-2 py-3 rounded-xl border-2 text-center transition-all
+                    ${bizType === value
+                      ? 'border-red-500 bg-red-500/5'
+                      : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-500'
+                    }`}
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center
+                    ${bizType === value ? 'bg-red-600/20' : 'bg-zinc-700'}`}>
+                    <Icon size={15} className={bizType === value ? 'text-red-400' : 'text-zinc-400'} />
+                  </div>
+                  <p className={`text-[11px] font-semibold leading-tight ${bizType === value ? 'text-white' : 'text-zinc-300'}`}>
+                    {t(labelKey)}
+                  </p>
+                  <p className="text-[9px] text-zinc-500 leading-tight">{t(descKey)}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Logo upload */}
           <div>
             <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-2">

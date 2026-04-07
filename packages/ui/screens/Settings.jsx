@@ -7,6 +7,7 @@ import {
   Pencil, Check, KeyRound, Printer, Server, X, Lock,
   Cloud, CloudUpload, RotateCcw, AlertTriangle, RefreshCw,
   ShieldCheck, FileText, Download, FolderOpen,
+  Car, Store, Briefcase,
 } from 'lucide-react'
 import { useRNC } from '../hooks/useRNC'
 import { useAuth } from '../context/AuthContext'
@@ -15,12 +16,14 @@ import { useBackup } from '../context/BackupContext'
 import { manualBackup, restoreFromBackup } from '@terminal-x/services/backup.js'
 import { testConnection, setStoredSetting, getStoredSetting, resetSupabaseClient, ensureBusinessRegistered } from '@terminal-x/services/supabase.js'
 import ExportToCloud from '../components/ExportToCloud'
+import { useBusinessType } from '../hooks/useBusinessType.jsx'
 
 // ── Sidebar nav structure ─────────────────────────────────────────────────────
 const NAV = [
   {
     group: 'Configuración',
     items: [
+      { key: 'tipo_negocio', label: 'Tipo de Negocio',   icon: Store        },
       { key: 'empresa',    label: 'Mi Empresa',          icon: Building2    },
       { key: 'usuarios',   label: 'Usuarios y Roles',    icon: Users        },
       { key: 'permisos',   label: 'Permisos',            icon: Shield       },
@@ -676,27 +679,29 @@ function PanelECF({ onSave }) {
         )}
       </FieldRow>
 
-      {/* Install certificate */}
+      {/* Install / reinstall certificate */}
       {isDesktop && (
-        <FieldRow label="Instalar certificado .p12">
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1 max-w-[200px]">
-                <Lock size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40" />
-                <input type="password" value={passphrase} onChange={e => setPassphrase(e.target.value)}
-                  placeholder="Contraseña del .p12"
-                  className="w-full pl-8 pr-3 py-1.5 border border-slate-200 dark:border-white/10 rounded-lg text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
-              </div>
-              <button onClick={handleInstallCert} disabled={installing || !passphrase}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 transition">
-                <Upload size={13} />
-                {installing ? 'Instalando...' : 'Seleccionar .p12'}
-              </button>
+        <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-500/20 rounded-xl p-4 my-3">
+          <p className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-3 flex items-center gap-2">
+            <Upload size={15} />
+            {certInfo?.installed ? 'Reinstalar certificado .p12' : 'Instalar certificado .p12'}
+          </p>
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 max-w-[220px]">
+              <Lock size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40" />
+              <input type="password" value={passphrase} onChange={e => setPassphrase(e.target.value)}
+                placeholder="Contraseña del .p12"
+                className="w-full pl-8 pr-3 py-2 border border-blue-200 dark:border-blue-500/20 rounded-lg text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
             </div>
-            {installMsg?.type === 'ok' && <p className="text-xs text-emerald-600 flex items-center gap-1"><Check size={11} />{installMsg.text}</p>}
-            {installMsg?.type === 'error' && <p className="text-xs text-red-500">{installMsg.text}</p>}
+            <button onClick={handleInstallCert} disabled={installing || !passphrase}
+              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition">
+              <Upload size={14} />
+              {installing ? 'Instalando...' : 'Seleccionar .p12'}
+            </button>
           </div>
-        </FieldRow>
+          {installMsg?.type === 'ok' && <p className="text-xs text-emerald-600 flex items-center gap-1 mt-2"><Check size={11} />{installMsg.text}</p>}
+          {installMsg?.type === 'error' && <p className="text-xs text-red-500 mt-2">{installMsg.text}</p>}
+        </div>
       )}
 
       {/* Test DGII connection */}
@@ -1209,9 +1214,85 @@ function PanelBackup({ onSave }) {
   )
 }
 
+// ── Business type panel ───────────────────────────────────────────────────────
+const BIZ_TYPE_OPTIONS = [
+  { value: 'carwash', icon: Car,       label: 'Car Wash',        desc: 'Lavado de vehículos, detailing, servicios automotrices.' },
+  { value: 'tienda',  icon: Store,     label: 'Tienda / Retail', desc: 'Venta de productos con inventario, SKU y código de barras.' },
+  { value: 'otro',    icon: Briefcase, label: 'Otro',            desc: 'Servicios profesionales, salón, taller, etc.' },
+]
+
+function PanelTipoNegocio({ onSave }) {
+  const { businessType, setBusinessType } = useBusinessType()
+  const [selected, setSelected] = useState(businessType)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => { setSelected(businessType) }, [businessType])
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      await setBusinessType(selected)
+      onSave()
+    } catch {} finally { setSaving(false) }
+  }
+
+  return (
+    <div>
+      <SectionLabel>Tipo de Negocio</SectionLabel>
+      <p className="text-xs text-slate-400 dark:text-white/40 mb-4">
+        Cambia el modo del POS según tu tipo de negocio. Esto ajusta la interfaz, navegación y funciones disponibles.
+      </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+        {BIZ_TYPE_OPTIONS.map(({ value, icon: Icon, label, desc }) => (
+          <button
+            key={value}
+            onClick={() => setSelected(value)}
+            className={`flex flex-col items-center gap-2 p-5 rounded-xl border-2 text-center transition-all
+              ${selected === value
+                ? 'border-blue-500 bg-blue-500/5 dark:bg-blue-500/10'
+                : 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-slate-300 dark:hover:border-white/20'
+              }`}
+          >
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center
+              ${selected === value ? 'bg-blue-500/10' : 'bg-slate-100 dark:bg-white/10'}`}>
+              <Icon size={20} className={selected === value ? 'text-blue-500' : 'text-slate-400 dark:text-white/40'} />
+            </div>
+            <p className={`text-sm font-semibold ${selected === value ? 'text-blue-600 dark:text-blue-400' : 'text-slate-700 dark:text-white'}`}>
+              {label}
+            </p>
+            <p className="text-[11px] text-slate-400 dark:text-white/40 leading-tight">{desc}</p>
+          </button>
+        ))}
+      </div>
+
+      {selected !== businessType && (
+        <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-lg p-3 mb-4 flex items-start gap-2">
+          <AlertTriangle size={14} className="text-amber-500 mt-0.5 shrink-0" />
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            Cambiar el tipo de negocio modificará la navegación y funciones visibles del POS. Tus datos no se perderán.
+          </p>
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <button
+          onClick={handleSave}
+          disabled={saving || selected === businessType}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Save size={14} />
+          {saving ? 'Guardando...' : 'Guardar'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Panel router ──────────────────────────────────────────────────────────────
 function PanelContent({ active, onSave }) {
   switch (active) {
+    case 'tipo_negocio': return <PanelTipoNegocio onSave={onSave} />
     case 'empresa':    return <PanelEmpresa    onSave={onSave} />
     case 'usuarios':   return <PanelUsuarios   onSave={onSave} />
     case 'permisos':   return <PanelPermisos   onSave={onSave} />

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, Plus, ChevronDown, CheckCircle2, Loader2, RefreshCw, AlertCircle, Trash2 } from 'lucide-react'
+import { Search, Plus, ChevronDown, CheckCircle2, Loader2, RefreshCw, AlertCircle, Trash2, Pencil, Lock } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI, usePrinterAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -76,7 +76,7 @@ function AssignDropdown({ ticketId, washers, onAssign, onClose }) {
 
 // ── Mobile card for queue ──────────────────────────────────────────────────────
 
-function QueueCard({ ticket, washers, assigningId, setAssigningId, onCycle, onAssign, onCobrar, onDelete, lang }) {
+function QueueCard({ ticket, washers, assigningId, setAssigningId, onCycle, onAssign, onCobrar, onDelete, onEditPrice, lang }) {
   const sc   = STATUS[ticket.status]
   const main = ticket.services[0]?.name || ticket.servicesStr
 
@@ -89,7 +89,12 @@ function QueueCard({ ticket, washers, assigningId, setAssigningId, onCycle, onAs
       <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">{ticket.vehicle}</p>
       <p className="text-[12px] text-slate-500 dark:text-white/60 truncate mt-0.5">{main}</p>
       <div className="flex items-center justify-between mt-2">
-        <span className="text-[13px] font-semibold text-slate-700 dark:text-white">{fmtRD(ticket.amount)}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[13px] font-semibold text-slate-700 dark:text-white">{fmtRD(ticket.amount)}</span>
+          <button onClick={() => onEditPrice(ticket)} className="p-1 text-slate-400 dark:text-white/40 hover:text-[#b3001e]">
+            <Pencil size={11} />
+          </button>
+        </div>
         {ticket.worker ? (
           <div className="flex items-center gap-1.5">
             <div className="w-5 h-5 bg-slate-100 dark:bg-white/10 rounded-full flex items-center justify-center text-[9px] font-bold text-slate-600 dark:text-white/60 shrink-0">
@@ -148,7 +153,7 @@ function QueueCard({ ticket, washers, assigningId, setAssigningId, onCycle, onAs
 
 // ── Desktop table row ─────────────────────────────────────────────────────────
 
-function QueueRow({ ticket, washers, assigningId, setAssigningId, onCycle, onAssign, onCobrar, onDelete, lang }) {
+function QueueRow({ ticket, washers, assigningId, setAssigningId, onCycle, onAssign, onCobrar, onDelete, onEditPrice, lang }) {
   const sc   = STATUS[ticket.status]
   const main = ticket.services[0]?.name || ticket.servicesStr
   const extra = ticket.services.length - 1
@@ -207,7 +212,14 @@ function QueueRow({ ticket, washers, assigningId, setAssigningId, onCycle, onAss
         )}
       </div>
 
-      <div className="w-[96px] shrink-0 pr-4 text-right">
+      <div className="w-[96px] shrink-0 pr-4 text-right flex items-center justify-end gap-1">
+        <button
+          onClick={() => onEditPrice(ticket)}
+          className="p-1 text-slate-300 dark:text-white/30 hover:text-[#b3001e] rounded transition-colors opacity-0 group-hover:opacity-100"
+          title={lang === 'es' ? 'Cambiar precio' : 'Change price'}
+        >
+          <Pencil size={11} />
+        </button>
         <span className="text-[13px] font-semibold text-slate-700 dark:text-white">{fmtRD(ticket.amount)}</span>
       </div>
 
@@ -262,6 +274,123 @@ function SkeletonRow() {
   )
 }
 
+// ── Price Change Modal ───────────────────────────────────────────────────────
+function PriceChangeModal({ ticket, onConfirm, onClose, lang }) {
+  const [step, setStep] = useState('pin')  // 'pin' | 'edit'
+  const [pin, setPin] = useState('')
+  const [pinError, setPinError] = useState('')
+  const [newPrice, setNewPrice] = useState(String(ticket.amount))
+  const [reason, setReason] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  function handlePinSubmit(e) {
+    e.preventDefault()
+    if (pin.length < 4) {
+      setPinError(lang === 'es' ? 'PIN debe tener al menos 4 digitos' : 'PIN must be at least 4 digits')
+      return
+    }
+    setPinError('')
+    setStep('edit')
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!reason.trim()) return
+    const price = parseFloat(newPrice.replace(/,/g, ''))
+    if (isNaN(price) || price <= 0) return
+    setSubmitting(true)
+    await onConfirm({ newPrice: price, reason: reason.trim(), adminPin: pin })
+    setSubmitting(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white dark:bg-black rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+        {step === 'pin' ? (
+          <form onSubmit={handlePinSubmit}>
+            <div className="flex items-center gap-2 mb-4">
+              <Lock size={18} className="text-[#b3001e]" />
+              <h3 className="text-[15px] font-bold text-slate-800 dark:text-white">
+                {lang === 'es' ? 'PIN de Administrador' : 'Admin PIN'}
+              </h3>
+            </div>
+            <p className="text-[12px] text-slate-500 dark:text-white/60 mb-4">
+              {lang === 'es'
+                ? 'Se requiere PIN de dueno o gerente para cambiar precios.'
+                : 'Owner or manager PIN required to change prices.'}
+            </p>
+            <input
+              type="password"
+              inputMode="numeric"
+              autoFocus
+              value={pin}
+              onChange={e => { setPin(e.target.value); setPinError('') }}
+              placeholder="PIN"
+              className="w-full px-4 py-3 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-center text-lg font-bold tracking-[8px] text-slate-800 dark:text-white focus:outline-none focus:border-sky-400"
+            />
+            {pinError && <p className="text-red-500 text-xs mt-2">{pinError}</p>}
+            <div className="flex gap-3 mt-5">
+              <button type="button" onClick={onClose}
+                className="flex-1 py-2.5 text-[13px] font-semibold text-slate-600 dark:text-white/60 border border-slate-200 dark:border-white/10 rounded-lg">
+                {lang === 'es' ? 'Cancelar' : 'Cancel'}
+              </button>
+              <button type="submit"
+                className="flex-1 py-2.5 text-[13px] font-semibold text-white bg-[#b3001e] hover:bg-[#8c0017] rounded-lg transition-colors">
+                {lang === 'es' ? 'Verificar' : 'Verify'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <div className="flex items-center gap-2 mb-4">
+              <Pencil size={18} className="text-[#b3001e]" />
+              <h3 className="text-[15px] font-bold text-slate-800 dark:text-white">
+                {lang === 'es' ? 'Cambiar Precio' : 'Change Price'} — {ticket.ticketNo}
+              </h3>
+            </div>
+            <p className="text-[12px] text-slate-500 dark:text-white/60 mb-3">
+              {lang === 'es' ? 'Precio actual' : 'Current price'}: <strong className="text-slate-800 dark:text-white">{fmtRD(ticket.amount)}</strong>
+            </p>
+            <label className="block text-[11px] font-bold text-slate-500 dark:text-white/50 uppercase tracking-wider mb-1">
+              {lang === 'es' ? 'Nuevo precio total' : 'New total price'}
+            </label>
+            <input
+              type="text"
+              inputMode="decimal"
+              autoFocus
+              value={newPrice}
+              onChange={e => setNewPrice(e.target.value)}
+              className="w-full px-4 py-3 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-lg font-bold text-slate-800 dark:text-white focus:outline-none focus:border-sky-400 mb-3"
+            />
+            <label className="block text-[11px] font-bold text-slate-500 dark:text-white/50 uppercase tracking-wider mb-1">
+              {lang === 'es' ? 'Razon del cambio (obligatorio)' : 'Reason for change (required)'}
+            </label>
+            <textarea
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder={lang === 'es' ? 'Ej: Cliente solicito servicio adicional...' : 'E.g. Customer requested additional service...'}
+              rows={2}
+              className="w-full px-4 py-3 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-[13px] text-slate-800 dark:text-white focus:outline-none focus:border-sky-400 resize-none mb-4"
+            />
+            <div className="flex gap-3">
+              <button type="button" onClick={onClose}
+                className="flex-1 py-2.5 text-[13px] font-semibold text-slate-600 dark:text-white/60 border border-slate-200 dark:border-white/10 rounded-lg">
+                {lang === 'es' ? 'Cancelar' : 'Cancel'}
+              </button>
+              <button type="submit" disabled={submitting || !reason.trim()}
+                className="flex-1 py-2.5 text-[13px] font-semibold text-white bg-[#b3001e] hover:bg-[#8c0017] rounded-lg transition-colors disabled:opacity-50">
+                {submitting
+                  ? (lang === 'es' ? 'Guardando...' : 'Saving...')
+                  : (lang === 'es' ? 'Cambiar Precio' : 'Change Price')}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Queue Screen ─────────────────────────────────────────────────────────
 
 export default function Queue() {
@@ -281,6 +410,7 @@ export default function Queue() {
   const [cobrarModal, setCobrarModal] = useState(null)
   const [loadingTicket, setLoadingTicket] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
+  const [priceChangeModal, setPriceChangeModal] = useState(null)
 
   // Sync DB data → local state (preserves optimistic updates)
   useEffect(() => {
@@ -367,6 +497,40 @@ export default function Queue() {
     } finally {
       setLoadingTicket(false)
     }
+  }
+
+  async function handlePriceChange({ newPrice, reason, adminPin }) {
+    const ticket = priceChangeModal
+    if (!ticket) return
+    try {
+      // Get all ticket items to find the first one (for single-service tickets, this is the item to update)
+      const full = await api.tickets.byId(ticket.ticketId)
+      if (!full?.items?.length) { flash(lang === 'es' ? 'No se encontraron items' : 'No items found'); setPriceChangeModal(null); return }
+      // For multi-item tickets, scale all items proportionally
+      const oldTotal = full.items.reduce((s, i) => s + i.price, 0)
+      const ratio = newPrice / oldTotal
+      let lastError = null
+      for (const item of full.items) {
+        const itemNewPrice = Math.round(item.price * ratio * 100) / 100
+        const result = await api.tickets.updateItemPrice({
+          ticketItemId: item.id,
+          newPrice: itemNewPrice,
+          reason,
+          adminPin,
+        })
+        if (!result?.ok) { lastError = result?.error; break }
+      }
+      if (lastError) {
+        flash(lastError)
+      } else {
+        // Update local queue state with new amount
+        setQueue(q => q.map(t => t.id === ticket.id ? { ...t, amount: newPrice } : t))
+        flash(`${ticket.ticketNo} · ${lang === 'es' ? 'Precio actualizado' : 'Price updated'} → ${fmtRD(newPrice)}`)
+      }
+    } catch (err) {
+      flash(err.message || (lang === 'es' ? 'Error al cambiar precio' : 'Price change error'))
+    }
+    setPriceChangeModal(null)
   }
 
   async function handlePaymentConfirm(data) {
@@ -588,6 +752,7 @@ export default function Queue() {
                   onAssign={assignWorker}
                   onCobrar={cobrar}
                   onDelete={t => setDeleteConfirm(t)}
+                  onEditPrice={t => setPriceChangeModal(t)}
                   lang={lang}
                 />
               ))}
@@ -605,6 +770,7 @@ export default function Queue() {
                   onAssign={assignWorker}
                   onCobrar={cobrar}
                   onDelete={t => setDeleteConfirm(t)}
+                  onEditPrice={t => setPriceChangeModal(t)}
                   lang={lang}
                 />
               ))}
@@ -671,6 +837,16 @@ export default function Queue() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Price Change Modal */}
+      {priceChangeModal && (
+        <PriceChangeModal
+          ticket={priceChangeModal}
+          onConfirm={handlePriceChange}
+          onClose={() => setPriceChangeModal(null)}
+          lang={lang}
+        />
       )}
 
       {/* Cobrar Modal */}

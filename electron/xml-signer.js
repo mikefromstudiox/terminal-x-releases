@@ -84,7 +84,14 @@ function getSecurityCode(signedXml) {
  * Must sign the entire document and return signed XML.
  */
 function signSeed(seedXml, privateKeyPem, certificatePem) {
-  const { signedXml } = signXML(seedXml, privateKeyPem, certificatePem)
+  // Strip unused xmlns:xsi/xmlns:xsd declarations — xml-crypto v6 C14N bug
+  // produces wrong digest when these namespace declarations are present.
+  // DGII's seed XML includes them but they're not referenced by any element.
+  const cleanSeed = seedXml
+    .replace(/<\?xml[^?]*\?>\s*/, '')
+    .replace(/\s+xmlns:xsi="[^"]*"/g, '')
+    .replace(/\s+xmlns:xsd="[^"]*"/g, '')
+  const { signedXml } = signXML(cleanSeed, privateKeyPem, certificatePem)
   return signedXml
 }
 

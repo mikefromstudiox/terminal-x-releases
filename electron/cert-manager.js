@@ -14,6 +14,7 @@ const fs     = require('fs')
 const path   = require('path')
 const crypto = require('crypto')
 const forge  = require('node-forge')
+const { safeStorage } = require('electron')
 
 let _app = null
 let _certDir = null
@@ -70,8 +71,8 @@ function installCert(sourcePath, passphrase) {
   const storePath = path.join(_app.getPath('userData'), 'safe_store.json')
   let store = {}
   try { store = JSON.parse(fs.readFileSync(storePath, 'utf8')) } catch {}
-  if (_app.safeStorage.isEncryptionAvailable()) {
-    store['dgii_cert_pass'] = { enc: true, data: _app.safeStorage.encryptString(passphrase).toString('base64') }
+  if (safeStorage.isEncryptionAvailable()) {
+    store['dgii_cert_pass'] = { enc: true, data: safeStorage.encryptString(passphrase).toString('base64') }
   } else {
     store['dgii_cert_pass'] = { enc: false, data: Buffer.from(passphrase).toString('base64') }
   }
@@ -100,7 +101,7 @@ function loadCert() {
   let passphrase
   try {
     if (entry.enc) {
-      passphrase = _app.safeStorage.decryptString(Buffer.from(entry.data, 'base64'))
+      passphrase = safeStorage.decryptString(Buffer.from(entry.data, 'base64'))
     } else {
       passphrase = Buffer.from(entry.data, 'base64').toString('utf8')
     }

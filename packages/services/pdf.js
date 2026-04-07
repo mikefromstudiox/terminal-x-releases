@@ -271,9 +271,11 @@ function buildLines(data) {
   if (data.client?.rnc)  cols('RNC:', data.client.rnc)
   rule()
 
-  // Services
+  // Services / Products
   for (const svc of data.services || []) {
-    cols(svc.name, fmtRD(svc.price))
+    const qty = svc.qty || svc.quantity || 1
+    const name = qty > 1 ? `${qty}x ${svc.name}` : svc.name
+    cols(name, fmtRD(svc.price * qty))
   }
   rule()
 

@@ -125,7 +125,7 @@ The first admin hire handles all client-facing technical work:
 ### 6. Desktop Build + Installer
 - [x] License validation points to Vercel (terminalxpos.com/api/validate)
 - [x] Railway fallback removed from codebase
-- [x] Windows installer built: `dist/Terminal X-Setup-1.0.0.exe` (164 MB, 2026-03-28)
+- [x] v1.5.0 built and published to GitHub releases (2026-04-07, 210 MB) — includes retail mode, multi-business type, CSV import, performance optimization
 - [ ] **Windows code signing certificate** — installer currently triggers SmartScreen warnings ("Unknown publisher"). Purchase an EV or OV code signing certificate (e.g., DigiCert, Sectigo, SSL.com ~$200-400/yr) and configure in electron-builder `win.certificateFile` / `win.certificatePassword` to sign the .exe. Required before distributing to clients.
 - [ ] Test full desktop license flow end-to-end
 
@@ -175,6 +175,22 @@ The first admin hire handles all client-facing technical work:
 - Web: Vercel /api/validate with rate limiting + CORS
 - 72h offline grace period
 
+### Multi-Business Type / Retail Mode (April 2026)
+- `useBusinessType()` hook — carwash, tienda, otro — switches entire POS experience
+- **RetailPOS** — barcode/SKU search, product grid from inventory, cart with qty +/-, no queue/washers
+- **CarWashPOS** — service grid, queue, washer assignment, commissions (unchanged)
+- Sidebar nav filters by business type (Queue hidden for retail, Inventory promoted)
+- FirstTimeSetup business type selector + Settings panel
+- Ticket items now store quantity, sku, inventory_item_id
+- Auto-deduct stock on sale, reverse on void
+- Low stock badge on Sidebar inventory nav
+- CSV product import (parse SKU/Barcode/Name/Category/Price/Cost/Stock/MinStock, preview, bulk insert)
+- Products sales report (units sold, revenue, cost, profit by SKU — date range, sortable, totals)
+- CobrarModal, printer, PDF all quantity-aware (2x Product Name)
+- e-CF XML: CantidadItem, PrecioUnitarioItem, IndicadorBienoServicio per DGII spec
+- Landing page Multi-Negocio showcase section
+- Supabase schema: quantity/sku/inventory_item_id on ticket_items, barcode/aplica_itbis on inventory_items
+
 ### UX
 - Dark mode toggle (POS + Admin)
 - Keyboard shortcuts (F1/F2/F3)
@@ -186,6 +202,14 @@ The first admin hire handles all client-facing technical work:
 ---
 
 ## Future / Backlog
+
+### SEO — Google Top 5 Ranking
+Terminal X needs to rank for "sistema POS Republica Dominicana", "facturacion electronica DGII", "punto de venta RD", etc. Technical SEO is done (structured data, hreflang, geo meta, FAQPage schema). Remaining manual steps:
+- [ ] Register **Google Business Profile** with Studio X SRL Santo Domingo address — critical for local search ranking
+- [ ] Submit sitemap at **google.com/webmasters** (Google Search Console) — verify ownership, submit sitemap.xml, request indexing
+- [ ] Get **.do domain backlinks** — list in DR business directories, chambers of commerce (AIRD, CONEP), local tech blogs
+- [ ] Add **/guia** blog section targeting informational queries ("como facturar electronicamente DGII", "que es e-CF Ley 32-23", "mejor sistema POS dominicano") — content marketing drives organic traffic
+- [ ] Create demo video for YouTube (appears in Google search results) — "Terminal X POS: Facturacion e-CF en 2 minutos"
 
 - [ ] Azul payment gateway integration
 - [ ] Sucursales (multi-branch) — hidden from UI, reintroduce when built
