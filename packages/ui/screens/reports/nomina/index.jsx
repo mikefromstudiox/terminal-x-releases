@@ -77,7 +77,7 @@ export default function Nomina() {
               <div className="w-6 h-6 border-2 border-slate-200 dark:border-white/10 border-t-[#b3001e] rounded-full animate-spin" />
             </div>
           }>
-            <Active />
+            <Active onNavigate={setView} />
           </Suspense>
         )}
       </div>

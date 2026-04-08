@@ -18,7 +18,7 @@ import { useLang } from '../../../i18n'
 import { fmtRD, MetricCard, TYPE_COLORS } from './shared'
 import { currentQuincena, currentMonth, nextPayDate } from './lib/payPeriod'
 
-export default function NominaDashboard() {
+export default function NominaDashboard({ onNavigate }) {
   const api = useAPI()
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
@@ -234,9 +234,9 @@ export default function NominaDashboard() {
         <div className="bg-gradient-to-r from-slate-800 to-slate-900 dark:from-zinc-900 dark:to-black rounded-2xl p-4 md:p-5">
           <h3 className="text-[12px] font-bold text-white/60 uppercase tracking-wider mb-3">{L('Acciones rápidas', 'Quick actions')}</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-            <QuickAction icon={Banknote} label={L('Pagar período', 'Pay period')}    hint={L('Ir a la vista Pagos', 'Go to Payments tab')} />
-            <QuickAction icon={Users}    label={L('Ver empleados', 'View employees')} hint={L('Lista y detalles', 'List and details')} />
-            <QuickAction icon={FileText} label={L('Reportes fiscales', 'Tax reports')} hint={L('TSS, ISR, liquidaciones', 'TSS, ISR, severance')} />
+            <QuickAction icon={Banknote} label={L('Pagar período', 'Pay period')}    hint={L('Ir a la vista Pagos', 'Go to Payments tab')} onClick={() => onNavigate?.('pagos')} />
+            <QuickAction icon={Users}    label={L('Ver empleados', 'View employees')} hint={L('Lista y detalles', 'List and details')} onClick={() => onNavigate?.('empleados')} />
+            <QuickAction icon={FileText} label={L('Reportes fiscales', 'Tax reports')} hint={L('TSS, ISR, liquidaciones', 'TSS, ISR, severance')} onClick={() => onNavigate?.('reportes')} />
           </div>
         </div>
       </div>
@@ -295,9 +295,9 @@ function TrendChart({ data, max, lang }) {
 }
 
 // ── Quick action button ───────────────────────────────────────────────────────
-function QuickAction({ icon: Icon, label, hint }) {
+function QuickAction({ icon: Icon, label, hint, onClick }) {
   return (
-    <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
+    <button onClick={onClick} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors text-left w-full">
       <div className="w-9 h-9 rounded-xl bg-[#b3001e]/20 flex items-center justify-center text-[#b3001e] shrink-0">
         <Icon size={14} />
       </div>
@@ -306,6 +306,6 @@ function QuickAction({ icon: Icon, label, hint }) {
         <p className="text-[10px] text-white/40">{hint}</p>
       </div>
       <ChevronRight size={14} className="text-white/40 shrink-0" />
-    </div>
+    </button>
   )
 }

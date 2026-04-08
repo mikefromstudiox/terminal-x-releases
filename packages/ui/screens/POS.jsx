@@ -906,6 +906,7 @@ function CarWashPOS() {
             ticketNo: lang === 'es' ? 'NUEVO' : 'NEW',
             vehicle:  cobrarModal.vehicle,
             services: cobrarModal.items,
+            client:   cobrarModal.client || null,
           }}
           onConfirm={handlePaymentConfirm}
           onClose={() => setCobrarModal(null)}
@@ -1021,6 +1022,7 @@ function RetailPOS() {
     setCart(prev => {
       const existing = prev.find(i => i.inventory_item_id === product.id)
       if (existing) {
+        if (existing.qty >= (product.quantity || Infinity)) return prev
         return prev.map(i => i.inventory_item_id === product.id ? { ...i, qty: i.qty + 1 } : i)
       }
       return [...prev, {
@@ -1063,7 +1065,7 @@ function RetailPOS() {
   function updateQty(cartId, delta) {
     setCart(prev => prev.map(i => {
       if (i.id !== cartId) return i
-      const newQty = Math.max(1, i.qty + delta)
+      const newQty = Math.min(i.stock || Infinity, Math.max(1, i.qty + delta))
       return { ...i, qty: newQty }
     }))
   }
@@ -1478,6 +1480,7 @@ function RetailPOS() {
             ticketNo: lang === 'es' ? 'NUEVO' : 'NEW',
             vehicle: '',
             services: cobrarModal.items,
+            client:   cobrarModal.client || null,
           }}
           onConfirm={handlePaymentConfirm}
           onClose={() => setCobrarModal(null)}

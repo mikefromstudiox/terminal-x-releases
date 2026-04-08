@@ -288,7 +288,7 @@ function Lavadores() {
 
 // ── VENDEDORES ────────────────────────────────────────────────────────────────
 
-const EMPTY_SELLER = { name: '', commission_pct: '5', phone: '' }
+const EMPTY_SELLER = { name: '', commission_pct: '5', phone: '', cedula: '', start_date: '' }
 
 function Vendedores() {
   const api                     = useAPI()
@@ -314,7 +314,7 @@ function Vendedores() {
   }
 
   function openAdd()   { setForm(EMPTY_SELLER); setError(''); setSaved(false); setPanel('add') }
-  function openEdit(s) { setForm({ name: s.name, commission_pct: String(s.commission_pct), phone: s.phone||'' }); setError(''); setSaved(false); setPanel(s) }
+  function openEdit(s) { setForm({ name: s.name, commission_pct: String(s.commission_pct), phone: s.phone||'', cedula: s.cedula||'', start_date: s.start_date||'' }); setError(''); setSaved(false); setPanel(s) }
   function closePanel(){ setPanel(null) }
   function set(k, v)   { setForm(f => ({ ...f, [k]: v })) }
 
@@ -401,8 +401,10 @@ function Vendedores() {
         <Panel title={panel === 'add' ? L('Nuevo Vendedor', 'New Salesperson') : L('Editar Vendedor', 'Edit Salesperson')} onClose={closePanel}>
           <div className="space-y-3">
             <div><Label>{L('Nombre *', 'Name *')}</Label><Input value={form.name} onChange={e => set('name', e.target.value)} placeholder="Pedro Martínez" /></div>
+            <div><Label>{L('Cédula', 'ID Number')}</Label><Input value={form.cedula} onChange={e => set('cedula', e.target.value)} placeholder="001-0000000-0" /></div>
             <div><Label>{L('Teléfono', 'Phone')}</Label><Input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="809-555-0000" /></div>
             <div><Label>{L('% Comisión', '% Commission')}</Label><Input type="number" min="0" max="100" value={form.commission_pct} onChange={e => set('commission_pct', e.target.value)} /></div>
+            <div><Label>{L('Fecha de entrada', 'Start date')}</Label><Input type="date" value={form.start_date} onChange={e => set('start_date', e.target.value)} /></div>
           </div>
           {error && <p className="mt-3 text-[11px] text-red-500 dark:text-red-400">{error}</p>}
           <div className="flex gap-2 mt-4">

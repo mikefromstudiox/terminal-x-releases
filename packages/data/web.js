@@ -23,6 +23,7 @@ async function tryOr(fn, fallback) {
     if (result === null && fallback !== undefined) return fallback
     return result
   } catch (err) {
+    console.error('[web.js]', err.message || err)
     if (fallback !== undefined) return fallback
     throw err
   }
@@ -1019,46 +1020,57 @@ export function createWebAPI(supabase, businessId) {
 
     queue: {
       active: () => tryOr(async () => {
-        // Fetch queue rows with ticket data (no deep nested joins — PostgREST limitation)
+        // Fetch queue rows — include both UUID FK and supabase_id FK columns
         const { data: rows, error: qErr } = await supabase.from('queue')
-          .select('*, tickets(id, doc_number, total, vehicle_plate, created_at, client_id), washers(name)')
+          .select('*')
           .eq('business_id', bid).not('status', 'in', '("done","cancelled")')
           .order('created_at', { ascending: true })
         if (qErr) throw new Error(qErr.message)
-
         if (!rows?.length) return []
 
-        // Fetch client names and ticket items separately
-        const ticketIds = rows.map(q => q.tickets?.id).filter(Boolean)
-        const clientIds = rows.map(q => q.tickets?.client_id).filter(Boolean)
+        // Resolve tickets — by UUID ticket_id or ticket_supabase_id
+        const tUuids = [...new Set(rows.map(q => q.ticket_id).filter(Boolean))]
+        const tSids  = [...new Set(rows.map(q => q.ticket_supabase_id).filter(Boolean))]
+        const ticketMap = {}
+        if (tUuids.length) { const { data: tr } = await supabase.from('tickets').select('id, doc_number, total, vehicle_plate, created_at, client_id, client_supabase_id').in('id', tUuids); for (const t of (tr || [])) ticketMap[t.id] = t }
+        if (tSids.length)  { const { data: tr } = await supabase.from('tickets').select('id, supabase_id, doc_number, total, vehicle_plate, created_at, client_id, client_supabase_id').in('supabase_id', tSids); for (const t of (tr || [])) ticketMap[t.supabase_id] = t }
 
-        let clientMap = {}
-        if (clientIds.length) {
-          const { data: cls } = await supabase.from('clients').select('id, name').in('id', clientIds)
-          for (const c of (cls || [])) clientMap[c.id] = c.name
-        }
+        // Resolve washers — by UUID washer_id or washer_supabase_id
+        const wUuids = [...new Set(rows.map(q => q.washer_id).filter(Boolean))]
+        const wSids  = [...new Set(rows.map(q => q.washer_supabase_id).filter(Boolean))]
+        const washerMap = {}
+        if (wUuids.length) { const { data: wr } = await supabase.from('washers').select('id, name').in('id', wUuids); for (const w of (wr || [])) washerMap[w.id] = w.name }
+        if (wSids.length)  { const { data: wr } = await supabase.from('washers').select('id, supabase_id, name').in('supabase_id', wSids); for (const w of (wr || [])) washerMap[w.supabase_id] = w.name }
 
-        let itemsMap = {}
-        if (ticketIds.length) {
-          const { data: items } = await supabase.from('ticket_items').select('ticket_id, name').in('ticket_id', ticketIds)
-          for (const i of (items || [])) {
-            if (!itemsMap[i.ticket_id]) itemsMap[i.ticket_id] = []
-            itemsMap[i.ticket_id].push(i.name)
+        // Resolve clients
+        const allTickets = Object.values(ticketMap)
+        const cUuids = [...new Set(allTickets.map(t => t.client_id).filter(Boolean))]
+        const cSids  = [...new Set(allTickets.map(t => t.client_supabase_id).filter(Boolean))]
+        const clientMap = {}
+        if (cUuids.length) { const { data: cls } = await supabase.from('clients').select('id, name').in('id', cUuids); for (const c of (cls || [])) clientMap[c.id] = c.name }
+        if (cSids.length)  { const { data: cls } = await supabase.from('clients').select('id, supabase_id, name').in('supabase_id', cSids); for (const c of (cls || [])) clientMap[c.supabase_id] = c.name }
+
+        // Resolve ticket items
+        const itemsMap = {}
+        if (tUuids.length) { const { data: items } = await supabase.from('ticket_items').select('ticket_id, name').in('ticket_id', tUuids); for (const i of (items || [])) { if (!itemsMap[i.ticket_id]) itemsMap[i.ticket_id] = []; itemsMap[i.ticket_id].push(i.name) } }
+        if (tSids.length)  { const { data: items } = await supabase.from('ticket_items').select('ticket_supabase_id, name').in('ticket_supabase_id', tSids); for (const i of (items || [])) { if (!itemsMap[i.ticket_supabase_id]) itemsMap[i.ticket_supabase_id] = []; itemsMap[i.ticket_supabase_id].push(i.name) } }
+
+        return rows.map(q => {
+          const tKey = q.ticket_id || q.ticket_supabase_id
+          const wKey = q.washer_id || q.washer_supabase_id
+          const t = ticketMap[tKey] || {}
+          const cKey = t.client_id || t.client_supabase_id
+          return {
+            ...q,
+            doc_number:     t.doc_number    || null,
+            total:          t.total          || 0,
+            vehicle_plate:  t.vehicle_plate  || null,
+            ticket_created: t.created_at     || null,
+            client_name:    clientMap[cKey]   || null,
+            services:       (itemsMap[tKey] || []).join(' + '),
+            washer_name:    washerMap[wKey]   || null,
           }
-        }
-
-        return rows.map(q => ({
-          ...q,
-          doc_number:     q.tickets?.doc_number    || null,
-          total:          q.tickets?.total          || 0,
-          vehicle_plate:  q.tickets?.vehicle_plate  || null,
-          ticket_created: q.tickets?.created_at     || null,
-          client_name:    clientMap[q.tickets?.client_id] || null,
-          services:       (itemsMap[q.tickets?.id] || []).join(' + '),
-          washer_name:    q.washers?.name           || null,
-          tickets: undefined,
-          washers: undefined,
-        }))
+        })
       }, []),
 
       updateStatus: (data) => tryOr(async () => {
@@ -1066,7 +1078,13 @@ export function createWebAPI(supabase, businessId) {
         const now = new Date().toISOString()
         const patch = { status }
         if (status === 'in_progress') {
-          patch.washer_id = washerId || null
+          // washerId could be a Supabase UUID or a supabase_id — store in appropriate column
+          if (washerId) {
+            // Check if it's a native Supabase row ID or a synced supabase_id
+            const { data: w } = await supabase.from('washers').select('id').eq('id', washerId).maybeSingle()
+            if (w) patch.washer_id = washerId
+            else patch.washer_supabase_id = washerId
+          }
           patch.assigned_at = now
         } else if (status === 'done') {
           patch.completed_at = now

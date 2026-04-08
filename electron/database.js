@@ -89,6 +89,15 @@ function init(userDataPath) {
     'ALTER TABLE ticket_items ADD COLUMN inventory_item_id INTEGER REFERENCES inventory_items(id)',
     'ALTER TABLE inventory_items ADD COLUMN barcode TEXT',
     'ALTER TABLE inventory_items ADD COLUMN aplica_itbis INTEGER NOT NULL DEFAULT 1',
+    // v1.8.4 — start_date + cedula for sellers, cedula + start_date for users (cashiers)
+    'ALTER TABLE sellers ADD COLUMN start_date TEXT',
+    'ALTER TABLE sellers ADD COLUMN cedula TEXT',
+    'ALTER TABLE users ADD COLUMN cedula TEXT',
+    'ALTER TABLE users ADD COLUMN start_date TEXT',
+    // SQLite doesn't support ALTER CHECK — recreate constraint by adding the column check is ignored
+    // Instead, we drop the old constraint by recreating — but that's destructive. Safer: just allow any value
+    // since the UI controls the allowed types. The CHECK was on CREATE TABLE, can't be altered.
+    // We'll handle validation in code instead.
     // v1.6 — supabase_id UUID columns for cloud sync
     'ALTER TABLE services ADD COLUMN supabase_id TEXT',
     'ALTER TABLE washers ADD COLUMN supabase_id TEXT',
@@ -167,9 +176,45 @@ function init(userDataPath) {
     "UPDATE notas_credito SET ticket_supabase_id = (SELECT supabase_id FROM tickets WHERE tickets.id = notas_credito.original_ticket_id) WHERE ticket_supabase_id IS NULL AND original_ticket_id IS NOT NULL",
     "UPDATE notas_credito SET cajero_supabase_id = (SELECT supabase_id FROM users WHERE users.id = notas_credito.cajero_id) WHERE cajero_supabase_id IS NULL AND cajero_id IS NOT NULL",
     "UPDATE inventory_transactions SET item_supabase_id = (SELECT supabase_id FROM inventory_items WHERE inventory_items.id = inventory_transactions.item_id) WHERE item_supabase_id IS NULL AND item_id IS NOT NULL",
+    // v1.9 — FK supabase_id columns on tickets for sync
+    'ALTER TABLE tickets ADD COLUMN client_supabase_id TEXT',
+    'ALTER TABLE tickets ADD COLUMN seller_supabase_id TEXT',
+    'ALTER TABLE tickets ADD COLUMN cajero_supabase_id TEXT',
+    // v1.9 — FK supabase_id columns on other tables
+    'ALTER TABLE ticket_items ADD COLUMN inventory_item_supabase_id TEXT',
+    'ALTER TABLE cuadre_caja ADD COLUMN cajero_supabase_id TEXT',
+    'ALTER TABLE caja_chica ADD COLUMN cajero_supabase_id TEXT',
+    'ALTER TABLE caja_chica ADD COLUMN approved_by_supabase_id TEXT',
+    'ALTER TABLE inventory_transactions ADD COLUMN user_supabase_id TEXT',
+    // v1.9 — backfill FK supabase_ids
+    "UPDATE tickets SET client_supabase_id = (SELECT supabase_id FROM clients WHERE clients.id = tickets.client_id) WHERE client_supabase_id IS NULL AND client_id IS NOT NULL",
+    "UPDATE tickets SET seller_supabase_id = (SELECT supabase_id FROM sellers WHERE sellers.id = tickets.seller_id) WHERE seller_supabase_id IS NULL AND seller_id IS NOT NULL",
+    "UPDATE tickets SET cajero_supabase_id = (SELECT supabase_id FROM users WHERE users.id = tickets.cajero_id) WHERE cajero_supabase_id IS NULL AND cajero_id IS NOT NULL",
+    "UPDATE ticket_items SET inventory_item_supabase_id = (SELECT supabase_id FROM inventory_items WHERE inventory_items.id = ticket_items.inventory_item_id) WHERE inventory_item_supabase_id IS NULL AND inventory_item_id IS NOT NULL",
+    // v1.9 — updated_at columns for sync re-push (so updates are re-synced, not just new rows)
+    "ALTER TABLE services ADD COLUMN updated_at TEXT",
+    "ALTER TABLE washers ADD COLUMN updated_at TEXT",
+    "ALTER TABLE sellers ADD COLUMN updated_at TEXT",
+    "ALTER TABLE clients ADD COLUMN updated_at TEXT",
+    "ALTER TABLE inventory_items ADD COLUMN updated_at TEXT",
+    "ALTER TABLE tickets ADD COLUMN updated_at TEXT",
+    "ALTER TABLE empleados ADD COLUMN updated_at TEXT",
+    "ALTER TABLE ncf_sequences ADD COLUMN updated_at TEXT",
+    // Backfill updated_at from created_at for existing rows
+    "UPDATE services SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE washers SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE sellers SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE clients SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE inventory_items SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE tickets SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE empleados SET updated_at = created_at WHERE updated_at IS NULL",
   ]
   for (const sql of migrations) {
-    try { db.exec(sql) } catch { /* column already exists */ }
+    try { db.exec(sql) } catch (e) {
+      if (!e.message?.includes('duplicate column') && !e.message?.includes('already exists') && !e.message?.includes('UNIQUE constraint')) {
+        console.error('[db] Migration failed:', sql.substring(0, 80), '—', e.message)
+      }
+    }
   }
 
   // v1.6 — unique indexes on supabase_id (safe to run multiple times)
@@ -197,7 +242,23 @@ function init(userDataPath) {
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_supabase_id ON users(supabase_id)',
   ]
   for (const sql of sidIndexes) {
-    try { db.exec(sql) } catch { /* index already exists or column missing */ }
+    try { db.exec(sql) } catch (e) {
+      if (!e.message?.includes('already exists')) {
+        console.error('[db] Index creation failed:', sql.substring(0, 80), '—', e.message)
+      }
+    }
+  }
+
+  // v1.9 — auto-update updated_at via triggers (so sync can detect changed rows)
+  const triggerTables = ['services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences']
+  for (const t of triggerTables) {
+    try {
+      db.exec(`CREATE TRIGGER IF NOT EXISTS trg_${t}_updated_at AFTER UPDATE ON ${t} FOR EACH ROW
+        WHEN NEW.updated_at IS OLD.updated_at OR NEW.updated_at IS NULL
+        BEGIN UPDATE ${t} SET updated_at = datetime('now') WHERE id = NEW.id; END`)
+    } catch (e) {
+      if (!e.message?.includes('already exists')) console.error(`[db] Trigger ${t}:`, e.message)
+    }
   }
 
   // ── Dedup washers & sellers (fix: INSERT OR IGNORE had no UNIQUE constraint) ─
@@ -229,7 +290,7 @@ function init(userDataPath) {
       db.prepare('UPDATE users SET vendedor_id=? WHERE vendedor_id=?').run(keep_id, dup_id)
     }
     db.exec(`DELETE FROM sellers WHERE id NOT IN (SELECT MIN(id) FROM sellers GROUP BY name)`)
-  } catch { /* safe to ignore on fresh DB */ }
+  } catch (e) { if (e.message && !e.message.includes('no such table')) console.error('[db] Dedup error:', e.message) }
   // Add unique index so INSERT OR IGNORE works correctly going forward
   try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_washers_name ON washers(name)`) } catch { /* already exists */ }
   try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sellers_name ON sellers(name)`) } catch { /* already exists */ }
@@ -606,13 +667,13 @@ function userCreate(data) {
   const existing = db.prepare('SELECT id, supabase_id FROM users WHERE username=?').get(data.username)
   if (existing) {
     const hash = (() => { if (!data.pin) throw new Error('PIN requerido'); return sha256(data.pin) })()
-    db.prepare('UPDATE users SET name=@name, pin_hash=@pin_hash, role=@role, discount_pct=@discount_pct, active=1 WHERE id=@id')
-      .run({ name: data.name, pin_hash: hash, role: data.role, discount_pct: data.discount_pct, id: existing.id })
+    db.prepare('UPDATE users SET name=@name, pin_hash=@pin_hash, role=@role, discount_pct=@discount_pct, cedula=@cedula, start_date=@start_date, active=1 WHERE id=@id')
+      .run({ name: data.name, pin_hash: hash, role: data.role, discount_pct: data.discount_pct, cedula: data.cedula || null, start_date: data.start_date || null, id: existing.id })
     return { id: existing.id, supabase_id: existing.supabase_id }
   }
   const sid = crypto.randomUUID()
-  const r = db.prepare(`INSERT INTO users(name,username,pin_hash,role,discount_pct,active,supabase_id)
-    VALUES(@name,@username,@pin_hash,@role,@discount_pct,1,@supabase_id)`).run({
+  const r = db.prepare(`INSERT INTO users(name,username,pin_hash,role,discount_pct,cedula,start_date,active,supabase_id)
+    VALUES(@name,@username,@pin_hash,@role,@discount_pct,@cedula,@start_date,1,@supabase_id)`).run({
     ...data,
     pin_hash: (() => { if (!data.pin) throw new Error('PIN requerido'); return sha256(data.pin) })(),
     supabase_id: sid,
@@ -845,7 +906,7 @@ function payrollRunCreate(data) {
   const r = db.prepare(PAYROLL_RUN_INSERT_SQL).run(row)
   // Auto-mark underlying commissions as paid for this employee/period
   if (row.commissions > 0) {
-    try { markCommissionsPaidForEmpleado(row.empleado_id, row.period_start, row.period_end) } catch {}
+    try { markCommissionsPaidForEmpleado(row.empleado_id, row.period_start, row.period_end) } catch (e) { console.error('[payroll] markCommissionsPaid failed:', e.message) }
   }
   return { id: r.lastInsertRowid }
 }
@@ -860,7 +921,7 @@ function payrollRunsBulkCreate(runs) {
       const r = stmt.run(row)
       ids.push(r.lastInsertRowid)
       if (row.commissions > 0) {
-        try { markCommissionsPaidForEmpleado(row.empleado_id, row.period_start, row.period_end) } catch {}
+        try { markCommissionsPaidForEmpleado(row.empleado_id, row.period_start, row.period_end) } catch (e) { console.error('[payroll] markCommissionsPaid failed:', e.message) }
       }
     }
   })
@@ -952,13 +1013,13 @@ function sellersGetAllAdmin() {
 function sellerCreate(data) {
   if (!db) return null
   const sid = crypto.randomUUID()
-  const r = db.prepare('INSERT INTO sellers(name,commission_pct,phone,active,supabase_id) VALUES(?,?,?,1,?)')
-    .run(data.name, data.commission_pct || 5, data.phone || null, sid)
+  const r = db.prepare('INSERT INTO sellers(name,commission_pct,phone,cedula,start_date,active,supabase_id) VALUES(?,?,?,?,?,1,?)')
+    .run(data.name, data.commission_pct || 5, data.phone || null, data.cedula || null, data.start_date || null, sid)
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function sellerUpdate(id, data) {
   if (!db) return
-  const allowed = ['name','commission_pct','phone','active']
+  const allowed = ['name','commission_pct','phone','cedula','start_date','active']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
@@ -1101,10 +1162,13 @@ function ticketCreate(data) {
     }
 
     const ticketSid = crypto.randomUUID()
+    const clientSid = data.client_id ? (db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id)?.supabase_id || null) : null
+    const sellerSid = data.seller_id ? (db.prepare('SELECT supabase_id FROM sellers WHERE id=?').get(data.seller_id)?.supabase_id || null) : null
+    const cajeroSid = data.cajero_id ? (db.prepare('SELECT supabase_id FROM users WHERE id=?').get(data.cajero_id)?.supabase_id || null) : null
     const result = db.prepare(`INSERT INTO tickets
       (doc_number,client_id,washer_ids,seller_id,cajero_id,subtotal,descuento,itbis,ley,total,
-       beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,supabase_id,created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
+       beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,supabase_id,client_supabase_id,seller_supabase_id,cajero_supabase_id,created_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
       docNumber,
       data.client_id || null,
       JSON.stringify(data.washer_ids || []),
@@ -1124,6 +1188,9 @@ function ticketCreate(data) {
       data.status || (data.payment_method === 'credit' ? 'pendiente' : 'cobrado'),
       data.vehicle_plate || null,
       ticketSid,
+      clientSid,
+      sellerSid,
+      cajeroSid,
     )
     const ticketId = result.lastInsertRowid
 
@@ -1134,8 +1201,12 @@ function ticketCreate(data) {
     const validSvcIds = new Set(svcRows.map(r => r.id))
     const svcCostById = new Map(svcRows.map(r => [r.id, r.cost || 0]))
     const svcSidById = new Map(svcRows.map(r => [r.id, r.supabase_id || null]))
-    const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,cost,itbis,is_wash,quantity,sku,inventory_item_id,supabase_id,ticket_supabase_id,service_supabase_id)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    // Lookup aplica_itbis for inventory items
+    const invRows = db.prepare('SELECT id, aplica_itbis, supabase_id FROM inventory_items').all()
+    const invItbisById = new Map(invRows.map(r => [r.id, r.aplica_itbis]))
+    const invSidById = new Map(invRows.map(r => [r.id, r.supabase_id || null]))
+    const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,cost,itbis,is_wash,quantity,sku,inventory_item_id,supabase_id,ticket_supabase_id,service_supabase_id,inventory_item_supabase_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     for (const item of (data.items || [])) {
       const svcId = (item.service_id && validSvcIds.has(item.service_id)) ? item.service_id : null
       const qty = item.quantity || 1
@@ -1143,10 +1214,13 @@ function ticketCreate(data) {
       // otherwise look up the current service cost by id.
       const itemCost = item.cost != null ? Number(item.cost) : (svcId ? svcCostById.get(svcId) : 0)
       const itemSid = crypto.randomUUID()
+      const aplica = item.aplica_itbis !== undefined ? item.aplica_itbis : (item.inventory_item_id ? (invItbisById.get(item.inventory_item_id) ?? 1) : 1)
+      const itemItbis = aplica !== 0 ? parseFloat((item.price * 0.18).toFixed(2)) : 0
+      const invItemSid = item.inventory_item_id ? (invSidById.get(item.inventory_item_id) || null) : null
       insItem.run(ticketId, svcId, item.name, item.price, itemCost,
-        parseFloat((item.price * 0.18).toFixed(2)), item.is_wash ?? 1,
+        itemItbis, item.is_wash ?? 1,
         qty, item.sku || null, item.inventory_item_id || null,
-        itemSid, ticketSid, svcId ? svcSidById.get(svcId) : null)
+        itemSid, ticketSid, svcId ? svcSidById.get(svcId) : null, invItemSid)
 
       // Auto-deduct inventory stock
       if (item.inventory_item_id) {
@@ -1296,7 +1370,6 @@ function ticketItemUpdatePrice({ ticketItemId, newPrice, reason, adminPin }) {
   if (!db) return { ok: false, error: 'DB not ready' }
 
   // 1. Verify admin PIN
-  const crypto = require('crypto')
   const hash = crypto.createHash('sha256').update(String(adminPin)).digest('hex')
   const admin = db.prepare("SELECT id, name, role FROM users WHERE pin_hash=? AND active=1 AND role IN ('owner','manager')").get(hash)
   if (!admin) return { ok: false, error: 'PIN invalido o no tiene permisos de administrador' }
@@ -1317,12 +1390,14 @@ function ticketItemUpdatePrice({ ticketItemId, newPrice, reason, adminPin }) {
     db.prepare('UPDATE ticket_items SET price=?, itbis=? WHERE id=?').run(newPrice, newItbis, ticketItemId)
 
     // Recalculate ticket totals from all items
-    const items = db.prepare('SELECT price, is_wash FROM ticket_items WHERE ticket_id=?').all(item.ticket_id)
+    const items = db.prepare('SELECT id, price, is_wash, aplica_itbis FROM ticket_items WHERE ticket_id=?').all(item.ticket_id)
     // Replace old price with new for the changed item
     const allPrices = items.map(i => i.id === ticketItemId ? newPrice : i.price)
     const total = allPrices.reduce((s, p) => s + p, 0)
-    const subtotal = total / 1.18
-    const itbis = total - subtotal
+    const itbisItems = items.filter(i => i.aplica_itbis !== 0)
+    const itbisTotal = itbisItems.reduce((s, i) => s + (i.id === ticketItemId ? newPrice : i.price), 0)
+    const itbis = parseFloat((itbisTotal * 0.18 / 1.18).toFixed(2))
+    const subtotal = total - itbis
     const beverageSub = items.filter(i => !i.is_wash).reduce((s, i) => s + (i.id === ticketItemId ? newPrice : i.price), 0)
 
     db.prepare('UPDATE tickets SET subtotal=?, itbis=?, total=?, beverage_subtotal=? WHERE id=?')
@@ -1577,7 +1652,7 @@ function ncfGetNext(type) {
 }
 function ncfUpdateSequence(type, data) {
   if (!db) return
-  const allowed = ['prefix', 'current_number', 'max_number', 'active', 'enabled', 'expires_at']
+  const allowed = ['prefix', 'current_number', 'limit_number', 'active', 'enabled', 'valid_until']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')

@@ -479,6 +479,7 @@ export default function CashReconciliation() {
       doPrint()
     } catch (err) {
       console.error('cuadre:create error', err)
+      flash(L('Error al cerrar caja', 'Error closing register'))
     } finally {
       setSaving(false)
     }

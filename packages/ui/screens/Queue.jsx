@@ -83,8 +83,8 @@ function QueueCard({ ticket, washers, assigningId, setAssigningId, onCycle, onAs
   return (
     <div className={`border-b border-slate-100 dark:border-white/10 px-3 py-3 ${sc.bg}`}>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[13px] font-bold text-sky-600">{ticket.ticketNo}</span>
-        <span className="text-[11px] text-slate-400 dark:text-white/40">{fmtTime(ticket.createdAt)}</span>
+        <span className="text-[13px] font-bold text-sky-600 truncate max-w-[120px]">{ticket.ticketNo}</span>
+        <span className="text-[11px] text-slate-400 dark:text-white/40 shrink-0">{fmtTime(ticket.createdAt)}</span>
       </div>
       <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">{ticket.vehicle}</p>
       <p className="text-[12px] text-slate-500 dark:text-white/60 truncate mt-0.5">{main}</p>
@@ -161,8 +161,8 @@ function QueueRow({ ticket, washers, assigningId, setAssigningId, onCycle, onAss
   return (
     <div className={`flex items-center h-14 border-b border-slate-100 dark:border-white/10 px-5 transition-colors group ${sc.bg} hover:brightness-95`}>
 
-      <div className="w-[72px] shrink-0">
-        <span className="text-[13px] font-bold text-sky-600">{ticket.ticketNo}</span>
+      <div className="w-[90px] shrink-0">
+        <span className="text-[13px] font-bold text-sky-600 truncate block">{ticket.ticketNo}</span>
       </div>
 
       <div className="flex-1 min-w-0 pr-4">

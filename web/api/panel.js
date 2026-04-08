@@ -6,9 +6,9 @@ function cors(req, res) {
   const origin = req.headers.origin || ''
   if (ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin)
-  } else if (!origin || origin === 'null') {
-    // Desktop Electron (file://) sends Origin: null; server-to-server has no origin
-    res.setHeader('Access-Control-Allow-Origin', '*')
+  } else {
+    // No wildcard — desktop uses IPC, not direct fetch
+    res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0] || 'https://terminalxpos.com')
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')

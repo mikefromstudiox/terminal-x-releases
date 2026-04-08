@@ -453,7 +453,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   // ── Client search ───────────────────────────────────────────────────────────
   const [allClients,    setAllClients]    = useState([])
   const [clientQuery,   setClientQuery]   = useState('')
-  const [selectedClient, setSelectedClient] = useState(null)
+  const [selectedClient, setSelectedClient] = useState(ticket?.client || null)
   const [showClientDrop, setShowClientDrop] = useState(false)
   const clientRef = useRef(null)
 
@@ -558,6 +558,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
 
   async function handleConfirm() {
     if (!canSubmit) return
+    if (ecfState === 'submitting' || ecfState === 'success') return
 
     // ── Legacy B01/B02 mode: use DB sequence, skip ECF ──────────────────────
     if (isLegacy) {

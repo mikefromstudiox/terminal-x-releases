@@ -272,8 +272,22 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
     setSavingPayment(true)
 
     try {
-      // Update client balance (reduce by paid amount)
-      await api?.clients?.updateBalance?.({ id: client.id, delta: -selectedAmt })
+      // Use credits.collect to update balance + mark tickets as paid atomically
+      const ticketIds = [...checked]
+      if (api?.credits?.collect) {
+        await api.credits.collect({
+          clientId:      client.id,
+          ticketIds,
+          amount:        selectedAmt,
+          paymentMethod: formaPago,
+          ncf:           ncfType || null,
+          notes:         comentario || null,
+          cajeroId:      null,
+        })
+      } else {
+        // Fallback: just update balance if credits.collect not available
+        await api?.clients?.updateBalance?.({ id: client.id, delta: -selectedAmt })
+      }
 
       const paidCount = checked.size
       const paidTickets = openTickets.filter(t => checked.has(t.id))
@@ -671,13 +685,22 @@ export function NewClientForm({ onClose, onSave, lang }) {
 
   function set(field, val) { setForm(f => ({ ...f, [field]: val })) }
 
-  async function lookupRNC() {
-    const clean = form.rnc.replace(/\D/g, '')
-    if (clean.length < 9) return
+  async function lookupRNC(rncValue) {
+    const clean = (rncValue || form.rnc).replace(/\D/g, '')
+    if (clean.length !== 9 && clean.length !== 11) return
     const res = await rncLookup(clean)
     if (res?.nombre) set('name', res.nombre)
     else if (res?.name) set('name', res.name)
   }
+
+  // Auto-lookup when RNC reaches valid length (9 empresa or 11 cédula)
+  useEffect(() => {
+    const clean = form.rnc.replace(/\D/g, '')
+    if (clean.length === 9 || clean.length === 11) {
+      const timer = setTimeout(() => lookupRNC(form.rnc), 400)
+      return () => clearTimeout(timer)
+    }
+  }, [form.rnc])
 
   function validate() {
     const e = {}

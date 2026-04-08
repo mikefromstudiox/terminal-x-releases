@@ -10,8 +10,8 @@ export default async function handler(req, res) {
   const origin = req.headers.origin || ''
   if (ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin)
-  } else if (!origin || origin === 'null') {
-    res.setHeader('Access-Control-Allow-Origin', '*')
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0] || 'https://terminalxpos.com')
   }
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')

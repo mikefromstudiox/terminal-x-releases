@@ -7,6 +7,20 @@ const https  = require('https')
 const { initUpdater } = require('./updater')
 const sync = require('./sync')
 
+// ── Process-level error handlers (prevent silent crashes) ─────────────────────
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception:', err)
+  try {
+    const { dialog } = require('electron')
+    if (require('electron').app.isReady()) {
+      dialog.showErrorBox('Terminal X — Error', `Error inesperado: ${err.message}\n\nLa aplicación continuará funcionando.`)
+    }
+  } catch {}
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] Unhandled rejection:', reason)
+})
+
 // ── Load .env from project root ───────────────────────────────────────────────
 // dotenv is a dev-dependency; in packaged builds the env vars must be set at
 // build time or via the OS environment — dotenv.config() is a no-op if the
@@ -20,7 +34,7 @@ const env = {
   masterKey:    process.env.MASTER_LICENSE_KEY ? process.env.MASTER_LICENSE_KEY.toUpperCase().trim() : '',
   supabaseUrl:  process.env.SUPABASE_URL  || 'https://csppjsoirjflumaiipqw.supabase.co',
   supabaseAnon: process.env.SUPABASE_ANON_KEY || '',
-  supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNzcHBqc29pcmpmbHVtYWlpcHF3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDA1NzIxOSwiZXhwIjoyMDg5NjMzMjE5fQ._C8zVtjJRJu8pPuVxD1uuyXv-2FPWIVElsZTZLWZTRc',
+  supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
 }
 
 // ── Safe storage (OS-encrypted key-value store) ───────────────────────────────
@@ -35,7 +49,7 @@ ipcMain.handle('safe:set', (_, key, val) => {
   } else {
     store[key] = { enc: false, data: Buffer.from(val).toString('base64') }
   }
-  try { fs.writeFileSync(storePath, JSON.stringify(store)) } catch {}
+  try { fs.writeFileSync(storePath, JSON.stringify(store)) } catch (e) { console.error('[safe:set] Write failed:', e.message); return false }
   return true
 })
 
@@ -372,8 +386,8 @@ async function processDgiiQueue() {
           db.ecfQueueIncrAttempts(item.id)
         }
       }
-    } catch {
-      // Still offline — retry next interval
+    } catch (e) {
+      console.error('[ecf-queue] Item', item.id, 'failed:', e.message)
     }
   }
 }

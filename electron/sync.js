@@ -69,7 +69,10 @@ const SYNC_TABLES = [
       name: r.name,
       commission_pct: r.commission_pct,
       phone: r.phone,
+      cedula: r.cedula,
+      start_date: r.start_date,
       active: r.active,
+      created_at: r.created_at || new Date().toISOString(),
     }),
   },
   {
@@ -96,11 +99,13 @@ const SYNC_TABLES = [
       supabase_id: r.supabase_id,
       name: r.name,
       sku: r.sku,
+      barcode: r.barcode,
       category: r.category,
-      unit_cost: r.unit_cost,
-      current_stock: r.current_stock,
-      min_stock: r.min_stock,
-      supplier: r.supplier,
+      price: r.price,
+      cost: r.cost,
+      quantity: r.quantity,
+      min_quantity: r.min_quantity,
+      aplica_itbis: r.aplica_itbis,
       active: r.active,
       created_at: r.created_at || new Date().toISOString(),
     }),
@@ -124,14 +129,12 @@ const SYNC_TABLES = [
       supabase_id: r.supabase_id,
       nombre: r.nombre,
       cedula: r.cedula,
-      telefono: r.telefono,
+      phone: r.phone,
       tipo: r.tipo,
-      salario_base: r.salario_base,
-      fecha_entrada: r.fecha_entrada,
-      fecha_salida: r.fecha_salida,
-      activo: r.activo,
+      salary: r.salary,
+      start_date: r.start_date,
+      active: r.active,
       ref_id: r.ref_id,
-      ref_type: r.ref_type,
       puesto: r.puesto,
       email: r.email,
       bank_account: r.bank_account,
@@ -145,6 +148,22 @@ const SYNC_TABLES = [
       supabase_id: r.supabase_id,
       nombre: r.nombre,
       orden: r.orden,
+    }),
+  },
+
+  {
+    name: 'users',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      name: r.name,
+      username: r.username,
+      role: r.role,
+      discount_pct: r.discount_pct,
+      commission_pct: r.commission_pct,
+      cedula: r.cedula,
+      start_date: r.start_date,
+      active: r.active,
+      created_at: r.created_at || new Date().toISOString(),
     }),
   },
 
@@ -308,7 +327,7 @@ const SYNC_TABLES = [
       supabase_id: r.supabase_id,
       ncf: r.ncf,
       client_supabase_id: r.client_supabase_id || null,
-      original_ticket_supabase_id: r.original_ticket_supabase_id,
+      original_ticket_supabase_id: r.ticket_supabase_id,
       motivo: r.motivo,
       amount: r.amount,
       itbis_revertido: r.itbis_revertido,
@@ -334,16 +353,14 @@ const SYNC_TABLES = [
     name: 'compras_607',
     cols: r => ({
       supabase_id: r.supabase_id,
-      rnc_cedula: r.rnc_cedula,
-      tipo_id: r.tipo_id,
-      tipo_bienes: r.tipo_bienes,
+      rnc_proveedor: r.rnc_proveedor,
+      nombre_proveedor: r.nombre_proveedor,
       ncf: r.ncf,
       ncf_modificado: r.ncf_modificado,
-      fecha: r.fecha,
-      monto_facturado: r.monto_facturado,
+      fecha_ncf: r.fecha_ncf,
+      total: r.total,
       itbis_facturado: r.itbis_facturado,
       itbis_retenido: r.itbis_retenido,
-      monto_pagado: r.monto_pagado,
       retencion_renta: r.retencion_renta,
       forma_pago: r.forma_pago,
       created_at: r.created_at || new Date().toISOString(),
@@ -376,6 +393,9 @@ function init(db, { supabaseUrl, supabaseKey }) {
     // table already exists or db not ready
     try { _db.rawPrepare('SELECT 1 FROM sync_log LIMIT 1').get() } catch { /* ignore */ }
   }
+
+  // Add last_synced_at column for update tracking (v1.9)
+  try { _db.rawExec("ALTER TABLE sync_log ADD COLUMN last_synced_at TEXT") } catch { /* already exists */ }
 
   // One-time reset: when migrating from local_id to supabase_id sync, reset all cursors
   // so every row is re-synced with its new supabase_id
@@ -453,11 +473,12 @@ function supabaseUpsert(table, rows) {
     request.end()
   })
 
-  const timeout$ = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`Supabase ${table} request timed out after ${SYNC_TIMEOUT_MS / 1000}s`)), SYNC_TIMEOUT_MS)
-  )
+  let timeoutId
+  const timeout$ = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`Supabase ${table} request timed out after ${SYNC_TIMEOUT_MS / 1000}s`)), SYNC_TIMEOUT_MS)
+  })
 
-  return Promise.race([request$, timeout$])
+  return Promise.race([request$, timeout$]).finally(() => clearTimeout(timeoutId))
 }
 
 // -- Resolve business_id ------------------------------------------------------
@@ -516,18 +537,26 @@ function getLastSyncedId(tableName) {
   } catch { return 0 }
 }
 
+function getLastSyncedAt(tableName) {
+  try {
+    const row = _db.rawPrepare('SELECT last_synced_at FROM sync_log WHERE table_name = ?').get(tableName)
+    return row?.last_synced_at || null
+  } catch { return null }
+}
+
 // -- Update sync log ----------------------------------------------------------
 function updateSyncLog(tableName, lastId, rowCount, error) {
   try {
-    _db.rawPrepare(`INSERT INTO sync_log (table_name, last_synced_id, row_count, error, updated_at)
-      VALUES (?, ?, ?, ?, datetime('now'))
+    _db.rawPrepare(`INSERT INTO sync_log (table_name, last_synced_id, row_count, error, updated_at, last_synced_at)
+      VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
       ON CONFLICT(table_name) DO UPDATE SET
         last_synced_id = excluded.last_synced_id,
         row_count = excluded.row_count,
         error = excluded.error,
-        updated_at = datetime('now')
+        updated_at = datetime('now'),
+        last_synced_at = datetime('now')
     `).run(tableName, lastId, rowCount, error)
-  } catch {}
+  } catch (e) { console.error('[sync] updateSyncLog failed:', e.message) }
 }
 
 // -- Sync a single table ------------------------------------------------------
@@ -568,6 +597,33 @@ async function syncTable(tableConfig) {
 
     // If we got fewer rows than the fetch size, we're done
     if (rows.length < FETCH_SIZE) break
+  }
+
+  // Pass 2 — re-sync rows that were UPDATED since last sync
+  // This catches balance changes, status updates, stock adjustments, etc.
+  const lastSyncedAt = getLastSyncedAt(name)
+  if (lastSyncedAt) {
+    try {
+      const updatedRows = _db.rawPrepare(
+        `SELECT * FROM ${name} WHERE updated_at > ? AND supabase_id IS NOT NULL ORDER BY id LIMIT 2000`
+      ).all(lastSyncedAt)
+      if (updatedRows.length) {
+        const mapped = updatedRows.map(r => ({ business_id: bizId, ...cols(r) })).filter(r => r.supabase_id)
+        if (mapped.length) {
+          for (let i = 0; i < mapped.length; i += FETCH_SIZE) {
+            const batch = mapped.slice(i, i + FETCH_SIZE)
+            await supabaseUpsert(name, batch)
+            totalSynced += batch.length
+          }
+          console.log(`[sync] ${name}: re-synced ${mapped.length} updated rows`)
+        }
+      }
+    } catch (e) {
+      // updated_at column may not exist on all tables — skip gracefully
+      if (!e.message?.includes('no such column')) {
+        console.error(`[sync] ${name} update-pass:`, e.message)
+      }
+    }
   }
 
   _status.tables[name] = { synced: true, rows: totalSynced, lastId: cursor }

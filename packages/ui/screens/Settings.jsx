@@ -182,6 +182,8 @@ function UserForm({ user: u, onSave, onClose }) {
   const [desc, setDesc]       = useState(u?.desc     ?? 0)
   const [status, setStatus]   = useState(u?.status   ?? 'activo')
   const [pin, setPin]         = useState(u?.pin      ?? '')
+  const [cedula, setCedula]   = useState(u?.cedula   ?? '')
+  const [startDate, setStartDate] = useState(u?.start_date ?? '')
   const [clave, setClave]     = useState('')
   const [pregunta, setPregunta] = useState('')
   const [respuesta, setRespuesta] = useState('')
@@ -198,6 +200,7 @@ function UserForm({ user: u, onSave, onClose }) {
           <div><label className="text-xs text-slate-400 dark:text-white/40 mb-1 block">Nombre completo</label><SmInput value={name} onChange={setName} placeholder="Nombre y apellido" /></div>
           <div><label className="text-xs text-slate-400 dark:text-white/40 mb-1 block">Usuario</label><SmInput value={username} onChange={setUser} placeholder="usuario" /></div>
           <div><label className="text-xs text-slate-400 dark:text-white/40 mb-1 block">Clave</label><SmInput type="password" value={clave} onChange={setClave} placeholder="Nueva clave…" /></div>
+          <div><label className="text-xs text-slate-400 dark:text-white/40 mb-1 block">Cédula</label><SmInput value={cedula} onChange={setCedula} placeholder="001-0000000-0" /></div>
           <div><label className="text-xs text-slate-400 dark:text-white/40 mb-1 block">PIN de acceso (4 dígitos)</label><SmInput value={pin} onChange={setPin} placeholder="0000" className="w-24" /></div>
           <div>
             <label className="text-xs text-slate-400 dark:text-white/40 mb-1 block">Nivel de permiso</label>
@@ -206,6 +209,7 @@ function UserForm({ user: u, onSave, onClose }) {
             </select>
           </div>
           <div><label className="text-xs text-slate-400 dark:text-white/40 mb-1 block">% Descuento máximo</label><SmInput type="number" value={desc} onChange={v => setDesc(Number(v))} placeholder="0" className="w-24" /></div>
+          <div><label className="text-xs text-slate-400 dark:text-white/40 mb-1 block">Fecha de entrada</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400" /></div>
           <div>
             <label className="text-xs text-slate-400 dark:text-white/40 mb-1 block">Estado</label>
             <div className="flex gap-2">
@@ -223,7 +227,7 @@ function UserForm({ user: u, onSave, onClose }) {
         </div>
         <div className="px-6 py-4 border-t border-slate-100 dark:border-white/10 flex gap-3">
           <button onClick={onClose} className="flex-1 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10">Cancelar</button>
-          <button onClick={() => onSave({ name, username, role, desc, status, pin })}
+          <button onClick={() => onSave({ name, username, role, desc, status, pin, cedula, start_date: startDate })}
             className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
             {u ? 'Guardar cambios' : 'Crear usuario'}
           </button>
@@ -336,9 +340,18 @@ function PanelUsuarios({ onSave }) {
       {form && (
         <UserForm
           user={form === 'new' ? null : form}
-          onSave={data => {
-            if (form === 'new') setUsers(u => [...u, { id: Date.now(), ...data }])
-            else setUsers(u => u.map(x => x.id === form.id ? { ...x, ...data } : x))
+          onSave={async (data) => {
+            try {
+              if (form === 'new') {
+                const created = await api?.users?.create?.(data)
+                setUsers(u => [...u, created || { id: Date.now(), ...data }])
+              } else {
+                await api?.users?.update?.({ id: form.id, ...data })
+                setUsers(u => u.map(x => x.id === form.id ? { ...x, ...data } : x))
+              }
+            } catch (e) {
+              console.error('[Settings] User save failed:', e.message)
+            }
             setForm(null)
             onSave()
           }}
