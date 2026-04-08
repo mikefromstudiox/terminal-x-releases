@@ -6,7 +6,6 @@ import {
 import { useLang } from '../i18n'
 import { useAPI, usePrinterAPI } from '../context/DataContext'
 import LicenseAdmin from './LicenseAdmin'
-import { FiscalNCF, Respaldo } from './Admin'
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
 
@@ -113,8 +112,8 @@ const SISTEMA_DEFAULTS = {
   print_preticket:      '0',
   print_factura_auto:   '0',
   print_conduce_auto:   '0',
-  whatsapp_instance:    'instance166620',
-  whatsapp_token:       'frctimeqrl7dkfff',
+  whatsapp_instance:    '',
+  whatsapp_token:       '',
 }
 
 // Shared settings hook — loads cfg from DB once, provides set/save
@@ -155,12 +154,19 @@ function useSettings() {
   return { cfg, set, on, handleSave, saving, saved, printers, toast, show, api, printerApi }
 }
 
-// ── Preferencias (General settings: language, taxes, POS toggles) ─────────
+// ── Preferencias (General settings: language, taxes, POS toggles, printing) ──
 
 export function Preferencias() {
-  const { cfg, set, on, handleSave, saving, saved, toast } = useSettings()
+  const { cfg, set, on, handleSave, saving, saved, printers, toast, show, printerApi } = useSettings()
   const { lang, setLang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
+
+  async function testPrint() {
+    try {
+      if (printerApi?.print) await printerApi.print({ type: 'test', data: {}, printerName: cfg.printer || undefined })
+      show(L('Prueba enviada', 'Test sent'))
+    } catch { show(L('Error al imprimir', 'Print error'), 'error') }
+  }
 
   return (
     <div className="max-w-2xl">
@@ -189,6 +195,32 @@ export function Preferencias() {
         </SettingRow>
       </SettingSection>
 
+      <SettingSection title={L('Impresora', 'Printer')}>
+        <SettingRow label={L('Impresora del sistema', 'System Printer')} hint={L('Impresora configurada en el OS', 'OS-configured printer')}>
+          <div className="flex items-center gap-2">
+            <select value={cfg.printer} onChange={e => set('printer', e.target.value)}
+              className="border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 max-w-[220px]">
+              <option value="">{L('Predeterminada', 'Default')}</option>
+              {printers.map(p => <option key={p.name} value={p.name}>{p.displayName || p.name}{p.isDefault ? ' *' : ''}</option>)}
+            </select>
+            <button onClick={testPrint} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold border border-slate-200 dark:border-white/10 rounded-lg text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 whitespace-nowrap">
+              <Printer size={12} />{L('Prueba', 'Test')}
+            </button>
+          </div>
+        </SettingRow>
+      </SettingSection>
+
+      <SettingSection title={L('Impresion Automatica', 'Auto Print')}>
+        <SettingRow label={L('Pre-Ticket', 'Pre-Ticket')} hint={L('Al agregar vehiculo a cola', 'When adding vehicle to queue')}>
+          <Toggle enabled={on('print_preticket')} onChange={v => set('print_preticket', v ? '1' : '0')} />
+        </SettingRow>
+        <SettingRow label={L('Factura', 'Invoice')} hint={L('Al confirmar cobro', 'On payment')}>
+          <Toggle enabled={on('print_factura_auto')} onChange={v => set('print_factura_auto', v ? '1' : '0')} />
+        </SettingRow>
+        <SettingRow label={L('Conduce', 'Delivery Note')} hint={L('Al confirmar cobro', 'On payment')}>
+          <Toggle enabled={on('print_conduce_auto')} onChange={v => set('print_conduce_auto', v ? '1' : '0')} />
+        </SettingRow>
+      </SettingSection>
 
       <div className="flex justify-end mt-2">
         <SaveBtn saving={saving} saved={saved} label={L('Guardar', 'Save')} onClick={handleSave} />
@@ -453,9 +485,7 @@ function Actualizaciones() {
 // ── MAIN SISTEMA SCREEN ───────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'config',          es: 'Configuración',   en: 'Settings',      icon: Settings  },
-  { id: 'fiscal',          es: 'Fiscal / NCF',    en: 'Fiscal / NCF',  icon: FileText  },
-  { id: 'respaldo',        es: 'Respaldo / Nube', en: 'Backup / Cloud',icon: HardDrive },
+  { id: 'config',          es: 'Preferencias',    en: 'Preferences',   icon: Settings  },
   { id: 'actualizaciones', es: 'Actualizaciones', en: 'Updates',       icon: Download  },
   { id: 'licencias',       es: 'Licencias TX',    en: 'TX Licenses',   icon: KeyRound  },
 ]
@@ -501,16 +531,6 @@ export default function Sistema({ initialTab, hideHeader }) {
       {tab === 'config' && (
         <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-6">
           <Configuracion />
-        </div>
-      )}
-      {tab === 'fiscal' && (
-        <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-6">
-          <FiscalNCF />
-        </div>
-      )}
-      {tab === 'respaldo' && (
-        <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-6">
-          <Respaldo />
         </div>
       )}
       {tab === 'actualizaciones' && (

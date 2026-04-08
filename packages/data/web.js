@@ -494,7 +494,8 @@ export function createWebAPI(supabase, businessId) {
 
       create: (data) => tryOr(async () => {
         const row = throwSupaError(await supabase.from('empleados').insert({
-          nombre: data.nombre, tipo: data.tipo, ref_id: data.ref_id || null,
+          nombre: data.nombre, tipo: data.tipo, role: data.role || 'none',
+          ref_id: data.ref_id || null, comision_pct: data.comision_pct || 0,
           salary: data.salary || 0, start_date: data.start_date,
           cedula: data.cedula || null, phone: data.phone || null,
           puesto: data.puesto || null, email: data.email || null,
@@ -506,7 +507,7 @@ export function createWebAPI(supabase, businessId) {
 
       update: (data) => tryOr(async () => {
         const { id, salary_change_reason, changed_by, ...rest } = data
-        const allowed = ['nombre','tipo','ref_id','salary','start_date','cedula','phone','puesto','email','bank_account','tss_id','active']
+        const allowed = ['nombre','tipo','role','ref_id','salary','comision_pct','start_date','cedula','phone','puesto','email','bank_account','tss_id','active']
         const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
         // Auto-log salary change: fetch current, compare, insert salary_changes row.
         if (patch.salary != null) {

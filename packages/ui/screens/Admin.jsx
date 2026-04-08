@@ -6,14 +6,33 @@ import {
   Check, Coffee, Lock, ChevronUp, ChevronDown,
 } from 'lucide-react'
 import { useLang } from '../i18n'
-import { useAPI } from '../context/DataContext'
+import { useAPI, usePrinterAPI } from '../context/DataContext'
 import { ECF_TYPES, BUSINESS_TYPES, testDGIIConnection, DGII_CONFIGURED } from '@terminal-x/services/ecf'
 import {
   getStoredSetting, setStoredSetting, resetSupabaseClient,
   testConnection, ensureBusinessRegistered,
 } from '@terminal-x/services/supabase'
+import { WhatsAppSettings } from './Sistema'
 // Reports moved to dedicated Reportes screen
 // RemoteDashboard moved to its own sidebar tab
+
+// ── Collapsible Section (for Mi Empresa sub-panels) ──────────────────────────
+function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden">
+      <button onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">
+        <div className="flex items-center gap-2">
+          {Icon && <Icon size={14} className="text-slate-400 dark:text-white/40" />}
+          <span className="text-[13px] font-bold text-slate-700 dark:text-white">{title}</span>
+        </div>
+        {open ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+      </button>
+      {open && <div className="px-4 py-4 border-t border-slate-200 dark:border-white/10">{children}</div>}
+    </div>
+  )
+}
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
 
@@ -151,270 +170,7 @@ function SettingSection({ title, children }) {
   )
 }
 
-// ── LAVADORES ─────────────────────────────────────────────────────────────────
-
-const EMPTY_WASHER = { name: '', phone: '', cedula: '', commission_pct: '20', start_date: '' }
-
-function Lavadores() {
-  const api                     = useAPI()
-  const { lang }                = useLang()
-  const L                       = (es, en) => lang === 'es' ? es : en
-  const [list,      setList]    = useState([])
-  const [loading,   setLoading] = useState(false)
-  const [loadErr,   setLoadErr] = useState('')
-  const [panel,     setPanel]   = useState(null)
-  const [form,      setForm]    = useState(EMPTY_WASHER)
-  const [saving,    setSaving]  = useState(false)
-  const [saved,     setSaved]   = useState(false)
-  const [error,     setError]   = useState('')
-  const { toast, show }         = useToast()
-
-  useEffect(() => { load() }, [])
-
-  async function load() {
-    setLoading(true); setLoadErr('')
-    try { setList((await api?.washers?.allAdmin?.()) || []) }
-    catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
-    finally { setLoading(false) }
-  }
-
-  function openAdd()   { setForm(EMPTY_WASHER); setError(''); setSaved(false); setPanel('add') }
-  function openEdit(w) { setForm({ name: w.name, phone: w.phone||'', cedula: w.cedula||'', commission_pct: String(w.commission_pct), start_date: w.start_date||'' }); setError(''); setSaved(false); setPanel(w) }
-  function closePanel(){ setPanel(null) }
-  function set(k, v)   { setForm(f => ({ ...f, [k]: v })) }
-
-  async function handleSave() {
-    if (!form.name.trim()) { setError(L('El nombre es requerido.', 'Name is required.')); return }
-    setSaving(true); setError('')
-    try {
-      const p = { ...form, commission_pct: parseFloat(form.commission_pct) || 20 }
-      if (panel === 'add') await api.washers.create(p)
-      else                 await api.washers.update({ id: panel.id, ...p })
-      setSaved(true)
-      show(panel === 'add' ? L('Lavador agregado ✓', 'Washer added ✓') : L('Lavador actualizado ✓', 'Washer updated ✓'))
-      setTimeout(() => { closePanel(); load() }, 1000)
-    } catch (err) { setError(err.message || L('Error al guardar.', 'Error saving.')) }
-    finally { setSaving(false) }
-  }
-
-  async function toggleActive(w) {
-    try {
-      await api.washers.update({ id: w.id, active: w.active ? 0 : 1 })
-      show(w.active ? L('Desactivado', 'Deactivated') : L('Activado', 'Activated'))
-      load()
-    } catch { show(L('Error al cambiar estado', 'Error toggling status'), 'error') }
-  }
-
-  return (
-    <div className="flex flex-col md:flex-row gap-4 md:gap-6">
-      <Toast toast={toast} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-[12px] text-slate-400 dark:text-white/40">{list.length} {L('lavadores', 'washers')}</p>
-          <button onClick={openAdd} className="flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] md:min-h-0 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors">
-            <Plus size={13} /> {L('Agregar Lavador', 'Add Washer')}
-          </button>
-        </div>
-        <div className="border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden">
-          <div className="hidden md:flex items-center px-4 py-2 bg-slate-50 dark:bg-white/5 border-b border-slate-100 dark:border-white/10 text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">
-            <span className="flex-1">{L('Nombre / Cédula', 'Name / ID')}</span>
-            <span className="w-28">{L('Teléfono', 'Phone')}</span>
-            <span className="w-20 text-center">{L('Comisión', 'Commission')}</span>
-            <span className="w-24 text-center">{L('Estado', 'Status')}</span>
-            <span className="w-16 text-right">{L('Acción', 'Action')}</span>
-          </div>
-          {loading
-            ? <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-slate-300 dark:text-white/30" size={20} /></div>
-            : loadErr
-            ? <div className="py-8 text-center text-[12px] text-red-500 dark:text-red-400">{loadErr}</div>
-            : list.length === 0
-            ? <div className="py-10 text-center text-[12px] text-slate-400 dark:text-white/40">{L('No hay lavadores registrados.', 'No washers registered.')}</div>
-            : list.map(w => (
-              <div key={w.id} className="md:flex md:items-center px-4 py-3 border-b border-slate-100 dark:border-white/10 last:border-0 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors">
-                {/* Mobile card layout */}
-                <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                  <div className="w-8 h-8 rounded-full bg-[#f0f6ff] dark:bg-sky-500/10 text-[#0C447C] dark:text-sky-400 flex items-center justify-center text-[11px] font-black shrink-0">
-                    {w.name[0]?.toUpperCase()}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">{w.name}</p>
-                    {w.cedula && <p className="text-[10px] text-slate-400 dark:text-white/40">{w.cedula}</p>}
-                    <div className="flex items-center gap-3 mt-1 md:hidden">
-                      <span className="text-[11px] text-slate-500 dark:text-white/60">{w.phone || '—'}</span>
-                      <span className="text-[11px] font-semibold text-slate-700 dark:text-white">{w.commission_pct}%</span>
-                      <ActiveBadge active={w.active} />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 md:hidden">
-                    <button onClick={() => openEdit(w)} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={15} /></button>
-                    <button onClick={() => toggleActive(w)} className={`p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors ${w.active ? 'text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={15} /></button>
-                  </div>
-                </div>
-                {/* Desktop columns */}
-                <span className="hidden md:inline w-28 text-[12px] text-slate-500 dark:text-white/60">{w.phone || '—'}</span>
-                <span className="hidden md:inline w-20 text-center text-[12px] font-semibold text-slate-700 dark:text-white">{w.commission_pct}%</span>
-                <span className="hidden md:flex w-24 justify-center"><ActiveBadge active={w.active} /></span>
-                <div className="hidden md:flex w-16 items-center justify-end gap-1">
-                  <button onClick={() => openEdit(w)} className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={13} /></button>
-                  <button onClick={() => toggleActive(w)} className={`p-1.5 rounded-lg transition-colors ${w.active ? 'text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={13} /></button>
-                </div>
-              </div>
-            ))
-          }
-        </div>
-      </div>
-
-      {panel && (
-        <Panel title={panel === 'add' ? L('Nuevo Lavador', 'New Washer') : L('Editar Lavador', 'Edit Washer')} onClose={closePanel}>
-          <div className="space-y-3">
-            <div><Label>{L('Nombre completo *', 'Full name *')}</Label><Input value={form.name} onChange={e => set('name', e.target.value)} placeholder="Juan García" /></div>
-            <div><Label>{L('Cédula', 'ID Number')}</Label><Input value={form.cedula} onChange={e => set('cedula', e.target.value)} placeholder="001-0000000-0" /></div>
-            <div><Label>{L('Teléfono', 'Phone')}</Label><Input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="809-555-0000" /></div>
-            <div><Label>{L('% Comisión', '% Commission')}</Label><Input type="number" min="0" max="100" value={form.commission_pct} onChange={e => set('commission_pct', e.target.value)} /></div>
-            <div><Label>{L('Fecha de entrada', 'Start date')}</Label><Input type="date" value={form.start_date} onChange={e => set('start_date', e.target.value)} /></div>
-          </div>
-          {error && <p className="mt-3 text-[11px] text-red-500 dark:text-red-400">{error}</p>}
-          <div className="flex gap-2 mt-4">
-            <SaveBtn saving={saving} saved={saved} onClick={handleSave} />
-            <button onClick={closePanel} className="px-3 py-2 text-[12px] text-slate-500 dark:text-white/60 border border-slate-200 dark:border-white/10 rounded-lg hover:bg-slate-50 dark:hover:bg-white/10">{L('Cancelar', 'Cancel')}</button>
-          </div>
-        </Panel>
-      )}
-    </div>
-  )
-}
-
-// ── VENDEDORES ────────────────────────────────────────────────────────────────
-
-const EMPTY_SELLER = { name: '', commission_pct: '5', phone: '', cedula: '', start_date: '' }
-
-function Vendedores() {
-  const api                     = useAPI()
-  const { lang }                = useLang()
-  const L                       = (es, en) => lang === 'es' ? es : en
-  const [list,      setList]    = useState([])
-  const [loading,   setLoading] = useState(false)
-  const [loadErr,   setLoadErr] = useState('')
-  const [panel,     setPanel]   = useState(null)
-  const [form,      setForm]    = useState(EMPTY_SELLER)
-  const [saving,    setSaving]  = useState(false)
-  const [saved,     setSaved]   = useState(false)
-  const [error,     setError]   = useState('')
-  const { toast, show }         = useToast()
-
-  useEffect(() => { load() }, [])
-
-  async function load() {
-    setLoading(true); setLoadErr('')
-    try { setList((await api?.sellers?.allAdmin?.()) || []) }
-    catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
-    finally { setLoading(false) }
-  }
-
-  function openAdd()   { setForm(EMPTY_SELLER); setError(''); setSaved(false); setPanel('add') }
-  function openEdit(s) { setForm({ name: s.name, commission_pct: String(s.commission_pct), phone: s.phone||'', cedula: s.cedula||'', start_date: s.start_date||'' }); setError(''); setSaved(false); setPanel(s) }
-  function closePanel(){ setPanel(null) }
-  function set(k, v)   { setForm(f => ({ ...f, [k]: v })) }
-
-  async function handleSave() {
-    if (!form.name.trim()) { setError(L('El nombre es requerido.', 'Name is required.')); return }
-    setSaving(true); setError('')
-    try {
-      const p = { ...form, commission_pct: parseFloat(form.commission_pct) || 5 }
-      if (panel === 'add') await api.sellers.create(p)
-      else                 await api.sellers.update({ id: panel.id, ...p })
-      setSaved(true)
-      show(panel === 'add' ? L('Vendedor agregado ✓', 'Salesperson added ✓') : L('Vendedor actualizado ✓', 'Salesperson updated ✓'))
-      setTimeout(() => { closePanel(); load() }, 1000)
-    } catch (err) { setError(err.message || L('Error al guardar.', 'Error saving.')) }
-    finally { setSaving(false) }
-  }
-
-  async function toggleActive(s) {
-    try {
-      await api.sellers.update({ id: s.id, active: s.active ? 0 : 1 })
-      show(s.active ? L('Desactivado', 'Deactivated') : L('Activado', 'Activated'))
-      load()
-    } catch { show(L('Error al cambiar estado', 'Error toggling status'), 'error') }
-  }
-
-  return (
-    <div className="flex flex-col md:flex-row gap-4 md:gap-6">
-      <Toast toast={toast} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-[12px] text-slate-400 dark:text-white/40">{list.length} {L('vendedores', 'salespeople')}</p>
-          <button onClick={openAdd} className="flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] md:min-h-0 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors">
-            <Plus size={13} /> {L('Agregar Vendedor', 'Add Salesperson')}
-          </button>
-        </div>
-        <div className="border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden">
-          <div className="hidden md:flex items-center px-4 py-2 bg-slate-50 dark:bg-white/5 border-b border-slate-100 dark:border-white/10 text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">
-            <span className="flex-1">{L('Nombre', 'Name')}</span>
-            <span className="w-28">{L('Teléfono', 'Phone')}</span>
-            <span className="w-24 text-center">{L('Comisión', 'Commission')}</span>
-            <span className="w-24 text-center">{L('Estado', 'Status')}</span>
-            <span className="w-16 text-right">{L('Acción', 'Action')}</span>
-          </div>
-          {loading
-            ? <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-slate-300 dark:text-white/30" size={20} /></div>
-            : loadErr
-            ? <div className="py-8 text-center text-[12px] text-red-500 dark:text-red-400">{loadErr}</div>
-            : list.length === 0
-            ? <div className="py-10 text-center text-[12px] text-slate-400 dark:text-white/40">{L('No hay vendedores registrados.', 'No salespeople registered.')}</div>
-            : list.map(s => (
-              <div key={s.id} className="md:flex md:items-center px-4 py-3 border-b border-slate-100 dark:border-white/10 last:border-0 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors">
-                <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                  <div className="w-8 h-8 rounded-full bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-400 flex items-center justify-center text-[11px] font-black shrink-0">
-                    {s.name[0]?.toUpperCase()}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">{s.name}</p>
-                    <div className="flex items-center gap-3 mt-1 md:hidden">
-                      <span className="text-[11px] text-slate-500 dark:text-white/60">{s.phone || '—'}</span>
-                      <span className="text-[11px] font-semibold text-slate-700 dark:text-white">{s.commission_pct}%</span>
-                      <ActiveBadge active={s.active} />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 md:hidden">
-                    <button onClick={() => openEdit(s)} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={15} /></button>
-                    <button onClick={() => toggleActive(s)} className={`p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors ${s.active ? 'text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={15} /></button>
-                  </div>
-                </div>
-                <span className="hidden md:inline w-28 text-[12px] text-slate-500 dark:text-white/60">{s.phone || '—'}</span>
-                <span className="hidden md:inline w-24 text-center text-[12px] font-semibold text-slate-700 dark:text-white">{s.commission_pct}%</span>
-                <span className="hidden md:flex w-24 justify-center"><ActiveBadge active={s.active} /></span>
-                <div className="hidden md:flex w-16 items-center justify-end gap-1">
-                  <button onClick={() => openEdit(s)} className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={13} /></button>
-                  <button onClick={() => toggleActive(s)} className={`p-1.5 rounded-lg transition-colors ${s.active ? 'text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={13} /></button>
-                </div>
-              </div>
-            ))
-          }
-        </div>
-      </div>
-
-      {panel && (
-        <Panel title={panel === 'add' ? L('Nuevo Vendedor', 'New Salesperson') : L('Editar Vendedor', 'Edit Salesperson')} onClose={closePanel}>
-          <div className="space-y-3">
-            <div><Label>{L('Nombre *', 'Name *')}</Label><Input value={form.name} onChange={e => set('name', e.target.value)} placeholder="Pedro Martínez" /></div>
-            <div><Label>{L('Cédula', 'ID Number')}</Label><Input value={form.cedula} onChange={e => set('cedula', e.target.value)} placeholder="001-0000000-0" /></div>
-            <div><Label>{L('Teléfono', 'Phone')}</Label><Input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="809-555-0000" /></div>
-            <div><Label>{L('% Comisión', '% Commission')}</Label><Input type="number" min="0" max="100" value={form.commission_pct} onChange={e => set('commission_pct', e.target.value)} /></div>
-            <div><Label>{L('Fecha de entrada', 'Start date')}</Label><Input type="date" value={form.start_date} onChange={e => set('start_date', e.target.value)} /></div>
-          </div>
-          {error && <p className="mt-3 text-[11px] text-red-500 dark:text-red-400">{error}</p>}
-          <div className="flex gap-2 mt-4">
-            <SaveBtn saving={saving} saved={saved} onClick={handleSave} />
-            <button onClick={closePanel} className="px-3 py-2 text-[12px] text-slate-500 dark:text-white/60 border border-slate-200 dark:border-white/10 rounded-lg hover:bg-slate-50 dark:hover:bg-white/10">{L('Cancelar', 'Cancel')}</button>
-          </div>
-        </Panel>
-      )}
-    </div>
-  )
-}
-
-// ── USUARIOS ──────────────────────────────────────────────────────────────────
+// ── USUARIOS (simplified — pick employee + username + PIN) ───────────────────
 
 const ROLES = [
   { value: 'owner',      label: 'Owner',    color: 'bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400'             },
@@ -429,49 +185,66 @@ function RoleBadge({ role }) {
   return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${r.color}`}>{r.label}</span>
 }
 
-const EMPTY_USER = { name: '', username: '', pin: '', role: 'cashier', discount_pct: '0', commission_pct: '0' }
+const EMPTY_USER = { employee_id: '', username: '', pin: '' }
 
 function Usuarios() {
-  const api                     = useAPI()
-  const { lang }                = useLang()
-  const L                       = (es, en) => lang === 'es' ? es : en
-  const [list,      setList]    = useState([])
-  const [loading,   setLoading] = useState(false)
-  const [loadErr,   setLoadErr] = useState('')
-  const [panel,     setPanel]   = useState(null)
-  const [form,      setForm]    = useState(EMPTY_USER)
-  const [showPin,   setShowPin] = useState(false)
-  const [saving,    setSaving]  = useState(false)
-  const [saved,     setSaved]   = useState(false)
-  const [error,     setError]   = useState('')
-  const { toast, show }         = useToast()
+  const api                       = useAPI()
+  const { lang }                  = useLang()
+  const L                         = (es, en) => lang === 'es' ? es : en
+  const [list,      setList]      = useState([])
+  const [empleados, setEmpleados] = useState([])
+  const [loading,   setLoading]   = useState(false)
+  const [loadErr,   setLoadErr]   = useState('')
+  const [panel,     setPanel]     = useState(null)
+  const [form,      setForm]      = useState(EMPTY_USER)
+  const [showPin,   setShowPin]   = useState(false)
+  const [saving,    setSaving]    = useState(false)
+  const [saved,     setSaved]     = useState(false)
+  const [error,     setError]     = useState('')
+  const { toast, show }           = useToast()
 
   useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true); setLoadErr('')
-    try { setList((await api?.users?.all?.()) || []) }
-    catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
+    try {
+      const [users, emps] = await Promise.all([
+        api?.users?.all?.() || [],
+        api?.empleados?.all?.() || [],
+      ])
+      setList(users)
+      setEmpleados(emps)
+    } catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
     finally { setLoading(false) }
   }
 
+  // Employees that don't already have a user account
+  const availableEmpleados = empleados.filter(e =>
+    !list.some(u => u.employee_id === e.id)
+  )
+
+  // Get employee for a user
+  function getEmployee(u) {
+    return empleados.find(e => e.id === u.employee_id)
+  }
+
   function openAdd()   { setForm(EMPTY_USER); setShowPin(false); setError(''); setSaved(false); setPanel('add') }
-  function openEdit(u) { setForm({ name: u.name, username: u.username, pin: '', role: u.role, discount_pct: String(u.discount_pct || 0), commission_pct: String(u.commission_pct || 0) }); setShowPin(false); setError(''); setSaved(false); setPanel(u) }
+  function openEdit(u) { setForm({ employee_id: u.employee_id || '', username: u.username, pin: '' }); setShowPin(false); setError(''); setSaved(false); setPanel(u) }
   function closePanel(){ setPanel(null) }
   function set(k, v)   { setForm(f => ({ ...f, [k]: v })) }
 
   async function handleSave() {
-    if (!form.name.trim())     { setError(L('El nombre es requerido.', 'Name is required.')); return }
+    if (panel === 'add' && !form.employee_id) { setError(L('Selecciona un empleado.', 'Select an employee.')); return }
     if (!form.username.trim()) { setError(L('El usuario es requerido.', 'Username is required.')); return }
     if (panel === 'add' && !form.pin.trim()) { setError(L('El PIN es requerido.', 'PIN is required.')); return }
     setSaving(true); setError('')
     try {
+      const emp = empleados.find(e => e.id === Number(form.employee_id))
       const payload = {
-        name:         form.name.trim(),
-        username:     form.username.trim().toLowerCase(),
-        role:         form.role,
-        discount_pct:   parseFloat(form.discount_pct) || 0,
-        commission_pct: parseFloat(form.commission_pct) || 0,
+        name:        emp?.nombre || '',
+        username:    form.username.trim().toLowerCase(),
+        employee_id: Number(form.employee_id),
+        role:        emp?.role || 'cashier',
         ...(form.pin.trim() && { pin: form.pin.trim() }),
       }
       if (panel === 'add') await api.users.create({ ...payload, pin: form.pin.trim() })
@@ -496,18 +269,20 @@ function Usuarios() {
       <Toast toast={toast} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-4">
-          <p className="text-[12px] text-slate-400 dark:text-white/40">{list.length} {L('usuarios', 'users')}</p>
-          <button onClick={openAdd} className="flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] md:min-h-0 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors">
+          <div>
+            <p className="text-[12px] text-slate-400 dark:text-white/40">{list.length} {L('usuarios', 'users')}</p>
+            <p className="text-[10px] text-slate-400 dark:text-white/40 mt-0.5">{L('Crea empleados primero en la pantalla Empleados, luego asigna acceso aqui.', 'Create employees first in the Employees screen, then assign access here.')}</p>
+          </div>
+          <button onClick={openAdd} disabled={availableEmpleados.length === 0} className="flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] md:min-h-0 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] disabled:opacity-40 transition-colors">
             <Plus size={13} /> {L('Agregar Usuario', 'Add User')}
           </button>
         </div>
         <div className="border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden">
           <div className="hidden md:flex items-center px-4 py-2 bg-slate-50 dark:bg-white/5 border-b border-slate-100 dark:border-white/10 text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">
-            <span className="flex-1">{L('Nombre / Usuario', 'Name / Username')}</span>
+            <span className="flex-1">{L('Empleado / Usuario', 'Employee / Username')}</span>
             <span className="w-28 text-center">{L('Rol', 'Role')}</span>
-            <span className="w-20 text-center">{L('Dto%', 'Disc%')}</span>
             <span className="w-24 text-center">{L('Estado', 'Status')}</span>
-            <span className="w-16 text-right">{L('Acción', 'Action')}</span>
+            <span className="w-16 text-right">{L('Accion', 'Action')}</span>
           </div>
           {loading
             ? <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-slate-300 dark:text-white/30" size={20} /></div>
@@ -515,35 +290,36 @@ function Usuarios() {
             ? <div className="py-8 text-center text-[12px] text-red-500 dark:text-red-400">{loadErr}</div>
             : list.length === 0
             ? <div className="py-10 text-center text-[12px] text-slate-400 dark:text-white/40">{L('No hay usuarios registrados.', 'No users registered.')}</div>
-            : list.map(u => (
-              <div key={u.id} className="md:flex md:items-center px-4 py-3 border-b border-slate-100 dark:border-white/10 last:border-0 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors">
-                <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                  <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-white/60 flex items-center justify-center text-[11px] font-black shrink-0">
-                    {u.name[0]?.toUpperCase()}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">{u.name}</p>
-                    <p className="text-[10px] text-slate-400 dark:text-white/40">@{u.username}</p>
-                    <div className="flex items-center gap-2 mt-1 md:hidden">
-                      <RoleBadge role={u.role} />
-                      <span className="text-[11px] text-slate-600 dark:text-white/60">{u.discount_pct}%</span>
-                      <ActiveBadge active={u.active} />
+            : list.map(u => {
+              const emp = getEmployee(u)
+              return (
+                <div key={u.id} className="md:flex md:items-center px-4 py-3 border-b border-slate-100 dark:border-white/10 last:border-0 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors">
+                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                    <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-white/60 flex items-center justify-center text-[11px] font-black shrink-0">
+                      {u.name[0]?.toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">{u.name}</p>
+                      <p className="text-[10px] text-slate-400 dark:text-white/40">@{u.username}</p>
+                      <div className="flex items-center gap-2 mt-1 md:hidden">
+                        <RoleBadge role={emp?.role || u.role} />
+                        <ActiveBadge active={u.active} />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 md:hidden">
+                      <button onClick={() => openEdit(u)} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={15} /></button>
+                      <button onClick={() => toggleActive(u)} className={`p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors ${u.active ? 'text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={15} /></button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 md:hidden">
-                    <button onClick={() => openEdit(u)} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={15} /></button>
-                    <button onClick={() => toggleActive(u)} className={`p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors ${u.active ? 'text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={15} /></button>
+                  <span className="hidden md:flex w-28 justify-center"><RoleBadge role={emp?.role || u.role} /></span>
+                  <span className="hidden md:flex w-24 justify-center"><ActiveBadge active={u.active} /></span>
+                  <div className="hidden md:flex w-16 items-center justify-end gap-1">
+                    <button onClick={() => openEdit(u)} className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={13} /></button>
+                    <button onClick={() => toggleActive(u)} className={`p-1.5 rounded-lg transition-colors ${u.active ? 'text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={13} /></button>
                   </div>
                 </div>
-                <span className="hidden md:flex w-28 justify-center"><RoleBadge role={u.role} /></span>
-                <span className="hidden md:inline w-20 text-center text-[12px] text-slate-600 dark:text-white/60">{u.discount_pct}%</span>
-                <span className="hidden md:flex w-24 justify-center"><ActiveBadge active={u.active} /></span>
-                <div className="hidden md:flex w-16 items-center justify-end gap-1">
-                  <button onClick={() => openEdit(u)} className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={13} /></button>
-                  <button onClick={() => toggleActive(u)} className={`p-1.5 rounded-lg transition-colors ${u.active ? 'text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={13} /></button>
-                </div>
-              </div>
-            ))
+              )
+            })
           }
         </div>
       </div>
@@ -551,26 +327,33 @@ function Usuarios() {
       {panel && (
         <Panel title={panel === 'add' ? L('Nuevo Usuario', 'New User') : L('Editar Usuario', 'Edit User')} onClose={closePanel}>
           <div className="space-y-3">
-            <div><Label>{L('Nombre completo *', 'Full name *')}</Label><Input value={form.name} onChange={e => set('name', e.target.value)} placeholder="María López" /></div>
+            {panel === 'add' ? (
+              <div>
+                <Label>{L('Empleado *', 'Employee *')}</Label>
+                <Select value={form.employee_id} onChange={e => set('employee_id', e.target.value)}>
+                  <option value="">{L('Seleccionar empleado…', 'Select employee…')}</option>
+                  {availableEmpleados.map(e => (
+                    <option key={e.id} value={e.id}>{e.nombre} — {e.tipo}{e.role && e.role !== 'none' ? ` (${e.role})` : ''}</option>
+                  ))}
+                </Select>
+              </div>
+            ) : (
+              <div className="bg-slate-50 dark:bg-white/5 rounded-lg px-3 py-2">
+                <p className="text-[11px] text-slate-400 dark:text-white/40">{L('Empleado', 'Employee')}</p>
+                <p className="text-[13px] font-semibold text-slate-700 dark:text-white">{panel.name}</p>
+              </div>
+            )}
             <div><Label>{L('Usuario *', 'Username *')}</Label><Input value={form.username} onChange={e => set('username', e.target.value)} placeholder="mlopez" /></div>
             <div>
-              <Label>{panel === 'add' ? 'PIN *' : L('PIN (vacío = sin cambio)', 'PIN (blank = no change)')}</Label>
+              <Label>{panel === 'add' ? 'PIN *' : L('PIN (vacio = sin cambio)', 'PIN (blank = no change)')}</Label>
               <div className="relative">
-                <Input type={showPin ? 'text' : 'password'} value={form.pin} onChange={e => set('pin', e.target.value)} placeholder={L('4–6 dígitos', '4–6 digits')} maxLength={6} />
+                <Input type={showPin ? 'text' : 'password'} value={form.pin} onChange={e => set('pin', e.target.value)} placeholder={L('4-6 digitos', '4-6 digits')} maxLength={6} />
                 <button type="button" onClick={() => setShowPin(v => !v)}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 dark:text-white/30 hover:text-slate-500 dark:hover:text-white/60">
                   {showPin ? <EyeOff size={13} /> : <Eye size={13} />}
                 </button>
               </div>
             </div>
-            <div>
-              <Label>{L('Rol', 'Role')}</Label>
-              <Select value={form.role} onChange={e => set('role', e.target.value)}>
-                {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-              </Select>
-            </div>
-            <div><Label>{L('% Descuento', '% Discount')}</Label><Input type="number" min="0" max="100" value={form.discount_pct} onChange={e => set('discount_pct', e.target.value)} /></div>
-            <div><Label>{L('% Comision (Bebidas/Snacks)', '% Commission (Drinks/Snacks)')}</Label><Input type="number" min="0" max="100" value={form.commission_pct} onChange={e => set('commission_pct', e.target.value)} /></div>
           </div>
           {error && <p className="mt-3 text-[11px] text-red-500 dark:text-red-400">{error}</p>}
           <div className="flex gap-2 mt-4">
@@ -1426,99 +1209,22 @@ function MiEmpresa() {
           </div>
         </div>
       )}
-    </div>
-  )
-}
 
-// ── CAJERAS ──────────────────────────────────────────────────────────────────
+      {/* ── Collapsible sub-sections ── */}
+      <div className="mt-6 space-y-3">
+        <p className="text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">{L('Configuracion Avanzada', 'Advanced Settings')}</p>
 
-function Cajeras() {
-  const api              = useAPI()
-  const { lang }         = useLang()
-  const L                = (es, en) => lang === 'es' ? es : en
-  const [list, setList]  = useState([])
-  const [loading, setLoading] = useState(false)
-  const [saving, setSaving]   = useState({})
-  const { toast, show }  = useToast()
+        <CollapsibleSection title="WhatsApp" icon={ExternalLink}>
+          <WhatsAppSettings embedded />
+        </CollapsibleSection>
 
-  useEffect(() => { load() }, [])
+        <CollapsibleSection title={L('Fiscal / NCF', 'Fiscal / NCF')} icon={FileText}>
+          <FiscalNCF />
+        </CollapsibleSection>
 
-  async function load() {
-    setLoading(true)
-    try {
-      const users = (await api?.users?.all?.()) || []
-      // Show cashiers and any user with commission_pct > 0
-      setList(users.filter(u => u.active && (u.role === 'cashier' || (u.commission_pct && u.commission_pct > 0))))
-    } catch { show(L('Error al cargar cajeras', 'Error loading cashiers'), 'error') }
-    setLoading(false)
-  }
-
-  async function updateCommission(userId, pct) {
-    setSaving(s => ({ ...s, [userId]: true }))
-    try {
-      await api.users.update({ id: userId, commission_pct: parseFloat(pct) || 0 })
-      show(L('Comision actualizada', 'Commission updated'))
-      load()
-    } catch { show(L('Error al actualizar comision', 'Error updating commission'), 'error') }
-    setSaving(s => ({ ...s, [userId]: false }))
-  }
-
-  return (
-    <div>
-      <p className="text-[12px] text-slate-400 dark:text-white/40 mb-4">
-        {L('Porcentaje de comision sobre bebidas y snacks para cada cajera/o.', 'Commission percentage on drinks and snacks for each cashier.')}
-      </p>
-      {loading ? (
-        <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-slate-300 dark:text-white/30" size={20} /></div>
-      ) : list.length === 0 ? (
-        <div className="py-10 text-center text-[12px] text-slate-400 dark:text-white/40">
-          {L('No hay cajeras registradas. Agrega usuarios con rol "Cajera" en la pestana Usuarios.', 'No cashiers registered. Add users with "Cashier" role in the Users tab.')}
-        </div>
-      ) : (
-        <div className="border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden">
-          <Toast toast={toast} />
-          <div className="hidden md:flex items-center px-4 py-2 bg-slate-50 dark:bg-white/5 border-b border-slate-100 dark:border-white/10 text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">
-            <span className="flex-1">{L('Nombre', 'Name')}</span>
-            <span className="w-24 text-center">{L('Rol', 'Role')}</span>
-            <span className="w-32 text-center">{L('% Comision', '% Commission')}</span>
-            <span className="w-20 text-center"></span>
-          </div>
-          {list.map(u => (
-            <CajeraRow key={u.id} u={u} L={L} saving={saving[u.id]} onSave={updateCommission} />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function CajeraRow({ u, L, saving, onSave }) {
-  const [pct, setPct] = useState(String(u.commission_pct || 0))
-  const changed = parseFloat(pct) !== (u.commission_pct || 0)
-  return (
-    <div className="md:flex md:items-center px-4 py-3 border-b border-slate-100 dark:border-white/10 last:border-0 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors">
-      <div className="flex items-center gap-2.5 flex-1 min-w-0">
-        <div className="w-8 h-8 rounded-full bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center text-[11px] font-black shrink-0">
-          {u.name[0]?.toUpperCase()}
-        </div>
-        <div className="min-w-0">
-          <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">{u.name}</p>
-          <p className="text-[10px] text-slate-400 dark:text-white/40">@{u.username}</p>
-        </div>
-      </div>
-      <span className="hidden md:flex w-24 justify-center"><RoleBadge role={u.role} /></span>
-      <div className="w-32 flex items-center justify-center gap-1">
-        <input type="number" min="0" max="100" step="0.5" value={pct} onChange={e => setPct(e.target.value)}
-          className="w-16 px-2 py-1 border border-slate-200 dark:border-white/10 rounded-lg text-[12px] text-center text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400" />
-        <span className="text-[11px] text-slate-400 dark:text-white/40">%</span>
-      </div>
-      <div className="w-20 flex items-center justify-center">
-        {changed && (
-          <button onClick={() => onSave(u.id, pct)} disabled={saving}
-            className="px-3 py-1 bg-[#0C447C] text-white text-[11px] font-semibold rounded-lg hover:bg-[#0a3a6b] disabled:opacity-40">
-            {saving ? <Loader2 className="animate-spin" size={12} /> : L('Guardar', 'Save')}
-          </button>
-        )}
+        <CollapsibleSection title={L('Respaldo / Nube', 'Backup / Cloud')} icon={Wifi}>
+          <Respaldo />
+        </CollapsibleSection>
       </div>
     </div>
   )
@@ -1528,9 +1234,6 @@ function CajeraRow({ u, L, saving, onSave }) {
 
 const TABS = [
   { id: 'empresa',    es: 'Mi Empresa',    en: 'Business',          icon: Building2  },
-  { id: 'lavadores',  es: 'Lavadores',     en: 'Washers',           icon: Users      },
-  { id: 'vendedores', es: 'Vendedores',    en: 'Salespeople',       icon: UserCheck  },
-  { id: 'cajeras',    es: 'Cajeras',       en: 'Cashiers',          icon: Coffee     },
   { id: 'usuarios',   es: 'Usuarios',      en: 'Users',             icon: KeyRound   },
   { id: 'servicios',  es: 'Servicios',     en: 'Services',          icon: LayoutGrid },
 ]
@@ -1572,9 +1275,6 @@ export default function Admin({ initialTab, hideHeader }) {
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-6">
         {tab === 'empresa'    && <MiEmpresa />}
-        {tab === 'lavadores'  && <Lavadores />}
-        {tab === 'vendedores' && <Vendedores />}
-        {tab === 'cajeras'    && <Cajeras />}
         {tab === 'usuarios'   && <Usuarios />}
         {tab === 'servicios'  && <Servicios />}
       </div>

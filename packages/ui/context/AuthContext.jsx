@@ -36,26 +36,34 @@ export function AuthProvider({ children }) {
     })
   }, [api])
 
+  // Resolve role from linked employee record (if employee_id exists)
+  async function resolveRole(u) {
+    if (!u?.employee_id || !api?.empleados?.all) return u
+    try {
+      const emps = await api.empleados.all()
+      const emp = emps?.find(e => e.id === u.employee_id)
+      if (emp?.role && emp.role !== 'none') return { ...u, role: emp.role }
+    } catch {}
+    return u
+  }
+
   async function login(pin) {
     try {
       const u = await api?.auth?.byPin?.(pin)
-      if (u?.id) { setUser(u); return true }
+      if (u?.id) { setUser(await resolveRole(u)); return true }
       return false
     } catch {
       return false
     }
   }
 
-  // For username+password mode, verify username exists then use password as PIN
+  // For username+password mode, verify both username AND PIN match
   async function loginWithPassword(username, password) {
     try {
-      // Try PIN-based auth using password field as the PIN
       const u = await api?.auth?.byPin?.(password)
       if (u?.id && u.username?.toLowerCase() === username.trim().toLowerCase()) {
-        setUser(u); return true
+        setUser(await resolveRole(u)); return true
       }
-      // Fallback: match by PIN alone (for owner who might not know username)
-      if (u?.id) { setUser(u); return true }
       return false
     } catch {
       return false

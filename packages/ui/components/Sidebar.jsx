@@ -73,6 +73,12 @@ const NAV = [
     ],
   },
   {
+    id: 'empleados', to: '/empleados', icon: Users,
+    es: 'Empleados', en: 'Employees',
+    feature: 'pos',
+    roles: ['owner','manager','cfo','accountant'],
+  },
+  {
     id: 'dgii', to: '/dgii', icon: FileText,
     es: 'DGII', en: 'DGII',
     feature: 'dgii',
@@ -86,14 +92,7 @@ const NAV = [
     children: [
       { to: '/config/empresa',       es: 'Mi Empresa',      en: 'Business',        icon: Building2 },
       { to: '/config/servicios',     es: 'Servicios',       en: 'Services',        icon: LayoutGrid },
-      { to: '/config/lavadores',     es: 'Lavadores',       en: 'Washers',         icon: Users, businessTypes: ['carwash'] },
-      { to: '/config/vendedores',    es: 'Vendedores',      en: 'Salespeople',     icon: UserCheck },
-      { to: '/config/cajeras',       es: 'Cajeras',         en: 'Cashiers',        icon: Coffee },
       { to: '/config/usuarios',      es: 'Usuarios',        en: 'Users',           icon: KeyRound },
-      { to: '/config/fiscal',        es: 'Fiscal / NCF',    en: 'Fiscal / NCF',    icon: FileText,       roles: ['owner'] },
-      { to: '/config/impresion',     es: 'Impresion',       en: 'Printing',        icon: Printer,        roles: ['owner'] },
-      { to: '/config/whatsapp',      es: 'WhatsApp',        en: 'WhatsApp',        icon: MessageSquare,  roles: ['owner'] },
-      { to: '/config/respaldo',      es: 'Respaldo',        en: 'Backup',          icon: HardDrive,      roles: ['owner'] },
       { to: '/config/preferencias',  es: 'Preferencias',    en: 'Preferences',     icon: Settings,       roles: ['owner'] },
       { to: '/config/updates',       es: 'Actualizaciones', en: 'Updates',         icon: Download,       roles: ['owner'] },
       { to: '/config/licencia',      es: 'Licencia',        en: 'License',         icon: KeyRound,       roles: ['owner'] },
@@ -483,7 +482,7 @@ export default function Sidebar() {
     poll()
     const id = setInterval(poll, 30_000)
     return () => clearInterval(id)
-  }, [])
+  }, [api])
 
   useEffect(() => {
     if (businessType !== 'tienda' && businessType !== 'otro') return

@@ -93,7 +93,9 @@ export function EmployeePanel({ emp, onSave, onClose, lang, t }) {
   const [form, setForm] = useState({
     nombre:       emp?.nombre || '',
     tipo:         emp?.tipo || 'lavador',
+    role:         emp?.role || 'none',
     salary:       emp?.salary ? String(emp.salary) : '',
+    comision_pct: emp?.comision_pct ? String(emp.comision_pct) : '',
     start_date:   emp?.start_date || '',
     cedula:       emp?.cedula || '',
     phone:        emp?.phone || '',
@@ -116,7 +118,9 @@ export function EmployeePanel({ emp, onSave, onClose, lang, t }) {
         ...(isEdit ? { id: emp.id } : {}),
         nombre:       form.nombre.trim(),
         tipo:         form.tipo,
+        role:         form.role,
         salary:       parseFloat(form.salary) || 0,
+        comision_pct: parseFloat(form.comision_pct) || 0,
         start_date:   form.start_date,
         cedula:       form.cedula.trim() || null,
         phone:        form.phone.trim() || null,
@@ -150,18 +154,34 @@ export function EmployeePanel({ emp, onSave, onClose, lang, t }) {
         </div>
         <div className="px-5 py-4 space-y-3">
           {field('nombre', L('Nombre completo *', 'Full name *'), { placeholder: 'Juan García' })}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-500 dark:text-white/60 mb-1">{L('Tipo', 'Type')}</label>
-            <select value={form.tipo} onChange={e => set('tipo', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] dark:text-white dark:bg-white/5 focus:outline-none focus:border-sky-400 bg-white">
-              <option value="lavador">Lavador</option>
-              <option value="vendedor">Vendedor</option>
-              <option value="cajero">Cajero/Cajera</option>
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 dark:text-white/60 mb-1">{L('Tipo', 'Type')}</label>
+              <select value={form.tipo} onChange={e => set('tipo', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] dark:text-white dark:bg-white/5 focus:outline-none focus:border-sky-400 bg-white">
+                <option value="lavador">Lavador</option>
+                <option value="vendedor">Vendedor</option>
+                <option value="cajero">Cajero/Cajera</option>
+                <option value="hybrid">Hybrid</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 dark:text-white/60 mb-1">{L('Rol de Acceso', 'Access Role')}</label>
+              <select value={form.role} onChange={e => set('role', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] dark:text-white dark:bg-white/5 focus:outline-none focus:border-sky-400 bg-white">
+                <option value="none">{L('Sin acceso', 'No access')}</option>
+                <option value="cashier">{L('Cajero/a', 'Cashier')}</option>
+                <option value="accountant">{L('Contador/a', 'Accountant')}</option>
+                <option value="cfo">CFO</option>
+                <option value="manager">{L('Gerente', 'Manager')}</option>
+                <option value="owner">{L('Propietario', 'Owner')}</option>
+              </select>
+            </div>
           </div>
           {field('puesto', L('Puesto', 'Job title'), { placeholder: L('Ej: Jefe de lavado', 'e.g. Wash supervisor') })}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             {field('salary', L('Salario mensual', 'Monthly salary'), { type: 'number', min: 0, step: 0.01, placeholder: '0.00' })}
+            {field('comision_pct', L('% Comision', '% Commission'), { type: 'number', min: 0, max: 100, step: 0.5, placeholder: '0' })}
             {field('start_date', L('Fecha de inicio *', 'Start date *'), { type: 'date' })}
           </div>
           <div className="grid grid-cols-2 gap-3">

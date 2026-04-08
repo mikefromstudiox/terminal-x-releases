@@ -24,7 +24,7 @@ packages/
     context/       — AuthContext, LicenseContext, LayoutContext, DataContext
     i18n/          — es.js, en.js (bilingual ES/EN via useLang() hook)
     landing/       — LandingPage.jsx, SignupPage.jsx
-    admin/         — AdminApp.jsx, pages/, components/
+    admin/         — AdminApp.jsx (Dashboard/Clients/ClientDetail/Licenses/Team/Certifications)
     main.jsx       — entry point
     index.css      — Tailwind 4 directives (@import "tailwindcss")
   services/        — printer.js, ecf.js, pdf.js, csv.js, license.js, etc.
@@ -36,9 +36,10 @@ electron/
   preload.js       — contextBridge (exposes window.electronAPI + window.printerAPI)
   database.js      — all SQLite functions (synchronous better-sqlite3)
   updater.js       — electron-updater logic
-  xml-signer.js    — RSA-SHA256 enveloped signing (xml-crypto)
-  xml-builder.js   — all 10 e-CF types + RFCE
-  dgii-client.js   — DGII API (auth seed, submit, status, QR URL builder)
+  xml-signer.js    — RSA-SHA256 enveloped signing (xml-crypto for e-CFs, dgii-ecf for seed)
+  xml-builder.js   — all 10 e-CF types + RFCE + ANECF
+  dgii-client.js   — DGII API (auth seed, submit, status, QR URL builder, ANECF void)
+  cert-manager.js  — .p12 certificate loading + cert info (installed, subject, expiry)
 
 web/
   api/             — Vercel serverless functions (panel.js, validate.js, rnc.js, signup/)
@@ -62,6 +63,9 @@ All functions in `electron/database.js` are synchronous.
 Key tables: businesses, users, services, tickets, clients, credit_payments,
             washers, sellers, ncf_sequences, cuadre, caja_chica,
             notas, rnc_contribuyentes, empleados
+- `empleados` has `role TEXT DEFAULT 'none'` (access control) + `comision_pct REAL` + `tipo TEXT` (lavador/vendedor/cajero/hybrid)
+- `users` has `employee_id INTEGER` FK to `empleados` — links login credentials to employee record
+- `services` has `no_commission INTEGER DEFAULT 0` — exempts service from commission calculation
 
 ## Fiscal / e-CF (Dominican Republic)
 - **DGII Direct — CERTIFIED Emisor Electrónico** (Step 15 complete 2026-04-01)
@@ -74,6 +78,10 @@ Key tables: businesses, users, services, tickets, clients, credit_payments,
 - Receiver endpoints LIVE at fe.terminalxpos.com (VPS Express) + Vercel backup at `web/api/fe/`
 - Sequence offsets consumed up to ~1800 (next safe: 1900+)
 - **Production switch:** change `dgii_environment` from `certecf` to `ecf` + install .p12
+- **Seed auth:** Uses `dgii-ecf` npm library's `Signature` class for seed signing (handles custom namespace-sorted digest). Auth POST uses `multipart/form-data` (NOT raw XML). e-CF submission remains raw `application/xml`.
+- **IndicadorEnvioDiferido:** Set to `1` on offline-queued e-CFs when resubmitted from `processDgiiQueue()` (72-hour deferred submission rule)
+- **ANECF (sequence voiding):** `dgii-client.js` → `submitANECF()` voids unused e-CF ranges via DGII API. UI in DGII.jsx third tab "Anular e-NCF". IPC: `dgii:void-sequence`
+- **Cert status sync:** Desktop sends cert info (installed, subject, expiry, expired, environment) to Supabase via `bizSync` payload during license validation. Stored in `businesses.settings`. Admin panel shows e-CF Status card per client.
 
 ## RNC Lookup
 - Hook: `useRNC()` from `packages/ui/hooks/useRNC.js`
@@ -89,8 +97,11 @@ Key tables: businesses, users, services, tickets, clients, credit_payments,
 - Print fires AFTER DB persistence (Queue) or BEFORE closing modal (POS) so cashier sees change due
 
 ## Roles & Permissions
-- owner, manager, cfo, accountant, cashier
+- owner, manager, cfo, accountant, cashier, none
+- Roles live on `empleados.role` column (not on `users` table). `users.employee_id` FK links user to employee.
+- AuthContext `resolveRole()` joins `users` → `empleados` at login to resolve role from employee record.
 - Role-gated screens checked via `useAuth()` + permissions map in Settings.jsx
+- `tipo` (lavador/vendedor/cajero/hybrid) = operational/payroll classification. `role` = access control. Independent axes.
 
 ## Hostinger VPS (root@srv1528760, 187.124.152.42)
 - Hosts DGII e-CF Receiver (fe.terminalxpos.com) — Express on port 3100
@@ -169,12 +180,14 @@ Every table that syncs between Desktop (SQLite) and Web (Supabase) uses the **su
 - **Monorepo:** packages/ui, packages/services, packages/data with npm workspaces + Vite aliases. Electron/web/db/assets at root.
 - **Vite configs:** .mjs extension (vite.config.mjs, vite.web.config.mjs) to avoid ESM/CJS conflict with electron CommonJS.
 - **Dark mode:** All screens support Tailwind `dark:` variants. Pattern: `bg-white → dark:bg-white/5`, `bg-slate-50 → dark:bg-black`, `text-slate-800 → dark:text-white`, `border-slate-200 → dark:border-white/10`.
-- **e-CF flow:** CobrarModal → `signAndSubmitECF()` → IPC `dgii:submit` → xml-builder + xml-signer + dgii-client → DGII API. Offline queue fallback included. CobrarModal fires `onConfirm()` (ticket creation) IMMEDIATELY after ECF success via `confirmedRef` guard — never waits for user to close the success view. `handleSuccessClose()` just calls `onClose()`.
+- **e-CF flow:** CobrarModal → `signAndSubmitECF()` → IPC `dgii:submit` → xml-builder + xml-signer + dgii-client → DGII API. Offline queue fallback included. CobrarModal fires `onConfirm()` (ticket creation) IMMEDIATELY after ECF success via `confirmedRef` guard — never waits for user to close the success view. `handleSuccessClose()` just calls `onClose()`. Offline queue (`processDgiiQueue()`) rebuilds XML with `IndicadorEnvioDiferido=1` and re-signs before resubmission.
 - **Error handling:** `web.js` has `tryOr()` for reads (returns fallback) and `tryWrite()` for mutations (throws). Global `window.onerror` + `unhandledrejection` handlers in `main.jsx`. All commission/stock/void catches log errors.
 - **RLS:** Enabled on all 26+ Supabase tables. Anon role has permissive policies requiring `business_id IS NOT NULL`. Service role (desktop sync) bypasses RLS. `users` is a VIEW on `staff` table.
 - **License:** LicenseContext enforces 72h offline grace — only grants access if `tx_last_valid` localStorage timestamp is within 72 hours. Fresh installs without prior validation are denied.
 - **Supabase `users` table:** Actually `staff` (base table) with `users` as a VIEW. The `staff` table has `supabase_id`, `cedula`, `start_date` columns for sync compatibility.
-- **Nómina:** 5-view payroll center under `packages/ui/screens/reports/nomina/`. Helper libs: `lib/isr.js` (DR 2026 brackets), `lib/tss.js` (SFS/AFP/INFOTEP caps), `lib/payPeriod.js`, `lib/calcLiquidacion.js` (Ley 16-92). Supports commission-only workers.
+- **Nómina / Empleados:** Payroll center under `packages/ui/screens/reports/nomina/`. Helper libs: `lib/isr.js` (DR 2026 brackets), `lib/tss.js` (SFS/AFP/INFOTEP caps), `lib/payPeriod.js`, `lib/calcLiquidacion.js` (Ley 16-92). Supports commission-only workers. Top-level sidebar item "Empleados" routes to `/empleados` (NominaEmpleados). Employee form includes `role` dropdown (access role) and `comision_pct` field. `hybrid` tipo supported.
+- **Employee consolidation:** Lavadores/Vendedores/Cajeras tabs REMOVED from Admin (Config). Admin.jsx has 3 tabs: Mi Empresa, Usuarios, Servicios. Usuarios simplified to: pick employee from dropdown, set username + PIN only. All employee management (role, commission, tipo) is in the Empleados screen. Nominas tab removed from Reportes — Empleados sidebar is the single entry point.
+- **Settings structure:** Sistema.jsx has 3 tabs: Preferencias, Actualizaciones, Licencias TX. Mi Empresa tab has collapsible sections for WhatsApp, Fiscal/NCF, Respaldo/Nube. Preferencias includes Impresion (printing settings). Sidebar reduced from 13 to 8 config children (removed fiscal, impresion, whatsapp, respaldo, lavadores, vendedores, cajeras).
 - **Dev override:** `usePlan.jsx` forces `pro_max` in dev mode so all gated features are visible.
 - **Business Type System:** `useBusinessType()` hook + `BusinessTypeProvider` in `packages/ui/hooks/useBusinessType.jsx`. Stores `business_type` in `app_settings` (values: `carwash`, `tienda`, `otro`). Switches POS between `CarWashPOS` (service grid + queue + washers) and `RetailPOS` (product search + barcode + cart with qty). Sidebar nav filters items via `businessTypes` array prop. Settings panel at Configuración → Tipo de Negocio. FirstTimeSetup Step 1 includes business type selector.
 - **Retail POS:** `RetailPOS` component in `POS.jsx` — barcode/SKU search bar, product grid from inventory, services tab for hybrid mode, cart with qty +/- buttons. Uses `api.inventory.search()` and `api.inventory.lookupSku()`. Tickets store `quantity`, `sku`, `inventory_item_id` on `ticket_items`. Auto-deducts stock on sale, reverses on void. CobrarModal, printer, PDF all quantity-aware (`qty > 1` shows `2x Product Name`).
@@ -185,3 +198,5 @@ Every table that syncs between Desktop (SQLite) and Web (Supabase) uses the **su
 - **Security headers:** CSP, HSTS with preload, COOP, X-Frame-Options DENY, X-Content-Type-Options nosniff — all in `web/vercel.json`.
 - **Images:** WebP format, resized to 2x display size (logo 150px, x-mark 200px). All `<img>` tags have explicit `width`/`height` attributes.
 - **SEO:** `<html lang="es-DO">`, hreflang tags, geo.region DO, FAQPage + SoftwareApplication + Organization JSON-LD schemas, `<noscript>` fallback content, Google Analytics (G-WV4EDKWVJP).
+- **DGII dependencies:** `dgii-ecf` npm library for seed signing (Signature class with custom Digest that sorts xmlns attributes alphabetically). Project also has `xml-crypto` v6 for e-CF document signing (different from dgii-ecf's bundled v2). Do NOT mix — seed uses dgii-ecf, e-CFs use xml-signer.js with xml-crypto v6.
+- **Admin e-CF Status:** `ClientDetail.jsx` shows per-client cert status card (installed, expired, environment, subject, expiry, readiness). Data comes from `businesses.settings` populated by desktop bizSync.

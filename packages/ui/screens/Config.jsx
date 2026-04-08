@@ -5,15 +5,10 @@
 import { useParams, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Admin from './Admin'
-import { Preferencias, ImpresionSettings, WhatsAppSettings } from './Sistema'
-import { FiscalNCF, Respaldo } from './Admin'
+import Sistema, { Preferencias } from './Sistema'
 import LicenseAdmin from './LicenseAdmin'
 
-// Lazy import for Actualizaciones — it's inside Sistema but not exported yet
-// We'll render Sistema with the right tab for updates
-import Sistema from './Sistema'
-
-const ADMIN_SECTIONS = ['empresa', 'lavadores', 'vendedores', 'cajeras', 'usuarios', 'servicios']
+const ADMIN_SECTIONS = ['empresa', 'usuarios', 'servicios']
 
 export default function Config() {
   const { section } = useParams()
@@ -22,7 +17,7 @@ export default function Config() {
   if (!section) return <Navigate to="/config/empresa" replace />
 
   // Owner-only sections
-  const ownerOnly = ['fiscal', 'impresion', 'whatsapp', 'respaldo', 'updates', 'licencia', 'preferencias']
+  const ownerOnly = ['updates', 'licencia', 'preferencias']
   if (ownerOnly.includes(section) && user?.role !== 'owner') {
     return <Navigate to="/config/empresa" replace />
   }
@@ -37,38 +32,6 @@ export default function Config() {
     return (
       <div className="h-full overflow-y-auto px-3 md:px-6 py-4 md:py-6">
         <Preferencias />
-      </div>
-    )
-  }
-
-  if (section === 'impresion') {
-    return (
-      <div className="h-full overflow-y-auto px-3 md:px-6 py-4 md:py-6">
-        <ImpresionSettings />
-      </div>
-    )
-  }
-
-  if (section === 'whatsapp') {
-    return (
-      <div className="h-full overflow-y-auto px-3 md:px-6 py-4 md:py-6">
-        <WhatsAppSettings />
-      </div>
-    )
-  }
-
-  if (section === 'fiscal') {
-    return (
-      <div className="h-full overflow-y-auto px-3 md:px-6 py-4 md:py-6">
-        <FiscalNCF />
-      </div>
-    )
-  }
-
-  if (section === 'respaldo') {
-    return (
-      <div className="h-full overflow-y-auto px-3 md:px-6 py-4 md:py-6">
-        <Respaldo />
       </div>
     )
   }

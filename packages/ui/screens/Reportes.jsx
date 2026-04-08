@@ -1,11 +1,10 @@
 import { useState } from 'react'
-import { BarChart2, Calendar, DollarSign, Users, Package } from 'lucide-react'
+import { BarChart2, Calendar, DollarSign, Package } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import DailyReport from './reports/DailyReport'
 import MonthlyReport from './reports/MonthlyReport'
 import WorkerReport from './reports/WorkerReport'
-import PayrollReport from './reports/PayrollReport'
 import ProductsReport from './reports/ProductsReport'
 
 const TABS = [
@@ -13,7 +12,6 @@ const TABS = [
   { id: 'monthly',    es: 'Mensual',    en: 'Monthly',     icon: Calendar   },
   { id: 'productos',  es: 'Productos',  en: 'Products',    icon: Package,   businessTypes: ['tienda', 'otro'] },
   { id: 'comisiones', es: 'Comisiones', en: 'Commissions', icon: DollarSign },
-  { id: 'nominas',    es: 'Nominas',    en: 'Payroll',     icon: Users      },
 ]
 
 export default function Reportes() {
@@ -21,7 +19,7 @@ export default function Reportes() {
   const { businessType } = useBusinessType()
   const [tab, setTab] = useState('daily')
 
-  const visibleTabs = TABS.filter(t => !t.businessTypes || t.businessTypes.includes(businessType))
+  const visibleTabs = TABS.filter(tab => !tab.businessTypes || tab.businessTypes.includes(businessType))
 
   return (
     <div className="h-full flex flex-col bg-white dark:bg-white/5">
@@ -46,7 +44,6 @@ export default function Reportes() {
         {tab === 'monthly'    && <MonthlyReport />}
         {tab === 'productos'  && <ProductsReport />}
         {tab === 'comisiones' && <WorkerReport />}
-        {tab === 'nominas'    && <PayrollReport />}
       </div>
     </div>
   )

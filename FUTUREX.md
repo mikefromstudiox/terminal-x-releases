@@ -104,6 +104,18 @@ The first admin hire handles all client-facing technical work:
 
 ## Next Up — Priority Order
 
+### Empleados Overhaul (2026-04-09)
+Consolidate all worker management into Nomina Empleados as the single source of truth. Currently washers/sellers/cajeros are managed in separate Settings panels and the `empleados` table (used by Nomina) is disconnected — employees added in Settings don't appear in Nomina.
+
+- [ ] **Keep "Agregar" button in Nomina Empleados** — this becomes THE place to add all workers
+- [ ] **Add tipo `seguridad`** — security personnel. Update `empleados` CHECK constraint in SQLite + Supabase
+- [ ] **Commission % per employee** — add `commission_pct` column to `empleados`, editable in EmployeePanel form
+- [ ] **Bridge to washers/sellers** — when creating an empleado of tipo lavador/vendedor, auto-create matching washer/seller record (so POS assignment still works)
+- [ ] **Remove separate Settings panels** — redirect Lavadores/Vendedores/Maestro Empleados in Settings to Nomina Empleados
+- [ ] **Migrate existing data** — on first load, auto-create empleado records for any washer/seller that doesn't have one (match by ref_id)
+- [ ] **Liquidacion** — already built per employee, verify end-to-end with real data
+- [ ] **Supabase schema** — add `seguridad` to tipo enum, add `commission_pct` column, update RLS
+
 ### 3. First Client Onboarding Test
 - [ ] Create a real client account via /signup or admin panel
 - [ ] Walk through: add services, create ticket, cobrar, print, check reports

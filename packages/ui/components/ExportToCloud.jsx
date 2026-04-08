@@ -55,13 +55,12 @@ export default function ExportToCloud() {
 
         const rowsArray = Array.isArray(rows) ? rows : [rows]
 
-        // Map rows: add business_id and local_id
+        // Map rows: add business_id, use supabase_id pattern
         const mapped = rowsArray.map(row => {
           const { id, ...rest } = row
           return {
             ...rest,
             business_id: businessId,
-            local_id: id,
           }
         })
 
@@ -70,7 +69,7 @@ export default function ExportToCloud() {
           const batch = mapped.slice(i, i + 100)
           const { error } = await sb
             .from(table.supaTable)
-            .upsert(batch, { onConflict: 'business_id,local_id' })
+            .upsert(batch, { onConflict: 'business_id,supabase_id' })
 
           if (error) throw new Error(`${table.supaTable}: ${error.message}`)
         }

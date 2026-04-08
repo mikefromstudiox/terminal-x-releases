@@ -52,6 +52,7 @@ const LicenseAdmin        = lazy(() => import('./screens/LicenseAdmin'))
 const Sistema             = lazy(() => import('./screens/Sistema'))
 const Inventory           = lazy(() => import('./screens/Inventory'))
 const Reportes            = lazy(() => import('./screens/Reportes'))
+const Empleados           = lazy(() => import('./screens/reports/nomina'))
 
 // Routes accessible only to non-cashier roles
 const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin','/sistema','/inventory','/config']
@@ -160,6 +161,7 @@ export default function App() {
         <Route path="/reports/salesperson"   element={<Navigate to="/reports" replace />} />
         <Route path="/inventory"             element={<ProtectedRoute element={<PlanGate feature="inventory"><Inventory /></PlanGate>} />} />
         <Route path="/cash-recon"            element={<ProtectedRoute element={<PlanGate feature="cash_recon"><CashReconciliation /></PlanGate>} />} />
+        <Route path="/empleados"             element={<ProtectedRoute element={<Empleados />} />} />
         <Route path="/dgii"                  element={<ProtectedRoute element={<PlanGate feature="dgii"><DGII /></PlanGate>} />} />
         <Route path="/petty-cash"            element={<ProtectedRoute element={<PlanGate feature="petty_cash"><PettyCash /></PlanGate>} />} />
         <Route path="/credit-notes"          element={<ProtectedRoute element={<PlanGate feature="credit_notes"><CreditNotes /></PlanGate>} />} />

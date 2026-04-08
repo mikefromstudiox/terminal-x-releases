@@ -236,6 +236,10 @@ function init(userDataPath) {
     "UPDATE compras_607 SET updated_at = created_at WHERE updated_at IS NULL",
     "UPDATE categorias_servicio SET updated_at = datetime('now') WHERE updated_at IS NULL",
     "UPDATE users SET updated_at = created_at WHERE updated_at IS NULL",
+    // Employee consolidation — role on empleados, employee_id on users, no_commission on services
+    "ALTER TABLE empleados ADD COLUMN role TEXT DEFAULT 'none'",
+    "ALTER TABLE users ADD COLUMN employee_id INTEGER",
+    "ALTER TABLE services ADD COLUMN no_commission INTEGER DEFAULT 0",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -244,6 +248,62 @@ function init(userDataPath) {
       }
     }
   }
+
+  // ── Employee consolidation backfill ──────────────────────────────────────
+  // Backfill empleados.role from users (one-time)
+  try {
+    const needsBackfill = db.prepare("SELECT COUNT(*) as c FROM empleados WHERE role != 'none'").get()
+    if (needsBackfill.c === 0) {
+      // Match by cedula first (most reliable)
+      db.exec(`
+        UPDATE empleados SET role = (
+          SELECT u.role FROM users u
+          WHERE u.cedula IS NOT NULL AND u.cedula != '' AND u.cedula = empleados.cedula
+          LIMIT 1
+        ) WHERE cedula IS NOT NULL AND cedula != '' AND EXISTS (
+          SELECT 1 FROM users u WHERE u.cedula IS NOT NULL AND u.cedula != '' AND u.cedula = empleados.cedula
+        )
+      `)
+      // Fallback: match by name
+      db.exec(`
+        UPDATE empleados SET role = (
+          SELECT u.role FROM users u WHERE LOWER(TRIM(u.name)) = LOWER(TRIM(empleados.nombre))
+          LIMIT 1
+        ) WHERE role = 'none' AND EXISTS (
+          SELECT 1 FROM users u WHERE LOWER(TRIM(u.name)) = LOWER(TRIM(empleados.nombre))
+        )
+      `)
+      // Default mapping for unmatched
+      db.exec("UPDATE empleados SET role = 'cashier' WHERE role = 'none' AND tipo = 'cajero'")
+      db.exec("UPDATE empleados SET role = 'none' WHERE role = 'none' AND tipo IN ('lavador', 'vendedor')")
+    }
+  } catch (e) { console.error('Employee role backfill error:', e.message) }
+
+  // Backfill users.employee_id
+  try {
+    const needsLink = db.prepare("SELECT COUNT(*) as c FROM users WHERE employee_id IS NOT NULL").get()
+    if (needsLink.c === 0) {
+      // Match by cedula
+      db.exec(`
+        UPDATE users SET employee_id = (
+          SELECT e.id FROM empleados e
+          WHERE e.cedula IS NOT NULL AND e.cedula != '' AND e.cedula = users.cedula
+          LIMIT 1
+        ) WHERE cedula IS NOT NULL AND cedula != '' AND EXISTS (
+          SELECT 1 FROM empleados e WHERE e.cedula IS NOT NULL AND e.cedula != '' AND e.cedula = users.cedula
+        )
+      `)
+      // Fallback: match by name
+      db.exec(`
+        UPDATE users SET employee_id = (
+          SELECT e.id FROM empleados e WHERE LOWER(TRIM(e.nombre)) = LOWER(TRIM(users.name))
+          LIMIT 1
+        ) WHERE employee_id IS NULL AND EXISTS (
+          SELECT 1 FROM empleados e WHERE LOWER(TRIM(e.nombre)) = LOWER(TRIM(users.name))
+        )
+      `)
+    }
+  } catch (e) { console.error('User employee_id backfill error:', e.message) }
 
   // v1.6 — unique indexes on supabase_id (safe to run multiple times)
   const sidIndexes = [
@@ -831,20 +891,21 @@ function empleadosGetAllAdmin() {
 function empleadoCreate(data) {
   if (!db) return null
   const sid = crypto.randomUUID()
-  const r = db.prepare(`INSERT INTO empleados(nombre,tipo,ref_id,salary,start_date,cedula,phone,puesto,email,bank_account,tss_id,active,supabase_id)
-    VALUES(@nombre,@tipo,@ref_id,@salary,@start_date,@cedula,@phone,@puesto,@email,@bank_account,@tss_id,1,@supabase_id)`).run({
+  const r = db.prepare(`INSERT INTO empleados(nombre,tipo,ref_id,salary,start_date,cedula,phone,puesto,email,bank_account,tss_id,role,active,supabase_id)
+    VALUES(@nombre,@tipo,@ref_id,@salary,@start_date,@cedula,@phone,@puesto,@email,@bank_account,@tss_id,@role,1,@supabase_id)`).run({
     nombre: data.nombre, tipo: data.tipo, ref_id: data.ref_id || null,
     salary: data.salary || 0, start_date: data.start_date,
     cedula: data.cedula || null, phone: data.phone || null,
     puesto: data.puesto || null, email: data.email || null,
     bank_account: data.bank_account || null, tss_id: data.tss_id || null,
+    role: data.role || 'none',
     supabase_id: sid,
   })
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function empleadoUpdate(id, data) {
   if (!db) return
-  const allowed = ['nombre','tipo','ref_id','salary','start_date','cedula','phone','puesto','email','bank_account','tss_id','active']
+  const allowed = ['nombre','tipo','ref_id','salary','start_date','cedula','phone','puesto','email','bank_account','tss_id','role','active']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
 

@@ -298,24 +298,22 @@ export async function syncToCloud() {
 
     const biz = getBusinessId()
 
-    // Upsert each table into Supabase. Desktop SQLite uses integer `id`,
-    // Supabase uses UUID `id`, so we map local id → `local_id` and conflict
-    // on (business_id, local_id) instead.
+    // Upsert each table into Supabase using supabase_id pattern.
     const upserts = []
 
     if (changes.tickets.length > 0) {
       upserts.push(
         sb.from('tickets').upsert(
-          changes.tickets.map(({ id, ...t }) => ({ ...t, business_id: biz, local_id: id })),
-          { onConflict: 'business_id,local_id' }
+          changes.tickets.map(({ id, ...t }) => ({ ...t, business_id: biz })),
+          { onConflict: 'business_id,supabase_id' }
         )
       )
     }
     if (changes.clients.length > 0) {
       upserts.push(
         sb.from('clients').upsert(
-          changes.clients.map(({ id, ...c }) => ({ ...c, business_id: biz, local_id: id })),
-          { onConflict: 'business_id,local_id' }
+          changes.clients.map(({ id, ...c }) => ({ ...c, business_id: biz })),
+          { onConflict: 'business_id,supabase_id' }
         )
       )
     }

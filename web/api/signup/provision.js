@@ -52,10 +52,14 @@ export default async function handler(req, res) {
       username: 'owner', role: 'owner', active: true,
     })
 
+    const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    const seg = () => Array.from({ length: 4 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('')
+    const licenseKey = 'TXL-' + seg() + '-' + seg() + '-' + seg()
+
     await supabase.from('licenses').insert({
-      business_id: biz.id, plan_id: planRow?.id || null, status: 'active',
+      business_id: biz.id, plan_id: planRow?.id || null, license_key: licenseKey, status: 'active',
       platform: 'web', activated_at: new Date().toISOString(), max_users: planRow?.max_users || 999,
-      expires_at: trialEnd,
+      expires_at: trialEnd, trial_end: trialEnd,
     })
 
     const ncfTypes = ['B01', 'B02', 'B14', 'B15', 'E31', 'E32', 'E33', 'E34']
