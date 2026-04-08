@@ -49,6 +49,7 @@ function dbToTxn(t) {
     voidReason: t.void_reason,
     voidedBy:   t.void_by,
     voidedAt:   t.void_at ? new Date(t.void_at) : null,
+    washerNames: t.washer_names || [],
   }
 }
 
@@ -135,11 +136,11 @@ function MetricCard({ icon: Icon, label, value, sub, accent }) {
 function DetailModal({ ticket: t, onClose, onReprint, lang }) {
   const api = useAPI()
   const [services, setServices] = useState(t.services)
+  const [washerNames, setWasherNames] = useState(t.washerNames || [])
   const [loadingItems, setLoadingItems] = useState(false)
 
   useEffect(() => {
-    // If services are already loaded (from prior fetch), skip
-    if (services.length > 0) return
+    if (services.length > 0 && washerNames.length > 0) return
     setLoadingItems(true)
     api.tickets.byId(t.id)
       .then(full => {
@@ -149,6 +150,7 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
             price: item.price || item.subtotal || 0,
           })))
         }
+        if (full?.washer_names?.length) setWasherNames(full.washer_names)
       })
       .catch(() => setServices([{ name: lang === 'es' ? 'Error al cargar servicios' : 'Error loading services', price: 0 }]))
       .finally(() => setLoadingItems(false))
@@ -179,6 +181,9 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
             <div><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Vehículo' : 'Vehicle'}:</span> <span className="font-medium text-slate-700 dark:text-white">{t.vehicle}</span></div>
             <div><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Comprobante' : 'Receipt'}:</span> <span className="font-medium text-slate-700 dark:text-white">{t.ncfType} · {t.ncfType === 'B01' ? (lang === 'es' ? 'Crédito Fiscal' : 'Tax Credit') : (lang === 'es' ? 'Consumidor Final' : 'Consumer')}</span></div>
             <div className="col-span-2"><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Cliente' : 'Client'}:</span> <span className="font-medium text-slate-700 dark:text-white">{t.client}</span></div>
+            {washerNames.length > 0 && (
+              <div className="col-span-2"><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Lavador(es)' : 'Washer(s)'}:</span> <span className="font-medium text-slate-700 dark:text-white">{washerNames.join(', ')}</span></div>
+            )}
           </div>
 
           {/* Services */}
@@ -553,7 +558,7 @@ export default function DailyReport() {
         {/* Row 2: type tabs + date pills */}
         <div className="flex flex-col md:flex-row md:items-center justify-between px-3 md:px-6 pb-0 gap-1 md:gap-0">
           {/* Type tabs */}
-          <div className="flex gap-0.5 overflow-x-auto scrollbar-none">
+          <div className="flex gap-0.5 flex-wrap">
             {TAB_FILTERS.map(f => (
               <button
                 key={f.id}
@@ -692,9 +697,9 @@ export default function DailyReport() {
                     </div>
 
                     {/* Client / Vehicle */}
-                    <div className="flex-1 min-w-0 pr-4">
-                      <p className={`text-[12px] font-semibold truncate ${isNula ? 'text-slate-400' : 'text-slate-800 dark:text-white'}`}>{t.client}</p>
-                      <p className="text-[11px] text-slate-400 dark:text-white/40 truncate">{t.vehicle}</p>
+                    <div className="flex-1 min-w-[120px] pr-4">
+                      <p className={`text-[12px] font-semibold truncate ${isNula ? 'text-slate-400' : 'text-slate-800 dark:text-white'}`}>{t.client || '—'}</p>
+                      {t.vehicle && t.vehicle !== '—' && <p className="text-[11px] text-slate-400 dark:text-white/40 truncate">{t.vehicle}</p>}
                     </div>
 
                     {/* Service(s) */}

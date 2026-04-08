@@ -18,6 +18,10 @@ export default function QuickActions({ business, license, getToken, onRefresh, i
   const [linkPass, setLinkPass] = useState('')
   const [linkErr, setLinkErr] = useState('')
   const [linkOk, setLinkOk] = useState(false)
+  const [showReset, setShowReset] = useState(false)
+  const [resetPass, setResetPass] = useState('')
+  const [resetErr, setResetErr] = useState('')
+  const [resetOk, setResetOk] = useState(false)
   const [updating, setUpdating] = useState(false)
 
   async function patchLicense(patch) {
@@ -129,6 +133,49 @@ export default function QuickActions({ business, license, getToken, onRefresh, i
           {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
           {copied ? L('Copiado', 'Copied') : L('Copiar clave', 'Copy key')}
         </button>
+      )}
+
+      {business.owner_id && (
+        <div className="relative">
+          <button onClick={() => { setShowReset(s => !s); setResetErr(''); setResetOk(false); setResetPass('') }} className={`${btn} border-amber-200 text-amber-600 hover:bg-amber-50 dark:border-amber-500/30 dark:text-amber-400 dark:hover:bg-amber-500/10`}>
+            <RotateCcw size={13} /> {L('Cambiar contraseña', 'Reset password')}
+          </button>
+          {showReset && (
+            <div className={`absolute top-full right-0 mt-1 z-20 rounded-xl shadow-lg border p-4 w-72 ${isDark ? 'bg-zinc-900 border-white/10' : 'bg-white border-slate-200'}`}>
+              <p className={`text-[11px] font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
+                {L('Nueva contraseña para cuenta web', 'New password for web account')}
+              </p>
+              <input type="password" placeholder={L('Nueva contraseña (min 6)', 'New password (min 6)')} value={resetPass} onChange={e => setResetPass(e.target.value)}
+                className={`w-full px-3 py-1.5 rounded-lg text-[12px] border mb-3 focus:outline-none focus:ring-1 focus:ring-amber-400 ${isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-700'}`} />
+              {resetErr && <p className="text-[11px] text-red-500 mb-2">{resetErr}</p>}
+              {resetOk && <p className="text-[11px] text-emerald-600 mb-2">{L('Contraseña actualizada', 'Password updated')}</p>}
+              <div className="flex gap-2">
+                <button onClick={() => setShowReset(false)} className={`px-3 py-1.5 rounded-lg text-[11px] border ${isDark ? 'border-white/10 text-white/50' : 'border-slate-200 text-slate-500'}`}>
+                  {L('Cancelar', 'Cancel')}
+                </button>
+                <button disabled={updating} onClick={async () => {
+                  if (resetPass.length < 6) { setResetErr(L('Min 6 caracteres', 'Min 6 characters')); return }
+                  setResetErr(''); setUpdating(true)
+                  try {
+                    const resp = await fetch('/api/panel?action=reset_password', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
+                      body: JSON.stringify({ user_id: business.owner_id, password: resetPass }),
+                    })
+                    const result = await resp.json()
+                    if (!resp.ok) throw new Error(result.error || 'Failed')
+                    setResetOk(true); setResetPass('')
+                    setTimeout(() => setShowReset(false), 1500)
+                  } catch (e) { setResetErr(e.message) }
+                  setUpdating(false)
+                }} className="flex-1 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-white text-[11px] font-bold rounded-lg flex items-center justify-center gap-1.5">
+                  {updating ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+                  {L('Actualizar', 'Update')}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {!business.owner_id && (

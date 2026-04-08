@@ -3,7 +3,7 @@ import {
   Building2, Upload, X, CheckCircle2, Loader2, ImageOff,
   Users, UserCheck, KeyRound, LayoutGrid, Plus, Edit2, Power,
   Eye, EyeOff, AlertCircle, FileText, Wifi, WifiOff, ExternalLink,
-  Check, Coffee, Lock,
+  Check, Coffee, Lock, ChevronUp, ChevronDown,
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
@@ -603,18 +603,45 @@ function Servicios() {
   const [saved,      setSaved]      = useState(false)
   const [error,      setError]      = useState('')
   const [activeTab,  setActiveTab]  = useState('all')
+  const [catOrder,   setCatOrder]   = useState({}) // { categoryName: orden }
   const { toast, show }             = useToast()
 
   useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true); setLoadErr('')
-    try { setList((await api?.services?.allAdmin?.()) || []) }
+    try {
+      setList((await api?.services?.allAdmin?.()) || [])
+      const cats = (await api?.categorias?.all?.()) || []
+      const order = {}
+      cats.forEach(c => { order[c.nombre] = c.orden ?? 999 })
+      setCatOrder(order)
+    }
     catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
     finally { setLoading(false) }
   }
 
-  const categories = [...new Set(list.map(s => s.category))].sort()
+  const categories = [...new Set(list.map(s => s.category))].sort((a, b) => (catOrder[a] ?? 999) - (catOrder[b] ?? 999))
+
+  async function moveCat(cat, dir) {
+    const idx = categories.indexOf(cat)
+    const swapIdx = idx + dir
+    if (swapIdx < 0 || swapIdx >= categories.length) return
+    const other = categories[swapIdx]
+    const catOrderA = catOrder[cat] ?? idx
+    const catOrderB = catOrder[other] ?? swapIdx
+    // Swap orders
+    try {
+      const cats = (await api?.categorias?.all?.()) || []
+      const catA = cats.find(c => c.nombre === cat)
+      const catB = cats.find(c => c.nombre === other)
+      if (catA) await api.categorias.update({ id: catA.id, orden: catOrderB })
+      else await api.categorias.create({ nombre: cat, orden: catOrderB })
+      if (catB) await api.categorias.update({ id: catB.id, orden: catOrderA })
+      else await api.categorias.create({ nombre: other, orden: catOrderA })
+      setCatOrder(prev => ({ ...prev, [cat]: catOrderB, [other]: catOrderA }))
+    } catch { show(L('Error al reordenar', 'Error reordering'), 'error') }
+  }
   const visible    = activeTab === 'all' ? list : list.filter(s => s.category === activeTab)
 
   function openAdd()   { setForm({ ...EMPTY_SERVICE, category: categories[0] || '' }); setNewCatMode(false); setError(''); setSaved(false); setPanel('add') }
@@ -654,17 +681,33 @@ function Servicios() {
       <Toast toast={toast} />
       <div className="flex-1 min-w-0">
         {/* Category tabs row */}
-        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-0 border-b border-slate-200 dark:border-white/10 mb-4 overflow-x-auto">
-          <div className="flex items-center gap-0 overflow-x-auto flex-1">
-            {[{ id: 'all', label: `${L('Todos', 'All')} (${list.length})` },
-              ...categories.map(c => ({ id: c, label: `${c} (${list.filter(s => s.category === c).length})` }))
-            ].map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                className={`shrink-0 px-4 py-2.5 text-[12px] font-semibold border-b-2 -mb-px transition-colors ${
-                  activeTab === tab.id ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-700 dark:hover:text-white'
-                }`}>
-                {tab.label}
-              </button>
+        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-0 border-b border-slate-200 dark:border-white/10 mb-4">
+          <div className="flex items-center gap-0 flex-wrap flex-1">
+            <button onClick={() => setActiveTab('all')}
+              className={`shrink-0 px-4 py-2.5 text-[12px] font-semibold border-b-2 -mb-px transition-colors ${
+                activeTab === 'all' ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-700 dark:hover:text-white'
+              }`}>
+              {L('Todos', 'All')} ({list.length})
+            </button>
+            {categories.map((c, i) => (
+              <div key={c} className="flex items-center">
+                {activeTab === c && i > 0 && (
+                  <button onClick={() => moveCat(c, -1)} className="p-0.5 text-slate-400 hover:text-[#0C447C] dark:text-white/40 dark:hover:text-blue-400" title={L('Mover izquierda', 'Move left')}>
+                    <ChevronUp size={12} className="rotate-[-90deg]" />
+                  </button>
+                )}
+                <button onClick={() => setActiveTab(c)}
+                  className={`shrink-0 px-3 py-2.5 text-[12px] font-semibold border-b-2 -mb-px transition-colors ${
+                    activeTab === c ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-700 dark:hover:text-white'
+                  }`}>
+                  {c} ({list.filter(s => s.category === c).length})
+                </button>
+                {activeTab === c && i < categories.length - 1 && (
+                  <button onClick={() => moveCat(c, 1)} className="p-0.5 text-slate-400 hover:text-[#0C447C] dark:text-white/40 dark:hover:text-blue-400" title={L('Mover derecha', 'Move right')}>
+                    <ChevronDown size={12} className="rotate-[-90deg]" />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
           <button onClick={openAdd} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 mb-2 min-h-[44px] md:min-h-0 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors w-full md:w-auto justify-center md:justify-start md:ml-auto">

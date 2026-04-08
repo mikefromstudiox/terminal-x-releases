@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useState, useEffect } from 'react'
 import { useAPI } from './DataContext'
 
 const AuthContext = createContext(null)
@@ -16,6 +16,17 @@ const WEB_USER = isWeb
 export function AuthProvider({ children }) {
   const api = useAPI()
   const [user, setUser] = useState(DEV_USER || WEB_USER)
+
+  // On web, load actual user name from staff/users table
+  useEffect(() => {
+    if (!isWeb || !api?.users?.all) return
+    api.users.all().then(users => {
+      if (users?.length) {
+        const owner = users.find(u => u.role === 'owner') || users[0]
+        setUser(prev => prev ? { ...prev, name: owner.name, username: owner.username || prev.username } : prev)
+      }
+    }).catch(() => {})
+  }, [api])
 
   async function login(pin) {
     try {

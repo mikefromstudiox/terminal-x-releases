@@ -101,11 +101,11 @@ export async function validateLicense(licenseKey, hardwareId, rnc = '', bizSync 
       // Web: use fetch — include Supabase auth token for web-client HWID verification
       const hdrs = { 'Content-Type': 'application/json' }
       try {
-        const { getSupabaseClient } = await import('./supabase.js')
-        const sb = getSupabaseClient()
-        if (sb) {
-          const { data: { session } } = await sb.auth.getSession()
-          if (session?.access_token) hdrs['Authorization'] = `Bearer ${session.access_token}`
+        // Read auth token from Supabase's localStorage session (the main app's client stores it here)
+        const storageKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'))
+        if (storageKey) {
+          const stored = JSON.parse(localStorage.getItem(storageKey) || '{}')
+          if (stored?.access_token) hdrs['Authorization'] = `Bearer ${stored.access_token}`
         }
       } catch {}
       const response = await fetch(`${LICENSE_API}/api/validate`, {

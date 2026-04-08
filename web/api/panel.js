@@ -52,6 +52,7 @@ export default async function handler(req, res) {
   if (action === 'client_detail') return handleClientDetail(req, res)
   if (action === 'update_business') return handleUpdateBusiness(req, res)
   if (action === 'link_web_account') return handleLinkWebAccount(req, res)
+  if (action === 'reset_password') return handleResetPassword(req, res)
   if (action === 'activity_feed') return handleActivityFeed(req, res)
   if (action === 'register') return handleRegister(req, res)
   if (action === 'client_config') return handleClientConfig(req, res)
@@ -469,6 +470,20 @@ async function handleLinkWebAccount(req, res) {
       username: 'owner', role: 'owner', active: true,
     }, { onConflict: 'business_id,auth_user_id', ignoreDuplicates: true })
     return res.json({ ok: true, user_id: userId })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleResetPassword(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { user_id, password } = req.body || {}
+  if (!user_id || !password) return res.status(400).json({ error: 'user_id and password required' })
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' })
+  try {
+    const { error: err } = await auth.supabase.auth.admin.updateUserById(user_id, { password })
+    if (err) throw err
+    return res.json({ ok: true })
   } catch (err) { return res.status(500).json({ error: err.message }) }
 }
 

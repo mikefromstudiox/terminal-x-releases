@@ -206,6 +206,18 @@ function CarWashPOS() {
   const rawSellers = rawSellersDB || []
   const { lookup: rncLookup }                                        = useRNC()
 
+  // ── Category order from categorias_servicio
+  const [catOrder, setCatOrder] = useState({})
+  useEffect(() => {
+    api?.categorias?.all?.().then(cats => {
+      if (cats?.length) {
+        const order = {}
+        cats.forEach(c => { order[c.nombre] = c.orden ?? 999 })
+        setCatOrder(order)
+      }
+    }).catch(() => {})
+  }, [])
+
   // ── Derived: categories + services grouped
   const categories = useMemo(() => {
     const seen = new Set()
@@ -216,8 +228,9 @@ function CarWashPOS() {
         cats.push({ id: svc.category, label: svc.category })
       }
     }
+    cats.sort((a, b) => (catOrder[a.id] ?? 999) - (catOrder[b.id] ?? 999))
     return cats
-  }, [rawServices])
+  }, [rawServices, catOrder])
 
   const servicesByCategory = useMemo(() => {
     const groups = {}

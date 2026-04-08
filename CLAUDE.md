@@ -150,6 +150,18 @@ cd dist-web && npm install --silent && npx vercel --prod --yes
 10. Vercel Hobby plan = 12 serverless functions max — admin routes consolidated into `panel.js` with `?action=` param
 11. Output deploy commands, SQL, and code blocks as single long lines for easy copy-paste
 
+## Data Architecture — supabase_id (MANDATORY)
+Every table that syncs between Desktop (SQLite) and Web (Supabase) uses the **supabase_id** pattern:
+- **SQLite:** `id INTEGER PRIMARY KEY` (auto-increment, local only) + `supabase_id TEXT` (UUID v4)
+- **Supabase:** `id UUID PRIMARY KEY` (Supabase-native) + `supabase_id UUID UNIQUE` (matches SQLite)
+- Desktop generates UUID at record creation: `crypto.randomUUID()`
+- Sync upserts on `(business_id, supabase_id)` — single source of truth for cross-platform identity
+- FK references stored as `*_supabase_id` columns (e.g., `ticket_supabase_id`, `washer_supabase_id`)
+- Web queries use clean UUID joins on `supabase_id` — no integer ID hacks
+- **Never use `local_id` or `local_*_id` columns** — those are deprecated scaffolding
+- Sync module: `electron/sync.js` pushes SQLite → Supabase every 5 min + on every sale/payment/void
+- 20 tables covered: services, washers, sellers, clients, inventory_items, ncf_sequences, empleados, categorias_servicio, tickets, ticket_items, queue, washer/seller/cajero_commissions, credit_payments, cuadre_caja, caja_chica, notas_credito, inventory_transactions, compras_607
+
 ## Architecture Notes
 - **Monorepo:** packages/ui, packages/services, packages/data with npm workspaces + Vite aliases. Electron/web/db/assets at root.
 - **Vite configs:** .mjs extension (vite.config.mjs, vite.web.config.mjs) to avoid ESM/CJS conflict with electron CommonJS.

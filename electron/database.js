@@ -89,9 +89,115 @@ function init(userDataPath) {
     'ALTER TABLE ticket_items ADD COLUMN inventory_item_id INTEGER REFERENCES inventory_items(id)',
     'ALTER TABLE inventory_items ADD COLUMN barcode TEXT',
     'ALTER TABLE inventory_items ADD COLUMN aplica_itbis INTEGER NOT NULL DEFAULT 1',
+    // v1.6 — supabase_id UUID columns for cloud sync
+    'ALTER TABLE services ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE washers ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE sellers ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE clients ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE inventory_items ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE ncf_sequences ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE empleados ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE categorias_servicio ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE tickets ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE ticket_items ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE queue ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE washer_commissions ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE seller_commissions ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE cajero_commissions ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE credit_payments ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE cuadre_caja ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE caja_chica ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE notas_credito ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE inventory_transactions ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE compras_607 ADD COLUMN supabase_id TEXT',
+    'ALTER TABLE users ADD COLUMN supabase_id TEXT',
+    // v1.6 — FK supabase_id columns for relational sync
+    'ALTER TABLE ticket_items ADD COLUMN ticket_supabase_id TEXT',
+    'ALTER TABLE ticket_items ADD COLUMN service_supabase_id TEXT',
+    'ALTER TABLE queue ADD COLUMN ticket_supabase_id TEXT',
+    'ALTER TABLE queue ADD COLUMN washer_supabase_id TEXT',
+    'ALTER TABLE washer_commissions ADD COLUMN ticket_supabase_id TEXT',
+    'ALTER TABLE washer_commissions ADD COLUMN washer_supabase_id TEXT',
+    'ALTER TABLE seller_commissions ADD COLUMN ticket_supabase_id TEXT',
+    'ALTER TABLE seller_commissions ADD COLUMN seller_supabase_id TEXT',
+    'ALTER TABLE cajero_commissions ADD COLUMN ticket_supabase_id TEXT',
+    'ALTER TABLE cajero_commissions ADD COLUMN cajero_supabase_id TEXT',
+    'ALTER TABLE credit_payments ADD COLUMN client_supabase_id TEXT',
+    'ALTER TABLE credit_payments ADD COLUMN cajero_supabase_id TEXT',
+    'ALTER TABLE notas_credito ADD COLUMN client_supabase_id TEXT',
+    'ALTER TABLE notas_credito ADD COLUMN ticket_supabase_id TEXT',
+    'ALTER TABLE notas_credito ADD COLUMN cajero_supabase_id TEXT',
+    'ALTER TABLE inventory_transactions ADD COLUMN item_supabase_id TEXT',
+    // v1.6 — backfill UUIDs for existing rows
+    "UPDATE services SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE washers SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE sellers SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE clients SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE inventory_items SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE ncf_sequences SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE empleados SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE categorias_servicio SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE tickets SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE ticket_items SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE queue SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE washer_commissions SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE seller_commissions SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE cajero_commissions SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE credit_payments SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE cuadre_caja SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE caja_chica SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE notas_credito SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE inventory_transactions SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE compras_607 SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    "UPDATE users SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    // v1.6 — backfill FK supabase_ids for existing rows
+    "UPDATE ticket_items SET ticket_supabase_id = (SELECT supabase_id FROM tickets WHERE tickets.id = ticket_items.ticket_id) WHERE ticket_supabase_id IS NULL AND ticket_id IS NOT NULL",
+    "UPDATE ticket_items SET service_supabase_id = (SELECT supabase_id FROM services WHERE services.id = ticket_items.service_id) WHERE service_supabase_id IS NULL AND service_id IS NOT NULL",
+    "UPDATE queue SET ticket_supabase_id = (SELECT supabase_id FROM tickets WHERE tickets.id = queue.ticket_id) WHERE ticket_supabase_id IS NULL AND ticket_id IS NOT NULL",
+    "UPDATE queue SET washer_supabase_id = (SELECT supabase_id FROM washers WHERE washers.id = queue.washer_id) WHERE washer_supabase_id IS NULL AND washer_id IS NOT NULL",
+    "UPDATE washer_commissions SET ticket_supabase_id = (SELECT supabase_id FROM tickets WHERE tickets.id = washer_commissions.ticket_id) WHERE ticket_supabase_id IS NULL AND ticket_id IS NOT NULL",
+    "UPDATE washer_commissions SET washer_supabase_id = (SELECT supabase_id FROM washers WHERE washers.id = washer_commissions.washer_id) WHERE washer_supabase_id IS NULL AND washer_id IS NOT NULL",
+    "UPDATE seller_commissions SET ticket_supabase_id = (SELECT supabase_id FROM tickets WHERE tickets.id = seller_commissions.ticket_id) WHERE ticket_supabase_id IS NULL AND ticket_id IS NOT NULL",
+    "UPDATE seller_commissions SET seller_supabase_id = (SELECT supabase_id FROM sellers WHERE sellers.id = seller_commissions.seller_id) WHERE seller_supabase_id IS NULL AND seller_id IS NOT NULL",
+    "UPDATE cajero_commissions SET ticket_supabase_id = (SELECT supabase_id FROM tickets WHERE tickets.id = cajero_commissions.ticket_id) WHERE ticket_supabase_id IS NULL AND ticket_id IS NOT NULL",
+    "UPDATE cajero_commissions SET cajero_supabase_id = (SELECT supabase_id FROM users WHERE users.id = cajero_commissions.cajero_id) WHERE cajero_supabase_id IS NULL AND cajero_id IS NOT NULL",
+    "UPDATE credit_payments SET client_supabase_id = (SELECT supabase_id FROM clients WHERE clients.id = credit_payments.client_id) WHERE client_supabase_id IS NULL AND client_id IS NOT NULL",
+    "UPDATE credit_payments SET cajero_supabase_id = (SELECT supabase_id FROM users WHERE users.id = credit_payments.cajero_id) WHERE cajero_supabase_id IS NULL AND cajero_id IS NOT NULL",
+    "UPDATE notas_credito SET client_supabase_id = (SELECT supabase_id FROM clients WHERE clients.id = notas_credito.client_id) WHERE client_supabase_id IS NULL AND client_id IS NOT NULL",
+    "UPDATE notas_credito SET ticket_supabase_id = (SELECT supabase_id FROM tickets WHERE tickets.id = notas_credito.original_ticket_id) WHERE ticket_supabase_id IS NULL AND original_ticket_id IS NOT NULL",
+    "UPDATE notas_credito SET cajero_supabase_id = (SELECT supabase_id FROM users WHERE users.id = notas_credito.cajero_id) WHERE cajero_supabase_id IS NULL AND cajero_id IS NOT NULL",
+    "UPDATE inventory_transactions SET item_supabase_id = (SELECT supabase_id FROM inventory_items WHERE inventory_items.id = inventory_transactions.item_id) WHERE item_supabase_id IS NULL AND item_id IS NOT NULL",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch { /* column already exists */ }
+  }
+
+  // v1.6 — unique indexes on supabase_id (safe to run multiple times)
+  const sidIndexes = [
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_services_supabase_id ON services(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_washers_supabase_id ON washers(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_sellers_supabase_id ON sellers(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_supabase_id ON clients(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_items_supabase_id ON inventory_items(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_ncf_sequences_supabase_id ON ncf_sequences(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_empleados_supabase_id ON empleados(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_categorias_servicio_supabase_id ON categorias_servicio(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_supabase_id ON tickets(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_items_supabase_id ON ticket_items(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_supabase_id ON queue(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_washer_commissions_supabase_id ON washer_commissions(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_seller_commissions_supabase_id ON seller_commissions(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_cajero_commissions_supabase_id ON cajero_commissions(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_credit_payments_supabase_id ON credit_payments(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_cuadre_caja_supabase_id ON cuadre_caja(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_caja_chica_supabase_id ON caja_chica(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_notas_credito_supabase_id ON notas_credito(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_transactions_supabase_id ON inventory_transactions(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_compras_607_supabase_id ON compras_607(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_supabase_id ON users(supabase_id)',
+  ]
+  for (const sql of sidIndexes) {
+    try { db.exec(sql) } catch { /* index already exists or column missing */ }
   }
 
   // ── Dedup washers & sellers (fix: INSERT OR IGNORE had no UNIQUE constraint) ─
@@ -497,17 +603,21 @@ function usersGetAll() {
 function userCreate(data) {
   if (!db) return null
   // Check if username exists — update PIN if so (re-run setup), otherwise insert
-  const existing = db.prepare('SELECT id FROM users WHERE username=?').get(data.username)
+  const existing = db.prepare('SELECT id, supabase_id FROM users WHERE username=?').get(data.username)
   if (existing) {
     const hash = (() => { if (!data.pin) throw new Error('PIN requerido'); return sha256(data.pin) })()
-    return db.prepare('UPDATE users SET name=@name, pin_hash=@pin_hash, role=@role, discount_pct=@discount_pct, active=1 WHERE id=@id')
+    db.prepare('UPDATE users SET name=@name, pin_hash=@pin_hash, role=@role, discount_pct=@discount_pct, active=1 WHERE id=@id')
       .run({ name: data.name, pin_hash: hash, role: data.role, discount_pct: data.discount_pct, id: existing.id })
+    return { id: existing.id, supabase_id: existing.supabase_id }
   }
-  return db.prepare(`INSERT INTO users(name,username,pin_hash,role,discount_pct,active)
-    VALUES(@name,@username,@pin_hash,@role,@discount_pct,1)`).run({
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO users(name,username,pin_hash,role,discount_pct,active,supabase_id)
+    VALUES(@name,@username,@pin_hash,@role,@discount_pct,1,@supabase_id)`).run({
     ...data,
     pin_hash: (() => { if (!data.pin) throw new Error('PIN requerido'); return sha256(data.pin) })(),
+    supabase_id: sid,
   })
+  return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function userUpdate(id, data) {
   if (!db) return
@@ -531,9 +641,10 @@ function categoriasGetAll() {
 }
 function categoriaCreate(data) {
   if (!db) return null
-  const r = db.prepare('INSERT INTO categorias_servicio(nombre, orden) VALUES(@nombre, @orden)')
-    .run({ nombre: data.nombre, orden: data.orden || 0 })
-  return { id: r.lastInsertRowid }
+  const sid = crypto.randomUUID()
+  const r = db.prepare('INSERT INTO categorias_servicio(nombre, orden, supabase_id) VALUES(@nombre, @orden, @supabase_id)')
+    .run({ nombre: data.nombre, orden: data.orden || 0, supabase_id: sid })
+  return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function categoriaUpdate(id, data) {
   if (!db) return
@@ -562,14 +673,16 @@ function servicesGetAllAdmin() {
 }
 function serviceCreate(data) {
   if (!db) return null
-  const r = db.prepare(`INSERT INTO services(name,name_en,category,categoria_id,price,cost,aplica_itbis,is_wash,active,sort_order)
-    VALUES(@name,@name_en,@category,@categoria_id,@price,COALESCE(@cost,0),COALESCE(@aplica_itbis,1),@is_wash,1,COALESCE(@sort_order,0))`).run({
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO services(name,name_en,category,categoria_id,price,cost,aplica_itbis,is_wash,active,sort_order,supabase_id)
+    VALUES(@name,@name_en,@category,@categoria_id,@price,COALESCE(@cost,0),COALESCE(@aplica_itbis,1),@is_wash,1,COALESCE(@sort_order,0),@supabase_id)`).run({
     name: data.name, name_en: data.name_en || null,
     category: data.category || 'Lavado', categoria_id: data.categoria_id || null,
     price: data.price, cost: data.cost || 0, aplica_itbis: data.aplica_itbis ?? 1,
     is_wash: data.is_wash ?? 1, sort_order: data.sort_order || 0,
+    supabase_id: sid,
   })
-  return { id: r.lastInsertRowid }
+  return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function serviceUpdate(id, data) {
   if (!db) return
@@ -595,12 +708,14 @@ function washersGetAllAdmin() {
 }
 function washerCreate(data) {
   if (!db) return null
-  const r = db.prepare(`INSERT INTO washers(name,phone,cedula,commission_pct,start_date,active)
-    VALUES(@name,@phone,@cedula,@commission_pct,@start_date,1)`).run({
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO washers(name,phone,cedula,commission_pct,start_date,active,supabase_id)
+    VALUES(@name,@phone,@cedula,@commission_pct,@start_date,1,@supabase_id)`).run({
     name: data.name, phone: data.phone || null, cedula: data.cedula || null,
     commission_pct: data.commission_pct || 20, start_date: data.start_date || null,
+    supabase_id: sid,
   })
-  return { id: r.lastInsertRowid }
+  return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function washerUpdate(id, data) {
   if (!db) return
@@ -626,15 +741,17 @@ function empleadosGetAllAdmin() {
 }
 function empleadoCreate(data) {
   if (!db) return null
-  const r = db.prepare(`INSERT INTO empleados(nombre,tipo,ref_id,salary,start_date,cedula,phone,puesto,email,bank_account,tss_id,active)
-    VALUES(@nombre,@tipo,@ref_id,@salary,@start_date,@cedula,@phone,@puesto,@email,@bank_account,@tss_id,1)`).run({
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO empleados(nombre,tipo,ref_id,salary,start_date,cedula,phone,puesto,email,bank_account,tss_id,active,supabase_id)
+    VALUES(@nombre,@tipo,@ref_id,@salary,@start_date,@cedula,@phone,@puesto,@email,@bank_account,@tss_id,1,@supabase_id)`).run({
     nombre: data.nombre, tipo: data.tipo, ref_id: data.ref_id || null,
     salary: data.salary || 0, start_date: data.start_date,
     cedula: data.cedula || null, phone: data.phone || null,
     puesto: data.puesto || null, email: data.email || null,
     bank_account: data.bank_account || null, tss_id: data.tss_id || null,
+    supabase_id: sid,
   })
-  return { id: r.lastInsertRowid }
+  return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function empleadoUpdate(id, data) {
   if (!db) return
@@ -834,9 +951,10 @@ function sellersGetAllAdmin() {
 }
 function sellerCreate(data) {
   if (!db) return null
-  const r = db.prepare('INSERT INTO sellers(name,commission_pct,phone,active) VALUES(?,?,?,1)')
-    .run(data.name, data.commission_pct || 5, data.phone || null)
-  return { id: r.lastInsertRowid }
+  const sid = crypto.randomUUID()
+  const r = db.prepare('INSERT INTO sellers(name,commission_pct,phone,active,supabase_id) VALUES(?,?,?,1,?)')
+    .run(data.name, data.commission_pct || 5, data.phone || null, sid)
+  return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function sellerUpdate(id, data) {
   if (!db) return
@@ -862,8 +980,10 @@ function clientGetById(id) {
 }
 function clientCreate(data) {
   if (!db) return null
-  return db.prepare(`INSERT INTO clients(name,rnc,phone,email,address,credit_limit,balance)
-    VALUES(@name,@rnc,@phone,@email,@address,@credit_limit,0)`).run(data)
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO clients(name,rnc,phone,email,address,credit_limit,balance,supabase_id)
+    VALUES(@name,@rnc,@phone,@email,@address,@credit_limit,0,@supabase_id)`).run({ ...data, supabase_id: sid })
+  return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function clientUpdate(id, data) {
   if (!db) return
@@ -904,11 +1024,15 @@ function collectCredit({ clientId, ticketIds, amount, paymentMethod, ncf, notes,
     const updTicket = db.prepare("UPDATE tickets SET status='cobrado', payment_method=? WHERE id=?")
     for (const tid of ticketIds) updTicket.run(paymentMethod, tid)
     db.prepare('UPDATE clients SET balance=MAX(0,balance-?) WHERE id=?').run(amount, clientId)
+    const sid = crypto.randomUUID()
+    const clientRow = clientId ? db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(clientId) : null
+    const cajeroRow = cajeroId ? db.prepare('SELECT supabase_id FROM users WHERE id=?').get(cajeroId) : null
     const r = db.prepare(
-      `INSERT INTO credit_payments(client_id,ticket_ids,amount,payment_method,ncf,notes,cajero_id)
-       VALUES(?,?,?,?,?,?,?)`
-    ).run(clientId, JSON.stringify(ticketIds), amount, paymentMethod, ncf||null, notes||null, cajeroId||null)
-    return { id: r.lastInsertRowid }
+      `INSERT INTO credit_payments(client_id,ticket_ids,amount,payment_method,ncf,notes,cajero_id,supabase_id,client_supabase_id,cajero_supabase_id)
+       VALUES(?,?,?,?,?,?,?,?,?,?)`
+    ).run(clientId, JSON.stringify(ticketIds), amount, paymentMethod, ncf||null, notes||null, cajeroId||null,
+          sid, clientRow?.supabase_id||null, cajeroRow?.supabase_id||null)
+    return { id: r.lastInsertRowid, supabase_id: sid }
   })()
 }
 
@@ -945,6 +1069,12 @@ function ticketGetById(id) {
     ticket.items = db.prepare('SELECT * FROM ticket_items WHERE ticket_id=?').all(id)
     try { ticket.ecf_result = JSON.parse(ticket.ecf_result || '{}') } catch { ticket.ecf_result = {} }
     try { ticket.washer_ids = JSON.parse(ticket.washer_ids || '[]') } catch { ticket.washer_ids = [] }
+    if (ticket.washer_ids.length) {
+      const placeholders = ticket.washer_ids.map(() => '?').join(',')
+      ticket.washer_names = db.prepare(`SELECT name FROM washers WHERE id IN (${placeholders})`).all(...ticket.washer_ids).map(r => r.name)
+    } else {
+      ticket.washer_names = []
+    }
   }
   return ticket
 }
@@ -970,10 +1100,11 @@ function ticketCreate(data) {
       db.prepare('UPDATE ncf_sequences SET current_number=? WHERE type=?').run(nextNCF, ncfRow.type)
     }
 
+    const ticketSid = crypto.randomUUID()
     const result = db.prepare(`INSERT INTO tickets
       (doc_number,client_id,washer_ids,seller_id,cajero_id,subtotal,descuento,itbis,ley,total,
-       beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
+       beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,supabase_id,created_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
       docNumber,
       data.client_id || null,
       JSON.stringify(data.washer_ids || []),
@@ -992,33 +1123,40 @@ function ticketCreate(data) {
       data.tipo_venta || 'contado',
       data.status || (data.payment_method === 'credit' ? 'pendiente' : 'cobrado'),
       data.vehicle_plate || null,
+      ticketSid,
     )
     const ticketId = result.lastInsertRowid
 
     // Insert items — pre-validate service IDs to avoid FK violations from stale/demo IDs
     // Snapshot cost from services table into ticket_items at sale time so historical
     // profit reports stay accurate even if a service's cost changes later.
-    const svcRows = db.prepare('SELECT id, cost FROM services').all()
+    const svcRows = db.prepare('SELECT id, cost, supabase_id FROM services').all()
     const validSvcIds = new Set(svcRows.map(r => r.id))
     const svcCostById = new Map(svcRows.map(r => [r.id, r.cost || 0]))
-    const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,cost,itbis,is_wash,quantity,sku,inventory_item_id)
-      VALUES(?,?,?,?,?,?,?,?,?,?)`)
+    const svcSidById = new Map(svcRows.map(r => [r.id, r.supabase_id || null]))
+    const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,cost,itbis,is_wash,quantity,sku,inventory_item_id,supabase_id,ticket_supabase_id,service_supabase_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     for (const item of (data.items || [])) {
       const svcId = (item.service_id && validSvcIds.has(item.service_id)) ? item.service_id : null
       const qty = item.quantity || 1
       // Explicit item.cost wins (e.g. inventory products with dynamic cost);
       // otherwise look up the current service cost by id.
       const itemCost = item.cost != null ? Number(item.cost) : (svcId ? svcCostById.get(svcId) : 0)
+      const itemSid = crypto.randomUUID()
       insItem.run(ticketId, svcId, item.name, item.price, itemCost,
         parseFloat((item.price * 0.18).toFixed(2)), item.is_wash ?? 1,
-        qty, item.sku || null, item.inventory_item_id || null)
+        qty, item.sku || null, item.inventory_item_id || null,
+        itemSid, ticketSid, svcId ? svcSidById.get(svcId) : null)
 
       // Auto-deduct inventory stock
       if (item.inventory_item_id) {
+        const invRow = db.prepare('SELECT supabase_id FROM inventory_items WHERE id=?').get(item.inventory_item_id)
         db.prepare('UPDATE inventory_items SET quantity = quantity - ? WHERE id = ?')
           .run(qty, item.inventory_item_id)
-        db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id) VALUES(?,?,?,?,?)')
-          .run(item.inventory_item_id, 'sale', -qty, `Ticket #${ticketId}`, data.cajero_id || null)
+        const txSid = crypto.randomUUID()
+        db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id) VALUES(?,?,?,?,?,?,?)')
+          .run(item.inventory_item_id, 'sale', -qty, `Ticket #${ticketId}`, data.cajero_id || null,
+               txSid, invRow?.supabase_id || null)
       }
     }
 
@@ -1036,50 +1174,59 @@ function ticketCreate(data) {
     const commBase  = parseFloat((((data.total || 0) - (data.beverage_subtotal || 0)) / 1.18).toFixed(2))
     if (commBase > 0) {
       for (const wid of (data.washer_ids || [])) {
-        const washer  = db.prepare('SELECT commission_pct FROM washers WHERE id=?').get(wid)
+        const washer  = db.prepare('SELECT commission_pct, supabase_id FROM washers WHERE id=?').get(wid)
         if (!washer || washer.commission_pct <= 0) continue
         const commAmount = parseFloat((commBase * washer.commission_pct / 100).toFixed(2))
+        const wcSid = crypto.randomUUID()
         db.prepare(`INSERT INTO washer_commissions
-          (washer_id,ticket_id,base_amount,commission_pct,commission_amount,paid)
-          VALUES(?,?,?,?,?,0)`).run(wid, ticketId, parseFloat(commBase.toFixed(2)), washer.commission_pct, commAmount)
+          (washer_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,washer_supabase_id,ticket_supabase_id)
+          VALUES(?,?,?,?,?,0,?,?,?)`).run(wid, ticketId, parseFloat(commBase.toFixed(2)), washer.commission_pct, commAmount,
+          wcSid, washer.supabase_id || null, ticketSid)
       }
     }
 
     // Seller commission — only on wash/service items (NOT beverages/snacks)
     if (data.seller_id && commBase > 0) {
-      const seller = db.prepare('SELECT commission_pct FROM sellers WHERE id=?').get(data.seller_id)
+      const seller = db.prepare('SELECT commission_pct, supabase_id FROM sellers WHERE id=?').get(data.seller_id)
       if (seller && seller.commission_pct > 0) {
         const commAmount = parseFloat((commBase * seller.commission_pct / 100).toFixed(2))
+        const scSid = crypto.randomUUID()
         db.prepare(`INSERT INTO seller_commissions
-          (seller_id,ticket_id,base_amount,commission_pct,commission_amount,paid)
-          VALUES(?,?,?,?,?,0)`).run(data.seller_id, ticketId, parseFloat(commBase.toFixed(2)), seller.commission_pct, commAmount)
+          (seller_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,seller_supabase_id,ticket_supabase_id)
+          VALUES(?,?,?,?,?,0,?,?,?)`).run(data.seller_id, ticketId, parseFloat(commBase.toFixed(2)), seller.commission_pct, commAmount,
+          scSid, seller.supabase_id || null, ticketSid)
       }
     }
 
     // Cajero commission — on beverages/snacks only (prices include 18% ITBIS)
     const bevBase = parseFloat(((data.beverage_subtotal || 0) / 1.18).toFixed(2))
     if (data.cajero_id && bevBase > 0) {
-      const cajero = db.prepare('SELECT commission_pct FROM users WHERE id=?').get(data.cajero_id)
+      const cajero = db.prepare('SELECT commission_pct, supabase_id FROM users WHERE id=?').get(data.cajero_id)
       if (cajero && cajero.commission_pct > 0) {
         const commAmount = parseFloat((bevBase * cajero.commission_pct / 100).toFixed(2))
+        const ccSid = crypto.randomUUID()
         db.prepare(`INSERT INTO cajero_commissions
-          (cajero_id,ticket_id,base_amount,commission_pct,commission_amount,paid)
-          VALUES(?,?,?,?,?,0)`).run(data.cajero_id, ticketId, bevBase, cajero.commission_pct, commAmount)
+          (cajero_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,cajero_supabase_id,ticket_supabase_id)
+          VALUES(?,?,?,?,?,0,?,?,?)`).run(data.cajero_id, ticketId, bevBase, cajero.commission_pct, commAmount,
+          ccSid, cajero.supabase_id || null, ticketSid)
       }
     }
 
     // Add to queue — seed with first washer so it shows immediately on Cola de Espera
     // Validate washer ID exists in washers table before using as FK
     const rawFirstWasher = (data.washer_ids || [])[0] || null
-    const firstWasherId = rawFirstWasher
-      ? (db.prepare('SELECT 1 FROM washers WHERE id=?').get(rawFirstWasher) ? rawFirstWasher : null)
+    const firstWasherRow = rawFirstWasher
+      ? db.prepare('SELECT id, supabase_id FROM washers WHERE id=?').get(rawFirstWasher)
       : null
+    const firstWasherId = firstWasherRow ? firstWasherRow.id : null
     if (rawFirstWasher && !firstWasherId) {
       console.warn(`[ticketCreate] washer_id ${rawFirstWasher} not found in washers — inserting queue with null washer_id`)
     }
-    db.prepare(`INSERT INTO queue(ticket_id,status,washer_id) VALUES(?,?,?)`).run(ticketId, 'waiting', firstWasherId)
+    const qSid = crypto.randomUUID()
+    db.prepare(`INSERT INTO queue(ticket_id,status,washer_id,supabase_id,ticket_supabase_id,washer_supabase_id) VALUES(?,?,?,?,?,?)`)
+      .run(ticketId, 'waiting', firstWasherId, qSid, ticketSid, firstWasherRow?.supabase_id || null)
 
-    return { ticketId, docNumber, ncf }
+    return { ticketId, docNumber, ncf, supabase_id: ticketSid }
   })
 
   return tx()
@@ -1132,8 +1279,11 @@ function ticketVoid(id, reason, voidById) {
     for (const item of items) {
       const qty = item.quantity || 1
       db.prepare('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?').run(qty, item.inventory_item_id)
-      db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id) VALUES(?,?,?,?,?)')
-        .run(item.inventory_item_id, 'void_reversal', qty, `Void ticket #${id}`, voidById || null)
+      const invRow = db.prepare('SELECT supabase_id FROM inventory_items WHERE id=?').get(item.inventory_item_id)
+      const vtSid = crypto.randomUUID()
+      db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id) VALUES(?,?,?,?,?,?,?)')
+        .run(item.inventory_item_id, 'void_reversal', qty, `Void ticket #${id}`, voidById || null,
+             vtSid, invRow?.supabase_id || null)
     }
   })()
 }
@@ -1358,16 +1508,19 @@ function cajeroCommissionsMarkPaid(ids) {
 // ── CUADRE DE CAJA ────────────────────────────────────────────────────────────
 function cuadreCreate(data) {
   if (!db) return null
-  return db.prepare(`INSERT INTO cuadre_caja
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO cuadre_caja
     (cajero_id,date,fondo,efectivo_conteo,efectivo_sistema,tarjeta,transferencia,
      cheque,creditos,salidas,total_vendido,total_cobrado,cierre_total,diferencia,
-     comentario,denominaciones)
+     comentario,denominaciones,supabase_id)
     VALUES(@cajero_id,@date,@fondo,@efectivo_conteo,@efectivo_sistema,@tarjeta,
            @transferencia,@cheque,@creditos,@salidas,@total_vendido,@total_cobrado,
-           @cierre_total,@diferencia,@comentario,@denominaciones)`).run({
+           @cierre_total,@diferencia,@comentario,@denominaciones,@supabase_id)`).run({
     ...data,
     denominaciones: JSON.stringify(data.denominaciones || {}),
+    supabase_id: sid,
   })
+  return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function cuadreGetHistory(limit = 20) {
   if (!db) return []
@@ -1442,8 +1595,10 @@ function cajaChicaGetAll() {
 }
 function cajaChicaCreate(data) {
   if (!db) return null
-  return db.prepare(`INSERT INTO caja_chica(description,category,type,amount,recibo,status,cajero_id)
-    VALUES(@description,@category,@type,@amount,@recibo,@status,@cajero_id)`).run(data)
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO caja_chica(description,category,type,amount,recibo,status,cajero_id,supabase_id)
+    VALUES(@description,@category,@type,@amount,@recibo,@status,@cajero_id,@supabase_id)`).run({ ...data, supabase_id: sid })
+  return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function cajaChicaUpdateStatus(id, status, approvedBy) {
   if (!db) return
@@ -1461,10 +1616,15 @@ function notasGetAll() {
 }
 function notaCreate(data) {
   if (!db) return null
-  return db.prepare(`INSERT INTO notas_credito
-    (ncf,client_id,original_ticket_id,motivo,amount,itbis_revertido,forma_devolucion,comentario,cajero_id)
-    VALUES(@ncf,@client_id,@original_ticket_id,@motivo,@amount,@itbis_revertido,@forma_devolucion,@comentario,@cajero_id)`
-  ).run(data)
+  const sid = crypto.randomUUID()
+  const clientRow = data.client_id ? db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id) : null
+  const ticketRow = data.original_ticket_id ? db.prepare('SELECT supabase_id FROM tickets WHERE id=?').get(data.original_ticket_id) : null
+  const cajeroRow = data.cajero_id ? db.prepare('SELECT supabase_id FROM users WHERE id=?').get(data.cajero_id) : null
+  const r = db.prepare(`INSERT INTO notas_credito
+    (ncf,client_id,original_ticket_id,motivo,amount,itbis_revertido,forma_devolucion,comentario,cajero_id,supabase_id,client_supabase_id,ticket_supabase_id,cajero_supabase_id)
+    VALUES(@ncf,@client_id,@original_ticket_id,@motivo,@amount,@itbis_revertido,@forma_devolucion,@comentario,@cajero_id,@supabase_id,@client_supabase_id,@ticket_supabase_id,@cajero_supabase_id)`
+  ).run({ ...data, supabase_id: sid, client_supabase_id: clientRow?.supabase_id||null, ticket_supabase_id: ticketRow?.supabase_id||null, cajero_supabase_id: cajeroRow?.supabase_id||null })
+  return { id: r.lastInsertRowid, supabase_id: sid }
 }
 
 // ── EXPORT ALL (for backup) ───────────────────────────────────────────────────
@@ -1515,15 +1675,16 @@ function getCompras607(dateFrom, dateTo) {
 
 function addCompra607(data) {
   if (!db) return null
+  const sid = crypto.randomUUID()
   const stmt = db.prepare(`
     INSERT INTO compras_607
       (rnc_proveedor, nombre_proveedor, tipo_ncf, ncf, ncf_modificado,
        fecha_ncf, fecha_pago, monto_servicios, monto_bienes, total,
-       itbis_facturado, itbis_retenido, retencion_renta, forma_pago, notas)
+       itbis_facturado, itbis_retenido, retencion_renta, forma_pago, notas, supabase_id)
     VALUES
       (@rnc_proveedor, @nombre_proveedor, @tipo_ncf, @ncf, @ncf_modificado,
        @fecha_ncf, @fecha_pago, @monto_servicios, @monto_bienes, @total,
-       @itbis_facturado, @itbis_retenido, @retencion_renta, @forma_pago, @notas)
+       @itbis_facturado, @itbis_retenido, @retencion_renta, @forma_pago, @notas, @supabase_id)
   `)
   const result = stmt.run({
     rnc_proveedor:    data.rnc_proveedor    || '',
@@ -1541,8 +1702,9 @@ function addCompra607(data) {
     retencion_renta:  Number(data.retencion_renta)  || 0,
     forma_pago:       data.forma_pago       || 'efectivo',
     notas:            data.notas            || '',
+    supabase_id:      sid,
   })
-  return { id: result.lastInsertRowid }
+  return { id: result.lastInsertRowid, supabase_id: sid }
 }
 
 function deleteCompra607(id) {
@@ -1630,14 +1792,16 @@ function inventoryGetAll() {
 }
 function inventoryCreate(data) {
   if (!db) return null
-  const r = db.prepare(`INSERT INTO inventory_items(sku,name,category,quantity,min_quantity,price,cost,barcode,aplica_itbis)
-    VALUES(@sku,@name,@category,@quantity,@min_quantity,@price,@cost,@barcode,@aplica_itbis)`).run({
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO inventory_items(sku,name,category,quantity,min_quantity,price,cost,barcode,aplica_itbis,supabase_id)
+    VALUES(@sku,@name,@category,@quantity,@min_quantity,@price,@cost,@barcode,@aplica_itbis,@supabase_id)`).run({
     sku: data.sku || null, name: data.name, category: data.category || '',
     quantity: data.quantity || 0, min_quantity: data.min_quantity ?? 5,
     price: data.price || 0, cost: data.cost || 0,
     barcode: data.barcode || null, aplica_itbis: data.aplica_itbis ?? 1,
+    supabase_id: sid,
   })
-  return r.lastInsertRowid
+  return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function inventoryUpdate(id, data) {
   if (!db) return
@@ -1653,10 +1817,12 @@ function inventoryDelete(id) {
 }
 function inventoryAdjust(id, delta, notes, userId) {
   if (!db) return null
+  const txSid = crypto.randomUUID()
+  const invRow = db.prepare('SELECT supabase_id FROM inventory_items WHERE id=?').get(id)
   const run = db.transaction(() => {
     db.prepare('UPDATE inventory_items SET quantity = quantity + ? WHERE id=?').run(delta, id)
-    db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id) VALUES(?,?,?,?,?)')
-      .run(id, delta >= 0 ? 'in' : 'out', delta, notes || '', userId || null)
+    db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id) VALUES(?,?,?,?,?,?,?)')
+      .run(id, delta >= 0 ? 'in' : 'out', delta, notes || '', userId || null, txSid, invRow?.supabase_id || null)
   })
   run()
   return db.prepare('SELECT quantity FROM inventory_items WHERE id=?').get(id)?.quantity ?? null
@@ -1760,8 +1926,12 @@ function ecfSubmissionGetAll(limit = 50) {
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
+// ── Raw DB access for sync module ────────────────────────────────────────────
+function rawPrepare(sql) { return db ? db.prepare(sql) : null }
+function rawExec(sql) { if (db) db.exec(sql) }
+
 module.exports = {
-  init, isReady, getError,
+  init, isReady, getError, rawPrepare, rawExec,
   // Empresa
   configGet, configSet,
   empresaGet, empresaSave,

@@ -302,7 +302,7 @@ function CommissionPanel({
                       className="w-full flex items-center gap-4 px-5 py-3.5 border-b border-slate-50 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors text-left last:border-0 group"
                     >
                       <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-[11px] font-bold shrink-0 ${w.palette.bg} ${w.palette.text}`}>
-                        {w.name.slice(0, 2).toUpperCase()}
+                        {(w.name || '??').slice(0, 2).toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-[13px] font-bold text-slate-800 dark:text-white truncate">{w.name}</p>

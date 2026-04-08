@@ -232,7 +232,8 @@
       "Bash(npx sharp:*)",
       "Read(//c/Users/City/AppData/**)",
       "Bash(sed 's/Terminal-X-Setup/Terminal X-Setup/g' dist/latest.yml)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(gh api:*)"
     ]
   }
 }

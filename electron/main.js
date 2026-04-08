@@ -18,8 +18,9 @@ try {
 // ── Env-var accessors (with safe fallbacks) ───────────────────────────────────
 const env = {
   masterKey:    process.env.MASTER_LICENSE_KEY ? process.env.MASTER_LICENSE_KEY.toUpperCase().trim() : '',
-  supabaseUrl:  process.env.SUPABASE_URL  || '',
+  supabaseUrl:  process.env.SUPABASE_URL  || 'https://csppjsoirjflumaiipqw.supabase.co',
   supabaseAnon: process.env.SUPABASE_ANON_KEY || '',
+  supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNzcHBqc29pcmpmbHVtYWlpcHF3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDA1NzIxOSwiZXhwIjoyMDg5NjMzMjE5fQ._C8zVtjJRJu8pPuVxD1uuyXv-2FPWIVElsZTZLWZTRc',
 }
 
 // ── Safe storage (OS-encrypted key-value store) ───────────────────────────────
@@ -486,12 +487,13 @@ function createWindow() {
     show: false,
   })
 
-  // Minimal menu to enable Ctrl+C/V/X/A keyboard shortcuts in production
+  // Hidden menu to enable Ctrl+C/V/X/A keyboard shortcuts without visible menu bar
   if (!isDev) {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'Edit', submenu: [
-        { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
-        { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
+      { label: '', submenu: [
+        { role: 'undo', visible: false }, { role: 'redo', visible: false },
+        { role: 'cut', visible: false }, { role: 'copy', visible: false },
+        { role: 'paste', visible: false }, { role: 'selectAll', visible: false },
       ]},
     ]))
   }
@@ -500,7 +502,7 @@ function createWindow() {
     initUpdater(win)
   })
 
-  // F12 toggles DevTools only in dev mode
+  // F12 toggles DevTools
   if (isDev) {
     win.webContents.on('before-input-event', (_, input) => {
       if (input.key === 'F12' && input.type === 'keyDown') win.webContents.toggleDevTools()
@@ -542,7 +544,7 @@ app.whenReady().then(async () => {
   certManager.init(app)
   // Init cloud sync (SQLite → Supabase backup)
   if (db) {
-    sync.init(db, { supabaseUrl: env.supabaseUrl, supabaseKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '' })
+    sync.init(db, { supabaseUrl: env.supabaseUrl, supabaseKey: env.supabaseServiceKey })
     sync.startAutoSync(5 * 60 * 1000) // every 5 min
   }
   createWindow()
