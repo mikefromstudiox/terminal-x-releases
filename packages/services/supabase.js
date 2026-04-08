@@ -210,7 +210,7 @@ export async function fetchDashboardData() {
     // Fetch last 7 days of tickets in one query
     const { data: rows, error } = await sb
       .from('tickets')
-      .select('total, itbis, payment_method, doc_number, client_name, ncf, ncf_type, status, paid_at, services_json')
+      .select('total, itbis, payment_method, doc_number, client_name, ncf, ncf_type, status, paid_at, services_json, cajero_name')
       .eq('business_id', businessId)
       .eq('status', 'cobrado')
       .gte('paid_at', startOf(weekStart))
@@ -247,6 +247,7 @@ export async function fetchDashboardData() {
       ncf:            r.ncf,
       ncf_type:       r.ncf_type,
       payment_method: r.payment_method,
+      cajero:         r.cajero_name || r.cajero || null,
       paid_at:        r.paid_at,
       services:       Array.isArray(r.services_json)
         ? r.services_json.map(s => s.name).join(', ')

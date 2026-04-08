@@ -3,9 +3,8 @@ import logoImg from './assets/logo.webp'
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { useAPI } from './context/DataContext'
 import { setStoredSetting, getStoredSetting } from '@terminal-x/services/supabase'
-import { startSyncScheduler, stopSyncScheduler } from '@terminal-x/services/sync'
 
-// In dev mode, pre-load Supabase credentials from .env so Remote Dashboard works immediately
+// Pre-load Supabase credentials so Remote Dashboard works without manual config
 if (import.meta.env.DEV) {
   const devUrl = import.meta.env.VITE_DEV_SUPABASE_URL
   const devKey = import.meta.env.VITE_DEV_SUPABASE_KEY
@@ -14,6 +13,16 @@ if (import.meta.env.DEV) {
     setStoredSetting('business_id', '') // force re-register when credentials are new
   }
   if (devKey && !getStoredSetting('supabase_anon_key')) setStoredSetting('supabase_anon_key', devKey)
+}
+// Production Electron: auto-populate from .env via IPC if not already set
+if (window.electronAPI?.env?.get && !getStoredSetting('supabase_url')) {
+  Promise.all([
+    window.electronAPI.env.get('supabaseUrl'),
+    window.electronAPI.env.get('supabaseAnon'),
+  ]).then(([url, key]) => {
+    if (url && !getStoredSetting('supabase_url'))      setStoredSetting('supabase_url', url)
+    if (key && !getStoredSetting('supabase_anon_key')) setStoredSetting('supabase_anon_key', key)
+  }).catch(() => {})
 }
 import { useAuth } from './context/AuthContext'
 import { useLicense } from './context/LicenseContext'
@@ -98,11 +107,6 @@ export default function App() {
     checkFirstRun()
   }, [])
 
-  // ── Background sync: desktop SQLite → Supabase (every 15 min) ──────────────
-  useEffect(() => {
-    if (user && api) startSyncScheduler(api)
-    return () => stopSyncScheduler()
-  }, [user, api])
 
   // ── Startup gate: wait for both setup check and license check ──────────────
   const isWeb = !window.electronAPI

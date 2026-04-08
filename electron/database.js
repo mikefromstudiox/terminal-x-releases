@@ -200,14 +200,42 @@ function init(userDataPath) {
     "ALTER TABLE tickets ADD COLUMN updated_at TEXT",
     "ALTER TABLE empleados ADD COLUMN updated_at TEXT",
     "ALTER TABLE ncf_sequences ADD COLUMN updated_at TEXT",
-    // Backfill updated_at from created_at for existing rows
-    "UPDATE services SET updated_at = created_at WHERE updated_at IS NULL",
-    "UPDATE washers SET updated_at = created_at WHERE updated_at IS NULL",
-    "UPDATE sellers SET updated_at = created_at WHERE updated_at IS NULL",
-    "UPDATE clients SET updated_at = created_at WHERE updated_at IS NULL",
-    "UPDATE inventory_items SET updated_at = created_at WHERE updated_at IS NULL",
-    "UPDATE tickets SET updated_at = created_at WHERE updated_at IS NULL",
-    "UPDATE empleados SET updated_at = created_at WHERE updated_at IS NULL",
+    // Backfill updated_at — use created_at if available, else datetime('now')
+    "UPDATE services SET updated_at = COALESCE(created_at, datetime('now')) WHERE updated_at IS NULL",
+    "UPDATE washers SET updated_at = COALESCE(created_at, datetime('now')) WHERE updated_at IS NULL",
+    "UPDATE sellers SET updated_at = datetime('now') WHERE updated_at IS NULL",
+    "UPDATE clients SET updated_at = COALESCE(created_at, datetime('now')) WHERE updated_at IS NULL",
+    "UPDATE inventory_items SET updated_at = COALESCE(created_at, datetime('now')) WHERE updated_at IS NULL",
+    "UPDATE tickets SET updated_at = COALESCE(created_at, datetime('now')) WHERE updated_at IS NULL",
+    "UPDATE empleados SET updated_at = COALESCE(created_at, datetime('now')) WHERE updated_at IS NULL",
+    // v1.9.1 — updated_at for remaining synced tables (complete re-sync coverage)
+    'ALTER TABLE ticket_items ADD COLUMN updated_at TEXT',
+    'ALTER TABLE queue ADD COLUMN updated_at TEXT',
+    'ALTER TABLE washer_commissions ADD COLUMN updated_at TEXT',
+    'ALTER TABLE seller_commissions ADD COLUMN updated_at TEXT',
+    'ALTER TABLE cajero_commissions ADD COLUMN updated_at TEXT',
+    'ALTER TABLE credit_payments ADD COLUMN updated_at TEXT',
+    'ALTER TABLE cuadre_caja ADD COLUMN updated_at TEXT',
+    'ALTER TABLE caja_chica ADD COLUMN updated_at TEXT',
+    'ALTER TABLE notas_credito ADD COLUMN updated_at TEXT',
+    'ALTER TABLE inventory_transactions ADD COLUMN updated_at TEXT',
+    'ALTER TABLE compras_607 ADD COLUMN updated_at TEXT',
+    'ALTER TABLE categorias_servicio ADD COLUMN updated_at TEXT',
+    'ALTER TABLE users ADD COLUMN updated_at TEXT',
+    // Backfill updated_at for new tables
+    "UPDATE ticket_items SET updated_at = datetime('now') WHERE updated_at IS NULL",
+    "UPDATE queue SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE washer_commissions SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE seller_commissions SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE cajero_commissions SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE credit_payments SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE cuadre_caja SET updated_at = datetime('now') WHERE updated_at IS NULL",
+    "UPDATE caja_chica SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE notas_credito SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE inventory_transactions SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE compras_607 SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE categorias_servicio SET updated_at = datetime('now') WHERE updated_at IS NULL",
+    "UPDATE users SET updated_at = created_at WHERE updated_at IS NULL",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -250,7 +278,7 @@ function init(userDataPath) {
   }
 
   // v1.9 — auto-update updated_at via triggers (so sync can detect changed rows)
-  const triggerTables = ['services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences']
+  const triggerTables = ['services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users']
   for (const t of triggerTables) {
     try {
       db.exec(`CREATE TRIGGER IF NOT EXISTS trg_${t}_updated_at AFTER UPDATE ON ${t} FOR EACH ROW

@@ -47,6 +47,7 @@ const SYNC_TABLES = [
       is_wash: r.is_wash,
       sort_order: r.sort_order,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -60,6 +61,7 @@ const SYNC_TABLES = [
       active: r.active,
       start_date: r.start_date,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -73,6 +75,7 @@ const SYNC_TABLES = [
       start_date: r.start_date,
       active: r.active,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -91,6 +94,7 @@ const SYNC_TABLES = [
       notes: r.notes,
       active: r.active,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -108,6 +112,7 @@ const SYNC_TABLES = [
       aplica_itbis: r.aplica_itbis,
       active: r.active,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -121,6 +126,7 @@ const SYNC_TABLES = [
       valid_until: r.valid_until,
       active: r.active,
       enabled: r.enabled,
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -140,6 +146,7 @@ const SYNC_TABLES = [
       bank_account: r.bank_account,
       tss_id: r.tss_id,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -148,6 +155,7 @@ const SYNC_TABLES = [
       supabase_id: r.supabase_id,
       nombre: r.nombre,
       orden: r.orden,
+      updated_at: r.updated_at || null,
     }),
   },
 
@@ -164,38 +172,68 @@ const SYNC_TABLES = [
       start_date: r.start_date,
       active: r.active,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
 
   // Phase 2 — depend on phase 1 entities
   {
     name: 'tickets',
-    cols: r => ({
-      supabase_id: r.supabase_id,
-      doc_number: r.doc_number,
-      client_supabase_id: r.client_supabase_id || null,
-      washer_ids: r.washer_ids,
-      seller_supabase_id: r.seller_supabase_id || null,
-      cajero_supabase_id: r.cajero_supabase_id || null,
-      subtotal: r.subtotal,
-      descuento: r.descuento,
-      itbis: r.itbis,
-      ley: r.ley,
-      total: r.total,
-      beverage_subtotal: r.beverage_subtotal || 0,
-      payment_method: r.payment_method,
-      comprobante_type: r.comprobante_type,
-      ncf: r.ncf,
-      ecf_result: r.ecf_result,
-      tipo_venta: r.tipo_venta,
-      status: r.status,
-      void_reason: r.void_reason,
-      vehicle_plate: r.vehicle_plate,
-      vehicle_color: r.vehicle_color,
-      vehicle_make: r.vehicle_make,
-      notes: r.notes,
-      created_at: r.created_at || new Date().toISOString(),
-    }),
+    cols: r => {
+      // Build services_json from ticket_items for Remote Dashboard compatibility
+      let services_json = null
+      try {
+        const items = _db.rawPrepare('SELECT name, price, quantity FROM ticket_items WHERE ticket_id = ?').all(r.id)
+        if (items.length) services_json = items.map(i => ({ name: i.name, price: i.price, qty: i.quantity || 1 }))
+      } catch {}
+      // Resolve cajero name for dashboard display
+      let cajero_name = null
+      try {
+        if (r.cajero_id) {
+          const u = _db.rawPrepare('SELECT name FROM users WHERE id = ?').get(r.cajero_id)
+          if (u) cajero_name = u.name
+        }
+      } catch {}
+      // Resolve client name
+      let client_name = null
+      try {
+        if (r.client_id) {
+          const c = _db.rawPrepare('SELECT name FROM clients WHERE id = ?').get(r.client_id)
+          if (c) client_name = c.name
+        }
+      } catch {}
+      return {
+        supabase_id: r.supabase_id,
+        doc_number: r.doc_number,
+        client_supabase_id: r.client_supabase_id || null,
+        client_name: client_name,
+        washer_ids: r.washer_ids,
+        seller_supabase_id: r.seller_supabase_id || null,
+        cajero_supabase_id: r.cajero_supabase_id || null,
+        cajero_name: cajero_name,
+        services_json: services_json,
+        subtotal: r.subtotal,
+        descuento: r.descuento,
+        itbis: r.itbis,
+        ley: r.ley,
+        total: r.total,
+        beverage_subtotal: r.beverage_subtotal || 0,
+        payment_method: r.payment_method,
+        comprobante_type: r.comprobante_type,
+        ncf: r.ncf,
+        ecf_result: r.ecf_result,
+        tipo_venta: r.tipo_venta,
+        status: r.status,
+        void_reason: r.void_reason,
+        vehicle_plate: r.vehicle_plate,
+        vehicle_color: r.vehicle_color,
+        vehicle_make: r.vehicle_make,
+        notes: r.notes,
+        paid_at: r.status === 'cobrado' ? (r.created_at || new Date().toISOString()) : null,
+        created_at: r.created_at || new Date().toISOString(),
+        updated_at: r.updated_at || null,
+      }
+    },
   },
 
   // Phase 3 — depend on tickets and other phase 1/2 entities
@@ -213,6 +251,7 @@ const SYNC_TABLES = [
       quantity: r.quantity || 1,
       sku: r.sku || null,
       inventory_item_supabase_id: r.inventory_item_supabase_id || null,
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -225,6 +264,7 @@ const SYNC_TABLES = [
       assigned_at: r.assigned_at,
       completed_at: r.completed_at,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -239,6 +279,7 @@ const SYNC_TABLES = [
       paid: r.paid === 1,
       paid_at: r.paid_at,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -253,6 +294,7 @@ const SYNC_TABLES = [
       paid: r.paid === 1,
       paid_at: r.paid_at,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -267,6 +309,7 @@ const SYNC_TABLES = [
       paid: r.paid === 1,
       paid_at: r.paid_at,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -281,6 +324,7 @@ const SYNC_TABLES = [
       notes: r.notes,
       cajero_supabase_id: r.cajero_supabase_id || null,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -304,6 +348,7 @@ const SYNC_TABLES = [
       comentario: r.comentario,
       denominaciones: r.denominaciones,
       closed_at: r.closed_at,
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -319,6 +364,7 @@ const SYNC_TABLES = [
       approved_by_supabase_id: r.approved_by_supabase_id || null,
       cajero_supabase_id: r.cajero_supabase_id || null,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -335,6 +381,7 @@ const SYNC_TABLES = [
       comentario: r.comentario,
       cajero_supabase_id: r.cajero_supabase_id || null,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -347,6 +394,7 @@ const SYNC_TABLES = [
       notes: r.notes,
       user_supabase_id: r.user_supabase_id || null,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -363,7 +411,13 @@ const SYNC_TABLES = [
       itbis_retenido: r.itbis_retenido,
       retencion_renta: r.retencion_renta,
       forma_pago: r.forma_pago,
+      tipo_ncf: r.tipo_ncf,
+      fecha_pago: r.fecha_pago,
+      monto_servicios: r.monto_servicios,
+      monto_bienes: r.monto_bienes,
+      notas: r.notas,
       created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
 ]
@@ -419,6 +473,16 @@ function init(db, { supabaseUrl, supabaseKey }) {
   } catch (e) {
     console.error('[sync] sync_v2_reset error:', e.message)
   }
+
+  // v1.9 — one-time re-sync of tickets to backfill services_json, cajero_name, client_name, paid_at
+  try {
+    const marker = _db.rawPrepare("SELECT value FROM app_settings WHERE key = 'sync_v4_ticket_resync'")?.get()
+    if (!marker) {
+      _db.rawPrepare("DELETE FROM sync_log WHERE table_name = 'tickets'").run()
+      _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('sync_v4_ticket_resync','1')").run()
+      console.log('[sync] Reset tickets cursor for services_json/cajero backfill')
+    }
+  } catch (e) { console.error('[sync] v4 ticket resync marker:', e.message) }
 
   // Write diagnostic file
   try {
