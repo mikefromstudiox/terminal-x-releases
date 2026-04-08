@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Layers, UserCheck, Settings, CheckCircle2, Pencil, Save, X } from 'lucide-react'
+import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Layers, UserCheck, Settings, CheckCircle2, Pencil, Save, X, ShieldCheck, ShieldAlert } from 'lucide-react'
 import { useLang } from '../../i18n'
 import OnboardingChecklist from '../components/OnboardingChecklist'
 import QuickActions from '../components/QuickActions'
@@ -220,6 +220,60 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
               <div><p className={lbl}>{L('Ultima venta', 'Last sale')}</p><p className={`text-[16px] font-bold mt-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>{lastSale}</p></div>
             </div>
           </div>
+
+          {/* e-CF Status */}
+          {(() => {
+            const s = biz.settings || {}
+            const certInstalled = s.ecf_cert_installed
+            const certExpired = s.ecf_cert_expired
+            const ecfEnv = s.ecf_environment
+            const ecfReady = certInstalled && !certExpired && ecfEnv === 'ecf'
+            const hasAnyEcfData = certInstalled !== undefined
+            return hasAnyEcfData ? (
+              <div className={card}>
+                <p className={`text-[14px] font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                  {ecfReady
+                    ? <ShieldCheck size={14} className="inline mr-1.5 text-emerald-500" />
+                    : <ShieldAlert size={14} className="inline mr-1.5 text-amber-500" />}
+                  e-CF Status
+                </p>
+                <div className="grid grid-cols-2 gap-y-3 gap-x-4">
+                  <div>
+                    <p className={lbl}>{L('Certificado', 'Certificate')}</p>
+                    <p className={val}>{certInstalled
+                      ? (certExpired ? L('Expirado', 'Expired') : L('Instalado', 'Installed'))
+                      : L('No instalado', 'Not installed')}</p>
+                  </div>
+                  <div>
+                    <p className={lbl}>{L('Ambiente', 'Environment')}</p>
+                    <p className={`text-[13px] font-medium ${ecfEnv === 'ecf' ? 'text-emerald-600' : isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+                      {ecfEnv === 'ecf' ? L('Produccion', 'Production') : ecfEnv === 'certecf' ? L('Certificacion', 'Certification') : ecfEnv || '—'}
+                    </p>
+                  </div>
+                  {s.ecf_cert_subject && <div><p className={lbl}>{L('Titular', 'Subject')}</p><p className={val}>{String(s.ecf_cert_subject)}</p></div>}
+                  {s.ecf_cert_expiry && <div><p className={lbl}>{L('Expira', 'Expires')}</p><p className={val}>{new Date(s.ecf_cert_expiry).toLocaleDateString('es-DO')}</p></div>}
+                  <div className="col-span-2">
+                    <p className={lbl}>{L('Listo para e-CF', 'e-CF Ready')}</p>
+                    <p className={`text-[13px] font-bold ${ecfReady ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      {ecfReady ? L('Si', 'Yes') : L('No — ', 'No — ') + (
+                        !certInstalled ? L('falta certificado', 'missing certificate')
+                        : certExpired ? L('certificado expirado', 'certificate expired')
+                        : ecfEnv !== 'ecf' ? L('ambiente no es produccion', 'environment not production')
+                        : ''
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className={card}>
+                <p className={`text-[14px] font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                  <ShieldAlert size={14} className="inline mr-1.5 text-slate-400" /> e-CF Status
+                </p>
+                <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-slate-400'}`}>{L('Sin datos — el desktop aun no ha reportado.', 'No data — desktop has not reported yet.')}</p>
+              </div>
+            )
+          })()}
 
           {/* Onboarding */}
           <div className={card}>

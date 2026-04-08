@@ -150,6 +150,7 @@ function buildRFCEXml(data) {
   body += jsonToXml('MontoTotal', t.montoTotal || t.total)
 
   if (data.securityCode) body += jsonToXml('CodigoSeguridadeCF', data.securityCode)
+  if (data.indicadorEnvioDiferido) body += jsonToXml('IndicadorEnvioDiferido', '1')
 
   body += '</Encabezado>'
 

@@ -97,12 +97,20 @@ export function LicenseProvider({ children }) {
       }
 
       // ── 3. LICENSED MODE: validate against server ───────────────────────
-      // Gather local biz settings to sync to Supabase
+      // Gather local biz settings + cert status to sync to Supabase
       let bizSync = null
       try {
         const s = await api?.settings?.get?.()
         if (s && (s.biz_name || s.biz_rnc)) {
           bizSync = { name: s.biz_name, rnc: s.biz_rnc, address: s.biz_address, phone: s.biz_phone, email: s.biz_email }
+        }
+        const certInfo = await window.electronAPI?.dgii_ecf?.certInfo?.()
+        if (certInfo && bizSync) {
+          bizSync.ecf_cert_installed = certInfo.installed || false
+          bizSync.ecf_cert_subject = certInfo.subject || null
+          bizSync.ecf_cert_expiry = certInfo.expiry || null
+          bizSync.ecf_cert_expired = certInfo.expired || false
+          bizSync.ecf_environment = s?.dgii_environment || 'certecf'
         }
       } catch {}
       const res = await validateLicense(k, h, r, bizSync)

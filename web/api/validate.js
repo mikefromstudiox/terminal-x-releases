@@ -109,6 +109,11 @@ export default async function handler(req, res) {
         updates.updated_at = new Date().toISOString()
         await supabase.from('businesses').update(updates).eq('id', license.business_id)
       }
+      // Sync e-CF certificate status
+      if (bizSync.ecf_cert_installed !== undefined) {
+        const ecfStatus = { ecf_cert_installed: bizSync.ecf_cert_installed, ecf_cert_subject: bizSync.ecf_cert_subject || null, ecf_cert_expiry: bizSync.ecf_cert_expiry || null, ecf_cert_expired: bizSync.ecf_cert_expired || false, ecf_environment: bizSync.ecf_environment || null, ecf_status_updated_at: new Date().toISOString() }
+        await supabase.from('businesses').update({ settings: { ...(biz.settings || {}), ...ecfStatus }, updated_at: new Date().toISOString() }).eq('id', license.business_id)
+      }
     }
 
     // Fetch remote config (app_settings) for this business to sync to desktop

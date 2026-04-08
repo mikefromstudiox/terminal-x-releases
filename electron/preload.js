@@ -290,6 +290,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── DGII Direct e-CF ──────────────────────────────────────────────────────
   dgii_ecf: {
     submit:          (invoiceData) => call('dgii:submit', invoiceData),
+    voidSequence:    (data)        => call('dgii:void-sequence', data),
     installCert:     (opts)        => call('dgii:install-cert', opts),
     certInfo:        ()            => call('dgii:cert-info'),
     authTest:        ()            => call('dgii:auth-test'),

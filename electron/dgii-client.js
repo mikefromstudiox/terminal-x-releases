@@ -397,6 +397,52 @@ function buildQRUrl(params) {
   return `https://${e.ecf}/${envPath}/consultatimbre?rncemisor=${encode(params.rncEmisor)}&${compradorParam}encf=${encode(encf)}&fechaemision=${encode(params.fechaEmision)}&montototal=${encode(monto)}&fechafirma=${encode(fechaFirma)}&codigoseguridad=${encode(params.codigoSeguridad)}`
 }
 
+/**
+ * submitANECF — sends a signed ANECF (Anulación de Rangos) XML to DGII.
+ * Voids unused e-NCF sequence ranges.
+ *
+ * Endpoint: anulacionrangos/api/operaciones/anularrango (multipart/form-data)
+ *
+ * @param {string} signedXml — signed ANECF XML
+ * @param {string} token — JWT from authenticate()
+ * @param {string} env — "testecf" | "certecf" | "ecf"
+ * @returns {{ rnc, codigo, nombre, mensajes }}
+ */
+async function submitANECF(signedXml, token, env) {
+  const e = ENVIRONMENTS[env]
+
+  const { body: multipartBody, contentType } = wrapMultipart(signedXml)
+
+  const res = await httpsRequest({
+    hostname: e.ecf,
+    path: `${e.prefix}/anulacionrangos/api/operaciones/anularrango`,
+    method: 'POST',
+    headers: {
+      'Content-Type': contentType,
+      'Authorization': `Bearer ${token}`,
+      'Content-Length': String(Buffer.byteLength(multipartBody, 'utf8')),
+    },
+    body: multipartBody,
+  })
+
+  if (res.status === 401) {
+    clearTokenCache()
+    throw new Error('DGII token expirado — reintentando autenticación')
+  }
+
+  let parsed
+  try { parsed = JSON.parse(res.body) } catch {
+    throw new Error(`DGII ANECF respuesta inesperada (${res.status}): ${res.body.substring(0, 300)}`)
+  }
+
+  if (parsed.codigo && parsed.codigo !== '1' && parsed.codigo !== 1) {
+    const msgs = parsed.mensajes?.join('; ') || parsed.nombre || 'Error desconocido'
+    throw new Error(`DGII rechazó anulación: ${msgs}`)
+  }
+
+  return parsed
+}
+
 module.exports = {
   ENVIRONMENTS,
   DGII_STATUS,
@@ -404,6 +450,7 @@ module.exports = {
   clearTokenCache,
   submitECF,
   submitRFCE,
+  submitANECF,
   checkStatus,
   checkStatusByNCF,
   pollStatus,

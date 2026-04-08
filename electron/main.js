@@ -274,6 +274,56 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
   }
 })
 
+// dgii:void-sequence — ANECF: void unused e-NCF sequence ranges
+ipcMain.handle('dgii:void-sequence', async (_, data) => {
+  try {
+    const { privateKeyPem, certificatePem } = certManager.loadCert()
+    const dgiiEnv = getDgiiEnv()
+
+    // data: { rncEmisor, tipoECF, rangoDesde, rangoHasta }
+    const rangoDesde = data.rangoDesde
+    const rangoHasta = data.rangoHasta
+
+    // Calculate count from range (numeric suffix)
+    const numDesde = parseInt(rangoDesde.replace(/[^\d]/g, ''), 10)
+    const numHasta = parseInt(rangoHasta.replace(/[^\d]/g, ''), 10)
+    const cantidadNCF = numHasta - numDesde + 1
+
+    if (cantidadNCF < 1) throw new Error('Rango inválido: desde debe ser menor o igual a hasta')
+
+    // 1. Build ANECF XML
+    const xml = xmlBuilder.buildANECFXml({
+      rncEmisor: data.rncEmisor,
+      cantidadNCF,
+      rangoDesde,
+      rangoHasta,
+    })
+
+    // 2. Sign XML
+    const { signedXml } = xmlSigner.signXML(xml, privateKeyPem, certificatePem)
+
+    // 3. Authenticate with DGII
+    const token = await dgiiClient.authenticate(dgiiEnv, privateKeyPem, certificatePem)
+
+    // 4. Submit ANECF
+    const result = await dgiiClient.submitANECF(signedXml, token, dgiiEnv)
+
+    return {
+      ok: true,
+      data: {
+        ...result,
+        rangoDesde,
+        rangoHasta,
+        cantidadNCF,
+        submittedAt: new Date().toISOString(),
+        environment: dgiiEnv,
+      },
+    }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
 // dgii:install-cert — open file dialog, install .p12, return cert info
 ipcMain.handle('dgii:install-cert', async (event, { filePath, passphrase } = {}) => {
   try {
@@ -353,14 +403,88 @@ ipcMain.handle('dgii:submissions', (_, limit) => {
   return db ? db.ecfSubmissionGetAll(limit || 50) : []
 })
 
-// Updated queue processor — uses DGII direct when xml_signed is present
+// Queue processor — rebuilds XML with IndicadorEnvioDiferido=1 for deferred submissions
 async function processDgiiQueue() {
   if (!db) return
   const pending = db.ecfQueueGetPending(10)
   for (const item of pending) {
     try {
-      if (item.xml_signed) {
-        // New DGII direct path
+      if (item.body_json && item.encf) {
+        // DGII direct path — rebuild XML with IndicadorEnvioDiferido=1, re-sign, submit
+        const invoiceData = JSON.parse(item.body_json)
+        const { privateKeyPem, certificatePem } = certManager.loadCert()
+        const env = item.environment || getDgiiEnv()
+
+        // Inject deferred indicator into the payload IdDoc so XML includes it
+        if (invoiceData.payload?.ECF?.Encabezado?.IdDoc) {
+          invoiceData.payload.ECF.Encabezado.IdDoc.IndicadorEnvioDiferido = '1'
+        }
+
+        // Rebuild and re-sign XML with the deferred indicator
+        const xml = xmlBuilder.buildECFXml(invoiceData.payload, item.encf)
+        const { signedXml, securityCode, signatureDate } = xmlSigner.signXML(xml, privateKeyPem, certificatePem)
+
+        const token = await dgiiClient.authenticate(env, privateKeyPem, certificatePem)
+
+        const isE32Under250K = item.tipo_ecf === '32' && Number(invoiceData.montoTotal) < 250000
+        let submitResult
+
+        if (isE32Under250K) {
+          const rfceXml = xmlBuilder.buildRFCEXml({
+            emisor: invoiceData.emisor,
+            totales: {
+              montoGravadoTotal: invoiceData.totales?.subtotal,
+              montoGravadoI1: invoiceData.totales?.subtotal,
+              totalITBIS: invoiceData.totales?.itbis,
+              totalITBIS1: invoiceData.totales?.itbis,
+              montoTotal: invoiceData.totales?.total,
+            },
+            eNCF: item.encf,
+            tipoIngresos: invoiceData.tipoIngresos || '01',
+            tipoPago: invoiceData.tipoPago || '1',
+            comprador: invoiceData.comprador,
+            fechaEmision: invoiceData.fechaEmision,
+            securityCode,
+            indicadorEnvioDiferido: '1',
+          })
+          const signedRFCE = xmlSigner.signXML(rfceXml, privateKeyPem, certificatePem)
+          submitResult = await dgiiClient.submitRFCE(signedRFCE.signedXml, token, env)
+        } else {
+          submitResult = await dgiiClient.submitECF(signedXml, token, env)
+        }
+
+        const trackId = submitResult.trackId || submitResult.encf || item.encf
+        let status = { codigo: 3, estado: 'EN_PROCESO' }
+
+        if (!isE32Under250K && trackId) {
+          status = await dgiiClient.pollStatus(trackId, token, env, { maxRetries: 3, delayMs: 1000 })
+        } else if (isE32Under250K) {
+          status = { codigo: submitResult.codigo === 0 ? 1 : submitResult.codigo, estado: submitResult.estado || 'ACEPTADO' }
+        }
+
+        if (status.codigo === 1 || status.codigo === 4) {
+          const qrUrl = dgiiClient.buildQRUrl({
+            env, rncEmisor: invoiceData.emisor?.rnc, rncComprador: invoiceData.comprador?.rnc || '',
+            eNCF: item.encf, fechaEmision: invoiceData.fechaEmision,
+            montoTotal: String(invoiceData.totales?.total || 0),
+            fechaFirma: signatureDate, codigoSeguridad: securityCode, isRFCE: isE32Under250K,
+          })
+          const xmlHash = require('crypto').createHash('sha256').update(signedXml).digest('hex').slice(0, 32)
+          db.ecfSubmissionAdd({
+            encf: item.encf, tipoEcf: item.tipo_ecf, ticketId: invoiceData.ticketId,
+            xmlHash, trackId, dgiiStatus: status.codigo,
+            dgiiMessage: status.mensajes?.join('; ') || status.estado,
+            securityCode, signatureDate, environment: env,
+          })
+        }
+
+        if (status.codigo === 1 || status.codigo === 4 || trackId) {
+          db.ecfQueueDelete(item.id)
+        } else {
+          db.ecfQueueIncrAttempts(item.id)
+        }
+      } else if (item.xml_signed) {
+        // Legacy pre-signed XML path (no deferred indicator rebuild possible)
         const { privateKeyPem, certificatePem } = certManager.loadCert()
         const env = item.environment || getDgiiEnv()
         const token = await dgiiClient.authenticate(env, privateKeyPem, certificatePem)

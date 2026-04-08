@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import {
   FileText, FilePlus, Download, Send, CheckCircle2, AlertCircle,
   Clock, AlertTriangle, RefreshCw, Database, ShoppingCart,
-  Package, Minus, ChevronDown, Search, Trash2, Plus, X,
+  Package, Minus, ChevronDown, Search, Trash2, Plus, X, Ban,
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
@@ -969,7 +969,270 @@ function Historial607Panel({ showToast }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ── Main DGII shell with 606 / 607 tabs ──────────────────────────────────────
+// ── ANECF — Anulación de Rangos e-NCF ────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+const ECF_TYPES = [
+  { code: 'E31', label: 'E31 — Factura de Crédito Fiscal' },
+  { code: 'E32', label: 'E32 — Factura de Consumo' },
+  { code: 'E33', label: 'E33 — Nota de Débito' },
+  { code: 'E34', label: 'E34 — Nota de Crédito' },
+  { code: 'E41', label: 'E41 — Compras' },
+  { code: 'E43', label: 'E43 — Gastos Menores' },
+  { code: 'E44', label: 'E44 — Regímenes Especiales' },
+  { code: 'E45', label: 'E45 — Gubernamental' },
+  { code: 'E46', label: 'E46 — Exportaciones' },
+  { code: 'E47', label: 'E47 — Pagos al Exterior' },
+]
+
+function ScreenANECF() {
+  const api = useAPI()
+  const { lang } = useLang()
+  const L = (es, en) => lang === 'es' ? es : en
+
+  const [tipoECF, setTipoECF] = useState('E31')
+  const [rangoDesde, setRangoDesde] = useState('')
+  const [rangoHasta, setRangoHasta] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [empresa, setEmpresa] = useState(null)
+
+  useEffect(() => {
+    if (api?.admin?.getEmpresa) {
+      api.admin.getEmpresa().then(setEmpresa).catch(() => {})
+    }
+  }, [])
+
+  // Auto-format eNCF: pad numeric suffix to 10 digits
+  function formatENCF(tipo, value) {
+    if (!value) return ''
+    // If user typed full eNCF like E310000001234, accept as-is
+    if (/^E\d{11,}$/.test(value)) return value
+    // If just the numeric part, prefix with type
+    const numPart = value.replace(/\D/g, '')
+    if (!numPart) return ''
+    return `${tipo}${numPart.padStart(10, '0')}`
+  }
+
+  function handleDesdeChange(val) {
+    setRangoDesde(val.toUpperCase())
+    setResult(null)
+    setError(null)
+  }
+
+  function handleHastaChange(val) {
+    setRangoHasta(val.toUpperCase())
+    setResult(null)
+    setError(null)
+  }
+
+  function getValidationError() {
+    const desde = formatENCF(tipoECF, rangoDesde)
+    const hasta = formatENCF(tipoECF, rangoHasta)
+    if (!desde || !hasta) return L('Complete ambos campos de rango', 'Complete both range fields')
+    if (!empresa?.rnc) return L('Configure el RNC de la empresa en Configuración', 'Set business RNC in Settings')
+    const numDesde = parseInt(desde.replace(/[^\d]/g, ''), 10)
+    const numHasta = parseInt(hasta.replace(/[^\d]/g, ''), 10)
+    if (isNaN(numDesde) || isNaN(numHasta)) return L('Rango inválido', 'Invalid range')
+    if (numDesde > numHasta) return L('El rango "Desde" debe ser menor o igual a "Hasta"', '"From" must be less than or equal to "To"')
+    return null
+  }
+
+  async function handleSubmit() {
+    setConfirmOpen(false)
+    setSubmitting(true)
+    setResult(null)
+    setError(null)
+
+    try {
+      const desde = formatENCF(tipoECF, rangoDesde)
+      const hasta = formatENCF(tipoECF, rangoHasta)
+      const dgii = window.electronAPI?.dgii_ecf
+      if (!dgii) throw new Error('Solo disponible en versión desktop')
+      const res = await dgii.voidSequence({
+        rncEmisor: empresa.rnc.replace(/[-\s]/g, ''),
+        tipoECF,
+        rangoDesde: desde,
+        rangoHasta: hasta,
+      })
+      setResult(res)
+    } catch (err) {
+      setError(err.message || L('Error desconocido', 'Unknown error'))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const validationError = getValidationError()
+  const previewDesde = formatENCF(tipoECF, rangoDesde)
+  const previewHasta = formatENCF(tipoECF, rangoHasta)
+  const cantidadPreview = (previewDesde && previewHasta)
+    ? Math.max(0, parseInt(previewHasta.replace(/\D/g, ''), 10) - parseInt(previewDesde.replace(/\D/g, ''), 10) + 1)
+    : 0
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-500/10 flex items-center justify-center">
+            <Ban size={20} className="text-red-600 dark:text-red-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-slate-800 dark:text-white">{L('Anulación de Rangos e-NCF', 'Void e-NCF Ranges')}</h2>
+            <p className="text-xs text-slate-500 dark:text-white/60">{L('Anule secuencias de e-NCF no utilizadas ante la DGII', 'Void unused e-NCF sequences with DGII')}</p>
+          </div>
+        </div>
+
+        {/* Form */}
+        <div className="space-y-4">
+          {/* e-CF Type */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider mb-1.5">
+              {L('Tipo de Comprobante', 'Receipt Type')}
+            </label>
+            <select value={tipoECF} onChange={e => { setTipoECF(e.target.value); setResult(null); setError(null) }}
+              className="w-full border border-slate-200 dark:border-white/10 dark:bg-white/5 dark:text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none bg-white">
+              {ECF_TYPES.map(t => (
+                <option key={t.code} value={t.code}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Range */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider mb-1.5">
+                {L('Rango Desde', 'Range From')}
+              </label>
+              <input type="text" value={rangoDesde} onChange={e => handleDesdeChange(e.target.value)}
+                placeholder={`${tipoECF}0000001900`}
+                className="w-full border border-slate-200 dark:border-white/10 dark:bg-white/5 dark:text-white rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder:text-slate-300 dark:placeholder:text-white/20" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider mb-1.5">
+                {L('Rango Hasta', 'Range To')}
+              </label>
+              <input type="text" value={rangoHasta} onChange={e => handleHastaChange(e.target.value)}
+                placeholder={`${tipoECF}0000001999`}
+                className="w-full border border-slate-200 dark:border-white/10 dark:bg-white/5 dark:text-white rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder:text-slate-300 dark:placeholder:text-white/20" />
+            </div>
+          </div>
+
+          {/* Preview */}
+          {previewDesde && previewHasta && cantidadPreview > 0 && (
+            <div className="bg-slate-50 dark:bg-white/5 rounded-xl px-4 py-3 border border-slate-100 dark:border-white/10">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-500 dark:text-white/60">{L('Rango a anular:', 'Range to void:')}</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-white">{previewDesde} — {previewHasta}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm mt-1">
+                <span className="text-slate-500 dark:text-white/60">{L('Cantidad de NCF:', 'NCF count:')}</span>
+                <span className="font-bold text-red-600 dark:text-red-400">{cantidadPreview.toLocaleString()}</span>
+              </div>
+            </div>
+          )}
+
+          {/* RNC info */}
+          {empresa?.rnc && (
+            <p className="text-xs text-slate-400 dark:text-white/40">
+              RNC Emisor: <span className="font-mono font-medium text-slate-600 dark:text-white/60">{empresa.rnc}</span>
+            </p>
+          )}
+
+          {/* Submit button */}
+          <button
+            onClick={() => setConfirmOpen(true)}
+            disabled={!!validationError || submitting}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition">
+            {submitting ? (
+              <>
+                <RefreshCw size={15} className="animate-spin" />
+                {L('Enviando a DGII...', 'Submitting to DGII...')}
+              </>
+            ) : (
+              <>
+                <Ban size={15} />
+                {L('Anular Rango', 'Void Range')}
+              </>
+            )}
+          </button>
+
+          {validationError && !result && !error && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+              <AlertTriangle size={12} /> {validationError}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Result */}
+      {result && (
+        <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <CheckCircle2 size={18} className="text-emerald-600 dark:text-emerald-400" />
+            <span className="font-bold text-emerald-700 dark:text-emerald-400">{L('Anulación exitosa', 'Void successful')}</span>
+          </div>
+          <div className="space-y-1 text-sm text-emerald-800 dark:text-emerald-300">
+            <p>{L('Rango:', 'Range:')} <span className="font-mono font-medium">{result.rangoDesde} — {result.rangoHasta}</span></p>
+            <p>{L('Cantidad anulada:', 'Voided count:')} <span className="font-bold">{result.cantidadNCF}</span></p>
+            {result.mensajes?.length > 0 && (
+              <p>{L('Mensaje:', 'Message:')} {result.mensajes.join('; ')}</p>
+            )}
+            <p className="text-xs text-emerald-600 dark:text-emerald-400/60 mt-2">{result.submittedAt}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertCircle size={18} className="text-red-600 dark:text-red-400" />
+            <span className="font-bold text-red-700 dark:text-red-400">{L('Error al anular', 'Void error')}</span>
+          </div>
+          <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+        </div>
+      )}
+
+      {/* Confirm dialog */}
+      {confirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setConfirmOpen(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-500/20 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle size={20} className="text-red-600 dark:text-red-400" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 dark:text-white">{L('Confirmar Anulación', 'Confirm Void')}</h3>
+                <p className="text-xs text-slate-500 dark:text-white/60">{L('Esta acción no se puede deshacer', 'This action cannot be undone')}</p>
+              </div>
+            </div>
+            <div className="bg-slate-50 dark:bg-white/5 rounded-xl p-3 mb-4 space-y-1 text-sm">
+              <p className="text-slate-600 dark:text-white/60">{L('Tipo:', 'Type:')} <span className="font-bold text-slate-800 dark:text-white">{tipoECF}</span></p>
+              <p className="text-slate-600 dark:text-white/60">{L('Rango:', 'Range:')} <span className="font-mono font-bold text-slate-800 dark:text-white">{previewDesde} — {previewHasta}</span></p>
+              <p className="text-slate-600 dark:text-white/60">{L('Cantidad:', 'Count:')} <span className="font-bold text-red-600 dark:text-red-400">{cantidadPreview}</span></p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmOpen(false)}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-sm font-medium text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition">
+                {L('Cancelar', 'Cancel')}
+              </button>
+              <button onClick={handleSubmit}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition">
+                {L('Sí, Anular', 'Yes, Void')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── Main DGII shell with 606 / 607 / ANECF tabs ─────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 export default function DGII() {
   const [screen, setScreen] = useState('606')
@@ -996,12 +1259,19 @@ export default function DGII() {
             <ShoppingCart size={14} />
             {L('Reporte 607', 'Report 607')}
           </button>
+          <button onClick={() => setScreen('anecf')}
+            className={`flex items-center gap-1.5 px-5 py-2 font-medium transition ${screen === 'anecf' ? 'bg-red-600 text-white' : 'text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10'}`}>
+            <Ban size={14} />
+            {L('Anular e-NCF', 'Void e-NCF')}
+          </button>
         </div>
         <div className="ml-auto">
           <span className="text-xs text-slate-400 dark:text-white/40">
             {screen === '606'
               ? L('Ventas / Comprobantes emitidos', 'Sales / Issued receipts')
-              : L('Compras / Gastos recibidos', 'Purchases / Received expenses')
+              : screen === '607'
+                ? L('Compras / Gastos recibidos', 'Purchases / Received expenses')
+                : L('Anulación de rangos no utilizados', 'Void unused sequence ranges')
             }
           </span>
         </div>
@@ -1009,7 +1279,7 @@ export default function DGII() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
-        {screen === '606' ? <Screen606 /> : <Screen607 />}
+        {screen === '606' ? <Screen606 /> : screen === '607' ? <Screen607 /> : <ScreenANECF />}
       </div>
     </div>
   )
