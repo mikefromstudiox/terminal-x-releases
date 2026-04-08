@@ -12,7 +12,6 @@ import {
   getStoredSetting, setStoredSetting, resetSupabaseClient,
   testConnection, ensureBusinessRegistered,
 } from '@terminal-x/services/supabase'
-import { syncService, syncWasher, syncSeller, syncUser, syncNCFSequence } from '@terminal-x/services/sync'
 // Reports moved to dedicated Reportes screen
 // RemoteDashboard moved to its own sidebar tab
 
@@ -191,7 +190,6 @@ function Lavadores() {
       const p = { ...form, commission_pct: parseFloat(form.commission_pct) || 20 }
       if (panel === 'add') await api.washers.create(p)
       else                 await api.washers.update({ id: panel.id, ...p })
-      syncWasher(panel === 'add' ? p : { id: panel.id, ...p })
       setSaved(true)
       show(panel === 'add' ? L('Lavador agregado ✓', 'Washer added ✓') : L('Lavador actualizado ✓', 'Washer updated ✓'))
       setTimeout(() => { closePanel(); load() }, 1000)
@@ -325,7 +323,6 @@ function Vendedores() {
       const p = { ...form, commission_pct: parseFloat(form.commission_pct) || 5 }
       if (panel === 'add') await api.sellers.create(p)
       else                 await api.sellers.update({ id: panel.id, ...p })
-      syncSeller(panel === 'add' ? p : { id: panel.id, ...p })
       setSaved(true)
       show(panel === 'add' ? L('Vendedor agregado ✓', 'Salesperson added ✓') : L('Vendedor actualizado ✓', 'Salesperson updated ✓'))
       setTimeout(() => { closePanel(); load() }, 1000)
@@ -479,7 +476,6 @@ function Usuarios() {
       }
       if (panel === 'add') await api.users.create({ ...payload, pin: form.pin.trim() })
       else                 await api.users.update({ id: panel.id, ...payload })
-      syncUser(panel === 'add' ? { ...payload, pin: form.pin.trim() } : { id: panel.id, ...payload })
       setSaved(true)
       show(panel === 'add' ? L('Usuario creado ✓', 'User created ✓') : L('Usuario actualizado ✓', 'User updated ✓'))
       setTimeout(() => { closePanel(); load() }, 1000)
@@ -660,7 +656,6 @@ function Servicios() {
       const p = { name: form.name.trim(), name_en: form.name_en.trim()||null, category: form.category.trim(), price: parseFloat(form.price)||0, cost: parseFloat(form.cost)||0, is_wash: parseInt(form.is_wash), sort_order: panel !== 'add' ? panel.sort_order : list.length }
       if (panel === 'add') await api.services.create(p)
       else                 await api.services.update({ id: panel.id, ...p })
-      syncService(panel === 'add' ? p : { id: panel.id, ...p })
       setSaved(true)
       show(panel === 'add' ? L('Servicio agregado ✓', 'Service added ✓') : L('Servicio actualizado ✓', 'Service updated ✓'))
       setTimeout(() => { closePanel(); load() }, 1000)
@@ -972,7 +967,6 @@ export function FiscalNCF() {
         limit_number:   Number(seq.limit_number)   || 500,
         valid_until:    seq.valid_until || null,
       })
-      syncNCFSequence({ type, current_number: Number(seq.current_number) || 0, limit_number: Number(seq.limit_number) || 500, valid_until: seq.valid_until || null })
       setSaved(s => ({ ...s, [type]: true }))
       show(L('Secuencia guardada ✓', 'Sequence saved ✓'))
       setTimeout(() => setSaved(s => ({ ...s, [type]: false })), 2500)

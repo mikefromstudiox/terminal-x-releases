@@ -11,7 +11,6 @@ import CobrarModal from '../components/CobrarModal'
 import { NewClientForm } from './Clients'
 import { printClientReceipt, printWasherConduce } from '@terminal-x/services/printer'
 import { syncTicket } from '@terminal-x/services/supabase'
-import { syncTicketFull } from '@terminal-x/services/sync'
 import { saveReceiptPDF } from '@terminal-x/services/pdf'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import logoImg from '../assets/logo.webp'
@@ -411,10 +410,12 @@ function CarWashPOS() {
         beverage_subtotal: beverageSubtotal,
         ecf_result:       paymentData.ecf || {},
         items:            pending.items.map(s => ({
-          service_id: typeof s.id === 'number' ? s.id : null,
-          name:       s.name,
-          price:      s.price,
-          is_wash:    s.is_wash ?? 1,
+          service_id:    typeof s.id === 'number' ? s.id : null,
+          name:          s.name,
+          price:         s.price,
+          cost:          s.cost || 0,
+          is_wash:       s.is_wash ?? 1,
+          aplica_itbis:  s.aplica_itbis ?? 1,
         })),
         comentario: paymentData.comentario || '',
       })
@@ -443,19 +444,6 @@ function CarWashPOS() {
         items:            pending.items,
         ecf_result:       paymentData.ecf || {},
       }, result).catch(() => {})
-
-      // Full sync via sync service — fire and forget
-      syncTicketFull({
-        client_name:      pending.clientName || null,
-        comprobante_type: paymentData.ncfType || 'E32',
-        payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
-        tipo_venta:       paymentData.tipo || 'contado',
-        subtotal: sub, itbis: itp, ley: ly, total: tot,
-        status:           'cobrado',
-        cajero_name:      user?.name || null,
-        items:            pending.items,
-        ecf_result:       paymentData.ecf || {},
-      }, result)
 
       // ── Auto-print receipt + conduce ────────────────────────────────────────
       try {
@@ -1119,9 +1107,11 @@ function RetailPOS() {
           inventory_item_id: i.inventory_item_id || null,
           name:              i.name,
           price:             i.price,
+          cost:              i.cost || 0,
           quantity:          i.qty || 1,
           sku:               i.sku || null,
           is_wash:           i.is_wash ?? 0,
+          aplica_itbis:      i.aplica_itbis ?? 1,
         })),
         comentario: paymentData.comentario || '',
       })
@@ -1140,18 +1130,6 @@ function RetailPOS() {
         items:            pending.items,
         ecf_result:       paymentData.ecf || {},
       }, result).catch(() => {})
-
-      syncTicketFull({
-        client_name:      pending.clientName || null,
-        comprobante_type: paymentData.ncfType || 'E32',
-        payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
-        tipo_venta:       paymentData.tipo || 'contado',
-        subtotal: sub, itbis: itp, ley: 0, total: tot,
-        status:           'cobrado',
-        cajero_name:      user?.name || null,
-        items:            pending.items,
-        ecf_result:       paymentData.ecf || {},
-      }, result)
 
       try {
         const [cfg, empresa] = await Promise.all([

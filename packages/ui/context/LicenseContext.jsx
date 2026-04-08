@@ -17,6 +17,7 @@ export function useLicense() {
 }
 
 const CHECK_INTERVAL = 4 * 60 * 60 * 1000  // 4 hours
+const OFFLINE_GRACE_MS = 72 * 60 * 60 * 1000  // 72 hours
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -105,6 +106,10 @@ export function LicenseProvider({ children }) {
         }
       } catch {}
       const res = await validateLicense(k, h, r, bizSync)
+      // Track last successful online validation for offline grace
+      if (res.valid) {
+        try { localStorage.setItem('tx_last_valid', String(Date.now())) } catch {}
+      }
       // Store business_id for cloud sync
       if (res.valid && res.businessId && api?.settings?.update) {
         try { await api.settings.update({ supabase_business_id: res.businessId }) } catch {}
@@ -120,13 +125,28 @@ export function LicenseProvider({ children }) {
       setResult(res)
     } catch (err) {
       console.error('[LicenseContext]', err)
-      setResult({
-        valid:      true,
-        status:     'offline_grace',
-        readOnly:   false,
-        warning:    true,
-        warningMsg: 'Error al verificar licencia. Modo sin conexión activo.',
-      })
+      // Only grant offline grace if there was a successful validation within 72h
+      const lastValid = Number(localStorage.getItem('tx_last_valid') || '0')
+      const withinGrace = lastValid > 0 && (Date.now() - lastValid) < OFFLINE_GRACE_MS
+      if (withinGrace) {
+        setResult({
+          valid:      true,
+          status:     'offline_grace',
+          readOnly:   false,
+          warning:    true,
+          warningMsg: 'Error al verificar licencia. Modo sin conexión activo.',
+        })
+      } else {
+        setResult({
+          valid:      false,
+          status:     'offline_expired',
+          readOnly:   true,
+          warning:    true,
+          warningMsg: lastValid > 0
+            ? 'Período de gracia sin conexión expirado. Conéctese a internet para verificar su licencia.'
+            : 'No se puede verificar la licencia. Conéctese a internet.',
+        })
+      }
     } finally {
       setChecking(false)
     }
@@ -228,5 +248,6 @@ function statusMessage(status) {
     inactive:         'Esta licencia ha sido desactivada.',
     suspended:        'Esta licencia está suspendida.',
     expired:          'Esta licencia ha vencido.',
+    offline_expired:  'Período de gracia sin conexión expirado. Conéctese a internet.',
   }[status] || 'Error al verificar la licencia.'
 }

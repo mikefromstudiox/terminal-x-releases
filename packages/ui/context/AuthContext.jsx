@@ -7,25 +7,33 @@ const DEV_USER = import.meta.env.DEV
   ? { id: 0, name: 'Dev Owner', username: 'dev', role: 'owner', active: 1 }
   : null
 
-// On web, provide a default owner user (Supabase auth already verified identity)
 const isWeb = typeof window !== 'undefined' && !window.electronAPI
-const WEB_USER = isWeb
-  ? { id: 'web', name: 'Owner', username: 'owner', role: 'owner', active: 1 }
-  : null
+
+// Temporary owner for first-time setup (no staff created yet)
+const TEMP_OWNER = { id: 'web', name: 'Owner', username: 'owner', role: 'owner', active: 1 }
 
 export function AuthProvider({ children }) {
   const api = useAPI()
-  const [user, setUser] = useState(DEV_USER || WEB_USER)
+  const [user, setUser] = useState(DEV_USER || null)
+  const [webChecked, setWebChecked] = useState(!isWeb) // desktop skips check
 
-  // On web, load actual user name from staff/users table
+  // On web, check if business has staff — if none, allow temporary owner for setup
   useEffect(() => {
-    if (!isWeb || !api?.users?.all) return
-    api.users.all().then(users => {
-      if (users?.length) {
-        const owner = users.find(u => u.role === 'owner') || users[0]
-        setUser(prev => prev ? { ...prev, name: owner.name, username: owner.username || prev.username } : prev)
+    if (!isWeb || DEV_USER) { setWebChecked(true); return }
+    if (!api?.admin?.getUsuarios) return
+    api.admin.getUsuarios().then(users => {
+      const active = users?.filter(u => u.active)
+      if (!active?.length) {
+        // No staff yet — allow temporary owner for first-time setup
+        setUser(TEMP_OWNER)
       }
-    }).catch(() => {})
+      // If staff exists, user stays null — Login screen shows
+      setWebChecked(true)
+    }).catch(() => {
+      // Can't load staff — allow temporary owner (offline/error case)
+      setUser(TEMP_OWNER)
+      setWebChecked(true)
+    })
   }, [api])
 
   async function login(pin) {
@@ -59,7 +67,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, loginWithPassword, logout }}>
+    <AuthContext.Provider value={{ user, login, loginWithPassword, logout, webChecked }}>
       {children}
     </AuthContext.Provider>
   )

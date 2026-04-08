@@ -92,7 +92,7 @@ const PAYMENT_METHODS = [
   { id:'check',    label:'Cheque',       icon: ArrowLeftRight},
 ]
 
-function PaymentForm({ total, clientRnc, onPay, paying, isManual = false }) {
+function PaymentForm({ total, maxAmount, clientRnc, onPay, paying, isManual = false }) {
   const [ncfType,    setNcfType]    = useState('E32')
   const [rnc,        setRnc]        = useState(clientRnc || '')
   const [method,     setMethod]     = useState('cash')
@@ -105,6 +105,8 @@ function PaymentForm({ total, clientRnc, onPay, paying, isManual = false }) {
   function handlePay() {
     const finalAmount = isManual ? (parseFloat(amount) || 0) : total
     if (finalAmount <= 0) return
+    // Prevent overpayment — amount cannot exceed outstanding balance
+    if (maxAmount != null && finalAmount > maxAmount) return
     onPay({ ncfType, rnc: ncfType === 'E31' ? rnc : '', method, comentario, amount: finalAmount })
   }
 
@@ -512,6 +514,7 @@ function ClientDetail({ client, onReload }) {
         {(checked.size > 0 || (client.balance > 0 && tickets.length === 0 && !loading)) && (
           <PaymentForm
             total={checked.size > 0 ? selectedTotal : client.balance}
+            maxAmount={client.balance}
             clientRnc={client.rnc}
             onPay={handlePay}
             paying={paying}

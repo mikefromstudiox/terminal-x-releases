@@ -80,7 +80,7 @@ function Spinner() {
 
 export default function App() {
   const api = useAPI()
-  const { user }                          = useAuth()
+  const { user, webChecked }               = useAuth()
   const { result, checking, isReadOnly } = useLicense()
 
   // ── First-run detection ─────────────────────────────────────────────────────
@@ -110,7 +110,7 @@ export default function App() {
 
   // ── Startup gate: wait for both setup check and license check ──────────────
   const isWeb = !window.electronAPI
-  if (!setupChecked || (!isWeb && checking && !result)) return <Spinner />
+  if (!setupChecked || !webChecked || (!isWeb && checking && !result)) return <Spinner />
 
   // ── First-run wizard ────────────────────────────────────────────────────────
   if (isFirstRun && !import.meta.env.DEV && !isWeb) {
@@ -134,8 +134,8 @@ export default function App() {
     }
   }
 
-  // On web, Supabase auth already handled login — skip PIN screen
-  if (!user && !isWeb) return <Login />
+  // No authenticated user — show PIN login (web and desktop)
+  if (!user) return <Login />
 
   return (
     <>

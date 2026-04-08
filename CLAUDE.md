@@ -86,7 +86,7 @@ Key tables: businesses, users, services, tickets, clients, credit_payments,
 - Code Page 858 charset — covers Spanish chars (ñ, á, é, etc.)
 - ASCII-only separators — no unicode
 - Cash drawer opens only for cash payments (not card/transfer/credit)
-- Print fires BEFORE closing the cobrar modal so cashier sees change due
+- Print fires AFTER DB persistence (Queue) or BEFORE closing modal (POS) so cashier sees change due
 
 ## Roles & Permissions
 - owner, manager, cfo, accountant, cashier
@@ -160,13 +160,20 @@ Every table that syncs between Desktop (SQLite) and Web (Supabase) uses the **su
 - Web queries use clean UUID joins on `supabase_id` — no integer ID hacks
 - **Never use `local_id` or `local_*_id` columns** — those are deprecated scaffolding
 - Sync module: `electron/sync.js` pushes SQLite → Supabase every 5 min + on every sale/payment/void
-- 20 tables covered: services, washers, sellers, clients, inventory_items, ncf_sequences, empleados, categorias_servicio, tickets, ticket_items, queue, washer/seller/cajero_commissions, credit_payments, cuadre_caja, caja_chica, notas_credito, inventory_transactions, compras_607
+- 21 tables covered: services, washers, sellers, clients, inventory_items, ncf_sequences, empleados, categorias_servicio, users, tickets, ticket_items, queue, washer/seller/cajero_commissions, credit_payments, cuadre_caja, caja_chica, notas_credito, inventory_transactions, compras_607
+- **`packages/services/sync.js` is DELETED** — was a dead legacy renderer-side sync using deprecated `local_id`. All sync goes through `electron/sync.js` only.
+- **`updated_at`** columns + auto-update triggers exist on ALL 21 synced tables (both SQLite and Supabase). Sync pass 2 uses `updated_at > last_synced_at` to re-push updated rows.
+- **Dual-key FK joins in `web.js`:** All web queries that join ticket_items, clients, washers etc. use BOTH `ticket_id` (web-created) AND `ticket_supabase_id` (desktop-synced) to handle both origins. Same pattern for `client_id`/`client_supabase_id`, `washer_id`/`washer_supabase_id` etc.
 
 ## Architecture Notes
 - **Monorepo:** packages/ui, packages/services, packages/data with npm workspaces + Vite aliases. Electron/web/db/assets at root.
 - **Vite configs:** .mjs extension (vite.config.mjs, vite.web.config.mjs) to avoid ESM/CJS conflict with electron CommonJS.
 - **Dark mode:** All screens support Tailwind `dark:` variants. Pattern: `bg-white → dark:bg-white/5`, `bg-slate-50 → dark:bg-black`, `text-slate-800 → dark:text-white`, `border-slate-200 → dark:border-white/10`.
-- **e-CF flow:** CobrarModal → `signAndSubmitECF()` → IPC `dgii:submit` → xml-builder + xml-signer + dgii-client → DGII API. Offline queue fallback included.
+- **e-CF flow:** CobrarModal → `signAndSubmitECF()` → IPC `dgii:submit` → xml-builder + xml-signer + dgii-client → DGII API. Offline queue fallback included. CobrarModal fires `onConfirm()` (ticket creation) IMMEDIATELY after ECF success via `confirmedRef` guard — never waits for user to close the success view. `handleSuccessClose()` just calls `onClose()`.
+- **Error handling:** `web.js` has `tryOr()` for reads (returns fallback) and `tryWrite()` for mutations (throws). Global `window.onerror` + `unhandledrejection` handlers in `main.jsx`. All commission/stock/void catches log errors.
+- **RLS:** Enabled on all 26+ Supabase tables. Anon role has permissive policies requiring `business_id IS NOT NULL`. Service role (desktop sync) bypasses RLS. `users` is a VIEW on `staff` table.
+- **License:** LicenseContext enforces 72h offline grace — only grants access if `tx_last_valid` localStorage timestamp is within 72 hours. Fresh installs without prior validation are denied.
+- **Supabase `users` table:** Actually `staff` (base table) with `users` as a VIEW. The `staff` table has `supabase_id`, `cedula`, `start_date` columns for sync compatibility.
 - **Nómina:** 5-view payroll center under `packages/ui/screens/reports/nomina/`. Helper libs: `lib/isr.js` (DR 2026 brackets), `lib/tss.js` (SFS/AFP/INFOTEP caps), `lib/payPeriod.js`, `lib/calcLiquidacion.js` (Ley 16-92). Supports commission-only workers.
 - **Dev override:** `usePlan.jsx` forces `pro_max` in dev mode so all gated features are visible.
 - **Business Type System:** `useBusinessType()` hook + `BusinessTypeProvider` in `packages/ui/hooks/useBusinessType.jsx`. Stores `business_type` in `app_settings` (values: `carwash`, `tienda`, `otro`). Switches POS between `CarWashPOS` (service grid + queue + washers) and `RetailPOS` (product search + barcode + cart with qty). Sidebar nav filters items via `businessTypes` array prop. Settings panel at Configuración → Tipo de Negocio. FirstTimeSetup Step 1 includes business type selector.

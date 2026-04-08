@@ -456,6 +456,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const [selectedClient, setSelectedClient] = useState(ticket?.client || null)
   const [showClientDrop, setShowClientDrop] = useState(false)
   const clientRef = useRef(null)
+  const confirmedRef = useRef(false)
 
   useEffect(() => {
     api?.clients?.all?.().then(list => setAllClients(list || [])).catch(() => setAllClients([]))
@@ -558,6 +559,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
 
   async function handleConfirm() {
     if (!canSubmit) return
+    if (confirmedRef.current) return
     if (ecfState === 'submitting' || ecfState === 'success') return
 
     // ── Legacy B01/B02 mode: use DB sequence, skip ECF ──────────────────────
@@ -588,6 +590,21 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
       }
       setEcfResult(legacyResult)
       setEcfState('success')
+      if (!confirmedRef.current) {
+        confirmedRef.current = true
+        onConfirm({
+          ticketId:  ticket.id,
+          ticketNo:  ticket.ticketNo,
+          clientId:  selectedClient?.id || null,
+          ncfType, rnc, rncName, tipo,
+          formaPago: tipo === 'credito' ? 'credit' : formaPago,
+          recibido:  recibidoNum,
+          devuelta:  showEfectivo ? devuelta : null,
+          comentario, total,
+          paidAt:    new Date(),
+          ecf:       legacyResult,
+        })
+      }
       return
     }
 
@@ -651,6 +668,21 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
       clearTimeout(t1); clearTimeout(t2)
       setEcfResult(result)
       setEcfState('success')
+      if (!confirmedRef.current) {
+        confirmedRef.current = true
+        onConfirm({
+          ticketId:  ticket.id,
+          ticketNo:  ticket.ticketNo,
+          clientId:  selectedClient?.id || null,
+          ncfType, rnc, rncName, tipo,
+          formaPago: tipo === 'credito' ? 'credit' : formaPago,
+          recibido:  recibidoNum,
+          devuelta:  showEfectivo ? devuelta : null,
+          comentario, total,
+          paidAt:    new Date(),
+          ecf:       result,
+        })
+      }
 
       // Use qrLink from DGII directly; fall back to QR generation
       getQRCode(result.eNCF, result)
@@ -665,18 +697,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   }
 
   function handleSuccessClose() {
-    onConfirm({
-      ticketId:  ticket.id,
-      ticketNo:  ticket.ticketNo,
-      clientId:  selectedClient?.id || null,
-      ncfType, rnc, rncName, tipo,
-      formaPago: tipo === 'credito' ? 'credit' : formaPago,
-      recibido:  recibidoNum,
-      devuelta:  showEfectivo ? devuelta : null,
-      comentario, total,
-      paidAt:    new Date(),
-      ecf:       ecfResult,
-    })
+    // Ticket already created immediately after ECF success — just close
+    onClose()
   }
 
   const isSubmitting = ecfState === 'submitting'

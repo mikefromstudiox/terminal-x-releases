@@ -73,7 +73,7 @@ function signXML(xmlString, privateKeyPem, certificatePem) {
  */
 function getSecurityCode(signedXml) {
   const match = signedXml.match(/<SignatureValue[^>]*>([^<]+)<\/SignatureValue>/)
-  if (!match) return '000000'
+  if (!match) throw new Error('XML signing failed: no SignatureValue found — cannot generate CodigoSeguridad')
   const sigValue = match[1].replace(/\s/g, '')
   return sigValue.substring(0, 6)
 }

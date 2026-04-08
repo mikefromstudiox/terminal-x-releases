@@ -185,13 +185,15 @@ export default function NominaPagos() {
   // ── Per-row computation ────────────────────────────────────────────────────
   const cycle = period?.cycle === 'mensual' || preset.startsWith('m-') ? 'mensual' : 'quincenal'
 
+  const periodsPerMonth = cycle === 'quincenal' ? 2 : 1
+
   function rowCalc(emp) {
     const base       = prorateSalary(emp.salary || 0, cycle)
     const commission = getCommission(emp)
     const bonus      = Number(bonuses[emp.id] || 0)
     const gross      = base + commission + bonus
-    const tssEmp     = calcTSSEmployee(gross, settings || {})
-    const tssEmpr    = calcTSSEmployer(gross, settings || {})
+    const tssEmp     = calcTSSEmployee(gross, settings || {}, periodsPerMonth)
+    const tssEmpr    = calcTSSEmployer(gross, settings || {}, periodsPerMonth)
     const infotep    = calcINFOTEPEmployer(gross, settings?.infotep_employer_rate)
     const isr        = settings?.isr_enabled === false
       ? { periodTax: 0, bracket: 'deshabilitado' }

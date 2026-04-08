@@ -36,10 +36,10 @@ function round2(n) { return parseFloat(Number(n || 0).toFixed(2)) }
  * Employee-side TSS withholding.
  * Applies SFS and AFP caps independently: Math.min(gross, cap) × rate.
  */
-export function calcTSSEmployee(gross, settings = {}) {
+export function calcTSSEmployee(gross, settings = {}, periodsPerMonth = 1) {
   const g         = Number(gross || 0)
-  const sfsCap    = Number(settings.sfs_monthly_cap ?? SFS_MONTHLY_CAP)
-  const afpCap    = Number(settings.afp_monthly_cap ?? AFP_MONTHLY_CAP)
+  const sfsCap    = Number(settings.sfs_monthly_cap ?? SFS_MONTHLY_CAP) / periodsPerMonth
+  const afpCap    = Number(settings.afp_monthly_cap ?? AFP_MONTHLY_CAP) / periodsPerMonth
   const sfsRate   = Number(settings.sfs_employee_rate ?? SFS_EMPLOYEE_RATE)
   const afpRate   = Number(settings.afp_employee_rate ?? AFP_EMPLOYEE_RATE)
   const sfs = Math.min(g, sfsCap) * sfsRate
@@ -51,10 +51,10 @@ export function calcTSSEmployee(gross, settings = {}) {
  * Employer-side TSS liability (NOT withheld from the employee's paycheck).
  * Same caps apply.
  */
-export function calcTSSEmployer(gross, settings = {}) {
+export function calcTSSEmployer(gross, settings = {}, periodsPerMonth = 1) {
   const g         = Number(gross || 0)
-  const sfsCap    = Number(settings.sfs_monthly_cap ?? SFS_MONTHLY_CAP)
-  const afpCap    = Number(settings.afp_monthly_cap ?? AFP_MONTHLY_CAP)
+  const sfsCap    = Number(settings.sfs_monthly_cap ?? SFS_MONTHLY_CAP) / periodsPerMonth
+  const afpCap    = Number(settings.afp_monthly_cap ?? AFP_MONTHLY_CAP) / periodsPerMonth
   const sfsRate   = Number(settings.sfs_employer_rate ?? SFS_EMPLOYER_RATE)
   const afpRate   = Number(settings.afp_employer_rate ?? AFP_EMPLOYER_RATE)
   const sfs = Math.min(g, sfsCap) * sfsRate
@@ -74,8 +74,8 @@ export function calcINFOTEPEmployer(gross, rate) {
  * Convenience wrapper: returns the full employer load (TSS + INFOTEP).
  * Used by the Pagos view and the TSS report.
  */
-export function calcEmployerLoad(gross, settings = {}) {
-  const tss     = calcTSSEmployer(gross, settings)
+export function calcEmployerLoad(gross, settings = {}, periodsPerMonth = 1) {
+  const tss     = calcTSSEmployer(gross, settings, periodsPerMonth)
   const infotep = calcINFOTEPEmployer(gross, settings.infotep_employer_rate)
   return {
     sfs:          tss.sfs,

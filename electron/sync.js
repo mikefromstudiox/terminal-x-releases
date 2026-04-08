@@ -1,18 +1,23 @@
 /**
- * electron/sync.js — One-way cloud backup: SQLite -> Supabase
+ * electron/sync.js — Bidirectional sync: SQLite <-> Supabase
  *
  * Runs in the Electron main process. Pushes local data to Supabase
- * so the web POS (terminalxpos.com/pos) always has current data.
+ * AND pulls remote changes back into SQLite.
  * Uses the Supabase REST API directly (no SDK import — avoids ESM/CJS issues).
  *
  * Architecture: Every synced row carries a `supabase_id` (UUID) assigned at
  * creation time in SQLite. Foreign keys are stored as `*_supabase_id` columns.
  * The Supabase unique constraint is on (business_id, supabase_id).
  *
+ * Conflict resolution:
+ *   - LWW (last-write-wins) for entity tables: services, clients, washers, etc.
+ *   - FWW (first-write-wins) for financial tables: tickets, commissions, etc.
+ *   - Ticket status/void_reason can still be pulled (selective status sync).
+ *
  * Usage in main.js:
  *   const sync = require('./sync')
  *   sync.init(db, { supabaseUrl, supabaseKey })
- *   sync.startAutoSync(30 * 60 * 1000)
+ *   sync.startAutoSync(5 * 60 * 1000)
  */
 
 const https = require('https')
@@ -451,6 +456,9 @@ function init(db, { supabaseUrl, supabaseKey }) {
   // Add last_synced_at column for update tracking (v1.9)
   try { _db.rawExec("ALTER TABLE sync_log ADD COLUMN last_synced_at TEXT") } catch { /* already exists */ }
 
+  // Add last_pull_at column for bidirectional sync pull cursor (v1.9)
+  try { _db.rawExec("ALTER TABLE sync_log ADD COLUMN last_pull_at TEXT") } catch { /* already exists */ }
+
   // One-time reset: when migrating from local_id to supabase_id sync, reset all cursors
   // so every row is re-synced with its new supabase_id
   try {
@@ -623,7 +631,296 @@ function updateSyncLog(tableName, lastId, rowCount, error) {
   } catch (e) { console.error('[sync] updateSyncLog failed:', e.message) }
 }
 
-// -- Sync a single table ------------------------------------------------------
+// -- Supabase REST fetch (GET) ------------------------------------------------
+function supabaseFetch(table, queryParams) {
+  return new Promise((resolve, reject) => {
+    const reqUrl = new URL(`${_url}/rest/v1/${table}`)
+    for (const [k, v] of Object.entries(queryParams)) reqUrl.searchParams.set(k, v)
+    const request = https.get({
+      hostname: reqUrl.hostname,
+      path: reqUrl.pathname + reqUrl.search,
+      headers: { 'apikey': _key, 'Authorization': `Bearer ${_key}` },
+    }, (response) => {
+      let data = ''
+      response.on('data', chunk => { data += chunk.toString() })
+      response.on('end', () => {
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          try { resolve(JSON.parse(data)) } catch { resolve([]) }
+        } else {
+          reject(new Error(`Supabase GET ${table} ${response.statusCode}: ${data.substring(0, 200)}`))
+        }
+      })
+    })
+    request.on('error', reject)
+    setTimeout(() => request.destroy(new Error(`Supabase GET ${table} timed out`)), SYNC_TIMEOUT_MS)
+  })
+}
+
+// -- Pull cursor helpers ------------------------------------------------------
+function getLastPullAt(tableName) {
+  try {
+    const row = _db.rawPrepare('SELECT last_pull_at FROM sync_log WHERE table_name = ?').get(tableName)
+    return row?.last_pull_at || null
+  } catch { return null }
+}
+
+function updatePullLog(tableName, lastPullAt) {
+  try {
+    _db.rawPrepare(`INSERT INTO sync_log (table_name, last_synced_id, row_count, error, updated_at, last_pull_at)
+      VALUES (?, 0, 0, NULL, datetime('now'), ?)
+      ON CONFLICT(table_name) DO UPDATE SET last_pull_at = excluded.last_pull_at, updated_at = datetime('now')
+    `).run(tableName, lastPullAt)
+  } catch (e) { console.error('[sync] updatePullLog failed:', e.message) }
+}
+
+// -- JSON columns that need stringify when inserting into SQLite ---------------
+const JSON_COLUMNS = new Set(['ecf_result', 'washer_ids', 'ticket_ids', 'denominaciones', 'services_json'])
+
+function sqliteValue(col, val) {
+  if (val == null) return null
+  if (JSON_COLUMNS.has(col) && typeof val === 'object') return JSON.stringify(val)
+  return val
+}
+
+// -- Pull table definitions (Supabase -> SQLite) ------------------------------
+// strategy: 'lww' = last-write-wins (entities), 'fww' = first-write-wins (financial)
+const PULL_TABLES = [
+  // Phase 1 — root entities (LWW)
+  { name: 'services', strategy: 'lww', cols: ['name','name_en','category','price','cost','aplica_itbis','active','is_wash','sort_order','created_at','updated_at'] },
+  { name: 'washers', strategy: 'lww', cols: ['name','phone','cedula','commission_pct','active','start_date','created_at','updated_at'] },
+  { name: 'sellers', strategy: 'lww', cols: ['name','commission_pct','phone','cedula','start_date','active','created_at','updated_at'] },
+  { name: 'clients', strategy: 'lww', cols: ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','created_at','updated_at'] },
+  { name: 'inventory_items', strategy: 'lww', cols: ['name','sku','barcode','category','price','cost','quantity','min_quantity','aplica_itbis','active','created_at','updated_at'] },
+  { name: 'ncf_sequences', strategy: 'lww', cols: ['type','prefix','current_number','limit_number','valid_until','active','enabled','updated_at'] },
+  { name: 'empleados', strategy: 'lww', cols: ['nombre','cedula','phone','tipo','salary','start_date','active','ref_id','puesto','email','bank_account','tss_id','created_at','updated_at'] },
+  { name: 'categorias_servicio', strategy: 'lww', cols: ['nombre','orden','updated_at'] },
+
+  // Phase 2 — tickets + dependents
+  { name: 'tickets', strategy: 'fww',
+    cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','vehicle_plate','vehicle_color','vehicle_make','notes','washer_ids','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', seller_supabase_id: 'sellers', cajero_supabase_id: 'users' },
+    statusSync: ['status', 'void_reason', 'updated_at'] },
+  { name: 'ticket_items', strategy: 'fww',
+    cols: ['name','price','cost','itbis','is_wash','quantity','sku','created_at','updated_at'],
+    fkCols: { ticket_supabase_id: 'tickets', service_supabase_id: 'services', inventory_item_supabase_id: 'inventory_items' } },
+  { name: 'queue', strategy: 'lww',
+    cols: ['status','assigned_at','completed_at','created_at','updated_at'],
+    fkCols: { ticket_supabase_id: 'tickets', washer_supabase_id: 'washers' } },
+
+  // Phase 3 — financial (FWW)
+  { name: 'washer_commissions', strategy: 'fww',
+    cols: ['base_amount','commission_pct','commission_amount','paid','paid_at','created_at','updated_at'],
+    fkCols: { washer_supabase_id: 'washers', ticket_supabase_id: 'tickets' } },
+  { name: 'seller_commissions', strategy: 'fww',
+    cols: ['base_amount','commission_pct','commission_amount','paid','paid_at','created_at','updated_at'],
+    fkCols: { seller_supabase_id: 'sellers', ticket_supabase_id: 'tickets' } },
+  { name: 'cajero_commissions', strategy: 'fww',
+    cols: ['base_amount','commission_pct','commission_amount','paid','paid_at','created_at','updated_at'],
+    fkCols: { cajero_supabase_id: 'users', ticket_supabase_id: 'tickets' } },
+  { name: 'credit_payments', strategy: 'fww',
+    cols: ['ticket_ids','amount','payment_method','ncf','notes','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', cajero_supabase_id: 'users' } },
+  { name: 'cuadre_caja', strategy: 'fww',
+    cols: ['date','fondo','efectivo_conteo','efectivo_sistema','tarjeta','transferencia','cheque','creditos','salidas','total_vendido','total_cobrado','cierre_total','diferencia','comentario','denominaciones','closed_at','updated_at'],
+    fkCols: { cajero_supabase_id: 'users' } },
+  { name: 'caja_chica', strategy: 'fww',
+    cols: ['description','category','type','amount','recibo','status','created_at','updated_at'],
+    fkCols: { approved_by_supabase_id: 'users', cajero_supabase_id: 'users' } },
+  { name: 'notas_credito', strategy: 'fww',
+    cols: ['ncf','motivo','amount','itbis_revertido','forma_devolucion','comentario','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', original_ticket_supabase_id: 'tickets', cajero_supabase_id: 'users' } },
+  { name: 'inventory_transactions', strategy: 'fww',
+    cols: ['type','delta','notes','created_at','updated_at'],
+    fkCols: { item_supabase_id: 'inventory_items', user_supabase_id: 'users' } },
+  { name: 'compras_607', strategy: 'fww',
+    cols: ['rnc_proveedor','nombre_proveedor','ncf','ncf_modificado','fecha_ncf','total','itbis_facturado','itbis_retenido','retencion_renta','forma_pago','tipo_ncf','fecha_pago','monto_servicios','monto_bienes','notas','created_at','updated_at'] },
+]
+
+// -- Pull upsert: Supabase row -> SQLite row ----------------------------------
+function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync) {
+  if (!row.supabase_id) return
+
+  // Check if row exists locally
+  const existing = _db.rawPrepare(`SELECT id, updated_at FROM ${tableName} WHERE supabase_id = ?`).get(row.supabase_id)
+
+  if (existing) {
+    // Row exists locally
+    if (strategy === 'fww') {
+      // First-write-wins: only sync status updates for tickets
+      if (statusSync && tableName === 'tickets') {
+        const localRow = _db.rawPrepare('SELECT status FROM tickets WHERE id = ?').get(existing.id)
+        if (localRow?.status !== row.status && row.status) {
+          const updates = statusSync.filter(c => row[c] != null).map(c => `${c} = ?`)
+          if (updates.length) {
+            const vals = statusSync.filter(c => row[c] != null).map(c => sqliteValue(c, row[c]))
+            _db.rawPrepare(`UPDATE tickets SET ${updates.join(', ')} WHERE id = ?`).run(...vals, existing.id)
+          }
+        }
+      }
+      // FWW: don't overwrite existing records beyond status
+      return
+    }
+
+    // LWW: only update if remote is newer
+    if (existing.updated_at && row.updated_at && row.updated_at <= existing.updated_at) return
+
+    // Build UPDATE
+    const setClauses = []
+    const setVals = []
+    for (const col of cols) {
+      if (row[col] !== undefined) {
+        setClauses.push(`${col} = ?`)
+        setVals.push(sqliteValue(col, row[col]))
+      }
+    }
+    // Resolve FK columns
+    if (fkCols) {
+      for (const [fkCol, refTable] of Object.entries(fkCols)) {
+        if (row[fkCol]) {
+          setClauses.push(`${fkCol} = ?`)
+          setVals.push(row[fkCol])
+          // Also resolve to local integer ID
+          const localCol = fkCol.replace('_supabase_id', '_id')
+          try {
+            const refRow = _db.rawPrepare(`SELECT id FROM ${refTable} WHERE supabase_id = ?`).get(row[fkCol])
+            if (refRow) {
+              setClauses.push(`${localCol} = ?`)
+              setVals.push(refRow.id)
+            }
+          } catch { /* ref table may not have the row yet */ }
+        }
+      }
+    }
+    if (setClauses.length) {
+      setVals.push(existing.id)
+      _db.rawPrepare(`UPDATE ${tableName} SET ${setClauses.join(', ')} WHERE id = ?`).run(...setVals)
+    }
+  } else {
+    // Row doesn't exist locally — INSERT
+    const insertCols = ['supabase_id']
+    const insertVals = [row.supabase_id]
+
+    for (const col of cols) {
+      if (row[col] !== undefined) {
+        insertCols.push(col)
+        insertVals.push(sqliteValue(col, row[col]))
+      }
+    }
+    // Resolve FK columns
+    if (fkCols) {
+      for (const [fkCol, refTable] of Object.entries(fkCols)) {
+        if (row[fkCol]) {
+          insertCols.push(fkCol)
+          insertVals.push(row[fkCol])
+          const localCol = fkCol.replace('_supabase_id', '_id')
+          try {
+            const refRow = _db.rawPrepare(`SELECT id FROM ${refTable} WHERE supabase_id = ?`).get(row[fkCol])
+            if (refRow) {
+              insertCols.push(localCol)
+              insertVals.push(refRow.id)
+            }
+          } catch { /* ref table may not have the row yet */ }
+        }
+      }
+    }
+
+    const placeholders = insertCols.map(() => '?').join(',')
+    try {
+      _db.rawPrepare(`INSERT INTO ${tableName} (${insertCols.join(',')}) VALUES (${placeholders})`).run(...insertVals)
+    } catch (e) {
+      // Unique constraint violation = row already exists (race condition) — skip
+      if (!e.message?.includes('UNIQUE constraint')) throw e
+    }
+  }
+}
+
+// -- Pull a single table from Supabase ----------------------------------------
+async function pullTable(tableConfig) {
+  const { name, strategy, cols, fkCols, statusSync } = tableConfig
+  const bizId = await resolveBusinessId()
+  if (!bizId) throw new Error('No business_id')
+
+  const lastPull = getLastPullAt(name)
+  const FETCH_SIZE = 500
+  let totalPulled = 0
+  let latestUpdatedAt = lastPull
+
+  // Paginated pull
+  let offset = 0
+  while (true) {
+    const params = {
+      'business_id': `eq.${bizId}`,
+      'order': 'updated_at.asc',
+      'limit': String(FETCH_SIZE),
+      'offset': String(offset),
+      'supabase_id': 'not.is.null',
+    }
+    if (lastPull) params['updated_at'] = `gt.${lastPull}`
+
+    let rows
+    try {
+      rows = await supabaseFetch(name, params)
+    } catch (e) {
+      console.error(`[sync-pull] ${name}: fetch failed:`, e.message)
+      break
+    }
+
+    if (!rows.length) break
+
+    // Upsert each row into SQLite
+    for (const row of rows) {
+      try {
+        pullUpsertRow(name, row, strategy, cols, fkCols, statusSync)
+      } catch (e) {
+        console.error(`[sync-pull] ${name}: upsert failed for ${row.supabase_id}:`, e.message)
+      }
+      if (row.updated_at && (!latestUpdatedAt || row.updated_at > latestUpdatedAt)) {
+        latestUpdatedAt = row.updated_at
+      }
+    }
+
+    totalPulled += rows.length
+    offset += FETCH_SIZE
+    if (rows.length < FETCH_SIZE) break
+  }
+
+  // Update pull cursor
+  if (latestUpdatedAt) {
+    updatePullLog(name, latestUpdatedAt)
+  }
+
+  if (totalPulled > 0) console.log(`[sync-pull] ${name}: pulled ${totalPulled} rows`)
+  return totalPulled
+}
+
+// -- Pull all tables ----------------------------------------------------------
+async function pullNow() {
+  if (!_url || !_key) return { pulled: 0 }
+  const bizId = await resolveBusinessId()
+  if (!bizId) return { pulled: 0 }
+
+  let totalPulled = 0
+  for (const pt of PULL_TABLES) {
+    try {
+      const count = await pullTable(pt)
+      totalPulled += count
+    } catch (e) {
+      console.error(`[sync-pull] ${pt.name}:`, e.message)
+    }
+  }
+  console.log(`[sync-pull] Manual pull complete — ${totalPulled} rows`)
+
+  // Notify renderer
+  try {
+    const { BrowserWindow } = require('electron')
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win) win.webContents.send('sync:pull-complete', { pulled: totalPulled })
+  } catch {}
+
+  return { pulled: totalPulled }
+}
+
+// -- Sync a single table (PUSH) -----------------------------------------------
 async function syncTable(tableConfig) {
   const { name, cols } = tableConfig
   const bizId = await resolveBusinessId()
@@ -730,10 +1027,23 @@ async function syncNow() {
         _status.tables[table.name] = { synced: false, error: e.message }
       }
     }
+    // ── Pull phase: Supabase → SQLite ────────────────────────────────────
+    let totalPulled = 0
+    for (const pt of PULL_TABLES) {
+      try {
+        const count = await pullTable(pt)
+        totalPulled += count
+      } catch (e) {
+        console.error(`[sync-pull] ${pt.name}:`, e.message)
+      }
+    }
+    if (totalPulled > 0) console.log(`[sync] Pull complete — ${totalPulled} rows pulled`)
+
     _status.state = 'idle'
     _status.lastSync = new Date().toISOString()
     _status.totalRows = totalRows
-    console.log(`[sync] Complete — ${totalRows} rows pushed`)
+    _status.totalPulled = totalPulled
+    console.log(`[sync] Complete — ${totalRows} rows pushed, ${totalPulled} rows pulled`)
   } catch (e) {
     _status.state = 'error'
     _status.error = e.message
@@ -775,4 +1085,4 @@ function getStatus() {
   return { ..._status }
 }
 
-module.exports = { init, startAutoSync, stopAutoSync, syncNow, getStatus }
+module.exports = { init, startAutoSync, stopAutoSync, syncNow, pullNow, getStatus }

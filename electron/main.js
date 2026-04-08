@@ -388,6 +388,11 @@ async function processDgiiQueue() {
       }
     } catch (e) {
       console.error('[ecf-queue] Item', item.id, 'failed:', e.message)
+      try { db.ecfQueueIncrAttempts(item.id) } catch {}
+      // Alert on items approaching DGII 72h contingency limit (attempts > 100 ~ 50min at 30s interval)
+      if ((item.attempts || 0) >= 100) {
+        console.error('[ecf-queue] CRITICAL: Item', item.id, 'has', item.attempts, 'failed attempts — risk of exceeding DGII 72h contingency window')
+      }
     }
   }
 }
@@ -640,6 +645,7 @@ handle('settings:update', (obj)  => { db.settingsUpdate(obj); return true })
 // ── Cloud Sync ───────────────────────────────────────────────────────────────
 handle('sync:status', () => sync.getStatus())
 handle('sync:now',    async () => { await sync.syncNow(); return sync.getStatus() })
+handle('sync:pull',   async () => { return sync.pullNow() })
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 handle('auth:pin',         (pin)  => db.authByPin(pin))

@@ -1250,10 +1250,10 @@ function ticketCreate(data) {
         qty, item.sku || null, item.inventory_item_id || null,
         itemSid, ticketSid, svcId ? svcSidById.get(svcId) : null, invItemSid)
 
-      // Auto-deduct inventory stock
+      // Auto-deduct inventory stock (floor at 0 — never go negative)
       if (item.inventory_item_id) {
-        const invRow = db.prepare('SELECT supabase_id FROM inventory_items WHERE id=?').get(item.inventory_item_id)
-        db.prepare('UPDATE inventory_items SET quantity = quantity - ? WHERE id = ?')
+        const invRow = db.prepare('SELECT supabase_id, quantity FROM inventory_items WHERE id=?').get(item.inventory_item_id)
+        db.prepare('UPDATE inventory_items SET quantity = MAX(0, quantity - ?) WHERE id = ?')
           .run(qty, item.inventory_item_id)
         const txSid = crypto.randomUUID()
         db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id) VALUES(?,?,?,?,?,?,?)')
@@ -1733,17 +1733,21 @@ function notaCreate(data) {
 // ── EXPORT ALL (for backup) ───────────────────────────────────────────────────
 function exportAll() {
   if (!db) return {}
+  // Checkpoint WAL to ensure backup includes all recent writes
+  try { db.pragma('wal_checkpoint(PASSIVE)') } catch {}
   const tables = ['tickets','ticket_items','clients','credit_payments','queue',
     'cuadre_caja','caja_chica','notas_credito','washer_commissions','ncf_sequences','app_settings']
   const snap = { exported_at: new Date().toISOString(), version: '1.0.0', tables: {} }
   for (const t of tables) {
     try { snap.tables[t] = db.prepare(`SELECT * FROM ${t}`).all() }
-    catch { snap.tables[t] = [] }
+    catch (e) { console.error('[backup] Failed to export', t, ':', e.message); snap.tables[t] = [] }
   }
   return snap
 }
 function exportSince(since) {
   if (!db) return { tickets:[], clients:[], payments:[] }
+  // Checkpoint WAL to ensure export includes all recent writes
+  try { db.pragma('wal_checkpoint(PASSIVE)') } catch {}
   return {
     tickets: db.prepare(`SELECT * FROM tickets WHERE created_at > ?`).all(since),
     clients: db.prepare(`SELECT * FROM clients WHERE created_at > ?`).all(since),
@@ -1754,6 +1758,8 @@ function exportSince(since) {
 // ── Export to Supabase (full dump for cloud sync) ─────────────────────────────
 function exportToSupabase() {
   if (!db) return {}
+  // Checkpoint WAL to ensure sync export includes all recent writes
+  try { db.pragma('wal_checkpoint(PASSIVE)') } catch {}
   return {
     business:        db.prepare('SELECT * FROM businesses WHERE id=1').get() || null,
     users:           db.prepare('SELECT * FROM users WHERE active=1').all(),

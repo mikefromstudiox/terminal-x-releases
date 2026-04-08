@@ -29,6 +29,16 @@ async function tryOr(fn, fallback) {
   }
 }
 
+/** For write operations: log and re-throw so callers see failures. */
+async function tryWrite(fn) {
+  try {
+    return await fn()
+  } catch (err) {
+    console.error('[web.js WRITE]', err.message || err)
+    throw err
+  }
+}
+
 function throwSupaError(res) {
   if (res.error) throw new Error(res.error.message || res.error.code || 'Supabase error')
   return res.data
@@ -528,7 +538,7 @@ export function createWebAPI(supabase, businessId) {
         ).select('id').single())
         // Auto-mark underlying commissions as paid
         if ((Number(data.commissions) || 0) > 0) {
-          try { await markCommissionsPaidForEmpleado(supabase, bid, data.empleado_id, data.period_start, data.period_end) } catch {}
+          try { await markCommissionsPaidForEmpleado(supabase, bid, data.empleado_id, data.period_start, data.period_end) } catch (e) { console.error('[payrollRuns.create] markCommissionsPaid failed:', e.message) }
         }
         return { id: row.id }
       }),
@@ -539,7 +549,7 @@ export function createWebAPI(supabase, businessId) {
         // Fire-and-forget mark-paid for each employee's commissions in its period
         for (const r of runs) {
           if ((Number(r.commissions) || 0) > 0) {
-            try { await markCommissionsPaidForEmpleado(supabase, bid, r.empleado_id, r.period_start, r.period_end) } catch {}
+            try { await markCommissionsPaidForEmpleado(supabase, bid, r.empleado_id, r.period_start, r.period_end) } catch (e) { console.error('[payrollRuns.bulkCreate] markCommissionsPaid failed for empleado', r.empleado_id, ':', e.message) }
           }
         }
         return { created: (inserted || []).length, ids: (inserted || []).map(x => x.id) }
@@ -646,18 +656,15 @@ export function createWebAPI(supabase, businessId) {
           .eq('tipo_venta', 'credito').eq('status', 'pendiente')
           .order('created_at', { ascending: true })
         if (!tickets?.length) return []
-        // Fetch items separately
-        const ticketIds = tickets.map(t => t.id)
-        const { data: allItems } = await supabase.from('ticket_items')
-          .select('ticket_id, name, price, is_wash').in('ticket_id', ticketIds)
+        // Fetch items — dual-key: ticket_id (web-created) + ticket_supabase_id (synced)
+        const tUuids = tickets.map(t => t.id).filter(Boolean)
+        const tSids  = [...new Set(tickets.map(t => t.supabase_id).filter(Boolean))]
         const itemsMap = {}
-        for (const i of (allItems || [])) {
-          if (!itemsMap[i.ticket_id]) itemsMap[i.ticket_id] = []
-          itemsMap[i.ticket_id].push(i)
-        }
+        if (tUuids.length) { const { data: ir } = await supabase.from('ticket_items').select('ticket_id, name, price, is_wash').in('ticket_id', tUuids); for (const i of (ir || [])) { if (!itemsMap[i.ticket_id]) itemsMap[i.ticket_id] = []; itemsMap[i.ticket_id].push(i) } }
+        if (tSids.length)  { const { data: ir } = await supabase.from('ticket_items').select('ticket_supabase_id, name, price, is_wash').in('ticket_supabase_id', tSids); for (const i of (ir || [])) { if (!itemsMap[i.ticket_supabase_id]) itemsMap[i.ticket_supabase_id] = []; itemsMap[i.ticket_supabase_id].push(i) } }
         return tickets.map(t => ({
           ...t,
-          items: (itemsMap[t.id] || []).filter(i => i.name != null),
+          items: (itemsMap[t.id] || itemsMap[t.supabase_id] || []).filter(i => i.name != null),
         }))
       }, []),
     },
@@ -691,28 +698,41 @@ export function createWebAPI(supabase, businessId) {
         const rows = throwSupaError(await q)
         if (!rows?.length) return []
 
-        // Fetch client names
+        // Fetch items — dual-key: ticket_id (web-created) + ticket_supabase_id (synced)
+        const tUuids = rows.map(r => r.id).filter(Boolean)
+        const tSids  = [...new Set(rows.map(r => r.supabase_id).filter(Boolean))]
+        const itemsMap = {}
+        if (tUuids.length) { const { data: ir } = await supabase.from('ticket_items').select('ticket_id, name, price, cost, is_wash, quantity, sku').in('ticket_id', tUuids); for (const i of (ir || [])) { if (!itemsMap[i.ticket_id]) itemsMap[i.ticket_id] = []; itemsMap[i.ticket_id].push(i) } }
+        if (tSids.length)  { const { data: ir } = await supabase.from('ticket_items').select('ticket_supabase_id, name, price, cost, is_wash, quantity, sku').in('ticket_supabase_id', tSids); for (const i of (ir || [])) { if (!itemsMap[i.ticket_supabase_id]) itemsMap[i.ticket_supabase_id] = []; itemsMap[i.ticket_supabase_id].push(i) } }
+
+        // Fetch client names — dual-key
         const clientIds = [...new Set(rows.map(r => r.client_id).filter(Boolean))]
+        const clientSids = [...new Set(rows.map(r => r.client_supabase_id).filter(Boolean))]
         let clientMap = {}
-        if (clientIds.length) {
-          const { data: cls } = await supabase.from('clients').select('id, name, rnc').in('id', clientIds)
-          for (const c of (cls || [])) clientMap[c.id] = c
-        }
+        if (clientIds.length) { const { data: cls } = await supabase.from('clients').select('id, name, rnc').in('id', clientIds); for (const c of (cls || [])) clientMap[c.id] = c }
+        if (clientSids.length) { const { data: cls } = await supabase.from('clients').select('id, supabase_id, name, rnc').in('supabase_id', clientSids); for (const c of (cls || [])) clientMap[c.supabase_id] = c }
 
-        // Fetch cajero names
+        // Fetch cajero names — dual-key
         const cajeroIds = [...new Set(rows.map(r => r.cajero_id).filter(Boolean))]
+        const cajeroSids = [...new Set(rows.map(r => r.cajero_supabase_id).filter(Boolean))]
         let cajeroMap = {}
-        if (cajeroIds.length) {
-          const { data: staff } = await supabase.from('staff').select('id, name').in('id', cajeroIds)
-          for (const s of (staff || [])) cajeroMap[s.id] = s
-        }
+        if (cajeroIds.length) { const { data: staff } = await supabase.from('staff').select('id, name').in('id', cajeroIds); for (const s of (staff || [])) cajeroMap[s.id] = s }
+        if (cajeroSids.length) { const { data: ur } = await supabase.from('users').select('supabase_id, name').in('supabase_id', cajeroSids); for (const u of (ur || [])) cajeroMap[u.supabase_id] = u }
 
-        return rows.map(r => ({
-          ...r,
-          client_name: clientMap[r.client_id]?.name || null,
-          client_rnc:  clientMap[r.client_id]?.rnc  || null,
-          cajero_name: cajeroMap[r.cajero_id]?.name  || null,
-        }))
+        return rows.map(r => {
+          const iKey = r.id || r.supabase_id
+          const items = (itemsMap[r.id] || itemsMap[r.supabase_id] || []).filter(i => i.name != null)
+          const cKey = r.client_id || r.client_supabase_id
+          const cajKey = r.cajero_id || r.cajero_supabase_id
+          return {
+            ...r,
+            items,
+            service_names: items.map(i => i.name).join(' + ') || null,
+            client_name: (clientMap[cKey] || clientMap[r.client_id] || clientMap[r.client_supabase_id])?.name || null,
+            client_rnc:  (clientMap[cKey] || clientMap[r.client_id] || clientMap[r.client_supabase_id])?.rnc  || null,
+            cajero_name: (cajeroMap[cajKey] || cajeroMap[r.cajero_id] || cajeroMap[r.cajero_supabase_id])?.name || null,
+          }
+        })
       }, []),
 
       byId: (id) => tryOr(async () => {
@@ -721,31 +741,55 @@ export function createWebAPI(supabase, businessId) {
           .eq('id', id).eq('business_id', bid).single()
         if (!ticket) return null
 
-        // Fetch items separately (PostgREST joins can fail on FK naming)
+        // Fetch items — dual-key: ticket_id (web-created) + ticket_supabase_id (synced)
+        let items = []
         const { data: itemRows } = await supabase.from('ticket_items')
           .select('*').eq('ticket_id', id)
-        const items = (itemRows || []).filter(i => i.name != null)
+        items = (itemRows || []).filter(i => i.name != null)
+        // If no items via ticket_id, try ticket_supabase_id (desktop-synced data)
+        if (!items.length && ticket.supabase_id) {
+          const { data: sidItems } = await supabase.from('ticket_items')
+            .select('*').eq('ticket_supabase_id', ticket.supabase_id)
+          items = (sidItems || []).filter(i => i.name != null)
+        }
 
-        // Fetch client name
+        // Fetch client name — dual-key
         let client_name = null, client_rnc = null
-        if (ticket.client_id) {
-          const { data: cl } = await supabase.from('clients')
-            .select('name, rnc').eq('id', ticket.client_id).single()
+        const cid = ticket.client_id || ticket.client_supabase_id
+        if (cid) {
+          let cl = null
+          if (ticket.client_id) { const r = await supabase.from('clients').select('name, rnc').eq('id', ticket.client_id).maybeSingle(); cl = r.data }
+          if (!cl && ticket.client_supabase_id) { const r = await supabase.from('clients').select('name, rnc').eq('supabase_id', ticket.client_supabase_id).maybeSingle(); cl = r.data }
           if (cl) { client_name = cl.name; client_rnc = cl.rnc }
         }
 
-        // Fetch cajero name
+        // Fetch cajero name — dual-key
         let cajero_name = null
-        if (ticket.cajero_id) {
-          const { data: cj } = await supabase.from('staff')
-            .select('name').eq('id', ticket.cajero_id).single()
+        const cajId = ticket.cajero_id || ticket.cajero_supabase_id
+        if (cajId) {
+          let cj = null
+          if (ticket.cajero_id) { const r = await supabase.from('staff').select('name').eq('id', ticket.cajero_id).maybeSingle(); cj = r.data }
+          if (!cj && ticket.cajero_supabase_id) { const r = await supabase.from('users').select('name').eq('supabase_id', ticket.cajero_supabase_id).maybeSingle(); cj = r.data }
           if (cj) cajero_name = cj.name
         }
 
         let ecf_result = {}
         try { ecf_result = typeof ticket.ecf_result === 'string' ? JSON.parse(ticket.ecf_result) : (ticket.ecf_result || {}) } catch {}
+
+        // Resolve washer_ids to washer_names
         let washer_ids = []
         try { washer_ids = typeof ticket.washer_ids === 'string' ? JSON.parse(ticket.washer_ids) : (ticket.washer_ids || []) } catch {}
+        let washer_names = []
+        if (washer_ids.length) {
+          const { data: wr } = await supabase.from('washers').select('id, supabase_id, name').in('id', washer_ids)
+          if (wr?.length) { washer_names = wr.map(w => w.name) }
+          else {
+            // Try supabase_id lookup (synced washer IDs)
+            const { data: wr2 } = await supabase.from('washers').select('id, supabase_id, name').in('supabase_id', washer_ids)
+            if (wr2?.length) washer_names = wr2.map(w => w.name)
+          }
+        }
+
         return {
           ...ticket,
           client_name,
@@ -754,17 +798,49 @@ export function createWebAPI(supabase, businessId) {
           items,
           ecf_result,
           washer_ids,
+          washer_names,
         }
       }, null),
 
       create: async (data) => {
         try {
           return await tryOr(async () => {
+            // ── Server-side price validation (#21) ────────────────────────
+            // Validate item prices against real DB values before proceeding.
+            // Prevents client-side price manipulation via DevTools.
+            const itemsToValidate = (data.items || []).filter(i => i.service_id || i.inventory_item_id)
+            if (itemsToValidate.length > 0) {
+              const { data: validation, error: valErr } = await supabase.rpc('validate_ticket_prices', {
+                p_business_id: bid,
+                p_items: itemsToValidate.map(i => ({
+                  service_id: i.service_id || null,
+                  inventory_item_id: i.inventory_item_id || null,
+                  name: i.name,
+                  price: i.price,
+                  quantity: i.quantity || 1,
+                })),
+              })
+              if (valErr) console.error('[web.js] price validation RPC error:', valErr.message)
+              if (validation && !validation.valid) {
+                const errMsg = (validation.errors || []).map(e => e.error).join('; ')
+                throw new Error('Price validation failed: ' + errMsg)
+              }
+            }
+
             // Generate doc_number
-            const { count } = await supabase.from('tickets')
-              .select('id', { count: 'exact', head: true })
+            // Atomic doc_number: find max existing, not count (avoids gaps from voids)
+            const { data: lastDoc } = await supabase.from('tickets')
+              .select('doc_number')
               .eq('business_id', bid)
-            const docNum = `T-${String((count || 0) + 1).padStart(4, '0')}`
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+            let nextNum = 1
+            if (lastDoc?.doc_number) {
+              const m = lastDoc.doc_number.match(/T-(\d+)/)
+              if (m) nextNum = parseInt(m[1]) + 1
+            }
+            const docNum = `T-${String(nextNum).padStart(4, '0')}`
 
             const status = data.status || (data.tipo_venta === 'credito' || data.payment_method === 'credit' ? 'pendiente' : 'cobrado')
 
@@ -798,8 +874,9 @@ export function createWebAPI(supabase, businessId) {
             if (items.length && ticket?.id) {
               const svcIds = items.map(i => i.service_id).filter(Boolean)
               if (svcIds.length) {
-                const { data: svcRows } = await supabase.from('services').select('id, cost').in('id', svcIds)
+                const { data: svcRows } = await supabase.from('services').select('id, cost, aplica_itbis').in('id', svcIds)
                 svcCostById = new Map((svcRows || []).map(r => [r.id, r.cost || 0]))
+                var svcItbisById = new Map((svcRows || []).map(r => [r.id, r.aplica_itbis ?? 1]))
               }
               const itemRows = items.map(i => ({
                 ticket_id:          ticket.id,
@@ -808,7 +885,10 @@ export function createWebAPI(supabase, businessId) {
                 name:               i.name,
                 price:              i.price,
                 cost:               i.cost != null ? Number(i.cost) : (i.service_id ? (svcCostById.get(i.service_id) || 0) : 0),
-                itbis:              i.itbis || 0,
+                itbis: (() => {
+                  const aplica = i.aplica_itbis !== undefined ? i.aplica_itbis : (i.service_id ? (svcItbisById.get(i.service_id) ?? 1) : 1)
+                  return aplica !== 0 ? parseFloat((i.price * 0.18).toFixed(2)) : 0
+                })(),
                 is_wash:            i.is_wash ?? true,
                 quantity:           i.quantity || 1,
                 sku:                i.sku || null,
@@ -820,7 +900,7 @@ export function createWebAPI(supabase, businessId) {
               if (err1) {
                 // Retry without business_id
                 const { error: err2 } = await supabase.from('ticket_items').insert(itemRows)
-                if (err2) console.warn('[ticket_items insert]', err2.message)
+                if (err2) console.error('[ticket_items insert]', err2.message)
               }
 
               // Auto-deduct inventory stock for product items
@@ -832,7 +912,7 @@ export function createWebAPI(supabase, businessId) {
                       p_business_id: bid, p_item_id: item.inventory_item_id, p_delta: -qty,
                       p_notes: `Ticket #${ticket.id}`, p_user_id: null,
                     })
-                  } catch { /* stock deduction failed — non-fatal */ }
+                  } catch (e) { console.error('[web.js] stock deduction failed:', e.message) }
                 }
               }
             }
@@ -856,7 +936,7 @@ export function createWebAPI(supabase, businessId) {
                     base_amount: commBase, commission_pct: pct, commission_amount: amt, paid: false,
                   })
                 }
-              } catch { /* commission insert failed — non-fatal */ }
+              } catch (e) { console.error('[web.js] commission insert failed:', e.message) }
             }
 
             // Seller commission — only on wash/service items (NOT beverages/snacks)
@@ -871,7 +951,7 @@ export function createWebAPI(supabase, businessId) {
                     base_amount: commBase, commission_pct: seller.commission_pct, commission_amount: amt, paid: false,
                   })
                 }
-              } catch { /* seller commission insert failed — non-fatal */ }
+              } catch (e) { console.error('[web.js] commission insert failed:', e.message) }
             }
 
             // Cajero commission — on beverages/snacks ONLY
@@ -886,7 +966,7 @@ export function createWebAPI(supabase, businessId) {
                     base_amount: bevBase, commission_pct: cajero.commission_pct, commission_amount: amt, paid: false,
                   })
                 }
-              } catch { /* cajero commission insert failed — non-fatal */ }
+              } catch (e) { console.error('[web.js] commission insert failed:', e.message) }
             }
 
             // Auto-add to queue (same as desktop database.js)
@@ -964,7 +1044,7 @@ export function createWebAPI(supabase, businessId) {
               p_notes: `Void ticket #${id}`, p_user_id: null,
             })
           }
-        } catch { /* stock reversal failed — non-fatal */ }
+        } catch (e) { console.error('[web.js] void stock reversal failed:', e.message) }
       }),
 
       byDateRange: (params) => tryOr(async () => {
@@ -976,41 +1056,62 @@ export function createWebAPI(supabase, businessId) {
         const rows = throwSupaError(await q)
         if (!rows?.length) return []
 
-        // Fetch items for all tickets
-        const ticketIds = rows.map(r => r.id)
-        const { data: allItems } = await supabase.from('ticket_items')
-          .select('ticket_id, name, price, is_wash').in('ticket_id', ticketIds)
+        // Fetch items — dual-key: ticket_id (web-created) + ticket_supabase_id (synced)
+        const tUuids = rows.map(r => r.id).filter(Boolean)
+        const tSids  = [...new Set(rows.map(r => r.supabase_id).filter(Boolean))]
         const itemsMap = {}
-        for (const i of (allItems || [])) {
-          if (!itemsMap[i.ticket_id]) itemsMap[i.ticket_id] = []
-          itemsMap[i.ticket_id].push(i)
-        }
+        if (tUuids.length) { const { data: ir } = await supabase.from('ticket_items').select('ticket_id, name, price, cost, is_wash, quantity, sku').in('ticket_id', tUuids); for (const i of (ir || [])) { if (!itemsMap[i.ticket_id]) itemsMap[i.ticket_id] = []; itemsMap[i.ticket_id].push(i) } }
+        if (tSids.length)  { const { data: ir } = await supabase.from('ticket_items').select('ticket_supabase_id, name, price, cost, is_wash, quantity, sku').in('ticket_supabase_id', tSids); for (const i of (ir || [])) { if (!itemsMap[i.ticket_supabase_id]) itemsMap[i.ticket_supabase_id] = []; itemsMap[i.ticket_supabase_id].push(i) } }
 
-        // Fetch client names
+        // Fetch client names — dual-key
         const clientIds = [...new Set(rows.map(r => r.client_id).filter(Boolean))]
+        const clientSids = [...new Set(rows.map(r => r.client_supabase_id).filter(Boolean))]
         let clientMap = {}
-        if (clientIds.length) {
-          const { data: cls } = await supabase.from('clients').select('id, name, rnc').in('id', clientIds)
-          for (const c of (cls || [])) clientMap[c.id] = c
-        }
+        if (clientIds.length) { const { data: cls } = await supabase.from('clients').select('id, name, rnc').in('id', clientIds); for (const c of (cls || [])) clientMap[c.id] = c }
+        if (clientSids.length) { const { data: cls } = await supabase.from('clients').select('id, supabase_id, name, rnc').in('supabase_id', clientSids); for (const c of (cls || [])) clientMap[c.supabase_id] = c }
 
-        // Fetch cajero names
+        // Fetch cajero names — dual-key
         const cajeroIds = [...new Set(rows.map(r => r.cajero_id).filter(Boolean))]
+        const cajeroSids = [...new Set(rows.map(r => r.cajero_supabase_id).filter(Boolean))]
         let cajeroMap = {}
-        if (cajeroIds.length) {
-          const { data: staff } = await supabase.from('staff').select('id, name').in('id', cajeroIds)
-          for (const s of (staff || [])) cajeroMap[s.id] = s
+        if (cajeroIds.length) { const { data: staff } = await supabase.from('staff').select('id, name').in('id', cajeroIds); for (const s of (staff || [])) cajeroMap[s.id] = s }
+        if (cajeroSids.length) { const { data: ur } = await supabase.from('users').select('supabase_id, name').in('supabase_id', cajeroSids); for (const u of (ur || [])) cajeroMap[u.supabase_id] = u }
+
+        // Fetch washer names for all tickets
+        const allWasherIds = new Set()
+        for (const r of rows) {
+          let wids = []
+          try { wids = typeof r.washer_ids === 'string' ? JSON.parse(r.washer_ids) : (r.washer_ids || []) } catch {}
+          for (const w of wids) if (w) allWasherIds.add(w)
+        }
+        const washerMap = {}
+        if (allWasherIds.size) {
+          const wArr = [...allWasherIds]
+          const { data: wr } = await supabase.from('washers').select('id, supabase_id, name').in('id', wArr)
+          for (const w of (wr || [])) { washerMap[w.id] = w.name; if (w.supabase_id) washerMap[w.supabase_id] = w.name }
+          // Also try supabase_id for synced washer references
+          const foundIds = new Set((wr || []).map(w => String(w.id)))
+          const unfound = wArr.filter(w => !foundIds.has(String(w)))
+          if (unfound.length) {
+            const { data: wr2 } = await supabase.from('washers').select('id, supabase_id, name').in('supabase_id', unfound)
+            for (const w of (wr2 || [])) { washerMap[w.supabase_id] = w.name; washerMap[w.id] = w.name }
+          }
         }
 
         return rows.map(r => {
-          const items = (itemsMap[r.id] || []).filter(i => i.name != null)
+          const items = (itemsMap[r.id] || itemsMap[r.supabase_id] || []).filter(i => i.name != null)
+          const cKey = r.client_id || r.client_supabase_id
+          const cajKey = r.cajero_id || r.cajero_supabase_id
+          let wids = []
+          try { wids = typeof r.washer_ids === 'string' ? JSON.parse(r.washer_ids) : (r.washer_ids || []) } catch {}
           return {
             ...r,
             items,
             service_names: items.map(i => i.name).join(' + ') || null,
-            client_name: clientMap[r.client_id]?.name || null,
-            client_rnc:  clientMap[r.client_id]?.rnc  || null,
-            cajero_name: cajeroMap[r.cajero_id]?.name  || null,
+            client_name: (clientMap[cKey] || clientMap[r.client_id] || clientMap[r.client_supabase_id])?.name || null,
+            client_rnc:  (clientMap[cKey] || clientMap[r.client_id] || clientMap[r.client_supabase_id])?.rnc  || null,
+            cajero_name: (cajeroMap[cajKey] || cajeroMap[r.cajero_id] || cajeroMap[r.cajero_supabase_id])?.name || null,
+            washer_names: wids.map(w => washerMap[w] || washerMap[String(w)]).filter(Boolean),
           }
         })
       }, []),
@@ -1745,6 +1846,38 @@ export function createWebAPI(supabase, businessId) {
     updater: {
       install:  () => Promise.resolve(), // web auto-updates via service worker
       onStatus: () => () => {},          // returns unsubscribe function (no-op)
+    },
+
+    // ── Realtime subscriptions (Supabase Realtime) ───────────────────────────
+
+    realtime: {
+      subscribeQueue: (callback) => {
+        const channel = supabase.channel('queue-changes')
+          .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'queue',
+            filter: `business_id=eq.${bid}`,
+          }, (payload) => callback(payload))
+          .subscribe()
+        return () => supabase.removeChannel(channel)
+      },
+
+      subscribeTickets: (callback) => {
+        const channel = supabase.channel('ticket-changes')
+          .on('postgres_changes', {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'tickets',
+            filter: `business_id=eq.${bid}`,
+          }, (payload) => callback(payload))
+          .subscribe()
+        return () => supabase.removeChannel(channel)
+      },
+
+      unsubscribeAll: () => {
+        supabase.removeAllChannels()
+      },
     },
   }
 }

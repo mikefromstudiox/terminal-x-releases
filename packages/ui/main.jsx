@@ -12,6 +12,14 @@ import { createElectronAPI, createElectronPrinterAPI, isElectron } from '@termin
 import { createWebAPI, createWebPrinterAPI } from '@terminal-x/data/web'
 import './index.css'
 
+// ── Global error handlers — catch unhandled errors outside React tree ────────
+window.addEventListener('error', (e) => {
+  console.error('[renderer] Uncaught error:', e.error || e.message)
+})
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('[renderer] Unhandled promise rejection:', e.reason)
+})
+
 // Platform detection: Electron (preload.js present) vs Web browser
 const api       = isElectron() ? createElectronAPI()        : createWebAPI()
 const printerApi = isElectron() ? createElectronPrinterAPI() : createWebPrinterAPI()

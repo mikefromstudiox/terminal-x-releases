@@ -8,7 +8,6 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { useAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
-import { syncInventoryItem } from '@terminal-x/services/sync'
 
 const ALLOWED = ['owner', 'manager', 'cfo', 'accountant']
 
@@ -54,7 +53,6 @@ function ItemModal({ item, onSave, onClose }) {
       }
       if (item?.id) await api.inventory.update({ id: item.id, ...data })
       else          await api.inventory.create(data)
-      syncInventoryItem(item?.id ? { id: item.id, ...data } : data)
       onSave()
     } catch (e) {
       setErr(e?.message || 'Error al guardar.')
@@ -267,10 +265,37 @@ function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim())
   if (lines.length < 2) return { headers: [], rows: [] }
   const sep = lines[0].includes('\t') ? '\t' : lines[0].includes(';') ? ';' : ','
-  const headers = lines[0].split(sep).map(h => h.trim().replace(/^["']|["']$/g, '').toLowerCase())
+
+  function splitRow(line) {
+    const result = []
+    let current = ''
+    let inQuotes = false
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i]
+      if (inQuotes) {
+        if (ch === '"') {
+          if (line[i + 1] === '"') { current += '"'; i++ }
+          else inQuotes = false
+        } else {
+          current += ch
+        }
+      } else if (ch === '"') {
+        inQuotes = true
+      } else if (ch === sep) {
+        result.push(current.trim())
+        current = ''
+      } else {
+        current += ch
+      }
+    }
+    result.push(current.trim())
+    return result
+  }
+
+  const headers = splitRow(lines[0]).map(h => h.replace(/^["']|["']$/g, '').toLowerCase())
   const rows = []
   for (let i = 1; i < lines.length; i++) {
-    const vals = lines[i].split(sep).map(v => v.trim().replace(/^["']|["']$/g, ''))
+    const vals = splitRow(lines[i])
     if (vals.every(v => !v)) continue
     const obj = {}
     headers.forEach((h, idx) => { obj[h] = vals[idx] || '' })

@@ -143,10 +143,11 @@ function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowSto
     if (!firstChild) return null
     return (
       <NavLink
-        to={firstChild.to}
+        to={locked ? '#' : firstChild.to}
+        onClick={locked ? (e) => e.preventDefault() : undefined}
         title={label}
         className={`flex items-center justify-center w-10 h-10 mx-auto rounded-xl transition-all group select-none ${
-          locked ? 'opacity-40' : ''
+          locked ? 'opacity-40 cursor-not-allowed' : ''
         } ${active ? 'bg-white/10 text-[#b3001e]' : 'text-white/50 hover:bg-white/5 hover:text-white/80'}`}
       >
         <span className="relative flex items-center justify-center w-[22px] h-[22px]">
@@ -184,9 +185,10 @@ function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowSto
               return (
                 <NavLink
                   key={child.to}
-                  to={child.to}
+                  to={childLocked ? '#' : child.to}
+                  onClick={childLocked ? (e) => e.preventDefault() : undefined}
                   className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-medium transition-colors ${
-                    childLocked ? 'opacity-40' : ''
+                    childLocked ? 'opacity-40 cursor-not-allowed' : ''
                   } ${childActive
                     ? 'bg-white/10 text-[#b3001e] font-semibold'
                     : 'text-white/50 hover:bg-white/5 hover:text-white/70'
@@ -208,10 +210,11 @@ function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowSto
   if (collapsed) {
     return (
       <NavLink
-        to={item.to}
+        to={locked ? '#' : item.to}
+        onClick={locked ? (e) => e.preventDefault() : undefined}
         title={label}
         className={`flex items-center justify-center w-10 h-10 mx-auto rounded-xl transition-all group select-none ${
-          locked ? 'opacity-40' : ''
+          locked ? 'opacity-40 cursor-not-allowed' : ''
         } ${active ? 'bg-white/10 text-[#b3001e]' : 'text-white/50 hover:bg-white/5 hover:text-white/80'}`}
       >
         <span className="relative flex items-center justify-center w-[22px] h-[22px]">
@@ -233,9 +236,10 @@ function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowSto
 
   return (
     <NavLink
-      to={item.to}
+      to={locked ? '#' : item.to}
+      onClick={locked ? (e) => e.preventDefault() : undefined}
       className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all select-none ${
-        locked ? 'opacity-40' : ''
+        locked ? 'opacity-40 cursor-not-allowed' : ''
       } ${active
         ? 'bg-white/10 text-[#b3001e] border-l-2 border-[#b3001e]'
         : 'text-white/50 hover:bg-white/5 hover:text-white/80'

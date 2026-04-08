@@ -9,7 +9,6 @@ import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
 import { useClients, useMutation } from '../hooks/useDB'
 import { useRNC } from '../hooks/useRNC'
-import { syncClient } from '@terminal-x/services/sync'
 import { printClientReceipt } from '@terminal-x/services/printer'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -187,7 +186,6 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
         notes:        editForm.notes.trim(),
       }
       await api?.clients?.update?.(data)
-      syncClient(data)
       onUpdateClient(client.id, {
         name:        data.name,
         phone:       data.phone,
@@ -207,6 +205,12 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
   }
 
   async function handleDelete() {
+    if (client.balance > 0) {
+      flash(lang === 'es'
+        ? `No se puede eliminar: balance pendiente de RD$ ${client.balance.toFixed(2)}`
+        : `Cannot delete: outstanding balance of RD$ ${client.balance.toFixed(2)}`)
+      return
+    }
     const msg = lang === 'es' ? 'Eliminar este cliente?' : 'Delete this client?'
     if (!confirm(msg)) return
     try {
@@ -727,7 +731,6 @@ export function NewClientForm({ onClose, onSave, lang }) {
     try {
       const result = await api?.clients?.create?.(newClientData)
       const newId  = result?.lastInsertRowid || Date.now()
-      syncClient({ ...newClientData, id: newId })
       onSave({
         ...mapClient({ ...newClientData, id: newId, visits: 0, total_spent: 0, balance: 0, last_service_date: null }),
       })

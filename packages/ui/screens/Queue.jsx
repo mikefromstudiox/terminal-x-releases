@@ -21,7 +21,7 @@ const FROM_DB  = { waiting: 'pendiente', in_progress: 'proceso', done: 'listo' }
 // UI status → DB status
 const TO_DB    = { pendiente: 'waiting', proceso: 'in_progress', listo: 'done' }
 // UI cycle order
-const CYCLE_UI = { pendiente: 'proceso', proceso: 'listo', listo: 'pendiente' }
+const CYCLE_UI = { pendiente: 'proceso', proceso: 'listo', listo: 'listo' }
 
 function fmtRD(n) {
   return `RD$ ${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -419,6 +419,15 @@ export default function Queue() {
     }
   }, [dbQueue, loading])
 
+  // Realtime queue updates (web only — Supabase Realtime)
+  useEffect(() => {
+    if (!api?.realtime?.subscribeQueue) return
+    const unsub = api.realtime.subscribeQueue(() => {
+      reload()
+    })
+    return unsub
+  }, [api])
+
   function flash(msg) {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
@@ -438,6 +447,7 @@ export default function Queue() {
   async function cycleStatus(id) {
     const ticket   = queue.find(t => t.id === id)
     if (!ticket) return
+    if (ticket.status === 'listo') return  // Already done — use Cobrar button
     const nextUI   = CYCLE_UI[ticket.status]
     const nextDB   = TO_DB[nextUI]
 
@@ -484,6 +494,7 @@ export default function Queue() {
         washerName: ticket.worker?.name || '',
         services: full?.items?.map(i => ({ name: i.name, price: i.price }))
                   ?? [{ name: ticket.servicesStr, price: ticket.amount }],
+        client:   full?.client_id ? { id: full.client_id, name: full.client_name || '', rnc: full.client_rnc || '' } : null,
       })
     } catch {
       setCobrarModal({
@@ -538,8 +549,27 @@ export default function Queue() {
     const queueId  = snapshot.queueId
     const ticketId = snapshot.id
 
-    // ── Fire print + drawer BEFORE closing modal ──────────────────────────
-    // This lets the cashier still see the total/change while the receipt prints
+    // ── Persist to DB FIRST ────────────────────────────────────────────────
+    if (ticketId) {
+      try {
+        await api.tickets.markPaid({
+          id:            ticketId,
+          paymentMethod: data.tipo === 'credito' ? 'credit' : (data.formaPago || 'cash'),
+          ncf:           data.ecf?.eNCF || null,
+          ecfResult:     data.ecf || null,
+          clientId:      data.clientId || null,
+          tipoVenta:     data.tipo || null,
+        })
+        if (queueId) await api.queue.updateStatus({ id: queueId, status: 'done' })
+      } catch (err) {
+        console.error('[Queue] markPaid error:', err)
+        flash(lang === 'es' ? 'Error al cobrar — intente de nuevo' : 'Payment error — try again')
+        setCobrarModal(null)
+        return
+      }
+    }
+
+    // ── Print + drawer AFTER DB persistence ──────────────────────────────
     try {
       const [cfg, empresa] = await Promise.all([
         api.settings.get().catch(() => ({})),
@@ -581,34 +611,17 @@ export default function Queue() {
       }
     } catch { /* print errors never block the queue flow */ }
 
-    // ── Persist to DB FIRST, then update UI ─────────────────────────────
+    // ── Update UI + sync ────────────────────────────────────────────────
+    setCobrarModal(null)
     if (ticketId) {
-      try {
-        await api.tickets.markPaid({
-          id:            ticketId,
-          paymentMethod: data.tipo === 'credito' ? 'credit' : (data.formaPago || 'cash'),
-          ncf:           data.ecf?.eNCF || null,
-          ecfResult:     data.ecf || null,
-          clientId:      data.clientId || null,
-          tipoVenta:     data.tipo || null,
-        })
-        if (queueId) await api.queue.updateStatus({ id: queueId, status: 'done' })
-        setCobrarModal(null)
-        setQueue(q => q.filter(t => t.id !== queueId))
-        flash(`${data.ticketNo} · ${lang === 'es' ? 'Cobrado' : 'Collected'} ✓`)
-        syncTicket({
-          client_name:    data.clientId ? String(data.clientId) : null,
-          payment_method: data.tipo === 'credito' ? 'credit' : (data.formaPago || 'cash'),
-          total:          data.total || 0,
-          status:         'cobrado',
-        }, { docNumber: data.ticketNo || snapshot?.ticketNo }).catch(() => {})
-      } catch (err) {
-        console.error('[Queue] markPaid error:', err)
-        flash(lang === 'es' ? 'Error al cobrar — intente de nuevo' : 'Payment error — try again')
-        setCobrarModal(null)
-      }
-    } else {
-      setCobrarModal(null)
+      setQueue(q => q.filter(t => t.id !== queueId))
+      flash(`${data.ticketNo} · ${lang === 'es' ? 'Cobrado' : 'Collected'} ✓`)
+      syncTicket({
+        client_name:    data.clientId ? String(data.clientId) : null,
+        payment_method: data.tipo === 'credito' ? 'credit' : (data.formaPago || 'cash'),
+        total:          data.total || 0,
+        status:         'cobrado',
+      }, { docNumber: data.ticketNo || snapshot?.ticketNo }).catch(() => {})
     }
   }
 
