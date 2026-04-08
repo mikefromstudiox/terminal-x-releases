@@ -17,6 +17,7 @@
  */
 
 const https = require('https')
+const crypto = require('crypto')
 const { signSeed } = require('./xml-signer')
 
 // ── Environment URLs ──────────────────────────────────────────────────────────
@@ -65,6 +66,16 @@ function httpsRequest({ hostname, path, method = 'GET', headers = {}, body = nul
   })
 }
 
+/**
+ * wrapMultipart — wraps XML in multipart/form-data body for DGII endpoints.
+ * Returns { body, contentType } ready for httpsRequest headers.
+ */
+function wrapMultipart(xmlString) {
+  const boundary = '----DGIIBoundary' + crypto.randomBytes(8).toString('hex')
+  const body = `--${boundary}\r\nContent-Disposition: form-data; name="xml"; filename="signed.xml"\r\nContent-Type: application/xml\r\n\r\n${xmlString}\r\n--${boundary}--\r\n`
+  return { body, contentType: `multipart/form-data; boundary=${boundary}` }
+}
+
 // ── Authentication ────────────────────────────────────────────────────────────
 
 /**
@@ -105,16 +116,18 @@ async function authenticate(env, privateKeyPem, certificatePem) {
   // Step 2: Sign the seed
   const signedSeed = signSeed(seedXml, privateKeyPem, certificatePem)
 
-  // Step 3: POST validarsemilla
+  // Step 3: POST validarsemilla as multipart/form-data (DGII requires file upload format)
+  const { body: multipartBody, contentType } = wrapMultipart(signedSeed)
+
   const validateRes = await httpsRequest({
     hostname: e.ecf,
     path: `${e.prefix}/autenticacion/api/autenticacion/validarsemilla`,
     method: 'POST',
     headers: {
-      'Content-Type': 'application/xml',
-      'Content-Length': String(Buffer.byteLength(signedSeed, 'utf8')),
+      'Content-Type': contentType,
+      'Content-Length': String(Buffer.byteLength(multipartBody, 'utf8')),
     },
-    body: signedSeed,
+    body: multipartBody,
   })
 
   if (validateRes.status !== 200) {

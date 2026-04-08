@@ -80,19 +80,13 @@ function getSecurityCode(signedXml) {
 
 /**
  * signSeed — signs a DGII semilla XML for the authentication flow.
- * The semilla comes as: <SemillaModel><valor>...</valor><fecha>...</fecha></SemillaModel>
- * Must sign the entire document and return signed XML.
+ * Uses dgii-ecf Signature class which handles DGII's custom digest
+ * (namespace attribute sorting) correctly with xml-crypto v2.
  */
 function signSeed(seedXml, privateKeyPem, certificatePem) {
-  // Strip unused xmlns:xsi/xmlns:xsd declarations — xml-crypto v6 C14N bug
-  // produces wrong digest when these namespace declarations are present.
-  // DGII's seed XML includes them but they're not referenced by any element.
-  const cleanSeed = seedXml
-    .replace(/<\?xml[^?]*\?>\s*/, '')
-    .replace(/\s+xmlns:xsi="[^"]*"/g, '')
-    .replace(/\s+xmlns:xsd="[^"]*"/g, '')
-  const { signedXml } = signXML(cleanSeed, privateKeyPem, certificatePem)
-  return signedXml
+  const { Signature } = require('dgii-ecf')
+  const signer = new Signature(privateKeyPem, certificatePem)
+  return signer.signXml(seedXml, 'SemillaModel')
 }
 
 module.exports = { signXML, getSecurityCode, signSeed }
