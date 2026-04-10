@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, shell, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, Menu, shell, dialog, globalShortcut } = require('electron')
 const path   = require('path')
 const os     = require('os')
 const fs     = require('fs')
@@ -620,6 +620,13 @@ function createWindow() {
     minHeight: 700,
     title: 'Terminal X',
     icon: iconPath,
+    frame: false,
+    fullscreen: !isDev,
+    kiosk: !isDev,
+    autoHideMenuBar: true,
+    closable: false,
+    minimizable: false,
+    maximizable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -642,21 +649,59 @@ function createWindow() {
   }
   win.once('ready-to-show', () => {
     win.show()
+    if (!isDev) {
+      win.setKiosk(true)
+      win.setFullScreen(true)
+    }
     initUpdater(win)
   })
 
-  // F12 toggles DevTools
-  if (isDev) {
-    win.webContents.on('before-input-event', (_, input) => {
-      if (input.key === 'F12' && input.type === 'keyDown') win.webContents.toggleDevTools()
-    })
-  }
+  // Block window close — only ESC confirmation can quit
+  win.on('close', (e) => {
+    if (!app.isQuiting) {
+      e.preventDefault()
+      promptExit(win)
+    }
+  })
+
+  // ESC key → confirm exit popup (intercept before renderer)
+  win.webContents.on('before-input-event', (_, input) => {
+    if (input.key === 'Escape' && input.type === 'keyDown') {
+      promptExit(win)
+    }
+    if (isDev && input.key === 'F12' && input.type === 'keyDown') {
+      win.webContents.toggleDevTools()
+    }
+  })
 
   if (isDev) {
     win.webContents.openDevTools()
     win.loadURL('http://localhost:5173')
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'))
+  }
+}
+
+// Exit confirmation dialog — only way out of kiosk mode
+let exitPromptOpen = false
+function promptExit(win) {
+  if (exitPromptOpen) return
+  exitPromptOpen = true
+  const choice = dialog.showMessageBoxSync(win, {
+    type: 'question',
+    buttons: ['Cancelar', 'Salir'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Salir de Terminal X',
+    message: '¿Está seguro que desea salir?',
+    detail: 'Se cerrará la aplicación.',
+    noLink: true,
+  })
+  exitPromptOpen = false
+  if (choice === 1) {
+    app.isQuiting = true
+    try { globalShortcut.unregisterAll() } catch {}
+    app.quit()
   }
 }
 
@@ -691,11 +736,25 @@ app.whenReady().then(async () => {
     sync.startAutoSync(5 * 60 * 1000) // every 5 min
   }
   createWindow()
+
+  // Block Alt+F4, Ctrl+W, Ctrl+R, Win key combos in kiosk mode
+  if (!isDev) {
+    const blocked = ['Alt+F4','CommandOrControl+W','CommandOrControl+Q','CommandOrControl+R','CommandOrControl+Shift+R','F11','Super']
+    blocked.forEach(k => { try { globalShortcut.register(k, () => {
+      const w = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
+      if (k === 'Alt+F4') promptExit(w)
+    }) } catch {} })
+  }
+
   // Retry any queued e-CF submissions every 30s (DGII 72h contingency compliance)
   setInterval(processDgiiQueue, 30_000)
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('will-quit', () => {
+  try { globalShortcut.unregisterAll() } catch {}
 })
 
 app.on('window-all-closed', () => {
@@ -726,7 +785,12 @@ function handle(channel, fn) {
 // ── Admin panel — unified CRUD handlers ───────────────────────────────────────
 // Empresa
 handle('get-empresa',   ()     => db.empresaGet())
-handle('save-empresa',  (data) => { db.empresaSave(data); return true })
+handle('save-empresa',  (data) => {
+  db.empresaSave(data)
+  // Trigger cloud sync so logo + business info hit Supabase immediately
+  try { sync.syncNow?.() } catch {}
+  return true
+})
 
 // Usuarios
 handle('get-usuarios',    ()     => db.usersGetAll())
@@ -788,6 +852,7 @@ handle('services:all',       ()              => db.servicesGetAll())
 handle('services:all-admin', ()              => db.servicesGetAllAdmin())
 handle('services:create',    (data)          => db.serviceCreate(data))
 handle('services:update',    ({id,...data})  => db.serviceUpdate(id, data))
+handle('services:delete',    ({id})          => db.serviceDelete(id))
 
 // ── Washers ───────────────────────────────────────────────────────────────────
 handle('washers:all',       ()              => db.washersGetAll())
@@ -819,6 +884,7 @@ handle('payroll-runs:delete',      ({id})                => { db.payrollRunDelet
 handle('payroll-settings:get',     ()                    => db.payrollSettingsGet())
 handle('payroll-settings:update',  (data)                => { db.payrollSettingsUpdate(data); return true })
 handle('salary-changes:by-empleado', ({empleadoId})      => db.salaryChangesByEmpleado(empleadoId))
+handle('salary-changes:at-date',    ({empleadoId, date}) => db.salaryAtDate(empleadoId, date))
 
 // ── Clients ───────────────────────────────────────────────────────────────────
 handle('clients:all',          ()          => db.clientsGetAll())
