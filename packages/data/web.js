@@ -293,17 +293,19 @@ export function createWebAPI(supabase, businessId) {
         const current = throwSupaError(await supabase.from('inventory_items').select('quantity, supabase_id').eq('id', id).eq('business_id', bid).single())
         const newQty = Math.max(0, (current.quantity || 0) + delta)
         throwSupaError(await supabase.from('inventory_items').update({ quantity: newQty }).eq('id', id).eq('business_id', bid))
-        // Log the adjustment in inventory_transactions
-        await supabase.from('inventory_transactions').insert({
-          supabase_id: crypto.randomUUID(),
-          item_id: id,
-          item_supabase_id: current.supabase_id || null,
-          type: delta > 0 ? 'adjustment_in' : 'adjustment_out',
-          delta,
-          notes: notes || null,
-          user_id: userId || null,
-          business_id: bid,
-        }).catch(() => {}) // non-blocking — stock update already committed
+        // Log the adjustment in inventory_transactions (non-blocking — stock already updated)
+        try {
+          await supabase.from('inventory_transactions').insert({
+            supabase_id: crypto.randomUUID(),
+            item_id: id,
+            item_supabase_id: current.supabase_id || null,
+            type: delta > 0 ? 'adjustment_in' : 'adjustment_out',
+            delta,
+            notes: notes || null,
+            user_id: userId || null,
+            business_id: bid,
+          })
+        } catch {}
         return newQty
       }),
 

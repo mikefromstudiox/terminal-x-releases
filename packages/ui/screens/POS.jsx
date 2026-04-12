@@ -205,6 +205,18 @@ function CarWashPOS() {
   const rawSellers = rawSellersDB || []
   const { lookup: rncLookup }                                        = useRNC()
 
+  // ── Inventory items (products: drinks, snacks, etc.) ───────────────────
+  // Loaded alongside services. Shows as additional category tabs on the POS.
+  // Only items with quantity > 0 appear. Stock deducted on sale.
+  const [invItems, setInvItems] = useState([])
+  const [invLoading, setInvLoading] = useState(true)
+  useEffect(() => {
+    api?.inventory?.all?.()
+      .then(r => setInvItems((r || []).filter(i => i.quantity > 0)))
+      .catch(() => {})
+      .finally(() => setInvLoading(false))
+  }, [api])
+
   // ── Category order from categorias_servicio
   const [catOrder, setCatOrder] = useState({})
   useEffect(() => {
@@ -217,19 +229,27 @@ function CarWashPOS() {
     }).catch(() => {})
   }, [])
 
-  // ── Derived: categories + services grouped
+  // ── Derived: categories + services grouped (includes inventory categories)
   const categories = useMemo(() => {
     const seen = new Set()
     const cats = []
     for (const svc of rawServices) {
       if (!seen.has(svc.category)) {
         seen.add(svc.category)
-        cats.push({ id: svc.category, label: svc.category })
+        cats.push({ id: svc.category, label: svc.category, type: 'service' })
       }
     }
     cats.sort((a, b) => (catOrder[a.id] ?? 999) - (catOrder[b.id] ?? 999))
+    // Append inventory categories AFTER service categories
+    for (const inv of invItems) {
+      const cat = inv.category || 'Productos'
+      if (!seen.has('inv:' + cat)) {
+        seen.add('inv:' + cat)
+        cats.push({ id: 'inv:' + cat, label: cat, type: 'inventory' })
+      }
+    }
     return cats
-  }, [rawServices, catOrder])
+  }, [rawServices, catOrder, invItems])
 
   const servicesByCategory = useMemo(() => {
     const groups = {}
@@ -237,8 +257,14 @@ function CarWashPOS() {
       if (!groups[svc.category]) groups[svc.category] = []
       groups[svc.category].push(svc)
     }
+    // Add inventory items under their prefixed category key
+    for (const inv of invItems) {
+      const key = 'inv:' + (inv.category || 'Productos')
+      if (!groups[key]) groups[key] = []
+      groups[key].push({ ...inv, _isInventory: true, is_wash: 0 })
+    }
     return groups
-  }, [rawServices])
+  }, [rawServices, invItems])
 
   // ── UI state
   const [category,  setCategory]  = useState(null)
@@ -282,7 +308,7 @@ function CarWashPOS() {
   const cartRef = useRef(null)
 
   // O(1) lookup instead of O(n) items.some() per service button
-  const selectedIds = useMemo(() => new Set(items.map(i => i.id)), [items])
+  const selectedIds = useMemo(() => new Set(items.map(i => i._cartKey || i.id)), [items])
 
   function clearForm() {
     setItems([])
@@ -322,6 +348,36 @@ function CarWashPOS() {
   }, [allOrderItems, vehicle, workers, salesperson, rncName, navigate])
 
   function toggleService(svc) {
+    if (svc._isInventory) {
+      // Inventory items: tap adds qty, not toggle. Uses a prefixed key to avoid
+      // collisions with service IDs (inventory items have UUID ids from Supabase).
+      // `price` is always the UNIT price — calcTotals multiplies by qty.
+      const cartKey = 'inv:' + svc.id
+      setItems(prev => {
+        const existing = prev.find(i => i._cartKey === cartKey)
+        if (existing) {
+          if (existing.qty >= svc.quantity) return prev // already at max stock
+          return prev.map(i => i._cartKey === cartKey ? { ...i, qty: i.qty + 1, quantity: i.qty + 1 } : i)
+        }
+        return [...prev, {
+          _cartKey:          cartKey,
+          _isInventory:      true,
+          id:                svc.id,
+          inventory_item_id: svc.id,
+          name:              svc.name,
+          price:             svc.price,   // unit price — calcTotals does price * qty
+          cost:              svc.cost || 0,
+          sku:               svc.sku || null,
+          is_wash:           0,
+          aplica_itbis:      svc.aplica_itbis ?? 1,
+          qty:               1,
+          quantity:           1,
+          _stock:            svc.quantity,
+        }]
+      })
+      return
+    }
+    // Regular services: toggle on/off
     setItems(prev =>
       prev.some(i => i.id === svc.id)
         ? prev.filter(i => i.id !== svc.id)
@@ -330,7 +386,8 @@ function CarWashPOS() {
   }
 
   function removeOrderItem(item) {
-    setItems(prev => prev.filter(i => i.id !== item.id))
+    const key = item._cartKey || item.id
+    setItems(prev => prev.filter(i => (i._cartKey || i.id) !== key))
   }
 
   async function handleRncLookup() {
@@ -364,10 +421,15 @@ function CarWashPOS() {
         total:             tot,
         beverage_subtotal: beverageSubtotal,
         items:             allOrderItems.map(s => ({
-          service_id: typeof s.id === 'number' ? s.id : null,
-          name:       s.name,
-          price:      s.price,
-          is_wash:    s.is_wash ?? 1,
+          service_id:        s._isInventory ? null : (typeof s.id === 'number' ? s.id : null),
+          inventory_item_id: s.inventory_item_id || null,
+          name:              s.name,
+          price:             s.price,  // always unit price
+          cost:              s.cost || 0,
+          is_wash:           s.is_wash ?? 1,
+          quantity:           s.qty || 1,
+          sku:               s.sku || null,
+          aplica_itbis:      s.aplica_itbis ?? 1,
         })),
       })
 
@@ -410,12 +472,15 @@ function CarWashPOS() {
         beverage_subtotal: beverageSubtotal,
         ecf_result:       paymentData.ecf || {},
         items:            pending.items.map(s => ({
-          service_id:    typeof s.id === 'number' ? s.id : null,
-          name:          s.name,
-          price:         s.price,
-          cost:          s.cost || 0,
-          is_wash:       s.is_wash ?? 1,
-          aplica_itbis:  s.aplica_itbis ?? 1,
+          service_id:        s._isInventory ? null : (typeof s.id === 'number' ? s.id : null),
+          inventory_item_id: s.inventory_item_id || null,
+          name:              s.name,
+          price:             s.price,  // always unit price
+          cost:              s.cost || 0,
+          is_wash:           s.is_wash ?? 1,
+          quantity:           s.qty || 1,
+          sku:               s.sku || null,
+          aplica_itbis:      s.aplica_itbis ?? 1,
         })),
         comentario: paymentData.comentario || '',
       })
@@ -546,10 +611,12 @@ function CarWashPOS() {
           ) : (
             <div className={`grid gap-2 md:gap-2.5 ${gridCols}`}>
               {(servicesByCategory[category] ?? []).map(svc => {
-                const selected = selectedIds.has(svc.id)
+                const key = svc._isInventory ? 'inv:' + svc.id : svc.id
+                const selected = selectedIds.has(key)
+                const cartItem = svc._isInventory ? items.find(i => i._cartKey === key) : null
                 return (
                   <button
-                    key={svc.id}
+                    key={key}
                     onClick={() => toggleService(svc)}
                     className={`rounded-xl p-3 md:p-3.5 text-left transition-all border min-h-[44px] ${
                       selected
@@ -560,9 +627,20 @@ function CarWashPOS() {
                     <p className="text-xs md:text-[13px] font-semibold leading-snug">
                       {lang === 'es' ? svc.name : (svc.name_en || svc.name)}
                     </p>
-                    <p className={`text-[11px] md:text-[12px] font-bold mt-1 md:mt-1.5 ${selected ? 'text-[#0C447C]/70 dark:text-white/70' : 'text-slate-400 dark:text-white/40'}`}>
-                      {fmtRD(svc.price)}
-                    </p>
+                    <div className="flex items-center justify-between mt-1 md:mt-1.5">
+                      <p className={`text-[11px] md:text-[12px] font-bold ${selected ? 'text-[#0C447C]/70 dark:text-white/70' : 'text-slate-400 dark:text-white/40'}`}>
+                        {fmtRD(svc._isInventory ? svc.price : svc.price)}
+                      </p>
+                      {svc._isInventory && (
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                          svc.quantity <= (svc.min_quantity || 3)
+                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
+                        }`}>
+                          {cartItem ? `${cartItem.qty}/${svc.quantity}` : svc.quantity}
+                        </span>
+                      )}
+                    </div>
                   </button>
                 )
               })}
