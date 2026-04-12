@@ -65,6 +65,8 @@ export default async function handler(req, res) {
   if (action === 'cert_notes') return handleCertNotes(req, res)
   if (action === 'cert_docs') return handleCertDocs(req, res)
   if (action === 'cert_stats') return handleCertStats(req, res)
+  if (action === 'set_staff_pin') return handleSetStaffPin(req, res)
+  if (action === 'upload_logo') return handleUploadLogo(req, res)
   return res.status(400).json({ error: 'Unknown action' })
 }
 
@@ -74,17 +76,24 @@ async function handleStats(req, res) {
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
   const { supabase } = auth
   try {
-    const [r1, r2, r3, r4, r5, r6] = await Promise.all([
+    const now = new Date()
+    const oneDayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString()
+    const [r1, r2, r3, r4, r5, r6, r7, r8, r9] = await Promise.all([
       supabase.from('businesses').select('id', { count: 'exact', head: true }),
       supabase.from('licenses').select('id', { count: 'exact', head: true }).eq('status', 'active'),
       supabase.from('licenses').select('id', { count: 'exact', head: true }).eq('status', 'suspended'),
       supabase.from('licenses').select('id', { count: 'exact', head: true }).eq('status', 'expired'),
       supabase.from('businesses').select('id, name, created_at').order('created_at', { ascending: false }).limit(10),
       supabase.from('licenses').select('plan_id, plans(name)'),
+      supabase.from('license_events').select('license_id', { count: 'exact', head: true }).gt('created_at', oneDayAgo),
+      supabase.from('tickets').select('business_id').gt('created_at', oneDayAgo),
+      supabase.from('businesses').select('id, name, updated_at, settings'),
     ])
     const byPlan = {}
     for (const l of (r6.data || [])) { const p = l.plans?.name || 'free'; byPlan[p] = (byPlan[p] || 0) + 1 }
-    return res.json({ totalClients: r1.count || 0, activeLicenses: r2.count || 0, suspendedLicenses: r3.count || 0, expiredLicenses: r4.count || 0, recentSignups: r5.data || [], byPlan })
+    const activeToday = new Set((r8.data || []).map(t => t.business_id)).size
+    const offlineCount = (r9.data || []).filter(b => { const lastSeen = b.updated_at; if (!lastSeen) return true; return (now - new Date(lastSeen)) > 7 * 24 * 60 * 60 * 1000 }).length
+    return res.json({ totalClients: r1.count || 0, activeLicenses: r2.count || 0, suspendedLicenses: r3.count || 0, expiredLicenses: r4.count || 0, recentSignups: r5.data || [], byPlan, activeToday, offlineCount, validationsToday: r7.count || 0 })
   } catch (err) { return res.status(500).json({ error: err.message }) }
 }
 
@@ -300,11 +309,11 @@ async function handleClientConfig(req, res) {
     if (!id) return res.status(400).json({ error: 'id required' })
     try {
       const [{ data: biz }, { data: cfgRows }] = await Promise.all([
-        auth.supabase.from('businesses').select('settings, notes').eq('id', id).single(),
+        auth.supabase.from('businesses').select('settings, notes, logo_url').eq('id', id).single(),
         auth.supabase.from('app_settings').select('key, value').eq('business_id', id),
       ])
       const appSettings = Object.fromEntries((cfgRows || []).map(r => [r.key, r.value]))
-      return res.json({ data: { bizSettings: biz?.settings || {}, appSettings, notes: biz?.notes || '' } })
+      return res.json({ data: { bizSettings: biz?.settings || {}, appSettings, notes: biz?.notes || '', logo_url: biz?.logo_url || null } })
     } catch (err) { return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'PATCH') {
@@ -378,7 +387,7 @@ async function handleClientDetail(req, res) {
     const [bizRes, licRes, staffRes, svcRes, clientRes, ticketRes, configRes] = await Promise.all([
       auth.supabase.from('businesses').select('*').eq('id', id).single(),
       auth.supabase.from('licenses').select('*, plans(name, display_name)').eq('business_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-      auth.supabase.from('staff').select('id, name, username, role, auth_user_id, active, created_at').eq('business_id', id).order('created_at'),
+      auth.supabase.from('staff').select('id, name, username, role, auth_user_id, active, pin_hash, created_at').eq('business_id', id).order('created_at'),
       auth.supabase.from('services').select('id', { count: 'exact', head: true }).eq('business_id', id).eq('active', true),
       auth.supabase.from('clients').select('id', { count: 'exact', head: true }).eq('business_id', id).eq('active', true),
       auth.supabase.from('tickets').select('id, total, status, created_at').eq('business_id', id).neq('status', 'nula').order('created_at', { ascending: false }).limit(1000),
@@ -386,7 +395,7 @@ async function handleClientDetail(req, res) {
     ])
     if (bizRes.error) throw bizRes.error
     const biz = bizRes.data
-    const staff = staffRes.data || []
+    const staff = (staffRes.data || []).map(s => ({ ...s, has_pin: !!s.pin_hash, pin_hash: undefined }))
     const tickets = ticketRes.data || []
     const serviceCount = svcRes.count || 0
     const clientCount = clientRes.count || 0
@@ -548,6 +557,48 @@ async function handleActivityFeed(req, res) {
     // Sort by date desc, limit 30
     feed.sort((a, b) => new Date(b.date) - new Date(a.date))
     return res.json({ data: feed.slice(0, 30) })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// ── Set Staff PIN (admin sets POS PIN for client's staff member) ─────────────
+
+async function handleSetStaffPin(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { staff_id, pin } = req.body || {}
+  if (!staff_id || !pin) return res.status(400).json({ error: 'staff_id and pin required' })
+  if (pin.length < 4 || pin.length > 6) return res.status(400).json({ error: 'PIN must be 4-6 digits' })
+  if (!/^\d+$/.test(pin)) return res.status(400).json({ error: 'PIN must be digits only' })
+  try {
+    const encoder = new TextEncoder()
+    const data = encoder.encode(pin)
+    const hashBuf = await crypto.subtle.digest('SHA-256', data)
+    const pin_hash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('')
+    const { error } = await auth.supabase.from('staff').update({ pin_hash }).eq('id', staff_id)
+    if (error) throw error
+    return res.json({ ok: true })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// ── Logo Upload ─────────────────────────────────────────────────────────────
+
+async function handleUploadLogo(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  const auth = await requireAdmin(req, 'admin')
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { business_id, base64, filename, contentType } = req.body || {}
+  if (!business_id || !base64) return res.status(400).json({ error: 'business_id and base64 required' })
+  try {
+    const buffer = Buffer.from(base64, 'base64')
+    const ext = (filename || 'logo.png').split('.').pop() || 'png'
+    const path = `logos/${business_id}.${ext}`
+    const { error: uploadErr } = await auth.supabase.storage.from('public').upload(path, buffer, { contentType: contentType || 'image/png', upsert: true })
+    if (uploadErr) return res.status(500).json({ error: uploadErr.message })
+    const { data: urlData } = auth.supabase.storage.from('public').getPublicUrl(path)
+    const url = urlData?.publicUrl
+    await auth.supabase.from('businesses').update({ logo_url: url, updated_at: new Date().toISOString() }).eq('id', business_id)
+    return res.json({ ok: true, url })
   } catch (err) { return res.status(500).json({ error: err.message }) }
 }
 

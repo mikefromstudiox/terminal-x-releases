@@ -66,6 +66,7 @@ export default async function handler(req, res) {
   if (action === 'cert_docs') return handleCertDocs(req, res)
   if (action === 'cert_stats') return handleCertStats(req, res)
   if (action === 'set_staff_pin') return handleSetStaffPin(req, res)
+  if (action === 'upload_logo') return handleUploadLogo(req, res)
   return res.status(400).json({ error: 'Unknown action' })
 }
 
@@ -75,17 +76,24 @@ async function handleStats(req, res) {
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
   const { supabase } = auth
   try {
-    const [r1, r2, r3, r4, r5, r6] = await Promise.all([
+    const now = new Date()
+    const oneDayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString()
+    const [r1, r2, r3, r4, r5, r6, r7, r8, r9] = await Promise.all([
       supabase.from('businesses').select('id', { count: 'exact', head: true }),
       supabase.from('licenses').select('id', { count: 'exact', head: true }).eq('status', 'active'),
       supabase.from('licenses').select('id', { count: 'exact', head: true }).eq('status', 'suspended'),
       supabase.from('licenses').select('id', { count: 'exact', head: true }).eq('status', 'expired'),
       supabase.from('businesses').select('id, name, created_at').order('created_at', { ascending: false }).limit(10),
       supabase.from('licenses').select('plan_id, plans(name)'),
+      supabase.from('license_events').select('license_id', { count: 'exact', head: true }).gt('created_at', oneDayAgo),
+      supabase.from('tickets').select('business_id').gt('created_at', oneDayAgo),
+      supabase.from('businesses').select('id, name, updated_at, settings'),
     ])
     const byPlan = {}
     for (const l of (r6.data || [])) { const p = l.plans?.name || 'free'; byPlan[p] = (byPlan[p] || 0) + 1 }
-    return res.json({ totalClients: r1.count || 0, activeLicenses: r2.count || 0, suspendedLicenses: r3.count || 0, expiredLicenses: r4.count || 0, recentSignups: r5.data || [], byPlan })
+    const activeToday = new Set((r8.data || []).map(t => t.business_id)).size
+    const offlineCount = (r9.data || []).filter(b => { const lastSeen = b.updated_at; if (!lastSeen) return true; return (now - new Date(lastSeen)) > 7 * 24 * 60 * 60 * 1000 }).length
+    return res.json({ totalClients: r1.count || 0, activeLicenses: r2.count || 0, suspendedLicenses: r3.count || 0, expiredLicenses: r4.count || 0, recentSignups: r5.data || [], byPlan, activeToday, offlineCount, validationsToday: r7.count || 0 })
   } catch (err) { return res.status(500).json({ error: err.message }) }
 }
 
@@ -301,11 +309,11 @@ async function handleClientConfig(req, res) {
     if (!id) return res.status(400).json({ error: 'id required' })
     try {
       const [{ data: biz }, { data: cfgRows }] = await Promise.all([
-        auth.supabase.from('businesses').select('settings, notes').eq('id', id).single(),
+        auth.supabase.from('businesses').select('settings, notes, logo_url').eq('id', id).single(),
         auth.supabase.from('app_settings').select('key, value').eq('business_id', id),
       ])
       const appSettings = Object.fromEntries((cfgRows || []).map(r => [r.key, r.value]))
-      return res.json({ data: { bizSettings: biz?.settings || {}, appSettings, notes: biz?.notes || '' } })
+      return res.json({ data: { bizSettings: biz?.settings || {}, appSettings, notes: biz?.notes || '', logo_url: biz?.logo_url || null } })
     } catch (err) { return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'PATCH') {
@@ -570,6 +578,27 @@ async function handleSetStaffPin(req, res) {
     const { error } = await auth.supabase.from('staff').update({ pin_hash }).eq('id', staff_id)
     if (error) throw error
     return res.json({ ok: true })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// ── Logo Upload ─────────────────────────────────────────────────────────────
+
+async function handleUploadLogo(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  const auth = await requireAdmin(req, 'admin')
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { business_id, base64, filename, contentType } = req.body || {}
+  if (!business_id || !base64) return res.status(400).json({ error: 'business_id and base64 required' })
+  try {
+    const buffer = Buffer.from(base64, 'base64')
+    const ext = (filename || 'logo.png').split('.').pop() || 'png'
+    const path = `logos/${business_id}.${ext}`
+    const { error: uploadErr } = await auth.supabase.storage.from('public').upload(path, buffer, { contentType: contentType || 'image/png', upsert: true })
+    if (uploadErr) return res.status(500).json({ error: uploadErr.message })
+    const { data: urlData } = auth.supabase.storage.from('public').getPublicUrl(path)
+    const url = urlData?.publicUrl
+    await auth.supabase.from('businesses').update({ logo_url: url, updated_at: new Date().toISOString() }).eq('id', business_id)
+    return res.json({ ok: true, url })
   } catch (err) { return res.status(500).json({ error: err.message }) }
 }
 

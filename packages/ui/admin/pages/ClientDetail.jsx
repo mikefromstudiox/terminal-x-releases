@@ -1,16 +1,25 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Layers, UserCheck, Settings, CheckCircle2, Pencil, Save, X, ShieldCheck, ShieldAlert } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Save, X, ShieldCheck, ShieldAlert, Lock, Pencil } from 'lucide-react'
 import { useLang } from '../../i18n'
 import OnboardingChecklist from '../components/OnboardingChecklist'
 import QuickActions from '../components/QuickActions'
 import ConfigEditor from '../components/ConfigEditor'
+import { listContainer, listItem } from '../motion'
 
-const STATUS_CLS = {
-  active:    'bg-emerald-50 text-emerald-700 border-emerald-200',
-  pending:   'bg-amber-50 text-amber-700 border-amber-200',
-  suspended: 'bg-red-50 text-red-700 border-red-200',
-  expired:   'bg-slate-100 text-slate-500 border-slate-200',
+const STATUS_CLS_LIGHT = {
+  active:    'bg-emerald-500/10 text-emerald-600 border-emerald-500/30',
+  pending:   'bg-amber-500/10 text-amber-600 border-amber-500/30',
+  suspended: 'bg-[#b3001e]/10 text-[#b3001e] border-[#b3001e]/25',
+  expired:   'bg-black/5 text-black/40 border-black/10',
+}
+
+const STATUS_CLS_DARK = {
+  active:    'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+  pending:   'bg-amber-500/10 text-amber-400 border-amber-500/30',
+  suspended: 'bg-[#b3001e]/15 text-[#b3001e] border-[#b3001e]/30',
+  expired:   'bg-white/5 text-white/40 border-white/10',
 }
 
 export default function ClientDetail({ getToken, refreshToken, isDark }) {
@@ -24,6 +33,11 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState({})
   const [editSaving, setEditSaving] = useState(false)
+  const [pinStaffId, setPinStaffId] = useState(null)
+  const [pinValue, setPinValue] = useState('')
+  const [pinSaving, setPinSaving] = useState(false)
+  const [pinOk, setPinOk] = useState(false)
+  const [pinErr, setPinErr] = useState('')
 
   async function load() {
     setLoading(true)
@@ -39,16 +53,31 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
 
   useEffect(() => { load() }, [id])
 
+  const STATUS_CLS = isDark ? STATUS_CLS_DARK : STATUS_CLS_LIGHT
+
   if (loading) {
-    return <div className="flex items-center justify-center h-64"><Loader2 className="animate-spin text-slate-400" size={20} /></div>
+    return (
+      <div className="flex items-center justify-center h-64">
+        <motion.div className="flex gap-1.5">
+          {[0, 1, 2].map(i => (
+            <motion.span
+              key={i}
+              className="w-2 h-2 rounded-full bg-[#b3001e]"
+              animate={{ opacity: [0.3, 1, 0.3] }}
+              transition={{ duration: 1, repeat: Infinity, delay: i * 0.15 }}
+            />
+          ))}
+        </motion.div>
+      </div>
+    )
   }
   if (!data?.business) {
     return (
       <div className="p-6 md:p-8">
-        <button onClick={() => navigate('/admin/clients')} className="flex items-center gap-1.5 text-[13px] mb-4 text-slate-400 hover:text-slate-700">
+        <button onClick={() => navigate('/admin/clients')} className={`flex items-center gap-1.5 text-[13px] mb-4 ${isDark ? 'text-white/40 hover:text-white' : 'text-black/40 hover:text-black'}`}>
           <ArrowLeft size={15} /> {L('Volver', 'Back')}
         </button>
-        <p className="text-center text-[13px] text-slate-400">{L('Cliente no encontrado.', 'Client not found.')}</p>
+        <p className={`text-center text-[13px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>{L('Cliente no encontrado.', 'Client not found.')}</p>
       </div>
     )
   }
@@ -59,9 +88,12 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
   const onboarding = data.onboarding
   const metrics = data.metrics || {}
 
-  const card = `rounded-2xl p-5 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-white border border-slate-200'}`
-  const lbl = `text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-white/30' : 'text-slate-400'}`
-  const val = `text-[13px] font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`
+  const card = `rounded-2xl p-5 transition-colors ${isDark ? 'bg-white/[0.03] border border-white/10 hover:border-[#b3001e]/30' : 'bg-white border border-black/10 hover:border-[#b3001e]/30 shadow-sm'}`
+  const lbl = `text-[10px] font-bold uppercase tracking-[1.2px] ${isDark ? 'text-white/35' : 'text-black/35'}`
+  const val = `text-[13px] font-medium ${isDark ? 'text-white/85' : 'text-black/85'}`
+  const inputBase = isDark
+    ? 'bg-white/5 border-white/10 text-white placeholder-white/30 focus:border-[#b3001e] focus:ring-[#b3001e]/25'
+    : 'bg-white border-black/10 text-black placeholder-black/30 focus:border-[#b3001e] focus:ring-[#b3001e]/25'
 
   function startEdit() {
     setEditForm({ name: biz.name || '', rnc: biz.rnc || '', phone: biz.phone || '', email: biz.email || '', address: biz.address || '' })
@@ -95,218 +127,351 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
   const lastSale = metrics.lastSaleDate ? new Date(metrics.lastSaleDate).toLocaleDateString('es-DO') : '—'
 
   return (
-    <div className="p-6 md:p-8 space-y-5 max-w-5xl">
+    <div className="p-6 md:p-8 space-y-6 max-w-5xl">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/admin/clients')} className={`p-2 rounded-lg transition-colors ${isDark ? 'text-white/40 hover:text-white hover:bg-white/5' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}>
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="flex items-center gap-3"
+      >
+        <motion.button
+          whileTap={{ scale: 0.9 }}
+          whileHover={{ x: -2 }}
+          onClick={() => navigate('/admin/clients')}
+          className={`p-2 rounded-xl transition-colors ${isDark ? 'text-white/40 hover:text-white hover:bg-white/5' : 'text-black/40 hover:text-black hover:bg-black/5'}`}
+        >
           <ArrowLeft size={18} />
-        </button>
+        </motion.button>
         <div className="flex-1 min-w-0">
-          <h1 className={`text-[20px] font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{String(biz.name || '')}</h1>
-          <p className={`text-[12px] ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
+          <h1 className={`text-[24px] font-black truncate tracking-tight ${isDark ? 'text-white' : 'text-black'}`}>{String(biz.name || '')}</h1>
+          <p className={`text-[12px] mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
             {String(biz.rnc || L('Sin RNC', 'No RNC'))} &middot; {L('Creado', 'Created')} {new Date(biz.created_at).toLocaleDateString('es-DO')}
           </p>
         </div>
         {license && (
-          <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${STATUS_CLS[license.status] || STATUS_CLS.expired}`}>
+          <span className={`text-[10px] font-bold px-3 py-1.5 rounded-full border uppercase tracking-wide ${STATUS_CLS[license.status] || STATUS_CLS.expired}`}>
             {String(license.status)}
           </span>
         )}
-      </div>
+      </motion.div>
 
       {/* Quick Actions */}
-      <QuickActions business={biz} license={license} getToken={getToken} onRefresh={load} isDark={isDark} />
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1, duration: 0.4 }}
+      >
+        <QuickActions business={biz} license={license} getToken={getToken} onRefresh={load} isDark={isDark} />
+      </motion.div>
 
       {/* Tabs */}
-      <div className="flex gap-1">
+      <div className="flex gap-1 relative">
         {['overview', 'config'].map(k => (
-          <button key={k} onClick={() => setTab(k)}
-            className={`px-4 py-2 rounded-lg text-[12px] font-semibold transition-colors ${
+          <motion.button
+            key={k}
+            whileTap={{ scale: 0.96 }}
+            onClick={() => setTab(k)}
+            className={`relative px-4 py-2 rounded-xl text-[12px] font-bold transition-colors ${
               tab === k
-                ? isDark ? 'bg-white/10 text-white' : 'bg-slate-800 text-white'
-                : isDark ? 'text-white/40 hover:text-white/60 hover:bg-white/5' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-            }`}>
-            {k === 'overview' ? L('Resumen', 'Overview') : L('Configuracion', 'Configuration')}
-          </button>
+                ? 'text-white'
+                : isDark ? 'text-white/40 hover:text-white/70' : 'text-black/40 hover:text-black/70'
+            }`}
+          >
+            {tab === k && (
+              <motion.div
+                layoutId="clientDetailTab"
+                className="absolute inset-0 rounded-xl bg-[#b3001e]"
+                transition={{ type: 'spring', stiffness: 420, damping: 30 }}
+              />
+            )}
+            <span className="relative">{k === 'overview' ? L('Resumen', 'Overview') : L('Configuracion', 'Configuration')}</span>
+          </motion.button>
         ))}
       </div>
 
-      {tab === 'config' && (
-        <ConfigEditor businessId={id} getToken={getToken} onRefresh={load} isDark={isDark} />
-      )}
+      <AnimatePresence mode="wait">
+        {tab === 'config' && (
+          <motion.div
+            key="config"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.25 }}
+          >
+            <ConfigEditor businessId={id} getToken={getToken} onRefresh={load} isDark={isDark} plan={license?.plans?.name || biz?.plan || 'pro'} />
+          </motion.div>
+        )}
 
-      {tab === 'overview' && <>
-        <div className="grid md:grid-cols-2 gap-5">
-          {/* Business Info */}
-          <div className={card}>
-            <div className="flex items-center justify-between mb-3">
-              <p className={`text-[14px] font-semibold ${isDark ? 'text-white' : 'text-slate-800'}`}>
-                <Building2 size={14} className="inline mr-1.5 text-[#b3001e]" />{L('Negocio', 'Business')}
+        {tab === 'overview' && (
+          <motion.div
+            key="overview"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.25 }}
+            className="space-y-5"
+          >
+            <motion.div
+              variants={listContainer}
+              initial="initial"
+              animate="animate"
+              className="grid md:grid-cols-2 gap-5"
+            >
+              {/* Business Info */}
+              <motion.div variants={listItem} className={card}>
+                <div className="flex items-center justify-between mb-4">
+                  <p className={`text-[14px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+                    <Building2 size={14} className="inline mr-1.5 text-[#b3001e]" />{L('Negocio', 'Business')}
+                  </p>
+                  {!editing && (
+                    <motion.button
+                      whileTap={{ scale: 0.9 }}
+                      onClick={startEdit}
+                      className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-white/30 hover:text-[#b3001e] hover:bg-[#b3001e]/10' : 'text-black/30 hover:text-[#b3001e] hover:bg-[#b3001e]/10'}`}
+                      title={L('Editar', 'Edit')}
+                    >
+                      <Pencil size={14} />
+                    </motion.button>
+                  )}
+                </div>
+                {editing ? (
+                  <div className="space-y-3">
+                    {[
+                      { key: 'name', label: L('Nombre', 'Name') },
+                      { key: 'rnc', label: 'RNC' },
+                      { key: 'phone', label: L('Telefono', 'Phone') },
+                      { key: 'email', label: 'Email' },
+                      { key: 'address', label: L('Direccion', 'Address') },
+                    ].map(f => (
+                      <div key={f.key}>
+                        <p className={lbl + ' mb-1'}>{f.label}</p>
+                        <input value={editForm[f.key] || ''} onChange={e => setEditForm(p => ({ ...p, [f.key]: e.target.value }))}
+                          className={`w-full px-3 py-2 rounded-xl text-[13px] border outline-none transition-all focus:ring-2 ${inputBase}`} />
+                      </div>
+                    ))}
+                    <div className="flex gap-2 pt-1">
+                      <motion.button
+                        whileTap={{ scale: 0.97 }}
+                        onClick={() => setEditing(false)}
+                        className={`px-4 py-2 rounded-xl text-[12px] font-semibold border transition-colors ${isDark ? 'border-white/10 text-white/50 hover:bg-white/5' : 'border-black/10 text-black/50 hover:bg-black/5'}`}
+                      >
+                        <X size={12} className="inline mr-1" />{L('Cancelar', 'Cancel')}
+                      </motion.button>
+                      <motion.button
+                        whileTap={{ scale: 0.97 }}
+                        onClick={saveEdit}
+                        disabled={editSaving}
+                        className="flex-1 py-2 bg-[#b3001e] hover:bg-[#c8002a] disabled:opacity-60 text-white text-[12px] font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        {editSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                        {L('Guardar', 'Save')}
+                      </motion.button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-y-3.5 gap-x-4">
+                    <div><p className={lbl}>{L('Nombre', 'Name')}</p><p className={val}>{String(biz.name || '—')}</p></div>
+                    <div><p className={lbl}>RNC</p><p className={val}>{String(biz.rnc || '—')}</p></div>
+                    <div><p className={lbl}>{L('Telefono', 'Phone')}</p><p className={val}>{String(biz.phone || '—')}</p></div>
+                    <div><p className={lbl}>Email</p><p className={val}>{String(biz.email || '—')}</p></div>
+                    <div><p className={lbl}>{L('Direccion', 'Address')}</p><p className={val}>{String(biz.address || '—')}</p></div>
+                    <div><p className={lbl}>Plan</p><p className={val}>{planDisplay}</p></div>
+                  </div>
+                )}
+              </motion.div>
+
+              {/* License */}
+              <motion.div variants={listItem} className={card}>
+                <p className={`text-[14px] font-bold mb-4 ${isDark ? 'text-white' : 'text-black'}`}>
+                  <KeyRound size={14} className="inline mr-1.5 text-[#b3001e]" />{L('Licencia', 'License')}
+                </p>
+                {license ? (
+                  <div className="grid grid-cols-2 gap-y-3.5 gap-x-4">
+                    <div><p className={lbl}>{L('Clave', 'Key')}</p><p className={`font-mono text-[11px] ${isDark ? 'text-white/70' : 'text-black/70'}`}>{String(license.license_key || 'Web only')}</p></div>
+                    <div><p className={lbl}>{L('Plataforma', 'Platform')}</p><p className={val}>{String(license.platform || '—')}</p></div>
+                    <div><p className={lbl}>Plan</p><p className={val}>{String(licPlanDisplay)}</p></div>
+                    <div><p className={lbl}>Status</p><p className={val}>{String(license.status || '—')}</p></div>
+                    <div><p className={lbl}>{L('Ultimo acceso', 'Last seen')}</p><p className={val}>{license.last_seen ? new Date(license.last_seen).toLocaleDateString('es-DO') : '—'}</p></div>
+                    <div><p className={lbl}>HWID</p><p className={`font-mono text-[10px] truncate ${isDark ? 'text-white/40' : 'text-black/40'}`}>{String(license.hardware_id || '—')}</p></div>
+                    {license.expires_at && <div className="col-span-2"><p className={lbl}>{L('Expira', 'Expires')}</p><p className={val}>{new Date(license.expires_at).toLocaleDateString('es-DO')}</p></div>}
+                  </div>
+                ) : (
+                  <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin licencia.', 'No license.')}</p>
+                )}
+              </motion.div>
+
+              {/* Metrics */}
+              <motion.div variants={listItem} className={card}>
+                <p className={`text-[14px] font-bold mb-4 ${isDark ? 'text-white' : 'text-black'}`}>
+                  <ShoppingCart size={14} className="inline mr-1.5 text-[#b3001e]" />{L('Metricas', 'Metrics')}
+                </p>
+                <div className="grid grid-cols-3 gap-4">
+                  <div><p className={lbl}>Tickets</p><p className={`text-[18px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>{ticketCount}</p></div>
+                  <div><p className={lbl}>{L('Ingresos', 'Revenue')}</p><p className={`text-[14px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>{'RD$' + totalRevenue.toLocaleString('es-DO', { minimumFractionDigits: 0 })}</p></div>
+                  <div><p className={lbl}>{L('Servicios', 'Services')}</p><p className={`text-[18px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>{serviceCount}</p></div>
+                  <div><p className={lbl}>{L('Clientes', 'Customers')}</p><p className={`text-[18px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>{clientCount}</p></div>
+                  <div><p className={lbl}>Staff</p><p className={`text-[18px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>{staffActive}</p></div>
+                  <div><p className={lbl}>{L('Ultima venta', 'Last sale')}</p><p className={`text-[13px] font-bold mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>{lastSale}</p></div>
+                </div>
+              </motion.div>
+
+              {/* e-CF Status */}
+              {(() => {
+                const s = biz.settings || {}
+                const certInstalled = s.ecf_cert_installed
+                const certExpired = s.ecf_cert_expired
+                const ecfEnv = s.ecf_environment
+                const ecfReady = certInstalled && !certExpired && ecfEnv === 'ecf'
+                const hasAnyEcfData = certInstalled !== undefined
+                return hasAnyEcfData ? (
+                  <motion.div variants={listItem} className={card}>
+                    <p className={`text-[14px] font-bold mb-4 ${isDark ? 'text-white' : 'text-black'}`}>
+                      {ecfReady
+                        ? <ShieldCheck size={14} className="inline mr-1.5 text-emerald-500" />
+                        : <ShieldAlert size={14} className="inline mr-1.5 text-amber-500" />}
+                      e-CF Status
+                    </p>
+                    <div className="grid grid-cols-2 gap-y-3.5 gap-x-4">
+                      <div>
+                        <p className={lbl}>{L('Certificado', 'Certificate')}</p>
+                        <p className={val}>{certInstalled
+                          ? (certExpired ? L('Expirado', 'Expired') : L('Instalado', 'Installed'))
+                          : L('No instalado', 'Not installed')}</p>
+                      </div>
+                      <div>
+                        <p className={lbl}>{L('Ambiente', 'Environment')}</p>
+                        <p className={`text-[13px] font-bold ${ecfEnv === 'ecf' ? 'text-emerald-500' : 'text-amber-500'}`}>
+                          {ecfEnv === 'ecf' ? L('Produccion', 'Production') : ecfEnv === 'certecf' ? L('Certificacion', 'Certification') : ecfEnv || '—'}
+                        </p>
+                      </div>
+                      {s.ecf_cert_subject && <div><p className={lbl}>{L('Titular', 'Subject')}</p><p className={val}>{String(s.ecf_cert_subject)}</p></div>}
+                      {s.ecf_cert_expiry && <div><p className={lbl}>{L('Expira', 'Expires')}</p><p className={val}>{new Date(s.ecf_cert_expiry).toLocaleDateString('es-DO')}</p></div>}
+                      <div className="col-span-2">
+                        <p className={lbl}>{L('Listo para e-CF', 'e-CF Ready')}</p>
+                        <p className={`text-[13px] font-bold ${ecfReady ? 'text-emerald-500' : 'text-amber-500'}`}>
+                          {ecfReady ? L('Si', 'Yes') : L('No — ', 'No — ') + (
+                            !certInstalled ? L('falta certificado', 'missing certificate')
+                            : certExpired ? L('certificado expirado', 'certificate expired')
+                            : ecfEnv !== 'ecf' ? L('ambiente no es produccion', 'environment not production')
+                            : ''
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div variants={listItem} className={card}>
+                    <p className={`text-[14px] font-bold mb-4 ${isDark ? 'text-white' : 'text-black'}`}>
+                      <ShieldAlert size={14} className={`inline mr-1.5 ${isDark ? 'text-white/30' : 'text-black/30'}`} /> e-CF Status
+                    </p>
+                    <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin datos — el desktop aun no ha reportado.', 'No data — desktop has not reported yet.')}</p>
+                  </motion.div>
+                )
+              })()}
+
+              {/* Onboarding */}
+              <motion.div variants={listItem} className={card}>
+                <OnboardingChecklist onboarding={onboarding} compact={false} isDark={isDark} />
+              </motion.div>
+            </motion.div>
+
+            {/* Staff List */}
+            <div className={card}>
+              <p className={`text-[14px] font-bold mb-4 ${isDark ? 'text-white' : 'text-black'}`}>
+                <Users size={14} className="inline mr-1.5 text-[#b3001e]" />{L('Personal', 'Staff')} ({staff.length})
               </p>
-              {!editing && (
-                <button onClick={startEdit} className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-white/30 hover:text-white hover:bg-white/10' : 'text-slate-400 hover:text-sky-600 hover:bg-sky-50'}`} title={L('Editar', 'Edit')}>
-                  <Pencil size={14} />
-                </button>
+              {staff.length === 0 ? (
+                <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin personal.', 'No staff.')}</p>
+              ) : (
+                <motion.div variants={listContainer} initial="initial" animate="animate" className="space-y-0">
+                  {staff.map(s => (
+                    <motion.div
+                      key={s.id}
+                      variants={listItem}
+                      className={`py-3 border-b last:border-0 ${isDark ? 'border-white/5' : 'border-black/5'}`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className={`text-[13px] font-semibold ${isDark ? 'text-white' : 'text-black'}`}>{String(s.name)}</p>
+                          <p className={`text-[11px] mt-0.5 ${isDark ? 'text-white/35' : 'text-black/35'}`}>
+                            {String(s.username)} &middot; {String(s.role)}
+                            {s.has_pin ? '' : <span className="ml-1.5 text-amber-500">&middot; {L('Sin PIN', 'No PIN')}</span>}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <motion.button
+                            whileTap={{ scale: 0.94 }}
+                            onClick={() => { setPinStaffId(pinStaffId === s.id ? null : s.id); setPinValue(''); setPinErr(''); setPinOk(false) }}
+                            className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg border flex items-center gap-1 transition-colors ${isDark ? 'border-white/10 text-white/60 hover:border-[#b3001e]/40 hover:text-[#b3001e] hover:bg-[#b3001e]/10' : 'border-black/10 text-black/60 hover:border-[#b3001e]/40 hover:text-[#b3001e] hover:bg-[#b3001e]/5'}`}
+                          >
+                            <Lock size={10} /> {s.has_pin ? L('Cambiar PIN', 'Change PIN') : L('Asignar PIN', 'Set PIN')}
+                          </motion.button>
+                          <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${
+                            s.active
+                              ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
+                              : isDark ? 'bg-white/5 text-white/40 border-white/10' : 'bg-black/5 text-black/40 border-black/10'
+                          }`}>
+                            {s.active ? L('Activo', 'Active') : L('Inactivo', 'Inactive')}
+                          </span>
+                        </div>
+                      </div>
+                      <AnimatePresence>
+                        {pinStaffId === s.id && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                            animate={{ opacity: 1, height: 'auto', marginTop: 8 }}
+                            exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                            className={`overflow-hidden`}
+                          >
+                            <div className={`flex items-center gap-2 p-2.5 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-black/[0.03] border border-black/10'}`}>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={6}
+                                placeholder="PIN (4-6)"
+                                value={pinValue}
+                                onChange={e => { setPinValue(e.target.value.replace(/\D/g, '').slice(0, 6)); setPinErr(''); setPinOk(false) }}
+                                className={`w-28 px-2.5 py-2 rounded-lg text-[13px] font-mono tracking-[3px] text-center border outline-none transition-all focus:ring-2 ${inputBase}`}
+                              />
+                              <motion.button
+                                whileTap={{ scale: 0.95 }}
+                                disabled={pinSaving || pinValue.length < 4}
+                                onClick={async () => {
+                                  setPinSaving(true); setPinErr('')
+                                  try {
+                                    const resp = await fetch('/api/panel?action=set_staff_pin', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
+                                      body: JSON.stringify({ staff_id: s.id, pin: pinValue }),
+                                    })
+                                    const result = await resp.json()
+                                    if (!resp.ok) throw new Error(result.error || 'Failed')
+                                    setPinOk(true); setPinValue('')
+                                    setTimeout(() => { setPinStaffId(null); load() }, 1200)
+                                  } catch (e) { setPinErr(e.message) }
+                                  setPinSaving(false)
+                                }}
+                                className="px-3 py-2 bg-[#b3001e] hover:bg-[#c8002a] disabled:opacity-50 text-white text-[11px] font-bold rounded-lg flex items-center gap-1 shadow-md shadow-[#b3001e]/20"
+                              >
+                                {pinSaving ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
+                                {L('Guardar', 'Save')}
+                              </motion.button>
+                              {pinOk && <span className="text-[11px] text-emerald-500 font-bold">{L('PIN actualizado', 'PIN updated')}</span>}
+                              {pinErr && <span className="text-[11px] text-[#b3001e] font-semibold">{pinErr}</span>}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
+                  ))}
+                </motion.div>
               )}
             </div>
-            {editing ? (
-              <div className="space-y-3">
-                {[
-                  { key: 'name', label: L('Nombre', 'Name') },
-                  { key: 'rnc', label: 'RNC' },
-                  { key: 'phone', label: L('Telefono', 'Phone') },
-                  { key: 'email', label: 'Email' },
-                  { key: 'address', label: L('Direccion', 'Address') },
-                ].map(f => (
-                  <div key={f.key}>
-                    <p className={lbl + ' mb-1'}>{f.label}</p>
-                    <input value={editForm[f.key] || ''} onChange={e => setEditForm(p => ({ ...p, [f.key]: e.target.value }))}
-                      className={`w-full px-3 py-1.5 rounded-lg text-[13px] border focus:outline-none focus:ring-1 focus:ring-[#b3001e] ${isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-700'}`} />
-                  </div>
-                ))}
-                <div className="flex gap-2 pt-1">
-                  <button onClick={() => setEditing(false)} className={`px-4 py-1.5 rounded-lg text-[12px] font-medium border transition-colors ${isDark ? 'border-white/10 text-white/50 hover:bg-white/5' : 'border-slate-200 text-slate-500 hover:bg-slate-100'}`}>
-                    <X size={12} className="inline mr-1" />{L('Cancelar', 'Cancel')}
-                  </button>
-                  <button onClick={saveEdit} disabled={editSaving} className="flex-1 py-1.5 bg-[#b3001e] hover:bg-[#8f0018] disabled:opacity-60 text-white text-[12px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5">
-                    {editSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-                    {L('Guardar', 'Save')}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-y-3 gap-x-4">
-                <div><p className={lbl}>{L('Nombre', 'Name')}</p><p className={val}>{String(biz.name || '—')}</p></div>
-                <div><p className={lbl}>RNC</p><p className={val}>{String(biz.rnc || '—')}</p></div>
-                <div><p className={lbl}>{L('Telefono', 'Phone')}</p><p className={val}>{String(biz.phone || '—')}</p></div>
-                <div><p className={lbl}>Email</p><p className={val}>{String(biz.email || '—')}</p></div>
-                <div><p className={lbl}>{L('Direccion', 'Address')}</p><p className={val}>{String(biz.address || '—')}</p></div>
-                <div><p className={lbl}>Plan</p><p className={val}>{planDisplay}</p></div>
-              </div>
-            )}
-          </div>
-
-          {/* License */}
-          <div className={card}>
-            <p className={`text-[14px] font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-800'}`}>
-              <KeyRound size={14} className="inline mr-1.5 text-[#b3001e]" />{L('Licencia', 'License')}
-            </p>
-            {license ? (
-              <div className="grid grid-cols-2 gap-y-3 gap-x-4">
-                <div><p className={lbl}>{L('Clave', 'Key')}</p><p className={`font-mono text-[11px] ${isDark ? 'text-white/60' : 'text-slate-600'}`}>{String(license.license_key || 'Web only')}</p></div>
-                <div><p className={lbl}>{L('Plataforma', 'Platform')}</p><p className={val}>{String(license.platform || '—')}</p></div>
-                <div><p className={lbl}>Plan</p><p className={val}>{String(licPlanDisplay)}</p></div>
-                <div><p className={lbl}>Status</p><p className={val}>{String(license.status || '—')}</p></div>
-                <div><p className={lbl}>{L('Ultimo acceso', 'Last seen')}</p><p className={val}>{license.last_seen ? new Date(license.last_seen).toLocaleDateString('es-DO') : '—'}</p></div>
-                <div><p className={lbl}>HWID</p><p className={`font-mono text-[10px] truncate ${isDark ? 'text-white/40' : 'text-slate-400'}`}>{String(license.hardware_id || '—')}</p></div>
-                {license.expires_at && <div className="col-span-2"><p className={lbl}>{L('Expira', 'Expires')}</p><p className={val}>{new Date(license.expires_at).toLocaleDateString('es-DO')}</p></div>}
-              </div>
-            ) : (
-              <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-slate-400'}`}>{L('Sin licencia.', 'No license.')}</p>
-            )}
-          </div>
-
-          {/* Metrics */}
-          <div className={card}>
-            <p className={`text-[14px] font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-800'}`}>
-              <ShoppingCart size={14} className="inline mr-1.5 text-[#b3001e]" />{L('Metricas', 'Metrics')}
-            </p>
-            <div className="grid grid-cols-3 gap-4">
-              <div><p className={lbl}>Tickets</p><p className={`text-[16px] font-bold mt-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>{ticketCount}</p></div>
-              <div><p className={lbl}>{L('Ingresos', 'Revenue')}</p><p className={`text-[16px] font-bold mt-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>{'RD$' + totalRevenue.toLocaleString('es-DO', { minimumFractionDigits: 0 })}</p></div>
-              <div><p className={lbl}>{L('Servicios', 'Services')}</p><p className={`text-[16px] font-bold mt-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>{serviceCount}</p></div>
-              <div><p className={lbl}>{L('Clientes', 'Customers')}</p><p className={`text-[16px] font-bold mt-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>{clientCount}</p></div>
-              <div><p className={lbl}>Staff</p><p className={`text-[16px] font-bold mt-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>{staffActive}</p></div>
-              <div><p className={lbl}>{L('Ultima venta', 'Last sale')}</p><p className={`text-[16px] font-bold mt-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>{lastSale}</p></div>
-            </div>
-          </div>
-
-          {/* e-CF Status */}
-          {(() => {
-            const s = biz.settings || {}
-            const certInstalled = s.ecf_cert_installed
-            const certExpired = s.ecf_cert_expired
-            const ecfEnv = s.ecf_environment
-            const ecfReady = certInstalled && !certExpired && ecfEnv === 'ecf'
-            const hasAnyEcfData = certInstalled !== undefined
-            return hasAnyEcfData ? (
-              <div className={card}>
-                <p className={`text-[14px] font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-800'}`}>
-                  {ecfReady
-                    ? <ShieldCheck size={14} className="inline mr-1.5 text-emerald-500" />
-                    : <ShieldAlert size={14} className="inline mr-1.5 text-amber-500" />}
-                  e-CF Status
-                </p>
-                <div className="grid grid-cols-2 gap-y-3 gap-x-4">
-                  <div>
-                    <p className={lbl}>{L('Certificado', 'Certificate')}</p>
-                    <p className={val}>{certInstalled
-                      ? (certExpired ? L('Expirado', 'Expired') : L('Instalado', 'Installed'))
-                      : L('No instalado', 'Not installed')}</p>
-                  </div>
-                  <div>
-                    <p className={lbl}>{L('Ambiente', 'Environment')}</p>
-                    <p className={`text-[13px] font-medium ${ecfEnv === 'ecf' ? 'text-emerald-600' : isDark ? 'text-amber-400' : 'text-amber-600'}`}>
-                      {ecfEnv === 'ecf' ? L('Produccion', 'Production') : ecfEnv === 'certecf' ? L('Certificacion', 'Certification') : ecfEnv || '—'}
-                    </p>
-                  </div>
-                  {s.ecf_cert_subject && <div><p className={lbl}>{L('Titular', 'Subject')}</p><p className={val}>{String(s.ecf_cert_subject)}</p></div>}
-                  {s.ecf_cert_expiry && <div><p className={lbl}>{L('Expira', 'Expires')}</p><p className={val}>{new Date(s.ecf_cert_expiry).toLocaleDateString('es-DO')}</p></div>}
-                  <div className="col-span-2">
-                    <p className={lbl}>{L('Listo para e-CF', 'e-CF Ready')}</p>
-                    <p className={`text-[13px] font-bold ${ecfReady ? 'text-emerald-600' : 'text-amber-600'}`}>
-                      {ecfReady ? L('Si', 'Yes') : L('No — ', 'No — ') + (
-                        !certInstalled ? L('falta certificado', 'missing certificate')
-                        : certExpired ? L('certificado expirado', 'certificate expired')
-                        : ecfEnv !== 'ecf' ? L('ambiente no es produccion', 'environment not production')
-                        : ''
-                      )}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className={card}>
-                <p className={`text-[14px] font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-800'}`}>
-                  <ShieldAlert size={14} className="inline mr-1.5 text-slate-400" /> e-CF Status
-                </p>
-                <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-slate-400'}`}>{L('Sin datos — el desktop aun no ha reportado.', 'No data — desktop has not reported yet.')}</p>
-              </div>
-            )
-          })()}
-
-          {/* Onboarding */}
-          <div className={card}>
-            <OnboardingChecklist onboarding={onboarding} compact={false} isDark={isDark} />
-          </div>
-        </div>
-
-        {/* Staff List */}
-        <div className={card}>
-          <p className={`text-[14px] font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-800'}`}>
-            <Users size={14} className="inline mr-1.5 text-[#b3001e]" />{L('Personal', 'Staff')} ({staff.length})
-          </p>
-          {staff.length === 0 ? (
-            <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-slate-400'}`}>{L('Sin personal.', 'No staff.')}</p>
-          ) : (
-            <div className="space-y-0">
-              {staff.map(s => (
-                <div key={s.id} className={`flex items-center justify-between py-2.5 border-b last:border-0 ${isDark ? 'border-white/5' : 'border-slate-100'}`}>
-                  <div>
-                    <p className={`text-[13px] font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>{String(s.name)}</p>
-                    <p className={`text-[11px] ${isDark ? 'text-white/30' : 'text-slate-400'}`}>{String(s.username)} &middot; {String(s.role)}</p>
-                  </div>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                    s.active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-400 border-slate-200'
-                  }`}>
-                    {s.active ? L('Activo', 'Active') : L('Inactivo', 'Inactive')}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </>}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

@@ -66,24 +66,24 @@ The client either pays for a visit (revenue) or upgrades (recurring revenue). Ei
 
 ---
 
-#### Phase A — Remote Config Sync (foundation)
-- [ ] **Config sync on validate** — desktop polls Supabase for business settings during license check; merges remote config with local (remote wins on conflict)
-- [ ] **Admin config editor** — new section in client detail page: editable business settings (fiscal mode, ITBIS %, language, WhatsApp, features)
-- [ ] **Plan-gated remote access** — Pro clients: admin sees read-only view. Pro PLUS/MAX: admin can edit all settings
-- [ ] **Sync indicator on desktop** — small "Last synced: 2 min ago" in Settings so client knows config is current
+#### Phase A — Remote Config Sync (foundation) — COMPLETE
+- [x] **Config sync on validate** — validate.js fetches remoteConfig from app_settings, LicenseContext applies via api.settings.update() every 4h
+- [x] **Admin config editor** — ConfigEditor.jsx in ClientDetail config tab: fiscal, WhatsApp, printer, features, templates, notes
+- [x] **Plan-gated remote access** — Pro/starter/free: read-only with lock banner. Pro PLUS/MAX: full edit access
+- [x] **Sync indicator on desktop** — ConnectionDot (online/syncing/offline) + manual sync button in Sidebar next to dark mode toggle
 
-#### Phase B — Per-Client Customization (Pro PLUS & MAX only)
-- [ ] **UltraMsg / WhatsApp per client** — admin enters instance_id + token in client detail; desktop picks it up automatically
-- [ ] **Fiscal mode toggle** — switch client between B-series and e-CF from admin when their DGII cert is ready
-- [ ] **Feature flags per client** — enable/disable inventory, credit notes, reports, commissions, etc. based on plan + business needs
-- [ ] **Custom service templates** — push starter service lists from admin (car wash preset, mechanic preset, dealer preset) to speed up onboarding
-- [ ] **Remote printer config** — set printer name, paper width from admin
-- [ ] **Logo upload from admin** — upload client's logo from the admin detail page
+#### Phase B — Per-Client Customization (Pro PLUS & MAX only) — COMPLETE
+- [x] **UltraMsg / WhatsApp per client** — ConfigEditor has instance_id + token fields, desktop picks up via remoteConfig
+- [x] **Fiscal mode toggle** — ConfigEditor has B-series/e-CF toggle
+- [x] **Feature flags per client** — ConfigEditor has toggles for inventory, credits, commissions, etc.
+- [x] **Custom service templates** — ConfigEditor has push presets (carwash, mechanic, dealer)
+- [x] **Remote printer config** — ConfigEditor has printer name + width fields
+- [x] **Logo upload from admin** — base64 upload to Supabase Storage, updates businesses.logo_url
 
-#### Phase C — Support & Operations
-- [ ] **Client notes / support log** — admin adds internal notes per client (call log, issues, preferences, visit history)
+#### Phase C — Support & Operations — PARTIALLY COMPLETE
+- [x] **Client notes / support log** — structured JSON array with timestamps, author, add/delete. Migrates plain text automatically
 - [ ] **Support ticket system** — client can report issues from desktop (button in sidebar), shows up in admin panel. Pro PLUS/MAX only.
-- [ ] **Health dashboard** — admin sees which clients are active today, last sale time, error rates, offline status
+- [x] **Health dashboard** — Dashboard shows Active Today (businesses with sales), Validations Today, Offline 7d count
 - [ ] **Bulk actions** — send announcement to all clients, mass plan change, bulk feature toggle
 - [ ] **Scheduled tasks** — auto-suspend clients with unpaid invoices after X days
 - [ ] **Visit scheduler** — track on-site visits per client (Pro MAX gets 1/month, Pro PLUS gets 1/quarter, Pro pays per visit)
