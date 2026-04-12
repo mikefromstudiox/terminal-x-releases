@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Building2, KeyRound, AlertTriangle, TrendingUp, Clock, Ban, CheckCircle2, ShoppingCart, UserX, Activity, WifiOff, Zap } from 'lucide-react'
+import { Building2, KeyRound, AlertTriangle, TrendingUp, Clock, Ban, CheckCircle2, ShoppingCart, UserX, Activity, WifiOff, Zap, Megaphone, Loader2 } from 'lucide-react'
 import { useLang } from '../../i18n'
 import { listContainer, listItem, cardHover, AnimatedNumber } from '../motion'
 
@@ -50,6 +50,8 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
   const [stats, setStats] = useState(null)
   const [feed, setFeed] = useState([])
   const [loading, setLoading] = useState(true)
+  const [bulkLoading, setBulkLoading] = useState(false)
+  const [bulkResult, setBulkResult] = useState(null)
 
   useEffect(() => { load() }, [])
 
@@ -67,6 +69,24 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       if (feedResp.ok) { const f = await feedResp.json(); setFeed(f.data || []) }
     } catch (e) { console.error('Dashboard load:', e) }
     setLoading(false)
+  }
+
+  async function runBulkAction(type, actionData = {}) {
+    setBulkLoading(true)
+    setBulkResult(null)
+    try {
+      let token = await refreshToken()
+      if (!token) token = getToken()
+      const resp = await fetch('/api/panel?action=bulk_action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ type, data: actionData }),
+      })
+      const result = await resp.json()
+      setBulkResult(result)
+      if (result.ok) load()
+    } catch {}
+    setBulkLoading(false)
   }
 
   const cardBase = isDark
@@ -223,6 +243,39 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
             </motion.div>
           ))}
         </div>
+      </motion.div>
+
+      {/* Bulk Actions */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.27, duration: 0.4 }}
+        className={`rounded-2xl p-6 transition-colors ${cardBase}`}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <p className={`text-[15px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>{L('Acciones Masivas', 'Bulk Actions')}</p>
+          <span className="text-[10px] font-bold text-[#b3001e] uppercase tracking-[1.2px]">{L('Operaciones', 'Operations')}</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => runBulkAction('suspend_unpaid')} disabled={bulkLoading}
+            className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-[11px] font-bold border transition-colors disabled:opacity-50 ${isDark ? 'border-white/10 text-white/70 hover:bg-white/5 hover:border-[#b3001e]/40' : 'border-black/10 text-black/70 hover:bg-black/5 hover:border-[#b3001e]/40'}`}>
+            {bulkLoading ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />}
+            {L('Suspender vencidos', 'Suspend Expired')}
+          </button>
+          <button onClick={() => {
+            const msg = prompt(L('Titulo del anuncio:', 'Announcement title:'))
+            if (msg) runBulkAction('announcement', { title: msg, message: '' })
+          }} disabled={bulkLoading}
+            className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-[11px] font-bold border transition-colors disabled:opacity-50 ${isDark ? 'border-white/10 text-white/70 hover:bg-white/5 hover:border-[#b3001e]/40' : 'border-black/10 text-black/70 hover:bg-black/5 hover:border-[#b3001e]/40'}`}>
+            <Megaphone size={12} />
+            {L('Enviar anuncio', 'Send Announcement')}
+          </button>
+        </div>
+        {bulkResult && (
+          <p className={`text-[11px] mt-3 ${bulkResult.ok ? 'text-emerald-500' : 'text-[#b3001e]'}`}>
+            {bulkResult.ok ? `${L('Completado', 'Done')}: ${bulkResult.affected} ${L('afectados', 'affected')}` : bulkResult.error}
+          </p>
+        )}
       </motion.div>
 
       {/* Activity Feed */}

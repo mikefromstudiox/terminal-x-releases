@@ -233,7 +233,16 @@
       "Read(//c/Users/City/AppData/**)",
       "Bash(sed 's/Terminal-X-Setup/Terminal X-Setup/g' dist/latest.yml)",
       "Read(//tmp/**)",
-      "Bash(gh api:*)"
+      "Bash(gh api:*)",
+      "Bash(claude:*)",
+      "Bash(grep -E \"\\\\.\\(jsx?|ts|sql\\)$\")",
+      "Bash(grep -E \"\\\\.\\(jsx|js\\)$\")",
+      "Read(//a/Studio X HUB/**)",
+      "Bash(\"C:/Users/City/AppData/Roaming/Python/Python314/Scripts/graphify.exe\" install:*)",
+      "Bash([ -f \"$f.txt\" ])",
+      "Bash(wc:*)"
     ]
-  }
+  },
+  "spinnerTipsEnabled": false,
+  "prefersReducedMotion": false
 }

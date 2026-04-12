@@ -822,10 +822,12 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                     <span>{tl('itbis', lang)}</span>
                     <span className="tabular-nums">{fmtRD(itbis)}</span>
                   </div>
+                  {ley > 0 && (
                   <div className="flex justify-between text-[12px] text-slate-500 dark:text-white/60">
                     <span>{tl('ley', lang)}</span>
                     <span className="tabular-nums">{fmtRD(ley)}</span>
                   </div>
+                  )}
                   <div className="flex justify-between text-[15px] font-bold text-slate-800 dark:text-white border-t border-slate-200 dark:border-white/10 pt-2 mt-1">
                     <span>{tl('total', lang)}</span>
                     <span className="tabular-nums">{fmtRD(total)}</span>

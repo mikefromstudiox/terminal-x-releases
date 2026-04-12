@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import { createClient } from '@supabase/supabase-js'
 
 const ALLOWED_ORIGINS = ['https://terminalxpos.com', 'http://localhost:5173']
@@ -67,6 +68,10 @@ export default async function handler(req, res) {
   if (action === 'cert_stats') return handleCertStats(req, res)
   if (action === 'set_staff_pin') return handleSetStaffPin(req, res)
   if (action === 'upload_logo') return handleUploadLogo(req, res)
+  if (action === 'support_tickets') return handleSupportTickets(req, res)
+  if (action === 'create_ticket') return handleCreateTicket(req, res)
+  if (action === 'bulk_action') return handleBulkAction(req, res)
+  if (action === 'client_visits') return handleClientVisits(req, res)
   return res.status(400).json({ error: 'Unknown action' })
 }
 
@@ -758,6 +763,156 @@ async function handleCertDocs(req, res) {
     const { data, error } = await supabase.from('ecf_cert_documents').insert({ certification_id: id, name, file_path, file_type, step: step || null, visible_to_client: visible_to_client || false }).select().single()
     if (error) return res.status(500).json({ error: error.message })
     return res.json({ data })
+  }
+  return res.status(405).json({ error: 'Method not allowed' })
+}
+
+async function handleSupportTickets(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  try {
+    const { data } = await auth.supabase.from('support_tickets')
+      .select('*, businesses(name)')
+      .order('created_at', { ascending: false }).limit(200)
+    return res.json({ data: data || [] })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleCreateTicket(req, res) {
+  if (req.method === 'POST') {
+    const { business_id, subject, message, priority } = req.body || {}
+    if (!business_id || !subject) return res.status(400).json({ error: 'business_id and subject required' })
+    const supabase = getClient()
+    try {
+      const { data, error } = await supabase.from('support_tickets').insert({
+        business_id, subject, message: message || '', priority: priority || 'medium',
+        status: 'open', created_at: new Date().toISOString(),
+      }).select().single()
+      if (error) throw error
+      return res.json({ ok: true, data })
+    } catch (err) { return res.status(500).json({ error: err.message }) }
+  }
+  if (req.method === 'PATCH') {
+    const auth = await requireAdmin(req, 'admin')
+    if (auth.error) return res.status(auth.status).json({ error: auth.error })
+    const { id, status, admin_response } = req.body || {}
+    if (!id) return res.status(400).json({ error: 'id required' })
+    const updates = { updated_at: new Date().toISOString() }
+    if (status) updates.status = status
+    if (admin_response !== undefined) updates.admin_response = admin_response
+    if (status === 'resolved' || status === 'closed') updates.resolved_at = new Date().toISOString()
+    try {
+      await auth.supabase.from('support_tickets').update(updates).eq('id', id)
+      return res.json({ ok: true })
+    } catch (err) { return res.status(500).json({ error: err.message }) }
+  }
+  return res.status(405).json({ error: 'Method not allowed' })
+}
+
+async function handleBulkAction(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  const auth = await requireAdmin(req, 'admin')
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { type, business_ids, data: actionData } = req.body || {}
+  if (!type) return res.status(400).json({ error: 'type required' })
+
+  try {
+    if (type === 'change_plan') {
+      const { plan_id } = actionData || {}
+      if (!plan_id || !business_ids?.length) return res.status(400).json({ error: 'plan_id and business_ids required' })
+      for (const bid of business_ids) {
+        await auth.supabase.from('licenses').update({ plan_id, updated_at: new Date().toISOString() }).eq('business_id', bid).eq('status', 'active')
+      }
+      return res.json({ ok: true, affected: business_ids.length })
+    }
+
+    if (type === 'feature_toggle') {
+      const { feature, enabled } = actionData || {}
+      if (!feature || !business_ids?.length) return res.status(400).json({ error: 'feature and business_ids required' })
+      for (const bid of business_ids) {
+        const { data: biz } = await auth.supabase.from('businesses').select('settings').eq('id', bid).single()
+        const settings = biz?.settings || {}
+        const overrides = settings.feature_overrides || {}
+        overrides[feature] = enabled
+        await auth.supabase.from('businesses').update({ settings: { ...settings, feature_overrides: overrides }, updated_at: new Date().toISOString() }).eq('id', bid)
+      }
+      return res.json({ ok: true, affected: business_ids.length })
+    }
+
+    if (type === 'suspend_unpaid') {
+      const now = new Date().toISOString()
+      const { data: expired } = await auth.supabase.from('licenses')
+        .select('id, business_id, businesses(name)')
+        .eq('status', 'active')
+        .lt('expires_at', now)
+      if (!expired?.length) return res.json({ ok: true, affected: 0, message: 'No expired active licenses' })
+      const ids = expired.map(l => l.id)
+      await auth.supabase.from('licenses').update({ status: 'suspended', updated_at: now }).in('id', ids)
+      return res.json({ ok: true, affected: ids.length, suspended: expired.map(l => ({ id: l.id, name: l.businesses?.name })) })
+    }
+
+    if (type === 'announcement') {
+      const { title, message } = actionData || {}
+      if (!title) return res.status(400).json({ error: 'title required' })
+      const targets = business_ids?.length ? business_ids : (await auth.supabase.from('businesses').select('id')).data?.map(b => b.id) || []
+      for (const bid of targets) {
+        await auth.supabase.from('app_settings').upsert({
+          business_id: bid, key: 'announcement',
+          value: JSON.stringify({ title, message, date: new Date().toISOString() }),
+        }, { onConflict: 'business_id,key' })
+      }
+      return res.json({ ok: true, affected: targets.length })
+    }
+
+    return res.status(400).json({ error: 'Unknown bulk action type' })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleClientVisits(req, res) {
+  if (req.method === 'GET') {
+    const auth = await requireAdmin(req)
+    if (auth.error) return res.status(auth.status).json({ error: auth.error })
+    const id = req.query.id
+    if (!id) return res.status(400).json({ error: 'id required' })
+    try {
+      const { data: biz } = await auth.supabase.from('businesses').select('settings').eq('id', id).single()
+      return res.json({ data: biz?.settings?.visits || [] })
+    } catch (err) { return res.status(500).json({ error: err.message }) }
+  }
+  if (req.method === 'POST') {
+    const auth = await requireAdmin(req, 'admin')
+    if (auth.error) return res.status(auth.status).json({ error: auth.error })
+    const { business_id, scheduled_date, visit_type, notes } = req.body || {}
+    if (!business_id || !scheduled_date) return res.status(400).json({ error: 'business_id and scheduled_date required' })
+    try {
+      const { data: biz } = await auth.supabase.from('businesses').select('settings').eq('id', business_id).single()
+      const settings = biz?.settings || {}
+      const visits = settings.visits || []
+      visits.push({
+        id: crypto.randomUUID(),
+        scheduled_date,
+        visit_type: visit_type || 'onsite',
+        notes: notes || '',
+        completed: false,
+        created_at: new Date().toISOString(),
+      })
+      await auth.supabase.from('businesses').update({ settings: { ...settings, visits }, updated_at: new Date().toISOString() }).eq('id', business_id)
+      return res.json({ ok: true })
+    } catch (err) { return res.status(500).json({ error: err.message }) }
+  }
+  if (req.method === 'PATCH') {
+    const auth = await requireAdmin(req, 'admin')
+    if (auth.error) return res.status(auth.status).json({ error: auth.error })
+    const { business_id, visit_id, completed, notes } = req.body || {}
+    if (!business_id || !visit_id) return res.status(400).json({ error: 'business_id and visit_id required' })
+    try {
+      const { data: biz } = await auth.supabase.from('businesses').select('settings').eq('id', business_id).single()
+      const settings = biz?.settings || {}
+      const visits = (settings.visits || []).map(v => v.id === visit_id ? { ...v, ...(completed !== undefined ? { completed } : {}), ...(notes !== undefined ? { notes } : {}), completed_at: completed ? new Date().toISOString() : v.completed_at } : v)
+      await auth.supabase.from('businesses').update({ settings: { ...settings, visits }, updated_at: new Date().toISOString() }).eq('id', business_id)
+      return res.json({ ok: true })
+    } catch (err) { return res.status(500).json({ error: err.message }) }
   }
   return res.status(405).json({ error: 'Method not allowed' })
 }

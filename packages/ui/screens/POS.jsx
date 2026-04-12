@@ -448,7 +448,9 @@ function CarWashPOS() {
 
   const handlePaymentConfirm = useCallback(async (paymentData) => {
     const pending = cobrarModal
-    setCobrarModal(null)
+    // DON'T close the modal here — let CobrarModal show its SuccessView
+    // (with WhatsApp send, receipt QR, print button). The modal closes when
+    // the user clicks Cerrar in the success view via the onClose prop.
 
     try {
       const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(pending.items)
@@ -465,6 +467,7 @@ function CarWashPOS() {
         comprobante_type: paymentData.ncfType || 'E32',
         payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
         tipo_venta:       paymentData.tipo || 'contado',
+        status:           paymentData.tipo === 'credito' ? 'pendiente' : 'cobrado',
         subtotal:         sub,
         itbis:            itp,
         ley:              ly,
@@ -485,17 +488,10 @@ function CarWashPOS() {
         comentario: paymentData.comentario || '',
       })
 
-      if (result?.docNumber) {
-        setQueue(prev => [...prev, {
-          id:      Date.now(),
-          ticketNo: result.docNumber,
-          vehicle:  pending.vehicle,
-          service:  pending.items[0]?.name ?? '—',
-          status:   'pendiente',
-        }])
-      }
+      // Direct cobrar does NOT add to queue — the ticket is already cobrado.
+      // Queue entries are only created by handleEncolar (pendiente → queue workflow).
       clearForm()
-      flash(`${result?.docNumber || 'Ticket'} · ${lang === 'es' ? 'Creado ✓' : 'Created ✓'}`)
+      flash(`${result?.docNumber || 'Ticket'} · ${lang === 'es' ? 'Cobrado ✓' : 'Charged ✓'}`)
 
       // Sync to Supabase for RemoteDashboard — fire and forget
       syncTicket({
@@ -627,20 +623,9 @@ function CarWashPOS() {
                     <p className="text-xs md:text-[13px] font-semibold leading-snug">
                       {lang === 'es' ? svc.name : (svc.name_en || svc.name)}
                     </p>
-                    <div className="flex items-center justify-between mt-1 md:mt-1.5">
-                      <p className={`text-[11px] md:text-[12px] font-bold ${selected ? 'text-[#0C447C]/70 dark:text-white/70' : 'text-slate-400 dark:text-white/40'}`}>
-                        {fmtRD(svc._isInventory ? svc.price : svc.price)}
-                      </p>
-                      {svc._isInventory && (
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                          svc.quantity <= (svc.min_quantity || 3)
-                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
-                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
-                        }`}>
-                          {cartItem ? `${cartItem.qty}/${svc.quantity}` : svc.quantity}
-                        </span>
-                      )}
-                    </div>
+                    <p className={`text-[11px] md:text-[12px] font-bold mt-1 md:mt-1.5 ${selected ? 'text-[#0C447C]/70 dark:text-white/70' : 'text-slate-400 dark:text-white/40'}`}>
+                      {fmtRD(svc.price)}
+                    </p>
                   </button>
                 )
               })}
@@ -912,10 +897,12 @@ function CarWashPOS() {
                 <span>{t('pos_itbis')}</span>
                 <span>{fmtRD(itbis)}</span>
               </div>
+              {ley > 0 && (
               <div className="flex justify-between text-xs md:text-[12px] text-slate-500 dark:text-white/60">
                 <span>{t('pos_ley')}</span>
                 <span>{fmtRD(ley)}</span>
               </div>
+              )}
               <div className="flex justify-between text-sm md:text-[13px] font-bold text-slate-800 dark:text-white border-t border-slate-100 dark:border-white/10 pt-1.5 mt-1">
                 <span>{t('pos_total')}</span>
                 <span>{fmtRD(total)}</span>

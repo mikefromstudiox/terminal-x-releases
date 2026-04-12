@@ -374,7 +374,7 @@ function MobileBottomNav({ visibleNav, ecfQueue, businessType }) {
       <div className={`fixed bottom-16 left-0 right-0 z-50 md:hidden transition-transform duration-200 ${
         drawerOpen ? 'translate-y-0' : 'translate-y-full'
       }`}>
-        <div className="bg-slate-800 border-t border-slate-700 rounded-t-2xl max-h-[70vh] overflow-y-auto">
+        <div className="bg-black border-t border-white/10 rounded-t-2xl max-h-[70vh] overflow-y-auto">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
             <span className="text-white text-sm font-semibold">Menu</span>
             <button onClick={() => setDrawerOpen(false)} className="text-slate-400 hover:text-white p-1">
@@ -439,7 +439,7 @@ function MobileBottomNav({ visibleNav, ecfQueue, businessType }) {
       </div>
 
       {/* Bottom bar */}
-      <div className="fixed bottom-0 left-0 right-0 h-16 bg-slate-800 border-t border-slate-700 flex justify-around items-center z-50 md:hidden">
+      <div className="fixed bottom-0 left-0 right-0 h-16 bg-black border-t border-white/10 flex justify-around items-center z-50 md:hidden">
         {bottomItems.map(item => {
           const isActive = pathname === item.to || pathname.startsWith(item.to + '/')
           return (

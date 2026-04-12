@@ -22,13 +22,13 @@ const PLANS = {
     {
       name: 'Pro', key: 'pro', price: 'RD$2,490', annual: 'RD$2,117/mes facturado anual (15% OFF)',
       sub: '/mes', desc: 'Ideal para negocios pequenos', users: '2 usuarios',
-      features: ['POS completo + cobrar + imprimir', 'Directorio de clientes', 'NCF B01/B02 (papel)', 'Reportes diario y mensual', 'Cuadre de Caja + Caja Chica', 'Actualizaciones automaticas'],
+      features: ['POS completo + cobrar + imprimir', 'Directorio de clientes', 'NCF B01/B02 (papel)', 'Certificado digital Viafirma INCLUIDO (valor RD$2,360/ano)', 'Reportes diario y mensual', 'Cuadre de Caja + Caja Chica', 'Actualizaciones automaticas'],
       support: 'Autoservicio — tu configuras todo', cta: 'Comenzar con Pro', highlight: false,
     },
     {
       name: 'Pro PLUS', key: 'pro_plus', price: 'RD$4,490', annual: 'RD$3,817/mes facturado anual (15% OFF)',
       sub: '/mes', badge: 'Mas popular', desc: 'Para negocios que quieren crecer', users: '5 usuarios',
-      features: ['Todo en Pro, mas:', 'Creditos + Notas de Credito', 'Inventario con alertas de stock', 'Comisiones por empleado/vendedor/cajera', 'e-CF DIRECTO A DGII — sin PSFE, sin costo por comprobante', 'Reportes avanzados + Nomina Ley 16-92', 'Soporte WhatsApp horario laboral', 'Configuracion remota por nuestro equipo'],
+      features: ['Todo en Pro, mas:', 'Creditos + Notas de Credito', 'Inventario con alertas de stock', 'Comisiones por empleado/vendedor/cajera', 'e-CF DIRECTO A DGII — sin PSFE, sin costo por comprobante', 'Certificado digital Viafirma INCLUIDO (valor RD$2,360/ano)', 'Reportes avanzados + Nomina Ley 16-92', 'Soporte WhatsApp horario laboral', 'Configuracion remota por nuestro equipo'],
       support: 'Nuestro equipo te configura todo remoto', cta: 'Comenzar con Pro PLUS', highlight: true,
     },
     {
@@ -36,6 +36,7 @@ const PLANS = {
       sub: '/mes', desc: 'Para cadenas y alto volumen', users: 'Usuarios ilimitados',
       features: [
         'Todo en Pro PLUS, mas:',
+        'Certificado digital Viafirma INCLUIDO',
         'Nomina in-house: pagos quincenales y mensuales masivos',
         'TSS + INFOTEP automatico (topes 2026)',
         'ISR progresivo automatico (escalas DGII 2026)',
@@ -56,13 +57,13 @@ const PLANS = {
     {
       name: 'Pro', key: 'pro', price: 'RD$2,490', annual: 'RD$2,117/mo billed annually (15% OFF)',
       sub: '/mo', desc: 'Ideal for small businesses', users: '2 users',
-      features: ['Full POS + charge + print', 'Client directory', 'NCF B01/B02 (paper)', 'Daily and monthly reports', 'Cash Recon + Petty Cash', 'Automatic updates'],
+      features: ['Full POS + charge + print', 'Client directory', 'NCF B01/B02 (paper)', 'Viafirma digital certificate INCLUDED (RD$2,360/yr value)', 'Daily and monthly reports', 'Cash Recon + Petty Cash', 'Automatic updates'],
       support: 'Self-service — you configure everything', cta: 'Start with Pro', highlight: false,
     },
     {
       name: 'Pro PLUS', key: 'pro_plus', price: 'RD$4,490', annual: 'RD$3,817/mo billed annually (15% OFF)',
       sub: '/mo', badge: 'Most popular', desc: 'For growing businesses', users: '5 users',
-      features: ['Everything in Pro, plus:', 'Credits + Credit Notes', 'Inventory with stock alerts', 'Commissions per employee/seller/cashier', 'e-CF DIRECT TO DGII — no PSFE, no per-invoice fees', 'Advanced reports + Payroll Law 16-92', 'WhatsApp support business hours', 'Remote config by our team'],
+      features: ['Everything in Pro, plus:', 'Credits + Credit Notes', 'Inventory with stock alerts', 'Commissions per employee/seller/cashier', 'e-CF DIRECT TO DGII — no PSFE, no per-invoice fees', 'Viafirma digital certificate INCLUDED (RD$2,360/yr value)', 'Advanced reports + Payroll Law 16-92', 'WhatsApp support business hours', 'Remote config by our team'],
       support: 'Our team configures everything remotely', cta: 'Start with Pro PLUS', highlight: true,
     },
     {
@@ -70,6 +71,7 @@ const PLANS = {
       sub: '/mo', desc: 'For chains and high volume', users: 'Unlimited users',
       features: [
         'Everything in Pro PLUS, plus:',
+        'Viafirma digital certificate INCLUDED',
         'In-house payroll: bulk biweekly + monthly runs',
         'Auto TSS + INFOTEP (2026 caps)',
         'Auto progressive ISR (2026 DGII brackets)',
@@ -117,6 +119,7 @@ const FEATURES = {
 
 const COMPARISON = {
   es: [
+    { feature: 'Certificado digital Viafirma incluido', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Facturacion directa DGII (sin intermediario)', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Emisor Electronico propio (sin PSFE)', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Todos los 10 tipos de e-CF + RFCE', tx: true, alegra: false, wil: false, otros: false },
@@ -137,6 +140,7 @@ const COMPARISON = {
     { feature: 'Precio menor a RD$5,000/mes', tx: true, alegra: false, wil: true, otros: true },
   ],
   en: [
+    { feature: 'Viafirma digital certificate included', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Direct DGII invoicing (no middleman)', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Own Electronic Issuer (no PSFE)', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'All 10 e-CF types + RFCE', tx: true, alegra: false, wil: false, otros: false },
@@ -560,7 +564,11 @@ export default function LandingPage({ section }) {
             <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Planes', 'Plans')}</p>
             <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-white">{L('Planes y Precios', 'Plans & Pricing')}</h2>
             <p className="mt-4 text-lg text-white/50">{L('Elige el plan ideal para tu negocio. Sin contrato. Cancela cuando quieras.', 'Choose the ideal plan for your business. No contract. Cancel anytime.')}</p>
-            <p className="mt-2 text-sm font-semibold text-[#b3001e]">{L('Todos los planes incluyen impresora termica, cajon de dinero y actualizaciones.', 'All plans include thermal printer, cash drawer and updates.')}</p>
+            <p className="mt-2 text-sm font-semibold text-[#b3001e]">{L('Todos los planes incluyen certificado digital Viafirma, impresora termica, cajon de dinero y actualizaciones.', 'All plans include Viafirma digital certificate, thermal printer, cash drawer and updates.')}</p>
+            <div className="mt-6 inline-flex items-center gap-3 px-5 py-3 rounded-2xl border border-white/10 bg-white/5">
+              <p className="text-[13px] text-white/70">{L('Pagas RD$6,000/mes por un sistema sin e-CF? Cambiate hoy.', 'Paying RD$6,000/mo for a system without e-CF? Switch today.')}</p>
+              <span className="text-[12px] font-bold text-[#b3001e] whitespace-nowrap">{L('Ahorra 58%', 'Save 58%')}</span>
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto mt-16">
             {PLANS[lang].map(plan => (

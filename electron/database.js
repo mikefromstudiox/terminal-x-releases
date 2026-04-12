@@ -1685,19 +1685,21 @@ function ticketCreate(data) {
       }
     }
 
-    // Add to queue — seed with first washer so it shows immediately on Cola de Espera
-    // Validate washer ID exists in washers table before using as FK
-    const rawFirstWasher = (data.washer_ids || [])[0] || null
-    const firstWasherRow = rawFirstWasher
-      ? db.prepare('SELECT id, supabase_id FROM washers WHERE id=?').get(rawFirstWasher)
-      : null
-    const firstWasherId = firstWasherRow ? firstWasherRow.id : null
-    if (rawFirstWasher && !firstWasherId) {
-      console.warn(`[ticketCreate] washer_id ${rawFirstWasher} not found in washers — inserting queue with null washer_id`)
+    // Add to queue ONLY for pendiente tickets (Encolar workflow).
+    // Cobrado tickets (direct Cobrar) skip the queue — already paid.
+    if (status === 'pendiente') {
+      const rawFirstWasher = (data.washer_ids || [])[0] || null
+      const firstWasherRow = rawFirstWasher
+        ? db.prepare('SELECT id, supabase_id FROM washers WHERE id=?').get(rawFirstWasher)
+        : null
+      const firstWasherId = firstWasherRow ? firstWasherRow.id : null
+      if (rawFirstWasher && !firstWasherId) {
+        console.warn(`[ticketCreate] washer_id ${rawFirstWasher} not found in washers — inserting queue with null washer_id`)
+      }
+      const qSid = crypto.randomUUID()
+      db.prepare(`INSERT INTO queue(ticket_id,status,washer_id,supabase_id,ticket_supabase_id,washer_supabase_id) VALUES(?,?,?,?,?,?)`)
+        .run(ticketId, 'waiting', firstWasherId, qSid, ticketSid, firstWasherRow?.supabase_id || null)
     }
-    const qSid = crypto.randomUUID()
-    db.prepare(`INSERT INTO queue(ticket_id,status,washer_id,supabase_id,ticket_supabase_id,washer_supabase_id) VALUES(?,?,?,?,?,?)`)
-      .run(ticketId, 'waiting', firstWasherId, qSid, ticketSid, firstWasherRow?.supabase_id || null)
 
     return { ticketId, docNumber, ncf, supabase_id: ticketSid }
   })

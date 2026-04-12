@@ -391,11 +391,12 @@ function Screen606() {
             </div>
           </div>
         </div>
-        {/* Header */}
+        {/* Header + Rows — horizontal scroll on mobile for wide tables */}
+        <div className="overflow-x-auto">
+        <div className="min-w-[700px]">
         <div className="flex items-center px-4 py-2 bg-slate-50 dark:bg-white/5 border-b border-slate-100 dark:border-white/10">
           {COLS_606.map(c => <span key={c.key} className={`text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/40 ${c.cls}`}>{c.label}</span>)}
         </div>
-        {/* Rows */}
         <div className="divide-y divide-slate-50 dark:divide-white/5">
           {loading && <div className="py-10 text-center text-sm text-slate-400 dark:text-white/40">{L('Cargando…', 'Loading…')}</div>}
           {!loading && visible.length === 0 && <div className="py-10 text-center text-sm text-slate-400 dark:text-white/40">{L('Sin registros para este período.', 'No records for this period.')}</div>}
@@ -422,6 +423,8 @@ function Screen606() {
             </div>
           ))}
         </div>
+        </div>{/* /min-w-[700px] */}
+        </div>{/* /overflow-x-auto */}
         {/* Footer */}
         <div className="border-t border-slate-100 dark:border-white/10 px-4 py-2 flex justify-between bg-slate-50 dark:bg-white/5">
           <span className="text-xs text-slate-400 dark:text-white/40">{visible.length} registro{visible.length !== 1 ? 's' : ''}</span>
@@ -823,7 +826,9 @@ function Screen607() {
           </div>
         </div>
 
-        {/* Header */}
+        {/* Header + Rows — horizontal scroll on mobile for wide tables */}
+        <div className="overflow-x-auto">
+        <div className="min-w-[700px]">
         <div className="flex items-center px-4 py-2 bg-slate-50 dark:bg-white/5 border-b border-slate-100 dark:border-white/10 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/40">
           <span className="w-36 font-mono">NCF</span>
           <span className="flex-1">Proveedor / RNC</span>
@@ -835,7 +840,6 @@ function Screen607() {
           <span className="w-8" />
         </div>
 
-        {/* Rows */}
         <div className="divide-y divide-slate-50 dark:divide-white/5 max-h-96 overflow-y-auto">
           {loading && <div className="py-10 text-center text-sm text-slate-400 dark:text-white/40">{L('Cargando…', 'Loading…')}</div>}
           {!loading && visible.length === 0 && (
@@ -869,6 +873,8 @@ function Screen607() {
             </div>
           ))}
         </div>
+        </div>{/* /min-w-[700px] */}
+        </div>{/* /overflow-x-auto */}
 
         {/* Footer */}
         <div className="border-t border-slate-100 dark:border-white/10 px-4 py-2 flex justify-between bg-slate-50 dark:bg-white/5">
@@ -878,7 +884,7 @@ function Screen607() {
       </div>
 
       {/* Bottom panels */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Resumen */}
         <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 shadow-sm p-4">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-white/40 mb-3">Resumen 607</p>

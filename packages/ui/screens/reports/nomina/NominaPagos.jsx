@@ -69,6 +69,7 @@ export default function NominaPagos() {
   const [bonuses,  setBonuses]  = useState({})  // empleado.id → number
   const [saving,   setSaving]   = useState(false)
   const [toast,    setToast]    = useState(null)
+  const [periodSalaries, setPeriodSalaries] = useState({}) // empleado.id → salary at period end
 
   function showToast(msg, variant = 'ok') {
     setToast({ msg, variant })
@@ -134,6 +135,20 @@ export default function NominaPagos() {
     setBonuses({})
   }, [period?.start, period?.end])
 
+  // Load historical salary for each employee at the period end date
+  useEffect(() => {
+    if (!period?.end || !empleados.length) return
+    let cancelled = false
+    Promise.all(empleados.map(emp =>
+      (api?.salaryChanges?.atDate?.(emp.id, period.end) ?? Promise.resolve(emp.salary || 0))
+        .then(sal => [emp.id, sal])
+    )).then(pairs => {
+      if (cancelled) return
+      setPeriodSalaries(Object.fromEntries(pairs))
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [period?.end, empleados])
+
   // ── Load historical runs for this period ──────────────────────────────────
   useEffect(() => {
     if (!period) return
@@ -188,7 +203,8 @@ export default function NominaPagos() {
   const periodsPerMonth = cycle === 'quincenal' ? 2 : 1
 
   function rowCalc(emp) {
-    const base       = prorateSalary(emp.salary || 0, cycle)
+    const historicalSalary = periodSalaries[emp.id] ?? emp.salary ?? 0
+    const base       = prorateSalary(historicalSalary, cycle)
     const commission = getCommission(emp)
     const bonus      = Number(bonuses[emp.id] || 0)
     const gross      = base + commission + bonus
@@ -225,7 +241,7 @@ export default function NominaPagos() {
 
   // ── Select all / none ──────────────────────────────────────────────────────
   function toggleAll() {
-    const allEligible = empleados.filter(e => !alreadyPaid.has(String(e.id)) && (e.salary > 0 || getCommission(e) > 0))
+    const allEligible = empleados.filter(e => !alreadyPaid.has(String(e.id)) && ((periodSalaries[e.id] ?? e.salary ?? 0) > 0 || getCommission(e) > 0))
     const allSelected = allEligible.every(e => selected[e.id])
     if (allSelected) {
       setSelected({})
@@ -364,7 +380,7 @@ export default function NominaPagos() {
                   {empleados.map(emp => {
                     const c = rowCalc(emp)
                     const paid = alreadyPaid.has(String(emp.id))
-                    const eligible = !paid && (emp.salary > 0 || c.commission > 0)
+                    const eligible = !paid && ((periodSalaries[emp.id] ?? emp.salary ?? 0) > 0 || c.commission > 0)
                     return (
                       <tr key={emp.id} className={`border-t border-slate-100 dark:border-white/5 ${paid ? 'opacity-50' : ''}`}>
                         <td className="px-3 py-2 text-center">
@@ -413,7 +429,7 @@ export default function NominaPagos() {
               {empleados.map(emp => {
                 const c = rowCalc(emp)
                 const paid = alreadyPaid.has(String(emp.id))
-                const eligible = !paid && (emp.salary > 0 || c.commission > 0)
+                const eligible = !paid && ((periodSalaries[emp.id] ?? emp.salary ?? 0) > 0 || c.commission > 0)
                 return (
                   <div key={emp.id} className={`px-4 py-3 ${paid ? 'opacity-50' : ''}`}>
                     <div className="flex items-start gap-3">

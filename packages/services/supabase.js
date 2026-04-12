@@ -139,7 +139,10 @@ export async function ensureBusinessRegistered(api) {
 
 // ── Connectivity test ─────────────────────────────────────────────────────────
 export async function testConnection() {
+  // Prefer the services-side client (desktop populates localStorage on boot).
+  // Fall back to the shared web client stashed on window by web/main.jsx.
   const sb = getSupabaseClient()
+    || (typeof window !== 'undefined' ? window.__txSupabase : null)
   if (!sb) return { ok: false, error: 'Credenciales no configuradas' }
   try {
     const { error } = await sb.from('businesses').select('id').limit(1)

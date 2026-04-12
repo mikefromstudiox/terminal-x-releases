@@ -546,11 +546,11 @@ function Actualizaciones() {
 
 // ── MAIN SISTEMA SCREEN ───────────────────────────────────────────────────────
 
+// Actualizaciones is desktop-only (Electron auto-updater). Hidden on web/mobile.
+const isDesktop = typeof window !== 'undefined' && !!window.electronAPI
 const TABS = [
-  { id: 'config',          es: 'Preferencias',    en: 'Preferences',   icon: Settings  },
-  { id: 'actualizaciones', es: 'Actualizaciones', en: 'Updates',       icon: Download  },
-  // Removed: LicenseAdmin was dead code (API key auth doesn't match Supabase JWT backend).
-  // Real admin panel is at terminalxpos.com/admin. Kept the tab ID commented out for reference.
+  { id: 'config', es: 'Preferencias', en: 'Preferences', icon: Settings },
+  ...(isDesktop ? [{ id: 'actualizaciones', es: 'Actualizaciones', en: 'Updates', icon: Download }] : []),
 ]
 
 export default function Sistema({ initialTab, hideHeader }) {

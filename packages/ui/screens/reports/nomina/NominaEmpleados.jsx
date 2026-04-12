@@ -13,7 +13,7 @@ import { useState, useMemo, useEffect } from 'react'
 import {
   Plus, Edit2, Power, Search, AlertCircle, Banknote, History, TrendingUp,
   Calculator, ClipboardList, Mail, Phone, CreditCard, IdCard, Calendar,
-  Briefcase, Trash2, X,
+  Briefcase, Trash2, X, ChevronLeft,
 } from 'lucide-react'
 import { useAuth } from '../../../context/AuthContext'
 import { useAPI } from '../../../context/DataContext'
@@ -260,8 +260,8 @@ export default function NominaEmpleados() {
 
   return (
     <div className="flex-1 flex flex-col md:flex-row overflow-hidden p-3 md:p-4 gap-3 md:gap-4">
-      {/* ── Left: employee list ──────────────────────────────────────────── */}
-      <div className="md:w-[320px] shrink-0 flex flex-col bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden">
+      {/* ── Left: employee list (hidden on mobile when an employee is selected) */}
+      <div className={`md:w-[320px] shrink-0 flex-col bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden ${selected ? 'hidden md:flex' : 'flex'}`}>
         <div className="shrink-0 px-4 py-3 border-b border-slate-100 dark:border-white/10 space-y-2">
           <div className="flex items-center justify-between">
             <p className="text-[12px] font-bold text-slate-500 dark:text-white/60">{empleados.length} {L('empleados', 'employees')}</p>
@@ -358,6 +358,11 @@ export default function NominaEmpleados() {
           <>
             {/* Profile header */}
             <div className="shrink-0 px-5 py-4 border-b border-slate-200 dark:border-white/10">
+              {/* Mobile back button */}
+              <button onClick={() => setSelectedId(null)}
+                className="md:hidden flex items-center gap-1 text-[12px] text-sky-600 dark:text-sky-400 font-semibold mb-3 -ml-1">
+                <ChevronLeft size={16} /> {L('Volver a la lista', 'Back to list')}
+              </button>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3 min-w-0">
                   <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-[15px] font-bold shrink-0 ${TYPE_COLORS[selected.tipo]?.bg} ${TYPE_COLORS[selected.tipo]?.text}`}>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Save, X, ShieldCheck, ShieldAlert, Lock, Pencil } from 'lucide-react'
+import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Save, X, ShieldCheck, ShieldAlert, Lock, Pencil, Calendar, MapPin, Plus } from 'lucide-react'
 import { useLang } from '../../i18n'
 import OnboardingChecklist from '../components/OnboardingChecklist'
 import QuickActions from '../components/QuickActions'
@@ -38,6 +38,12 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
   const [pinSaving, setPinSaving] = useState(false)
   const [pinOk, setPinOk] = useState(false)
   const [pinErr, setPinErr] = useState('')
+  const [visits, setVisits] = useState([])
+  const [showVisitForm, setShowVisitForm] = useState(false)
+  const [visitDate, setVisitDate] = useState('')
+  const [visitType, setVisitType] = useState('onsite')
+  const [visitNotes, setVisitNotes] = useState('')
+  const [savingVisit, setSavingVisit] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -47,6 +53,11 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
       const resp = await fetch(`/api/panel?action=client_detail&id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } })
       if (!resp.ok) throw new Error('Failed')
       setData(await resp.json())
+      // Also fetch visits
+      try {
+        const vResp = await fetch(`/api/panel?action=client_visits&id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } })
+        if (vResp.ok) { const vData = await vResp.json(); setVisits(vData.data || []) }
+      } catch {}
     } catch (e) { console.error('ClientDetail load:', e) }
     setLoading(false)
   }
@@ -115,6 +126,36 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
       load()
     } catch (e) { console.error('Save failed:', e) }
     setEditSaving(false)
+  }
+
+  async function addVisit() {
+    if (!visitDate) return
+    setSavingVisit(true)
+    try {
+      let token = await refreshToken?.()
+      if (!token) token = getToken()
+      await fetch('/api/panel?action=client_visits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ business_id: id, scheduled_date: visitDate, visit_type: visitType, notes: visitNotes }),
+      })
+      setShowVisitForm(false); setVisitDate(''); setVisitNotes('')
+      load()
+    } catch {}
+    setSavingVisit(false)
+  }
+
+  async function toggleVisit(visitId, completed) {
+    try {
+      let token = await refreshToken?.()
+      if (!token) token = getToken()
+      await fetch('/api/panel?action=client_visits', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ business_id: id, visit_id: visitId, completed }),
+      })
+      load()
+    } catch {}
   }
 
   const planDisplay = typeof biz.plan === 'string' ? biz.plan.replace('_', ' ').toUpperCase() : '—'
@@ -369,6 +410,61 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                   </motion.div>
                 )
               })()}
+
+              {/* Visits */}
+              <motion.div variants={listItem} className={card}>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[11px] font-bold uppercase tracking-[1.2px] text-[#b3001e] flex items-center gap-2">
+                    <Calendar size={13} /> {L('Visitas', 'Visits')}
+                  </p>
+                  <button onClick={() => setShowVisitForm(v => !v)}
+                    className={`text-[10px] font-bold px-2 py-1 rounded-lg transition-colors ${isDark ? 'text-white/40 hover:text-white/70 border border-white/10' : 'text-black/40 hover:text-black/70 border border-black/10'}`}>
+                    <Plus size={11} className="inline mr-1" />{L('Agendar', 'Schedule')}
+                  </button>
+                </div>
+
+                {showVisitForm && (
+                  <div className={`rounded-xl p-3 mb-3 space-y-2 ${isDark ? 'bg-white/5' : 'bg-black/5'}`}>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="date" value={visitDate} onChange={e => setVisitDate(e.target.value)}
+                        className={`px-2.5 py-2 rounded-lg text-[12px] outline-none ${isDark ? 'bg-white/5 border border-white/10 text-white' : 'bg-white border border-black/10 text-black'}`} />
+                      <select value={visitType} onChange={e => setVisitType(e.target.value)}
+                        className={`px-2.5 py-2 rounded-lg text-[12px] outline-none ${isDark ? 'bg-white/5 border border-white/10 text-white' : 'bg-white border border-black/10 text-black'}`}>
+                        <option value="onsite">{L('Presencial', 'On-site')}</option>
+                        <option value="remote">{L('Remoto', 'Remote')}</option>
+                      </select>
+                    </div>
+                    <input value={visitNotes} onChange={e => setVisitNotes(e.target.value)} placeholder={L('Notas...', 'Notes...')}
+                      className={`w-full px-2.5 py-2 rounded-lg text-[12px] outline-none ${isDark ? 'bg-white/5 border border-white/10 text-white placeholder-white/30' : 'bg-white border border-black/10 text-black placeholder-black/30'}`} />
+                    <button onClick={addVisit} disabled={!visitDate || savingVisit}
+                      className="w-full px-3 py-2 rounded-lg text-[11px] font-bold bg-[#b3001e] text-white hover:bg-[#c8002a] disabled:opacity-50 transition-colors">
+                      {savingVisit ? L('Guardando...', 'Saving...') : L('Agendar Visita', 'Schedule Visit')}
+                    </button>
+                  </div>
+                )}
+
+                {visits.length === 0 ? (
+                  <p className={`text-[11px] ${isDark ? 'text-white/25' : 'text-black/25'}`}>{L('Sin visitas agendadas.', 'No visits scheduled.')}</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {visits.sort((a, b) => new Date(b.scheduled_date) - new Date(a.scheduled_date)).map(v => (
+                      <div key={v.id} className={`flex items-center gap-2.5 py-2 border-b last:border-0 ${isDark ? 'border-white/5' : 'border-black/5'}`}>
+                        <input type="checkbox" checked={v.completed} onChange={e => toggleVisit(v.id, e.target.checked)} className="accent-[#b3001e]" />
+                        <MapPin size={12} className={v.completed ? 'text-emerald-500' : 'text-[#b3001e]'} />
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-[12px] ${v.completed ? 'line-through opacity-50' : ''} ${isDark ? 'text-white/80' : 'text-black/80'}`}>
+                            {new Date(v.scheduled_date).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            <span className={`ml-2 text-[10px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>
+                              {v.visit_type === 'remote' ? L('Remoto', 'Remote') : L('Presencial', 'On-site')}
+                            </span>
+                          </p>
+                          {v.notes && <p className={`text-[10px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{v.notes}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </motion.div>
 
               {/* Onboarding */}
               <motion.div variants={listItem} className={card}>

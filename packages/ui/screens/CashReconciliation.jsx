@@ -798,7 +798,7 @@ export default function CashReconciliation() {
           <button
             onClick={handleRecalc}
             disabled={loadingDay}
-            className="hidden md:flex items-center gap-1.5 px-5 py-2 rounded-lg border border-slate-200 dark:border-white/10 text-sm text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 md:px-5 py-2 min-h-[44px] md:min-h-0 rounded-lg border border-slate-200 dark:border-white/10 text-sm text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40"
           >
             <Calculator size={15} />
             {loadingDay ? L('Cargando…', 'Loading…') : L('Recalcular', 'Recalculate')}
@@ -806,7 +806,7 @@ export default function CashReconciliation() {
           <button
             onClick={handleCancel}
             disabled={closed}
-            className="hidden md:block px-5 py-2 rounded-lg border border-slate-200 dark:border-white/10 text-sm text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40"
+            className="px-3 md:px-5 py-2 min-h-[44px] md:min-h-0 rounded-lg border border-slate-200 dark:border-white/10 text-sm text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40"
           >
             {L('Limpiar', 'Clear')}
           </button>

@@ -2,12 +2,12 @@ import { useState } from 'react'
 import { Send, Eye, MessageSquare, CreditCard, Settings, ArrowRightLeft, StickyNote, Users } from 'lucide-react'
 
 const TYPE_BADGES = {
-  note:           { label: 'Nota',    labelEn: 'Note',     bg: 'bg-black/5 text-black/60 border-black/10',   bgDark: 'bg-white/5 text-white/60 border-white/10' },
-  step_change:    { label: 'Paso',    labelEn: 'Step',     bg: 'bg-sky-50 text-sky-700 border-sky-200',       bgDark: 'bg-sky-500/10 text-sky-400 border-sky-500/20' },
-  status_change:  { label: 'Estado',  labelEn: 'Status',   bg: 'bg-amber-50 text-amber-700 border-amber-200', bgDark: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
-  payment:        { label: 'Pago',    labelEn: 'Payment',  bg: 'bg-emerald-50 text-emerald-700 border-emerald-200', bgDark: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
-  system:         { label: 'Sistema', labelEn: 'System',   bg: 'bg-purple-50 text-purple-700 border-purple-200', bgDark: 'bg-purple-500/10 text-purple-400 border-purple-500/20' },
-  client_message: { label: 'Cliente', labelEn: 'Client',   bg: 'bg-sky-50 text-sky-700 border-sky-200',       bgDark: 'bg-sky-500/10 text-sky-400 border-sky-500/20' },
+  note:           { label: 'Nota',    labelEn: 'Note',     bg: 'bg-black/5 text-black/70 border-black/10',             bgDark: 'bg-white/5 text-white/70 border-white/10' },
+  step_change:    { label: 'Paso',    labelEn: 'Step',     bg: 'bg-[#b3001e]/10 text-[#b3001e] border-[#b3001e]/25',   bgDark: 'bg-[#b3001e]/15 text-[#b3001e] border-[#b3001e]/30' },
+  status_change:  { label: 'Estado',  labelEn: 'Status',   bg: 'bg-amber-500/10 text-amber-600 border-amber-500/30',   bgDark: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
+  payment:        { label: 'Pago',    labelEn: 'Payment',  bg: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30', bgDark: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' },
+  system:         { label: 'Sistema', labelEn: 'System',   bg: 'bg-black/10 text-black/80 border-black/15',            bgDark: 'bg-white/10 text-white/80 border-white/15' },
+  client_message: { label: 'Cliente', labelEn: 'Client',   bg: 'bg-[#b3001e]/10 text-[#b3001e] border-[#b3001e]/25',   bgDark: 'bg-[#b3001e]/15 text-[#b3001e] border-[#b3001e]/30' },
 }
 
 function timeAgo(dateStr, lang) {
@@ -75,7 +75,7 @@ export default function CertNotes({ notes = [], certId, token, onNoteAdded, isDa
           </label>
           <div className="flex-1" />
           <button onClick={submit} disabled={submitting || !content.trim()}
-            className="flex items-center gap-1.5 px-4 py-1.5 bg-[#b3001e] text-white text-[12px] font-bold rounded-lg hover:bg-[#8c0017] disabled:opacity-40 transition-colors">
+            className="flex items-center gap-1.5 px-4 py-2 bg-[#b3001e] text-white text-[12px] font-bold rounded-xl hover:bg-[#c8002a] disabled:opacity-40 transition-colors shadow-md shadow-[#b3001e]/20">
             <Send size={12} />
             {submitting ? L('Enviando...', 'Sending...') : L('Agregar', 'Add')}
           </button>
