@@ -362,6 +362,16 @@ ipcMain.handle('dgii:cert-info', () => {
   }
 })
 
+// dgii:cert-pem — returns PEM-encoded private key + certificate for web signing proxy sync
+ipcMain.handle('dgii:cert-pem', () => {
+  try {
+    const { privateKeyPem, certificatePem, subject, expiry } = certManager.loadCert()
+    return { ok: true, data: { privateKeyPem, certificatePem, subject, expiry } }
+  } catch {
+    return { ok: false }
+  }
+})
+
 // dgii:auth-test — test DGII authentication (seed dance)
 ipcMain.handle('dgii:auth-test', async () => {
   try {

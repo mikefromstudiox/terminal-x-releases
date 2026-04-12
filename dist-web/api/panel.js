@@ -6,9 +6,9 @@ function cors(req, res) {
   const origin = req.headers.origin || ''
   if (ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin)
-  } else if (!origin || origin === 'null') {
-    // Desktop Electron (file://) sends Origin: null; server-to-server has no origin
-    res.setHeader('Access-Control-Allow-Origin', '*')
+  } else {
+    // No wildcard — desktop uses IPC, not direct fetch
+    res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0] || 'https://terminalxpos.com')
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
@@ -65,6 +65,7 @@ export default async function handler(req, res) {
   if (action === 'cert_notes') return handleCertNotes(req, res)
   if (action === 'cert_docs') return handleCertDocs(req, res)
   if (action === 'cert_stats') return handleCertStats(req, res)
+  if (action === 'set_staff_pin') return handleSetStaffPin(req, res)
   return res.status(400).json({ error: 'Unknown action' })
 }
 
@@ -378,7 +379,7 @@ async function handleClientDetail(req, res) {
     const [bizRes, licRes, staffRes, svcRes, clientRes, ticketRes, configRes] = await Promise.all([
       auth.supabase.from('businesses').select('*').eq('id', id).single(),
       auth.supabase.from('licenses').select('*, plans(name, display_name)').eq('business_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-      auth.supabase.from('staff').select('id, name, username, role, auth_user_id, active, created_at').eq('business_id', id).order('created_at'),
+      auth.supabase.from('staff').select('id, name, username, role, auth_user_id, active, pin_hash, created_at').eq('business_id', id).order('created_at'),
       auth.supabase.from('services').select('id', { count: 'exact', head: true }).eq('business_id', id).eq('active', true),
       auth.supabase.from('clients').select('id', { count: 'exact', head: true }).eq('business_id', id).eq('active', true),
       auth.supabase.from('tickets').select('id, total, status, created_at').eq('business_id', id).neq('status', 'nula').order('created_at', { ascending: false }).limit(1000),
@@ -386,7 +387,7 @@ async function handleClientDetail(req, res) {
     ])
     if (bizRes.error) throw bizRes.error
     const biz = bizRes.data
-    const staff = staffRes.data || []
+    const staff = (staffRes.data || []).map(s => ({ ...s, has_pin: !!s.pin_hash, pin_hash: undefined }))
     const tickets = ticketRes.data || []
     const serviceCount = svcRes.count || 0
     const clientCount = clientRes.count || 0
@@ -548,6 +549,27 @@ async function handleActivityFeed(req, res) {
     // Sort by date desc, limit 30
     feed.sort((a, b) => new Date(b.date) - new Date(a.date))
     return res.json({ data: feed.slice(0, 30) })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// ── Set Staff PIN (admin sets POS PIN for client's staff member) ─────────────
+
+async function handleSetStaffPin(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { staff_id, pin } = req.body || {}
+  if (!staff_id || !pin) return res.status(400).json({ error: 'staff_id and pin required' })
+  if (pin.length < 4 || pin.length > 6) return res.status(400).json({ error: 'PIN must be 4-6 digits' })
+  if (!/^\d+$/.test(pin)) return res.status(400).json({ error: 'PIN must be digits only' })
+  try {
+    const encoder = new TextEncoder()
+    const data = encoder.encode(pin)
+    const hashBuf = await crypto.subtle.digest('SHA-256', data)
+    const pin_hash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('')
+    const { error } = await auth.supabase.from('staff').update({ pin_hash }).eq('id', staff_id)
+    if (error) throw error
+    return res.json({ ok: true })
   } catch (err) { return res.status(500).json({ error: err.message }) }
 }
 

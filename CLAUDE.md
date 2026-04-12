@@ -138,12 +138,13 @@ npm run dist:mac     # macOS DMG
 ```bash
 cd "A:\Studio X HUB\Terminal X"
 npm run build:web
-echo '{"private":true,"dependencies":{"@supabase/supabase-js":"^2.49.4","xml-crypto":"^2.1.5","@xmldom/xmldom":"^0.8.6","jsonwebtoken":"^9.0.2"}}' > dist-web/package.json
+echo '{"private":true,"type":"module","dependencies":{"@supabase/supabase-js":"^2.49.4","xml-crypto":"^2.1.5","@xmldom/xmldom":"^0.8.6","jsonwebtoken":"^9.0.2","dgii-ecf":"^1.6.8","node-forge":"^1.3.3"}}' > dist-web/package.json
 cp web/vercel.json dist-web/
-mkdir -p dist-web/api/signup dist-web/api/fe dist-web/.vercel
-cp web/api/panel.js web/api/validate.js web/api/rnc.js dist-web/api/
+mkdir -p dist-web/api/signup dist-web/api/fe dist-web/lib dist-web/.vercel
+cp web/api/panel.js web/api/validate.js web/api/rnc.js web/api/ecf-sign.js dist-web/api/
 cp web/api/signup/provision.js dist-web/api/signup/
 cp web/api/fe/semilla.js web/api/fe/validarcertificado.js web/api/fe/recepcion.js web/api/fe/aprobacion.js dist-web/api/fe/
+cp web/lib/xml-builder.js web/lib/xml-signer.js web/lib/dgii-client.js dist-web/lib/
 echo '{"projectId":"prj_AjhpUcrbNGuSWZrs9CLxQmKkGXnL","orgId":"team_J0ZQKmOPRiXDLC7I1RA00PM9"}' > dist-web/.vercel/project.json
 cd dist-web && npm install --silent && npx vercel --prod --yes
 ```
@@ -198,6 +199,7 @@ Every table that syncs between Desktop (SQLite) and Web (Supabase) uses the **su
 - **Security headers:** CSP, HSTS with preload, COOP, X-Frame-Options DENY, X-Content-Type-Options nosniff — all in `web/vercel.json`.
 - **Images:** WebP format, resized to 2x display size (logo 150px, x-mark 200px). All `<img>` tags have explicit `width`/`height` attributes.
 - **SEO:** `<html lang="es-DO">`, hreflang tags, geo.region DO, FAQPage + SoftwareApplication + Organization JSON-LD schemas, `<noscript>` fallback content, Google Analytics (G-WV4EDKWVJP).
+- **Web e-CF signing proxy:** `/api/ecf-sign` Vercel serverless function signs e-CFs server-side for web users. Uses ESM ports in `web/lib/` (xml-builder.mjs, xml-signer.mjs, dgii-client.mjs). Desktop pushes PEM cert keys to `businesses.settings` via bizSync. Web client calls proxy transparently via `dgii_ecf` in `web.js`. Auth: Supabase JWT.
 - **DGII dependencies:** `dgii-ecf` npm library for seed signing (Signature class with custom Digest that sorts xmlns attributes alphabetically). Project also has `xml-crypto` v6 for e-CF document signing (different from dgii-ecf's bundled v2). Do NOT mix — seed uses dgii-ecf, e-CFs use xml-signer.js with xml-crypto v6.
 - **Admin e-CF Status:** `ClientDetail.jsx` shows per-client cert status card (installed, expired, environment, subject, expiry, readiness). Data comes from `businesses.settings` populated by desktop bizSync.
 - **Kiosk fullscreen mode (v1.9.9):** Full-screen lockdown mode with ESC exit confirmation — prevents accidental exits during POS operation. Toggle in Settings.

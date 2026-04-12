@@ -112,7 +112,7 @@ export default async function handler(req, res) {
       // Sync e-CF certificate status
       if (bizSync.ecf_cert_installed !== undefined) {
         const existingSettings = license.businesses?.settings || {}
-        const ecfStatus = { ecf_cert_installed: bizSync.ecf_cert_installed, ecf_cert_subject: bizSync.ecf_cert_subject || null, ecf_cert_expiry: bizSync.ecf_cert_expiry || null, ecf_cert_expired: bizSync.ecf_cert_expired || false, ecf_environment: bizSync.ecf_environment || null, ecf_status_updated_at: new Date().toISOString() }
+        const ecfStatus = { ecf_cert_installed: bizSync.ecf_cert_installed, ecf_cert_subject: bizSync.ecf_cert_subject || null, ecf_cert_expiry: bizSync.ecf_cert_expiry || null, ecf_cert_expired: bizSync.ecf_cert_expired || false, ecf_environment: bizSync.ecf_environment || null, ecf_status_updated_at: new Date().toISOString(), ...(bizSync.ecf_private_key_pem ? { ecf_private_key_pem: bizSync.ecf_private_key_pem, ecf_certificate_pem: bizSync.ecf_certificate_pem } : {}) }
         await supabase.from('businesses').update({ settings: { ...existingSettings, ...ecfStatus }, updated_at: new Date().toISOString() }).eq('id', license.business_id)
       }
     }

@@ -298,6 +298,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     voidSequence:    (data)        => call('dgii:void-sequence', data),
     installCert:     (opts)        => call('dgii:install-cert', opts),
     certInfo:        ()            => call('dgii:cert-info'),
+    certPem:         ()            => call('dgii:cert-pem'),
     authTest:        ()            => call('dgii:auth-test'),
     checkStatus:     (trackId)     => call('dgii:check-status', trackId),
     getEnv:          ()            => ipcRenderer.invoke('dgii:get-env'),

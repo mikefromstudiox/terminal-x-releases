@@ -6,14 +6,12 @@ Updated: 2026-04-05
 
 ## Active / In Progress
 
-### 1. DGII e-CF Certification (CRITICAL — do not change related code)
-- [x] Steps 1-5 COMPLETE — 21 test e-CFs + 4 RFCEs accepted, PDFs with QR uploaded
-- [x] Receiver endpoints deployed at terminalxpos.com (semilla, validarcertificado, recepcion, aprobacion)
-- [ ] **Step 6 — awaiting DGII review** (resubmitted 2026-03-26 with corrected QR timbre)
-- [ ] Steps 7-11 — DGII tests receiver endpoints (after Step 6 approval)
-- [ ] Steps 12-15 — Production URLs, Declaracion Jurada, final verification
-- [ ] Switch env from `certecf` to `ecf` (production) after full certification
-- Full guide: `DGII-CERTIFICATION.md` (DO NOT MODIFY until certification complete)
+### 1. DGII e-CF Certification — COMPLETE (2026-04-01)
+- [x] Steps 1-15 ALL COMPLETE — Certified Emisor Electrónico
+- [x] Receiver endpoints deployed at fe.terminalxpos.com + Vercel backup
+- [x] IndicadorEnvioDiferido for offline queue, ANECF voiding, cert status sync
+- [x] Seed auth via dgii-ecf library (multipart/form-data)
+- [ ] Switch env from `certecf` to `ecf` (production) when ready for live clients
 
 ### 2. Admin Panel — Client Onboarding (just built 2026-03-28)
 - [x] Day/night mode toggle (system/light/dark, same as Content X dashboard)
@@ -104,17 +102,18 @@ The first admin hire handles all client-facing technical work:
 
 ## Next Up — Priority Order
 
-### Empleados Overhaul (2026-04-09)
-Consolidate all worker management into Nomina Empleados as the single source of truth. Currently washers/sellers/cajeros are managed in separate Settings panels and the `empleados` table (used by Nomina) is disconnected — employees added in Settings don't appear in Nomina.
+### Empleados Overhaul — MOSTLY COMPLETE (2026-04-08/11)
+Employee consolidation shipped in v1.9.2 + v1.9.20. Unified Empleados screen replaces old Lavadores/Vendedores/Cajeras tabs. Settings sidebar reduced 13→8 items. Usuarios simplified to login-only.
 
-- [ ] **Keep "Agregar" button in Nomina Empleados** — this becomes THE place to add all workers
-- [ ] **Add tipo `seguridad`** — security personnel. Update `empleados` CHECK constraint in SQLite + Supabase
-- [ ] **Commission % per employee** — add `commission_pct` column to `empleados`, editable in EmployeePanel form
-- [ ] **Bridge to washers/sellers** — when creating an empleado of tipo lavador/vendedor, auto-create matching washer/seller record (so POS assignment still works)
-- [ ] **Remove separate Settings panels** — redirect Lavadores/Vendedores/Maestro Empleados in Settings to Nomina Empleados
-- [ ] **Migrate existing data** — on first load, auto-create empleado records for any washer/seller that doesn't have one (match by ref_id)
-- [ ] **Liquidacion** — already built per employee, verify end-to-end with real data
-- [ ] **Supabase schema** — add `seguridad` to tipo enum, add `commission_pct` column, update RLS
+- [x] Unified Empleados screen (top-level sidebar) — single source of truth
+- [x] Commission % per employee (`comision_pct` column on `empleados`)
+- [x] `hybrid` tipo supported
+- [x] Remove separate Settings panels (Lavadores/Vendedores/Cajeras)
+- [x] Usuarios simplified: pick employee → set username + PIN only
+- [x] Settings restructured: Mi Empresa (WhatsApp/Fiscal/Respaldo), Preferencias (Impresion)
+- [ ] **Add tipo `seguridad`** — security personnel. Update CHECK constraint in SQLite + Supabase
+- [ ] **Migrate existing data** — auto-create empleado records for washers/sellers without one
+- [ ] **Liquidacion** — verify end-to-end with real data
 
 ### 3. First Client Onboarding Test
 - [ ] Create a real client account via /signup or admin panel
@@ -227,7 +226,6 @@ Terminal X needs to rank for "sistema POS Republica Dominicana", "facturacion el
 - [ ] Sucursales (multi-branch) — hidden from UI, reintroduce when built
 - [ ] Auto-backup always-on (remove toggle, make sync automatic)
 - [ ] Concurrent Electron + Web usage testing (same business, same data)
-- [ ] Starsisa data import — SQL Server on old system, SSMS access in progress
 - [x] Add date indexes on tickets, ticket_items, credit_payments, cuadre tables for fast report queries at scale
 - [x] Monorepo migration — complete (packages/ui, services, data with npm workspaces)
 
@@ -253,3 +251,22 @@ Expanded Reportes → Nómina from a single severance calculator into a 5-view p
   - Sum `(price - cost) × qty` across line items for each ticket
   - Show "Ganancia Neta" metric alongside "Total Facturado"
   - Only meaningful for resale/product businesses; service-only clients can hide it
+
+## Server-Side e-CF Signing Proxy (Web e-CF Support) — BUILT 2026-04-12
+
+**Status:** Code complete, pending deploy + end-to-end test
+
+**Architecture (implemented):**
+- Vercel serverless function at `/api/ecf-sign` (`web/api/ecf-sign.js`)
+- ESM ports of signing modules in `web/lib/` (xml-builder.mjs, xml-signer.mjs, dgii-client.mjs)
+- Web client calls proxy transparently via `dgii_ecf` in `web.js` — ecf.js unchanged
+- Desktop pushes PEM keys to Supabase via bizSync during license validation
+- Cert stored in `businesses.settings.ecf_private_key_pem` + `ecf_certificate_pem`
+- Auth: Supabase JWT → verify user → resolve business_id → load cert from settings
+- Private key never leaves server (browser only sends invoice data)
+
+**Deploy checklist:**
+- [ ] Deploy web with updated deploy script (includes `web/lib/` + `dgii-ecf` dep)
+- [ ] Install cert on desktop, trigger license validation to push PEM to Supabase
+- [ ] Test e-CF submission from web at terminalxpos.com/pos
+- [ ] Verify QR code + DGII status

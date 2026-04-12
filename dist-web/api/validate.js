@@ -20,8 +20,10 @@ export default async function handler(req, res) {
   const origin = req.headers.origin || ''
   if (ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin)
-  } else if (!origin || origin === 'null') {
-    res.setHeader('Access-Control-Allow-Origin', '*')
+  } else {
+    // Desktop Electron goes through IPC (remote:validate), not direct fetch
+    // Allow non-browser callers but do NOT echo wildcard to browsers
+    res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0] || 'https://terminalxpos.com')
   }
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
@@ -106,6 +108,12 @@ export default async function handler(req, res) {
       if (Object.keys(updates).length) {
         updates.updated_at = new Date().toISOString()
         await supabase.from('businesses').update(updates).eq('id', license.business_id)
+      }
+      // Sync e-CF certificate status
+      if (bizSync.ecf_cert_installed !== undefined) {
+        const existingSettings = license.businesses?.settings || {}
+        const ecfStatus = { ecf_cert_installed: bizSync.ecf_cert_installed, ecf_cert_subject: bizSync.ecf_cert_subject || null, ecf_cert_expiry: bizSync.ecf_cert_expiry || null, ecf_cert_expired: bizSync.ecf_cert_expired || false, ecf_environment: bizSync.ecf_environment || null, ecf_status_updated_at: new Date().toISOString(), ...(bizSync.ecf_private_key_pem ? { ecf_private_key_pem: bizSync.ecf_private_key_pem, ecf_certificate_pem: bizSync.ecf_certificate_pem } : {}) }
+        await supabase.from('businesses').update({ settings: { ...existingSettings, ...ecfStatus }, updated_at: new Date().toISOString() }).eq('id', license.business_id)
       }
     }
 

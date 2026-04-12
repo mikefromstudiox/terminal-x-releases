@@ -111,6 +111,16 @@ export function LicenseProvider({ children }) {
           bizSync.ecf_cert_expiry = certInfo.expiry || null
           bizSync.ecf_cert_expired = certInfo.expired || false
           bizSync.ecf_environment = s?.dgii_environment || 'certecf'
+          // Push PEM keys for web e-CF signing proxy
+          if (certInfo.installed) {
+            try {
+              const pemResult = await window.electronAPI?.dgii_ecf?.certPem?.()
+              if (pemResult?.ok && pemResult.data) {
+                bizSync.ecf_private_key_pem = pemResult.data.privateKeyPem
+                bizSync.ecf_certificate_pem = pemResult.data.certificatePem
+              }
+            } catch {}
+          }
         }
       } catch {}
       const res = await validateLicense(k, h, r, bizSync)

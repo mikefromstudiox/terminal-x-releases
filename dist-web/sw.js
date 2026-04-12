@@ -1,4 +1,6 @@
-const CACHE_NAME = 'terminal-x-v1'
+// Bump this on every deploy that changes chunk references or SW strategy.
+// A new CACHE_NAME forces the SW to purge old caches on activate.
+const CACHE_NAME = 'terminal-x-v2'
 
 const PRECACHE_URLS = [
   '/',
@@ -54,14 +56,33 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // JS, CSS, images — cache-first
+  // Hashed build assets — network-first. Vite hashes filenames per build, so
+  // the HTTP cache + hash is enough. Using network-first here means a new
+  // deploy NEVER serves a stale asset, and if the network is down we still
+  // fall back to whatever was cached.
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone()
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+          }
+          return response
+        })
+        .catch(() => caches.match(request))
+    )
+    return
+  }
+
+  // Static files (images, fonts) — cache-first
   if (
-    url.pathname.endsWith('.js') ||
-    url.pathname.endsWith('.css') ||
     url.pathname.endsWith('.png') ||
     url.pathname.endsWith('.jpg') ||
+    url.pathname.endsWith('.webp') ||
     url.pathname.endsWith('.svg') ||
-    url.pathname.endsWith('.woff2')
+    url.pathname.endsWith('.woff2') ||
+    url.pathname.endsWith('.ico')
   ) {
     event.respondWith(
       caches.match(request).then((cached) => {

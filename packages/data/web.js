@@ -1136,9 +1136,10 @@ export function createWebAPI(supabase, businessId) {
               } catch (e) { console.error('[web.js] commission insert failed:', e.message) }
             }
 
-            // Auto-add to queue (same as desktop database.js)
+            // Auto-add to queue ONLY for pendiente tickets (Encolar path).
+            // Cobrado tickets (direct Cobrar) skip the queue — they're already paid.
             let queueError = null
-            if (ticket?.id) {
+            if (ticket?.id && status === 'pendiente') {
               const firstWasher = Array.isArray(data.washer_ids) && data.washer_ids[0] ? data.washer_ids[0] : null
               const { error: queueErr } = await supabase.from('queue').insert({
                 business_id: bid,
@@ -1958,23 +1959,43 @@ export function createWebAPI(supabase, businessId) {
 
     version: () => Promise.resolve('0.0.0-web'),
 
-    // ── WhatsApp (via Edge Function) ─────────────────────────────────────────
+    // ── WhatsApp (direct UltraMsg API) ──────────────────────────────────────
+    // Reads instance + token from app_settings (synced from desktop).
+    // Long-term: move to a server-side proxy to avoid token exposure in browser.
 
     whatsapp: {
-      send: (params) => tryOr(async () => {
-        const { data, error } = await supabase.functions.invoke('whatsapp-send', {
-          body: { ...params, businessId: bid },
+      send: ({ to, body }) => tryOr(async () => {
+        const { data: rows } = await supabase.from('app_settings').select('key,value')
+          .eq('business_id', bid).in('key', ['whatsapp_instance', 'whatsapp_token'])
+        const cfg = Object.fromEntries((rows || []).map(r => [r.key, r.value]))
+        if (!cfg.whatsapp_instance || !cfg.whatsapp_token) throw new Error('WhatsApp no configurado')
+        const r = await fetch(`https://api.ultramsg.com/${cfg.whatsapp_instance}/messages/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `token=${encodeURIComponent(cfg.whatsapp_token)}&to=${encodeURIComponent(to)}&body=${encodeURIComponent(body)}`,
         })
-        if (error) throw error
-        return data
+        if (!r.ok) throw new Error(`UltraMsg ${r.status}`)
+        return r.json()
       }),
 
-      sendDocument: (params) => tryOr(async () => {
-        const { data, error } = await supabase.functions.invoke('whatsapp-send', {
-          body: { ...params, type: 'document', businessId: bid },
+      sendDocument: ({ to, base64, filename, caption }) => tryOr(async () => {
+        const { data: rows } = await supabase.from('app_settings').select('key,value')
+          .eq('business_id', bid).in('key', ['whatsapp_instance', 'whatsapp_token'])
+        const cfg = Object.fromEntries((rows || []).map(r => [r.key, r.value]))
+        if (!cfg.whatsapp_instance || !cfg.whatsapp_token) throw new Error('WhatsApp no configurado')
+        const r = await fetch(`https://api.ultramsg.com/${cfg.whatsapp_instance}/messages/document`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: [
+            `token=${encodeURIComponent(cfg.whatsapp_token)}`,
+            `to=${encodeURIComponent(to)}`,
+            `filename=${encodeURIComponent(filename || 'recibo.pdf')}`,
+            `document=data:application/pdf;base64,${base64}`,
+            caption ? `caption=${encodeURIComponent(caption)}` : '',
+          ].filter(Boolean).join('&'),
         })
-        if (error) throw error
-        return data
+        if (!r.ok) throw new Error(`UltraMsg ${r.status}`)
+        return r.json()
       }),
     },
 
@@ -2020,6 +2041,53 @@ export function createWebAPI(supabase, businessId) {
           .gt('created_at', new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString())
         return count || 0
       }, 0),
+    },
+
+    // ── DGII e-CF signing proxy ─────────────────────────────────────────────
+    // Mirrors window.electronAPI.dgii_ecf so ecf.js works transparently on web.
+    // Signs e-CFs server-side via /api/ecf-sign (private key never leaves server).
+
+    dgii_ecf: {
+      certInfo: () => tryOr(async () => {
+        const { data } = await supabase.from('businesses').select('settings').eq('id', bid).single()
+        const s = data?.settings || {}
+        return {
+          installed: !!(s.ecf_private_key_pem && s.ecf_certificate_pem),
+          subject: s.ecf_cert_subject || null,
+          expiry: s.ecf_cert_expiry || null,
+          expired: s.ecf_cert_expired || false,
+          environment: s.dgii_environment || 'certecf',
+        }
+      }, { installed: false }),
+
+      submit: (invoiceData) => tryWrite(async () => {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) throw new Error('No hay sesión activa')
+        const res = await fetch('/api/ecf-sign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+          body: JSON.stringify({ ...invoiceData, business_id: bid }),
+        })
+        const result = await res.json()
+        if (!result.ok) throw new Error(result.error || 'Error firmando e-CF')
+        return result.data
+      }),
+
+      authTest: () => tryOr(async () => {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) throw new Error('No hay sesión activa')
+        const res = await fetch('/api/ecf-sign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+          body: JSON.stringify({ business_id: bid, test: true }),
+        })
+        const result = await res.json()
+        return { ok: result.ok, message: result.error || 'Conexión exitosa' }
+      }),
+
+      checkStatus: (trackId) => tryOr(async () => {
+        return { codigo: 3, estado: 'EN_PROCESO', mensajes: ['Status check not available on web'] }
+      }),
     },
 
     // ── Auto-updater ─────────────────────────────────────────────────────────
@@ -2072,6 +2140,25 @@ export function createWebPrinterAPI() {
   }
 
   return {
+    // print method for web — opens an HTML print preview with the browser's
+    // native print dialog (shows "Microsoft Print to PDF" + any other printers).
+    // Falls back gracefully when qz-tray isn't running.
+    print: async ({ data, printerName }) => {
+      // If data is an ESC/POS binary string, strip control chars and render as text
+      const text = typeof data === 'string'
+        ? data.replace(/[\x00-\x1F\x7F]/g, '').replace(/\n/g, '<br>')
+        : 'Test print'
+      const w = window.open('', '_blank', 'width=400,height=600')
+      if (!w) return { success: false, error: 'Popup blocked' }
+      w.document.write(`<!DOCTYPE html><html><head><title>Terminal X — Print</title>
+        <style>body{font-family:'Courier New',monospace;font-size:12px;padding:20px;max-width:80mm;margin:0 auto;white-space:pre-wrap;}</style>
+        </head><body>${text}</body></html>`)
+      w.document.close()
+      w.focus()
+      w.print()
+      return { success: true }
+    },
+
     listPrinters: async () => {
       const q = getQz()
       if (!q) return []
