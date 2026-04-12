@@ -967,14 +967,15 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                   <div ref={clientRef} className="relative">
                     <SectionLabel>{lang === 'es' ? 'Cliente' : 'Client'}</SectionLabel>
                     <div className="relative">
-                      <User size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 pointer-events-none" />
+                      <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 pointer-events-none z-10" />
                       <input
                         type="text"
                         value={clientQuery}
                         onChange={e => { setClientQuery(e.target.value); setShowClientDrop(true); if (!e.target.value) clearClient() }}
                         onFocus={() => { if (clientQuery) setShowClientDrop(true) }}
                         placeholder={lang === 'es' ? 'Buscar por nombre o RNC…' : 'Search by name or RNC…'}
-                        className="w-full pl-8 pr-7 py-2 border border-slate-200 dark:border-white/10 rounded-xl text-[12px] bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/20 placeholder:text-slate-300 dark:placeholder:text-white/40"
+                        style={{ paddingLeft: '2.25rem', paddingRight: '1.75rem' }}
+                        className="w-full py-2 border border-slate-200 dark:border-white/10 rounded-xl text-[12px] bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/20 placeholder:text-slate-300 dark:placeholder:text-white/40"
                       />
                       {selectedClient && (
                         <button

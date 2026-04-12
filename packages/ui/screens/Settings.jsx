@@ -7,14 +7,14 @@ import {
   Pencil, Check, KeyRound, Printer, Server, X, Lock,
   Cloud, CloudUpload, RotateCcw, AlertTriangle, RefreshCw,
   ShieldCheck, FileText, Download, FolderOpen,
-  Car, Store, Briefcase,
+  Car, Store, Briefcase, CarFront, UtensilsCrossed, LayoutGrid,
 } from 'lucide-react'
 import { useRNC } from '../hooks/useRNC'
 import { useAuth } from '../context/AuthContext'
 import { useAPI, usePrinterAPI } from '../context/DataContext'
 import { useBackup } from '../context/BackupContext'
 import { manualBackup, restoreFromBackup } from '@terminal-x/services/backup.js'
-import { testConnection, setStoredSetting, getStoredSetting, resetSupabaseClient, ensureBusinessRegistered } from '@terminal-x/services/supabase.js'
+import { testConnection } from '@terminal-x/services/supabase.js'
 import ExportToCloud from '../components/ExportToCloud'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 
@@ -909,12 +909,28 @@ function PanelImpresoras({ onSave }) {
     onSave()
   }
 
-  async function handleTest() {
+  async function handleOpenDrawer() {
     setTesting(true)
     setTestResult(null)
     try {
-      await printerApi?.testDrawerVariants?.(printer)
-      setTestResult('ok')
+      const result = await printerApi?.openDrawer?.()
+      if (result?.success) setTestResult('ok')
+      else setTestResult('error')
+    } catch {
+      setTestResult('error')
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  async function handleTestVariants() {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const results = await printerApi?.testDrawerVariants?.(printer)
+      // testDrawerVariants returns an array of { variant, hex, success, error }
+      const anyOk = Array.isArray(results) && results.some(r => r?.success)
+      setTestResult(anyOk ? 'ok' : 'error')
     } catch {
       setTestResult('error')
     } finally {
@@ -947,15 +963,20 @@ function PanelImpresoras({ onSave }) {
         )}
       </FieldRow>
 
-      <FieldRow label="Probar cajón de dinero">
-        <div className="flex items-center gap-3">
-          <button onClick={handleTest} disabled={testing || !printer}
+      <FieldRow label="Cajón de dinero">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={handleOpenDrawer} disabled={testing}
             className="px-3 py-1.5 text-sm border border-slate-200 dark:border-white/10 rounded-lg text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40 transition-colors flex items-center gap-1.5">
             <Printer size={13} />
-            {testing ? 'Probando…' : 'Abrir cajón'}
+            {testing ? 'Probando…' : 'Abrir ahora'}
           </button>
-          {testResult === 'ok'    && <span className="text-xs text-green-600">Señal enviada</span>}
-          {testResult === 'error' && <span className="text-xs text-red-500">Error al abrir</span>}
+          <button onClick={handleTestVariants} disabled={testing || !printer}
+            title="Prueba 5 variantes ESC/POS con pausas — si ninguna abre el cajón, avisa a soporte"
+            className="px-3 py-1.5 text-sm border border-slate-200 dark:border-white/10 rounded-lg text-slate-500 dark:text-white/50 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40 transition-colors flex items-center gap-1.5">
+            Probar variantes
+          </button>
+          {testResult === 'ok'    && <span className="text-xs text-green-600">Señal enviada ✓</span>}
+          {testResult === 'error' && <span className="text-xs text-red-500">No respondió</span>}
         </div>
       </FieldRow>
 
@@ -1021,10 +1042,11 @@ function PanelSistema({ onSave }) {
 // ── Backup Panel ──────────────────────────────────────────────────────────────
 function PanelBackup({ onSave }) {
   const { status, progress, lastBackup, lastSync, history, storageUsed,
-          configured, refreshHistory, markConfigured } = useBackup()
+          configured, refreshHistory } = useBackup()
 
-  const [url,     setUrl]     = useState(() => getStoredSetting('supabase_url'))
-  const [anonKey, setAnonKey] = useState(() => getStoredSetting('supabase_anon_key'))
+  // Supabase credentials are hardcoded in the installer (see main.js).
+  // Users never configure them — this panel is read-only for credentials
+  // and only exposes backup behavior toggles + manual backup + history.
   const [autoBackupOn, setAutoBackup] = useState(() => localStorage.getItem('tx_setting_auto_backup') !== 'false')
   const [syncOn, setSyncOn]           = useState(() => localStorage.getItem('tx_setting_cloud_sync') !== 'false')
   const [testing, setTesting]   = useState(false)
@@ -1036,17 +1058,9 @@ function PanelBackup({ onSave }) {
 
   useEffect(() => { if (configured) refreshHistory() }, [configured])
 
-  function saveCredentials() {
-    setStoredSetting('supabase_url',      url.trim())
-    setStoredSetting('supabase_anon_key', anonKey.trim())
-    resetSupabaseClient()
-    markConfigured(!!(url.trim() && anonKey.trim()))
+  function savePreferences() {
     localStorage.setItem('tx_setting_auto_backup', autoBackupOn ? 'true' : 'false')
     localStorage.setItem('tx_setting_cloud_sync',  syncOn       ? 'true' : 'false')
-    // Register this business in Supabase so RemoteDashboard can filter by business_id
-    if (url.trim() && anonKey.trim()) {
-      ensureBusinessRegistered().catch(() => {})
-    }
     onSave()
   }
 
@@ -1102,27 +1116,17 @@ function PanelBackup({ onSave }) {
         )}
       </div>
 
-      {/* Supabase credentials */}
+      {/* Cloud connection test (read-only — credentials are shipped in the installer) */}
       <div>
-        <SectionLabel>Supabase — Credenciales</SectionLabel>
-        <FieldRow label="Supabase URL">
-          <SmInput value={url} onChange={setUrl} placeholder="https://xxxx.supabase.co" />
-        </FieldRow>
-        <FieldRow label="Anon Key">
-          <div className="relative">
-            <KeyRound size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40" />
-            <input type="password" value={anonKey} onChange={e => setAnonKey(e.target.value)} placeholder="eyJhbGciOiJIUzI1…"
-              className="w-full pl-8 pr-3 py-1.5 border border-slate-200 dark:border-white/10 rounded-lg text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
-          </div>
-        </FieldRow>
-        <div className="flex items-center gap-3 mt-3">
-          <button onClick={handleTest} disabled={testing || !url || !anonKey}
+        <SectionLabel>Conexión a la nube</SectionLabel>
+        <div className="flex items-center gap-3">
+          <button onClick={handleTest} disabled={testing}
             className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40">
             <Wifi size={13} />
             {testing ? 'Probando…' : 'Probar conexión'}
           </button>
-          {testResult?.ok  && <span className="flex items-center gap-1 text-xs text-emerald-600"><Check size={12} />Conexión exitosa</span>}
-          {testResult && !testResult.ok && <span className="text-xs text-red-500">Error: {testResult.error}</span>}
+          {testResult?.ok  && <span className="flex items-center gap-1 text-xs text-emerald-600"><Check size={12} />Conectado a la nube</span>}
+          {testResult && !testResult.ok && <span className="text-xs text-red-500">Sin conexión: {testResult.error}</span>}
         </div>
       </div>
 
@@ -1221,7 +1225,7 @@ function PanelBackup({ onSave }) {
       </div>
 
       <div className="flex justify-end">
-        <SaveBtn onClick={saveCredentials} />
+        <SaveBtn onClick={savePreferences} />
       </div>
     </div>
   )
@@ -1229,9 +1233,12 @@ function PanelBackup({ onSave }) {
 
 // ── Business type panel ───────────────────────────────────────────────────────
 const BIZ_TYPE_OPTIONS = [
-  { value: 'carwash', icon: Car,       label: 'Car Wash',        desc: 'Lavado de vehículos, detailing, servicios automotrices.' },
-  { value: 'tienda',  icon: Store,     label: 'Tienda / Retail', desc: 'Venta de productos con inventario, SKU y código de barras.' },
-  { value: 'otro',    icon: Briefcase, label: 'Otro',            desc: 'Servicios profesionales, salón, taller, etc.' },
+  { value: 'carwash',    icon: Car,              label: 'Car Wash',   desc: 'Lavado, detailing, servicios automotrices con cola y lavadores.' },
+  { value: 'retail',     icon: Store,            label: 'Retail',     desc: 'Tienda de productos con inventario, SKU y código de barras.' },
+  { value: 'service',    icon: Wrench,           label: 'Servicios',  desc: 'Servicios profesionales, salón, taller, consultoría.' },
+  { value: 'dealership', icon: CarFront,         label: 'Dealership', desc: 'Venta de vehículos, con inventario de unidades. (próximamente)' },
+  { value: 'restaurant', icon: UtensilsCrossed,  label: 'Restaurante',desc: 'Restaurante, cafetería, comida para llevar. (próximamente)' },
+  { value: 'hybrid',     icon: LayoutGrid,       label: 'Híbrido',    desc: 'Combinación — ej: lavadero con tienda de bebidas.' },
 ]
 
 function PanelTipoNegocio({ onSave }) {
@@ -1256,7 +1263,7 @@ function PanelTipoNegocio({ onSave }) {
         Cambia el modo del POS según tu tipo de negocio. Esto ajusta la interfaz, navegación y funciones disponibles.
       </p>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
         {BIZ_TYPE_OPTIONS.map(({ value, icon: Icon, label, desc }) => (
           <button
             key={value}

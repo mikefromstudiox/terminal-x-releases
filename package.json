@@ -1,6 +1,6 @@
 {
   "name": "terminal-x",
-  "version": "1.9.9",
+  "version": "1.9.20",
   "private": true,
   "description": "Terminal X - POS System for Car Wash, Retail & Services",
   "author": "Studio X",
@@ -89,7 +89,7 @@
         }
       ],
       "icon": "assets/icon.png",
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "Terminal.X-Setup-${version}.${ext}"
     },
     "mac": {
       "target": [

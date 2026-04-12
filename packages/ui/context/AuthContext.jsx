@@ -12,25 +12,47 @@ const isWeb = typeof window !== 'undefined' && !window.electronAPI
 // Temporary owner for first-time setup (no staff created yet)
 const TEMP_OWNER = { id: 'web', name: 'Owner', username: 'owner', role: 'owner', active: 1 }
 
+// Persist PIN-auth user to sessionStorage on web so navigation doesn't kick
+// them back to the PIN screen. Desktop has no lazy-reload issue.
+const STORAGE_KEY = 'tx_pos_user'
+function loadStoredUser() {
+  if (DEV_USER) return DEV_USER
+  if (!isWeb || typeof sessionStorage === 'undefined') return null
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
 export function AuthProvider({ children }) {
   const api = useAPI()
-  const [user, setUser] = useState(DEV_USER || null)
-  const [webChecked, setWebChecked] = useState(!isWeb) // desktop skips check
+  const [user, setUserState] = useState(loadStoredUser)
+  const [webChecked, setWebChecked] = useState(!isWeb || !!loadStoredUser()) // desktop skips check; web skips if user already cached
 
-  // On web, check if business has staff — if none, allow temporary owner for setup
+  // Persist user state on every change (web only)
+  const setUser = (u) => {
+    setUserState(u)
+    if (isWeb && typeof sessionStorage !== 'undefined') {
+      try {
+        if (u) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(u))
+        else sessionStorage.removeItem(STORAGE_KEY)
+      } catch {}
+    }
+  }
+
+  // On web, check if business has staff — if none, allow temporary owner for setup.
+  // Skip entirely if a cached user already exists (avoids wiping auth on navigation).
   useEffect(() => {
     if (!isWeb || DEV_USER) { setWebChecked(true); return }
+    if (user) { setWebChecked(true); return }
     if (!api?.admin?.getUsuarios) return
     api.admin.getUsuarios().then(users => {
       const active = users?.filter(u => u.active)
       if (!active?.length) {
-        // No staff yet — allow temporary owner for first-time setup
         setUser(TEMP_OWNER)
       }
-      // If staff exists, user stays null — Login screen shows
       setWebChecked(true)
     }).catch(() => {
-      // Can't load staff — allow temporary owner (offline/error case)
       setUser(TEMP_OWNER)
       setWebChecked(true)
     })
@@ -72,6 +94,17 @@ export function AuthProvider({ children }) {
 
   function logout() {
     setUser(null)
+    // On web, also kill the Supabase session so SupabaseAuthGate flips back
+    // to the email/password sign-in screen. Use the EXACT same client instance
+    // that SupabaseAuthGate created — stashed on window.__txSupabase by
+    // web/main.jsx. Without using the same instance, signOut fires on a
+    // different client and the gate's onAuthStateChange never sees it.
+    if (isWeb) {
+      try {
+        const sb = typeof window !== 'undefined' ? window.__txSupabase : null
+        if (sb?.auth?.signOut) sb.auth.signOut().catch(() => {})
+      } catch {}
+    }
   }
 
   return (

@@ -13,7 +13,7 @@ import { useState, useMemo, useEffect } from 'react'
 import {
   Plus, Edit2, Power, Search, AlertCircle, Banknote, History, TrendingUp,
   Calculator, ClipboardList, Mail, Phone, CreditCard, IdCard, Calendar,
-  Briefcase,
+  Briefcase, Trash2, X,
 } from 'lucide-react'
 import { useAuth } from '../../../context/AuthContext'
 import { useAPI } from '../../../context/DataContext'
@@ -49,6 +49,8 @@ export default function NominaEmpleados() {
   const [commTotals,      setCommTotals]      = useState({ washers: {}, sellers: {}, cajeros: {} })
   const [liqTipo,         setLiqTipo]         = useState('desahucio')
   const [toast,           setToast]           = useState(null)
+  const [showSalaryModal, setShowSalaryModal] = useState(false)
+  const canHardDelete = user?.role === 'owner' || user?.role === 'manager'
 
   function showToast(msg, variant = 'ok') {
     setToast({ msg, variant })
@@ -177,6 +179,54 @@ export default function NominaEmpleados() {
     } catch (e) { showToast(e?.message || L('Error', 'Error'), 'error') }
   }
 
+  async function handleHardDelete(emp) {
+    if (!confirm(L(
+      `¿ELIMINAR permanentemente a ${emp.nombre}?\n\nEsta acción borra al empleado de la base de datos. Si tiene pagos de nómina o comisiones registradas, se desactivará en su lugar.`,
+      `PERMANENTLY delete ${emp.nombre}?\n\nThis removes the employee from the database. If they have payroll runs or commissions on file, they'll be deactivated instead.`
+    ))) return
+    try {
+      const r = await api.empleados.hardDelete?.(emp.id)
+      if (r?.softDeleted) {
+        showToast(L('Empleado desactivado (tiene historial financiero)', 'Employee deactivated (has financial history)'))
+      } else {
+        showToast(L('Empleado eliminado ✓', 'Employee deleted ✓'))
+      }
+      if (String(selectedId) === String(emp.id)) setSelectedId(null)
+      await loadAll()
+    } catch (e) { showToast(e?.message || L('Error al eliminar', 'Error deleting'), 'error') }
+  }
+
+  async function handleSaveSalaryChange(payload) {
+    if (!selected) return
+    try {
+      await api.salaryChanges.create({
+        empleado_id: selected.id,
+        new_salary: payload.new_salary,
+        effective_date: payload.effective_date,
+        reason: payload.reason || null,
+        changed_by: user?.id || null,
+      })
+      const rows = await api.salaryChanges.byEmpleado(selected.id)
+      setSalaryChanges(rows || [])
+      await loadAll()
+      setShowSalaryModal(false)
+      showToast(L('Cambio de salario registrado ✓', 'Salary change recorded ✓'))
+    } catch (e) {
+      showToast(e?.message || L('Error al guardar', 'Error saving'), 'error')
+    }
+  }
+
+  async function handleDeleteSalaryChange(id) {
+    if (!confirm(L('¿Eliminar este cambio de salario?', 'Delete this salary change?'))) return
+    try {
+      await api.salaryChanges.remove(id)
+      const rows = await api.salaryChanges.byEmpleado(selected.id)
+      setSalaryChanges(rows || [])
+      await loadAll()
+      showToast(L('Eliminado', 'Deleted'))
+    } catch (e) { showToast(e?.message || L('Error', 'Error'), 'error') }
+  }
+
   async function handleRecordPayment(payload) {
     try {
       await api.payrollRuns.create({
@@ -225,12 +275,13 @@ export default function NominaEmpleados() {
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder={L('Nombre, cédula…', 'Name, ID…')}
               className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-slate-700 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40" />
           </div>
-          <div className="flex gap-1">
+          <div className="flex gap-1 flex-wrap">
             {[
               { id: 'all', label: L('Todos', 'All') },
               { id: 'lavador', label: L('Lavadores', 'Washers') },
               { id: 'vendedor', label: L('Vendedores', 'Sellers') },
               { id: 'cajero', label: L('Cajeros', 'Cashiers') },
+              { id: 'servicio', label: L('Servicio', 'Service') },
             ].map(f => (
               <button key={f.id} onClick={() => setFilterTipo(f.id)}
                 className={`flex-1 px-1 py-1 rounded-lg text-[10px] font-semibold transition-colors ${
@@ -340,9 +391,17 @@ export default function NominaEmpleados() {
                     <Edit2 size={14} />
                   </button>
                   <button onClick={() => handleDeactivate(selected)}
-                    className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors">
+                    title={L('Desactivar', 'Deactivate')}
+                    className="p-2 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors">
                     <Power size={14} />
                   </button>
+                  {canHardDelete && (
+                    <button onClick={() => handleHardDelete(selected)}
+                      title={L('Eliminar permanentemente', 'Permanently delete')}
+                      className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -404,7 +463,13 @@ export default function NominaEmpleados() {
                 <LiquidacionTab emp={selected} liq={liq} tipo={liqTipo} onTipoChange={setLiqTipo} lang={lang} />
               )}
               {innerTab === 'salary-log' && (
-                <SalaryChangesTab changes={salaryChanges} lang={lang} />
+                <SalaryChangesTab
+                  changes={salaryChanges}
+                  lang={lang}
+                  onAdd={() => setShowSalaryModal(true)}
+                  onDelete={handleDeleteSalaryChange}
+                  canDelete={canHardDelete}
+                />
               )}
             </div>
           </>
@@ -417,6 +482,16 @@ export default function NominaEmpleados() {
           emp={showPanel === 'add' ? null : showPanel}
           onSave={handleSave}
           onClose={() => setShowPanel(null)}
+          lang={lang}
+        />
+      )}
+
+      {/* Salary change modal */}
+      {showSalaryModal && selected && (
+        <SalaryChangeModal
+          emp={selected}
+          onSave={handleSaveSalaryChange}
+          onClose={() => setShowSalaryModal(false)}
           lang={lang}
         />
       )}
@@ -582,51 +657,155 @@ function StatBox({ label, value, sub, accent }) {
 }
 
 // ── Salary changes tab ─────────────────────────────────────────────────────────
-function SalaryChangesTab({ changes, lang }) {
+function SalaryChangesTab({ changes, lang, onAdd, onDelete, canDelete }) {
   const L = (es, en) => lang === 'es' ? es : en
-  if (!changes.length) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-slate-300 dark:text-white/30 p-5">
-        <div className="text-center">
-          <ClipboardList size={40} className="mx-auto mb-3 text-slate-200 dark:text-white/20" />
-          <p className="text-[13px]">{L('Sin cambios de salario registrados', 'No salary changes recorded')}</p>
-          <p className="text-[11px] text-slate-400 dark:text-white/40 mt-1">
-            {L('Los cambios se registran automáticamente al editar el salario del empleado',
-               'Changes are recorded automatically when editing the employee salary')}
-          </p>
-        </div>
-      </div>
-    )
-  }
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="divide-y divide-slate-100 dark:divide-white/5">
-        {changes.map(c => {
-          const delta = Number(c.new_salary) - Number(c.old_salary)
-          const positive = delta >= 0
-          return (
-            <div key={c.id} className="px-5 py-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[13px] font-bold text-slate-800 dark:text-white">
-                    {new Date(c.effective_date).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })}
-                  </p>
-                  <p className="text-[11px] text-slate-500 dark:text-white/60 mt-0.5">
-                    <span className="line-through text-slate-400 dark:text-white/40">{fmtRD(c.old_salary)}</span>
-                    {' → '}
-                    <strong className="text-slate-700 dark:text-white">{fmtRD(c.new_salary)}</strong>
-                  </p>
-                  {c.changed_by_name && <p className="text-[10px] text-slate-400 dark:text-white/40 mt-0.5">{L('Por:', 'By:')} {c.changed_by_name}</p>}
-                  {c.reason && <p className="text-[10px] text-slate-500 dark:text-white/60 italic mt-0.5">{c.reason}</p>}
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-slate-100 dark:border-white/10">
+        <p className="text-[12px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider">
+          {L('Historial salarial', 'Salary history')}
+        </p>
+        {onAdd && (
+          <button onClick={onAdd}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0C447C] text-white text-[11px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors">
+            <Plus size={12} /> {L('Registrar cambio', 'Record change')}
+          </button>
+        )}
+      </div>
+      {changes.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-slate-300 dark:text-white/30 p-5">
+          <div className="text-center">
+            <ClipboardList size={40} className="mx-auto mb-3 text-slate-200 dark:text-white/20" />
+            <p className="text-[13px]">{L('Sin cambios de salario registrados', 'No salary changes recorded')}</p>
+            <p className="text-[11px] text-slate-400 dark:text-white/40 mt-1">
+              {L('Haz clic en "Registrar cambio" para añadir el salario inicial o un aumento.',
+                 'Click "Record change" to add the initial salary or a raise.')}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto">
+          <div className="divide-y divide-slate-100 dark:divide-white/5">
+            {changes.map(c => {
+              const delta = Number(c.new_salary) - Number(c.old_salary)
+              const positive = delta >= 0
+              return (
+                <div key={c.id} className="px-5 py-3 group">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[13px] font-bold text-slate-800 dark:text-white">
+                        {new Date(c.effective_date).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-white/60 mt-0.5">
+                        <span className="line-through text-slate-400 dark:text-white/40">{fmtRD(c.old_salary)}</span>
+                        {' → '}
+                        <strong className="text-slate-700 dark:text-white">{fmtRD(c.new_salary)}</strong>
+                      </p>
+                      {c.changed_by_name && <p className="text-[10px] text-slate-400 dark:text-white/40 mt-0.5">{L('Por:', 'By:')} {c.changed_by_name}</p>}
+                      {c.reason && <p className="text-[10px] text-slate-500 dark:text-white/60 italic mt-0.5">{c.reason}</p>}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className={`text-right ${positive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                        <p className="text-[13px] font-bold">{positive ? '+' : ''}{fmtRD(delta)}</p>
+                        <p className="text-[10px]">{positive ? L('aumento', 'increase') : L('reducción', 'decrease')}</p>
+                      </div>
+                      {canDelete && onDelete && (
+                        <button onClick={() => onDelete(c.id)}
+                          title={L('Eliminar', 'Delete')}
+                          className="p-1.5 rounded-lg text-slate-300 dark:text-white/30 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100">
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className={`text-right shrink-0 ${positive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                  <p className="text-[13px] font-bold">{positive ? '+' : ''}{fmtRD(delta)}</p>
-                  <p className="text-[10px]">{positive ? L('aumento', 'increase') : L('reducción', 'decrease')}</p>
-                </div>
-              </div>
-            </div>
-          )
-        })}
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Salary change modal ───────────────────────────────────────────────────────
+function SalaryChangeModal({ emp, onSave, onClose, lang }) {
+  const L = (es, en) => lang === 'es' ? es : en
+  const [newSalary, setNewSalary]         = useState('')
+  const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().slice(0, 10))
+  const [reason, setReason]               = useState('')
+  const [saving, setSaving]               = useState(false)
+  const [err, setErr]                     = useState('')
+
+  async function submit() {
+    const n = Number(newSalary)
+    if (!Number.isFinite(n) || n < 0) { setErr(L('Salario inválido', 'Invalid salary')); return }
+    if (!effectiveDate) { setErr(L('Fecha requerida', 'Date required')); return }
+    setSaving(true); setErr('')
+    try {
+      await onSave({ new_salary: n, effective_date: effectiveDate, reason: reason.trim() || null })
+    } catch (e) { setErr(e?.message || L('Error', 'Error')) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()}
+        className="w-full max-w-md bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 dark:border-white/10">
+          <div>
+            <h3 className="text-[15px] font-bold text-slate-800 dark:text-white">
+              {L('Registrar cambio de salario', 'Record salary change')}
+            </h3>
+            <p className="text-[11px] text-slate-500 dark:text-white/60">{emp.nombre}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 text-slate-400">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-[11px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider mb-1">
+              {L('Nuevo salario RD$', 'New salary RD$')}
+            </label>
+            <input type="number" min="0" step="0.01" value={newSalary}
+              onChange={e => setNewSalary(e.target.value)}
+              placeholder="20000"
+              className="w-full px-3 py-2 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg text-[14px] text-slate-800 dark:text-white focus:border-sky-400 outline-none" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider mb-1">
+              {L('Fecha efectiva', 'Effective date')}
+            </label>
+            <input type="date" value={effectiveDate}
+              onChange={e => setEffectiveDate(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg text-[14px] text-slate-800 dark:text-white focus:border-sky-400 outline-none" />
+            <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1">
+              {L('Para el salario inicial, usa la fecha de contratación.',
+                 'For the starting salary, use the hire date.')}
+            </p>
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider mb-1">
+              {L('Motivo (opcional)', 'Reason (optional)')}
+            </label>
+            <input type="text" value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder={L('Ej: aumento anual, promoción, salario inicial', 'e.g. annual raise, promotion, starting salary')}
+              className="w-full px-3 py-2 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] text-slate-800 dark:text-white focus:border-sky-400 outline-none" />
+          </div>
+          {err && <p className="text-[11px] text-red-500 dark:text-red-400">{err}</p>}
+        </div>
+        <div className="flex gap-2 px-5 py-3 border-t border-slate-100 dark:border-white/10 bg-slate-50/50 dark:bg-white/5">
+          <button onClick={submit} disabled={saving}
+            className="flex-1 px-4 py-2 bg-[#0C447C] text-white text-[13px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors disabled:opacity-50">
+            {saving ? L('Guardando…', 'Saving…') : L('Guardar', 'Save')}
+          </button>
+          <button onClick={onClose}
+            className="px-4 py-2 text-[13px] text-slate-500 dark:text-white/60 border border-slate-200 dark:border-white/10 rounded-lg hover:bg-slate-50 dark:hover:bg-white/10">
+            {L('Cancelar', 'Cancel')}
+          </button>
+        </div>
       </div>
     </div>
   )

@@ -79,8 +79,10 @@ export function calcCesantia(monthlySalary, totalMonths) {
   } else if (fullYears >= 5) {
     days = 5 * 21 + (fullYears - 5) * 23
   }
-  // Partial-year prorate at 15 days/year
-  if (remainingMonths >= 3) {
+  // Partial-year prorate at 15 days/year — ONLY for employees with 1+ full years
+  // who have leftover months beyond their last completed year. The 3-12 month
+  // brackets (6/13 fixed days) already cover sub-1-year tenures fully.
+  if (fullYears >= 1 && remainingMonths >= 3) {
     days += parseFloat(((15 / 12) * remainingMonths).toFixed(2))
   }
   return { days: parseFloat(days.toFixed(2)), amount: parseFloat((days * dailyRate).toFixed(2)) }

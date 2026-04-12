@@ -238,8 +238,37 @@ function init(userDataPath) {
     "UPDATE users SET updated_at = created_at WHERE updated_at IS NULL",
     // Employee consolidation — role on empleados, employee_id on users, no_commission on services
     "ALTER TABLE empleados ADD COLUMN role TEXT DEFAULT 'none'",
+    "ALTER TABLE empleados ADD COLUMN comision_pct REAL DEFAULT 0",
     "ALTER TABLE users ADD COLUMN employee_id INTEGER",
     "ALTER TABLE services ADD COLUMN no_commission INTEGER DEFAULT 0",
+    // v1.9.4 — per-role commission flags on services (lavador/vendedor/cajera independent toggles)
+    "ALTER TABLE services ADD COLUMN commission_washer INTEGER DEFAULT 1",
+    "ALTER TABLE services ADD COLUMN commission_seller INTEGER DEFAULT 1",
+    "ALTER TABLE services ADD COLUMN commission_cashier INTEGER DEFAULT 1",
+    // Backfill from existing is_wash/no_commission state
+    "UPDATE services SET commission_washer = is_wash WHERE commission_washer IS NULL",
+    "UPDATE services SET commission_seller = is_wash WHERE commission_seller IS NULL",
+    "UPDATE services SET commission_cashier = 1 WHERE commission_cashier IS NULL",
+    "UPDATE services SET commission_washer = 0, commission_seller = 0, commission_cashier = 0 WHERE no_commission = 1",
+    // v1.9.5 — queue_deletions: supabase_id + updated_at for sync coverage
+    "ALTER TABLE queue_deletions ADD COLUMN supabase_id TEXT",
+    "ALTER TABLE queue_deletions ADD COLUMN updated_at TEXT",
+    "UPDATE queue_deletions SET updated_at = deleted_at WHERE updated_at IS NULL",
+    // v1.9.5 — payroll_runs: supabase_id + updated_at + empleado_supabase_id for sync coverage
+    "ALTER TABLE payroll_runs ADD COLUMN supabase_id TEXT",
+    "ALTER TABLE payroll_runs ADD COLUMN updated_at TEXT",
+    "ALTER TABLE payroll_runs ADD COLUMN empleado_supabase_id TEXT",
+    "UPDATE payroll_runs SET updated_at = created_at WHERE updated_at IS NULL",
+    "UPDATE payroll_runs SET empleado_supabase_id = (SELECT supabase_id FROM empleados WHERE empleados.id = payroll_runs.empleado_id) WHERE empleado_supabase_id IS NULL",
+    // v1.9.5 — salary_changes: empleado_supabase_id for clean FK sync
+    "ALTER TABLE salary_changes ADD COLUMN empleado_supabase_id TEXT",
+    "UPDATE salary_changes SET empleado_supabase_id = (SELECT supabase_id FROM empleados WHERE empleados.id = salary_changes.empleado_id) WHERE empleado_supabase_id IS NULL",
+    // v1.9.5 — ecf_submissions: supabase_id + updated_at + ticket_supabase_id for sync coverage
+    "ALTER TABLE ecf_submissions ADD COLUMN supabase_id TEXT",
+    "ALTER TABLE ecf_submissions ADD COLUMN updated_at TEXT",
+    "ALTER TABLE ecf_submissions ADD COLUMN ticket_supabase_id TEXT",
+    "UPDATE ecf_submissions SET updated_at = submitted_at WHERE updated_at IS NULL",
+    "UPDATE ecf_submissions SET ticket_supabase_id = (SELECT supabase_id FROM tickets WHERE tickets.id = ecf_submissions.ticket_id) WHERE ticket_supabase_id IS NULL",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -338,7 +367,7 @@ function init(userDataPath) {
   }
 
   // v1.9 — auto-update updated_at via triggers (so sync can detect changed rows)
-  const triggerTables = ['services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users']
+  const triggerTables = ['services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions']
   for (const t of triggerTables) {
     try {
       db.exec(`CREATE TRIGGER IF NOT EXISTS trg_${t}_updated_at AFTER UPDATE ON ${t} FOR EACH ROW
@@ -481,11 +510,14 @@ function init(userDataPath) {
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS idx_inv_item ON inventory_transactions(item_id)')
 
-  // Empleados — unified payroll table for all worker types
+  // Empleados — unified payroll table for all worker types.
+  // No CHECK on `tipo` — the UI enforces valid values (lavador/vendedor/cajero/servicio/hybrid).
+  // Adding new tipos used to require an ALTER CHECK which SQLite doesn't support,
+  // so v1.9.15+ drops the constraint and leaves validation to the renderer layer.
   db.exec(`CREATE TABLE IF NOT EXISTS empleados (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     nombre      TEXT NOT NULL,
-    tipo        TEXT NOT NULL CHECK(tipo IN ('lavador','vendedor','cajero')),
+    tipo        TEXT NOT NULL,
     ref_id      INTEGER,
     salary      REAL NOT NULL DEFAULT 0,
     start_date  TEXT NOT NULL,
@@ -494,6 +526,79 @@ function init(userDataPath) {
     active      INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
+
+  // v1.9.15 — migrate existing empleados tables off the old CHECK(tipo IN ('lavador','vendedor','cajero'))
+  // constraint so new tipos ('servicio', 'hybrid') can be inserted. SQLite can't ALTER a CHECK,
+  // so we recreate the table and copy data. Idempotent: only runs if the old constraint is present.
+  try {
+    const tableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='empleados'").get()?.sql || ''
+    if (tableSql.includes("CHECK(tipo IN ('lavador','vendedor','cajero'))") || tableSql.includes('CHECK (tipo IN')) {
+      console.log('[db] Migrating empleados to remove tipo CHECK constraint…')
+      db.exec('PRAGMA foreign_keys = OFF')
+      db.exec('BEGIN TRANSACTION')
+      try {
+        // Build new table with same columns as existing (preserve any ALTER-added cols)
+        const cols = db.prepare('PRAGMA table_info(empleados)').all()
+        const colNames = cols.map(c => c.name).join(', ')
+        db.exec(`CREATE TABLE empleados_new (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          nombre      TEXT NOT NULL,
+          tipo        TEXT NOT NULL,
+          ref_id      INTEGER,
+          salary      REAL NOT NULL DEFAULT 0,
+          start_date  TEXT NOT NULL,
+          cedula      TEXT,
+          phone       TEXT,
+          active      INTEGER NOT NULL DEFAULT 1,
+          created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        )`)
+        // Add the same ALTER-added columns to the new table
+        const baseCols = ['id','nombre','tipo','ref_id','salary','start_date','cedula','phone','active','created_at']
+        for (const c of cols) {
+          if (baseCols.includes(c.name)) continue
+          const typeDef = c.type || 'TEXT'
+          const nullDef = c.notnull ? ' NOT NULL' : ''
+          const defDef = c.dflt_value != null ? ` DEFAULT ${c.dflt_value}` : ''
+          db.exec(`ALTER TABLE empleados_new ADD COLUMN ${c.name} ${typeDef}${nullDef}${defDef}`)
+        }
+        db.exec(`INSERT INTO empleados_new (${colNames}) SELECT ${colNames} FROM empleados`)
+        db.exec('DROP TABLE empleados')
+        db.exec('ALTER TABLE empleados_new RENAME TO empleados')
+        db.exec('COMMIT')
+        console.log('[db] empleados migration complete — CHECK constraint removed')
+      } catch (e) {
+        db.exec('ROLLBACK')
+        console.error('[db] empleados migration failed:', e.message)
+      }
+      db.exec('PRAGMA foreign_keys = ON')
+    }
+  } catch (e) { console.error('[db] empleados migration check failed:', e.message) }
+
+  // v1.9.18 — heal businesses.logo rows stored as UTF-8 bytes of a data URL
+  // string (bug: empresaSave used to write the FileReader data URL directly into
+  // the BLOB, so the "bytes" were literal "data:image/png;base64,..." text).
+  // sync.js then uploaded that text to Supabase Storage as a fake .png, breaking
+  // the web preview. Detect and decode in place so sync pushes a real PNG/JPEG
+  // on the next tick.
+  try {
+    const row = db.prepare('SELECT logo FROM businesses WHERE id=1').get()
+    if (row?.logo) {
+      const buf = Buffer.isBuffer(row.logo) ? row.logo : Buffer.from(row.logo)
+      const peek = buf.slice(0, 32).toString('utf8')
+      if (peek.startsWith('data:image/')) {
+        const full = buf.toString('utf8')
+        const comma = full.indexOf(',')
+        if (comma > 0) {
+          const realBytes = Buffer.from(full.slice(comma + 1), 'base64')
+          db.prepare('UPDATE businesses SET logo=? WHERE id=1').run(realBytes)
+          // Invalidate the cached logo hash so sync.js re-uploads to Supabase Storage
+          db.prepare("DELETE FROM app_settings WHERE key='logo_synced_hash'").run()
+          db.prepare("DELETE FROM app_settings WHERE key='logo_synced_url'").run()
+          console.log('[db] Healed businesses.logo — decoded stored data URL to real image bytes')
+        }
+      }
+    }
+  } catch (e) { console.error('[db] logo heal migration failed:', e.message) }
 
   // Payroll runs — paycheck history per employee (v1.4, extended v1.5)
   // Fresh installs get the full schema; existing DBs pick up new columns via ALTER migrations above.
@@ -557,6 +662,24 @@ function init(userDataPath) {
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS idx_salary_changes_empleado ON salary_changes(empleado_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_salary_changes_effective ON salary_changes(empleado_id, effective_date)')
+  // Add supabase_id + updated_at for sync compliance (v1.9.3)
+  try { db.exec('ALTER TABLE salary_changes ADD COLUMN supabase_id TEXT') } catch {}
+  try { db.exec('ALTER TABLE salary_changes ADD COLUMN updated_at TEXT') } catch {}
+
+  // Backfill: ensure every employee has at least one salary_changes row (initial salary)
+  // Single statement — no JS loop, generates supabase_id inline via hex(randomblob(16))
+  db.prepare(`
+    INSERT OR IGNORE INTO salary_changes
+      (empleado_id, old_salary, new_salary, effective_date, reason, supabase_id)
+    SELECT id, 0, salary, COALESCE(start_date, '2020-01-01'),
+           'initial_salary', hex(randomblob(16))
+    FROM empleados
+    WHERE salary > 0
+      AND id NOT IN (SELECT empleado_id FROM salary_changes)
+  `).run()
+  // Backfill supabase_id on any pre-existing salary_changes rows that lack one
+  db.prepare(`UPDATE salary_changes SET supabase_id = hex(randomblob(16)) WHERE supabase_id IS NULL`).run()
 
   // 607 — Compras y gastos de proveedores
   db.exec(`CREATE TABLE IF NOT EXISTS compras_607 (
@@ -699,13 +822,61 @@ function empresaGet() {
   if (!db) return null
   // Setup is complete only when configuracion.setup_complete = '1'
   if (configGet('setup_complete') !== '1') return null
-  return db.prepare('SELECT id,name,rnc,address,phone,email,logo,settings,plan FROM businesses WHERE id=1').get() ?? null
+  const row = db.prepare('SELECT id,name,rnc,address,phone,email,logo,settings,plan FROM businesses WHERE id=1').get() ?? null
+  if (row && row.logo) {
+    // `logo` is a BLOB. Existing rows store either:
+    //   - the UTF-8 bytes of a "data:image/...;base64,..." string (new saves), or
+    //   - raw binary bytes of the image file (legacy / imports).
+    // We normalise both paths to a string data-URL so callers in the renderer
+    // can just drop `row.logo` straight into an <img src> or pass to the
+    // thermal printer's buildLogoEscPos without any buffer gymnastics.
+    const buf = Buffer.isBuffer(row.logo) ? row.logo : Buffer.from(row.logo)
+    // Peek the first 32 bytes — if it already starts with "data:image/", it's a stored data URL.
+    const peek = buf.slice(0, 32).toString('utf8')
+    if (peek.startsWith('data:image/')) {
+      row.logo = buf.toString('utf8')
+    } else {
+      // Raw image bytes — detect mime and wrap.
+      let mime = 'image/png'
+      if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) mime = 'image/jpeg'
+      else if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) mime = 'image/gif'
+      else if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[8] === 0x57 && buf[9] === 0x45) mime = 'image/webp'
+      row.logo = `data:${mime};base64,${buf.toString('base64')}`
+    }
+  }
+  return row
 }
 function empresaSave(data) {
   if (!db) return
   const allowed = ['name', 'rnc', 'address', 'phone', 'email', 'logo', 'settings', 'plan']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
+
+  // Normalise the logo field. The renderer sends it as a `data:image/...;base64,...`
+  // string from FileReader. If we just store that as-is, SQLite writes the UTF-8
+  // bytes of the TEXT into the BLOB — then electron/sync.js::pushBusinessMeta reads
+  // those bytes and uploads them to Supabase Storage as if they were a real PNG,
+  // producing a broken image on the web. Decode to real image bytes here so every
+  // downstream consumer (sync, printer, admin preview via empresaGet) gets a proper
+  // binary buffer.
+  if ('logo' in patch) {
+    const v = patch.logo
+    if (!v) {
+      patch.logo = null
+    } else if (typeof v === 'string' && v.startsWith('data:image/')) {
+      const comma = v.indexOf(',')
+      const b64 = comma >= 0 ? v.slice(comma + 1) : ''
+      try { patch.logo = Buffer.from(b64, 'base64') } catch { patch.logo = null }
+    } else if (Buffer.isBuffer(v)) {
+      // Already a buffer — pass through (legacy/direct callers)
+    } else if (v instanceof Uint8Array) {
+      patch.logo = Buffer.from(v)
+    } else {
+      // Unknown shape — don't clobber existing logo
+      delete patch.logo
+    }
+  }
+
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
   db.prepare(`UPDATE businesses SET ${fields} WHERE id=1`).run(patch)
 }
@@ -755,22 +926,26 @@ function userCreate(data) {
   const existing = db.prepare('SELECT id, supabase_id FROM users WHERE username=?').get(data.username)
   if (existing) {
     const hash = (() => { if (!data.pin) throw new Error('PIN requerido'); return sha256(data.pin) })()
-    db.prepare('UPDATE users SET name=@name, pin_hash=@pin_hash, role=@role, discount_pct=@discount_pct, cedula=@cedula, start_date=@start_date, active=1 WHERE id=@id')
-      .run({ name: data.name, pin_hash: hash, role: data.role, discount_pct: data.discount_pct, cedula: data.cedula || null, start_date: data.start_date || null, id: existing.id })
+    db.prepare('UPDATE users SET name=@name, pin_hash=@pin_hash, role=@role, discount_pct=@discount_pct, employee_id=@employee_id, cedula=@cedula, start_date=@start_date, active=1 WHERE id=@id')
+      .run({ name: data.name, pin_hash: hash, role: data.role, discount_pct: data.discount_pct || 0, employee_id: data.employee_id || null, cedula: data.cedula || null, start_date: data.start_date || null, id: existing.id })
     return { id: existing.id, supabase_id: existing.supabase_id }
   }
   const sid = crypto.randomUUID()
-  const r = db.prepare(`INSERT INTO users(name,username,pin_hash,role,discount_pct,cedula,start_date,active,supabase_id)
-    VALUES(@name,@username,@pin_hash,@role,@discount_pct,@cedula,@start_date,1,@supabase_id)`).run({
+  const r = db.prepare(`INSERT INTO users(name,username,pin_hash,role,discount_pct,employee_id,cedula,start_date,active,supabase_id)
+    VALUES(@name,@username,@pin_hash,@role,@discount_pct,@employee_id,@cedula,@start_date,1,@supabase_id)`).run({
     ...data,
     pin_hash: (() => { if (!data.pin) throw new Error('PIN requerido'); return sha256(data.pin) })(),
+    discount_pct: data.discount_pct || 0,
+    employee_id: data.employee_id || null,
+    cedula: data.cedula || null,
+    start_date: data.start_date || null,
     supabase_id: sid,
   })
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function userUpdate(id, data) {
   if (!db) return
-  const allowed = ['name', 'username', 'pin_hash', 'role', 'discount_pct', 'vendedor_id', 'commission_pct', 'active']
+  const allowed = ['name', 'username', 'pin_hash', 'role', 'discount_pct', 'employee_id', 'vendedor_id', 'commission_pct', 'active']
   const { pin, ...rest } = data
   if (pin) rest.pin_hash = sha256(pin)
   const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
@@ -823,27 +998,52 @@ function servicesGetAllAdmin() {
 function serviceCreate(data) {
   if (!db) return null
   const sid = crypto.randomUUID()
-  const r = db.prepare(`INSERT INTO services(name,name_en,category,categoria_id,price,cost,aplica_itbis,is_wash,active,sort_order,supabase_id)
-    VALUES(@name,@name_en,@category,@categoria_id,@price,COALESCE(@cost,0),COALESCE(@aplica_itbis,1),@is_wash,1,COALESCE(@sort_order,0),@supabase_id)`).run({
+  const cw = data.commission_washer ?? 1
+  const cs = data.commission_seller ?? 1
+  const cc = data.commission_cashier ?? 1
+  const noComm = (!cw && !cs && !cc) ? 1 : 0
+  const r = db.prepare(`INSERT INTO services(name,name_en,category,categoria_id,price,cost,aplica_itbis,is_wash,no_commission,commission_washer,commission_seller,commission_cashier,active,sort_order,supabase_id)
+    VALUES(@name,@name_en,@category,@categoria_id,@price,COALESCE(@cost,0),COALESCE(@aplica_itbis,1),@is_wash,@no_commission,@commission_washer,@commission_seller,@commission_cashier,1,COALESCE(@sort_order,0),@supabase_id)`).run({
     name: data.name, name_en: data.name_en || null,
     category: data.category || 'Lavado', categoria_id: data.categoria_id || null,
     price: data.price, cost: data.cost || 0, aplica_itbis: data.aplica_itbis ?? 1,
-    is_wash: data.is_wash ?? 1, sort_order: data.sort_order || 0,
+    is_wash: data.is_wash ?? 1, no_commission: noComm,
+    commission_washer: cw, commission_seller: cs, commission_cashier: cc,
+    sort_order: data.sort_order || 0,
     supabase_id: sid,
   })
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function serviceUpdate(id, data) {
   if (!db) return
-  const allowed = ['name','name_en','category','categoria_id','price','cost','aplica_itbis','is_wash','active','sort_order']
+  const allowed = ['name','name_en','category','categoria_id','price','cost','aplica_itbis','is_wash','no_commission','commission_washer','commission_seller','commission_cashier','active','sort_order']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  // Auto-derive no_commission when all 3 role flags are off (or any provided)
+  if ('commission_washer' in patch || 'commission_seller' in patch || 'commission_cashier' in patch) {
+    const existing = db.prepare('SELECT commission_washer, commission_seller, commission_cashier FROM services WHERE id=?').get(id) || {}
+    const cw = patch.commission_washer ?? existing.commission_washer ?? 1
+    const cs = patch.commission_seller ?? existing.commission_seller ?? 1
+    const cc = patch.commission_cashier ?? existing.commission_cashier ?? 1
+    patch.no_commission = (!cw && !cs && !cc) ? 1 : 0
+  }
   if (!Object.keys(patch).length) return
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
   db.prepare(`UPDATE services SET ${fields} WHERE id=@id`).run({ ...patch, id })
 }
 function serviceDelete(id) {
-  if (!db) return
-  db.prepare('UPDATE services SET active=0 WHERE id=?').run(id)
+  if (!db) return { deleted: false }
+  // Hard-delete the service. Historical ticket_items already snapshot name,
+  // price, cost, and itbis at sale time, so reports stay intact even after
+  // the service row is gone. We NULL the FK columns first to satisfy any
+  // constraints, then delete the service.
+  const svc = db.prepare('SELECT supabase_id FROM services WHERE id=?').get(id)
+  const sid = svc?.supabase_id || null
+  db.transaction(() => {
+    db.prepare('UPDATE ticket_items SET service_id=NULL WHERE service_id=?').run(id)
+    if (sid) db.prepare('UPDATE ticket_items SET service_supabase_id=NULL WHERE service_supabase_id=?').run(sid)
+    db.prepare('DELETE FROM services WHERE id=?').run(id)
+  })()
+  return { deleted: true }
 }
 
 // ── WASHERS ───────────────────────────────────────────────────────────────────
@@ -901,6 +1101,14 @@ function empleadoCreate(data) {
     role: data.role || 'none',
     supabase_id: sid,
   })
+  // Log initial salary so salaryAtDate() works from day one.
+  // Also set empleado_supabase_id so sync can push this row to the web without
+  // losing the FK join — sync.js's cols mapping reads this column verbatim.
+  const sal = data.salary || 0
+  if (sal > 0) {
+    db.prepare(`INSERT INTO salary_changes (empleado_id, empleado_supabase_id, old_salary, new_salary, effective_date, reason, supabase_id)
+      VALUES (?, ?, 0, ?, ?, 'initial_salary', ?)`).run(r.lastInsertRowid, sid, sal, data.start_date || new Date().toISOString().slice(0, 10), crypto.randomUUID())
+  }
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function empleadoUpdate(id, data) {
@@ -909,16 +1117,17 @@ function empleadoUpdate(id, data) {
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
 
-  // Auto-log salary changes
+  // Auto-log salary changes. Pull empleado_supabase_id from the existing row
+  // so the sync push can find the employee on the web side via FK join.
   if (patch.salary != null) {
-    const current = db.prepare('SELECT salary FROM empleados WHERE id=?').get(id)
+    const current = db.prepare('SELECT salary, supabase_id FROM empleados WHERE id=?').get(id)
     const oldSalary = Number(current?.salary || 0)
     const newSalary = Number(patch.salary || 0)
     if (current && oldSalary !== newSalary) {
       db.prepare(`INSERT INTO salary_changes
-        (empleado_id, old_salary, new_salary, effective_date, reason, changed_by)
-        VALUES (?, ?, ?, date('now'), ?, ?)`).run(
-        id, oldSalary, newSalary, data.salary_change_reason || null, data.changed_by || null
+        (empleado_id, empleado_supabase_id, old_salary, new_salary, effective_date, reason, changed_by, supabase_id)
+        VALUES (?, ?, ?, ?, date('now'), ?, ?, ?)`).run(
+        id, current.supabase_id || null, oldSalary, newSalary, data.salary_change_reason || null, data.changed_by || null, crypto.randomUUID()
       )
     }
   }
@@ -929,6 +1138,24 @@ function empleadoUpdate(id, data) {
 function empleadoDelete(id) {
   if (!db) return
   db.prepare('UPDATE empleados SET active=0 WHERE id=?').run(id)
+}
+function empleadoHardDelete(id) {
+  if (!db) return { ok: false, reason: 'no-db' }
+  const emp = db.prepare('SELECT id FROM empleados WHERE id=?').get(id)
+  if (!emp) return { ok: false, reason: 'not-found' }
+  // Safety: refuse hard delete if there's financial history referencing this empleado.
+  const runs = db.prepare('SELECT COUNT(*) AS n FROM payroll_runs WHERE empleado_id=?').get(id)?.n || 0
+  let commCount = 0
+  try { commCount += db.prepare('SELECT COUNT(*) AS n FROM washer_commissions WHERE washer_id IN (SELECT id FROM washers WHERE ref_id=?)').get(id)?.n || 0 } catch {}
+  try { commCount += db.prepare('SELECT COUNT(*) AS n FROM seller_commissions WHERE seller_id IN (SELECT id FROM sellers WHERE ref_id=?)').get(id)?.n || 0 } catch {}
+  if (runs > 0 || commCount > 0) {
+    db.prepare('UPDATE empleados SET active=0 WHERE id=?').run(id)
+    return { ok: true, softDeleted: true, reason: 'has-history', runs, commissions: commCount }
+  }
+  // No history — fully erase the employee + their salary_changes log.
+  db.prepare('DELETE FROM salary_changes WHERE empleado_id=?').run(id)
+  db.prepare('DELETE FROM empleados WHERE id=?').run(id)
+  return { ok: true, softDeleted: false }
 }
 
 // ── PAYROLL RUNS (paycheck history) ───────────────────────────────────────────
@@ -1088,6 +1315,65 @@ function salaryChangesByEmpleado(empleadoId) {
     WHERE sc.empleado_id = ?
     ORDER BY sc.effective_date DESC, sc.id DESC
   `).all(empleadoId)
+}
+
+function salaryChangeCreate({ empleado_id, new_salary, effective_date, reason, changed_by }) {
+  if (!db) return null
+  // Pull both salary AND supabase_id — the latter is stored on the new
+  // salary_changes row as empleado_supabase_id so sync can join on the web side.
+  const emp = db.prepare('SELECT salary, supabase_id FROM empleados WHERE id=?').get(empleado_id)
+  if (!emp) throw new Error('Empleado no encontrado')
+  // old_salary = whatever was in effect on the day BEFORE this change
+  const prev = db.prepare(`
+    SELECT new_salary FROM salary_changes
+    WHERE empleado_id = ? AND effective_date < ?
+    ORDER BY effective_date DESC, id DESC LIMIT 1
+  `).get(empleado_id, effective_date)
+  const old_salary = prev ? Number(prev.new_salary) : 0
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO salary_changes
+    (empleado_id, empleado_supabase_id, old_salary, new_salary, effective_date, reason, changed_by, supabase_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    empleado_id, emp.supabase_id || null, old_salary, Number(new_salary) || 0, effective_date,
+    reason || null, changed_by || null, sid
+  )
+  // If the new change is the most recent one, sync empleados.salary too.
+  const latest = db.prepare(`
+    SELECT new_salary FROM salary_changes
+    WHERE empleado_id = ?
+    ORDER BY effective_date DESC, id DESC LIMIT 1
+  `).get(empleado_id)
+  if (latest && Number(latest.new_salary) !== Number(emp.salary || 0)) {
+    db.prepare('UPDATE empleados SET salary=? WHERE id=?').run(Number(latest.new_salary), empleado_id)
+  }
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function salaryChangeDelete(id) {
+  if (!db) return
+  const row = db.prepare('SELECT empleado_id FROM salary_changes WHERE id=?').get(id)
+  if (!row) return
+  db.prepare('DELETE FROM salary_changes WHERE id=?').run(id)
+  // Re-sync empleados.salary to whatever the new latest change is (or 0 if none)
+  const latest = db.prepare(`
+    SELECT new_salary FROM salary_changes
+    WHERE empleado_id = ?
+    ORDER BY effective_date DESC, id DESC LIMIT 1
+  `).get(row.empleado_id)
+  db.prepare('UPDATE empleados SET salary=? WHERE id=?').run(Number(latest?.new_salary || 0), row.empleado_id)
+}
+
+function salaryAtDate(empleadoId, date) {
+  if (!db) return 0
+  // Find the most recent salary change on or before the given date
+  const row = db.prepare(`
+    SELECT new_salary FROM salary_changes
+    WHERE empleado_id = ? AND effective_date <= ?
+    ORDER BY effective_date DESC, id DESC LIMIT 1
+  `).get(empleadoId, date)
+  if (row) return Number(row.new_salary)
+  // No salary_changes before that date — fall back to employee's current salary
+  const emp = db.prepare('SELECT salary FROM empleados WHERE id=?').get(empleadoId)
+  return Number(emp?.salary || 0)
 }
 
 // ── SELLERS ───────────────────────────────────────────────────────────────────
@@ -1286,10 +1572,14 @@ function ticketCreate(data) {
     // Insert items — pre-validate service IDs to avoid FK violations from stale/demo IDs
     // Snapshot cost from services table into ticket_items at sale time so historical
     // profit reports stay accurate even if a service's cost changes later.
-    const svcRows = db.prepare('SELECT id, cost, supabase_id FROM services').all()
+    const svcRows = db.prepare('SELECT id, cost, supabase_id, no_commission, commission_washer, commission_seller, commission_cashier FROM services').all()
     const validSvcIds = new Set(svcRows.map(r => r.id))
     const svcCostById = new Map(svcRows.map(r => [r.id, r.cost || 0]))
     const svcSidById = new Map(svcRows.map(r => [r.id, r.supabase_id || null]))
+    const svcNoCommById = new Map(svcRows.map(r => [r.id, r.no_commission || 0]))
+    const svcWasherById = new Map(svcRows.map(r => [r.id, r.commission_washer ?? 1]))
+    const svcSellerById = new Map(svcRows.map(r => [r.id, r.commission_seller ?? 1]))
+    const svcCashierById = new Map(svcRows.map(r => [r.id, r.commission_cashier ?? 1]))
     // Lookup aplica_itbis for inventory items
     const invRows = db.prepare('SELECT id, aplica_itbis, supabase_id FROM inventory_items').all()
     const invItbisById = new Map(invRows.map(r => [r.id, r.aplica_itbis]))
@@ -1332,45 +1622,65 @@ function ticketCreate(data) {
         .run(data.total, data.client_id)
     }
 
-    // Washer commissions — only on wash/service items (NOT beverages/snacks)
-    // total and beverage_subtotal are both ITBIS-inclusive — strip ITBIS for commission base
-    const commBase  = parseFloat((((data.total || 0) - (data.beverage_subtotal || 0)) / 1.18).toFixed(2))
-    if (commBase > 0) {
+    // Per-role commission base — iterate items and sum only those where the
+    // role's commission toggle is on. Prices are ITBIS-inclusive (strip /1.18).
+    //
+    // Business rule: cashier earns on EVERY eligible item when NO seller is on
+    // the ticket. When a seller IS on the ticket, cashier only earns on
+    // products (is_wash=0, drinks/snacks). Services (is_wash=1) go to seller.
+    const svcIsWashById = new Map(svcRows.map(r => [r.id, r.is_wash ?? 1]))
+    const hasSeller = !!data.seller_id
+    let washerBaseGross = 0, sellerBaseGross = 0, cashierBaseGross = 0
+    for (const item of (data.items || [])) {
+      const svcId = item.service_id && validSvcIds.has(item.service_id) ? item.service_id : null
+      const qty = Math.max(1, parseInt(item.quantity || 1))
+      const line = (item.price || 0) * qty
+      const itemIsWash = svcId ? (svcIsWashById.get(svcId) ?? 1) : (item.is_wash ?? 1)
+      const washerOn  = svcId ? !!svcWasherById.get(svcId)  : (itemIsWash !== 0)
+      const sellerOn  = svcId ? !!svcSellerById.get(svcId)  : (itemIsWash !== 0)
+      const cashierOn = svcId ? !!svcCashierById.get(svcId) : true
+      if (washerOn)  washerBaseGross += line
+      if (sellerOn)  sellerBaseGross += line
+      // Cashier: products always, services only when no seller
+      if (cashierOn && (itemIsWash === 0 || !hasSeller)) cashierBaseGross += line
+    }
+    const washerBase  = parseFloat((washerBaseGross  / 1.18).toFixed(2))
+    const sellerBase  = parseFloat((sellerBaseGross  / 1.18).toFixed(2))
+    const cashierBase = parseFloat((cashierBaseGross / 1.18).toFixed(2))
+
+    if (washerBase > 0) {
       for (const wid of (data.washer_ids || [])) {
         const washer  = db.prepare('SELECT commission_pct, supabase_id FROM washers WHERE id=?').get(wid)
         if (!washer || washer.commission_pct <= 0) continue
-        const commAmount = parseFloat((commBase * washer.commission_pct / 100).toFixed(2))
+        const commAmount = parseFloat((washerBase * washer.commission_pct / 100).toFixed(2))
         const wcSid = crypto.randomUUID()
         db.prepare(`INSERT INTO washer_commissions
           (washer_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,washer_supabase_id,ticket_supabase_id)
-          VALUES(?,?,?,?,?,0,?,?,?)`).run(wid, ticketId, parseFloat(commBase.toFixed(2)), washer.commission_pct, commAmount,
+          VALUES(?,?,?,?,?,0,?,?,?)`).run(wid, ticketId, washerBase, washer.commission_pct, commAmount,
           wcSid, washer.supabase_id || null, ticketSid)
       }
     }
 
-    // Seller commission — only on wash/service items (NOT beverages/snacks)
-    if (data.seller_id && commBase > 0) {
+    if (data.seller_id && sellerBase > 0) {
       const seller = db.prepare('SELECT commission_pct, supabase_id FROM sellers WHERE id=?').get(data.seller_id)
       if (seller && seller.commission_pct > 0) {
-        const commAmount = parseFloat((commBase * seller.commission_pct / 100).toFixed(2))
+        const commAmount = parseFloat((sellerBase * seller.commission_pct / 100).toFixed(2))
         const scSid = crypto.randomUUID()
         db.prepare(`INSERT INTO seller_commissions
           (seller_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,seller_supabase_id,ticket_supabase_id)
-          VALUES(?,?,?,?,?,0,?,?,?)`).run(data.seller_id, ticketId, parseFloat(commBase.toFixed(2)), seller.commission_pct, commAmount,
+          VALUES(?,?,?,?,?,0,?,?,?)`).run(data.seller_id, ticketId, sellerBase, seller.commission_pct, commAmount,
           scSid, seller.supabase_id || null, ticketSid)
       }
     }
 
-    // Cajero commission — on beverages/snacks only (prices include 18% ITBIS)
-    const bevBase = parseFloat(((data.beverage_subtotal || 0) / 1.18).toFixed(2))
-    if (data.cajero_id && bevBase > 0) {
+    if (data.cajero_id && cashierBase > 0) {
       const cajero = db.prepare('SELECT commission_pct, supabase_id FROM users WHERE id=?').get(data.cajero_id)
       if (cajero && cajero.commission_pct > 0) {
-        const commAmount = parseFloat((bevBase * cajero.commission_pct / 100).toFixed(2))
+        const commAmount = parseFloat((cashierBase * cajero.commission_pct / 100).toFixed(2))
         const ccSid = crypto.randomUUID()
         db.prepare(`INSERT INTO cajero_commissions
           (cajero_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,cajero_supabase_id,ticket_supabase_id)
-          VALUES(?,?,?,?,?,0,?,?,?)`).run(data.cajero_id, ticketId, bevBase, cajero.commission_pct, commAmount,
+          VALUES(?,?,?,?,?,0,?,?,?)`).run(data.cajero_id, ticketId, cashierBase, cajero.commission_pct, commAmount,
           ccSid, cajero.supabase_id || null, ticketSid)
       }
     }
@@ -2118,9 +2428,9 @@ module.exports = {
   // Sellers
   sellersGetAll, sellersGetAllAdmin, sellerCreate, sellerUpdate, sellerDelete,
   // Empleados (payroll)
-  empleadosGetAll, empleadosGetAllAdmin, empleadoCreate, empleadoUpdate, empleadoDelete,
+  empleadosGetAll, empleadosGetAllAdmin, empleadoCreate, empleadoUpdate, empleadoDelete, empleadoHardDelete,
   payrollRunCreate, payrollRunsByEmpleado, payrollRunsByPeriod, payrollRunDelete, payrollRunsBulkCreate,
-  payrollSettingsGet, payrollSettingsUpdate, salaryChangesByEmpleado,
+  payrollSettingsGet, payrollSettingsUpdate, salaryChangesByEmpleado, salaryAtDate, salaryChangeCreate, salaryChangeDelete,
   // Clients
   clientsGetAll, clientGetById, clientCreate, clientUpdate, clientUpdateBalance, clientGetOpenTickets, collectCredit,
   // Tickets

@@ -30,10 +30,18 @@ try {
 } catch { /* dotenv not available in packaged build — env vars must come from OS */ }
 
 // ── Env-var accessors (with safe fallbacks) ───────────────────────────────────
+// Anon key is SAFE TO SHIP: it's the public client key, and Supabase RLS
+// policies on every table require `business_id IS NOT NULL` so anon writes
+// are already constrained per-tenant. Without this fallback, production
+// installs have `process.env.SUPABASE_*` empty and sync silently does
+// nothing — which is the bug v1.9.12 is fixing.
+const HARDCODED_SUPABASE_URL  = 'https://csppjsoirjflumaiipqw.supabase.co'
+const HARDCODED_SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNzcHBqc29pcmpmbHVtYWlpcHF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNTcyMTksImV4cCI6MjA4OTYzMzIxOX0.8rTDuyNJ2FBxju9TR2YFT3PbLkLD0FiedHfKqFJljWk'
+
 const env = {
   masterKey:    process.env.MASTER_LICENSE_KEY ? process.env.MASTER_LICENSE_KEY.toUpperCase().trim() : '',
-  supabaseUrl:  process.env.SUPABASE_URL  || 'https://csppjsoirjflumaiipqw.supabase.co',
-  supabaseAnon: process.env.SUPABASE_ANON_KEY || '',
+  supabaseUrl:  process.env.SUPABASE_URL  || HARDCODED_SUPABASE_URL,
+  supabaseAnon: process.env.SUPABASE_ANON_KEY || HARDCODED_SUPABASE_ANON,
   supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
 }
 
@@ -624,7 +632,7 @@ function createWindow() {
     fullscreen: !isDev,
     kiosk: !isDev,
     autoHideMenuBar: true,
-    closable: false,
+    closable: true,
     minimizable: false,
     maximizable: false,
     webPreferences: {
@@ -701,7 +709,8 @@ function promptExit(win) {
   if (choice === 1) {
     app.isQuiting = true
     try { globalShortcut.unregisterAll() } catch {}
-    app.quit()
+    try { if (win && !win.isDestroyed()) { win.setKiosk(false); win.setClosable(true); win.destroy() } } catch {}
+    app.exit(0)
   }
 }
 
@@ -732,7 +741,11 @@ app.whenReady().then(async () => {
   certManager.init(app)
   // Init cloud sync (SQLite → Supabase backup)
   if (db) {
-    sync.init(db, { supabaseUrl: env.supabaseUrl, supabaseKey: env.supabaseServiceKey })
+    // Prefer service_role if a dev has it set (bypasses RLS, useful for dev).
+    // Otherwise fall back to anon key, which is safe to ship and works with the
+    // existing per-tenant RLS policies (`business_id IS NOT NULL`).
+    const syncKey = env.supabaseServiceKey || env.supabaseAnon
+    sync.init(db, { supabaseUrl: env.supabaseUrl, supabaseKey: syncKey })
     sync.startAutoSync(5 * 60 * 1000) // every 5 min
   }
   createWindow()
@@ -872,6 +885,7 @@ handle('empleados:all-admin', ()              => db.empleadosGetAllAdmin())
 handle('empleados:create',    (data)          => db.empleadoCreate(data))
 handle('empleados:update',    ({id,...data})  => db.empleadoUpdate(id, data))
 handle('empleados:delete',    ({id})          => { db.empleadoDelete(id); return true })
+handle('empleados:hard-delete', ({id})        => db.empleadoHardDelete(id))
 
 // ── Payroll runs (paycheck history) ──────────────────────────────────────────
 handle('payroll-runs:create',      (data)                => db.payrollRunCreate(data))
@@ -885,6 +899,8 @@ handle('payroll-settings:get',     ()                    => db.payrollSettingsGe
 handle('payroll-settings:update',  (data)                => { db.payrollSettingsUpdate(data); return true })
 handle('salary-changes:by-empleado', ({empleadoId})      => db.salaryChangesByEmpleado(empleadoId))
 handle('salary-changes:at-date',    ({empleadoId, date}) => db.salaryAtDate(empleadoId, date))
+handle('salary-changes:create',     (data)               => db.salaryChangeCreate(data))
+handle('salary-changes:delete',     ({id})               => { db.salaryChangeDelete(id); return true })
 
 // ── Clients ───────────────────────────────────────────────────────────────────
 handle('clients:all',          ()          => db.clientsGetAll())

@@ -90,6 +90,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     allAdmin: ()     => call('services:all-admin'),
     create:   (data) => call('services:create', data),
     update:   (data) => call('services:update', data),
+    delete:   (data) => call('services:delete', data),
   },
 
   // ── Washers ────────────────────────────────────────────────────────────────
@@ -115,6 +116,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     create:   (data) => call('empleados:create', data),
     update:   (data) => call('empleados:update', data),
     delete:   (id)   => call('empleados:delete', { id }),
+    hardDelete: (id) => call('empleados:hard-delete', { id }),
   },
   payrollRuns: {
     create:      (data)                    => call('payroll-runs:create', data),
@@ -129,6 +131,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   salaryChanges: {
     byEmpleado:  (empleadoId)              => call('salary-changes:by-empleado', { empleadoId }),
+    atDate:      (empleadoId, date)        => call('salary-changes:at-date', { empleadoId, date }),
+    create:      (data)                    => call('salary-changes:create', data),
+    remove:      (id)                      => call('salary-changes:delete', { id }),
   },
 
   // ── Clients ────────────────────────────────────────────────────────────────

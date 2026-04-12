@@ -200,3 +200,4 @@ Every table that syncs between Desktop (SQLite) and Web (Supabase) uses the **su
 - **SEO:** `<html lang="es-DO">`, hreflang tags, geo.region DO, FAQPage + SoftwareApplication + Organization JSON-LD schemas, `<noscript>` fallback content, Google Analytics (G-WV4EDKWVJP).
 - **DGII dependencies:** `dgii-ecf` npm library for seed signing (Signature class with custom Digest that sorts xmlns attributes alphabetically). Project also has `xml-crypto` v6 for e-CF document signing (different from dgii-ecf's bundled v2). Do NOT mix — seed uses dgii-ecf, e-CFs use xml-signer.js with xml-crypto v6.
 - **Admin e-CF Status:** `ClientDetail.jsx` shows per-client cert status card (installed, expired, environment, subject, expiry, readiness). Data comes from `businesses.settings` populated by desktop bizSync.
+- **Kiosk fullscreen mode (v1.9.9):** Full-screen lockdown mode with ESC exit confirmation — prevents accidental exits during POS operation. Toggle in Settings.

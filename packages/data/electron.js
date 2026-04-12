@@ -14,7 +14,17 @@ export function createElectronAPI() {
 }
 
 export function createElectronPrinterAPI() {
-  return window.printerAPI || null
+  if (!window.printerAPI) return null
+  // Augment the preload-injected printerAPI with a `print` method that
+  // delegates to electronAPI.print (the real receipt-sending IPC). Without
+  // this, callers that do `printerApi.print(...)` silently no-op because
+  // window.printerAPI only exposes listPrinters / openDrawer / testDrawerVariants.
+  return {
+    ...window.printerAPI,
+    print: (payload) => (window.electronAPI?.print
+      ? window.electronAPI.print(payload)
+      : Promise.resolve({ success: false, error: 'no_print_ipc' })),
+  }
 }
 
 /** True when running inside Electron (preload.js injected the bridge) */

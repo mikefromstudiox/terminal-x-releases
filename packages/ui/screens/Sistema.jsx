@@ -5,7 +5,8 @@ import {
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI, usePrinterAPI } from '../context/DataContext'
-import LicenseAdmin from './LicenseAdmin'
+// LicenseAdmin removed — was dead code (API key auth incompatible with Supabase JWT backend).
+// Real admin panel: terminalxpos.com/admin
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
 
@@ -162,10 +163,48 @@ export function Preferencias() {
   const L = (es, en) => lang === 'es' ? es : en
 
   async function testPrint() {
+    // Build a minimal ESC/POS test receipt. Must be a binary string, not an
+    // object — the IPC handler writes it raw to the printer spooler.
+    const ESC = '\x1B', GS = '\x1D', LF = '\x0A'
+    const INIT         = ESC + '@'
+    const ALIGN_CENTER = ESC + 'a' + '\x01'
+    const ALIGN_LEFT   = ESC + 'a' + '\x00'
+    const BOLD_ON      = ESC + 'E' + '\x01'
+    const BOLD_OFF     = ESC + 'E' + '\x00'
+    const DOUBLE_ON    = GS  + '!' + '\x11'
+    const DOUBLE_OFF   = GS  + '!' + '\x00'
+    const CUT          = GS  + 'V' + '\x41' + '\x03'
+    const now = new Date().toLocaleString('es-DO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    const buf =
+      INIT +
+      ALIGN_CENTER + BOLD_ON + DOUBLE_ON +
+      'TERMINAL X' + LF +
+      DOUBLE_OFF + BOLD_OFF + LF +
+      'PRUEBA DE IMPRESION' + LF +
+      '--------------------' + LF +
+      ALIGN_LEFT +
+      'Fecha: ' + now + LF +
+      'Impresora: ' + (cfg.printer || '(predeterminada)').slice(0, 32) + LF +
+      LF +
+      'Si puedes leer esto,' + LF +
+      'la impresora funciona.' + LF +
+      LF + LF + LF +
+      CUT
+
     try {
-      if (printerApi?.print) await printerApi.print({ type: 'test', data: {}, printerName: cfg.printer || undefined })
-      show(L('Prueba enviada', 'Test sent'))
-    } catch { show(L('Error al imprimir', 'Print error'), 'error') }
+      if (!printerApi?.print) {
+        show(L('API de impresion no disponible', 'Print API not available'), 'error')
+        return
+      }
+      const result = await printerApi.print({ data: buf, printerName: cfg.printer || undefined })
+      if (result?.success) {
+        show(L('Prueba enviada ✓', 'Test sent ✓'))
+      } else {
+        show(L('Error: ', 'Error: ') + (result?.error || 'desconocido'), 'error')
+      }
+    } catch (e) {
+      show(L('Error al imprimir: ', 'Print error: ') + (e?.message || ''), 'error')
+    }
   }
 
   return (
@@ -237,11 +276,34 @@ export function ImpresionSettings() {
   const L = (es, en) => lang === 'es' ? es : en
 
   async function testPrint() {
+    const ESC = '\x1B', GS = '\x1D', LF = '\x0A'
+    const now = new Date().toLocaleString('es-DO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    const buf =
+      ESC + '@' +
+      ESC + 'a' + '\x01' + ESC + 'E' + '\x01' + GS + '!' + '\x11' +
+      'TERMINAL X' + LF +
+      GS + '!' + '\x00' + ESC + 'E' + '\x00' + LF +
+      'PRUEBA DE IMPRESION' + LF +
+      '--------------------' + LF +
+      ESC + 'a' + '\x00' +
+      'Fecha: ' + now + LF +
+      'Impresora: ' + (cfg.printer || '(predeterminada)').slice(0, 32) + LF +
+      LF +
+      'Si puedes leer esto,' + LF +
+      'la impresora funciona.' + LF +
+      LF + LF + LF +
+      GS + 'V' + '\x41' + '\x03'
     try {
-      const api = printerApi
-      if (api?.print) await api.print({ type: 'test', data: {}, printerName: cfg.printer || undefined })
-      show(L('Prueba enviada', 'Test sent'))
-    } catch { show(L('Error al imprimir', 'Print error'), 'error') }
+      if (!printerApi?.print) {
+        show(L('API de impresion no disponible', 'Print API not available'), 'error')
+        return
+      }
+      const result = await printerApi.print({ data: buf, printerName: cfg.printer || undefined })
+      if (result?.success) show(L('Prueba enviada ✓', 'Test sent ✓'))
+      else show(L('Error: ', 'Error: ') + (result?.error || 'desconocido'), 'error')
+    } catch (e) {
+      show(L('Error al imprimir: ', 'Print error: ') + (e?.message || ''), 'error')
+    }
   }
 
   return (
@@ -487,7 +549,8 @@ function Actualizaciones() {
 const TABS = [
   { id: 'config',          es: 'Preferencias',    en: 'Preferences',   icon: Settings  },
   { id: 'actualizaciones', es: 'Actualizaciones', en: 'Updates',       icon: Download  },
-  { id: 'licencias',       es: 'Licencias TX',    en: 'TX Licenses',   icon: KeyRound  },
+  // Removed: LicenseAdmin was dead code (API key auth doesn't match Supabase JWT backend).
+  // Real admin panel is at terminalxpos.com/admin. Kept the tab ID commented out for reference.
 ]
 
 export default function Sistema({ initialTab, hideHeader }) {
@@ -538,11 +601,7 @@ export default function Sistema({ initialTab, hideHeader }) {
           <Actualizaciones />
         </div>
       )}
-      {tab === 'licencias' && (
-        <div className="flex-1 overflow-hidden">
-          <LicenseAdmin />
-        </div>
-      )}
+      {/* LicenseAdmin tab removed — dead code. Admin panel is at terminalxpos.com/admin */}
     </div>
   )
 }

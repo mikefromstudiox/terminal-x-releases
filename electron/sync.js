@@ -21,6 +21,22 @@
  */
 
 const https = require('https')
+const crypto = require('crypto')
+
+// Route all sync log output through electron-log so it lands in
+// %APPDATA%/terminal-x/logs/main.log where support can actually see it.
+// Fall back to console if electron-log isn't available (e.g. tests).
+let _log
+try {
+  _log = require('electron-log').scope('sync')
+} catch {
+  _log = { info: console.log, warn: console.warn, error: console.error }
+}
+const log = {
+  info:  (...a) => _log.info(...a),
+  warn:  (...a) => _log.warn(...a),
+  error: (...a) => _log.error(...a),
+}
 
 // -- State --------------------------------------------------------------------
 let _db = null
@@ -50,6 +66,10 @@ const SYNC_TABLES = [
       aplica_itbis: r.aplica_itbis,
       active: r.active,
       is_wash: r.is_wash,
+      no_commission: !!(r.no_commission || 0),
+      commission_washer: !!(r.commission_washer ?? 1),
+      commission_seller: !!(r.commission_seller ?? 1),
+      commission_cashier: !!(r.commission_cashier ?? 1),
       sort_order: r.sort_order,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
@@ -150,6 +170,8 @@ const SYNC_TABLES = [
       email: r.email,
       bank_account: r.bank_account,
       tss_id: r.tss_id,
+      role: r.role || 'none',
+      comision_pct: r.comision_pct != null ? r.comision_pct : 0,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
     }),
@@ -175,6 +197,7 @@ const SYNC_TABLES = [
       commission_pct: r.commission_pct,
       cedula: r.cedula,
       start_date: r.start_date,
+      employee_id: r.employee_id != null ? r.employee_id : null,
       active: r.active,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
@@ -425,6 +448,91 @@ const SYNC_TABLES = [
       updated_at: r.updated_at || null,
     }),
   },
+
+  // Phase 4 — payroll + e-CF submissions + audit logs (depend on empleados/tickets)
+  {
+    name: 'payroll_runs',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      empleado_supabase_id: r.empleado_supabase_id,
+      period_start: r.period_start,
+      period_end: r.period_end,
+      base: r.base,
+      commissions: r.commissions,
+      bonuses: r.bonuses,
+      sfs_employee: r.sfs_employee,
+      afp_employee: r.afp_employee,
+      isr: r.isr,
+      other_deductions: r.other_deductions,
+      deductions: r.deductions,
+      sfs_employer: r.sfs_employer,
+      afp_employer: r.afp_employer,
+      infotep_employer: r.infotep_employer,
+      net: r.net,
+      notes: r.notes,
+      paid_at: r.paid_at,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'salary_changes',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      empleado_supabase_id: r.empleado_supabase_id,
+      old_salary: r.old_salary,
+      new_salary: r.new_salary,
+      effective_date: r.effective_date,
+      reason: r.reason,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'ecf_submissions',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      ticket_supabase_id: r.ticket_supabase_id,
+      encf: r.encf,
+      tipo_ecf: r.tipo_ecf,
+      track_id: r.track_id,
+      status: typeof r.dgii_status === 'number' ? String(r.dgii_status) : (r.status || null),
+      environment: r.environment,
+      submitted_at: r.submitted_at || new Date().toISOString(),
+      created_at: r.submitted_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'queue_deletions',
+    cols: r => {
+      // Resolve local INTEGER FKs to UUIDs for Supabase
+      let queue_sid = null
+      let ticket_sid = null
+      try {
+        if (r.queue_id) {
+          const row = _db.rawPrepare('SELECT supabase_id FROM queue WHERE id = ?').get(r.queue_id)
+          queue_sid = row?.supabase_id || null
+        }
+      } catch {}
+      try {
+        if (r.ticket_id) {
+          const row = _db.rawPrepare('SELECT supabase_id FROM tickets WHERE id = ?').get(r.ticket_id)
+          ticket_sid = row?.supabase_id || null
+        }
+      } catch {}
+      return {
+        supabase_id: r.supabase_id,
+        queue_id: queue_sid,
+        ticket_id: ticket_sid,
+        deleted_by: r.deleted_by,
+        deleted_at: r.deleted_at,
+        reason: r.reason,
+        created_at: r.deleted_at || new Date().toISOString(),
+        updated_at: r.updated_at || null,
+      }
+    },
+  },
 ]
 
 // -- Init ---------------------------------------------------------------------
@@ -434,7 +542,7 @@ function init(db, { supabaseUrl, supabaseKey }) {
   _key = supabaseKey || ''
 
   if (!_url || !_key) {
-    console.log('[sync] No Supabase credentials — cloud sync disabled')
+    log.info('[sync] No Supabase credentials — cloud sync disabled')
     return
   }
 
@@ -476,10 +584,10 @@ function init(db, { supabaseUrl, supabaseKey }) {
       )`)
       const ins = _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('sync_v3_supabase_id','1')")
       if (ins) ins.run()
-      console.log('[sync] Dropped and recreated sync_log for supabase_id migration')
+      log.info('[sync] Dropped and recreated sync_log for supabase_id migration')
     }
   } catch (e) {
-    console.error('[sync] sync_v2_reset error:', e.message)
+    log.error('[sync] sync_v2_reset error:', e.message)
   }
 
   // v1.9 — one-time re-sync of tickets to backfill services_json, cajero_name, client_name, paid_at
@@ -488,9 +596,9 @@ function init(db, { supabaseUrl, supabaseKey }) {
     if (!marker) {
       _db.rawPrepare("DELETE FROM sync_log WHERE table_name = 'tickets'").run()
       _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('sync_v4_ticket_resync','1')").run()
-      console.log('[sync] Reset tickets cursor for services_json/cajero backfill')
+      log.info('[sync] Reset tickets cursor for services_json/cajero backfill')
     }
-  } catch (e) { console.error('[sync] v4 ticket resync marker:', e.message) }
+  } catch (e) { log.error('[sync] v4 ticket resync marker:', e.message) }
 
   // Write diagnostic file
   try {
@@ -503,24 +611,52 @@ function init(db, { supabaseUrl, supabaseKey }) {
     const stmt3 = _db.rawPrepare("SELECT table_name, last_synced_id FROM sync_log")
     const logRows = stmt3 ? stmt3.all() : []
     fs.writeFileSync(logPath, JSON.stringify({ init: true, url: !!_url, key: !!_key, sync_log_count: logCount, sync_log: logRows, ts: new Date().toISOString() }))
-  } catch (e) { console.error('[sync] diag write error:', e.message) }
+  } catch (e) { log.error('[sync] diag write error:', e.message) }
 
-  console.log('[sync] Initialized — cloud backup enabled, url:', _url?.substring(0, 30), 'key:', _key ? 'SET' : 'EMPTY')
+  log.info('[sync] Initialized — cloud backup enabled, url:', _url?.substring(0, 30), 'key:', _key ? 'SET' : 'EMPTY')
+
+  // v1.9.11 — one-time reset of pull cursors so every PULL_TABLES entry
+  // re-fetches from scratch on first boot of 1.9.11. Fixes the case where
+  // a stale cursor was silently skipping backfilled rows on Supabase.
+  try {
+    const marker = _db.rawPrepare("SELECT value FROM app_settings WHERE key='pull_reset_version'").get()
+    if (!marker || marker.value !== '1.9.11') {
+      _db.rawPrepare("UPDATE sync_log SET last_pull_at = NULL").run()
+      _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('pull_reset_version','1.9.11')").run()
+      log.info('[sync] v1.9.11 pull cursors reset — next pull re-fetches everything')
+    }
+  } catch (e) { log.error('[sync] pull cursor reset failed:', e.message) }
 }
 
 // -- Supabase REST upsert -----------------------------------------------------
 const SYNC_TIMEOUT_MS = 30_000
 
-function supabaseUpsert(table, rows) {
-  if (!rows.length) return Promise.resolve({ ok: true, count: 0 })
+async function supabaseUpsert(table, rows) {
+  if (!rows.length) return { ok: true, count: 0 }
 
-  const request$ = new Promise((resolve, reject) => {
-    const reqUrl = new URL(`${_url}/rest/v1/${table}`)
-    const body = JSON.stringify(rows)
+  // Coalesce null/undefined timestamps so Supabase NOT NULL columns accept them.
+  // Also drop any remaining undefined fields (they'd break upsert merge).
+  const nowIso = new Date().toISOString()
+  const cleaned = rows.map(r => {
+    const out = {}
+    for (const [k, v] of Object.entries(r)) {
+      if (v === undefined) continue
+      if ((k === 'updated_at' || k === 'created_at') && v == null) { out[k] = nowIso; continue }
+      out[k] = v
+    }
+    if (!out.updated_at) out.updated_at = nowIso
+    return out
+  })
 
+  // Supabase has real UNIQUE (business_id, supabase_id) constraints on every
+  // sync table (created 2026-04-11 — previously these were partial indexes
+  // which PostgREST can't use as on_conflict targets). Clean upsert works.
+  return new Promise((resolve, reject) => {
+    const reqUrl = new URL(`${_url}/rest/v1/${table}?on_conflict=business_id,supabase_id`)
+    const body = JSON.stringify(cleaned)
     const request = https.request({
       hostname: reqUrl.hostname,
-      path: reqUrl.pathname,
+      path: reqUrl.pathname + reqUrl.search,
       method: 'POST',
       headers: {
         'apikey': _key,
@@ -541,16 +677,10 @@ function supabaseUpsert(table, rows) {
       })
     })
     request.on('error', reject)
+    request.setTimeout(SYNC_TIMEOUT_MS, () => { request.destroy(new Error(`Supabase ${table} timed out after ${SYNC_TIMEOUT_MS / 1000}s`)) })
     request.write(body)
     request.end()
   })
-
-  let timeoutId
-  const timeout$ = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(`Supabase ${table} request timed out after ${SYNC_TIMEOUT_MS / 1000}s`)), SYNC_TIMEOUT_MS)
-  })
-
-  return Promise.race([request$, timeout$]).finally(() => clearTimeout(timeoutId))
 }
 
 // -- Resolve business_id ------------------------------------------------------
@@ -592,12 +722,12 @@ async function resolveBusinessId() {
         if (result?.[0]?.business_id) {
           _businessId = result[0].business_id
           try { _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('supabase_business_id',?)").run(_businessId) } catch {}
-          console.log('[sync] Resolved business_id from HWID:', _businessId)
+          log.info('[sync] Resolved business_id from HWID:', _businessId)
           return _businessId
         }
       }
     }
-  } catch (e) { console.warn('[sync] Business ID lookup failed:', e.message) }
+  } catch (e) { log.warn('[sync] Business ID lookup failed:', e.message) }
   return null
 }
 
@@ -628,7 +758,7 @@ function updateSyncLog(tableName, lastId, rowCount, error) {
         updated_at = datetime('now'),
         last_synced_at = datetime('now')
     `).run(tableName, lastId, rowCount, error)
-  } catch (e) { console.error('[sync] updateSyncLog failed:', e.message) }
+  } catch (e) { log.error('[sync] updateSyncLog failed:', e.message) }
 }
 
 // -- Supabase REST fetch (GET) ------------------------------------------------
@@ -670,7 +800,7 @@ function updatePullLog(tableName, lastPullAt) {
       VALUES (?, 0, 0, NULL, datetime('now'), ?)
       ON CONFLICT(table_name) DO UPDATE SET last_pull_at = excluded.last_pull_at, updated_at = datetime('now')
     `).run(tableName, lastPullAt)
-  } catch (e) { console.error('[sync] updatePullLog failed:', e.message) }
+  } catch (e) { log.error('[sync] updatePullLog failed:', e.message) }
 }
 
 // -- JSON columns that need stringify when inserting into SQLite ---------------
@@ -679,6 +809,10 @@ const JSON_COLUMNS = new Set(['ecf_result', 'washer_ids', 'ticket_ids', 'denomin
 function sqliteValue(col, val) {
   if (val == null) return null
   if (JSON_COLUMNS.has(col) && typeof val === 'object') return JSON.stringify(val)
+  // better-sqlite3 rejects JS booleans — Supabase returns active:true/false, SQLite uses 0/1
+  if (typeof val === 'boolean') return val ? 1 : 0
+  // Any leftover object (e.g. jsonb column we don't expect) — stringify so the bind works
+  if (typeof val === 'object') return JSON.stringify(val)
   return val
 }
 
@@ -686,14 +820,18 @@ function sqliteValue(col, val) {
 // strategy: 'lww' = last-write-wins (entities), 'fww' = first-write-wins (financial)
 const PULL_TABLES = [
   // Phase 1 — root entities (LWW)
-  { name: 'services', strategy: 'lww', cols: ['name','name_en','category','price','cost','aplica_itbis','active','is_wash','sort_order','created_at','updated_at'] },
+  // NOTE: `created_at` only included for tables whose local SQLite schema actually has
+  // that column. db/schema.sql: services/sellers/inventory_items/empleados/categorias_servicio
+  // never declared created_at, so including it in the pull causes "no such column" failures.
+  { name: 'services', strategy: 'lww', cols: ['name','name_en','category','price','cost','aplica_itbis','active','is_wash','no_commission','commission_washer','commission_seller','commission_cashier','sort_order','updated_at'] },
   { name: 'washers', strategy: 'lww', cols: ['name','phone','cedula','commission_pct','active','start_date','created_at','updated_at'] },
-  { name: 'sellers', strategy: 'lww', cols: ['name','commission_pct','phone','cedula','start_date','active','created_at','updated_at'] },
+  { name: 'sellers', strategy: 'lww', cols: ['name','commission_pct','phone','cedula','start_date','active','updated_at'] },
   { name: 'clients', strategy: 'lww', cols: ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','created_at','updated_at'] },
-  { name: 'inventory_items', strategy: 'lww', cols: ['name','sku','barcode','category','price','cost','quantity','min_quantity','aplica_itbis','active','created_at','updated_at'] },
+  { name: 'inventory_items', strategy: 'lww', cols: ['name','sku','barcode','category','price','cost','quantity','min_quantity','aplica_itbis','active','updated_at'] },
   { name: 'ncf_sequences', strategy: 'lww', cols: ['type','prefix','current_number','limit_number','valid_until','active','enabled','updated_at'] },
-  { name: 'empleados', strategy: 'lww', cols: ['nombre','cedula','phone','tipo','salary','start_date','active','ref_id','puesto','email','bank_account','tss_id','created_at','updated_at'] },
+  { name: 'empleados', strategy: 'lww', cols: ['nombre','cedula','phone','tipo','salary','start_date','active','ref_id','puesto','email','bank_account','tss_id','role','comision_pct','updated_at'] },
   { name: 'categorias_servicio', strategy: 'lww', cols: ['nombre','orden','updated_at'] },
+  { name: 'users', strategy: 'lww', cols: ['name','username','pin_hash','role','discount_pct','commission_pct','cedula','start_date','active','created_at','updated_at'] },
 
   // Phase 2 — tickets + dependents
   { name: 'tickets', strategy: 'fww',
@@ -734,6 +872,17 @@ const PULL_TABLES = [
     fkCols: { item_supabase_id: 'inventory_items', user_supabase_id: 'users' } },
   { name: 'compras_607', strategy: 'fww',
     cols: ['rnc_proveedor','nombre_proveedor','ncf','ncf_modificado','fecha_ncf','total','itbis_facturado','itbis_retenido','retencion_renta','forma_pago','tipo_ncf','fecha_pago','monto_servicios','monto_bienes','notas','created_at','updated_at'] },
+
+  // Phase 4 — payroll audit trail (FWW — financial records, never overwritten)
+  // Note: ecf_submissions is push-only (desktop-authored per-device, no pull) — column name
+  // mismatch between SQLite `dgii_status INTEGER` and Supabase `status TEXT` makes pulling unsafe.
+  // Note: queue_deletions is push-only (append-only log, desktop-authored).
+  { name: 'payroll_runs', strategy: 'fww',
+    cols: ['period_start','period_end','base','commissions','bonuses','sfs_employee','afp_employee','isr','other_deductions','deductions','sfs_employer','afp_employer','infotep_employer','net','notes','paid_at','created_at','updated_at'],
+    fkCols: { empleado_supabase_id: 'empleados' } },
+  { name: 'salary_changes', strategy: 'fww',
+    cols: ['old_salary','new_salary','effective_date','reason','created_at','updated_at'],
+    fkCols: { empleado_supabase_id: 'empleados' } },
 ]
 
 // -- Pull upsert: Supabase row -> SQLite row ----------------------------------
@@ -855,26 +1004,36 @@ async function pullTable(tableConfig) {
       'offset': String(offset),
       'supabase_id': 'not.is.null',
     }
-    if (lastPull) params['updated_at'] = `gt.${lastPull}`
+    // `gte` (not `gt`) so the row at exactly lastPull gets re-fetched on the next
+    // pass. Otherwise rows whose updated_at equals the stored cursor are orphaned
+    // forever — hit this on 2026-04-11 when an INSERT failure advanced the cursor
+    // past a row that never made it into local SQLite.
+    if (lastPull) params['updated_at'] = `gte.${lastPull}`
 
     let rows
     try {
       rows = await supabaseFetch(name, params)
     } catch (e) {
-      console.error(`[sync-pull] ${name}: fetch failed:`, e.message)
+      log.error(`[sync-pull] ${name}: fetch failed:`, e.message)
       break
     }
 
     if (!rows.length) break
 
-    // Upsert each row into SQLite
+    // Upsert each row into SQLite. Only advance the cursor for rows that
+    // actually succeeded — if an INSERT/UPDATE fails, we need the next pull
+    // to try this row again, not skip it. (Fixed 2026-04-11 after asdadad
+    // got stranded when v1.9.12's `no such column` error advanced the cursor
+    // past a row that never made it into local SQLite.)
     for (const row of rows) {
+      let ok = false
       try {
         pullUpsertRow(name, row, strategy, cols, fkCols, statusSync)
+        ok = true
       } catch (e) {
-        console.error(`[sync-pull] ${name}: upsert failed for ${row.supabase_id}:`, e.message)
+        log.error(`[sync-pull] ${name}: upsert failed for ${row.supabase_id}:`, e.message)
       }
-      if (row.updated_at && (!latestUpdatedAt || row.updated_at > latestUpdatedAt)) {
+      if (ok && row.updated_at && (!latestUpdatedAt || row.updated_at > latestUpdatedAt)) {
         latestUpdatedAt = row.updated_at
       }
     }
@@ -889,7 +1048,7 @@ async function pullTable(tableConfig) {
     updatePullLog(name, latestUpdatedAt)
   }
 
-  if (totalPulled > 0) console.log(`[sync-pull] ${name}: pulled ${totalPulled} rows`)
+  if (totalPulled > 0) log.info(`[sync-pull] ${name}: pulled ${totalPulled} rows`)
   return totalPulled
 }
 
@@ -905,10 +1064,10 @@ async function pullNow() {
       const count = await pullTable(pt)
       totalPulled += count
     } catch (e) {
-      console.error(`[sync-pull] ${pt.name}:`, e.message)
+      log.error(`[sync-pull] ${pt.name}:`, e.message)
     }
   }
-  console.log(`[sync-pull] Manual pull complete — ${totalPulled} rows`)
+  log.info(`[sync-pull] Manual pull complete — ${totalPulled} rows`)
 
   // Notify renderer
   try {
@@ -976,19 +1135,120 @@ async function syncTable(tableConfig) {
             await supabaseUpsert(name, batch)
             totalSynced += batch.length
           }
-          console.log(`[sync] ${name}: re-synced ${mapped.length} updated rows`)
+          log.info(`[sync] ${name}: re-synced ${mapped.length} updated rows`)
         }
       }
     } catch (e) {
       // updated_at column may not exist on all tables — skip gracefully
       if (!e.message?.includes('no such column')) {
-        console.error(`[sync] ${name} update-pass:`, e.message)
+        log.error(`[sync] ${name} update-pass:`, e.message)
       }
     }
   }
 
   _status.tables[name] = { synced: true, rows: totalSynced, lastId: cursor }
   return totalSynced
+}
+
+// -- Push business meta (name, rnc, phone, address, logo) --------------------
+// Runs as part of every sync cycle. Logo is uploaded to Supabase Storage only
+// if its SHA-256 hash has changed since last push (idempotent, offline-safe).
+async function pushBusinessMeta(bizId) {
+  try {
+    const emp = _db.rawPrepare('SELECT name, rnc, phone, address, email, logo, settings FROM businesses LIMIT 1').get()
+    if (!emp) return 0
+
+    // Compute logo hash (if present)
+    let logoHash = null
+    if (emp.logo && Buffer.isBuffer(emp.logo) && emp.logo.length > 0) {
+      logoHash = crypto.createHash('sha256').update(emp.logo).digest('hex')
+    }
+
+    const lastHashRow = _db.rawPrepare("SELECT value FROM app_settings WHERE key = 'logo_synced_hash'").get()
+    const lastLogoUrlRow = _db.rawPrepare("SELECT value FROM app_settings WHERE key = 'logo_synced_url'").get()
+    const lastHash = lastHashRow?.value || null
+    let logoUrl = lastLogoUrlRow?.value || null
+
+    // Upload logo to Supabase Storage if changed
+    if (logoHash && logoHash !== lastHash) {
+      try {
+        // Detect MIME from magic bytes (simple check)
+        let ext = 'png', mime = 'image/png'
+        const b = emp.logo
+        if (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) { ext = 'jpg'; mime = 'image/jpeg' }
+        else if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) { ext = 'gif'; mime = 'image/gif' }
+        else if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[8] === 0x57 && b[9] === 0x45) { ext = 'webp'; mime = 'image/webp' }
+
+        const objectPath = `${bizId}/logo.${ext}`
+        logoUrl = await uploadToStorage('business-logos', objectPath, b, mime)
+
+        // Persist hash + URL locally so we don't re-upload
+        _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key, value) VALUES('logo_synced_hash', ?)").run(logoHash)
+        _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key, value) VALUES('logo_synced_url', ?)").run(logoUrl)
+        log.info('[sync] Logo uploaded to Storage:', logoUrl)
+      } catch (e) {
+        log.error('[sync] Logo upload failed:', e.message)
+      }
+    }
+
+    // Build update payload (only non-empty values)
+    const updates = {}
+    if (emp.name)    updates.name    = emp.name
+    if (emp.rnc)     updates.rnc     = emp.rnc
+    if (emp.phone)   updates.phone   = emp.phone
+    if (emp.address) updates.address = emp.address
+    if (emp.email)   updates.email   = emp.email
+    if (logoUrl)     updates.logo_url = logoUrl
+    if (!Object.keys(updates).length) return 0
+
+    updates.updated_at = new Date().toISOString()
+
+    // PATCH businesses row
+    const body = JSON.stringify(updates)
+    await new Promise((resolve, reject) => {
+      const reqUrl = new URL(`${_url}/rest/v1/businesses?id=eq.${encodeURIComponent(bizId)}`)
+      const req = https.request({
+        hostname: reqUrl.hostname, path: reqUrl.pathname + reqUrl.search, method: 'PATCH',
+        headers: { 'apikey': _key, 'Authorization': `Bearer ${_key}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal', 'Content-Length': Buffer.byteLength(body) },
+      }, (r) => {
+        let data = ''
+        r.on('data', c => data += c.toString())
+        r.on('end', () => r.statusCode >= 200 && r.statusCode < 300 ? resolve() : reject(new Error(`businesses PATCH ${r.statusCode}: ${data}`)))
+      })
+      req.on('error', reject)
+      req.write(body)
+      req.end()
+    })
+    return 1
+  } catch (e) {
+    log.error('[sync] pushBusinessMeta failed:', e.message)
+    return 0
+  }
+}
+
+// -- Upload binary to Supabase Storage ----------------------------------------
+function uploadToStorage(bucket, objectPath, buffer, contentType) {
+  return new Promise((resolve, reject) => {
+    const reqUrl = new URL(`${_url}/storage/v1/object/${bucket}/${encodeURI(objectPath)}`)
+    const req = https.request({
+      hostname: reqUrl.hostname, path: reqUrl.pathname, method: 'POST',
+      headers: { 'apikey': _key, 'Authorization': `Bearer ${_key}`, 'Content-Type': contentType || 'application/octet-stream', 'x-upsert': 'true', 'Content-Length': buffer.length },
+    }, (r) => {
+      let data = ''
+      r.on('data', c => data += c.toString())
+      r.on('end', () => {
+        if (r.statusCode >= 200 && r.statusCode < 300) {
+          // Return public URL (cache-bust with timestamp so client refreshes)
+          resolve(`${_url}/storage/v1/object/public/${bucket}/${encodeURI(objectPath)}?v=${Date.now()}`)
+        } else {
+          reject(new Error(`Storage ${r.statusCode}: ${data}`))
+        }
+      })
+    })
+    req.on('error', reject)
+    req.write(buffer)
+    req.end()
+  })
 }
 
 // -- Full sync cycle ----------------------------------------------------------
@@ -998,17 +1258,17 @@ async function syncNow() {
     return _status
   }
   if (!_url || !_key) {
-    console.error('[sync] No URL or key — url:', !!_url, 'key:', !!_key)
+    log.error('[sync] No URL or key — url:', !!_url, 'key:', !!_key)
     return _status
   }
   let bizId
-  try { bizId = await resolveBusinessId() } catch (e) { console.error('[sync] resolveBusinessId failed:', e.message) }
+  try { bizId = await resolveBusinessId() } catch (e) { log.error('[sync] resolveBusinessId failed:', e.message) }
   if (!bizId) {
     _status.state = 'no_business_id'
-    console.error('[sync] No business_id found')
+    log.error('[sync] No business_id found')
     return _status
   }
-  console.log('[sync] Starting sync for business:', bizId)
+  log.info('[sync] Starting sync for business:', bizId)
 
   _syncing = true
   _pendingSync = false
@@ -1017,12 +1277,15 @@ async function syncNow() {
   let totalRows = 0
 
   try {
+    // Phase 0 — push business meta (name, logo, etc.) before anything else
+    try { await pushBusinessMeta(bizId) } catch (e) { log.error('[sync] pushBusinessMeta:', e.message) }
+
     for (const table of SYNC_TABLES) {
       try {
         const count = await syncTable(table)
         totalRows += count
       } catch (e) {
-        console.error(`[sync] ${table.name}:`, e.message)
+        log.error(`[sync] ${table.name}:`, e.message)
         updateSyncLog(table.name, getLastSyncedId(table.name), 0, e.message)
         _status.tables[table.name] = { synced: false, error: e.message }
       }
@@ -1034,20 +1297,20 @@ async function syncNow() {
         const count = await pullTable(pt)
         totalPulled += count
       } catch (e) {
-        console.error(`[sync-pull] ${pt.name}:`, e.message)
+        log.error(`[sync-pull] ${pt.name}:`, e.message)
       }
     }
-    if (totalPulled > 0) console.log(`[sync] Pull complete — ${totalPulled} rows pulled`)
+    if (totalPulled > 0) log.info(`[sync] Pull complete — ${totalPulled} rows pulled`)
 
     _status.state = 'idle'
     _status.lastSync = new Date().toISOString()
     _status.totalRows = totalRows
     _status.totalPulled = totalPulled
-    console.log(`[sync] Complete — ${totalRows} rows pushed, ${totalPulled} rows pulled`)
+    log.info(`[sync] Complete — ${totalRows} rows pushed, ${totalPulled} rows pulled`)
   } catch (e) {
     _status.state = 'error'
     _status.error = e.message
-    console.error('[sync] Fatal:', e.message)
+    log.error('[sync] Fatal:', e.message)
   } finally {
     _syncing = false
   }
@@ -1074,7 +1337,7 @@ function startAutoSync(intervalMs = 30 * 60 * 1000) {
   // First sync after 60 seconds (let app boot fully)
   setTimeout(() => syncNow().catch(() => {}), 60 * 1000)
   _intervalId = setInterval(() => syncNow().catch(() => {}), intervalMs)
-  console.log(`[sync] Auto-sync every ${Math.round(intervalMs / 60000)} min`)
+  log.info(`[sync] Auto-sync every ${Math.round(intervalMs / 60000)} min`)
 }
 
 function stopAutoSync() {

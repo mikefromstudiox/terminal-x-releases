@@ -55,8 +55,15 @@
 /* ── Base ─────────────────────────────────────────────────────────────────── */
 * { box-sizing: border-box; }
 
-body {
+html, body {
   margin: 0;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
   background-color: var(--color-page-bg);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -165,6 +172,18 @@ html.dark :where(textarea):focus {
 
 input::placeholder, textarea::placeholder {
   color: #bbb;
+}
+
+/* ── iOS auto-zoom fix ─────────────────────────────────────────────────────
+   iOS Safari/Chrome auto-zoom-in when focusing any input whose font-size
+   is < 16px and never zooms back out. Force 16px on mobile so the page
+   stays at 1x scale.                                                     */
+@media (max-width: 768px) {
+  :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"])),
+  :where(select),
+  :where(textarea) {
+    font-size: 16px !important;
+  }
 }
 
 /* Dark-background inputs (Login screen PIN mode) — override the white default */

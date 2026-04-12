@@ -3,15 +3,13 @@ import {
   Building2, Upload, X, CheckCircle2, Loader2, ImageOff,
   Users, UserCheck, KeyRound, LayoutGrid, Plus, Edit2, Power,
   Eye, EyeOff, AlertCircle, FileText, Wifi, WifiOff, ExternalLink,
-  Check, Coffee, Lock, ChevronUp, ChevronDown,
+  Check, Coffee, Lock, ChevronUp, ChevronDown, Trash2,
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI, usePrinterAPI } from '../context/DataContext'
+import { useAuth } from '../context/AuthContext'
 import { ECF_TYPES, BUSINESS_TYPES, testDGIIConnection, DGII_CONFIGURED } from '@terminal-x/services/ecf'
-import {
-  getStoredSetting, setStoredSetting, resetSupabaseClient,
-  testConnection, ensureBusinessRegistered,
-} from '@terminal-x/services/supabase'
+import { testConnection } from '@terminal-x/services/supabase'
 import { WhatsAppSettings } from './Sistema'
 // Reports moved to dedicated Reportes screen
 // RemoteDashboard moved to its own sidebar tab
@@ -368,11 +366,13 @@ function Usuarios() {
 
 // ── SERVICIOS ─────────────────────────────────────────────────────────────────
 
-const EMPTY_SERVICE = { name: '', name_en: '', category: '', price: '', cost: '', is_wash: '1' }
+const EMPTY_SERVICE = { name: '', name_en: '', category: '', price: '', cost: '', is_wash: '1', commission_washer: 1, commission_seller: 1, commission_cashier: 1 }
 
 function Servicios() {
   const api                         = useAPI()
   const { lang }                    = useLang()
+  const { user }                    = useAuth()
+  const canDelete                   = user?.role === 'owner' || user?.role === 'manager'
   const L                           = (es, en) => lang === 'es' ? es : en
   const [list,       setList]       = useState([])
   const [loading,    setLoading]    = useState(false)
@@ -425,9 +425,9 @@ function Servicios() {
   }
   const visible    = activeTab === 'all' ? list : list.filter(s => s.category === activeTab)
 
-  function openAdd()   { setForm({ ...EMPTY_SERVICE, category: categories[0] || '' }); setNewCatMode(false); setError(''); setSaved(false); setPanel('add') }
-  function openEdit(s) { setForm({ name: s.name, name_en: s.name_en||'', category: s.category, price: String(s.price), cost: s.cost ? String(s.cost) : '', is_wash: String(s.is_wash) }); setNewCatMode(false); setError(''); setSaved(false); setPanel(s) }
-  function closePanel(){ setPanel(null) }
+  function openAdd()   { setForm({ ...EMPTY_SERVICE, category: categories[0] || '' }); setNewCatMode(false); setError(''); setSaved(false); setConfirmDelete(false); setPanel('add') }
+  function openEdit(s) { setForm({ name: s.name, name_en: s.name_en||'', category: s.category, price: String(s.price), cost: s.cost ? String(s.cost) : '', is_wash: String(s.is_wash ?? 1), commission_washer: s.commission_washer ?? 1, commission_seller: s.commission_seller ?? 1, commission_cashier: s.commission_cashier ?? 1 }); setNewCatMode(false); setError(''); setSaved(false); setConfirmDelete(false); setPanel(s) }
+  function closePanel(){ setPanel(null); setConfirmDelete(false) }
   function set(k, v)   { setForm(f => ({ ...f, [k]: v })) }
 
   async function handleSave() {
@@ -436,7 +436,10 @@ function Servicios() {
     if (!form.price)           { setError(L('El precio es requerido.', 'Price is required.')); return }
     setSaving(true); setError('')
     try {
-      const p = { name: form.name.trim(), name_en: form.name_en.trim()||null, category: form.category.trim(), price: parseFloat(form.price)||0, cost: parseFloat(form.cost)||0, is_wash: parseInt(form.is_wash), sort_order: panel !== 'add' ? panel.sort_order : list.length }
+      const cw = form.commission_washer ? 1 : 0
+      const cs = form.commission_seller ? 1 : 0
+      const cc = form.commission_cashier ? 1 : 0
+      const p = { name: form.name.trim(), name_en: form.name_en.trim()||null, category: form.category.trim(), price: parseFloat(form.price)||0, cost: parseFloat(form.cost)||0, is_wash: parseInt(form.is_wash), commission_washer: cw, commission_seller: cs, commission_cashier: cc, no_commission: (!cw && !cs && !cc) ? 1 : 0, sort_order: panel !== 'add' ? panel.sort_order : list.length }
       if (panel === 'add') await api.services.create(p)
       else                 await api.services.update({ id: panel.id, ...p })
       setSaved(true)
@@ -452,6 +455,26 @@ function Servicios() {
       show(s.active ? L('Desactivado — no aparece en POS', 'Deactivated — hidden from POS') : L('Activado en POS ✓', 'Activated in POS ✓'))
       load()
     } catch { show(L('Error al cambiar estado', 'Error toggling status'), 'error') }
+  }
+
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  async function handleDelete() {
+    if (!panel || panel === 'add') return
+    setDeleting(true); setError('')
+    try {
+      const r = await api.services.delete?.({ id: panel.id })
+      if (r?.softDeleted) {
+        show(L('Servicio desactivado (tiene ventas históricas)', 'Service deactivated (has historical sales)'))
+      } else {
+        show(L('Servicio eliminado ✓', 'Service deleted ✓'))
+      }
+      setConfirmDelete(false)
+      closePanel()
+      load()
+    } catch (err) { setError(err.message || L('Error al eliminar.', 'Error deleting.')) }
+    finally { setDeleting(false) }
   }
 
   function fmtRD(n) { return `RD$ ${Number(n).toLocaleString('en-US', { minimumFractionDigits: 0 })}` }
@@ -564,12 +587,46 @@ function Servicios() {
             </div>
             <div><Label>{L('Precio RD$ *', 'Price RD$ *')}</Label><Input type="number" min="0" step="0.01" value={form.price} onChange={e => set('price', e.target.value)} placeholder="500" /></div>
             <div><Label>{L('Costo RD$', 'Cost RD$')}</Label><Input type="number" min="0" step="0.01" value={form.cost} onChange={e => set('cost', e.target.value)} placeholder="0" /></div>
-            <div>
-              <Label>{L('Tipo', 'Type')}</Label>
-              <Select value={form.is_wash} onChange={e => set('is_wash', e.target.value)}>
-                <option value="1">{L('Lavado / servicio (comisión)', 'Wash / service (commission)')}</option>
-                <option value="0">{L('Bebida / snack (sin comisión)', 'Beverage / snack (no commission)')}</option>
-              </Select>
+            {/* Es producto toggle — controls is_wash */}
+            <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10">
+              <div className="flex-1 min-w-0 pr-3">
+                <p className="text-[12px] font-medium text-slate-700 dark:text-white">{L('Es producto (bebida / snack)', 'Is a product (drink / snack)')}</p>
+                <p className="text-[10px] text-slate-400 dark:text-white/40">{L('Productos siempre pagan a cajera aunque haya vendedor', 'Products always pay cashier even with a seller')}</p>
+              </div>
+              <button type="button" onClick={() => {
+                const newVal = form.is_wash === '0' ? '1' : '0'
+                // Auto-adjust toggles: product → only cashier on, service → all 3 on
+                if (newVal === '0') set('commission_washer', 0)
+                if (newVal === '0') set('commission_seller', 0)
+                if (newVal === '1') { set('commission_washer', 1); set('commission_seller', 1) }
+                set('is_wash', newVal)
+              }}
+                className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors cursor-pointer ${form.is_wash === '0' ? 'bg-[#b3001e]' : 'bg-slate-300 dark:bg-white/20'}`}>
+                <span className={`pointer-events-none inline-block h-4 w-4 mt-0.5 rounded-full bg-white shadow transition-transform ${form.is_wash === '0' ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+
+            <div className="pt-1">
+              <Label>{L('Quién gana comisión', 'Who earns commission')}</Label>
+              <p className="text-[10px] text-slate-400 dark:text-white/40 mb-2 -mt-0.5">{L('Apague los 3 para servicios sin comisión (ej: parqueo, ambientadores).', 'Turn all 3 off for no-commission items (e.g. parking, air fresheners).')}</p>
+              <div className="space-y-1.5">
+                {[
+                  { key: 'commission_washer',  es: 'Lavadores',  en: 'Washers', hint: null },
+                  { key: 'commission_seller',  es: 'Vendedores', en: 'Salespeople', hint: null },
+                  { key: 'commission_cashier', es: 'Cajeras',    en: 'Cashiers', hint: form.is_wash !== '0' ? L('Solo cuando no hay vendedor en el ticket', 'Only when no seller is on the ticket') : L('Siempre (es un producto)', 'Always (it is a product)') },
+                ].map(role => (
+                  <div key={role.key} className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10">
+                    <div className="flex-1 min-w-0 pr-3">
+                      <p className="text-[12px] font-medium text-slate-700 dark:text-white">{L(role.es, role.en)}</p>
+                      {role.hint && <p className="text-[10px] text-slate-400 dark:text-white/40">{role.hint}</p>}
+                    </div>
+                    <button type="button" onClick={() => set(role.key, form[role.key] ? 0 : 1)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors cursor-pointer ${form[role.key] ? 'bg-[#b3001e]' : 'bg-slate-300 dark:bg-white/20'}`}>
+                      <span className={`pointer-events-none inline-block h-4 w-4 mt-0.5 rounded-full bg-white shadow transition-transform ${form[role.key] ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
           {form.price && form.cost && parseFloat(form.cost) > 0 && parseFloat(form.price) > 0 && (
@@ -584,6 +641,35 @@ function Servicios() {
             <SaveBtn saving={saving} saved={saved} onClick={handleSave} />
             <button onClick={closePanel} className="px-3 py-2 text-[12px] text-slate-500 dark:text-white/60 border border-slate-200 dark:border-white/10 rounded-lg hover:bg-slate-50 dark:hover:bg-white/10">{L('Cancelar', 'Cancel')}</button>
           </div>
+
+          {/* Delete zone (edit mode only, owner/manager only) */}
+          {panel !== 'add' && canDelete && (
+            <div className="mt-6 pt-4 border-t border-slate-200 dark:border-white/10">
+              {!confirmDelete ? (
+                <button onClick={() => setConfirmDelete(true)}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 text-[12px] font-semibold text-red-500 dark:text-red-400 border border-red-200 dark:border-red-500/30 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors">
+                  <Trash2 size={13} /> {L('Eliminar servicio', 'Delete service')}
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-[11px] text-slate-600 dark:text-white/70 text-center">
+                    {L('¿Eliminar permanentemente? Las ventas históricas conservarán el nombre y precio.', 'Delete permanently? Historical sales will keep the original name and price.')}
+                  </p>
+                  <div className="flex gap-2">
+                    <button onClick={() => setConfirmDelete(false)} disabled={deleting}
+                      className="flex-1 px-3 py-2 text-[12px] text-slate-500 dark:text-white/60 border border-slate-200 dark:border-white/10 rounded-lg hover:bg-slate-50 dark:hover:bg-white/10">
+                      {L('Cancelar', 'Cancel')}
+                    </button>
+                    <button onClick={handleDelete} disabled={deleting}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] font-bold text-white bg-red-500 hover:bg-red-600 rounded-lg disabled:opacity-50">
+                      {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                      {L('Eliminar', 'Delete')}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </Panel>
       )}
     </div>
@@ -1121,34 +1207,10 @@ function MiEmpresa() {
   return (
     <div className="max-w-xl space-y-6">
       <Toast toast={toast} />
-      {/* Business type */}
-      <div>
-        <label className="block text-[11px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-2">
-          {L('Tipo de Negocio', 'Business Type')}
-        </label>
-        <select
-          value={form.biz_type}
-          onChange={e => {
-            const bt = e.target.value
-            set('biz_type', bt)
-          }}
-          className="w-full px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[13px] text-slate-700 dark:text-white focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/20"
-        >
-          <option value="">{L('Seleccionar tipo…', 'Select type…')}</option>
-          {Object.entries(BUSINESS_TYPES).map(([key, bt]) => (
-            <option key={key} value={key}>{L(bt.es, bt.en)}</option>
-          ))}
-        </select>
-        {form.biz_type && BUSINESS_TYPES[form.biz_type] && (
-          <p className="text-[11px] text-slate-400 dark:text-white/40 mt-1.5">
-            {L('Tipos habilitados por defecto:', 'Default enabled types:')}
-            {' '}
-            <span className="font-mono font-semibold text-sky-600 dark:text-sky-400">
-              {BUSINESS_TYPES[form.biz_type].enabled.join(', ')}
-            </span>
-          </p>
-        )}
-      </div>
+      {/* Business type is now picked in Config → Tipo de Negocio (canonical enum).
+          The legacy biz_type dropdown used to live here but drove the e-CF
+          checklist defaults — that logic still reads from `form.biz_type` under
+          the hood for backwards compatibility. Removed from UI on 2026-04-11. */}
 
       <div>
         <h3 className="text-[13px] font-bold text-slate-700 dark:text-white mb-1">{L('Información del Negocio', 'Business Information')}</h3>
@@ -1282,88 +1344,85 @@ export default function Admin({ initialTab, hideHeader }) {
   )
 }
 
-// ── Respaldo / Supabase config ────────────────────────────────────────────────
+// ── Respaldo / Cloud status (read-only) ──────────────────────────────────────
+// As of v1.9.12 the Supabase URL + anon key are hardcoded in the installer.
+// Clients never need to configure these — the old editable form was dropped
+// and replaced with this read-only health check. If support ever gets a
+// "my data isn't syncing" ticket, first ask the client to open this screen
+// and tell you what the light is. Green = the main process can reach Supabase
+// with the bundled key; red = there's a network or credential problem.
 export function Respaldo() {
-  const [url,        setUrl]        = useState(() => getStoredSetting('supabase_url'))
-  const [anonKey,    setAnonKey]    = useState(() => getStoredSetting('supabase_anon_key'))
-  const [saved,      setSaved]      = useState(false)
-  const [testing,    setTesting]    = useState(false)
-  const [testResult, setTestResult] = useState(null)
-
-  async function handleSave() {
-    setStoredSetting('supabase_url',      url.trim())
-    setStoredSetting('supabase_anon_key', anonKey.trim())
-    setStoredSetting('business_id',       '')          // force re-register on next Dashboard visit
-    resetSupabaseClient()
-    if (url.trim() && anonKey.trim()) {
-      ensureBusinessRegistered().catch(() => {})
-    }
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-  }
+  const [status,  setStatus]  = useState('idle') // idle | testing | ok | error
+  const [message, setMessage] = useState('')
+  const [checkedAt, setCheckedAt] = useState(null)
 
   async function handleTest() {
-    setTesting(true); setTestResult(null)
-    const res = await testConnection()
-    setTesting(false); setTestResult(res)
+    setStatus('testing'); setMessage('')
+    try {
+      const res = await testConnection()
+      if (res?.ok) {
+        setStatus('ok')
+        setMessage('Conectado')
+      } else {
+        setStatus('error')
+        setMessage(res?.error || 'No se pudo conectar')
+      }
+    } catch (e) {
+      setStatus('error')
+      setMessage(e?.message || 'No se pudo conectar')
+    }
+    setCheckedAt(new Date())
   }
 
+  // Auto-check once when the section opens so the user sees real state
+  useEffect(() => { handleTest() }, [])
+
+  const dotColor = {
+    idle:    'bg-slate-300 dark:bg-white/20',
+    testing: 'bg-sky-400 animate-pulse',
+    ok:      'bg-emerald-500',
+    error:   'bg-red-500',
+  }[status]
+
+  const label = {
+    idle:    'Sin verificar',
+    testing: 'Verificando…',
+    ok:      'Conectado a la nube',
+    error:   'Sin conexión',
+  }[status]
+
   return (
-    <div className="max-w-lg space-y-6">
-      <div>
-        <p className="text-[13px] font-bold text-slate-700 dark:text-white mb-1">Supabase — Credenciales</p>
-        <p className="text-[12px] text-slate-400 dark:text-white/40 mb-4">
-          Conecta con Supabase para activar el Dashboard Remoto y sincronización en la nube.
-        </p>
-
-        <div className="space-y-3">
-          <div>
-            <Label>Project URL</Label>
-            <Input
-              value={url}
-              onChange={e => setUrl(e.target.value)}
-              placeholder="https://xxxxxxxxxxxx.supabase.co"
-            />
-          </div>
-          <div>
-            <Label>Anon Public Key</Label>
-            <input
-              type="password"
-              value={anonKey}
-              onChange={e => setAnonKey(e.target.value)}
-              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-              className="w-full px-2.5 py-1.5 border border-slate-200 dark:border-white/10 rounded-lg text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5
-                focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/20 placeholder:text-slate-300 dark:placeholder:text-white/30"
-            />
-          </div>
+    <div className="max-w-lg space-y-4">
+      <div className="flex items-center gap-4 p-5 rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10">
+        <div className={`w-3 h-3 rounded-full shrink-0 ${dotColor}`} />
+        <div className="flex-1 min-w-0">
+          <p className="text-[14px] font-bold text-slate-800 dark:text-white">{label}</p>
+          <p className="text-[11px] text-slate-400 dark:text-white/40 mt-0.5">
+            {status === 'ok' && checkedAt && `Verificado a las ${checkedAt.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}`}
+            {status === 'error' && message}
+            {status === 'testing' && 'Probando conexión con Supabase…'}
+            {status === 'idle' && 'Haz clic en "Probar conexión" para verificar.'}
+          </p>
         </div>
-
-        <div className="flex items-center gap-3 mt-4">
-          <button
-            onClick={handleSave}
-            disabled={!url || !anonKey}
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#0C447C] text-white rounded-lg text-[12px] font-semibold disabled:opacity-40 hover:bg-[#0a3a6b]"
-          >
-            {saved ? <><Check size={13} /> Guardado</> : 'Guardar'}
-          </button>
-          <button
-            onClick={handleTest}
-            disabled={testing || !url || !anonKey}
-            className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[12px] text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40"
-          >
-            <Wifi size={13} />
-            {testing ? 'Probando…' : 'Probar conexión'}
-          </button>
-          {testResult?.ok    && <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400"><Check size={12} /> Conexión exitosa</span>}
-          {testResult?.error && <span className="text-xs text-red-500 dark:text-red-400">{testResult.error}</span>}
-        </div>
+        <button
+          onClick={handleTest}
+          disabled={status === 'testing'}
+          className="shrink-0 flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[12px] font-semibold text-slate-600 dark:text-white/70 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40"
+        >
+          <Wifi size={13} />
+          {status === 'testing' ? 'Probando…' : 'Probar conexión'}
+        </button>
       </div>
 
-      <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 p-4 text-[12px] text-slate-500 dark:text-white/60 space-y-1">
-        <p className="font-semibold text-slate-600 dark:text-white">¿Dónde encuentro estas credenciales?</p>
-        <p>1. Entra a tu proyecto en supabase.com</p>
-        <p>2. Haz clic en <strong>Connect</strong> (arriba) o ve a <strong>Project Settings → API</strong></p>
-        <p>3. Copia el <strong>Project URL</strong> y la clave <strong>anon public</strong></p>
+      <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 p-4 text-[12px] text-slate-500 dark:text-white/60 space-y-1.5">
+        <p className="text-slate-600 dark:text-white/80">
+          La sincronización con la nube funciona automáticamente. Tus datos se respaldan
+          en segundo plano cada 5 minutos y en cada venta.
+        </p>
+        <p className="text-slate-400 dark:text-white/40">
+          Si ves la luz en rojo, verifica tu conexión a internet. Si persiste,
+          contacta soporte por WhatsApp al <strong>+1 809 828 2971</strong>.
+        </p>
       </div>
     </div>
   )

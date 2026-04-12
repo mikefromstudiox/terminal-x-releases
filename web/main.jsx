@@ -17,6 +17,11 @@ let _supabase = null
 const supabaseReady = (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
   ? import('@supabase/supabase-js').then(({ createClient }) => {
       _supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY)
+      // Expose the SAME client instance globally so AuthContext.logout() can
+      // call supabase.auth.signOut() on the exact session that SupabaseAuthGate
+      // is tracking. Without this, logout was signing out a different client
+      // instance and the gate never flipped back to the sign-in screen.
+      if (typeof window !== 'undefined') window.__txSupabase = _supabase
       return _supabase
     })
   : Promise.resolve(null)
@@ -65,6 +70,45 @@ const POSRoute = React.lazy(() =>
 // Speed insights — defer to after load
 window.addEventListener('load', () => {
   import('@vercel/speed-insights').then(m => m.injectSpeedInsights()).catch(() => {})
+})
+
+// ---------------------------------------------------------------------------
+// Chunk load error handler — triggered when a new deploy invalidates the
+// current session's hashed asset URLs. Forces a hard reload so the user
+// fetches the fresh index.html with the new chunk references.
+// ---------------------------------------------------------------------------
+let _reloading = false
+function handleChunkLoadError(err) {
+  const msg = String(err?.message || err || '')
+  const isChunkError =
+    msg.includes('Failed to fetch dynamically imported module') ||
+    msg.includes('Importing a module script failed') ||
+    msg.includes('error loading dynamically imported module') ||
+    msg.includes('Loading chunk') ||
+    /ChunkLoadError/i.test(msg)
+  if (isChunkError && !_reloading) {
+    _reloading = true
+    // One-shot guard in sessionStorage so we don't loop forever if something
+    // else is genuinely broken
+    try {
+      const last = Number(sessionStorage.getItem('tx_chunk_reload') || 0)
+      if (Date.now() - last > 30000) {
+        sessionStorage.setItem('tx_chunk_reload', String(Date.now()))
+        window.location.reload()
+      }
+    } catch { window.location.reload() }
+  }
+}
+
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault()
+  handleChunkLoadError(event.payload || event)
+})
+window.addEventListener('error', (event) => {
+  if (event?.filename?.includes('/assets/')) handleChunkLoadError(event.message)
+})
+window.addEventListener('unhandledrejection', (event) => {
+  handleChunkLoadError(event.reason)
 })
 
 // ---------------------------------------------------------------------------
@@ -323,10 +367,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/cash-recon" element={<Navigate to="/pos/cash-recon" replace />} />
             <Route path="/petty-cash" element={<Navigate to="/pos/petty-cash" replace />} />
             <Route path="/credit-notes" element={<Navigate to="/pos/credit-notes" replace />} />
+            <Route path="/empleados" element={<Navigate to="/pos/empleados" replace />} />
             <Route path="/config/:section" element={<ConfigRedirect />} />
             <Route path="/config" element={<Navigate to="/pos/config" replace />} />
             <Route path="/remote" element={<Navigate to="/pos/remote" replace />} />
             <Route path="/sistema" element={<Navigate to="/pos/sistema" replace />} />
+            <Route path="/license-admin" element={<Navigate to="/pos/license-admin" replace />} />
             <Route path="/settings" element={<Navigate to="/pos/admin" replace />} />
 
             {/* Catch-all */}

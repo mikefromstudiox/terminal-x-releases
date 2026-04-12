@@ -34,7 +34,8 @@ const NAV = [
     id: 'queue', to: '/queue', icon: ClipboardList,
     es: 'Cola', en: 'Queue',
     feature: 'queue',
-    businessTypes: ['carwash'],
+    // Service-based businesses (carwash, generic service, hybrid) get a work queue.
+    businessTypes: ['carwash', 'service', 'hybrid'],
   },
   {
     id: 'clients', icon: Users,
@@ -336,8 +337,8 @@ function MobileBottomNav({ visibleNav, ecfQueue, businessType }) {
 
   const allBottomItems = [
     { id: 'pos',       to: '/pos',       icon: ShoppingCart,  label: 'POS' },
-    { id: 'queue',     to: '/queue',     icon: ClipboardList, label: 'Cola',       businessTypes: ['carwash'] },
-    { id: 'inventory', to: '/inventory', icon: Package,       label: lang === 'es' ? 'Inventario' : 'Inventory', businessTypes: ['tienda', 'otro'] },
+    { id: 'queue',     to: '/queue',     icon: ClipboardList, label: 'Cola',       businessTypes: ['carwash', 'service', 'hybrid'] },
+    { id: 'inventory', to: '/inventory', icon: Package,       label: lang === 'es' ? 'Inventario' : 'Inventory', businessTypes: ['retail', 'dealership', 'restaurant', 'hybrid'] },
     { id: 'clients',   to: '/clients',   icon: Users,         label: lang === 'es' ? 'Clientes' : 'Clients' },
     { id: 'reports',   to: '/reports',   icon: BarChart3,     label: lang === 'es' ? 'Reportes' : 'Reports' },
   ]
@@ -427,6 +428,7 @@ function MobileBottomNav({ visibleNav, ecfQueue, businessType }) {
                   title={themePreference === 'system' ? (lang === 'es' ? 'Sistema' : 'System') : themePreference === 'dark' ? (lang === 'es' ? 'Modo dia' : 'Day mode') : (lang === 'es' ? 'Modo noche' : 'Night mode')}>
                   {themePreference === 'system' ? <Monitor size={15} /> : themePreference === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
                 </button>
+                <ManualSyncButton lang={lang} darkBg />
                 <button onClick={logout} className="p-2 rounded-lg text-slate-400 hover:text-red-400 transition-colors">
                   <LogOut size={15} />
                 </button>
@@ -485,7 +487,9 @@ export default function Sidebar() {
   }, [api])
 
   useEffect(() => {
-    if (businessType !== 'tienda' && businessType !== 'otro') return
+    // Only stock-tracked business types have inventory to count low stock on.
+    const stockTracked = ['retail', 'dealership', 'restaurant', 'hybrid'].includes(businessType)
+    if (!stockTracked) return
     async function poll() {
       const count = await api?.inventory?.lowStockCount?.() ?? 0
       setLowStock(count)
@@ -557,6 +561,7 @@ export default function Sidebar() {
               className="p-2 rounded-lg text-white/40 hover:text-amber-400 hover:bg-white/5 transition-colors">
               {themePreference === 'system' ? <Monitor size={15} /> : themePreference === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
             </button>
+            <ManualSyncButton lang={lang} />
             <button onClick={logout} title={t('logout')}
               className="p-2 rounded-lg text-white/40 hover:text-[#b3001e] hover:bg-white/5 transition-colors">
               <LogOut size={15} />
@@ -593,5 +598,59 @@ export default function Sidebar() {
       {/* ── Mobile bottom nav ────────────────────────────────────────────── */}
       <MobileBottomNav visibleNav={visibleNav} ecfQueue={ecfQueue} businessType={businessType} />
     </>
+  )
+}
+
+// ── Manual Supabase sync button ─────────────────────────────────────────────
+// Forces an immediate push + pull cycle so the user doesn't have to wait
+// for the 5-min auto-sync tick. Shows success/failure as a brief tooltip.
+function ManualSyncButton({ lang, darkBg }) {
+  const [state, setState] = useState('idle') // idle | syncing | ok | error
+  const [msg,   setMsg]   = useState('')
+
+  async function run() {
+    if (state === 'syncing') return
+    const api = window.electronAPI?.sync
+    if (!api?.now) {
+      setState('error'); setMsg(lang === 'es' ? 'No disponible en web' : 'Not available on web')
+      setTimeout(() => { setState('idle'); setMsg('') }, 2500)
+      return
+    }
+    setState('syncing'); setMsg('')
+    try {
+      const r = await api.now()
+      const pushed = r?.totalRows ?? 0
+      const pulled = r?.totalPulled ?? 0
+      setState('ok')
+      setMsg(lang === 'es'
+        ? `${pushed} enviados, ${pulled} recibidos`
+        : `${pushed} pushed, ${pulled} pulled`)
+    } catch (e) {
+      setState('error')
+      setMsg(e?.message || (lang === 'es' ? 'Error de sync' : 'Sync error'))
+    }
+    setTimeout(() => { setState('idle'); setMsg('') }, 3000)
+  }
+
+  const colorMap = darkBg ? {
+    idle:    'text-slate-400 hover:text-sky-400 hover:bg-slate-700/50',
+    syncing: 'text-sky-400',
+    ok:      'text-emerald-400',
+    error:   'text-red-400',
+  } : {
+    idle:    'text-white/40 hover:text-sky-300 hover:bg-white/5',
+    syncing: 'text-sky-300',
+    ok:      'text-emerald-400',
+    error:   'text-red-400',
+  }
+
+  return (
+    <button onClick={run}
+      title={state === 'idle'
+        ? (lang === 'es' ? 'Sincronizar con la nube' : 'Sync with cloud')
+        : msg || (state === 'syncing' ? (lang === 'es' ? 'Sincronizando…' : 'Syncing…') : '')}
+      className={`p-2 rounded-lg transition-colors ${colorMap[state]}`}>
+      <RefreshCw size={15} className={state === 'syncing' ? 'animate-spin' : ''} />
+    </button>
   )
 }

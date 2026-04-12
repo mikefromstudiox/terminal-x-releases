@@ -11,8 +11,9 @@
  *   - printPaycheckStub
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Lock, X, History, Printer, Trash2 } from 'lucide-react'
+import { useAPI } from '../../../context/DataContext'
 import { calcISR } from './lib/isr'
 import { calcTSSEmployee, calcTSSEmployer, calcINFOTEPEmployer } from './lib/tss'
 
@@ -23,6 +24,8 @@ export const TYPE_COLORS = {
   lavador:  { bg: 'bg-sky-50 dark:bg-sky-500/10',         text: 'text-sky-700 dark:text-sky-300',         border: 'border-sky-200 dark:border-sky-500/20' },
   vendedor: { bg: 'bg-violet-50 dark:bg-violet-500/10',   text: 'text-violet-700 dark:text-violet-300',   border: 'border-violet-200 dark:border-violet-500/20' },
   cajero:   { bg: 'bg-emerald-50 dark:bg-emerald-500/10', text: 'text-emerald-700 dark:text-emerald-300', border: 'border-emerald-200 dark:border-emerald-500/20' },
+  servicio: { bg: 'bg-amber-50 dark:bg-amber-500/10',     text: 'text-amber-700 dark:text-amber-300',     border: 'border-amber-200 dark:border-amber-500/20' },
+  hybrid:   { bg: 'bg-rose-50 dark:bg-rose-500/10',       text: 'text-rose-700 dark:text-rose-300',       border: 'border-rose-200 dark:border-rose-500/20' },
 }
 
 export function fmtRD(n) {
@@ -162,7 +165,8 @@ export function EmployeePanel({ emp, onSave, onClose, lang, t }) {
                 <option value="lavador">Lavador</option>
                 <option value="vendedor">Vendedor</option>
                 <option value="cajero">Cajero/Cajera</option>
-                <option value="hybrid">Hybrid</option>
+                <option value="servicio">{L('Servicio (guardia, limpieza, etc.)', 'Service (guard, cleaning, etc.)')}</option>
+                <option value="hybrid">{L('Hybrid (multi-función)', 'Hybrid (multi-role)')}</option>
               </select>
             </div>
             <div>
@@ -214,6 +218,7 @@ export function EmployeePanel({ emp, onSave, onClose, lang, t }) {
 // Upgraded to auto-compute TSS/ISR/INFOTEP from payroll_settings.
 export function PayPayrollModal({ emp, settings, currentCommissionTotal, onSave, onClose, lang }) {
   const L = (es, en) => lang === 'es' ? es : en
+  const api = useAPI()
   const cycle = settings?.pay_cycle || 'quincenal'
   // Default period = previous quincena (1-15) or previous month depending on cycle
   const today = new Date()
@@ -239,6 +244,17 @@ export function PayPayrollModal({ emp, settings, currentCommissionTotal, onSave,
   const [periodStart, setPeriodStart] = useState(iso(defaultStart))
   const [periodEnd,   setPeriodEnd]   = useState(iso(defaultEnd))
   const [base,        setBase]        = useState(String(defaultBase))
+
+  // Load historical salary when period end changes
+  useEffect(() => {
+    if (!periodEnd || !emp?.id) return
+    (api?.salaryChanges?.atDate?.(emp.id, periodEnd) ?? Promise.resolve(emp.salary || 0))
+      .then(sal => {
+        const prorated = cycle === 'quincenal' ? sal / 2 : sal
+        setBase(String(prorated))
+      })
+      .catch(() => {})
+  }, [periodEnd, emp?.id])
   const [commissions, setCommissions] = useState('0')
   const [bonuses,     setBonuses]     = useState('0')
   const [otherDeductions, setOtherDeductions] = useState('')

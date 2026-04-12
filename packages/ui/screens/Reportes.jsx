@@ -10,7 +10,7 @@ import ProductsReport from './reports/ProductsReport'
 const TABS = [
   { id: 'daily',      es: 'Diario',     en: 'Daily',       icon: BarChart2  },
   { id: 'monthly',    es: 'Mensual',    en: 'Monthly',     icon: Calendar   },
-  { id: 'productos',  es: 'Productos',  en: 'Products',    icon: Package,   businessTypes: ['tienda', 'otro'] },
+  { id: 'productos',  es: 'Productos',  en: 'Products',    icon: Package,   businessTypes: ['retail', 'dealership', 'restaurant', 'hybrid'] },
   { id: 'comisiones', es: 'Comisiones', en: 'Commissions', icon: DollarSign },
 ]
 

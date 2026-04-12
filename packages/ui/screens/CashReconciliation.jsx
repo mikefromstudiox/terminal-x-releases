@@ -418,7 +418,10 @@ export default function CashReconciliation() {
   const transTotal     = cheque + transferencia + documento
   const salidasTotal   = avances + devoluciones + desembolsos + comision
 
-  const cierreTotal    = efectivoNeto + tarjetasTotal + transTotal + fACreditos - salidasTotal
+  // cierreTotal = what was PHYSICALLY collected (cash + cards + transfers - outflows).
+  // Credits are NOT included — they're receivables, not cash in the drawer.
+  // diferencia compares against totalCobrado which also excludes credits.
+  const cierreTotal    = efectivoNeto + tarjetasTotal + transTotal - salidasTotal
   const diferencia     = cierreTotal - (daySummary.totalCobrado || 0)
   const cuadrada       = Math.abs(diferencia) < 1
 
@@ -444,6 +447,35 @@ export default function CashReconciliation() {
 
   function doPrint() {
     printCuadreCaja(buildPrintPayload()).catch(() => flash(L('Error al imprimir cuadre', 'Error printing reconciliation')))
+  }
+
+  async function handleRecalc() {
+    setLoadingDay(true)
+    try {
+      const data = await api.cuadre.daily(todayISO())
+      if (data) {
+        setDaySummary(data)
+        if (data.tarjeta)       setVAzul(data.tarjeta)
+        if (data.transferencia) setTrans(data.transferencia)
+        if (data.cheque)        setCheque(data.cheque)
+        if (data.credito)       setFACreditos(data.credito)
+      }
+      flash(L('Datos actualizados ✓', 'Data refreshed ✓'))
+    } catch {
+      flash(L('Error al recalcular', 'Error recalculating'))
+    } finally {
+      setLoadingDay(false)
+    }
+  }
+
+  function handleCancel() {
+    setQty({ ...EMPTY_QTY })
+    setUsdQty(0)
+    setVAzul(0); setVCarnet(0); setVVisanet(0)
+    setCheque(0); setTrans(0); setDoc(0)
+    setFACreditos(0)
+    setAvances(0); setDevoluciones(0); setDesembolsos(0); setComision(0)
+    setComentario('')
   }
 
   function handleCuadrar() {
@@ -708,10 +740,12 @@ export default function CashReconciliation() {
             <ResumeRow label={L('Efectivo neto', 'Net cash')}        value={fmt(efectivoNeto)} />
             <ResumeRow label={L('Tarjetas', 'Cards')}                value={fmt(tarjetasTotal)} />
             <ResumeRow label={L('Transferencias', 'Transfers')}      value={fmt(transTotal)} />
-            <ResumeRow label={L('F. A Créditos', 'Credits')}         value={fmt(fACreditos)} />
             <ResumeRow label={L('Salidas', 'Outflows')}              value={fmt(salidasTotal)} muted />
             <ResumeRow divider />
             <ResumeRow label={L('Total Cobrado', 'Total Collected')} value={fmt(cierreTotal)} bold />
+            {fACreditos > 0 && (
+              <ResumeRow label={L('Créditos del día (no cobrados)', 'Credits today (not collected)')} value={fmt(fACreditos)} muted />
+            )}
 
             <div className={`mt-3 rounded-xl p-3 flex items-center gap-2 ${cuadrada ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20' : 'bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20'}`}>
               {cuadrada
@@ -762,16 +796,19 @@ export default function CashReconciliation() {
             <span className="md:hidden">{L('Cajón', 'Drawer')}</span>
           </button>
           <button
-            className="hidden md:flex items-center gap-1.5 px-5 py-2 rounded-lg border border-slate-200 dark:border-white/10 text-sm text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10"
+            onClick={handleRecalc}
+            disabled={loadingDay}
+            className="hidden md:flex items-center gap-1.5 px-5 py-2 rounded-lg border border-slate-200 dark:border-white/10 text-sm text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40"
           >
             <Calculator size={15} />
-            {L('Calcular', 'Calculate')}
+            {loadingDay ? L('Cargando…', 'Loading…') : L('Recalcular', 'Recalculate')}
           </button>
           <button
+            onClick={handleCancel}
             disabled={closed}
             className="hidden md:block px-5 py-2 rounded-lg border border-slate-200 dark:border-white/10 text-sm text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40"
           >
-            {L('Cancelar', 'Cancel')}
+            {L('Limpiar', 'Clear')}
           </button>
 
           <div className="flex-1" />

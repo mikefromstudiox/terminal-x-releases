@@ -420,10 +420,13 @@ function StepWelcome({ t, onNext }) {
 }
 
 // ── Step 1 — Empresa ──────────────────────────────────────────────────────────
+// Values match the canonical set in useBusinessType.jsx. Keeping the existing
+// i18n keys (tienda/otro) since they render close-enough Spanish labels —
+// dealership/restaurant are deferred to a future wizard pass.
 const BIZ_TYPES = [
   { value: 'carwash', icon: Car,       labelKey: 's1_btype_carwash', descKey: 's1_btype_cw_desc' },
-  { value: 'tienda',  icon: Store,     labelKey: 's1_btype_tienda',  descKey: 's1_btype_ti_desc' },
-  { value: 'otro',    icon: Briefcase, labelKey: 's1_btype_otro',    descKey: 's1_btype_ot_desc' },
+  { value: 'retail',  icon: Store,     labelKey: 's1_btype_tienda',  descKey: 's1_btype_ti_desc' },
+  { value: 'service', icon: Briefcase, labelKey: 's1_btype_otro',    descKey: 's1_btype_ot_desc' },
 ]
 
 function StepEmpresa({ t, onNext, onBack }) {

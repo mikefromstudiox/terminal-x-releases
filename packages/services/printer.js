@@ -97,7 +97,40 @@ function buildQRUrlESC(data) {
 // ── ESC/POS logo bitmap (GS v 0) ─────────────────────────────────────────────
 // Converts a logo image URL to an ESC/POS GS v 0 raster command string.
 // Target width is ~200px for 80mm paper. Returns '' on error or no logo.
-async function buildLogoEscPos(logoUrl) {
+// Normalize logo input to a browser-loadable URL. Accepts:
+//   - A string URL (http, https, file, data:image/...)    → returned as-is
+//   - A Node Buffer / Uint8Array / plain object-with-numeric-keys (from IPC)
+//     → detected by magic bytes and wrapped in a data: URL
+function logoInputToUrl(logo) {
+  if (!logo) return ''
+  if (typeof logo === 'string') return logo
+  // Electron IPC serializes Buffers as { type: 'Buffer', data: [...] } OR Uint8Array.
+  let bytes
+  if (logo instanceof Uint8Array) {
+    bytes = logo
+  } else if (Array.isArray(logo?.data)) {
+    bytes = new Uint8Array(logo.data)
+  } else if (typeof logo === 'object') {
+    // Plain object with numeric keys (rare IPC fallback)
+    try { bytes = new Uint8Array(Object.values(logo)) } catch { return '' }
+  }
+  if (!bytes || !bytes.length) return ''
+  // Detect mime from magic bytes
+  let mime = 'image/png'
+  if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) mime = 'image/jpeg'
+  else if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) mime = 'image/gif'
+  else if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[8] === 0x57 && bytes[9] === 0x45) mime = 'image/webp'
+  // btoa requires binary string — chunk to avoid call-stack limits
+  let bin = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK))
+  }
+  return `data:${mime};base64,${btoa(bin)}`
+}
+
+async function buildLogoEscPos(logoInput) {
+  const logoUrl = logoInputToUrl(logoInput)
   if (!logoUrl) return ''
   return new Promise(resolve => {
     try {
