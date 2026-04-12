@@ -11,7 +11,7 @@ import {
   BarChart3, Menu, X, Lock, PiggyBank, FileMinus,
   Building2, UserCheck, Coffee, KeyRound, LayoutGrid,
   Printer, MessageSquare, HardDrive, Download,
-  Archive,
+  Archive, LifeBuoy, Send, Loader2,
 } from 'lucide-react'
 import { usePlan } from '../hooks/usePlan.jsx'
 import { useLang } from '../i18n'
@@ -254,6 +254,65 @@ function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowSto
         </span>
       )}
     </NavLink>
+  )
+}
+
+// ── Support Ticket Button ────────────────────────────────────────────────────
+
+function SupportTicketButton({ collapsed, lang, businessId }) {
+  const [open, setOpen] = useState(false)
+  const [subject, setSubject] = useState('')
+  const [message, setMessage] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sent, setSent] = useState(false)
+
+  async function submit() {
+    if (!subject.trim() || !businessId) return
+    setSending(true)
+    try {
+      await fetch('/api/panel?action=create_ticket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business_id: businessId, subject: subject.trim(), message: message.trim(), priority: 'medium' }),
+      })
+      setSent(true)
+      setTimeout(() => { setOpen(false); setSent(false); setSubject(''); setMessage('') }, 2000)
+    } catch {}
+    setSending(false)
+  }
+
+  return (
+    <>
+      <button onClick={() => setOpen(true)}
+        title={lang === 'es' ? 'Reportar problema' : 'Report issue'}
+        className={`flex items-center rounded-xl text-white/40 hover:text-[#b3001e] hover:bg-white/5 transition-colors ${
+          collapsed ? 'w-8 h-8 justify-center mx-auto' : 'w-full gap-2 px-3 py-2'
+        }`}>
+        <LifeBuoy size={15} className="shrink-0" />
+        {!collapsed && <span className="text-[12px] font-medium">{lang === 'es' ? 'Reportar problema' : 'Report issue'}</span>}
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60" onClick={() => setOpen(false)}>
+          <div onClick={e => e.stopPropagation()} className="bg-white dark:bg-black rounded-2xl border border-black/10 dark:border-white/10 p-6 w-[400px] max-w-[90vw] space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[15px] font-bold dark:text-white">{lang === 'es' ? 'Reportar Problema' : 'Report Issue'}</h3>
+              <button onClick={() => setOpen(false)} className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/5"><X size={16} className="dark:text-white/40" /></button>
+            </div>
+            <input value={subject} onChange={e => setSubject(e.target.value)} placeholder={lang === 'es' ? 'Asunto...' : 'Subject...'}
+              className="w-full px-3.5 py-2.5 rounded-xl text-[13px] outline-none border border-black/10 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white dark:placeholder-white/30 focus:ring-2 focus:ring-[#b3001e]/25 focus:border-[#b3001e]" />
+            <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3}
+              placeholder={lang === 'es' ? 'Describe el problema...' : 'Describe the issue...'}
+              className="w-full px-3.5 py-2.5 rounded-xl text-[13px] outline-none border border-black/10 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white dark:placeholder-white/30 resize-none focus:ring-2 focus:ring-[#b3001e]/25 focus:border-[#b3001e]" />
+            <button onClick={submit} disabled={!subject.trim() || sending || sent}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-[#b3001e] hover:bg-[#c8002a] text-white text-[13px] font-bold rounded-xl disabled:opacity-50 transition-colors">
+              {sending ? <Loader2 size={14} className="animate-spin" /> : sent ? '✓' : <Send size={14} />}
+              {sending ? (lang === 'es' ? 'Enviando...' : 'Sending...') : sent ? (lang === 'es' ? 'Enviado' : 'Sent') : (lang === 'es' ? 'Enviar Ticket' : 'Send Ticket')}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -581,6 +640,9 @@ export default function Sidebar() {
             </svg>
             {!collapsed && <span className="text-[12px] font-medium">{lang === 'es' ? 'Soporte' : 'Support'}</span>}
           </a>
+
+          {/* Support ticket */}
+          <SupportTicketButton collapsed={collapsed} lang={lang} businessId={result?.businessId} />
 
           {/* Collapse toggle */}
           <button onClick={() => setCollapsed(c => !c)}
