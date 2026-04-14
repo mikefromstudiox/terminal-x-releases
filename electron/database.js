@@ -1113,17 +1113,11 @@ function serviceUpdate(id, data) {
 }
 function serviceDelete(id) {
   if (!db) return { deleted: false }
-  // Hard-delete the service. Historical ticket_items already snapshot name,
-  // price, cost, and itbis at sale time, so reports stay intact even after
-  // the service row is gone. We NULL the FK columns first to satisfy any
-  // constraints, then delete the service.
-  const svc = db.prepare('SELECT supabase_id, name, price FROM services WHERE id=?').get(id)
-  const sid = svc?.supabase_id || null
-  db.transaction(() => {
-    db.prepare('UPDATE ticket_items SET service_id=NULL WHERE service_id=?').run(id)
-    if (sid) db.prepare('UPDATE ticket_items SET service_supabase_id=NULL WHERE service_supabase_id=?').run(sid)
-    db.prepare('DELETE FROM services WHERE id=?').run(id)
-  })()
+  // Soft-delete — hard-delete resurrects on the next pull (Supabase still
+  // has the row and pullUpsertRow reinserts it locally). Historical reports
+  // are already safe: ticket_items snapshot name/price/cost/itbis at sale.
+  const svc = db.prepare('SELECT name, price FROM services WHERE id=?').get(id)
+  db.prepare('UPDATE services SET active=0, updated_at=? WHERE id=?').run(new Date().toISOString(), id)
   activityLogRecord({ event_type: 'service_deleted', severity: 'warn',
     target_type: 'service', target_id: id, target_name: svc?.name || `#${id}`, amount: svc?.price })
   return { deleted: true }

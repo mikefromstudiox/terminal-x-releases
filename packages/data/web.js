@@ -162,6 +162,19 @@ export function createWebAPI(supabase, businessId) {
       getEmpresa: () => tryOr(async () => {
         const { data } = await supabase.from('businesses').select('id,name,rnc,address,phone,email,logo_url,settings').eq('id', bid).single()
         if (data) data.logo = data.logo_url  // map to desktop field name
+        // Resolve the active license plan so usePlan() unlocks the right
+        // features on web. Without this, web sessions default to 'pro' even
+        // when the business is on Pro PLUS / Pro MAX — every owner appears
+        // limited regardless of what they're paying for.
+        try {
+          const { data: lic } = await supabase.from('licenses')
+            .select('plan_id, status, expires_at, plans(name)')
+            .eq('business_id', bid).eq('status', 'active')
+            .order('expires_at', { ascending: false })
+            .limit(1).maybeSingle()
+          const planName = lic?.plans?.name
+          if (planName && data) data.plan = planName
+        } catch {}
         return data
       }, null),
 
@@ -429,16 +442,13 @@ export function createWebAPI(supabase, businessId) {
       }),
 
       delete: ({ id }) => tryOr(async () => {
+        // Soft-delete only — hard-delete resurrects after the next desktop
+        // sync push (desktop still has the row locally and upserts it back).
         const snap = await supabase.from('users').select('name, username').eq('id', id).eq('business_id', bid).maybeSingle()
         const name = snap?.data ? `${snap.data.name} (@${snap.data.username})` : `#${id}`
-        const { error } = await supabase.from('users').delete().eq('id', id).eq('business_id', bid)
-        if (!error) {
-          await logActivity({ event_type: 'user_deleted', severity: 'warn', target_type: 'user', target_id: id, target_name: name })
-          return { deleted: true }
-        }
-        try { throwSupaError(await supabase.from('users').update({ active: false }).eq('id', id).eq('business_id', bid)) } catch {}
-        await logActivity({ event_type: 'user_deactivated', severity: 'warn', target_type: 'user', target_id: id, target_name: name, reason: error.message })
-        return { softDeleted: true, reason: error.message }
+        throwSupaError(await supabase.from('users').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await logActivity({ event_type: 'user_deleted', severity: 'warn', target_type: 'user', target_id: id, target_name: name })
+        return { deleted: true }
       }),
     },
 
@@ -533,14 +543,12 @@ export function createWebAPI(supabase, businessId) {
       }),
 
       delete: ({ id }) => tryOr(async () => {
-        // Hard-delete. ticket_items snapshot name/price/cost/itbis at sale time
-        // so historical reports stay intact after the service row is removed.
-        // NULL the FK columns first, then delete the service.
-        const svc = await supabase.from('services').select('supabase_id, name, price').eq('id', id).eq('business_id', bid).maybeSingle()
-        const sid = svc?.data?.supabase_id
-        try { await supabase.from('ticket_items').update({ service_id: null }).eq('service_id', id) } catch {}
-        if (sid) { try { await supabase.from('ticket_items').update({ service_supabase_id: null }).eq('service_supabase_id', sid) } catch {} }
-        throwSupaError(await supabase.from('services').delete().eq('id', id).eq('business_id', bid))
+        // Soft-delete — set active=false, bump updated_at. Desktop pulls the
+        // change via LWW and hides the service from the POS grid. Hard-delete
+        // is useless here: the desktop's next sync push would just re-upsert
+        // its still-active local copy and resurrect the row on Supabase.
+        const svc = await supabase.from('services').select('name, price').eq('id', id).eq('business_id', bid).maybeSingle()
+        throwSupaError(await supabase.from('services').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
         await logActivity({ event_type: 'service_deleted', severity: 'warn',
           target_type: 'service', target_id: id,
           target_name: svc?.data?.name || `#${id}`, amount: svc?.data?.price })
