@@ -335,6 +335,7 @@ async function handleClientConfig(req, res) {
       }
       if (appSettings) {
         for (const [key, value] of Object.entries(appSettings)) {
+          if (value === undefined || value === null) continue
           await auth.supabase.from('app_settings').upsert({ business_id: id, key, value: String(value) }, { onConflict: 'business_id,key' })
         }
       }

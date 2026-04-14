@@ -281,6 +281,7 @@ export default function NominaEmpleados() {
               { id: 'lavador', label: L('Lavadores', 'Washers') },
               { id: 'vendedor', label: L('Vendedores', 'Sellers') },
               { id: 'cajero', label: L('Cajeros', 'Cashiers') },
+              { id: 'seguridad', label: L('Seguridad', 'Security') },
               { id: 'servicio', label: L('Servicio', 'Service') },
             ].map(f => (
               <button key={f.id} onClick={() => setFilterTipo(f.id)}

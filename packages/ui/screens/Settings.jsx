@@ -1047,7 +1047,6 @@ function PanelBackup({ onSave }) {
   // Supabase credentials are hardcoded in the installer (see main.js).
   // Users never configure them — this panel is read-only for credentials
   // and only exposes backup behavior toggles + manual backup + history.
-  const [autoBackupOn, setAutoBackup] = useState(() => localStorage.getItem('tx_setting_auto_backup') !== 'false')
   const [syncOn, setSyncOn]           = useState(() => localStorage.getItem('tx_setting_cloud_sync') !== 'false')
   const [testing, setTesting]   = useState(false)
   const [testResult, setTestResult] = useState(null)
@@ -1059,7 +1058,6 @@ function PanelBackup({ onSave }) {
   useEffect(() => { if (configured) refreshHistory() }, [configured])
 
   function savePreferences() {
-    localStorage.setItem('tx_setting_auto_backup', autoBackupOn ? 'true' : 'false')
     localStorage.setItem('tx_setting_cloud_sync',  syncOn       ? 'true' : 'false')
     onSave()
   }
@@ -1134,7 +1132,7 @@ function PanelBackup({ onSave }) {
       <div>
         <SectionLabel>Comportamiento</SectionLabel>
         <FieldRow label="Backup automático (2:00 am)">
-          <Toggle on={autoBackupOn} onToggle={() => setAutoBackup(v => !v)} label={autoBackupOn ? 'Activo' : 'Inactivo'} />
+          <span className="text-sm text-slate-700 dark:text-white">Siempre activo</span>
         </FieldRow>
         <FieldRow label="Sincronización en la nube">
           <Toggle on={syncOn} onToggle={() => setSyncOn(v => !v)} label={syncOn ? 'Cada 15 min' : 'Inactivo'} />

@@ -108,7 +108,6 @@ const SISTEMA_DEFAULTS = {
   usd_rate:             '61.00',
   rnc_verify:           '1',
   sucursales:           '0',
-  auto_backup:          '0',
   printer:              '',
   print_preticket:      '0',
   print_factura_auto:   '0',

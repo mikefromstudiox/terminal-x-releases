@@ -628,18 +628,24 @@ export function createWebAPI(supabase, businessId) {
           bank_account: data.bank_account || null, tss_id: data.tss_id || null,
           active: true, business_id: bid,
         }).select('id').single())
-        // Log initial salary for salaryAtDate(). Use empleado_supabase_id (uuid)
-        // NOT empleado_id — that column is legacy bigint and rejects uuid inserts.
+        // Log initial salary for salaryAtDate(). Guard against duplicate
+        // insert when desktop already pushed one for the same empleado (same
+        // initial_salary row created twice → 4 "historiales" bug).
         const sal = data.salary || 0
         if (sal > 0) {
-          const { error: scErr } = await supabase.from('salary_changes').insert({
-            supabase_id: crypto.randomUUID(),
-            empleado_supabase_id: empSid,
-            old_salary: 0, new_salary: sal,
-            effective_date: data.start_date || new Date().toISOString().slice(0, 10),
-            reason: 'initial_salary', business_id: bid,
-          })
-          if (scErr) console.error('[salary_changes initial insert]', scErr.message || scErr)
+          const { data: existing } = await supabase.from('salary_changes')
+            .select('id').eq('business_id', bid).eq('empleado_supabase_id', empSid)
+            .eq('reason', 'initial_salary').limit(1).maybeSingle()
+          if (!existing) {
+            const { error: scErr } = await supabase.from('salary_changes').insert({
+              supabase_id: crypto.randomUUID(),
+              empleado_supabase_id: empSid,
+              old_salary: 0, new_salary: sal,
+              effective_date: data.start_date || new Date().toISOString().slice(0, 10),
+              reason: 'initial_salary', business_id: bid,
+            })
+            if (scErr) console.error('[salary_changes initial insert]', scErr.message || scErr)
+          }
         }
         return { id: row.id }
       }),

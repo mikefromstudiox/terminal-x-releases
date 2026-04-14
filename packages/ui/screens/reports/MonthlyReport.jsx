@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { TrendingUp, TrendingDown, Download, Printer, Car, CircleDollarSign, Clock, ReceiptText } from 'lucide-react'
+import { TrendingUp, TrendingDown, Download, Printer, Car, CircleDollarSign, Clock, ReceiptText, PiggyBank } from 'lucide-react'
 import { useLang } from '../../i18n'
 import { useAPI } from '../../context/DataContext'
 import { exportMonthlyReport } from '@terminal-x/services/csv'
@@ -89,6 +89,22 @@ function aggregateTickets(tickets, period) {
   const pendiente = facturado - cobrado
   const carros    = tickets.length
 
+  // Net profit — sum (price - cost) * qty across non-void ticket_items.
+  // Only surfaces when at least one line has a non-zero cost (services with
+  // cost=0 otherwise show "profit = revenue", which is misleading).
+  let profit = 0, hasAnyCost = false
+  tickets.forEach(t => {
+    if (t.status === 'void') return
+    const items = t.items || t.ticket_items || []
+    items.forEach(i => {
+      const qty = Number(i.quantity || 1)
+      const price = Number(i.price || 0)
+      const cost = Number(i.cost || 0)
+      if (cost > 0) hasAnyCost = true
+      profit += (price - cost) * qty
+    })
+  })
+
   // ── Weekly breakdown (for single-month view) ────────────────────────────
   const weeks = [
     { label: 'S1', facturado: 0, cobrado: 0 },
@@ -177,7 +193,7 @@ function aggregateTickets(tickets, period) {
   const cxc = Object.values(cxcMap).map(c => ({ ...c, pendiente: c.facturado - c.cobrado })).sort((a, b) => b.pendiente - a.pendiente)
 
   return {
-    metrics: { facturado, cobrado, pendiente, carros },
+    metrics: { facturado, cobrado, pendiente, carros, profit, hasAnyCost },
     weeks,
     bars,
     payMethods,
@@ -562,9 +578,12 @@ export default function MonthlyReport() {
           <>
 
             {/* ── Metric cards ─────────────────────────────────────────── */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
+            <div className={`grid grid-cols-2 ${data.metrics.hasAnyCost ? 'md:grid-cols-5' : 'md:grid-cols-4'} gap-2 md:gap-3`}>
               <MetricCard icon={ReceiptText}      label={lang === 'es' ? 'Total Facturado' : 'Total Billed'}       value={fmtRD(data.metrics.facturado)} change={chg('facturado')} accent="sky"   />
               <MetricCard icon={CircleDollarSign} label={lang === 'es' ? 'Total Cobrado'   : 'Total Collected'}    value={fmtRD(data.metrics.cobrado)}   change={chg('cobrado')}   accent="green" />
+              {data.metrics.hasAnyCost && (
+                <MetricCard icon={PiggyBank}      label={lang === 'es' ? 'Ganancia Neta'   : 'Net Profit'}         value={fmtRD(data.metrics.profit || 0)} accent="green" />
+              )}
               <MetricCard icon={Clock}            label={lang === 'es' ? 'Pendiente Cobrar': 'Pending Collection'} value={fmtRD(data.metrics.pendiente)} change={chg('pendiente')} accent="amber" />
               <MetricCard icon={Car}              label={lang === 'es' ? 'Tickets / Carros'  : 'Tickets / Cars'}    value={data.metrics.carros}           change={chg('carros')}    accent="slate" />
             </div>

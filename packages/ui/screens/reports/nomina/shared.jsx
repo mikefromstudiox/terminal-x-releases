@@ -165,7 +165,8 @@ export function EmployeePanel({ emp, onSave, onClose, lang, t }) {
                 <option value="lavador">Lavador</option>
                 <option value="vendedor">Vendedor</option>
                 <option value="cajero">Cajero/Cajera</option>
-                <option value="servicio">{L('Servicio (guardia, limpieza, etc.)', 'Service (guard, cleaning, etc.)')}</option>
+                <option value="seguridad">{L('Seguridad (vigilante)', 'Security (guard)')}</option>
+                <option value="servicio">{L('Servicio (limpieza, etc.)', 'Service (cleaning, etc.)')}</option>
                 <option value="hybrid">{L('Hybrid (multi-función)', 'Hybrid (multi-role)')}</option>
               </select>
             </div>

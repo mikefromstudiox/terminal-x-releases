@@ -363,6 +363,32 @@ function init(userDataPath) {
     }
   } catch (e) { console.error('User employee_id backfill error:', e.message) }
 
+  // v1.9.22 — backfill empleados for every washer/seller without one.
+  // Otherwise legacy car-wash clients have zero Nómina visibility for their
+  // lavadores because Empleados screen reads from empleados, not washers.
+  try {
+    db.exec(`
+      INSERT INTO empleados(nombre, tipo, ref_id, salary, start_date, cedula, phone, active, supabase_id, updated_at)
+      SELECT w.name, 'lavador', w.id, 0,
+             COALESCE(w.start_date, date('now')),
+             w.cedula, w.phone, w.active,
+             lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))),
+             datetime('now')
+      FROM washers w
+      WHERE NOT EXISTS (SELECT 1 FROM empleados e WHERE e.ref_id = w.id AND e.tipo = 'lavador')
+    `)
+    db.exec(`
+      INSERT INTO empleados(nombre, tipo, ref_id, salary, start_date, cedula, phone, active, supabase_id, updated_at)
+      SELECT s.name, 'vendedor', s.id, 0,
+             COALESCE(s.start_date, date('now')),
+             s.cedula, s.phone, s.active,
+             lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))),
+             datetime('now')
+      FROM sellers s
+      WHERE NOT EXISTS (SELECT 1 FROM empleados e WHERE e.ref_id = s.id AND e.tipo = 'vendedor')
+    `)
+  } catch (e) { console.error('[db] washer/seller → empleado backfill:', e.message) }
+
   // v1.6 — unique indexes on supabase_id (safe to run multiple times)
   const sidIndexes = [
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_services_supabase_id ON services(supabase_id)',
@@ -1161,10 +1187,16 @@ function empleadoCreate(data) {
   // Log initial salary so salaryAtDate() works from day one.
   // Also set empleado_supabase_id so sync can push this row to the web without
   // losing the FK join — sync.js's cols mapping reads this column verbatim.
+  // Guard: don't double-insert if one already exists (e.g. empleado was first
+  // created on the web and then pulled down — pull already carries the
+  // initial_salary row in salary_changes).
   const sal = data.salary || 0
   if (sal > 0) {
-    db.prepare(`INSERT INTO salary_changes (empleado_id, empleado_supabase_id, old_salary, new_salary, effective_date, reason, supabase_id)
-      VALUES (?, ?, 0, ?, ?, 'initial_salary', ?)`).run(r.lastInsertRowid, sid, sal, data.start_date || new Date().toISOString().slice(0, 10), crypto.randomUUID())
+    const existing = db.prepare(`SELECT id FROM salary_changes WHERE empleado_supabase_id=? AND reason='initial_salary' LIMIT 1`).get(sid)
+    if (!existing) {
+      db.prepare(`INSERT INTO salary_changes (empleado_id, empleado_supabase_id, old_salary, new_salary, effective_date, reason, supabase_id)
+        VALUES (?, ?, 0, ?, ?, 'initial_salary', ?)`).run(r.lastInsertRowid, sid, sal, data.start_date || new Date().toISOString().slice(0, 10), crypto.randomUUID())
+    }
   }
   return { id: r.lastInsertRowid, supabase_id: sid }
 }

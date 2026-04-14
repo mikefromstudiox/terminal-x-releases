@@ -1404,9 +1404,12 @@ async function startRealtime() {
     }, 1500)
   }
 
+  // Subscribe to the base tables only — Supabase realtime does not broadcast
+  // from views, so we listen on `staff` (the real table underneath the
+  // `users` view) and rely on the pull's view-backed SELECT to upsert locally.
   const tables = [
     'services','washers','sellers','clients','inventory_items','ncf_sequences',
-    'empleados','categorias_servicio','users','tickets','ticket_items','queue',
+    'empleados','categorias_servicio','staff','tickets','ticket_items','queue',
     'washer_commissions','seller_commissions','cajero_commissions',
     'credit_payments','cuadre_caja','caja_chica','notas_credito',
     'inventory_transactions','compras_607','payroll_runs','salary_changes',

@@ -268,12 +268,15 @@ function Usuarios() {
     if (panel === 'add' && !form.pin.trim()) { setError(L('El PIN es requerido.', 'PIN is required.')); return }
     setSaving(true); setError('')
     try {
-      const emp = empleados.find(e => e.id === Number(form.employee_id))
+      // Compare as string — empleado ids are UUIDs on web and integers on
+      // desktop. Number(uuid) → NaN, which wiped the employee name on save.
+      const empId = form.employee_id
+      const emp = empleados.find(e => String(e.id) === String(empId)) || (panel !== 'add' ? empleados.find(e => String(e.id) === String(panel.employee_id)) : null)
       const payload = {
-        name:        emp?.nombre || '',
+        name:        emp?.nombre || panel?.name || '',
         username:    form.username.trim().toLowerCase(),
-        employee_id: Number(form.employee_id),
-        role:        emp?.role || 'cashier',
+        employee_id: empId,
+        role:        emp?.role || panel?.role || 'cashier',
         ...(form.pin.trim() && { pin: form.pin.trim() }),
       }
       if (panel === 'add') await api.users.create({ ...payload, pin: form.pin.trim() })

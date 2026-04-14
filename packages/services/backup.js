@@ -184,9 +184,8 @@ export async function manualBackup() {
  * Called by scheduler at 02:00 local time.
  */
 export async function autoBackup() {
-  const autoEnabled = localStorage.getItem('tx_setting_auto_backup') !== 'false'
-  if (!autoEnabled) return { success: false, reason: 'disabled' }
-
+  // Auto-backup is always on — no user toggle. Cloud sync runs continuously
+  // via electron/sync.js; this function adds the nightly SQLite file copy.
   // On web, skip local SQLite backup — data is in Supabase
   if (isWeb) return { success: true, _web: true, reason: 'web-auto-sync' }
 
