@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Save, X, ShieldCheck, ShieldAlert, Lock, Pencil, Calendar, MapPin, Plus } from 'lucide-react'
+import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Save, X, ShieldCheck, ShieldAlert, Lock, Pencil, Calendar, MapPin, Plus, Trash2 } from 'lucide-react'
 import { useLang } from '../../i18n'
 import OnboardingChecklist from '../components/OnboardingChecklist'
 import QuickActions from '../components/QuickActions'
@@ -38,6 +38,7 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
   const [pinSaving, setPinSaving] = useState(false)
   const [pinOk, setPinOk] = useState(false)
   const [pinErr, setPinErr] = useState('')
+  const [deletingStaffId, setDeletingStaffId] = useState(null)
   const [visits, setVisits] = useState([])
   const [showVisitForm, setShowVisitForm] = useState(false)
   const [visitDate, setVisitDate] = useState('')
@@ -63,6 +64,25 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
   }
 
   useEffect(() => { load() }, [id])
+
+  async function deleteStaff(s) {
+    if (!confirm(L(
+      `¿Eliminar a ${s.name || s.username}? Si tiene historial se desactivará en su lugar.`,
+      `Delete ${s.name || s.username}? If it has history it will be deactivated instead.`
+    ))) return
+    setDeletingStaffId(s.id)
+    try {
+      let token = await refreshToken?.(); if (!token) token = getToken()
+      const resp = await fetch('/api/panel?action=delete_staff', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staff_id: s.id }),
+      })
+      if (!resp.ok) { const j = await resp.json().catch(() => ({})); throw new Error(j.error || 'Failed') }
+      await load()
+    } catch (e) { alert(e.message || 'Error') }
+    finally { setDeletingStaffId(null) }
+  }
 
   const STATUS_CLS = isDark ? STATUS_CLS_DARK : STATUS_CLS_LIGHT
 
@@ -510,6 +530,15 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                           }`}>
                             {s.active ? L('Activo', 'Active') : L('Inactivo', 'Inactive')}
                           </span>
+                          <motion.button
+                            whileTap={{ scale: 0.94 }}
+                            onClick={() => deleteStaff(s)}
+                            disabled={deletingStaffId === s.id}
+                            title={L('Eliminar', 'Delete')}
+                            className={`p-1.5 rounded-lg border flex items-center transition-colors disabled:opacity-50 ${isDark ? 'border-white/10 text-white/50 hover:border-red-500/40 hover:text-red-400 hover:bg-red-500/10' : 'border-black/10 text-black/50 hover:border-red-500/40 hover:text-red-500 hover:bg-red-500/5'}`}
+                          >
+                            {deletingStaffId === s.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                          </motion.button>
                         </div>
                       </div>
                       <AnimatePresence>

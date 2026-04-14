@@ -217,6 +217,21 @@ function Usuarios() {
     finally { setDeleting(false) }
   }
 
+  async function handleRowDelete(u) {
+    if (!canDelete || u.id === user?.id) return
+    const ok = confirm(L(
+      `¿Eliminar a ${u.name || u.username}? Si tiene historial se desactivará en su lugar.`,
+      `Delete ${u.name || u.username}? If it has history it will be deactivated instead.`
+    ))
+    if (!ok) return
+    try {
+      const r = await api.users.delete?.({ id: u.id })
+      if (r?.softDeleted) show(L('Usuario desactivado (tiene historial)', 'User deactivated (has history)'))
+      else                show(L('Usuario eliminado ✓', 'User deleted ✓'))
+      load()
+    } catch (err) { show(err.message || L('Error al eliminar.', 'Error deleting.'), 'error') }
+  }
+
   useEffect(() => { load() }, [])
 
   async function load() {
@@ -296,7 +311,7 @@ function Usuarios() {
             <span className="flex-1">{L('Empleado / Usuario', 'Employee / Username')}</span>
             <span className="w-28 text-center">{L('Rol', 'Role')}</span>
             <span className="w-24 text-center">{L('Estado', 'Status')}</span>
-            <span className="w-16 text-right">{L('Accion', 'Action')}</span>
+            <span className="w-24 text-right">{L('Accion', 'Action')}</span>
           </div>
           {loading
             ? <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-slate-300 dark:text-white/30" size={20} /></div>
@@ -323,13 +338,19 @@ function Usuarios() {
                     <div className="flex items-center gap-1 md:hidden">
                       <button onClick={() => openEdit(u)} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={15} /></button>
                       <button onClick={() => toggleActive(u)} className={`p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors ${u.active ? 'text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={15} /></button>
+                      {canDelete && u.id !== user?.id && (
+                        <button onClick={() => handleRowDelete(u)} title={L('Eliminar', 'Delete')} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 dark:text-white/40 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"><Trash2 size={15} /></button>
+                      )}
                     </div>
                   </div>
                   <span className="hidden md:flex w-28 justify-center"><RoleBadge role={emp?.role || u.role} /></span>
                   <span className="hidden md:flex w-24 justify-center"><ActiveBadge active={u.active} /></span>
-                  <div className="hidden md:flex w-16 items-center justify-end gap-1">
+                  <div className="hidden md:flex w-24 items-center justify-end gap-1">
                     <button onClick={() => openEdit(u)} className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={13} /></button>
                     <button onClick={() => toggleActive(u)} className={`p-1.5 rounded-lg transition-colors ${u.active ? 'text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={13} /></button>
+                    {canDelete && u.id !== user?.id && (
+                      <button onClick={() => handleRowDelete(u)} title={L('Eliminar', 'Delete')} className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"><Trash2 size={13} /></button>
+                    )}
                   </div>
                 </div>
               )
