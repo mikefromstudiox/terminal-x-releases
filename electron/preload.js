@@ -74,6 +74,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     all:    ()     => call('users:all'),
     create: (data) => call('users:create', data),
     update: (data) => call('users:update', data),
+    delete: (data) => call('users:delete', data),
+  },
+
+  // ── Activity log (owner audit feed) ────────────────────────────────────────
+  activity: {
+    setActor: (user) => call('activity:set-actor', user),
+    list:     (args) => call('activity:list', args),
   },
 
   // ── Categorías de Servicio ─────────────────────────────────────────────────

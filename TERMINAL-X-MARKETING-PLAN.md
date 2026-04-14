@@ -3,7 +3,7 @@
 **Product:** Terminal X POS (terminalxpos.com)
 **Company:** Terminal X SRL
 **Market:** Dominican Republic (Santo Domingo, Santiago)
-**Date:** March 2026
+**Updated:** 2026-04-13
 **Pricing:** Pro RD$2,490/mo | Pro PLUS RD$4,490/mo | Pro MAX RD$6,990/mo (annual 15% OFF)
 
 ---
@@ -217,4 +217,3 @@ Pre-configured setups that speed up onboarding:
 
 ---
 
-*Source: Business Expansion Master Plan (March 2026) + FUTUREX.md*

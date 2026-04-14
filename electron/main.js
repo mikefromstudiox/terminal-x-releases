@@ -863,6 +863,11 @@ handle('auth:pin',         (pin)  => db.authByPin(pin))
 handle('users:all',        ()     => db.usersGetAll())
 handle('users:create',     (data) => db.userCreate(data))
 handle('users:update',     ({id, ...data}) => db.userUpdate(id, data))
+handle('users:delete',     ({id})          => db.userDelete(id))
+
+// ── Activity log (owner audit feed) ───────────────────────────────────────────
+handle('activity:set-actor', (user) => { db.setActiveUser(user); return true })
+handle('activity:list',      (args) => db.activityLogList(args || {}))
 
 // ── Categorías de Servicio ────────────────────────────────────────────────────
 handle('categorias:all',    ()              => db.categoriasGetAll())

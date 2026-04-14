@@ -188,6 +188,8 @@ const EMPTY_USER = { employee_id: '', username: '', pin: '' }
 function Usuarios() {
   const api                       = useAPI()
   const { lang }                  = useLang()
+  const { user }                  = useAuth()
+  const canDelete                 = user?.role === 'owner' || user?.role === 'manager'
   const L                         = (es, en) => lang === 'es' ? es : en
   const [list,      setList]      = useState([])
   const [empleados, setEmpleados] = useState([])
@@ -199,7 +201,21 @@ function Usuarios() {
   const [saving,    setSaving]    = useState(false)
   const [saved,     setSaved]     = useState(false)
   const [error,     setError]     = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting,  setDeleting]  = useState(false)
   const { toast, show }           = useToast()
+
+  async function handleDelete() {
+    if (!panel || panel === 'add') return
+    setDeleting(true); setError('')
+    try {
+      const r = await api.users.delete?.({ id: panel.id })
+      if (r?.softDeleted) show(L('Usuario desactivado (tiene historial)', 'User deactivated (has history)'))
+      else                show(L('Usuario eliminado ✓', 'User deleted ✓'))
+      setConfirmDelete(false); closePanel(); load()
+    } catch (err) { setError(err.message || L('Error al eliminar.', 'Error deleting.')) }
+    finally { setDeleting(false) }
+  }
 
   useEffect(() => { load() }, [])
 
@@ -226,9 +242,9 @@ function Usuarios() {
     return empleados.find(e => e.id === u.employee_id)
   }
 
-  function openAdd()   { setForm(EMPTY_USER); setShowPin(false); setError(''); setSaved(false); setPanel('add') }
-  function openEdit(u) { setForm({ employee_id: u.employee_id || '', username: u.username, pin: '' }); setShowPin(false); setError(''); setSaved(false); setPanel(u) }
-  function closePanel(){ setPanel(null) }
+  function openAdd()   { setForm(EMPTY_USER); setShowPin(false); setError(''); setSaved(false); setConfirmDelete(false); setPanel('add') }
+  function openEdit(u) { setForm({ employee_id: u.employee_id || '', username: u.username, pin: '' }); setShowPin(false); setError(''); setSaved(false); setConfirmDelete(false); setPanel(u) }
+  function closePanel(){ setPanel(null); setConfirmDelete(false) }
   function set(k, v)   { setForm(f => ({ ...f, [k]: v })) }
 
   async function handleSave() {
@@ -358,6 +374,34 @@ function Usuarios() {
             <SaveBtn saving={saving} saved={saved} onClick={handleSave} />
             <button onClick={closePanel} className="px-3 py-2 text-[12px] text-slate-500 dark:text-white/60 border border-slate-200 dark:border-white/10 rounded-lg hover:bg-slate-50 dark:hover:bg-white/10">{L('Cancelar', 'Cancel')}</button>
           </div>
+
+          {panel !== 'add' && canDelete && panel.id !== user?.id && (
+            <div className="mt-6 pt-4 border-t border-slate-200 dark:border-white/10">
+              {!confirmDelete ? (
+                <button onClick={() => setConfirmDelete(true)}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 text-[12px] font-semibold text-red-500 dark:text-red-400 border border-red-200 dark:border-red-500/30 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors">
+                  <Trash2 size={13} /> {L('Eliminar usuario', 'Delete user')}
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-[11px] text-slate-600 dark:text-white/70 text-center">
+                    {L('¿Eliminar permanentemente? Si tiene historial se desactivará en su lugar.', 'Delete permanently? If it has history it will be deactivated instead.')}
+                  </p>
+                  <div className="flex gap-2">
+                    <button onClick={() => setConfirmDelete(false)} disabled={deleting}
+                      className="flex-1 px-3 py-2 text-[12px] text-slate-500 dark:text-white/60 border border-slate-200 dark:border-white/10 rounded-lg hover:bg-slate-50 dark:hover:bg-white/10">
+                      {L('Cancelar', 'Cancel')}
+                    </button>
+                    <button onClick={handleDelete} disabled={deleting}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] font-bold text-white bg-red-500 hover:bg-red-600 rounded-lg disabled:opacity-50">
+                      {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                      {L('Eliminar', 'Delete')}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </Panel>
       )}
     </div>

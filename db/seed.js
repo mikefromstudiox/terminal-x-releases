@@ -22,13 +22,13 @@ module.exports = function seed(db) {
   function spick(arr) { return arr[srand(0, arr.length - 1)] }
 
   db.prepare(`UPDATE businesses SET name=@name,rnc=@rnc,address=@address,phone=@phone,email=@email,settings=@settings WHERE id=1`).run({
-    name: 'Studio X Detailing SRL', rnc: '133-41032-1', address: 'Av. Las Palmas #12, Santiago, RD',
-    phone: '809-971-0033', email: 'info@studioxdetailing.com',
+    name: 'Car Wash El Dorado SRL', rnc: '131-99999-9', address: 'Av. 27 de Febrero #145, Santo Domingo, RD',
+    phone: '809-555-0100', email: 'demo@carwasheldorado.do',
     settings: JSON.stringify({ itbis_pct: 18, ley_pct: 0, usd_rate: 59.50, language: 'es', facturacion_mode: 'paper', ley_enabled: false }),
   })
   db.prepare(`UPDATE empresa SET nombre=@nombre,rnc=@rnc,direccion=@dir,telefono=@tel,email=@email WHERE id=1`).run({
-    nombre: 'Studio X Detailing SRL', rnc: '133-41032-1', dir: 'Av. Las Palmas #12, Santiago, RD',
-    tel: '809-971-0033', email: 'info@studioxdetailing.com',
+    nombre: 'Car Wash El Dorado SRL', rnc: '131-99999-9', dir: 'Av. 27 de Febrero #145, Santo Domingo, RD',
+    tel: '809-555-0100', email: 'demo@carwasheldorado.do',
   })
   db.prepare(`INSERT OR REPLACE INTO configuracion(clave,valor) VALUES('setup_complete','1')`).run()
 

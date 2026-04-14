@@ -269,6 +269,35 @@ function init(userDataPath) {
     "ALTER TABLE ecf_submissions ADD COLUMN ticket_supabase_id TEXT",
     "UPDATE ecf_submissions SET updated_at = submitted_at WHERE updated_at IS NULL",
     "UPDATE ecf_submissions SET ticket_supabase_id = (SELECT supabase_id FROM tickets WHERE tickets.id = ecf_submissions.ticket_id) WHERE ticket_supabase_id IS NULL",
+    // v1.9.21 — owner activity_log (append-only audit feed)
+    `CREATE TABLE IF NOT EXISTS activity_log (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id       TEXT NOT NULL,
+      event_type        TEXT NOT NULL,
+      severity          TEXT NOT NULL DEFAULT 'info',
+      actor_user_id     INTEGER,
+      actor_supabase_id TEXT,
+      actor_name        TEXT,
+      actor_role        TEXT,
+      target_type       TEXT,
+      target_id         TEXT,
+      target_name       TEXT,
+      amount            REAL,
+      old_value         TEXT,
+      new_value         TEXT,
+      reason            TEXT,
+      metadata          TEXT,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at        TEXT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON activity_log(created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_activity_log_event_type ON activity_log(event_type)`,
+    // v1.9.22 — heal any app_settings rows previously poisoned with the
+    // literal string 'undefined' or 'null' (from settingsUpdate's pre-fix
+    // String(undefined) call). Most visible symptom: the printer dropdown
+    // reverting to "Predeterminada" because cfg.printer === 'undefined'
+    // doesn't match any <option value>.
+    `DELETE FROM app_settings WHERE value IN ('undefined','null')`,
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -357,6 +386,7 @@ function init(userDataPath) {
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_transactions_supabase_id ON inventory_transactions(supabase_id)',
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_compras_607_supabase_id ON compras_607(supabase_id)',
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_supabase_id ON users(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_log_supabase_id ON activity_log(supabase_id)',
   ]
   for (const sql of sidIndexes) {
     try { db.exec(sql) } catch (e) {
@@ -367,7 +397,7 @@ function init(userDataPath) {
   }
 
   // v1.9 — auto-update updated_at via triggers (so sync can detect changed rows)
-  const triggerTables = ['services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions']
+  const triggerTables = ['services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions', 'activity_log']
   for (const t of triggerTables) {
     try {
       db.exec(`CREATE TRIGGER IF NOT EXISTS trg_${t}_updated_at AFTER UPDATE ON ${t} FOR EACH ROW
@@ -905,7 +935,12 @@ function settingsUpdate(obj) {
   if (!db) return
   const stmt = db.prepare('INSERT OR REPLACE INTO app_settings(key,value) VALUES(?,?)')
   const run  = db.transaction(() => {
-    for (const [k, v] of Object.entries(obj)) stmt.run(k, String(v))
+    for (const [k, v] of Object.entries(obj)) {
+      // Skip undefined/null so we never poison a setting with the literal
+      // string 'undefined'. An empty string is still a valid stored value.
+      if (v === undefined || v === null) continue
+      stmt.run(k, String(v))
+    }
   })
   run()
 }
@@ -954,8 +989,20 @@ function userUpdate(id, data) {
   db.prepare(`UPDATE users SET ${fields} WHERE id=@id`).run({ ...patch, id })
 }
 function userDelete(id) {
-  if (!db) return
-  db.prepare('UPDATE users SET active=0 WHERE id=?').run(id)
+  if (!db) return { softDeleted: true }
+  const target = db.prepare('SELECT name, username FROM users WHERE id=?').get(id)
+  const targetName = target ? `${target.name} (@${target.username})` : `#${id}`
+  try {
+    const r = db.prepare('DELETE FROM users WHERE id=?').run(id)
+    activityLogRecord({ event_type: 'user_deleted', severity: 'warn',
+      target_type: 'user', target_id: id, target_name: targetName })
+    return { deleted: true, changes: r.changes }
+  } catch (e) {
+    db.prepare('UPDATE users SET active=0 WHERE id=?').run(id)
+    activityLogRecord({ event_type: 'user_deactivated', severity: 'warn',
+      target_type: 'user', target_id: id, target_name: targetName, reason: e.message })
+    return { softDeleted: true, reason: e.message }
+  }
 }
 
 // ── CATEGORIAS SERVICIO ───────────────────────────────────────────────────────
@@ -1027,8 +1074,16 @@ function serviceUpdate(id, data) {
     patch.no_commission = (!cw && !cs && !cc) ? 1 : 0
   }
   if (!Object.keys(patch).length) return
+  const priorRow = 'price' in patch
+    ? db.prepare('SELECT name, price FROM services WHERE id=?').get(id)
+    : null
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
   db.prepare(`UPDATE services SET ${fields} WHERE id=@id`).run({ ...patch, id })
+  if (priorRow && Number(priorRow.price) !== Number(patch.price)) {
+    activityLogRecord({ event_type: 'service_price_changed', severity: 'warn',
+      target_type: 'service', target_id: id, target_name: priorRow.name,
+      old_value: priorRow.price, new_value: patch.price, amount: Number(patch.price) - Number(priorRow.price) })
+  }
 }
 function serviceDelete(id) {
   if (!db) return { deleted: false }
@@ -1036,13 +1091,15 @@ function serviceDelete(id) {
   // price, cost, and itbis at sale time, so reports stay intact even after
   // the service row is gone. We NULL the FK columns first to satisfy any
   // constraints, then delete the service.
-  const svc = db.prepare('SELECT supabase_id FROM services WHERE id=?').get(id)
+  const svc = db.prepare('SELECT supabase_id, name, price FROM services WHERE id=?').get(id)
   const sid = svc?.supabase_id || null
   db.transaction(() => {
     db.prepare('UPDATE ticket_items SET service_id=NULL WHERE service_id=?').run(id)
     if (sid) db.prepare('UPDATE ticket_items SET service_supabase_id=NULL WHERE service_supabase_id=?').run(sid)
     db.prepare('DELETE FROM services WHERE id=?').run(id)
   })()
+  activityLogRecord({ event_type: 'service_deleted', severity: 'warn',
+    target_type: 'service', target_id: id, target_name: svc?.name || `#${id}`, amount: svc?.price })
   return { deleted: true }
 }
 
@@ -1242,6 +1299,15 @@ function payrollRunsBulkCreate(runs) {
     }
   })
   tx(runs)
+  const totalNet = runs.reduce((s, r) => s + Number(r?.net || 0), 0)
+  const period = runs[0] ? `${runs[0].period_start || ''} → ${runs[0].period_end || ''}` : ''
+  const paidBy = runs.find(r => r?.paid_by)?.paid_by || null
+  activityLogRecord({ event_type: 'payroll_paid', severity: 'critical',
+    actor_user_id: paidBy,
+    target_type: 'payroll_run', target_id: ids[0] || null,
+    target_name: `Nómina ${period}`.trim(),
+    amount: totalNet,
+    metadata: { run_count: ids.length, run_ids: ids, period_start: runs[0]?.period_start, period_end: runs[0]?.period_end } })
   return { created: ids.length, ids }
 }
 function payrollRunsByEmpleado(empleadoId, limit = 100) {
@@ -1704,7 +1770,19 @@ function ticketCreate(data) {
     return { ticketId, docNumber, ncf, supabase_id: ticketSid }
   })
 
-  return tx()
+  const res = tx()
+  const desc = Number(data.descuento || 0)
+  const subt = Number(data.subtotal || 0)
+  const pct  = subt > 0 ? (desc / subt) * 100 : 0
+  if (desc > 500 || pct > 15) {
+    activityLogRecord({ event_type: 'discount_applied',
+      severity: desc > 2000 || pct > 30 ? 'warn' : 'info',
+      actor_user_id: data.cajero_id || null,
+      target_type: 'ticket', target_id: res.ticketId, target_name: res.docNumber || `#${res.ticketId}`,
+      amount: desc,
+      metadata: { subtotal: subt, total: data.total, pct: Math.round(pct * 10) / 10, payment_method: data.payment_method } })
+  }
+  return res
 }
 function ticketMarkPaid(id, { paymentMethod, ncf, ecfResult, cajeroId, tipoVenta, clientId } = {}) {
   if (!db) return null
@@ -1740,9 +1818,11 @@ function ticketMarkPaid(id, { paymentMethod, ncf, ecfResult, cajeroId, tipoVenta
 }
 function ticketVoid(id, reason, voidById) {
   if (!db) return
+  let voidedTicket = null
   db.transaction(() => {
     const ticket = db.prepare('SELECT * FROM tickets WHERE id=?').get(id)
     if (!ticket) return
+    voidedTicket = ticket
     db.prepare(`UPDATE tickets SET status='nula',void_reason=?,void_by=?,void_at=datetime('now') WHERE id=?`)
       .run(reason, voidById || null, id)
     // Reverse client balance if it was a credit ticket
@@ -1761,6 +1841,13 @@ function ticketVoid(id, reason, voidById) {
              vtSid, invRow?.supabase_id || null)
     }
   })()
+  if (voidedTicket) {
+    activityLogRecord({ event_type: 'ticket_voided', severity: 'critical',
+      actor_user_id: voidById || null,
+      target_type: 'ticket', target_id: id, target_name: voidedTicket.doc_number || `#${id}`,
+      amount: voidedTicket.total, reason: reason || null,
+      metadata: { payment_method: voidedTicket.payment_method, tipo_venta: voidedTicket.tipo_venta, ncf: voidedTicket.ncf } })
+  }
 }
 function ticketGetByDateRange(dateFrom, dateTo) {
   return ticketsGetAll({ dateFrom, dateTo })
@@ -1996,6 +2083,19 @@ function cuadreCreate(data) {
     denominaciones: JSON.stringify(data.denominaciones || {}),
     supabase_id: sid,
   })
+  const diff = Number(data.diferencia || 0)
+  if (Math.abs(diff) > 50) {
+    activityLogRecord({ event_type: 'cuadre_discrepancy',
+      severity: Math.abs(diff) >= 500 ? 'critical' : 'warn',
+      actor_user_id: data.cajero_id || null,
+      target_type: 'cuadre_caja', target_id: r.lastInsertRowid,
+      target_name: `Cuadre ${data.date || ''}`.trim(),
+      amount: diff,
+      old_value: String(data.efectivo_sistema || 0),
+      new_value: String(data.efectivo_conteo || 0),
+      reason: data.comentario || (diff > 0 ? 'Sobrante' : 'Faltante'),
+      metadata: { cierre_total: data.cierre_total, total_cobrado: data.total_cobrado } })
+  }
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function cuadreGetHistory(limit = 20) {
@@ -2074,6 +2174,13 @@ function cajaChicaCreate(data) {
   const sid = crypto.randomUUID()
   const r = db.prepare(`INSERT INTO caja_chica(description,category,type,amount,recibo,status,cajero_id,supabase_id)
     VALUES(@description,@category,@type,@amount,@recibo,@status,@cajero_id,@supabase_id)`).run({ ...data, supabase_id: sid })
+  activityLogRecord({ event_type: 'caja_chica_withdrawal',
+    severity: Number(data.amount) >= 2000 ? 'warn' : 'info',
+    actor_user_id: data.cajero_id || null,
+    target_type: 'caja_chica', target_id: r.lastInsertRowid,
+    target_name: data.description || data.category || 'Retiro',
+    amount: data.amount, reason: data.category || null,
+    metadata: { type: data.type, recibo: data.recibo || null, status: data.status } })
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function cajaChicaUpdateStatus(id, status, approvedBy) {
@@ -2100,6 +2207,11 @@ function notaCreate(data) {
     (ncf,client_id,original_ticket_id,motivo,amount,itbis_revertido,forma_devolucion,comentario,cajero_id,supabase_id,client_supabase_id,ticket_supabase_id,cajero_supabase_id)
     VALUES(@ncf,@client_id,@original_ticket_id,@motivo,@amount,@itbis_revertido,@forma_devolucion,@comentario,@cajero_id,@supabase_id,@client_supabase_id,@ticket_supabase_id,@cajero_supabase_id)`
   ).run({ ...data, supabase_id: sid, client_supabase_id: clientRow?.supabase_id||null, ticket_supabase_id: ticketRow?.supabase_id||null, cajero_supabase_id: cajeroRow?.supabase_id||null })
+  activityLogRecord({ event_type: 'nota_credito_created', severity: 'critical',
+    actor_user_id: data.cajero_id || null,
+    target_type: 'nota_credito', target_id: r.lastInsertRowid, target_name: data.ncf || `#${r.lastInsertRowid}`,
+    amount: data.amount, reason: data.motivo || null,
+    metadata: { original_ticket_id: data.original_ticket_id || null, itbis_revertido: data.itbis_revertido, forma_devolucion: data.forma_devolucion } })
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
 
@@ -2300,14 +2412,22 @@ function inventoryDelete(id) {
 function inventoryAdjust(id, delta, notes, userId) {
   if (!db) return null
   const txSid = crypto.randomUUID()
-  const invRow = db.prepare('SELECT supabase_id FROM inventory_items WHERE id=?').get(id)
+  const invRow = db.prepare('SELECT supabase_id, name, quantity FROM inventory_items WHERE id=?').get(id)
   const run = db.transaction(() => {
     db.prepare('UPDATE inventory_items SET quantity = quantity + ? WHERE id=?').run(delta, id)
     db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id) VALUES(?,?,?,?,?,?,?)')
       .run(id, delta >= 0 ? 'in' : 'out', delta, notes || '', userId || null, txSid, invRow?.supabase_id || null)
   })
   run()
-  return db.prepare('SELECT quantity FROM inventory_items WHERE id=?').get(id)?.quantity ?? null
+  const newQty = db.prepare('SELECT quantity FROM inventory_items WHERE id=?').get(id)?.quantity ?? null
+  activityLogRecord({ event_type: 'inventory_adjusted', severity: 'info',
+    actor_user_id: userId || null,
+    target_type: 'inventory_item', target_id: id, target_name: invRow?.name || `#${id}`,
+    amount: delta,
+    old_value: invRow?.quantity != null ? String(invRow.quantity) : null,
+    new_value: newQty != null ? String(newQty) : null,
+    reason: notes || null })
+  return newQty
 }
 function inventoryTransactions(itemId) {
   if (!db) return []
@@ -2407,6 +2527,74 @@ function ecfSubmissionGetAll(limit = 50) {
   return db.prepare('SELECT * FROM ecf_submissions ORDER BY submitted_at DESC LIMIT ?').all(limit)
 }
 
+// ── ACTIVITY LOG (owner audit feed) ───────────────────────────────────────────
+// Module-level actor context — set by UI on login so every mutation knows "who"
+// without needing to thread an actor_id param through every function signature.
+let _currentActor = null
+function setActiveUser(user) {
+  if (!user || !user.id) { _currentActor = null; return }
+  _currentActor = { id: user.id, name: user.name || null, role: user.role || null }
+}
+function getActiveUser() { return _currentActor }
+
+function activityLogRecord(evt) {
+  if (!db || !evt || !evt.event_type) return
+  try {
+    let { actor_user_id, actor_name, actor_role } = evt
+    if (!actor_user_id && _currentActor) {
+      actor_user_id = _currentActor.id
+      actor_name    = actor_name || _currentActor.name
+      actor_role    = actor_role || _currentActor.role
+    }
+    let actor_supabase_id = null
+    if (actor_user_id) {
+      const u = db.prepare('SELECT name, role, supabase_id FROM users WHERE id=?').get(actor_user_id)
+      if (u) {
+        actor_supabase_id = u.supabase_id || null
+        if (!actor_name) actor_name = u.name
+        if (!actor_role) actor_role = u.role
+      }
+    }
+    const sid = crypto.randomUUID()
+    db.prepare(`INSERT INTO activity_log
+      (supabase_id, event_type, severity, actor_user_id, actor_supabase_id, actor_name, actor_role,
+       target_type, target_id, target_name, amount, old_value, new_value, reason, metadata)
+      VALUES (@supabase_id, @event_type, @severity, @actor_user_id, @actor_supabase_id, @actor_name, @actor_role,
+              @target_type, @target_id, @target_name, @amount, @old_value, @new_value, @reason, @metadata)`).run({
+      supabase_id: sid,
+      event_type:  evt.event_type,
+      severity:    evt.severity || 'info',
+      actor_user_id:     actor_user_id || null,
+      actor_supabase_id: actor_supabase_id,
+      actor_name:        actor_name || null,
+      actor_role:        actor_role || null,
+      target_type: evt.target_type || null,
+      target_id:   evt.target_id != null ? String(evt.target_id) : null,
+      target_name: evt.target_name || null,
+      amount:      evt.amount != null ? Number(evt.amount) : null,
+      old_value:   evt.old_value != null ? String(evt.old_value) : null,
+      new_value:   evt.new_value != null ? String(evt.new_value) : null,
+      reason:      evt.reason || null,
+      metadata:    evt.metadata ? JSON.stringify(evt.metadata) : null,
+    })
+  } catch (e) { console.error('[activity_log] record failed:', e.message) }
+}
+
+function activityLogList({ dateFrom, dateTo, eventTypes, limit = 200 } = {}) {
+  if (!db) return []
+  let sql = `SELECT * FROM activity_log WHERE 1=1`
+  const params = []
+  if (dateFrom) { sql += ' AND created_at >= ?'; params.push(dateFrom) }
+  if (dateTo)   { sql += ' AND created_at <= ?'; params.push(dateTo) }
+  if (Array.isArray(eventTypes) && eventTypes.length) {
+    sql += ` AND event_type IN (${eventTypes.map(() => '?').join(',')})`
+    params.push(...eventTypes)
+  }
+  sql += ' ORDER BY created_at DESC LIMIT ?'
+  params.push(Math.min(Number(limit) || 200, 1000))
+  return db.prepare(sql).all(...params)
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 // ── Raw DB access for sync module ────────────────────────────────────────────
 function rawPrepare(sql) { return db ? db.prepare(sql) : null }
@@ -2468,4 +2656,6 @@ module.exports = {
   // e-CF submissions log
   ecfSubmissionAdd, ecfSubmissionUpdate, ecfSubmissionGetByTrackId, ecfSubmissionGetByTicket,
   ecfSubmissionGetPending, ecfSubmissionGetAll,
+  // Activity log (owner audit feed)
+  setActiveUser, getActiveUser, activityLogRecord, activityLogList,
 }

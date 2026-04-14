@@ -40,9 +40,9 @@ Complete guide for the DGII electronic invoicing (Facturacion Electronica) certi
 | 10 | Inicio Prueba Aprobacion Comercial | DONE (2026-04-01) |
 | 11 | Aprobacion Comercial | DONE (2026-04-01) |
 | 12 | URL Servicios Produccion | DONE (2026-04-01) |
-| 13 | Declaracion Jurada | IN PROGRESS — OFV activation needed |
-| 14 | Verificacion Estatus | PENDING |
-| 15 | Finalizado | PENDING |
+| 13 | Declaracion Jurada | DONE (2026-04-01) |
+| 14 | Verificacion Estatus | DONE (2026-04-01) |
+| 15 | Finalizado | DONE (2026-04-01) — Certified Emisor Electrónico |
 
 ---
 
@@ -247,17 +247,15 @@ Submit these URLs in the DGII portal:
 - Recepcion: `https://fe.terminalxpos.com/fe/recepcion/api/ecf`
 - AprobacionComercial: `https://fe.terminalxpos.com/fe/aprobacioncomercial/api/ecf`
 
-### Step 8 — Inicio Prueba Recepcion e-CF (NEXT)
-DGII will send test e-CFs to our receiver endpoints. Monitor VPS logs:
+### Step 8 — Receiver Logs
+Monitor VPS logs:
 ```bash
 ssh root@187.124.152.42 "journalctl -u dgii-receiver -f"
 ```
 
 ---
 
-## Production Checklist (after certification)
-1. Switch environment from `ENVIRONMENT.CERT` to `ENVIRONMENT.PROD`
-2. Update QR URLs from `/certecf/` to `/ecf/` (handled by buildQRUrl in dgii-client.js)
+## Production Switch (when ready to issue live e-CFs)
+1. Change `dgii_environment` from `certecf` to `ecf` in Supabase business settings
+2. QR URLs auto-switch to `/ecf/` path (handled by `buildQRUrl` in dgii-client.js)
 3. Reset sequence counters for production
-4. Update receiver endpoint URLs to production
-5. File Declaracion Jurada (Step 13)

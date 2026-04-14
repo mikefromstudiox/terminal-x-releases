@@ -654,7 +654,10 @@ function formatFormaPago(f) {
 
 async function sendToPrinter(type, escposString, biz, api) {
   const eApi = api || window.electronAPI
-  // If running in Electron with our IPC bridge
+  // If running in Electron with our IPC bridge, always try the native print
+  // path first — the main process picks the system default when printerName
+  // is undefined. Only fall back to HTML preview if the IPC itself fails
+  // (e.g. no printer installed at all).
   if (eApi?.print) {
     try {
       let printerName
@@ -662,18 +665,15 @@ async function sendToPrinter(type, escposString, biz, api) {
         const cfg = await eApi.settings.get()
         printerName = cfg?.printer || undefined
       } catch {}
-      // Only send to IPC if a thermal printer is explicitly configured
-      // Otherwise fall through to HTML preview (avoids sending ESC/POS to "Print to PDF")
-      if (printerName) {
-        const result = await eApi.print({ type, data: escposString, printerName })
-        if (result?.success) return { success: true }
-      }
-      // Fall through to HTML preview if no printer configured or IPC fails
+      const result = await eApi.print({ type, data: escposString, printerName })
+      if (result?.success) return { success: true }
+      // IPC returned failure — fall through to HTML preview so the receipt
+      // is at least visible / re-printable from a normal print dialog.
     } catch {
-      // Fall through to HTML preview
+      // IPC threw — fall through
     }
   }
-  // Fallback: open HTML print preview
+  // Fallback: open HTML print preview (web browser or no printer at all)
   openPrintPreview(escposString, biz)
   return { success: true, fallback: true }
 }

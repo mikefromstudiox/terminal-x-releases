@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="es-DO">
+<head>
+<meta charset="utf-8" />
+<title>Terminal X — Manual de Entrenamiento</title>
+<style>
+  :root { --red:#b3001e; --ink:#0a0a0a; --muted:#555; --line:#e5e5e5; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    color: var(--ink);
+    font-size: 11.5pt;
+    line-height: 1.55;
+    background: #fff;
+  }
+  .page { padding: 48pt 54pt; max-width: 820pt; margin: 0 auto; }
+  h1, h2, h3, h4 { font-family: "Segoe UI", -apple-system, Roboto, Arial, sans-serif; color: var(--ink); }
+  h1 { font-size: 30pt; line-height:1.15; margin: 0 0 6pt 0; letter-spacing:-0.5pt; }
+  h2 { font-size: 20pt; margin: 28pt 0 10pt 0; border-bottom: 3pt solid var(--red); padding-bottom:6pt; letter-spacing:-0.3pt; }
+  h3 { font-size: 14pt; margin: 18pt 0 6pt 0; color: var(--red); }
+  h4 { font-size: 12pt; margin: 12pt 0 4pt 0; }
+  p { margin: 6pt 0; }
+  ul, ol { margin: 6pt 0 6pt 18pt; padding: 0; }
+  li { margin: 3pt 0; }
+  code { font-family: "Consolas", "Courier New", monospace; background:#f4f4f4; padding:1pt 4pt; border-radius:3pt; font-size:10pt; }
+  pre { background:#0a0a0a; color:#fff; padding:10pt 12pt; border-radius:4pt; font-family: "Consolas", monospace; font-size:9.5pt; line-height:1.45; overflow:hidden; white-space:pre-wrap; }
+  table { width:100%; border-collapse: collapse; margin: 10pt 0; font-size: 10.5pt; }
+  th, td { border:1pt solid var(--line); padding:6pt 8pt; text-align:left; vertical-align: top; }
+  th { background:#0a0a0a; color:#fff; font-weight:600; }
+  tr:nth-child(even) td { background:#fafafa; }
+  .cover { text-align:left; padding: 110pt 54pt 60pt 54pt; background: #0a0a0a; color:#fff; min-height: 860pt; page-break-after: always; }
+  .cover .x { color: var(--red); font-weight: 900; font-size: 120pt; line-height:1; letter-spacing:-6pt; margin-bottom: 20pt; }
+  .cover h1 { color:#fff; font-size: 44pt; margin-bottom: 8pt; }
+  .cover .sub { color:#d0d0d0; font-size: 16pt; max-width: 520pt; }
+  .cover .meta { margin-top: 60pt; color:#999; font-size: 11pt; border-top:1pt solid #333; padding-top:16pt; }
+  .cover .meta strong { color:#fff; }
+  .pill { display:inline-block; background:var(--red); color:#fff; font-size:10pt; font-weight:600; padding:2pt 10pt; border-radius:999pt; letter-spacing:0.3pt; text-transform:uppercase; }
+  .note { background:#fff8f8; border-left:3pt solid var(--red); padding:10pt 14pt; margin:10pt 0; border-radius:3pt; }
+  .ok   { background:#f4faf5; border-left:3pt solid #1a8a3c; padding:10pt 14pt; margin:10pt 0; border-radius:3pt; }
+  .warn { background:#fff9ec; border-left:3pt solid #c58a00; padding:10pt 14pt; margin:10pt 0; border-radius:3pt; }
+  .two { display:flex; gap:14pt; }
+  .two > div { flex:1; }
+  .price { border:1.5pt solid #0a0a0a; border-radius:6pt; padding:14pt 16pt; margin:6pt 0; }
+  .price.featured { background:#0a0a0a; color:#fff; border-color: var(--red); }
+  .price .plan { font-size: 13pt; font-weight:700; margin:0 0 2pt 0; }
+  .price .amt  { font-size: 22pt; font-weight:800; margin:0 0 2pt 0; }
+  .price.featured .plan { color: var(--red); }
+  .price small { color: var(--muted); }
+  .price.featured small { color:#bbb; }
+  hr.thin { border:0; border-top:1pt solid var(--line); margin: 16pt 0; }
+  .toc a { color:var(--ink); text-decoration:none; }
+  .toc li { margin: 5pt 0; font-size: 11.5pt; }
+  .toc .dot { color: #bbb; }
+  .kv { display:grid; grid-template-columns: 180pt 1fr; gap:4pt 12pt; margin:6pt 0; font-size:10.5pt; }
+  .kv div:nth-child(odd) { color: var(--muted); }
+  .footer { position: fixed; bottom: 14pt; left: 0; right:0; text-align:center; color:#999; font-size: 8.5pt; }
+  section { page-break-inside: auto; }
+  h2 { page-break-after: avoid; }
+  h3, h4 { page-break-after: avoid; }
+  table, pre, .note, .ok, .warn, .price { page-break-inside: avoid; }
+  .pagebreak { page-break-before: always; }
+  @page { size: Letter; margin: 0; }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<section class="cover">
+  <div class="x">X</div>
+  <span class="pill">Manual Interno</span>
+  <h1>Terminal X<br/>Manual de Entrenamiento</h1>
+  <p class="sub">Producto, planes, proceso de certificación e-CF y operaciones de soporte — documento completo para el equipo de ventas y servicio.</p>
+  <div class="meta">
+    <strong>Studio X SRL</strong> · RNC 133410321 · Santo Domingo, DR<br/>
+    Emisor Electrónico Certificado — DGII (Ley 32-23)<br/>
+    Soporte: +1 (809) 828-2971 · terminalxpos.com · studioxrdtech.com
+    <br/><br/>
+    Versión del manual: 2026-04-13 · Basado en Terminal X v1.9.21
+  </div>
+</section>
+
+<!-- TOC -->
+<section class="page">
+  <h1>Contenido</h1>
+  <ol class="toc">
+    <li><a href="#s1">Qué es Terminal X</a></li>
+    <li><a href="#s2">Cómo funciona (arquitectura en simple)</a></li>
+    <li><a href="#s3">Planes y precios</a></li>
+    <li><a href="#s4">Qué incluye cada plan (matriz)</a></li>
+    <li><a href="#s5">Tipos de negocios que atendemos</a></li>
+    <li><a href="#s6">Discurso de ventas (pitch)</a></li>
+    <li><a href="#s7">e-CF — Qué es y por qué importa (Ley 32-23)</a></li>
+    <li><a href="#s8">Servicio de Certificación e-CF</a></li>
+    <li><a href="#s9">Proceso de Certificación — paso a paso</a></li>
+    <li><a href="#s10">El certificado digital (Viafirma)</a></li>
+    <li><a href="#s11">Panel de Administración — recorrido</a></li>
+    <li><a href="#s12">Operaciones diarias del vendedor/soporte</a></li>
+    <li><a href="#s13">Onboarding de un cliente nuevo</a></li>
+    <li><a href="#s14">Renovaciones, cobros y mora</a></li>
+    <li><a href="#s15">Soporte técnico — primera línea</a></li>
+    <li><a href="#s16">FAQ y manejo de objeciones</a></li>
+    <li><a href="#s17">Herramientas internas que usarás</a></li>
+    <li><a href="#s18">Glosario DGII y técnico</a></li>
+    <li><a href="#s19">Escalamiento y contactos</a></li>
+    <li><a href="#s20">Apéndice — scripts y plantillas</a></li>
+  </ol>
+</section>
+
+<!-- 1 -->
+<section class="page pagebreak" id="s1">
+  <h2>1. Qué es Terminal X</h2>
+  <p>Terminal X es un <strong>sistema de Punto de Venta (POS)</strong> de escritorio, diseñado específicamente para el mercado dominicano. Funciona en Windows y se conecta con DGII para emitir <strong>Comprobantes Fiscales Electrónicos (e-CF)</strong> en tiempo real.</p>
+
+  <h3>Lo que lo hace único</h3>
+  <ul>
+    <li><strong>100% e-CF certificado</strong> — Studio X SRL es <em>Emisor Electrónico certificado</em> por DGII. La certificación ya está resuelta; el cliente hereda nuestra integración.</li>
+    <li><strong>Funciona sin internet</strong> — cola offline de e-CF con re-envío automático (72 horas, según Ley 32-23 IndicadorEnvioDiferido).</li>
+    <li><strong>Multi-negocio</strong> — Car Wash, Tienda/Retail, o Servicios. Un solo producto, tres modos.</li>
+    <li><strong>Respaldo en la nube</strong> — todo se sincroniza a Supabase. Si se daña la computadora, el dueño sigue viendo sus datos desde el celular.</li>
+    <li><strong>Soporte local</strong> — WhatsApp directo, español, mismo día.</li>
+  </ul>
+
+  <h3>Clientes objetivo</h3>
+  <ul>
+    <li>Lavaderos de carros (Car Wash)</li>
+    <li>Tiendas de barrio, colmados modernos, boutiques</li>
+    <li>Talleres, salones, peluquerías, mini-markets</li>
+    <li>Cualquier negocio que necesite emitir e-CF desde mayo 2026</li>
+  </ul>
+
+  <div class="note"><strong>Por qué esto es urgente:</strong> la Ley 32-23 hace el e-CF <em>obligatorio</em>. Grandes contribuyentes ya están en producción; PYMES y micro tienen fechas escalonadas 2026. Quien no se certifique, no factura.</div>
+</section>
+
+<!-- 2 -->
+<section class="page" id="s2">
+  <h2>2. Cómo funciona (arquitectura en simple)</h2>
+  <p>No necesitas entender código, pero sí entender el <strong>mapa mental</strong> para vender y dar soporte con confianza.</p>
+
+  <h3>Las tres piezas</h3>
+  <table>
+    <tr><th>Pieza</th><th>Dónde vive</th><th>Para qué sirve</th></tr>
+    <tr><td><strong>App de Escritorio</strong></td><td>Windows del cliente (.exe)</td><td>El POS donde cobra. Funciona sin internet. Imprime recibos térmicos.</td></tr>
+    <tr><td><strong>Web PWA</strong></td><td>terminalxpos.com</td><td>Acceso desde celular o otra PC. Landing, signup y dashboard remoto.</td></tr>
+    <tr><td><strong>Admin Panel</strong></td><td>terminalxpos.com/admin</td><td>Nuestro backoffice: clientes, licencias, certificaciones, tickets.</td></tr>
+  </table>
+
+  <h3>Flujo de una venta con e-CF</h3>
+  <ol>
+    <li>Cajero agrega productos/servicios al carrito.</li>
+    <li>Presiona <strong>Cobrar</strong> → elige método de pago.</li>
+    <li>Terminal X construye el XML del e-CF (ej. E31) y lo firma con el certificado digital Viafirma.</li>
+    <li>Envía a DGII (<code>ecf.dgii.gov.do</code>). Si hay internet y DGII responde OK → imprime recibo con QR válido.</li>
+    <li>Si no hay internet → guarda en cola offline, imprime con aviso "pendiente de envío", reintenta automático cada 5 min hasta 72h.</li>
+    <li>Cada 5 min, el desktop sube toda la data a Supabase (respaldo + acceso remoto).</li>
+  </ol>
+
+  <div class="ok"><strong>Punto clave para ventas:</strong> el cliente <em>nunca</em> para de vender, aunque se caiga DGII o se vaya la luz (mientras tenga inversor).</div>
+</section>
+
+<!-- 3 -->
+<section class="page pagebreak" id="s3">
+  <h2>3. Planes y precios</h2>
+  <p>Tres planes, todos incluyen el <strong>certificado Viafirma bundled</strong> y <strong>7 días de prueba gratis en Pro MAX</strong>. Pago anual lleva <strong>15% de descuento</strong>.</p>
+
+  <div class="two">
+    <div class="price">
+      <div class="plan">Pro</div>
+      <div class="amt">RD$2,490<small> /mes</small></div>
+      <small>POS básico + e-CF + respaldo en la nube</small>
+    </div>
+    <div class="price">
+      <div class="plan">Pro PLUS</div>
+      <div class="amt">RD$4,490<small> /mes</small></div>
+      <small>Todo lo anterior + Inventario, Nómina, Comisiones</small>
+    </div>
+    <div class="price featured">
+      <div class="plan">Pro MAX</div>
+      <div class="amt">RD$6,990<small> /mes</small></div>
+      <small>Todo + Dashboard remoto, actividad, multi-sucursal, WhatsApp recibos</small>
+    </div>
+  </div>
+
+  <h3>Comparativa de mercado</h3>
+  <table>
+    <tr><th>Competencia</th><th>Precio aprox.</th><th>Notas</th></tr>
+    <tr><td><strong>STARSISA</strong></td><td>RD$12,000+/mes</td><td>Referente del mercado. Terminal X Pro MAX es ~58% más barato con más funciones.</td></tr>
+    <tr><td>Facturador genérico</td><td>RD$3–8K/mes</td><td>No certificado, sin POS, sin respaldo cloud.</td></tr>
+    <tr><td>Solo certificación DGII (proveedor externo)</td><td>RD$15–25K una vez</td><td>Solo papeleo, no incluye software.</td></tr>
+  </table>
+
+  <h3>Política comercial</h3>
+  <ul>
+    <li><strong>Prueba gratis:</strong> 7 días Pro MAX sin tarjeta — toda solicitud de signup la recibe.</li>
+    <li><strong>Pago mensual o anual:</strong> anual = 15% off.</li>
+    <li><strong>Setup:</strong> incluido. No cobrar setup extra sin autorización de Mike.</li>
+    <li><strong>Descuentos:</strong> máximo 10% sin preguntar; >10% requiere autorización.</li>
+  </ul>
+</section>
+
+<!-- 4 -->
+<section class="page" id="s4">
+  <h2>4. Qué incluye cada plan (matriz de funciones)</h2>
+  <table>
+    <tr><th>Función</th><th>Pro</th><th>Pro PLUS</th><th>Pro MAX</th></tr>
+    <tr><td>POS (cobrar)</td><td>✅</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Cola / Queue (carwash)</td><td>✅</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Clientes</td><td>✅</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Reportes básicos</td><td>✅</td><td>✅</td><td>✅</td></tr>
+    <tr><td>e-CF (fiscal electrónico)</td><td>✅</td><td>✅</td><td>✅</td></tr>
+    <tr><td>DGII sync (900K RNCs)</td><td>✅</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Respaldo Supabase (nube)</td><td>✅</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Certificado Viafirma incluido</td><td>✅</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Caja Chica</td><td>—</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Créditos / fiados</td><td>—</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Notas de Crédito</td><td>—</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Cuadre de caja</td><td>—</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Inventario + CSV import</td><td>—</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Comisiones (lavadores/vendedores)</td><td>—</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Nómina / Empleados / ISR / TSS</td><td>—</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Dashboard remoto (celular)</td><td>—</td><td>—</td><td>✅</td></tr>
+    <tr><td>Log de Actividad (auditoría)</td><td>—</td><td>—</td><td>✅</td></tr>
+    <tr><td>Recibos por WhatsApp</td><td>—</td><td>—</td><td>✅</td></tr>
+    <tr><td>Soporte prioritario</td><td>—</td><td>—</td><td>✅</td></tr>
+  </table>
+
+  <h3>Nombres de features (jerga interna)</h3>
+  <p>Si ves estos nombres en el panel admin, significan:</p>
+  <div class="kv">
+    <div>pos</div><div>Pantalla principal de cobro</div>
+    <div>queue</div><div>Cola de carros en car wash</div>
+    <div>clients</div><div>CRM de clientes</div>
+    <div>credits</div><div>Fiados / créditos pendientes</div>
+    <div>reports</div><div>Reportes de ventas</div>
+    <div>ecf</div><div>Emisión de Comprobantes Fiscales Electrónicos</div>
+    <div>dgii</div><div>Sincronización con base de DGII</div>
+    <div>petty_cash</div><div>Caja chica</div>
+    <div>credit_notes</div><div>Notas de crédito (devoluciones fiscales)</div>
+    <div>cash_recon</div><div>Cuadre de caja</div>
+    <div>inventory</div><div>Control de inventario / stock</div>
+    <div>commissions</div><div>Comisiones a empleados</div>
+    <div>remote_dashboard</div><div>Ver negocio desde el celular</div>
+    <div>whatsapp_receipts</div><div>Recibos enviados por WhatsApp</div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="page pagebreak" id="s5">
+  <h2>5. Tipos de negocios que atendemos</h2>
+  <p>El POS se configura en el primer arranque. Hay tres modos:</p>
+
+  <h3>Car Wash</h3>
+  <ul>
+    <li>Grid de servicios (lavado básico, encerado, etc.)</li>
+    <li>Cola visual de carros en espera</li>
+    <li>Asignación de lavador + comisión automática</li>
+    <li>Cada servicio puede marcarse <em>sin comisión</em> (ej. impuesto de tarjeta)</li>
+  </ul>
+
+  <h3>Tienda / Retail</h3>
+  <ul>
+    <li>Búsqueda por barra de código o nombre</li>
+    <li>Carrito con cantidades (+/-)</li>
+    <li>Descuento automático de inventario al vender</li>
+    <li>Import masivo desde Excel/CSV</li>
+    <li>Reporte de productos más vendidos</li>
+  </ul>
+
+  <h3>Otros / Servicios</h3>
+  <ul>
+    <li>Modo híbrido: servicios + productos</li>
+    <li>Ideal para salones, talleres, consultorios</li>
+  </ul>
+
+  <div class="warn"><strong>Importante al vender:</strong> pregunta <em>siempre</em> qué tipo de negocio tiene antes de demostrar. El demo se ve muy distinto en Car Wash vs. Tienda.</div>
+</section>
+
+<!-- 6 -->
+<section class="page" id="s6">
+  <h2>6. Discurso de ventas (pitch)</h2>
+
+  <h3>Pitch en 30 segundos</h3>
+  <div class="note">
+    "Terminal X es el punto de venta más barato del país que está <strong>100% certificado con DGII</strong> para facturar electrónicamente. Tu cliente cumple con la Ley 32-23, factura con QR oficial, y tiene respaldo automático en la nube. Desde RD$2,490 al mes — menos de la mitad de lo que cobra STARSISA — y le damos <strong>7 días gratis</strong> para que lo pruebe sin riesgo."
+  </div>
+
+  <h3>Los 5 puntos que cierran</h3>
+  <ol>
+    <li><strong>Ya estamos certificados</strong> — el cliente no pelea con DGII, hereda nuestra certificación.</li>
+    <li><strong>Certificado Viafirma incluido</strong> — no tiene que comprarlo aparte (ahorra RD$8,000–15,000 al año).</li>
+    <li><strong>Funciona sin internet</strong> — si se cae la luz o el wifi, sigue vendiendo.</li>
+    <li><strong>Soporte por WhatsApp</strong> — no es una línea de call center de India. Escriben y les contestan en español.</li>
+    <li><strong>Respaldo en la nube gratis</strong> — si se daña la PC, la data está salva y se puede ver desde el celular.</li>
+  </ol>
+
+  <h3>Preguntas para calificar al prospecto</h3>
+  <ul>
+    <li>¿Qué tipo de negocio tiene?</li>
+    <li>¿Ya está emitiendo e-CF o todavía con NCF de papel?</li>
+    <li>¿Cuántas facturas diarias / mensuales hace?</li>
+    <li>¿Tiene computadora Windows en el mostrador? (Requisito)</li>
+    <li>¿Tiene impresora térmica 80mm? (Podemos venderla aparte)</li>
+    <li>¿Tiene RNC activo? (Obligatorio para e-CF)</li>
+  </ul>
+</section>
+
+<!-- 7 -->
+<section class="page pagebreak" id="s7">
+  <h2>7. e-CF — Qué es y por qué importa (Ley 32-23)</h2>
+
+  <h3>Qué es un e-CF</h3>
+  <p>Un <strong>Comprobante Fiscal Electrónico (e-CF)</strong> es la versión digital del NCF tradicional. En vez de imprimirse con un talonario pre-autorizado, se genera en tiempo real, se firma digitalmente, y se envía a DGII. El cliente recibe un recibo con un <strong>QR</strong> que cualquiera puede verificar en el portal oficial de DGII.</p>
+
+  <h3>Tipos de e-CF que emite Terminal X</h3>
+  <table>
+    <tr><th>Tipo</th><th>Nombre</th><th>Cuándo se usa</th></tr>
+    <tr><td>E31</td><td>Crédito Fiscal</td><td>Venta a otra empresa (con RNC)</td></tr>
+    <tr><td>E32</td><td>Consumo</td><td>Venta al consumidor final (sin RNC)</td></tr>
+    <tr><td>E33</td><td>Nota de Débito</td><td>Aumento de valor sobre una venta anterior</td></tr>
+    <tr><td>E34</td><td>Nota de Crédito</td><td>Devolución o descuento post-venta</td></tr>
+    <tr><td>E43</td><td>Gastos Menores</td><td>Compras pequeñas (no requiere RNC comprador)</td></tr>
+    <tr><td>E44</td><td>Regímenes Especiales</td><td>Zonas francas, etc.</td></tr>
+    <tr><td>E45</td><td>Gubernamental</td><td>Venta a instituciones del Estado</td></tr>
+    <tr><td>E46</td><td>Exportaciones</td><td>Venta al exterior</td></tr>
+    <tr><td>E47</td><td>Pagos Exterior</td><td>Pago a proveedores extranjeros</td></tr>
+  </table>
+
+  <h3>Fechas clave de la Ley 32-23</h3>
+  <ul>
+    <li><strong>Ya activo:</strong> Grandes contribuyentes nacionales</li>
+    <li><strong>15 de mayo 2026:</strong> fecha límite para muchos tipos de contribuyentes</li>
+    <li>Fechas escalonadas para medianos, pequeños y micro contribuyentes</li>
+  </ul>
+
+  <div class="warn"><strong>Si no se certifican → no facturan legalmente.</strong> Este es el gancho de venta más fuerte. No es opcional, es ley.</div>
+
+  <h3>Anatomía de un e-CF aprobado</h3>
+  <ul>
+    <li><strong>e-NCF:</strong> número único (ej. E310000001234)</li>
+    <li><strong>CodigoSeguridad:</strong> 6 caracteres del hash de firma</li>
+    <li><strong>TrackId:</strong> ID de DGII confirmando recepción</li>
+    <li><strong>QR:</strong> apunta a <code>ecf.dgii.gov.do/ecf/ConsultaTimbre?...</code></li>
+    <li><strong>XML firmado:</strong> RSA-SHA256 con el certificado Viafirma del emisor</li>
+  </ul>
+</section>
+
+<!-- 8 -->
+<section class="page" id="s8">
+  <h2>8. Servicio de Certificación e-CF</h2>
+  <p>Además de vender el POS, Studio X SRL vende el <strong>servicio de certificación</strong> a través de Tech X (studioxrdtech.com/ecf-certification). Esto es para clientes que:</p>
+  <ul>
+    <li>Ya tienen otro sistema y solo quieren la integración con DGII</li>
+    <li>Necesitan acompañamiento completo con DGII (15 pasos)</li>
+    <li>Son empresas grandes que no compran Terminal X pero sí necesitan cumplir</li>
+  </ul>
+
+  <h3>Qué incluye el servicio</h3>
+  <ol>
+    <li>Compra y configuración del certificado Viafirma (.p12)</li>
+    <li>Registro del RNC como Emisor Electrónico en DGII</li>
+    <li>Configuración del software (Terminal X o el del cliente)</li>
+    <li>15 pruebas obligatorias en ambiente <code>certecf</code></li>
+    <li>Solicitud formal de certificación ante DGII</li>
+    <li>Paso a ambiente de producción <code>ecf</code></li>
+    <li>Entrenamiento al personal del cliente</li>
+    <li>Garantía de 90 días post-certificación</li>
+  </ol>
+
+  <h3>Venta cruzada</h3>
+  <div class="ok">Si un cliente compra Terminal X <em>y</em> necesita certificación completa de su RNC, ese es el upsell grande. El POS viene con nuestra certificación heredada, pero si quieren que su RNC sea emisor independiente, se les cobra el servicio de certificación aparte.</div>
+</section>
+
+<!-- 9 -->
+<section class="page pagebreak" id="s9">
+  <h2>9. Proceso de Certificación — paso a paso</h2>
+  <p>Este es el flujo completo, de punta a punta, para un cliente que quiere certificar su RNC como Emisor Electrónico. Es el mismo que hicimos nosotros (RNC 133410321) — están <strong>los 15 pasos DGII</strong> completos.</p>
+
+  <h3>Fase 0 — Preparación (cliente)</h3>
+  <ol>
+    <li>RNC activo (sin deudas ni amonestaciones)</li>
+    <li>Cédula del representante legal</li>
+    <li>Correo corporativo</li>
+    <li>Firma digital válida (Viafirma .p12, 1 año, RD$8K–15K)</li>
+    <li>Lista de NCFs/e-NCFs solicitada a DGII (en la Oficina Virtual)</li>
+  </ol>
+
+  <h3>Fase 1 — Registro como Emisor Electrónico</h3>
+  <ol>
+    <li>Acceder a la Oficina Virtual DGII del cliente</li>
+    <li>Solicitar <em>"Calidad de Emisor Electrónico"</em></li>
+    <li>Cargar certificado .p12</li>
+    <li>Esperar aprobación DGII (1–5 días hábiles)</li>
+  </ol>
+
+  <h3>Fase 2 — Configuración en Terminal X</h3>
+  <ol>
+    <li>Instalar Terminal X en la PC del cliente</li>
+    <li>Entrar a Config → e-CF</li>
+    <li>Importar el .p12 + contraseña del certificado</li>
+    <li>Poner RNC + razón social exacta como aparece en DGII</li>
+    <li>Ambiente: <code>certecf</code> (certificación, aún no producción)</li>
+    <li>Cargar las secuencias de e-NCF asignadas por DGII</li>
+  </ol>
+
+  <h3>Fase 3 — 15 pruebas obligatorias (ambiente certecf)</h3>
+  <p>DGII requiere que el contribuyente emita y apruebe estos 15 escenarios. Terminal X los genera automáticamente desde el menú <strong>DGII → Pruebas de Certificación</strong>.</p>
+  <ol>
+    <li>Crédito Fiscal (E31) básico</li>
+    <li>Crédito Fiscal con descuento</li>
+    <li>Consumo (E32) básico</li>
+    <li>Consumo > RD$250K (formato extendido)</li>
+    <li>Nota de Débito (E33)</li>
+    <li>Nota de Crédito (E34)</li>
+    <li>Gastos Menores (E43)</li>
+    <li>Regímenes Especiales (E44)</li>
+    <li>Gubernamental (E45)</li>
+    <li>Exportaciones (E46)</li>
+    <li>Pagos Exterior (E47)</li>
+    <li>e-CF con múltiples impuestos (ITBIS 18% + propina 10%)</li>
+    <li>e-CF con IndicadorEnvioDiferido=1 (offline)</li>
+    <li>Anulación de secuencia no utilizada (ANECF)</li>
+    <li>Recepción de Aprobación Comercial desde receptor</li>
+  </ol>
+
+  <h3>Fase 4 — Solicitud formal a DGII</h3>
+  <ol>
+    <li>Descargar los 15 e-CF aprobados (TrackId de DGII)</li>
+    <li>Llenar carta de solicitud de certificación</li>
+    <li>Entregar en DGII (Oficina Virtual o presencial)</li>
+    <li>DGII emite <em>Certificación de Emisor Electrónico</em> (5–15 días hábiles)</li>
+  </ol>
+
+  <h3>Fase 5 — Paso a Producción</h3>
+  <ol>
+    <li>En Terminal X, cambiar <code>dgii_environment</code> de <code>certecf</code> a <code>ecf</code></li>
+    <li>Cargar las secuencias e-NCF <em>de producción</em> (distintas a las de prueba)</li>
+    <li>Hacer 1 venta real de prueba y verificar en <code>ecf.dgii.gov.do</code> con el QR</li>
+    <li>Enviar al cliente correo de "Certificación Completa"</li>
+  </ol>
+
+  <div class="ok"><strong>Tip:</strong> para acelerar la Fase 3, usamos el botón "Correr 15 pruebas" en Admin Panel → Certifications. Corre todo en ~10 minutos.</div>
+</section>
+
+<!-- 10 -->
+<section class="page pagebreak" id="s10">
+  <h2>10. El certificado digital (Viafirma)</h2>
+
+  <h3>Qué es</h3>
+  <p>Un archivo <code>.p12</code> emitido por una Autoridad Certificadora autorizada por Indotel. Es el "DNI digital" de la empresa. Todo e-CF se firma con este archivo — DGII verifica la firma contra el certificado registrado.</p>
+
+  <h3>Proveedores comunes en DR</h3>
+  <ul>
+    <li><strong>Viafirma</strong> (recomendado — es el que usamos)</li>
+    <li>Camara TIC</li>
+    <li>Avansi</li>
+  </ul>
+
+  <h3>Datos técnicos</h3>
+  <div class="kv">
+    <div>Formato</div><div>PKCS#12 (archivo .p12)</div>
+    <div>Algoritmo</div><div>RSA 2048, SHA-256</div>
+    <div>Vigencia</div><div>1 año (renovación anual)</div>
+    <div>Costo aprox.</div><div>RD$8,000 – RD$15,000 / año</div>
+    <div>Protección</div><div>Contraseña obligatoria</div>
+  </div>
+
+  <div class="warn"><strong>Nunca compartas el .p12 por WhatsApp/email.</strong> Ese archivo = la identidad fiscal de la empresa. Si se filtra, alguien podría emitir facturas en nombre del cliente. Entrega siempre en persona en USB cifrado o carpeta privada del cliente.</div>
+
+  <h3>Renovación</h3>
+  <p>30 días antes del vencimiento, el sistema (Admin Panel → Certifications) <strong>avisa automáticamente</strong>. Es tu trabajo contactar al cliente, ayudarlo a renovar, e importar el nuevo .p12 en Terminal X.</p>
+</section>
+
+<!-- 11 -->
+<section class="page" id="s11">
+  <h2>11. Panel de Administración — recorrido</h2>
+  <p>URL: <code>terminalxpos.com/admin</code></p>
+  <p>Login: correo que Mike te dé + contraseña temporal (cambiarla el primer día).</p>
+
+  <h3>Pestañas principales</h3>
+
+  <h4>📊 Dashboard</h4>
+  <ul>
+    <li>Clientes totales, activos, en trial, vencidos</li>
+    <li>Ventas totales procesadas por todos los clientes (hoy/semana/mes)</li>
+    <li>e-CFs emitidos hoy (suma de todos)</li>
+    <li>Alertas: certificados que vencen pronto, licencias vencidas, errores de sync</li>
+  </ul>
+
+  <h4>👥 Clients</h4>
+  <ul>
+    <li>Tabla de todos los negocios registrados</li>
+    <li>Filtros: plan, estado, fecha de registro</li>
+    <li>Click en una fila → ClientDetail (todo sobre ese cliente)</li>
+  </ul>
+
+  <h4>👤 ClientDetail</h4>
+  <p>Todo lo que necesitas de un cliente en una sola página:</p>
+  <ul>
+    <li><strong>Perfil:</strong> RNC, razón social, teléfono, dirección</li>
+    <li><strong>Licencia:</strong> plan, estado, vencimiento, HWID</li>
+    <li><strong>Estado e-CF:</strong> certificado instalado, vence, ambiente (certecf/ecf), listo para producción</li>
+    <li><strong>Actividad:</strong> últimas ventas, e-CFs, errores</li>
+    <li><strong>Acciones:</strong> extender trial, cambiar plan, bloquear, enviar recordatorio</li>
+  </ul>
+
+  <h4>🔑 Licenses</h4>
+  <ul>
+    <li>Generar nueva licencia (formato <code>TXL-XXXX-XXXX-XXXX</code>)</li>
+    <li>Bloquear/desbloquear</li>
+    <li>Reset de HWID (cuando cliente cambia de PC)</li>
+    <li>Ver eventos (login, validación offline, etc.)</li>
+  </ul>
+
+  <h4>👔 Team</h4>
+  <p>Usuarios del admin panel (tú, Mike, otros). Cada uno con sus permisos.</p>
+
+  <h4>📜 Certifications</h4>
+  <ul>
+    <li>Progreso de certificación de cada cliente (Fases 0–5)</li>
+    <li>Botón "Correr 15 pruebas" automático</li>
+    <li>Descargar PDF de solicitud DGII</li>
+    <li>Fecha de vencimiento del .p12 de cada cliente</li>
+  </ul>
+
+  <h4>🎫 Support Tickets</h4>
+  <ul>
+    <li>Mensajes enviados desde el botón "Soporte" del POS</li>
+    <li>Estados: abierto, en progreso, cerrado</li>
+    <li>Responder → llega como WhatsApp al cliente</li>
+  </ul>
+</section>
+
+<!-- 12 -->
+<section class="page pagebreak" id="s12">
+  <h2>12. Operaciones diarias del vendedor/soporte</h2>
+
+  <h3>Rutina de la mañana (9–10 AM)</h3>
+  <ol>
+    <li>Abrir Admin Panel → Dashboard. Ver alertas.</li>
+    <li>Revisar Support Tickets pendientes. Responder en &lt;2 horas.</li>
+    <li>Revisar Clients con trial que vencen hoy/mañana → llamar/WhatsApp.</li>
+    <li>Revisar Certifications con .p12 venciendo &lt;15 días → agendar renovación.</li>
+    <li>Revisar signups nuevos (estado <em>pending</em>) → activar.</li>
+  </ol>
+
+  <h3>Durante el día</h3>
+  <ul>
+    <li>Atender WhatsApp entrantes (+1 809 828 2971)</li>
+    <li>Hacer demos remotos (Google Meet / AnyDesk) a prospectos</li>
+    <li>Procesar pagos y activar licencias</li>
+    <li>Mover tickets de soporte</li>
+  </ul>
+
+  <h3>Rutina de cierre (5–6 PM)</h3>
+  <ol>
+    <li>Resumen del día a Mike (ventas nuevas, tickets abiertos, pagos pendientes)</li>
+    <li>Responder todo mensaje que quedó pendiente</li>
+    <li>Dejar lista de 3 leads calientes para mañana</li>
+  </ol>
+
+  <h3>KPIs que Mike mide</h3>
+  <table>
+    <tr><th>KPI</th><th>Meta mes 1</th><th>Meta mes 3</th></tr>
+    <tr><td>Demos agendados</td><td>20</td><td>50</td></tr>
+    <tr><td>Trials activados</td><td>10</td><td>30</td></tr>
+    <tr><td>Conversiones (trial → pago)</td><td>3</td><td>15</td></tr>
+    <tr><td>Tickets resueltos &lt;24h</td><td>80%</td><td>95%</td></tr>
+    <tr><td>Tiempo respuesta WhatsApp</td><td>&lt;30 min</td><td>&lt;10 min</td></tr>
+  </table>
+</section>
+
+<!-- 13 -->
+<section class="page" id="s13">
+  <h2>13. Onboarding de un cliente nuevo</h2>
+  <p>Esto es lo que haces cuando alguien dice <em>"sí, voy con ustedes"</em>:</p>
+
+  <ol>
+    <li><strong>Enviar formulario de datos</strong> (RNC, razón social, teléfono, correo, tipo de negocio)</li>
+    <li><strong>Confirmar que tiene:</strong> PC Windows 10/11, impresora térmica 80mm (si no, venderla), internet básico</li>
+    <li><strong>Crear cliente en Admin Panel</strong> → generar licencia</li>
+    <li><strong>Cobrar primer mes</strong> (o activar 7-day trial si aplica)</li>
+    <li><strong>Enviar instalador</strong> — link de descarga de <code>terminalxpos.com/download</code></li>
+    <li><strong>Sesión de instalación remota</strong> (AnyDesk) — 30–60 min:
+      <ul>
+        <li>Instalar .exe</li>
+        <li>Activar con licencia</li>
+        <li>First-time setup: tipo de negocio, empresa, logo</li>
+        <li>Importar inventario si aplica (CSV)</li>
+        <li>Configurar impresora</li>
+        <li>Prueba de venta</li>
+      </ul>
+    </li>
+    <li><strong>Si lleva e-CF:</strong> agendar sesión aparte para Fases 1–5 del proceso de certificación</li>
+    <li><strong>Entrenamiento:</strong> video call 1 hora, enseñar a cobrar, sacar reportes, cuadrar caja</li>
+    <li><strong>Seguimiento:</strong> día 3, día 7, día 30 — llamada corta "¿cómo va todo?"</li>
+  </ol>
+
+  <div class="note"><strong>Regla de oro:</strong> el cliente tiene que hacer su primera venta real <strong>antes de que cuelgues</strong> la llamada de instalación. Si no vendió con nosotros en vivo, va a tener miedo de usarlo.</div>
+</section>
+
+<!-- 14 -->
+<section class="page pagebreak" id="s14">
+  <h2>14. Renovaciones, cobros y mora</h2>
+
+  <h3>Ciclo de cobro</h3>
+  <table>
+    <tr><th>Día</th><th>Acción</th></tr>
+    <tr><td>-7</td><td>WhatsApp: "Tu renovación es el [fecha], ¿mismo plan?"</td></tr>
+    <tr><td>-3</td><td>Recordatorio + link de pago</td></tr>
+    <tr><td>0 (vence)</td><td>Cobrar. Si se paga → extender licencia otro periodo</td></tr>
+    <tr><td>+1</td><td>WhatsApp: "Tu licencia venció ayer, ¿necesitas ayuda?"</td></tr>
+    <tr><td>+3</td><td>Llamada directa</td></tr>
+    <tr><td>+7</td><td>Suspender licencia (Admin Panel → bloquear)</td></tr>
+    <tr><td>+14</td><td>Última oportunidad. Si no paga, archivar.</td></tr>
+  </table>
+
+  <h3>Métodos de cobro</h3>
+  <ul>
+    <li>Transferencia bancaria (enviar datos de Studio X SRL)</li>
+    <li>Banca móvil (Popular, Reservas, BHD)</li>
+    <li>Cheque (solo en persona)</li>
+    <li>Stripe / link de tarjeta (si está disponible)</li>
+  </ul>
+
+  <h3>Confirmación de pago</h3>
+  <ol>
+    <li>Cliente envía captura de transferencia</li>
+    <li>Verificar con Mike o contabilidad que entró al banco</li>
+    <li>En Admin Panel → Licenses → extender vencimiento</li>
+    <li>Responder al cliente: "Listo, tu licencia está activa hasta [fecha]"</li>
+    <li>Emitir e-CF de venta a Studio X SRL al cliente</li>
+  </ol>
+
+  <div class="warn"><strong>Nunca extiendas una licencia sin confirmar pago en banco.</strong> Captura de transferencia ≠ dinero recibido.</div>
+</section>
+
+<!-- 15 -->
+<section class="page" id="s15">
+  <h2>15. Soporte técnico — primera línea</h2>
+  <p>No eres desarrollador, pero el 80% de los tickets tienen causas comunes. Aprende estos patrones:</p>
+
+  <h3>Problemas comunes y soluciones</h3>
+  <table>
+    <tr><th>Síntoma</th><th>Causa probable</th><th>Solución</th></tr>
+    <tr><td>"No imprime el recibo"</td><td>Impresora desconectada / driver</td><td>Verificar cable USB, reiniciar impresora, verificar driver ESC/POS 80mm en Windows</td></tr>
+    <tr><td>"No cobra, dice error de licencia"</td><td>Cambiaron de PC / HWID distinto</td><td>Admin Panel → resetear HWID de esa licencia. Volver a activar.</td></tr>
+    <tr><td>"DGII rechaza mi e-CF"</td><td>Certificado vencido / ambiente mal</td><td>Ver ClientDetail → Estado e-CF. Si expiró, agendar renovación.</td></tr>
+    <tr><td>"La PC se cayó, perdí todo"</td><td>Sin respaldo cloud activado</td><td>Verificar que tiene Pro/Plus/Max. Restaurar desde Supabase (llamar a Mike).</td></tr>
+    <tr><td>"No veo ventas del celular"</td><td>Sync pausado / plan Pro básico</td><td>Verificar plan tiene <code>remote_dashboard</code>. Forzar sync desktop.</td></tr>
+    <tr><td>"No me deja entrar, PIN incorrecto"</td><td>Olvidó PIN de usuario</td><td>Owner entra y resetea el PIN desde Admin (Config → Usuarios)</td></tr>
+    <tr><td>"Se ven los botones muy pequeños"</td><td>Escalado de Windows al 125%</td><td>Panel de control Windows → display → escalado 100%</td></tr>
+  </table>
+
+  <h3>Script de diagnóstico (siempre pregunta en este orden)</h3>
+  <ol>
+    <li>¿Desde cuándo pasa?</li>
+    <li>¿Hicieron alguna actualización o cambio recientemente?</li>
+    <li>¿Tienen internet ahora? (ping google.com)</li>
+    <li>¿Pueden abrir terminalxpos.com?</li>
+    <li>¿Aparece un error en pantalla? Captura de pantalla + enviar.</li>
+    <li>¿El problema es solo de esa caja o de todas?</li>
+  </ol>
+
+  <h3>Cuándo escalar a Mike (dev)</h3>
+  <ul>
+    <li>Error en la certificación de un cliente (DGII rechaza múltiples pruebas)</li>
+    <li>Sync roto entre desktop y cloud</li>
+    <li>Actualizar versión del software (auto-update falla)</li>
+    <li>Migración de datos (PC vieja → PC nueva)</li>
+    <li>Cualquier bug que no está en esta lista</li>
+  </ul>
+</section>
+
+<!-- 16 -->
+<section class="page pagebreak" id="s16">
+  <h2>16. FAQ y manejo de objeciones</h2>
+
+  <h4>"Está caro."</h4>
+  <p><em>Respuesta:</em> STARSISA cobra RD$12,000 al mes por lo básico. Nosotros damos Pro MAX con <em>todo</em> incluido — dashboard remoto, inventario, nómina, comisiones, respaldo, WhatsApp — por RD$6,990. Es <strong>58% más barato con más funciones</strong>. Y te damos 7 días gratis para que pruebes sin riesgo.</p>
+
+  <h4>"¿Y si DGII rechaza mis facturas?"</h4>
+  <p><em>Respuesta:</em> Ya estamos certificados con DGII desde hace meses. Nuestros clientes actuales emiten miles de e-CFs al mes sin rechazo. Si se te cae DGII, el sistema guarda la factura y la manda cuando vuelve — tú sigues vendiendo.</p>
+
+  <h4>"¿Y si se va la luz/internet?"</h4>
+  <p><em>Respuesta:</em> Terminal X funciona 100% sin internet. Las ventas se guardan locales y se suben cuando vuelve. DGII lo permite hasta 72 horas (IndicadorEnvioDiferido).</p>
+
+  <h4>"¿Necesito computadora?"</h4>
+  <p><em>Respuesta:</em> Sí, Windows 10 u 11. Cualquier laptop o mini-PC de RD$15–25K sirve. También funciona en celular para ver el dashboard, pero para cobrar se usa la PC del mostrador.</p>
+
+  <h4>"¿Dónde está el servidor?"</h4>
+  <p><em>Respuesta:</em> La información se guarda en tu computadora (offline) Y en la nube (Supabase en USA, respaldado en múltiples regiones). Cumplimos RGPD.</p>
+
+  <h4>"Quiero ver otros clientes usándolo."</h4>
+  <p><em>Respuesta:</em> Con gusto, pero primero te vamos a mostrar un demo en vivo (10 minutos). Si después quieres hablar con un cliente actual, te ponemos en contacto con uno del mismo sector. (Consultar con Mike antes de dar referencias.)</p>
+
+  <h4>"¿Incluye el certificado?"</h4>
+  <p><em>Respuesta:</em> Sí, desde Pro. Viafirma anual (valor RD$10–15K) va incluido en todos los planes. Eso solo ya paga 4–6 meses del Pro básico.</p>
+
+  <h4>"¿Qué pasa si me voy?"</h4>
+  <p><em>Respuesta:</em> Te exportamos toda tu data en Excel/CSV. No retenemos nada. Es tu información.</p>
+</section>
+
+<!-- 17 -->
+<section class="page" id="s17">
+  <h2>17. Herramientas internas que usarás</h2>
+  <table>
+    <tr><th>Herramienta</th><th>Para qué</th><th>URL/Acceso</th></tr>
+    <tr><td>Admin Panel</td><td>Gestión de clientes, licencias, certificaciones, tickets</td><td>terminalxpos.com/admin</td></tr>
+    <tr><td>WhatsApp Business</td><td>Canal principal con clientes</td><td>+1 (809) 828-2971</td></tr>
+    <tr><td>Google Meet / AnyDesk</td><td>Demos y soporte remoto</td><td>meet.google.com / anydesk.com</td></tr>
+    <tr><td>Supabase Dashboard</td><td>Solo lectura — ver data cruda si Mike te da acceso</td><td>supabase.com (Mike invita)</td></tr>
+    <tr><td>DGII Oficina Virtual</td><td>Verificar RNC, consultar e-CFs, gestionar secuencias</td><td>dgii.gov.do</td></tr>
+    <tr><td>Consulta Timbre DGII</td><td>Verificar un e-CF emitido con su QR</td><td>ecf.dgii.gov.do</td></tr>
+    <tr><td>Tech X</td><td>Landing del servicio de certificación</td><td>studioxrdtech.com/ecf-certification</td></tr>
+    <tr><td>Hostinger VPS</td><td>Solo si Mike pide (tú NO tocas)</td><td>root@srv1528760</td></tr>
+  </table>
+</section>
+
+<!-- 18 -->
+<section class="page pagebreak" id="s18">
+  <h2>18. Glosario DGII y técnico</h2>
+  <div class="kv">
+    <div>RNC</div><div>Registro Nacional del Contribuyente. Identificación fiscal de una empresa.</div>
+    <div>NCF</div><div>Número de Comprobante Fiscal (formato antiguo, papel)</div>
+    <div>e-CF / e-NCF</div><div>Comprobante Fiscal Electrónico (nuevo formato, Ley 32-23)</div>
+    <div>DGII</div><div>Dirección General de Impuestos Internos</div>
+    <div>Ley 32-23</div><div>Ley que obliga facturación electrónica en RD</div>
+    <div>Emisor Electrónico</div><div>Contribuyente certificado por DGII para emitir e-CFs</div>
+    <div>certecf</div><div>Ambiente de pruebas de DGII (no es factura real)</div>
+    <div>ecf</div><div>Ambiente de producción (facturas reales)</div>
+    <div>TrackId</div><div>ID que DGII devuelve cuando acepta un e-CF</div>
+    <div>CodigoSeguridad</div><div>6 caracteres del hash de firma, van en el QR</div>
+    <div>TSS</div><div>Tesorería de la Seguridad Social (SFS, AFP)</div>
+    <div>ITBIS</div><div>Impuesto sobre Transferencias de Bienes y Servicios (18%)</div>
+    <div>ISR</div><div>Impuesto Sobre la Renta</div>
+    <div>ANECF</div><div>Anulación de e-NCF (anular secuencia no usada)</div>
+    <div>Viafirma</div><div>Proveedor de certificados digitales .p12 más común en RD</div>
+    <div>PKCS#12 / .p12</div><div>Formato de certificado digital con llave privada</div>
+    <div>HWID</div><div>Hardware ID — huella única de cada PC, usado por licencia</div>
+    <div>POS</div><div>Point of Sale — punto de venta</div>
+    <div>Supabase</div><div>Base de datos en la nube (PostgreSQL) donde replica desktop</div>
+    <div>Sync</div><div>Replicación de datos desktop → cloud cada 5 min</div>
+    <div>PWA</div><div>Progressive Web App — versión web del POS (fe.terminalxpos.com)</div>
+    <div>ESC/POS</div><div>Protocolo de impresoras térmicas (80mm)</div>
+    <div>QR</div><div>Código QR en el recibo que verifica el e-CF ante DGII</div>
+  </div>
+</section>
+
+<!-- 19 -->
+<section class="page" id="s19">
+  <h2>19. Escalamiento y contactos</h2>
+
+  <h3>Cuándo escalar a Mike</h3>
+  <ul>
+    <li>Problemas técnicos que no están en la tabla de la sección 15</li>
+    <li>Cliente enfadado pidiendo hablar con el gerente</li>
+    <li>Descuentos mayores al 10%</li>
+    <li>Cancelaciones de clientes (antes de confirmarlas)</li>
+    <li>Cualquier cosa legal o financiera inusual</li>
+    <li>Fallos en producción que afecten a varios clientes (caída de sync, DGII, Supabase)</li>
+  </ul>
+
+  <h3>Canal y tiempo</h3>
+  <table>
+    <tr><th>Urgencia</th><th>Canal</th><th>Tiempo de respuesta esperado</th></tr>
+    <tr><td>Crítico (sistema caído, DGII rechazando a todos)</td><td>Llamada directa a Mike</td><td>Inmediato</td></tr>
+    <tr><td>Alto (cliente molesto, cancelación)</td><td>WhatsApp a Mike</td><td>&lt;1 hora</td></tr>
+    <tr><td>Medio (duda técnica, venta mediana)</td><td>WhatsApp interno</td><td>Mismo día</td></tr>
+    <tr><td>Bajo (mejoras, ideas)</td><td>Reunión semanal</td><td>Semanal</td></tr>
+  </table>
+
+  <h3>Directorio</h3>
+  <div class="kv">
+    <div>Mike (dueño)</div><div>[Mike te pasa su número]</div>
+    <div>Soporte WhatsApp</div><div>+1 (809) 828-2971</div>
+    <div>Correo general</div><div>[Mike configura correo]</div>
+    <div>Tech X (certificaciones)</div><div>studioxrdtech.com/ecf-certification</div>
+    <div>Studio X Hub</div><div>studioxrd.com</div>
+    <div>DGII (contribuyentes)</div><div>809-689-3444 / dgii.gov.do</div>
+  </div>
+</section>
+
+<!-- 20 -->
+<section class="page pagebreak" id="s20">
+  <h2>20. Apéndice — scripts y plantillas</h2>
+
+  <h3>Mensaje inicial de WhatsApp (frío)</h3>
+  <pre>Hola [Nombre], soy [tu nombre] de Terminal X.
+
+Vi que tienes un [tipo de negocio] en [zona]. Con la nueva
+Ley 32-23 todo negocio tiene que emitir e-CF antes del
+15 de mayo 2026.
+
+Nosotros ya estamos certificados con DGII y nuestro sistema
+incluye el certificado Viafirma y funciona sin internet.
+
+¿Te gustaría ver un demo de 10 minutos esta semana?
+Tengo espacio martes 10 AM o miércoles 3 PM.
+
+Saludos,
+[tu nombre]</pre>
+
+  <h3>Mensaje post-demo (caliente)</h3>
+  <pre>Hola [Nombre], gracias por el demo de hoy.
+
+Como hablamos, te envío el resumen:
+
+Plan recomendado: [Pro / Pro PLUS / Pro MAX]
+Precio: RD$[X] / mes (o 15% off anual = RD$[Y])
+Incluye: certificado Viafirma + instalación + entrenamiento
+
+Los próximos pasos:
+1. Te activo 7 días gratis para que lo pruebes sin riesgo
+2. Instalación remota de 30 min hoy o mañana
+3. Si te sirve, sigues; si no, sin compromiso
+
+¿Te agendo la instalación?</pre>
+
+  <h3>Mensaje de renovación (-7 días)</h3>
+  <pre>Hola [Nombre], te recuerdo que tu licencia de Terminal X
+vence el [fecha].
+
+¿Continuamos con el plan [X] o quieres subir/bajar?
+
+Datos para transferencia:
+[Datos bancarios Studio X SRL]
+
+Avísame cuando pagues y te extiendo al toque.</pre>
+
+  <h3>Mensaje de certificación completa</h3>
+  <pre>¡Felicidades [Nombre]!
+
+Tu RNC [XXX] ya está certificado con DGII como Emisor
+Electrónico. Ya puedes emitir e-CFs reales con validez
+legal.
+
+Resumen de la certificación:
+- Ambiente: Producción (ecf)
+- Certificado Viafirma: vence [fecha]
+- Tipos de e-CF habilitados: E31, E32, E33, E34, E43
+- Primera factura de prueba: TrackId [XXXX]
+
+Cualquier duda, estoy a un WhatsApp.</pre>
+
+  <h3>Checklist interno — cierre de venta</h3>
+  <ul>
+    <li>☐ Contrato firmado (o aceptación WhatsApp)</li>
+    <li>☐ Primer pago confirmado en banco</li>
+    <li>☐ Cliente creado en Admin Panel</li>
+    <li>☐ Licencia generada y enviada</li>
+    <li>☐ Instalador enviado (link descarga)</li>
+    <li>☐ Sesión de instalación remota agendada</li>
+    <li>☐ Impresora térmica confirmada (o vendida)</li>
+    <li>☐ e-CF: plan de certificación discutido (fechas Fases 1–5)</li>
+    <li>☐ Factura de venta emitida a Studio X SRL</li>
+    <li>☐ Follow-up día 3/7/30 programado</li>
+  </ul>
+
+  <hr class="thin" />
+  <p style="text-align:center; color:#999; font-size:10pt;">
+    <strong>Terminal X</strong> · Studio X SRL · RNC 133410321<br/>
+    Manual Interno v2026-04-13 · Uso exclusivo del equipo
+  </p>
+</section>
+
+</body>
+</html>

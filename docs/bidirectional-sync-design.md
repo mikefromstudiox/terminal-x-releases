@@ -1,6 +1,8 @@
 # Bidirectional Sync Design — Terminal X
 
-## 1. Current State (v1.8.x)
+> **STATUS: IMPLEMENTED (v1.9.x+).** 21 tables covered. Sync pulls via `updated_at > last_pull_at` cursor, pushes on 5-min interval + on-demand. See CLAUDE.md §Data Architecture for current behavior. This document is retained as the original design reference.
+
+## 1. Original State (v1.8.x, pre-bidirectional)
 
 One-way push: SQLite -> Supabase. No pull.
 

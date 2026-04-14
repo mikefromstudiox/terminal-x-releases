@@ -113,7 +113,48 @@ export function createWebAPI(supabase, businessId) {
     return supabase.from(table).select('*').eq('business_id', bid)
   }
 
+  // ── Activity log (owner audit feed) helper ───────────────────────────────
+  // Web mutations write log rows directly to Supabase; the module-level actor
+  // is set via api.activity.setActor(...) from AuthContext on login.
+  let _webActor = null
+  async function logActivity(evt) {
+    if (!evt || !evt.event_type) return
+    try {
+      const actor = _webActor || {}
+      await supabase.from('activity_log').insert({
+        supabase_id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()),
+        business_id: bid,
+        event_type: evt.event_type,
+        severity: evt.severity || 'info',
+        actor_name: evt.actor_name || actor.name || null,
+        actor_role: evt.actor_role || actor.role || null,
+        target_type: evt.target_type || null,
+        target_id:   evt.target_id != null ? String(evt.target_id) : null,
+        target_name: evt.target_name || null,
+        amount:      evt.amount != null ? Number(evt.amount) : null,
+        old_value:   evt.old_value != null ? String(evt.old_value) : null,
+        new_value:   evt.new_value != null ? String(evt.new_value) : null,
+        reason:      evt.reason || null,
+        metadata:    evt.metadata || null,
+      })
+    } catch (e) { console.error('[activity_log web] failed:', e?.message || e) }
+  }
+
   return {
+
+    // ── Activity log ─────────────────────────────────────────────────────────
+    activity: {
+      setActor: (user) => { _webActor = user ? { id: user.id, name: user.name, role: user.role } : null },
+      list: ({ dateFrom, dateTo, eventTypes, limit = 200 } = {}) => tryOr(async () => {
+        let q = supabase.from('activity_log').select('*').eq('business_id', bid)
+        if (dateFrom) q = q.gte('created_at', dateFrom)
+        if (dateTo)   q = q.lte('created_at', dateTo)
+        if (Array.isArray(eventTypes) && eventTypes.length) q = q.in('event_type', eventTypes)
+        q = q.order('created_at', { ascending: false }).limit(Math.min(Number(limit) || 200, 1000))
+        return throwSupaError(await q)
+      }, []),
+    },
+
 
     // ── Admin panel ──────────────────────────────────────────────────────────
 
@@ -290,9 +331,15 @@ export function createWebAPI(supabase, businessId) {
       adjust: ({ id, delta, notes, userId }) => tryOr(async () => {
         // Direct UPDATE + INSERT instead of a non-existent RPC.
         // Fetch current qty, compute new, update, log the transaction.
-        const current = throwSupaError(await supabase.from('inventory_items').select('quantity, supabase_id').eq('id', id).eq('business_id', bid).single())
+        const current = throwSupaError(await supabase.from('inventory_items').select('quantity, supabase_id, name').eq('id', id).eq('business_id', bid).single())
         const newQty = Math.max(0, (current.quantity || 0) + delta)
         throwSupaError(await supabase.from('inventory_items').update({ quantity: newQty }).eq('id', id).eq('business_id', bid))
+        await logActivity({ event_type: 'inventory_adjusted', severity: 'info',
+          target_type: 'inventory_item', target_id: id, target_name: current?.name || `#${id}`,
+          amount: delta,
+          old_value: current?.quantity != null ? String(current.quantity) : null,
+          new_value: String(newQty),
+          reason: notes || null })
         // Log the adjustment in inventory_transactions (non-blocking — stock already updated)
         try {
           await supabase.from('inventory_transactions').insert({
@@ -380,6 +427,19 @@ export function createWebAPI(supabase, businessId) {
         if ('active' in rest) rest.active = !!rest.active
         throwSupaError(await supabase.from('users').update(rest).eq('id', id).eq('business_id', bid))
       }),
+
+      delete: ({ id }) => tryOr(async () => {
+        const snap = await supabase.from('users').select('name, username').eq('id', id).eq('business_id', bid).maybeSingle()
+        const name = snap?.data ? `${snap.data.name} (@${snap.data.username})` : `#${id}`
+        const { error } = await supabase.from('users').delete().eq('id', id).eq('business_id', bid)
+        if (!error) {
+          await logActivity({ event_type: 'user_deleted', severity: 'warn', target_type: 'user', target_id: id, target_name: name })
+          return { deleted: true }
+        }
+        try { throwSupaError(await supabase.from('users').update({ active: false }).eq('id', id).eq('business_id', bid)) } catch {}
+        await logActivity({ event_type: 'user_deactivated', severity: 'warn', target_type: 'user', target_id: id, target_name: name, reason: error.message })
+        return { softDeleted: true, reason: error.message }
+      }),
     },
 
     // ── Categorias ───────────────────────────────────────────────────────────
@@ -460,18 +520,30 @@ export function createWebAPI(supabase, businessId) {
         if ('commission_washer' in patch || 'commission_seller' in patch || 'commission_cashier' in patch) {
           patch.no_commission = !(patch.commission_washer || patch.commission_seller || patch.commission_cashier)
         }
+        const priorRow = 'price' in patch
+          ? (await supabase.from('services').select('name, price').eq('id', id).eq('business_id', bid).maybeSingle())?.data
+          : null
         throwSupaError(await supabase.from('services').update(patch).eq('id', id).eq('business_id', bid))
+        if (priorRow && Number(priorRow.price) !== Number(patch.price)) {
+          await logActivity({ event_type: 'service_price_changed', severity: 'warn',
+            target_type: 'service', target_id: id, target_name: priorRow.name,
+            old_value: priorRow.price, new_value: patch.price,
+            amount: Number(patch.price) - Number(priorRow.price) })
+        }
       }),
 
       delete: ({ id }) => tryOr(async () => {
         // Hard-delete. ticket_items snapshot name/price/cost/itbis at sale time
         // so historical reports stay intact after the service row is removed.
         // NULL the FK columns first, then delete the service.
-        const svc = await supabase.from('services').select('supabase_id').eq('id', id).eq('business_id', bid).maybeSingle()
+        const svc = await supabase.from('services').select('supabase_id, name, price').eq('id', id).eq('business_id', bid).maybeSingle()
         const sid = svc?.data?.supabase_id
         try { await supabase.from('ticket_items').update({ service_id: null }).eq('service_id', id) } catch {}
         if (sid) { try { await supabase.from('ticket_items').update({ service_supabase_id: null }).eq('service_supabase_id', sid) } catch {} }
         throwSupaError(await supabase.from('services').delete().eq('id', id).eq('business_id', bid))
+        await logActivity({ event_type: 'service_deleted', severity: 'warn',
+          target_type: 'service', target_id: id,
+          target_name: svc?.data?.name || `#${id}`, amount: svc?.data?.price })
         return { deleted: true }
       }),
     },
@@ -602,6 +674,26 @@ export function createWebAPI(supabase, businessId) {
       delete: (id) => tryOr(async () => {
         throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid))
       }),
+
+      // Mirror of electron hard-delete: try to remove outright, fall back to
+      // soft-delete if FKs (payroll_runs / salary_changes / commissions) block
+      // the delete. Returns { deleted: true } or { softDeleted: true, reason }.
+      hardDelete: (id) => tryOr(async () => {
+        const snap = await supabase.from('empleados').select('nombre, supabase_id').eq('id', id).eq('business_id', bid).maybeSingle()
+        const name = snap?.data?.nombre || `#${id}`
+        const empSid = snap?.data?.supabase_id
+        if (empSid) {
+          try { await supabase.from('salary_changes').delete().eq('business_id', bid).eq('empleado_supabase_id', empSid) } catch {}
+        }
+        const { error } = await supabase.from('empleados').delete().eq('id', id).eq('business_id', bid)
+        if (!error) {
+          await logActivity({ event_type: 'empleado_deleted', severity: 'warn', target_type: 'empleado', target_id: id, target_name: name })
+          return { deleted: true }
+        }
+        try { throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid)) } catch {}
+        await logActivity({ event_type: 'empleado_deactivated', severity: 'warn', target_type: 'empleado', target_id: id, target_name: name, reason: error.message })
+        return { softDeleted: true, reason: error.message }
+      }),
     },
 
     // ── Payroll runs (paycheck history) ─────────────────────────────────────
@@ -626,6 +718,13 @@ export function createWebAPI(supabase, businessId) {
             try { await markCommissionsPaidForEmpleado(supabase, bid, r.empleado_id, r.period_start, r.period_end) } catch (e) { console.error('[payrollRuns.bulkCreate] markCommissionsPaid failed for empleado', r.empleado_id, ':', e.message) }
           }
         }
+        const totalNet = runs.reduce((s, r) => s + Number(r?.net || 0), 0)
+        const period = runs[0] ? `${runs[0].period_start || ''} → ${runs[0].period_end || ''}` : ''
+        await logActivity({ event_type: 'payroll_paid', severity: 'critical',
+          target_type: 'payroll_run', target_id: inserted?.[0]?.id || null,
+          target_name: `Nómina ${period}`.trim(),
+          amount: totalNet,
+          metadata: { run_count: (inserted || []).length, run_ids: (inserted || []).map(x => x.id), period_start: runs[0]?.period_start, period_end: runs[0]?.period_end } })
         return { created: (inserted || []).length, ids: (inserted || []).map(x => x.id) }
       }, { created: 0, ids: [] }),
       byEmpleado: (empleadoId, limit = 100) => tryOr(async () => {
@@ -1159,6 +1258,16 @@ export function createWebAPI(supabase, businessId) {
               } catch (e) { console.error('[web.js] client balance increment failed:', e.message) }
             }
 
+            const desc = Number(data.descuento || 0)
+            const subt = Number(data.subtotal || 0)
+            const pct  = subt > 0 ? (desc / subt) * 100 : 0
+            if (desc > 500 || pct > 15) {
+              await logActivity({ event_type: 'discount_applied',
+                severity: desc > 2000 || pct > 30 ? 'warn' : 'info',
+                target_type: 'ticket', target_id: ticket.id, target_name: docNum || `#${ticket.id}`,
+                amount: desc,
+                metadata: { subtotal: subt, total: data.total, pct: Math.round(pct * 10) / 10, payment_method: data.payment_method } })
+            }
             return { id: ticket.id, docNumber: docNum, ncf: null, queueError }
           })
         } catch (err) {
@@ -1188,12 +1297,19 @@ export function createWebAPI(supabase, businessId) {
 
       void: (data) => tryOr(async () => {
         const { id, reason, voidBy } = typeof data === 'object' ? data : { id: data }
+        const priorRow = (await supabase.from('tickets').select('doc_number, total, payment_method, tipo_venta, ncf').eq('id', id).eq('business_id', bid).maybeSingle())?.data
         throwSupaError(await supabase.from('tickets').update({
           status: 'nula',
           void_reason: reason || '',
           void_by: voidBy || null,
           void_at: new Date().toISOString(),
         }).eq('id', id).eq('business_id', bid))
+        if (priorRow) {
+          await logActivity({ event_type: 'ticket_voided', severity: 'critical',
+            target_type: 'ticket', target_id: id, target_name: priorRow.doc_number || `#${id}`,
+            amount: priorRow.total, reason: reason || null,
+            metadata: { payment_method: priorRow.payment_method, tipo_venta: priorRow.tipo_venta, ncf: priorRow.ncf } })
+        }
 
         // Reverse inventory stock for product items
         try {
@@ -1611,6 +1727,18 @@ export function createWebAPI(supabase, businessId) {
           business_id: bid,
           denominaciones: typeof data.denominaciones === 'string' ? data.denominaciones : JSON.stringify(data.denominaciones || {}),
         }).select('id').single())
+        const diff = Number(data.diferencia || 0)
+        if (Math.abs(diff) > 50) {
+          await logActivity({ event_type: 'cuadre_discrepancy',
+            severity: Math.abs(diff) >= 500 ? 'critical' : 'warn',
+            target_type: 'cuadre_caja', target_id: row?.id || null,
+            target_name: `Cuadre ${data.date || ''}`.trim(),
+            amount: diff,
+            old_value: String(data.efectivo_sistema || 0),
+            new_value: String(data.efectivo_conteo || 0),
+            reason: data.comentario || (diff > 0 ? 'Sobrante' : 'Faltante'),
+            metadata: { cierre_total: data.cierre_total, total_cobrado: data.total_cobrado } })
+        }
         return row
       }),
 
@@ -1709,6 +1837,12 @@ export function createWebAPI(supabase, businessId) {
 
       create: (data) => tryOr(async () => {
         throwSupaError(await supabase.from('caja_chica').insert({ ...data, business_id: bid }))
+        await logActivity({ event_type: 'caja_chica_withdrawal',
+          severity: Number(data.amount) >= 2000 ? 'warn' : 'info',
+          target_type: 'caja_chica',
+          target_name: data.description || data.category || 'Retiro',
+          amount: data.amount, reason: data.category || null,
+          metadata: { type: data.type, recibo: data.recibo || null, status: data.status } })
       }),
 
       updateStatus: (data) => tryOr(async () => {
@@ -1734,6 +1868,10 @@ export function createWebAPI(supabase, businessId) {
 
       create: (data) => tryOr(async () => {
         throwSupaError(await supabase.from('notas_credito').insert({ ...data, business_id: bid }))
+        await logActivity({ event_type: 'nota_credito_created', severity: 'critical',
+          target_type: 'nota_credito', target_name: data.ncf || 'NC',
+          amount: data.amount, reason: data.motivo || null,
+          metadata: { original_ticket_id: data.original_ticket_id || null, itbis_revertido: data.itbis_revertido, forma_devolucion: data.forma_devolucion } })
       }),
     },
 

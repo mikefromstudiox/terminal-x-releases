@@ -47,6 +47,9 @@ let _intervalId = null
 let _syncing = false
 let _pendingSync = false
 let _status = { state: 'idle', lastSync: null, tables: {}, error: null }
+let _realtimeClient = null
+let _realtimeChannel = null
+let _realtimeDebounce = null
 
 // -- Table definitions in dependency order ------------------------------------
 // Phase 1: no FK deps -> Phase 2: depend on phase 1 -> Phase 3: depend on phase 2
@@ -201,6 +204,28 @@ const SYNC_TABLES = [
       active: r.active,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
+    }),
+  },
+
+  {
+    name: 'activity_log',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      event_type: r.event_type,
+      severity: r.severity || 'info',
+      actor_supabase_id: r.actor_supabase_id || null,
+      actor_name: r.actor_name || null,
+      actor_role: r.actor_role || null,
+      target_type: r.target_type || null,
+      target_id: r.target_id || null,
+      target_name: r.target_name || null,
+      amount: r.amount != null ? Number(r.amount) : null,
+      old_value: r.old_value || null,
+      new_value: r.new_value || null,
+      reason: r.reason || null,
+      metadata: r.metadata ? (typeof r.metadata === 'string' ? JSON.parse(r.metadata) : r.metadata) : null,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || r.created_at || new Date().toISOString(),
     }),
   },
 
@@ -804,7 +829,7 @@ function updatePullLog(tableName, lastPullAt) {
 }
 
 // -- JSON columns that need stringify when inserting into SQLite ---------------
-const JSON_COLUMNS = new Set(['ecf_result', 'washer_ids', 'ticket_ids', 'denominaciones', 'services_json'])
+const JSON_COLUMNS = new Set(['ecf_result', 'washer_ids', 'ticket_ids', 'denominaciones', 'services_json', 'metadata'])
 
 function sqliteValue(col, val) {
   if (val == null) return null
@@ -883,6 +908,10 @@ const PULL_TABLES = [
   { name: 'salary_changes', strategy: 'fww',
     cols: ['old_salary','new_salary','effective_date','reason','created_at','updated_at'],
     fkCols: { empleado_supabase_id: 'empleados' } },
+
+  // Activity log — FWW (append-only audit feed)
+  { name: 'activity_log', strategy: 'fww',
+    cols: ['event_type','severity','actor_supabase_id','actor_name','actor_role','target_type','target_id','target_name','amount','old_value','new_value','reason','metadata','created_at','updated_at'] },
 ]
 
 // -- Pull upsert: Supabase row -> SQLite row ----------------------------------
@@ -1338,10 +1367,71 @@ function startAutoSync(intervalMs = 30 * 60 * 1000) {
   setTimeout(() => syncNow().catch(() => {}), 60 * 1000)
   _intervalId = setInterval(() => syncNow().catch(() => {}), intervalMs)
   log.info(`[sync] Auto-sync every ${Math.round(intervalMs / 60000)} min`)
+  // Kick off realtime listener so web writes land on desktop within seconds
+  // instead of waiting up to intervalMs. Fires in the background; failures
+  // degrade gracefully to the polling interval.
+  startRealtime().catch(e => log.warn('[sync] realtime start failed:', e.message))
 }
 
 function stopAutoSync() {
   if (_intervalId) { clearInterval(_intervalId); _intervalId = null }
+  stopRealtime()
+}
+
+// -- Realtime (Supabase WebSocket) --------------------------------------------
+// Listens for INSERT/UPDATE/DELETE on this business's rows across every synced
+// table and kicks a debounced pullNow() so local SQLite catches up immediately.
+async function startRealtime() {
+  if (!_url || !_key || _realtimeChannel) return
+  const bizId = await resolveBusinessId().catch(() => null)
+  if (!bizId) { log.warn('[sync] realtime skipped — no business_id'); return }
+
+  let createClient
+  try { ({ createClient } = require('@supabase/supabase-js')) }
+  catch (e) { log.warn('[sync] realtime unavailable — @supabase/supabase-js not installed'); return }
+
+  _realtimeClient = createClient(_url, _key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    realtime: { params: { eventsPerSecond: 5 } },
+  })
+
+  const onChange = (payload) => {
+    const tbl = payload?.table || '?'
+    if (_realtimeDebounce) clearTimeout(_realtimeDebounce)
+    _realtimeDebounce = setTimeout(() => {
+      log.info(`[sync] realtime → pullNow() (triggered by ${tbl})`)
+      pullNow().catch(e => log.error('[sync] realtime pull failed:', e.message))
+    }, 1500)
+  }
+
+  const tables = [
+    'services','washers','sellers','clients','inventory_items','ncf_sequences',
+    'empleados','categorias_servicio','users','tickets','ticket_items','queue',
+    'washer_commissions','seller_commissions','cajero_commissions',
+    'credit_payments','cuadre_caja','caja_chica','notas_credito',
+    'inventory_transactions','compras_607','payroll_runs','salary_changes',
+    'activity_log',
+  ]
+
+  _realtimeChannel = _realtimeClient.channel(`tx-sync-${bizId}`)
+  for (const t of tables) {
+    _realtimeChannel.on('postgres_changes', {
+      event: '*', schema: 'public', table: t, filter: `business_id=eq.${bizId}`,
+    }, onChange)
+  }
+
+  _realtimeChannel.subscribe(status => {
+    log.info('[sync] realtime status:', status)
+  })
+}
+
+function stopRealtime() {
+  if (_realtimeDebounce) { clearTimeout(_realtimeDebounce); _realtimeDebounce = null }
+  if (_realtimeChannel && _realtimeClient) {
+    try { _realtimeClient.removeChannel(_realtimeChannel) } catch {}
+  }
+  _realtimeChannel = null
+  _realtimeClient = null
 }
 
 function getStatus() {

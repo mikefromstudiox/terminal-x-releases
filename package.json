@@ -1,6 +1,6 @@
 {
   "name": "terminal-x",
-  "version": "1.9.21",
+  "version": "1.9.22",
   "private": true,
   "description": "Terminal X - POS System for Car Wash, Retail & Services",
   "author": "Studio X",
@@ -10,6 +10,7 @@
   ],
   "scripts": {
     "dev": "concurrently -k -n VITE,ELECTRON -c cyan,blue \"vite\" \"wait-on http://localhost:5173 && electron . --dev\"",
+    "dev:demo": "concurrently -k -n VITE,ELECTRON -c cyan,blue \"vite\" \"wait-on http://localhost:5173 && electron . --dev --user-data-dir=./.demo-userdata\"",
     "build:react": "vite build",
     "build:protected": "vite build --mode production && electron-builder",
     "dist": "npm run build:react && electron-builder",

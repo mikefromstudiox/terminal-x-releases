@@ -240,7 +240,9 @@
       "Read(//a/Studio X HUB/**)",
       "Bash(\"C:/Users/City/AppData/Roaming/Python/Python314/Scripts/graphify.exe\" install:*)",
       "Bash([ -f \"$f.txt\" ])",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(which supabase:*)",
+      "Bash(supabase --version)"
     ]
   },
   "spinnerTipsEnabled": false,

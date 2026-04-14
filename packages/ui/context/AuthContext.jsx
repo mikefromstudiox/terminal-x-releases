@@ -29,7 +29,7 @@ export function AuthProvider({ children }) {
   const [user, setUserState] = useState(loadStoredUser)
   const [webChecked, setWebChecked] = useState(!isWeb || !!loadStoredUser()) // desktop skips check; web skips if user already cached
 
-  // Persist user state on every change (web only)
+  // Persist user state on every change (web only) + push actor to electron DB
   const setUser = (u) => {
     setUserState(u)
     if (isWeb && typeof sessionStorage !== 'undefined') {
@@ -38,7 +38,10 @@ export function AuthProvider({ children }) {
         else sessionStorage.removeItem(STORAGE_KEY)
       } catch {}
     }
+    try { api?.activity?.setActor?.(u || null) } catch {}
   }
+
+  useEffect(() => { try { api?.activity?.setActor?.(user || null) } catch {} }, [api, user])
 
   // On web, check if business has staff — if none, allow temporary owner for setup.
   // Skip entirely if a cached user already exists (avoids wiping auth on navigation).

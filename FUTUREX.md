@@ -1,272 +1,66 @@
 # FUTUREX — Terminal X Roadmap
 
-Updated: 2026-04-05
+Updated: 2026-04-13
+
+Shipped features live in CLAUDE.md §Architecture Notes. This file is forward-looking work only.
 
 ---
 
 ## Active / In Progress
 
-### 1. DGII e-CF Certification — COMPLETE (2026-04-01)
-- [x] Steps 1-15 ALL COMPLETE — Certified Emisor Electrónico
-- [x] Receiver endpoints deployed at fe.terminalxpos.com + Vercel backup
-- [x] IndicadorEnvioDiferido for offline queue, ANECF voiding, cert status sync
-- [x] Seed auth via dgii-ecf library (multipart/form-data)
-- [ ] Switch env from `certecf` to `ecf` (production) when ready for live clients
+### DGII Production Switch
+- [ ] Switch env from `certecf` to `ecf` when ready to issue live e-CFs to clients
+- [ ] Install cert on desktop + trigger bizSync to push PEM to Supabase (unblocks web e-CF proxy)
+- [ ] End-to-end test e-CF submission from web at terminalxpos.com/pos
 
-### 2. Admin Panel — Client Onboarding (just built 2026-03-28)
-- [x] Day/night mode toggle (system/light/dark, same as Content X dashboard)
-- [x] Onboarding checklist — 8 milestones per client (business info, logo, auth, services, customers, first sale, fiscal, setup)
-- [x] Client detail page — `/admin/clients/:id` with full profile, license, metrics, staff, onboarding progress
-- [x] Quick actions — WhatsApp welcome, reset HWID, change plan, suspend/activate, extend +30d, copy key
-- [x] Activity feed on Dashboard — signups, first sales, expiring licenses, inactive clients, suspend/activate events
-- [x] Auto-registration flow — client fills setup, app registers in Supabase, waits for admin activation (no manual license key)
-- [x] RNC auto-format (XXX-XXXXX-X) and phone auto-format (XXX-XXX-XXXX) in FirstTimeSetup
-- [ ] Test with real client data end-to-end
-- [x] Admin i18n — Clients, Licenses, Team fully bilingual (112 strings)
+### Empleados — Remaining Items
+- [ ] Add tipo `seguridad` — update CHECK constraint in SQLite + Supabase
+- [ ] Migrate legacy data — auto-create empleado records for washers/sellers without one
+- [ ] Verify Liquidacion end-to-end with real data
 
-### 2b. Admin Panel — Remote Client Management (planned)
-The admin panel is the central hub for the Terminal X support team. Clients can configure everything themselves from their desktop Settings, but the admin team can also do it for them remotely. This is the #1 differentiator vs other POS systems in DR: **"We handle the tech so you focus on your business."**
+### First Client Onboarding Test
+- [ ] Create real client via /signup or admin panel
+- [ ] Walk through: add services, create ticket, cobrar, print, reports
+- [ ] Verify commissions + credit flow
+- [ ] Test on mobile PWA
 
-**Dual-control philosophy:** Every setting works both ways — client can change it locally, admin team can override/configure remotely. Desktop syncs from Supabase on each license validation poll. No reinstall ever.
+### Supabase Edge Functions
+- [ ] `supabase functions deploy whatsapp-send` — WhatsApp receipts on web
+- [ ] `supabase functions deploy rnc-lookup` — RNC lookup via Edge Function
+- Blocker: Supabase CLI with Docker, or deploy from Dashboard
 
----
+### Desktop Installer — Code Signing
+- [ ] EV/OV code signing cert (DigiCert/Sectigo/SSL.com ~$200-400/yr)
+- [ ] Configure `win.certificateFile` / `win.certificatePassword` in electron-builder
+- Required to eliminate SmartScreen "Unknown publisher" warnings
 
-#### Plan Tiers — What's Included
-
-| Feature | Pro (RD$2,490/mes) | Pro PLUS (RD$4,490/mes) | Pro MAX (RD$6,990/mes) |
-|---|---|---|---|
-| **POS core** (tickets, cobrar, print) | Yes | Yes | Yes |
-| **Clients directory** | Yes | Yes | Yes |
-| **Basic reports** (daily/monthly) | Yes | Yes | Yes |
-| **NCF B-series** (paper fiscal) | Yes | Yes | Yes |
-| **Credits & credit notes** | - | Yes | Yes |
-| **Inventory management** | - | Yes | Yes |
-| **Commissions (washer/seller/cajero)** | - | Yes | Yes |
-| **Cash reconciliation + petty cash** | - | Yes | Yes |
-| **Advanced reports** (salesperson, payroll) | - | Yes | Yes |
-| **e-CF electronic invoicing** | - | Yes | Yes |
-| **WhatsApp receipt delivery** | - | - | Yes |
-| **Remote dashboard** | - | - | Yes |
-| **Multi-user (5+ staff)** | 2 users | 5 users | Unlimited |
-| | | | |
-| **Support level** | | | |
-| Self-service (Settings on desktop) | Yes | Yes | Yes |
-| Admin team HAS access (read-only) | Yes | Yes | Yes |
-| **Remote config by admin team** | **NO** | **Yes** | **Yes** |
-| **WhatsApp support line** | **NO** | **Yes — business hours** | **Yes — priority** |
-| **On-site visit** | **Paid (upsell trigger)** | 1 visit/quarter | 1 visit/month |
-| **Dedicated account manager** | - | - | Yes |
-| **Custom service templates** | - | Yes | Yes |
-| **Priority onboarding** | - | - | Yes (same-day) |
-
-**The Pro upsell play:** Admin team can SEE the Pro client's data (read-only access for troubleshooting) but CANNOT configure remotely. When a Pro client calls for help:
-> "Lamentablemente no podemos acceder a tu sistema de forma remota con el plan basico. Pero te podemos enviar a un tecnico a tu negocio por RD$X,XXX... o puedes actualizar a Pro PLUS por solo RD$2,000 mas al mes y nuestro equipo te configura todo remotamente ahora mismo."
-
-The client either pays for a visit (revenue) or upgrades (recurring revenue). Either way you win.
-
----
-
-#### Phase A — Remote Config Sync (foundation) — COMPLETE
-- [x] **Config sync on validate** — validate.js fetches remoteConfig from app_settings, LicenseContext applies via api.settings.update() every 4h
-- [x] **Admin config editor** — ConfigEditor.jsx in ClientDetail config tab: fiscal, WhatsApp, printer, features, templates, notes
-- [x] **Plan-gated remote access** — Pro/starter/free: read-only with lock banner. Pro PLUS/MAX: full edit access
-- [x] **Sync indicator on desktop** — ConnectionDot (online/syncing/offline) + manual sync button in Sidebar next to dark mode toggle
-
-#### Phase B — Per-Client Customization (Pro PLUS & MAX only) — COMPLETE
-- [x] **UltraMsg / WhatsApp per client** — ConfigEditor has instance_id + token fields, desktop picks up via remoteConfig
-- [x] **Fiscal mode toggle** — ConfigEditor has B-series/e-CF toggle
-- [x] **Feature flags per client** — ConfigEditor has toggles for inventory, credits, commissions, etc.
-- [x] **Custom service templates** — ConfigEditor has push presets (carwash, mechanic, dealer)
-- [x] **Remote printer config** — ConfigEditor has printer name + width fields
-- [x] **Logo upload from admin** — base64 upload to Supabase Storage, updates businesses.logo_url
-
-#### Phase C — Support & Operations — PARTIALLY COMPLETE
-- [x] **Client notes / support log** — structured JSON array with timestamps, author, add/delete. Migrates plain text automatically
-- [ ] **Support ticket system** — client can report issues from desktop (button in sidebar), shows up in admin panel. Pro PLUS/MAX only.
-- [x] **Health dashboard** — Dashboard shows Active Today (businesses with sales), Validations Today, Offline 7d count
-- [ ] **Bulk actions** — send announcement to all clients, mass plan change, bulk feature toggle
-- [ ] **Scheduled tasks** — auto-suspend clients with unpaid invoices after X days
-- [ ] **Visit scheduler** — track on-site visits per client (Pro MAX gets 1/month, Pro PLUS gets 1/quarter, Pro pays per visit)
-
-#### Admin Team Daily Workflow (first hire)
-The first admin hire handles all client-facing technical work:
-1. **Morning check** — open admin dashboard, review activity feed (new signups, inactive clients, expiring licenses)
-2. **New client onboarding** — see pending registrations, activate license. Pro PLUS/MAX: configure WhatsApp + fiscal + services. Pro: just activate, client self-configures
-3. **Support** — respond to WhatsApp (Pro PLUS/MAX only). Pro clients who call → upsell script: "upgrade to get remote support, or we send a technician"
-4. **Upsell** — identify Pro clients hitting feature gates or calling for help → pitch Pro PLUS
-5. **Billing** — track payments, suspend unpaid, extend paid
-6. **Reporting** — weekly summary: active clients, revenue per client, churn risk, upsell opportunities
-7. **On-site visits** — schedule and track visits for Pro MAX (monthly) and Pro PLUS (quarterly)
-
----
-
-## Next Up — Priority Order
-
-### Empleados Overhaul — MOSTLY COMPLETE (2026-04-08/11)
-Employee consolidation shipped in v1.9.2 + v1.9.20. Unified Empleados screen replaces old Lavadores/Vendedores/Cajeras tabs. Settings sidebar reduced 13→8 items. Usuarios simplified to login-only.
-
-- [x] Unified Empleados screen (top-level sidebar) — single source of truth
-- [x] Commission % per employee (`comision_pct` column on `empleados`)
-- [x] `hybrid` tipo supported
-- [x] Remove separate Settings panels (Lavadores/Vendedores/Cajeras)
-- [x] Usuarios simplified: pick employee → set username + PIN only
-- [x] Settings restructured: Mi Empresa (WhatsApp/Fiscal/Respaldo), Preferencias (Impresion)
-- [ ] **Add tipo `seguridad`** — security personnel. Update CHECK constraint in SQLite + Supabase
-- [ ] **Migrate existing data** — auto-create empleado records for washers/sellers without one
-- [ ] **Liquidacion** — verify end-to-end with real data
-
-### 3. First Client Onboarding Test
-- [ ] Create a real client account via /signup or admin panel
-- [ ] Walk through: add services, create ticket, cobrar, print, check reports
-- [ ] Verify commissions (washers/sellers/cajeros)
-- [ ] Verify credit flow: create credit ticket, collect payment
-- [ ] Test on mobile (PWA at terminalxpos.com/pos)
-- [ ] Use admin activity feed to monitor progress
-
-### 4. Deploy Supabase Edge Functions
-- [ ] `supabase functions deploy whatsapp-send` — enables WhatsApp receipts on web
-- [ ] `supabase functions deploy rnc-lookup` — enables RNC lookup via Edge Function
-- Blocker: need Supabase CLI with Docker, or deploy from Supabase Dashboard
-
-### 5. Finalize Plan Pricing in Supabase
-- [x] Landing page shows: Pro RD$2,490 / Pro PLUS RD$4,490 / Pro MAX RD$6,990 (annual 15% off)
-- [x] Seed `plans` table with correct pricing + max_users + feature lists (migration created)
-- [ ] Add payment flow (Azul gateway or manual WhatsApp-based for now)
-
-### 6. Desktop Build + Installer
-- [x] License validation points to Vercel (terminalxpos.com/api/validate)
-- [x] Railway fallback removed from codebase
-- [x] v1.5.0 built and published to GitHub releases (2026-04-07, 210 MB) — includes retail mode, multi-business type, CSV import, performance optimization
-- [ ] **Windows code signing certificate** — installer currently triggers SmartScreen warnings ("Unknown publisher"). Purchase an EV or OV code signing certificate (e.g., DigiCert, Sectigo, SSL.com ~$200-400/yr) and configure in electron-builder `win.certificateFile` / `win.certificatePassword` to sign the .exe. Required before distributing to clients.
-- [ ] Test full desktop license flow end-to-end
-
-### 7. Marketing Push
-- [ ] Facebook/WhatsApp group posts in Santiago/Santo Domingo
-- [ ] Demo video: ticket -> print -> report -> e-CF
-- [ ] WhatsApp support number on landing page: +18098282971
-
-### 8. Website Redesign — Studio X Tech Hub
-- [ ] Rebrand studioxrdtech.com as umbrella brand
-- [ ] Terminal X POS section with feature breakdown
-- [ ] Content/Media, Camera installs, Computer store sections
-- [ ] Solutions grid inspired by barolit.com
-
----
-
-## Completed (shipped)
-
-### SaaS Platform (March 2026)
-- Landing page, signup flow, admin panel, plan gating, license validation
-- Supabase backend, Vercel hosting, all API routes consolidated
-- Brand redesign: black sidebar, white content, deep crimson #b3001e
-
-### Web/PWA (March 2026)
-- Live at terminalxpos.com backed by Supabase
-- Platform abstraction via DataContext + web.js/electron.js (3-file pattern, no monorepo needed)
-- Offline queue (IndexedDB), service worker, PDF fallback printing
-- All screens working: POS, Queue, Clients, Credits, Reports, Settings, Inventory, DGII, etc.
-- Deep platform audit: 16 issues + 79 silent catches fixed
-
-### e-CF / Fiscal
-- DGII Direct (Emisor Electronico) — xml-builder, xml-signer, dgii-client, cert-manager
-- ef2.do intermediary dropped entirely
-- All 10 e-CF types + RFCE built and signed
-- QR URLs per DGII spec (ecf.dgii.gov.do vs fc.dgii.gov.do for E32<250K)
-- CodigoSeguridad = SignatureValue[0:6] (raw base64, no hashing)
-
-### Printing & Receipts
-- ESC/POS 80mm thermal (42 chars, Code Page 858)
-- PDF generation (pdf-lib), HTML report exports, CSV exports with letterhead
-- Receipt preview popup with Imprimir/WhatsApp/Cerrar
-- Mobile print via iframe (no popup blocker issues)
-
-### License System
-- Supabase: plans, licenses, license_events, admin_users tables
-- Desktop: HWID-based TXL-XXXX-XXXX-XXXX keys
-- Web: Vercel /api/validate with rate limiting + CORS
-- 72h offline grace period
-
-### Multi-Business Type / Retail Mode (April 2026)
-- `useBusinessType()` hook — carwash, tienda, otro — switches entire POS experience
-- **RetailPOS** — barcode/SKU search, product grid from inventory, cart with qty +/-, no queue/washers
-- **CarWashPOS** — service grid, queue, washer assignment, commissions (unchanged)
-- Sidebar nav filters by business type (Queue hidden for retail, Inventory promoted)
-- FirstTimeSetup business type selector + Settings panel
-- Ticket items now store quantity, sku, inventory_item_id
-- Auto-deduct stock on sale, reverse on void
-- Low stock badge on Sidebar inventory nav
-- CSV product import (parse SKU/Barcode/Name/Category/Price/Cost/Stock/MinStock, preview, bulk insert)
-- Products sales report (units sold, revenue, cost, profit by SKU — date range, sortable, totals)
-- CobrarModal, printer, PDF all quantity-aware (2x Product Name)
-- e-CF XML: CantidadItem, PrecioUnitarioItem, IndicadorBienoServicio per DGII spec
-- Landing page Multi-Negocio showcase section
-- Supabase schema: quantity/sku/inventory_item_id on ticket_items, barcode/aplica_itbis on inventory_items
-
-### UX
-- Dark mode toggle (POS + Admin)
-- Keyboard shortcuts (F1/F2/F3)
-- Sidebar restructured (13 items -> 8 with sub-menus)
-- Bilingual ES/EN throughout
-- Commission system (washer/seller/cajero)
-- Payroll/Nominas with Ley 16-92 liquidacion
+### Payment Flow
+- [ ] Azul gateway integration (or continue manual WhatsApp-based billing)
 
 ---
 
 ## Future / Backlog
 
 ### SEO — Google Top 5 Ranking
-Terminal X needs to rank for "sistema POS Republica Dominicana", "facturacion electronica DGII", "punto de venta RD", etc. Technical SEO is done (structured data, hreflang, geo meta, FAQPage schema). Remaining manual steps:
-- [ ] Register **Google Business Profile** with Studio X SRL Santo Domingo address — critical for local search ranking
-- [ ] Submit sitemap at **google.com/webmasters** (Google Search Console) — verify ownership, submit sitemap.xml, request indexing
-- [ ] Get **.do domain backlinks** — list in DR business directories, chambers of commerce (AIRD, CONEP), local tech blogs
-- [ ] Add **/guia** blog section targeting informational queries ("como facturar electronicamente DGII", "que es e-CF Ley 32-23", "mejor sistema POS dominicano") — content marketing drives organic traffic
-- [ ] Create demo video for YouTube (appears in Google search results) — "Terminal X POS: Facturacion e-CF en 2 minutos"
+Technical SEO is done (structured data, hreflang, geo meta, FAQPage schema). Remaining manual steps:
+- [ ] Register Google Business Profile with Studio X SRL Santo Domingo address
+- [ ] Submit sitemap in Google Search Console, verify ownership, request indexing
+- [ ] Get .do domain backlinks — AIRD, CONEP, local tech blogs
+- [ ] Add `/guia` blog section (informational queries: "como facturar electronicamente DGII", "que es e-CF Ley 32-23")
+- [ ] YouTube demo video — "Terminal X POS: Facturacion e-CF en 2 minutos"
 
-- [ ] Azul payment gateway integration
+### Reports — Net Profit Tracking
+Currently shows gross revenue only (`Total Facturado`). Add:
+- Snapshot item cost into `ticket_items.cost` at time of sale
+- Sum `(price - cost) × qty` per ticket
+- Show "Ganancia Neta" alongside "Total Facturado" (hide for service-only clients)
+
+### Marketing Push
+- [ ] Facebook/WhatsApp group posts in Santiago/Santo Domingo
+- [ ] Demo video: ticket → print → report → e-CF
+
+### Other Backlog
 - [ ] Sucursales (multi-branch) — hidden from UI, reintroduce when built
 - [ ] Auto-backup always-on (remove toggle, make sync automatic)
 - [ ] Concurrent Electron + Web usage testing (same business, same data)
-- [x] Add date indexes on tickets, ticket_items, credit_payments, cuadre tables for fast report queries at scale
-- [x] Monorepo migration — complete (packages/ui, services, data with npm workspaces)
-
-### Nóminas (Payroll) — Full in-house payroll center (COMPLETE 2026-04-05)
-Expanded Reportes → Nómina from a single severance calculator into a 5-view payroll app so Michael + accountant can run payroll + fiscal filings in-house without an external accountant.
-- [x] **5 sub-views**: Dashboard · Empleados · Pagos · Reportes · Ajustes (all under `packages/ui/screens/reports/nomina/`)
-- [x] **Paycheck history table** (`payroll_runs`) with itemised deductions: SFS/AFP empleado, ISR, otros, + employer liabilities (SFS/AFP empleador, INFOTEP)
-- [x] **Salary change audit log** (`salary_changes`) — auto-recorded on every salary edit with old/new/effective_date/reason
-- [x] **Per-business payroll settings** (`payroll_settings`) — pay cycle, editable rates, TSS caps 2026, ISR brackets, legal constants
-- [x] **Bulk pay run (Pagos view)** — quincenal/mensual/custom period, auto-computed table for all active employees, transactional bulkCreate, auto-marks commissions paid
-- [x] **Auto-computed deductions** using `lib/isr.js` (DR progressive brackets with cycle-aware annualization) and `lib/tss.js` (separate SFS/AFP caps)
-- [x] **INFOTEP 1% employer** (no cap) calculated and tracked per run
-- [x] **Accountant reports** (NominaReportes view): TSS+INFOTEP PDF/CSV, ISR PDF/CSV with YTD, Nómina completa CSV (QuickBooks/Alegra format), Recibos batch print, Liquidaciones acumuladas (termination liability snapshot)
-- [x] **Individual pay stubs** (`printPaycheckStub`) — formal Recibo de Pago with business letterhead, itemised breakdown, signature lines
-- [x] **Dashboard view** — metric cards, pending actions, activity feed, 6-month SVG commission trends chart (stacked by tipo)
-- [x] **Empleados view** — profile, stats, inner sub-tabs: Historial de Pagos · Comisiones · Liquidación · Cambios de salario
-- [x] **Commission-only workers** — lavadores/vendedores/cajeros can be paid without fixed salary (auto-base from period's commissions)
-- [x] **Supabase mirror** — migration `20260405000002_nomina_expansion.sql` with full RLS per tenant
-
-### Reports — Net Profit Tracking
-- [ ] Reports currently show gross revenue only (`Total Facturado`). Add net profit calculation:
-  - Snapshot item cost into `ticket_items.cost` at time of sale
-  - Sum `(price - cost) × qty` across line items for each ticket
-  - Show "Ganancia Neta" metric alongside "Total Facturado"
-  - Only meaningful for resale/product businesses; service-only clients can hide it
-
-## Server-Side e-CF Signing Proxy (Web e-CF Support) — BUILT 2026-04-12
-
-**Status:** Code complete, pending deploy + end-to-end test
-
-**Architecture (implemented):**
-- Vercel serverless function at `/api/ecf-sign` (`web/api/ecf-sign.js`)
-- ESM ports of signing modules in `web/lib/` (xml-builder.mjs, xml-signer.mjs, dgii-client.mjs)
-- Web client calls proxy transparently via `dgii_ecf` in `web.js` — ecf.js unchanged
-- Desktop pushes PEM keys to Supabase via bizSync during license validation
-- Cert stored in `businesses.settings.ecf_private_key_pem` + `ecf_certificate_pem`
-- Auth: Supabase JWT → verify user → resolve business_id → load cert from settings
-- Private key never leaves server (browser only sends invoice data)
-
-**Deploy checklist:**
-- [ ] Deploy web with updated deploy script (includes `web/lib/` + `dgii-ecf` dep)
-- [ ] Install cert on desktop, trigger license validation to push PEM to Supabase
-- [ ] Test e-CF submission from web at terminalxpos.com/pos
-- [ ] Verify QR code + DGII status
+- [ ] Website redesign — studioxrdtech.com as umbrella brand (Terminal X, Content/Media, Camera, Computer store)
