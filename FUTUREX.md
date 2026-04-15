@@ -1,6 +1,6 @@
 # FUTUREX — Terminal X Roadmap
 
-Updated: 2026-04-13
+Updated: 2026-04-15
 
 Shipped features live in CLAUDE.md §Architecture Notes. This file is forward-looking work only.
 
@@ -8,31 +8,30 @@ Shipped features live in CLAUDE.md §Architecture Notes. This file is forward-lo
 
 ## Active / In Progress
 
-### DGII Production Switch
+### Desktop Installer — Code Signing (THIS WEEK)
+- [ ] EV/OV code signing cert (DigiCert/Sectigo/SSL.com ~$200-400/yr)
+- [ ] Configure `win.certificateFile` / `win.certificatePassword` in electron-builder
+- Required to eliminate SmartScreen "Unknown publisher" warnings
+
+### DGII Production Switch (DEFERRED — not switching yet)
 - [ ] Switch env from `certecf` to `ecf` when ready to issue live e-CFs to clients
 - [ ] Install cert on desktop + trigger bizSync to push PEM to Supabase (unblocks web e-CF proxy)
 - [ ] End-to-end test e-CF submission from web at terminalxpos.com/pos
 
 ### Empleados — Remaining Items
-- [ ] Add tipo `seguridad` — update CHECK constraint in SQLite + Supabase
-- [ ] Migrate legacy data — auto-create empleado records for washers/sellers without one
-- [ ] Verify Liquidacion end-to-end with real data
+- [ ] Verify Liquidacion end-to-end with real data (code exists in `NominaReportes.jsx`, needs e2e run)
 
 ### First Client Onboarding Test
+Scaffolding shipped (`SignupPage.jsx` + `web/api/signup/provision.js`). Still need real-world validation:
 - [ ] Create real client via /signup or admin panel
 - [ ] Walk through: add services, create ticket, cobrar, print, reports
 - [ ] Verify commissions + credit flow
 - [ ] Test on mobile PWA
 
-### Supabase Edge Functions
-- [ ] `supabase functions deploy whatsapp-send` — WhatsApp receipts on web
-- [ ] `supabase functions deploy rnc-lookup` — RNC lookup via Edge Function
-- Blocker: Supabase CLI with Docker, or deploy from Dashboard
-
-### Desktop Installer — Code Signing
-- [ ] EV/OV code signing cert (DigiCert/Sectigo/SSL.com ~$200-400/yr)
-- [ ] Configure `win.certificateFile` / `win.certificatePassword` in electron-builder
-- Required to eliminate SmartScreen "Unknown publisher" warnings
+### Supabase Edge Functions — Verify Deployment
+Source exists (`supabase/functions/whatsapp-send/index.ts`, `supabase/functions/rnc-lookup/index.ts`). Confirm deployed to project and callable from web.
+- [ ] Verify `whatsapp-send` deployed + live
+- [ ] Verify `rnc-lookup` deployed + live
 
 ### Payment Flow
 - [ ] Azul gateway integration (or continue manual WhatsApp-based billing)
@@ -49,18 +48,21 @@ Technical SEO is done (structured data, hreflang, geo meta, FAQPage schema). Rem
 - [ ] Add `/guia` blog section (informational queries: "como facturar electronicamente DGII", "que es e-CF Ley 32-23")
 - [ ] YouTube demo video — "Terminal X POS: Facturacion e-CF en 2 minutos"
 
-### Reports — Net Profit Tracking
-Currently shows gross revenue only (`Total Facturado`). Add:
-- Snapshot item cost into `ticket_items.cost` at time of sale
-- Sum `(price - cost) × qty` per ticket
-- Show "Ganancia Neta" alongside "Total Facturado" (hide for service-only clients)
-
 ### Marketing Push
 - [ ] Facebook/WhatsApp group posts in Santiago/Santo Domingo
 - [ ] Demo video: ticket → print → report → e-CF
 
 ### Other Backlog
-- [ ] Sucursales (multi-branch) — hidden from UI, reintroduce when built
-- [ ] Auto-backup always-on (remove toggle, make sync automatic)
 - [ ] Concurrent Electron + Web usage testing (same business, same data)
 - [ ] Website redesign — studioxrdtech.com as umbrella brand (Terminal X, Content/Media, Camera, Computer store)
+
+---
+
+## Recently Shipped (removed from active)
+
+- **Reports — Net Profit Tracking** — `ticket_items.cost` snapshotted at sale, "Ganancia Neta" shown in `DailyReport.jsx:628`
+- **Supabase Edge Function sources** — both functions implemented (deployment verification still pending above)
+- **Empleados `seguridad` tipo** — SQLite CHECK dropped in v1.9.15; Supabase CHECK dropped 2026-04-15 via migration `20260415000000_empleados_tipo_check_drop.sql` (applied to prod)
+- **Empleados legacy backfill** — v1.9.22 auto-creates empleados from washers/sellers (`database.js:366-388`)
+- **Auto-backup always-on** — 2026-04-15: dead toggle removed from `Settings.jsx`. `autoBackup()` already runs nightly at 02:00 via `startSchedulers()` in `packages/services/backup.js`
+- **Sucursales stub removed** — 2026-04-15: no-op toggle + nav entry stripped from `Settings.jsx`. Reintroduce only when multi-branch is actually built

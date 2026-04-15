@@ -17,6 +17,8 @@ import { manualBackup, restoreFromBackup } from '@terminal-x/services/backup.js'
 import { testConnection } from '@terminal-x/services/supabase.js'
 import ExportToCloud from '../components/ExportToCloud'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
+import { BUSINESS_TYPES, BUSINESS_TYPE_KEYS, isBusinessTypeEnabled } from '@terminal-x/config/businessTypes'
+import { setupBusinessType } from '@terminal-x/data/setupBusinessType'
 
 // ── Sidebar nav structure ─────────────────────────────────────────────────────
 const NAV = [
@@ -64,7 +66,6 @@ const NAV = [
       { key: 'impresoras', label: 'Impresoras',          icon: Printer      },
       { key: 'idioma',     label: 'Idioma / Language',   icon: Globe        },
       { key: 'backup',     label: 'Respaldo / Backup',   icon: HardDrive    },
-      { key: 'sucursales', label: 'Sucursales',          icon: GitBranch    },
       { key: 'tasas',      label: 'Tasas y Monedas',     icon: BadgeDollarSign },
     ],
   },
@@ -991,8 +992,6 @@ function PanelImpresoras({ onSave }) {
 
 function PanelSistema({ onSave }) {
   const [lang, setLang]       = useState('ES')
-  const [sucursales, setSuc]  = useState(false)
-  const [backup, setBackup]   = useState(true)
   const [ley10, setLey10]     = useState(true)
   const [verRNC, setVerRNC]   = useState(false)
   const [usdRate, setUsdRate] = useState('59.50')
@@ -1011,9 +1010,6 @@ function PanelSistema({ onSave }) {
             ))}
           </div>
         </FieldRow>
-        <FieldRow label="Sucursales"><Toggle on={sucursales} onToggle={() => setSuc(v => !v)} label={sucursales ? 'Habilitado' : 'Deshabilitado'} /></FieldRow>
-
-        <FieldRow label="Respaldo automático"><Toggle on={backup} onToggle={() => setBackup(v => !v)} label={backup ? 'Activo' : 'Inactivo'} /></FieldRow>
         <FieldRow label="Aplicar Ley 10%"><Toggle on={ley10} onToggle={() => setLey10(v => !v)} label={ley10 ? 'Sí' : 'No'} /></FieldRow>
         <FieldRow label="Verificar RNC/NCF (DGII)"><Toggle on={verRNC} onToggle={() => setVerRNC(v => !v)} label={verRNC ? 'Activo' : 'Inactivo'} /></FieldRow>
       </div>
@@ -1230,28 +1226,42 @@ function PanelBackup({ onSave }) {
 }
 
 // ── Business type panel ───────────────────────────────────────────────────────
-const BIZ_TYPE_OPTIONS = [
-  { value: 'carwash',    icon: Car,              label: 'Car Wash',   desc: 'Lavado, detailing, servicios automotrices con cola y lavadores.' },
-  { value: 'retail',     icon: Store,            label: 'Retail',     desc: 'Tienda de productos con inventario, SKU y código de barras.' },
-  { value: 'service',    icon: Wrench,           label: 'Servicios',  desc: 'Servicios profesionales, salón, taller, consultoría.' },
-  { value: 'dealership', icon: CarFront,         label: 'Dealership', desc: 'Venta de vehículos, con inventario de unidades. (próximamente)' },
-  { value: 'restaurant', icon: UtensilsCrossed,  label: 'Restaurante',desc: 'Restaurante, cafetería, comida para llevar. (próximamente)' },
-  { value: 'hybrid',     icon: LayoutGrid,       label: 'Híbrido',    desc: 'Combinación — ej: lavadero con tienda de bebidas.' },
-]
+const TYPE_ICONS_SETTINGS = { Car, Store, Wrench, Briefcase, CarFront, UtensilsCrossed, LayoutGrid }
+const BIZ_TYPE_OPTIONS = BUSINESS_TYPE_KEYS.map(key => {
+  const cfg = BUSINESS_TYPES[key]
+  return {
+    value: key,
+    icon: TYPE_ICONS_SETTINGS[cfg.icon] || Briefcase,
+    label: cfg.label.es,
+    desc: cfg.description.es,
+    disabled: !cfg.enabled,
+  }
+})
 
 function PanelTipoNegocio({ onSave }) {
+  const api = useAPI()
   const { businessType, setBusinessType } = useBusinessType()
   const [selected, setSelected] = useState(businessType)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => { setSelected(businessType) }, [businessType])
 
   async function handleSave() {
     setSaving(true)
+    setError('')
     try {
+      if (!isBusinessTypeEnabled(selected)) {
+        throw new Error('Este tipo de negocio aún no está disponible.')
+      }
+      await setupBusinessType(api, selected)
       await setBusinessType(selected)
       onSave()
-    } catch {} finally { setSaving(false) }
+    } catch (e) {
+      setError(e?.message || 'No se pudo cambiar el tipo de negocio.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -1262,21 +1272,29 @@ function PanelTipoNegocio({ onSave }) {
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
-        {BIZ_TYPE_OPTIONS.map(({ value, icon: Icon, label, desc }) => (
+        {BIZ_TYPE_OPTIONS.map(({ value, icon: Icon, label, desc, disabled }) => (
           <button
             key={value}
-            onClick={() => setSelected(value)}
-            className={`flex flex-col items-center gap-2 p-5 rounded-xl border-2 text-center transition-all
-              ${selected === value
-                ? 'border-blue-500 bg-blue-500/5 dark:bg-blue-500/10'
-                : 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-slate-300 dark:hover:border-white/20'
+            disabled={disabled}
+            onClick={() => { if (!disabled) setSelected(value) }}
+            className={`relative flex flex-col items-center gap-2 p-5 rounded-xl border-2 text-center transition-all
+              ${disabled
+                ? 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 opacity-50 cursor-not-allowed'
+                : selected === value
+                  ? 'border-blue-500 bg-blue-500/5 dark:bg-blue-500/10'
+                  : 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-slate-300 dark:hover:border-white/20'
               }`}
           >
+            {disabled && (
+              <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide bg-slate-900/80 text-white dark:bg-white/10 dark:text-white/70">
+                Próximamente
+              </span>
+            )}
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center
-              ${selected === value ? 'bg-blue-500/10' : 'bg-slate-100 dark:bg-white/10'}`}>
-              <Icon size={20} className={selected === value ? 'text-blue-500' : 'text-slate-400 dark:text-white/40'} />
+              ${selected === value && !disabled ? 'bg-blue-500/10' : 'bg-slate-100 dark:bg-white/10'}`}>
+              <Icon size={20} className={selected === value && !disabled ? 'text-blue-500' : 'text-slate-400 dark:text-white/40'} />
             </div>
-            <p className={`text-sm font-semibold ${selected === value ? 'text-blue-600 dark:text-blue-400' : 'text-slate-700 dark:text-white'}`}>
+            <p className={`text-sm font-semibold ${selected === value && !disabled ? 'text-blue-600 dark:text-blue-400' : 'text-slate-700 dark:text-white'}`}>
               {label}
             </p>
             <p className="text-[11px] text-slate-400 dark:text-white/40 leading-tight">{desc}</p>
@@ -1290,6 +1308,13 @@ function PanelTipoNegocio({ onSave }) {
           <p className="text-xs text-amber-700 dark:text-amber-300">
             Cambiar el tipo de negocio modificará la navegación y funciones visibles del POS. Tus datos no se perderán.
           </p>
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-lg p-3 mb-4 flex items-start gap-2">
+          <AlertTriangle size={14} className="text-red-500 mt-0.5 shrink-0" />
+          <p className="text-xs text-red-700 dark:text-red-300">{error}</p>
         </div>
       )}
 
@@ -1321,7 +1346,6 @@ function PanelContent({ active, onSave }) {
     case 'impresoras': return <PanelImpresoras onSave={onSave} />
     case 'backup':     return <PanelBackup     onSave={onSave} />
     case 'idioma':
-    case 'sucursales':
     case 'tasas':      return <PanelSistema    onSave={onSave} />
     default: {
       const all  = NAV.flatMap(g => g.items)

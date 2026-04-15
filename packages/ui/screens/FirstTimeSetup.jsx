@@ -5,12 +5,13 @@ import {
   ChevronRight, ChevronLeft, Upload, Loader2,
   AlertTriangle, Globe, X, Eye, EyeOff,
   ReceiptText, Printer, Wifi, ArrowRight, Mail,
-  Car, Store, Briefcase,
+  Car, Store, Briefcase, UtensilsCrossed, CarFront, LayoutGrid,
 } from 'lucide-react'
 import { isValidKeyFormat } from '@terminal-x/services/license'
 import { useAPI } from '../context/DataContext'
 import { useLicense } from '../context/LicenseContext'
 import { getSupabaseClient, setStoredSetting, getStoredSetting, ensureBusinessRegistered } from '@terminal-x/services/supabase'
+import { BUSINESS_TYPES, BUSINESS_TYPE_KEYS, isBusinessTypeEnabled } from '@terminal-x/config/businessTypes'
 
 // ── Bilingual copy ─────────────────────────────────────────────────────────────
 const COPY = {
@@ -420,16 +421,23 @@ function StepWelcome({ t, onNext }) {
 }
 
 // ── Step 1 — Empresa ──────────────────────────────────────────────────────────
-// Values match the canonical set in useBusinessType.jsx. Keeping the existing
-// i18n keys (tienda/otro) since they render close-enough Spanish labels —
-// dealership/restaurant are deferred to a future wizard pass.
-const BIZ_TYPES = [
-  { value: 'carwash', icon: Car,       labelKey: 's1_btype_carwash', descKey: 's1_btype_cw_desc' },
-  { value: 'retail',  icon: Store,     labelKey: 's1_btype_tienda',  descKey: 's1_btype_ti_desc' },
-  { value: 'service', icon: Briefcase, labelKey: 's1_btype_otro',    descKey: 's1_btype_ot_desc' },
-]
+// Type list is derived from the BUSINESS_TYPES registry in @terminal-x/config.
+// Add a new vertical there and it shows up here automatically.
+const TYPE_ICONS = {
+  Car, Store, Briefcase, UtensilsCrossed, CarFront, LayoutGrid,
+}
+const BIZ_TYPES = BUSINESS_TYPE_KEYS.map(key => {
+  const cfg = BUSINESS_TYPES[key]
+  return {
+    value: key,
+    icon: TYPE_ICONS[cfg.icon] || Briefcase,
+    label: cfg.label,
+    description: cfg.description,
+    disabled: !cfg.enabled,
+  }
+})
 
-function StepEmpresa({ t, onNext, onBack }) {
+function StepEmpresa({ t, lang, onNext, onBack }) {
   const api = useAPI()
   const [bizType,  setBizType]  = useState('carwash')
   const [nombre,   setNombre]   = useState('')
@@ -492,26 +500,34 @@ function StepEmpresa({ t, onNext, onBack }) {
             <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
               {t('s1_btype')}
             </label>
-            <div className="grid grid-cols-3 gap-2">
-              {BIZ_TYPES.map(({ value, icon: Icon, labelKey, descKey }) => (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {BIZ_TYPES.map(({ value, icon: Icon, label, description, disabled }) => (
                 <button
                   key={value}
                   type="button"
-                  onClick={() => setBizType(value)}
-                  className={`flex flex-col items-center gap-1.5 px-2 py-3 rounded-xl border-2 text-center transition-all
-                    ${bizType === value
-                      ? 'border-red-500 bg-red-500/5'
-                      : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-500'
+                  disabled={disabled}
+                  onClick={() => !disabled && setBizType(value)}
+                  className={`relative flex flex-col items-center gap-1.5 px-2 py-3 rounded-xl border-2 text-center transition-all
+                    ${disabled
+                      ? 'border-zinc-800 bg-zinc-900/40 opacity-50 cursor-not-allowed'
+                      : bizType === value
+                        ? 'border-red-500 bg-red-500/5'
+                        : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-500'
                     }`}
                 >
+                  {disabled && (
+                    <span className="absolute top-1 right-1 text-[8px] uppercase tracking-wider text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">
+                      {lang === 'en' ? 'Soon' : 'Próx.'}
+                    </span>
+                  )}
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center
-                    ${bizType === value ? 'bg-red-600/20' : 'bg-zinc-700'}`}>
-                    <Icon size={15} className={bizType === value ? 'text-red-400' : 'text-zinc-400'} />
+                    ${bizType === value && !disabled ? 'bg-red-600/20' : 'bg-zinc-700'}`}>
+                    <Icon size={15} className={bizType === value && !disabled ? 'text-red-400' : 'text-zinc-400'} />
                   </div>
-                  <p className={`text-[11px] font-semibold leading-tight ${bizType === value ? 'text-white' : 'text-zinc-300'}`}>
-                    {t(labelKey)}
+                  <p className={`text-[11px] font-semibold leading-tight ${bizType === value && !disabled ? 'text-white' : 'text-zinc-300'}`}>
+                    {label[lang] || label.es}
                   </p>
-                  <p className="text-[9px] text-zinc-500 leading-tight">{t(descKey)}</p>
+                  <p className="text-[9px] text-zinc-500 leading-tight">{description[lang] || description.es}</p>
                 </button>
               ))}
             </div>
@@ -1284,6 +1300,7 @@ export default function FirstTimeSetup({ onComplete }) {
         {step === 1 && (
           <StepEmpresa
             t={t}
+            lang={lang}
             onBack={() => setStep(0)}
             onNext={({ rnc, nombre }) => {
               setEmpresaRnc(rnc)

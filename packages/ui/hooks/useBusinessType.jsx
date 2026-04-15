@@ -1,18 +1,22 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react'
 import { useAPI } from '../context/DataContext'
+import {
+  BUSINESS_TYPE_KEYS,
+  getBusinessTypeConfig,
+  hasModule as cfgHasModule,
+} from '@terminal-x/config/businessTypes'
 
 const BusinessTypeContext = createContext(null)
 
-// Canonical business types. As of v1.9.19 we normalise to these 6 values —
-// older DBs may still have 'tienda' / 'otro' which get mapped on read.
-export const BUSINESS_TYPES = ['carwash', 'retail', 'service', 'dealership', 'restaurant', 'hybrid']
+// Canonical business types — re-exported from the registry so legacy imports keep working.
+export const BUSINESS_TYPES = BUSINESS_TYPE_KEYS
 
 function normalise(raw) {
   if (!raw) return 'carwash'
   // Backwards-compat aliases from the pre-1.9.19 three-value enum.
   if (raw === 'tienda') return 'retail'
   if (raw === 'otro')   return 'service'
-  return BUSINESS_TYPES.includes(raw) ? raw : 'carwash'
+  return BUSINESS_TYPE_KEYS.includes(raw) ? raw : 'carwash'
 }
 
 // Group membership flags — how each type maps to POS behavior.
@@ -58,9 +62,20 @@ export function BusinessTypeProvider({ children }) {
   }, [api])
 
   const flags = flagsFor(businessType)
+  const config = getBusinessTypeConfig(businessType)
+  const hasModule = (m) => cfgHasModule(businessType, m)
 
   return (
-    <BusinessTypeContext.Provider value={{ businessType, ...flags, setBusinessType, loading }}>
+    <BusinessTypeContext.Provider value={{
+      businessType,
+      ...flags,
+      setBusinessType,
+      loading,
+      modules: config.modules,
+      ui: config.ui,
+      config,
+      hasModule,
+    }}>
       {children}
     </BusinessTypeContext.Provider>
   )
@@ -68,6 +83,18 @@ export function BusinessTypeProvider({ children }) {
 
 export function useBusinessType() {
   const ctx = useContext(BusinessTypeContext)
-  if (!ctx) return { businessType: 'carwash', ...flagsFor('carwash'), setBusinessType: () => {}, loading: false }
+  if (!ctx) {
+    const config = getBusinessTypeConfig('carwash')
+    return {
+      businessType: 'carwash',
+      ...flagsFor('carwash'),
+      setBusinessType: () => {},
+      loading: false,
+      modules: config.modules,
+      ui: config.ui,
+      config,
+      hasModule: (m) => cfgHasModule('carwash', m),
+    }
+  }
   return ctx
 }
