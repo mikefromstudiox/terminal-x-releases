@@ -298,6 +298,19 @@ function init(userDataPath) {
     // reverting to "Predeterminada" because cfg.printer === 'undefined'
     // doesn't match any <option value>.
     `DELETE FROM app_settings WHERE value IN ('undefined','null')`,
+    // v2.0 — Restaurant Mode Phase 2: services + tickets columns for menu/KDS/floor-plan
+    'ALTER TABLE services ADD COLUMN printer_route TEXT DEFAULT \'receipt\'',
+    'ALTER TABLE services ADD COLUMN is_menu_item INTEGER DEFAULT 0',
+    'ALTER TABLE services ADD COLUMN course TEXT',
+    'ALTER TABLE services ADD COLUMN station TEXT',
+    'ALTER TABLE tickets ADD COLUMN tip_amount REAL DEFAULT 0',
+    'ALTER TABLE tickets ADD COLUMN fulfillment_type TEXT',
+    'ALTER TABLE tickets ADD COLUMN mesa_id INTEGER',
+    'ALTER TABLE tickets ADD COLUMN mesa_supabase_id TEXT',
+    // v2.0 — Restaurant Mode tables are CREATE'd empty with AUTOINCREMENT ids;
+    // rows get a supabase_id assigned at INSERT time via the usual helper, so
+    // no UUID backfill UPDATE is needed here (would just log "no such table"
+    // on first install since migrations run before the CREATE TABLE block).
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -413,6 +426,16 @@ function init(userDataPath) {
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_compras_607_supabase_id ON compras_607(supabase_id)',
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_supabase_id ON users(supabase_id)',
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_log_supabase_id ON activity_log(supabase_id)',
+    // v2.0 — Restaurant Mode Phase 2 unique + lookup indexes
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_mesas_supabase_id ON mesas(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_modificadores_supabase_id ON modificadores(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_service_modificadores_supabase_id ON service_modificadores(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_item_modificadores_supabase_id ON ticket_item_modificadores(supabase_id)',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_kds_events_supabase_id ON kds_events(supabase_id)',
+    'CREATE INDEX IF NOT EXISTS idx_tim_ticket_item ON ticket_item_modificadores(ticket_item_id)',
+    'CREATE INDEX IF NOT EXISTS idx_sm_service ON service_modificadores(service_id)',
+    'CREATE INDEX IF NOT EXISTS idx_kds_events_status ON kds_events(status)',
+    'CREATE INDEX IF NOT EXISTS idx_kds_events_ticket_item ON kds_events(ticket_item_id)',
   ]
   for (const sql of sidIndexes) {
     try { db.exec(sql) } catch (e) {
@@ -423,7 +446,7 @@ function init(userDataPath) {
   }
 
   // v1.9 — auto-update updated_at via triggers (so sync can detect changed rows)
-  const triggerTables = ['services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions', 'activity_log']
+  const triggerTables = ['services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions', 'activity_log', 'mesas', 'modificadores', 'service_modificadores', 'ticket_item_modificadores', 'kds_events']
   for (const t of triggerTables) {
     try {
       db.exec(`CREATE TRIGGER IF NOT EXISTS trg_${t}_updated_at AFTER UPDATE ON ${t} FOR EACH ROW
@@ -682,6 +705,84 @@ function init(userDataPath) {
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS idx_payroll_runs_empleado ON payroll_runs(empleado_id)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_payroll_runs_paid_at ON payroll_runs(paid_at)')
+
+  // v2.0 — Restaurant Mode Phase 2: mesas (floor plan), modificadores (menu add-ons),
+  // service_modificadores (menu item ↔ modifier join), ticket_item_modificadores
+  // (per-line snapshot of modifier selections), kds_events (kitchen display status).
+  // No business_id column — single-business desktop DB; sync.js injects on upload.
+  db.exec(`CREATE TABLE IF NOT EXISTS mesas (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                 TEXT,
+    name                        TEXT NOT NULL,
+    zone                        TEXT,
+    capacity                    INTEGER DEFAULT 4,
+    status                      TEXT NOT NULL DEFAULT 'libre',
+    waiter_empleado_id          INTEGER,
+    waiter_empleado_supabase_id TEXT,
+    guests_count                INTEGER DEFAULT 0,
+    seated_at                   TEXT,
+    sort_order                  INTEGER DEFAULT 0,
+    active                      INTEGER NOT NULL DEFAULT 1,
+    created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+
+  db.exec(`CREATE TABLE IF NOT EXISTS modificadores (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id       TEXT,
+    name              TEXT NOT NULL,
+    group_name        TEXT,
+    price_delta       REAL NOT NULL DEFAULT 0,
+    min_select        INTEGER DEFAULT 0,
+    max_select        INTEGER DEFAULT 1,
+    default_selected  INTEGER NOT NULL DEFAULT 0,
+    sort_order        INTEGER DEFAULT 0,
+    active            INTEGER NOT NULL DEFAULT 1,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+
+  db.exec(`CREATE TABLE IF NOT EXISTS service_modificadores (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id              TEXT,
+    service_id               INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+    service_supabase_id      TEXT,
+    modificador_id           INTEGER NOT NULL REFERENCES modificadores(id) ON DELETE CASCADE,
+    modificador_supabase_id  TEXT,
+    is_required              INTEGER NOT NULL DEFAULT 0,
+    created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at               TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+
+  db.exec(`CREATE TABLE IF NOT EXISTS ticket_item_modificadores (
+    id                         INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                TEXT,
+    ticket_item_id             INTEGER NOT NULL REFERENCES ticket_items(id) ON DELETE CASCADE,
+    ticket_item_supabase_id    TEXT,
+    modificador_id             INTEGER REFERENCES modificadores(id) ON DELETE SET NULL,
+    modificador_supabase_id    TEXT,
+    name_snapshot              TEXT NOT NULL,
+    price_delta_snapshot       REAL NOT NULL DEFAULT 0,
+    created_at                 TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                 TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+
+  db.exec(`CREATE TABLE IF NOT EXISTS kds_events (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id              TEXT,
+    ticket_item_id           INTEGER NOT NULL REFERENCES ticket_items(id) ON DELETE CASCADE,
+    ticket_item_supabase_id  TEXT,
+    mesa_id                  INTEGER,
+    mesa_supabase_id         TEXT,
+    station                  TEXT,
+    status                   TEXT NOT NULL DEFAULT 'fired',
+    fired_at                 TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at               TEXT,
+    ready_at                 TEXT,
+    bumped_at                TEXT,
+    created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at               TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
 
   // Payroll settings — per-business config for pay cycle, TSS/ISR rates, caps (v1.5)
   db.exec(`CREATE TABLE IF NOT EXISTS payroll_settings (
