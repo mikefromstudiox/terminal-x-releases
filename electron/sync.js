@@ -927,15 +927,15 @@ const PULL_TABLES = [
   // NOTE: `created_at` only included for tables whose local SQLite schema actually has
   // that column. db/schema.sql: services/sellers/inventory_items/empleados/categorias_servicio
   // never declared created_at, so including it in the pull causes "no such column" failures.
-  { name: 'services', strategy: 'lww', cols: ['name','name_en','category','price','cost','aplica_itbis','active','is_wash','no_commission','commission_washer','commission_seller','commission_cashier','sort_order','updated_at'] },
-  { name: 'washers', strategy: 'lww', cols: ['name','phone','cedula','commission_pct','active','start_date','created_at','updated_at'] },
-  { name: 'sellers', strategy: 'lww', cols: ['name','commission_pct','phone','cedula','start_date','active','updated_at'] },
-  { name: 'clients', strategy: 'lww', cols: ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','created_at','updated_at'] },
-  { name: 'inventory_items', strategy: 'lww', cols: ['name','sku','barcode','category','price','cost','quantity','min_quantity','aplica_itbis','active','updated_at'] },
+  { name: 'services', strategy: 'lww', naturalKey: 'name', cols: ['name','name_en','category','price','cost','aplica_itbis','active','is_wash','no_commission','commission_washer','commission_seller','commission_cashier','sort_order','updated_at'] },
+  { name: 'washers', strategy: 'lww', naturalKey: 'name', cols: ['name','phone','cedula','commission_pct','active','start_date','created_at','updated_at'] },
+  { name: 'sellers', strategy: 'lww', naturalKey: 'name', cols: ['name','commission_pct','phone','cedula','start_date','active','updated_at'] },
+  { name: 'clients', strategy: 'lww', naturalKey: 'name', cols: ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','created_at','updated_at'] },
+  { name: 'inventory_items', strategy: 'lww', naturalKey: 'name', cols: ['name','sku','barcode','category','price','cost','quantity','min_quantity','aplica_itbis','active','updated_at'] },
   { name: 'ncf_sequences', strategy: 'lww', cols: ['type','prefix','current_number','limit_number','valid_until','active','enabled','updated_at'] },
-  { name: 'empleados', strategy: 'lww', cols: ['nombre','cedula','phone','tipo','salary','start_date','active','ref_id','puesto','email','bank_account','tss_id','role','comision_pct','updated_at'] },
-  { name: 'categorias_servicio', strategy: 'lww', cols: ['nombre','orden','updated_at'] },
-  { name: 'users', strategy: 'lww', cols: ['name','username','pin_hash','role','discount_pct','commission_pct','cedula','start_date','active','created_at','updated_at'] },
+  { name: 'empleados', strategy: 'lww', naturalKey: 'nombre', cols: ['nombre','cedula','phone','tipo','salary','start_date','active','ref_id','puesto','email','bank_account','tss_id','role','comision_pct','updated_at'] },
+  { name: 'categorias_servicio', strategy: 'lww', naturalKey: 'nombre', cols: ['nombre','orden','updated_at'] },
+  { name: 'users', strategy: 'lww', naturalKey: 'username', cols: ['name','username','pin_hash','role','discount_pct','commission_pct','cedula','start_date','active','created_at','updated_at'] },
 
   // Phase 2 — tickets + dependents
   { name: 'tickets', strategy: 'fww',
@@ -994,11 +994,28 @@ const PULL_TABLES = [
 ]
 
 // -- Pull upsert: Supabase row -> SQLite row ----------------------------------
-function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync) {
+function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, naturalKey) {
   if (!row.supabase_id) return
 
-  // Check if row exists locally
-  const existing = _db.rawPrepare(`SELECT id, updated_at FROM ${tableName} WHERE supabase_id = ?`).get(row.supabase_id)
+  // 1. Try match by supabase_id (primary identity)
+  let existing = _db.rawPrepare(`SELECT id, updated_at, supabase_id FROM ${tableName} WHERE supabase_id = ?`).get(row.supabase_id)
+
+  // 2. If no match and table has a natural key, try match by natural key.
+  //    This handles DB rebuilds where the local supabase_id was lost/regenerated.
+  //    "Healing": adopt the server's supabase_id so future syncs match correctly.
+  if (!existing && naturalKey && row[naturalKey]) {
+    try {
+      const byName = _db.rawPrepare(
+        `SELECT id, updated_at, supabase_id FROM ${tableName} WHERE ${naturalKey} = ? LIMIT 1`
+      ).get(row[naturalKey])
+      if (byName) {
+        _db.rawPrepare(`UPDATE ${tableName} SET supabase_id = ? WHERE id = ?`).run(row.supabase_id, byName.id)
+        log.info(`[sync-pull] ${tableName}: healed supabase_id for "${row[naturalKey]}" (${byName.supabase_id} → ${row.supabase_id})`)
+        existing = byName
+        existing.supabase_id = row.supabase_id
+      }
+    } catch {} // naturalKey column may not exist — skip gracefully
+  }
 
   if (existing) {
     // Row exists locally
@@ -1136,7 +1153,7 @@ async function pullTable(tableConfig) {
     for (const row of rows) {
       let ok = false
       try {
-        pullUpsertRow(name, row, strategy, cols, fkCols, statusSync)
+        pullUpsertRow(name, row, strategy, cols, fkCols, statusSync, tableConfig.naturalKey)
         ok = true
       } catch (e) {
         log.error(`[sync-pull] ${name}: upsert failed for ${row.supabase_id}:`, e.message)
