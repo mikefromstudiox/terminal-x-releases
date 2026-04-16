@@ -331,7 +331,6 @@ export default function Login() {
               try {
                 await window.electronAPI?.resetLocalDatabase?.()
               } catch {}
-              // Main process relaunches the app; this line only runs on web fallback
               window.location.reload()
             }}
             className="mt-6 w-full text-center text-slate-300 dark:text-white/20 text-[10px] hover:text-red-400 dark:hover:text-red-400 transition-colors"
