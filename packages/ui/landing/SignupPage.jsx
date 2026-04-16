@@ -10,7 +10,7 @@ function detectLang() {
   return navigator.language?.startsWith('en') ? 'en' : 'es'
 }
 
-const VALID_PLANS = { pro: 'Pro', pro_plus: 'Pro PLUS', pro_max: 'Pro MAX' }
+const VALID_PLANS = { facturacion: 'Facturacion', pro: 'Pro', pro_plus: 'Pro PLUS', pro_max: 'Pro MAX' }
 
 const TYPE_ICONS = { Car, Store, Briefcase, UtensilsCrossed, CarFront, LayoutGrid }
 

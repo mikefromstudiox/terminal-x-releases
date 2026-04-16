@@ -243,7 +243,8 @@
       "Bash(wc:*)",
       "Bash(which supabase:*)",
       "Bash(supabase --version)",
-      "Bash(grep -l \"washer\\\\|seller\\\\|empleado\" \"A:\\\\Studio X HUB\\\\Terminal X\\\\supabase\\\\migrations\"/*.sql)"
+      "Bash(grep -l \"washer\\\\|seller\\\\|empleado\" \"A:\\\\Studio X HUB\\\\Terminal X\\\\supabase\\\\migrations\"/*.sql)",
+      "WebFetch(domain:mcpservers.org)"
     ]
   },
   "spinnerTipsEnabled": false,

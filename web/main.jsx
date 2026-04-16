@@ -359,6 +359,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               </React.Suspense>
             } />
 
+            {/* Invoicing app — uses same POS shell (auth + data layer) */}
+            <Route path="/invoicing/*" element={<POSRoute />} />
+
             {/* POS app — lazy loads everything */}
             <Route path="/pos/*" element={<POSRoute />} />
 

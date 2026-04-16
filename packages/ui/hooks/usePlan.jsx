@@ -3,12 +3,13 @@ import { useAPI } from '../context/DataContext'
 import { useLicense } from '../context/LicenseContext'
 
 const PLAN_FEATURES = {
-  pro:       ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory'],
-  pro_plus:  ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory', 'ecf', 'dgii', 'restaurant_mode', 'work_orders', 'appointments', 'service_bays', 'loans', 'vehicles'],
-  pro_max:   ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'ecf', 'dgii', 'inventory', 'remote_dashboard', 'whatsapp_receipts', 'multi_location', 'nomina_advanced', 'restaurant_mode', 'work_orders', 'appointments', 'service_bays', 'loans', 'vehicles', 'pawn_items', 'loan_analytics', 'vehicle_history', 'stylist_schedules'],
+  facturacion: ['invoicing', 'ecf', 'dgii', 'clients', 'reports'],
+  pro:       ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory', 'invoicing'],
+  pro_plus:  ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory', 'ecf', 'dgii', 'restaurant_mode', 'work_orders', 'appointments', 'service_bays', 'loans', 'vehicles', 'invoicing'],
+  pro_max:   ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'ecf', 'dgii', 'inventory', 'remote_dashboard', 'whatsapp_receipts', 'multi_location', 'nomina_advanced', 'restaurant_mode', 'work_orders', 'appointments', 'service_bays', 'loans', 'vehicles', 'pawn_items', 'loan_analytics', 'vehicle_history', 'stylist_schedules', 'invoicing'],
 }
 
-const PLAN_DISPLAY = { pro: 'Pro', pro_plus: 'Pro PLUS', pro_max: 'Pro MAX' }
+const PLAN_DISPLAY = { facturacion: 'Facturacion', pro: 'Pro', pro_plus: 'Pro PLUS', pro_max: 'Pro MAX' }
 
 const PlanContext = createContext(null)
 

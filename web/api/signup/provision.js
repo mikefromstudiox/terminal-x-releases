@@ -36,7 +36,8 @@ export default async function handler(req, res) {
     const trialPlan = 'pro_max'
     const trialDays = 7
     const trialEnd = new Date(Date.now() + trialDays * 86400000).toISOString()
-    const requestedPlan = plan || 'pro'
+    const validPlans = ['pro', 'pro_plus', 'pro_max', 'facturacion']
+    const requestedPlan = validPlans.includes(plan) ? plan : 'pro'
 
     const { data: planRow } = await supabase.from('plans').select('id, name, max_users').eq('name', trialPlan).maybeSingle()
 

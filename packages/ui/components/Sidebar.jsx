@@ -139,6 +139,16 @@ const NAV = [
     roles: ['owner','manager','cfo','accountant'],
   },
   {
+    id: 'invoicing', icon: FileText,
+    es: 'Facturacion', en: 'Invoicing',
+    feature: 'invoicing',
+    roles: ['owner','manager','cfo','accountant','cashier'],
+    children: [
+      { to: '/invoicing/create', es: 'Nueva Factura', en: 'New Invoice' },
+      { to: '/invoicing/history', es: 'Historial', en: 'History' },
+    ],
+  },
+  {
     id: 'dgii', to: '/dgii', icon: FileText,
     es: 'DGII', en: 'DGII',
     feature: 'dgii',

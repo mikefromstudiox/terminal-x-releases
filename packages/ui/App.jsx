@@ -62,6 +62,9 @@ const ServiceBays         = lazy(() => import('./screens/mechanic/ServiceBays'))
 const Appointments        = lazy(() => import('./screens/salon/Appointments'))
 const Loans               = lazy(() => import('./screens/lending/Loans'))
 const PawnItems           = lazy(() => import('./screens/lending/PawnItems'))
+const InvoiceDashboard    = lazy(() => import('./screens/invoicing/InvoiceDashboard'))
+const InvoiceCreate       = lazy(() => import('./screens/invoicing/InvoiceCreate'))
+const InvoiceList         = lazy(() => import('./screens/invoicing/InvoiceList'))
 
 // Routes accessible only to non-cashier roles
 const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin','/sistema','/inventory','/config']
@@ -202,6 +205,9 @@ export default function App() {
         <Route path="/appointments" element={<ProtectedRoute element={<PlanGate feature="appointments"><Appointments /></PlanGate>} />} />
         <Route path="/loans" element={<ProtectedRoute element={<PlanGate feature="loans"><Loans /></PlanGate>} />} />
         <Route path="/pawn-items" element={<ProtectedRoute element={<PlanGate feature="pawn_items"><PawnItems /></PlanGate>} />} />
+        <Route path="/invoicing" element={<PlanGate feature="invoicing"><InvoiceDashboard /></PlanGate>} />
+        <Route path="/invoicing/create" element={<PlanGate feature="invoicing"><InvoiceCreate /></PlanGate>} />
+        <Route path="/invoicing/history" element={<PlanGate feature="invoicing"><InvoiceList /></PlanGate>} />
         {/* Legacy routes — redirect to canonical destinations */}
         <Route path="/workers"               element={<Navigate to="/reports/workers" replace />} />
         <Route path="/services"              element={<Navigate to="/admin" replace />} />

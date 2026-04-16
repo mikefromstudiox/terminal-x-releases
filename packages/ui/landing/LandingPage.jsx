@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
-import { Monitor, Shield, Zap, BarChart3, Receipt, Users, ArrowRight, Check, X, Wifi, WifiOff, Printer, MessageSquare, ChevronDown, ChevronUp, Clock, CreditCard, FileText, Lock, Smartphone, Star, TrendingUp, Headphones, Menu, ExternalLink, Globe, Banknote, Calculator, Crown } from 'lucide-react'
+import { Monitor, Shield, Zap, BarChart3, Receipt, Users, ArrowRight, Check, X, Wifi, WifiOff, Printer, MessageSquare, ChevronDown, ChevronUp, Clock, CreditCard, FileText, Lock, Smartphone, Star, TrendingUp, Headphones, Menu, ExternalLink, Globe, Banknote, Calculator, Crown, Award, BadgeCheck, Package } from 'lucide-react'
 import logoImg from '../assets/logo.webp'
 
 function useBrowserLang() {
@@ -86,6 +86,86 @@ const PLANS = {
         'Priority WhatsApp support',
       ],
       support: 'Priority support + dedicated executive', cta: 'Start with Pro MAX', highlight: false,
+    },
+  ],
+}
+
+const FACTURACION_PLANS = {
+  es: [
+    {
+      name: 'Facturacion', key: 'facturacion', price: 'RD$995', annual: 'RD$846/mes facturado anual (15% OFF)',
+      sub: '/mes', desc: '50 facturas/mes', overage: 'RD$15 por factura adicional',
+      features: ['50 facturas e-CF al mes', 'Directo a DGII', 'PDF con QR verificable', 'Envio por WhatsApp', 'Base de clientes', 'Viafirma incluido', '100% web'],
+      cta: 'Probar 7 dias gratis', highlight: false,
+    },
+    {
+      name: 'Facturacion Plus', key: 'facturacion_plus', price: 'RD$1,990', annual: 'RD$1,692/mes facturado anual (15% OFF)',
+      sub: '/mes', badge: 'Mas popular', desc: '200 facturas/mes', overage: 'RD$10 por factura adicional',
+      features: ['200 facturas e-CF al mes', 'Directo a DGII', 'PDF con QR verificable', 'Envio por WhatsApp', 'Base de clientes', 'Reportes avanzados', 'Viafirma incluido', '100% web'],
+      cta: 'Probar 7 dias gratis', highlight: true,
+    },
+    {
+      name: 'Facturacion Ilimitado', key: 'facturacion_unlimited', price: 'RD$2,990', annual: 'RD$2,542/mes facturado anual (15% OFF)',
+      sub: '/mes', desc: 'Facturas ilimitadas',
+      features: ['Facturas e-CF ILIMITADAS', 'Directo a DGII', 'PDF con QR verificable', 'Envio por WhatsApp', 'Base de clientes', 'Reportes avanzados', 'Viafirma incluido', '100% web', 'Soporte prioritario'],
+      cta: 'Probar 7 dias gratis', highlight: false,
+    },
+  ],
+  en: [
+    {
+      name: 'Invoicing', key: 'facturacion', price: 'RD$995', annual: 'RD$846/mo billed annually (15% OFF)',
+      sub: '/mo', desc: '50 invoices/mo', overage: 'RD$15 per extra invoice',
+      features: ['50 e-CF invoices/month', 'Direct to DGII', 'PDF with QR', 'Send via WhatsApp', 'Client database', 'Viafirma included', '100% web'],
+      cta: 'Try 7 days free', highlight: false,
+    },
+    {
+      name: 'Invoicing Plus', key: 'facturacion_plus', price: 'RD$1,990', annual: 'RD$1,692/mo billed annually (15% OFF)',
+      sub: '/mo', badge: 'Most popular', desc: '200 invoices/mo', overage: 'RD$10 per extra invoice',
+      features: ['200 e-CF invoices/month', 'Direct to DGII', 'PDF with QR', 'Send via WhatsApp', 'Client database', 'Advanced reports', 'Viafirma included', '100% web'],
+      cta: 'Try 7 days free', highlight: true,
+    },
+    {
+      name: 'Invoicing Unlimited', key: 'facturacion_unlimited', price: 'RD$2,990', annual: 'RD$2,542/mo billed annually (15% OFF)',
+      sub: '/mo', desc: 'Unlimited invoices',
+      features: ['UNLIMITED e-CF invoices', 'Direct to DGII', 'PDF with QR', 'Send via WhatsApp', 'Client database', 'Advanced reports', 'Viafirma included', '100% web', 'Priority support'],
+      cta: 'Try 7 days free', highlight: false,
+    },
+  ],
+}
+
+const CERT_PACKAGES = {
+  es: [
+    {
+      name: 'Asesoria', price: 'RD$15,000', featured: false,
+      features: ['Guia paso a paso', 'Revision de documentos', 'Soporte por WhatsApp', '30 dias de acompanamiento'],
+      wa: 'Hola%2C%20quiero%20el%20servicio%20de%20Asesor%C3%ADa%20de%20certificaci%C3%B3n%20e-CF',
+    },
+    {
+      name: 'Certificacion Completa', price: 'RD$45,000', featured: false,
+      features: ['Todo lo de Asesoria', 'Compra del certificado Viafirma', 'Configuracion completa', '15 pruebas obligatorias DGII', 'Paso a produccion', '90 dias de garantia'],
+      wa: 'Hola%2C%20quiero%20el%20servicio%20de%20Certificaci%C3%B3n%20Completa%20e-CF',
+    },
+    {
+      name: 'Completa + Terminal X', price: 'RD$55,000', featured: true,
+      features: ['Todo lo anterior', 'Licencia Pro MAX (3 meses gratis)', 'Instalacion y entrenamiento', 'Soporte prioritario'],
+      wa: 'Hola%2C%20quiero%20Certificaci%C3%B3n%20Completa%20%2B%20Terminal%20X',
+    },
+  ],
+  en: [
+    {
+      name: 'Advisory', price: 'RD$15,000', featured: false,
+      features: ['Step-by-step guide', 'Document review', 'WhatsApp support', '30 days of guidance'],
+      wa: 'Hello%2C%20I%20want%20the%20e-CF%20certification%20Advisory%20service',
+    },
+    {
+      name: 'Full Certification', price: 'RD$45,000', featured: false,
+      features: ['Everything in Advisory', 'Viafirma certificate purchase', 'Full configuration', '15 mandatory DGII tests', 'Go to production', '90-day warranty'],
+      wa: 'Hello%2C%20I%20want%20the%20Full%20e-CF%20Certification%20service',
+    },
+    {
+      name: 'Full + Terminal X', price: 'RD$55,000', featured: true,
+      features: ['Everything above', 'Pro MAX license (3 months free)', 'Installation and training', 'Priority support'],
+      wa: 'Hello%2C%20I%20want%20Full%20Certification%20%2B%20Terminal%20X',
     },
   ],
 }
@@ -239,8 +319,9 @@ export default function LandingPage({ section }) {
 
   const navLinks = [
     { label: L('Funciones', 'Features'), href: '#features' },
+    { label: L('Facturacion', 'Invoicing'), href: '#facturacion' },
     { label: L('Planes', 'Plans'), href: '#pricing' },
-    { label: L('Comparar', 'Compare'), href: '#compare' },
+    { label: L('Certificacion', 'Certification'), href: '#certificacion' },
     { label: 'FAQ', href: '#faq' },
   ]
 
@@ -557,6 +638,57 @@ export default function LandingPage({ section }) {
         </div>
       </section>
 
+      {/* SECTION 3.7: Facturacion Plan — WHITE */}
+      <section id="facturacion" className="bg-white px-4 py-24 sm:px-6 lg:px-8 scroll-mt-32">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center">
+            <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Solo Facturacion', 'Invoicing Only')}</p>
+            <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">
+              {L(<>Cumple la Ley 32-23 <span className="text-[#b3001e]">sin necesitar un POS</span></>, <>Meet Law 32-23 <span className="text-[#b3001e]">without needing a POS</span></>)}
+            </h2>
+            <p className="mt-4 text-lg text-black/50 max-w-2xl mx-auto">
+              {L('Si solo necesitas emitir comprobantes electronicos, este plan es para ti. Facturacion e-CF directa a DGII desde tu navegador, sin instalar nada.', 'If you only need to issue electronic invoices, this plan is for you. Direct e-CF invoicing to DGII from your browser, no installation needed.')}
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12 max-w-5xl mx-auto">
+            {(FACTURACION_PLANS[lang] || FACTURACION_PLANS.es).map((fp, idx) => (
+              <div key={idx} className={`rounded-2xl p-7 sm:p-8 relative ${fp.highlight ? 'border-2 border-[#b3001e] bg-[#b3001e]/5' : 'border border-black/10 bg-white'}`}>
+                {fp.badge && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-[#b3001e] text-white text-[10px] font-bold rounded-full uppercase tracking-wider whitespace-nowrap">
+                    {fp.badge}
+                  </div>
+                )}
+                <div className="text-center mb-5">
+                  <h3 className="text-lg font-bold text-black">{fp.name}</h3>
+                  <p className="text-xs text-black/50 mt-1 font-medium">{fp.desc}</p>
+                  <p className="text-3xl font-extrabold text-black mt-3">{fp.price}<span className="text-sm font-normal text-black/50">{fp.sub}</span></p>
+                  <p className="text-[11px] text-black/40 mt-1">{fp.annual}</p>
+                  {fp.overage && <p className="text-[11px] text-[#b3001e] font-medium mt-1">{fp.overage}</p>}
+                </div>
+                <ul className="space-y-2.5 mb-6">
+                  {fp.features.map((f, i) => (
+                    <li key={i} className="flex items-start gap-2 text-[13px] text-black/70">
+                      <Check size={13} className="text-[#b3001e] shrink-0 mt-0.5" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <button onClick={() => navigate(`/signup?plan=${fp.key}`)}
+                  className={`w-full py-3 rounded-lg text-sm font-bold transition-colors ${fp.highlight ? 'bg-[#b3001e] hover:bg-[#d4002a] text-white shadow-lg shadow-red-500/25' : 'bg-black hover:bg-black/80 text-white'}`}>
+                  {fp.cta} <ArrowRight size={14} className="inline ml-1" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="text-center mt-6 text-xs text-black/40">
+            {L('Necesitas punto de venta?', 'Need a point of sale?')}{' '}
+            <a href="#pricing" className="text-[#b3001e] font-semibold hover:underline">
+              {L('Ver planes POS', 'See POS plans')} <ArrowRight size={10} className="inline" />
+            </a>
+          </p>
+        </div>
+      </section>
+
       {/* SECTION 4: Pricing — BLACK */}
       <section id="pricing" className="bg-black px-4 py-24 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
@@ -709,6 +841,88 @@ export default function LandingPage({ section }) {
         </div>
       </section>
 
+      {/* SECTION 6.5: e-CF Certification Service — WHITE */}
+      <section id="certificacion" className="bg-white px-4 py-24 sm:px-6 lg:px-8 scroll-mt-32">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center">
+            <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Certificacion e-CF', 'e-CF Certification')}</p>
+            <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">
+              {L('Servicio de Certificacion e-CF', 'e-CF Certification Service')}
+            </h2>
+            <p className="mt-4 text-lg text-black/50 max-w-2xl mx-auto">
+              {L('Nos encargamos de todo el proceso de certificacion ante DGII. Tu solo firmas — nosotros hacemos el resto.', 'We handle the entire DGII certification process. You just sign — we do the rest.')}
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto mt-16">
+            {CERT_PACKAGES[lang].map((pkg, i) => (
+              <div key={i}
+                className={`rounded-2xl p-8 border flex flex-col transition-all hover:-translate-y-2 hover:shadow-2xl ${
+                  pkg.featured
+                    ? 'border-[#b3001e] bg-[#b3001e]/5 ring-2 ring-[#b3001e]/30 relative scale-[1.02]'
+                    : 'border-black/10 bg-white'
+                }`}>
+                {pkg.featured && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-[#b3001e] text-white text-[10px] font-bold rounded-full uppercase tracking-wider whitespace-nowrap">
+                    {L('Recomendado', 'Recommended')}
+                  </div>
+                )}
+                <h3 className="text-xl font-bold text-black mb-1">{pkg.name}</h3>
+                <p className="text-3xl font-extrabold text-black mb-6">{pkg.price}</p>
+                <ul className="space-y-3 mb-8 flex-1">
+                  {pkg.features.map((f, j) => (
+                    <li key={j} className="flex items-start gap-2 text-sm text-black/70">
+                      <Check size={14} className="text-[#b3001e] shrink-0 mt-0.5" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <a href={`https://wa.me/18098282971?text=${pkg.wa}`} target="_blank" rel="noopener noreferrer"
+                  className={`w-full py-3 rounded-lg text-sm font-bold text-center transition-colors flex items-center justify-center gap-2 ${
+                    pkg.featured
+                      ? 'bg-[#b3001e] hover:bg-[#d4002a] text-white shadow-lg shadow-red-500/25'
+                      : 'border border-black/20 text-black hover:border-black/40 hover:bg-black/5'
+                  }`}>
+                  <MessageSquare size={14} />
+                  {L('Solicitar', 'Request')}
+                </a>
+              </div>
+            ))}
+          </div>
+          {/* Trust indicators */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-10 mt-16">
+            <div className="flex items-center gap-2 text-sm font-bold text-black">
+              <Award size={18} className="text-[#b3001e]" />
+              {L('Emisor Electronico Certificado — DGII', 'Certified Electronic Issuer — DGII')}
+            </div>
+            <div className="flex items-center gap-2 text-sm font-bold text-black">
+              <BadgeCheck size={18} className="text-[#b3001e]" />
+              {L('15 pasos completados — 100% de aprobacion', '15 steps completed — 100% approval')}
+            </div>
+            <div className="flex items-center gap-2 text-sm font-bold text-black">
+              <Shield size={18} className="text-[#b3001e]" />
+              RNC 133410321 — Studio X SRL
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 6.6: Certification CTA — BLACK (maintains WHITE→BLACK alternation before FAQ) */}
+      <section className="bg-black px-4 py-16 sm:px-6 lg:px-8">
+        <div className="max-w-4xl mx-auto text-center">
+          <h3 className="text-2xl sm:text-3xl font-extrabold text-white">
+            {L('La Ley 32-23 es obligatoria. No esperes mas.', 'Law 32-23 is mandatory. Don\'t wait.')}
+          </h3>
+          <p className="mt-3 text-white/50 text-lg">
+            {L('Ya certificamos nuestro propio negocio. Ahora te certificamos a ti.', 'We already certified our own business. Now we certify yours.')}
+          </p>
+          <a href="https://wa.me/18098282971?text=Quiero%20certificarme%20como%20Emisor%20Electr%C3%B3nico" target="_blank" rel="noopener noreferrer"
+            className="mt-8 inline-flex items-center gap-2 bg-[#b3001e] hover:bg-[#d4002a] px-6 py-3 text-sm font-bold text-white rounded-lg shadow-lg shadow-red-500/25 transition-colors">
+            <MessageSquare size={16} />
+            {L('Hablar con un experto', 'Talk to an expert')}
+          </a>
+        </div>
+      </section>
+
       {/* SECTION 7: FAQ — WHITE */}
       <section id="faq" className="bg-white px-4 py-24 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
@@ -760,7 +974,7 @@ export default function LandingPage({ section }) {
           <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Empieza hoy', 'Start today')}</p>
           <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">{L('Listo para modernizar tu negocio?', 'Ready to modernize your business?')}</h2>
           <p className="mt-4 text-lg text-gray-500 max-w-lg mx-auto">{L('Facturacion electronica directa con DGII, sin intermediarios. El unico POS en RD con e-CF directo, modo offline y configuracion remota.', 'Direct electronic invoicing with DGII, no middlemen. The only POS in DR with direct e-CF, offline mode and remote configuration.')}</p>
-          <p className="mt-3 text-[#b3001e] font-bold text-lg">{L('Desde RD$2,490/mes. Sin contrato. Sin sorpresas.', 'From RD$2,490/mo. No contract. No surprises.')}</p>
+          <p className="mt-3 text-[#b3001e] font-bold text-lg">{L('Desde RD$995/mes. Sin contrato. Sin sorpresas.', 'From RD$995/mo. No contract. No surprises.')}</p>
           <p className="mt-2 text-sm text-gray-500 font-medium">{L('La Ley 32-23 es obligatoria desde mayo 2026. No esperes a que tu PSFE te resuelva — resuelve tu mismo.', 'Ley 32-23 is mandatory from May 2026. Don\'t wait for your PSFE to figure it out — take control.')}</p>
           <div className="flex items-center justify-center gap-4 flex-wrap mt-10">
             <button onClick={() => navigate('/signup?plan=pro_plus')}
@@ -803,8 +1017,9 @@ export default function LandingPage({ section }) {
               <p className="text-sm font-bold uppercase tracking-wider text-white/50 mb-4">{L('Producto', 'Product')}</p>
               <div className="space-y-2">
                 <a href="#features" className="block text-sm text-white/60 hover:text-white transition-colors">{L('Funciones', 'Features')}</a>
+                <a href="#facturacion" className="block text-sm text-white/60 hover:text-white transition-colors">{L('Facturacion', 'Invoicing')}</a>
                 <a href="#pricing" className="block text-sm text-white/60 hover:text-white transition-colors">{L('Planes', 'Plans')}</a>
-                <a href="#compare" className="block text-sm text-white/60 hover:text-white transition-colors">{L('Comparar', 'Compare')}</a>
+                <a href="#certificacion" className="block text-sm text-white/60 hover:text-white transition-colors">{L('Certificacion', 'Certification')}</a>
                 <a href="#faq" className="block text-sm text-white/60 hover:text-white transition-colors">FAQ</a>
               </div>
             </div>

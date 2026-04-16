@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Navigate } from 'react-router-dom'
 import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useLayout } from '../context/LayoutContext'
@@ -14,6 +14,7 @@ import RestaurantPOS from './restaurant/RestaurantPOS'
 import { syncTicket } from '@terminal-x/services/supabase'
 import { saveReceiptPDF } from '@terminal-x/services/pdf'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
+import { usePlan } from '../hooks/usePlan.jsx'
 import logoImg from '../assets/logo.webp'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1669,6 +1670,8 @@ function LendingDashboard() {
 
 export default function POS() {
   const { isRetail, isRestaurant, isHybrid, isPrestamos } = useBusinessType()
+  const { plan } = usePlan()
+  if (plan === 'facturacion') return <Navigate to="/invoicing" replace />
   if (isRestaurant || isHybrid) return <RestaurantPOS />
   if (isPrestamos) return <LendingDashboard />
   return isRetail ? <RetailPOS /> : <CarWashPOS />

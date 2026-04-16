@@ -3,6 +3,7 @@ import { useLang } from '../i18n'
 import { Lock, ArrowUpCircle } from 'lucide-react'
 
 const FEATURE_PLAN_MIN = {
+  invoicing: 'facturacion',
   credits: 'pro', reports: 'pro', petty_cash: 'pro', credit_notes: 'pro', cash_recon: 'pro', commissions: 'pro', inventory: 'pro',
   ecf: 'pro_plus', dgii: 'pro_plus', restaurant_mode: 'pro_plus',
   work_orders: 'pro_plus', appointments: 'pro_plus', service_bays: 'pro_plus', loans: 'pro_plus', vehicles: 'pro_plus',

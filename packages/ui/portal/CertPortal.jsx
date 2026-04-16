@@ -3,13 +3,12 @@ import { useParams } from 'react-router-dom'
 import {
   Loader2, Upload, Send, Download, FileText, MessageSquare,
   CheckCircle2, XCircle, Clock, AlertCircle, Phone, ExternalLink,
-  Shield, CreditCard, ChevronDown, ChevronUp
+  Shield, CreditCard, ChevronDown, ChevronUp, Award, ArrowUpRight
 } from 'lucide-react'
-import xMark from '@/assets/x-mark.webp'
 import PortalStepTracker, { STEPS } from './PortalStepTracker'
 
 // ---------------------------------------------------------------------------
-// Client instructions per step — what the CLIENT needs to do at each stage
+// Client instructions per step
 // ---------------------------------------------------------------------------
 const CLIENT_INSTRUCTIONS = {
   1:  'Necesitamos que nos envie su RNC, nombre comercial y datos de contacto para iniciar la solicitud ante la DGII.',
@@ -29,97 +28,77 @@ const CLIENT_INSTRUCTIONS = {
   15: 'Su certificacion esta completa. Ya puede emitir comprobantes fiscales electronicos (e-CF).',
 }
 
-// Steps where client action might be needed
 const CLIENT_ACTION_STEPS = [1, 3, 5, 13]
-// Steps that show test results
 const TEST_RESULT_STEPS = [4, 9, 10, 11]
+
+// ---------------------------------------------------------------------------
+// Design tokens
+// ---------------------------------------------------------------------------
+const RED = '#b3001e'
+const INK = '#0a0a0a'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function statusBadge(status) {
-  const map = {
-    active:    { label: 'Activo',     cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    completed: { label: 'Completado', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    paused:    { label: 'Pausado',    cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-    cancelled: { label: 'Cancelado',  cls: 'bg-red-50 text-red-700 border-red-200' },
-    pending:   { label: 'Pendiente',  cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-  }
-  const s = map[status] || map.pending
-  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${s.cls}`}>{s.label}</span>
-}
-
-function packageBadge(pkg) {
-  const map = {
-    asesoria:          { label: 'Asesoria',              cls: 'bg-black/5 text-black border-black/10' },
-    completa:          { label: 'Completa',              cls: 'bg-[#b3001e]/5 text-[#b3001e] border-[#b3001e]/20' },
-    completa_terminal: { label: 'Completa + Terminal X', cls: 'bg-[#b3001e]/10 text-[#b3001e] border-[#b3001e]/30 font-semibold' },
-  }
-  const p = map[pkg] || { label: pkg || 'N/A', cls: 'bg-black/5 text-black border-black/10' }
-  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${p.cls}`}>{p.label}</span>
-}
-
-function paymentBadge(status) {
-  const map = {
-    paid:    { label: 'Pagado',   cls: 'text-emerald-700 bg-emerald-50' },
-    partial: { label: 'Parcial',  cls: 'text-amber-700 bg-amber-50' },
-    pending: { label: 'Pendiente', cls: 'text-red-700 bg-red-50' },
-  }
-  const s = map[status] || map.pending
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${s.cls}`}>{s.label}</span>
-}
-
-function testStatusBadge(status) {
-  if (status === 'passed' || status === 'aprobado')
-    return <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700"><CheckCircle2 size={14} /> Aprobado</span>
-  if (status === 'failed' || status === 'rechazado')
-    return <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700"><XCircle size={14} /> Rechazado</span>
-  return <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700"><Clock size={14} /> Pendiente</span>
-}
-
 function formatDate(d) {
   if (!d) return ''
-  try {
-    return new Date(d).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' })
-  } catch { return d }
+  try { return new Date(d).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' }) } catch { return d }
 }
-
 function formatDateTime(d) {
   if (!d) return ''
-  try {
-    return new Date(d).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-  } catch { return d }
+  try { return new Date(d).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return d }
+}
+
+function StatusPill({ status }) {
+  const map = {
+    active:    { label: 'En Progreso', bg: `${RED}10`, fg: RED, ring: `${RED}25` },
+    completed: { label: 'Completado',  bg: '#05966910', fg: '#059669', ring: '#05966925' },
+    paused:    { label: 'Pausado',     bg: '#d9770610', fg: '#d97706', ring: '#d9770625' },
+  }
+  const s = map[status] || map.active
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.08em]"
+      style={{ color: s.fg }}>
+      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.fg, boxShadow: `0 0 0 3px ${s.ring}` }} />
+      {s.label}
+    </span>
+  )
+}
+
+function PackagePill({ pkg }) {
+  const map = {
+    asesoria:          'Asesoria',
+    completa:          'Completa',
+    completa_terminal: 'Completa + Terminal X',
+  }
+  return (
+    <span className="inline-flex items-center px-3 py-1 rounded-md text-[11px] font-bold uppercase tracking-[0.1em] border"
+      style={{ color: INK, borderColor: `${INK}15`, backgroundColor: `${INK}03` }}>
+      {map[pkg] || pkg || 'N/A'}
+    </span>
+  )
+}
+
+function TestBadge({ status }) {
+  if (status === 'passed' || status === 'aprobado')
+    return <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600"><CheckCircle2 size={14} /> Aprobado</span>
+  if (status === 'failed' || status === 'rechazado')
+    return <span className="inline-flex items-center gap-1 text-xs font-bold" style={{ color: RED }}><XCircle size={14} /> Rechazado</span>
+  return <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-600"><Clock size={14} /> Pendiente</span>
 }
 
 // ---------------------------------------------------------------------------
-// Skeleton loader
+// Skeleton
 // ---------------------------------------------------------------------------
 function SkeletonLoader() {
   return (
-    <div className="min-h-screen bg-[#f8f8f8]">
-      <div className="max-w-3xl mx-auto px-4 py-8 sm:py-12">
-        {/* Header skeleton */}
-        <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-black/5 mb-6 animate-pulse">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 bg-black/5 rounded-full" />
-            <div className="h-6 w-48 bg-black/5 rounded" />
-          </div>
-          <div className="h-4 w-64 bg-black/5 rounded mb-3" />
-          <div className="h-4 w-40 bg-black/5 rounded mb-4" />
-          <div className="flex gap-2">
-            <div className="h-6 w-20 bg-black/5 rounded-full" />
-            <div className="h-6 w-16 bg-black/5 rounded-full" />
-          </div>
-        </div>
-        {/* Steps skeleton */}
-        <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-black/5 mb-6 animate-pulse">
-          <div className="h-2 w-full bg-black/5 rounded-full mb-8" />
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="flex gap-3 mb-4">
-              <div className="w-8 h-8 bg-black/5 rounded-full shrink-0" />
-              <div className="h-4 w-40 bg-black/5 rounded mt-1" />
-            </div>
-          ))}
+    <div className="min-h-screen" style={{ background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f5 100%)' }}>
+      <div className="max-w-2xl mx-auto px-5 py-10 sm:py-16">
+        <div className="animate-pulse space-y-5">
+          <div className="h-8 w-40 bg-black/[0.04] rounded-lg" />
+          <div className="h-4 w-64 bg-black/[0.04] rounded" />
+          <div className="h-48 bg-black/[0.04] rounded-2xl" />
+          <div className="h-64 bg-black/[0.04] rounded-2xl" />
         </div>
       </div>
     </div>
@@ -127,25 +106,23 @@ function SkeletonLoader() {
 }
 
 // ---------------------------------------------------------------------------
-// Error view
+// Error
 // ---------------------------------------------------------------------------
 function ErrorView({ message }) {
   return (
-    <div className="min-h-screen bg-[#f8f8f8] flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl p-8 sm:p-10 max-w-md w-full text-center shadow-sm border border-black/5">
-        <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-5">
-          <AlertCircle size={32} className="text-[#b3001e]" />
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f5 100%)' }}>
+      <div className="max-w-sm w-full text-center">
+        <div className="w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6" style={{ backgroundColor: `${RED}08` }}>
+          <AlertCircle size={36} style={{ color: RED }} />
         </div>
-        <h1 className="text-xl font-bold text-black mb-2">Enlace no valido</h1>
-        <p className="text-sm text-black/50 mb-6">{message || 'Este enlace de portal no es valido o ha expirado. Contacte a soporte para obtener un nuevo enlace.'}</p>
-        <a
-          href="https://wa.me/18098282971"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 px-6 py-3 bg-black text-white rounded-xl text-sm font-semibold hover:bg-black/80 transition-colors"
-        >
-          <Phone size={16} />
-          Contactar Soporte
+        <h1 className="text-xl font-black tracking-tight mb-2" style={{ color: INK }}>Enlace no valido</h1>
+        <p className="text-sm leading-relaxed mb-8" style={{ color: `${INK}60` }}>
+          {message || 'Este enlace de portal no es valido o ha expirado. Contacte a soporte para obtener un nuevo enlace.'}
+        </p>
+        <a href="https://wa.me/18098282971" target="_blank" rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-sm font-bold text-white transition-all hover:scale-[1.02] active:scale-[0.98]"
+          style={{ backgroundColor: INK }}>
+          <Phone size={16} /> Contactar Soporte
         </a>
       </div>
     </div>
@@ -155,158 +132,125 @@ function ErrorView({ message }) {
 // ---------------------------------------------------------------------------
 // Upload Dropzone
 // ---------------------------------------------------------------------------
-function UploadDropzone({ token, onUploadComplete }) {
+function UploadZone({ token, onDone }) {
   const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState(null)
-  const fileRef = useRef(null)
+  const [err, setErr] = useState(null)
+  const ref = useRef(null)
 
-  const handleFiles = useCallback(async (files) => {
-    if (!files || files.length === 0) return
-    setUploading(true)
-    setUploadError(null)
+  const upload = useCallback(async (files) => {
+    if (!files?.length) return
+    setUploading(true); setErr(null)
     try {
-      const formData = new FormData()
-      for (const f of files) {
-        formData.append('files', f)
-      }
-      const res = await fetch(`/api/panel?action=cert_portal_upload&token=${token}`, {
-        method: 'POST',
-        body: formData,
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || 'Error al subir archivo')
-      }
-      if (onUploadComplete) onUploadComplete()
-    } catch (e) {
-      setUploadError(e.message)
-    } finally {
-      setUploading(false)
-    }
-  }, [token, onUploadComplete])
+      const fd = new FormData()
+      for (const f of files) fd.append('files', f)
+      const res = await fetch(`/api/panel?action=cert_portal_upload&token=${token}`, { method: 'POST', body: fd })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Error al subir') }
+      onDone?.()
+    } catch (e) { setErr(e.message) }
+    finally { setUploading(false) }
+  }, [token, onDone])
 
   return (
     <div
-      className={`relative border-2 border-dashed rounded-xl p-6 text-center transition-colors ${
-        dragging ? 'border-[#b3001e] bg-[#b3001e]/5' : 'border-black/10 hover:border-black/20'
+      className={`relative rounded-xl border-2 border-dashed p-5 text-center transition-all duration-200 ${
+        dragging ? 'border-[#b3001e] bg-[#b3001e]/[0.03] scale-[1.01]' : 'border-black/[0.08] hover:border-black/15'
       }`}
-      onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+      onDragOver={e => { e.preventDefault(); setDragging(true) }}
       onDragLeave={() => setDragging(false)}
-      onDrop={(e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files) }}
+      onDrop={e => { e.preventDefault(); setDragging(false); upload(e.dataTransfer.files) }}
     >
       {uploading ? (
-        <div className="flex flex-col items-center gap-2">
-          <Loader2 size={24} className="animate-spin text-[#b3001e]" />
-          <p className="text-sm text-black/50">Subiendo...</p>
+        <div className="flex flex-col items-center gap-2 py-2">
+          <Loader2 size={22} className="animate-spin" style={{ color: RED }} />
+          <p className="text-xs font-semibold" style={{ color: `${INK}50` }}>Subiendo...</p>
         </div>
       ) : (
         <>
-          <Upload size={24} className="mx-auto text-black/30 mb-2" />
-          <p className="text-sm text-black/60 mb-1">Arrastre archivos aqui o haga clic para seleccionar</p>
-          <p className="text-xs text-black/30">PDF, P12, JPG, PNG (max 10MB)</p>
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            onChange={(e) => handleFiles(e.target.files)}
-            accept=".pdf,.p12,.pfx,.jpg,.jpeg,.png,.doc,.docx"
-          />
+          <Upload size={20} className="mx-auto mb-2" style={{ color: `${INK}20` }} />
+          <p className="text-[13px] font-medium" style={{ color: `${INK}50` }}>Arrastre archivos o haga clic</p>
+          <p className="text-[11px] mt-0.5" style={{ color: `${INK}25` }}>PDF, P12, JPG, PNG (max 10MB)</p>
+          <input ref={ref} type="file" multiple className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            onChange={e => upload(e.target.files)} accept=".pdf,.p12,.pfx,.jpg,.jpeg,.png,.doc,.docx" />
         </>
       )}
-      {uploadError && (
-        <p className="text-xs text-red-600 mt-2">{uploadError}</p>
-      )}
+      {err && <p className="text-xs mt-2 font-medium" style={{ color: RED }}>{err}</p>}
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Messages Section
+// Messages
 // ---------------------------------------------------------------------------
-function MessagesSection({ messages = [], token, onMessageSent }) {
+function Messages({ messages = [], token, onSent }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
-  const bottomRef = useRef(null)
+  const endRef = useRef(null)
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages.length])
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages.length])
 
-  async function handleSend(e) {
+  async function send(e) {
     e.preventDefault()
     if (!text.trim()) return
     setSending(true)
     try {
       const res = await fetch(`/api/panel?action=cert_portal_message&token=${token}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text.trim() }),
       })
-      if (!res.ok) throw new Error('Error al enviar')
-      setText('')
-      if (onMessageSent) onMessageSent()
-    } catch {
-      // silently fail — user can retry
-    } finally {
-      setSending(false)
-    }
+      if (!res.ok) throw new Error()
+      setText(''); onSent?.()
+    } catch {} finally { setSending(false) }
   }
 
   return (
     <div>
-      {/* Message list */}
-      <div className="space-y-3 max-h-[400px] overflow-y-auto mb-4 pr-1">
+      <div className="space-y-3 max-h-[360px] overflow-y-auto mb-4 scroll-smooth" style={{ scrollbarWidth: 'thin' }}>
         {messages.length === 0 && (
-          <p className="text-sm text-black/30 text-center py-6">No hay mensajes aun.</p>
+          <p className="text-sm text-center py-8" style={{ color: `${INK}20` }}>No hay mensajes aun</p>
         )}
         {messages.map((msg, i) => {
-          const isSystem = msg.type === 'system'
+          if (msg.type === 'system') return (
+            <div key={i} className="flex justify-center">
+              <p className="text-[11px] py-1 px-3 rounded-full" style={{ color: `${INK}30`, backgroundColor: `${INK}03` }}>
+                {msg.text} {msg.date && <span style={{ color: `${INK}15` }}>— {formatDate(msg.date)}</span>}
+              </p>
+            </div>
+          )
           const isClient = msg.type === 'client'
-          // admin or default
-          if (isSystem) {
-            return (
-              <div key={i} className="flex justify-center">
-                <p className="text-xs text-black/30 bg-black/[0.03] rounded-full px-3 py-1">
-                  {msg.text} {msg.date && <span className="ml-1 text-black/20">- {formatDate(msg.date)}</span>}
-                </p>
-              </div>
-            )
-          }
           return (
             <div key={i} className={`flex ${isClient ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 ${
-                isClient
-                  ? 'bg-[#b3001e] text-white rounded-br-sm'
-                  : 'bg-black/[0.04] text-black rounded-bl-sm'
-              }`}>
-                <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
-                <p className={`text-[10px] mt-1 ${isClient ? 'text-white/50' : 'text-black/30'}`}>
-                  {formatDateTime(msg.date)}
-                </p>
+              <div className={`max-w-[80%] px-4 py-3 ${isClient
+                ? 'rounded-2xl rounded-br-md text-white'
+                : 'rounded-2xl rounded-bl-md'
+              }`} style={{
+                backgroundColor: isClient ? INK : `${INK}04`,
+                color: isClient ? '#fff' : INK,
+              }}>
+                <p className="text-[13px] leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                <p className="text-[10px] mt-1.5" style={{ opacity: 0.4 }}>{formatDateTime(msg.date)}</p>
               </div>
             </div>
           )
         })}
-        <div ref={bottomRef} />
+        <div ref={endRef} />
       </div>
 
-      {/* Input */}
-      <form onSubmit={handleSend} className="flex gap-2">
-        <input
-          type="text"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
+      <form onSubmit={send} className="flex gap-2">
+        <input type="text" value={text} onChange={e => setText(e.target.value)}
           placeholder="Escriba un mensaje..."
-          className="flex-1 px-4 py-3 rounded-xl bg-black/[0.03] text-sm text-black placeholder-black/30 outline-none border border-black/5 focus:border-[#b3001e]/30 focus:ring-1 focus:ring-[#b3001e]/20 transition-all"
           disabled={sending}
+          className="flex-1 px-4 py-3 rounded-xl text-[13px] outline-none transition-all"
+          style={{
+            backgroundColor: `${INK}03`, border: `1px solid ${INK}08`,
+            color: INK,
+          }}
+          onFocus={e => e.target.style.borderColor = `${RED}40`}
+          onBlur={e => e.target.style.borderColor = `${INK}08`}
         />
-        <button
-          type="submit"
-          disabled={sending || !text.trim()}
-          className="shrink-0 w-11 h-11 rounded-xl bg-[#b3001e] text-white flex items-center justify-center hover:bg-[#8c0017] disabled:opacity-40 transition-colors"
-        >
+        <button type="submit" disabled={sending || !text.trim()}
+          className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center text-white transition-all hover:scale-105 active:scale-95 disabled:opacity-30"
+          style={{ backgroundColor: RED }}>
           {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
         </button>
       </form>
@@ -315,32 +259,34 @@ function MessagesSection({ messages = [], token, onMessageSent }) {
 }
 
 // ---------------------------------------------------------------------------
-// Collapsible Card
+// Section wrapper
 // ---------------------------------------------------------------------------
-function CollapsibleCard({ title, icon: Icon, defaultOpen = true, count, children }) {
+function Section({ title, icon: Icon, count, defaultOpen = true, children }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-black/5 overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-black/[0.01] transition-colors"
-      >
+    <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: '#fff', border: `1px solid ${INK}06` }}>
+      <button onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-6 py-4 text-left transition-colors"
+        style={{ ':hover': { backgroundColor: `${INK}01` } }}>
         <div className="flex items-center gap-2.5">
-          {Icon && <Icon size={18} className="text-black/40" />}
-          <span className="text-sm font-semibold text-black">{title}</span>
+          {Icon && <Icon size={16} style={{ color: `${INK}30` }} />}
+          <span className="text-[13px] font-bold tracking-tight" style={{ color: INK }}>{title}</span>
           {count != null && (
-            <span className="text-xs text-black/30 bg-black/5 rounded-full px-2 py-0.5">{count}</span>
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded-md"
+              style={{ color: `${INK}35`, backgroundColor: `${INK}04` }}>{count}</span>
           )}
         </div>
-        {open ? <ChevronUp size={16} className="text-black/30" /> : <ChevronDown size={16} className="text-black/30" />}
+        {open
+          ? <ChevronUp size={15} style={{ color: `${INK}20` }} />
+          : <ChevronDown size={15} style={{ color: `${INK}20` }} />}
       </button>
-      {open && <div className="px-6 pb-5 pt-0">{children}</div>}
+      {open && <div className="px-6 pb-5">{children}</div>}
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Main CertPortal component
+// Main Portal
 // ---------------------------------------------------------------------------
 export default function CertPortal() {
   const { token } = useParams()
@@ -348,77 +294,72 @@ export default function CertPortal() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  const fetchData = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/panel?action=cert_portal&token=${token}`)
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || 'Portal no encontrado')
-      }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Portal no encontrado') }
       const json = await res.json()
-      setData(json.data)
-      setError(null)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
+      setData(json.data); setError(null)
+    } catch (e) { setError(e.message) }
+    finally { setLoading(false) }
   }, [token])
 
   useEffect(() => {
-    if (!token) {
-      setError('Token no proporcionado')
-      setLoading(false)
-      return
-    }
-    fetchData()
-  }, [token, fetchData])
+    if (!token) { setError('Token no proporcionado'); setLoading(false); return }
+    load()
+  }, [token, load])
 
   if (loading) return <SkeletonLoader />
   if (error || !data) return <ErrorView message={error} />
 
   const {
-    business_name,
-    rnc,
-    package_type,
-    status,
-    current_step,
-    steps_completed = [],
-    step_dates = {},
-    documents = [],
-    messages = [],
-    test_results = [],
+    business_name, rnc, package_type, status,
+    current_step, steps_completed = [], step_dates = {},
+    documents = [], messages = [], test_results = [],
     payment = {},
   } = data
 
   const currentStepInfo = STEPS.find(s => s.num === current_step)
-  const showTestResults = TEST_RESULT_STEPS.includes(current_step) && test_results.length > 0
+  const showTests = TEST_RESULT_STEPS.includes(current_step) && test_results.length > 0
   const clientDocs = documents.filter(d => d.visible_to_client !== false)
+  const completedPct = Math.round((steps_completed.length / 15) * 100)
 
   return (
-    <div className="min-h-screen bg-[#f8f8f8]">
-      <div className="max-w-3xl mx-auto px-4 py-6 sm:py-10">
+    <div className="min-h-screen" style={{ background: 'linear-gradient(180deg, #fafafa 0%, #f3f3f3 50%, #f8f8f8 100%)' }}>
 
-        {/* ---- HEADER ---- */}
-        <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-black/5 mb-4">
-          {/* Logo + title */}
-          <div className="flex items-center gap-2 mb-5">
-            <span className="text-xl font-black text-black tracking-[2px]">TERMINAL</span>
-            <img src={xMark} alt="X" width="48" height="48" className="h-12 w-12 object-contain" />
+      {/* ── Top accent bar ── */}
+      <div className="h-1" style={{ background: `linear-gradient(90deg, ${RED}, ${RED}80, ${RED}40, transparent)` }} />
+
+      <div className="max-w-2xl mx-auto px-5 py-8 sm:py-14">
+
+        {/* ── HEADER ── */}
+        <header className="mb-8">
+          {/* Brand mark */}
+          <div className="flex items-center gap-1 mb-6">
+            <span className="text-[13px] font-black tracking-[3px] uppercase" style={{ color: INK }}>TERMINAL</span>
+            <span className="text-[13px] font-black" style={{ color: RED }}>X</span>
+            <span className="mx-2 text-[10px]" style={{ color: `${INK}15` }}>|</span>
+            <span className="text-[11px] font-bold uppercase tracking-[2px]" style={{ color: `${INK}30` }}>Certificacion e-CF</span>
           </div>
 
-          <h1 className="text-lg sm:text-xl font-bold text-black mb-1">Certificacion e-CF</h1>
-          <p className="text-base font-semibold text-black/80 mb-0.5">{business_name || 'Negocio'}</p>
-          {rnc && <p className="text-sm text-black/40 mb-4">RNC: {rnc}</p>}
+          {/* Business identity */}
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight leading-tight mb-2" style={{ color: INK }}>
+            {business_name || 'Negocio'}
+          </h1>
+          {rnc && (
+            <p className="text-[13px] font-medium mb-4" style={{ color: `${INK}35` }}>
+              RNC {rnc}
+            </p>
+          )}
 
-          <div className="flex flex-wrap gap-2">
-            {packageBadge(package_type)}
-            {statusBadge(status)}
+          <div className="flex flex-wrap items-center gap-3">
+            <StatusPill status={status} />
+            <PackagePill pkg={package_type} />
           </div>
-        </div>
+        </header>
 
-        {/* ---- PROGRESS / STEPS ---- */}
-        <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-black/5 mb-4">
+        {/* ── PROGRESS CARD ── */}
+        <div className="rounded-2xl p-6 sm:p-8 mb-5" style={{ backgroundColor: '#fff', border: `1px solid ${INK}06` }}>
           <PortalStepTracker
             currentStep={current_step}
             stepsCompleted={steps_completed}
@@ -426,174 +367,185 @@ export default function CertPortal() {
           />
         </div>
 
-        {/* ---- CURRENT STEP ACTION CARD ---- */}
+        {/* ── CURRENT STEP ACTION ── */}
         {currentStepInfo && status !== 'completed' && (
-          <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border-2 border-[#b3001e]/20 mb-4">
-            <div className="flex items-start gap-3 mb-4">
-              <div className="w-8 h-8 rounded-full bg-[#b3001e]/10 flex items-center justify-center shrink-0 mt-0.5">
-                <span className="text-xs font-bold text-[#b3001e]">{current_step}</span>
+          <div className="rounded-2xl p-6 sm:p-8 mb-5" style={{ backgroundColor: '#fff', border: `2px solid ${RED}18` }}>
+            <div className="flex items-start gap-4 mb-4">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: `${RED}08` }}>
+                <span className="text-sm font-black" style={{ color: RED }}>{current_step}</span>
               </div>
-              <div>
-                <h2 className="text-sm font-bold text-black">Paso actual: {currentStepInfo.label}</h2>
-                <p className="text-sm text-black/50 mt-1 leading-relaxed">
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-[0.1em] mb-1" style={{ color: RED }}>Paso Actual</p>
+                <h2 className="text-[15px] font-bold tracking-tight mb-2" style={{ color: INK }}>{currentStepInfo.label}</h2>
+                <p className="text-[13px] leading-relaxed" style={{ color: `${INK}55` }}>
                   {CLIENT_INSTRUCTIONS[current_step] || 'Estamos trabajando en este paso. Le notificaremos cuando haya novedades.'}
                 </p>
               </div>
             </div>
 
-            {/* Upload area for action steps */}
             {CLIENT_ACTION_STEPS.includes(current_step) && (
-              <div className="mt-4">
-                <p className="text-xs font-medium text-black/40 uppercase tracking-wider mb-3">Subir Documentos</p>
-                <UploadDropzone token={token} onUploadComplete={fetchData} />
+              <div className="mt-5 pt-5" style={{ borderTop: `1px solid ${INK}06` }}>
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] mb-3" style={{ color: `${INK}30` }}>
+                  Subir Documentos
+                </p>
+                <UploadZone token={token} onDone={load} />
               </div>
             )}
           </div>
         )}
 
-        {/* ---- COMPLETED BANNER ---- */}
+        {/* ── COMPLETED ── */}
         {status === 'completed' && (
-          <div className="bg-emerald-50 rounded-2xl p-6 sm:p-8 border border-emerald-200 mb-4 text-center">
-            <CheckCircle2 size={40} className="text-emerald-600 mx-auto mb-3" />
-            <h2 className="text-lg font-bold text-emerald-800 mb-1">Certificacion Completada</h2>
-            <p className="text-sm text-emerald-700/70">
-              Su negocio esta certificado como Emisor Electronico ante la DGII. Ya puede emitir e-CF.
+          <div className="rounded-2xl p-8 sm:p-10 mb-5 text-center" style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+            <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: '#dcfce7' }}>
+              <Award size={32} className="text-emerald-600" />
+            </div>
+            <h2 className="text-xl font-black tracking-tight text-emerald-800 mb-2">Certificacion Completada</h2>
+            <p className="text-[13px] text-emerald-700/60 leading-relaxed max-w-sm mx-auto">
+              Su negocio esta certificado como Emisor Electronico ante la DGII. Ya puede emitir comprobantes fiscales electronicos.
             </p>
           </div>
         )}
 
-        {/* ---- TEST RESULTS ---- */}
-        {showTestResults && (
-          <CollapsibleCard title="Resultados de Pruebas" icon={Shield} count={test_results.length}>
-            <div className="overflow-x-auto -mx-2">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-black/5">
-                    <th className="text-left py-2 px-2 text-xs font-medium text-black/40">#</th>
-                    <th className="text-left py-2 px-2 text-xs font-medium text-black/40">Prueba</th>
-                    <th className="text-left py-2 px-2 text-xs font-medium text-black/40">Estado</th>
-                    <th className="text-left py-2 px-2 text-xs font-medium text-black/40">Fecha</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {test_results.map((t, i) => (
-                    <tr key={i} className="border-b border-black/[0.03]">
-                      <td className="py-2.5 px-2 text-black/30">{i + 1}</td>
-                      <td className="py-2.5 px-2 text-black/80">{t.name}</td>
-                      <td className="py-2.5 px-2">{testStatusBadge(t.status)}</td>
-                      <td className="py-2.5 px-2 text-black/40 text-xs">{formatDate(t.date)}</td>
+        {/* ── TEST RESULTS ── */}
+        {showTests && (
+          <div className="mb-5">
+            <Section title="Resultados de Pruebas" icon={Shield} count={test_results.length}>
+              <div className="overflow-x-auto -mx-2">
+                <table className="w-full text-[13px]">
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${INK}06` }}>
+                      <th className="text-left py-2.5 px-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: `${INK}30` }}>#</th>
+                      <th className="text-left py-2.5 px-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: `${INK}30` }}>Prueba</th>
+                      <th className="text-left py-2.5 px-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: `${INK}30` }}>Estado</th>
+                      <th className="text-left py-2.5 px-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: `${INK}30` }}>Fecha</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CollapsibleCard>
+                  </thead>
+                  <tbody>
+                    {test_results.map((t, i) => (
+                      <tr key={i} style={{ borderBottom: `1px solid ${INK}04` }}>
+                        <td className="py-3 px-2" style={{ color: `${INK}25` }}>{i + 1}</td>
+                        <td className="py-3 px-2 font-medium" style={{ color: `${INK}80` }}>{t.name}</td>
+                        <td className="py-3 px-2"><TestBadge status={t.status} /></td>
+                        <td className="py-3 px-2 text-[11px]" style={{ color: `${INK}30` }}>{formatDate(t.date)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Section>
+          </div>
         )}
 
-        {/* ---- DOCUMENTS ---- */}
-        <div className="mt-4">
-          <CollapsibleCard title="Documentos" icon={FileText} count={clientDocs.length}>
+        {/* ── DOCUMENTS ── */}
+        <div className="mb-5">
+          <Section title="Documentos" icon={FileText} count={clientDocs.length}>
             {clientDocs.length === 0 ? (
-              <p className="text-sm text-black/30 text-center py-4">No hay documentos disponibles.</p>
+              <p className="text-[13px] text-center py-6" style={{ color: `${INK}20` }}>No hay documentos disponibles</p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {clientDocs.map((doc, i) => (
-                  <div key={i} className="flex items-center justify-between py-2.5 px-3 rounded-lg bg-black/[0.02] hover:bg-black/[0.04] transition-colors">
+                  <div key={i} className="flex items-center justify-between py-2.5 px-3 rounded-xl transition-colors"
+                    style={{ backgroundColor: `${INK}02` }}
+                    onMouseEnter={e => e.currentTarget.style.backgroundColor = `${INK}04`}
+                    onMouseLeave={e => e.currentTarget.style.backgroundColor = `${INK}02`}>
                     <div className="flex items-center gap-3 min-w-0">
-                      <FileText size={16} className="text-black/30 shrink-0" />
+                      <FileText size={15} style={{ color: `${INK}25` }} />
                       <div className="min-w-0">
-                        <p className="text-sm text-black/80 truncate">{doc.name}</p>
-                        <p className="text-[11px] text-black/30">
+                        <p className="text-[13px] font-medium truncate" style={{ color: `${INK}80` }}>{doc.name}</p>
+                        <p className="text-[11px]" style={{ color: `${INK}25` }}>
                           {doc.type && <span className="uppercase">{doc.type}</span>}
-                          {doc.date && <span> - {formatDate(doc.date)}</span>}
+                          {doc.date && <span> — {formatDate(doc.date)}</span>}
                         </p>
                       </div>
                     </div>
                     {doc.url && (
-                      <a
-                        href={doc.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="shrink-0 w-8 h-8 rounded-lg bg-black/5 hover:bg-black/10 flex items-center justify-center transition-colors"
-                      >
-                        <Download size={14} className="text-black/50" />
+                      <a href={doc.url} target="_blank" rel="noopener noreferrer"
+                        className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:scale-110"
+                        style={{ backgroundColor: `${INK}05` }}>
+                        <Download size={13} style={{ color: `${INK}40` }} />
                       </a>
                     )}
                   </div>
                 ))}
               </div>
             )}
-
-            {/* Upload for documents (always available) */}
-            <div className="mt-4 pt-4 border-t border-black/5">
-              <p className="text-xs font-medium text-black/40 mb-2">Subir nuevo documento</p>
-              <UploadDropzone token={token} onUploadComplete={fetchData} />
+            <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${INK}06` }}>
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] mb-3" style={{ color: `${INK}25` }}>
+                Subir documento
+              </p>
+              <UploadZone token={token} onDone={load} />
             </div>
-          </CollapsibleCard>
+          </Section>
         </div>
 
-        {/* ---- MESSAGES ---- */}
-        <div className="mt-4">
-          <CollapsibleCard title="Mensajes" icon={MessageSquare} count={messages.length}>
-            <MessagesSection messages={messages} token={token} onMessageSent={fetchData} />
-          </CollapsibleCard>
+        {/* ── MESSAGES ── */}
+        <div className="mb-5">
+          <Section title="Mensajes" icon={MessageSquare} count={messages.length}>
+            <Messages messages={messages} token={token} onSent={load} />
+          </Section>
         </div>
 
-        {/* ---- PAYMENT INFO ---- */}
+        {/* ── PAYMENT ── */}
         {payment && (payment.total || payment.status) && (
-          <div className="mt-4">
-            <CollapsibleCard title="Informacion de Pago" icon={CreditCard} defaultOpen={false}>
-              <div className="space-y-3">
+          <div className="mb-5">
+            <Section title="Informacion de Pago" icon={CreditCard} defaultOpen={false}>
+              <div className="grid grid-cols-2 gap-4">
                 {payment.package_name && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-black/50">Paquete</span>
-                    <span className="text-sm font-medium text-black">{payment.package_name}</span>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: `${INK}25` }}>Paquete</p>
+                    <p className="text-[13px] font-bold" style={{ color: INK }}>{payment.package_name}</p>
                   </div>
                 )}
                 {payment.total && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-black/50">Monto Total</span>
-                    <span className="text-sm font-semibold text-black">RD${Number(payment.total).toLocaleString('es-DO')}</span>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: `${INK}25` }}>Total</p>
+                    <p className="text-[15px] font-black" style={{ color: INK }}>RD${Number(payment.total).toLocaleString('es-DO')}</p>
                   </div>
                 )}
                 {payment.paid != null && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-black/50">Monto Pagado</span>
-                    <span className="text-sm font-medium text-emerald-700">RD${Number(payment.paid).toLocaleString('es-DO')}</span>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: `${INK}25` }}>Pagado</p>
+                    <p className="text-[15px] font-black text-emerald-600">RD${Number(payment.paid).toLocaleString('es-DO')}</p>
                   </div>
                 )}
                 {payment.status && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-black/50">Estado de Pago</span>
-                    {paymentBadge(payment.status)}
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: `${INK}25` }}>Estado</p>
+                    <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-bold ${
+                      payment.status === 'paid' ? 'bg-emerald-50 text-emerald-700'
+                      : payment.status === 'partial' ? 'bg-amber-50 text-amber-700'
+                      : 'bg-red-50 text-red-700'
+                    }`}>
+                      {payment.status === 'paid' ? 'Pagado' : payment.status === 'partial' ? 'Parcial' : 'Pendiente'}
+                    </span>
                   </div>
                 )}
               </div>
-            </CollapsibleCard>
+            </Section>
           </div>
         )}
 
-        {/* ---- FOOTER ---- */}
-        <footer className="mt-10 mb-6 text-center space-y-3">
-          <p className="text-xs text-black/30">Terminal X -- Sistema de Punto de Venta</p>
-          <div className="flex items-center justify-center gap-4">
-            <a
-              href="https://wa.me/18098282971"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-black/40 hover:text-[#b3001e] transition-colors"
-            >
-              <Phone size={12} />
-              +1 (809) 828-2971
+        {/* ── FOOTER ── */}
+        <footer className="mt-12 mb-8 text-center">
+          <div className="flex items-center justify-center gap-1 mb-4">
+            <span className="text-[11px] font-black tracking-[2px] uppercase" style={{ color: `${INK}20` }}>TERMINAL</span>
+            <span className="text-[11px] font-black" style={{ color: `${RED}40` }}>X</span>
+          </div>
+          <div className="flex items-center justify-center gap-5">
+            <a href="https://wa.me/18098282971" target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-[11px] font-semibold transition-colors"
+              style={{ color: `${INK}30` }}
+              onMouseEnter={e => e.currentTarget.style.color = RED}
+              onMouseLeave={e => e.currentTarget.style.color = `${INK}30`}>
+              <Phone size={11} /> +1 (809) 828-2971
             </a>
-            <a
-              href="https://terminalxpos.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-black/40 hover:text-[#b3001e] transition-colors"
-            >
-              <ExternalLink size={12} />
-              terminalxpos.com
+            <a href="https://terminalxpos.com" target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-[11px] font-semibold transition-colors"
+              style={{ color: `${INK}30` }}
+              onMouseEnter={e => e.currentTarget.style.color = RED}
+              onMouseLeave={e => e.currentTarget.style.color = `${INK}30`}>
+              <ArrowUpRight size={11} /> terminalxpos.com
             </a>
           </div>
         </footer>
