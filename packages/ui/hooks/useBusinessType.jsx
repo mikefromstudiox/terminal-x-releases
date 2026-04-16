@@ -24,8 +24,8 @@ function normalise(raw) {
 // serviceBased → car-wash-style POS with service grid + queue + workers
 // hybrid       → both (combined view)
 function flagsFor(type) {
-  const stockTracked = ['retail', 'dealership', 'restaurant', 'hybrid'].includes(type)
-  const serviceBased = ['carwash', 'service', 'hybrid'].includes(type)
+  const stockTracked = ['retail', 'dealership', 'restaurant', 'hybrid', 'mechanic'].includes(type)
+  const serviceBased = ['carwash', 'service', 'hybrid', 'salon', 'mechanic'].includes(type)
   return {
     isRetail:     stockTracked,   // kept for backward-compat with existing call sites
     isCarWash:    serviceBased,   // kept for backward-compat
@@ -33,6 +33,9 @@ function flagsFor(type) {
     isService:    type === 'service',
     isDealership: type === 'dealership',
     isRestaurant: type === 'restaurant',
+    isMechanic:   type === 'mechanic',
+    isSalon:      type === 'salon',
+    isPrestamos:  type === 'prestamos',
     stockTracked, serviceBased,
   }
 }

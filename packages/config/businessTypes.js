@@ -78,12 +78,63 @@ export const BUSINESS_TYPES = {
     enabled: true,
   },
 
+  mechanic: {
+    label:       { es: 'Taller Mecánico', en: 'Mechanic Shop' },
+    description: { es: 'Taller automotriz con órdenes de trabajo, vehículos y bahías de servicio.',
+                   en: 'Automotive repair with work orders, vehicles and service bays.' },
+    icon: 'Wrench',
+    modules: ['work_orders', 'vehicles', 'service_bays', 'inventory', 'appointments', 'commissions', 'service_grid'],
+    ui: {
+      showTableMap: false,
+      enableKDS: false,
+      showRetailCart: false,
+      showServiceGrid: true,
+      showInventory: true,
+      posSegmentToggle: false,
+    },
+    enabled: true,
+  },
+
+  salon: {
+    label:       { es: 'Barbería / Salón', en: 'Barbershop / Salon' },
+    description: { es: 'Barbería, salón de belleza, spa. Citas, estilistas y colas.',
+                   en: 'Barbershop, beauty salon, spa. Appointments, stylists and queues.' },
+    icon: 'Scissors',
+    modules: ['appointments', 'stylist_schedules', 'queue', 'service_grid', 'commissions'],
+    ui: {
+      showTableMap: false,
+      enableKDS: false,
+      showRetailCart: false,
+      showServiceGrid: true,
+      showInventory: false,
+      posSegmentToggle: false,
+    },
+    enabled: true,
+  },
+
+  prestamos: {
+    label:       { es: 'Préstamos / Empeño', en: 'Lending / Pawn' },
+    description: { es: 'Préstamos personales, casa de empeño, cobranza y amortización.',
+                   en: 'Personal loans, pawnshop, collections and amortization.' },
+    icon: 'Banknote',
+    modules: ['loans', 'pawn_items', 'clients'],
+    ui: {
+      showTableMap: false,
+      enableKDS: false,
+      showRetailCart: false,
+      showServiceGrid: false,
+      showInventory: false,
+      posSegmentToggle: false,
+    },
+    enabled: true,
+  },
+
   dealership: {
     label:       { es: 'Dealership', en: 'Dealership' },
     description: { es: 'Venta de vehículos, con inventario de unidades.',
                    en: 'Vehicle sales with unit inventory.' },
     icon: 'CarFront',
-    modules: ['inventory', 'barcode'],
+    modules: ['inventory', 'barcode', 'vehicles'],
     ui: {
       showTableMap: false,
       enableKDS: false,
@@ -92,7 +143,7 @@ export const BUSINESS_TYPES = {
       showInventory: true,
       posSegmentToggle: false,
     },
-    enabled: false, // placeholder — surfaces in UI as "próximamente"
+    enabled: true,
   },
 
   hybrid: {
@@ -115,7 +166,7 @@ export const BUSINESS_TYPES = {
   },
 }
 
-export const BUSINESS_TYPE_KEYS = Object.keys(BUSINESS_TYPES)
+export const BUSINESS_TYPE_KEYS = ['carwash', 'retail', 'service', 'restaurant', 'mechanic', 'salon', 'prestamos', 'dealership', 'hybrid']
 
 export function getBusinessTypeConfig(type) {
   return BUSINESS_TYPES[type] || BUSINESS_TYPES.carwash

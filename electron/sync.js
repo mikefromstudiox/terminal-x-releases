@@ -226,6 +226,53 @@ const SYNC_TABLES = [
     }),
   },
 
+  // Phase 1 (cont.) — multi-vertical root entities
+  {
+    name: 'vehicles',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      vin: r.vin,
+      plate: r.plate,
+      make: r.make,
+      model: r.model,
+      year: r.year,
+      color: r.color,
+      mileage: r.mileage,
+      client_supabase_id: r.client_supabase_id || null,
+      notes: r.notes,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'service_bays',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      name: r.name,
+      status: r.status,
+      current_work_order_supabase_id: r.current_work_order_supabase_id || null,
+      capacity: r.capacity,
+      bay_type: r.bay_type,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'stylist_schedules',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      empleado_supabase_id: r.empleado_supabase_id,
+      day_of_week: r.day_of_week,
+      start_time: r.start_time,
+      end_time: r.end_time,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+
   {
     name: 'users',
     cols: r => ({
@@ -341,6 +388,61 @@ const SYNC_TABLES = [
         updated_at: r.updated_at || null,
       }
     },
+  },
+
+  // Phase 2 (cont.) — multi-vertical dependent entities
+  {
+    name: 'work_orders',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      vehicle_supabase_id: r.vehicle_supabase_id || null,
+      client_supabase_id: r.client_supabase_id || null,
+      technician_empleado_supabase_id: r.technician_empleado_supabase_id || null,
+      bay_supabase_id: r.bay_supabase_id || null,
+      status: r.status,
+      estimated_total: r.estimated_total,
+      actual_total: r.actual_total,
+      promised_date: r.promised_date,
+      completed_date: r.completed_date,
+      notes: r.notes,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'appointments',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id || null,
+      empleado_supabase_id: r.empleado_supabase_id || null,
+      date: r.date,
+      start_time: r.start_time,
+      end_time: r.end_time,
+      status: r.status,
+      services: r.services,
+      notes: r.notes,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'loans',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id || null,
+      principal: r.principal,
+      term_months: r.term_months,
+      interest_rate: r.interest_rate,
+      monthly_payment: r.monthly_payment,
+      status: r.status,
+      disbursed_at: r.disbursed_at,
+      next_due_date: r.next_due_date,
+      total_paid: r.total_paid,
+      total_interest: r.total_interest,
+      notes: r.notes,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
   },
 
   // Phase 3 — depend on tickets and other phase 1/2 entities
@@ -926,7 +1028,7 @@ function updatePullLog(tableName, lastPullAt) {
 }
 
 // -- JSON columns that need stringify when inserting into SQLite ---------------
-const JSON_COLUMNS = new Set(['ecf_result', 'washer_ids', 'ticket_ids', 'denominaciones', 'services_json', 'metadata'])
+const JSON_COLUMNS = new Set(['ecf_result', 'washer_ids', 'ticket_ids', 'denominaciones', 'services_json', 'metadata', 'services'])
 
 function sqliteValue(col, val) {
   if (val == null) return null
@@ -960,6 +1062,13 @@ const PULL_TABLES = [
   { name: 'categorias_servicio', strategy: 'lww', naturalKey: 'nombre', cols: ['nombre','orden','updated_at'] },
   { name: 'users', strategy: 'lww', naturalKey: 'username', cols: ['name','username','pin_hash','role','discount_pct','commission_pct','cedula','start_date','employee_id','active','created_at','updated_at'] },
 
+  // Phase 1 (cont.) — multi-vertical root entities
+  { name: 'vehicles', strategy: 'lww', naturalKey: 'vin', cols: ['vin','plate','make','model','year','color','mileage','notes','active','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients' } },
+  { name: 'service_bays', strategy: 'lww', naturalKey: 'name', cols: ['name','status','current_work_order_supabase_id','capacity','bay_type','active','created_at','updated_at'] },
+  { name: 'stylist_schedules', strategy: 'lww', cols: ['day_of_week','start_time','end_time','active','created_at','updated_at'],
+    fkCols: { empleado_supabase_id: 'empleados' } },
+
   // Phase 2 — tickets + dependents
   { name: 'tickets', strategy: 'fww',
     cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','void_by','void_at','vehicle_plate','vehicle_color','vehicle_make','notes','washer_ids','tip_amount','fulfillment_type','mesa_supabase_id','created_at','updated_at'],
@@ -977,6 +1086,17 @@ const PULL_TABLES = [
   { name: 'kds_events', strategy: 'fww',
     cols: ['station','status','fired_at','started_at','ready_at','bumped_at','created_at','updated_at'],
     fkCols: { ticket_item_supabase_id: 'ticket_items', mesa_supabase_id: 'mesas' } },
+
+  // Phase 2 (cont.) — multi-vertical dependent entities
+  { name: 'work_orders', strategy: 'lww',
+    cols: ['status','estimated_total','actual_total','promised_date','completed_date','notes','created_at','updated_at'],
+    fkCols: { vehicle_supabase_id: 'vehicles', client_supabase_id: 'clients', technician_empleado_supabase_id: 'empleados', bay_supabase_id: 'service_bays' } },
+  { name: 'appointments', strategy: 'lww',
+    cols: ['date','start_time','end_time','status','services','notes','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', empleado_supabase_id: 'empleados' } },
+  { name: 'loans', strategy: 'lww',
+    cols: ['principal','term_months','interest_rate','monthly_payment','status','disbursed_at','next_due_date','total_paid','total_interest','notes','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients' } },
 
   // Phase 3 — financial (FWW)
   { name: 'washer_commissions', strategy: 'fww',
@@ -1005,6 +1125,17 @@ const PULL_TABLES = [
     fkCols: { item_supabase_id: 'inventory_items', user_supabase_id: 'users' } },
   { name: 'compras_607', strategy: 'fww',
     cols: ['rnc_proveedor','nombre_proveedor','ncf','ncf_modificado','fecha_ncf','total','itbis_facturado','itbis_retenido','retencion_renta','forma_pago','tipo_ncf','fecha_pago','monto_servicios','monto_bienes','notas','created_at','updated_at'] },
+
+  // Phase 3 (cont.) — multi-vertical child entities
+  { name: 'work_order_items', strategy: 'fww',
+    cols: ['type','name','description','quantity','unit_price','total','warranty_months','created_at','updated_at'],
+    fkCols: { work_order_supabase_id: 'work_orders', inventory_item_supabase_id: 'inventory_items' } },
+  { name: 'loan_payments', strategy: 'fww',
+    cols: ['amount','principal_portion','interest_portion','late_fee','payment_date','due_date','status','notes','created_at','updated_at'],
+    fkCols: { loan_supabase_id: 'loans' } },
+  { name: 'pawn_items', strategy: 'lww',
+    cols: ['description','estimated_value','storage_location','status','redeem_deadline','notes','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', loan_supabase_id: 'loans' } },
 
   // Phase 4 — payroll audit trail + adelantos (FWW — financial records, never overwritten)
   // Note: ecf_submissions is push-only (desktop-authored per-device, no pull) — column name
@@ -1562,6 +1693,8 @@ async function startRealtime() {
     'credit_payments','cuadre_caja','caja_chica','notas_credito',
     'inventory_transactions','compras_607','adelantos','payroll_runs','salary_changes',
     'activity_log',
+    'vehicles','service_bays','work_orders','work_order_items','appointments',
+    'stylist_schedules','loans','loan_payments','pawn_items',
   ]
 
   _realtimeChannel = _realtimeClient.channel(`tx-sync-${bizId}`)

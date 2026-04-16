@@ -89,11 +89,14 @@ ipcMain.handle('app:resetLocalDatabase', () => {
     // Order: children first (FK deps), then parents.
     const tables = [
       'ticket_item_modificadores', 'kds_events', 'service_modificadores',
+      'work_order_items', 'loan_payments', 'pawn_items',
       'washer_commissions', 'seller_commissions', 'cajero_commissions',
       'credit_payments', 'notas_credito', 'ticket_items', 'queue', 'queue_deletions',
       'cuadre_caja', 'caja_chica', 'inventory_transactions', 'ecf_submissions',
       'adelantos', 'payroll_runs', 'salary_changes', 'activity_log',
+      'work_orders', 'appointments', 'loans',
       'tickets', 'mesas', 'modificadores',
+      'vehicles', 'service_bays', 'stylist_schedules',
       'services', 'categorias_servicio',
       'washers', 'sellers', 'empleados', 'clients', 'inventory_items',
       'ncf_sequences', 'users', 'businesses',
@@ -979,6 +982,60 @@ handle('adelantos:pending-total', (empleadoId)         => db.adelantoPendingTota
 handle('adelantos:deduct',        ({id, payrollRunId}) => { db.adelantoDeduct(id, payrollRunId); return true })
 handle('adelantos:cancel',        ({id})               => { db.adelantoCancel(id); return true })
 handle('adelantos:summary',       ()                   => db.adelantoSummary())
+
+// ── Vehicles (auto repair / detailing) ───────────────────────────────────────
+handle('vehicles:create',  (data)            => db.vehicleCreate(data))
+handle('vehicles:update',  ({id, ...data})   => db.vehicleUpdate(id, data))
+handle('vehicles:list',    (params)          => db.vehicleList(params))
+handle('vehicles:byId',    (id)              => db.vehicleGetById(id))
+handle('vehicles:delete',  ({id})            => { db.vehicleDelete(id); return true })
+
+// ── Service Bays ─────────────────────────────────────────────────────────────
+handle('serviceBays:create', (data)          => db.serviceBayCreate(data))
+handle('serviceBays:update', ({id, ...data}) => db.serviceBayUpdate(id, data))
+handle('serviceBays:list',   (params)        => db.serviceBayList(params))
+handle('serviceBays:delete', ({id})          => { db.serviceBayDelete(id); return true })
+
+// ── Work Orders ──────────────────────────────────────────────────────────────
+handle('workOrders:create', (data)           => db.workOrderCreate(data))
+handle('workOrders:update', ({id, ...data})  => db.workOrderUpdate(id, data))
+handle('workOrders:list',   (params)         => db.workOrderList(params))
+handle('workOrders:byId',   (id)             => db.workOrderGetById(id))
+
+// ── Work Order Items ─────────────────────────────────────────────────────────
+handle('workOrderItems:create',  (data)          => db.workOrderItemCreate(data))
+handle('workOrderItems:update',  ({id, ...data}) => db.workOrderItemUpdate(id, data))
+handle('workOrderItems:delete',  ({id})          => { db.workOrderItemDelete(id); return true })
+handle('workOrderItems:byOrder', (workOrderId)   => db.workOrderItemsByOrder(workOrderId))
+
+// ── Appointments (salon / barbershop) ────────────────────────────────────────
+handle('appointments:create', (data)           => db.appointmentCreate(data))
+handle('appointments:update', ({id, ...data})  => db.appointmentUpdate(id, data))
+handle('appointments:list',   (params)         => db.appointmentList(params))
+handle('appointments:byId',   (id)             => db.appointmentGetById(id))
+handle('appointments:delete', ({id})           => { db.appointmentDelete(id); return true })
+
+// ── Stylist Schedules ────────────────────────────────────────────────────────
+handle('stylistSchedules:create', (data)           => db.stylistScheduleCreate(data))
+handle('stylistSchedules:update', ({id, ...data})  => db.stylistScheduleUpdate(id, data))
+handle('stylistSchedules:list',   (params)         => db.stylistScheduleList(params))
+handle('stylistSchedules:delete', ({id})           => { db.stylistScheduleDelete(id); return true })
+
+// ── Loans (prestamos) ────────────────────────────────────────────────────────
+handle('loans:create',  (data)           => db.loanCreate(data))
+handle('loans:update',  ({id, ...data})  => db.loanUpdate(id, data))
+handle('loans:list',    (params)         => db.loanList(params))
+handle('loans:byId',    (id)             => db.loanGetById(id))
+
+// ── Loan Payments ────────────────────────────────────────────────────────────
+handle('loanPayments:create', (data)     => db.loanPaymentCreate(data))
+handle('loanPayments:list',   (params)   => db.loanPaymentList(params))
+
+// ── Pawn Items ───────────────────────────────────────────────────────────────
+handle('pawnItems:create',  (data)           => db.pawnItemCreate(data))
+handle('pawnItems:update',  ({id, ...data})  => db.pawnItemUpdate(id, data))
+handle('pawnItems:list',    (params)         => db.pawnItemList(params))
+handle('pawnItems:delete',  ({id})           => { db.pawnItemDelete(id); return true })
 
 // ── Clients ───────────────────────────────────────────────────────────────────
 handle('clients:all',          ()          => db.clientsGetAll())

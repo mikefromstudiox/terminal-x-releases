@@ -13,6 +13,7 @@ import {
   Printer, MessageSquare, HardDrive, Download,
   Archive, LifeBuoy, Send, Loader2,
   Grid3x3, UtensilsCrossed, ChefHat,
+  Wrench, Scissors, Car, Calendar, Warehouse, Banknote,
 } from 'lucide-react'
 import { usePlan } from '../hooks/usePlan.jsx'
 import { useLang } from '../i18n'
@@ -55,6 +56,45 @@ const NAV = [
     es: 'Cocina (KDS)', en: 'Kitchen (KDS)',
     businessTypes: ['restaurant', 'hybrid'],
     roles: ['owner','manager','cashier','waiter'],
+  },
+  {
+    id: 'work_orders', to: '/work-orders', icon: Wrench,
+    es: 'Órdenes', en: 'Work Orders',
+    feature: 'work_orders',
+    businessTypes: ['mechanic'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'vehicles', to: '/vehicles', icon: Car,
+    es: 'Vehículos', en: 'Vehicles',
+    feature: 'vehicles',
+    businessTypes: ['mechanic', 'dealership'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'service_bays', to: '/service-bays', icon: Warehouse,
+    es: 'Bahías', en: 'Service Bays',
+    feature: 'service_bays',
+    businessTypes: ['mechanic'],
+    roles: ['owner','manager'],
+  },
+  {
+    id: 'appointments', to: '/appointments', icon: Calendar,
+    es: 'Citas', en: 'Appointments',
+    feature: 'appointments',
+    businessTypes: ['salon', 'mechanic'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'lending', icon: Banknote,
+    es: 'Préstamos', en: 'Lending',
+    feature: 'loans',
+    businessTypes: ['prestamos'],
+    roles: ['owner','manager','cfo','accountant'],
+    children: [
+      { to: '/loans', es: 'Préstamos', en: 'Loans', feature: 'loans' },
+      { to: '/pawn-items', es: 'Empeños', en: 'Pawn Items', feature: 'pawn_items' },
+    ],
   },
   {
     id: 'clients', icon: Users,
@@ -416,7 +456,7 @@ function MobileBottomNav({ visibleNav, ecfQueue, businessType }) {
   const allBottomItems = [
     { id: 'pos',       to: '/pos',       icon: ShoppingCart,  label: 'POS' },
     { id: 'queue',     to: '/queue',     icon: ClipboardList, label: 'Cola',       businessTypes: ['carwash', 'service', 'hybrid'] },
-    { id: 'inventory', to: '/inventory', icon: Package,       label: lang === 'es' ? 'Inventario' : 'Inventory', businessTypes: ['retail', 'dealership', 'restaurant', 'hybrid'] },
+    { id: 'inventory', to: '/inventory', icon: Package,       label: lang === 'es' ? 'Inventario' : 'Inventory', businessTypes: ['retail', 'dealership', 'restaurant', 'hybrid', 'mechanic'] },
     { id: 'clients',   to: '/clients',   icon: Users,         label: lang === 'es' ? 'Clientes' : 'Clients' },
     { id: 'reports',   to: '/reports',   icon: BarChart3,     label: lang === 'es' ? 'Reportes' : 'Reports' },
   ]
@@ -566,7 +606,7 @@ export default function Sidebar() {
 
   useEffect(() => {
     // Only stock-tracked business types have inventory to count low stock on.
-    const stockTracked = ['retail', 'dealership', 'restaurant', 'hybrid'].includes(businessType)
+    const stockTracked = ['retail', 'dealership', 'restaurant', 'hybrid', 'mechanic'].includes(businessType)
     if (!stockTracked) return
     async function poll() {
       const count = await api?.inventory?.lowStockCount?.() ?? 0

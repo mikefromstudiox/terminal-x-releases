@@ -152,6 +152,78 @@ contextBridge.exposeInMainWorld('electronAPI', {
     summary:      ()                       => call('adelantos:summary'),
   },
 
+  // ── Vehicles (auto repair / detailing) ──────────────────────────────────────
+  vehicles: {
+    create:  (data)              => call('vehicles:create', data),
+    update:  (data)              => call('vehicles:update', data),
+    list:    (params)            => call('vehicles:list', params),
+    byId:    (id)                => call('vehicles:byId', id),
+    delete:  (id)                => call('vehicles:delete', { id }),
+  },
+
+  // ── Service Bays ──────────────────────────────────────────────────────────
+  serviceBays: {
+    create:  (data)              => call('serviceBays:create', data),
+    update:  (data)              => call('serviceBays:update', data),
+    list:    (params)            => call('serviceBays:list', params),
+    delete:  (id)                => call('serviceBays:delete', { id }),
+  },
+
+  // ── Work Orders ───────────────────────────────────────────────────────────
+  workOrders: {
+    create:  (data)              => call('workOrders:create', data),
+    update:  (data)              => call('workOrders:update', data),
+    list:    (params)            => call('workOrders:list', params),
+    byId:    (id)                => call('workOrders:byId', id),
+  },
+
+  // ── Work Order Items ──────────────────────────────────────────────────────
+  workOrderItems: {
+    create:  (data)              => call('workOrderItems:create', data),
+    update:  (data)              => call('workOrderItems:update', data),
+    delete:  (id)                => call('workOrderItems:delete', { id }),
+    byOrder: (workOrderId)       => call('workOrderItems:byOrder', workOrderId),
+  },
+
+  // ── Appointments (salon / barbershop) ─────────────────────────────────────
+  appointments: {
+    create:  (data)              => call('appointments:create', data),
+    update:  (data)              => call('appointments:update', data),
+    list:    (params)            => call('appointments:list', params),
+    byId:    (id)                => call('appointments:byId', id),
+    delete:  (id)                => call('appointments:delete', { id }),
+  },
+
+  // ── Stylist Schedules ─────────────────────────────────────────────────────
+  stylistSchedules: {
+    create:  (data)              => call('stylistSchedules:create', data),
+    update:  (data)              => call('stylistSchedules:update', data),
+    list:    (params)            => call('stylistSchedules:list', params),
+    delete:  (id)                => call('stylistSchedules:delete', { id }),
+  },
+
+  // ── Loans (prestamos) ─────────────────────────────────────────────────────
+  loans: {
+    create:  (data)              => call('loans:create', data),
+    update:  (data)              => call('loans:update', data),
+    list:    (params)            => call('loans:list', params),
+    byId:    (id)                => call('loans:byId', id),
+  },
+
+  // ── Loan Payments ─────────────────────────────────────────────────────────
+  loanPayments: {
+    create:  (data)              => call('loanPayments:create', data),
+    list:    (params)            => call('loanPayments:list', params),
+  },
+
+  // ── Pawn Items ────────────────────────────────────────────────────────────
+  pawnItems: {
+    create:  (data)              => call('pawnItems:create', data),
+    update:  (data)              => call('pawnItems:update', data),
+    list:    (params)            => call('pawnItems:list', params),
+    delete:  (id)                => call('pawnItems:delete', { id }),
+  },
+
   // ── Restaurant Mode — Mesas (floor plan) ───────────────────────────────────
   mesas: {
     list:      ()                          => call('mesas:list'),

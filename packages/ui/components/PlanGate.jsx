@@ -5,7 +5,9 @@ import { Lock, ArrowUpCircle } from 'lucide-react'
 const FEATURE_PLAN_MIN = {
   credits: 'pro', reports: 'pro', petty_cash: 'pro', credit_notes: 'pro', cash_recon: 'pro', commissions: 'pro', inventory: 'pro',
   ecf: 'pro_plus', dgii: 'pro_plus', restaurant_mode: 'pro_plus',
+  work_orders: 'pro_plus', appointments: 'pro_plus', service_bays: 'pro_plus', loans: 'pro_plus', vehicles: 'pro_plus',
   remote_dashboard: 'pro_max', whatsapp_receipts: 'pro_max', multi_location: 'pro_max',
+  pawn_items: 'pro_max', loan_analytics: 'pro_max', vehicle_history: 'pro_max', stylist_schedules: 'pro_max',
 }
 
 export default function PlanGate({ feature, children }) {

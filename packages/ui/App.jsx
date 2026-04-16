@@ -56,6 +56,12 @@ const Empleados           = lazy(() => import('./screens/reports/nomina'))
 const Mesas               = lazy(() => import('./screens/restaurant/Mesas'))
 const MenuBuilder         = lazy(() => import('./screens/restaurant/MenuBuilder'))
 const KDS                 = lazy(() => import('./screens/restaurant/KDS'))
+const WorkOrders          = lazy(() => import('./screens/mechanic/WorkOrders'))
+const Vehicles            = lazy(() => import('./screens/mechanic/Vehicles'))
+const ServiceBays         = lazy(() => import('./screens/mechanic/ServiceBays'))
+const Appointments        = lazy(() => import('./screens/salon/Appointments'))
+const Loans               = lazy(() => import('./screens/lending/Loans'))
+const PawnItems           = lazy(() => import('./screens/lending/PawnItems'))
 
 // Routes accessible only to non-cashier roles
 const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin','/sistema','/inventory','/config']
@@ -190,6 +196,12 @@ export default function App() {
         <Route path="/remote"                element={<ProtectedRoute element={<PlanGate feature="remote_dashboard"><RemoteDashboard /></PlanGate>} />} />
         {/* LicenseAdmin route removed — dead code */}
         <Route path="/sistema"               element={<ProtectedRoute element={<Sistema />} />} />
+        <Route path="/work-orders" element={<ProtectedRoute element={<PlanGate feature="work_orders"><WorkOrders /></PlanGate>} />} />
+        <Route path="/vehicles" element={<ProtectedRoute element={<PlanGate feature="vehicles"><Vehicles /></PlanGate>} />} />
+        <Route path="/service-bays" element={<ProtectedRoute element={<PlanGate feature="service_bays"><ServiceBays /></PlanGate>} />} />
+        <Route path="/appointments" element={<ProtectedRoute element={<PlanGate feature="appointments"><Appointments /></PlanGate>} />} />
+        <Route path="/loans" element={<ProtectedRoute element={<PlanGate feature="loans"><Loans /></PlanGate>} />} />
+        <Route path="/pawn-items" element={<ProtectedRoute element={<PlanGate feature="pawn_items"><PawnItems /></PlanGate>} />} />
         {/* Legacy routes — redirect to canonical destinations */}
         <Route path="/workers"               element={<Navigate to="/reports/workers" replace />} />
         <Route path="/services"              element={<Navigate to="/admin" replace />} />

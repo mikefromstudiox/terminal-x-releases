@@ -465,3 +465,184 @@ CREATE INDEX IF NOT EXISTS idx_caja_chica_status ON caja_chica(status);
 CREATE INDEX IF NOT EXISTS idx_credit_pay_date   ON credit_payments(created_at);
 CREATE INDEX IF NOT EXISTS idx_credit_pay_client ON credit_payments(client_id);
 CREATE INDEX IF NOT EXISTS idx_cuadre_cajero     ON cuadre_caja(cajero_id);
+
+-- ── Vehicles (auto repair / detailing) ───────────────────────────────────────
+CREATE TABLE IF NOT EXISTS vehicles (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  supabase_id         TEXT,
+  vin                 TEXT,
+  plate               TEXT,
+  make                TEXT,
+  model               TEXT,
+  year                INTEGER,
+  color               TEXT,
+  mileage             INTEGER,
+  client_id           INTEGER REFERENCES clients(id),
+  client_supabase_id  TEXT,
+  notes               TEXT,
+  active              INTEGER NOT NULL DEFAULT 1,
+  created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicles_supabase_id ON vehicles(supabase_id);
+CREATE INDEX IF NOT EXISTS idx_vehicles_client ON vehicles(client_id);
+CREATE INDEX IF NOT EXISTS idx_vehicles_plate  ON vehicles(plate);
+
+-- ── Service Bays (auto repair / detailing) ───────────────────────────────────
+CREATE TABLE IF NOT EXISTS service_bays (
+  id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+  supabase_id                     TEXT,
+  name                            TEXT    NOT NULL,
+  status                          TEXT    NOT NULL DEFAULT 'libre',
+  current_work_order_id           INTEGER,
+  current_work_order_supabase_id  TEXT,
+  capacity                        INTEGER NOT NULL DEFAULT 1,
+  bay_type                        TEXT,
+  active                          INTEGER NOT NULL DEFAULT 1,
+  created_at                      TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at                      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_service_bays_supabase_id ON service_bays(supabase_id);
+
+-- ── Work Orders (auto repair / detailing) ────────────────────────────────────
+CREATE TABLE IF NOT EXISTS work_orders (
+  id                                INTEGER PRIMARY KEY AUTOINCREMENT,
+  supabase_id                       TEXT,
+  vehicle_id                        INTEGER REFERENCES vehicles(id),
+  vehicle_supabase_id               TEXT,
+  client_id                         INTEGER REFERENCES clients(id),
+  client_supabase_id                TEXT,
+  technician_empleado_id            INTEGER REFERENCES empleados(id),
+  technician_empleado_supabase_id   TEXT,
+  bay_id                            INTEGER REFERENCES service_bays(id),
+  bay_supabase_id                   TEXT,
+  status                            TEXT    NOT NULL DEFAULT 'estimate',
+  estimated_total                   REAL    NOT NULL DEFAULT 0,
+  actual_total                      REAL    NOT NULL DEFAULT 0,
+  promised_date                     TEXT,
+  completed_date                    TEXT,
+  notes                             TEXT,
+  created_at                        TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at                        TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_orders_supabase_id ON work_orders(supabase_id);
+CREATE INDEX IF NOT EXISTS idx_work_orders_vehicle ON work_orders(vehicle_id);
+CREATE INDEX IF NOT EXISTS idx_work_orders_status  ON work_orders(status);
+
+-- ── Work Order Items ─────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS work_order_items (
+  id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+  supabase_id                 TEXT,
+  work_order_id               INTEGER NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+  work_order_supabase_id      TEXT,
+  type                        TEXT    NOT NULL DEFAULT 'labor',
+  name                        TEXT    NOT NULL,
+  description                 TEXT,
+  quantity                    REAL    NOT NULL DEFAULT 1,
+  unit_price                  REAL    NOT NULL DEFAULT 0,
+  total                       REAL    NOT NULL DEFAULT 0,
+  warranty_months             INTEGER NOT NULL DEFAULT 0,
+  inventory_item_id           INTEGER REFERENCES inventory_items(id),
+  inventory_item_supabase_id  TEXT,
+  created_at                  TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at                  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_order_items_supabase_id ON work_order_items(supabase_id);
+
+-- ── Appointments (salon / barbershop) ────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS appointments (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  supabase_id           TEXT,
+  client_id             INTEGER REFERENCES clients(id),
+  client_supabase_id    TEXT,
+  empleado_id           INTEGER REFERENCES empleados(id),
+  empleado_supabase_id  TEXT,
+  date                  TEXT    NOT NULL,
+  start_time            TEXT    NOT NULL,
+  end_time              TEXT,
+  status                TEXT    NOT NULL DEFAULT 'scheduled',
+  services              TEXT    NOT NULL DEFAULT '[]',
+  notes                 TEXT,
+  created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at            TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_supabase_id ON appointments(supabase_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_date     ON appointments(date);
+CREATE INDEX IF NOT EXISTS idx_appointments_empleado ON appointments(empleado_id);
+
+-- ── Stylist Schedules (salon / barbershop) ───────────────────────────────────
+CREATE TABLE IF NOT EXISTS stylist_schedules (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  supabase_id           TEXT,
+  empleado_id           INTEGER NOT NULL REFERENCES empleados(id),
+  empleado_supabase_id  TEXT,
+  day_of_week           INTEGER NOT NULL,
+  start_time            TEXT    NOT NULL,
+  end_time              TEXT    NOT NULL,
+  active                INTEGER NOT NULL DEFAULT 1,
+  created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at            TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_stylist_schedules_supabase_id ON stylist_schedules(supabase_id);
+
+-- ── Loans (prestamos / empenio) ──────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS loans (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  supabase_id       TEXT,
+  client_id         INTEGER NOT NULL REFERENCES clients(id),
+  client_supabase_id TEXT,
+  principal         REAL    NOT NULL,
+  term_months       INTEGER NOT NULL,
+  interest_rate     REAL    NOT NULL,
+  monthly_payment   REAL    NOT NULL DEFAULT 0,
+  status            TEXT    NOT NULL DEFAULT 'active',
+  disbursed_at      TEXT,
+  next_due_date     TEXT,
+  total_paid        REAL    NOT NULL DEFAULT 0,
+  total_interest    REAL    NOT NULL DEFAULT 0,
+  notes             TEXT,
+  created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_loans_supabase_id ON loans(supabase_id);
+CREATE INDEX IF NOT EXISTS idx_loans_client ON loans(client_id);
+CREATE INDEX IF NOT EXISTS idx_loans_status ON loans(status);
+
+-- ── Loan Payments ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS loan_payments (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  supabase_id         TEXT,
+  loan_id             INTEGER NOT NULL REFERENCES loans(id),
+  loan_supabase_id    TEXT,
+  amount              REAL    NOT NULL,
+  principal_portion   REAL    NOT NULL DEFAULT 0,
+  interest_portion    REAL    NOT NULL DEFAULT 0,
+  late_fee            REAL    NOT NULL DEFAULT 0,
+  payment_date        TEXT    NOT NULL DEFAULT (date('now')),
+  due_date            TEXT,
+  status              TEXT    NOT NULL DEFAULT 'on_time',
+  notes               TEXT,
+  created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_payments_supabase_id ON loan_payments(supabase_id);
+CREATE INDEX IF NOT EXISTS idx_loan_payments_loan ON loan_payments(loan_id);
+
+-- ── Pawn Items (empenio) ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS pawn_items (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  supabase_id         TEXT,
+  client_id           INTEGER REFERENCES clients(id),
+  client_supabase_id  TEXT,
+  loan_id             INTEGER REFERENCES loans(id),
+  loan_supabase_id    TEXT,
+  description         TEXT    NOT NULL,
+  estimated_value     REAL    NOT NULL DEFAULT 0,
+  storage_location    TEXT,
+  status              TEXT    NOT NULL DEFAULT 'held',
+  redeem_deadline     TEXT,
+  notes               TEXT,
+  created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pawn_items_supabase_id ON pawn_items(supabase_id);

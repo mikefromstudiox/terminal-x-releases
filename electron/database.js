@@ -338,6 +338,175 @@ function init(userDataPath) {
     `CREATE TRIGGER IF NOT EXISTS trg_adelantos_updated_at
      AFTER UPDATE ON adelantos FOR EACH ROW
      BEGIN UPDATE adelantos SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+    // v2.2 — Multi-vertical expansion: inventory_items columns for auto parts
+    'ALTER TABLE inventory_items ADD COLUMN oem_part_number TEXT',
+    'ALTER TABLE inventory_items ADD COLUMN compatibility TEXT',
+    'ALTER TABLE inventory_items ADD COLUMN reorder_quantity INTEGER DEFAULT 0',
+    'ALTER TABLE inventory_items ADD COLUMN supplier TEXT',
+    // v2.2 — Multi-vertical expansion: 9 new tables
+    `CREATE TABLE IF NOT EXISTS vehicles (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id         TEXT,
+      vin                 TEXT,
+      plate               TEXT,
+      make                TEXT,
+      model               TEXT,
+      year                INTEGER,
+      color               TEXT,
+      mileage             INTEGER,
+      client_id           INTEGER REFERENCES clients(id),
+      client_supabase_id  TEXT,
+      notes               TEXT,
+      active              INTEGER NOT NULL DEFAULT 1,
+      created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicles_supabase_id ON vehicles(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_vehicles_client ON vehicles(client_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_vehicles_plate  ON vehicles(plate)`,
+    `CREATE TABLE IF NOT EXISTS service_bays (
+      id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                     TEXT,
+      name                            TEXT    NOT NULL,
+      status                          TEXT    NOT NULL DEFAULT 'libre',
+      current_work_order_id           INTEGER,
+      current_work_order_supabase_id  TEXT,
+      capacity                        INTEGER NOT NULL DEFAULT 1,
+      bay_type                        TEXT,
+      active                          INTEGER NOT NULL DEFAULT 1,
+      created_at                      TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at                      TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_service_bays_supabase_id ON service_bays(supabase_id)`,
+    `CREATE TABLE IF NOT EXISTS work_orders (
+      id                                INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                       TEXT,
+      vehicle_id                        INTEGER REFERENCES vehicles(id),
+      vehicle_supabase_id               TEXT,
+      client_id                         INTEGER REFERENCES clients(id),
+      client_supabase_id                TEXT,
+      technician_empleado_id            INTEGER REFERENCES empleados(id),
+      technician_empleado_supabase_id   TEXT,
+      bay_id                            INTEGER REFERENCES service_bays(id),
+      bay_supabase_id                   TEXT,
+      status                            TEXT    NOT NULL DEFAULT 'estimate',
+      estimated_total                   REAL    NOT NULL DEFAULT 0,
+      actual_total                      REAL    NOT NULL DEFAULT 0,
+      promised_date                     TEXT,
+      completed_date                    TEXT,
+      notes                             TEXT,
+      created_at                        TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at                        TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_work_orders_supabase_id ON work_orders(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_work_orders_vehicle ON work_orders(vehicle_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_work_orders_status  ON work_orders(status)`,
+    `CREATE TABLE IF NOT EXISTS work_order_items (
+      id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                 TEXT,
+      work_order_id               INTEGER NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+      work_order_supabase_id      TEXT,
+      type                        TEXT    NOT NULL DEFAULT 'labor',
+      name                        TEXT    NOT NULL,
+      description                 TEXT,
+      quantity                    REAL    NOT NULL DEFAULT 1,
+      unit_price                  REAL    NOT NULL DEFAULT 0,
+      total                       REAL    NOT NULL DEFAULT 0,
+      warranty_months             INTEGER NOT NULL DEFAULT 0,
+      inventory_item_id           INTEGER REFERENCES inventory_items(id),
+      inventory_item_supabase_id  TEXT,
+      created_at                  TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at                  TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_work_order_items_supabase_id ON work_order_items(supabase_id)`,
+    `CREATE TABLE IF NOT EXISTS appointments (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id           TEXT,
+      client_id             INTEGER REFERENCES clients(id),
+      client_supabase_id    TEXT,
+      empleado_id           INTEGER REFERENCES empleados(id),
+      empleado_supabase_id  TEXT,
+      date                  TEXT    NOT NULL,
+      start_time            TEXT    NOT NULL,
+      end_time              TEXT,
+      status                TEXT    NOT NULL DEFAULT 'scheduled',
+      services              TEXT    NOT NULL DEFAULT '[]',
+      notes                 TEXT,
+      created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at            TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_supabase_id ON appointments(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_appointments_date     ON appointments(date)`,
+    `CREATE INDEX IF NOT EXISTS idx_appointments_empleado ON appointments(empleado_id)`,
+    `CREATE TABLE IF NOT EXISTS stylist_schedules (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id           TEXT,
+      empleado_id           INTEGER NOT NULL REFERENCES empleados(id),
+      empleado_supabase_id  TEXT,
+      day_of_week           INTEGER NOT NULL,
+      start_time            TEXT    NOT NULL,
+      end_time              TEXT    NOT NULL,
+      active                INTEGER NOT NULL DEFAULT 1,
+      created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at            TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_stylist_schedules_supabase_id ON stylist_schedules(supabase_id)`,
+    `CREATE TABLE IF NOT EXISTS loans (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id       TEXT,
+      client_id         INTEGER NOT NULL REFERENCES clients(id),
+      client_supabase_id TEXT,
+      principal         REAL    NOT NULL,
+      term_months       INTEGER NOT NULL,
+      interest_rate     REAL    NOT NULL,
+      monthly_payment   REAL    NOT NULL DEFAULT 0,
+      status            TEXT    NOT NULL DEFAULT 'active',
+      disbursed_at      TEXT,
+      next_due_date     TEXT,
+      total_paid        REAL    NOT NULL DEFAULT 0,
+      total_interest    REAL    NOT NULL DEFAULT 0,
+      notes             TEXT,
+      created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_loans_supabase_id ON loans(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_loans_client ON loans(client_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_loans_status ON loans(status)`,
+    `CREATE TABLE IF NOT EXISTS loan_payments (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id         TEXT,
+      loan_id             INTEGER NOT NULL REFERENCES loans(id),
+      loan_supabase_id    TEXT,
+      amount              REAL    NOT NULL,
+      principal_portion   REAL    NOT NULL DEFAULT 0,
+      interest_portion    REAL    NOT NULL DEFAULT 0,
+      late_fee            REAL    NOT NULL DEFAULT 0,
+      payment_date        TEXT    NOT NULL DEFAULT (date('now')),
+      due_date            TEXT,
+      status              TEXT    NOT NULL DEFAULT 'on_time',
+      notes               TEXT,
+      created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_payments_supabase_id ON loan_payments(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_loan_payments_loan ON loan_payments(loan_id)`,
+    `CREATE TABLE IF NOT EXISTS pawn_items (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id         TEXT,
+      client_id           INTEGER REFERENCES clients(id),
+      client_supabase_id  TEXT,
+      loan_id             INTEGER REFERENCES loans(id),
+      loan_supabase_id    TEXT,
+      description         TEXT    NOT NULL,
+      estimated_value     REAL    NOT NULL DEFAULT 0,
+      storage_location    TEXT,
+      status              TEXT    NOT NULL DEFAULT 'held',
+      redeem_deadline     TEXT,
+      notes               TEXT,
+      created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_pawn_items_supabase_id ON pawn_items(supabase_id)`,
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -550,7 +719,7 @@ function init(userDataPath) {
   }
 
   // v1.9 — auto-update updated_at via triggers (so sync can detect changed rows)
-  const triggerTables = ['services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions', 'activity_log', 'mesas', 'modificadores', 'service_modificadores', 'ticket_item_modificadores', 'kds_events']
+  const triggerTables = ['services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions', 'activity_log', 'mesas', 'modificadores', 'service_modificadores', 'ticket_item_modificadores', 'kds_events', 'vehicles', 'service_bays', 'work_orders', 'work_order_items', 'appointments', 'stylist_schedules', 'loans', 'loan_payments', 'pawn_items']
   for (const t of triggerTables) {
     try {
       db.exec(`CREATE TRIGGER IF NOT EXISTS trg_${t}_updated_at AFTER UPDATE ON ${t} FOR EACH ROW
@@ -2999,6 +3168,395 @@ function activityLogList({ dateFrom, dateTo, eventTypes, limit = 200 } = {}) {
   return db.prepare(sql).all(...params)
 }
 
+// ── VEHICLES ─────────────────────────────────────────────────────────────────
+function vehicleCreate({ vin, plate, make, model, year, color, mileage, client_id, notes }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const client = client_id ? db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(client_id) : null
+  const r = db.prepare(`INSERT INTO vehicles(supabase_id, vin, plate, make, model, year, color, mileage, client_id, client_supabase_id, notes)
+    VALUES(@supabase_id, @vin, @plate, @make, @model, @year, @color, @mileage, @client_id, @client_supabase_id, @notes)`).run({
+    supabase_id: sid, vin: vin || null, plate: plate || null, make: make || null, model: model || null,
+    year: year != null ? Number(year) : null, color: color || null, mileage: mileage != null ? Number(mileage) : null,
+    client_id: client_id || null, client_supabase_id: client?.supabase_id || null, notes: notes || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function vehicleUpdate(id, data) {
+  if (!db) return
+  const allowed = ['vin','plate','make','model','year','color','mileage','client_id','client_supabase_id','notes','active']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (data.client_id && !data.client_supabase_id) {
+    const c = db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id)
+    if (c) patch.client_supabase_id = c.supabase_id
+  }
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM vehicles WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE vehicles SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM vehicles WHERE id=?').get(id)
+}
+function vehicleList({ client_id, active } = {}) {
+  if (!db) return []
+  let sql = 'SELECT v.*, c.name AS client_name FROM vehicles v LEFT JOIN clients c ON c.id = v.client_id WHERE 1=1'
+  const params = []
+  if (client_id) { sql += ' AND v.client_id = ?'; params.push(client_id) }
+  if (active !== undefined) { sql += ' AND v.active = ?'; params.push(active ? 1 : 0) }
+  sql += ' ORDER BY v.created_at DESC'
+  return db.prepare(sql).all(...params)
+}
+function vehicleGetById(id) {
+  if (!db) return null
+  return db.prepare('SELECT v.*, c.name AS client_name FROM vehicles v LEFT JOIN clients c ON c.id = v.client_id WHERE v.id=?').get(id)
+}
+function vehicleDelete(id) {
+  if (!db) return
+  db.prepare("UPDATE vehicles SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+}
+
+// ── SERVICE BAYS ─────────────────────────────────────────────────────────────
+function serviceBayCreate({ name, capacity, bay_type }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO service_bays(supabase_id, name, capacity, bay_type) VALUES(?,?,?,?)`).run(
+    sid, name, capacity != null ? Number(capacity) : 1, bay_type || null,
+  )
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function serviceBayUpdate(id, data) {
+  if (!db) return
+  const allowed = ['name','status','current_work_order_id','current_work_order_supabase_id','capacity','bay_type','active']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM service_bays WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE service_bays SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM service_bays WHERE id=?').get(id)
+}
+function serviceBayList({ active } = {}) {
+  if (!db) return []
+  if (active !== undefined) return db.prepare('SELECT * FROM service_bays WHERE active=? ORDER BY name').all(active ? 1 : 0)
+  return db.prepare('SELECT * FROM service_bays ORDER BY name').all()
+}
+function serviceBayDelete(id) {
+  if (!db) return
+  db.prepare("UPDATE service_bays SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+}
+
+// ── WORK ORDERS ──────────────────────────────────────────────────────────────
+function workOrderCreate({ vehicle_id, client_id, technician_empleado_id, bay_id, status, estimated_total, promised_date, notes }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const vehicle = vehicle_id ? db.prepare('SELECT supabase_id FROM vehicles WHERE id=?').get(vehicle_id) : null
+  const client = client_id ? db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(client_id) : null
+  const tech = technician_empleado_id ? db.prepare('SELECT supabase_id FROM empleados WHERE id=?').get(technician_empleado_id) : null
+  const bay = bay_id ? db.prepare('SELECT supabase_id FROM service_bays WHERE id=?').get(bay_id) : null
+  const r = db.prepare(`INSERT INTO work_orders(supabase_id, vehicle_id, vehicle_supabase_id, client_id, client_supabase_id,
+    technician_empleado_id, technician_empleado_supabase_id, bay_id, bay_supabase_id, status, estimated_total, promised_date, notes)
+    VALUES(@sid, @vehicle_id, @vehicle_sid, @client_id, @client_sid, @tech_id, @tech_sid, @bay_id, @bay_sid, @status, @estimated_total, @promised_date, @notes)`).run({
+    sid, vehicle_id: vehicle_id || null, vehicle_sid: vehicle?.supabase_id || null,
+    client_id: client_id || null, client_sid: client?.supabase_id || null,
+    tech_id: technician_empleado_id || null, tech_sid: tech?.supabase_id || null,
+    bay_id: bay_id || null, bay_sid: bay?.supabase_id || null,
+    status: status || 'estimate', estimated_total: Number(estimated_total) || 0,
+    promised_date: promised_date || null, notes: notes || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function workOrderUpdate(id, data) {
+  if (!db) return
+  const allowed = ['vehicle_id','vehicle_supabase_id','client_id','client_supabase_id','technician_empleado_id','technician_empleado_supabase_id','bay_id','bay_supabase_id','status','estimated_total','actual_total','promised_date','completed_date','notes']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  // Resolve FK supabase_ids
+  if (data.vehicle_id && !data.vehicle_supabase_id) { const v = db.prepare('SELECT supabase_id FROM vehicles WHERE id=?').get(data.vehicle_id); if (v) patch.vehicle_supabase_id = v.supabase_id }
+  if (data.client_id && !data.client_supabase_id) { const c = db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id); if (c) patch.client_supabase_id = c.supabase_id }
+  if (data.technician_empleado_id && !data.technician_empleado_supabase_id) { const t = db.prepare('SELECT supabase_id FROM empleados WHERE id=?').get(data.technician_empleado_id); if (t) patch.technician_empleado_supabase_id = t.supabase_id }
+  if (data.bay_id && !data.bay_supabase_id) { const b = db.prepare('SELECT supabase_id FROM service_bays WHERE id=?').get(data.bay_id); if (b) patch.bay_supabase_id = b.supabase_id }
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM work_orders WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE work_orders SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  // If bay assigned, update service_bays
+  if (data.bay_id && data.status && data.status !== 'estimate' && data.status !== 'completed') {
+    db.prepare("UPDATE service_bays SET current_work_order_id=?, status='ocupado', updated_at=datetime('now') WHERE id=?").run(id, data.bay_id)
+  }
+  return db.prepare('SELECT * FROM work_orders WHERE id=?').get(id)
+}
+function workOrderList({ status, vehicle_id, client_id } = {}) {
+  if (!db) return []
+  let sql = `SELECT wo.*, v.plate AS vehicle_plate, v.make AS vehicle_make, v.model AS vehicle_model, v.color AS vehicle_color,
+    c.name AS client_name, e.nombre AS technician_name, sb.name AS bay_name
+    FROM work_orders wo
+    LEFT JOIN vehicles v ON v.id = wo.vehicle_id
+    LEFT JOIN clients c ON c.id = wo.client_id
+    LEFT JOIN empleados e ON e.id = wo.technician_empleado_id
+    LEFT JOIN service_bays sb ON sb.id = wo.bay_id
+    WHERE 1=1`
+  const params = []
+  if (status) { sql += ' AND wo.status = ?'; params.push(status) }
+  if (vehicle_id) { sql += ' AND wo.vehicle_id = ?'; params.push(vehicle_id) }
+  if (client_id) { sql += ' AND wo.client_id = ?'; params.push(client_id) }
+  sql += ' ORDER BY wo.created_at DESC'
+  return db.prepare(sql).all(...params)
+}
+function workOrderGetById(id) {
+  if (!db) return null
+  const wo = db.prepare(`SELECT wo.*, v.plate AS vehicle_plate, v.make AS vehicle_make, v.model AS vehicle_model, v.color AS vehicle_color,
+    c.name AS client_name, e.nombre AS technician_name, sb.name AS bay_name
+    FROM work_orders wo
+    LEFT JOIN vehicles v ON v.id = wo.vehicle_id
+    LEFT JOIN clients c ON c.id = wo.client_id
+    LEFT JOIN empleados e ON e.id = wo.technician_empleado_id
+    LEFT JOIN service_bays sb ON sb.id = wo.bay_id
+    WHERE wo.id=?`).get(id)
+  if (wo) wo.items = db.prepare('SELECT * FROM work_order_items WHERE work_order_id=? ORDER BY id').all(id)
+  return wo
+}
+
+// ── WORK ORDER ITEMS ─────────────────────────────────────────────────────────
+function workOrderItemCreate({ work_order_id, type, name, description, quantity, unit_price, warranty_months, inventory_item_id }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const wo = db.prepare('SELECT supabase_id FROM work_orders WHERE id=?').get(work_order_id)
+  const inv = inventory_item_id ? db.prepare('SELECT supabase_id FROM inventory_items WHERE id=?').get(inventory_item_id) : null
+  const total = (Number(quantity) || 1) * (Number(unit_price) || 0)
+  const r = db.prepare(`INSERT INTO work_order_items(supabase_id, work_order_id, work_order_supabase_id, type, name, description, quantity, unit_price, total, warranty_months, inventory_item_id, inventory_item_supabase_id)
+    VALUES(@sid, @work_order_id, @wo_sid, @type, @name, @description, @quantity, @unit_price, @total, @warranty_months, @inv_id, @inv_sid)`).run({
+    sid, work_order_id, wo_sid: wo?.supabase_id || null, type: type || 'labor', name,
+    description: description || null, quantity: Number(quantity) || 1, unit_price: Number(unit_price) || 0,
+    total, warranty_months: Number(warranty_months) || 0,
+    inv_id: inventory_item_id || null, inv_sid: inv?.supabase_id || null,
+  })
+  // Recalculate work order totals
+  const sum = db.prepare('SELECT COALESCE(SUM(total),0) AS t FROM work_order_items WHERE work_order_id=?').get(work_order_id)
+  db.prepare("UPDATE work_orders SET estimated_total=?, updated_at=datetime('now') WHERE id=?").run(sum.t, work_order_id)
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function workOrderItemUpdate(id, data) {
+  if (!db) return
+  const allowed = ['type','name','description','quantity','unit_price','warranty_months','inventory_item_id','inventory_item_supabase_id']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (data.quantity !== undefined || data.unit_price !== undefined) {
+    const existing = db.prepare('SELECT quantity, unit_price FROM work_order_items WHERE id=?').get(id)
+    const qty = data.quantity !== undefined ? Number(data.quantity) : existing.quantity
+    const price = data.unit_price !== undefined ? Number(data.unit_price) : existing.unit_price
+    patch.total = qty * price
+  }
+  if (data.inventory_item_id && !data.inventory_item_supabase_id) {
+    const inv = db.prepare('SELECT supabase_id FROM inventory_items WHERE id=?').get(data.inventory_item_id)
+    if (inv) patch.inventory_item_supabase_id = inv.supabase_id
+  }
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM work_order_items WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE work_order_items SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  // Recalculate parent
+  const item = db.prepare('SELECT work_order_id FROM work_order_items WHERE id=?').get(id)
+  if (item) {
+    const sum = db.prepare('SELECT COALESCE(SUM(total),0) AS t FROM work_order_items WHERE work_order_id=?').get(item.work_order_id)
+    db.prepare("UPDATE work_orders SET estimated_total=?, updated_at=datetime('now') WHERE id=?").run(sum.t, item.work_order_id)
+  }
+  return db.prepare('SELECT * FROM work_order_items WHERE id=?').get(id)
+}
+function workOrderItemDelete(id) {
+  if (!db) return
+  const item = db.prepare('SELECT work_order_id FROM work_order_items WHERE id=?').get(id)
+  db.prepare('DELETE FROM work_order_items WHERE id=?').run(id)
+  if (item) {
+    const sum = db.prepare('SELECT COALESCE(SUM(total),0) AS t FROM work_order_items WHERE work_order_id=?').get(item.work_order_id)
+    db.prepare("UPDATE work_orders SET estimated_total=?, updated_at=datetime('now') WHERE id=?").run(sum.t, item.work_order_id)
+  }
+}
+function workOrderItemsByOrder(work_order_id) {
+  if (!db) return []
+  return db.prepare('SELECT * FROM work_order_items WHERE work_order_id=? ORDER BY id').all(work_order_id)
+}
+
+// ── APPOINTMENTS ─────────────────────────────────────────────────────────────
+function appointmentCreate({ client_id, empleado_id, date, start_time, end_time, services, notes }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const client = client_id ? db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(client_id) : null
+  const emp = empleado_id ? db.prepare('SELECT supabase_id FROM empleados WHERE id=?').get(empleado_id) : null
+  const r = db.prepare(`INSERT INTO appointments(supabase_id, client_id, client_supabase_id, empleado_id, empleado_supabase_id, date, start_time, end_time, services, notes)
+    VALUES(@sid, @client_id, @client_sid, @empleado_id, @emp_sid, @date, @start_time, @end_time, @services, @notes)`).run({
+    sid, client_id: client_id || null, client_sid: client?.supabase_id || null,
+    empleado_id: empleado_id || null, emp_sid: emp?.supabase_id || null,
+    date, start_time, end_time: end_time || null,
+    services: typeof services === 'string' ? services : JSON.stringify(services || []),
+    notes: notes || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function appointmentUpdate(id, data) {
+  if (!db) return
+  const allowed = ['client_id','client_supabase_id','empleado_id','empleado_supabase_id','date','start_time','end_time','status','services','notes']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (data.client_id && !data.client_supabase_id) { const c = db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id); if (c) patch.client_supabase_id = c.supabase_id }
+  if (data.empleado_id && !data.empleado_supabase_id) { const e = db.prepare('SELECT supabase_id FROM empleados WHERE id=?').get(data.empleado_id); if (e) patch.empleado_supabase_id = e.supabase_id }
+  if (data.services && typeof data.services !== 'string') patch.services = JSON.stringify(data.services)
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM appointments WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE appointments SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM appointments WHERE id=?').get(id)
+}
+function appointmentList({ date, empleado_id, status, dateFrom, dateTo } = {}) {
+  if (!db) return []
+  let sql = `SELECT a.*, c.name AS client_name, e.nombre AS empleado_name
+    FROM appointments a LEFT JOIN clients c ON c.id = a.client_id LEFT JOIN empleados e ON e.id = a.empleado_id WHERE 1=1`
+  const params = []
+  if (date)        { sql += ' AND a.date = ?';        params.push(date) }
+  if (empleado_id) { sql += ' AND a.empleado_id = ?'; params.push(empleado_id) }
+  if (status)      { sql += ' AND a.status = ?';      params.push(status) }
+  if (dateFrom)    { sql += ' AND a.date >= ?';        params.push(dateFrom) }
+  if (dateTo)      { sql += ' AND a.date <= ?';        params.push(dateTo) }
+  sql += ' ORDER BY a.date, a.start_time'
+  return db.prepare(sql).all(...params)
+}
+function appointmentGetById(id) {
+  if (!db) return null
+  return db.prepare(`SELECT a.*, c.name AS client_name, e.nombre AS empleado_name
+    FROM appointments a LEFT JOIN clients c ON c.id = a.client_id LEFT JOIN empleados e ON e.id = a.empleado_id WHERE a.id=?`).get(id)
+}
+function appointmentDelete(id) {
+  if (!db) return
+  db.prepare("UPDATE appointments SET status='cancelled', updated_at=datetime('now') WHERE id=?").run(id)
+}
+
+// ── STYLIST SCHEDULES ────────────────────────────────────────────────────────
+function stylistScheduleCreate({ empleado_id, day_of_week, start_time, end_time }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const emp = db.prepare('SELECT supabase_id FROM empleados WHERE id=?').get(empleado_id)
+  const r = db.prepare(`INSERT INTO stylist_schedules(supabase_id, empleado_id, empleado_supabase_id, day_of_week, start_time, end_time)
+    VALUES(?,?,?,?,?,?)`).run(sid, empleado_id, emp?.supabase_id || null, day_of_week, start_time, end_time)
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function stylistScheduleUpdate(id, data) {
+  if (!db) return
+  const allowed = ['empleado_id','empleado_supabase_id','day_of_week','start_time','end_time','active']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (data.empleado_id && !data.empleado_supabase_id) { const e = db.prepare('SELECT supabase_id FROM empleados WHERE id=?').get(data.empleado_id); if (e) patch.empleado_supabase_id = e.supabase_id }
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM stylist_schedules WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE stylist_schedules SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM stylist_schedules WHERE id=?').get(id)
+}
+function stylistScheduleList({ empleado_id } = {}) {
+  if (!db) return []
+  if (empleado_id) return db.prepare('SELECT ss.*, e.nombre AS empleado_name FROM stylist_schedules ss LEFT JOIN empleados e ON e.id=ss.empleado_id WHERE ss.active=1 AND ss.empleado_id=? ORDER BY ss.day_of_week, ss.start_time').all(empleado_id)
+  return db.prepare('SELECT ss.*, e.nombre AS empleado_name FROM stylist_schedules ss LEFT JOIN empleados e ON e.id=ss.empleado_id WHERE ss.active=1 ORDER BY ss.day_of_week, ss.start_time').all()
+}
+function stylistScheduleDelete(id) {
+  if (!db) return
+  db.prepare("UPDATE stylist_schedules SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+}
+
+// ── LOANS ────────────────────────────────────────────────────────────────────
+function loanCreate({ client_id, principal, term_months, interest_rate, monthly_payment, disbursed_at, next_due_date, notes }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const client = db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(client_id)
+  const mp = monthly_payment || (Number(principal) * (1 + Number(interest_rate) / 100 * Number(term_months) / 12)) / Number(term_months)
+  const r = db.prepare(`INSERT INTO loans(supabase_id, client_id, client_supabase_id, principal, term_months, interest_rate, monthly_payment, disbursed_at, next_due_date, notes)
+    VALUES(@sid, @client_id, @client_sid, @principal, @term_months, @interest_rate, @monthly_payment, @disbursed_at, @next_due_date, @notes)`).run({
+    sid, client_id, client_sid: client?.supabase_id || null,
+    principal: Number(principal), term_months: Number(term_months), interest_rate: Number(interest_rate),
+    monthly_payment: Number(mp), disbursed_at: disbursed_at || null,
+    next_due_date: next_due_date || null, notes: notes || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function loanUpdate(id, data) {
+  if (!db) return
+  const allowed = ['client_id','client_supabase_id','principal','term_months','interest_rate','monthly_payment','status','disbursed_at','next_due_date','total_paid','total_interest','notes']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (data.client_id && !data.client_supabase_id) { const c = db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id); if (c) patch.client_supabase_id = c.supabase_id }
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM loans WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE loans SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM loans WHERE id=?').get(id)
+}
+function loanList({ client_id, status } = {}) {
+  if (!db) return []
+  let sql = 'SELECT l.*, c.name AS client_name FROM loans l LEFT JOIN clients c ON c.id = l.client_id WHERE 1=1'
+  const params = []
+  if (client_id) { sql += ' AND l.client_id = ?'; params.push(client_id) }
+  if (status)    { sql += ' AND l.status = ?';    params.push(status) }
+  sql += ' ORDER BY l.created_at DESC'
+  return db.prepare(sql).all(...params)
+}
+function loanGetById(id) {
+  if (!db) return null
+  const loan = db.prepare('SELECT l.*, c.name AS client_name FROM loans l LEFT JOIN clients c ON c.id = l.client_id WHERE l.id=?').get(id)
+  if (loan) {
+    loan.payments = db.prepare('SELECT * FROM loan_payments WHERE loan_id=? ORDER BY payment_date DESC').all(id)
+    loan.pawn_items = db.prepare('SELECT * FROM pawn_items WHERE loan_id=? ORDER BY id').all(id)
+  }
+  return loan
+}
+
+// ── LOAN PAYMENTS ────────────────────────────────────────────────────────────
+function loanPaymentCreate({ loan_id, amount, principal_portion, interest_portion, late_fee, payment_date, due_date, status, notes }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const loan = db.prepare('SELECT supabase_id FROM loans WHERE id=?').get(loan_id)
+  const r = db.prepare(`INSERT INTO loan_payments(supabase_id, loan_id, loan_supabase_id, amount, principal_portion, interest_portion, late_fee, payment_date, due_date, status, notes)
+    VALUES(@sid, @loan_id, @loan_sid, @amount, @principal_portion, @interest_portion, @late_fee, @payment_date, @due_date, @status, @notes)`).run({
+    sid, loan_id, loan_sid: loan?.supabase_id || null,
+    amount: Number(amount), principal_portion: Number(principal_portion) || 0,
+    interest_portion: Number(interest_portion) || 0, late_fee: Number(late_fee) || 0,
+    payment_date: payment_date || new Date().toISOString().slice(0, 10),
+    due_date: due_date || null, status: status || 'on_time', notes: notes || null,
+  })
+  // Update loan totals
+  db.prepare(`UPDATE loans SET total_paid = total_paid + ?, total_interest = total_interest + ?, updated_at=datetime('now') WHERE id=?`).run(
+    Number(amount), Number(interest_portion) || 0, loan_id)
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function loanPaymentList({ loan_id } = {}) {
+  if (!db) return []
+  if (!loan_id) return []
+  return db.prepare('SELECT * FROM loan_payments WHERE loan_id=? ORDER BY payment_date DESC').all(loan_id)
+}
+
+// ── PAWN ITEMS ───────────────────────────────────────────────────────────────
+function pawnItemCreate({ client_id, loan_id, description, estimated_value, storage_location, redeem_deadline, notes }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const client = client_id ? db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(client_id) : null
+  const loan = loan_id ? db.prepare('SELECT supabase_id FROM loans WHERE id=?').get(loan_id) : null
+  const r = db.prepare(`INSERT INTO pawn_items(supabase_id, client_id, client_supabase_id, loan_id, loan_supabase_id, description, estimated_value, storage_location, redeem_deadline, notes)
+    VALUES(@sid, @client_id, @client_sid, @loan_id, @loan_sid, @description, @estimated_value, @storage_location, @redeem_deadline, @notes)`).run({
+    sid, client_id: client_id || null, client_sid: client?.supabase_id || null,
+    loan_id: loan_id || null, loan_sid: loan?.supabase_id || null,
+    description, estimated_value: Number(estimated_value) || 0,
+    storage_location: storage_location || null, redeem_deadline: redeem_deadline || null,
+    notes: notes || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function pawnItemUpdate(id, data) {
+  if (!db) return
+  const allowed = ['client_id','client_supabase_id','loan_id','loan_supabase_id','description','estimated_value','storage_location','status','redeem_deadline','notes']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (data.client_id && !data.client_supabase_id) { const c = db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id); if (c) patch.client_supabase_id = c.supabase_id }
+  if (data.loan_id && !data.loan_supabase_id) { const l = db.prepare('SELECT supabase_id FROM loans WHERE id=?').get(data.loan_id); if (l) patch.loan_supabase_id = l.supabase_id }
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM pawn_items WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE pawn_items SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM pawn_items WHERE id=?').get(id)
+}
+function pawnItemList({ client_id, loan_id, status } = {}) {
+  if (!db) return []
+  let sql = 'SELECT pi.*, c.name AS client_name FROM pawn_items pi LEFT JOIN clients c ON c.id = pi.client_id WHERE 1=1'
+  const params = []
+  if (client_id) { sql += ' AND pi.client_id = ?'; params.push(client_id) }
+  if (loan_id)   { sql += ' AND pi.loan_id = ?';   params.push(loan_id) }
+  if (status)    { sql += ' AND pi.status = ?';     params.push(status) }
+  sql += ' ORDER BY pi.created_at DESC'
+  return db.prepare(sql).all(...params)
+}
+function pawnItemDelete(id) {
+  if (!db) return
+  db.prepare("UPDATE pawn_items SET status='forfeited', updated_at=datetime('now') WHERE id=?").run(id)
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 // ── Raw DB access for sync module ────────────────────────────────────────────
 function rawPrepare(sql) { return db ? db.prepare(sql) : null }
@@ -3075,4 +3633,14 @@ module.exports = {
   modificadoresListForService, modificadorAttachToService, modificadorDetachFromService,
   kdsListActive, kdsFire, kdsSetStatus,
   ticketItemModificadoresList, ticketItemModificadoresSnapshot,
+  // Multi-vertical expansion — vehicles, service_bays, work_orders, appointments, schedules, loans, pawn
+  vehicleCreate, vehicleUpdate, vehicleList, vehicleGetById, vehicleDelete,
+  serviceBayCreate, serviceBayUpdate, serviceBayList, serviceBayDelete,
+  workOrderCreate, workOrderUpdate, workOrderList, workOrderGetById,
+  workOrderItemCreate, workOrderItemUpdate, workOrderItemDelete, workOrderItemsByOrder,
+  appointmentCreate, appointmentUpdate, appointmentList, appointmentGetById, appointmentDelete,
+  stylistScheduleCreate, stylistScheduleUpdate, stylistScheduleList, stylistScheduleDelete,
+  loanCreate, loanUpdate, loanList, loanGetById,
+  loanPaymentCreate, loanPaymentList,
+  pawnItemCreate, pawnItemUpdate, pawnItemList, pawnItemDelete,
 }

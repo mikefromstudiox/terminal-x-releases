@@ -1602,10 +1602,74 @@ function ProductGrid({ api, lang, gridCols, onAdd }) {
   )
 }
 
+// ── Lending Dashboard (POS landing for prestamos businesses) ──────────────────
+
+function LendingDashboard() {
+  const api = useAPI()
+  const { lang } = useLang()
+  const navigate = useNavigate()
+  const [stats, setStats] = useState({ active: 0, dueToday: 0, portfolio: 0 })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const summary = await api?.loans?.summary?.()
+        if (summary) setStats({ active: summary.active || 0, dueToday: summary.due_today || 0, portfolio: summary.portfolio || 0 })
+      } catch {}
+      setLoading(false)
+    }
+    load()
+  }, [api])
+
+  const cards = [
+    { label: lang === 'es' ? 'Préstamos Activos' : 'Active Loans', value: stats.active, color: 'text-[#0C447C]', bg: 'bg-blue-50 dark:bg-blue-900/20' },
+    { label: lang === 'es' ? 'Pagos Pendientes Hoy' : 'Payments Due Today', value: stats.dueToday, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-900/20' },
+    { label: lang === 'es' ? 'Total Cartera' : 'Total Portfolio', value: `RD$ ${stats.portfolio.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
+  ]
+
+  return (
+    <div className="h-full flex flex-col items-center justify-center p-6 bg-slate-50 dark:bg-black">
+      <h1 className="text-2xl font-black text-slate-800 dark:text-white mb-8">
+        {lang === 'es' ? 'Dashboard de Préstamos' : 'Lending Dashboard'}
+      </h1>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-3xl mb-8">
+        {cards.map((card, i) => (
+          <div key={i} className={`${card.bg} rounded-2xl p-5 border border-slate-200 dark:border-white/10`}>
+            <p className="text-[11px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-2">{card.label}</p>
+            {loading ? (
+              <div className="h-8 w-20 bg-slate-200 dark:bg-white/10 rounded-lg animate-pulse" />
+            ) : (
+              <p className={`text-2xl font-black ${card.color}`}>{card.value}</p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          onClick={() => navigate('/loans')}
+          className="px-6 py-3 bg-[#0C447C] hover:bg-[#0a3a6a] text-white font-bold rounded-xl text-[14px] transition-colors"
+        >
+          {lang === 'es' ? 'Ver Préstamos' : 'View Loans'}
+        </button>
+        <button
+          onClick={() => navigate('/loans')}
+          className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-[14px] transition-colors"
+        >
+          {lang === 'es' ? 'Registrar Pago' : 'Register Payment'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── POS Wrapper ───────────────────────────────────────────────────────────────
 
 export default function POS() {
-  const { isRetail, isRestaurant, isHybrid } = useBusinessType()
+  const { isRetail, isRestaurant, isHybrid, isPrestamos } = useBusinessType()
   if (isRestaurant || isHybrid) return <RestaurantPOS />
+  if (isPrestamos) return <LendingDashboard />
   return isRetail ? <RetailPOS /> : <CarWashPOS />
 }
