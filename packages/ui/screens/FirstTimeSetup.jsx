@@ -128,6 +128,21 @@ const COPY = {
     s5_step_printer: 'Conecta tu impresora en Configuracion → Impresora',
     s5_step_test:    'Realiza una venta de prueba en el POS',
 
+    // Reconnect
+    reconnect_link:  'Ya tengo una cuenta — conectar dispositivo',
+    rc_title:        'Conectar dispositivo',
+    rc_sub:          'Inicia sesión con tu cuenta existente para sincronizar los datos de tu negocio a este equipo.',
+    rc_email:        'Email',
+    rc_email_ph:     'tu@correo.com',
+    rc_pass:         'Contraseña',
+    rc_pass_ph:      'Tu contraseña',
+    rc_btn:          'Conectar',
+    rc_connecting:   'Conectando...',
+    rc_syncing:      'Sincronizando datos del negocio...',
+    rc_done:         'Conectado. Cargando...',
+    rc_err_required: 'Email y contraseña requeridos.',
+    rc_back:         'Volver',
+
     // Shared
     next:            'Continuar',
     back:            'Atrás',
@@ -239,6 +254,21 @@ const COPY = {
     s5_step_services:'Add your services in Settings → Services',
     s5_step_printer: 'Connect your printer in Settings → Printer',
     s5_step_test:    'Run a test sale in the POS',
+
+    // Reconnect
+    reconnect_link:  'I already have an account — connect device',
+    rc_title:        'Connect device',
+    rc_sub:          'Sign in with your existing account to sync your business data to this machine.',
+    rc_email:        'Email',
+    rc_email_ph:     'you@email.com',
+    rc_pass:         'Password',
+    rc_pass_ph:      'Your password',
+    rc_btn:          'Connect',
+    rc_connecting:   'Connecting...',
+    rc_syncing:      'Syncing business data...',
+    rc_done:         'Connected. Loading...',
+    rc_err_required: 'Email and password are required.',
+    rc_back:         'Back',
 
     next:            'Continue',
     back:            'Back',
@@ -374,7 +404,7 @@ function LeftPanel({ step, lang, setLang }) {
 }
 
 // ── Step 0 — Welcome ──────────────────────────────────────────────────────────
-function StepWelcome({ t, onNext }) {
+function StepWelcome({ t, onNext, onReconnect }) {
   return (
     <div className="w-full max-w-md text-center">
       {/* Mobile logo */}
@@ -416,6 +446,233 @@ function StepWelcome({ t, onNext }) {
         {t('welcome_btn')}
         <ChevronRight size={18} />
       </button>
+
+      <button
+        onClick={onReconnect}
+        className="mt-4 text-sm text-zinc-500 hover:text-white transition underline"
+      >
+        {t('reconnect_link')}
+      </button>
+    </div>
+  )
+}
+
+// ── Step R — Reconnect ───────────────────────────────────────────────────────
+function StepReconnect({ t, onBack, onComplete }) {
+  const api = useAPI()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [status, setStatus] = useState('idle') // idle | signing_in | syncing | done | error
+  const [error, setError] = useState('')
+
+  async function handleReconnect() {
+    if (!email.trim() || !password) { setError(t('rc_err_required')); return }
+    setError('')
+    setStatus('signing_in')
+
+    try {
+      const sb = getSupabaseClient()
+      if (!sb) throw new Error('Supabase no disponible. Verifica tu conexion.')
+
+      // 1. Sign in
+      const { data: authData, error: authError } = await sb.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      })
+      if (authError) throw new Error(authError.message)
+      if (!authData?.session) throw new Error('No se pudo iniciar sesion.')
+
+      const userId = authData.session.user.id
+
+      // 2. Find business — try owner_id first, then staff table
+      let business = null
+      let businessId = null
+
+      const { data: ownedBiz } = await sb
+        .from('businesses')
+        .select('*')
+        .eq('owner_id', userId)
+        .limit(1)
+        .maybeSingle()
+
+      if (ownedBiz) {
+        business = ownedBiz
+        businessId = ownedBiz.id
+      } else {
+        // Try staff table
+        const { data: staffRow } = await sb
+          .from('staff')
+          .select('business_id')
+          .eq('auth_user_id', userId)
+          .limit(1)
+          .maybeSingle()
+
+        if (staffRow?.business_id) {
+          businessId = staffRow.business_id
+          const { data: biz } = await sb
+            .from('businesses')
+            .select('*')
+            .eq('id', businessId)
+            .single()
+          business = biz
+        }
+      }
+
+      if (!business || !businessId) {
+        throw new Error('No se encontro un negocio asociado a esta cuenta.')
+      }
+
+      // 3. Store Supabase connection
+      setStoredSetting('business_id', businessId)
+
+      // 4. Store auth info in settings
+      try {
+        await api?.settings?.update?.({
+          supabase_auth_email: email.trim(),
+          supabase_user_id: userId,
+        })
+      } catch {}
+
+      // 5. Seed local database with business info
+      await api?.admin?.saveEmpresa?.({
+        name: business.name || 'Mi Negocio',
+        rnc: business.rnc || '',
+        address: business.address || '',
+        phone: business.phone || '',
+        email: business.email || '',
+      })
+
+      // 6. Store business_type from settings
+      const bizSettings = business.settings || {}
+      if (bizSettings.business_type) {
+        await api?.settings?.update?.({ business_type: bizSettings.business_type })
+      }
+
+      // 7. Pull staff from Supabase and create local users
+      const { data: remoteStaff } = await sb
+        .from('staff')
+        .select('*')
+        .eq('business_id', businessId)
+        .order('created_at')
+
+      if (remoteStaff?.length) {
+        for (const u of remoteStaff) {
+          try {
+            await api?.admin?.saveUsuario?.({
+              name: u.name || 'Admin',
+              username: u.username || u.name?.toLowerCase?.().replace(/\s+/g, '') || 'admin',
+              pin: '0000',
+              role: u.role || 'admin',
+              supabase_id: u.id,
+              discount_pct: u.commission_pct || 0,
+            })
+          } catch {} // skip duplicates
+        }
+      } else {
+        await api?.admin?.saveUsuario?.({
+          name: 'Admin',
+          username: 'admin',
+          pin: '0000',
+          role: 'owner',
+          discount_pct: 0,
+        })
+      }
+
+      setStatus('syncing')
+
+      // 8. Trigger sync
+      try {
+        await window.electronAPI?.sync?.now?.()
+      } catch {}
+
+      setStatus('done')
+      setTimeout(() => onComplete(), 1500)
+    } catch (e) {
+      console.error('[reconnect]', e)
+      setError(e.message || 'Error al conectar.')
+      setStatus('error')
+    }
+  }
+
+  return (
+    <div className="w-full max-w-md">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
+        <div className="mb-7">
+          <div className="w-10 h-10 rounded-xl bg-red-600/10 border border-red-600/20 flex items-center justify-center mb-4">
+            <Wifi size={18} className="text-red-500" />
+          </div>
+          <h2 className="text-white text-[22px] font-bold">{t('rc_title')}</h2>
+          <p className="text-zinc-500 text-[13px] mt-1">{t('rc_sub')}</p>
+        </div>
+
+        <div className="space-y-4">
+          <Field label={t('rc_email')} id="rc-email">
+            <TextInput
+              id="rc-email"
+              type="email"
+              value={email}
+              onChange={v => { setEmail(v); setError('') }}
+              placeholder={t('rc_email_ph')}
+              disabled={status !== 'idle' && status !== 'error'}
+              autoFocus
+            />
+          </Field>
+
+          <Field label={t('rc_pass')} id="rc-pass">
+            <input
+              id="rc-pass"
+              type="password"
+              value={password}
+              onChange={e => { setPassword(e.target.value); setError('') }}
+              placeholder={t('rc_pass_ph')}
+              disabled={status !== 'idle' && status !== 'error'}
+              onKeyDown={e => e.key === 'Enter' && handleReconnect()}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white text-[14px] placeholder-zinc-600
+                         focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/30
+                         disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            />
+          </Field>
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-xs text-red-400 flex items-center gap-1.5">
+              <AlertTriangle size={12} />
+              {error}
+            </div>
+          )}
+
+          {status === 'syncing' && (
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-xs text-blue-400 flex items-center gap-2">
+              <Loader2 size={14} className="animate-spin" />
+              {t('rc_syncing')}
+            </div>
+          )}
+
+          {status === 'done' && (
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-xs text-green-400 flex items-center gap-2">
+              <CheckCircle2 size={14} />
+              {t('rc_done')}
+            </div>
+          )}
+
+          <button
+            onClick={handleReconnect}
+            disabled={status === 'signing_in' || status === 'syncing' || status === 'done'}
+            className="w-full py-3.5 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-bold rounded-xl text-[14px] transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {status === 'signing_in'
+              ? <><Loader2 size={15} className="animate-spin" /> {t('rc_connecting')}</>
+              : <>{t('rc_btn')} <ArrowRight size={16} /></>}
+          </button>
+
+          <button
+            onClick={onBack}
+            disabled={status === 'syncing' || status === 'done'}
+            className="w-full text-center text-sm text-zinc-500 hover:text-white transition disabled:opacity-30"
+          >
+            {t('rc_back')}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1294,7 +1551,11 @@ export default function FirstTimeSetup({ onComplete }) {
       {/* Right content */}
       <div className="flex-1 overflow-y-auto flex items-center justify-center p-6 md:p-12">
         {step === 0 && (
-          <StepWelcome t={t} onNext={() => setStep(1)} />
+          <StepWelcome t={t} onNext={() => setStep(1)} onReconnect={() => setStep('reconnect')} />
+        )}
+
+        {step === 'reconnect' && (
+          <StepReconnect t={t} onBack={() => setStep(0)} onComplete={markSetupComplete} />
         )}
 
         {step === 1 && (

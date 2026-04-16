@@ -73,9 +73,7 @@ function Spinner() {
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-black">
       <div className="text-center">
-        <div className="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <img src={logoImg} alt="TX" className="w-8 h-8 object-contain" />
-        </div>
+        <img src={logoImg} alt="Terminal X" className="w-20 h-20 object-contain mx-auto mb-6" />
         <p className="text-zinc-500 text-sm">Cargando...</p>
       </div>
     </div>

@@ -1,22 +1,79 @@
-// Idempotent seeder for switching or initializing a business type.
-//
-// Phase 1: persists the type selection to SQLite app_settings + Supabase
-// businesses.settings.business_type via api.settings.update(). Safe to call
-// repeatedly; no data drops, only additive writes.
-//
-// Phase 2 will expand this to seed per-type defaults (mesas, sample menus,
-// modifiers, KDS config) via a module-dispatch table.
+import {
+  getBusinessTypeConfig,
+  BUSINESS_TYPE_KEYS,
+  isBusinessTypeEnabled,
+} from '@terminal-x/config/businessTypes'
+import { SAMPLE_MESAS, SAMPLE_MENUS } from '@terminal-x/config/sampleMenus'
 
-import { getBusinessTypeConfig, BUSINESS_TYPE_KEYS, isBusinessTypeEnabled } from '@terminal-x/config/businessTypes'
+// Each seeder is idempotent — checks for existing data before inserting.
+// A second call to setupBusinessType('restaurant') must not duplicate rows.
 
-/**
- * Persist a business-type change. Safe to call on first-time setup AND on
- * admin-initiated type switches. Never deletes existing data.
- *
- * @param {object} api          Return value of useAPI()
- * @param {string} type         Canonical business type key
- * @returns {Promise<{ type: string, config: object }>}
- */
+async function seedMesas(api) {
+  try {
+    const existing = await api?.mesas?.list?.() || []
+    if (existing.length > 0) return  // already seeded or user-added mesas exist
+    for (const [i, m] of SAMPLE_MESAS.entries()) {
+      await api.mesas.create({ ...m, sort_order: i })
+    }
+  } catch (e) { console.warn('[setupBusinessType] seedMesas failed:', e?.message) }
+}
+
+async function seedSampleMenu(api, typeKey) {
+  const menu = SAMPLE_MENUS[typeKey]
+  if (!menu) return
+  try {
+    // Check if services already exist — if the business has ANY services, skip.
+    const existingServices = await api?.services?.getAll?.() || []
+    if (existingServices.length > 0) return
+
+    // 1. Categorias (best-effort; some adapters may not expose the CRUD)
+    if (api?.categorias?.create) {
+      for (const c of menu.categorias) {
+        try { await api.categorias.create(c) } catch {}
+      }
+    }
+
+    // 2. Items as services, is_menu_item=1
+    const nameToId = new Map()
+    for (const item of menu.items) {
+      try {
+        const created = await api.services.create({
+          ...item,
+          is_menu_item: 1,
+          active: 1,
+        })
+        if (created?.id) nameToId.set(item.name, created.id)
+      } catch {}
+    }
+
+    // 3. Modificadores
+    if (api?.modificadores?.create) {
+      for (const mod of menu.modificadores) {
+        try { await api.modificadores.create(mod) } catch {}
+      }
+    }
+    // Note: attachments to specific items deferred — the operator can wire
+    // "Punto de cocción" to steaks / "Acompañante" to mains via the Menu
+    // Builder UI. Auto-attachment by category would be guesswork.
+  } catch (e) { console.warn('[setupBusinessType] seedSampleMenu failed:', e?.message) }
+}
+
+async function seedKdsConfig(api, typeKey) {
+  const menu = SAMPLE_MENUS[typeKey]
+  if (!menu?.kds) return
+  try {
+    // Merge into existing settings (don't clobber unrelated keys)
+    const current = (await api?.settings?.get?.()) || {}
+    const patch = {}
+    for (const [k, v] of Object.entries(menu.kds)) {
+      if (current[k] == null) patch[k] = v  // only set if not already present
+    }
+    if (Object.keys(patch).length > 0) {
+      await api?.settings?.update?.(patch)
+    }
+  } catch (e) { console.warn('[setupBusinessType] seedKdsConfig failed:', e?.message) }
+}
+
 export async function setupBusinessType(api, type) {
   if (!BUSINESS_TYPE_KEYS.includes(type)) {
     throw new Error(`Unknown business type: ${type}`)
@@ -24,25 +81,14 @@ export async function setupBusinessType(api, type) {
   if (!isBusinessTypeEnabled(type)) {
     throw new Error(`Business type "${type}" is not enabled yet.`)
   }
-
   const config = getBusinessTypeConfig(type)
 
-  try {
-    await api?.settings?.update?.({ business_type: type })
-  } catch (e) {
-    console.error('[setupBusinessType] failed to persist business_type:', e)
-    throw e
-  }
+  await api?.settings?.update?.({ business_type: type })
 
-  // ── Phase 2 hook ────────────────────────────────────────────────────────
-  // Per-module seeding goes here, dispatched off config.modules. Each seeder
-  // must be idempotent (WHERE NOT EXISTS guards) so calling setupBusinessType
-  // on an existing restaurant doesn't duplicate mesas or menu items.
-  //
-  //   if (config.modules.includes('tables'))   await seedMesas(api)
-  //   if (config.modules.includes('menu'))     await seedSampleMenu(api, type)
-  //   if (config.modules.includes('kds'))      await seedKdsConfig(api)
-  // ────────────────────────────────────────────────────────────────────────
+  // Module-dispatched seeding. Each seeder is idempotent.
+  if (config.modules.includes('tables')) await seedMesas(api)
+  if (config.modules.includes('menu'))   await seedSampleMenu(api, type)
+  if (config.modules.includes('kds'))    await seedKdsConfig(api, type)
 
   return { type, config }
 }

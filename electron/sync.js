@@ -1410,6 +1410,20 @@ async function syncNow() {
     }
     if (totalPulled > 0) log.info(`[sync] Pull complete — ${totalPulled} rows pulled`)
 
+    // ── Anti-resurrection: advance last_synced_at to NOW (post-pull) ───
+    // Without this, last_synced_at is set during the push phase (BEFORE
+    // pull). Pulled rows get their Supabase updated_at written locally.
+    // If that timestamp >= the push-time last_synced_at, Pass 2's
+    // `WHERE updated_at > lastSyncedAt` matches them and re-pushes stale
+    // desktop data over the newer Supabase state — the resurrection bug.
+    // By advancing the cursor to post-pull time, pulled rows' timestamps
+    // are guaranteed older than lastSyncedAt, so they won't re-push.
+    for (const table of SYNC_TABLES) {
+      try {
+        _db.rawPrepare(`UPDATE sync_log SET last_synced_at = datetime('now') WHERE table_name = ?`).run(table.name)
+      } catch (e) { log.error(`[sync] post-pull cursor advance ${table.name}:`, e.message) }
+    }
+
     _status.state = 'idle'
     _status.lastSync = new Date().toISOString()
     _status.totalRows = totalRows
