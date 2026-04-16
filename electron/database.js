@@ -2186,6 +2186,7 @@ function ticketCreate(data) {
     const clientSid = data.client_id ? (db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id)?.supabase_id || null) : null
     const sellerSid = data.seller_id ? (db.prepare('SELECT supabase_id FROM sellers WHERE id=?').get(data.seller_id)?.supabase_id || null) : null
     const cajeroSid = data.cajero_id ? (db.prepare('SELECT supabase_id FROM users WHERE id=?').get(data.cajero_id)?.supabase_id || null) : null
+    const status = data.status || (data.payment_method === 'credit' ? 'pendiente' : 'cobrado')
     const result = db.prepare(`INSERT INTO tickets
       (doc_number,client_id,washer_ids,seller_id,cajero_id,subtotal,descuento,itbis,ley,total,
        beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,supabase_id,client_supabase_id,seller_supabase_id,cajero_supabase_id,created_at)
@@ -2206,7 +2207,7 @@ function ticketCreate(data) {
       ncf,
       JSON.stringify(data.ecf_result || {}),
       data.tipo_venta || 'contado',
-      data.status || (data.payment_method === 'credit' ? 'pendiente' : 'cobrado'),
+      status,
       data.vehicle_plate || null,
       ticketSid,
       clientSid,
