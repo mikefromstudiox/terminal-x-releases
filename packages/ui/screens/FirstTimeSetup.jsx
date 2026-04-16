@@ -525,9 +525,10 @@ function StepReconnect({ t, onBack, onComplete }) {
       // 3. Store Supabase connection
       setStoredSetting('business_id', businessId)
 
-      // 4. Store auth info in settings
+      // 4. Store auth info + business_id in SQLite so sync.js can resolve it
       try {
         await api?.settings?.update?.({
+          supabase_business_id: businessId,
           supabase_auth_email: email.trim(),
           supabase_user_id: userId,
         })
