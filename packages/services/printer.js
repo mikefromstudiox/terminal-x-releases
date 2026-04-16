@@ -199,7 +199,7 @@ function buildHeader(biz, logoBytes = '') {
   parts.push(DOUBLE_OFF, BOLD_OFF)
   if (biz.address) {
     let addr = biz.address
-    try { const s = typeof biz.settings === 'string' ? JSON.parse(biz.settings) : (biz.settings || {}); if (s.biz_city) addr += ', ' + s.biz_city } catch {}
+    try { const s = typeof biz.settings === 'string' ? JSON.parse(biz.settings) : (biz.settings || {}); if (s.ciudad || s.biz_city) addr += ', ' + (s.ciudad || s.biz_city) } catch {}
     parts.push(addr, LF)
   }
   if (biz.phone) parts.push('Tel: ' + biz.phone, LF)

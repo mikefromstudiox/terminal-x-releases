@@ -275,6 +275,7 @@ const SYNC_TABLES = [
 
   {
     name: 'users',
+    supabaseTable: 'staff', // users is a VIEW on staff — can't INSERT with ON CONFLICT on views
     cols: r => ({
       supabase_id: r.supabase_id,
       name: r.name,
@@ -804,7 +805,9 @@ function init(db, { supabaseUrl, supabaseKey }) {
         last_synced_id INTEGER NOT NULL DEFAULT 0,
         row_count      INTEGER NOT NULL DEFAULT 0,
         error          TEXT,
-        updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+        updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        last_synced_at TEXT,
+        last_pull_at   TEXT
       )`)
       const ins = _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('sync_v3_supabase_id','1')")
       if (ins) ins.run()
@@ -875,9 +878,9 @@ async function supabaseUpsert(table, rows) {
   // Supabase has real UNIQUE (business_id, supabase_id) constraints on every
   // sync table (created 2026-04-11 — previously these were partial indexes
   // which PostgREST can't use as on_conflict targets). Clean upsert works.
-  return new Promise((resolve, reject) => {
+  const doPost = (payload) => new Promise((resolve, reject) => {
     const reqUrl = new URL(`${_url}/rest/v1/${table}?on_conflict=business_id,supabase_id`)
-    const body = JSON.stringify(cleaned)
+    const body = JSON.stringify(payload)
     const request = https.request({
       hostname: reqUrl.hostname,
       path: reqUrl.pathname + reqUrl.search,
@@ -894,7 +897,7 @@ async function supabaseUpsert(table, rows) {
       response.on('data', chunk => { data += chunk.toString() })
       response.on('end', () => {
         if (response.statusCode >= 200 && response.statusCode < 300) {
-          resolve({ ok: true, count: rows.length })
+          resolve({ ok: true, count: payload.length })
         } else {
           reject(new Error(`Supabase ${response.statusCode}: ${data}`))
         }
@@ -905,6 +908,28 @@ async function supabaseUpsert(table, rows) {
     request.write(body)
     request.end()
   })
+
+  try {
+    return await doPost(cleaned)
+  } catch (e) {
+    // 409 = unique constraint violation (e.g. natural key conflict on entity tables).
+    // Retry individual rows so one bad row doesn't block the whole batch.
+    if (e.message?.includes('409') && cleaned.length > 1) {
+      let ok = 0
+      for (const row of cleaned) {
+        try { await doPost([row]); ok++ } catch (e2) {
+          // 409/23505 = natural key duplicate — row exists under different supabase_id, skip
+          if (e2.message?.includes('23505') || e2.message?.includes('409')) {
+            log.warn(`[sync] ${table}: skipped duplicate natural key for ${row.supabase_id}`)
+          } else {
+            log.error(`[sync] ${table}: row ${row.supabase_id} failed:`, e2.message)
+          }
+        }
+      }
+      return { ok: true, count: ok }
+    }
+    throw e
+  }
 }
 
 // -- Resolve business_id ------------------------------------------------------
@@ -1161,7 +1186,14 @@ function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, natur
   if (!row.supabase_id) return
 
   // 1. Try match by supabase_id (primary identity)
-  let existing = _db.rawPrepare(`SELECT id, updated_at, supabase_id, active FROM ${tableName} WHERE supabase_id = ?`).get(row.supabase_id)
+  // Note: not all tables have `active` — use COALESCE via a safe query
+  let existing
+  try {
+    existing = _db.rawPrepare(`SELECT id, updated_at, supabase_id, active FROM ${tableName} WHERE supabase_id = ?`).get(row.supabase_id)
+  } catch {
+    // Table lacks `active` column — query without it
+    existing = _db.rawPrepare(`SELECT id, updated_at, supabase_id FROM ${tableName} WHERE supabase_id = ?`).get(row.supabase_id)
+  }
 
   // 2. If no match and table has a natural key, try match by natural key.
   //    This handles DB rebuilds where the local supabase_id was lost/regenerated.
@@ -1171,9 +1203,16 @@ function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, natur
   //    avoid overwriting the wrong record. The row will INSERT as a new local entry.
   if (!existing && naturalKey && row[naturalKey]) {
     try {
-      const matches = _db.rawPrepare(
-        `SELECT id, updated_at, supabase_id, active FROM ${tableName} WHERE ${naturalKey} = ?`
-      ).all(row[naturalKey])
+      let matches
+      try {
+        matches = _db.rawPrepare(
+          `SELECT id, updated_at, supabase_id, active FROM ${tableName} WHERE ${naturalKey} = ?`
+        ).all(row[naturalKey])
+      } catch {
+        matches = _db.rawPrepare(
+          `SELECT id, updated_at, supabase_id FROM ${tableName} WHERE ${naturalKey} = ?`
+        ).all(row[naturalKey])
+      }
       if (matches.length === 1) {
         const byName = matches[0]
         _db.rawPrepare(`UPDATE ${tableName} SET supabase_id = ? WHERE id = ?`).run(row.supabase_id, byName.id)
@@ -1380,6 +1419,7 @@ async function pullNow() {
 // -- Sync a single table (PUSH) -----------------------------------------------
 async function syncTable(tableConfig) {
   const { name, cols } = tableConfig
+  const pushTable = tableConfig.supabaseTable || name // VIEW override (e.g. users → staff)
   const bizId = await resolveBusinessId()
   if (!bizId) throw new Error('No business_id')
 
@@ -1405,7 +1445,7 @@ async function syncTable(tableConfig) {
     if (mapped.length) {
       for (let i = 0; i < mapped.length; i += FETCH_SIZE) {
         const batch = mapped.slice(i, i + FETCH_SIZE)
-        await supabaseUpsert(name, batch)
+        await supabaseUpsert(pushTable, batch)
         totalSynced += batch.length
       }
     }
@@ -1430,7 +1470,7 @@ async function syncTable(tableConfig) {
         if (mapped.length) {
           for (let i = 0; i < mapped.length; i += FETCH_SIZE) {
             const batch = mapped.slice(i, i + FETCH_SIZE)
-            await supabaseUpsert(name, batch)
+            await supabaseUpsert(pushTable, batch)
             totalSynced += batch.length
           }
           log.info(`[sync] ${name}: re-synced ${mapped.length} updated rows`)
@@ -1485,7 +1525,12 @@ async function pushBusinessMeta(bizId) {
         _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key, value) VALUES('logo_synced_url', ?)").run(logoUrl)
         log.info('[sync] Logo uploaded to Storage:', logoUrl)
       } catch (e) {
-        log.error('[sync] Logo upload failed:', e.message)
+        // Storage RLS blocks anon key — warn once, not every cycle
+        if (e.message?.includes('403') || e.message?.includes('Unauthorized')) {
+          log.warn('[sync] Logo upload skipped (storage RLS — needs service role key)')
+        } else {
+          log.error('[sync] Logo upload failed:', e.message)
+        }
       }
     }
 

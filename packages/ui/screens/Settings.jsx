@@ -259,7 +259,7 @@ function PanelEmpresa({ onSave }) {
       setEmail(biz.email   ?? '')
       setDir(biz.address   ?? '')
       const s = biz.settings ? JSON.parse(biz.settings) : {}
-      setCiudad(s.ciudad   ?? '')
+      setCiudad(s.ciudad || s.biz_city || '')
       if (biz.logo) setLogo(biz.logo)
     })
   }, [])
@@ -281,7 +281,8 @@ function PanelEmpresa({ onSave }) {
   async function handleSave() {
     const biz = await api.admin.getEmpresa()
     const s = biz?.settings ? JSON.parse(biz.settings) : {}
-    if (ciudad) s.ciudad = ciudad
+    s.ciudad = ciudad || ''
+    s.biz_city = ciudad || ''
     await api.admin.saveEmpresa({
       name: nombre, rnc, phone: tel, email, address: dir,
       logo: logo ?? '',
@@ -889,7 +890,17 @@ function PanelImpresoras({ onSave }) {
       ])
       if (list?.ok) setPrinters(list.data || [])
       const c = cfg || {}
-      setPrinter(c.printer || list?.data?.[0]?.name || '')
+      const savedPrinter = c.printer || ''
+      const printerList = list?.data || []
+      // Use saved printer if it exists in current list, otherwise fall back to first
+      const validPrinter = printerList.find(p => p.name === savedPrinter)
+        ? savedPrinter
+        : (printerList[0]?.name || '')
+      setPrinter(validPrinter)
+      // Auto-persist if saved value was missing or invalid (e.g. after migration cleanup)
+      if (validPrinter && validPrinter !== savedPrinter) {
+        try { await api?.settings?.update({ printer: validPrinter }) } catch {}
+      }
       setPreTicket(c.print_pre_ticket !== '0')
       setFactura(c.print_factura !== '0')
       setCuadre(c.print_cuadre !== '0')

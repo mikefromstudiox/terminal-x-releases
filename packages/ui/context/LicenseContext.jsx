@@ -128,9 +128,11 @@ export function LicenseProvider({ children }) {
       if (res.valid) {
         try { localStorage.setItem('tx_last_valid', String(Date.now())) } catch {}
       }
-      // Store business_id for cloud sync
+      // Store business_id for cloud sync + trigger immediate pull
       if (res.valid && res.businessId && api?.settings?.update) {
         try { await api.settings.update({ supabase_business_id: res.businessId }) } catch {}
+        // Kick an immediate sync so empleados/services/etc. load right away
+        try { window.electronAPI?.sync?.now?.() } catch {}
       }
       // Sync remote config to local settings if available
       // Exclude device-specific settings (printer) — those are local per machine

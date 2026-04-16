@@ -507,6 +507,13 @@ function init(userDataPath) {
       updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
     )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_pawn_items_supabase_id ON pawn_items(supabase_id)`,
+    // v2.3 — missing columns that Supabase has but SQLite doesn't (causes pull failures)
+    'ALTER TABLE categorias_servicio ADD COLUMN active INTEGER NOT NULL DEFAULT 1',
+    'ALTER TABLE salary_changes ADD COLUMN active INTEGER NOT NULL DEFAULT 1',
+    'ALTER TABLE salary_changes ADD COLUMN updated_at TEXT',
+    "UPDATE salary_changes SET updated_at = created_at WHERE updated_at IS NULL",
+    'ALTER TABLE salary_changes ADD COLUMN supabase_id TEXT',
+    "UPDATE salary_changes SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
