@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Loader2, Building2, ShieldCheck, FileText, DollarSign, Phone, Mail, MapPin, Plus, X } from 'lucide-react'
+import { ArrowLeft, Loader2, Building2, ShieldCheck, FileText, DollarSign, Phone, Mail, MapPin, Plus, X, Wand2, Copy } from 'lucide-react'
 import CertStepTracker from '../components/CertStepTracker'
 import CertNotes from '../components/CertNotes'
+import CertWizard from '../components/CertWizard'
 import { listContainer, listItem, dropdown } from '../motion'
 
 const PKG_BADGE = {
@@ -26,25 +27,102 @@ export default function CertificationDetail({ getToken, refreshToken, isDark, la
   const L = (es, en) => lang === 'es' ? es : en
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useState('wizard')
   const [statusDropdown, setStatusDropdown] = useState(false)
   const [docForm, setDocForm] = useState({ name: '', file_path: '', file_type: '', step: '' })
   const [showDocForm, setShowDocForm] = useState(false)
   const [docSubmitting, setDocSubmitting] = useState(false)
+  const [stepData, setStepData] = useState({})
+  const [testResults, setTestResults] = useState([])
+  const [portalCopied, setPortalCopied] = useState(false)
+
+  async function getAuthToken() {
+    let token = await refreshToken?.()
+    if (!token) token = getToken()
+    return token
+  }
 
   async function load() {
     setLoading(true)
     try {
-      let token = await refreshToken?.()
-      if (!token) token = getToken()
-      const resp = await fetch(`/api/panel?action=cert_detail&id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } })
-      if (!resp.ok) throw new Error('Failed')
-      setData(await resp.json())
+      const token = await getAuthToken()
+      const [certResp, stepResp, testResp] = await Promise.all([
+        fetch(`/api/panel?action=cert_detail&id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`/api/panel?action=cert_step_data&id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
+        fetch(`/api/panel?action=cert_test_results&id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
+      ])
+      if (!certResp.ok) throw new Error('Failed')
+      setData(await certResp.json())
+      if (stepResp?.ok) {
+        const sd = await stepResp.json()
+        setStepData(sd?.steps || sd || {})
+      }
+      if (testResp?.ok) {
+        const tr = await testResp.json()
+        setTestResults(tr?.results || tr || [])
+      }
     } catch (e) { console.error('CertDetail load:', e) }
     setLoading(false)
   }
 
   useEffect(() => { load() }, [id])
+
+  async function saveStepData(step, fieldData) {
+    setStepData(prev => ({ ...prev, [step]: { ...prev[step], ...fieldData } }))
+    try {
+      const token = await getAuthToken()
+      await fetch('/api/panel?action=cert_step_data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ id, step, data: fieldData }),
+      })
+    } catch {}
+  }
+
+  async function uploadFile(file, step, fieldKey) {
+    try {
+      const token = await getAuthToken()
+      const reader = new FileReader()
+      reader.onload = async () => {
+        const base64 = reader.result.split(',')[1]
+        await fetch('/api/panel?action=cert_upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ id, step, field_key: fieldKey, filename: file.name, data: base64 }),
+        })
+        setStepData(prev => ({ ...prev, [step]: { ...prev[step], [fieldKey]: file.name } }))
+        load()
+      }
+      reader.readAsDataURL(file)
+    } catch {}
+  }
+
+  async function runTests(step, poll = false) {
+    try {
+      const token = await getAuthToken()
+      if (!poll) {
+        await fetch('/api/panel?action=cert_commands', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ id, step, command: 'run_tests' }),
+        })
+      }
+      const resp = await fetch(`/api/panel?action=cert_test_results&id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } })
+      if (resp.ok) {
+        const tr = await resp.json()
+        setTestResults(tr?.results || tr || [])
+      }
+    } catch {}
+  }
+
+  function copyPortalUrl() {
+    const token = data?.certification?.portal_token
+    if (token) {
+      navigator.clipboard?.writeText(`https://terminalxpos.com/cert/${token}`)
+      setPortalCopied(true)
+      setTimeout(() => setPortalCopied(false), 2000)
+    }
+  }
 
   async function handleStepAction(step, action, note) {
     try {
@@ -168,9 +246,24 @@ export default function CertificationDetail({ getToken, refreshToken, isDark, la
         </motion.button>
         <div className="flex-1 min-w-0">
           <h1 className={`text-[24px] font-black truncate tracking-tight ${isDark ? 'text-white' : 'text-black'}`}>{cert.business_name}</h1>
-          <p className={`text-[12px] mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-            RNC {cert.rnc || '--'} &middot; {L('Paso', 'Step')} {currentStep}/15
-          </p>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <p className={`text-[12px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+              RNC {cert.rnc || '--'} &middot; {L('Paso', 'Step')} {currentStep}/15
+            </p>
+            {cert.portal_token && (
+              <button
+                onClick={copyPortalUrl}
+                className={`flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-lg transition-colors ${
+                  portalCopied
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                    : isDark ? 'bg-white/5 text-white/30 border border-white/10 hover:bg-white/10' : 'bg-black/5 text-black/30 border border-black/10 hover:bg-black/10'
+                }`}
+              >
+                <Copy size={9} />
+                {portalCopied ? L('Copiado', 'Copied') : 'Portal'}
+              </button>
+            )}
+          </div>
         </div>
         <span className={`text-[10px] font-bold px-3 py-1.5 rounded-full border uppercase tracking-wide ${statusBadge}`}>
           {cert.status || 'active'}
@@ -242,6 +335,7 @@ export default function CertificationDetail({ getToken, refreshToken, isDark, la
       {/* Tabs */}
       <div className="flex gap-1 relative">
         {[
+          { key: 'wizard',    es: 'Asistente',  en: 'Wizard' },
           { key: 'overview',  es: 'Resumen',    en: 'Overview' },
           { key: 'notes',     es: 'Notas',      en: 'Notes' },
           { key: 'documents', es: 'Documentos', en: 'Documents' },
@@ -274,6 +368,35 @@ export default function CertificationDetail({ getToken, refreshToken, isDark, la
       </div>
 
       <AnimatePresence mode="wait">
+      {/* Wizard Tab */}
+      {tab === 'wizard' && (
+        <motion.div
+          key="wz"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.25 }}
+        >
+          <CertWizard
+            certification={cert}
+            stepData={stepData}
+            documents={documents}
+            testResults={testResults}
+            notes={notes}
+            onSaveStepData={saveStepData}
+            onCompleteStep={(step) => handleStepAction(step, 'complete')}
+            onUncompleteStep={(step) => handleStepAction(step, 'uncomplete')}
+            onUploadFile={uploadFile}
+            onRunTests={runTests}
+            onAddNote={load}
+            getToken={getToken}
+            refreshToken={refreshToken}
+            isDark={isDark}
+            lang={lang}
+          />
+        </motion.div>
+      )}
+
       {/* Overview Tab */}
       {tab === 'overview' && (
         <motion.div

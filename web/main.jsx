@@ -11,6 +11,7 @@ import LandingPage from '@/landing/LandingPage'
 // Everything else lazy
 const SignupPage  = React.lazy(() => import('@/landing/SignupPage'))
 const AdminApp    = React.lazy(() => import('@/admin/AdminApp'))
+const CertPortal  = React.lazy(() => import('@/portal/CertPortal'))
 
 // Lazy load Supabase — only resolves when needed (saves 172KB on landing page)
 let _supabase = null
@@ -350,6 +351,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
             {/* Signup — lazy loads Supabase */}
             <Route path="/signup" element={<SignupRoute />} />
+
+            {/* e-CF Certification Portal — public, token-based */}
+            <Route path="/cert/:token" element={
+              <React.Suspense fallback={<PageLoader />}>
+                <CertPortal />
+              </React.Suspense>
+            } />
 
             {/* POS app — lazy loads everything */}
             <Route path="/pos/*" element={<POSRoute />} />

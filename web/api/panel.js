@@ -46,6 +46,11 @@ export default async function handler(req, res) {
   if (cors(req, res)) return
   const action = req.query.action || 'stats'
 
+  // Public portal actions — token-based auth, no admin required
+  if (['cert_portal', 'cert_portal_message', 'cert_portal_upload'].includes(action)) {
+    return handlePublicCertAction(action, req, res, getClient())
+  }
+
   if (action === 'stats') return handleStats(req, res)
   if (action === 'licenses') return handleLicenses(req, res)
   if (action === 'clients') return handleClients(req, res)
@@ -66,6 +71,10 @@ export default async function handler(req, res) {
   if (action === 'cert_notes') return handleCertNotes(req, res)
   if (action === 'cert_docs') return handleCertDocs(req, res)
   if (action === 'cert_stats') return handleCertStats(req, res)
+  if (action === 'cert_step_data') return handleCertStepData(req, res)
+  if (action === 'cert_commands') return handleCertCommands(req, res)
+  if (action === 'cert_test_results') return handleCertTestResults(req, res)
+  if (action === 'cert_upload') return handleCertUpload(req, res)
   if (action === 'set_staff_pin') return handleSetStaffPin(req, res)
   if (action === 'delete_staff') return handleDeleteStaff(req, res)
   if (action === 'upload_logo') return handleUploadLogo(req, res)
@@ -885,6 +894,175 @@ async function handleBulkAction(req, res) {
 
     return res.status(400).json({ error: 'Unknown bulk action type' })
   } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// ── e-CF Cert Step Data (GET + POST) ────────────────────────────────────────
+
+async function handleCertStepData(req, res) {
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase } = auth
+  if (req.method === 'GET') {
+    const id = req.query.id
+    const step = parseInt(req.query.step, 10)
+    if (!id || !step) return res.status(400).json({ error: 'id and step required' })
+    try {
+      const { data, error } = await supabase.from('ecf_cert_step_data').select('*').eq('certification_id', id).eq('step', step).maybeSingle()
+      if (error) throw error
+      return res.json({ ok: true, data: data || null })
+    } catch (err) { return res.status(500).json({ error: err.message }) }
+  }
+  if (req.method === 'POST') {
+    const { id, step, data: stepData } = req.body || {}
+    if (!id || !step || !stepData) return res.status(400).json({ error: 'id, step, and data required' })
+    try {
+      const { data, error } = await supabase.from('ecf_cert_step_data').upsert({
+        certification_id: id, step, data: stepData, updated_at: new Date().toISOString(),
+      }, { onConflict: 'certification_id,step' }).select().single()
+      if (error) throw error
+      return res.json({ ok: true, data })
+    } catch (err) { return res.status(500).json({ error: err.message }) }
+  }
+  return res.status(405).json({ error: 'Method not allowed' })
+}
+
+// ── e-CF Cert Commands (GET + POST) ─────────────────────────────────────────
+
+async function handleCertCommands(req, res) {
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase } = auth
+  if (req.method === 'GET') {
+    const id = req.query.id
+    if (!id) return res.status(400).json({ error: 'id required' })
+    try {
+      const { data, error } = await supabase.from('ecf_cert_commands').select('*').eq('certification_id', id).order('created_at', { ascending: false })
+      if (error) throw error
+      return res.json({ ok: true, data: data || [] })
+    } catch (err) { return res.status(500).json({ error: err.message }) }
+  }
+  if (req.method === 'POST') {
+    const { id, command, params } = req.body || {}
+    if (!id || !command) return res.status(400).json({ error: 'id and command required' })
+    try {
+      const { data: existing, error: checkErr } = await supabase.from('ecf_cert_commands').select('id').eq('certification_id', id).in('status', ['pending', 'executing']).limit(1)
+      if (checkErr) throw checkErr
+      if (existing && existing.length > 0) return res.status(409).json({ error: 'A command is already pending or executing for this certification' })
+      const { data, error } = await supabase.from('ecf_cert_commands').insert({
+        certification_id: id, command, params: params || {}, status: 'pending',
+      }).select().single()
+      if (error) throw error
+      return res.json({ ok: true, data })
+    } catch (err) { return res.status(500).json({ error: err.message }) }
+  }
+  return res.status(405).json({ error: 'Method not allowed' })
+}
+
+// ── e-CF Cert Test Results (GET) ────────────────────────────────────────────
+
+async function handleCertTestResults(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase } = auth
+  const id = req.query.id
+  if (!id) return res.status(400).json({ error: 'id required' })
+  try {
+    let query = supabase.from('ecf_cert_test_results').select('*').eq('certification_id', id)
+    if (req.query.step) query = query.eq('step', parseInt(req.query.step, 10))
+    const { data, error } = await query.order('submitted_at', { ascending: false })
+    if (error) throw error
+    return res.json({ ok: true, data: data || [] })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// ── e-CF Cert Upload (POST) ─────────────────────────────────────────────────
+
+async function handleCertUpload(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  const auth = await requireAdmin(req, 'admin')
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase } = auth
+  const { id, base64, filename, step, visible_to_client } = req.body || {}
+  if (!id || !base64 || !filename) return res.status(400).json({ error: 'id, base64, and filename required' })
+  try {
+    const buffer = Buffer.from(base64, 'base64')
+    const ext = filename.split('.').pop() || 'bin'
+    const contentType = ext === 'pdf' ? 'application/pdf' : ext === 'p12' ? 'application/x-pkcs12' : ext === 'xml' ? 'application/xml' : ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'application/octet-stream'
+    const path = `${id}/${step || 'general'}/${filename}`
+    const { error: uploadErr } = await supabase.storage.from('ecf-certs').upload(path, buffer, { contentType, upsert: true })
+    if (uploadErr) return res.status(500).json({ error: uploadErr.message })
+    const { data: urlData } = supabase.storage.from('ecf-certs').getPublicUrl(path)
+    const url = urlData?.publicUrl
+    const { data, error } = await supabase.from('ecf_cert_documents').insert({
+      certification_id: id, name: filename, file_path: url, file_type: ext, step: step || null, visible_to_client: visible_to_client || false,
+    }).select().single()
+    if (error) throw error
+    return res.json({ ok: true, data, url })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// ── Public Cert Portal Actions (token-based, no admin auth) ─────────────────
+
+async function handlePublicCertAction(action, req, res, supabase) {
+  if (action === 'cert_portal') {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' })
+    const token = req.query.token
+    if (!token) return res.status(400).json({ error: 'token required' })
+    try {
+      const { data: cert, error } = await supabase.from('ecf_certifications').select('id, business_name, rnc, contact_name, current_step, steps_completed, status, package_tier, payment_status, started_at').eq('portal_token', token).maybeSingle()
+      if (error) throw error
+      if (!cert) return res.status(404).json({ error: 'Certification not found' })
+      const [notesRes, docsRes, testsRes] = await Promise.all([
+        supabase.from('ecf_cert_notes').select('id, content, type, author_name, created_at').eq('certification_id', cert.id).eq('visible_to_client', true).order('created_at', { ascending: false }).limit(50),
+        supabase.from('ecf_cert_documents').select('id, name, file_path, file_type, step, uploaded_at').eq('certification_id', cert.id).eq('visible_to_client', true).order('uploaded_at', { ascending: false }),
+        supabase.from('ecf_cert_test_results').select('id, step, test_number, test_name, encf, dgii_status, submitted_at').eq('certification_id', cert.id).order('submitted_at', { ascending: false }),
+      ])
+      return res.json({ ok: true, data: { ...cert, notes: notesRes.data || [], documents: docsRes.data || [], test_results: testsRes.data || [] } })
+    } catch (err) { return res.status(500).json({ error: err.message }) }
+  }
+
+  if (action === 'cert_portal_message') {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+    const { token, content } = req.body || {}
+    if (!token || !content) return res.status(400).json({ error: 'token and content required' })
+    try {
+      const { data: cert, error } = await supabase.from('ecf_certifications').select('id, contact_name').eq('portal_token', token).maybeSingle()
+      if (error) throw error
+      if (!cert) return res.status(404).json({ error: 'Certification not found' })
+      const { data, error: insertErr } = await supabase.from('ecf_cert_notes').insert({
+        certification_id: cert.id, type: 'client_message', author_name: cert.contact_name || 'Cliente', content, visible_to_client: true,
+      }).select().single()
+      if (insertErr) throw insertErr
+      return res.json({ ok: true, data })
+    } catch (err) { return res.status(500).json({ error: err.message }) }
+  }
+
+  if (action === 'cert_portal_upload') {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+    const { token, base64, filename } = req.body || {}
+    if (!token || !base64 || !filename) return res.status(400).json({ error: 'token, base64, and filename required' })
+    try {
+      const { data: cert, error } = await supabase.from('ecf_certifications').select('id').eq('portal_token', token).maybeSingle()
+      if (error) throw error
+      if (!cert) return res.status(404).json({ error: 'Certification not found' })
+      const buffer = Buffer.from(base64, 'base64')
+      const ext = filename.split('.').pop() || 'bin'
+      const contentType = ext === 'pdf' ? 'application/pdf' : ext === 'p12' ? 'application/x-pkcs12' : ext === 'xml' ? 'application/xml' : ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'application/octet-stream'
+      const path = `${cert.id}/client/${filename}`
+      const { error: uploadErr } = await supabase.storage.from('ecf-certs').upload(path, buffer, { contentType, upsert: true })
+      if (uploadErr) return res.status(500).json({ error: uploadErr.message })
+      const { data: urlData } = supabase.storage.from('ecf-certs').getPublicUrl(path)
+      const url = urlData?.publicUrl
+      const { data, error: docErr } = await supabase.from('ecf_cert_documents').insert({
+        certification_id: cert.id, name: filename, file_path: url, file_type: ext, visible_to_client: true,
+      }).select().single()
+      if (docErr) throw docErr
+      return res.json({ ok: true, data, url })
+    } catch (err) { return res.status(500).json({ error: err.message }) }
+  }
+
+  return res.status(400).json({ error: 'Unknown portal action' })
 }
 
 async function handleClientVisits(req, res) {
