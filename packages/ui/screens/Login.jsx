@@ -324,8 +324,8 @@ export default function Login() {
           <button
             onClick={async () => {
               const ok = confirm(L(
-                '¿Desconectar este dispositivo? Se borrarán los datos locales y volverás a la pantalla de configuración. Los datos en la nube no se pierden.',
-                'Disconnect this device? Local data will be erased and you will return to the setup screen. Cloud data is not affected.'
+                '¿Desconectar este dispositivo? Volverás a la pantalla de configuración para vincular una cuenta. Tus datos locales se mantienen.',
+                'Disconnect this device? You will return to the setup screen to link an account. Your local data is preserved.'
               ))
               if (!ok) return
               try {

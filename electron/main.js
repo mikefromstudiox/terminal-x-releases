@@ -84,12 +84,13 @@ ipcMain.handle('env:get', (_, key) => {
 ipcMain.handle('app:version', () => app.getVersion())
 
 ipcMain.handle('app:resetLocalDatabase', () => {
-  const fs = require('fs')
-  const dbPath = path.join(app.getPath('userData'), 'terminal-x.db')
-  try { db?.closeDb?.() } catch {}
+  // Light disconnect: clear the business link so the app shows the setup
+  // wizard on next launch. Local data (services, empleados, tickets) stays
+  // intact — on reconnect, sync resumes without re-downloading everything.
+  // Safe for users with poor/no internet.
   try {
-    const backupPath = dbPath + '.bak-reset-' + Date.now()
-    if (fs.existsSync(dbPath)) fs.renameSync(dbPath, backupPath)
+    db?.rawExec?.("DELETE FROM businesses")
+    db?.rawExec?.("DELETE FROM app_settings WHERE key IN ('supabase_business_id','supabase_auth_email','supabase_user_id')")
   } catch {}
   app.relaunch()
   app.exit(0)
