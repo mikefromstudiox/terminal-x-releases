@@ -4,7 +4,7 @@ import { Lock, ArrowUpCircle } from 'lucide-react'
 
 const FEATURE_PLAN_MIN = {
   credits: 'pro', reports: 'pro', petty_cash: 'pro', credit_notes: 'pro', cash_recon: 'pro', commissions: 'pro', inventory: 'pro',
-  ecf: 'pro_plus', dgii: 'pro_plus',
+  ecf: 'pro_plus', dgii: 'pro_plus', restaurant_mode: 'pro_plus',
   remote_dashboard: 'pro_max', whatsapp_receipts: 'pro_max', multi_location: 'pro_max',
 }
 

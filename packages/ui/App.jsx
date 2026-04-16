@@ -53,6 +53,9 @@ const Sistema             = lazy(() => import('./screens/Sistema'))
 const Inventory           = lazy(() => import('./screens/Inventory'))
 const Reportes            = lazy(() => import('./screens/Reportes'))
 const Empleados           = lazy(() => import('./screens/reports/nomina'))
+const Mesas               = lazy(() => import('./screens/restaurant/Mesas'))
+const MenuBuilder         = lazy(() => import('./screens/restaurant/MenuBuilder'))
+const KDS                 = lazy(() => import('./screens/restaurant/KDS'))
 
 // Routes accessible only to non-cashier roles
 const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin','/sistema','/inventory','/config']
@@ -138,6 +141,22 @@ export default function App() {
   // No authenticated user — show PIN login (web and desktop)
   if (!user) return <Login />
 
+  // Fullscreen KDS — render without Layout chrome (sidebar/header). Mirrors
+  // how <Login /> is returned outside Layout above. Plan-gated identically.
+  if (window.location.pathname === '/kds') {
+    return (
+      <Suspense fallback={
+        <div className="fixed inset-0 flex items-center justify-center bg-black">
+          <div className="w-8 h-8 border-2 border-white/10 border-t-[#b3001e] rounded-full animate-spin" />
+        </div>
+      }>
+        <Routes>
+          <Route path="/kds" element={<PlanGate feature="restaurant_mode"><KDS /></PlanGate>} />
+        </Routes>
+      </Suspense>
+    )
+  }
+
   return (
     <>
     <UpdateBanner />
@@ -160,6 +179,8 @@ export default function App() {
         <Route path="/reports/workers"       element={<Navigate to="/reports" replace />} />
         <Route path="/reports/salesperson"   element={<Navigate to="/reports" replace />} />
         <Route path="/inventory"             element={<ProtectedRoute element={<PlanGate feature="inventory"><Inventory /></PlanGate>} />} />
+        <Route path="/mesas"                 element={<PlanGate feature="restaurant_mode"><Mesas /></PlanGate>} />
+        <Route path="/menu-builder"          element={<ProtectedRoute element={<PlanGate feature="restaurant_mode"><MenuBuilder /></PlanGate>} />} />
         <Route path="/cash-recon"            element={<ProtectedRoute element={<PlanGate feature="cash_recon"><CashReconciliation /></PlanGate>} />} />
         <Route path="/empleados"             element={<ProtectedRoute element={<Empleados />} />} />
         <Route path="/dgii"                  element={<ProtectedRoute element={<PlanGate feature="dgii"><DGII /></PlanGate>} />} />

@@ -902,6 +902,34 @@ handle('empleados:update',    ({id,...data})  => db.empleadoUpdate(id, data))
 handle('empleados:delete',    ({id})          => { db.empleadoDelete(id); return true })
 handle('empleados:hard-delete', ({id})        => db.empleadoHardDelete(id))
 
+// ── Restaurant Mode — Mesas ──────────────────────────────────────────────────
+handle('mesas:list',       ()                    => db.mesasGetAll())
+handle('mesas:create',     (data)                => db.mesaCreate(data))
+handle('mesas:update',     ({id, ...data})       => db.mesaUpdate(id, data))
+handle('mesas:setStatus',  ({id, status, opts})  => db.mesaSetStatus(id, status, opts || {}))
+handle('mesas:delete',     ({id})                => { db.mesaDelete(id); return true })
+
+// ── Restaurant Mode — Modificadores ──────────────────────────────────────────
+handle('modificadores:list',       ()                                  => db.modificadoresGetAll())
+handle('modificadores:listAll',    ()                                  => db.modificadoresGetAllAdmin())
+handle('modificadores:create',     (data)                              => db.modificadorCreate(data))
+handle('modificadores:update',     ({id, ...data})                     => db.modificadorUpdate(id, data))
+handle('modificadores:delete',     ({id})                              => { db.modificadorDelete(id); return true })
+handle('modificadores:listForService', ({serviceId})                   => db.modificadoresListForService(serviceId))
+handle('modificadores:attach',     ({serviceId, modificadorId, isRequired}) => { db.modificadorAttachToService(serviceId, modificadorId, isRequired ? 1 : 0); return true })
+handle('modificadores:detach',     ({serviceId, modificadorId})        => { db.modificadorDetachFromService(serviceId, modificadorId); return true })
+
+// ── Restaurant Mode — KDS events ─────────────────────────────────────────────
+handle('kds:listActive', ()                => db.kdsListActive())
+handle('kds:fire',       (data)            => db.kdsFire(data))
+handle('kds:setStatus',  ({id, status})    => db.kdsSetStatus(id, status))
+
+// ── Restaurant Mode — Ticket-item modifier snapshots ─────────────────────────
+handle('restaurant:itemModificadores:list',
+  ({ticketItemId}) => db.ticketItemModificadoresList(ticketItemId))
+handle('restaurant:itemModificadores:snapshot',
+  ({ticketItemSupabaseId, ticketItemId, selections}) => { db.ticketItemModificadoresSnapshot(ticketItemSupabaseId, ticketItemId, selections); return true })
+
 // ── Payroll runs (paycheck history) ──────────────────────────────────────────
 handle('payroll-runs:create',      (data)                => db.payrollRunCreate(data))
 handle('payroll-runs:bulk-create', (runs)                => db.payrollRunsBulkCreate(runs))

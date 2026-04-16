@@ -799,6 +799,60 @@ function escapeHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
 }
 
+// ── Restaurant multi-printer routing ─────────────────────────────────────────
+/**
+ * Split a ticket's items by their `printer_route` tag ('kitchen' | 'bar' | 'receipt').
+ * Items with no route or an unknown route fall back to 'receipt'.
+ *
+ * @param {{items: Array}} ticket
+ * @returns {{kitchen: Array, bar: Array, receipt: Array}}
+ */
+export function routeTicketByPrinter(ticket) {
+  const out = { kitchen: [], bar: [], receipt: [] }
+  const items = Array.isArray(ticket?.items) ? ticket.items : []
+  for (const it of items) {
+    const route = (it && it.printer_route) || 'receipt'
+    if (route === 'kitchen' || route === 'bar') out[route].push(it)
+    else out.receipt.push(it)
+  }
+  return out
+}
+
+/**
+ * Produce the list of (printer, payload) pairs needed to fulfil a ticket,
+ * honouring per-item `printer_route`. Preserves single-printer behaviour for
+ * car-wash/retail (all items route to 'receipt' or are untagged): returns a
+ * single-entry array targeting `settings.printer`.
+ *
+ * Each payload is a *ticket-shaped object* (same keys as `ticket`) with
+ * `items` narrowed to that route. The caller is responsible for formatting
+ * (e.g. `buildClientReceipt` for the receipt payload, a kitchen-slip builder
+ * for kitchen, etc.) and dispatching to the underlying printer.
+ *
+ * @param {object} ticket            the full ticket {items, biz, ...}
+ * @param {object} settings          {printer, printer_kitchen?, printer_bar?}
+ * @returns {Array<{printer: string|undefined, route: 'kitchen'|'bar'|'receipt', payload: object}>}
+ */
+export function splitPayloadByRoute(ticket, settings = {}) {
+  const routed = routeTicketByPrinter(ticket)
+  const receiptPrinter = settings.printer
+  const kitchenPrinter = settings.printer_kitchen || receiptPrinter
+  const barPrinter     = settings.printer_bar     || receiptPrinter
+
+  // Fast path: nothing tagged kitchen/bar → single payload, preserves legacy behaviour.
+  if (routed.kitchen.length === 0 && routed.bar.length === 0) {
+    return [{ printer: receiptPrinter, route: 'receipt', payload: ticket }]
+  }
+
+  const pairs = []
+  if (routed.kitchen.length) pairs.push({ printer: kitchenPrinter, route: 'kitchen', payload: { ...ticket, items: routed.kitchen } })
+  if (routed.bar.length)     pairs.push({ printer: barPrinter,     route: 'bar',     payload: { ...ticket, items: routed.bar     } })
+  // Always include a receipt payload (even if its items list is empty) so the
+  // customer still gets a totals receipt when every item is food/drink.
+  pairs.push({ printer: receiptPrinter, route: 'receipt', payload: { ...ticket, items: routed.receipt } })
+  return pairs
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /** Print the full client invoice receipt (kicks drawer only for cash/check) */

@@ -12,6 +12,7 @@ import {
   Building2, UserCheck, Coffee, KeyRound, LayoutGrid,
   Printer, MessageSquare, HardDrive, Download,
   Archive, LifeBuoy, Send, Loader2,
+  Grid3x3, UtensilsCrossed, ChefHat,
 } from 'lucide-react'
 import { usePlan } from '../hooks/usePlan.jsx'
 import { useLang } from '../i18n'
@@ -36,6 +37,24 @@ const NAV = [
     feature: 'queue',
     // Service-based businesses (carwash, generic service, hybrid) get a work queue.
     businessTypes: ['carwash', 'service', 'hybrid'],
+  },
+  {
+    id: 'mesas', to: '/mesas', icon: Grid3x3,
+    es: 'Mesas', en: 'Tables',
+    businessTypes: ['restaurant', 'hybrid'],
+    roles: ['owner','manager','cashier','waiter'],
+  },
+  {
+    id: 'menu_builder', to: '/menu-builder', icon: UtensilsCrossed,
+    es: 'Menu', en: 'Menu',
+    businessTypes: ['restaurant', 'hybrid'],
+    roles: ['owner','manager'],
+  },
+  {
+    id: 'kds', to: '/kds', icon: ChefHat,
+    es: 'Cocina (KDS)', en: 'Kitchen (KDS)',
+    businessTypes: ['restaurant', 'hybrid'],
+    roles: ['owner','manager','cashier','waiter'],
   },
   {
     id: 'clients', icon: Users,

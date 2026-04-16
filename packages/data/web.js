@@ -2249,6 +2249,241 @@ export function createWebAPI(supabase, businessId) {
       onStatus: () => () => {},          // returns unsubscribe function (no-op)
     },
 
+    // ── Restaurant Mode — Mesas (floor plan) ─────────────────────────────────
+
+    mesas: {
+      list: () => tryOr(async () => {
+        return throwSupaError(
+          await supabase.from('mesas').select('*').eq('business_id', bid).eq('active', true)
+            .order('sort_order').order('name')
+        )
+      }, []),
+
+      create: (data) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('mesas').insert({
+          supabase_id: crypto.randomUUID(),
+          name: data.name, zone: data.zone || null,
+          capacity: data.capacity != null ? data.capacity : 4,
+          status: data.status || 'libre',
+          sort_order: data.sort_order || 0,
+          active: true,
+          business_id: bid,
+        }).select('*').single())
+        return row
+      }),
+
+      update: (id, data) => tryOr(async () => {
+        const allowed = ['name','zone','capacity','status','waiter_empleado_supabase_id','guests_count','seated_at','sort_order','active']
+        const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+        if ('active' in patch) patch.active = !!patch.active
+        if (!Object.keys(patch).length) {
+          return (await supabase.from('mesas').select('*').eq('id', id).eq('business_id', bid).maybeSingle())?.data || null
+        }
+        return throwSupaError(
+          await supabase.from('mesas').update(patch).eq('id', id).eq('business_id', bid).select('*').single()
+        )
+      }),
+
+      setStatus: (id, status, opts = {}) => tryOr(async () => {
+        // Fetch seated_at so we stamp only on first transition into 'ocupada'
+        const { data: cur } = await supabase.from('mesas')
+          .select('seated_at,waiter_empleado_supabase_id,guests_count')
+          .eq('id', id).eq('business_id', bid).maybeSingle()
+        const patch = { status }
+        if (opts.waiter_empleado_supabase_id !== undefined) patch.waiter_empleado_supabase_id = opts.waiter_empleado_supabase_id
+        if (opts.guests_count                !== undefined) patch.guests_count                = opts.guests_count
+        if (status === 'ocupada' && !(cur && cur.seated_at)) patch.seated_at = new Date().toISOString()
+        return throwSupaError(
+          await supabase.from('mesas').update(patch).eq('id', id).eq('business_id', bid).select('*').single()
+        )
+      }),
+
+      delete: (id) => tryOr(async () => {
+        // Soft-delete — match services.delete() semantics (LWW-friendly + safe).
+        throwSupaError(await supabase.from('mesas').update({ active: false })
+          .eq('id', id).eq('business_id', bid))
+        return { deleted: true }
+      }),
+    },
+
+    // ── Restaurant Mode — Modificadores (menu add-ons) ───────────────────────
+
+    modificadores: {
+      list: () => tryOr(async () => {
+        return throwSupaError(
+          await supabase.from('modificadores').select('*').eq('business_id', bid).eq('active', true)
+            .order('group_name').order('sort_order').order('name')
+        )
+      }, []),
+
+      listAll: () => tryOr(async () => {
+        return throwSupaError(
+          await supabase.from('modificadores').select('*').eq('business_id', bid)
+            .order('group_name').order('sort_order').order('name')
+        )
+      }, []),
+
+      create: (data) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('modificadores').insert({
+          supabase_id: crypto.randomUUID(),
+          name: data.name, group_name: data.group_name || null,
+          price_delta: Number(data.price_delta || 0),
+          min_select: data.min_select != null ? data.min_select : 0,
+          max_select: data.max_select != null ? data.max_select : 1,
+          default_selected: !!data.default_selected,
+          sort_order: data.sort_order || 0,
+          active: true,
+          business_id: bid,
+        }).select('*').single())
+        return row
+      }),
+
+      update: (id, data) => tryOr(async () => {
+        const allowed = ['name','group_name','price_delta','min_select','max_select','default_selected','sort_order','active']
+        const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+        if ('default_selected' in patch) patch.default_selected = !!patch.default_selected
+        if ('active' in patch)           patch.active           = !!patch.active
+        if ('price_delta' in patch)      patch.price_delta      = Number(patch.price_delta || 0)
+        if (!Object.keys(patch).length) {
+          return (await supabase.from('modificadores').select('*').eq('id', id).eq('business_id', bid).maybeSingle())?.data || null
+        }
+        return throwSupaError(
+          await supabase.from('modificadores').update(patch).eq('id', id).eq('business_id', bid).select('*').single()
+        )
+      }),
+
+      delete: (id) => tryOr(async () => {
+        throwSupaError(await supabase.from('modificadores').update({ active: false })
+          .eq('id', id).eq('business_id', bid))
+        return { deleted: true }
+      }),
+
+      listForService: (serviceSupabaseId) => tryOr(async () => {
+        // Two-step — service_modificadores stores supabase_id FKs, no SQL join
+        // is possible via the JS client. Empty ids short-circuits to [].
+        const { data: links } = await supabase.from('service_modificadores')
+          .select('modificador_supabase_id,is_required')
+          .eq('business_id', bid).eq('service_supabase_id', serviceSupabaseId)
+        const ids = (links || []).map(l => l.modificador_supabase_id).filter(Boolean)
+        if (ids.length === 0) return []
+        const { data: mods } = await supabase.from('modificadores').select('*')
+          .eq('business_id', bid).eq('active', true).in('supabase_id', ids)
+          .order('group_name').order('sort_order').order('name')
+        const reqMap = Object.fromEntries((links || []).map(l => [l.modificador_supabase_id, !!l.is_required]))
+        return (mods || []).map(m => ({ ...m, is_required: !!reqMap[m.supabase_id] }))
+      }, []),
+
+      attachToService: (serviceSupabaseId, modificadorSupabaseId, isRequired = 0) => tryOr(async () => {
+        throwSupaError(await supabase.from('service_modificadores').insert({
+          supabase_id: crypto.randomUUID(),
+          service_supabase_id: serviceSupabaseId,
+          modificador_supabase_id: modificadorSupabaseId,
+          is_required: !!isRequired,
+          business_id: bid,
+        }))
+      }),
+
+      detachFromService: (serviceSupabaseId, modificadorSupabaseId) => tryOr(async () => {
+        throwSupaError(await supabase.from('service_modificadores').delete()
+          .eq('business_id', bid)
+          .eq('service_supabase_id', serviceSupabaseId)
+          .eq('modificador_supabase_id', modificadorSupabaseId))
+      }),
+    },
+
+    // ── Restaurant Mode — KDS (kitchen display) ──────────────────────────────
+
+    kds: {
+      listActive: () => tryOr(async () => {
+        return throwSupaError(
+          await supabase.from('kds_events').select('*')
+            .eq('business_id', bid).in('status', ['fired','in_progress','ready'])
+            .order('fired_at', { ascending: false })
+        )
+      }, []),
+
+      fire: (data) => tryOr(async () => {
+        // Resolve ticket_item_supabase_id the same way desktop does, so the
+        // FK stays intact even when the caller only hands us the integer id.
+        let tiSid = data.ticket_item_supabase_id || null
+        if (!tiSid && data.ticket_item_id) {
+          const { data: ti } = await supabase.from('ticket_items').select('supabase_id')
+            .eq('id', data.ticket_item_id).eq('business_id', bid).maybeSingle()
+          tiSid = ti?.supabase_id || null
+        }
+        const row = throwSupaError(await supabase.from('kds_events').insert({
+          supabase_id: crypto.randomUUID(),
+          ticket_item_supabase_id: tiSid,
+          mesa_supabase_id: data.mesa_supabase_id || null,
+          station: data.station || null,
+          status: 'fired',
+          fired_at: new Date().toISOString(),
+          business_id: bid,
+        }).select('*').single())
+        return row
+      }),
+
+      setStatus: (id, status) => tryOr(async () => {
+        const patch = { status }
+        const now = new Date().toISOString()
+        if (status === 'in_progress') patch.started_at = now
+        if (status === 'ready')       patch.ready_at   = now
+        if (status === 'bumped')      patch.bumped_at  = now
+        return throwSupaError(
+          await supabase.from('kds_events').update(patch).eq('id', id).eq('business_id', bid).select('*').single()
+        )
+      }),
+    },
+
+    // ── Restaurant Mode — Ticket-item modifier snapshots ─────────────────────
+
+    restaurant: {
+      itemModificadores: {
+        list: (ticketItemSupabaseId) => tryOr(async () => {
+          return throwSupaError(
+            await supabase.from('ticket_item_modificadores').select('*')
+              .eq('business_id', bid).eq('ticket_item_supabase_id', ticketItemSupabaseId)
+              .order('id')
+          )
+        }, []),
+
+        snapshot: (ticketItemSupabaseId, _ticketItemId, selections) => tryOr(async () => {
+          if (!Array.isArray(selections) || selections.length === 0) return
+          const rows = selections.map(s => ({
+            supabase_id: crypto.randomUUID(),
+            ticket_item_supabase_id: ticketItemSupabaseId,
+            modificador_supabase_id: s.modificador_supabase_id || null,
+            name_snapshot: s.name_snapshot,
+            price_delta_snapshot: Number(s.price_delta_snapshot || 0),
+            business_id: bid,
+          }))
+          throwSupaError(await supabase.from('ticket_item_modificadores').insert(rows))
+        }),
+      },
+    },
+
+    // ── Restaurant Mode — Realtime subscriptions ─────────────────────────────
+
+    subscribeMesas: (callback) => {
+      const channel = supabase.channel('mesa-changes')
+        .on('postgres_changes', {
+          event: '*', schema: 'public', table: 'mesas',
+          filter: `business_id=eq.${bid}`,
+        }, (payload) => callback(payload))
+        .subscribe()
+      return () => supabase.removeChannel(channel)
+    },
+
+    subscribeKdsEvents: (callback) => {
+      const channel = supabase.channel('kds-changes')
+        .on('postgres_changes', {
+          event: '*', schema: 'public', table: 'kds_events',
+          filter: `business_id=eq.${bid}`,
+        }, (payload) => callback(payload))
+        .subscribe()
+      return () => supabase.removeChannel(channel)
+    },
+
     // ── Realtime subscriptions (Supabase Realtime) ───────────────────────────
 
     realtime: {

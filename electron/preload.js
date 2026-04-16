@@ -143,6 +143,43 @@ contextBridge.exposeInMainWorld('electronAPI', {
     remove:      (id)                      => call('salary-changes:delete', { id }),
   },
 
+  // ── Restaurant Mode — Mesas (floor plan) ───────────────────────────────────
+  mesas: {
+    list:      ()                          => call('mesas:list'),
+    create:    (data)                      => call('mesas:create', data),
+    update:    (id, data)                  => call('mesas:update', { id, ...data }),
+    setStatus: (id, status, opts)          => call('mesas:setStatus', { id, status, opts }),
+    delete:    (id)                        => call('mesas:delete', { id }),
+  },
+
+  // ── Restaurant Mode — Modificadores (menu add-ons) ─────────────────────────
+  modificadores: {
+    list:            ()                            => call('modificadores:list'),
+    listAll:         ()                            => call('modificadores:listAll'),
+    create:          (data)                        => call('modificadores:create', data),
+    update:          (id, data)                    => call('modificadores:update', { id, ...data }),
+    delete:          (id)                          => call('modificadores:delete', { id }),
+    listForService:  (serviceId)                   => call('modificadores:listForService', { serviceId }),
+    attachToService:   (serviceId, modificadorId, isRequired = 0) => call('modificadores:attach', { serviceId, modificadorId, isRequired }),
+    detachFromService: (serviceId, modificadorId)                 => call('modificadores:detach', { serviceId, modificadorId }),
+  },
+
+  // ── Restaurant Mode — KDS (kitchen display) ────────────────────────────────
+  kds: {
+    listActive: ()                 => call('kds:listActive'),
+    fire:       (data)             => call('kds:fire', data),
+    setStatus:  (id, status)       => call('kds:setStatus', { id, status }),
+  },
+
+  // ── Restaurant Mode — Ticket-item modifier snapshots ───────────────────────
+  restaurant: {
+    itemModificadores: {
+      list: (ticketItemId) => call('restaurant:itemModificadores:list', { ticketItemId }),
+      snapshot: (ticketItemSupabaseId, ticketItemId, selections) =>
+        call('restaurant:itemModificadores:snapshot', { ticketItemSupabaseId, ticketItemId, selections }),
+    },
+  },
+
   // ── Clients ────────────────────────────────────────────────────────────────
   clients: {
     all:           ()                   => call('clients:all'),

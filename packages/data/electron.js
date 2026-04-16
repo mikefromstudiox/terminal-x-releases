@@ -10,7 +10,44 @@
  */
 
 export function createElectronAPI() {
-  return window.electronAPI || null
+  const raw = (typeof window !== 'undefined') ? window.electronAPI : null
+  if (!raw) return null
+  // Most namespaces pass through verbatim — preload.js already matches the
+  // DataContext shape. For Restaurant Mode we make the namespaces explicit so
+  // consumers (and type tooling) see the exact contract regardless of any
+  // preload key renames down the line.
+  return {
+    ...raw,
+    mesas: {
+      list:      ()                   => raw.mesas.list(),
+      create:    (data)               => raw.mesas.create(data),
+      update:    (id, data)           => raw.mesas.update(id, data),
+      setStatus: (id, status, opts)   => raw.mesas.setStatus(id, status, opts),
+      delete:    (id)                 => raw.mesas.delete(id),
+    },
+    modificadores: {
+      list:              ()                                    => raw.modificadores.list(),
+      listAll:           ()                                    => raw.modificadores.listAll(),
+      create:            (data)                                => raw.modificadores.create(data),
+      update:            (id, data)                            => raw.modificadores.update(id, data),
+      delete:            (id)                                  => raw.modificadores.delete(id),
+      listForService:    (serviceId)                           => raw.modificadores.listForService(serviceId),
+      attachToService:   (serviceId, modificadorId, isRequired = 0) => raw.modificadores.attachToService(serviceId, modificadorId, isRequired),
+      detachFromService: (serviceId, modificadorId)            => raw.modificadores.detachFromService(serviceId, modificadorId),
+    },
+    kds: {
+      listActive: ()              => raw.kds.listActive(),
+      fire:       (data)          => raw.kds.fire(data),
+      setStatus:  (id, status)    => raw.kds.setStatus(id, status),
+    },
+    restaurant: {
+      itemModificadores: {
+        list:     (ticketItemId) => raw.restaurant.itemModificadores.list(ticketItemId),
+        snapshot: (ticketItemSupabaseId, ticketItemId, selections) =>
+          raw.restaurant.itemModificadores.snapshot(ticketItemSupabaseId, ticketItemId, selections),
+      },
+    },
+  }
 }
 
 export function createElectronPrinterAPI() {

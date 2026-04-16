@@ -10,6 +10,7 @@ import { useRNC } from '../hooks/useRNC'
 import CobrarModal from '../components/CobrarModal'
 import { NewClientForm } from './Clients'
 import { printClientReceipt, printWasherConduce } from '@terminal-x/services/printer'
+import RestaurantPOS from './restaurant/RestaurantPOS'
 import { syncTicket } from '@terminal-x/services/supabase'
 import { saveReceiptPDF } from '@terminal-x/services/pdf'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
@@ -1604,6 +1605,7 @@ function ProductGrid({ api, lang, gridCols, onAdd }) {
 // ── POS Wrapper ───────────────────────────────────────────────────────────────
 
 export default function POS() {
-  const { isRetail } = useBusinessType()
+  const { isRetail, isRestaurant, isHybrid } = useBusinessType()
+  if (isRestaurant || isHybrid) return <RestaurantPOS />
   return isRetail ? <RetailPOS /> : <CarWashPOS />
 }

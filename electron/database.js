@@ -1342,6 +1342,187 @@ function empleadoHardDelete(id) {
   return { ok: true, softDeleted: false }
 }
 
+// ── Mesas (floor plan) ──────────────────────────────────────────────────────
+function mesasGetAll() {
+  if (!db) return []
+  return db.prepare('SELECT * FROM mesas WHERE active=1 ORDER BY sort_order, name').all()
+}
+function mesaCreate(data) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO mesas(supabase_id,name,zone,capacity,status,sort_order,active)
+    VALUES(?,?,?,?,?,?,1)`).run(
+    sid,
+    data.name,
+    data.zone || null,
+    data.capacity != null ? data.capacity : 4,
+    data.status || 'libre',
+    data.sort_order || 0,
+  )
+  return db.prepare('SELECT * FROM mesas WHERE id=?').get(r.lastInsertRowid)
+}
+function mesaUpdate(id, data) {
+  if (!db) return
+  const allowed = ['name','zone','capacity','status','waiter_empleado_id','waiter_empleado_supabase_id','guests_count','seated_at','sort_order','active']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM mesas WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE mesas SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM mesas WHERE id=?').get(id)
+}
+function mesaSetStatus(id, status, opts = {}) {
+  if (!db) return
+  // Stamps seated_at once when transitioning into 'ocupada'; other waiter/guest
+  // fields are only overwritten when explicitly provided (undefined → keep).
+  const current = db.prepare('SELECT waiter_empleado_id, waiter_empleado_supabase_id, guests_count FROM mesas WHERE id=?').get(id)
+  if (!current) return null
+  const waiterId    = opts.waiter_empleado_id          !== undefined ? opts.waiter_empleado_id          : current.waiter_empleado_id
+  const waiterSid   = opts.waiter_empleado_supabase_id !== undefined ? opts.waiter_empleado_supabase_id : current.waiter_empleado_supabase_id
+  const guests      = opts.guests_count                !== undefined ? opts.guests_count                : current.guests_count
+  db.prepare(`UPDATE mesas
+    SET status=?, waiter_empleado_id=?, waiter_empleado_supabase_id=?, guests_count=?,
+        seated_at=COALESCE(seated_at, CASE WHEN ?='ocupada' THEN datetime('now') END),
+        updated_at=datetime('now')
+    WHERE id=?`).run(status, waiterId, waiterSid, guests, status, id)
+  return db.prepare('SELECT * FROM mesas WHERE id=?').get(id)
+}
+function mesaDelete(id) {
+  if (!db) return
+  db.prepare('UPDATE mesas SET active=0, updated_at=datetime(\'now\') WHERE id=?').run(id)
+}
+
+// ── Modificadores (menu add-ons) ────────────────────────────────────────────
+function modificadoresGetAll() {
+  if (!db) return []
+  return db.prepare(`SELECT * FROM modificadores WHERE active=1 ORDER BY group_name, sort_order, name`).all()
+}
+function modificadoresGetAllAdmin() {
+  if (!db) return []
+  return db.prepare(`SELECT * FROM modificadores ORDER BY group_name, sort_order, name`).all()
+}
+function modificadorCreate(data) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO modificadores(supabase_id,name,group_name,price_delta,min_select,max_select,default_selected,sort_order,active)
+    VALUES(?,?,?,?,?,?,?,?,1)`).run(
+    sid,
+    data.name,
+    data.group_name || null,
+    Number(data.price_delta || 0),
+    data.min_select != null ? data.min_select : 0,
+    data.max_select != null ? data.max_select : 1,
+    data.default_selected ? 1 : 0,
+    data.sort_order || 0,
+  )
+  return db.prepare('SELECT * FROM modificadores WHERE id=?').get(r.lastInsertRowid)
+}
+function modificadorUpdate(id, data) {
+  if (!db) return
+  const allowed = ['name','group_name','price_delta','min_select','max_select','default_selected','sort_order','active']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if ('default_selected' in patch) patch.default_selected = patch.default_selected ? 1 : 0
+  if ('active' in patch)           patch.active           = patch.active ? 1 : 0
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM modificadores WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE modificadores SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM modificadores WHERE id=?').get(id)
+}
+function modificadorDelete(id) {
+  if (!db) return
+  db.prepare('UPDATE modificadores SET active=0, updated_at=datetime(\'now\') WHERE id=?').run(id)
+}
+function modificadoresListForService(serviceId) {
+  if (!db) return []
+  return db.prepare(`SELECT m.*, sm.is_required
+    FROM service_modificadores sm
+    JOIN modificadores m ON m.id = sm.modificador_id
+    WHERE sm.service_id=? AND m.active=1
+    ORDER BY m.group_name, m.sort_order, m.name`).all(serviceId)
+}
+function modificadorAttachToService(serviceId, modificadorId, isRequired = 0) {
+  if (!db) return
+  const svc = db.prepare('SELECT supabase_id FROM services WHERE id=?').get(serviceId)
+  const mod = db.prepare('SELECT supabase_id FROM modificadores WHERE id=?').get(modificadorId)
+  if (!svc || !mod) return
+  db.prepare(`INSERT INTO service_modificadores(supabase_id,service_id,service_supabase_id,modificador_id,modificador_supabase_id,is_required)
+    VALUES(?,?,?,?,?,?)`).run(
+    crypto.randomUUID(),
+    serviceId, svc.supabase_id || null,
+    modificadorId, mod.supabase_id || null,
+    isRequired ? 1 : 0,
+  )
+}
+function modificadorDetachFromService(serviceId, modificadorId) {
+  if (!db) return
+  db.prepare('DELETE FROM service_modificadores WHERE service_id=? AND modificador_id=?').run(serviceId, modificadorId)
+}
+
+// ── KDS events (kitchen display) ────────────────────────────────────────────
+function kdsListActive() {
+  if (!db) return []
+  return db.prepare(`SELECT * FROM kds_events
+    WHERE status IN ('fired','in_progress','ready')
+    ORDER BY fired_at DESC`).all()
+}
+function kdsFire(data) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  // Resolve ticket_item_supabase_id so sync can push this row to the web without
+  // losing the FK join — same pattern as empleadoCreate → salary_changes.
+  const ti = db.prepare('SELECT supabase_id FROM ticket_items WHERE id=?').get(data.ticket_item_id)
+  const r = db.prepare(`INSERT INTO kds_events(supabase_id,ticket_item_id,ticket_item_supabase_id,mesa_id,mesa_supabase_id,station,status,fired_at)
+    VALUES(?,?,?,?,?,?,'fired',datetime('now'))`).run(
+    sid,
+    data.ticket_item_id,
+    ti?.supabase_id || null,
+    data.mesa_id || null,
+    data.mesa_supabase_id || null,
+    data.station || null,
+  )
+  return db.prepare('SELECT * FROM kds_events WHERE id=?').get(r.lastInsertRowid)
+}
+function kdsSetStatus(id, status) {
+  if (!db) return
+  // Single UPDATE stamps the matching timestamp only when transitioning INTO
+  // that state; previous timestamps are preserved via COALESCE-equivalent
+  // CASE/ELSE-self pattern.
+  db.prepare(`UPDATE kds_events
+    SET status=?,
+        started_at = CASE WHEN ?='in_progress' AND started_at IS NULL THEN datetime('now') ELSE started_at END,
+        ready_at   = CASE WHEN ?='ready'       AND ready_at   IS NULL THEN datetime('now') ELSE ready_at   END,
+        bumped_at  = CASE WHEN ?='bumped'      AND bumped_at  IS NULL THEN datetime('now') ELSE bumped_at  END,
+        updated_at = datetime('now')
+    WHERE id=?`).run(status, status, status, status, id)
+  return db.prepare('SELECT * FROM kds_events WHERE id=?').get(id)
+}
+
+// ── Ticket-item modifier snapshots ──────────────────────────────────────────
+function ticketItemModificadoresList(ticketItemId) {
+  if (!db) return []
+  return db.prepare('SELECT * FROM ticket_item_modificadores WHERE ticket_item_id=? ORDER BY id').all(ticketItemId)
+}
+function ticketItemModificadoresSnapshot(ticketItemSupabaseId, ticketItemId, selections) {
+  if (!db) return
+  if (!Array.isArray(selections) || selections.length === 0) return
+  const ins = db.prepare(`INSERT INTO ticket_item_modificadores
+    (supabase_id,ticket_item_id,ticket_item_supabase_id,modificador_id,modificador_supabase_id,name_snapshot,price_delta_snapshot)
+    VALUES(?,?,?,?,?,?,?)`)
+  const tx = db.transaction((rows) => {
+    for (const s of rows) {
+      ins.run(
+        crypto.randomUUID(),
+        ticketItemId || null,
+        ticketItemSupabaseId || null,
+        s.modificador_id || null,
+        s.modificador_supabase_id || null,
+        s.name_snapshot,
+        Number(s.price_delta_snapshot || 0),
+      )
+    }
+  })
+  tx(selections)
+}
+
 // ── PAYROLL RUNS (paycheck history) ───────────────────────────────────────────
 const PAYROLL_RUN_INSERT_SQL = `INSERT INTO payroll_runs
   (empleado_id, period_start, period_end, base, commissions, bonuses,
@@ -2785,4 +2966,10 @@ module.exports = {
   ecfSubmissionGetPending, ecfSubmissionGetAll,
   // Activity log (owner audit feed)
   setActiveUser, getActiveUser, activityLogRecord, activityLogList,
+  // Restaurant Mode — mesas / modificadores / kds / ticket-item modifier snapshots
+  mesasGetAll, mesaCreate, mesaUpdate, mesaSetStatus, mesaDelete,
+  modificadoresGetAll, modificadoresGetAllAdmin, modificadorCreate, modificadorUpdate, modificadorDelete,
+  modificadoresListForService, modificadorAttachToService, modificadorDetachFromService,
+  kdsListActive, kdsFire, kdsSetStatus,
+  ticketItemModificadoresList, ticketItemModificadoresSnapshot,
 }
