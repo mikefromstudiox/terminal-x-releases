@@ -51,13 +51,14 @@ export default function NominaPagos() {
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
 
-  const [empleados,   setEmpleados]   = useState([])
-  const [settings,    setSettings]    = useState(null)
-  const [biz,         setBiz]         = useState({})
-  const [loading,     setLoading]     = useState(true)
-  const [commRows,    setCommRows]    = useState({ washers: [], sellers: [], cajeros: [] })
-  const [historical,  setHistorical]  = useState([])
-  const [showHistory, setShowHistory] = useState(false)
+  const [empleados,       setEmpleados]       = useState([])
+  const [settings,        setSettings]        = useState(null)
+  const [biz,             setBiz]             = useState({})
+  const [loading,         setLoading]         = useState(true)
+  const [commRows,        setCommRows]        = useState({ washers: [], sellers: [], cajeros: [] })
+  const [historical,      setHistorical]      = useState([])
+  const [showHistory,     setShowHistory]     = useState(false)
+  const [adelantoTotals,  setAdelantoTotals] = useState({}) // empleado_id → pending total
 
   // Period state
   const [preset,      setPreset]      = useState('q-previous')
@@ -91,14 +92,19 @@ export default function NominaPagos() {
   async function loadBase() {
     setLoading(true)
     try {
-      const [list, sets, empresa] = await Promise.all([
+      const [list, sets, empresa, adelantoSummary] = await Promise.all([
         api?.empleados?.all?.() || [],
         api?.payrollSettings?.get?.() || null,
         api?.admin?.getEmpresa?.() || null,
+        api?.adelantos?.summary?.() || [],
       ])
       setEmpleados(list || [])
       setSettings(sets)
       if (empresa) setBiz({ name: empresa.name || empresa.nombre, rnc: empresa.rnc, address: empresa.address || empresa.direccion, logo: empresa.logo })
+      // Build adelanto pending totals map: empleado_id → pending_total
+      const aMap = {}
+      for (const s of (adelantoSummary || [])) aMap[s.id] = s.pending_total || 0
+      setAdelantoTotals(aMap)
     } catch {}
     setLoading(false)
   }
@@ -214,10 +220,11 @@ export default function NominaPagos() {
     const isr        = settings?.isr_enabled === false
       ? { periodTax: 0, bracket: 'deshabilitado' }
       : calcISR(gross, cycle, settings?.isr_brackets)
-    const totalDeductions = tssEmp.total + isr.periodTax
+    const adelanto   = Number(adelantoTotals[emp.id] || 0)
+    const totalDeductions = tssEmp.total + isr.periodTax + adelanto
     const net = gross - totalDeductions
     return {
-      base, commission, bonus, gross,
+      base, commission, bonus, gross, adelanto,
       sfs_employee: tssEmp.sfs, afp_employee: tssEmp.afp, isr: isr.periodTax,
       sfs_employer: tssEmpr.sfs, afp_employer: tssEmpr.afp, infotep_employer: infotep,
       totalDeductions, net,
@@ -266,33 +273,48 @@ export default function NominaPagos() {
         sfs_employee:     c.sfs_employee,
         afp_employee:     c.afp_employee,
         isr:              c.isr,
-        other_deductions: 0,
+        other_deductions: c.adelanto,
         sfs_employer:     c.sfs_employer,
         afp_employer:     c.afp_employer,
         infotep_employer: c.infotep_employer,
         net:              c.net,
-        notes:            null,
+        notes:            c.adelanto > 0 ? `Incluye adelanto: ${fmtRD(c.adelanto)}` : null,
         paid_by:          user?.id || null,
       }
     })
     if (!rows.length) return
-    if (!confirm(L(`¿Confirmar pago de nómina para ${rows.length} empleado(s) por un total neto de ${fmtRD(totals.net)}?`,
+    if (!confirm(L(`Confirmar pago de nomina para ${rows.length} empleado(s) por un total neto de ${fmtRD(totals.net)}?`,
                     `Confirm payroll payment for ${rows.length} employee(s), net total ${fmtRD(totals.net)}?`))) return
     setSaving(true)
     try {
       const result = await api.payrollRuns.bulkCreate(rows)
-      showToast(L(`${result.created || rows.length} pagos registrados ✓`, `${result.created || rows.length} payments recorded ✓`))
+      // Auto-deduct pending adelantos for each paid employee
+      for (const row of rows) {
+        if (Number(adelantoTotals[row.empleado_id] || 0) > 0) {
+          try {
+            const pending = await (api?.adelantos?.byEmpleado?.(row.empleado_id) || [])
+            for (const a of (pending || [])) {
+              try { await api.adelantos.deduct(a.id, result?.ids?.[0] || null) } catch {}
+            }
+          } catch {}
+        }
+      }
+      showToast(L(`${result.created || rows.length} pagos registrados`, `${result.created || rows.length} payments recorded`))
       setSelected({})
       setBonuses({})
-      // Reload historical and commissions (they may have been auto-marked paid)
-      const [newHist, newWC, newSC, newCC] = await Promise.all([
+      // Reload everything (historical, commissions, adelantos)
+      const [newHist, newWC, newSC, newCC, newAdelSummary] = await Promise.all([
         api?.payrollRuns?.byPeriod?.(period.start, period.end) || [],
         api?.commissions?.byPeriod?.({ from: period.start, to: period.end }) || [],
         api?.sellerCommissions?.byPeriod?.({ from: period.start, to: period.end }) || [],
         api?.cajeroCommissions?.byPeriod?.({ from: period.start, to: period.end }) || [],
+        api?.adelantos?.summary?.() || [],
       ])
       setHistorical(newHist || [])
       setCommRows({ washers: newWC || [], sellers: newSC || [], cajeros: newCC || [] })
+      const aMap = {}
+      for (const s of (newAdelSummary || [])) aMap[s.id] = s.pending_total || 0
+      setAdelantoTotals(aMap)
     } catch (e) {
       showToast(e?.message || L('Error al registrar pagos', 'Error recording payments'), 'error')
     } finally {
@@ -367,13 +389,14 @@ export default function NominaPagos() {
                     <th className="px-3 py-2 text-right w-24">{L('Bonos', 'Bonuses')}</th>
                     <th className="px-3 py-2 text-right">TSS</th>
                     <th className="px-3 py-2 text-right">ISR</th>
+                    <th className="px-3 py-2 text-right">{L('Adelantos', 'Advances')}</th>
                     <th className="px-3 py-2 text-right">{L('Neto', 'Net')}</th>
                     <th className="px-3 py-2 text-center">{L('Estado', 'Status')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {empleados.length === 0 && (
-                    <tr><td colSpan={9} className="text-center py-8 text-slate-400 dark:text-white/40">
+                    <tr><td colSpan={10} className="text-center py-8 text-slate-400 dark:text-white/40">
                       {L('Sin empleados activos', 'No active employees')}
                     </td></tr>
                   )}
@@ -403,6 +426,7 @@ export default function NominaPagos() {
                         </td>
                         <td className="px-3 py-2 text-right text-red-500 dark:text-red-400 tabular-nums">− {fmtRD(c.sfs_employee + c.afp_employee)}</td>
                         <td className="px-3 py-2 text-right text-red-500 dark:text-red-400 tabular-nums">{c.isr > 0 ? `− ${fmtRD(c.isr)}` : '—'}</td>
+                        <td className="px-3 py-2 text-right text-amber-600 dark:text-amber-400 tabular-nums">{c.adelanto > 0 ? `− ${fmtRD(c.adelanto)}` : '—'}</td>
                         <td className="px-3 py-2 text-right font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">{fmtRD(c.net)}</td>
                         <td className="px-3 py-2 text-center">
                           {paid ? (
@@ -443,7 +467,8 @@ export default function NominaPagos() {
                         <div className="grid grid-cols-2 gap-2 mt-2 text-[11px]">
                           <div><span className="text-slate-400 dark:text-white/40">Base:</span> <span className="font-semibold text-slate-700 dark:text-white">{fmtRD(c.base)}</span></div>
                           <div><span className="text-slate-400 dark:text-white/40">Com:</span> <span className="font-semibold text-slate-700 dark:text-white">{fmtRD(c.commission)}</span></div>
-                          <div><span className="text-slate-400 dark:text-white/40">TSS+ISR:</span> <span className="text-red-500">− {fmtRD(c.totalDeductions)}</span></div>
+                          <div><span className="text-slate-400 dark:text-white/40">TSS+ISR:</span> <span className="text-red-500">− {fmtRD(c.sfs_employee + c.afp_employee + c.isr)}</span></div>
+                          {c.adelanto > 0 && <div><span className="text-slate-400 dark:text-white/40">Adelanto:</span> <span className="text-amber-600 dark:text-amber-400">− {fmtRD(c.adelanto)}</span></div>}
                           <div><span className="text-slate-400 dark:text-white/40">Neto:</span> <span className="font-bold text-emerald-600 dark:text-emerald-400">{fmtRD(c.net)}</span></div>
                         </div>
                       </div>

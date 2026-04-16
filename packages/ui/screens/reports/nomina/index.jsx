@@ -6,7 +6,7 @@
  */
 
 import { useState, lazy, Suspense } from 'react'
-import { LayoutDashboard, Users, Banknote, FileText, Settings, Lock, Crown, Check, ArrowRight } from 'lucide-react'
+import { LayoutDashboard, Users, Banknote, FileText, Settings, Lock, Crown, Check, ArrowRight, HandCoins } from 'lucide-react'
 import { useAuth } from '../../../context/AuthContext'
 import { useLang } from '../../../i18n'
 import { usePlan } from '../../../hooks/usePlan.jsx'
@@ -15,16 +15,18 @@ import { AccessDenied, ALLOWED_ROLES } from './shared'
 const NominaDashboard = lazy(() => import('./NominaDashboard'))
 const NominaEmpleados = lazy(() => import('./NominaEmpleados'))
 const NominaPagos     = lazy(() => import('./NominaPagos'))
+const NominaAdelantos = lazy(() => import('./NominaAdelantos'))
 const NominaReportes  = lazy(() => import('./NominaReportes'))
 const NominaAjustes   = lazy(() => import('./NominaAjustes'))
 
 // `advanced` views require the `nomina_advanced` feature flag (Pro MAX only).
 const VIEWS = [
-  { id: 'dashboard', icon: LayoutDashboard, es: 'Dashboard',  en: 'Dashboard',  Component: NominaDashboard, advanced: false },
-  { id: 'empleados', icon: Users,           es: 'Empleados',  en: 'Employees',  Component: NominaEmpleados, advanced: false },
-  { id: 'pagos',     icon: Banknote,        es: 'Pagos',      en: 'Payments',   Component: NominaPagos,     advanced: true },
-  { id: 'reportes',  icon: FileText,        es: 'Reportes',   en: 'Reports',    Component: NominaReportes,  advanced: true },
-  { id: 'ajustes',   icon: Settings,        es: 'Ajustes',    en: 'Settings',   Component: NominaAjustes,   advanced: true },
+  { id: 'dashboard',  icon: LayoutDashboard, es: 'Dashboard',  en: 'Dashboard',  Component: NominaDashboard, advanced: false },
+  { id: 'empleados',  icon: Users,           es: 'Empleados',  en: 'Employees',  Component: NominaEmpleados, advanced: false },
+  { id: 'pagos',      icon: Banknote,        es: 'Pagos',      en: 'Payments',   Component: NominaPagos,     advanced: true },
+  { id: 'adelantos',  icon: HandCoins,       es: 'Adelantos',  en: 'Advances',   Component: NominaAdelantos, advanced: true },
+  { id: 'reportes',   icon: FileText,        es: 'Reportes',   en: 'Reports',    Component: NominaReportes,  advanced: true },
+  { id: 'ajustes',    icon: Settings,        es: 'Ajustes',    en: 'Settings',   Component: NominaAjustes,   advanced: true },
 ]
 
 export default function Nomina() {

@@ -209,6 +209,26 @@ CREATE TABLE IF NOT EXISTS salary_changes (
 );
 CREATE INDEX IF NOT EXISTS idx_salary_changes_empleado ON salary_changes(empleado_id);
 
+-- ── Adelantos de nomina (salary advances) ────────────────────────────────────
+CREATE TABLE IF NOT EXISTS adelantos (
+  id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+  supabase_id             TEXT,
+  empleado_id             INTEGER NOT NULL REFERENCES empleados(id),
+  empleado_supabase_id    TEXT,
+  amount                  REAL    NOT NULL,
+  date                    TEXT    NOT NULL DEFAULT (date('now')),
+  notes                   TEXT,
+  status                  TEXT    NOT NULL DEFAULT 'pendiente',
+  deducted_from_payroll_id INTEGER REFERENCES payroll_runs(id),
+  deducted_at             TEXT,
+  approved_by             TEXT,
+  created_at              TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at              TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_adelantos_empleado ON adelantos(empleado_id);
+CREATE INDEX IF NOT EXISTS idx_adelantos_status   ON adelantos(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_adelantos_supabase_id ON adelantos(supabase_id);
+
 -- ── Credit payments ───────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS credit_payments (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,

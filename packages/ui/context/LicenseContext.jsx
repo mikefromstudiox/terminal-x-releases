@@ -133,8 +133,12 @@ export function LicenseProvider({ children }) {
         try { await api.settings.update({ supabase_business_id: res.businessId }) } catch {}
       }
       // Sync remote config to local settings if available
+      // Exclude device-specific settings (printer) — those are local per machine
       if (res.valid && res.remoteConfig && api?.settings?.update) {
-        try { await api.settings.update(res.remoteConfig) } catch {}
+        try {
+          const { printer, ...safeConfig } = res.remoteConfig
+          await api.settings.update(safeConfig)
+        } catch {}
       }
       // Sync business settings (logo, name, etc.) from server
       if (res.valid && res.bizSettings && api?.admin?.saveEmpresa) {

@@ -92,7 +92,7 @@ ipcMain.handle('app:resetLocalDatabase', () => {
       'washer_commissions', 'seller_commissions', 'cajero_commissions',
       'credit_payments', 'notas_credito', 'ticket_items', 'queue', 'queue_deletions',
       'cuadre_caja', 'caja_chica', 'inventory_transactions', 'ecf_submissions',
-      'payroll_runs', 'salary_changes', 'activity_log',
+      'adelantos', 'payroll_runs', 'salary_changes', 'activity_log',
       'tickets', 'mesas', 'modificadores',
       'services', 'categorias_servicio',
       'washers', 'sellers', 'empleados', 'clients', 'inventory_items',
@@ -970,6 +970,15 @@ handle('salary-changes:by-empleado', ({empleadoId})      => db.salaryChangesByEm
 handle('salary-changes:at-date',    ({empleadoId, date}) => db.salaryAtDate(empleadoId, date))
 handle('salary-changes:create',     (data)               => db.salaryChangeCreate(data))
 handle('salary-changes:delete',     ({id})               => { db.salaryChangeDelete(id); return true })
+
+// ── Adelantos de nomina (salary advances) ────────────────────────────────────
+handle('adelantos:create',        (data)               => db.adelantoCreate(data))
+handle('adelantos:list',          (params)             => db.adelantoList(params))
+handle('adelantos:by-empleado',   (empleadoId)         => db.adelantosByEmpleado(empleadoId))
+handle('adelantos:pending-total', (empleadoId)         => db.adelantoPendingTotal(empleadoId))
+handle('adelantos:deduct',        ({id, payrollRunId}) => { db.adelantoDeduct(id, payrollRunId); return true })
+handle('adelantos:cancel',        ({id})               => { db.adelantoCancel(id); return true })
+handle('adelantos:summary',       ()                   => db.adelantoSummary())
 
 // ── Clients ───────────────────────────────────────────────────────────────────
 handle('clients:all',          ()          => db.clientsGetAll())

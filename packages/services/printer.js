@@ -197,7 +197,11 @@ function buildHeader(biz, logoBytes = '') {
   parts.push(BOLD_ON, DOUBLE_ON)
   nameLines.forEach(l => { parts.push(l); parts.push(LF) })
   parts.push(DOUBLE_OFF, BOLD_OFF)
-  if (biz.address) parts.push(biz.address, LF)
+  if (biz.address) {
+    let addr = biz.address
+    try { const s = typeof biz.settings === 'string' ? JSON.parse(biz.settings) : (biz.settings || {}); if (s.biz_city) addr += ', ' + s.biz_city } catch {}
+    parts.push(addr, LF)
+  }
   if (biz.phone) parts.push('Tel: ' + biz.phone, LF)
   if (biz.rnc) parts.push('RNC: ' + biz.rnc, LF)
   parts.push(ALIGN_LEFT, SEP, LF)

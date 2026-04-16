@@ -315,6 +315,29 @@ function init(userDataPath) {
     // rows get a supabase_id assigned at INSERT time via the usual helper, so
     // no UUID backfill UPDATE is needed here (would just log "no such table"
     // on first install since migrations run before the CREATE TABLE block).
+    // v2.1 — Adelantos de nomina (salary advances)
+    `CREATE TABLE IF NOT EXISTS adelantos (
+      id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id             TEXT,
+      empleado_id             INTEGER NOT NULL REFERENCES empleados(id),
+      empleado_supabase_id    TEXT,
+      amount                  REAL    NOT NULL,
+      date                    TEXT    NOT NULL DEFAULT (date('now')),
+      notes                   TEXT,
+      status                  TEXT    NOT NULL DEFAULT 'pendiente',
+      deducted_from_payroll_id INTEGER REFERENCES payroll_runs(id),
+      deducted_at             TEXT,
+      approved_by             TEXT,
+      created_at              TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at              TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_adelantos_empleado ON adelantos(empleado_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_adelantos_status   ON adelantos(status)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_adelantos_supabase_id ON adelantos(supabase_id)`,
+    // v2.1 — updated_at trigger for adelantos
+    `CREATE TRIGGER IF NOT EXISTS trg_adelantos_updated_at
+     AFTER UPDATE ON adelantos FOR EACH ROW
+     BEGIN UPDATE adelantos SET updated_at = datetime('now') WHERE id = NEW.id; END`,
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -1652,6 +1675,76 @@ function payrollRunDelete(id) {
   db.prepare('DELETE FROM payroll_runs WHERE id=?').run(id)
 }
 
+// ── ADELANTOS DE NOMINA (salary advances) ─────────────────────────────────────
+function adelantoCreate({ empleado_id, amount, notes, approved_by }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const emp = db.prepare('SELECT supabase_id FROM empleados WHERE id=?').get(empleado_id)
+  const r = db.prepare(`INSERT INTO adelantos
+    (supabase_id, empleado_id, empleado_supabase_id, amount, notes, approved_by)
+    VALUES (@supabase_id, @empleado_id, @empleado_supabase_id, @amount, @notes, @approved_by)`).run({
+    supabase_id: sid,
+    empleado_id,
+    empleado_supabase_id: emp?.supabase_id || null,
+    amount: Number(amount),
+    notes: notes || null,
+    approved_by: approved_by || null,
+  })
+  activityLogRecord({ event_type: 'adelanto_created', severity: 'warn',
+    target_type: 'adelanto', target_id: r.lastInsertRowid,
+    target_name: emp ? `Adelanto #${r.lastInsertRowid}` : `#${r.lastInsertRowid}`,
+    amount: Number(amount) })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+
+function adelantoList({ empleado_id, status, dateFrom, dateTo } = {}) {
+  if (!db) return []
+  let sql = `SELECT a.*, e.nombre AS empleado_nombre, e.tipo AS empleado_tipo
+    FROM adelantos a LEFT JOIN empleados e ON e.id = a.empleado_id WHERE 1=1`
+  const params = []
+  if (empleado_id) { sql += ' AND a.empleado_id = ?'; params.push(empleado_id) }
+  if (status)      { sql += ' AND a.status = ?';      params.push(status) }
+  if (dateFrom)    { sql += ' AND a.date >= ?';        params.push(dateFrom) }
+  if (dateTo)      { sql += ' AND a.date <= ?';        params.push(dateTo) }
+  sql += ' ORDER BY a.created_at DESC'
+  return db.prepare(sql).all(...params)
+}
+
+function adelantosByEmpleado(empleado_id) {
+  if (!db) return []
+  return db.prepare(`SELECT * FROM adelantos WHERE empleado_id = ? AND status = 'pendiente' ORDER BY date ASC`).all(empleado_id)
+}
+
+function adelantoPendingTotal(empleado_id) {
+  if (!db) return 0
+  const row = db.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM adelantos WHERE empleado_id = ? AND status = 'pendiente'`).get(empleado_id)
+  return row?.total || 0
+}
+
+function adelantoDeduct(adelanto_id, payroll_run_id) {
+  if (!db) return
+  db.prepare(`UPDATE adelantos SET status = 'deducido', deducted_from_payroll_id = ?, deducted_at = datetime('now') WHERE id = ?`).run(payroll_run_id, adelanto_id)
+}
+
+function adelantoCancel(adelanto_id) {
+  if (!db) return
+  const row = db.prepare('SELECT amount, empleado_id FROM adelantos WHERE id=?').get(adelanto_id)
+  db.prepare(`UPDATE adelantos SET status = 'cancelado' WHERE id = ? AND status = 'pendiente'`).run(adelanto_id)
+  if (row) {
+    activityLogRecord({ event_type: 'adelanto_cancelled', severity: 'warn',
+      target_type: 'adelanto', target_id: adelanto_id,
+      target_name: `Adelanto #${adelanto_id}`,
+      amount: row.amount })
+  }
+}
+
+function adelantoSummary() {
+  if (!db) return []
+  return db.prepare(`SELECT e.id, e.nombre, e.tipo, COALESCE(SUM(a.amount), 0) AS pending_total, COUNT(a.id) AS pending_count
+    FROM empleados e LEFT JOIN adelantos a ON a.empleado_id = e.id AND a.status = 'pendiente'
+    WHERE e.active = 1 GROUP BY e.id HAVING pending_total > 0 ORDER BY pending_total DESC`).all()
+}
+
 // ── PAYROLL SETTINGS ──────────────────────────────────────────────────────────
 function payrollSettingsGet() {
   if (!db) return null
@@ -2937,6 +3030,8 @@ module.exports = {
   empleadosGetAll, empleadosGetAllAdmin, empleadoCreate, empleadoUpdate, empleadoDelete, empleadoHardDelete,
   payrollRunCreate, payrollRunsByEmpleado, payrollRunsByPeriod, payrollRunDelete, payrollRunsBulkCreate,
   payrollSettingsGet, payrollSettingsUpdate, salaryChangesByEmpleado, salaryAtDate, salaryChangeCreate, salaryChangeDelete,
+  // Adelantos de nomina (salary advances)
+  adelantoCreate, adelantoList, adelantosByEmpleado, adelantoPendingTotal, adelantoDeduct, adelantoCancel, adelantoSummary,
   // Clients
   clientsGetAll, clientGetById, clientCreate, clientUpdate, clientUpdateBalance, clientGetOpenTickets, collectCredit,
   // Tickets

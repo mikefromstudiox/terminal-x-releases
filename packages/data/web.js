@@ -796,6 +796,84 @@ export function createWebAPI(supabase, businessId) {
       }),
     },
 
+    // ── Adelantos de nomina (salary advances) ──────────────────────────────
+    adelantos: {
+      create: (data) => tryOr(async () => {
+        const sid = crypto.randomUUID()
+        const { data: emp } = await supabase.from('empleados').select('supabase_id, nombre').eq('id', data.empleado_id).eq('business_id', bid).maybeSingle()
+        const row = throwSupaError(await supabase.from('adelantos').insert({
+          supabase_id: sid,
+          empleado_id: data.empleado_id,
+          empleado_supabase_id: emp?.supabase_id || null,
+          amount: Number(data.amount),
+          date: data.date || new Date().toISOString().slice(0, 10),
+          notes: data.notes || null,
+          status: 'pendiente',
+          approved_by: data.approved_by || null,
+          business_id: bid,
+        }).select('id').single())
+        await logActivity({ event_type: 'adelanto_created', severity: 'warn',
+          target_type: 'adelanto', target_id: row.id,
+          target_name: `Adelanto #${row.id}`,
+          amount: Number(data.amount) })
+        return { id: row.id, supabase_id: sid }
+      }),
+      list: (params = {}) => tryOr(async () => {
+        let q = supabase.from('adelantos').select('*, empleados(nombre, tipo)').eq('business_id', bid)
+        if (params.empleado_id) q = q.eq('empleado_id', params.empleado_id)
+        if (params.status)      q = q.eq('status', params.status)
+        if (params.dateFrom)    q = q.gte('date', params.dateFrom)
+        if (params.dateTo)      q = q.lte('date', params.dateTo)
+        q = q.order('created_at', { ascending: false })
+        const rows = throwSupaError(await q)
+        return (rows || []).map(r => ({
+          ...r,
+          empleado_nombre: r.empleados?.nombre || null,
+          empleado_tipo: r.empleados?.tipo || null,
+        }))
+      }, []),
+      byEmpleado: (id) => tryOr(async () => {
+        return throwSupaError(await supabase.from('adelantos').select('*')
+          .eq('business_id', bid).eq('empleado_id', id).eq('status', 'pendiente')
+          .order('date', { ascending: true }))
+      }, []),
+      pendingTotal: (id) => tryOr(async () => {
+        const rows = throwSupaError(await supabase.from('adelantos').select('amount')
+          .eq('business_id', bid).eq('empleado_id', id).eq('status', 'pendiente'))
+        return (rows || []).reduce((s, r) => s + Number(r.amount || 0), 0)
+      }, 0),
+      deduct: (id, payrollRunId) => tryOr(async () => {
+        throwSupaError(await supabase.from('adelantos').update({
+          status: 'deducido',
+          deducted_from_payroll_id: payrollRunId,
+          deducted_at: new Date().toISOString(),
+        }).eq('id', id).eq('business_id', bid))
+      }),
+      cancel: (id) => tryOr(async () => {
+        const { data: row } = await supabase.from('adelantos').select('amount').eq('id', id).eq('business_id', bid).maybeSingle()
+        throwSupaError(await supabase.from('adelantos').update({ status: 'cancelado' })
+          .eq('id', id).eq('business_id', bid).eq('status', 'pendiente'))
+        if (row) {
+          await logActivity({ event_type: 'adelanto_cancelled', severity: 'warn',
+            target_type: 'adelanto', target_id: id,
+            target_name: `Adelanto #${id}`,
+            amount: row.amount })
+        }
+      }),
+      summary: () => tryOr(async () => {
+        const rows = throwSupaError(await supabase.from('adelantos').select('empleado_id, amount, empleados(id, nombre, tipo)')
+          .eq('business_id', bid).eq('status', 'pendiente'))
+        const map = {}
+        for (const r of (rows || [])) {
+          const eid = r.empleado_id
+          if (!map[eid]) map[eid] = { id: eid, nombre: r.empleados?.nombre || '', tipo: r.empleados?.tipo || '', pending_total: 0, pending_count: 0 }
+          map[eid].pending_total += Number(r.amount || 0)
+          map[eid].pending_count++
+        }
+        return Object.values(map).sort((a, b) => b.pending_total - a.pending_total)
+      }, []),
+    },
+
     // ── Salary changes (audit log) ──────────────────────────────────────────
     // All queries join on empleado_supabase_id, not the legacy bigint empleado_id column.
     salaryChanges: {

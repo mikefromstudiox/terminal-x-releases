@@ -556,7 +556,22 @@ const SYNC_TABLES = [
     }),
   },
 
-  // Phase 4 — payroll + e-CF submissions + audit logs (depend on empleados/tickets)
+  // Phase 4 — payroll + adelantos + e-CF submissions + audit logs (depend on empleados/tickets)
+  {
+    name: 'adelantos',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      empleado_supabase_id: r.empleado_supabase_id,
+      amount: r.amount,
+      date: r.date,
+      notes: r.notes,
+      status: r.status,
+      deducted_at: r.deducted_at,
+      approved_by: r.approved_by,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
   {
     name: 'payroll_runs',
     cols: r => ({
@@ -991,10 +1006,13 @@ const PULL_TABLES = [
   { name: 'compras_607', strategy: 'fww',
     cols: ['rnc_proveedor','nombre_proveedor','ncf','ncf_modificado','fecha_ncf','total','itbis_facturado','itbis_retenido','retencion_renta','forma_pago','tipo_ncf','fecha_pago','monto_servicios','monto_bienes','notas','created_at','updated_at'] },
 
-  // Phase 4 — payroll audit trail (FWW — financial records, never overwritten)
+  // Phase 4 — payroll audit trail + adelantos (FWW — financial records, never overwritten)
   // Note: ecf_submissions is push-only (desktop-authored per-device, no pull) — column name
   // mismatch between SQLite `dgii_status INTEGER` and Supabase `status TEXT` makes pulling unsafe.
   // Note: queue_deletions is push-only (append-only log, desktop-authored).
+  { name: 'adelantos', strategy: 'lww',
+    cols: ['amount','date','notes','status','deducted_at','approved_by','created_at','updated_at'],
+    fkCols: { empleado_supabase_id: 'empleados' } },
   { name: 'payroll_runs', strategy: 'fww',
     cols: ['period_start','period_end','base','commissions','bonuses','sfs_employee','afp_employee','isr','other_deductions','deductions','sfs_employer','afp_employer','infotep_employer','net','notes','paid_at','created_at','updated_at'],
     fkCols: { empleado_supabase_id: 'empleados' } },
@@ -1542,7 +1560,7 @@ async function startRealtime() {
     'empleados','categorias_servicio','staff','tickets','ticket_items','queue',
     'washer_commissions','seller_commissions','cajero_commissions',
     'credit_payments','cuadre_caja','caja_chica','notas_credito',
-    'inventory_transactions','compras_607','payroll_runs','salary_changes',
+    'inventory_transactions','compras_607','adelantos','payroll_runs','salary_changes',
     'activity_log',
   ]
 

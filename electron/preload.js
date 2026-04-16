@@ -142,6 +142,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     create:      (data)                    => call('salary-changes:create', data),
     remove:      (id)                      => call('salary-changes:delete', { id }),
   },
+  adelantos: {
+    create:       (data)                   => call('adelantos:create', data),
+    list:         (params)                 => call('adelantos:list', params),
+    byEmpleado:   (id)                     => call('adelantos:by-empleado', id),
+    pendingTotal: (id)                     => call('adelantos:pending-total', id),
+    deduct:       (id, payrollId)          => call('adelantos:deduct', { id, payrollRunId: payrollId }),
+    cancel:       (id)                     => call('adelantos:cancel', { id }),
+    summary:      ()                       => call('adelantos:summary'),
+  },
 
   // ── Restaurant Mode — Mesas (floor plan) ───────────────────────────────────
   mesas: {
