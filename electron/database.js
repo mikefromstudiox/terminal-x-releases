@@ -1034,8 +1034,15 @@ function empresaSave(data) {
     }
   }
 
-  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
-  db.prepare(`UPDATE businesses SET ${fields} WHERE id=1`).run(patch)
+  const exists = db.prepare('SELECT id FROM businesses WHERE id=1').get()
+  if (exists) {
+    const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+    db.prepare(`UPDATE businesses SET ${fields} WHERE id=1`).run(patch)
+  } else {
+    const cols = Object.keys(patch)
+    const placeholders = cols.map(k => `@${k}`).join(',')
+    db.prepare(`INSERT INTO businesses(id,${cols.join(',')}) VALUES(1,${placeholders})`).run(patch)
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1119,28 +1126,10 @@ function userDelete(id) {
   if (!db) return { softDeleted: true }
   const target = db.prepare('SELECT name, username FROM users WHERE id=?').get(id)
   const targetName = target ? `${target.name} (@${target.username})` : `#${id}`
-  try {
-    // Nullify FK references so the DELETE doesn't hit constraint violations.
-    // For tickets.cajero_id (NOT NULL), reassign to user #1 (owner) instead of NULL.
-    const fallbackUser = db.prepare('SELECT id FROM users WHERE id != ? AND active=1 ORDER BY id LIMIT 1').get(id)
-    const fallbackId = fallbackUser?.id || 1
-    try { db.prepare('UPDATE tickets SET cajero_id=? WHERE cajero_id=?').run(fallbackId, id) } catch {}
-    try { db.prepare('UPDATE cajero_commissions SET cajero_id=NULL WHERE cajero_id=?').run(id) } catch {}
-    try { db.prepare('UPDATE credit_payments SET cajero_id=NULL WHERE cajero_id=?').run(id) } catch {}
-    try { db.prepare('UPDATE credit_payments SET paid_by=NULL WHERE paid_by=?').run(id) } catch {}
-    try { db.prepare('UPDATE notas_credito SET cajero_id=NULL WHERE cajero_id=?').run(id) } catch {}
-    try { db.prepare('UPDATE salary_changes SET changed_by=NULL WHERE changed_by=?').run(id) } catch {}
-    try { db.prepare('UPDATE cuadre_caja SET authorized_by=? WHERE authorized_by=?').run(fallbackId, id) } catch {}
-    const r = db.prepare('DELETE FROM users WHERE id=?').run(id)
-    activityLogRecord({ event_type: 'user_deleted', severity: 'warn',
-      target_type: 'user', target_id: id, target_name: targetName })
-    return { deleted: true, changes: r.changes }
-  } catch (e) {
-    db.prepare('UPDATE users SET active=0 WHERE id=?').run(id)
-    activityLogRecord({ event_type: 'user_deactivated', severity: 'warn',
-      target_type: 'user', target_id: id, target_name: targetName, reason: e.message })
-    return { softDeleted: true, reason: e.message }
-  }
+  db.prepare('UPDATE users SET active=0, updated_at=datetime(?) WHERE id=?').run(new Date().toISOString(), id)
+  activityLogRecord({ event_type: 'user_deactivated', severity: 'warn',
+    target_type: 'user', target_id: id, target_name: targetName })
+  return { deleted: true }
 }
 
 // ── CATEGORIAS SERVICIO ───────────────────────────────────────────────────────
