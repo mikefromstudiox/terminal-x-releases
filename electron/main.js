@@ -85,8 +85,26 @@ ipcMain.handle('app:version', () => app.getVersion())
 
 ipcMain.handle('app:resetLocalDatabase', () => {
   try {
-    db?.rawExec?.("DELETE FROM businesses")
-    db?.rawExec?.("DELETE FROM app_settings WHERE key IN ('supabase_business_id','supabase_auth_email','supabase_user_id')")
+    // Clear all synced entity + transaction tables so reconnect starts clean.
+    // Order: children first (FK deps), then parents.
+    const tables = [
+      'ticket_item_modificadores', 'kds_events', 'service_modificadores',
+      'washer_commissions', 'seller_commissions', 'cajero_commissions',
+      'credit_payments', 'notas_credito', 'ticket_items', 'queue', 'queue_deletions',
+      'cuadre_caja', 'caja_chica', 'inventory_transactions', 'ecf_submissions',
+      'payroll_runs', 'salary_changes', 'activity_log',
+      'tickets', 'mesas', 'modificadores',
+      'services', 'categorias_servicio',
+      'washers', 'sellers', 'empleados', 'clients', 'inventory_items',
+      'ncf_sequences', 'users', 'businesses',
+    ]
+    for (const t of tables) {
+      try { db?.rawExec?.(`DELETE FROM ${t}`) } catch {}
+    }
+    // Clear sync cursors so pull starts fresh
+    try { db?.rawExec?.("DELETE FROM sync_log") } catch {}
+    // Clear business link settings
+    try { db?.rawExec?.("DELETE FROM app_settings WHERE key IN ('supabase_business_id','supabase_auth_email','supabase_user_id')") } catch {}
   } catch {}
   return { ok: true }
 })

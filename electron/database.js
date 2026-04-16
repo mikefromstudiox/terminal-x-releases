@@ -491,6 +491,36 @@ function init(userDataPath) {
   try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_washers_name ON washers(name)`) } catch { /* already exists */ }
   try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sellers_name ON sellers(name)`) } catch { /* already exists */ }
 
+  // ── Startup dedup — safety net for sync-created duplicates ────────────────
+  try {
+    const dedupByName = [
+      { table: 'services', col: 'name' },
+      { table: 'categorias_servicio', col: 'nombre' },
+      { table: 'empleados', col: 'nombre' },
+      { table: 'washers', col: 'name' },
+      { table: 'sellers', col: 'name' },
+    ]
+    for (const { table, col } of dedupByName) {
+      try {
+        // Keep the row with the highest id (most recently pulled/created) per name
+        const dupes = db.prepare(`
+          SELECT ${col}, COUNT(*) as cnt FROM ${table}
+          WHERE active = 1 OR active IS NULL
+          GROUP BY ${col} HAVING cnt > 1
+        `).all()
+        for (const d of dupes) {
+          const keep = db.prepare(`SELECT MAX(id) as id FROM ${table} WHERE ${col} = ? AND (active = 1 OR active IS NULL)`).get(d[col])
+          if (keep?.id) {
+            db.prepare(`DELETE FROM ${table} WHERE ${col} = ? AND id != ? AND (active = 1 OR active IS NULL)`).run(d[col], keep.id)
+          }
+        }
+        if (dupes.length) console.log(`[db] dedup: cleaned ${dupes.length} duplicate(s) from ${table}`)
+      } catch (e) {
+        if (!e.message?.includes('no such column')) console.error(`[db] dedup ${table}:`, e.message)
+      }
+    }
+  } catch (e) { console.error('[db] startup dedup failed:', e.message) }
+
   // Seller & Cajero commissions tables (v1.2)
   db.exec(`CREATE TABLE IF NOT EXISTS seller_commissions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
