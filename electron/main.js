@@ -83,6 +83,20 @@ ipcMain.handle('env:get', (_, key) => {
 
 ipcMain.handle('app:version', () => app.getVersion())
 
+ipcMain.handle('app:resetLocalDatabase', () => {
+  const fs = require('fs')
+  const path = require('path')
+  const dbPath = path.join(app.getPath('userData'), 'terminal-x.db')
+  try {
+    if (db?.close) db.close()
+  } catch {}
+  try {
+    const backupPath = dbPath + '.bak-reset-' + Date.now()
+    if (fs.existsSync(dbPath)) fs.renameSync(dbPath, backupPath)
+  } catch {}
+  return { ok: true }
+})
+
 // ── WhatsApp (UltraMsg) ───────────────────────────────────────────────────────
 ipcMain.handle('whatsapp:send', (_, { to, body }) => {
   return new Promise((resolve, reject) => {

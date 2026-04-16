@@ -320,6 +320,26 @@ export default function Login() {
             {demoCreating ? L('Creando…', 'Creating…') : L('Crear Usuario Demo', 'Quick Create Demo User')}
           </button>
 
+          {/* Disconnect device — returns to setup/reconnect wizard */}
+          <button
+            onClick={async () => {
+              const ok = confirm(L(
+                '¿Desconectar este dispositivo? Se borrarán los datos locales y volverás a la pantalla de configuración. Los datos en la nube no se pierden.',
+                'Disconnect this device? Local data will be erased and you will return to the setup screen. Cloud data is not affected.'
+              ))
+              if (!ok) return
+              try {
+                await window.electronAPI?.resetLocalDatabase?.()
+              } catch {
+                try { await api?.admin?.resetAll?.() } catch {}
+              }
+              window.location.reload()
+            }}
+            className="mt-6 w-full text-center text-slate-300 dark:text-white/20 text-[10px] hover:text-red-400 dark:hover:text-red-400 transition-colors"
+          >
+            {L('Desconectar dispositivo', 'Disconnect device')}
+          </button>
+
         </div>
       </div>
     </div>

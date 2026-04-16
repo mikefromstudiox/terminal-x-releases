@@ -317,6 +317,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── App version ────────────────────────────────────────────────────────────
   version: () => ipcRenderer.invoke('app:version'),
+  resetLocalDatabase: () => ipcRenderer.invoke('app:resetLocalDatabase'),
 
   // ── WhatsApp (UltraMsg) ────────────────────────────────────────────────────
   whatsapp: {
