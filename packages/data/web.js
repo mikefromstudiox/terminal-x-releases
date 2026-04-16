@@ -60,7 +60,9 @@ function buildPayrollRunRow(data, businessId) {
     ? Number(data.deductions)
     : sfs_employee + afp_employee + isr + other_deductions
   return {
+    supabase_id:      crypto.randomUUID(),
     empleado_id:      data.empleado_id,
+    empleado_supabase_id: data.empleado_supabase_id || null,
     period_start:     data.period_start,
     period_end:       data.period_end,
     base:             Number(data.base || 0),
@@ -1127,13 +1129,18 @@ export function createWebAPI(supabase, businessId) {
             const status = data.status || (data.tipo_venta === 'credito' || data.payment_method === 'credit' ? 'pendiente' : 'cobrado')
 
             // Insert ticket
+            const ticketSid = crypto.randomUUID()
             const ticket = throwSupaError(await supabase.from('tickets').insert({
+              supabase_id:     ticketSid,
               business_id:     bid,
               doc_number:      docNum,
               client_id:       data.client_id || null,
+              client_supabase_id: data.client_supabase_id || null,
               washer_ids:      data.washer_ids || [],
               seller_id:       data.seller_id || null,
+              seller_supabase_id: data.seller_supabase_id || null,
               cajero_id:       data.cajero_id || null,
+              cajero_supabase_id: data.cajero_supabase_id || null,
               subtotal:        data.subtotal || 0,
               descuento:       data.descuento || 0,
               itbis:           data.itbis || 0,
@@ -1161,9 +1168,13 @@ export function createWebAPI(supabase, businessId) {
                 var svcItbisById = new Map((svcRows || []).map(r => [r.id, r.aplica_itbis ?? 1]))
               }
               const itemRows = items.map(i => ({
+                supabase_id:        crypto.randomUUID(),
                 ticket_id:          ticket.id,
+                ticket_supabase_id: ticketSid,
                 service_id:         i.service_id || null,
+                service_supabase_id: i.service_supabase_id || null,
                 inventory_item_id:  i.inventory_item_id || null,
+                inventory_item_supabase_id: i.inventory_item_supabase_id || null,
                 name:               i.name,
                 price:              i.price,
                 cost:               i.cost != null ? Number(i.cost) : (i.service_id ? (svcCostById.get(i.service_id) || 0) : 0),
@@ -1206,13 +1217,13 @@ export function createWebAPI(supabase, businessId) {
             if (ticket?.id && commBase > 0 && Array.isArray(data.washer_ids) && data.washer_ids.length) {
               try {
                 const { data: washerRows } = await supabase.from('washers')
-                  .select('id, commission_pct').in('id', data.washer_ids)
+                  .select('id, supabase_id, commission_pct').in('id', data.washer_ids)
                 for (const w of (washerRows || [])) {
                   const pct = w.commission_pct || 0
                   if (pct <= 0) continue
                   const amt = parseFloat((commBase * pct / 100).toFixed(2))
                   await supabase.from('washer_commissions').insert({
-                    business_id: bid, washer_id: w.id, ticket_id: ticket.id,
+                    supabase_id: crypto.randomUUID(), business_id: bid, washer_id: w.id, washer_supabase_id: w.supabase_id || null, ticket_id: ticket.id, ticket_supabase_id: ticketSid,
                     base_amount: commBase, commission_pct: pct, commission_amount: amt, paid: false,
                   })
                 }
@@ -1223,11 +1234,11 @@ export function createWebAPI(supabase, businessId) {
             if (ticket?.id && commBase > 0 && data.seller_id) {
               try {
                 const { data: seller } = await supabase.from('sellers')
-                  .select('id, commission_pct').eq('id', data.seller_id).single()
+                  .select('id, supabase_id, commission_pct').eq('id', data.seller_id).single()
                 if (seller && seller.commission_pct > 0) {
                   const amt = parseFloat((commBase * seller.commission_pct / 100).toFixed(2))
                   await supabase.from('seller_commissions').insert({
-                    business_id: bid, seller_id: seller.id, ticket_id: ticket.id,
+                    supabase_id: crypto.randomUUID(), business_id: bid, seller_id: seller.id, seller_supabase_id: seller.supabase_id || null, ticket_id: ticket.id, ticket_supabase_id: ticketSid,
                     base_amount: commBase, commission_pct: seller.commission_pct, commission_amount: amt, paid: false,
                   })
                 }
@@ -1238,11 +1249,11 @@ export function createWebAPI(supabase, businessId) {
             if (ticket?.id && bevBase > 0 && data.cajero_id) {
               try {
                 const { data: cajero } = await supabase.from('staff')
-                  .select('id, commission_pct').eq('id', data.cajero_id).single()
+                  .select('id, supabase_id, commission_pct').eq('id', data.cajero_id).single()
                 if (cajero && cajero.commission_pct > 0) {
                   const amt = parseFloat((bevBase * cajero.commission_pct / 100).toFixed(2))
                   await supabase.from('cajero_commissions').insert({
-                    business_id: bid, cajero_id: cajero.id, ticket_id: ticket.id,
+                    supabase_id: crypto.randomUUID(), business_id: bid, cajero_id: cajero.id, cajero_supabase_id: cajero.supabase_id || null, ticket_id: ticket.id, ticket_supabase_id: ticketSid,
                     base_amount: bevBase, commission_pct: cajero.commission_pct, commission_amount: amt, paid: false,
                   })
                 }
@@ -1255,8 +1266,10 @@ export function createWebAPI(supabase, businessId) {
             if (ticket?.id && status === 'pendiente') {
               const firstWasher = Array.isArray(data.washer_ids) && data.washer_ids[0] ? data.washer_ids[0] : null
               const { error: queueErr } = await supabase.from('queue').insert({
+                supabase_id: crypto.randomUUID(),
                 business_id: bid,
                 ticket_id:   ticket.id,
+                ticket_supabase_id: ticketSid,
                 status:      'waiting',
                 washer_id:   firstWasher,
               })
@@ -1494,7 +1507,7 @@ export function createWebAPI(supabase, businessId) {
         if (row.data?.ticket_id) {
           await supabase.from('tickets').update({ status: 'anulado' }).eq('id', row.data.ticket_id)
         }
-        await supabase.from('queue_deletions').insert({ queue_id: id, ticket_id: row.data?.ticket_id, deleted_by: deletedBy || 'unknown', deleted_at: now, reason: 'manual', business_id: bid })
+        await supabase.from('queue_deletions').insert({ supabase_id: crypto.randomUUID(), queue_id: id, ticket_id: row.data?.ticket_id, deleted_by: deletedBy || 'unknown', deleted_at: now, reason: 'manual', business_id: bid })
         return { id }
       }),
     },
@@ -1738,6 +1751,7 @@ export function createWebAPI(supabase, businessId) {
       create: (data) => tryOr(async () => {
         const row = throwSupaError(await supabase.from('cuadre_caja').insert({
           ...data,
+          supabase_id: crypto.randomUUID(),
           business_id: bid,
           denominaciones: typeof data.denominaciones === 'string' ? data.denominaciones : JSON.stringify(data.denominaciones || {}),
         }).select('id').single())
@@ -1850,7 +1864,7 @@ export function createWebAPI(supabase, businessId) {
       }, []),
 
       create: (data) => tryOr(async () => {
-        throwSupaError(await supabase.from('caja_chica').insert({ ...data, business_id: bid }))
+        throwSupaError(await supabase.from('caja_chica').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }))
         await logActivity({ event_type: 'caja_chica_withdrawal',
           severity: Number(data.amount) >= 2000 ? 'warn' : 'info',
           target_type: 'caja_chica',
@@ -1881,7 +1895,7 @@ export function createWebAPI(supabase, businessId) {
       }, []),
 
       create: (data) => tryOr(async () => {
-        throwSupaError(await supabase.from('notas_credito').insert({ ...data, business_id: bid }))
+        throwSupaError(await supabase.from('notas_credito').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }))
         await logActivity({ event_type: 'nota_credito_created', severity: 'critical',
           target_type: 'nota_credito', target_name: data.ncf || 'NC',
           amount: data.amount, reason: data.motivo || null,
@@ -1922,6 +1936,7 @@ export function createWebAPI(supabase, businessId) {
 
       addCompra: (data) => tryOr(async () => {
         const row = throwSupaError(await supabase.from('compras_607').insert({
+          supabase_id:      crypto.randomUUID(),
           rnc_proveedor:    data.rnc_proveedor    || '',
           nombre_proveedor: data.nombre_proveedor || '',
           tipo_ncf:         data.tipo_ncf         || 'B01',

@@ -232,6 +232,7 @@ const SYNC_TABLES = [
       supabase_id: r.supabase_id,
       name: r.name,
       username: r.username,
+      pin_hash: r.pin_hash || null,
       role: r.role,
       discount_pct: r.discount_pct,
       commission_pct: r.commission_pct,
@@ -326,6 +327,8 @@ const SYNC_TABLES = [
         tipo_venta: r.tipo_venta,
         status: r.status,
         void_reason: r.void_reason,
+        void_by: r.void_by || null,
+        void_at: r.void_at || null,
         vehicle_plate: r.vehicle_plate,
         vehicle_color: r.vehicle_color,
         vehicle_make: r.vehicle_make,
@@ -927,27 +930,38 @@ const PULL_TABLES = [
   // NOTE: `created_at` only included for tables whose local SQLite schema actually has
   // that column. db/schema.sql: services/sellers/inventory_items/empleados/categorias_servicio
   // never declared created_at, so including it in the pull causes "no such column" failures.
-  { name: 'services', strategy: 'lww', naturalKey: 'name', cols: ['name','name_en','category','price','cost','aplica_itbis','active','is_wash','no_commission','commission_washer','commission_seller','commission_cashier','sort_order','updated_at'] },
+  { name: 'services', strategy: 'lww', naturalKey: 'name', cols: ['name','name_en','category','price','cost','aplica_itbis','active','is_wash','no_commission','commission_washer','commission_seller','commission_cashier','sort_order','printer_route','is_menu_item','course','station','updated_at'] },
   { name: 'washers', strategy: 'lww', naturalKey: 'name', cols: ['name','phone','cedula','commission_pct','active','start_date','created_at','updated_at'] },
   { name: 'sellers', strategy: 'lww', naturalKey: 'name', cols: ['name','commission_pct','phone','cedula','start_date','active','updated_at'] },
   { name: 'clients', strategy: 'lww', naturalKey: 'name', cols: ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','created_at','updated_at'] },
   { name: 'inventory_items', strategy: 'lww', naturalKey: 'name', cols: ['name','sku','barcode','category','price','cost','quantity','min_quantity','aplica_itbis','active','updated_at'] },
+  { name: 'mesas', strategy: 'lww', naturalKey: 'name', cols: ['name','zone','capacity','status','guests_count','seated_at','sort_order','active','created_at','updated_at'],
+    fkCols: { waiter_empleado_supabase_id: 'empleados' } },
+  { name: 'modificadores', strategy: 'lww', naturalKey: 'name', cols: ['name','group_name','price_delta','min_select','max_select','default_selected','sort_order','active','created_at','updated_at'] },
+  { name: 'service_modificadores', strategy: 'lww', cols: ['is_required','created_at','updated_at'],
+    fkCols: { service_supabase_id: 'services', modificador_supabase_id: 'modificadores' } },
   { name: 'ncf_sequences', strategy: 'lww', cols: ['type','prefix','current_number','limit_number','valid_until','active','enabled','updated_at'] },
   { name: 'empleados', strategy: 'lww', naturalKey: 'nombre', cols: ['nombre','cedula','phone','tipo','salary','start_date','active','ref_id','puesto','email','bank_account','tss_id','role','comision_pct','updated_at'] },
   { name: 'categorias_servicio', strategy: 'lww', naturalKey: 'nombre', cols: ['nombre','orden','updated_at'] },
-  { name: 'users', strategy: 'lww', naturalKey: 'username', cols: ['name','username','pin_hash','role','discount_pct','commission_pct','cedula','start_date','active','created_at','updated_at'] },
+  { name: 'users', strategy: 'lww', naturalKey: 'username', cols: ['name','username','pin_hash','role','discount_pct','commission_pct','cedula','start_date','employee_id','active','created_at','updated_at'] },
 
   // Phase 2 — tickets + dependents
   { name: 'tickets', strategy: 'fww',
-    cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','vehicle_plate','vehicle_color','vehicle_make','notes','washer_ids','created_at','updated_at'],
+    cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','void_by','void_at','vehicle_plate','vehicle_color','vehicle_make','notes','washer_ids','tip_amount','fulfillment_type','mesa_supabase_id','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', seller_supabase_id: 'sellers', cajero_supabase_id: 'users' },
-    statusSync: ['status', 'void_reason', 'updated_at'] },
+    statusSync: ['status', 'void_reason', 'void_by', 'void_at', 'updated_at'] },
   { name: 'ticket_items', strategy: 'fww',
     cols: ['name','price','cost','itbis','is_wash','quantity','sku','created_at','updated_at'],
     fkCols: { ticket_supabase_id: 'tickets', service_supabase_id: 'services', inventory_item_supabase_id: 'inventory_items' } },
   { name: 'queue', strategy: 'lww',
     cols: ['status','assigned_at','completed_at','created_at','updated_at'],
     fkCols: { ticket_supabase_id: 'tickets', washer_supabase_id: 'washers' } },
+  { name: 'ticket_item_modificadores', strategy: 'fww',
+    cols: ['name_snapshot','price_delta_snapshot','created_at','updated_at'],
+    fkCols: { ticket_item_supabase_id: 'ticket_items', modificador_supabase_id: 'modificadores' } },
+  { name: 'kds_events', strategy: 'fww',
+    cols: ['station','status','fired_at','started_at','ready_at','bumped_at','created_at','updated_at'],
+    fkCols: { ticket_item_supabase_id: 'ticket_items', mesa_supabase_id: 'mesas' } },
 
   // Phase 3 — financial (FWW)
   { name: 'washer_commissions', strategy: 'fww',
@@ -1003,16 +1017,22 @@ function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, natur
   // 2. If no match and table has a natural key, try match by natural key.
   //    This handles DB rebuilds where the local supabase_id was lost/regenerated.
   //    "Healing": adopt the server's supabase_id so future syncs match correctly.
+  //    SAFETY: only heal if EXACTLY ONE local row matches — multiple matches means
+  //    the name is ambiguous (e.g. two clients named "Juan"), so skip healing to
+  //    avoid overwriting the wrong record. The row will INSERT as a new local entry.
   if (!existing && naturalKey && row[naturalKey]) {
     try {
-      const byName = _db.rawPrepare(
-        `SELECT id, updated_at, supabase_id FROM ${tableName} WHERE ${naturalKey} = ? LIMIT 1`
-      ).get(row[naturalKey])
-      if (byName) {
+      const matches = _db.rawPrepare(
+        `SELECT id, updated_at, supabase_id FROM ${tableName} WHERE ${naturalKey} = ?`
+      ).all(row[naturalKey])
+      if (matches.length === 1) {
+        const byName = matches[0]
         _db.rawPrepare(`UPDATE ${tableName} SET supabase_id = ? WHERE id = ?`).run(row.supabase_id, byName.id)
         log.info(`[sync-pull] ${tableName}: healed supabase_id for "${row[naturalKey]}" (${byName.supabase_id} → ${row.supabase_id})`)
         existing = byName
         existing.supabase_id = row.supabase_id
+      } else if (matches.length > 1) {
+        log.warn(`[sync-pull] ${tableName}: skipped naturalKey heal for "${row[naturalKey]}" — ${matches.length} local matches (ambiguous)`)
       }
     } catch {} // naturalKey column may not exist — skip gracefully
   }
