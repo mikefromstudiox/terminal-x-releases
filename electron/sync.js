@@ -1161,7 +1161,7 @@ function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, natur
   if (!row.supabase_id) return
 
   // 1. Try match by supabase_id (primary identity)
-  let existing = _db.rawPrepare(`SELECT id, updated_at, supabase_id FROM ${tableName} WHERE supabase_id = ?`).get(row.supabase_id)
+  let existing = _db.rawPrepare(`SELECT id, updated_at, supabase_id, active FROM ${tableName} WHERE supabase_id = ?`).get(row.supabase_id)
 
   // 2. If no match and table has a natural key, try match by natural key.
   //    This handles DB rebuilds where the local supabase_id was lost/regenerated.
@@ -1172,7 +1172,7 @@ function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, natur
   if (!existing && naturalKey && row[naturalKey]) {
     try {
       const matches = _db.rawPrepare(
-        `SELECT id, updated_at, supabase_id FROM ${tableName} WHERE ${naturalKey} = ?`
+        `SELECT id, updated_at, supabase_id, active FROM ${tableName} WHERE ${naturalKey} = ?`
       ).all(row[naturalKey])
       if (matches.length === 1) {
         const byName = matches[0]
@@ -1206,6 +1206,10 @@ function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, natur
 
     // LWW: only update if remote is newer
     if (existing.updated_at && row.updated_at && row.updated_at <= existing.updated_at) return
+
+    // Guard: if locally soft-deleted (active=0) and remote says active, local delete wins.
+    // Desktop is authoritative for deletions — pull must never resurrect deleted rows.
+    if (existing.active === 0 && (row.active === true || row.active === 1)) return
 
     // Build UPDATE
     const setClauses = []
