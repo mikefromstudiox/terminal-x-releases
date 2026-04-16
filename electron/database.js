@@ -2919,8 +2919,13 @@ function activityLogList({ dateFrom, dateTo, eventTypes, limit = 200 } = {}) {
 function rawPrepare(sql) { return db ? db.prepare(sql) : null }
 function rawExec(sql) { if (db) db.exec(sql) }
 
+function closeDb() {
+  try { if (db) db.close() } catch {}
+  db = null
+}
+
 module.exports = {
-  init, isReady, getError, rawPrepare, rawExec,
+  init, isReady, getError, rawPrepare, rawExec, closeDb,
   // Empresa
   configGet, configSet,
   empresaGet, empresaSave,
