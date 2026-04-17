@@ -13,7 +13,7 @@ import {
   Printer, MessageSquare, HardDrive, Download,
   Archive, LifeBuoy, Send, Loader2,
   Grid3x3, UtensilsCrossed, ChefHat,
-  Wrench, Scissors, Car, Calendar, Warehouse, Banknote,
+  Wrench, Scissors, Car, Calendar, Warehouse, Banknote, Clock,
 } from 'lucide-react'
 import { usePlan } from '../hooks/usePlan.jsx'
 import { useLang } from '../i18n'
@@ -68,7 +68,31 @@ const NAV = [
     id: 'vehicles', to: '/vehicles', icon: Car,
     es: 'Vehículos', en: 'Vehicles',
     feature: 'vehicles',
-    businessTypes: ['mechanic', 'dealership'],
+    businessTypes: ['mechanic'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'vehicle_inventory', to: '/vehicle-inventory', icon: Car,
+    es: 'Vehículos', en: 'Vehicle Inventory',
+    businessTypes: ['dealership'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'deal_builder', to: '/deal-builder', icon: Car,
+    es: 'Cierre de Venta', en: 'Deal Builder',
+    businessTypes: ['dealership'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'sales_pipeline', to: '/sales-pipeline', icon: Car,
+    es: 'Prospectos', en: 'Sales Pipeline',
+    businessTypes: ['dealership'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'test_drives', to: '/test-drives', icon: Car,
+    es: 'Pruebas de Manejo', en: 'Test Drives',
+    businessTypes: ['dealership'],
     roles: ['owner','manager','cashier'],
   },
   {
@@ -84,6 +108,13 @@ const NAV = [
     feature: 'appointments',
     businessTypes: ['salon', 'mechanic'],
     roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'stylist_schedules', to: '/stylist-schedules', icon: Clock,
+    es: 'Horarios', en: 'Schedules',
+    feature: 'appointments',
+    businessTypes: ['salon'],
+    roles: ['owner','manager'],
   },
   {
     id: 'lending', icon: Banknote,

@@ -61,6 +61,11 @@ const WorkOrders          = lazy(() => import('./screens/mechanic/WorkOrders'))
 const Vehicles            = lazy(() => import('./screens/mechanic/Vehicles'))
 const ServiceBays         = lazy(() => import('./screens/mechanic/ServiceBays'))
 const Appointments        = lazy(() => import('./screens/salon/Appointments'))
+const StylistSchedules    = lazy(() => import('./screens/salon/StylistSchedules'))
+const VehicleInventory    = lazy(() => import('./screens/dealership/VehicleInventory'))
+const SalesPipeline       = lazy(() => import('./screens/dealership/SalesPipeline'))
+const TestDrives          = lazy(() => import('./screens/dealership/TestDrives'))
+const DealBuilder         = lazy(() => import('./screens/dealership/DealBuilder'))
 const Loans               = lazy(() => import('./screens/lending/Loans'))
 const PawnItems           = lazy(() => import('./screens/lending/PawnItems'))
 const Memberships         = lazy(() => import('./screens/carwash/Memberships'))
@@ -225,9 +230,14 @@ export default function App() {
         <Route path="/vehicles" element={<ProtectedRoute element={<PlanGate feature="vehicles"><Vehicles /></PlanGate>} />} />
         <Route path="/service-bays" element={<ProtectedRoute element={<PlanGate feature="service_bays"><ServiceBays /></PlanGate>} />} />
         <Route path="/appointments" element={<ProtectedRoute element={<PlanGate feature="appointments"><Appointments /></PlanGate>} />} />
+        <Route path="/stylist-schedules" element={<ProtectedRoute element={<PlanGate feature="appointments"><StylistSchedules /></PlanGate>} />} />
         <Route path="/loans" element={<ProtectedRoute element={<PlanGate feature="loans"><Loans /></PlanGate>} />} />
         <Route path="/pawn-items" element={<ProtectedRoute element={<PlanGate feature="pawn_items"><PawnItems /></PlanGate>} />} />
         <Route path="/memberships" element={<ProtectedRoute element={<Memberships />} />} />
+        <Route path="/vehicle-inventory" element={<ProtectedRoute element={<VehicleInventory />} />} />
+        <Route path="/sales-pipeline"    element={<ProtectedRoute element={<SalesPipeline />} />} />
+        <Route path="/test-drives"       element={<ProtectedRoute element={<TestDrives />} />} />
+        <Route path="/deal-builder"      element={<ProtectedRoute element={<DealBuilder />} />} />
         <Route path="/invoicing" element={<ProtectedRoute element={<PlanGate feature="invoicing"><InvoiceDashboard /></PlanGate>} />} />
         <Route path="/invoicing/create" element={<ProtectedRoute element={<PlanGate feature="invoicing"><InvoiceCreate /></PlanGate>} />} />
         <Route path="/invoicing/history" element={<ProtectedRoute element={<PlanGate feature="invoicing"><InvoiceList /></PlanGate>} />} />

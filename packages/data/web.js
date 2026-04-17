@@ -44,6 +44,24 @@ function throwSupaError(res) {
   return res.data
 }
 
+// Mechanic WO totals recalc — labor (labor|service) untaxed; parts taxed 18% ITBIS DR.
+async function recalcWorkOrderTotalsWeb(supabase, businessId, workOrderId) {
+  const { data: rows } = await supabase.from('work_order_items').select('type,total').eq('business_id', businessId).eq('work_order_id', workOrderId)
+  let labor = 0, parts = 0
+  for (const r of rows || []) {
+    const t = Number(r.total) || 0
+    if (r.type === 'part') parts += t
+    else labor += t
+  }
+  const itbis = Math.round(parts * 0.18 * 100) / 100
+  const total = Math.round((labor + parts + itbis) * 100) / 100
+  await supabase.from('work_orders').update({
+    labor_total: labor, parts_total: parts, itbis, total, estimated_total: total,
+    updated_at: new Date().toISOString(),
+  }).eq('id', workOrderId).eq('business_id', businessId)
+  return { labor, parts, itbis, total }
+}
+
 async function hashPin(pin) {
   const enc = new TextEncoder().encode(String(pin))
   const buf = await crypto.subtle.digest('SHA-256', enc)
@@ -546,6 +564,13 @@ export function createWebAPI(supabase, businessId) {
           commission_seller: data.commission_seller ?? true,
           commission_cashier: data.commission_cashier ?? true,
           active: true, sort_order: data.sort_order || 0,
+          is_menu_item: !!data.is_menu_item,
+          course: data.course || null,
+          station: data.station || null,
+          printer_route: data.printer_route || null,
+          happy_hour_price: data.happy_hour_price ?? null,
+          happy_hour_start: data.happy_hour_start || null,
+          happy_hour_end:   data.happy_hour_end   || null,
           business_id: bid,
         }).select('id').single())
         return { id: row.id }
@@ -553,7 +578,7 @@ export function createWebAPI(supabase, businessId) {
 
       update: (data) => tryOr(async () => {
         const { id, ...rest } = data
-        const allowed = ['name', 'name_en', 'category', 'categoria_id', 'price', 'cost', 'aplica_itbis', 'is_wash', 'no_commission', 'commission_washer', 'commission_seller', 'commission_cashier', 'active', 'sort_order']
+        const allowed = ['name', 'name_en', 'category', 'categoria_id', 'price', 'cost', 'aplica_itbis', 'is_wash', 'no_commission', 'commission_washer', 'commission_seller', 'commission_cashier', 'active', 'sort_order', 'is_menu_item', 'course', 'station', 'printer_route', 'happy_hour_price', 'happy_hour_start', 'happy_hour_end']
         const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
         // Coerce booleans for Supabase bool columns
         for (const k of ['no_commission', 'commission_washer', 'commission_seller', 'commission_cashier', 'active', 'is_wash', 'aplica_itbis']) {
@@ -1019,17 +1044,28 @@ export function createWebAPI(supabase, businessId) {
           name: data.name, rnc: data.rnc || null, phone: data.phone || null,
           email: data.email || null, address: data.address || null,
           credit_limit: data.credit_limit || 0, balance: 0, business_id: bid,
+          loyalty_points: 0,
+          allergies: data.allergies || null,
+          preferred_stylist_supabase_id: data.preferred_stylist_supabase_id || null,
         }).select('id').single())
         return row
       }),
 
       update: (data) => tryOr(async () => {
         const { id, ...rest } = data
-        const allowed = ['name', 'rnc', 'phone', 'email', 'address', 'credit_limit', 'balance', 'visits', 'total_spent', 'active']
+        const allowed = ['name', 'rnc', 'phone', 'email', 'address', 'credit_limit', 'balance', 'visits', 'total_spent', 'active', 'notes', 'loyalty_points', 'allergies', 'preferred_stylist_supabase_id']
         const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
         if ('active' in patch) patch.active = !!patch.active
         throwSupaError(await supabase.from('clients').update(patch).eq('id', id).eq('business_id', bid))
       }),
+
+      // v2.4 — Salon: atomic loyalty point mutation. Positive = earn, negative = redeem.
+      addLoyaltyPoints: ({ id, delta }) => tryOr(async () => {
+        const { data: cl } = await supabase.from('clients').select('loyalty_points').eq('id', id).eq('business_id', bid).single()
+        const next = Math.max(0, Number(cl?.loyalty_points || 0) + Number(delta || 0))
+        throwSupaError(await supabase.from('clients').update({ loyalty_points: next }).eq('id', id).eq('business_id', bid))
+        return next
+      }, 0),
 
       updateBalance: ({ id, delta }) => tryOr(async () => {
         const { data: cl } = await supabase.from('clients').select('balance').eq('id', id).eq('business_id', bid).single()
@@ -2761,6 +2797,81 @@ export function createWebAPI(supabase, businessId) {
       }),
       update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('work_order_items').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
       delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('work_order_items').delete().eq('id', id).eq('business_id', bid)) }),
+    },
+
+    // ── Dealership: Vehicle Inventory (units for sale) ──────────────────────
+
+    vehicleInventory: {
+      list: (params) => tryOr(async () => {
+        let q = supabase.from('vehicle_inventory').select('*').eq('business_id', bid).eq('active', true)
+        if (params?.status) q = q.eq('status', params.status)
+        return throwSupaError(await q.order('listing_date', { ascending: false }))
+      }, []),
+      getById: (id) => tryOr(async () => throwSupaError(await supabase.from('vehicle_inventory').select('*').eq('id', id).eq('business_id', bid).single())),
+      create: (data) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('vehicle_inventory').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id, supabase_id').single())
+        return row
+      }),
+      update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('vehicle_inventory').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      setStatus: (id, status) => tryOr(async () => {
+        const patch = { status, updated_at: new Date().toISOString() }
+        if (status === 'sold') patch.sold_date = new Date().toISOString()
+        throwSupaError(await supabase.from('vehicle_inventory').update(patch).eq('id', id).eq('business_id', bid))
+      }),
+      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('vehicle_inventory').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+    },
+
+    // ── Dealership: Sales Deals ─────────────────────────────────────────────
+
+    salesDeals: {
+      list: (params) => tryOr(async () => {
+        let q = supabase.from('sales_deals').select('*, clients(name,phone)').eq('business_id', bid).eq('active', true)
+        if (params?.status) q = q.eq('status', params.status)
+        return throwSupaError(await q.order('created_at', { ascending: false }))
+      }, []),
+      getById: (id) => tryOr(async () => throwSupaError(await supabase.from('sales_deals').select('*, clients(name,phone,rnc)').eq('id', id).eq('business_id', bid).single())),
+      create: (data) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('sales_deals').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id, supabase_id').single())
+        return row
+      }),
+      update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('sales_deals').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      close: (id, ticketInfo) => tryOr(async () => {
+        const patch = { status: 'closed', closed_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+        if (ticketInfo?.ticket_id) patch.ticket_id = ticketInfo.ticket_id
+        if (ticketInfo?.ticket_supabase_id) patch.ticket_supabase_id = ticketInfo.ticket_supabase_id
+        throwSupaError(await supabase.from('sales_deals').update(patch).eq('id', id).eq('business_id', bid))
+      }),
+      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('sales_deals').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+    },
+
+    // ── Dealership: Test Drives ─────────────────────────────────────────────
+
+    testDrives: {
+      list: () => tryOr(async () => throwSupaError(await supabase.from('test_drives').select('*, clients(name,phone)').eq('business_id', bid).eq('active', true).order('scheduled_at', { ascending: false })), []),
+      create: (data) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('test_drives').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
+        return row
+      }),
+      update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('test_drives').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      complete: (id, notes) => tryOr(async () => { throwSupaError(await supabase.from('test_drives').update({ completed_at: new Date().toISOString(), notes, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('test_drives').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+    },
+
+    // ── Dealership: Leads / Sales Pipeline ──────────────────────────────────
+
+    leads: {
+      list: (params) => tryOr(async () => {
+        let q = supabase.from('leads').select('*').eq('business_id', bid).eq('active', true)
+        if (params?.stage) q = q.eq('stage', params.stage)
+        return throwSupaError(await q.order('updated_at', { ascending: false }))
+      }, []),
+      create: (data) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('leads').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
+        return row
+      }),
+      update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('leads').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      setStage: (id, stage, extra) => tryOr(async () => { throwSupaError(await supabase.from('leads').update({ stage, ...(extra || {}), updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('leads').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
     },
 
     // ── Appointments ────────────────────────────────────────────────────────
