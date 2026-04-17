@@ -1087,6 +1087,13 @@ handleMut('workOrderItems:update',  ({id, ...data}) => db.workOrderItemUpdate(id
 handleMut('workOrderItems:delete',  ({id})          => { db.workOrderItemDelete(id); return true })
 handle('workOrderItems:byOrder', (workOrderId)   => db.workOrderItemsByOrder(workOrderId))
 
+// ── Mechanic-specific WO extensions: inspection / approval / parts order / close
+handleMut('workOrders:saveInspection',        ({id, inspection})             => db.workOrderSaveInspection(id, inspection))
+handleMut('workOrders:generateApprovalToken', ({id})                         => db.workOrderGenerateApprovalToken(id))
+handleMut('workOrders:approveEstimate',       ({id, signature_url})          => db.workOrderApproveEstimate(id, { signature_url }))
+handleMut('workOrders:setPartsOrder',         ({id, expected_parts_arrival}) => db.workOrderSetPartsOrder(id, { expected_parts_arrival }))
+handleMut('workOrders:close',                 ({id, odometer_out_km})        => db.workOrderClose(id, { odometer_out_km }))
+
 // ── Appointments (salon / barbershop) ────────────────────────────────────────
 handleMut('appointments:create', (data)           => db.appointmentCreate(data))
 handleMut('appointments:update', ({id, ...data})  => db.appointmentUpdate(id, data))
@@ -1143,6 +1150,7 @@ handle('clients:byId',         (id)        => db.clientGetById(id))
 handleMut('clients:create',       (data)      => db.clientCreate(data))
 handleMut('clients:update',       ({id,...d}) => db.clientUpdate(id, d))
 handleMut('clients:updateBalance', ({id,delta}) => db.clientUpdateBalance(id, delta))
+handleMut('clients:addLoyaltyPoints', ({id,delta}) => { db.clientAddLoyaltyPoints(id, delta); return true })
 handle('clients:openTickets',  (clientId)  => db.clientGetOpenTickets(clientId))
 handleMut('credits:collect',      (data)      => db.collectCredit(data))
 

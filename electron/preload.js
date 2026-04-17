@@ -186,10 +186,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Work Orders ───────────────────────────────────────────────────────────
   workOrders: {
-    create:  (data)              => call('workOrders:create', data),
-    update:  (data)              => call('workOrders:update', data),
-    list:    (params)            => call('workOrders:list', params),
-    byId:    (id)                => call('workOrders:byId', id),
+    create:       (data)                           => call('workOrders:create', data),
+    update:       (data)                           => call('workOrders:update', data),
+    list:         (params)                         => call('workOrders:list', params),
+    byId:         (id)                             => call('workOrders:byId', id),
+    // Convenience wrappers consumed by the WorkOrders screen DetailModal
+    updateStatus: ({ id, status })                 => call('workOrders:update', { id, status }),
+    addItem:      ({ work_order_id, ...rest })     => call('workOrderItems:create', { work_order_id, ...rest }),
+    updateItem:   ({ item_id, ...rest })           => call('workOrderItems:update', { id: item_id, ...rest }),
+    deleteItem:   ({ item_id })                    => call('workOrderItems:delete', { id: item_id }),
+    // Mechanic extensions
+    saveInspection:        ({ id, inspection })                 => call('workOrders:saveInspection', { id, inspection }),
+    generateApprovalToken: ({ id })                             => call('workOrders:generateApprovalToken', { id }),
+    approveEstimate:       ({ id, signature_url })              => call('workOrders:approveEstimate', { id, signature_url }),
+    setPartsOrder:         ({ id, expected_parts_arrival })     => call('workOrders:setPartsOrder', { id, expected_parts_arrival }),
+    close:                 ({ id, odometer_out_km })            => call('workOrders:close', { id, odometer_out_km }),
   },
 
   // ── Work Order Items ──────────────────────────────────────────────────────
@@ -310,6 +321,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     create:        (data)               => call('clients:create', data),
     update:        (data)               => call('clients:update', data),
     updateBalance: ({id, delta})        => call('clients:updateBalance', {id, delta}),
+    addLoyaltyPoints: ({id, delta})     => call('clients:addLoyaltyPoints', {id, delta}),
     openTickets:   (clientId)           => call('clients:openTickets', clientId),
   },
   credits: {

@@ -6,6 +6,33 @@ import { signAndSubmitECF, getQRCode, ECF_TYPES, validateRNC } from '@terminal-x
 import { buildReceiptPDFBase64 } from '@terminal-x/services/pdf'
 import { useRNC } from '../hooks/useRNC'
 import { usePlan } from '../hooks/usePlan'
+import { useBusinessType } from '../hooks/useBusinessType.jsx'
+import { Gift } from 'lucide-react'
+
+// Salon cross-sell heuristic — if the cart contains a haircut or color service
+// the stylist is taught to upsell a matching retail product (shampoo after a
+// color treatment, pomade after a cut, etc.). Keywords are case-insensitive.
+const SALON_UPSELL_TRIGGERS = [
+  { match: /\b(tinte|color|coloraci[oó]n|highlights?|mecha|balayage)\b/i,
+    es: 'Recomienda shampoo protector de color.',
+    en: 'Recommend a color-safe shampoo.' },
+  { match: /\b(alisado|queratina|keratina|keratin|brazilian)\b/i,
+    es: 'Recomienda mascarilla nutritiva.',
+    en: 'Recommend a nourishing mask.' },
+  { match: /\b(corte|haircut|trim|barba|barber|shave|afeitado)\b/i,
+    es: 'Recomienda pomada o cera para el cabello.',
+    en: 'Recommend pomade or styling wax.' },
+  { match: /\b(manicure|pedicure|u[ñn]as|nail)\b/i,
+    es: 'Recomienda aceite de cutícula o top coat.',
+    en: 'Recommend cuticle oil or top coat.' },
+]
+function salonUpsellSuggestion(ticket, lang) {
+  const joined = (ticket?.services || []).map(s => s?.name || '').join(' ')
+  for (const t of SALON_UPSELL_TRIGGERS) if (t.match.test(joined)) return lang === 'es' ? t.es : t.en
+  return null
+}
+// 1 loyalty point per RD$100 spent, rounded down — simple, salon-standard.
+function loyaltyPointsFor(amount) { return Math.max(0, Math.floor(Number(amount || 0) / 100)) }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtRD(n) {
@@ -427,6 +454,19 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
 export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const api = useAPI()
   const { lang } = useLang()
+  const { businessType } = useBusinessType()
+  const isSalon = businessType === 'salon'
+  const upsellTip = useMemo(() => isSalon ? salonUpsellSuggestion(ticket, lang) : null, [isSalon, ticket, lang])
+
+  // Fire-and-forget loyalty accrual — gated to salon vertical. Runs AFTER the
+  // confirm callback fires so it never blocks the success view. Silently swallows
+  // errors (salon loyalty is additive, not transactional).
+  async function awardLoyaltyPoints(clientId, totalAmount) {
+    if (!isSalon || !clientId || !totalAmount) return
+    const pts = loyaltyPointsFor(totalAmount)
+    if (pts <= 0) return
+    try { await api?.clients?.addLoyaltyPoints?.({ id: clientId, delta: pts }) } catch {}
+  }
 
   // ITBIS rate — loaded from app_settings.itbis_pct on mount (see useEffect
   // below). Stays a numeric percentage (e.g. 18). Totals are memoised against
@@ -688,6 +728,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
           paidAt:    new Date(),
           ecf:       legacyResult,
         })
+        awardLoyaltyPoints(selectedClient?.id, total)
       }
       return
     }
@@ -769,6 +810,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
           paidAt:    new Date(),
           ecf:       result,
         })
+        awardLoyaltyPoints(selectedClient?.id, total)
       }
 
       // Use qrLink from DGII directly; fall back to QR generation
@@ -905,6 +947,24 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                     </div>
                   ))}
                 </div>
+                {/* Salon cross-sell tip — surfaced when the cart hits a cut/color/treatment keyword */}
+                {upsellTip && (
+                  <div className="mb-3 flex items-start gap-2 px-3 py-2.5 rounded-xl bg-[#b3001e]/5 border border-[#b3001e]/20 text-[12px] text-[#b3001e] dark:text-[#ff6b7e]">
+                    <Gift size={13} className="mt-0.5 shrink-0" />
+                    <span className="font-semibold leading-snug">{upsellTip}</span>
+                  </div>
+                )}
+                {/* Salon loyalty preview — points this ticket will earn */}
+                {isSalon && selectedClient?.id && loyaltyPointsFor(total) > 0 && (
+                  <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-[11px] text-slate-600 dark:text-white/70">
+                    <Gift size={12} className="text-[#b3001e]" />
+                    <span>
+                      {lang === 'es'
+                        ? `Ganará ${loyaltyPointsFor(total)} pts de lealtad`
+                        : `Will earn ${loyaltyPointsFor(total)} loyalty pts`}
+                    </span>
+                  </div>
+                )}
                 <div className="border-t border-slate-200 dark:border-white/10 pt-3 space-y-1.5">
                   <div className="flex justify-between text-[12px] text-slate-500 dark:text-white/60">
                     <span>{tl('subtotal', lang)}</span>

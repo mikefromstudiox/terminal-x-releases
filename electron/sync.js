@@ -38,6 +38,8 @@ const log = {
   error: (...a) => _log.error(...a),
 }
 
+function safeParseJson(s) { try { return JSON.parse(s) } catch { return null } }
+
 // -- State --------------------------------------------------------------------
 let _db = null
 let _url = ''
@@ -401,6 +403,17 @@ const SYNC_TABLES = [
       status: r.status,
       estimated_total: r.estimated_total,
       actual_total: r.actual_total,
+      labor_total: r.labor_total,
+      parts_total: r.parts_total,
+      itbis: r.itbis,
+      total: r.total,
+      inspection_json: typeof r.inspection_json === 'string' ? safeParseJson(r.inspection_json) : (r.inspection_json || null),
+      estimate_approved_at: r.estimate_approved_at,
+      customer_signature_url: r.customer_signature_url,
+      customer_approval_token: r.customer_approval_token,
+      expected_parts_arrival: r.expected_parts_arrival,
+      odometer_in_km: r.odometer_in_km,
+      odometer_out_km: r.odometer_out_km,
       promised_date: r.promised_date,
       completed_date: r.completed_date,
       notes: r.notes,
@@ -1142,7 +1155,7 @@ const PULL_TABLES = [
   { name: 'users', strategy: 'lww', naturalKey: 'username', cols: ['name','username','pin_hash','role','discount_pct','commission_pct','cedula','start_date','employee_id','active','created_at','updated_at'] },
 
   // Phase 1 (cont.) — multi-vertical root entities
-  { name: 'vehicles', strategy: 'lww', naturalKey: 'vin', cols: ['vin','plate','make','model','year','color','mileage','notes','active','created_at','updated_at'],
+  { name: 'vehicles', strategy: 'lww', naturalKey: 'vin', cols: ['vin','plate','make','model','year','color','mileage','odometer_km','last_service_km','last_service_at','next_service_km','next_service_at','notes','active','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients' } },
   { name: 'service_bays', strategy: 'lww', naturalKey: 'name', cols: ['name','status','current_work_order_supabase_id','capacity','bay_type','active','created_at','updated_at'] },
   { name: 'stylist_schedules', strategy: 'lww', cols: ['day_of_week','start_time','end_time','active','created_at','updated_at'],
@@ -1182,7 +1195,7 @@ const PULL_TABLES = [
 
   // Phase 2 (cont.) — multi-vertical dependent entities
   { name: 'work_orders', strategy: 'lww',
-    cols: ['status','estimated_total','actual_total','promised_date','completed_date','notes','created_at','updated_at'],
+    cols: ['status','estimated_total','actual_total','labor_total','parts_total','itbis','total','inspection_json','estimate_approved_at','customer_signature_url','customer_approval_token','expected_parts_arrival','odometer_in_km','odometer_out_km','promised_date','completed_date','notes','created_at','updated_at'],
     fkCols: { vehicle_supabase_id: 'vehicles', client_supabase_id: 'clients', technician_empleado_supabase_id: 'empleados', bay_supabase_id: 'service_bays' } },
   { name: 'appointments', strategy: 'lww',
     cols: ['date','start_time','end_time','status','services','notes','created_at','updated_at'],

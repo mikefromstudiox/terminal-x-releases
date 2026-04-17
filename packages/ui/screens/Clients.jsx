@@ -10,6 +10,8 @@ import { useAPI } from '../context/DataContext'
 import { useClients, useMutation } from '../hooks/useDB'
 import { useRNC } from '../hooks/useRNC'
 import { printClientReceipt } from '@terminal-x/services/printer'
+import { useBusinessType } from '../hooks/useBusinessType.jsx'
+import { Scissors, Gift, Heart } from 'lucide-react'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -40,8 +42,23 @@ function mapClient(c) {
     totalSpent:  c.total_spent || 0,
     lastService: c.last_service_date || null,
     notes:       c.notes || '',
+    // v2.4 — Salon-vertical client attributes (ignored by other verticals).
+    loyaltyPoints:             Number(c.loyalty_points) || 0,
+    allergies:                 c.allergies || '',
+    preferredStylistId:        c.preferred_stylist_id || null,
+    preferredStylistSupabaseId: c.preferred_stylist_supabase_id || null,
     openTickets: [],
   }
+}
+
+// Loyalty tiers for salon clients — UI only. Mapping mirrors Sephora's
+// Insider/VIB/Rouge progression but thresholds tuned for DR RD$ spend.
+function loyaltyTier(totalSpent) {
+  const s = Number(totalSpent) || 0
+  if (s >= 50000) return { key: 'rouge',   es: 'Rouge',   en: 'Rouge',   color: 'bg-[#b3001e] text-white' }
+  if (s >= 20000) return { key: 'vib',     es: 'VIP',     en: 'VIP',     color: 'bg-amber-400 text-black' }
+  if (s >= 5000)  return { key: 'insider', es: 'Insider', en: 'Insider', color: 'bg-slate-800 text-white' }
+  return { key: 'new', es: 'Nuevo', en: 'New', color: 'bg-slate-200 text-slate-700 dark:bg-white/10 dark:text-white/70' }
 }
 
 const PAYMENT_METHODS = [
@@ -145,6 +162,45 @@ function SkeletonCard() {
 
 function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
   const api = useAPI()
+  const { businessType } = useBusinessType()
+  const isSalon = businessType === 'salon'
+  const [empleadosCache, setEmpleadosCache] = useState([])
+  const [savingSalon,    setSavingSalon]    = useState(false)
+  const [allergyInput,   setAllergyInput]   = useState(client.allergies || '')
+  const [preferredInput, setPreferredInput] = useState(client.preferredStylistId || '')
+
+  // Lazy-load stylist list (empleados) for the preferred-stylist picker.
+  useEffect(() => {
+    if (!isSalon) return
+    api?.empleados?.all?.()
+      .then(r => setEmpleadosCache((r || []).filter(e => e.active !== 0)))
+      .catch(() => setEmpleadosCache([]))
+  }, [isSalon, api])
+
+  // Keep inputs in sync if a different client is selected.
+  useEffect(() => {
+    setAllergyInput(client.allergies || '')
+    setPreferredInput(client.preferredStylistId || '')
+  }, [client.id])
+
+  async function saveSalonPrefs(patch) {
+    setSavingSalon(true)
+    try {
+      const body = { id: client.id, ...patch }
+      if ('preferred_stylist_id' in patch) {
+        const emp = empleadosCache.find(e => e.id === Number(patch.preferred_stylist_id))
+        body.preferred_stylist_supabase_id = emp?.supabase_id || null
+      }
+      await api?.clients?.update?.(body)
+      onUpdateClient(client.id, {
+        allergies: 'allergies' in patch ? patch.allergies : client.allergies,
+        preferredStylistId: 'preferred_stylist_id' in patch ? patch.preferred_stylist_id : client.preferredStylistId,
+        preferredStylistSupabaseId: body.preferred_stylist_supabase_id ?? client.preferredStylistSupabaseId,
+      })
+    } catch {}
+    setSavingSalon(false)
+  }
+
   const [openTickets,   setOpenTickets]   = useState([])
   const [loadingTix,    setLoadingTix]    = useState(true)
   const [checked,       setChecked]       = useState(new Set())
@@ -544,6 +600,65 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
             </div>
           </div>
         )}
+
+        {/* Salon — client preferences card: loyalty tier/points, preferred stylist, allergies */}
+        {isSalon && (() => {
+          const tier = loyaltyTier(client.totalSpent)
+          return (
+            <div className="px-3 py-3 md:px-6 md:py-4 border-b border-slate-100 dark:border-white/10 space-y-3">
+              <p className="text-[11px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider flex items-center gap-1.5">
+                <Heart size={11} />{lang === 'es' ? 'Preferencias del Cliente' : 'Client Preferences'}
+              </p>
+
+              {/* Loyalty */}
+              <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 px-3 py-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Gift size={14} className="text-[#b3001e] shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] text-slate-400 dark:text-white/40 leading-none">{lang === 'es' ? 'Puntos de lealtad' : 'Loyalty points'}</p>
+                    <p className="text-[15px] font-bold text-slate-800 dark:text-white tabular-nums leading-tight mt-0.5">{Math.round(client.loyaltyPoints).toLocaleString('en-US')}</p>
+                  </div>
+                </div>
+                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${tier.color}`}>
+                  {lang === 'es' ? tier.es : tier.en}
+                </span>
+              </div>
+
+              {/* Preferred stylist */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                  <Scissors size={10} />{lang === 'es' ? 'Estilista preferido' : 'Preferred stylist'}
+                </label>
+                <select
+                  value={preferredInput || ''}
+                  onChange={e => { const v = e.target.value ? Number(e.target.value) : null; setPreferredInput(v); saveSalonPrefs({ preferred_stylist_id: v }) }}
+                  disabled={savingSalon}
+                  className="w-full px-3 py-2 text-[13px] rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30">
+                  <option value="">{lang === 'es' ? 'Sin preferencia' : 'No preference'}</option>
+                  {empleadosCache.map(e => (
+                    <option key={e.id} value={e.id}>{e.nombre}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Allergies */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                  <AlertTriangle size={10} className="text-amber-500" />{lang === 'es' ? 'Alergias / notas sensibles' : 'Allergies / sensitivity notes'}
+                </label>
+                <textarea
+                  value={allergyInput}
+                  onChange={e => setAllergyInput(e.target.value)}
+                  onBlur={() => {
+                    if ((allergyInput || '') !== (client.allergies || '')) saveSalonPrefs({ allergies: allergyInput.trim() || null })
+                  }}
+                  rows={2}
+                  placeholder={lang === 'es' ? 'Ej: tinte con amoniaco, parafina...' : 'e.g. ammonia dye, paraffin...'}
+                  className="w-full px-3 py-2 text-[12px] rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30 resize-none" />
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Vehicle / ticket history — last 10 services */}
         <div className="px-3 py-3 md:px-6 md:py-4 border-b border-slate-100 dark:border-white/10">

@@ -688,11 +688,19 @@ export default function Queue() {
     { id: 'unassigned', es: 'Sin Asignar',en: 'Unassigned',  count: counts.unassigned },
   ]
 
+  // Salon vertical uses customer-centric language instead of car-centric:
+  // "Vehículo" → "Cliente", "Lavador" → "Estilista". All other service-based
+  // verticals keep the original labels (carwash terminology is the default).
+  const isSalon = businessType === 'salon'
   const COL_HEADERS = [
     { label_es: 'Ticket',      label_en: 'Ticket',    w: 'w-[72px]'  },
-    { label_es: 'Vehículo',    label_en: 'Vehicle',   w: 'flex-1'    },
+    isSalon
+      ? { label_es: 'Cliente',   label_en: 'Client',    w: 'flex-1'    }
+      : { label_es: 'Vehículo',  label_en: 'Vehicle',   w: 'flex-1'    },
     { label_es: 'Servicio(s)', label_en: 'Service(s)',w: 'w-[190px]' },
-    { label_es: 'Lavador',     label_en: 'Washer',    w: 'w-[148px]' },
+    isSalon
+      ? { label_es: 'Estilista', label_en: 'Stylist',   w: 'w-[148px]' }
+      : { label_es: 'Lavador',   label_en: 'Washer',    w: 'w-[148px]' },
     { label_es: 'Monto',       label_en: 'Amount',    w: 'w-[96px] text-right' },
     { label_es: 'Hora',        label_en: 'Time',      w: 'w-[56px]'  },
     { label_es: 'Estado',      label_en: 'Status',    w: 'w-[192px]' },
@@ -730,7 +738,9 @@ export default function Queue() {
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder={lang === 'es' ? 'Buscar ticket o vehículo...' : 'Search ticket or vehicle...'}
+                placeholder={lang === 'es'
+                  ? (isSalon ? 'Buscar ticket o cliente...' : 'Buscar ticket o vehículo...')
+                  : (isSalon ? 'Search ticket or client...'  : 'Search ticket or vehicle...')}
                 className="flex-1 min-w-0 bg-transparent outline-none text-sm text-slate-700 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40"
               />
             </div>
