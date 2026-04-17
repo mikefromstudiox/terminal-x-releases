@@ -146,6 +146,77 @@ export const BUSINESS_TYPES = {
     enabled: true,
   },
 
+  licoreria: {
+    label:       { es: 'Licorería', en: 'Liquor Store' },
+    description: { es: 'Venta de licores, bebidas, cervezas, vinos. Verificación de edad y depósito de botellas.',
+                   en: 'Liquor, beer, wine and beverage sales. Age verification and bottle deposit.' },
+    icon: 'Wine',
+    modules: ['inventory', 'barcode', 'cart', 'age_verification', 'bottle_deposit'],
+    ui: {
+      showTableMap: false,
+      enableKDS: false,
+      showRetailCart: true,
+      showServiceGrid: false,
+      showInventory: true,
+      posSegmentToggle: false,
+    },
+    // Licorería-specific business rules. Consumed via useBusinessType().config
+    // so any component can do `config.licoreria?.ageVerification?.enabled`.
+    licoreria: {
+      ageVerification: {
+        enabled: true,
+        minAge: 18,
+        // Categories that trigger the 18+ prompt. Matched case-insensitively
+        // against inventory_items.category.
+        triggerCategories: [
+          'ron', 'whisky', 'whiskey', 'vodka', 'cerveza', 'beer',
+          'vino', 'wine', 'gin', 'tequila', 'licor', 'brandy',
+          'champagne', 'espumante', 'aperitivo', 'cocktail',
+        ],
+      },
+      bottleDeposit: {
+        enabled: true,
+        // DR standard deposit — operator can override per-SKU.
+        defaultAmount: 5,
+        lineLabel: { es: 'Depósito de botella', en: 'Bottle deposit' },
+      },
+      quickSell: {
+        enabled: true,
+        topN: 8,
+      },
+      // DR brand suggestions surfaced by the Inventory editor. Non-exhaustive
+      // but covers ~95% of what a small licorería stocks on shelf.
+      brandSuggestions: {
+        ron:      ['Brugal Añejo', 'Brugal Extra Viejo', 'Brugal 1888', 'Barceló Imperial', 'Barceló Añejo', 'Bermudez Aniversario', 'Macorix', 'Matusalem', 'Bacardi'],
+        whisky:   ['Johnnie Walker Red', 'Johnnie Walker Black', 'Buchanan\'s 12', 'Buchanan\'s 18', 'Chivas Regal 12', 'Jack Daniel\'s', 'Jim Beam', 'Macallan'],
+        vodka:    ['Absolut', 'Smirnoff', 'Grey Goose', 'Ciroc', 'Belvedere'],
+        cerveza:  ['Presidente', 'Presidente Light', 'Bohemia', 'Corona', 'Heineken', 'Modelo', 'Michelob', 'The One'],
+        vino:     ['Santa Rita', 'Casillero del Diablo', 'Concha y Toro', 'Yellow Tail', 'Trivento', 'Frontera'],
+        gin:      ['Bombay Sapphire', 'Tanqueray', 'Beefeater', 'Hendrick\'s'],
+        tequila:  ['Jose Cuervo', 'Don Julio', 'Patrón', 'Herradura', 'Sauza'],
+        champagne:['Moët & Chandon', 'Veuve Clicquot', 'Chandon', 'Martini Asti'],
+      },
+    },
+    enabled: true,
+  },
+
+  carniceria: {
+    label:       { es: 'Carnicería', en: 'Butcher / Meat Market' },
+    description: { es: 'Venta de carnes por peso. Báscula integrada, cortes por libra/kg.',
+                   en: 'Meat sales by weight. Integrated scale, cuts priced by pound/kg.' },
+    icon: 'Beef',
+    modules: ['inventory', 'barcode', 'cart', 'scale', 'price_by_weight'],
+    ui: {
+      showTableMap: false,
+      enableKDS: false,
+      showRetailCart: true,
+      showServiceGrid: false,
+      showInventory: true,
+      posSegmentToggle: false,
+    },
+    enabled: true,
+  },
+
   hybrid: {
     label:       { es: 'Híbrido', en: 'Hybrid' },
     description: { es: 'Combinación — ej: restaurante con tienda de merch.',
@@ -166,10 +237,45 @@ export const BUSINESS_TYPES = {
   },
 }
 
-export const BUSINESS_TYPE_KEYS = ['carwash', 'retail', 'service', 'restaurant', 'mechanic', 'salon', 'prestamos', 'dealership', 'hybrid']
+export const BUSINESS_TYPE_KEYS = ['carwash', 'retail', 'licoreria', 'carniceria', 'service', 'restaurant', 'mechanic', 'salon', 'prestamos', 'dealership', 'hybrid']
+
+// Service-based verticals — where vehicle/worker/queue concepts apply.
+export const SERVICE_BASED_TYPES = ['carwash', 'service', 'mechanic', 'salon', 'hybrid']
+
+// Verticals where Ventas should show the "Cliente / Vehículo" column.
+export const VEHICLE_TYPES = ['carwash', 'mechanic', 'dealership']
+
+// Legacy Spanish keys → canonical English keys. Existing demo tenants and
+// older installs stored the Spanish values directly in settings.business_type
+// before the registry was Englishized. Without this map they fall back to
+// `carwash` and see the wrong UI (Cola tab in a retail store, etc.).
+const LEGACY_ALIASES = {
+  tienda:        'retail',
+  restaurante:   'restaurant',
+  hibrido:       'hybrid',
+  mecanica:      'mechanic',
+  mecanico:      'mechanic',
+  servicios:     'service',
+  otro:          'service',
+  concesionario: 'dealership',
+  barberia:      'salon',
+  prestamo:      'prestamos',
+  licoreria:     'licoreria',
+  carniceria:    'carniceria',
+}
+
+export function normalizeBusinessType(type) {
+  if (!type) return 'carwash'
+  const t = String(type).toLowerCase().trim()
+  if (BUSINESS_TYPES[t]) return t
+  return LEGACY_ALIASES[t] || 'carwash'
+}
+
+export function isServiceBased(type) { return SERVICE_BASED_TYPES.includes(normalizeBusinessType(type)) }
+export function hasVehicles(type) { return VEHICLE_TYPES.includes(normalizeBusinessType(type)) }
 
 export function getBusinessTypeConfig(type) {
-  return BUSINESS_TYPES[type] || BUSINESS_TYPES.carwash
+  return BUSINESS_TYPES[normalizeBusinessType(type)] || BUSINESS_TYPES.carwash
 }
 
 export function hasModule(type, moduleName) {

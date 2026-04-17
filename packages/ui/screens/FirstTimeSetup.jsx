@@ -6,6 +6,7 @@ import {
   AlertTriangle, Globe, X, Eye, EyeOff,
   ReceiptText, Printer, Wifi, ArrowRight, Mail,
   Car, Store, Briefcase, UtensilsCrossed, CarFront, LayoutGrid,
+  Wine, Beef, Wrench, Scissors, Banknote,
 } from 'lucide-react'
 import { isValidKeyFormat } from '@terminal-x/services/license'
 import { useAPI } from '../context/DataContext'
@@ -141,6 +142,7 @@ const COPY = {
     rc_syncing:      'Sincronizando datos del negocio...',
     rc_done:         'Conectado. Cargando...',
     rc_err_required: 'Email y contraseña requeridos.',
+    rc_err_no_staff: 'Esta cuenta no tiene usuarios registrados en la nube. Pidele al propietario que cree tu usuario primero, o usa una instalacion nueva.',
     rc_back:         'Volver',
 
     // Shared
@@ -268,6 +270,7 @@ const COPY = {
     rc_syncing:      'Syncing business data...',
     rc_done:         'Connected. Loading...',
     rc_err_required: 'Email and password are required.',
+    rc_err_no_staff: 'This account has no staff users in the cloud. Ask the owner to create your user first, or use a fresh install.',
     rc_back:         'Back',
 
     next:            'Continue',
@@ -559,24 +562,36 @@ function StepReconnect({ t, onBack, onComplete }) {
       if (remoteStaff?.length) {
         for (const u of remoteStaff) {
           try {
+            // F2 — pass the row's SYNC identity (`supabase_id`), NOT its
+            // PRIMARY KEY (`id`). Using `u.id` here was the single root
+            // cause of the staff/empleados duplicate-row cascade: every
+            // reconnect wrote the wrong UUID, sync push created a new
+            // Supabase row, next pull brought it back, infinite dup loop.
+            // Fall back to `u.id` only for legacy rows that predate the
+            // supabase_id column (shouldn't exist in prod — defensive).
             await api?.admin?.saveUsuario?.({
               name: u.name || 'Admin',
               username: u.username || u.name?.toLowerCase?.().replace(/\s+/g, '') || 'admin',
-              pin: '0000',
+              pin_hash: u.pin_hash,  // forward remote hash directly — never clobber with 0000
               role: u.role || 'admin',
-              supabase_id: u.id,
-              discount_pct: u.commission_pct || 0,
+              supabase_id: u.supabase_id || u.id,
+              discount_pct: u.discount_pct || 0,
+              commission_pct: u.commission_pct || 0,
+              cedula: u.cedula || null,
+              start_date: u.start_date || null,
+              employee_id: u.employee_id || null,
             })
           } catch {} // skip duplicates
         }
       } else {
-        await api?.admin?.saveUsuario?.({
-          name: 'Admin',
-          username: 'admin',
-          pin: '0000',
-          role: 'owner',
-          discount_pct: 0,
-        })
+        // F11 — no hardcoded PIN='0000' fallback. Remote has zero staff →
+        // stop the reconnect here and make the operator set a real PIN
+        // before we push any user to Supabase. Surfacing this as an error
+        // so the UI lands in the 'error' branch with a clear CTA instead
+        // of silently creating a weak admin/0000 account.
+        setStatus('error')
+        setError(t('rc_err_no_staff') || 'Esta cuenta no tiene usuarios registrados. Crea el administrador desde un nuevo asistente de instalacion, o pidele al propietario que cree tu usuario primero.')
+        return
       }
 
       setStatus('syncing')
@@ -683,6 +698,7 @@ function StepReconnect({ t, onBack, onComplete }) {
 // Add a new vertical there and it shows up here automatically.
 const TYPE_ICONS = {
   Car, Store, Briefcase, UtensilsCrossed, CarFront, LayoutGrid,
+  Wine, Beef, Wrench, Scissors, Banknote,
 }
 const BIZ_TYPES = BUSINESS_TYPE_KEYS.map(key => {
   const cfg = BUSINESS_TYPES[key]
