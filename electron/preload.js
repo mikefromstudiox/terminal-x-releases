@@ -248,6 +248,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     update:  (data)              => call('pawnItems:update', data),
     list:    (params)            => call('pawnItems:list', params),
     delete:  (id)                => call('pawnItems:delete', { id }),
+    redeem:  (id)                => call('pawnItems:redeem', { id }),
+    byCode:  (code)              => call('pawnItems:byCode', code),
+  },
+
+  // ── Loan schedule (amortization rows) ────────────────────────────────────
+  loanSchedule: {
+    list:     (params)           => call('loanSchedule:list', params),
+    markPaid: (data)             => call('loanSchedule:markPaid', data),
+  },
+
+  // ── Collections (mora + CRM log) ─────────────────────────────────────────
+  collections: {
+    overdue:     ()              => call('loans:overdue'),
+    computeMora: ()              => call('loans:computeMora'),
+    logCreate:   (data)          => call('collectionsLog:create', data),
+    logList:     (params)        => call('collectionsLog:list', params),
   },
 
   // ── Memberships (carwash) ─────────────────────────────────────────────────
@@ -275,6 +291,35 @@ contextBridge.exposeInMainWorld('electronAPI', {
     queueWaitMetrics: ()              => call('queue:waitMetrics'),
     topWashers:       (limit = 3)     => call('reports:topWashers', { limit }),
     ticketsByClient:  (clientId, limit = 10) => call('tickets:byClient', { clientId, limit }),
+  },
+
+  // ── Service vertical ──────────────────────────────────────────────────────
+  subscriptions: {
+    create:     (data)     => call('subscriptions:create', data),
+    update:     (data)     => call('subscriptions:update', data),
+    list:       (params)   => call('subscriptions:list', params),
+    markBilled: (id)       => call('subscriptions:markBilled', { id }),
+    delete:     (id)       => call('subscriptions:delete', { id }),
+  },
+  servicePackages: {
+    create:          (data)     => call('servicePackages:create', data),
+    update:          (data)     => call('servicePackages:update', data),
+    list:            (params)   => call('servicePackages:list', params),
+    activeForClient: (clientId) => call('servicePackages:activeForClient', clientId),
+    consume:         (id)       => call('servicePackages:consume', { id }),
+    delete:          (id)       => call('servicePackages:delete', { id }),
+  },
+  projects: {
+    create: (data)    => call('projects:create', data),
+    update: (data)    => call('projects:update', data),
+    list:   (params)  => call('projects:list', params),
+    byId:   (id)      => call('projects:byId', id),
+  },
+  clientRates: {
+    set:    (data)    => call('clientRates:set', data),
+    list:   (params)  => call('clientRates:list', params),
+    get:    (params)  => call('clientRates:get', params),
+    delete: (id)      => call('clientRates:delete', { id }),
   },
 
   // ── Restaurant Mode — Mesas (floor plan) ───────────────────────────────────

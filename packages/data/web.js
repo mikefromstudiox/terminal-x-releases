@@ -3003,9 +3003,43 @@ export function createWebAPI(supabase, businessId) {
       getById: (id) => tryOr(async () => throwSupaError(await supabase.from('loans').select('*, clients(name,phone,rnc)').eq('id', id).eq('business_id', bid).single())),
       byClient: (clientId) => tryOr(async () => throwSupaError(await supabase.from('loans').select('*').eq('business_id', bid).eq('client_id', clientId).order('created_at', { ascending: false })), []),
       create: (data) => tryOr(async () => {
-        const row = throwSupaError(await supabase.from('loans').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }).select('id').single())
-        await logActivity({ event_type: 'loan_created', severity: 'warn', target_type: 'loan', target_id: row.id, amount: Number(data.principal), metadata: { term_months: data.term_months, interest_rate: data.interest_rate } })
-        return row
+        const method = data.method || 'french'
+        const mora_rate_daily = data.mora_rate_daily ?? 0.005
+        const loanSid = crypto.randomUUID()
+        const inserted = throwSupaError(await supabase.from('loans').insert({
+          ...data, method, mora_rate_daily,
+          supabase_id: loanSid, business_id: bid,
+        }).select('id,supabase_id').single())
+        // Build + insert amortization schedule
+        const P = Number(data.principal) || 0
+        const n = Number(data.term_months) || 0
+        const r = (Number(data.interest_rate) || 0) / 100
+        const startDate = data.disbursed_at ? new Date(data.disbursed_at) : new Date()
+        const dueOf = (i) => { const d = new Date(startDate); d.setMonth(d.getMonth() + i); return d.toISOString().slice(0, 10) }
+        const rows = []
+        if (method === 'flat') {
+          const pe = P / n, ie = P * r
+          for (let i = 1; i <= n; i++) rows.push({ installment_no: i, due_date: dueOf(i), principal_due: pe, interest_due: ie, total_due: pe + ie })
+        } else if (method === 'balloon') {
+          const ie = P * r
+          for (let i = 1; i < n; i++) rows.push({ installment_no: i, due_date: dueOf(i), principal_due: 0, interest_due: ie, total_due: ie })
+          rows.push({ installment_no: n, due_date: dueOf(n), principal_due: P, interest_due: ie, total_due: P + ie })
+        } else {
+          const M = r === 0 ? P / n : P * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1)
+          let bal = P
+          for (let i = 1; i <= n; i++) {
+            const ii = r === 0 ? 0 : bal * r
+            const pp = Math.min(bal, M - ii)
+            bal = Math.max(0, bal - pp)
+            rows.push({ installment_no: i, due_date: dueOf(i), principal_due: Math.round(pp * 100) / 100, interest_due: Math.round(ii * 100) / 100, total_due: Math.round((pp + ii) * 100) / 100 })
+          }
+        }
+        if (rows.length) {
+          const payload = rows.map(sr => ({ ...sr, supabase_id: crypto.randomUUID(), business_id: bid, loan_supabase_id: inserted.supabase_id }))
+          try { throwSupaError(await supabase.from('loan_schedule').insert(payload)) } catch (e) { console.warn('[loans] schedule insert failed:', e?.message) }
+        }
+        await logActivity({ event_type: 'loan_created', severity: 'warn', target_type: 'loan', target_id: inserted.id, amount: Number(data.principal), metadata: { term_months: data.term_months, interest_rate: data.interest_rate, method } })
+        return inserted
       }),
       update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('loans').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
       setStatus: (id, status) => tryOr(async () => { throwSupaError(await supabase.from('loans').update({ status, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
@@ -3036,14 +3070,84 @@ export function createWebAPI(supabase, businessId) {
       }, []),
       getById: (id) => tryOr(async () => throwSupaError(await supabase.from('pawn_items').select('*, clients(name), loans(principal,status)').eq('id', id).eq('business_id', bid).single())),
       create: (data) => tryOr(async () => {
-        const row = throwSupaError(await supabase.from('pawn_items').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }).select('id').single())
+        // Web-side papeleta ticket code — same PYYMMDDxxxx format as desktop
+        const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+        const d = new Date()
+        const yymmdd = String(d.getFullYear()).slice(2) + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0')
+        let tail = ''; for (let i = 0; i < 4; i++) tail += ALPHA[Math.floor(Math.random() * ALPHA.length)]
+        const ticket_code = data.ticket_code || `P${yymmdd}${tail}`
+        const row = throwSupaError(await supabase.from('pawn_items').insert({ ...data, ticket_code, supabase_id: crypto.randomUUID(), business_id: bid }).select('id,ticket_code').single())
         return row
       }),
       update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('pawn_items').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
       setStatus: (id, status) => tryOr(async () => {
-        throwSupaError(await supabase.from('pawn_items').update({ status, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        const patch = { status, updated_at: new Date().toISOString() }
+        if (status === 'redeemed')  patch.redemption_date = new Date().toISOString()
+        throwSupaError(await supabase.from('pawn_items').update(patch).eq('id', id).eq('business_id', bid))
         if (status === 'forfeited') await logActivity({ event_type: 'pawn_forfeited', severity: 'critical', target_type: 'pawn_item', target_id: id })
       }),
+      byCode: (code) => tryOr(async () => throwSupaError(await supabase.from('pawn_items').select('*, clients(name,phone)').eq('business_id', bid).eq('ticket_code', code).maybeSingle())),
+    },
+
+    // ── Loan schedule (amortization rows) ────────────────────────────────────
+    loanSchedule: {
+      list: ({ loan_id }) => tryOr(async () => throwSupaError(
+        await supabase.from('loan_schedule').select('*').eq('business_id', bid).eq('loan_id', loan_id).order('installment_no', { ascending: true })
+      ), []),
+      bulkCreate: (rows) => tryOr(async () => {
+        if (!Array.isArray(rows) || !rows.length) return { count: 0 }
+        const payload = rows.map(r => ({ ...r, supabase_id: r.supabase_id || crypto.randomUUID(), business_id: bid }))
+        throwSupaError(await supabase.from('loan_schedule').insert(payload))
+        return { count: payload.length }
+      }),
+      markPaid: ({ id, paid_amount }) => tryOr(async () => {
+        throwSupaError(await supabase.from('loan_schedule').update({ paid_amount, paid_at: new Date().toISOString(), status: 'paid', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+      }),
+    },
+
+    // ── Collections (overdue + CRM log + mora) ──────────────────────────────
+    collections: {
+      overdue: () => tryOr(async () => {
+        const today = new Date().toISOString().slice(0, 10)
+        const rows = throwSupaError(await supabase.from('loans')
+          .select('*, clients(name,phone,rnc)')
+          .eq('business_id', bid)
+          .eq('status', 'active')
+          .lt('next_due_date', today)
+          .order('next_due_date', { ascending: true }))
+        return (rows || []).map(r => ({
+          ...r,
+          client_name:  r.clients?.name  || null,
+          client_phone: r.clients?.phone || null,
+        }))
+      }, []),
+      // Web mora computation — same formula as desktop `loansComputeMora`.
+      computeMora: () => tryOr(async () => {
+        const today = new Date()
+        const todayYmd = today.toISOString().slice(0, 10)
+        const rows = throwSupaError(await supabase.from('loans')
+          .select('id,principal,total_paid,mora_rate_daily,next_due_date')
+          .eq('business_id', bid).eq('status', 'active')
+          .lt('next_due_date', todayYmd))
+        for (const l of rows || []) {
+          const days = Math.max(0, Math.floor((today - new Date(l.next_due_date)) / 86400000))
+          const outstanding = Math.max(0, Number(l.principal || 0) - Number(l.total_paid || 0))
+          const mora = Math.round(outstanding * Number(l.mora_rate_daily || 0) * days * 100) / 100
+          await supabase.from('loans').update({ days_late: days, mora_amount: mora, updated_at: new Date().toISOString() }).eq('id', l.id).eq('business_id', bid)
+        }
+        return (rows || []).length
+      }, 0),
+      logCreate: (data) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('collections_log').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }).select('id').single())
+        return row
+      }),
+      logList: ({ client_id, loan_id } = {}) => tryOr(async () => {
+        let q = supabase.from('collections_log').select('*, clients(name)').eq('business_id', bid)
+        if (client_id) q = q.eq('client_id', client_id)
+        if (loan_id)   q = q.eq('loan_id', loan_id)
+        const rows = throwSupaError(await q.order('contacted_at', { ascending: false }).limit(500))
+        return (rows || []).map(r => ({ ...r, client_name: r.clients?.name || null }))
+      }, []),
     },
 
     // ── Memberships (carwash monthly subscriptions) ─────────────────────────
@@ -3156,6 +3260,205 @@ export function createWebAPI(supabase, businessId) {
       }),
       delete: ({ id }) => tryOr(async () => {
         throwSupaError(await supabase.from('wash_combos').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        return true
+      }),
+    },
+
+    // ── Service vertical: recurring billing ─────────────────────────────────
+    subscriptions: {
+      list: (params = {}) => tryOr(async () => {
+        let q = supabase.from('subscriptions')
+          .select('*, clients(name), services(name)')
+          .eq('business_id', bid)
+        if (params.status)    q = q.eq('status', params.status)
+        if (params.clientId)  q = q.eq('client_id', params.clientId)
+        if (params.dueWithinDays != null) {
+          const d = new Date(); d.setDate(d.getDate() + Number(params.dueWithinDays))
+          q = q.lte('next_billing_date', d.toISOString().slice(0, 10))
+        }
+        const rows = throwSupaError(await q.order('next_billing_date', { ascending: true }))
+        return (rows || []).map(r => ({ ...r, client_name: r.clients?.name || null, service_name: r.services?.name || null }))
+      }, []),
+      create: (data) => tryWrite(async () => {
+        const row = throwSupaError(await supabase.from('subscriptions').insert({
+          supabase_id: crypto.randomUUID(),
+          business_id: bid,
+          client_supabase_id:  data.client_supabase_id  || null,
+          service_supabase_id: data.service_supabase_id || null,
+          plan_name:        data.plan_name || null,
+          interval_days:    Number(data.interval_days) || 30,
+          amount:           Number(data.amount) || 0,
+          start_date:       data.start_date || new Date().toISOString().slice(0, 10),
+          next_billing_date:data.start_date || new Date().toISOString().slice(0, 10),
+          status:          'active',
+          notes:            data.notes || null,
+        }).select('id,supabase_id').single())
+        return row
+      }),
+      update: (data) => tryWrite(async () => {
+        const { id, ...rest } = data
+        throwSupaError(await supabase.from('subscriptions').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        return { id }
+      }),
+      markBilled: (id) => tryWrite(async () => {
+        const { data: s } = await supabase.from('subscriptions').select('next_billing_date,interval_days').eq('id', id).eq('business_id', bid).single()
+        if (!s) return null
+        const next = new Date(s.next_billing_date + 'T12:00:00'); next.setDate(next.getDate() + (Number(s.interval_days) || 30))
+        throwSupaError(await supabase.from('subscriptions').update({
+          last_billed_at: new Date().toISOString(),
+          next_billing_date: next.toISOString().slice(0, 10),
+          updated_at: new Date().toISOString(),
+        }).eq('id', id).eq('business_id', bid))
+        return { id }
+      }),
+      delete: (id) => tryWrite(async () => {
+        throwSupaError(await supabase.from('subscriptions').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        return true
+      }),
+    },
+
+    // ── Service vertical: prepaid session packages ──────────────────────────
+    servicePackages: {
+      list: (params = {}) => tryOr(async () => {
+        let q = supabase.from('service_packages')
+          .select('*, clients(name), services(name)')
+          .eq('business_id', bid)
+        if (params.status)    q = q.eq('status', params.status)
+        if (params.clientId)  q = q.eq('client_id', params.clientId)
+        const rows = throwSupaError(await q.order('purchased_at', { ascending: false }))
+        return (rows || []).map(r => ({ ...r, client_name: r.clients?.name || null, service_name: r.services?.name || null }))
+      }, []),
+      activeForClient: (clientSupabaseId) => tryOr(async () => {
+        const rows = throwSupaError(await supabase.from('service_packages')
+          .select('*, services(name)')
+          .eq('business_id', bid).eq('status', 'active')
+          .eq('client_supabase_id', clientSupabaseId)
+          .order('purchased_at', { ascending: true }))
+        return (rows || []).filter(r => r.used_sessions < r.total_sessions)
+          .map(r => ({ ...r, service_name: r.services?.name || null }))
+      }, []),
+      create: (data) => tryWrite(async () => {
+        const row = throwSupaError(await supabase.from('service_packages').insert({
+          supabase_id: crypto.randomUUID(),
+          business_id: bid,
+          client_supabase_id:  data.client_supabase_id  || null,
+          service_supabase_id: data.service_supabase_id || null,
+          package_name:   data.package_name,
+          total_sessions: Number(data.total_sessions) || 0,
+          used_sessions:  0,
+          purchase_price: Number(data.purchase_price) || 0,
+          expires_at:     data.expires_at || null,
+          status:        'active',
+          notes:          data.notes || null,
+        }).select('id,supabase_id').single())
+        return row
+      }),
+      update: (data) => tryWrite(async () => {
+        const { id, ...rest } = data
+        throwSupaError(await supabase.from('service_packages').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        return { id }
+      }),
+      consume: ({ id }) => tryWrite(async () => {
+        const { data: sp } = await supabase.from('service_packages').select('used_sessions,total_sessions,status').eq('id', id).eq('business_id', bid).single()
+        if (!sp) return { ok: false, error: 'not_found' }
+        if (sp.status !== 'active') return { ok: false, error: 'inactive' }
+        if (sp.used_sessions >= sp.total_sessions) return { ok: false, error: 'exhausted', remaining: 0 }
+        const newUsed = sp.used_sessions + 1
+        const remaining = sp.total_sessions - newUsed
+        throwSupaError(await supabase.from('service_packages').update({
+          used_sessions: newUsed,
+          status: remaining <= 0 ? 'exhausted' : 'active',
+          updated_at: new Date().toISOString(),
+        }).eq('id', id).eq('business_id', bid))
+        return { ok: true, remaining }
+      }),
+      delete: (id) => tryWrite(async () => {
+        throwSupaError(await supabase.from('service_packages').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        return true
+      }),
+    },
+
+    // ── Service vertical: project / job tracker ────────────────────────────
+    projects: {
+      list: (params = {}) => tryOr(async () => {
+        let q = supabase.from('projects').select('*, clients(name)').eq('business_id', bid)
+        if (params.status)    q = q.eq('status', params.status)
+        if (params.clientId)  q = q.eq('client_id', params.clientId)
+        const rows = throwSupaError(await q.order('created_at', { ascending: false }))
+        return (rows || []).map(r => ({ ...r, client_name: r.clients?.name || null }))
+      }, []),
+      byId: (id) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('projects').select('*, clients(name)').eq('business_id', bid).eq('id', id).maybeSingle())
+        return row ? { ...row, client_name: row.clients?.name || null } : null
+      }, null),
+      create: (data) => tryWrite(async () => {
+        const row = throwSupaError(await supabase.from('projects').insert({
+          supabase_id: crypto.randomUUID(),
+          business_id: bid,
+          client_supabase_id: data.client_supabase_id || null,
+          name:        data.name,
+          description: data.description || null,
+          status:      data.status || 'draft',
+        }).select('id,supabase_id').single())
+        return row
+      }),
+      update: (data) => tryWrite(async () => {
+        const { id, ...rest } = data
+        if (rest.status === 'closed' && !rest.closed_at) rest.closed_at = new Date().toISOString()
+        throwSupaError(await supabase.from('projects').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        return { id }
+      }),
+    },
+
+    // ── Service vertical: client-specific rate overrides ───────────────────
+    clientRates: {
+      list: (params = {}) => tryOr(async () => {
+        let q = supabase.from('client_service_rates').select('*, clients(name), services(name, price)').eq('business_id', bid)
+        if (params.clientId) q = q.eq('client_id', params.clientId)
+        const rows = throwSupaError(await q)
+        return (rows || []).map(r => ({
+          ...r,
+          client_name:  r.clients?.name || null,
+          service_name: r.services?.name || null,
+          base_price:   r.services?.price ?? null,
+        }))
+      }, []),
+      get: ({ clientSupabaseId, serviceSupabaseId }) => tryOr(async () => {
+        if (!clientSupabaseId || !serviceSupabaseId) return null
+        const row = throwSupaError(await supabase.from('client_service_rates')
+          .select('custom_price')
+          .eq('business_id', bid)
+          .eq('client_supabase_id', clientSupabaseId)
+          .eq('service_supabase_id', serviceSupabaseId)
+          .maybeSingle())
+        return row
+      }, null),
+      set: (data) => tryWrite(async () => {
+        // Upsert on natural key (business_id, client_supabase_id, service_supabase_id)
+        const existing = await supabase.from('client_service_rates')
+          .select('id').eq('business_id', bid)
+          .eq('client_supabase_id',  data.client_supabase_id)
+          .eq('service_supabase_id', data.service_supabase_id).maybeSingle()
+        if (existing.data?.id) {
+          throwSupaError(await supabase.from('client_service_rates').update({
+            custom_price: Number(data.custom_price) || 0,
+            notes:        data.notes || null,
+            updated_at:   new Date().toISOString(),
+          }).eq('id', existing.data.id).eq('business_id', bid))
+          return { id: existing.data.id }
+        }
+        const row = throwSupaError(await supabase.from('client_service_rates').insert({
+          supabase_id: crypto.randomUUID(),
+          business_id: bid,
+          client_supabase_id:  data.client_supabase_id,
+          service_supabase_id: data.service_supabase_id,
+          custom_price: Number(data.custom_price) || 0,
+          notes:        data.notes || null,
+        }).select('id,supabase_id').single())
+        return row
+      }),
+      delete: ({ id }) => tryWrite(async () => {
+        throwSupaError(await supabase.from('client_service_rates').delete().eq('id', id).eq('business_id', bid))
         return true
       }),
     },

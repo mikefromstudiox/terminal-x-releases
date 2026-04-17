@@ -9,9 +9,10 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   ShieldCheck, Plus, Search, X, Loader2, Check, Eye,
   AlertTriangle, Clock, Package, MapPin, Calendar,
-  Pencil, Archive, Ban, DollarSign, Users,
+  Pencil, Archive, Ban, DollarSign, Users, Printer,
 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
+import { printPawnTicket } from '../../../services/printer.js'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -347,11 +348,39 @@ export default function PawnItems() {
   async function handleRedeem(item) {
     if (!confirm(`Redimir "${item.description}"? El articulo sera devuelto al cliente.`)) return
     try {
-      await api.pawnItems.update({ id: item.id, status: 'redeemed' })
+      await api.pawnItems.update({ id: item.id, status: 'redeemed', redemption_date: new Date().toISOString() })
       await loadItems()
       showToast('Articulo redimido')
     } catch (e) {
       showToast(e?.message || 'Error al redimir', 'error')
+    }
+  }
+
+  async function handlePrintPapeleta(item) {
+    try {
+      // Resolve linked loan (for amount + tasa) if any
+      let loan = null
+      if (item.loan_id) {
+        try { loan = await (api?.loans?.getById?.(item.loan_id) ?? api?.loans?.byId?.(item.loan_id)) } catch {}
+      }
+      const biz = (await (api?.empresa?.get?.() ?? api?.business?.get?.() ?? Promise.resolve({}))) || {}
+      await printPawnTicket({
+        biz,
+        ticket_code: item.ticket_code,
+        client_name: item.client_name,
+        client_phone: item.client_phone,
+        description: item.description,
+        estimated_value: item.estimated_value,
+        loan_amount: loan?.principal,
+        interest_rate: loan?.interest_rate,
+        storage_location: item.storage_location,
+        redeem_deadline: item.redeem_deadline,
+        created_at: item.created_at,
+        notes: item.notes,
+      }, api)
+      showToast('Papeleta impresa')
+    } catch (e) {
+      showToast(e?.message || 'Error imprimiendo papeleta', 'error')
     }
   }
 
@@ -488,6 +517,11 @@ export default function PawnItems() {
                         </td>
                         <td className="px-4 py-2.5">
                           <div className="flex items-center justify-end gap-1">
+                            <button onClick={() => handlePrintPapeleta(item)}
+                              title="Imprimir Papeleta"
+                              className="p-1.5 text-slate-400 dark:text-white/40 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-50 dark:hover:bg-white/10">
+                              <Printer size={13} />
+                            </button>
                             {item.status === 'held' && (
                               <>
                                 <button onClick={() => handleRedeem(item)}

@@ -65,9 +65,13 @@ function formatDate(d = new Date()) {
   return [String(d.getDate()).padStart(2, '0'), String(d.getMonth() + 1).padStart(2, '0'), d.getFullYear()].join('-')
 }
 
+// DGII certification test data is locked to 18% by the official spec —
+// this constant is intentional and MUST NOT be read from app_settings.
+const DGII_CERT_ITBIS_RATE = 18 / 100
+
 function calcTotales18(items) {
   const subtotal = items.reduce((s, i) => s + (i.precio * (i.cantidad || 1)), 0)
-  const itbis = Math.round(subtotal * 0.18 * 100) / 100
+  const itbis = Math.round(subtotal * DGII_CERT_ITBIS_RATE * 100) / 100
   return { subtotal: subtotal.toFixed(2), itbis: itbis.toFixed(2), total: (subtotal + itbis).toFixed(2) }
 }
 

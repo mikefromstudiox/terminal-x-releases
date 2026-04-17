@@ -69,7 +69,9 @@ const TestDrives          = lazy(() => import('./screens/dealership/TestDrives')
 const DealBuilder         = lazy(() => import('./screens/dealership/DealBuilder'))
 const Loans               = lazy(() => import('./screens/lending/Loans'))
 const PawnItems           = lazy(() => import('./screens/lending/PawnItems'))
+const Collections         = lazy(() => import('./screens/lending/Collections'))
 const Memberships         = lazy(() => import('./screens/carwash/Memberships'))
+const ServiceHub          = lazy(() => import('./screens/service/ServiceHub'))
 const InvoiceDashboard    = lazy(() => import('./screens/invoicing/InvoiceDashboard'))
 const InvoiceCreate       = lazy(() => import('./screens/invoicing/InvoiceCreate'))
 const InvoiceList         = lazy(() => import('./screens/invoicing/InvoiceList'))
@@ -235,7 +237,9 @@ export default function App() {
         <Route path="/stylist-schedules" element={<ProtectedRoute element={<PlanGate feature="appointments"><StylistSchedules /></PlanGate>} />} />
         <Route path="/loans" element={<ProtectedRoute element={<PlanGate feature="loans"><Loans /></PlanGate>} />} />
         <Route path="/pawn-items" element={<ProtectedRoute element={<PlanGate feature="pawn_items"><PawnItems /></PlanGate>} />} />
+        <Route path="/collections" element={<ProtectedRoute element={<PlanGate feature="loans"><Collections /></PlanGate>} />} />
         <Route path="/memberships" element={<ProtectedRoute element={<Memberships />} />} />
+        <Route path="/servicios" element={<ProtectedRoute element={<ServiceHub />} />} />
         <Route path="/vehicle-inventory" element={<ProtectedRoute element={<VehicleInventory />} />} />
         <Route path="/sales-pipeline"    element={<ProtectedRoute element={<SalesPipeline />} />} />
         <Route path="/test-drives"       element={<ProtectedRoute element={<TestDrives />} />} />

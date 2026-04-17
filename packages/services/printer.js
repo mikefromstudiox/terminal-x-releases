@@ -1029,3 +1029,100 @@ export async function printCreditPayment(data, api, printerApi) {
   const escpos = DRAWER_KICK + buildCreditPaymentReceipt(data)
   return sendToPrinter('credit-payment', escpos, data.biz, api)
 }
+
+// ── PAPELETA DE EMPEÑO (pawn ticket) ─────────────────────────────────────────
+/**
+ * 80mm thermal papeleta for a pawn item. Customer keeps this — shows the
+ * ticket_code that they present to redeem the item.
+ *
+ * data = { biz, ticket_code, client_name, client_phone, description,
+ *          estimated_value, loan_amount, redeem_deadline, interest_rate,
+ *          storage_location, created_at, notes }
+ */
+export function buildPawnTicket(data) {
+  const lines = []
+  lines.push(buildHeader(data.biz || {}))
+
+  lines.push(ALIGN_CENTER)
+  lines.push(BOLD_ON)
+  lines.push('PAPELETA DE EMPEÑO')
+  lines.push(LF)
+  lines.push(BOLD_OFF)
+  lines.push(SEP)
+  lines.push(LF)
+
+  // Big ticket code — centered, bold
+  lines.push(ALIGN_CENTER)
+  lines.push(BOLD_ON)
+  lines.push(String(data.ticket_code || '------'))
+  lines.push(LF)
+  lines.push(BOLD_OFF)
+  lines.push('Codigo de reclamo')
+  lines.push(LF)
+  lines.push(SEP)
+  lines.push(LF)
+
+  lines.push(ALIGN_LEFT)
+  lines.push(cols('Fecha:',   fmtDate(data.created_at ? new Date(data.created_at) : new Date())))
+  lines.push(LF)
+  lines.push(cols('Cliente:', String(data.client_name || '-').substring(0, COL_WIDTH - 9)))
+  lines.push(LF)
+  if (data.client_phone) {
+    lines.push(cols('Tel:', String(data.client_phone).substring(0, COL_WIDTH - 5)))
+    lines.push(LF)
+  }
+  lines.push(SEP)
+  lines.push(LF)
+
+  // Description wraps
+  lines.push(BOLD_ON); lines.push('Articulo:'); lines.push(LF); lines.push(BOLD_OFF)
+  wrapText(String(data.description || '-'), COL_WIDTH).forEach(l => { lines.push(l); lines.push(LF) })
+  lines.push(LF)
+
+  if (data.storage_location) {
+    lines.push(cols('Ubicacion:', String(data.storage_location).substring(0, COL_WIDTH - 12)))
+    lines.push(LF)
+  }
+  lines.push(cols('Valor estimado:', fmt(data.estimated_value)))
+  lines.push(LF)
+  if (data.loan_amount != null) {
+    lines.push(cols('Monto prestamo:', fmt(data.loan_amount)))
+    lines.push(LF)
+  }
+  if (data.interest_rate != null) {
+    lines.push(cols('Tasa mensual:', `${Number(data.interest_rate).toFixed(2)}%`))
+    lines.push(LF)
+  }
+  if (data.redeem_deadline) {
+    lines.push(cols('Fecha limite:', String(data.redeem_deadline).slice(0, 10)))
+    lines.push(LF)
+  }
+
+  lines.push(SEP)
+  lines.push(LF)
+  lines.push(ALIGN_CENTER)
+  lines.push('Presente esta papeleta para')
+  lines.push(LF)
+  lines.push('reclamar su articulo.')
+  lines.push(LF)
+  lines.push(LF)
+  lines.push('Pasada la fecha limite el')
+  lines.push(LF)
+  lines.push('articulo podra ser decomisado.')
+  lines.push(LF)
+
+  if (data.notes) {
+    lines.push(LF)
+    lines.push(ALIGN_LEFT)
+    wrapText('Notas: ' + String(data.notes), COL_WIDTH).forEach(l => { lines.push(l); lines.push(LF) })
+  }
+
+  lines.push(buildFooter())
+  return lines.join('')
+}
+
+/** Print a pawn papeleta (no drawer kick — non-cash transaction) */
+export async function printPawnTicket(data, api) {
+  const escpos = buildPawnTicket(data)
+  return sendToPrinter('pawn-ticket', escpos, data.biz, api)
+}

@@ -89,7 +89,7 @@ ipcMain.handle('app:resetLocalDatabase', () => {
     // Order: children first (FK deps), then parents.
     const tables = [
       'ticket_item_modificadores', 'kds_events', 'service_modificadores',
-      'work_order_items', 'loan_payments', 'pawn_items',
+      'work_order_items', 'loan_payments', 'pawn_items', 'loan_schedule', 'collections_log',
       'washer_commissions', 'seller_commissions', 'cajero_commissions',
       'credit_payments', 'notas_credito', 'ticket_items', 'queue', 'queue_deletions',
       'cuadre_caja', 'caja_chica', 'inventory_transactions', 'ecf_submissions',
@@ -828,6 +828,10 @@ app.whenReady().then(async () => {
       const ok = db.init(app.getPath('userData'))
       if (!ok) console.error('[main] DB init returned false:', db.getError?.())
       else console.log('[main] DB initialized at', app.getPath('userData'))
+      // Prestamos — recompute mora at startup so dashboard numbers are fresh.
+      try { const ids = db.loansComputeMora?.(); if (ids?.length) console.log(`[main] mora recomputed for ${ids.length} loans`) } catch (e) { console.warn('[main] computeMora failed:', e.message) }
+      // Daily cron (12h interval — idempotent, cheap).
+      try { setInterval(() => { try { db.loansComputeMora?.() } catch {} }, 12 * 60 * 60 * 1000) } catch {}
     } catch (err) {
       console.error('[main] DB init failed:', err.message)
     }
@@ -1122,6 +1126,16 @@ handleMut('pawnItems:create',  (data)           => db.pawnItemCreate(data))
 handleMut('pawnItems:update',  ({id, ...data})  => db.pawnItemUpdate(id, data))
 handle('pawnItems:list',    (params)         => db.pawnItemList(params))
 handleMut('pawnItems:delete',  ({id})           => { db.pawnItemDelete(id); return true })
+handleMut('pawnItems:redeem',  ({id})           => db.pawnItemRedeem(id))
+handle('pawnItems:byCode',  (code)            => db.pawnItemGetByCode(code))
+
+// ── Loan schedule + mora + collections (prestamos phase 2) ───────────────────
+handle('loanSchedule:list',         (params) => db.loanScheduleList(params))
+handleMut('loanSchedule:markPaid',  (data)   => db.loanScheduleMarkPaid(data))
+handleMut('loans:computeMora',      ()       => db.loansComputeMora())
+handle('loans:overdue',             ()       => db.loansOverdueList())
+handleMut('collectionsLog:create',  (data)   => db.collectionsLogCreate(data))
+handle('collectionsLog:list',       (params) => db.collectionsLogList(params))
 
 // ── Memberships (carwash monthly subscriptions) ─────────────────────────────
 handleMut('memberships:create',    (data)          => db.membershipCreate(data))
@@ -1143,6 +1157,30 @@ handleMut('washCombos:delete',  ({id})       => { db.washComboDelete(id); return
 handle('queue:waitMetrics',  ()                 => db.queueWaitMetrics())
 handle('reports:topWashers', ({ limit } = {})   => db.topWashersThisMonth(limit))
 handle('tickets:byClient',   ({ clientId, limit } = {}) => db.ticketsByClient(clientId, limit))
+
+// ── Service vertical: subscriptions / packages / projects / per-client rates ─
+handleMut('subscriptions:create',     (data)        => db.subscriptionCreate(data))
+handleMut('subscriptions:update',     ({id,...d})   => db.subscriptionUpdate(id, d))
+handle('subscriptions:list',       (params)      => db.subscriptionList(params))
+handleMut('subscriptions:markBilled', ({id})        => db.subscriptionMarkBilled(id))
+handleMut('subscriptions:delete',     ({id})        => { db.subscriptionDelete(id); return true })
+
+handleMut('servicePackages:create', (data)       => db.servicePackageCreate(data))
+handleMut('servicePackages:update', ({id,...d})  => db.servicePackageUpdate(id, d))
+handle('servicePackages:list',   (params)     => db.servicePackageList(params))
+handle('servicePackages:activeForClient', (clientId) => db.servicePackageActiveForClient(clientId))
+handleMut('servicePackages:consume',({id})       => db.servicePackageConsume(id))
+handleMut('servicePackages:delete', ({id})       => { db.servicePackageDelete(id); return true })
+
+handleMut('projects:create', (data)       => db.projectCreate(data))
+handleMut('projects:update', ({id,...d})  => db.projectUpdate(id, d))
+handle('projects:list',   (params)     => db.projectList(params))
+handle('projects:byId',   (id)         => db.projectGetById(id))
+
+handleMut('clientRates:set',    (data)            => db.clientRateSet(data))
+handle('clientRates:list',   (params)          => db.clientRateList(params))
+handle('clientRates:get',    (params)          => db.clientRateGet(params))
+handleMut('clientRates:delete', ({id})            => { db.clientRateDelete(id); return true })
 
 // ── Clients ───────────────────────────────────────────────────────────────────
 handle('clients:all',          ()          => db.clientsGetAll())

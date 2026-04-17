@@ -13,7 +13,7 @@ import {
   Printer, MessageSquare, HardDrive, Download,
   Archive, LifeBuoy, Send, Loader2,
   Grid3x3, UtensilsCrossed, ChefHat,
-  Wrench, Scissors, Car, Calendar, Warehouse, Banknote, Clock,
+  Wrench, Scissors, Car, Calendar, Warehouse, Banknote, Clock, Briefcase,
 } from 'lucide-react'
 import { usePlan } from '../hooks/usePlan.jsx'
 import { useLang } from '../i18n'
@@ -133,7 +133,14 @@ const NAV = [
     children: [
       { to: '/loans', es: 'Préstamos', en: 'Loans', feature: 'loans' },
       { to: '/pawn-items', es: 'Empeños', en: 'Pawn Items', feature: 'pawn_items' },
+      { to: '/collections', es: 'Cobros', en: 'Collections', feature: 'loans' },
     ],
+  },
+  {
+    id: 'service_hub', to: '/servicios', icon: Briefcase,
+    es: 'Servicios', en: 'Services',
+    businessTypes: ['service'],
+    roles: ['owner','manager','cashier','cfo','accountant'],
   },
   {
     id: 'clients', icon: Users,
