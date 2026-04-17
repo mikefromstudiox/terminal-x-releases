@@ -1,6 +1,6 @@
 {
   "name": "terminal-x",
-  "version": "1.9.29",
+  "version": "2.2.0",
   "private": true,
   "description": "Terminal X - POS System for Car Wash, Retail & Services",
   "author": "Studio X",
@@ -39,6 +39,7 @@
     "xml-crypto": "^6.1.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@supabase/supabase-js": "^2.99.3",
     "@tailwindcss/vite": "^4.2.2",
     "@vitejs/plugin-react": "^4.2.1",
