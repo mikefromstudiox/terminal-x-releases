@@ -326,16 +326,25 @@ export function buildClientReceipt(data, logoBytes = '') {
     const lineTotal = s.price * qty
     const itbisAmt = s.itbis != null ? fmt(s.itbis * qty) : ''
     const totalAmt = fmt(lineTotal)
-    const name = qty > 1 ? `${qty}x ${s.name}` : String(s.name)
+    // Weight-priced line (carniceria): "Bistec Res" + subline "0.750 lb x RD$195.00/lb"
+    const weight = s.weight != null ? Number(s.weight) : null
+    const unit   = s.unit || null
+    const ppu    = s.price_per_unit != null ? Number(s.price_per_unit) : null
+    const name   = weight != null
+      ? String(s.name).replace(/\s*\([0-9.]+ (?:lb|kg|oz|g)\)\s*$/, '')  // strip cart label duplication
+      : (qty > 1 ? `${qty}x ${s.name}` : String(s.name))
     const rightPart = itbisAmt ? `${itbisAmt}  ${totalAmt}` : totalAmt
     if (name.length + rightPart.length + 1 > COL_WIDTH) {
-      // Name too long — print name on its own line, amounts right-aligned below
       wrapText(name, COL_WIDTH).forEach(l => { lines.push(l); lines.push(LF) })
       lines.push(right(rightPart, COL_WIDTH))
     } else {
       lines.push(cols(name, rightPart, COL_WIDTH))
     }
     lines.push(LF)
+    if (weight != null && unit && ppu != null) {
+      lines.push(`  ${weight.toFixed(3)} ${unit} x RD$${fmt(ppu)}/${unit}`)
+      lines.push(LF)
+    }
   })
 
   // Totals

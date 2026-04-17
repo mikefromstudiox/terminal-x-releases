@@ -574,7 +574,7 @@ export default function LandingPage({ section }) {
               )}
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mt-16">
             {[
               {
                 title: L('Car Wash / Detailing', 'Car Wash / Detailing'),
@@ -586,6 +586,16 @@ export default function LandingPage({ section }) {
                 desc: L('Inventario con codigo de barras, busqueda por SKU, carrito con cantidades, deduccion automatica de stock al vender.', 'Inventory with barcode, SKU search, cart with quantities, automatic stock deduction on sale.'),
                 items: [L('Codigo de barras / SKU', 'Barcode / SKU'), L('Carrito con cantidades', 'Cart with quantities'), L('Stock automatico', 'Auto stock deduction')],
                 highlight: true,
+              },
+              {
+                title: L('Licorería', 'Liquor Store'),
+                desc: L('Venta de licores, cervezas, vinos. Verificacion de edad 18+ automatica, deposito de botellas, top-sellers Brugal / Presidente / Johnnie Walker a la mano.', 'Liquor, beer, wine sales. Automatic 18+ age verification, bottle deposit tracker, top-sellers (Brugal / Presidente / Johnnie Walker) one tap away.'),
+                items: [L('Verificacion de edad 18+', 'Age verification 18+'), L('Deposito de botellas', 'Bottle deposit'), L('Accesos rapidos a top-sellers', 'Quick access top-sellers')],
+              },
+              {
+                title: L('Carnicería', 'Butcher / Meat Market'),
+                desc: L('Venta de carnes por peso con bascula integrada. Res, pollo, cerdo, embutidos, mariscos — precio por libra, tara, recibo con peso + precio/lb.', 'Meat sales by weight with integrated scale. Beef, pork, chicken, seafood — price per pound, tare, receipt shows weight + price per lb.'),
+                items: [L('Precio por libra / kg', 'Price per pound / kg'), L('Bascula integrada + tara', 'Integrated scale + tare'), L('Catalogo de cortes', 'Cut catalog')],
               },
               {
                 title: L('Servicios / Otro', 'Services / Other'),

@@ -12,8 +12,11 @@ function fmtRD(n) {
   return `RD$ ${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-const ITBIS_RATE = 0.18
-const LEY_RATE   = 0.10
+// Legacy fallback rate — the actual rate is pulled from app_settings.itbis_pct
+// on mount and threaded through state. 0.18 remains the sensible default for
+// DR while settings load (defaultItbisRate = 18).
+const DEFAULT_ITBIS_RATE = 18
+const LEY_RATE = 0.10
 
 const PAYMENT_METHODS = [
   { id: 'efectivo',      icon: Banknote,       es: 'Efectivo',      en: 'Cash'     },
@@ -48,7 +51,7 @@ const LABELS = {
   cancel:      L('Cancelar',                    'Cancel'),
   charge:      L('Cobrar',                      'Charge'),
   subtotal:    L('Subtotal',                    'Subtotal'),
-  itbis:       L('ITBIS 18%',                   'ITBIS 18%'),
+  // `itbis` label rendered inline with dynamic rate — see below.
   ley:         L('Ley 10%',                     'Service Charge 10%'),
   total:       L('Total',                       'Total'),
   rnc:         L('RNC',                         'RNC'),
@@ -230,7 +233,7 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
         ...svcs.map(s => `• ${s.name} — RD$ ${Number(s.price).toLocaleString('en-US', { minimumFractionDigits: 2 })}`),
         ``,
         subtotal ? `Subtotal: RD$ ${Number(subtotal).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '',
-        itbis ? `ITBIS 18%: RD$ ${Number(itbis).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '',
+        itbis ? `ITBIS ${bizSettings?.itbis_pct || 18}%: RD$ ${Number(itbis).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '',
         ley ? `Ley 10%: RD$ ${Number(ley).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '',
         `*Total: RD$ ${Number(total).toLocaleString('en-US', { minimumFractionDigits: 2 })}*`,
         ``,
@@ -337,6 +340,18 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
               width={128}
               height={128}
               className="rounded-xl border border-slate-200 dark:border-white/10 shadow-sm"
+              style={{
+                // Win11 high-DPI shrinks the QR below scanner resolution. Bump
+                // it 1.2x only when both conditions match so non-Windows /
+                // low-DPI displays render at their native crisp size.
+                transform: (typeof window !== 'undefined'
+                  && window.devicePixelRatio > 1.25
+                  && typeof navigator !== 'undefined'
+                  && navigator.userAgent.includes('Windows NT 10'))
+                  ? 'scale(1.2)'
+                  : 'scale(1)',
+                transformOrigin: 'center center',
+              }}
             />
           ) : (
             <div className="w-32 h-32 bg-slate-100 dark:bg-white/10 rounded-xl flex items-center justify-center">
@@ -413,9 +428,16 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const api = useAPI()
   const { lang } = useLang()
 
-  // Totals — prices already include 18% ITBIS, extract it for display
+  // ITBIS rate — loaded from app_settings.itbis_pct on mount (see useEffect
+  // below). Stays a numeric percentage (e.g. 18). Totals are memoised against
+  // both ticket services and the live rate so display refreshes on settings
+  // change without a manual reload.
+  const [itbisRate, setItbisRate] = useState(DEFAULT_ITBIS_RATE)
+  const itbisFactor = Number(itbisRate) / 100
+
+  // Totals — prices already include ITBIS, extract it for display
   const total    = ticket.services.reduce((s, svc) => s + svc.price * (svc.qty || 1), 0)
-  const subtotal = parseFloat((total / (1 + ITBIS_RATE)).toFixed(2))
+  const subtotal = parseFloat((total / (1 + itbisFactor)).toFixed(2))
   const itbis    = parseFloat((total - subtotal).toFixed(2))
   const ley      = 0
 
@@ -458,11 +480,73 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const clientRef = useRef(null)
   const confirmedRef = useRef(false)
 
+  // ── Carwash memberships / combos ─────────────────────────────────────────
+  // When a client is selected, check if they have an active monthly membership
+  // with remaining quota this period, or a wash-combo punch-card with washes
+  // left. The cashier can tap "Usar membresía" to consume one — this records
+  // the usage. Billing adjustment (zero-out, discount, etc.) stays a manual
+  // owner decision so we don't silently break e-CF totals.
+  const [activeMembership, setActiveMembership] = useState(null)
+  const [activeCombo,      setActiveCombo]      = useState(null)
+  const [consumingBenefit, setConsumingBenefit] = useState(false)
+  const [benefitUsed,      setBenefitUsed]      = useState(null)
+
+  useEffect(() => {
+    const cid = selectedClient?.id
+    if (!cid) { setActiveMembership(null); setActiveCombo(null); return }
+    let cancelled = false
+    // Resolve the client's supabase_id for web (activeForClient on web expects UUID).
+    const cUuid = selectedClient?.supabase_id || null
+    const lookupArg = (typeof window !== 'undefined' && window.electronAPI) ? cid : (cUuid || cid)
+    ;(async () => {
+      try {
+        const [mems, combos] = await Promise.all([
+          api?.memberships?.activeForClient?.(lookupArg) ?? [],
+          api?.washCombos?.activeForClient?.(lookupArg)   ?? [],
+        ])
+        if (cancelled) return
+        const mem = (mems || []).find(m => (m.washes_used_this_period || 0) < (m.wash_quota_per_month || 0))
+        setActiveMembership(mem || null)
+        const cb = (combos || []).find(c => (c.used_washes || 0) < (c.total_washes || 0))
+        setActiveCombo(cb || null)
+      } catch {
+        if (!cancelled) { setActiveMembership(null); setActiveCombo(null) }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [selectedClient?.id])
+
+  async function consumeMembership() {
+    if (!activeMembership || consumingBenefit) return
+    setConsumingBenefit(true)
+    try {
+      const r = await api?.memberships?.consume?.(activeMembership.id)
+      if (r?.ok) {
+        setBenefitUsed({ kind: 'membership', remaining: r.remaining })
+        setActiveMembership(m => m ? { ...m, washes_used_this_period: (m.washes_used_this_period || 0) + 1 } : m)
+      }
+    } finally { setConsumingBenefit(false) }
+  }
+  async function consumeCombo() {
+    if (!activeCombo || consumingBenefit) return
+    setConsumingBenefit(true)
+    try {
+      const r = await api?.washCombos?.consume?.(activeCombo.id)
+      if (r?.ok) {
+        setBenefitUsed({ kind: 'combo', remaining: r.remaining })
+        setActiveCombo(c => c ? { ...c, used_washes: (c.used_washes || 0) + 1 } : c)
+      }
+    } finally { setConsumingBenefit(false) }
+  }
+
   useEffect(() => {
     api?.clients?.all?.().then(list => setAllClients(list || [])).catch(() => setAllClients([]))
     api.settings.get().then(s => {
       const cfg = s || {}
       setBizSettings(cfg)
+      // Pick up the business's ITBIS rate (string in app_settings).
+      const pct = Number(cfg.itbis_pct)
+      if (Number.isFinite(pct) && pct >= 0) setItbisRate(pct)
       // Set sensible ncfType default based on fiscal mode
       const mode = cfg.fiscal_mode || 'ecf'
       setNcfType(mode === 'legacy' ? 'B02' : 'E32')
@@ -664,7 +748,10 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
         paidAt:     new Date(),
       }
 
-      const result = await signAndSubmitECF(invoiceData)
+      // Pass `api` so the web build routes through the Supabase-backed proxy
+      // (api.dgii_ecf → /api/ecf-sign). Without it, web users silently fall
+      // back to the local stub and emit fake e-CFs.
+      const result = await signAndSubmitECF(invoiceData, api)
       clearTimeout(t1); clearTimeout(t2)
       setEcfResult(result)
       setEcfState('success')
@@ -805,10 +892,15 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                 <SectionLabel>{tl('summary', lang)}</SectionLabel>
                 <div className="space-y-1.5 mb-3">
                   {ticket.services.map((svc, i) => (
-                    <div key={i} className="flex justify-between">
-                      <span className="text-[13px] text-slate-700 dark:text-white">
-                        {(svc.qty || 1) > 1 ? `${svc.qty}x ` : ''}{svc.name}
-                      </span>
+                    <div key={i} className="flex justify-between items-start">
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[13px] text-slate-700 dark:text-white">
+                          {(svc.qty || 1) > 1 && svc.weight == null ? `${svc.qty}x ` : ''}{svc.name}
+                        </span>
+                        {svc.weight != null && svc.unit && svc.price_per_unit != null && (
+                          <p className="text-[10px] text-slate-400 tabular-nums">{Number(svc.weight).toFixed(3)} {svc.unit} × {fmtRD(svc.price_per_unit)}/{svc.unit}</p>
+                        )}
+                      </div>
                       <span className="text-[13px] text-slate-600 dark:text-white/60 font-medium tabular-nums">{fmtRD(svc.price * (svc.qty || 1))}</span>
                     </div>
                   ))}
@@ -819,7 +911,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                     <span className="tabular-nums">{fmtRD(subtotal)}</span>
                   </div>
                   <div className="flex justify-between text-[12px] text-slate-500 dark:text-white/60">
-                    <span>{tl('itbis', lang)}</span>
+                    <span>{`ITBIS ${itbisRate}%`}</span>
                     <span className="tabular-nums">{fmtRD(itbis)}</span>
                   </div>
                   {ley > 0 && (
@@ -1022,6 +1114,46 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                       <p className="mt-2 text-[11px] text-slate-400 dark:text-white/40 italic px-1">
                         {lang === 'es' ? 'Al Portador' : 'Walk-in Client'}
                       </p>
+                    )}
+
+                    {/* Carwash benefit chips — active membership / wash combo */}
+                    {selectedClient && (activeMembership || activeCombo || benefitUsed) && (
+                      <div className="mt-2 flex flex-wrap gap-2 px-1">
+                        {activeMembership && (
+                          <button
+                            type="button"
+                            onClick={consumeMembership}
+                            disabled={consumingBenefit || benefitUsed?.kind === 'membership'}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                              benefitUsed?.kind === 'membership'
+                                ? 'bg-green-100 dark:bg-green-500/20 border-green-300 dark:border-green-500/40 text-green-700 dark:text-green-400'
+                                : 'bg-sky-50 dark:bg-sky-500/10 border-sky-200 dark:border-sky-500/30 text-sky-700 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-500/20'
+                            }`}
+                            title={activeMembership.plan_name}
+                          >
+                            {benefitUsed?.kind === 'membership'
+                              ? `✓ ${lang === 'es' ? 'Membresía usada' : 'Membership used'} · ${benefitUsed.remaining} ${lang === 'es' ? 'restantes' : 'left'}`
+                              : `${lang === 'es' ? 'Usar membresía' : 'Use membership'} · ${(activeMembership.wash_quota_per_month || 0) - (activeMembership.washes_used_this_period || 0)} ${lang === 'es' ? 'disp.' : 'left'}`}
+                          </button>
+                        )}
+                        {activeCombo && (
+                          <button
+                            type="button"
+                            onClick={consumeCombo}
+                            disabled={consumingBenefit || benefitUsed?.kind === 'combo'}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                              benefitUsed?.kind === 'combo'
+                                ? 'bg-green-100 dark:bg-green-500/20 border-green-300 dark:border-green-500/40 text-green-700 dark:text-green-400'
+                                : 'bg-purple-50 dark:bg-purple-500/10 border-purple-200 dark:border-purple-500/30 text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/20'
+                            }`}
+                            title={activeCombo.combo_name}
+                          >
+                            {benefitUsed?.kind === 'combo'
+                              ? `✓ ${lang === 'es' ? 'Combo aplicado' : 'Combo used'} · ${benefitUsed.remaining} ${lang === 'es' ? 'restantes' : 'left'}`
+                              : `${lang === 'es' ? 'Usar combo' : 'Use combo'} · ${(activeCombo.total_washes || 0) - (activeCombo.used_washes || 0)} ${lang === 'es' ? 'disp.' : 'left'}`}
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

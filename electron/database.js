@@ -163,6 +163,11 @@ function init(userDataPath) {
     "UPDATE ticket_items SET ticket_supabase_id = (SELECT supabase_id FROM tickets WHERE tickets.id = ticket_items.ticket_id) WHERE ticket_supabase_id IS NULL AND ticket_id IS NOT NULL",
     "UPDATE ticket_items SET service_supabase_id = (SELECT supabase_id FROM services WHERE services.id = ticket_items.service_id) WHERE service_supabase_id IS NULL AND service_id IS NOT NULL",
     "UPDATE queue SET ticket_supabase_id = (SELECT supabase_id FROM tickets WHERE tickets.id = queue.ticket_id) WHERE ticket_supabase_id IS NULL AND ticket_id IS NOT NULL",
+    // v2.1: `washers` table is dropped in the schema-consolidation migration further
+    // below. On post-v2.1 installs this UPDATE will throw `no such table: washers`,
+    // which is silently swallowed by the migration loop's catch (see filter list:
+    // `!m.includes('no such table: washers')`). Kept for fresh-install parity and
+    // for any pre-v2.1 DB that still hasn't run the consolidation.
     "UPDATE queue SET washer_supabase_id = (SELECT supabase_id FROM washers WHERE washers.id = queue.washer_id) WHERE washer_supabase_id IS NULL AND washer_id IS NOT NULL",
     "UPDATE washer_commissions SET ticket_supabase_id = (SELECT supabase_id FROM tickets WHERE tickets.id = washer_commissions.ticket_id) WHERE ticket_supabase_id IS NULL AND ticket_id IS NOT NULL",
     "UPDATE washer_commissions SET washer_supabase_id = (SELECT supabase_id FROM washers WHERE washers.id = washer_commissions.washer_id) WHERE washer_supabase_id IS NULL AND washer_id IS NOT NULL",
@@ -309,6 +314,10 @@ function init(userDataPath) {
     'ALTER TABLE tickets ADD COLUMN mesa_supabase_id TEXT',
     'ALTER TABLE tickets ADD COLUMN void_by TEXT',
     'ALTER TABLE tickets ADD COLUMN void_at TEXT',
+    // v2.1.3 — defensive ALTERs for v2.1 schema columns (in case the gated migration block was skipped)
+    "ALTER TABLE tickets ADD COLUMN washer_empleado_supabase_ids TEXT DEFAULT '[]'",
+    'ALTER TABLE tickets ADD COLUMN seller_empleado_supabase_id TEXT',
+    'ALTER TABLE queue ADD COLUMN empleado_supabase_id TEXT',
     // v2.0 — ticket_items needs created_at for pull parity (web-created items include it)
     'ALTER TABLE ticket_items ADD COLUMN created_at TEXT',
     // v2.0 — Restaurant Mode tables are CREATE'd empty with AUTOINCREMENT ids;
@@ -343,6 +352,15 @@ function init(userDataPath) {
     'ALTER TABLE inventory_items ADD COLUMN compatibility TEXT',
     'ALTER TABLE inventory_items ADD COLUMN reorder_quantity INTEGER DEFAULT 0',
     'ALTER TABLE inventory_items ADD COLUMN supplier TEXT',
+    // v2.3 — Carniceria / licoreria expansion: sell-by-weight + bottle deposit
+    "ALTER TABLE inventory_items ADD COLUMN sold_by_weight INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE inventory_items ADD COLUMN unit TEXT",
+    "ALTER TABLE inventory_items ADD COLUMN price_per_unit REAL",
+    "ALTER TABLE inventory_items ADD COLUMN bottle_deposit REAL",
+    "ALTER TABLE inventory_items ADD COLUMN tare_default REAL",
+    "ALTER TABLE ticket_items ADD COLUMN weight REAL",
+    "ALTER TABLE ticket_items ADD COLUMN unit TEXT",
+    "ALTER TABLE ticket_items ADD COLUMN price_per_unit REAL",
     // v2.2 — Multi-vertical expansion: 9 new tables
     `CREATE TABLE IF NOT EXISTS vehicles (
       id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -514,11 +532,67 @@ function init(userDataPath) {
     "UPDATE salary_changes SET updated_at = created_at WHERE updated_at IS NULL",
     'ALTER TABLE salary_changes ADD COLUMN supabase_id TEXT',
     "UPDATE salary_changes SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    // v2.4 — Carwash expansion: memberships (monthly subscription) + wash_combos (punch-card)
+    `CREATE TABLE IF NOT EXISTS memberships (
+      id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id               TEXT,
+      client_id                 INTEGER REFERENCES clients(id),
+      client_supabase_id        TEXT,
+      vehicle_id                INTEGER REFERENCES vehicles(id),
+      vehicle_supabase_id       TEXT,
+      plan_name                 TEXT    NOT NULL,
+      plan_price                REAL    NOT NULL DEFAULT 0,
+      wash_quota_per_month      INTEGER NOT NULL DEFAULT 0,
+      washes_used_this_period   INTEGER NOT NULL DEFAULT 0,
+      period_start              TEXT,
+      period_end                TEXT,
+      start_date                TEXT    NOT NULL DEFAULT (date('now')),
+      end_date                  TEXT,
+      status                    TEXT    NOT NULL DEFAULT 'active',
+      notes                     TEXT,
+      created_at                TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at                TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_memberships_supabase_id ON memberships(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_memberships_client ON memberships(client_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_memberships_status ON memberships(status)`,
+    `CREATE TABLE IF NOT EXISTS wash_combos (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id          TEXT,
+      client_id            INTEGER REFERENCES clients(id),
+      client_supabase_id   TEXT,
+      vehicle_id           INTEGER REFERENCES vehicles(id),
+      vehicle_supabase_id  TEXT,
+      combo_name           TEXT    NOT NULL,
+      total_washes         INTEGER NOT NULL DEFAULT 0,
+      used_washes          INTEGER NOT NULL DEFAULT 0,
+      purchase_price       REAL    NOT NULL DEFAULT 0,
+      purchased_at         TEXT    NOT NULL DEFAULT (datetime('now')),
+      expires_at           TEXT,
+      status               TEXT    NOT NULL DEFAULT 'active',
+      notes                TEXT,
+      created_at           TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at           TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_wash_combos_supabase_id ON wash_combos(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_wash_combos_client ON wash_combos(client_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_wash_combos_status ON wash_combos(status)`,
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
-      if (!e.message?.includes('duplicate column') && !e.message?.includes('already exists') && !e.message?.includes('UNIQUE constraint')) {
-        console.error('[db] Migration failed:', sql.substring(0, 80), '—', e.message)
+      const m = e.message || ''
+      // v2.1: washers/sellers tables are dropped post-consolidation. Pre-2.1
+      // ALTER/UPDATE statements that touch them log "no such table" — that's
+      // the new normal, not an error.
+      if (
+        !m.includes('duplicate column') &&
+        !m.includes('already exists') &&
+        !m.includes('UNIQUE constraint') &&
+        !m.includes('no such table: washers') &&
+        !m.includes('no such table: sellers') &&
+        !m.includes('no such column')
+      ) {
+        console.error('[db] Migration failed:', sql.substring(0, 80), '—', m)
       }
     }
   }
@@ -579,31 +653,11 @@ function init(userDataPath) {
     }
   } catch (e) { console.error('User employee_id backfill error:', e.message) }
 
-  // v1.9.22 — backfill empleados for every washer/seller without one.
-  // Otherwise legacy car-wash clients have zero Nómina visibility for their
-  // lavadores because Empleados screen reads from empleados, not washers.
-  try {
-    db.exec(`
-      INSERT INTO empleados(nombre, tipo, ref_id, salary, start_date, cedula, phone, active, supabase_id, updated_at)
-      SELECT w.name, 'lavador', w.id, 0,
-             COALESCE(w.start_date, date('now')),
-             w.cedula, w.phone, w.active,
-             lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))),
-             datetime('now')
-      FROM washers w
-      WHERE NOT EXISTS (SELECT 1 FROM empleados e WHERE e.ref_id = w.id AND e.tipo = 'lavador')
-    `)
-    db.exec(`
-      INSERT INTO empleados(nombre, tipo, ref_id, salary, start_date, cedula, phone, active, supabase_id, updated_at)
-      SELECT s.name, 'vendedor', s.id, 0,
-             COALESCE(s.start_date, date('now')),
-             s.cedula, s.phone, s.active,
-             lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))),
-             datetime('now')
-      FROM sellers s
-      WHERE NOT EXISTS (SELECT 1 FROM empleados e WHERE e.ref_id = s.id AND e.tipo = 'vendedor')
-    `)
-  } catch (e) { console.error('[db] washer/seller → empleado backfill:', e.message) }
+  // v2.1: v1.9.22 washer/seller → empleado backfill and v1.9.37 users_dedup
+  // blocks are removed. Both are now handled by the v2.1.0 migration below,
+  // which also drops the washers/sellers tables entirely. The app_settings
+  // flags `empleados_backfill_done` and `users_dedup_done` are deleted by
+  // the v2.1 migration so they can't interfere with future migrations.
 
   // v2.0 — Restaurant Mode Phase 2: mesas, modificadores, service_modificadores,
   // ticket_item_modificadores, kds_events. CREATE'd here (before indexes/triggers)
@@ -726,63 +780,104 @@ function init(userDataPath) {
   }
 
   // v1.9 — auto-update updated_at via triggers (so sync can detect changed rows)
-  const triggerTables = ['services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions', 'activity_log', 'mesas', 'modificadores', 'service_modificadores', 'ticket_item_modificadores', 'kds_events', 'vehicles', 'service_bays', 'work_orders', 'work_order_items', 'appointments', 'stylist_schedules', 'loans', 'loan_payments', 'pawn_items']
+  // v2.0 — trigger body writes ISO-8601 UTC with ms precision so local + remote
+  // timestamps compare cleanly as strings OR as Date.parse()-ed numbers. The
+  // old `datetime('now')` shape produced "YYYY-MM-DD HH:MM:SS" (space), which
+  // sorted lower than Supabase's "YYYY-MM-DDTHH:MM:SS.µµµ+00:00" (T). That was
+  // the root cause of the LWW inversion that clobbered every local edit.
+  const triggerTables = ['businesses', 'services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions', 'activity_log', 'mesas', 'modificadores', 'service_modificadores', 'ticket_item_modificadores', 'kds_events', 'vehicles', 'service_bays', 'work_orders', 'work_order_items', 'appointments', 'stylist_schedules', 'loans', 'loan_payments', 'pawn_items']
+
+  // v2.0 — one-shot: drop the legacy SQL-space triggers so the ISO-8601
+  // replacements below are the only ones that fire. Gated so we don't drop
+  // triggers on every boot.
+  let v2TriggersDone = '0'
+  try { v2TriggersDone = db.prepare("SELECT value FROM app_settings WHERE key='updated_at_triggers_v2_done'").get()?.value || '0' } catch {}
+  if (v2TriggersDone !== '1') {
+    for (const t of triggerTables) {
+      try { db.exec(`DROP TRIGGER IF EXISTS trg_${t}_updated_at`) } catch {}
+    }
+  }
+
+  // v2.0.1 — ensure every synced table has an updated_at column BEFORE creating
+  // the auto-bump trigger. Previously the trigger was created on businesses
+  // (which ships without an explicit updated_at column), then fired on the first
+  // real UPDATE and failed with "no such column: NEW.updated_at", blocking the
+  // FirstTimeSetup wizard's empresaSave. Run ALTER TABLE ... ADD COLUMN
+  // unconditionally; SQLite errors on duplicate column name which we swallow.
+  for (const t of triggerTables) {
+    try { db.exec(`ALTER TABLE ${t} ADD COLUMN updated_at TEXT`) } catch {}
+  }
+
   for (const t of triggerTables) {
     try {
       db.exec(`CREATE TRIGGER IF NOT EXISTS trg_${t}_updated_at AFTER UPDATE ON ${t} FOR EACH ROW
         WHEN NEW.updated_at IS OLD.updated_at OR NEW.updated_at IS NULL
-        BEGIN UPDATE ${t} SET updated_at = datetime('now') WHERE id = NEW.id; END`)
+        BEGIN UPDATE ${t} SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = NEW.id; END`)
     } catch (e) {
-      if (!e.message?.includes('already exists')) console.error(`[db] Trigger ${t}:`, e.message)
-    }
-  }
-
-  // ── Dedup washers & sellers (fix: INSERT OR IGNORE had no UNIQUE constraint) ─
-  // Reassign FK references from duplicate rows to the original (lowest id) before deleting.
-  try {
-    const dupWashers = db.prepare(`SELECT w.id AS dup_id, keeper.id AS keep_id
-      FROM washers w JOIN (SELECT MIN(id) AS id, name FROM washers GROUP BY name) keeper
-      ON w.name = keeper.name WHERE w.id != keeper.id`).all()
-    for (const { dup_id, keep_id } of dupWashers) {
-      db.prepare('UPDATE washer_commissions SET washer_id=? WHERE washer_id=?').run(keep_id, dup_id)
-      db.prepare('UPDATE queue SET washer_id=? WHERE washer_id=?').run(keep_id, dup_id)
-      // Remap washer IDs inside the tickets.washer_ids JSON array
-      const rows = db.prepare("SELECT id, washer_ids FROM tickets WHERE washer_ids LIKE ?").all(`%${dup_id}%`)
-      for (const row of rows) {
-        try {
-          const ids = JSON.parse(row.washer_ids || '[]')
-          const fixed = ids.map(id => id === dup_id ? keep_id : id)
-          db.prepare('UPDATE tickets SET washer_ids=? WHERE id=?').run(JSON.stringify(fixed), row.id)
-        } catch { /* skip malformed JSON */ }
+      if (!e.message?.includes('already exists')) {
+        console.error(`[db] Trigger ${t}:`, e.message)
       }
     }
-    db.exec(`DELETE FROM washers WHERE id NOT IN (SELECT MIN(id) FROM washers GROUP BY name)`)
+  }
+  if (v2TriggersDone !== '1') {
+    try { db.prepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('updated_at_triggers_v2_done','1')").run() } catch {}
+  }
 
-    const dupSellers = db.prepare(`SELECT s.id AS dup_id, keeper.id AS keep_id
-      FROM sellers s JOIN (SELECT MIN(id) AS id, name FROM sellers GROUP BY name) keeper
-      ON s.name = keeper.name WHERE s.id != keeper.id`).all()
-    for (const { dup_id, keep_id } of dupSellers) {
-      db.prepare('UPDATE tickets SET seller_id=? WHERE seller_id=?').run(keep_id, dup_id)
-      db.prepare('UPDATE users SET vendedor_id=? WHERE vendedor_id=?').run(keep_id, dup_id)
+  // v2.0 — one-shot migration: rewrite any existing SQL-space timestamps to ISO-8601
+  // with `T` + `.fff` + `Z`. Idempotent on ISO-formatted rows (REPLACE(' ','T') is a no-op).
+  // Gated by app_settings so we only run once per database lifetime.
+  try {
+    const migrated = db.prepare("SELECT value FROM app_settings WHERE key='updated_at_iso_migration_done'").get()?.value
+    if (migrated !== '1') {
+      const migrateStmt = (tbl) => `
+        UPDATE ${tbl}
+        SET updated_at = REPLACE(updated_at, ' ', 'T')
+                         || CASE
+                              WHEN updated_at LIKE '%.%' THEN ''
+                              ELSE '.000'
+                            END
+                         || CASE
+                              WHEN updated_at LIKE '%Z' THEN ''
+                              WHEN updated_at GLOB '*[-+][0-9][0-9]:[0-9][0-9]' THEN ''
+                              WHEN updated_at GLOB '*[-+][0-9][0-9][0-9][0-9]' THEN ''
+                              ELSE 'Z'
+                            END
+        WHERE updated_at IS NOT NULL
+          AND updated_at NOT LIKE '%T%'`
+      for (const t of triggerTables) {
+        try { db.exec(migrateStmt(t)) } catch (e) {
+          if (!e.message?.includes('no such column') && !e.message?.includes('no such table')) {
+            console.error(`[db] updated_at ISO migration ${t}:`, e.message)
+          }
+        }
+      }
+      // Also migrate created_at on the same tables for symmetry (optional, safe)
+      const createdMigrate = (tbl) => `
+        UPDATE ${tbl}
+        SET created_at = REPLACE(created_at, ' ', 'T')
+                         || CASE WHEN created_at LIKE '%.%' THEN '' ELSE '.000' END
+                         || CASE
+                              WHEN created_at LIKE '%Z' THEN ''
+                              WHEN created_at GLOB '*[-+][0-9][0-9]:[0-9][0-9]' THEN ''
+                              WHEN created_at GLOB '*[-+][0-9][0-9][0-9][0-9]' THEN ''
+                              ELSE 'Z'
+                            END
+        WHERE created_at IS NOT NULL
+          AND created_at NOT LIKE '%T%'`
+      for (const t of triggerTables) {
+        try { db.exec(createdMigrate(t)) } catch { /* column may not exist — ignore */ }
+      }
+      db.prepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('updated_at_iso_migration_done','1')").run()
+      console.log('[db] v2 updated_at ISO-8601 migration: complete')
     }
-    db.exec(`DELETE FROM sellers WHERE id NOT IN (SELECT MIN(id) FROM sellers GROUP BY name)`)
-  } catch (e) { if (e.message && !e.message.includes('no such table')) console.error('[db] Dedup error:', e.message) }
-  // Add unique index so INSERT OR IGNORE works correctly going forward
-  try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_washers_name ON washers(name)`) } catch { /* already exists */ }
-  try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sellers_name ON sellers(name)`) } catch { /* already exists */ }
+  } catch (e) { console.error('[db] updated_at ISO migration:', e.message) }
 
-  // Seller & Cajero commissions tables (v1.2)
-  db.exec(`CREATE TABLE IF NOT EXISTS seller_commissions (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    seller_id       INTEGER NOT NULL REFERENCES sellers(id),
-    ticket_id       INTEGER NOT NULL REFERENCES tickets(id),
-    base_amount     REAL    NOT NULL,
-    commission_pct  REAL    NOT NULL,
-    commission_amount REAL  NOT NULL,
-    paid            INTEGER NOT NULL DEFAULT 0,
-    paid_at         TEXT,
-    created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
-  )`)
+  // v2.1: legacy washers/sellers dedup block removed — washers/sellers tables
+  // are dropped by the v2.1 migration below; no more duplicates to clean up.
+  // The seller_commissions table is created by schema.sql with the v2.1
+  // empleado_supabase_id FK shape. Only cajero_commissions still has the
+  // legacy guard below for installs older than v1.2.
+
   db.exec(`CREATE TABLE IF NOT EXISTS cajero_commissions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     cajero_id       INTEGER NOT NULL REFERENCES users(id),
@@ -1025,6 +1120,48 @@ function init(userDataPath) {
   // Add supabase_id + updated_at for sync compliance (v1.9.3)
   try { db.exec('ALTER TABLE salary_changes ADD COLUMN supabase_id TEXT') } catch {}
   try { db.exec('ALTER TABLE salary_changes ADD COLUMN updated_at TEXT') } catch {}
+  // v2.0.2 — drop NOT NULL on empleado_id so pulls of legacy rows (where
+  // empleado_id wasn't populated, only empleado_supabase_id) no longer fail
+  // with "NOT NULL constraint failed". SQLite can't DROP NOT NULL directly,
+  // so we recreate via the standard table-rewrite dance, gated by a one-shot.
+  // v2.1: ALL-CAPS guard removed — the v2.1 migration below deletes the
+  // `empleados_caps_cleanup_done` flag so any new cleanup can re-run if needed.
+
+  try {
+    const done = db.prepare("SELECT value FROM app_settings WHERE key='salary_changes_nullable_empleado_id'").get()?.value
+    if (done !== '1') {
+      const hasNotNull = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='salary_changes'").get()?.sql?.includes('empleado_id    INTEGER NOT NULL')
+      if (hasNotNull) {
+        db.exec(`BEGIN;
+          CREATE TABLE salary_changes_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            empleado_id INTEGER REFERENCES empleados(id) ON DELETE CASCADE,
+            old_salary REAL NOT NULL,
+            new_salary REAL NOT NULL,
+            effective_date TEXT NOT NULL,
+            reason TEXT,
+            changed_by INTEGER REFERENCES users(id),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            supabase_id TEXT,
+            updated_at TEXT,
+            empleado_supabase_id TEXT,
+            business_id TEXT,
+            active INTEGER DEFAULT 1
+          );
+          INSERT INTO salary_changes_new SELECT id, empleado_id, old_salary, new_salary, effective_date, reason, changed_by, created_at, supabase_id, updated_at,
+            (SELECT empleado_supabase_id FROM salary_changes AS s WHERE s.id = salary_changes.id),
+            (SELECT business_id FROM salary_changes AS s WHERE s.id = salary_changes.id),
+            1
+          FROM salary_changes;
+          DROP TABLE salary_changes;
+          ALTER TABLE salary_changes_new RENAME TO salary_changes;
+          CREATE INDEX IF NOT EXISTS idx_salary_changes_empleado ON salary_changes(empleado_id);
+          CREATE INDEX IF NOT EXISTS idx_salary_changes_effective ON salary_changes(empleado_id, effective_date);
+          COMMIT;`)
+      }
+      db.prepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('salary_changes_nullable_empleado_id','1')").run()
+    }
+  } catch (e) { console.error('[db] salary_changes nullable migration:', e.message); try { db.exec('ROLLBACK') } catch {} }
 
   // Backfill: ensure every employee has at least one salary_changes row (initial salary)
   // Single statement — no JS loop, generates supabase_id inline via hex(randomblob(16))
@@ -1097,7 +1234,9 @@ function init(userDataPath) {
   db.exec('CREATE INDEX IF NOT EXISTS idx_cuadre_date ON cuadre_caja(date)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_cuadre_cajero ON cuadre_caja(cajero_id)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_commissions_date ON washer_commissions(created_at)')
-  db.exec('CREATE INDEX IF NOT EXISTS idx_commissions_washer ON washer_commissions(washer_id)')
+  // v2.1: legacy washer_id column is dropped by the v2.1 migration below.
+  // Index creation throws after migration — silently skip.
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_commissions_washer ON washer_commissions(washer_id)') } catch {}
 
   // Ensure all sequence types exist in ncf_sequences (INSERT OR IGNORE — never overwrites existing)
   const ECF_SEED = [
@@ -1148,6 +1287,269 @@ function init(userDataPath) {
       [17, 'Galletas',           'Cookies',           'Bebidas',      60,   0, 5],
     ]
     db.transaction(() => defServices.forEach(r => insDefSvc.run(...r)))()
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // v2.1.0 — Schema consolidation migration: drops legacy `washers`/`sellers`
+  //   tables and remaps every dependent FK onto `empleados.supabase_id`.
+  //
+  //   Safety guarantees:
+  //     1. Creates `<userData>/terminal-x.db.pre-v2.1.bak` BEFORE any DDL.
+  //        Aborts (returns; leaves schema_version unset) if backup fails.
+  //     2. Wraps every DDL + data statement in a single db.transaction() —
+  //        any failure rolls back to pre-migration state.
+  //     3. Runs an integrity check before committing: if any commission row
+  //        lost its empleado link, throw to trigger ROLLBACK.
+  //     4. Gated on app_settings['schema_version']='2.1.0' so it only fires
+  //        once per database. If the transaction throws, schema_version is
+  //        NOT written, and the migration retries on next launch.
+  //     5. On orphan detection: writes diagnostic to app_settings['v2_1_orphans']
+  //        and throws. Admin panel surfaces the flag for owner triage.
+  // ══════════════════════════════════════════════════════════════════════════════
+  {
+    const alreadyMigrated = db.prepare("SELECT value FROM app_settings WHERE key='schema_version'").get()?.value
+    if (alreadyMigrated !== '2.1.0') {
+      // Step 0 — auto-backup. Non-negotiable. If this fails, abort.
+      const dbPath = path.join(userDataPath, 'terminal-x.db')
+      const bakPath = dbPath + '.pre-v2.1.bak'
+      let backupOk = false
+      try {
+        if (!fs.existsSync(bakPath)) {
+          // Checkpoint WAL so the .bak is a full snapshot, not half-empty.
+          try { db.pragma('wal_checkpoint(FULL)') } catch {}
+          fs.copyFileSync(dbPath, bakPath)
+        }
+        backupOk = true
+        console.log('[db] v2.1 migration: backup ready at', bakPath)
+      } catch (e) {
+        console.error('[db] v2.1 pre-migration backup FAILED — aborting migration:', e.message)
+        // Do NOT set schema_version; migration will retry next launch once the disk issue is fixed.
+      }
+
+      if (backupOk) {
+        // Helper: table-rewrite to drop legacy INT FK columns without losing data.
+        // Mirrors the salary_changes pattern at database.js:1101-1126.
+        // Only rewrites the table if at least one of the legacy cols actually exists.
+        const rewriteTable = (table, dropCols, indexes = []) => {
+          const info = db.prepare(`PRAGMA table_info(${table})`).all()
+          if (!info.length) return // table doesn't exist
+          const existing = info.map(c => c.name)
+          const toDrop = dropCols.filter(c => existing.includes(c))
+          if (!toDrop.length) return
+          const keep = existing.filter(c => !dropCols.includes(c))
+          if (!keep.length) return
+          const colsCsv = keep.join(',')
+          // Rebuild using the same PRAGMA info (preserves NOT NULL, DEFAULT, type).
+          // We can't fully reconstruct the source-level SQL, so we write a permissive
+          // schema: TYPE, keep NOT NULL flag, carry forward DEFAULT literals.
+          const newCols = info.filter(c => !dropCols.includes(c.name)).map(c => {
+            let line = `${c.name} ${c.type || 'TEXT'}`
+            if (c.notnull) line += ' NOT NULL'
+            if (c.dflt_value != null) line += ` DEFAULT ${c.dflt_value}`
+            return line
+          }).join(', ')
+          // PK column name is the one with pk=1; keep it as the id column with AUTOINCREMENT behavior.
+          // Most of our tables follow `id INTEGER PRIMARY KEY AUTOINCREMENT`, so override the line for pk cols.
+          const pkCol = info.find(c => c.pk === 1)
+          const newColsWithPk = info.filter(c => !dropCols.includes(c.name)).map(c => {
+            if (c.pk === 1) return `${c.name} INTEGER PRIMARY KEY AUTOINCREMENT`
+            let line = `${c.name} ${c.type || 'TEXT'}`
+            if (c.notnull) line += ' NOT NULL'
+            if (c.dflt_value != null) line += ` DEFAULT ${c.dflt_value}`
+            return line
+          }).join(', ')
+          const tmp = `${table}__v21_new`
+          db.exec(`CREATE TABLE ${tmp} (${newColsWithPk})`)
+          db.exec(`INSERT INTO ${tmp} (${colsCsv}) SELECT ${colsCsv} FROM ${table}`)
+          db.exec(`DROP TABLE ${table}`)
+          db.exec(`ALTER TABLE ${tmp} RENAME TO ${table}`)
+          for (const idx of indexes) {
+            try { db.exec(idx) } catch (e) { console.warn(`[db] v2.1 rewriteTable index:`, e.message) }
+          }
+        }
+
+        const uuidExpr = `lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6)))`
+
+        const migrate = db.transaction(() => {
+          // Step 1 — backfill empleados.comision_pct from washers/sellers (best-effort).
+          //          If the washers/sellers tables were already dropped on a prior boot
+          //          (unusual), the try/catch below swallows the "no such table".
+          try {
+            db.exec(`UPDATE empleados SET comision_pct = (SELECT commission_pct FROM washers w WHERE w.id = empleados.ref_id) WHERE tipo='lavador' AND (comision_pct IS NULL OR comision_pct = 0) AND ref_id IS NOT NULL`)
+          } catch (e) { if (!String(e.message).includes('no such table')) throw e }
+          try {
+            db.exec(`UPDATE empleados SET comision_pct = (SELECT commission_pct FROM sellers s WHERE s.id = empleados.ref_id) WHERE tipo='vendedor' AND (comision_pct IS NULL OR comision_pct = 0) AND ref_id IS NOT NULL`)
+          } catch (e) { if (!String(e.message).includes('no such table')) throw e }
+
+          // Step 2 — add empleado_supabase_id columns to commission/queue tables.
+          const addCol = (table, col = 'empleado_supabase_id') => {
+            try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT`) } catch (e) {
+              if (!String(e.message).includes('duplicate column')) throw e
+            }
+          }
+          addCol('washer_commissions')
+          addCol('seller_commissions')
+          addCol('cajero_commissions') // cajero uses cajero_supabase_id still — keep column for future unification
+          addCol('queue')
+
+          // Step 3 — backfill empleado_supabase_id on commission tables via empleados.ref_id join.
+          //          washer_commissions.washer_id → empleados (tipo='lavador', ref_id=washer_id)
+          //          seller_commissions.seller_id → empleados (tipo='vendedor', ref_id=seller_id)
+          try {
+            db.exec(`UPDATE washer_commissions
+              SET empleado_supabase_id = (
+                SELECT e.supabase_id FROM empleados e
+                WHERE e.ref_id = washer_commissions.washer_id AND e.tipo='lavador'
+                LIMIT 1
+              )
+              WHERE empleado_supabase_id IS NULL AND washer_id IS NOT NULL`)
+          } catch (e) { if (!String(e.message).includes('no such column')) throw e }
+          try {
+            db.exec(`UPDATE seller_commissions
+              SET empleado_supabase_id = (
+                SELECT e.supabase_id FROM empleados e
+                WHERE e.ref_id = seller_commissions.seller_id AND e.tipo='vendedor'
+                LIMIT 1
+              )
+              WHERE empleado_supabase_id IS NULL AND seller_id IS NOT NULL`)
+          } catch (e) { if (!String(e.message).includes('no such column')) throw e }
+          // Fallback path: if ref_id wasn't populated on empleados, try matching by supabase_id
+          // (washer_supabase_id / seller_supabase_id columns already exist on the commission tables
+          // from v1.6, pointing at the legacy washers/sellers rows which carry the same supabase_id).
+          try {
+            db.exec(`UPDATE washer_commissions
+              SET empleado_supabase_id = washer_supabase_id
+              WHERE empleado_supabase_id IS NULL
+                AND washer_supabase_id IS NOT NULL
+                AND EXISTS (SELECT 1 FROM empleados e WHERE e.supabase_id = washer_commissions.washer_supabase_id)`)
+          } catch {}
+          try {
+            db.exec(`UPDATE seller_commissions
+              SET empleado_supabase_id = seller_supabase_id
+              WHERE empleado_supabase_id IS NULL
+                AND seller_supabase_id IS NOT NULL
+                AND EXISTS (SELECT 1 FROM empleados e WHERE e.supabase_id = seller_commissions.seller_supabase_id)`)
+          } catch {}
+
+          // Step 4 — queue.empleado_supabase_id backfill from queue.washer_id.
+          try {
+            db.exec(`UPDATE queue
+              SET empleado_supabase_id = (
+                SELECT e.supabase_id FROM empleados e
+                WHERE e.ref_id = queue.washer_id AND e.tipo='lavador'
+                LIMIT 1
+              )
+              WHERE empleado_supabase_id IS NULL AND washer_id IS NOT NULL`)
+          } catch (e) { if (!String(e.message).includes('no such column')) throw e }
+          // Fallback: match by washer_supabase_id if column exists.
+          try {
+            db.exec(`UPDATE queue
+              SET empleado_supabase_id = washer_supabase_id
+              WHERE empleado_supabase_id IS NULL
+                AND washer_supabase_id IS NOT NULL
+                AND EXISTS (SELECT 1 FROM empleados e WHERE e.supabase_id = queue.washer_supabase_id)`)
+          } catch {}
+
+          // Step 5 — tickets.washer_empleado_supabase_ids column + JSON remap.
+          try { db.exec(`ALTER TABLE tickets ADD COLUMN washer_empleado_supabase_ids TEXT`) } catch (e) {
+            if (!String(e.message).includes('duplicate column')) throw e
+          }
+          try {
+            const ticketRows = db.prepare(`SELECT id, washer_ids FROM tickets WHERE washer_ids IS NOT NULL AND washer_ids != '[]' AND (washer_empleado_supabase_ids IS NULL OR washer_empleado_supabase_ids = '[]')`).all()
+            const mapLavador = db.prepare(`SELECT supabase_id FROM empleados WHERE ref_id = ? AND tipo='lavador' LIMIT 1`)
+            const updTicket = db.prepare(`UPDATE tickets SET washer_empleado_supabase_ids = ? WHERE id = ?`)
+            for (const t of ticketRows) {
+              try {
+                const rawIds = JSON.parse(t.washer_ids || '[]')
+                const sids = rawIds.map(wid => mapLavador.get(wid)?.supabase_id).filter(Boolean)
+                updTicket.run(JSON.stringify(sids), t.id)
+              } catch {
+                // malformed JSON — leave ticket's new column as default; safe fallback
+                updTicket.run('[]', t.id)
+              }
+            }
+          } catch (e) {
+            // `washer_ids` column might already be gone on a partial-migration retry — skip.
+            if (!String(e.message).includes('no such column')) throw e
+          }
+
+          // Step 6 — seller_empleado_supabase_id on tickets (mirror of seller_supabase_id).
+          try { db.exec(`ALTER TABLE tickets ADD COLUMN seller_empleado_supabase_id TEXT`) } catch (e) {
+            if (!String(e.message).includes('duplicate column')) throw e
+          }
+          try {
+            db.exec(`UPDATE tickets
+              SET seller_empleado_supabase_id = (
+                SELECT e.supabase_id FROM empleados e
+                WHERE e.ref_id = tickets.seller_id AND e.tipo='vendedor'
+                LIMIT 1
+              )
+              WHERE seller_empleado_supabase_id IS NULL AND seller_id IS NOT NULL`)
+          } catch (e) { if (!String(e.message).includes('no such column')) throw e }
+          try {
+            db.exec(`UPDATE tickets
+              SET seller_empleado_supabase_id = seller_supabase_id
+              WHERE seller_empleado_supabase_id IS NULL
+                AND seller_supabase_id IS NOT NULL
+                AND EXISTS (SELECT 1 FROM empleados e WHERE e.supabase_id = tickets.seller_supabase_id)`)
+          } catch {}
+
+          // Step 7 — INTEGRITY CHECK. If any row with a legacy FK lost its empleado,
+          //          abort the whole migration so we can re-run once data is clean.
+          let orphW = 0, orphS = 0
+          try { orphW = db.prepare(`SELECT COUNT(*) AS c FROM washer_commissions WHERE washer_id IS NOT NULL AND empleado_supabase_id IS NULL`).get()?.c || 0 } catch {}
+          try { orphS = db.prepare(`SELECT COUNT(*) AS c FROM seller_commissions WHERE seller_id IS NOT NULL AND empleado_supabase_id IS NULL`).get()?.c || 0 } catch {}
+          if (orphW > 0 || orphS > 0) {
+            // Surface for admin panel triage before rolling back.
+            db.prepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('v2_1_orphans', ?)").run(`washers:${orphW}, sellers:${orphS}`)
+            throw new Error(`v2.1 ABORT — orphan commission rows W=${orphW} S=${orphS}. Link empleados.ref_id to resolve, migration retries next boot.`)
+          }
+          // Clear any stale orphan flag from a prior aborted run.
+          try { db.prepare("DELETE FROM app_settings WHERE key='v2_1_orphans'").run() } catch {}
+
+          // Step 8 — drop legacy INT FK columns via table rewrite.
+          //          Only touches columns that still exist; safe to re-run.
+          rewriteTable('tickets', ['washer_ids', 'seller_id'], [
+            `CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_supabase_id ON tickets(supabase_id)`,
+            `CREATE INDEX IF NOT EXISTS idx_tickets_created ON tickets(created_at)`,
+            `CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status)`,
+          ])
+          rewriteTable('washer_commissions', ['washer_id', 'washer_supabase_id'], [
+            `CREATE UNIQUE INDEX IF NOT EXISTS idx_washer_commissions_supabase_id ON washer_commissions(supabase_id)`,
+            `CREATE INDEX IF NOT EXISTS idx_commissions_date ON washer_commissions(created_at)`,
+            `CREATE INDEX IF NOT EXISTS idx_commissions_empleado_w ON washer_commissions(empleado_supabase_id)`,
+          ])
+          rewriteTable('seller_commissions', ['seller_id', 'seller_supabase_id'], [
+            `CREATE UNIQUE INDEX IF NOT EXISTS idx_seller_commissions_supabase_id ON seller_commissions(supabase_id)`,
+            `CREATE INDEX IF NOT EXISTS idx_commissions_empleado_s ON seller_commissions(empleado_supabase_id)`,
+          ])
+          rewriteTable('queue', ['washer_id', 'washer_supabase_id'], [
+            `CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_supabase_id ON queue(supabase_id)`,
+            `CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status)`,
+            `CREATE INDEX IF NOT EXISTS idx_queue_empleado ON queue(empleado_supabase_id)`,
+          ])
+
+          // Step 9 — drop washers + sellers tables.
+          db.exec(`DROP TABLE IF EXISTS washers`)
+          db.exec(`DROP TABLE IF EXISTS sellers`)
+
+          // Step 10 — clear legacy migration flags (so any future re-runs of
+          //           matching logic inside the main init path short-circuit out).
+          db.prepare("DELETE FROM app_settings WHERE key IN ('empleados_backfill_done','empleados_caps_cleanup_done','users_dedup_done')").run()
+
+          // Step 11 — mark schema version. Only reached if every step above succeeded.
+          db.prepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('schema_version','2.1.0')").run()
+        })
+
+        try {
+          migrate()
+          console.log('[db] v2.1.0 migration: complete')
+        } catch (e) {
+          console.error('[db] v2.1 migration FAILED — rolled back, will retry next launch:', e.message)
+          // schema_version intentionally NOT written so startup retries.
+        }
+      }
+    }
   }
 
   // Seed if empty — DEV ONLY (skip in packaged production builds)
@@ -1285,7 +1687,17 @@ function settingsUpdate(obj) {
 function authByPin(pin) {
   if (!db) return null
   const hash = sha256(pin)
-  return db.prepare('SELECT id,name,username,role,discount_pct FROM users WHERE pin_hash=? AND active=1').get(hash)
+  // F9 — deterministic tiebreaker. Multiple rows may share the same PIN hash
+  // during the dedup window (e.g. 3 michael clones all hashed "1234" earlier
+  // today). Prefer the row wired to an `empleados` record (real logins) over
+  // orphan clones, then the oldest local `id`. NEVER return a random row.
+  return db.prepare(`
+    SELECT id, name, username, role, discount_pct
+    FROM users
+    WHERE pin_hash=? AND active=1
+    ORDER BY (employee_id IS NOT NULL) DESC, id ASC
+    LIMIT 1
+  `).get(hash)
 }
 function usersGetAll() {
   if (!db) return []
@@ -1293,20 +1705,96 @@ function usersGetAll() {
 }
 function userCreate(data) {
   if (!db) return null
-  // Check if username exists — update PIN if so (re-run setup), otherwise insert
-  const existing = db.prepare('SELECT id, supabase_id FROM users WHERE username=?').get(data.username)
+  // Resolve pin_hash: explicit pin_hash wins (remote pull), else hash the plaintext pin,
+  // else reject (no credentials supplied).
+  const resolvePinHash = () => {
+    if (data.pin_hash) return data.pin_hash
+    if (data.pin) return sha256(data.pin)
+    throw new Error('PIN requerido')
+  }
+
+  // F2 / F8 — supabase_id is AUTHORITATIVE identity. If the caller supplies
+  // one, we ONLY match on that. We never fall back to username match when a
+  // supabase_id is present, because that was the exact mechanism by which
+  // FirstTimeSetup's `supabase_id: u.id` bug (F2) re-wrote a correct local
+  // row's identity and poisoned sync forever. If the supplied supabase_id
+  // doesn't exist locally, we INSERT a new row regardless of whether a row
+  // with the same username exists (defensive — two users with the same
+  // username but different Supabase UUIDs is a legitimate state during
+  // dedup / migration and must not auto-merge).
+  if (data.supabase_id) {
+    const existing = db.prepare('SELECT id, supabase_id FROM users WHERE supabase_id=?').get(data.supabase_id)
+    if (existing) {
+      db.prepare('UPDATE users SET name=@name, username=@username, pin_hash=@pin_hash, role=@role, discount_pct=@discount_pct, commission_pct=COALESCE(@commission_pct, commission_pct), employee_id=@employee_id, cedula=@cedula, start_date=@start_date, active=1 WHERE id=@id')
+        .run({
+          name: data.name,
+          username: data.username,
+          pin_hash: resolvePinHash(),
+          role: data.role,
+          discount_pct: data.discount_pct || 0,
+          commission_pct: data.commission_pct ?? null,
+          employee_id: data.employee_id || null,
+          cedula: data.cedula || null,
+          start_date: data.start_date || null,
+          id: existing.id,
+        })
+      return { id: existing.id, supabase_id: data.supabase_id }
+    }
+    // No match on supabase_id → INSERT new row, even if username collides.
+    // Username collision would throw on the UNIQUE index — catch it and log;
+    // the caller is responsible for resolving the collision (e.g. by letting
+    // the Supabase side dedup run).
+    try {
+      const r = db.prepare(`INSERT INTO users(name,username,pin_hash,role,discount_pct,commission_pct,employee_id,cedula,start_date,active,supabase_id)
+        VALUES(@name,@username,@pin_hash,@role,@discount_pct,@commission_pct,@employee_id,@cedula,@start_date,1,@supabase_id)`).run({
+        name: data.name,
+        username: data.username,
+        pin_hash: resolvePinHash(),
+        role: data.role,
+        discount_pct: data.discount_pct || 0,
+        commission_pct: data.commission_pct || 0,
+        employee_id: data.employee_id || null,
+        cedula: data.cedula || null,
+        start_date: data.start_date || null,
+        supabase_id: data.supabase_id,
+      })
+      return { id: r.lastInsertRowid, supabase_id: data.supabase_id }
+    } catch (e) {
+      if (e.message?.includes('UNIQUE') && e.message?.includes('username')) {
+        console.warn(`[db] userCreate: username "${data.username}" already exists under a different supabase_id. Skipping — caller should resolve the collision.`)
+        return null
+      }
+      throw e
+    }
+  }
+
+  // No supabase_id supplied → local-only create. Match by username only as a
+  // last-resort upsert path (renaming a legacy row, etc.).
+  let existing = db.prepare('SELECT id, supabase_id FROM users WHERE username=?').get(data.username)
   if (existing) {
-    const hash = (() => { if (!data.pin) throw new Error('PIN requerido'); return sha256(data.pin) })()
-    db.prepare('UPDATE users SET name=@name, pin_hash=@pin_hash, role=@role, discount_pct=@discount_pct, employee_id=@employee_id, cedula=@cedula, start_date=@start_date, active=1 WHERE id=@id')
-      .run({ name: data.name, pin_hash: hash, role: data.role, discount_pct: data.discount_pct || 0, employee_id: data.employee_id || null, cedula: data.cedula || null, start_date: data.start_date || null, id: existing.id })
+    db.prepare('UPDATE users SET name=@name, pin_hash=@pin_hash, role=@role, discount_pct=@discount_pct, commission_pct=COALESCE(@commission_pct, commission_pct), employee_id=@employee_id, cedula=@cedula, start_date=@start_date, active=1 WHERE id=@id')
+      .run({
+        name: data.name,
+        pin_hash: resolvePinHash(),
+        role: data.role,
+        discount_pct: data.discount_pct || 0,
+        commission_pct: data.commission_pct ?? null,
+        employee_id: data.employee_id || null,
+        cedula: data.cedula || null,
+        start_date: data.start_date || null,
+        id: existing.id,
+      })
     return { id: existing.id, supabase_id: existing.supabase_id }
   }
   const sid = crypto.randomUUID()
-  const r = db.prepare(`INSERT INTO users(name,username,pin_hash,role,discount_pct,employee_id,cedula,start_date,active,supabase_id)
-    VALUES(@name,@username,@pin_hash,@role,@discount_pct,@employee_id,@cedula,@start_date,1,@supabase_id)`).run({
-    ...data,
-    pin_hash: (() => { if (!data.pin) throw new Error('PIN requerido'); return sha256(data.pin) })(),
+  const r = db.prepare(`INSERT INTO users(name,username,pin_hash,role,discount_pct,commission_pct,employee_id,cedula,start_date,active,supabase_id)
+    VALUES(@name,@username,@pin_hash,@role,@discount_pct,@commission_pct,@employee_id,@cedula,@start_date,1,@supabase_id)`).run({
+    name: data.name,
+    username: data.username,
+    pin_hash: resolvePinHash(),
+    role: data.role,
     discount_pct: data.discount_pct || 0,
+    commission_pct: data.commission_pct || 0,
     employee_id: data.employee_id || null,
     cedula: data.cedula || null,
     start_date: data.start_date || null,
@@ -1316,9 +1804,9 @@ function userCreate(data) {
 }
 function userUpdate(id, data) {
   if (!db) return
-  const allowed = ['name', 'username', 'pin_hash', 'role', 'discount_pct', 'employee_id', 'vendedor_id', 'commission_pct', 'active']
+  const allowed = ['name', 'username', 'pin_hash', 'role', 'discount_pct', 'employee_id', 'vendedor_id', 'commission_pct', 'active', 'supabase_id', 'cedula', 'start_date']
   const { pin, ...rest } = data
-  if (pin) rest.pin_hash = sha256(pin)
+  if (pin && !rest.pin_hash) rest.pin_hash = sha256(pin)
   const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
@@ -1332,6 +1820,29 @@ function userDelete(id) {
   activityLogRecord({ event_type: 'user_deactivated', severity: 'warn',
     target_type: 'user', target_id: id, target_name: targetName })
   return { deleted: true }
+}
+
+function userDeleteHard(id) {
+  if (!db) return { deleted: false }
+  const target = db.prepare('SELECT name, username FROM users WHERE id=?').get(id)
+  if (!target) return { deleted: false, error: 'User not found' }
+  const targetName = `${target.name} (@${target.username})`
+  const tx = db.transaction(() => {
+    db.prepare('UPDATE tickets SET cajero_id=NULL WHERE cajero_id=?').run(id)
+    db.prepare('UPDATE tickets SET void_by=NULL WHERE void_by=?').run(id)
+    try { db.prepare('UPDATE nominas SET paid_by=NULL WHERE paid_by=?').run(id) } catch {}
+    try { db.prepare('UPDATE service_price_history SET changed_by=NULL WHERE changed_by=?').run(id) } catch {}
+    try { db.prepare('UPDATE cuadre_caja SET cajero_id=NULL WHERE cajero_id=?').run(id) } catch {}
+    try { db.prepare('UPDATE caja_chica SET cajero_id=NULL, approved_by=NULL WHERE cajero_id=? OR approved_by=?').run(id, id) } catch {}
+    try { db.prepare('UPDATE notas_credito SET cajero_id=NULL WHERE cajero_id=?').run(id) } catch {}
+    try { db.prepare('DELETE FROM cajero_commissions WHERE cajero_id=?').run(id) } catch {}
+    db.prepare('DELETE FROM users WHERE id=?').run(id)
+  })
+  tx()
+  activityLogRecord({ event_type: 'user_hard_deleted', severity: 'critical',
+    target_type: 'user', target_id: id, target_name: targetName,
+    reason: 'force delete from Admin → Usuarios' })
+  return { deleted: true, hard: true }
 }
 
 // ── CATEGORIAS SERVICIO ───────────────────────────────────────────────────────
@@ -1426,37 +1937,65 @@ function serviceDelete(id) {
   return { deleted: true }
 }
 
-// ── WASHERS ───────────────────────────────────────────────────────────────────
+// ── WASHERS (v2.1 shims → empleados tipo='lavador'/'hybrid') ─────────────────
+// Preserves the pre-v2.1 function signatures + return shape so existing IPC
+// handlers, UI callers, and report screens keep working unchanged. Internally
+// all writes/reads route through `empleados`; `commission_pct` maps to
+// `comision_pct`, `name` maps to `nombre`. `hybrid` employees show up in BOTH
+// washer and seller lists.
+function _empLavadorRow(e) {
+  if (!e) return e
+  // Present the historic shape: `name`, `commission_pct`, etc.
+  return {
+    id: e.id,
+    supabase_id: e.supabase_id,
+    name: e.nombre,
+    phone: e.phone,
+    cedula: e.cedula,
+    commission_pct: e.comision_pct != null ? e.comision_pct : 0,
+    start_date: e.start_date,
+    active: e.active,
+    created_at: e.created_at,
+    updated_at: e.updated_at,
+  }
+}
 function washersGetAll() {
   if (!db) return []
-  return db.prepare('SELECT * FROM washers WHERE active=1 ORDER BY name').all()
+  return db.prepare(`SELECT * FROM empleados WHERE active=1 AND tipo IN ('lavador','hybrid') ORDER BY nombre`).all().map(_empLavadorRow)
 }
 function washersGetAllAdmin() {
   if (!db) return []
-  return db.prepare('SELECT * FROM washers ORDER BY name').all()
+  return db.prepare(`SELECT * FROM empleados WHERE tipo IN ('lavador','hybrid') ORDER BY nombre`).all().map(_empLavadorRow)
 }
 function washerCreate(data) {
   if (!db) return null
   const sid = crypto.randomUUID()
-  const r = db.prepare(`INSERT INTO washers(name,phone,cedula,commission_pct,start_date,active,supabase_id)
-    VALUES(@name,@phone,@cedula,@commission_pct,@start_date,1,@supabase_id)`).run({
-    name: data.name, phone: data.phone || null, cedula: data.cedula || null,
-    commission_pct: data.commission_pct || 20, start_date: data.start_date || null,
+  const r = db.prepare(`INSERT INTO empleados(nombre,tipo,phone,cedula,comision_pct,start_date,role,active,supabase_id,updated_at,salary)
+    VALUES(@nombre,'lavador',@phone,@cedula,@comision_pct,@start_date,'none',1,@supabase_id,strftime('%Y-%m-%dT%H:%M:%fZ','now'),0)`).run({
+    nombre: data.name, phone: data.phone || null, cedula: data.cedula || null,
+    comision_pct: data.commission_pct != null ? data.commission_pct : 20,
+    start_date: data.start_date || new Date().toISOString().slice(0, 10),
     supabase_id: sid,
   })
-  return { id: r.lastInsertRowid, supabase_id: sid }
+  return { id: r.lastInsertRowid, supabase_id: sid, name: data.name, commission_pct: data.commission_pct || 20 }
 }
 function washerUpdate(id, data) {
   if (!db) return
-  const allowed = ['name','phone','cedula','commission_pct','start_date','active']
-  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  // Translate legacy column names → empleados columns.
+  const patch = {}
+  if (data.name != null) patch.nombre = data.name
+  if (data.phone != null) patch.phone = data.phone
+  if (data.cedula != null) patch.cedula = data.cedula
+  if (data.commission_pct != null) patch.comision_pct = data.commission_pct
+  if (data.start_date != null) patch.start_date = data.start_date
+  if (data.active != null) patch.active = data.active
   if (!Object.keys(patch).length) return
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
-  db.prepare(`UPDATE washers SET ${fields} WHERE id=@id`).run({ ...patch, id })
+  db.prepare(`UPDATE empleados SET ${fields} WHERE id=@id AND tipo IN ('lavador','hybrid')`).run({ ...patch, id })
 }
 function washerDelete(id) {
   if (!db) return
-  db.prepare('UPDATE washers SET active=0 WHERE id=?').run(id)
+  db.prepare(`UPDATE empleados SET active=0 WHERE id=? AND tipo IN ('lavador','hybrid')`).run(id)
 }
 
 // ── Empleados (payroll) ─────────────────────────────────────────────────────
@@ -1527,13 +2066,14 @@ function empleadoDelete(id) {
 }
 function empleadoHardDelete(id) {
   if (!db) return { ok: false, reason: 'no-db' }
-  const emp = db.prepare('SELECT id FROM empleados WHERE id=?').get(id)
+  const emp = db.prepare('SELECT id, supabase_id FROM empleados WHERE id=?').get(id)
   if (!emp) return { ok: false, reason: 'not-found' }
   // Safety: refuse hard delete if there's financial history referencing this empleado.
   const runs = db.prepare('SELECT COUNT(*) AS n FROM payroll_runs WHERE empleado_id=?').get(id)?.n || 0
+  // v2.1: commission tables FK to empleados.supabase_id directly.
   let commCount = 0
-  try { commCount += db.prepare('SELECT COUNT(*) AS n FROM washer_commissions WHERE washer_id IN (SELECT id FROM washers WHERE ref_id=?)').get(id)?.n || 0 } catch {}
-  try { commCount += db.prepare('SELECT COUNT(*) AS n FROM seller_commissions WHERE seller_id IN (SELECT id FROM sellers WHERE ref_id=?)').get(id)?.n || 0 } catch {}
+  try { commCount += db.prepare('SELECT COUNT(*) AS n FROM washer_commissions WHERE empleado_supabase_id=?').get(emp.supabase_id)?.n || 0 } catch {}
+  try { commCount += db.prepare('SELECT COUNT(*) AS n FROM seller_commissions WHERE empleado_supabase_id=?').get(emp.supabase_id)?.n || 0 } catch {}
   if (runs > 0 || commCount > 0) {
     db.prepare('UPDATE empleados SET active=0 WHERE id=?').run(id)
     return { ok: true, softDeleted: true, reason: 'has-history', runs, commissions: commCount }
@@ -2022,33 +2562,58 @@ function salaryAtDate(empleadoId, date) {
   return Number(emp?.salary || 0)
 }
 
-// ── SELLERS ───────────────────────────────────────────────────────────────────
+// ── SELLERS (v2.1 shims → empleados tipo='vendedor'/'hybrid') ────────────────
+function _empVendedorRow(e) {
+  if (!e) return e
+  return {
+    id: e.id,
+    supabase_id: e.supabase_id,
+    name: e.nombre,
+    phone: e.phone,
+    cedula: e.cedula,
+    commission_pct: e.comision_pct != null ? e.comision_pct : 0,
+    start_date: e.start_date,
+    active: e.active,
+    created_at: e.created_at,
+    updated_at: e.updated_at,
+  }
+}
 function sellersGetAll() {
   if (!db) return []
-  return db.prepare('SELECT * FROM sellers WHERE active=1 ORDER BY name').all()
+  return db.prepare(`SELECT * FROM empleados WHERE active=1 AND tipo IN ('vendedor','hybrid') ORDER BY nombre`).all().map(_empVendedorRow)
 }
 function sellersGetAllAdmin() {
   if (!db) return []
-  return db.prepare('SELECT * FROM sellers ORDER BY name').all()
+  return db.prepare(`SELECT * FROM empleados WHERE tipo IN ('vendedor','hybrid') ORDER BY nombre`).all().map(_empVendedorRow)
 }
 function sellerCreate(data) {
   if (!db) return null
   const sid = crypto.randomUUID()
-  const r = db.prepare('INSERT INTO sellers(name,commission_pct,phone,cedula,start_date,active,supabase_id) VALUES(?,?,?,?,?,1,?)')
-    .run(data.name, data.commission_pct || 5, data.phone || null, data.cedula || null, data.start_date || null, sid)
-  return { id: r.lastInsertRowid, supabase_id: sid }
+  const r = db.prepare(`INSERT INTO empleados(nombre,tipo,phone,cedula,comision_pct,start_date,role,active,supabase_id,updated_at,salary)
+    VALUES(@nombre,'vendedor',@phone,@cedula,@comision_pct,@start_date,'none',1,@supabase_id,strftime('%Y-%m-%dT%H:%M:%fZ','now'),0)`).run({
+    nombre: data.name, phone: data.phone || null, cedula: data.cedula || null,
+    comision_pct: data.commission_pct != null ? data.commission_pct : 5,
+    start_date: data.start_date || new Date().toISOString().slice(0, 10),
+    supabase_id: sid,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid, name: data.name, commission_pct: data.commission_pct || 5 }
 }
 function sellerUpdate(id, data) {
   if (!db) return
-  const allowed = ['name','commission_pct','phone','cedula','start_date','active']
-  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  const patch = {}
+  if (data.name != null) patch.nombre = data.name
+  if (data.phone != null) patch.phone = data.phone
+  if (data.cedula != null) patch.cedula = data.cedula
+  if (data.commission_pct != null) patch.comision_pct = data.commission_pct
+  if (data.start_date != null) patch.start_date = data.start_date
+  if (data.active != null) patch.active = data.active
   if (!Object.keys(patch).length) return
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
-  db.prepare(`UPDATE sellers SET ${fields} WHERE id=@id`).run({ ...patch, id })
+  db.prepare(`UPDATE empleados SET ${fields} WHERE id=@id AND tipo IN ('vendedor','hybrid')`).run({ ...patch, id })
 }
 function sellerDelete(id) {
   if (!db) return
-  db.prepare('UPDATE sellers SET active=0 WHERE id=?').run(id)
+  db.prepare(`UPDATE empleados SET active=0 WHERE id=? AND tipo IN ('vendedor','hybrid')`).run(id)
 }
 
 // ── CLIENTS ───────────────────────────────────────────────────────────────────
@@ -2150,18 +2715,48 @@ function ticketGetById(id) {
   if (ticket) {
     ticket.items = db.prepare('SELECT * FROM ticket_items WHERE ticket_id=?').all(id)
     try { ticket.ecf_result = JSON.parse(ticket.ecf_result || '{}') } catch { ticket.ecf_result = {} }
-    try { ticket.washer_ids = JSON.parse(ticket.washer_ids || '[]') } catch { ticket.washer_ids = [] }
-    if (ticket.washer_ids.length) {
-      const placeholders = ticket.washer_ids.map(() => '?').join(',')
-      ticket.washer_names = db.prepare(`SELECT name FROM washers WHERE id IN (${placeholders})`).all(...ticket.washer_ids).map(r => r.name)
+    // v2.1: read washer UUIDs from the new column, fall back to legacy on a
+    // partially-migrated DB. Populate washer_ids (empleados.id array) for UI
+    // back-compat AND washer_supabase_ids (UUID array).
+    let empSids = []
+    try {
+      empSids = JSON.parse(ticket.washer_empleado_supabase_ids || ticket.washer_ids || '[]')
+      if (!Array.isArray(empSids)) empSids = []
+    } catch { empSids = [] }
+    // Detect legacy INT-id arrays that slipped into the new column on a partial migration.
+    const looksUuid = (v) => typeof v === 'string' && v.length >= 32 && v.includes('-')
+    const onlyUuids = empSids.filter(looksUuid)
+    ticket.washer_empleado_supabase_ids = onlyUuids
+    if (onlyUuids.length) {
+      const placeholders = onlyUuids.map(() => '?').join(',')
+      const rows = db.prepare(`SELECT id, nombre, supabase_id FROM empleados WHERE supabase_id IN (${placeholders})`).all(...onlyUuids)
+      ticket.washer_names = rows.map(r => r.nombre)
+      ticket.washer_ids = rows.map(r => r.id) // legacy UI shape
     } else {
       ticket.washer_names = []
+      ticket.washer_ids = []
     }
   }
   return ticket
 }
 function ticketCreate(data) {
   if (!db) return null
+
+  // v2.1.7 — self-heal: some upgraded installs are missing v2.1 columns
+  // because the gated migration block was skipped/aborted. Add them on
+  // every ticket create (no-op if already present).
+  try { db.exec("ALTER TABLE tickets ADD COLUMN washer_empleado_supabase_ids TEXT DEFAULT '[]'") } catch {}
+  try { db.exec("ALTER TABLE tickets ADD COLUMN seller_empleado_supabase_id TEXT") } catch {}
+  try { db.exec("ALTER TABLE queue ADD COLUMN empleado_supabase_id TEXT") } catch {}
+  try { db.exec("ALTER TABLE queue ADD COLUMN ticket_supabase_id TEXT") } catch {}
+  try { db.exec("ALTER TABLE queue ADD COLUMN supabase_id TEXT") } catch {}
+
+  // Resolve the ITBIS rate once per ticket creation — stored as a string
+  // percentage in app_settings.itbis_pct (default '18'). Avoid hitting the
+  // settings table inside the per-item loop below.
+  const itbisPctRow = db.prepare('SELECT value FROM app_settings WHERE key=?').get('itbis_pct')
+  const itbisPct = Number(itbisPctRow?.value)
+  const itbisFactor = (Number.isFinite(itbisPct) && itbisPct >= 0 ? itbisPct : 18) / 100
 
   const tx = db.transaction(() => {
     // Get next doc number
@@ -2184,17 +2779,30 @@ function ticketCreate(data) {
 
     const ticketSid = crypto.randomUUID()
     const clientSid = data.client_id ? (db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id)?.supabase_id || null) : null
-    const sellerSid = data.seller_id ? (db.prepare('SELECT supabase_id FROM sellers WHERE id=?').get(data.seller_id)?.supabase_id || null) : null
+    // v2.1: resolve seller to empleados.supabase_id. Accept either:
+    //   - data.seller_empleado_supabase_id (preferred — already a UUID)
+    //   - data.seller_id (legacy INT, resolved via empleados.id → supabase_id)
+    let sellerEmpSid = data.seller_empleado_supabase_id || null
+    if (!sellerEmpSid && data.seller_id) {
+      const r = db.prepare(`SELECT supabase_id FROM empleados WHERE id=? AND tipo IN ('vendedor','hybrid') LIMIT 1`).get(data.seller_id)
+      sellerEmpSid = r?.supabase_id || null
+    }
     const cajeroSid = data.cajero_id ? (db.prepare('SELECT supabase_id FROM users WHERE id=?').get(data.cajero_id)?.supabase_id || null) : null
+    // v2.1: washer UUIDs — prefer the new array, fall back to legacy INT resolution.
+    let washerEmpSids = Array.isArray(data.washer_empleado_supabase_ids) ? data.washer_empleado_supabase_ids.filter(Boolean) : []
+    if (!washerEmpSids.length && Array.isArray(data.washer_ids) && data.washer_ids.length) {
+      const lookup = db.prepare(`SELECT supabase_id FROM empleados WHERE id=? AND tipo IN ('lavador','hybrid') LIMIT 1`)
+      washerEmpSids = data.washer_ids.map(wid => lookup.get(wid)?.supabase_id).filter(Boolean)
+    }
     const status = data.status || (data.payment_method === 'credit' ? 'pendiente' : 'cobrado')
     const result = db.prepare(`INSERT INTO tickets
-      (doc_number,client_id,washer_ids,seller_id,cajero_id,subtotal,descuento,itbis,ley,total,
+      (doc_number,client_id,washer_empleado_supabase_ids,seller_empleado_supabase_id,cajero_id,subtotal,descuento,itbis,ley,total,
        beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,supabase_id,client_supabase_id,seller_supabase_id,cajero_supabase_id,created_at)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
       docNumber,
       data.client_id || null,
-      JSON.stringify(data.washer_ids || []),
-      data.seller_id || null,
+      JSON.stringify(washerEmpSids),
+      sellerEmpSid,
       data.cajero_id || null,
       data.subtotal,
       data.descuento || 0,
@@ -2211,7 +2819,7 @@ function ticketCreate(data) {
       data.vehicle_plate || null,
       ticketSid,
       clientSid,
-      sellerSid,
+      sellerEmpSid,
       cajeroSid,
     )
     const ticketId = result.lastInsertRowid
@@ -2231,8 +2839,8 @@ function ticketCreate(data) {
     const invRows = db.prepare('SELECT id, aplica_itbis, supabase_id FROM inventory_items').all()
     const invItbisById = new Map(invRows.map(r => [r.id, r.aplica_itbis]))
     const invSidById = new Map(invRows.map(r => [r.id, r.supabase_id || null]))
-    const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,cost,itbis,is_wash,quantity,sku,inventory_item_id,supabase_id,ticket_supabase_id,service_supabase_id,inventory_item_supabase_id)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,cost,itbis,is_wash,quantity,sku,inventory_item_id,weight,unit,price_per_unit,supabase_id,ticket_supabase_id,service_supabase_id,inventory_item_supabase_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     for (const item of (data.items || [])) {
       const svcId = (item.service_id && validSvcIds.has(item.service_id)) ? item.service_id : null
       const qty = item.quantity || 1
@@ -2241,11 +2849,14 @@ function ticketCreate(data) {
       const itemCost = item.cost != null ? Number(item.cost) : (svcId ? svcCostById.get(svcId) : 0)
       const itemSid = crypto.randomUUID()
       const aplica = item.aplica_itbis !== undefined ? item.aplica_itbis : (item.inventory_item_id ? (invItbisById.get(item.inventory_item_id) ?? 1) : 1)
-      const itemItbis = aplica !== 0 ? parseFloat((item.price * 0.18).toFixed(2)) : 0
+      const itemItbis = aplica !== 0 ? parseFloat((item.price * itbisFactor).toFixed(2)) : 0
       const invItemSid = item.inventory_item_id ? (invSidById.get(item.inventory_item_id) || null) : null
       insItem.run(ticketId, svcId, item.name, item.price, itemCost,
         itemItbis, item.is_wash ?? 1,
         qty, item.sku || null, item.inventory_item_id || null,
+        item.weight != null ? Number(item.weight) : null,
+        item.unit || null,
+        item.price_per_unit != null ? Number(item.price_per_unit) : null,
         itemSid, ticketSid, svcId ? svcSidById.get(svcId) : null, invItemSid)
 
       // Auto-deduct inventory stock (floor at 0 — never go negative)
@@ -2270,13 +2881,14 @@ function ticketCreate(data) {
     }
 
     // Per-role commission base — iterate items and sum only those where the
-    // role's commission toggle is on. Prices are ITBIS-inclusive (strip /1.18).
+    // role's commission toggle is on. Prices are ITBIS-inclusive, so divide by
+    // (1 + itbisFactor) to strip tax before applying the commission percentage.
     //
     // Business rule: cashier earns on EVERY eligible item when NO seller is on
     // the ticket. When a seller IS on the ticket, cashier only earns on
     // products (is_wash=0, drinks/snacks). Services (is_wash=1) go to seller.
     const svcIsWashById = new Map(svcRows.map(r => [r.id, r.is_wash ?? 1]))
-    const hasSeller = !!data.seller_id
+    const hasSeller = !!sellerEmpSid
     let washerBaseGross = 0, sellerBaseGross = 0, cashierBaseGross = 0
     for (const item of (data.items || [])) {
       const svcId = item.service_id && validSvcIds.has(item.service_id) ? item.service_id : null
@@ -2291,32 +2903,34 @@ function ticketCreate(data) {
       // Cashier: products always, services only when no seller
       if (cashierOn && (itemIsWash === 0 || !hasSeller)) cashierBaseGross += line
     }
-    const washerBase  = parseFloat((washerBaseGross  / 1.18).toFixed(2))
-    const sellerBase  = parseFloat((sellerBaseGross  / 1.18).toFixed(2))
-    const cashierBase = parseFloat((cashierBaseGross / 1.18).toFixed(2))
+    const gross2base  = 1 + itbisFactor
+    const washerBase  = parseFloat((washerBaseGross  / gross2base).toFixed(2))
+    const sellerBase  = parseFloat((sellerBaseGross  / gross2base).toFixed(2))
+    const cashierBase = parseFloat((cashierBaseGross / gross2base).toFixed(2))
 
-    if (washerBase > 0) {
-      for (const wid of (data.washer_ids || [])) {
-        const washer  = db.prepare('SELECT commission_pct, supabase_id FROM washers WHERE id=?').get(wid)
-        if (!washer || washer.commission_pct <= 0) continue
-        const commAmount = parseFloat((washerBase * washer.commission_pct / 100).toFixed(2))
+    if (washerBase > 0 && washerEmpSids.length) {
+      // v2.1: walk the UUID array, JOIN empleados for commission_pct.
+      for (const empSid of washerEmpSids) {
+        const emp = db.prepare(`SELECT comision_pct FROM empleados WHERE supabase_id=? AND tipo IN ('lavador','hybrid') LIMIT 1`).get(empSid)
+        const pct = Number(emp?.comision_pct || 0)
+        if (!emp || pct <= 0) continue
+        const commAmount = parseFloat((washerBase * pct / 100).toFixed(2))
         const wcSid = crypto.randomUUID()
         db.prepare(`INSERT INTO washer_commissions
-          (washer_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,washer_supabase_id,ticket_supabase_id)
-          VALUES(?,?,?,?,?,0,?,?,?)`).run(wid, ticketId, washerBase, washer.commission_pct, commAmount,
-          wcSid, washer.supabase_id || null, ticketSid)
+          (empleado_supabase_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,ticket_supabase_id)
+          VALUES(?,?,?,?,?,0,?,?)`).run(empSid, ticketId, washerBase, pct, commAmount, wcSid, ticketSid)
       }
     }
 
-    if (data.seller_id && sellerBase > 0) {
-      const seller = db.prepare('SELECT commission_pct, supabase_id FROM sellers WHERE id=?').get(data.seller_id)
-      if (seller && seller.commission_pct > 0) {
-        const commAmount = parseFloat((sellerBase * seller.commission_pct / 100).toFixed(2))
+    if (sellerEmpSid && sellerBase > 0) {
+      const emp = db.prepare(`SELECT comision_pct FROM empleados WHERE supabase_id=? AND tipo IN ('vendedor','hybrid') LIMIT 1`).get(sellerEmpSid)
+      const pct = Number(emp?.comision_pct || 0)
+      if (emp && pct > 0) {
+        const commAmount = parseFloat((sellerBase * pct / 100).toFixed(2))
         const scSid = crypto.randomUUID()
         db.prepare(`INSERT INTO seller_commissions
-          (seller_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,seller_supabase_id,ticket_supabase_id)
-          VALUES(?,?,?,?,?,0,?,?,?)`).run(data.seller_id, ticketId, sellerBase, seller.commission_pct, commAmount,
-          scSid, seller.supabase_id || null, ticketSid)
+          (empleado_supabase_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,ticket_supabase_id)
+          VALUES(?,?,?,?,?,0,?,?)`).run(sellerEmpSid, ticketId, sellerBase, pct, commAmount, scSid, ticketSid)
       }
     }
 
@@ -2334,18 +2948,12 @@ function ticketCreate(data) {
 
     // Add to queue ONLY for pendiente tickets (Encolar workflow).
     // Cobrado tickets (direct Cobrar) skip the queue — already paid.
+    // v2.1: queue.empleado_supabase_id → empleados (tipo='lavador'/'hybrid').
     if (status === 'pendiente') {
-      const rawFirstWasher = (data.washer_ids || [])[0] || null
-      const firstWasherRow = rawFirstWasher
-        ? db.prepare('SELECT id, supabase_id FROM washers WHERE id=?').get(rawFirstWasher)
-        : null
-      const firstWasherId = firstWasherRow ? firstWasherRow.id : null
-      if (rawFirstWasher && !firstWasherId) {
-        console.warn(`[ticketCreate] washer_id ${rawFirstWasher} not found in washers — inserting queue with null washer_id`)
-      }
+      const firstEmpSid = washerEmpSids[0] || null
       const qSid = crypto.randomUUID()
-      db.prepare(`INSERT INTO queue(ticket_id,status,washer_id,supabase_id,ticket_supabase_id,washer_supabase_id) VALUES(?,?,?,?,?,?)`)
-        .run(ticketId, 'waiting', firstWasherId, qSid, ticketSid, firstWasherRow?.supabase_id || null)
+      db.prepare(`INSERT INTO queue(ticket_id,status,empleado_supabase_id,supabase_id,ticket_supabase_id) VALUES(?,?,?,?,?)`)
+        .run(ticketId, 'waiting', firstEmpSid, qSid, ticketSid)
     }
 
     return { ticketId, docNumber, ncf, supabase_id: ticketSid }
@@ -2453,9 +3061,16 @@ function ticketItemUpdatePrice({ ticketItemId, newPrice, reason, adminPin }) {
 
   const oldPrice = item.price
 
+  // Pull the per-business ITBIS rate once before the transaction. Prices in the
+  // DB are ITBIS-inclusive, so the effective extraction factor is pct/(1+pct).
+  const itbisPctRow = db.prepare('SELECT value FROM app_settings WHERE key=?').get('itbis_pct')
+  const itbisPct = Number(itbisPctRow?.value)
+  const itbisFrac = (Number.isFinite(itbisPct) && itbisPct >= 0 ? itbisPct : 18) / 100
+  const extractFactor = itbisFrac / (1 + itbisFrac)
+
   // 3. Update item price + recalculate ticket totals
   db.transaction(() => {
-    const newItbis = item.aplica_itbis !== 0 ? newPrice * 0.18 / 1.18 : 0
+    const newItbis = item.aplica_itbis !== 0 ? newPrice * extractFactor : 0
     db.prepare('UPDATE ticket_items SET price=?, itbis=? WHERE id=?').run(newPrice, newItbis, ticketItemId)
 
     // Recalculate ticket totals from all items
@@ -2465,7 +3080,7 @@ function ticketItemUpdatePrice({ ticketItemId, newPrice, reason, adminPin }) {
     const total = allPrices.reduce((s, p) => s + p, 0)
     const itbisItems = items.filter(i => i.aplica_itbis !== 0)
     const itbisTotal = itbisItems.reduce((s, i) => s + (i.id === ticketItemId ? newPrice : i.price), 0)
-    const itbis = parseFloat((itbisTotal * 0.18 / 1.18).toFixed(2))
+    const itbis = parseFloat((itbisTotal * extractFactor).toFixed(2))
     const subtotal = total - itbis
     const beverageSub = items.filter(i => !i.is_wash).reduce((s, i) => s + (i.id === ticketItemId ? newPrice : i.price), 0)
 
@@ -2491,29 +3106,42 @@ function priceChangesGetAll(dateFrom, dateTo) {
     .all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
 }
 
-// ── QUEUE ─────────────────────────────────────────────────────────────────────
+// ── QUEUE (v2.1 — empleado_supabase_id → empleados) ──────────────────────────
 function queueGetActive() {
   if (!db) return []
-  return db.prepare(
-    `SELECT q.*, t.doc_number, t.total, t.vehicle_plate, t.created_at as ticket_created,
-            c.name as client_name,
-            GROUP_CONCAT(ti.name, ' + ') as services,
-            w.name as washer_name
-     FROM queue q
-     JOIN tickets t ON t.id = q.ticket_id
-     LEFT JOIN clients c ON c.id = t.client_id
-     LEFT JOIN ticket_items ti ON ti.ticket_id = t.id
-     LEFT JOIN washers w ON w.id = q.washer_id
-     WHERE q.status NOT IN ('done', 'cancelled')
-     GROUP BY q.id
-     ORDER BY q.created_at ASC`
-  ).all()
+  try {
+    return db.prepare(
+      `SELECT q.*, t.doc_number, t.total, t.vehicle_plate, t.created_at as ticket_created,
+              c.name as client_name,
+              GROUP_CONCAT(ti.name, ' + ') as services,
+              e.nombre as washer_name
+       FROM queue q
+       JOIN tickets t ON (t.id = q.ticket_id OR t.supabase_id = q.ticket_supabase_id)
+       LEFT JOIN clients c ON (c.id = t.client_id OR c.supabase_id = t.client_supabase_id)
+       LEFT JOIN ticket_items ti ON ti.ticket_id = t.id
+       LEFT JOIN empleados e ON e.supabase_id = q.empleado_supabase_id
+       WHERE q.status NOT IN ('done', 'cancelled')
+       GROUP BY q.id
+       ORDER BY q.created_at ASC`
+    ).all()
+  } catch (e) { console.error('[queueGetActive]', e.message); return [] }
 }
+// v2.1: `washerId` parameter accepts either an empleados.id (INT) or a
+// direct empleados.supabase_id. Resolves to UUID before the UPDATE.
 function queueUpdateStatus(id, status, washerId = null) {
   if (!db) return
   const now = new Date().toISOString()
+  let empSid = null
+  if (washerId != null) {
+    if (typeof washerId === 'string' && washerId.includes('-')) {
+      empSid = washerId
+    } else {
+      const row = db.prepare(`SELECT supabase_id FROM empleados WHERE id=? AND tipo IN ('lavador','hybrid') LIMIT 1`).get(washerId)
+      empSid = row?.supabase_id || null
+    }
+  }
   if (status === 'in_progress') {
-    db.prepare(`UPDATE queue SET status=?,washer_id=?,assigned_at=? WHERE id=?`).run(status, washerId, now, id)
+    db.prepare(`UPDATE queue SET status=?,empleado_supabase_id=?,assigned_at=? WHERE id=?`).run(status, empSid, now, id)
   } else if (status === 'done') {
     db.prepare(`UPDATE queue SET status=?,completed_at=? WHERE id=?`).run(status, now, id)
   } else {
@@ -2535,37 +3163,56 @@ function queueDelete(id, deletedBy) {
   return { id, ticketId: row.ticket_id }
 }
 
-// ── COMMISSIONS ───────────────────────────────────────────────────────────────
+// ── COMMISSIONS (v2.1 — JOIN empleados on empleado_supabase_id) ─────────────
+// Param still named `washerId` for IPC signature stability — callers pass the
+// empleados.id. The query joins `empleados` via empleado_supabase_id for a
+// clean UUID FK, AND also accepts a legacy INT id via a fallback match on
+// empleados.id so older UI code that still resolves INT ids keeps working.
 function commissionsGetByWasher(washerId, dateFrom, dateTo) {
   if (!db) return []
-  let sql = `SELECT wc.*, t.doc_number, t.created_at as ticket_date, t.vehicle_plate,
-                    w.name as washer_name, w.commission_pct,
-                    GROUP_CONCAT(ti.name, ' + ') as services
-             FROM washer_commissions wc
-             JOIN tickets t ON t.id = wc.ticket_id
-             JOIN washers w ON w.id = wc.washer_id
-             LEFT JOIN ticket_items ti ON ti.ticket_id = t.id AND ti.is_wash=1
-             WHERE wc.washer_id=? AND t.status='cobrado'`
-  const params = [washerId]
-  if (dateFrom) { sql += ' AND t.created_at >= ?'; params.push(dateFrom) }
-  if (dateTo)   { sql += ' AND t.created_at <= ?'; params.push(dateTo)   }
-  sql += ' GROUP BY wc.id ORDER BY t.created_at DESC LIMIT 2000'
-  return db.prepare(sql).all(...params)
+  try {
+    let empSid = null
+    if (washerId) {
+      if (typeof washerId === 'string' && washerId.includes('-')) {
+        empSid = washerId
+      } else {
+        const row = db.prepare(`SELECT supabase_id FROM empleados WHERE id=? AND tipo IN ('lavador','hybrid') LIMIT 1`).get(washerId)
+        empSid = row?.supabase_id || null
+      }
+    }
+    if (!empSid) return []
+    let sql = `SELECT wc.*, t.doc_number, t.created_at as ticket_date, t.vehicle_plate,
+                      e.nombre as washer_name, e.comision_pct as commission_pct,
+                      GROUP_CONCAT(ti.name, ' + ') as services
+               FROM washer_commissions wc
+               JOIN tickets t ON (t.id = wc.ticket_id OR t.supabase_id = wc.ticket_supabase_id)
+               JOIN empleados e ON e.supabase_id = wc.empleado_supabase_id
+               LEFT JOIN ticket_items ti ON ti.ticket_id = t.id AND ti.is_wash=1
+               WHERE wc.empleado_supabase_id=? AND t.status='cobrado'`
+    const params = [empSid]
+    if (dateFrom) { sql += ' AND t.created_at >= ?'; params.push(dateFrom) }
+    if (dateTo)   { sql += ' AND t.created_at <= ?'; params.push(dateTo)   }
+    sql += ' GROUP BY wc.id ORDER BY t.created_at DESC LIMIT 2000'
+    return db.prepare(sql).all(...params)
+  } catch (e) { console.error('[commissionsGetByWasher]', e.message); return [] }
 }
 function commissionsGetByPeriod(dateFrom, dateTo) {
   if (!db) return []
-  return db.prepare(
-    `SELECT wc.washer_id, w.name as washer_name, w.commission_pct,
-            COUNT(wc.id) as ticket_count,
-            SUM(wc.base_amount) as total_base,
-            SUM(wc.commission_amount) as total_commission
-     FROM washer_commissions wc
-     JOIN tickets t ON t.id = wc.ticket_id
-     JOIN washers w ON w.id = wc.washer_id
-     WHERE t.status='cobrado'
-       AND t.created_at >= ? AND t.created_at <= ?
-     GROUP BY wc.washer_id ORDER BY total_commission DESC`
-  ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
+  try {
+    return db.prepare(
+      `SELECT wc.empleado_supabase_id, e.id as washer_id,
+              e.nombre as washer_name, e.comision_pct as commission_pct,
+              COUNT(wc.id) as ticket_count,
+              SUM(wc.base_amount) as total_base,
+              SUM(wc.commission_amount) as total_commission
+       FROM washer_commissions wc
+       JOIN tickets t ON (t.id = wc.ticket_id OR t.supabase_id = wc.ticket_supabase_id)
+       JOIN empleados e ON e.supabase_id = wc.empleado_supabase_id
+       WHERE t.status='cobrado'
+         AND t.created_at >= ? AND t.created_at <= ?
+       GROUP BY wc.empleado_supabase_id ORDER BY total_commission DESC`
+    ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
+  } catch (e) { console.error('[commissionsGetByPeriod]', e.message); return [] }
 }
 function commissionsMarkPaid(washerCommissionIds) {
   if (!db) return
@@ -2573,80 +3220,136 @@ function commissionsMarkPaid(washerCommissionIds) {
   db.transaction(() => washerCommissionIds.forEach(id => stmt.run(id)))()
 }
 
-// ── SELLER COMMISSIONS ────────────────────────────────────────────────────────
+// ── SELLER COMMISSIONS (v2.1 — JOIN empleados on empleado_supabase_id) ──────
 function sellerCommissionsBySeller(sellerId, dateFrom, dateTo) {
   if (!db) return []
+  try {
+  let empSid = null
+  if (sellerId) {
+    if (typeof sellerId === 'string' && sellerId.includes('-')) {
+      empSid = sellerId
+    } else {
+      const row = db.prepare(`SELECT supabase_id FROM empleados WHERE id=? AND tipo IN ('vendedor','hybrid') LIMIT 1`).get(sellerId)
+      empSid = row?.supabase_id || null
+    }
+  }
+  if (!empSid) return []
   let sql = `SELECT sc.*, t.doc_number, t.created_at as ticket_date, t.vehicle_plate,
-                    s.name as seller_name, s.commission_pct,
+                    e.nombre as seller_name, e.comision_pct as commission_pct,
                     GROUP_CONCAT(ti.name, ' + ') as services
              FROM seller_commissions sc
-             JOIN tickets t ON t.id = sc.ticket_id
-             JOIN sellers s ON s.id = sc.seller_id
+             JOIN tickets t ON (t.id = sc.ticket_id OR t.supabase_id = sc.ticket_supabase_id)
+             JOIN empleados e ON e.supabase_id = sc.empleado_supabase_id
              LEFT JOIN ticket_items ti ON ti.ticket_id = t.id AND ti.is_wash=1
-             WHERE sc.seller_id=? AND t.status='cobrado'`
-  const params = [sellerId]
+             WHERE sc.empleado_supabase_id=? AND t.status='cobrado'`
+  const params = [empSid]
   if (dateFrom) { sql += ' AND t.created_at >= ?'; params.push(dateFrom) }
   if (dateTo)   { sql += ' AND t.created_at <= ?'; params.push(dateTo)   }
   sql += ' GROUP BY sc.id ORDER BY t.created_at DESC LIMIT 2000'
   return db.prepare(sql).all(...params)
+  } catch (e) { console.error('[sellerCommissionsBySeller]', e.message); return [] }
 }
 function sellerCommissionsByPeriod(dateFrom, dateTo) {
   if (!db) return []
-  return db.prepare(
-    `SELECT sc.seller_id, s.name as seller_name, s.commission_pct,
-            COUNT(sc.id) as ticket_count,
-            SUM(sc.base_amount) as total_base,
-            SUM(sc.commission_amount) as total_commission
-     FROM seller_commissions sc
-     JOIN tickets t ON t.id = sc.ticket_id
-     JOIN sellers s ON s.id = sc.seller_id
-     WHERE t.status='cobrado'
-       AND t.created_at >= ? AND t.created_at <= ?
-     GROUP BY sc.seller_id ORDER BY total_commission DESC`
-  ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
+  try {
+    return db.prepare(
+      `SELECT sc.empleado_supabase_id, e.id as seller_id,
+              e.nombre as seller_name, e.comision_pct as commission_pct,
+              COUNT(sc.id) as ticket_count,
+              SUM(sc.base_amount) as total_base,
+              SUM(sc.commission_amount) as total_commission
+       FROM seller_commissions sc
+       JOIN tickets t ON (t.id = sc.ticket_id OR t.supabase_id = sc.ticket_supabase_id)
+       JOIN empleados e ON e.supabase_id = sc.empleado_supabase_id
+       WHERE t.status='cobrado'
+         AND t.created_at >= ? AND t.created_at <= ?
+       GROUP BY sc.empleado_supabase_id ORDER BY total_commission DESC`
+    ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
+  } catch (e) { console.error('[sellerCommissionsByPeriod]', e.message); return [] }
 }
 function sellerCommissionsMarkPaid(ids) {
   if (!db) return
   const stmt = db.prepare(`UPDATE seller_commissions SET paid=1,paid_at=datetime('now') WHERE id=?`)
   db.transaction(() => ids.forEach(id => stmt.run(id)))()
 }
+// Standalone commission row insert — used by the invoicing flow where the
+// flat `invoiceTotal * pct / 100` model replaces ticketCreate's per-item gating.
+// v2.1: accepts `seller_id` (legacy INT — resolved to empleados.supabase_id)
+// OR `empleado_supabase_id` (preferred) OR `seller_supabase_id` (back-compat alias).
+function sellerCommissionCreate({ seller_id, empleado_supabase_id, seller_supabase_id, ticket_id, ticket_supabase_id, base_amount, commission_pct, commission_amount }) {
+  if (!db) return null
+  // Resolve empleado_supabase_id
+  let empSid = empleado_supabase_id || seller_supabase_id || null
+  if (!empSid && seller_id) {
+    const row = db.prepare(`SELECT supabase_id FROM empleados WHERE id=? AND tipo IN ('vendedor','hybrid') LIMIT 1`).get(seller_id)
+    empSid = row?.supabase_id || null
+  }
+  if (!empSid || !ticket_id) return null
+  const tSid = ticket_supabase_id || db.prepare('SELECT supabase_id FROM tickets WHERE id=?').get(ticket_id)?.supabase_id || null
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO seller_commissions
+    (empleado_supabase_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,ticket_supabase_id)
+    VALUES(?,?,?,?,?,0,?,?)`).run(
+    empSid, ticket_id,
+    Number(base_amount || 0), Number(commission_pct || 0), Number(commission_amount || 0),
+    sid, tSid)
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
 
 // ── CAJERO COMMISSIONS ───────────────────────────────────────────────────────
 function cajeroCommissionsByCajero(cajeroId, dateFrom, dateTo) {
   if (!db) return []
-  let sql = `SELECT cc.*, t.doc_number, t.created_at as ticket_date, t.vehicle_plate,
-                    u.name as cajero_name, u.commission_pct,
-                    GROUP_CONCAT(ti.name, ' + ') as services
-             FROM cajero_commissions cc
-             JOIN tickets t ON t.id = cc.ticket_id
-             JOIN users u ON u.id = cc.cajero_id
-             LEFT JOIN ticket_items ti ON ti.ticket_id = t.id AND ti.is_wash=0
-             WHERE cc.cajero_id=? AND t.status='cobrado'`
-  const params = [cajeroId]
-  if (dateFrom) { sql += ' AND t.created_at >= ?'; params.push(dateFrom) }
-  if (dateTo)   { sql += ' AND t.created_at <= ?'; params.push(dateTo)   }
-  sql += ' GROUP BY cc.id ORDER BY t.created_at DESC LIMIT 2000'
-  return db.prepare(sql).all(...params)
+  try {
+    let sql = `SELECT cc.*, t.doc_number, t.created_at as ticket_date, t.vehicle_plate,
+                      u.name as cajero_name, u.commission_pct,
+                      GROUP_CONCAT(ti.name, ' + ') as services
+               FROM cajero_commissions cc
+               JOIN tickets t ON (t.id = cc.ticket_id OR t.supabase_id = cc.ticket_supabase_id)
+               JOIN users u ON u.id = cc.cajero_id
+               LEFT JOIN ticket_items ti ON ti.ticket_id = t.id AND ti.is_wash=0
+               WHERE cc.cajero_id=? AND t.status='cobrado'`
+    const params = [cajeroId]
+    if (dateFrom) { sql += ' AND t.created_at >= ?'; params.push(dateFrom) }
+    if (dateTo)   { sql += ' AND t.created_at <= ?'; params.push(dateTo)   }
+    sql += ' GROUP BY cc.id ORDER BY t.created_at DESC LIMIT 2000'
+    return db.prepare(sql).all(...params)
+  } catch (e) { console.error('[cajeroCommissionsByCajero]', e.message); return [] }
 }
 function cajeroCommissionsByPeriod(dateFrom, dateTo) {
   if (!db) return []
-  return db.prepare(
-    `SELECT cc.cajero_id, u.name as cajero_name, u.commission_pct,
-            COUNT(cc.id) as ticket_count,
-            SUM(cc.base_amount) as total_base,
-            SUM(cc.commission_amount) as total_commission
-     FROM cajero_commissions cc
-     JOIN tickets t ON t.id = cc.ticket_id
-     JOIN users u ON u.id = cc.cajero_id
-     WHERE t.status='cobrado'
-       AND t.created_at >= ? AND t.created_at <= ?
-     GROUP BY cc.cajero_id ORDER BY total_commission DESC`
-  ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
+  try {
+    return db.prepare(
+      `SELECT cc.cajero_id, u.name as cajero_name, u.commission_pct,
+              COUNT(cc.id) as ticket_count,
+              SUM(cc.base_amount) as total_base,
+              SUM(cc.commission_amount) as total_commission
+       FROM cajero_commissions cc
+       JOIN tickets t ON (t.id = cc.ticket_id OR t.supabase_id = cc.ticket_supabase_id)
+       JOIN users u ON u.id = cc.cajero_id
+       WHERE t.status='cobrado'
+         AND t.created_at >= ? AND t.created_at <= ?
+       GROUP BY cc.cajero_id ORDER BY total_commission DESC`
+    ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
+  } catch (e) { console.error('[cajeroCommissionsByPeriod]', e.message); return [] }
 }
 function cajeroCommissionsMarkPaid(ids) {
   if (!db) return
   const stmt = db.prepare(`UPDATE cajero_commissions SET paid=1,paid_at=datetime('now') WHERE id=?`)
   db.transaction(() => ids.forEach(id => stmt.run(id)))()
+}
+function cajeroCommissionCreate({ cajero_id, ticket_id, ticket_supabase_id, base_amount, commission_pct, commission_amount }) {
+  if (!db || !cajero_id || !ticket_id) return null
+  const cajero = db.prepare('SELECT supabase_id FROM users WHERE id=?').get(cajero_id)
+  if (!cajero) return null
+  const tSid = ticket_supabase_id || db.prepare('SELECT supabase_id FROM tickets WHERE id=?').get(ticket_id)?.supabase_id || null
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO cajero_commissions
+    (cajero_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,cajero_supabase_id,ticket_supabase_id)
+    VALUES(?,?,?,?,?,0,?,?,?)`).run(
+    cajero_id, ticket_id,
+    Number(base_amount || 0), Number(commission_pct || 0), Number(commission_amount || 0),
+    sid, cajero.supabase_id || null, tSid)
+  return { id: r.lastInsertRowid, supabase_id: sid }
 }
 
 // ── CUADRE DE CAJA ────────────────────────────────────────────────────────────
@@ -2830,8 +3533,11 @@ function exportToSupabase() {
     business:        db.prepare('SELECT * FROM businesses WHERE id=1').get() || null,
     users:           db.prepare('SELECT * FROM users WHERE active=1').all(),
     services:        db.prepare('SELECT * FROM services').all(),
-    washers:         db.prepare('SELECT * FROM washers WHERE active=1').all(),
-    sellers:         db.prepare('SELECT * FROM sellers WHERE active=1').all(),
+    // v2.1: washers + sellers are empleados now. Export two projections
+    //       so any consumer of exportToSupabase keeps the legacy shape.
+    washers:         db.prepare(`SELECT id, supabase_id, nombre AS name, phone, cedula, comision_pct AS commission_pct, active, start_date, created_at, updated_at FROM empleados WHERE active=1 AND tipo IN ('lavador','hybrid')`).all(),
+    sellers:         db.prepare(`SELECT id, supabase_id, nombre AS name, phone, cedula, comision_pct AS commission_pct, active, start_date, created_at, updated_at FROM empleados WHERE active=1 AND tipo IN ('vendedor','hybrid')`).all(),
+    empleados:       db.prepare('SELECT * FROM empleados WHERE active=1').all(),
     clients:         db.prepare('SELECT * FROM clients WHERE active=1').all(),
     tickets:         db.prepare('SELECT * FROM tickets ORDER BY created_at DESC LIMIT 500').all(),
     ticket_items:    db.prepare('SELECT * FROM ticket_items').all(),
@@ -2968,12 +3674,17 @@ function inventoryGetAll() {
 function inventoryCreate(data) {
   if (!db) return null
   const sid = crypto.randomUUID()
-  const r = db.prepare(`INSERT INTO inventory_items(sku,name,category,quantity,min_quantity,price,cost,barcode,aplica_itbis,supabase_id)
-    VALUES(@sku,@name,@category,@quantity,@min_quantity,@price,@cost,@barcode,@aplica_itbis,@supabase_id)`).run({
+  const r = db.prepare(`INSERT INTO inventory_items(sku,name,category,quantity,min_quantity,price,cost,barcode,aplica_itbis,sold_by_weight,unit,price_per_unit,bottle_deposit,tare_default,supabase_id)
+    VALUES(@sku,@name,@category,@quantity,@min_quantity,@price,@cost,@barcode,@aplica_itbis,@sold_by_weight,@unit,@price_per_unit,@bottle_deposit,@tare_default,@supabase_id)`).run({
     sku: data.sku || null, name: data.name, category: data.category || '',
     quantity: data.quantity || 0, min_quantity: data.min_quantity ?? 5,
     price: data.price || 0, cost: data.cost || 0,
     barcode: data.barcode || null, aplica_itbis: data.aplica_itbis ?? 1,
+    sold_by_weight: data.sold_by_weight ? 1 : 0,
+    unit: data.unit || null,
+    price_per_unit: data.price_per_unit != null ? Number(data.price_per_unit) : null,
+    bottle_deposit: data.bottle_deposit != null ? Number(data.bottle_deposit) : null,
+    tare_default: data.tare_default != null ? Number(data.tare_default) : null,
     supabase_id: sid,
   })
   return { id: r.lastInsertRowid, supabase_id: sid }
@@ -2981,10 +3692,17 @@ function inventoryCreate(data) {
 function inventoryUpdate(id, data) {
   if (!db) return
   db.prepare(`UPDATE inventory_items
-    SET sku=@sku, name=@name, category=@category, min_quantity=@min_quantity, price=@price, cost=@cost, barcode=@barcode, aplica_itbis=@aplica_itbis
+    SET sku=@sku, name=@name, category=@category, min_quantity=@min_quantity, price=@price, cost=@cost, barcode=@barcode, aplica_itbis=@aplica_itbis,
+        sold_by_weight=@sold_by_weight, unit=@unit, price_per_unit=@price_per_unit, bottle_deposit=@bottle_deposit, tare_default=@tare_default
     WHERE id=@id`).run({ sku: data.sku || null, name: data.name, category: data.category || '',
     min_quantity: data.min_quantity ?? 5, price: data.price || 0, cost: data.cost || 0,
-    barcode: data.barcode || null, aplica_itbis: data.aplica_itbis ?? 1, id })
+    barcode: data.barcode || null, aplica_itbis: data.aplica_itbis ?? 1,
+    sold_by_weight: data.sold_by_weight ? 1 : 0,
+    unit: data.unit || null,
+    price_per_unit: data.price_per_unit != null ? Number(data.price_per_unit) : null,
+    bottle_deposit: data.bottle_deposit != null ? Number(data.bottle_deposit) : null,
+    tare_default: data.tare_default != null ? Number(data.tare_default) : null,
+    id })
 }
 function inventoryDelete(id) {
   if (!db) return
@@ -3565,6 +4283,226 @@ function pawnItemDelete(id) {
   db.prepare("UPDATE pawn_items SET status='forfeited', updated_at=datetime('now') WHERE id=?").run(id)
 }
 
+// ── MEMBERSHIPS (carwash monthly subscription per vehicle) ───────────────────
+function _membershipResolveFK({ client_id, vehicle_id }) {
+  const client  = client_id  ? db.prepare('SELECT supabase_id FROM clients  WHERE id=?').get(client_id)  : null
+  const vehicle = vehicle_id ? db.prepare('SELECT supabase_id FROM vehicles WHERE id=?').get(vehicle_id) : null
+  return { client_supabase_id: client?.supabase_id || null, vehicle_supabase_id: vehicle?.supabase_id || null }
+}
+function _membershipCurrentPeriod(start) {
+  const d = start ? new Date(start) : new Date()
+  const ps = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10)
+  const pe = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10)
+  return { period_start: ps, period_end: pe }
+}
+function membershipCreate({ client_id, vehicle_id, plan_name, plan_price, wash_quota_per_month, start_date, end_date, notes }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const fk  = _membershipResolveFK({ client_id, vehicle_id })
+  const { period_start, period_end } = _membershipCurrentPeriod(start_date)
+  const r = db.prepare(`INSERT INTO memberships
+    (supabase_id, client_id, client_supabase_id, vehicle_id, vehicle_supabase_id,
+     plan_name, plan_price, wash_quota_per_month, washes_used_this_period,
+     period_start, period_end, start_date, end_date, status, notes)
+    VALUES(@sid, @cid, @csid, @vid, @vsid, @name, @price, @quota, 0,
+           @ps, @pe, @start, @end, 'active', @notes)`).run({
+    sid, cid: client_id || null, csid: fk.client_supabase_id,
+    vid: vehicle_id || null, vsid: fk.vehicle_supabase_id,
+    name: plan_name, price: Number(plan_price) || 0,
+    quota: Number(wash_quota_per_month) || 0,
+    ps: period_start, pe: period_end,
+    start: start_date || new Date().toISOString().slice(0, 10),
+    end: end_date || null, notes: notes || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function membershipUpdate(id, data) {
+  if (!db) return
+  const allowed = ['plan_name','plan_price','wash_quota_per_month','washes_used_this_period',
+                   'period_start','period_end','start_date','end_date','status','notes',
+                   'client_id','client_supabase_id','vehicle_id','vehicle_supabase_id']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (data.client_id  && !data.client_supabase_id)  { const c = db.prepare('SELECT supabase_id FROM clients  WHERE id=?').get(data.client_id);  if (c) patch.client_supabase_id  = c.supabase_id }
+  if (data.vehicle_id && !data.vehicle_supabase_id) { const v = db.prepare('SELECT supabase_id FROM vehicles WHERE id=?').get(data.vehicle_id); if (v) patch.vehicle_supabase_id = v.supabase_id }
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM memberships WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE memberships SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM memberships WHERE id=?').get(id)
+}
+function membershipList({ client_id, status } = {}) {
+  if (!db) return []
+  let sql = `SELECT m.*, c.name AS client_name, v.plate AS vehicle_plate, v.make AS vehicle_make, v.model AS vehicle_model
+             FROM memberships m
+             LEFT JOIN clients  c ON c.id = m.client_id
+             LEFT JOIN vehicles v ON v.id = m.vehicle_id
+             WHERE 1=1`
+  const params = []
+  if (client_id) { sql += ' AND m.client_id = ?'; params.push(client_id) }
+  if (status)    { sql += ' AND m.status = ?';    params.push(status) }
+  sql += ' ORDER BY m.created_at DESC'
+  return db.prepare(sql).all(...params)
+}
+function membershipGetActiveForClient(client_id) {
+  if (!db || !client_id) return []
+  // Roll over period if current_period has ended (LWW-ish local rollover).
+  const today = new Date().toISOString().slice(0, 10)
+  const rows = db.prepare(`SELECT * FROM memberships
+    WHERE client_id=? AND status='active'
+      AND (end_date IS NULL OR end_date >= ?)
+    ORDER BY created_at DESC`).all(client_id, today)
+  for (const m of rows) {
+    if (!m.period_end || m.period_end < today) {
+      const { period_start, period_end } = _membershipCurrentPeriod(today)
+      db.prepare(`UPDATE memberships SET period_start=?, period_end=?, washes_used_this_period=0, updated_at=datetime('now') WHERE id=?`)
+        .run(period_start, period_end, m.id)
+      m.period_start = period_start
+      m.period_end   = period_end
+      m.washes_used_this_period = 0
+    }
+  }
+  return rows
+}
+function membershipConsumeWash(id) {
+  if (!db || !id) return null
+  const m = db.prepare('SELECT * FROM memberships WHERE id=?').get(id)
+  if (!m) return null
+  if (m.washes_used_this_period >= m.wash_quota_per_month) {
+    return { ok: false, error: 'quota_exceeded', remaining: 0 }
+  }
+  db.prepare(`UPDATE memberships SET washes_used_this_period = washes_used_this_period + 1, updated_at=datetime('now') WHERE id=?`).run(id)
+  return { ok: true, remaining: Math.max(0, m.wash_quota_per_month - m.washes_used_this_period - 1) }
+}
+function membershipDelete(id) {
+  if (!db) return
+  db.prepare("UPDATE memberships SET status='cancelled', updated_at=datetime('now') WHERE id=?").run(id)
+}
+
+// ── WASH COMBOS (punch-card, N-wash combo pre-sold) ──────────────────────────
+function washComboCreate({ client_id, vehicle_id, combo_name, total_washes, purchase_price, expires_at, notes }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const fk  = _membershipResolveFK({ client_id, vehicle_id })
+  const r = db.prepare(`INSERT INTO wash_combos
+    (supabase_id, client_id, client_supabase_id, vehicle_id, vehicle_supabase_id,
+     combo_name, total_washes, used_washes, purchase_price, expires_at, status, notes)
+    VALUES(@sid, @cid, @csid, @vid, @vsid, @name, @total, 0, @price, @expires, 'active', @notes)`).run({
+    sid, cid: client_id || null, csid: fk.client_supabase_id,
+    vid: vehicle_id || null, vsid: fk.vehicle_supabase_id,
+    name: combo_name, total: Number(total_washes) || 0,
+    price: Number(purchase_price) || 0,
+    expires: expires_at || null, notes: notes || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function washComboUpdate(id, data) {
+  if (!db) return
+  const allowed = ['combo_name','total_washes','used_washes','purchase_price','expires_at','status','notes']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM wash_combos WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE wash_combos SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM wash_combos WHERE id=?').get(id)
+}
+function washComboList({ client_id, status } = {}) {
+  if (!db) return []
+  let sql = `SELECT wc.*, c.name AS client_name, v.plate AS vehicle_plate
+             FROM wash_combos wc
+             LEFT JOIN clients  c ON c.id = wc.client_id
+             LEFT JOIN vehicles v ON v.id = wc.vehicle_id
+             WHERE 1=1`
+  const params = []
+  if (client_id) { sql += ' AND wc.client_id = ?'; params.push(client_id) }
+  if (status)    { sql += ' AND wc.status = ?';    params.push(status) }
+  sql += ' ORDER BY wc.purchased_at DESC'
+  return db.prepare(sql).all(...params)
+}
+function washComboActiveForClient(client_id) {
+  if (!db || !client_id) return []
+  const today = new Date().toISOString().slice(0, 10)
+  return db.prepare(`SELECT * FROM wash_combos
+    WHERE client_id=? AND status='active'
+      AND used_washes < total_washes
+      AND (expires_at IS NULL OR expires_at >= ?)
+    ORDER BY purchased_at ASC`).all(client_id, today)
+}
+function washComboConsume(id) {
+  if (!db || !id) return null
+  const c = db.prepare('SELECT * FROM wash_combos WHERE id=?').get(id)
+  if (!c) return null
+  if (c.used_washes >= c.total_washes) return { ok: false, error: 'combo_exhausted' }
+  const newUsed = c.used_washes + 1
+  const newStatus = newUsed >= c.total_washes ? 'exhausted' : 'active'
+  db.prepare(`UPDATE wash_combos SET used_washes=?, status=?, updated_at=datetime('now') WHERE id=?`).run(newUsed, newStatus, id)
+  return { ok: true, remaining: c.total_washes - newUsed }
+}
+function washComboDelete(id) {
+  if (!db) return
+  db.prepare("UPDATE wash_combos SET status='cancelled', updated_at=datetime('now') WHERE id=?").run(id)
+}
+
+// ── CARWASH METRICS (queue wait + top washers) ───────────────────────────────
+function queueWaitMetrics() {
+  if (!db) return { avgWaitMin: 0, longestWaitMin: 0, longestTicketNo: null, count: 0 }
+  // Current waiting tickets
+  const waiting = db.prepare(`
+    SELECT q.created_at, t.doc_number
+      FROM queue q
+      LEFT JOIN tickets t ON t.id = q.ticket_id
+     WHERE q.status = 'waiting'
+  `).all()
+  if (!waiting.length) return { avgWaitMin: 0, longestWaitMin: 0, longestTicketNo: null, count: 0 }
+  const now = Date.now()
+  let totalMs = 0
+  let longest = { ms: 0, docNo: null }
+  for (const w of waiting) {
+    const ms = Math.max(0, now - new Date(w.created_at).getTime())
+    totalMs += ms
+    if (ms > longest.ms) longest = { ms, docNo: w.doc_number }
+  }
+  return {
+    avgWaitMin:    Math.round((totalMs / waiting.length) / 60000),
+    longestWaitMin: Math.round(longest.ms / 60000),
+    longestTicketNo: longest.docNo,
+    count: waiting.length,
+  }
+}
+function topWashersThisMonth(limit = 3) {
+  if (!db) return []
+  const ps = new Date(); ps.setDate(1); ps.setHours(0,0,0,0)
+  const from = ps.toISOString().slice(0, 19).replace('T', ' ')
+  // Aggregate washer commissions by empleado this month + count distinct tickets
+  const rows = db.prepare(`
+    SELECT e.id, e.nombre AS name,
+           COUNT(DISTINCT wc.ticket_id) AS ticket_count,
+           COALESCE(SUM(wc.commission_amount), 0) AS total_commission
+      FROM washer_commissions wc
+      JOIN empleados e ON e.id = wc.empleado_id
+     WHERE wc.created_at >= ?
+     GROUP BY e.id, e.nombre
+     ORDER BY ticket_count DESC, total_commission DESC
+     LIMIT ?
+  `).all(from, Number(limit) || 3)
+  return rows
+}
+
+// ── TICKETS BY CLIENT (vehicle history — last N paid tickets) ────────────────
+function ticketsByClient(client_id, limit = 10) {
+  if (!db || !client_id) return []
+  return db.prepare(`
+    SELECT t.id, t.doc_number, t.total, t.status, t.created_at, t.vehicle_plate,
+           e.nombre AS washer_name,
+           (SELECT GROUP_CONCAT(ti.name, ' + ')
+              FROM ticket_items ti WHERE ti.ticket_id = t.id) AS services
+      FROM tickets t
+      LEFT JOIN washer_commissions w ON w.ticket_id = t.id
+      LEFT JOIN empleados e ON e.id = w.empleado_id
+     WHERE t.client_id = ?
+     GROUP BY t.id
+     ORDER BY t.created_at DESC
+     LIMIT ?
+  `).all(client_id, Math.min(Number(limit) || 10, 50))
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 // ── Raw DB access for sync module ────────────────────────────────────────────
 function rawPrepare(sql) { return db ? db.prepare(sql) : null }
@@ -3583,7 +4521,7 @@ module.exports = {
   // Settings
   settingsGet, settingsUpdate, getSetting, setSetting,
   // Auth
-  authByPin, usersGetAll, userCreate, userUpdate, userDelete,
+  authByPin, usersGetAll, userCreate, userUpdate, userDelete, userDeleteHard,
   // Categorías de servicio
   categoriasGetAll, categoriaCreate, categoriaUpdate, categoriaDelete,
   // Services
@@ -3608,8 +4546,8 @@ module.exports = {
   queueGetActive, queueUpdateStatus, queueDelete,
   // Commissions
   commissionsGetByWasher, commissionsGetByPeriod, commissionsMarkPaid,
-  sellerCommissionsBySeller, sellerCommissionsByPeriod, sellerCommissionsMarkPaid,
-  cajeroCommissionsByCajero, cajeroCommissionsByPeriod, cajeroCommissionsMarkPaid,
+  sellerCommissionsBySeller, sellerCommissionsByPeriod, sellerCommissionsMarkPaid, sellerCommissionCreate,
+  cajeroCommissionsByCajero, cajeroCommissionsByPeriod, cajeroCommissionsMarkPaid, cajeroCommissionCreate,
   // Cuadre
   cuadreCreate, cuadreGetHistory, cuadreList, cuadreDailySummary,
   // NCF
@@ -3651,4 +4589,10 @@ module.exports = {
   loanCreate, loanUpdate, loanList, loanGetById,
   loanPaymentCreate, loanPaymentList,
   pawnItemCreate, pawnItemUpdate, pawnItemList, pawnItemDelete,
+  // Carwash expansion — memberships, combos, queue metrics, top washers, vehicle history
+  membershipCreate, membershipUpdate, membershipList, membershipGetActiveForClient,
+  membershipConsumeWash, membershipDelete,
+  washComboCreate, washComboUpdate, washComboList, washComboActiveForClient,
+  washComboConsume, washComboDelete,
+  queueWaitMetrics, topWashersThisMonth, ticketsByClient,
 }

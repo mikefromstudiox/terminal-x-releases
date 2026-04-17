@@ -82,34 +82,9 @@ const SYNC_TABLES = [
       updated_at: r.updated_at || null,
     }),
   },
-  {
-    name: 'washers',
-    cols: r => ({
-      supabase_id: r.supabase_id,
-      name: r.name,
-      phone: r.phone,
-      cedula: r.cedula,
-      commission_pct: r.commission_pct,
-      active: r.active,
-      start_date: r.start_date,
-      created_at: r.created_at || new Date().toISOString(),
-      updated_at: r.updated_at || null,
-    }),
-  },
-  {
-    name: 'sellers',
-    cols: r => ({
-      supabase_id: r.supabase_id,
-      name: r.name,
-      commission_pct: r.commission_pct,
-      phone: r.phone,
-      cedula: r.cedula,
-      start_date: r.start_date,
-      active: r.active,
-      created_at: r.created_at || new Date().toISOString(),
-      updated_at: r.updated_at || null,
-    }),
-  },
+  // v2.1: washers + sellers sync entries removed — consolidated into `empleados`.
+  // All lavador/vendedor cross-device movement now rides the empleados entry
+  // further down in this array.
   {
     name: 'clients',
     cols: r => ({
@@ -142,6 +117,11 @@ const SYNC_TABLES = [
       quantity: r.quantity,
       min_quantity: r.min_quantity,
       aplica_itbis: r.aplica_itbis,
+      sold_by_weight: !!(r.sold_by_weight || 0),
+      unit: r.unit || null,
+      price_per_unit: r.price_per_unit != null ? r.price_per_unit : null,
+      bottle_deposit: r.bottle_deposit != null ? r.bottle_deposit : null,
+      tare_default: r.tare_default != null ? r.tare_default : null,
       active: r.active,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
@@ -357,8 +337,10 @@ const SYNC_TABLES = [
         doc_number: r.doc_number,
         client_supabase_id: r.client_supabase_id || null,
         client_name: client_name,
-        washer_ids: r.washer_ids,
-        seller_supabase_id: r.seller_supabase_id || null,
+        // v2.1: legacy washer_ids (INT array as JSON) replaced by JSON array of empleado UUIDs.
+        // seller_supabase_id keeps its name on the wire but now resolves against empleados (tipo='vendedor').
+        washer_empleado_supabase_ids: r.washer_empleado_supabase_ids || '[]',
+        seller_empleado_supabase_id: r.seller_empleado_supabase_id || null,
         cajero_supabase_id: r.cajero_supabase_id || null,
         cajero_name: cajero_name,
         services_json: services_json,
@@ -460,6 +442,9 @@ const SYNC_TABLES = [
       is_wash: r.is_wash,
       quantity: r.quantity || 1,
       sku: r.sku || null,
+      weight: r.weight != null ? r.weight : null,
+      unit: r.unit || null,
+      price_per_unit: r.price_per_unit != null ? r.price_per_unit : null,
       inventory_item_supabase_id: r.inventory_item_supabase_id || null,
       updated_at: r.updated_at || null,
     }),
@@ -498,7 +483,8 @@ const SYNC_TABLES = [
       supabase_id: r.supabase_id,
       ticket_supabase_id: r.ticket_supabase_id,
       status: r.status,
-      washer_supabase_id: r.washer_supabase_id || null,
+      // v2.1: washer_supabase_id column dropped — pushes empleado_supabase_id instead.
+      empleado_supabase_id: r.empleado_supabase_id || null,
       assigned_at: r.assigned_at,
       completed_at: r.completed_at,
       created_at: r.created_at || new Date().toISOString(),
@@ -509,7 +495,8 @@ const SYNC_TABLES = [
     name: 'washer_commissions',
     cols: r => ({
       supabase_id: r.supabase_id,
-      washer_supabase_id: r.washer_supabase_id,
+      // v2.1: washer_supabase_id replaced by empleado_supabase_id (lavador/hybrid).
+      empleado_supabase_id: r.empleado_supabase_id,
       ticket_supabase_id: r.ticket_supabase_id,
       base_amount: r.base_amount,
       commission_pct: r.commission_pct,
@@ -524,7 +511,8 @@ const SYNC_TABLES = [
     name: 'seller_commissions',
     cols: r => ({
       supabase_id: r.supabase_id,
-      seller_supabase_id: r.seller_supabase_id,
+      // v2.1: seller_supabase_id replaced by empleado_supabase_id (vendedor/hybrid).
+      empleado_supabase_id: r.empleado_supabase_id,
       ticket_supabase_id: r.ticket_supabase_id,
       base_amount: r.base_amount,
       commission_pct: r.commission_pct,
@@ -757,6 +745,45 @@ const SYNC_TABLES = [
         updated_at: r.updated_at || null,
       }
     },
+  },
+  // v2.4 — Carwash memberships + wash_combos (resolve vehicle + client FKs on push)
+  {
+    name: 'memberships',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id,
+      vehicle_supabase_id: r.vehicle_supabase_id,
+      plan_name: r.plan_name,
+      plan_price: r.plan_price,
+      wash_quota_per_month: r.wash_quota_per_month,
+      washes_used_this_period: r.washes_used_this_period,
+      period_start: r.period_start,
+      period_end: r.period_end,
+      start_date: r.start_date,
+      end_date: r.end_date,
+      status: r.status,
+      notes: r.notes,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'wash_combos',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id,
+      vehicle_supabase_id: r.vehicle_supabase_id,
+      combo_name: r.combo_name,
+      total_washes: r.total_washes,
+      used_washes: r.used_washes,
+      purchase_price: r.purchase_price,
+      purchased_at: r.purchased_at,
+      expires_at: r.expires_at,
+      status: r.status,
+      notes: r.notes,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
   },
 ]
 
@@ -998,14 +1025,20 @@ function getLastSyncedAt(tableName) {
 // -- Update sync log ----------------------------------------------------------
 function updateSyncLog(tableName, lastId, rowCount, error) {
   try {
+    // v2.0.2 — use ISO 8601 UTC format so last_synced_at is lexicographically
+    // comparable to updated_at (which the v2 triggers also write in ISO).
+    // Previously datetime('now') produced SQL-space format ('YYYY-MM-DD HH:MM:SS')
+    // while updated_at was ISO ('YYYY-MM-DDTHH:MM:SS.fffZ'). String compare ranked
+    // every pulled row's updated_at ABOVE last_synced_at (T > space), causing
+    // Pass 2 to re-push every pulled row on every cycle — the sync loop.
     _db.rawPrepare(`INSERT INTO sync_log (table_name, last_synced_id, row_count, error, updated_at, last_synced_at)
-      VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+      VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
       ON CONFLICT(table_name) DO UPDATE SET
         last_synced_id = excluded.last_synced_id,
         row_count = excluded.row_count,
         error = excluded.error,
-        updated_at = datetime('now'),
-        last_synced_at = datetime('now')
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+        last_synced_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
     `).run(tableName, lastId, rowCount, error)
   } catch (e) { log.error('[sync] updateSyncLog failed:', e.message) }
 }
@@ -1053,7 +1086,8 @@ function updatePullLog(tableName, lastPullAt) {
 }
 
 // -- JSON columns that need stringify when inserting into SQLite ---------------
-const JSON_COLUMNS = new Set(['ecf_result', 'washer_ids', 'ticket_ids', 'denominaciones', 'services_json', 'metadata', 'services'])
+// v2.1: washer_ids → washer_empleado_supabase_ids (JSON array of empleado UUIDs).
+const JSON_COLUMNS = new Set(['ecf_result', 'washer_empleado_supabase_ids', 'ticket_ids', 'denominaciones', 'services_json', 'metadata', 'services'])
 
 function sqliteValue(col, val) {
   if (val == null) return null
@@ -1073,10 +1107,10 @@ const PULL_TABLES = [
   // that column. db/schema.sql: services/sellers/inventory_items/empleados/categorias_servicio
   // never declared created_at, so including it in the pull causes "no such column" failures.
   { name: 'services', strategy: 'lww', naturalKey: 'name', cols: ['name','name_en','category','price','cost','aplica_itbis','active','is_wash','no_commission','commission_washer','commission_seller','commission_cashier','sort_order','printer_route','is_menu_item','course','station','updated_at'] },
-  { name: 'washers', strategy: 'lww', naturalKey: 'name', cols: ['name','phone','cedula','commission_pct','active','start_date','created_at','updated_at'] },
-  { name: 'sellers', strategy: 'lww', naturalKey: 'name', cols: ['name','commission_pct','phone','cedula','start_date','active','updated_at'] },
+  // v2.1: washers + sellers PULL entries removed — consolidated into `empleados`
+  // (tipo='lavador'/'vendedor'). Their data is now part of the empleados pull below.
   { name: 'clients', strategy: 'lww', naturalKey: 'name', cols: ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','created_at','updated_at'] },
-  { name: 'inventory_items', strategy: 'lww', naturalKey: 'name', cols: ['name','sku','barcode','category','price','cost','quantity','min_quantity','aplica_itbis','active','updated_at'] },
+  { name: 'inventory_items', strategy: 'lww', naturalKey: 'name', cols: ['name','sku','barcode','category','price','cost','quantity','min_quantity','aplica_itbis','sold_by_weight','unit','price_per_unit','bottle_deposit','tare_default','active','updated_at'] },
   { name: 'mesas', strategy: 'lww', naturalKey: 'name', cols: ['name','zone','capacity','status','guests_count','seated_at','sort_order','active','created_at','updated_at'],
     fkCols: { waiter_empleado_supabase_id: 'empleados' } },
   { name: 'modificadores', strategy: 'lww', naturalKey: 'name', cols: ['name','group_name','price_delta','min_select','max_select','default_selected','sort_order','active','created_at','updated_at'] },
@@ -1094,17 +1128,31 @@ const PULL_TABLES = [
   { name: 'stylist_schedules', strategy: 'lww', cols: ['day_of_week','start_time','end_time','active','created_at','updated_at'],
     fkCols: { empleado_supabase_id: 'empleados' } },
 
+  // NOTE on `'users'` refTable in fkCols below (cajero_supabase_id / user_supabase_id /
+  // approved_by_supabase_id): on Supabase, `users` is a VIEW over the `staff` base table
+  // (re-created post-v2.1 schema consolidation so PostgREST FK resolution keeps working).
+  // On the desktop SQLite, the physical table is `users` (no `staff` table exists locally),
+  // and the local resolver below does `SELECT id FROM ${refTable} WHERE supabase_id = ?`,
+  // so the value MUST stay as `'users'` — switching to `'staff'` would silently break local
+  // FK integer backfill on every desktop install. If a future migration drops the Supabase
+  // `users` view permanently AND adds a local `staff` table, change all six entries below
+  // to `'staff'` in lockstep with that migration.
+
   // Phase 2 — tickets + dependents
   { name: 'tickets', strategy: 'fww',
-    cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','void_by','void_at','vehicle_plate','vehicle_color','vehicle_make','notes','washer_ids','tip_amount','fulfillment_type','mesa_supabase_id','created_at','updated_at'],
-    fkCols: { client_supabase_id: 'clients', seller_supabase_id: 'sellers', cajero_supabase_id: 'users' },
+    // v2.1: washer_ids legacy INT-array column dropped → washer_empleado_supabase_ids JSON of UUIDs.
+    // seller_supabase_id is still the column name on the wire, but it now points at empleados.supabase_id
+    // (tipo='vendedor'/'hybrid'); explicitly resolved against empleados below.
+    cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','void_by','void_at','vehicle_plate','vehicle_color','vehicle_make','notes','washer_empleado_supabase_ids','tip_amount','fulfillment_type','mesa_supabase_id','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', seller_empleado_supabase_id: 'empleados', cajero_supabase_id: 'users' },
     statusSync: ['status', 'void_reason', 'void_by', 'void_at', 'updated_at'] },
   { name: 'ticket_items', strategy: 'fww',
-    cols: ['name','price','cost','itbis','is_wash','quantity','sku','created_at','updated_at'],
+    cols: ['name','price','cost','itbis','is_wash','quantity','sku','weight','unit','price_per_unit','created_at','updated_at'],
     fkCols: { ticket_supabase_id: 'tickets', service_supabase_id: 'services', inventory_item_supabase_id: 'inventory_items' } },
   { name: 'queue', strategy: 'lww',
     cols: ['status','assigned_at','completed_at','created_at','updated_at'],
-    fkCols: { ticket_supabase_id: 'tickets', washer_supabase_id: 'washers' } },
+    // v2.1: washer_supabase_id column dropped → empleado_supabase_id (lavador/hybrid).
+    fkCols: { ticket_supabase_id: 'tickets', empleado_supabase_id: 'empleados' } },
   { name: 'ticket_item_modificadores', strategy: 'fww',
     cols: ['name_snapshot','price_delta_snapshot','created_at','updated_at'],
     fkCols: { ticket_item_supabase_id: 'ticket_items', modificador_supabase_id: 'modificadores' } },
@@ -1126,10 +1174,11 @@ const PULL_TABLES = [
   // Phase 3 — financial (FWW)
   { name: 'washer_commissions', strategy: 'fww',
     cols: ['base_amount','commission_pct','commission_amount','paid','paid_at','created_at','updated_at'],
-    fkCols: { washer_supabase_id: 'washers', ticket_supabase_id: 'tickets' } },
+    // v2.1: washer_supabase_id (→ washers) replaced by empleado_supabase_id (→ empleados, tipo='lavador').
+    fkCols: { empleado_supabase_id: 'empleados', ticket_supabase_id: 'tickets' } },
   { name: 'seller_commissions', strategy: 'fww',
     cols: ['base_amount','commission_pct','commission_amount','paid','paid_at','created_at','updated_at'],
-    fkCols: { seller_supabase_id: 'sellers', ticket_supabase_id: 'tickets' } },
+    fkCols: { empleado_supabase_id: 'empleados', ticket_supabase_id: 'tickets' } },
   { name: 'cajero_commissions', strategy: 'fww',
     cols: ['base_amount','commission_pct','commission_amount','paid','paid_at','created_at','updated_at'],
     fkCols: { cajero_supabase_id: 'users', ticket_supabase_id: 'tickets' } },
@@ -1179,6 +1228,16 @@ const PULL_TABLES = [
   // Activity log — FWW (append-only audit feed)
   { name: 'activity_log', strategy: 'fww',
     cols: ['event_type','severity','actor_supabase_id','actor_name','actor_role','target_type','target_id','target_name','amount','old_value','new_value','reason','metadata','created_at','updated_at'] },
+
+  // v2.4 — Carwash memberships + wash_combos (LWW — desktop is edit-heavy source of truth)
+  { name: 'memberships', strategy: 'lww',
+    cols: ['plan_name','plan_price','wash_quota_per_month','washes_used_this_period',
+           'period_start','period_end','start_date','end_date','status','notes','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', vehicle_supabase_id: 'vehicles' } },
+  { name: 'wash_combos', strategy: 'lww',
+    cols: ['combo_name','total_washes','used_washes','purchase_price','purchased_at',
+           'expires_at','status','notes','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', vehicle_supabase_id: 'vehicles' } },
 ]
 
 // -- Pull upsert: Supabase row -> SQLite row ----------------------------------
@@ -1243,8 +1302,26 @@ function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, natur
       return
     }
 
-    // LWW: only update if remote is newer
-    if (existing.updated_at && row.updated_at && row.updated_at <= existing.updated_at) return
+    // LWW: only update if remote is newer.
+    // CRITICAL — compare as numeric ms, NEVER as strings. SQLite historically
+    // stored `'YYYY-MM-DD HH:MM:SS'` (space separator) while Supabase returns
+    // `'YYYY-MM-DDTHH:MM:SS.µµµ+00:00'` (T separator). String compare treats
+    // ' ' (0x20) < 'T' (0x54) so remote ALWAYS sorted higher regardless of
+    // actual wall-clock time, causing every pull to clobber every local edit.
+    // v2.0 migration rewrites existing SQLite rows to ISO-8601 so the two
+    // shapes become identical, but this guard defends against any stray row
+    // that slipped through (old migration flag set + some table missed).
+    if (existing.updated_at && row.updated_at) {
+      const localRaw  = String(existing.updated_at)
+      const remoteRaw = String(row.updated_at)
+      // Normalize the SQLite "YYYY-MM-DD HH:MM:SS" shape to ISO before Date.parse
+      // so Date.parse doesn't silently NaN on some Electron/Chromium builds.
+      const localIso  = localRaw.includes('T')  ? localRaw  : localRaw.replace(' ', 'T') + (localRaw.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(localRaw) ? '' : 'Z')
+      const remoteIso = remoteRaw.includes('T') ? remoteRaw : remoteRaw.replace(' ', 'T') + (remoteRaw.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(remoteRaw) ? '' : 'Z')
+      const localMs  = Date.parse(localIso)
+      const remoteMs = Date.parse(remoteIso)
+      if (Number.isFinite(localMs) && Number.isFinite(remoteMs) && remoteMs <= localMs) return
+    }
 
     // Guard: if locally soft-deleted (active=0) and remote says active, local delete wins.
     // Desktop is authoritative for deletions — pull must never resurrect deleted rows.
@@ -1370,8 +1447,15 @@ async function pullTable(tableConfig) {
       } catch (e) {
         log.error(`[sync-pull] ${name}: upsert failed for ${row.supabase_id}:`, e.message)
       }
-      if (ok && row.updated_at && (!latestUpdatedAt || row.updated_at > latestUpdatedAt)) {
-        latestUpdatedAt = row.updated_at
+      if (ok && row.updated_at) {
+        if (!latestUpdatedAt) {
+          latestUpdatedAt = row.updated_at
+        } else {
+          const rMs = Date.parse(String(row.updated_at).includes('T') ? row.updated_at : String(row.updated_at).replace(' ', 'T') + 'Z')
+          const lMs = Date.parse(String(latestUpdatedAt).includes('T') ? latestUpdatedAt : String(latestUpdatedAt).replace(' ', 'T') + 'Z')
+          if (Number.isFinite(rMs) && Number.isFinite(lMs) && rMs > lMs) latestUpdatedAt = row.updated_at
+          else if (!Number.isFinite(lMs)) latestUpdatedAt = row.updated_at
+        }
       }
     }
 
@@ -1389,31 +1473,113 @@ async function pullTable(tableConfig) {
   return totalPulled
 }
 
+// -- Multi-biz orphan guard ---------------------------------------------------
+// If the resolved business_id ever changes (license re-keyed to a different
+// account, hardware moved, manual SUPABASE_BUSINESS_ID swap), the existing
+// local rows belong to the OLD tenant and would now be invisible from the new
+// tenant's pull cursor. Instead of silently mixing two tenants' data — or
+// destroying it with a DELETE — we copy each synced table into a dated
+// archive_<table>_<yyyymmdd> table on first pull under the new biz_id, then
+// truncate the live table so the next pull rebuilds clean. This is destructive
+// but recoverable: archives stay forever, support can restore on demand.
+function archiveAndResetForBizSwap(newBizId) {
+  try {
+    const stamp = new Date().toISOString().slice(0,10).replace(/-/g,'')
+    const lastBizRow = _db.rawPrepare("SELECT value FROM app_settings WHERE key='last_pulled_business_id'").get()
+    const lastBiz = lastBizRow?.value || null
+    if (!lastBiz) {
+      // First pull ever — just record the biz_id, nothing to archive.
+      _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('last_pulled_business_id',?)").run(String(newBizId))
+      return
+    }
+    if (String(lastBiz) === String(newBizId)) return // same tenant — nothing to do
+
+    log.warn(`[sync-pull] business_id changed: ${lastBiz} → ${newBizId} — archiving local data for safety`)
+    const archivedTables = []
+    for (const pt of PULL_TABLES) {
+      const t = pt.name
+      try {
+        // Skip if local table has zero rows (no data to archive).
+        const cnt = _db.rawPrepare(`SELECT COUNT(*) AS n FROM ${t}`).get()?.n || 0
+        if (cnt === 0) continue
+        const archive = `archived_${t}_${stamp}`
+        // CTAS: copy all rows into a dated snapshot. Idempotent — if the same
+        // dated archive already exists from a same-day re-trigger, we append.
+        _db.rawPrepare(`CREATE TABLE IF NOT EXISTS ${archive} AS SELECT * FROM ${t} WHERE 0`).run()
+        _db.rawPrepare(`INSERT INTO ${archive} SELECT * FROM ${t}`).run()
+        _db.rawPrepare(`DELETE FROM ${t}`).run()
+        // Reset pull cursor so the new tenant's rows pull from the beginning.
+        try { _db.rawPrepare(`DELETE FROM sync_log WHERE table_name=?`).run(t) } catch {}
+        archivedTables.push(`${archive}(${cnt})`)
+      } catch (e) {
+        log.error(`[sync-pull] archive ${t} failed:`, e.message)
+      }
+    }
+    _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('business_id_changed_at',?)").run(new Date().toISOString())
+    _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('last_pulled_business_id',?)").run(String(newBizId))
+    log.warn(`[sync-pull] biz-swap archive complete:`, archivedTables.join(', '))
+  } catch (e) {
+    log.error('[sync-pull] archiveAndResetForBizSwap failed:', e.message)
+  }
+}
+
 // -- Pull all tables ----------------------------------------------------------
 async function pullNow() {
   if (!_url || !_key) return { pulled: 0 }
   const bizId = await resolveBusinessId()
   if (!bizId) return { pulled: 0 }
+  // v2.1: guard against pulling a different tenant's data on top of an existing
+  // local DB — archive into archived_<table>_<yyyymmdd> instead of merging.
+  archiveAndResetForBizSwap(bizId)
 
+  const { BrowserWindow } = require('electron')
+  const sendProgress = (payload) => {
+    try {
+      const w = BrowserWindow.getAllWindows()[0]
+      if (w) w.webContents.send('sync:pull-progress', payload)
+    } catch {}
+  }
+
+  // F16 — Total includes every PULL_TABLES entry + the business meta pull at the end.
+  const totalSteps = PULL_TABLES.length + 1
+  let step = 0
   let totalPulled = 0
+
+  sendProgress({ stage: 'starting', done: 0, total: totalSteps, table: null })
+
   for (const pt of PULL_TABLES) {
+    step += 1
+    sendProgress({ stage: 'pulling', done: step - 1, total: totalSteps, table: pt.name })
     try {
       const count = await pullTable(pt)
       totalPulled += count
     } catch (e) {
       log.error(`[sync-pull] ${pt.name}:`, e.message)
     }
+    sendProgress({ stage: 'pulling', done: step, total: totalSteps, table: pt.name })
   }
+
+  // F15 — pull business meta (name/rnc/logo/settings) so ciudad/whatsapp/etc.
+  // propagate across devices. Counts as one step for UI progress.
+  step += 1
+  sendProgress({ stage: 'pulling', done: step - 1, total: totalSteps, table: 'businesses' })
+  try {
+    await pullBusinessMeta(bizId)
+  } catch (e) {
+    log.error('[sync-pull] businesses:', e.message)
+  }
+  sendProgress({ stage: 'pulling', done: step, total: totalSteps, table: 'businesses' })
+
   log.info(`[sync-pull] Manual pull complete — ${totalPulled} rows`)
 
   // Notify renderer
+  sendProgress({ stage: 'done', done: totalSteps, total: totalSteps, table: null })
   try {
-    const { BrowserWindow } = require('electron')
-    const win = BrowserWindow.getAllWindows()[0]
-    if (win) win.webContents.send('sync:pull-complete', { pulled: totalPulled })
+    const w = BrowserWindow.getAllWindows()[0]
+    if (w) w.webContents.send('sync:pull-complete', { pulled: totalPulled })
   } catch {}
 
-  return { pulled: totalPulled }
+  return { pulled: totalPulled, tables: totalSteps }
 }
 
 // -- Sync a single table (PUSH) -----------------------------------------------
@@ -1542,9 +1708,52 @@ async function pushBusinessMeta(bizId) {
     if (emp.address) updates.address = emp.address
     if (emp.email)   updates.email   = emp.email
     if (logoUrl)     updates.logo_url = logoUrl
+    // Push the settings JSON (ciudad / biz_city / biz_type / whatsapp_* / fiscal cert
+    // fields) so user edits in Mi Empresa actually survive a desktop wipe + re-pull.
+    if (emp.settings) {
+      try { updates.settings = typeof emp.settings === 'string' ? JSON.parse(emp.settings) : emp.settings } catch {}
+    }
     if (!Object.keys(updates).length) return 0
 
+    // ISO-8601 UTC — same shape the v2 SQLite migration produces, so LWW compares cleanly
     updates.updated_at = new Date().toISOString()
+
+    // F12 — Prefer the server-side JSONB merge RPC when we're touching `settings`,
+    // so concurrent writers (desktop-A's biz_city edit vs desktop-B's WhatsApp
+    // edit vs validate.js's cert-status patch) stack additively instead of
+    // clobbering one another. Falls back to the legacy full-PATCH path if the
+    // RPC isn't available (older Supabase rev pre-v2 migration).
+    if (updates.settings && typeof updates.settings === 'object') {
+      const patchObj = updates.settings
+      // Attempt merge RPC first
+      try {
+        const rpcBody = JSON.stringify({ p_business_id: bizId, p_patch: patchObj })
+        const rpcOk = await new Promise((resolve) => {
+          const reqUrl = new URL(`${_url}/rest/v1/rpc/merge_business_settings`)
+          const req = https.request({
+            hostname: reqUrl.hostname, path: reqUrl.pathname + reqUrl.search, method: 'POST',
+            headers: {
+              'apikey': _key, 'Authorization': `Bearer ${_key}`,
+              'Content-Type': 'application/json', 'Prefer': 'return=minimal',
+              'Content-Length': Buffer.byteLength(rpcBody),
+            },
+          }, (r) => {
+            let data = ''
+            r.on('data', c => data += c.toString())
+            r.on('end', () => resolve(r.statusCode >= 200 && r.statusCode < 300))
+          })
+          req.on('error', () => resolve(false))
+          req.setTimeout(SYNC_TIMEOUT_MS, () => { try { req.destroy() } catch {}; resolve(false) })
+          req.write(rpcBody)
+          req.end()
+        })
+        if (rpcOk) {
+          // Merge RPC handled settings — drop it from the PATCH so we don't full-replace.
+          delete updates.settings
+          if (!Object.keys(updates).filter(k => k !== 'updated_at').length) return 1
+        }
+      } catch { /* fall through to legacy PATCH */ }
+    }
 
     // PATCH businesses row
     const body = JSON.stringify(updates)
@@ -1565,6 +1774,100 @@ async function pushBusinessMeta(bizId) {
     return 1
   } catch (e) {
     log.error('[sync] pushBusinessMeta failed:', e.message)
+    return 0
+  }
+}
+
+// -- Pull business meta (F15) -------------------------------------------------
+// Counterpart to pushBusinessMeta. Fetches `name, rnc, phone, address, email,
+// logo_url, settings, plan` from Supabase and writes them to the local
+// `businesses` row via db.empresaSave (same flat+JSON.stringify(settings)
+// shape LicenseContext uses). This is the only path by which Device B ever
+// sees Device A's ciudad / whatsapp / logo edits.
+async function pullBusinessMeta(bizId) {
+  if (!_url || !_key || !bizId) return 0
+  try {
+    const params = new URLSearchParams({
+      'id': `eq.${bizId}`,
+      'select': 'name,rnc,phone,address,email,logo_url,settings,plan,updated_at',
+    })
+    const rows = await new Promise((resolve, reject) => {
+      const reqUrl = new URL(`${_url}/rest/v1/businesses?${params.toString()}`)
+      https.get({
+        hostname: reqUrl.hostname, path: reqUrl.pathname + reqUrl.search,
+        headers: { 'apikey': _key, 'Authorization': `Bearer ${_key}` },
+      }, (r) => {
+        let data = ''
+        r.on('data', c => data += c.toString())
+        r.on('end', () => {
+          if (r.statusCode >= 200 && r.statusCode < 300) {
+            try { resolve(JSON.parse(data)) } catch { resolve([]) }
+          } else reject(new Error(`businesses GET ${r.statusCode}: ${data.substring(0, 200)}`))
+        })
+      }).on('error', reject).setTimeout?.(SYNC_TIMEOUT_MS, function () { try { this.destroy() } catch {} })
+    }).catch(e => { log.warn('[sync] pullBusinessMeta fetch:', e.message); return [] })
+
+    const biz = Array.isArray(rows) && rows[0] ? rows[0] : null
+    if (!biz) return 0
+
+    // LWW check against local businesses.updated_at — only apply if remote is newer.
+    try {
+      const local = _db.rawPrepare('SELECT updated_at FROM businesses WHERE id=1').get()
+      if (local?.updated_at && biz.updated_at) {
+        const localRaw = String(local.updated_at)
+        const remoteRaw = String(biz.updated_at)
+        const localIso  = localRaw.includes('T')  ? localRaw  : localRaw.replace(' ', 'T') + (localRaw.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(localRaw) ? '' : 'Z')
+        const remoteIso = remoteRaw.includes('T') ? remoteRaw : remoteRaw.replace(' ', 'T') + (remoteRaw.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(remoteRaw) ? '' : 'Z')
+        const lMs = Date.parse(localIso)
+        const rMs = Date.parse(remoteIso)
+        if (Number.isFinite(lMs) && Number.isFinite(rMs) && rMs <= lMs) return 0
+      }
+    } catch {}
+
+    // Build the same flat+settings payload shape empresaSave expects.
+    // Settings JSONB → stringify for SQLite TEXT column (empresaSave will accept either).
+    const payload = {}
+    if (biz.name)    payload.name    = biz.name
+    if (biz.rnc)     payload.rnc     = biz.rnc
+    if (biz.phone)   payload.phone   = biz.phone
+    if (biz.address) payload.address = biz.address
+    if (biz.email)   payload.email   = biz.email
+    if (biz.plan)    payload.plan    = biz.plan
+
+    if (biz.settings) {
+      let settingsObj = biz.settings
+      if (typeof settingsObj === 'string') {
+        try { settingsObj = JSON.parse(settingsObj) } catch { settingsObj = null }
+      }
+      if (settingsObj && typeof settingsObj === 'object' && !Array.isArray(settingsObj)) {
+        // Merge with existing local settings so we don't drop keys that
+        // haven't made the round-trip yet (e.g. device-local PEM cache).
+        try {
+          const localRow = _db.rawPrepare('SELECT settings FROM businesses WHERE id=1').get()
+          let localObj = {}
+          if (localRow?.settings) {
+            try { localObj = typeof localRow.settings === 'string' ? JSON.parse(localRow.settings) : localRow.settings } catch {}
+          }
+          payload.settings = JSON.stringify({ ...localObj, ...settingsObj })
+        } catch {
+          payload.settings = JSON.stringify(settingsObj)
+        }
+      }
+    }
+
+    if (!Object.keys(payload).length) return 0
+
+    // Delegate to the DB layer (which handles INSERT-if-missing, allowed-list filter, etc.)
+    try {
+      const dbMod = require('./database')
+      if (dbMod && typeof dbMod.empresaSave === 'function') dbMod.empresaSave(payload)
+    } catch (e) {
+      log.warn('[sync] pullBusinessMeta empresaSave:', e.message)
+    }
+    log.info('[sync-pull] businesses: meta refreshed from Supabase')
+    return 1
+  } catch (e) {
+    log.error('[sync] pullBusinessMeta failed:', e.message)
     return 0
   }
 }
@@ -1643,6 +1946,8 @@ async function syncNow() {
         log.error(`[sync-pull] ${pt.name}:`, e.message)
       }
     }
+    // F15 — also pull business meta so multi-device edits propagate
+    try { await pullBusinessMeta(bizId) } catch (e) { log.error('[sync-pull] businesses:', e.message) }
     if (totalPulled > 0) log.info(`[sync] Pull complete — ${totalPulled} rows pulled`)
 
     // ── Anti-resurrection: advance last_synced_at to NOW (post-pull) ───
@@ -1655,7 +1960,9 @@ async function syncNow() {
     // are guaranteed older than lastSyncedAt, so they won't re-push.
     for (const table of SYNC_TABLES) {
       try {
-        _db.rawPrepare(`UPDATE sync_log SET last_synced_at = datetime('now') WHERE table_name = ?`).run(table.name)
+        // v2.0.2 — ISO 8601 UTC so cursor is lexicographically comparable to
+        // updated_at (both formats must match or every pulled row "looks newer").
+        _db.rawPrepare(`UPDATE sync_log SET last_synced_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE table_name = ?`).run(table.name)
       } catch (e) { log.error(`[sync] post-pull cursor advance ${table.name}:`, e.message) }
     }
 
@@ -1736,7 +2043,8 @@ async function startRealtime() {
   // from views, so we listen on `staff` (the real table underneath the
   // `users` view) and rely on the pull's view-backed SELECT to upsert locally.
   const tables = [
-    'services','washers','sellers','clients','inventory_items','ncf_sequences',
+    // v2.1: washers + sellers tables dropped — empleados covers both verticals.
+    'services','clients','inventory_items','ncf_sequences',
     'empleados','categorias_servicio','staff','tickets','ticket_items','queue',
     'washer_commissions','seller_commissions','cajero_commissions',
     'credit_payments','cuadre_caja','caja_chica','notas_credito',
@@ -1744,6 +2052,7 @@ async function startRealtime() {
     'activity_log',
     'vehicles','service_bays','work_orders','work_order_items','appointments',
     'stylist_schedules','loans','loan_payments','pawn_items',
+    'memberships','wash_combos',
   ]
 
   _realtimeChannel = _realtimeClient.channel(`tx-sync-${bizId}`)

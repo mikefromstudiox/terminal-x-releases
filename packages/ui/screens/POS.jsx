@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
-import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid } from 'lucide-react'
+import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck } from 'lucide-react'
+import AgeVerifyModal, { requiresAgeCheck } from '../components/AgeVerifyModal'
+import WeightModal from '../components/WeightModal'
 import { useLang } from '../i18n'
 import { useLayout } from '../context/LayoutContext'
 import { useAuth } from '../context/AuthContext'
@@ -1002,12 +1004,25 @@ function RetailPOS() {
   const { collapsed } = useLayout()
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { businessType, isHybrid, isMechanic, isDealership } = useBusinessType()
+  const { businessType, isHybrid, isMechanic, isDealership, isLicoreria, licoreriaConfig, isCarniceria } = useBusinessType()
+
+  // ── Carnicería-specific state ──────────────────────────────────────────────
+  // Weight entry modal. When the cashier taps a sold_by_weight product we park
+  // it here; on confirm we push a weighted line to the cart; on cancel we drop.
+  const [pendingWeightItem, setPendingWeightItem] = useState(null)
 
   // The Services tab only makes sense for verticals that mix products + services
   // (hybrid, mechanic, dealership). Pure retail/licoreria/carniceria should not
   // see it — it just confuses the cashier.
   const showServicesTab = isHybrid || isMechanic || isDealership
+
+  // ── Licorería-specific state ────────────────────────────────────────────────
+  // Age-verification state. Persists for the life of the ticket and clears on
+  // successful cobro or explicit form reset. `pendingAgeItem` holds a product
+  // awaiting verification so the cashier can confirm/cancel without losing it.
+  const [ageVerified, setAgeVerified]       = useState(null)
+  const [pendingAgeItem, setPendingAgeItem] = useState(null)
+  const [quickSells, setQuickSells]         = useState([])
 
   // Services for hybrid mode (services tab)
   const { data: rawServicesDB } = useServices()
@@ -1065,8 +1080,17 @@ function RetailPOS() {
   const [svcCategory, setSvcCategory] = useState(null)
   useEffect(() => { if (serviceCategories.length && !svcCategory) setSvcCategory(serviceCategories[0]) }, [serviceCategories])
 
-  const { subtotal, itbis, total } = calcTotals(cart, itbisRate)
+  // Totals include auto-generated bottle-deposit lines so the cashier sees
+  // the real number *before* the CobrarModal opens.
+  const finalLineItems = useMemo(() => expandCartWithDeposits(cart),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cart, isLicoreria, licoreriaConfig])
+  const { subtotal, itbis, total } = calcTotals(finalLineItems, itbisRate)
   const cartCount = cart.reduce((s, i) => s + (i.qty || 1), 0)
+  const bottleDepositTotal = useMemo(() => {
+    if (!isLicoreria) return 0
+    return cart.reduce((s, i) => s + Number(i.bottle_deposit || 0) * (i.qty || 1), 0)
+  }, [cart, isLicoreria])
 
   function flash(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
@@ -1078,7 +1102,39 @@ function RetailPOS() {
     setSalesperson('')
     setSearchQuery('')
     setSearchResults([])
+    setAgeVerified(null)
+    setPendingAgeItem(null)
   }
+
+  // ── Licorería quick-sells: load top-N active products ────────────────────
+  // Uses inventory_items ordered by recent updated_at as a cheap proxy for
+  // "moves often". Real bestseller ranking will come in Phase 2 with a
+  // dedicated `product_sales_rank` materialized view.
+  useEffect(() => {
+    if (!isLicoreria || !licoreriaConfig?.quickSell?.enabled) return
+    let cancelled = false
+    const n = licoreriaConfig.quickSell.topN || 8
+    ;(async () => {
+      try {
+        const all = await api?.inventory?.all?.() || []
+        // Prefer items in the age-restricted categories, then sort by updated_at desc.
+        const trigger = (licoreriaConfig.ageVerification?.triggerCategories || []).map(s => s.toLowerCase())
+        const scored = (all || [])
+          .filter(p => p.active !== 0 && p.active !== false)
+          .map(p => ({
+            p,
+            score: (trigger.includes(String(p.category || '').toLowerCase()) ? 1 : 0) * 10
+                 + Number(p.quantity || 0) / 100,
+            ts: p.updated_at ? Date.parse(p.updated_at) : 0,
+          }))
+          .sort((a, b) => (b.score - a.score) || (b.ts - a.ts))
+          .slice(0, n)
+          .map(x => x.p)
+        if (!cancelled) setQuickSells(scored)
+      } catch {}
+    })()
+    return () => { cancelled = true }
+  }, [api, isLicoreria, licoreriaConfig])
 
   // ── Search / barcode lookup ────────────────────────────────────────────────
   function handleSearchInput(value) {
@@ -1113,6 +1169,20 @@ function RetailPOS() {
 
   // ── Cart operations ────────────────────────────────────────────────────────
   function addToCart(product) {
+    // Licorería — if this item is age-restricted and we haven't verified yet
+    // for this ticket, park it and pop the modal. The cashier either confirms
+    // (we then add the item) or cancels (we drop it).
+    if (isLicoreria && !ageVerified && requiresAgeCheck(licoreriaConfig, product)) {
+      setPendingAgeItem(product)
+      return
+    }
+    // Carnicería — sold-by-weight products always route through the weight modal.
+    // Each scan/tap pushes a NEW cart line (different weight per cut) rather
+    // than merging into an existing line like qty-based products do.
+    if (product?.sold_by_weight) {
+      setPendingWeightItem(product)
+      return
+    }
     setCart(prev => {
       const existing = prev.find(i => i.inventory_item_id === product.id)
       if (existing) {
@@ -1131,8 +1201,87 @@ function RetailPOS() {
         aplica_itbis: product.aplica_itbis ?? 1,
         is_wash: 0,
         stock: product.quantity,
+        // Licorería metadata — bottle deposit flows through to the ticket line
+        // as a separate synthetic item in handlePaymentConfirm().
+        bottle_deposit: Number(product.bottle_deposit || 0) || 0,
+        age_restricted: isLicoreria ? requiresAgeCheck(licoreriaConfig, product) : false,
       }]
     })
+  }
+
+  // Expand cart → final line items, appending synthetic bottle-deposit lines
+  // for licoreria. Each deposit line is non-ITBIS, qty-matched, and carries a
+  // `bottle_deposit: true` flag so printer / PDF / reports can segregate it.
+  function expandCartWithDeposits(items) {
+    if (!isLicoreria || !licoreriaConfig?.bottleDeposit?.enabled) return items
+    const lineLabel = licoreriaConfig.bottleDeposit.lineLabel?.[lang] ||
+                      licoreriaConfig.bottleDeposit.lineLabel?.es || 'Depósito de botella'
+    const out = []
+    for (const it of items) {
+      out.push(it)
+      const dep = Number(it.bottle_deposit || 0)
+      if (dep > 0 && it.inventory_item_id) {
+        out.push({
+          id:                `dep-${it.id}`,
+          inventory_item_id: null,
+          service_id:        null,
+          sku:               'DEP',
+          name:              `${lineLabel} — ${it.name}`,
+          price:             dep,
+          cost:              0,
+          qty:               it.qty || 1,
+          aplica_itbis:      0,
+          is_wash:           0,
+          bottle_deposit_line: true,
+          parent_inventory_item_id: it.inventory_item_id,
+        })
+      }
+    }
+    return out
+  }
+
+  // Called by AgeVerifyModal on successful verification.
+  function handleAgeConfirmed(verification) {
+    setAgeVerified(verification)
+    const item = pendingAgeItem
+    setPendingAgeItem(null)
+    // Log to activity_log (non-blocking, one entry per ticket).
+    try {
+      api?.activity?.record?.({
+        event_type: 'age_verified',
+        severity:   'info',
+        target_type:'ticket',
+        target_name:item?.name || 'Licorería — producto 18+',
+        metadata:   verification,
+      })
+    } catch {}
+    if (item) addToCart(item)  // re-runs, now verified, falls through to push
+  }
+
+  // Called by WeightModal on confirm. Pushes a new weighted line; price is
+  // computed as weight × price_per_unit (already RD$/unit).
+  function handleWeightConfirmed({ weight, unit, price_per_unit, line_total }) {
+    const product = pendingWeightItem
+    setPendingWeightItem(null)
+    if (!product) return
+    const unique = `invw-${product.id}-${Date.now()}`
+    setCart(prev => [...prev, {
+      id: unique,
+      inventory_item_id: product.id,
+      service_id: null,
+      sku: product.sku || product.barcode || '',
+      // Receipt-friendly label (peso × precio ya embebido en price/qty=1).
+      name: `${product.name} (${weight.toFixed(3)} ${unit})`,
+      price: line_total,          // line subtotal ITBIS-inclusive (same rule as others)
+      cost: product.cost || 0,
+      qty: 1,                     // line stored as a single unit; weight is the multiplier
+      weight,                     // persisted to ticket_items.weight
+      unit,                       // persisted to ticket_items.unit
+      price_per_unit,             // persisted to ticket_items.price_per_unit
+      aplica_itbis: product.aplica_itbis ?? 1,
+      is_wash: 0,
+      stock: product.quantity,
+    }])
   }
 
   function addServiceToCart(svc) {
@@ -1176,7 +1325,7 @@ function RetailPOS() {
       else if (e.key === 'F2') {
         e.preventDefault()
         if (cart.length > 0) {
-          setCobrarModal({ items: cart, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, salesperson })
+          setCobrarModal({ items: expandCartWithDeposits(cart), ageVerified, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, salesperson })
         }
       }
       else if (e.key === 'F4') { e.preventDefault(); searchRef.current?.focus() }
@@ -1218,6 +1367,9 @@ function RetailPOS() {
           sku:               i.sku || null,
           is_wash:           i.is_wash ?? 0,
           aplica_itbis:      i.aplica_itbis ?? 1,
+          weight:            i.weight != null ? Number(i.weight) : null,
+          unit:              i.unit || null,
+          price_per_unit:    i.price_per_unit != null ? Number(i.price_per_unit) : null,
         })),
         comentario: paymentData.comentario || '',
       })
@@ -1361,6 +1513,34 @@ function RetailPOS() {
             </div>
           )}
 
+          {/* Licorería — quick-sells bestseller grid above inventory */}
+          {tab === 'products' && !searchQuery && isLicoreria && quickSells.length > 0 && (
+            <div className="mb-5">
+              <div className="flex items-center gap-2 mb-2">
+                <Zap size={13} className="text-[#b3001e]" />
+                <p className="text-[11px] font-bold text-slate-500 dark:text-white/50 uppercase tracking-wider">
+                  {lang === 'es' ? 'Más Vendidos' : 'Top Sellers'}
+                </p>
+              </div>
+              <div className={`grid ${gridCols} gap-2`}>
+                {quickSells.map(item => {
+                  const restricted = requiresAgeCheck(licoreriaConfig, item)
+                  return (
+                    <button key={`qs-${item.id}`} onClick={() => addToCart(item)}
+                      className="relative flex flex-col items-start p-3 rounded-xl border-2 border-[#b3001e]/40 bg-[#b3001e]/5 dark:bg-[#b3001e]/10 hover:border-[#b3001e] hover:bg-[#b3001e]/15 transition-all text-left">
+                      {restricted && (
+                        <span className="absolute top-1.5 right-1.5 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-[#b3001e] text-white">18+</span>
+                      )}
+                      <p className="text-[13px] font-semibold text-slate-800 dark:text-white leading-tight line-clamp-2">{item.name}</p>
+                      {item.sku && <p className="text-[10px] text-slate-400 mt-0.5">{item.sku}</p>}
+                      <p className="text-[13px] font-bold text-[#b3001e] mt-1.5">{fmtRD(item.price)}</p>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Products tab — show all inventory */}
           {tab === 'products' && !searchQuery && (
             <ProductGrid api={api} lang={lang} gridCols={gridCols} onAdd={addToCart} />
@@ -1459,25 +1639,57 @@ function RetailPOS() {
                 <div key={item.id} className="flex items-center gap-2 py-2 border-b border-slate-50 dark:border-white/5 last:border-0">
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-medium text-slate-800 dark:text-white truncate">{item.name}</p>
-                    {item.sku && <p className="text-[10px] text-slate-400">{item.sku}</p>}
+                    {item.weight != null
+                      ? <p className="text-[10px] text-slate-400 tabular-nums">{item.weight.toFixed(3)} {item.unit} × {fmtRD(item.price_per_unit || 0)}/{item.unit}</p>
+                      : (item.sku && <p className="text-[10px] text-slate-400">{item.sku}</p>)}
                     <p className="text-[12px] text-[#b3001e] dark:text-blue-400 font-semibold">{fmtRD(item.price * item.qty)}</p>
                   </div>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => item.qty <= 1 ? removeFromCart(item.id) : updateQty(item.id, -1)}
-                      className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-500 hover:bg-red-100 hover:text-red-500 transition-colors">
-                      {item.qty <= 1 ? <X size={12} /> : <Minus size={12} />}
-                    </button>
-                    <span className="w-7 text-center text-[13px] font-bold text-slate-800 dark:text-white">{item.qty}</span>
-                    <button onClick={() => updateQty(item.id, 1)}
-                      className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-500 hover:bg-[#b3001e]/10 hover:text-[#b3001e] transition-colors">
-                      <Plus size={12} />
-                    </button>
+                    {item.weight != null ? (
+                      <button onClick={() => removeFromCart(item.id)}
+                        className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-500 hover:bg-red-100 hover:text-red-500 transition-colors"
+                        title="Eliminar">
+                        <X size={12} />
+                      </button>
+                    ) : (
+                      <>
+                        <button onClick={() => item.qty <= 1 ? removeFromCart(item.id) : updateQty(item.id, -1)}
+                          className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-500 hover:bg-red-100 hover:text-red-500 transition-colors">
+                          {item.qty <= 1 ? <X size={12} /> : <Minus size={12} />}
+                        </button>
+                        <span className="w-7 text-center text-[13px] font-bold text-slate-800 dark:text-white">{item.qty}</span>
+                        <button onClick={() => updateQty(item.id, 1)}
+                          className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-500 hover:bg-[#b3001e]/10 hover:text-[#b3001e] transition-colors">
+                          <Plus size={12} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
           )}
         </div>
+
+        {/* Licorería — verified badge + deposit summary */}
+        {isLicoreria && (ageVerified || bottleDepositTotal > 0) && (
+          <div className="px-4 py-2 border-t border-slate-100 dark:border-white/5 space-y-1">
+            {ageVerified && (
+              <div className="flex items-center gap-2 text-[11px] text-emerald-600 dark:text-emerald-400">
+                <ShieldCheck size={13} />
+                <span className="font-semibold">{lang === 'es' ? 'Edad verificada' : 'Age verified'}</span>
+                <span className="text-slate-400 dark:text-white/40">· {ageVerified.method === 'dob' ? `DOB ${ageVerified.dob}` : 'ID check'}</span>
+              </div>
+            )}
+            {bottleDepositTotal > 0 && (
+              <div className="flex items-center gap-2 text-[11px] text-[#b3001e]">
+                <Wine size={13} />
+                <span className="font-semibold">{lang === 'es' ? 'Depósito botellas' : 'Bottle deposit'}:</span>
+                <span>{fmtRD(bottleDepositTotal)}</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Totals + Cobrar */}
         <div className="border-t border-slate-200 dark:border-white/10 px-4 py-3 space-y-2">
@@ -1491,7 +1703,8 @@ function RetailPOS() {
               if (cart.length > 0) {
                 setMobileCartOpen(false)
                 setCobrarModal({
-                  items: cart, salesperson,
+                  items: expandCartWithDeposits(cart), salesperson,
+                  ageVerified,
                   clientId: selectedClient?.id || null,
                   clientName: selectedClient?.name || rncName || '',
                   client: selectedClient || null,
@@ -1570,6 +1783,25 @@ function RetailPOS() {
           }}
           onConfirm={handlePaymentConfirm}
           onClose={() => setCobrarModal(null)}
+        />
+      )}
+
+      {/* Licorería — age verification gate */}
+      {pendingAgeItem && (
+        <AgeVerifyModal
+          minAge={licoreriaConfig?.ageVerification?.minAge || 18}
+          productName={pendingAgeItem.name}
+          onConfirm={handleAgeConfirmed}
+          onCancel={() => setPendingAgeItem(null)}
+        />
+      )}
+
+      {/* Carnicería — weight entry */}
+      {pendingWeightItem && (
+        <WeightModal
+          product={pendingWeightItem}
+          onConfirm={handleWeightConfirmed}
+          onClose={() => setPendingWeightItem(null)}
         />
       )}
     </div>

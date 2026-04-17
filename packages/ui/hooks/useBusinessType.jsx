@@ -4,6 +4,7 @@ import {
   BUSINESS_TYPE_KEYS,
   getBusinessTypeConfig,
   hasModule as cfgHasModule,
+  normalizeBusinessType,
 } from '@terminal-x/config/businessTypes'
 
 const BusinessTypeContext = createContext(null)
@@ -11,21 +12,17 @@ const BusinessTypeContext = createContext(null)
 // Canonical business types — re-exported from the registry so legacy imports keep working.
 export const BUSINESS_TYPES = BUSINESS_TYPE_KEYS
 
-function normalise(raw) {
-  if (!raw) return 'carwash'
-  // Backwards-compat aliases from the pre-1.9.19 three-value enum.
-  if (raw === 'tienda') return 'retail'
-  if (raw === 'otro')   return 'service'
-  return BUSINESS_TYPE_KEYS.includes(raw) ? raw : 'carwash'
-}
+const normalise = normalizeBusinessType
 
 // Group membership flags — how each type maps to POS behavior.
 // stockTracked → retail-style POS with inventory + barcode + qty cart
 // serviceBased → car-wash-style POS with service grid + queue + workers
 // hybrid       → both (combined view)
 function flagsFor(type) {
-  const stockTracked = ['retail', 'dealership', 'restaurant', 'hybrid', 'mechanic'].includes(type)
+  const stockTracked = ['retail', 'dealership', 'restaurant', 'hybrid', 'mechanic', 'licoreria', 'carniceria'].includes(type)
   const serviceBased = ['carwash', 'service', 'hybrid', 'salon', 'mechanic'].includes(type)
+  const priceByWeight = ['carniceria'].includes(type)
+  const scaleEnabled  = priceByWeight
   return {
     isRetail:     stockTracked,   // kept for backward-compat with existing call sites
     isCarWash:    serviceBased,   // kept for backward-compat
@@ -36,7 +33,9 @@ function flagsFor(type) {
     isMechanic:   type === 'mechanic',
     isSalon:      type === 'salon',
     isPrestamos:  type === 'prestamos',
-    stockTracked, serviceBased,
+    isLicoreria:  type === 'licoreria',
+    isCarniceria: type === 'carniceria',
+    stockTracked, serviceBased, priceByWeight, scaleEnabled,
   }
 }
 
@@ -77,6 +76,7 @@ export function BusinessTypeProvider({ children }) {
       modules: config.modules,
       ui: config.ui,
       config,
+      licoreriaConfig: config.licoreria || null,
       hasModule,
     }}>
       {children}
@@ -96,6 +96,7 @@ export function useBusinessType() {
       modules: config.modules,
       ui: config.ui,
       config,
+      licoreriaConfig: null,
       hasModule: (m) => cfgHasModule('carwash', m),
     }
   }

@@ -3,13 +3,20 @@ import {
   Package, Plus, Search, AlertTriangle, X,
   ChevronUp, ChevronDown, Pencil, Trash2,
   History, RefreshCw, Loader2, Upload, FileSpreadsheet,
-  Check,
+  Check, Wine,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
+import { useBusinessType } from '../hooks/useBusinessType.jsx'
+import { getCarniceriaCategoryOptions, getCutSuggestions } from '@terminal-x/config/carniceriaCatalog'
 
 const ALLOWED = ['owner', 'manager', 'cfo', 'accountant']
+
+// Licorería categories — replaces the generic carwash default when the
+// business type is 'licoreria'. Ordering matches shelf-walk flow.
+const LICORERIA_CATEGORIES = ['Ron', 'Whisky', 'Vodka', 'Cerveza', 'Vino', 'Gin', 'Tequila', 'Champagne', 'Licor', 'Brandy', 'Aperitivo', 'Bebidas', 'Snacks', 'Otro']
+const CARNICERIA_CATEGORIES_LIST = getCarniceriaCategoryOptions()
 
 function fmtRD(n) {
   return `RD$ ${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -19,20 +26,35 @@ function fmtDate(s) {
   return new Date(s.includes('T') ? s : s + 'T12:00:00').toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-const CATEGORIES = ['Bebidas', 'Insumos', 'Repuestos', 'Herramientas', 'Limpieza', 'Otro']
+const DEFAULT_CATEGORIES = ['Bebidas', 'Insumos', 'Repuestos', 'Herramientas', 'Limpieza', 'Otro']
 
 // ── Item form modal ────────────────────────────────────────────────────────────
 function ItemModal({ item, onSave, onClose }) {
   const api = useAPI()
+  const { isLicoreria, licoreriaConfig, isCarniceria } = useBusinessType()
+  const CATEGORIES = isCarniceria ? CARNICERIA_CATEGORIES_LIST
+                   : isLicoreria  ? LICORERIA_CATEGORIES
+                   : DEFAULT_CATEGORIES
+  const brandSuggestions = licoreriaConfig?.brandSuggestions || {}
+
   const [form, setForm] = useState({
-    sku:          item?.sku          || '',
-    name:         item?.name         || '',
-    category:     item?.category     || CATEGORIES[0],
-    quantity:     item?.quantity     ?? 0,
-    min_quantity: item?.min_quantity ?? 5,
-    price:        item?.price        ?? 0,
-    cost:         item?.cost         ?? 0,
+    sku:            item?.sku          || '',
+    name:           item?.name         || '',
+    category:       item?.category     || CATEGORIES[0],
+    quantity:       item?.quantity     ?? 0,
+    min_quantity:   item?.min_quantity ?? 5,
+    price:          item?.price        ?? 0,
+    cost:           item?.cost         ?? 0,
+    bottle_deposit: item?.bottle_deposit ?? (isLicoreria ? (licoreriaConfig?.bottleDeposit?.defaultAmount || 0) : 0),
+    // Carnicería — sold-by-weight defaults. When enabled, `price` is ignored at
+    // POS time in favor of price_per_unit × weight; we mirror price_per_unit →
+    // price on save so legacy reports (which read `price`) still render sanely.
+    sold_by_weight: !!(item?.sold_by_weight) || (isCarniceria && !item),
+    unit:           item?.unit || (isCarniceria ? 'lb' : ''),
+    price_per_unit: item?.price_per_unit ?? (isCarniceria ? 0 : null),
+    tare_default:   item?.tare_default ?? 0,
   })
+  const cutSuggestions = isCarniceria ? getCutSuggestions(form.category) : []
   const [saving, setSaving] = useState(false)
   const [err,    setErr]    = useState('')
 
@@ -42,14 +64,23 @@ function ItemModal({ item, onSave, onClose }) {
     if (!form.name.trim()) { setErr('El nombre es requerido.'); return }
     setSaving(true)
     try {
+      const ppu = parseFloat(form.price_per_unit) || 0
+      const sold_by_weight = !!form.sold_by_weight
       const data = {
         ...form,
-        name:         form.name.trim(),
-        sku:          form.sku.trim() || null,
-        quantity:     Number(form.quantity)     || 0,
-        min_quantity: Number(form.min_quantity) || 0,
-        price:        parseFloat(form.price)    || 0,
-        cost:         parseFloat(form.cost)     || 0,
+        name:           form.name.trim(),
+        sku:            form.sku.trim() || null,
+        quantity:       Number(form.quantity)     || 0,
+        min_quantity:   Number(form.min_quantity) || 0,
+        // For weighted products we mirror price_per_unit → price so legacy
+        // reports (which only understand `price`) still see a sane number.
+        price:          sold_by_weight ? ppu : (parseFloat(form.price) || 0),
+        cost:           parseFloat(form.cost)     || 0,
+        bottle_deposit: parseFloat(form.bottle_deposit) || 0,
+        sold_by_weight,
+        unit:           sold_by_weight ? (form.unit || 'lb') : null,
+        price_per_unit: sold_by_weight ? ppu : null,
+        tare_default:   sold_by_weight ? (parseFloat(form.tare_default) || 0) : null,
       }
       if (item?.id) await api.inventory.update({ id: item.id, ...data })
       else          await api.inventory.create(data)
@@ -87,17 +118,90 @@ function ItemModal({ item, onSave, onClose }) {
           <div>
             <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">Nombre *</label>
             <input value={form.name} onChange={e => { set('name', e.target.value); setErr('') }}
-              placeholder="Ej: Shampoo para autos 1L"
+              list={isLicoreria ? 'licoreria-brands' : undefined}
+              placeholder={isLicoreria ? 'Ej: Brugal Añejo 750ml' : 'Ej: Shampoo para autos 1L'}
               className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            {isLicoreria && (
+              <datalist id="licoreria-brands">
+                {Object.values(brandSuggestions).flat().map(b => <option key={b} value={b} />)}
+              </datalist>
+            )}
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">Precio venta</label>
-              <input type="number" min="0" step="0.01" value={form.price} onChange={e => set('price', e.target.value)}
-                className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          {isLicoreria && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1 flex items-center gap-1">
+                  <Wine size={10} className="text-[#b3001e]" /> Depósito botella (RD$)
+                </label>
+                <input type="number" min="0" step="0.01" value={form.bottle_deposit}
+                  onChange={e => set('bottle_deposit', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
+                <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1">Se añade automáticamente al cobrar.</p>
+              </div>
             </div>
+          )}
+          {(isCarniceria || form.sold_by_weight) && (
+            <>
+              {cutSuggestions.length > 0 && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">Corte sugerido</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {cutSuggestions.map(cut => (
+                      <button type="button" key={cut}
+                        onClick={() => set('name', `${cut} ${form.category}`.trim())}
+                        className="px-2.5 py-1 rounded-full border border-slate-200 dark:border-white/10 text-[11px] font-medium text-slate-600 dark:text-white/60 hover:border-[#b3001e] hover:text-[#b3001e] transition-colors">
+                        {cut}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <label className="flex items-center gap-2 select-none cursor-pointer">
+                <input type="checkbox" checked={!!form.sold_by_weight}
+                  onChange={e => set('sold_by_weight', e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-[#b3001e] focus:ring-[#b3001e]/30" />
+                <span className="text-[13px] text-slate-700 dark:text-white/80">Vender por peso (báscula)</span>
+              </label>
+              {form.sold_by_weight && (
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">Unidad</label>
+                    <select value={form.unit} onChange={e => set('unit', e.target.value)}
+                      className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30">
+                      <option value="lb">lb (libra)</option>
+                      <option value="kg">kg</option>
+                      <option value="oz">oz</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">Precio / {form.unit || 'lb'} (RD$)</label>
+                    <input type="number" min="0" step="0.01" value={form.price_per_unit}
+                      onChange={e => set('price_per_unit', e.target.value)}
+                      placeholder="0.00"
+                      className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">Tara ({form.unit || 'lb'})</label>
+                    <input type="number" min="0" step="0.001" value={form.tare_default}
+                      onChange={e => set('tare_default', e.target.value)}
+                      placeholder="0.000"
+                      className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          <div className={`grid ${form.sold_by_weight ? 'grid-cols-1' : 'grid-cols-2'} gap-3`}>
+            {!form.sold_by_weight && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">Precio venta</label>
+                <input type="number" min="0" step="0.01" value={form.price} onChange={e => set('price', e.target.value)}
+                  className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+            )}
             <div>
-              <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">Costo</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">Costo {form.sold_by_weight ? `(por ${form.unit || 'lb'})` : ''}</label>
               <input type="number" min="0" step="0.01" value={form.cost} onChange={e => set('cost', e.target.value)}
                 className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
             </div>
@@ -313,6 +417,7 @@ const FIELD_MAP = {
   cost: ['cost', 'costo', 'precio_costo', 'compra', 'buy'],
   quantity: ['quantity', 'stock', 'cantidad', 'qty', 'existencia'],
   min_quantity: ['min_quantity', 'min_stock', 'minimo', 'min', 'reorder'],
+  bottle_deposit: ['bottle_deposit', 'deposito', 'deposito_botella', 'envase', 'deposit'],
 }
 
 function mapField(header) {
@@ -368,14 +473,15 @@ function ImportModal({ onDone, onClose }) {
       if (!raw.name) { fail++; continue }
       try {
         await api.inventory.create({
-          name:         raw.name,
-          sku:          raw.sku || null,
-          barcode:      raw.barcode || null,
-          category:     raw.category || 'Otro',
-          price:        parseFloat(raw.price) || 0,
-          cost:         parseFloat(raw.cost) || 0,
-          quantity:     parseInt(raw.quantity) || 0,
-          min_quantity: parseInt(raw.min_quantity) || 5,
+          name:           raw.name,
+          sku:            raw.sku || null,
+          barcode:        raw.barcode || null,
+          category:       raw.category || 'Otro',
+          price:          parseFloat(raw.price) || 0,
+          cost:           parseFloat(raw.cost) || 0,
+          quantity:       parseInt(raw.quantity) || 0,
+          min_quantity:   parseInt(raw.min_quantity) || 5,
+          bottle_deposit: parseFloat(raw.bottle_deposit) || 0,
         })
         ok++
       } catch { fail++ }
