@@ -7,6 +7,19 @@ async function call(channel, ...args) {
   return 'data' in res ? res.data : res
 }
 
+// Sync pull progress is emitted by main via webContents.send('sync:pull-progress', ...).
+// The renderer's LicenseContext listens on a CustomEvent for clean isolation
+// (contextBridge can't pass function handles). Forward here instead of exposing
+// ipcRenderer.on directly to the window.
+try {
+  ipcRenderer.on('sync:pull-progress', (_, payload) => {
+    try { window.dispatchEvent(new CustomEvent('tx:sync-pull-progress', { detail: payload })) } catch {}
+  })
+  ipcRenderer.on('sync:pull-complete', (_, payload) => {
+    try { window.dispatchEvent(new CustomEvent('tx:sync-pull-complete', { detail: payload })) } catch {}
+  })
+} catch {}
+
 contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Admin panel — unified CRUD ─────────────────────────────────────────────
@@ -75,12 +88,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     create: (data) => call('users:create', data),
     update: (data) => call('users:update', data),
     delete: (data) => call('users:delete', data),
+    deleteHard: (data) => call('users:delete-hard', data),
   },
 
   // ── Activity log (owner audit feed) ────────────────────────────────────────
   activity: {
     setActor: (user) => call('activity:set-actor', user),
     list:     (args) => call('activity:list', args),
+    record:   (evt)  => call('activity:record', evt),
   },
 
   // ── Categorías de Servicio ─────────────────────────────────────────────────
@@ -224,6 +239,33 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete:  (id)                => call('pawnItems:delete', { id }),
   },
 
+  // ── Memberships (carwash) ─────────────────────────────────────────────────
+  memberships: {
+    create:          (data)     => call('memberships:create', data),
+    update:          (data)     => call('memberships:update', data),
+    list:            (params)   => call('memberships:list', params),
+    activeForClient: (clientId) => call('memberships:activeForClient', clientId),
+    consume:         (id)       => call('memberships:consume', { id }),
+    delete:          (id)       => call('memberships:delete', { id }),
+  },
+
+  // ── Wash Combos (punch-card) ──────────────────────────────────────────────
+  washCombos: {
+    create:          (data)     => call('washCombos:create', data),
+    update:          (data)     => call('washCombos:update', data),
+    list:            (params)   => call('washCombos:list', params),
+    activeForClient: (clientId) => call('washCombos:activeForClient', clientId),
+    consume:         (id)       => call('washCombos:consume', { id }),
+    delete:          (id)       => call('washCombos:delete', { id }),
+  },
+
+  // ── Carwash reports / metrics ─────────────────────────────────────────────
+  carwash: {
+    queueWaitMetrics: ()              => call('queue:waitMetrics'),
+    topWashers:       (limit = 3)     => call('reports:topWashers', { limit }),
+    ticketsByClient:  (clientId, limit = 10) => call('tickets:byClient', { clientId, limit }),
+  },
+
   // ── Restaurant Mode — Mesas (floor plan) ───────────────────────────────────
   mesas: {
     list:      ()                          => call('mesas:list'),
@@ -304,11 +346,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bySeller: (params) => call('sellerCommissions:bySeller', params),
     byPeriod: (params) => call('sellerCommissions:byPeriod', params),
     markPaid: (ids)    => call('sellerCommissions:markPaid', ids),
+    create:   (data)   => call('sellerCommissions:create', data),
   },
   cajeroCommissions: {
     byCajero: (params) => call('cajeroCommissions:byCajero', params),
     byPeriod: (params) => call('cajeroCommissions:byPeriod', params),
     markPaid: (ids)    => call('cajeroCommissions:markPaid', ids),
+    create:   (data)   => call('cajeroCommissions:create', data),
   },
 
   // ── Cuadre de Caja ─────────────────────────────────────────────────────────
@@ -394,6 +438,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sync: {
     status: () => ipcRenderer.invoke('sync:status'),
     now:    () => ipcRenderer.invoke('sync:now'),
+    pull:   () => ipcRenderer.invoke('sync:pull'),
   },
 
   // ── App version ────────────────────────────────────────────────────────────
@@ -425,6 +470,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     installCert:     (opts)        => call('dgii:install-cert', opts),
     certInfo:        ()            => call('dgii:cert-info'),
     certPem:         ()            => call('dgii:cert-pem'),
+    restoreCertFromPEM: (payload)  => ipcRenderer.invoke('dgii:restore-from-pem', payload),
     authTest:        ()            => call('dgii:auth-test'),
     checkStatus:     (trackId)     => call('dgii:check-status', trackId),
     getEnv:          ()            => ipcRenderer.invoke('dgii:get-env'),

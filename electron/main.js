@@ -401,6 +401,63 @@ ipcMain.handle('dgii:cert-pem', () => {
   }
 })
 
+// F17 — dgii:restore-from-pem: rebuild a .p12 from the PEM blobs Supabase
+// stashed during a prior validate() round-trip, and write it into userData so
+// e-CF signing comes back online immediately after a wipe+reactivate. Called
+// by LicenseContext once bizSettings yields both ecf_private_key_pem and
+// ecf_certificate_pem AND the local cert is missing.
+ipcMain.handle('dgii:restore-from-pem', async (_, { privateKeyPem, certificatePem, password } = {}) => {
+  try {
+    if (!privateKeyPem || !certificatePem) return { ok: false, error: 'PEM_MISSING' }
+    const forge = require('node-forge')
+    const fs = require('fs')
+    const pathMod = require('path')
+
+    const privateKey = forge.pki.privateKeyFromPem(privateKeyPem)
+    const certificate = forge.pki.certificateFromPem(certificatePem)
+
+    const pass = password || 'terminal-x-restored'
+    const p12Asn1 = forge.pkcs12.toPkcs12Asn1(privateKey, [certificate], pass, {
+      algorithm: '3des',
+    })
+    const p12Der = forge.asn1.toDer(p12Asn1).getBytes()
+    const p12Buf = Buffer.from(p12Der, 'binary')
+
+    const certDir = pathMod.join(app.getPath('userData'), 'certs')
+    if (!fs.existsSync(certDir)) fs.mkdirSync(certDir, { recursive: true })
+    const destPath = pathMod.join(certDir, 'dgii-cert.p12')
+    fs.writeFileSync(destPath, p12Buf)
+
+    // Also encrypt and store the passphrase via safeStorage (same shape as
+    // cert-manager.installCert so loadCert() works without re-install).
+    try {
+      const { safeStorage } = require('electron')
+      const storePath = pathMod.join(app.getPath('userData'), 'safe_store.json')
+      let store = {}
+      try { store = JSON.parse(fs.readFileSync(storePath, 'utf8')) } catch {}
+      if (safeStorage.isEncryptionAvailable()) {
+        store['dgii_cert_pass'] = { enc: true, data: safeStorage.encryptString(pass).toString('base64') }
+      } else {
+        store['dgii_cert_pass'] = { enc: false, data: Buffer.from(pass).toString('base64') }
+      }
+      fs.writeFileSync(storePath, JSON.stringify(store))
+    } catch (e) {
+      console.error('[dgii:restore-from-pem] safe_store write:', e.message)
+    }
+
+    // Validate that the round-trip works (loadCert must succeed now).
+    try {
+      const info = certManager.loadCert()
+      return { ok: true, data: { subject: info.subject, expiry: info.expiry, serialNumber: info.serialNumber } }
+    } catch (e) {
+      return { ok: false, error: 'VERIFY_FAILED: ' + e.message }
+    }
+  } catch (err) {
+    console.error('[dgii:restore-from-pem] failed:', err.message)
+    return { ok: false, error: err.message }
+  }
+})
+
 // dgii:auth-test — test DGII authentication (seed dance)
 ipcMain.handle('dgii:auth-test', async () => {
   try {
@@ -716,7 +773,8 @@ function createWindow() {
     if (input.key === 'Escape' && input.type === 'keyDown') {
       promptExit(win)
     }
-    if (isDev && input.key === 'F12' && input.type === 'keyDown') {
+    // F12 always toggles DevTools — needed for live diagnostics on production installs.
+    if (input.key === 'F12' && input.type === 'keyDown') {
       win.webContents.toggleDevTools()
     }
   })
@@ -834,44 +892,63 @@ function handle(channel, fn) {
   })
 }
 
+// F14 — same as `handle` but fires `sync.syncNow()` after a successful
+// mutation so the change propagates to Supabase immediately instead of
+// waiting up to 5 minutes for the auto-sync tick. During that window a
+// concurrent pull could clobber the fresh local write, so every channel
+// that writes state goes through `handleMut` rather than `handle`.
+function handleMut(channel, fn) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    if (!db || !db.isReady()) return { ok: false, error: db?.getError?.() || 'Base de datos no disponible' }
+    try {
+      const data = await fn(...args)
+      try { sync.syncNow?.() } catch {}
+      return { ok: true, data }
+    } catch (err) {
+      if (err.message?.includes('FOREIGN KEY')) {
+        const argSummary = JSON.stringify(args).slice(0, 800)
+        console.error(`[ipc:${channel}] FOREIGN KEY constraint failed. Args: ${argSummary}`)
+        return { ok: false, error: `FOREIGN KEY constraint failed — channel: ${channel}. Verify washer_id, seller_id, service_id, and cajero_id all exist in their respective tables.` }
+      }
+      console.error(`[ipc:${channel}]`, err.message)
+      return { ok: false, error: err.message }
+    }
+  })
+}
+
 // ── Admin panel — unified CRUD handlers ───────────────────────────────────────
 // Empresa
 handle('get-empresa',   ()     => db.empresaGet())
-handle('save-empresa',  (data) => {
-  db.empresaSave(data)
-  // Trigger cloud sync so logo + business info hit Supabase immediately
-  try { sync.syncNow?.() } catch {}
-  return true
-})
+handleMut('save-empresa',  (data) => { db.empresaSave(data); return true })
 
 // Usuarios
 handle('get-usuarios',    ()     => db.usersGetAll())
-handle('save-usuario',    (data) => data.id ? db.userUpdate(data.id, data) : db.userCreate(data))
-handle('delete-usuario',  ({id}) => { db.userDelete(id); return true })
+handleMut('save-usuario',    (data) => data.id ? db.userUpdate(data.id, data) : db.userCreate(data))
+handleMut('delete-usuario',  ({id}) => { db.userDelete(id); return true })
 
 // Lavadores
 handle('get-lavadores',   ()     => db.washersGetAllAdmin())
-handle('save-lavador',    (data) => data.id ? db.washerUpdate(data.id, data) : db.washerCreate(data))
-handle('delete-lavador',  ({id}) => { db.washerDelete(id); return true })
+handleMut('save-lavador',    (data) => data.id ? db.washerUpdate(data.id, data) : db.washerCreate(data))
+handleMut('delete-lavador',  ({id}) => { db.washerDelete(id); return true })
 
 // Vendedores
 handle('get-vendedores',  ()     => db.sellersGetAllAdmin())
-handle('save-vendedor',   (data) => data.id ? db.sellerUpdate(data.id, data) : db.sellerCreate(data))
-handle('delete-vendedor', ({id}) => { db.sellerDelete(id); return true })
+handleMut('save-vendedor',   (data) => data.id ? db.sellerUpdate(data.id, data) : db.sellerCreate(data))
+handleMut('delete-vendedor', ({id}) => { db.sellerDelete(id); return true })
 
 // Servicios
 handle('get-servicios',   ()     => db.servicesGetAllAdmin())
-handle('save-servicio',   (data) => data.id ? db.serviceUpdate(data.id, data) : db.serviceCreate(data))
-handle('delete-servicio', ({id}) => { db.serviceDelete(id); return true })
+handleMut('save-servicio',   (data) => data.id ? db.serviceUpdate(data.id, data) : db.serviceCreate(data))
+handleMut('delete-servicio', ({id}) => { db.serviceDelete(id); return true })
 handle('get-categorias',  ()     => db.categoriasGetAll())
 
 // Secuencias NCF
 handle('get-secuencias-ncf',  ()     => db.ncfGetSequences())
-handle('save-secuencia-ncf',  (data) => { db.ncfUpdateSequence(data.type, data); return true })
+handleMut('save-secuencia-ncf',  (data) => { db.ncfUpdateSequence(data.type, data); return true })
 
 // Configuración
 handle('get-configuracion',   ()     => db.settingsGet())
-handle('save-configuracion',  (data) => {
+handleMut('save-configuracion',  (data) => {
   db.settingsUpdate(data)
   // Mirror setup_complete to configuracion table (used by empresaGet first-run check)
   if ('setup_complete' in data) db.configSet('setup_complete', data.setup_complete)
@@ -880,7 +957,7 @@ handle('save-configuracion',  (data) => {
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 handle('settings:get',    ()     => db.settingsGet())
-handle('settings:update', (obj)  => { db.settingsUpdate(obj); return true })
+handleMut('settings:update', (obj)  => { db.settingsUpdate(obj); return true })
 
 // ── Cloud Sync ───────────────────────────────────────────────────────────────
 handle('sync:status', () => sync.getStatus())
@@ -890,214 +967,239 @@ handle('sync:pull',   async () => { return sync.pullNow() })
 // ── Auth ──────────────────────────────────────────────────────────────────────
 handle('auth:pin',         (pin)  => db.authByPin(pin))
 handle('users:all',        ()     => db.usersGetAll())
-handle('users:create',     (data) => db.userCreate(data))
-handle('users:update',     ({id, ...data}) => db.userUpdate(id, data))
-handle('users:delete',     ({id})          => db.userDelete(id))
+handleMut('users:create',     (data)          => db.userCreate(data))
+handleMut('users:update',     ({id, ...data}) => db.userUpdate(id, data))
+handleMut('users:delete',     ({id})          => db.userDelete(id))
+handleMut('users:delete-hard',({id})          => db.userDeleteHard(id))
 
 // ── Activity log (owner audit feed) ───────────────────────────────────────────
 handle('activity:set-actor', (user) => { db.setActiveUser(user); return true })
 handle('activity:list',      (args) => db.activityLogList(args || {}))
+handleMut('activity:record',    (evt)  => { db.activityLogRecord(evt || {}); return true })
 
 // ── Categorías de Servicio ────────────────────────────────────────────────────
 handle('categorias:all',    ()              => db.categoriasGetAll())
-handle('categorias:create', (data)          => db.categoriaCreate(data))
-handle('categorias:update', ({id,...data})  => db.categoriaUpdate(id, data))
-handle('categorias:delete', ({id})          => db.categoriaDelete(id))
+handleMut('categorias:create', (data)          => db.categoriaCreate(data))
+handleMut('categorias:update', ({id,...data})  => db.categoriaUpdate(id, data))
+handleMut('categorias:delete', ({id})          => db.categoriaDelete(id))
 
 // ── Services ──────────────────────────────────────────────────────────────────
 handle('services:all',       ()              => db.servicesGetAll())
 handle('services:all-admin', ()              => db.servicesGetAllAdmin())
-handle('services:create',    (data)          => db.serviceCreate(data))
-handle('services:update',    ({id,...data})  => db.serviceUpdate(id, data))
-handle('services:delete',    ({id})          => db.serviceDelete(id))
+handleMut('services:create',    (data)          => db.serviceCreate(data))
+handleMut('services:update',    ({id,...data})  => db.serviceUpdate(id, data))
+handleMut('services:delete',    ({id})          => db.serviceDelete(id))
 
 // ── Washers ───────────────────────────────────────────────────────────────────
 handle('washers:all',       ()              => db.washersGetAll())
 handle('washers:all-admin', ()              => db.washersGetAllAdmin())
-handle('washers:create',    (data)          => db.washerCreate(data))
-handle('washers:update',    ({id,...data})  => db.washerUpdate(id, data))
+handleMut('washers:create',    (data)          => db.washerCreate(data))
+handleMut('washers:update',    ({id,...data})  => db.washerUpdate(id, data))
 
 // ── Sellers ───────────────────────────────────────────────────────────────────
 handle('sellers:all',       ()              => db.sellersGetAll())
 handle('sellers:all-admin', ()              => db.sellersGetAllAdmin())
-handle('sellers:create',    (data)          => db.sellerCreate(data))
-handle('sellers:update',    ({id,...data})  => db.sellerUpdate(id, data))
+handleMut('sellers:create',    (data)          => db.sellerCreate(data))
+handleMut('sellers:update',    ({id,...data})  => db.sellerUpdate(id, data))
 
 // ── Empleados (payroll) ──────────────────────────────────────────────────────
 handle('empleados:all',       ()              => db.empleadosGetAll())
 handle('empleados:all-admin', ()              => db.empleadosGetAllAdmin())
-handle('empleados:create',    (data)          => db.empleadoCreate(data))
-handle('empleados:update',    ({id,...data})  => db.empleadoUpdate(id, data))
-handle('empleados:delete',    ({id})          => { db.empleadoDelete(id); return true })
-handle('empleados:hard-delete', ({id})        => db.empleadoHardDelete(id))
+handleMut('empleados:create',    (data)          => db.empleadoCreate(data))
+handleMut('empleados:update',    ({id,...data})  => db.empleadoUpdate(id, data))
+handleMut('empleados:delete',    ({id})          => { db.empleadoDelete(id); return true })
+handleMut('empleados:hard-delete', ({id})        => db.empleadoHardDelete(id))
 
 // ── Restaurant Mode — Mesas ──────────────────────────────────────────────────
 handle('mesas:list',       ()                    => db.mesasGetAll())
-handle('mesas:create',     (data)                => db.mesaCreate(data))
-handle('mesas:update',     ({id, ...data})       => db.mesaUpdate(id, data))
-handle('mesas:setStatus',  ({id, status, opts})  => db.mesaSetStatus(id, status, opts || {}))
-handle('mesas:delete',     ({id})                => { db.mesaDelete(id); return true })
+handleMut('mesas:create',     (data)                => db.mesaCreate(data))
+handleMut('mesas:update',     ({id, ...data})       => db.mesaUpdate(id, data))
+handleMut('mesas:setStatus',  ({id, status, opts})  => db.mesaSetStatus(id, status, opts || {}))
+handleMut('mesas:delete',     ({id})                => { db.mesaDelete(id); return true })
 
 // ── Restaurant Mode — Modificadores ──────────────────────────────────────────
 handle('modificadores:list',       ()                                  => db.modificadoresGetAll())
 handle('modificadores:listAll',    ()                                  => db.modificadoresGetAllAdmin())
-handle('modificadores:create',     (data)                              => db.modificadorCreate(data))
-handle('modificadores:update',     ({id, ...data})                     => db.modificadorUpdate(id, data))
-handle('modificadores:delete',     ({id})                              => { db.modificadorDelete(id); return true })
+handleMut('modificadores:create',     (data)                              => db.modificadorCreate(data))
+handleMut('modificadores:update',     ({id, ...data})                     => db.modificadorUpdate(id, data))
+handleMut('modificadores:delete',     ({id})                              => { db.modificadorDelete(id); return true })
 handle('modificadores:listForService', ({serviceId})                   => db.modificadoresListForService(serviceId))
-handle('modificadores:attach',     ({serviceId, modificadorId, isRequired}) => { db.modificadorAttachToService(serviceId, modificadorId, isRequired ? 1 : 0); return true })
-handle('modificadores:detach',     ({serviceId, modificadorId})        => { db.modificadorDetachFromService(serviceId, modificadorId); return true })
+handleMut('modificadores:attach',     ({serviceId, modificadorId, isRequired}) => { db.modificadorAttachToService(serviceId, modificadorId, isRequired ? 1 : 0); return true })
+handleMut('modificadores:detach',     ({serviceId, modificadorId})        => { db.modificadorDetachFromService(serviceId, modificadorId); return true })
 
 // ── Restaurant Mode — KDS events ─────────────────────────────────────────────
 handle('kds:listActive', ()                => db.kdsListActive())
-handle('kds:fire',       (data)            => db.kdsFire(data))
-handle('kds:setStatus',  ({id, status})    => db.kdsSetStatus(id, status))
+handleMut('kds:fire',       (data)            => db.kdsFire(data))
+handleMut('kds:setStatus',  ({id, status})    => db.kdsSetStatus(id, status))
 
 // ── Restaurant Mode — Ticket-item modifier snapshots ─────────────────────────
 handle('restaurant:itemModificadores:list',
   ({ticketItemId}) => db.ticketItemModificadoresList(ticketItemId))
-handle('restaurant:itemModificadores:snapshot',
+handleMut('restaurant:itemModificadores:snapshot',
   ({ticketItemSupabaseId, ticketItemId, selections}) => { db.ticketItemModificadoresSnapshot(ticketItemSupabaseId, ticketItemId, selections); return true })
 
 // ── Payroll runs (paycheck history) ──────────────────────────────────────────
-handle('payroll-runs:create',      (data)                => db.payrollRunCreate(data))
-handle('payroll-runs:bulk-create', (runs)                => db.payrollRunsBulkCreate(runs))
+handleMut('payroll-runs:create',      (data)                => db.payrollRunCreate(data))
+handleMut('payroll-runs:bulk-create', (runs)                => db.payrollRunsBulkCreate(runs))
 handle('payroll-runs:by-empleado', ({empleadoId, limit}) => db.payrollRunsByEmpleado(empleadoId, limit || 100))
 handle('payroll-runs:by-period',   ({from, to})          => db.payrollRunsByPeriod(from, to))
-handle('payroll-runs:delete',      ({id})                => { db.payrollRunDelete(id); return true })
+handleMut('payroll-runs:delete',      ({id})                => { db.payrollRunDelete(id); return true })
 
 // ── Payroll settings + salary changes ────────────────────────────────────────
 handle('payroll-settings:get',     ()                    => db.payrollSettingsGet())
-handle('payroll-settings:update',  (data)                => { db.payrollSettingsUpdate(data); return true })
+handleMut('payroll-settings:update',  (data)                => { db.payrollSettingsUpdate(data); return true })
 handle('salary-changes:by-empleado', ({empleadoId})      => db.salaryChangesByEmpleado(empleadoId))
 handle('salary-changes:at-date',    ({empleadoId, date}) => db.salaryAtDate(empleadoId, date))
-handle('salary-changes:create',     (data)               => db.salaryChangeCreate(data))
-handle('salary-changes:delete',     ({id})               => { db.salaryChangeDelete(id); return true })
+handleMut('salary-changes:create',     (data)               => db.salaryChangeCreate(data))
+handleMut('salary-changes:delete',     ({id})               => { db.salaryChangeDelete(id); return true })
 
 // ── Adelantos de nomina (salary advances) ────────────────────────────────────
-handle('adelantos:create',        (data)               => db.adelantoCreate(data))
+handleMut('adelantos:create',        (data)               => db.adelantoCreate(data))
 handle('adelantos:list',          (params)             => db.adelantoList(params))
 handle('adelantos:by-empleado',   (empleadoId)         => db.adelantosByEmpleado(empleadoId))
 handle('adelantos:pending-total', (empleadoId)         => db.adelantoPendingTotal(empleadoId))
-handle('adelantos:deduct',        ({id, payrollRunId}) => { db.adelantoDeduct(id, payrollRunId); return true })
-handle('adelantos:cancel',        ({id})               => { db.adelantoCancel(id); return true })
+handleMut('adelantos:deduct',        ({id, payrollRunId}) => { db.adelantoDeduct(id, payrollRunId); return true })
+handleMut('adelantos:cancel',        ({id})               => { db.adelantoCancel(id); return true })
 handle('adelantos:summary',       ()                   => db.adelantoSummary())
 
 // ── Vehicles (auto repair / detailing) ───────────────────────────────────────
-handle('vehicles:create',  (data)            => db.vehicleCreate(data))
-handle('vehicles:update',  ({id, ...data})   => db.vehicleUpdate(id, data))
+handleMut('vehicles:create',  (data)            => db.vehicleCreate(data))
+handleMut('vehicles:update',  ({id, ...data})   => db.vehicleUpdate(id, data))
 handle('vehicles:list',    (params)          => db.vehicleList(params))
 handle('vehicles:byId',    (id)              => db.vehicleGetById(id))
-handle('vehicles:delete',  ({id})            => { db.vehicleDelete(id); return true })
+handleMut('vehicles:delete',  ({id})            => { db.vehicleDelete(id); return true })
 
 // ── Service Bays ─────────────────────────────────────────────────────────────
-handle('serviceBays:create', (data)          => db.serviceBayCreate(data))
-handle('serviceBays:update', ({id, ...data}) => db.serviceBayUpdate(id, data))
+handleMut('serviceBays:create', (data)          => db.serviceBayCreate(data))
+handleMut('serviceBays:update', ({id, ...data}) => db.serviceBayUpdate(id, data))
 handle('serviceBays:list',   (params)        => db.serviceBayList(params))
-handle('serviceBays:delete', ({id})          => { db.serviceBayDelete(id); return true })
+handleMut('serviceBays:delete', ({id})          => { db.serviceBayDelete(id); return true })
 
 // ── Work Orders ──────────────────────────────────────────────────────────────
-handle('workOrders:create', (data)           => db.workOrderCreate(data))
-handle('workOrders:update', ({id, ...data})  => db.workOrderUpdate(id, data))
+handleMut('workOrders:create', (data)           => db.workOrderCreate(data))
+handleMut('workOrders:update', ({id, ...data})  => db.workOrderUpdate(id, data))
 handle('workOrders:list',   (params)         => db.workOrderList(params))
 handle('workOrders:byId',   (id)             => db.workOrderGetById(id))
 
 // ── Work Order Items ─────────────────────────────────────────────────────────
-handle('workOrderItems:create',  (data)          => db.workOrderItemCreate(data))
-handle('workOrderItems:update',  ({id, ...data}) => db.workOrderItemUpdate(id, data))
-handle('workOrderItems:delete',  ({id})          => { db.workOrderItemDelete(id); return true })
+handleMut('workOrderItems:create',  (data)          => db.workOrderItemCreate(data))
+handleMut('workOrderItems:update',  ({id, ...data}) => db.workOrderItemUpdate(id, data))
+handleMut('workOrderItems:delete',  ({id})          => { db.workOrderItemDelete(id); return true })
 handle('workOrderItems:byOrder', (workOrderId)   => db.workOrderItemsByOrder(workOrderId))
 
 // ── Appointments (salon / barbershop) ────────────────────────────────────────
-handle('appointments:create', (data)           => db.appointmentCreate(data))
-handle('appointments:update', ({id, ...data})  => db.appointmentUpdate(id, data))
+handleMut('appointments:create', (data)           => db.appointmentCreate(data))
+handleMut('appointments:update', ({id, ...data})  => db.appointmentUpdate(id, data))
 handle('appointments:list',   (params)         => db.appointmentList(params))
 handle('appointments:byId',   (id)             => db.appointmentGetById(id))
-handle('appointments:delete', ({id})           => { db.appointmentDelete(id); return true })
+handleMut('appointments:delete', ({id})           => { db.appointmentDelete(id); return true })
 
 // ── Stylist Schedules ────────────────────────────────────────────────────────
-handle('stylistSchedules:create', (data)           => db.stylistScheduleCreate(data))
-handle('stylistSchedules:update', ({id, ...data})  => db.stylistScheduleUpdate(id, data))
+handleMut('stylistSchedules:create', (data)           => db.stylistScheduleCreate(data))
+handleMut('stylistSchedules:update', ({id, ...data})  => db.stylistScheduleUpdate(id, data))
 handle('stylistSchedules:list',   (params)         => db.stylistScheduleList(params))
-handle('stylistSchedules:delete', ({id})           => { db.stylistScheduleDelete(id); return true })
+handleMut('stylistSchedules:delete', ({id})           => { db.stylistScheduleDelete(id); return true })
 
 // ── Loans (prestamos) ────────────────────────────────────────────────────────
-handle('loans:create',  (data)           => db.loanCreate(data))
-handle('loans:update',  ({id, ...data})  => db.loanUpdate(id, data))
+handleMut('loans:create',  (data)           => db.loanCreate(data))
+handleMut('loans:update',  ({id, ...data})  => db.loanUpdate(id, data))
 handle('loans:list',    (params)         => db.loanList(params))
 handle('loans:byId',    (id)             => db.loanGetById(id))
 
 // ── Loan Payments ────────────────────────────────────────────────────────────
-handle('loanPayments:create', (data)     => db.loanPaymentCreate(data))
+handleMut('loanPayments:create', (data)     => db.loanPaymentCreate(data))
 handle('loanPayments:list',   (params)   => db.loanPaymentList(params))
 
 // ── Pawn Items ───────────────────────────────────────────────────────────────
-handle('pawnItems:create',  (data)           => db.pawnItemCreate(data))
-handle('pawnItems:update',  ({id, ...data})  => db.pawnItemUpdate(id, data))
+handleMut('pawnItems:create',  (data)           => db.pawnItemCreate(data))
+handleMut('pawnItems:update',  ({id, ...data})  => db.pawnItemUpdate(id, data))
 handle('pawnItems:list',    (params)         => db.pawnItemList(params))
-handle('pawnItems:delete',  ({id})           => { db.pawnItemDelete(id); return true })
+handleMut('pawnItems:delete',  ({id})           => { db.pawnItemDelete(id); return true })
+
+// ── Memberships (carwash monthly subscriptions) ─────────────────────────────
+handleMut('memberships:create',    (data)          => db.membershipCreate(data))
+handleMut('memberships:update',    ({id, ...d})    => db.membershipUpdate(id, d))
+handle('memberships:list',      (params)        => db.membershipList(params))
+handle('memberships:activeForClient', (clientId) => db.membershipGetActiveForClient(clientId))
+handleMut('memberships:consume',   ({id})          => db.membershipConsumeWash(id))
+handleMut('memberships:delete',    ({id})          => { db.membershipDelete(id); return true })
+
+// ── Wash Combos (punch-card N-wash bundles) ─────────────────────────────────
+handleMut('washCombos:create',  (data)       => db.washComboCreate(data))
+handleMut('washCombos:update',  ({id, ...d}) => db.washComboUpdate(id, d))
+handle('washCombos:list',    (params)     => db.washComboList(params))
+handle('washCombos:activeForClient', (clientId) => db.washComboActiveForClient(clientId))
+handleMut('washCombos:consume', ({id})       => db.washComboConsume(id))
+handleMut('washCombos:delete',  ({id})       => { db.washComboDelete(id); return true })
+
+// ── Carwash metrics ─────────────────────────────────────────────────────────
+handle('queue:waitMetrics',  ()                 => db.queueWaitMetrics())
+handle('reports:topWashers', ({ limit } = {})   => db.topWashersThisMonth(limit))
+handle('tickets:byClient',   ({ clientId, limit } = {}) => db.ticketsByClient(clientId, limit))
 
 // ── Clients ───────────────────────────────────────────────────────────────────
 handle('clients:all',          ()          => db.clientsGetAll())
 handle('clients:byId',         (id)        => db.clientGetById(id))
-handle('clients:create',       (data)      => db.clientCreate(data))
-handle('clients:update',       ({id,...d}) => db.clientUpdate(id, d))
-handle('clients:updateBalance', ({id,delta}) => db.clientUpdateBalance(id, delta))
+handleMut('clients:create',       (data)      => db.clientCreate(data))
+handleMut('clients:update',       ({id,...d}) => db.clientUpdate(id, d))
+handleMut('clients:updateBalance', ({id,delta}) => db.clientUpdateBalance(id, delta))
 handle('clients:openTickets',  (clientId)  => db.clientGetOpenTickets(clientId))
-handle('credits:collect',      (data)      => db.collectCredit(data))
+handleMut('credits:collect',      (data)      => db.collectCredit(data))
 
 // ── Tickets ───────────────────────────────────────────────────────────────────
 handle('tickets:all',         (params)    => db.ticketsGetAll(params))
 handle('tickets:byId',        (id)        => db.ticketGetById(id))
-handle('tickets:create',      (data)      => { const r = db.ticketCreate(data); sync.syncNow().catch(() => {}); return r })
-handle('tickets:markPaid',    ({id,...d})            => { const r = db.ticketMarkPaid(id, d); sync.syncNow().catch(() => {}); return r })
-handle('tickets:void',        ({id,reason,voidById}) => { const r = db.ticketVoid(id, reason, voidById); sync.syncNow().catch(() => {}); return r })
+handleMut('tickets:create',      (data)      => db.ticketCreate(data))
+handleMut('tickets:markPaid',    ({id,...d})            => db.ticketMarkPaid(id, d))
+handleMut('tickets:void',        ({id,reason,voidById}) => db.ticketVoid(id, reason, voidById))
 handle('tickets:byDateRange', ({from,to}) => db.ticketGetByDateRange(from, to))
-handle('tickets:updateItemPrice', (data) => db.ticketItemUpdatePrice(data))
+handleMut('tickets:updateItemPrice', (data) => db.ticketItemUpdatePrice(data))
 handle('tickets:priceChanges',    ({ticketId}) => db.priceChangesGetByTicket(ticketId))
 handle('tickets:allPriceChanges', ({from,to}) => db.priceChangesGetAll(from, to))
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
 handle('queue:active',       ()                        => db.queueGetActive())
-handle('queue:updateStatus', ({id,status,washerId})   => db.queueUpdateStatus(id, status, washerId))
-handle('queue:delete',       ({id,deletedBy})         => db.queueDelete(id, deletedBy))
+handleMut('queue:updateStatus', ({id,status,washerId})   => db.queueUpdateStatus(id, status, washerId))
+handleMut('queue:delete',       ({id,deletedBy})         => db.queueDelete(id, deletedBy))
 
 // ── Commissions ───────────────────────────────────────────────────────────────
 handle('commissions:byWasher', ({washerId,from,to}) => db.commissionsGetByWasher(washerId, from, to))
 handle('commissions:byPeriod', ({from,to})          => db.commissionsGetByPeriod(from, to))
-handle('commissions:markPaid', (ids)                => db.commissionsMarkPaid(ids))
+handleMut('commissions:markPaid', (ids)                => db.commissionsMarkPaid(ids))
+handleMut('sellerCommissions:create', (data)           => db.sellerCommissionCreate(data))
+handleMut('cajeroCommissions:create', (data)           => db.cajeroCommissionCreate(data))
 handle('sellerCommissions:bySeller', ({sellerId,from,to}) => db.sellerCommissionsBySeller(sellerId, from, to))
 handle('sellerCommissions:byPeriod', ({from,to})          => db.sellerCommissionsByPeriod(from, to))
-handle('sellerCommissions:markPaid', (ids)                => db.sellerCommissionsMarkPaid(ids))
+handleMut('sellerCommissions:markPaid', (ids)                => db.sellerCommissionsMarkPaid(ids))
 handle('cajeroCommissions:byCajero', ({cajeroId,from,to}) => db.cajeroCommissionsByCajero(cajeroId, from, to))
 handle('cajeroCommissions:byPeriod', ({from,to})          => db.cajeroCommissionsByPeriod(from, to))
-handle('cajeroCommissions:markPaid', (ids)                => db.cajeroCommissionsMarkPaid(ids))
+handleMut('cajeroCommissions:markPaid', (ids)                => db.cajeroCommissionsMarkPaid(ids))
 
 // ── Cuadre de Caja ────────────────────────────────────────────────────────────
-handle('cuadre:create',  (data)    => db.cuadreCreate(data))
+handleMut('cuadre:create',  (data)    => db.cuadreCreate(data))
 handle('cuadre:history', ()        => db.cuadreGetHistory())
 handle('cuadre:list',    (filters) => db.cuadreList(filters || {}))
 handle('cuadre:daily',   (date)    => db.cuadreDailySummary(date))
 
 // ── NCF ───────────────────────────────────────────────────────────────────────
 handle('ncf:sequences',        ()            => db.ncfGetSequences())
-handle('ncf:next',             (type)        => db.ncfGetNext(type))
-handle('ncf:updateSequence',   ({type,...d}) => db.ncfUpdateSequence(type, d))
+handleMut('ncf:next',             (type)        => db.ncfGetNext(type))
+handleMut('ncf:updateSequence',   ({type,...d}) => db.ncfUpdateSequence(type, d))
 
 // ── Caja Chica ────────────────────────────────────────────────────────────────
 handle('cajachica:all',          ()               => db.cajaChicaGetAll())
-handle('cajachica:create',       (data)           => db.cajaChicaCreate(data))
-handle('cajachica:updateStatus', ({id,status,by}) => db.cajaChicaUpdateStatus(id, status, by))
+handleMut('cajachica:create',       (data)           => db.cajaChicaCreate(data))
+handleMut('cajachica:updateStatus', ({id,status,by}) => db.cajaChicaUpdateStatus(id, status, by))
 
 // ── Notas de Crédito ──────────────────────────────────────────────────────────
 handle('notas:all',    ()     => db.notasGetAll())
-handle('notas:create', (data) => db.notaCreate(data))
+handleMut('notas:create', (data) => db.notaCreate(data))
 
 // ── DGII ──────────────────────────────────────────────────────────────────────
 handle('dgii:606',        ({from,to}) => db.get606Data(from, to))
 handle('dgii:607:get',    ({from,to}) => db.getCompras607(from, to))
-handle('dgii:607:add',    (data)      => db.addCompra607(data))
-handle('dgii:607:delete', ({id})      => db.deleteCompra607(id))
+handleMut('dgii:607:add',    (data)      => db.addCompra607(data))
+handleMut('dgii:607:delete', ({id})      => db.deleteCompra607(id))
 
 // ── RNC — helpers ─────────────────────────────────────────────────────────────
 
@@ -1244,10 +1346,10 @@ ipcMain.handle('rnc:lookup', async (_, { rnc }) => {
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
 handle('inventory:all',          ()                              => db.inventoryGetAll())
-handle('inventory:create',       (data)                         => db.inventoryCreate(data))
-handle('inventory:update',       ({id, ...data})                => { db.inventoryUpdate(id, data); return true })
-handle('inventory:delete',       ({id})                         => { db.inventoryDelete(id); return true })
-handle('inventory:adjust',       ({id, delta, notes, userId})   => db.inventoryAdjust(id, delta, notes, userId))
+handleMut('inventory:create',       (data)                         => db.inventoryCreate(data))
+handleMut('inventory:update',       ({id, ...data})                => { db.inventoryUpdate(id, data); return true })
+handleMut('inventory:delete',       ({id})                         => { db.inventoryDelete(id); return true })
+handleMut('inventory:adjust',       ({id, delta, notes, userId})   => db.inventoryAdjust(id, delta, notes, userId))
 handle('inventory:transactions', ({id})                         => db.inventoryTransactions(id))
 handle('inventory:lookupSku',    (sku)                          => db.inventoryLookupBySku(sku))
 handle('inventory:search',       (query)                        => db.inventorySearch(query))

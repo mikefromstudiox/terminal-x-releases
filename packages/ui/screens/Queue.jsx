@@ -7,6 +7,9 @@ import { useQueueActive, useWashers } from '../hooks/useDB'
 import CobrarModal from '../components/CobrarModal'
 import { printClientReceipt, printWasherConduce } from '@terminal-x/services/printer'
 import { syncTicket } from '@terminal-x/services/supabase'
+import { useBusinessType } from '../hooks/useBusinessType.jsx'
+import { hasModule } from '@terminal-x/config/businessTypes'
+import { Navigate } from 'react-router-dom'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -398,6 +401,12 @@ export default function Queue() {
   const printerApi = usePrinterAPI()
   const { lang } = useLang()
   const { user } = useAuth()
+  const { businessType } = useBusinessType()
+
+  // Queue is carwash/service/salon-specific. Redirect non-service verticals to POS.
+  if (!hasModule(businessType, 'queue')) {
+    return <Navigate to="/pos" replace />
+  }
 
   const { data: dbQueue, loading, error, reload } = useQueueActive()
   const { data: washers }                         = useWashers()
@@ -633,6 +642,32 @@ export default function Queue() {
     unassigned: queue.filter(t => !t.worker).length,
   }
 
+  // Wait-time metrics (carwash KPI) — derived from pendiente tickets only,
+  // since in_progress/listo have already left the waiting state.
+  // Re-computed every 30s via a lightweight ticker so the chip stays live.
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick(n => n + 1), 30_000)
+    return () => clearInterval(id)
+  }, [])
+  const waitMetrics = (() => {
+    const waiting = queue.filter(t => t.status === 'pendiente')
+    if (!waiting.length) return { avgMin: 0, longestMin: 0, longestNo: null, count: 0 }
+    const now = Date.now()
+    let total = 0, longest = { ms: 0, no: null }
+    for (const t of waiting) {
+      const ms = Math.max(0, now - new Date(t.createdAt).getTime())
+      total += ms
+      if (ms > longest.ms) longest = { ms, no: t.ticketNo }
+    }
+    return {
+      avgMin:      Math.round((total / waiting.length) / 60000),
+      longestMin:  Math.round(longest.ms / 60000),
+      longestNo:   longest.no,
+      count:       waiting.length,
+    }
+  })()
+
   const visible = queue
     .filter(t => {
       if (filter === 'listo')      return t.status === 'listo'
@@ -701,6 +736,22 @@ export default function Queue() {
             </div>
           </div>
         </div>
+
+        {/* Wait-time metrics strip (carwash KPI) */}
+        {waitMetrics.count > 0 && (
+          <div className="flex items-center flex-wrap gap-2 md:gap-3 px-3 md:px-6 pb-2 md:pb-3">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-200 dark:border-sky-500/30">
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+              {lang === 'es' ? 'Espera promedio' : 'Avg wait'}: {waitMetrics.avgMin} min
+            </span>
+            {waitMetrics.longestMin >= 10 && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30">
+                <AlertCircle size={11} />
+                {lang === 'es' ? 'Más demorado' : 'Longest wait'}: {waitMetrics.longestNo || '—'} · {waitMetrics.longestMin} min
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="flex px-3 md:px-6 gap-1 overflow-x-auto">
           {FILTERS.map(f => (

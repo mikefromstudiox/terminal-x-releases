@@ -35,6 +35,7 @@ import PlanGate from './components/PlanGate'
 import LicenseGate from './screens/LicenseGate'
 import FirstTimeSetup from './screens/FirstTimeSetup'
 import Login from './screens/Login'
+import FirstPullSpinner from './components/FirstPullSpinner'
 
 // Lazy — all feature screens (loaded on navigation)
 const POS                 = lazy(() => import('./screens/POS'))
@@ -62,6 +63,7 @@ const ServiceBays         = lazy(() => import('./screens/mechanic/ServiceBays'))
 const Appointments        = lazy(() => import('./screens/salon/Appointments'))
 const Loans               = lazy(() => import('./screens/lending/Loans'))
 const PawnItems           = lazy(() => import('./screens/lending/PawnItems'))
+const Memberships         = lazy(() => import('./screens/carwash/Memberships'))
 const InvoiceDashboard    = lazy(() => import('./screens/invoicing/InvoiceDashboard'))
 const InvoiceCreate       = lazy(() => import('./screens/invoicing/InvoiceCreate'))
 const InvoiceList         = lazy(() => import('./screens/invoicing/InvoiceList'))
@@ -92,7 +94,7 @@ function Spinner() {
 export default function App() {
   const api = useAPI()
   const { user, webChecked }               = useAuth()
-  const { result, checking, isReadOnly } = useLicense()
+  const { result, checking, isReadOnly, firstPullDone } = useLicense()
 
   // ── First-run detection ─────────────────────────────────────────────────────
   const [setupChecked, setSetupChecked] = useState(false)
@@ -143,6 +145,26 @@ export default function App() {
         return <LicenseGate />
       }
     }
+  }
+
+  // F16 — block the Login screen until the initial pull resolves so PIN
+  // entry doesn't happen against an empty SQLite (which silently rejects
+  // every PIN). Desktop-only: web uses Supabase auth directly. We check
+  // `!setupChecked || users.length === 0` implicitly via the fact that a
+  // returning user has empresa + users already, so the pull is background
+  // and firstPullDone flips synchronously. For the fresh-install / wiped
+  // case, runCheck() awaits the pull so firstPullDone stays false until
+  // resolution. Dev mode + web always skip this gate.
+  if (!user && !isWeb && result?.valid && !firstPullDone && !import.meta.env.DEV) {
+    // Only block when the local DB is actually empty of users — otherwise
+    // the returning-user path would stall every app launch for 15-60s.
+    // We can't call an async IPC synchronously here, so we use a heuristic:
+    // if the license just activated (no tx_last_valid timestamp set prior
+    // to this render cycle), block; otherwise, don't.
+    let priorValidMs = 0
+    try { priorValidMs = Number(localStorage.getItem('tx_last_valid') || '0') } catch {}
+    const justActivated = priorValidMs === 0 || (Date.now() - priorValidMs) > (72 * 60 * 60 * 1000)
+    if (justActivated) return <FirstPullSpinner />
   }
 
   // No authenticated user — show PIN login (web and desktop)
@@ -205,9 +227,10 @@ export default function App() {
         <Route path="/appointments" element={<ProtectedRoute element={<PlanGate feature="appointments"><Appointments /></PlanGate>} />} />
         <Route path="/loans" element={<ProtectedRoute element={<PlanGate feature="loans"><Loans /></PlanGate>} />} />
         <Route path="/pawn-items" element={<ProtectedRoute element={<PlanGate feature="pawn_items"><PawnItems /></PlanGate>} />} />
-        <Route path="/invoicing" element={<PlanGate feature="invoicing"><InvoiceDashboard /></PlanGate>} />
-        <Route path="/invoicing/create" element={<PlanGate feature="invoicing"><InvoiceCreate /></PlanGate>} />
-        <Route path="/invoicing/history" element={<PlanGate feature="invoicing"><InvoiceList /></PlanGate>} />
+        <Route path="/memberships" element={<ProtectedRoute element={<Memberships />} />} />
+        <Route path="/invoicing" element={<ProtectedRoute element={<PlanGate feature="invoicing"><InvoiceDashboard /></PlanGate>} />} />
+        <Route path="/invoicing/create" element={<ProtectedRoute element={<PlanGate feature="invoicing"><InvoiceCreate /></PlanGate>} />} />
+        <Route path="/invoicing/history" element={<ProtectedRoute element={<PlanGate feature="invoicing"><InvoiceList /></PlanGate>} />} />
         {/* Legacy routes — redirect to canonical destinations */}
         <Route path="/workers"               element={<Navigate to="/reports/workers" replace />} />
         <Route path="/services"              element={<Navigate to="/admin" replace />} />

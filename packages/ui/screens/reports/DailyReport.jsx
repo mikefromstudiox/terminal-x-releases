@@ -134,6 +134,51 @@ function MetricCard({ icon: Icon, label, value, sub, accent }) {
   )
 }
 
+// ── Top Washers card (carwash only) ───────────────────────────────────────────
+// Shows the top 3 lavadores this month by ticket count + commission, pulled from
+// either the desktop IPC (api.carwash.topWashers) or the web Supabase aggregator.
+function TopWashersCard({ lang }) {
+  const api = useAPI()
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let cancelled = false
+    api?.carwash?.topWashers?.(3)
+      .then(r => { if (!cancelled) setRows(r || []) })
+      .catch(() => { if (!cancelled) setRows([]) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+  if (loading) return null
+  if (!rows.length) return null
+  return (
+    <div className="shrink-0 mx-3 md:mx-6 mt-2 mb-1 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-4 py-3">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wide">
+          {lang === 'es' ? 'Top Lavadores del Mes' : 'Top Washers This Month'}
+        </p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        {rows.map((w, i) => (
+          <div key={(w.name || '') + i} className="flex items-center gap-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2">
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold ${
+              i === 0 ? 'bg-amber-100 text-amber-700 border border-amber-200' :
+              i === 1 ? 'bg-slate-100 text-slate-700 border border-slate-200' :
+                        'bg-orange-100 text-orange-700 border border-orange-200'
+            }`}>#{i + 1}</div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-bold text-slate-800 dark:text-white truncate">{w.name || '—'}</p>
+              <p className="text-[11px] text-slate-500 dark:text-white/60">
+                {w.ticket_count || 0} {lang === 'es' ? 'lavados' : 'washes'} · {fmtRD(w.total_commission || 0)}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Detail modal ──────────────────────────────────────────────────────────────
 function DetailModal({ ticket: t, onClose, onReprint, lang }) {
   const api = useAPI()
@@ -642,6 +687,9 @@ export default function DailyReport() {
           </div>
         </div>
       </div>
+
+      {/* ── Top washers (carwash only) ─────────────────────────────────────── */}
+      {businessType === 'carwash' && <TopWashersCard lang={lang} />}
 
       {/* ── Summary bar ────────────────────────────────────────────────────── */}
       <div className="shrink-0 grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 px-3 md:px-6 py-2 md:py-3">

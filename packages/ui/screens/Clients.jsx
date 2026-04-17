@@ -28,6 +28,7 @@ function initials(name) {
 function mapClient(c) {
   return {
     id:          c.id,
+    supabase_id: c.supabase_id || null,
     name:        c.name,
     rnc:         c.rnc  || '',
     phone:       c.phone || '',
@@ -154,6 +155,18 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
   const [toast,         setToast]         = useState(null)
   const [savingPayment, setSavingPayment] = useState(false)
 
+  // ITBIS rate — from app_settings.itbis_pct (string), default 18.
+  const [itbisRate, setItbisRate] = useState(18)
+  useEffect(() => {
+    api?.settings?.get?.()
+      .then(s => {
+        const pct = Number(s?.itbis_pct)
+        if (Number.isFinite(pct) && pct >= 0) setItbisRate(pct)
+      })
+      .catch(() => {})
+  }, [api])
+  const itbisFactor = Number(itbisRate) / 100
+
   // ── Edit mode ──────────────────────────────────────────────────────────────
   const [editing,       setEditing]       = useState(false)
   const [editForm,      setEditForm]      = useState({})
@@ -221,6 +234,33 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
       flash(`Error: ${e?.message || 'Error'}`)
     }
   }
+
+  // Load the client's recent ticket history (last 10) — vehicle history feed.
+  // Uses the dedicated carwash IPC when present, falls back silently otherwise.
+  const [history, setHistory] = useState([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  useEffect(() => {
+    setHistory([])
+    setLoadingHistory(true)
+    const lookupId = (typeof window !== 'undefined' && window.electronAPI)
+      ? client.id
+      : (client.supabase_id || client.id)
+    api?.carwash?.ticketsByClient?.(lookupId, 10)
+      .then(rows => setHistory(rows || []))
+      .catch(() => setHistory([]))
+      .finally(() => setLoadingHistory(false))
+  }, [client.id])
+
+  // Load active carwash memberships + combos for the visible client.
+  const [memberships, setMemberships] = useState([])
+  const [combos,      setCombos]      = useState([])
+  useEffect(() => {
+    const lookupId = (typeof window !== 'undefined' && window.electronAPI)
+      ? client.id
+      : (client.supabase_id || client.id)
+    api?.memberships?.activeForClient?.(lookupId).then(r => setMemberships(r || [])).catch(() => setMemberships([]))
+    api?.washCombos?.activeForClient?.(lookupId).then(r => setCombos(r || [])).catch(() => setCombos([]))
+  }, [client.id])
 
   // Load open (credit, unpaid) tickets for this client
   useEffect(() => {
@@ -321,7 +361,7 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
         for (const ticket of paidTickets) {
           const items = ticket.items || []
           const subtotal = items.reduce((s, i) => s + (i.price || 0), 0)
-          const itbis = items.reduce((s, i) => s + (i.is_wash ? Math.round(i.price * 0.18 * 100) / 100 : 0), 0)
+          const itbis = items.reduce((s, i) => s + (i.is_wash ? Math.round(i.price * itbisFactor * 100) / 100 : 0), 0)
           await printClientReceipt({
             ncf:          ticket.ncf || '',
             ncfType:      ncfType || ticket.comprobante_type || 'B02',
@@ -475,6 +515,62 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
               <p className="text-[18px] font-bold text-slate-800 dark:text-white">{fmtDate(client.lastService)}</p>
               <p className="text-[10px] text-slate-400 dark:text-white/40">{lang === 'es' ? 'Último servicio' : 'Last service'}</p>
             </div>
+          )}
+        </div>
+
+        {/* Active carwash benefits — membership + combos (subtle badges) */}
+        {(memberships.length > 0 || combos.length > 0) && (
+          <div className="px-3 py-3 md:px-6 md:py-4 border-b border-slate-100 dark:border-white/10">
+            <p className="text-[11px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-2">
+              {lang === 'es' ? 'Beneficios Activos' : 'Active Benefits'}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {memberships.map(m => {
+                const remaining = Math.max(0, (m.wash_quota_per_month || 0) - (m.washes_used_this_period || 0))
+                return (
+                  <span key={`m-${m.id}`} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-200 dark:border-sky-500/30">
+                    {m.plan_name} · {remaining}/{m.wash_quota_per_month} {lang === 'es' ? 'disp.' : 'left'}
+                  </span>
+                )
+              })}
+              {combos.map(c => {
+                const remaining = Math.max(0, (c.total_washes || 0) - (c.used_washes || 0))
+                return (
+                  <span key={`c-${c.id}`} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/30">
+                    {c.combo_name} · {remaining}/{c.total_washes} {lang === 'es' ? 'disp.' : 'left'}
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Vehicle / ticket history — last 10 services */}
+        <div className="px-3 py-3 md:px-6 md:py-4 border-b border-slate-100 dark:border-white/10">
+          <p className="text-[11px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-2">
+            {lang === 'es' ? 'Historial Reciente' : 'Recent History'}
+          </p>
+          {loadingHistory ? (
+            <p className="text-[12px] text-slate-400 dark:text-white/40">{lang === 'es' ? 'Cargando…' : 'Loading…'}</p>
+          ) : history.length === 0 ? (
+            <p className="text-[12px] text-slate-400 dark:text-white/40">{lang === 'es' ? 'Sin visitas registradas' : 'No recorded visits'}</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {history.map(h => (
+                <li key={h.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[12px] font-bold text-sky-600">{h.doc_number || `T-${h.id}`}</span>
+                      {h.vehicle_plate && <span className="text-[11px] text-slate-500 dark:text-white/60">· {h.vehicle_plate}</span>}
+                      {h.status === 'nula' && <span className="text-[10px] font-bold bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">NULA</span>}
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-white/60 truncate">{h.services || '—'}</p>
+                    <p className="text-[10px] text-slate-400 dark:text-white/40">{fmtDate(String(h.created_at).slice(0, 10))}{h.washer_name ? ` · ${h.washer_name}` : ''}</p>
+                  </div>
+                  <span className="text-[12px] font-bold text-slate-700 dark:text-white shrink-0">{fmtRD(h.total || 0)}</span>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
 

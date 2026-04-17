@@ -102,6 +102,7 @@ const NAV = [
     feature: 'clients',
     children: [
       { to: '/clients',      es: 'Directorio',       en: 'Directory' },
+      { to: '/memberships',  es: 'Membresías',       en: 'Memberships',   businessTypes: ['carwash'], roles: ['owner','manager','cashier'] },
       { to: '/credits',      es: 'Creditos',         en: 'Credits',       feature: 'credits',      roles: ['owner','manager','cfo','accountant'] },
       { to: '/credit-notes', es: 'Notas de Credito', en: 'Credit Notes',  feature: 'credit_notes', roles: ['owner','manager','cfo','accountant'] },
     ],
@@ -141,7 +142,11 @@ const NAV = [
   {
     id: 'invoicing', icon: FileText,
     es: 'Facturacion', en: 'Invoicing',
-    feature: 'invoicing',
+    // Standalone invoicing module — for clients on the invoicing-only plan.
+    // e-CF emission for regular POS/carwash flows happens inside CobrarModal
+    // and is NOT gated by this sidebar item. Hidden entirely unless the plan
+    // explicitly includes 'invoicing'.
+    featureAny: ['invoicing'],
     roles: ['owner','manager','cfo','accountant','cashier'],
     children: [
       { to: '/invoicing/create', es: 'Nueva Factura', en: 'New Invoice' },
@@ -165,7 +170,6 @@ const NAV = [
       { to: '/config/usuarios',      es: 'Usuarios',        en: 'Users',           icon: KeyRound },
       { to: '/config/preferencias',  es: 'Preferencias',    en: 'Preferences',     icon: Settings,       roles: ['owner'] },
       { to: '/config/updates',       es: 'Actualizaciones', en: 'Updates',         icon: Download,       roles: ['owner'] },
-      { to: '/config/licencia',      es: 'Licencia',        en: 'License',         icon: KeyRound,       roles: ['owner'] },
     ],
   },
 ]
@@ -627,10 +631,13 @@ export default function Sidebar() {
     return () => clearInterval(id)
   }, [businessType, api])
 
-  // Filter nav items by role and business type
+  // Filter nav items by role, business type and required features.
+  // `featureAny` hides the item entirely unless the plan unlocks at least one
+  // of the listed features (distinct from `feature`, which only greys it out).
   const visibleNav = NAV.filter(item =>
     (!item.roles || item.roles.includes(user?.role)) &&
-    (!item.businessTypes || item.businessTypes.includes(businessType))
+    (!item.businessTypes || item.businessTypes.includes(businessType)) &&
+    (!item.featureAny || item.featureAny.some(f => hasFeature(f)))
   )
 
   return (
