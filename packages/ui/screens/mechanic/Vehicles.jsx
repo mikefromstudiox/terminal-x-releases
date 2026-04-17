@@ -28,15 +28,16 @@ function fmtDate(s) {
 function VehicleModal({ vehicle, clients, lang, onSave, onClose }) {
   const L = (es, en) => lang === 'es' ? es : en
   const [form, setForm] = useState({
-    vin:       vehicle?.vin       || '',
-    plate:     vehicle?.plate     || '',
-    make:      vehicle?.make      || '',
-    model:     vehicle?.model     || '',
-    year:      vehicle?.year      || '',
-    color:     vehicle?.color     || '',
-    mileage:   vehicle?.mileage   || '',
-    client_id: vehicle?.client_id || '',
-    notes:     vehicle?.notes     || '',
+    vin:         vehicle?.vin         || '',
+    plate:       vehicle?.plate       || '',
+    make:        vehicle?.make        || '',
+    model:       vehicle?.model       || '',
+    year:        vehicle?.year        || '',
+    color:       vehicle?.color       || '',
+    mileage:     vehicle?.mileage     || '',
+    odometer_km: vehicle?.odometer_km || vehicle?.mileage || '',
+    client_id:   vehicle?.client_id   || '',
+    notes:       vehicle?.notes       || '',
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
@@ -53,15 +54,16 @@ function VehicleModal({ vehicle, clients, lang, onSave, onClose }) {
     try {
       const data = {
         ...form,
-        plate:   form.plate.trim().toUpperCase(),
-        vin:     form.vin.trim().toUpperCase() || null,
-        make:    form.make.trim() || null,
-        model:   form.model.trim() || null,
-        year:    form.year ? Number(form.year) : null,
-        color:   form.color.trim() || null,
-        mileage: form.mileage ? Number(form.mileage) : null,
-        client_id: form.client_id || null,
-        notes:   form.notes.trim() || null,
+        plate:       form.plate.trim().toUpperCase(),
+        vin:         form.vin.trim().toUpperCase() || null,
+        make:        form.make.trim() || null,
+        model:       form.model.trim() || null,
+        year:        form.year ? Number(form.year) : null,
+        color:       form.color.trim() || null,
+        mileage:     form.mileage ? Number(form.mileage) : null,
+        odometer_km: form.odometer_km ? Number(form.odometer_km) : (form.mileage ? Number(form.mileage) : null),
+        client_id:   form.client_id || null,
+        notes:       form.notes.trim() || null,
       }
       if (vehicle?.id) data.id = vehicle.id
       await onSave(data)
@@ -150,6 +152,18 @@ function VehicleModal({ vehicle, clients, lang, onSave, onClose }) {
 
           <div>
             <label className="block text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1">
+              {L('Odometro actual (km)', 'Current odometer (km)')}
+            </label>
+            <input type="number" min="0" value={form.odometer_km} onChange={e => set('odometer_km', e.target.value)}
+              placeholder="50000"
+              className="w-full px-3 py-2.5 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] bg-white dark:bg-white/5 text-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-400" />
+            <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1">
+              {L('Se usa para predecir el proximo cambio de aceite (5,000 km / 6 meses).', 'Used to predict next oil change (5,000 km / 6 months).')}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1">
               {L('Cliente', 'Client')}
             </label>
             <select value={form.client_id} onChange={e => set('client_id', e.target.value)}
@@ -224,8 +238,29 @@ function DetailModal({ vehicle, lang, onClose }) {
             <InfoPill icon={Hash} label={L('Ano', 'Year')} value={vehicle.year || '---'} />
             <InfoPill icon={Palette} label="Color" value={vehicle.color || '---'} />
             <InfoPill icon={Hash} label="VIN" value={vehicle.vin || '---'} />
-            <InfoPill icon={Gauge} label={L('Kilometraje', 'Mileage')} value={vehicle.mileage ? `${Number(vehicle.mileage).toLocaleString()} km` : '---'} />
+            <InfoPill icon={Gauge} label={L('Odometro', 'Odometer')} value={(vehicle.odometer_km ?? vehicle.mileage) ? `${Number(vehicle.odometer_km ?? vehicle.mileage).toLocaleString()} km` : '---'} />
             <InfoPill icon={FileText} label={L('Cliente', 'Client')} value={vehicle.client_name || '---'} />
+          </div>
+
+          {/* Next-service prediction (DR oil change cadence: 5,000 km / 6 months) */}
+          {(vehicle.next_service_km || vehicle.next_service_at) && (() => {
+            const cur = Number(vehicle.odometer_km ?? vehicle.mileage ?? 0)
+            const kmRemain = vehicle.next_service_km ? Math.max(0, Number(vehicle.next_service_km) - cur) : null
+            const daysRemain = vehicle.next_service_at ? Math.max(0, Math.round((new Date(vehicle.next_service_at) - Date.now()) / 86400000)) : null
+            const overdue = (kmRemain !== null && kmRemain === 0) || (daysRemain !== null && daysRemain === 0)
+            return (
+              <div className={`rounded-xl px-4 py-3 border ${overdue ? 'bg-[#b3001e]/10 border-[#b3001e]/30' : 'bg-emerald-50 dark:bg-emerald-500/5 border-emerald-200 dark:border-emerald-500/20'}`}>
+                <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${overdue ? 'text-[#b3001e]' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                  {overdue ? L('Servicio vencido', 'Service overdue') : L('Proximo servicio', 'Next service')}
+                </p>
+                <p className={`text-[13px] font-semibold ${overdue ? 'text-[#b3001e]' : 'text-emerald-800 dark:text-emerald-300'}`}>
+                  {kmRemain !== null && (overdue ? L(`Vencido hace ${Math.abs(kmRemain)} km`, `Overdue by ${Math.abs(kmRemain)} km`) : L(`En ${kmRemain.toLocaleString()} km`, `In ${kmRemain.toLocaleString()} km`))}
+                  {daysRemain !== null && ` / ${daysRemain} ${L('dias', 'days')}`}
+                </p>
+              </div>
+            )
+          })()}
+          <div className="hidden">
           </div>
 
           {vehicle.notes && (

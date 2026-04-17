@@ -62,24 +62,11 @@ CREATE TABLE IF NOT EXISTS services (
   sort_order    INTEGER NOT NULL DEFAULT 0
 );
 
--- ── Washers ───────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS washers (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  name          TEXT    NOT NULL UNIQUE,
-  phone         TEXT,
-  cedula        TEXT,
-  commission_pct REAL   NOT NULL DEFAULT 20,
-  active        INTEGER NOT NULL DEFAULT 1,
-  created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
-);
-
--- ── Sellers ───────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS sellers (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  name          TEXT    NOT NULL UNIQUE,
-  commission_pct REAL   NOT NULL DEFAULT 5,
-  active        INTEGER NOT NULL DEFAULT 1
-);
+-- ── Washers/Sellers: DROPPED in v2.1.0 — consolidated into `empleados`.
+--    Per-employee commission lives on `empleados.comision_pct`; `tipo` identifies
+--    the role (`lavador`/`vendedor`/`hybrid`). Commissions now FK to
+--    `empleados.supabase_id` via `empleado_supabase_id`. Legacy `washers` and
+--    `sellers` tables are removed by the SQLite migration in database.js.
 
 -- ── Clients ───────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS clients (
@@ -103,8 +90,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   doc_number        TEXT    NOT NULL UNIQUE,
   client_id         INTEGER REFERENCES clients(id),
-  washer_ids        TEXT    DEFAULT '[]',   -- JSON array of washer ids
-  seller_id         INTEGER REFERENCES sellers(id),
+  washer_empleado_supabase_ids TEXT DEFAULT '[]',   -- JSON array of empleado UUIDs (v2.1)
+  seller_empleado_supabase_id  TEXT,               -- empleados.supabase_id (v2.1)
   cajero_id         INTEGER REFERENCES users(id),
   subtotal          REAL    NOT NULL DEFAULT 0,
   descuento         REAL    NOT NULL DEFAULT 0,
@@ -242,12 +229,13 @@ CREATE TABLE IF NOT EXISTS credit_payments (
   created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
--- ── Queue ─────────────────────────────────────────────────────────────────────
+-- ── Queue (v2.1 — empleado_supabase_id → empleados, not washers) ───────────────
 CREATE TABLE IF NOT EXISTS queue (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  ticket_id     INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  ticket_supabase_id TEXT,
+  ticket_id     INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
   status        TEXT    NOT NULL DEFAULT 'waiting',  -- waiting|in_progress|done
-  washer_id     INTEGER REFERENCES washers(id),
+  empleado_supabase_id TEXT,                         -- empleados.supabase_id (lavador)
   assigned_at   TEXT,
   completed_at  TEXT,
   created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
@@ -304,11 +292,12 @@ CREATE TABLE IF NOT EXISTS notas_credito (
   created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
--- ── Washer Commissions ───────────────────────────────────────────────────────
+-- ── Washer Commissions (v2.1 — FK empleado_supabase_id → empleados.supabase_id) ─
 CREATE TABLE IF NOT EXISTS washer_commissions (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  washer_id       INTEGER NOT NULL REFERENCES washers(id),
-  ticket_id       INTEGER NOT NULL REFERENCES tickets(id),
+  empleado_supabase_id TEXT NOT NULL,            -- empleados.supabase_id (tipo='lavador' or 'hybrid')
+  ticket_supabase_id   TEXT,                     -- tickets.supabase_id (cloud-native FK)
+  ticket_id       INTEGER REFERENCES tickets(id),
   base_amount     REAL    NOT NULL,
   commission_pct  REAL    NOT NULL,
   commission_amount REAL  NOT NULL,
@@ -317,11 +306,12 @@ CREATE TABLE IF NOT EXISTS washer_commissions (
   created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
--- ── Seller Commissions ───────────────────────────────────────────────────────
+-- ── Seller Commissions (v2.1 — FK empleado_supabase_id → empleados.supabase_id) ─
 CREATE TABLE IF NOT EXISTS seller_commissions (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  seller_id       INTEGER NOT NULL REFERENCES sellers(id),
-  ticket_id       INTEGER NOT NULL REFERENCES tickets(id),
+  empleado_supabase_id TEXT NOT NULL,            -- empleados.supabase_id (tipo='vendedor' or 'hybrid')
+  ticket_supabase_id   TEXT,                     -- tickets.supabase_id
+  ticket_id       INTEGER REFERENCES tickets(id),
   base_amount     REAL    NOT NULL,
   commission_pct  REAL    NOT NULL,
   commission_amount REAL  NOT NULL,
@@ -451,20 +441,21 @@ CREATE TABLE IF NOT EXISTS configuracion (
 INSERT OR IGNORE INTO configuracion(clave,valor) VALUES('setup_complete','0');
 
 -- ── Indexes ───────────────────────────────────────────────────────────────────
+-- v2.1: legacy indexes referencing dropped INT FKs (tickets.client_id,
+-- tickets.cajero_id, queue.washer_id, washer_commissions.washer_id,
+-- credit_payments.client_id, cuadre_caja.cajero_id, vehicles.client_id,
+-- loans.client_id) are removed. Replaced with supabase_id-first indexes.
 CREATE INDEX IF NOT EXISTS idx_tickets_created   ON tickets(created_at);
-CREATE INDEX IF NOT EXISTS idx_tickets_client    ON tickets(client_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_status    ON tickets(status);
-CREATE INDEX IF NOT EXISTS idx_tickets_cajero    ON tickets(cajero_id);
 CREATE INDEX IF NOT EXISTS idx_ticket_items      ON ticket_items(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_queue_status      ON queue(status);
-CREATE INDEX IF NOT EXISTS idx_queue_washer      ON queue(washer_id);
-CREATE INDEX IF NOT EXISTS idx_commissions_washer ON washer_commissions(washer_id);
+CREATE INDEX IF NOT EXISTS idx_queue_empleado    ON queue(empleado_supabase_id);
 CREATE INDEX IF NOT EXISTS idx_commissions_date  ON washer_commissions(created_at);
+CREATE INDEX IF NOT EXISTS idx_commissions_empleado_w ON washer_commissions(empleado_supabase_id);
+CREATE INDEX IF NOT EXISTS idx_commissions_empleado_s ON seller_commissions(empleado_supabase_id);
 CREATE INDEX IF NOT EXISTS idx_cuadre_date       ON cuadre_caja(date);
 CREATE INDEX IF NOT EXISTS idx_caja_chica_status ON caja_chica(status);
 CREATE INDEX IF NOT EXISTS idx_credit_pay_date   ON credit_payments(created_at);
-CREATE INDEX IF NOT EXISTS idx_credit_pay_client ON credit_payments(client_id);
-CREATE INDEX IF NOT EXISTS idx_cuadre_cajero     ON cuadre_caja(cajero_id);
 
 -- ── Vehicles (auto repair / detailing) ───────────────────────────────────────
 CREATE TABLE IF NOT EXISTS vehicles (
@@ -477,6 +468,11 @@ CREATE TABLE IF NOT EXISTS vehicles (
   year                INTEGER,
   color               TEXT,
   mileage             INTEGER,
+  odometer_km         INTEGER,
+  last_service_km     INTEGER,
+  last_service_at     TEXT,
+  next_service_km     INTEGER,
+  next_service_at     TEXT,
   client_id           INTEGER REFERENCES clients(id),
   client_supabase_id  TEXT,
   notes               TEXT,
@@ -485,7 +481,7 @@ CREATE TABLE IF NOT EXISTS vehicles (
   updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicles_supabase_id ON vehicles(supabase_id);
-CREATE INDEX IF NOT EXISTS idx_vehicles_client ON vehicles(client_id);
+CREATE INDEX IF NOT EXISTS idx_vehicles_client_sid ON vehicles(client_supabase_id);
 CREATE INDEX IF NOT EXISTS idx_vehicles_plate  ON vehicles(plate);
 
 -- ── Service Bays (auto repair / detailing) ───────────────────────────────────
@@ -519,6 +515,17 @@ CREATE TABLE IF NOT EXISTS work_orders (
   status                            TEXT    NOT NULL DEFAULT 'estimate',
   estimated_total                   REAL    NOT NULL DEFAULT 0,
   actual_total                      REAL    NOT NULL DEFAULT 0,
+  labor_total                       REAL    NOT NULL DEFAULT 0,
+  parts_total                       REAL    NOT NULL DEFAULT 0,
+  itbis                             REAL    NOT NULL DEFAULT 0,
+  total                             REAL    NOT NULL DEFAULT 0,
+  inspection_json                   TEXT,
+  estimate_approved_at              TEXT,
+  customer_signature_url            TEXT,
+  customer_approval_token           TEXT,
+  expected_parts_arrival            TEXT,
+  odometer_in_km                    INTEGER,
+  odometer_out_km                   INTEGER,
   promised_date                     TEXT,
   completed_date                    TEXT,
   notes                             TEXT,
@@ -605,7 +612,7 @@ CREATE TABLE IF NOT EXISTS loans (
   updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_loans_supabase_id ON loans(supabase_id);
-CREATE INDEX IF NOT EXISTS idx_loans_client ON loans(client_id);
+CREATE INDEX IF NOT EXISTS idx_loans_client_sid ON loans(client_supabase_id);
 CREATE INDEX IF NOT EXISTS idx_loans_status ON loans(status);
 
 -- ── Loan Payments ────────────────────────────────────────────────────────────

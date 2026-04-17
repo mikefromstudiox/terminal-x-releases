@@ -11,6 +11,7 @@ import {
   Wrench, Plus, Search, X, ChevronDown, Clock, Car,
   User, MapPin, FileText, DollarSign, Loader2, Trash2,
   CheckCircle2, AlertCircle, ClipboardList, Hash,
+  ClipboardCheck, PackageOpen, PenLine, Gauge, Link2, Copy,
 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { useAuth } from '../../context/AuthContext'
@@ -19,12 +20,21 @@ import { useLang } from '../../i18n'
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const STATUSES = [
-  { id: 'estimado',    label_es: 'Estimado',    label_en: 'Estimated',    bg: 'bg-slate-100 dark:bg-white/10',       text: 'text-slate-600 dark:text-white/60',    dot: 'bg-slate-400',  border: 'border-slate-200 dark:border-white/10' },
-  { id: 'aprobado',    label_es: 'Aprobado',    label_en: 'Approved',     bg: 'bg-sky-50 dark:bg-sky-500/10',        text: 'text-sky-700 dark:text-sky-400',       dot: 'bg-sky-500',    border: 'border-sky-200 dark:border-sky-500/30' },
-  { id: 'en_progreso', label_es: 'En Progreso', label_en: 'In Progress',  bg: 'bg-amber-50 dark:bg-amber-500/10',    text: 'text-amber-700 dark:text-amber-400',   dot: 'bg-amber-500',  border: 'border-amber-200 dark:border-amber-500/30' },
-  { id: 'completado',  label_es: 'Completado',  label_en: 'Completed',    bg: 'bg-emerald-50 dark:bg-emerald-500/10', text: 'text-emerald-700 dark:text-emerald-400', dot: 'bg-emerald-500', border: 'border-emerald-200 dark:border-emerald-500/30' },
-  { id: 'facturado',   label_es: 'Facturado',   label_en: 'Invoiced',     bg: 'bg-violet-50 dark:bg-violet-500/10',  text: 'text-violet-700 dark:text-violet-400',  dot: 'bg-violet-500', border: 'border-violet-200 dark:border-violet-500/30' },
+  { id: 'estimado',       label_es: 'Estimado',       label_en: 'Estimated',     bg: 'bg-slate-100 dark:bg-white/10',       text: 'text-slate-600 dark:text-white/60',    dot: 'bg-slate-400',  border: 'border-slate-200 dark:border-white/10' },
+  { id: 'aprobado',       label_es: 'Aprobado',       label_en: 'Approved',      bg: 'bg-sky-50 dark:bg-sky-500/10',        text: 'text-sky-700 dark:text-sky-400',       dot: 'bg-sky-500',    border: 'border-sky-200 dark:border-sky-500/30' },
+  { id: 'awaiting_parts', label_es: 'Esperando Repuestos', label_en: 'Awaiting Parts', bg: 'bg-amber-50 dark:bg-amber-500/10', text: 'text-amber-700 dark:text-amber-400', dot: 'bg-amber-500', border: 'border-amber-200 dark:border-amber-500/30' },
+  { id: 'en_progreso',    label_es: 'En Progreso',    label_en: 'In Progress',   bg: 'bg-amber-50 dark:bg-amber-500/10',    text: 'text-amber-700 dark:text-amber-400',   dot: 'bg-amber-500',  border: 'border-amber-200 dark:border-amber-500/30' },
+  { id: 'completado',     label_es: 'Completado',     label_en: 'Completed',     bg: 'bg-emerald-50 dark:bg-emerald-500/10', text: 'text-emerald-700 dark:text-emerald-400', dot: 'bg-emerald-500', border: 'border-emerald-200 dark:border-emerald-500/30' },
+  { id: 'facturado',      label_es: 'Facturado',      label_en: 'Invoiced',      bg: 'bg-violet-50 dark:bg-violet-500/10',  text: 'text-violet-700 dark:text-violet-400',  dot: 'bg-violet-500', border: 'border-violet-200 dark:border-violet-500/30' },
 ]
+
+// DB may store legacy English values ('estimate'/'approved'/'in_progress'/'completed'/'closed')
+// or Spanish kanban ids ('estimado'/'aprobado'/'en_progreso'/'completado'/'facturado'). Normalize.
+const STATUS_ALIAS = {
+  estimate: 'estimado', approved: 'aprobado', in_progress: 'en_progreso',
+  completed: 'completado', closed: 'facturado', invoiced: 'facturado',
+}
+function normStatus(s) { return STATUS_ALIAS[s] || s || 'estimado' }
 
 const STATUS_MAP = Object.fromEntries(STATUSES.map(s => [s.id, s]))
 
@@ -253,9 +263,99 @@ function CreateModal({ vehicles, clients, empleados, bays, lang, onSave, onClose
   )
 }
 
+// ── Digital Vehicle Inspection ───────────────────────────────────────────────
+// Per-WO checklist stored as JSON in work_orders.inspection_json.
+// Categories match DR-standard safety inspection: frenos, llantas, fluidos,
+// luces, bateria, filtros. Each item has status (pass|warn|fail) + notes.
+
+const INSPECTION_ITEMS = [
+  { id: 'frenos',   label_es: 'Frenos',    label_en: 'Brakes' },
+  { id: 'llantas',  label_es: 'Llantas',   label_en: 'Tires' },
+  { id: 'fluidos',  label_es: 'Fluidos',   label_en: 'Fluids' },
+  { id: 'luces',    label_es: 'Luces',     label_en: 'Lights' },
+  { id: 'bateria',  label_es: 'Bateria',   label_en: 'Battery' },
+  { id: 'filtros',  label_es: 'Filtros',   label_en: 'Filters' },
+  { id: 'correas',  label_es: 'Correas',   label_en: 'Belts' },
+  { id: 'suspension', label_es: 'Suspension', label_en: 'Suspension' },
+]
+
+const STATUS_STYLES = {
+  pass: { bg: 'bg-emerald-500', text: 'text-white', border: 'border-emerald-500', label_es: 'Bien', label_en: 'Pass' },
+  warn: { bg: 'bg-amber-500',   text: 'text-white', border: 'border-amber-500',   label_es: 'Atencion', label_en: 'Warn' },
+  fail: { bg: 'bg-[#b3001e]',   text: 'text-white', border: 'border-[#b3001e]',   label_es: 'Falla', label_en: 'Fail' },
+}
+
+function InspectionPanel({ inspection, lang, onChange, onSave, saving }) {
+  const L = (es, en) => lang === 'es' ? es : en
+  const rows = inspection?.items || {}
+  function set(id, patch) {
+    onChange({ ...inspection, items: { ...rows, [id]: { ...(rows[id] || {}), ...patch } } })
+  }
+  return (
+    <div className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[12px] font-bold text-slate-700 dark:text-white flex items-center gap-1.5">
+          <ClipboardCheck size={14} className="text-[#b3001e]" /> {L('Inspeccion Digital', 'Digital Inspection')}
+        </p>
+        <button type="button" onClick={onSave} disabled={saving}
+          className="flex items-center gap-1 px-3 py-1.5 bg-black text-white text-[11px] font-bold rounded-lg disabled:opacity-50">
+          {saving && <Loader2 size={11} className="animate-spin" />} {L('Guardar', 'Save')}
+        </button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        {INSPECTION_ITEMS.map(it => {
+          const row = rows[it.id] || {}
+          return (
+            <div key={it.id} className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg p-2.5">
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[12px] font-semibold text-slate-800 dark:text-white">{L(it.label_es, it.label_en)}</p>
+                <div className="flex gap-1">
+                  {['pass','warn','fail'].map(s => {
+                    const st = STATUS_STYLES[s]
+                    const selected = row.status === s
+                    return (
+                      <button type="button" key={s} onClick={() => set(it.id, { status: s })}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors ${
+                          selected ? `${st.bg} ${st.text} ${st.border}` : 'bg-white dark:bg-white/5 text-slate-500 dark:text-white/50 border-slate-200 dark:border-white/10 hover:border-slate-300'
+                        }`}>
+                        {L(st.label_es, st.label_en)}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              <input value={row.note || ''} onChange={e => set(it.id, { note: e.target.value })}
+                placeholder={L('Nota / foto URL (opcional)', 'Note / photo URL (optional)')}
+                className="w-full px-2 py-1 border border-slate-200 dark:border-white/10 rounded text-[11px] bg-white dark:bg-white/5 text-slate-700 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-sky-400" />
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Totals Breakdown (labor / parts / ITBIS 18%) ─────────────────────────────
+
+function TotalsBreakdown({ items, lang }) {
+  const L = (es, en) => lang === 'es' ? es : en
+  const labor = items.filter(i => (i.type === 'labor' || i.type === 'service')).reduce((s, i) => s + (Number(i.qty ?? i.quantity ?? 1) * Number(i.unit_price || 0)), 0)
+  const parts = items.filter(i => i.type === 'part').reduce((s, i) => s + (Number(i.qty ?? i.quantity ?? 1) * Number(i.unit_price || 0)), 0)
+  const itbis = Math.round(parts * 0.18 * 100) / 100
+  const total = Math.round((labor + parts + itbis) * 100) / 100
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-4 py-3 bg-slate-50 dark:bg-white/5 border-t border-slate-200 dark:border-white/10 text-[12px]">
+      <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-white/40">{L('Mano de Obra', 'Labor')}</p><p className="font-semibold text-slate-800 dark:text-white">{fmtRD(labor)}</p></div>
+      <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-white/40">{L('Repuestos', 'Parts')}</p><p className="font-semibold text-slate-800 dark:text-white">{fmtRD(parts)}</p></div>
+      <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-white/40">{L('ITBIS 18%', 'ITBIS 18%')}</p><p className="font-semibold text-slate-800 dark:text-white">{fmtRD(itbis)}</p></div>
+      <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-white/40">{L('Total', 'Total')}</p><p className="font-bold text-slate-800 dark:text-white text-[14px]">{fmtRD(total)}</p></div>
+    </div>
+  )
+}
+
 // ── Detail Modal ─────────────────────────────────────────────────────────────
 
-function DetailModal({ order, lang, onStatusChange, onAddItem, onDeleteItem, onClose }) {
+function DetailModal({ order, lang, onStatusChange, onAddItem, onDeleteItem, onSaveInspection, onGenerateApprovalLink, onSetPartsOrder, onClose }) {
   const L = (es, en) => lang === 'es' ? es : en
   const st = STATUS_MAP[order.status] || STATUS_MAP.estimado
   const items = order.items || []
@@ -265,6 +365,16 @@ function DetailModal({ order, lang, onStatusChange, onAddItem, onDeleteItem, onC
   const [newItem, setNewItem] = useState({ type: 'labor', name: '', qty: 1, unit_price: 0 })
   const [addingItem, setAddingItem] = useState(false)
   const [confirmInvoice, setConfirmInvoice] = useState(false)
+  const [showInspection, setShowInspection] = useState(false)
+  const [inspection, setInspection] = useState(() => {
+    try { return typeof order.inspection_json === 'string' ? JSON.parse(order.inspection_json || '{}') : (order.inspection_json || {}) }
+    catch { return {} }
+  })
+  const [savingInsp, setSavingInsp] = useState(false)
+  const [showParts, setShowParts] = useState(false)
+  const [partsDate, setPartsDate] = useState(order.expected_parts_arrival || '')
+  const [approvalLink, setApprovalLink] = useState('')
+  const [copied, setCopied] = useState(false)
 
   async function handleAddItem() {
     if (!newItem.name.trim()) return
@@ -288,6 +398,27 @@ function DetailModal({ order, lang, onStatusChange, onAddItem, onDeleteItem, onC
       return
     }
     onStatusChange(order.id, next)
+  }
+
+  async function handleSaveInspection() {
+    setSavingInsp(true)
+    try { await onSaveInspection(order.id, inspection) } finally { setSavingInsp(false) }
+  }
+  async function handlePartsOrder() {
+    if (!partsDate) return
+    await onSetPartsOrder(order.id, partsDate)
+    setShowParts(false)
+  }
+  async function handleApprovalLink() {
+    const r = await onGenerateApprovalLink(order.id)
+    if (r?.token) {
+      const base = (typeof window !== 'undefined' ? window.location.origin : 'https://terminalxpos.com')
+      setApprovalLink(`${base}/wo/approve?t=${r.token}`)
+    }
+  }
+  async function handleCopy() {
+    if (!approvalLink) return
+    try { await navigator.clipboard.writeText(approvalLink); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch {}
   }
 
   return (
@@ -415,12 +546,86 @@ function DetailModal({ order, lang, onStatusChange, onAddItem, onDeleteItem, onC
                   </tbody>
                 </table>
               )}
-              {/* Total */}
-              <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-white/5 border-t border-slate-200 dark:border-white/10">
-                <span className="text-[12px] font-bold text-slate-500 dark:text-white/50 uppercase">{L('Total', 'Total')}</span>
-                <span className="text-[16px] font-bold text-slate-800 dark:text-white">{fmtRD(total)}</span>
-              </div>
+              {/* Totals breakdown: labor / parts / ITBIS 18% / total */}
+              <TotalsBreakdown items={items} lang={lang} />
             </div>
+          </div>
+
+          {/* Mechanic extensions: inspection + parts order + approval link */}
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => setShowInspection(v => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold rounded-lg border border-slate-200 dark:border-white/10 text-slate-700 dark:text-white hover:bg-slate-50 dark:hover:bg-white/5">
+                <ClipboardCheck size={13} /> {L('Inspeccion Digital', 'Digital Inspection')}
+              </button>
+              {order.status !== 'facturado' && (
+                <button type="button" onClick={() => setShowParts(v => !v)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold rounded-lg border border-amber-300 dark:border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10">
+                  <PackageOpen size={13} /> {L('Esperando Repuestos', 'Awaiting Parts')}
+                </button>
+              )}
+              {(order.status === 'estimado' || order.status === 'estimate') && (
+                <button type="button" onClick={handleApprovalLink}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold rounded-lg border border-sky-300 dark:border-sky-500/40 text-sky-700 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10">
+                  <PenLine size={13} /> {L('Generar Link de Aprobacion', 'Generate Approval Link')}
+                </button>
+              )}
+            </div>
+
+            {showInspection && (
+              <InspectionPanel
+                inspection={inspection}
+                lang={lang}
+                onChange={setInspection}
+                onSave={handleSaveInspection}
+                saving={savingInsp}
+              />
+            )}
+
+            {showParts && order.status !== 'facturado' && (
+              <div className="bg-amber-50 dark:bg-amber-500/5 border border-amber-200 dark:border-amber-500/20 rounded-xl p-3">
+                <p className="text-[12px] font-bold text-amber-800 dark:text-amber-300 mb-2 flex items-center gap-1.5">
+                  <PackageOpen size={13} /> {L('Marcar en espera de repuestos', 'Mark as awaiting parts')}
+                </p>
+                <div className="flex items-center gap-2">
+                  <input type="date" value={partsDate} onChange={e => setPartsDate(e.target.value)}
+                    min={new Date().toISOString().slice(0,10)}
+                    className="flex-1 px-3 py-2 border border-amber-200 dark:border-amber-500/30 rounded-lg text-[12px] bg-white dark:bg-white/5 text-slate-700 dark:text-white" />
+                  <button type="button" onClick={handlePartsOrder} disabled={!partsDate}
+                    className="px-3 py-2 bg-amber-500 text-white text-[12px] font-bold rounded-lg hover:bg-amber-600 disabled:opacity-50">
+                    {L('Confirmar', 'Confirm')}
+                  </button>
+                </div>
+                {order.vehicle_plate && (
+                  <a className="inline-block mt-2 text-[11px] text-emerald-700 dark:text-emerald-400 hover:underline"
+                    href={`https://wa.me/?text=${encodeURIComponent(L(
+                      `Su vehiculo ${order.vehicle_plate} en la orden WO-${String(order.order_number || order.id).padStart(4,'0')} esta en espera de repuestos. Fecha estimada de llegada: ${partsDate || '---'}. Le avisaremos cuando este listo.`,
+                      `Your vehicle ${order.vehicle_plate} (WO-${String(order.order_number || order.id).padStart(4,'0')}) is awaiting parts. Expected arrival: ${partsDate || '---'}. We'll notify you when ready.`
+                    ))}`} target="_blank" rel="noopener">
+                    {L('Enviar aviso por WhatsApp', 'Send WhatsApp notice')}
+                  </a>
+                )}
+              </div>
+            )}
+
+            {approvalLink && (
+              <div className="bg-sky-50 dark:bg-sky-500/5 border border-sky-200 dark:border-sky-500/20 rounded-xl p-3 space-y-2">
+                <p className="text-[12px] font-bold text-sky-800 dark:text-sky-300 flex items-center gap-1.5">
+                  <Link2 size={13} /> {L('Link de aprobacion del cliente', 'Customer approval link')}
+                </p>
+                <div className="flex items-center gap-2">
+                  <input value={approvalLink} readOnly
+                    className="flex-1 px-3 py-2 border border-sky-200 dark:border-sky-500/30 rounded-lg text-[11px] bg-white dark:bg-white/5 text-slate-700 dark:text-white font-mono" />
+                  <button type="button" onClick={handleCopy}
+                    className="px-3 py-2 bg-sky-600 text-white text-[11px] font-bold rounded-lg hover:bg-sky-700 flex items-center gap-1">
+                    <Copy size={12} /> {copied ? L('Copiado', 'Copied') : L('Copiar', 'Copy')}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 dark:text-white/50">
+                  {L('Envia este link al cliente para que apruebe el estimado antes de iniciar el trabajo.', 'Send this link to the customer to approve the estimate before work starts.')}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -563,7 +768,7 @@ export default function WorkOrders() {
         api?.empleados?.all?.() || [],
         api?.serviceBays?.list?.() || [],
       ])
-      setOrders(wo || [])
+      setOrders((wo || []).map(o => ({ ...o, status: normStatus(o.status) })))
       setVehicles(v || [])
       setClients(c || [])
       setEmpleados(e || [])
@@ -604,6 +809,24 @@ export default function WorkOrders() {
     await loadAll()
     const updated = (await api.workOrders.list())?.find(o => o.id === orderId)
     if (updated) setDetail(updated)
+  }
+
+  async function handleSaveInspection(orderId, inspection) {
+    await api.workOrders.saveInspection({ id: orderId, inspection })
+    await loadAll()
+    flash(L('Inspeccion guardada', 'Inspection saved'))
+  }
+  async function handleGenerateApprovalLink(orderId) {
+    const r = await api.workOrders.generateApprovalToken({ id: orderId })
+    await loadAll()
+    return r
+  }
+  async function handleSetPartsOrder(orderId, expected_parts_arrival) {
+    await api.workOrders.setPartsOrder({ id: orderId, expected_parts_arrival })
+    await loadAll()
+    const updated = (await api.workOrders.list())?.find(o => o.id === orderId)
+    if (updated) setDetail(updated)
+    flash(L('Marcado: esperando repuestos', 'Marked: awaiting parts'))
   }
 
   // Counts per status
@@ -728,6 +951,9 @@ export default function WorkOrders() {
           onStatusChange={handleStatusChange}
           onAddItem={handleAddItem}
           onDeleteItem={handleDeleteItem}
+          onSaveInspection={handleSaveInspection}
+          onGenerateApprovalLink={handleGenerateApprovalLink}
+          onSetPartsOrder={handleSetPartsOrder}
           onClose={() => setDetail(null)}
         />
       )}
