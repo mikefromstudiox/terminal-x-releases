@@ -38,12 +38,15 @@ function catLabel(cat, lang) {
   return cat
 }
 
-const ITBIS = 0.18
-const LEY   = 0.10
+const LEY = 0.10
 
-function calcTotals(items) {
-  const total    = items.reduce((s, i) => s + i.price * (i.qty || 1), 0) // prices already include ITBIS
-  const subtotal = parseFloat((total / (1 + ITBIS)).toFixed(2))  // extract pre-ITBIS base
+// Prices already include ITBIS — strip it using the business's configured rate.
+// `itbisRate` is a numeric percentage (e.g. 18 for 18%). Defaults to 18 when
+// caller hasn't loaded settings yet so totals are sane pre-hydration.
+function calcTotals(items, itbisRate = 18) {
+  const factor   = Number(itbisRate) / 100
+  const total    = items.reduce((s, i) => s + i.price * (i.qty || 1), 0)
+  const subtotal = parseFloat((total / (1 + factor)).toFixed(2))
   const itbis    = parseFloat((total - subtotal).toFixed(2))
   return { subtotal, itbis, ley: 0, total }
 }
@@ -232,38 +235,46 @@ function CarWashPOS() {
   }, [])
 
   // ── Derived: categories + services grouped (includes inventory categories)
+  // Normalize singular/plural variants so "Bebida" + "Bebidas" → one tab.
+  const normalizeCat = (c) => {
+    if (!c) return c
+    const map = { 'Bebida': 'Bebidas', 'Snack': 'Snacks', 'Combo': 'Combos', 'Extra': 'Adicionales', 'Add-on': 'Adicionales', 'Add-ons': 'Adicionales' }
+    return map[c] || c
+  }
   const categories = useMemo(() => {
+    // Single namespace — services + inventory share category IDs so a "Bebidas"
+    // service and a "Bebidas" inventory item land under one tab.
     const seen = new Set()
     const cats = []
     for (const svc of rawServices) {
-      if (!seen.has(svc.category)) {
-        seen.add(svc.category)
-        cats.push({ id: svc.category, label: svc.category, type: 'service' })
+      const cat = normalizeCat(svc.category)
+      if (!seen.has(cat)) {
+        seen.add(cat)
+        cats.push({ id: cat, label: cat, type: 'service' })
+      }
+    }
+    for (const inv of invItems) {
+      const cat = normalizeCat(inv.category) || 'Productos'
+      if (!seen.has(cat)) {
+        seen.add(cat)
+        cats.push({ id: cat, label: cat, type: 'inventory' })
       }
     }
     cats.sort((a, b) => (catOrder[a.id] ?? 999) - (catOrder[b.id] ?? 999))
-    // Append inventory categories AFTER service categories
-    for (const inv of invItems) {
-      const cat = inv.category || 'Productos'
-      if (!seen.has('inv:' + cat)) {
-        seen.add('inv:' + cat)
-        cats.push({ id: 'inv:' + cat, label: cat, type: 'inventory' })
-      }
-    }
     return cats
   }, [rawServices, catOrder, invItems])
 
   const servicesByCategory = useMemo(() => {
     const groups = {}
     for (const svc of rawServices) {
-      if (!groups[svc.category]) groups[svc.category] = []
-      groups[svc.category].push(svc)
+      const cat = normalizeCat(svc.category)
+      if (!groups[cat]) groups[cat] = []
+      groups[cat].push(svc)
     }
-    // Add inventory items under their prefixed category key
     for (const inv of invItems) {
-      const key = 'inv:' + (inv.category || 'Productos')
-      if (!groups[key]) groups[key] = []
-      groups[key].push({ ...inv, _isInventory: true, is_wash: 0 })
+      const cat = normalizeCat(inv.category) || 'Productos'
+      if (!groups[cat]) groups[cat] = []
+      groups[cat].push({ ...inv, _isInventory: true, is_wash: 0 })
     }
     return groups
   }, [rawServices, invItems])
@@ -287,6 +298,17 @@ function CarWashPOS() {
     api.clients?.all?.().then(r => setClients(r || [])).catch(() => flash(lang === 'es' ? 'Error al cargar clientes' : 'Error loading clients'))
   }, [api])
 
+  // ITBIS rate — lives in app_settings, mutable per-business. Default 18.
+  const [itbisRate, setItbisRate] = useState(18)
+  useEffect(() => {
+    api?.settings?.get?.()
+      .then(s => {
+        const pct = Number(s?.itbis_pct)
+        if (Number.isFinite(pct) && pct >= 0) setItbisRate(pct)
+      })
+      .catch(() => {})
+  }, [api])
+
   // Form state
   const [rnc,         setRnc]         = useState('')
   const [rncName,     setRncName]     = useState('')
@@ -302,7 +324,7 @@ function CarWashPOS() {
   }, [categories])
 
   const allOrderItems = items
-  const { subtotal, itbis, ley, total } = calcTotals(allOrderItems)
+  const { subtotal, itbis, ley, total } = calcTotals(allOrderItems, itbisRate)
   const gridCols = collapsed ? 'grid-cols-2 md:grid-cols-4 lg:grid-cols-5' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
 
   // Mobile cart visibility
@@ -402,7 +424,7 @@ function CarWashPOS() {
     if (allOrderItems.length === 0 && !vehicle.trim()) return
 
     try {
-      const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(allOrderItems)
+      const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(allOrderItems, itbisRate)
       const beverageSubtotal = allOrderItems
         .filter(s => s.is_wash === 0)
         .reduce((s, i) => s + i.price, 0)
@@ -455,7 +477,7 @@ function CarWashPOS() {
     // the user clicks Cerrar in the success view via the onClose prop.
 
     try {
-      const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(pending.items)
+      const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(pending.items, itbisRate)
       const beverageSubtotal = pending.items
         .filter(s => s.is_wash === 0)
         .reduce((s, i) => s + i.price, 0)
@@ -521,7 +543,7 @@ function CarWashPOS() {
           rnc:     empresa?.rnc       || '',
           logo:    empresa?.logo      || '',
         }
-        const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(pending.items)
+        const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(pending.items, itbisRate)
         const ticketData = {
           ncf:          result?.ncf       || '',
           ncfType:      paymentData.ncfType || 'E32',
@@ -588,7 +610,7 @@ function CarWashPOS() {
               onClick={() => setCategory(cat.id)}
               className={`px-4 md:px-5 py-3 md:py-3.5 text-xs md:text-sm font-semibold transition-colors border-b-2 -mb-px shrink-0 min-h-[44px] ${
                 category === cat.id
-                  ? 'border-[#0C447C] text-[#0C447C] dark:text-white'
+                  ? 'border-[#b3001e] text-[#b3001e] dark:text-white'
                   : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white hover:border-slate-300 dark:hover:border-white/30'
               }`}
             >
@@ -618,14 +640,14 @@ function CarWashPOS() {
                     onClick={() => toggleService(svc)}
                     className={`rounded-xl p-3 md:p-3.5 text-left transition-all border min-h-[44px] ${
                       selected
-                        ? 'bg-[#E6F1FB] dark:bg-[#0C447C]/20 border-[#0C447C] text-[#0C447C] dark:text-white shadow-sm'
-                        : 'bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-700 dark:text-white hover:border-[#0C447C]/40 dark:hover:border-[#0C447C]/60 hover:shadow-sm'
+                        ? 'bg-[#b3001e]/10 dark:bg-[#b3001e]/20 border-[#b3001e] text-[#b3001e] dark:text-white shadow-sm'
+                        : 'bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-700 dark:text-white hover:border-[#b3001e]/40 dark:hover:border-[#b3001e]/60 hover:shadow-sm'
                     }`}
                   >
                     <p className="text-xs md:text-[13px] font-semibold leading-snug">
                       {lang === 'es' ? svc.name : (svc.name_en || svc.name)}
                     </p>
-                    <p className={`text-[11px] md:text-[12px] font-bold mt-1 md:mt-1.5 ${selected ? 'text-[#0C447C]/70 dark:text-white/70' : 'text-slate-400 dark:text-white/40'}`}>
+                    <p className={`text-[11px] md:text-[12px] font-bold mt-1 md:mt-1.5 ${selected ? 'text-[#b3001e]/70 dark:text-white/70' : 'text-slate-400 dark:text-white/40'}`}>
                       {fmtRD(svc.price)}
                     </p>
                   </button>
@@ -645,7 +667,7 @@ function CarWashPOS() {
       {allOrderItems.length > 0 && !mobileCartOpen && (
         <button
           onClick={() => setMobileCartOpen(true)}
-          className="md:hidden fixed bottom-20 left-1/2 -translate-x-1/2 z-40 bg-[#0C447C] text-white font-bold py-3 px-6 rounded-full shadow-lg shadow-[#0C447C]/30 flex items-center gap-2 min-h-[44px] active:scale-95 transition-transform"
+          className="md:hidden fixed bottom-20 left-1/2 -translate-x-1/2 z-40 bg-[#b3001e] text-white font-bold py-3 px-6 rounded-full shadow-lg shadow-[#b3001e]/30 flex items-center gap-2 min-h-[44px] active:scale-95 transition-transform"
         >
           <ShoppingCart size={18} />
           <span className="text-sm">
@@ -766,7 +788,7 @@ function CarWashPOS() {
                         onClick={() => { setSelectedClient(c); setShowClientPicker(false); setClientSearch(''); if (c.rnc) { setRnc(c.rnc); setRncName(c.name) } }}
                         className="w-full flex items-center gap-3 px-4 py-3 hover:bg-sky-50 dark:hover:bg-sky-900/20 border-b border-slate-50 dark:border-white/5 text-left transition-colors"
                       >
-                        <div className="w-8 h-8 rounded-full bg-[#0C447C] flex items-center justify-center text-white text-[11px] font-bold shrink-0">
+                        <div className="w-8 h-8 rounded-full bg-[#b3001e] flex items-center justify-center text-white text-[11px] font-bold shrink-0">
                           {(c.name || '?')[0].toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -936,7 +958,7 @@ function CarWashPOS() {
                 }
               }}
               disabled={allOrderItems.length === 0}
-              className="flex-1 md:flex-none w-full bg-[#0C447C] hover:bg-[#0a3868] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl text-sm md:text-[13px] transition-all active:scale-[0.98] shadow-md shadow-[#0C447C]/20 flex items-center justify-center gap-2 min-h-[44px]"
+              className="flex-1 md:flex-none w-full bg-[#b3001e] hover:bg-[#0a3868] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl text-sm md:text-[13px] transition-all active:scale-[0.98] shadow-md shadow-[#b3001e]/20 flex items-center justify-center gap-2 min-h-[44px]"
             >
               <span>{lang === 'es' ? 'Cobrar' : 'Charge'}</span>
               <span className="text-[10px] opacity-60 font-normal hidden md:inline">F2</span>
@@ -980,6 +1002,12 @@ function RetailPOS() {
   const { collapsed } = useLayout()
   const { user } = useAuth()
   const navigate = useNavigate()
+  const { businessType, isHybrid, isMechanic, isDealership } = useBusinessType()
+
+  // The Services tab only makes sense for verticals that mix products + services
+  // (hybrid, mechanic, dealership). Pure retail/licoreria/carniceria should not
+  // see it — it just confuses the cashier.
+  const showServicesTab = isHybrid || isMechanic || isDealership
 
   // Services for hybrid mode (services tab)
   const { data: rawServicesDB } = useServices()
@@ -1015,6 +1043,17 @@ function RetailPOS() {
     api.clients?.all?.().then(r => setClients(r || [])).catch(() => {})
   }, [api])
 
+  // ITBIS rate — lives in app_settings, mutable per-business. Default 18.
+  const [itbisRate, setItbisRate] = useState(18)
+  useEffect(() => {
+    api?.settings?.get?.()
+      .then(s => {
+        const pct = Number(s?.itbis_pct)
+        if (Number.isFinite(pct) && pct >= 0) setItbisRate(pct)
+      })
+      .catch(() => {})
+  }, [api])
+
   // Service categories for hybrid tab
   const serviceCategories = useMemo(() => {
     const seen = new Set()
@@ -1026,7 +1065,7 @@ function RetailPOS() {
   const [svcCategory, setSvcCategory] = useState(null)
   useEffect(() => { if (serviceCategories.length && !svcCategory) setSvcCategory(serviceCategories[0]) }, [serviceCategories])
 
-  const { subtotal, itbis, total } = calcTotals(cart)
+  const { subtotal, itbis, total } = calcTotals(cart, itbisRate)
   const cartCount = cart.reduce((s, i) => s + (i.qty || 1), 0)
 
   function flash(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
@@ -1152,7 +1191,7 @@ function RetailPOS() {
     setCobrarModal(null)
 
     try {
-      const { subtotal: sub, itbis: itp, total: tot } = calcTotals(pending.items)
+      const { subtotal: sub, itbis: itp, total: tot } = calcTotals(pending.items, itbisRate)
 
       const result = await api.tickets.create({
         vehicle_plate:    null,
@@ -1258,7 +1297,7 @@ function RetailPOS() {
               onChange={e => handleSearchInput(e.target.value)}
               onKeyDown={handleBarcodeScan}
               placeholder={lang === 'es' ? 'Buscar producto, SKU o codigo de barras...' : 'Search product, SKU or barcode...'}
-              className="w-full pl-9 pr-4 py-2.5 text-sm bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0C447C]/30 focus:border-[#0C447C]"
+              className="w-full pl-9 pr-4 py-2.5 text-sm bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30 focus:border-[#b3001e]"
             />
             {searching && <Loader2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin" />}
             {!searching && searchQuery && (
@@ -1270,7 +1309,8 @@ function RetailPOS() {
           </div>
         </div>
 
-        {/* Tab switcher */}
+        {/* Tab switcher — services tab only for hybrid/mechanic/dealership verticals */}
+        {showServicesTab && (
         <div className="flex border-b border-slate-200 dark:border-white/10 bg-white dark:bg-black">
           {[
             { key: 'products', icon: Package, es: 'Productos', en: 'Products' },
@@ -1279,7 +1319,7 @@ function RetailPOS() {
             <button key={key} onClick={() => setTab(key)}
               className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-[13px] font-medium border-b-2 transition-colors ${
                 tab === key
-                  ? 'border-[#0C447C] text-[#0C447C] dark:text-blue-400'
+                  ? 'border-[#b3001e] text-[#b3001e] dark:text-blue-400'
                   : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-white/60'
               }`}>
               <Icon size={15} />
@@ -1287,6 +1327,7 @@ function RetailPOS() {
             </button>
           ))}
         </div>
+        )}
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-3 bg-slate-50 dark:bg-black">
@@ -1301,11 +1342,11 @@ function RetailPOS() {
               <div className={`grid ${gridCols} gap-2`}>
                 {searchResults.map(item => (
                   <button key={item.id} onClick={() => addToCart(item)}
-                    className="flex flex-col items-start p-3 rounded-xl border-2 border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-[#0C447C] hover:bg-[#E6F1FB] dark:hover:bg-[#0C447C]/10 transition-all text-left">
+                    className="flex flex-col items-start p-3 rounded-xl border-2 border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-[#b3001e] hover:bg-[#b3001e]/10 dark:hover:bg-[#b3001e]/15 transition-all text-left">
                     <p className="text-[13px] font-semibold text-slate-800 dark:text-white leading-tight line-clamp-2">{item.name}</p>
                     {item.sku && <p className="text-[10px] text-slate-400 mt-0.5">{item.sku}</p>}
                     <div className="flex items-center justify-between w-full mt-2">
-                      <p className="text-[13px] font-bold text-[#0C447C] dark:text-blue-400">{fmtRD(item.price)}</p>
+                      <p className="text-[13px] font-bold text-[#b3001e] dark:text-blue-400">{fmtRD(item.price)}</p>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
                         item.quantity <= 0 ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400'
                         : item.quantity <= (item.min_quantity || 5) ? 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'
@@ -1326,15 +1367,15 @@ function RetailPOS() {
           )}
 
           {/* Services tab */}
-          {tab === 'services' && (
+          {showServicesTab && tab === 'services' && (
             <div>
               <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3 scrollbar-hide">
                 {serviceCategories.map(cat => (
                   <button key={cat} onClick={() => setSvcCategory(cat)}
                     className={`px-3 py-1.5 rounded-full text-[12px] font-medium whitespace-nowrap transition-all border ${
                       svcCategory === cat
-                        ? 'bg-[#0C447C] text-white border-[#0C447C]'
-                        : 'bg-white dark:bg-white/5 text-slate-500 border-slate-200 dark:border-white/10 hover:border-[#0C447C]'
+                        ? 'bg-[#b3001e] text-white border-[#b3001e]'
+                        : 'bg-white dark:bg-white/5 text-slate-500 border-slate-200 dark:border-white/10 hover:border-[#b3001e]'
                     }`}>
                     {catLabel(cat, lang)}
                   </button>
@@ -1343,9 +1384,9 @@ function RetailPOS() {
               <div className={`grid ${gridCols} gap-2`}>
                 {rawServices.filter(s => s.category === svcCategory).map(svc => (
                   <button key={svc.id} onClick={() => addServiceToCart(svc)}
-                    className="flex flex-col items-start p-3 rounded-xl border-2 border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-[#0C447C] hover:bg-[#E6F1FB] dark:hover:bg-[#0C447C]/10 transition-all text-left">
+                    className="flex flex-col items-start p-3 rounded-xl border-2 border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-[#b3001e] hover:bg-[#b3001e]/10 dark:hover:bg-[#b3001e]/15 transition-all text-left">
                     <p className="text-[13px] font-semibold text-slate-800 dark:text-white leading-tight">{lang === 'es' ? svc.name : (svc.name_en || svc.name)}</p>
-                    <p className="text-[13px] font-bold text-[#0C447C] dark:text-blue-400 mt-1">{fmtRD(svc.price)}</p>
+                    <p className="text-[13px] font-bold text-[#b3001e] dark:text-blue-400 mt-1">{fmtRD(svc.price)}</p>
                   </button>
                 ))}
               </div>
@@ -1358,7 +1399,7 @@ function RetailPOS() {
       {cart.length > 0 && !mobileCartOpen && (
         <button
           onClick={() => setMobileCartOpen(true)}
-          className="md:hidden fixed bottom-20 right-4 z-30 bg-[#0C447C] text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center"
+          className="md:hidden fixed bottom-20 right-4 z-30 bg-[#b3001e] text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center"
         >
           <ShoppingCart size={22} />
           <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">{cartCount}</span>
@@ -1391,14 +1432,14 @@ function RetailPOS() {
           {selectedClient ? (
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <UserRound size={14} className="text-[#0C447C]" />
+                <UserRound size={14} className="text-[#b3001e]" />
                 <span className="text-[13px] font-medium text-slate-800 dark:text-white">{selectedClient.name}</span>
               </div>
               <button onClick={() => setSelectedClient(null)} className="text-slate-400 hover:text-red-500"><X size={14} /></button>
             </div>
           ) : (
             <button onClick={() => setShowClientPicker(true)}
-              className="w-full text-left text-[12px] text-slate-400 hover:text-[#0C447C] flex items-center gap-2 py-1">
+              className="w-full text-left text-[12px] text-slate-400 hover:text-[#b3001e] flex items-center gap-2 py-1">
               <UserRound size={13} />
               {lang === 'es' ? '+ Agregar cliente' : '+ Add client'}
             </button>
@@ -1419,7 +1460,7 @@ function RetailPOS() {
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-medium text-slate-800 dark:text-white truncate">{item.name}</p>
                     {item.sku && <p className="text-[10px] text-slate-400">{item.sku}</p>}
-                    <p className="text-[12px] text-[#0C447C] dark:text-blue-400 font-semibold">{fmtRD(item.price * item.qty)}</p>
+                    <p className="text-[12px] text-[#b3001e] dark:text-blue-400 font-semibold">{fmtRD(item.price * item.qty)}</p>
                   </div>
                   <div className="flex items-center gap-1">
                     <button onClick={() => item.qty <= 1 ? removeFromCart(item.id) : updateQty(item.id, -1)}
@@ -1428,7 +1469,7 @@ function RetailPOS() {
                     </button>
                     <span className="w-7 text-center text-[13px] font-bold text-slate-800 dark:text-white">{item.qty}</span>
                     <button onClick={() => updateQty(item.id, 1)}
-                      className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-500 hover:bg-[#E6F1FB] hover:text-[#0C447C] transition-colors">
+                      className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-500 hover:bg-[#b3001e]/10 hover:text-[#b3001e] transition-colors">
                       <Plus size={12} />
                     </button>
                   </div>
@@ -1441,7 +1482,7 @@ function RetailPOS() {
         {/* Totals + Cobrar */}
         <div className="border-t border-slate-200 dark:border-white/10 px-4 py-3 space-y-2">
           <div className="flex justify-between text-[12px] text-slate-400"><span>Subtotal</span><span>{fmtRD(subtotal)}</span></div>
-          <div className="flex justify-between text-[12px] text-slate-400"><span>ITBIS (18%)</span><span>{fmtRD(itbis)}</span></div>
+          <div className="flex justify-between text-[12px] text-slate-400"><span>ITBIS ({itbisRate}%)</span><span>{fmtRD(itbis)}</span></div>
           <div className="flex justify-between text-[15px] font-bold text-slate-800 dark:text-white border-t border-slate-200 dark:border-white/10 pt-2">
             <span>Total</span><span>{fmtRD(total)}</span>
           </div>
@@ -1458,7 +1499,7 @@ function RetailPOS() {
               }
             }}
             disabled={cart.length === 0}
-            className="w-full py-3 bg-[#0C447C] hover:bg-[#0a3a6a] disabled:opacity-40 text-white font-bold rounded-xl text-[14px] transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3 bg-[#b3001e] hover:bg-[#8c0017] disabled:opacity-40 text-white font-bold rounded-xl text-[14px] transition-colors flex items-center justify-center gap-2"
           >
             <ShoppingCart size={16} />
             {lang === 'es' ? 'Cobrar' : 'Charge'} — {fmtRD(total)}
@@ -1475,7 +1516,7 @@ function RetailPOS() {
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input value={clientSearch} onChange={e => setClientSearch(e.target.value)} autoFocus
                   placeholder={lang === 'es' ? 'Buscar cliente...' : 'Search client...'}
-                  className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]/30" />
+                  className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
               </div>
             </div>
             <div className="flex-1 overflow-y-auto">
@@ -1490,7 +1531,7 @@ function RetailPOS() {
             </div>
             <div className="p-3 border-t border-slate-200 dark:border-white/10">
               <button onClick={() => { setShowClientPicker(false); setShowNewClient(true) }}
-                className="w-full py-2 text-[13px] text-[#0C447C] font-medium hover:bg-[#E6F1FB] rounded-lg transition-colors">
+                className="w-full py-2 text-[13px] text-[#b3001e] font-medium hover:bg-[#b3001e]/10 rounded-lg transition-colors">
                 + {lang === 'es' ? 'Nuevo cliente' : 'New client'}
               </button>
             </div>
@@ -1581,11 +1622,11 @@ function ProductGrid({ api, lang, gridCols, onAdd }) {
           <div className={`grid ${gridCols} gap-2`}>
             {items.map(item => (
               <button key={item.id} onClick={() => onAdd(item)}
-                className="flex flex-col items-start p-3 rounded-xl border-2 border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-[#0C447C] hover:bg-[#E6F1FB] dark:hover:bg-[#0C447C]/10 transition-all text-left">
+                className="flex flex-col items-start p-3 rounded-xl border-2 border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-[#b3001e] hover:bg-[#b3001e]/10 dark:hover:bg-[#b3001e]/15 transition-all text-left">
                 <p className="text-[13px] font-semibold text-slate-800 dark:text-white leading-tight line-clamp-2">{item.name}</p>
                 {item.sku && <p className="text-[10px] text-slate-400 mt-0.5">{item.sku}</p>}
                 <div className="flex items-center justify-between w-full mt-2">
-                  <p className="text-[13px] font-bold text-[#0C447C] dark:text-blue-400">{fmtRD(item.price)}</p>
+                  <p className="text-[13px] font-bold text-[#b3001e] dark:text-blue-400">{fmtRD(item.price)}</p>
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
                     item.quantity <= 0 ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400'
                     : item.quantity <= (item.min_quantity || 5) ? 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'
@@ -1624,7 +1665,7 @@ function LendingDashboard() {
   }, [api])
 
   const cards = [
-    { label: lang === 'es' ? 'Préstamos Activos' : 'Active Loans', value: stats.active, color: 'text-[#0C447C]', bg: 'bg-blue-50 dark:bg-blue-900/20' },
+    { label: lang === 'es' ? 'Préstamos Activos' : 'Active Loans', value: stats.active, color: 'text-[#b3001e]', bg: 'bg-blue-50 dark:bg-blue-900/20' },
     { label: lang === 'es' ? 'Pagos Pendientes Hoy' : 'Payments Due Today', value: stats.dueToday, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-900/20' },
     { label: lang === 'es' ? 'Total Cartera' : 'Total Portfolio', value: `RD$ ${stats.portfolio.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
   ]
@@ -1651,7 +1692,7 @@ function LendingDashboard() {
       <div className="flex gap-3">
         <button
           onClick={() => navigate('/loans')}
-          className="px-6 py-3 bg-[#0C447C] hover:bg-[#0a3a6a] text-white font-bold rounded-xl text-[14px] transition-colors"
+          className="px-6 py-3 bg-[#b3001e] hover:bg-[#8c0017] text-white font-bold rounded-xl text-[14px] transition-colors"
         >
           {lang === 'es' ? 'Ver Préstamos' : 'View Loans'}
         </button>

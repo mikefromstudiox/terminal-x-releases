@@ -90,12 +90,15 @@ export function TypeBadge({ tipo, t }) {
 }
 
 // ── EmployeePanel (add/edit) ──────────────────────────────────────────────────
-export function EmployeePanel({ emp, onSave, onClose, lang, t }) {
+// `showWashers` — whether the Lavador tipo option should appear (and be the default
+// for new hires). Retail/licoreria/carniceria hide it entirely.
+export function EmployeePanel({ emp, onSave, onClose, lang, t, showWashers = true }) {
   const L = (es, en) => lang === 'es' ? es : en
   const isEdit = !!emp?.id
+  const defaultTipo = showWashers ? 'lavador' : 'vendedor'
   const [form, setForm] = useState({
     nombre:       emp?.nombre || '',
-    tipo:         emp?.tipo || 'lavador',
+    tipo:         emp?.tipo || defaultTipo,
     role:         emp?.role || 'none',
     salary:       emp?.salary ? String(emp.salary) : '',
     comision_pct: emp?.comision_pct ? String(emp.comision_pct) : '',
@@ -162,7 +165,7 @@ export function EmployeePanel({ emp, onSave, onClose, lang, t }) {
               <label className="block text-[11px] font-bold text-slate-500 dark:text-white/60 mb-1">{L('Tipo', 'Type')}</label>
               <select value={form.tipo} onChange={e => set('tipo', e.target.value)}
                 className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] dark:text-white dark:bg-white/5 focus:outline-none focus:border-sky-400 bg-white">
-                <option value="lavador">Lavador</option>
+                {showWashers && <option value="lavador">Lavador</option>}
                 <option value="vendedor">Vendedor</option>
                 <option value="cajero">Cajero/Cajera</option>
                 <option value="seguridad">{L('Seguridad (vigilante)', 'Security (guard)')}</option>

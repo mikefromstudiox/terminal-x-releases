@@ -3,6 +3,8 @@ import { Lock, Download, Printer, ChevronRight, Car, CircleDollarSign, Users, Ba
 import { useAuth } from '../../context/AuthContext'
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
+import { useBusinessType } from '../../hooks/useBusinessType.jsx'
+import { isServiceBased } from '@terminal-x/config/businessTypes'
 import { exportCommissionDetail, exportCommissionSummary } from '@terminal-x/services/csv'
 import { printCommissionDetail, printCommissionSummary } from '@terminal-x/services/report-html'
 
@@ -211,15 +213,28 @@ function CommissionPanel({
   periodLabel,
   onExport,
 }) {
-  // Build summaries with palette
+  // Build summaries with palette. Prefer empleado_supabase_id (the v2.1 canonical
+  // key) over legacy integer *_id columns. Fall back through the chain so
+  // pre-migration data still renders until sync pushes the new column.
   const summaries = useMemo(() => {
     return periodSummaries.map((ps, i) => {
-      const idx = people.findIndex(p => p.id === (ps.washer_id || ps.seller_id || ps.cajero_id))
+      const id = ps.empleado_supabase_id
+              ?? ps.washer_supabase_id
+              ?? ps.seller_supabase_id
+              ?? ps.cajero_supabase_id
+              ?? ps.washer_id
+              ?? ps.seller_id
+              ?? ps.cajero_id
+      // Match against empleados (by supabase_id) when available, else legacy id.
+      const idx = people.findIndex(p =>
+        (p.supabase_id && p.supabase_id === id) || p.id === id
+      )
+      const matched = idx >= 0 ? people[idx] : null
       const paletteIdx = idx >= 0 ? idx : i
       return {
-        id:         ps.washer_id || ps.seller_id || ps.cajero_id,
-        name:       ps.washer_name || ps.seller_name || ps.cajero_name,
-        pct:        ps.commission_pct,
+        id,
+        name:       matched?.nombre || matched?.name || ps.washer_name || ps.seller_name || ps.cajero_name || '—',
+        pct:        matched?.comision_pct ?? matched?.commission_pct ?? ps.commission_pct ?? 0,
         palette:    PALETTE[paletteIdx % PALETTE.length],
         cars:       ps.ticket_count || 0,
         commission: ps.total_commission || 0,
@@ -377,9 +392,12 @@ export default function WorkerReport() {
   const api = useAPI()
   const { user }  = useAuth()
   const { lang }  = useLang()
+  const { businessType } = useBusinessType()
+  const showWashers = isServiceBased(businessType) // carwash / mechanic / salon / hybrid / service
 
-  // Sub-tab: lavadores | vendedores | cajeras
-  const [subTab, setSubTab] = useState('lavadores')
+  // Sub-tab: lavadores | vendedores | cajeras. Retail verticals open on Vendedores
+  // since they have no washers.
+  const [subTab, setSubTab] = useState(showWashers ? 'lavadores' : 'vendedores')
 
   const [period,  setPeriod]  = useState('mes')
   const [customY, setCustomY] = useState(CUR_Y)
@@ -415,16 +433,28 @@ export default function WorkerReport() {
 
   const hasAccess = ALLOWED_ROLES.includes(user?.role)
 
-  // Load people lists once
+  // Load people lists once. v2.1: empleados is the canonical source — we filter
+  // by tipo and shape to preserve the legacy UI contract (id/supabase_id/name/commission_pct).
   useEffect(() => {
     if (!hasAccess) return
-    api.washers.allAdmin().then(r => setWashers(r || [])).catch(() => { setWashers([]); flash(lang === 'es' ? 'Error al cargar lavadores' : 'Error loading washers') })
-    api.sellers.allAdmin().then(r => setSellers(r || [])).catch(() => { setSellers([]); flash(lang === 'es' ? 'Error al cargar vendedores' : 'Error loading sellers') })
-    // Cajeros = users with cashier role or commission_pct > 0
-    api.users?.all?.().then(r => {
-      const users = (r || []).filter(u => u.role === 'cashier' || (u.commission_pct && u.commission_pct > 0))
-      setCajeros(users)
-    }).catch(() => { setCajeros([]); flash(lang === 'es' ? 'Error al cargar cajeras' : 'Error loading cashiers') })
+    const toPerson = e => ({
+      id: e.id,
+      supabase_id: e.supabase_id,
+      name: e.nombre,
+      commission_pct: e.comision_pct || 0,
+      tipo: e.tipo,
+    })
+    api.empleados?.allAdmin?.()
+      .then(rows => {
+        const list = rows || []
+        setWashers(list.filter(e => e.tipo === 'lavador' || e.tipo === 'hybrid').map(toPerson))
+        setSellers(list.filter(e => e.tipo === 'vendedor' || e.tipo === 'hybrid').map(toPerson))
+        setCajeros(list.filter(e => e.tipo === 'cajero'   || e.tipo === 'hybrid').map(toPerson))
+      })
+      .catch(() => {
+        setWashers([]); setSellers([]); setCajeros([])
+        flash(lang === 'es' ? 'Error al cargar empleados' : 'Error loading employees')
+      })
     api.admin?.getEmpresa?.().then(e => e && setBiz({ name: e.name || e.nombre, rnc: e.rnc, address: e.address || e.direccion, phone: e.phone || e.telefono, email: e.email, logo: e.logo })).catch(() => {})
   }, [])
 
@@ -562,10 +592,10 @@ export default function WorkerReport() {
   ]
 
   const SUB_TABS = [
-    { id: 'lavadores',  es: 'Lavadores',  en: 'Washers'     },
-    { id: 'vendedores', es: 'Vendedores', en: 'Salespeople' },
-    { id: 'cajeras',    es: 'Cajeras',    en: 'Cashiers'    },
-  ]
+    { id: 'lavadores',  es: 'Lavadores',  en: 'Washers',     show: showWashers },
+    { id: 'vendedores', es: 'Vendedores', en: 'Salespeople', show: true },
+    { id: 'cajeras',    es: 'Cajeras',    en: 'Cashiers',    show: true },
+  ].filter(st => st.show)
 
   return (
     <div className="h-full flex flex-col bg-slate-50 dark:bg-black overflow-hidden">
@@ -583,7 +613,9 @@ export default function WorkerReport() {
           <div>
             <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800 dark:text-white">{lang === 'es' ? 'Comisiones' : 'Commissions'}</h2>
             <p className="text-[11px] text-slate-400 dark:text-white/40 mt-0.5">
-              {lang === 'es' ? 'Calculado sobre base pre-ITBIS. Bebidas y snacks excluidos para lavadores/vendedores.' : 'Calculated on pre-ITBIS base. Beverages excluded for washers/sellers.'}
+              {lang === 'es'
+                ? (showWashers ? 'Calculado sobre base pre-ITBIS. Bebidas y snacks excluidos para lavadores/vendedores.' : 'Calculado sobre base pre-ITBIS.')
+                : (showWashers ? 'Calculated on pre-ITBIS base. Beverages excluded for washers/sellers.' : 'Calculated on pre-ITBIS base.')}
             </p>
           </div>
           <div className="flex gap-2">

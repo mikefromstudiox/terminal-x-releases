@@ -7,6 +7,8 @@ import {
 import { useLang } from '../../i18n'
 import { useAPI } from '../../context/DataContext'
 import { useAuth } from '../../context/AuthContext'
+import { useBusinessType } from '../../hooks/useBusinessType.jsx'
+import { hasVehicles, isServiceBased } from '@terminal-x/config/businessTypes'
 import { exportDailyReport } from '@terminal-x/services/csv'
 import { printDailyReport } from '@terminal-x/services/report-html'
 
@@ -90,8 +92,8 @@ const DATE_PILLS = [
 // Perfectly aligned column definitions — used for BOTH header and rows
 const COLS = [
   { key: 'ticket',   es: '#',               en: '#',             cls: 'w-[80px] shrink-0'                       },
-  { key: 'client',   es: 'Cliente / Vehículo', en: 'Client / Vehicle', cls: 'flex-1 min-w-0'                    },
-  { key: 'services', es: 'Servicio(s)',      en: 'Service(s)',    cls: 'w-[160px] shrink-0'                      },
+  { key: 'client',   es: 'Cliente', esVehicle: 'Cliente / Vehículo', en: 'Client', enVehicle: 'Client / Vehicle', cls: 'flex-1 min-w-0' },
+  { key: 'services', es: 'Servicio(s)',      en: 'Service(s)',    esProduct: 'Producto(s)', enProduct: 'Product(s)', cls: 'w-[160px] shrink-0' },
   { key: 'cashier',  es: 'Cajero',          en: 'Cashier',       cls: 'w-[90px] shrink-0'                       },
   { key: 'date',     es: 'Fecha / Hora',    en: 'Date / Time',   cls: 'w-[120px] shrink-0'                      },
   { key: 'subtotal', es: 'Subtotal',        en: 'Subtotal',      cls: 'w-[96px] shrink-0 text-right'            },
@@ -135,9 +137,21 @@ function MetricCard({ icon: Icon, label, value, sub, accent }) {
 // ── Detail modal ──────────────────────────────────────────────────────────────
 function DetailModal({ ticket: t, onClose, onReprint, lang }) {
   const api = useAPI()
+  const { businessType } = useBusinessType()
+  const showVehicle  = hasVehicles(businessType)
+  const isServiceBiz = isServiceBased(businessType)
+  const itemsLabel   = isServiceBiz
+    ? (lang === 'es' ? 'servicios' : 'services')
+    : (lang === 'es' ? 'productos' : 'products')
   const [services, setServices] = useState(t.services)
   const [washerNames, setWasherNames] = useState(t.washerNames || [])
+  const [sellerNames, setSellerNames] = useState(t.sellerNames || [])
   const [loadingItems, setLoadingItems] = useState(false)
+  // Show "Lavador(es)" for car wash; "Vendedor(es)" everywhere else.
+  const workerLabel = businessType === 'carwash'
+    ? (lang === 'es' ? 'Lavador(es)' : 'Washer(s)')
+    : (lang === 'es' ? 'Vendedor(es)' : 'Salesperson(s)')
+  const workerNames = businessType === 'carwash' ? washerNames : (sellerNames.length ? sellerNames : washerNames)
 
   useEffect(() => {
     if (services.length > 0 && washerNames.length > 0) return
@@ -151,8 +165,10 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
           })))
         }
         if (full?.washer_names?.length) setWasherNames(full.washer_names)
+        if (full?.seller_names?.length) setSellerNames(full.seller_names)
+        else if (full?.seller_name) setSellerNames([full.seller_name])
       })
-      .catch(() => setServices([{ name: lang === 'es' ? 'Error al cargar servicios' : 'Error loading services', price: 0 }]))
+      .catch(() => setServices([{ name: lang === 'es' ? `Error al cargar ${itemsLabel}` : `Error loading ${itemsLabel}`, price: 0 }]))
       .finally(() => setLoadingItems(false))
   }, [t.id])
 
@@ -178,11 +194,13 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-[12px]">
             <div><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Fecha' : 'Date'}:</span> <span className="font-medium text-slate-700 dark:text-white">{fmtDate(t.date)} {fmtTime(t.date)}</span></div>
             <div><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Cajero' : 'Cashier'}:</span> <span className="font-medium text-slate-700 dark:text-white">{t.cashier}</span></div>
-            <div><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Vehículo' : 'Vehicle'}:</span> <span className="font-medium text-slate-700 dark:text-white">{t.vehicle}</span></div>
+            {showVehicle && (
+              <div><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Vehículo' : 'Vehicle'}:</span> <span className="font-medium text-slate-700 dark:text-white">{t.vehicle}</span></div>
+            )}
             <div><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Comprobante' : 'Receipt'}:</span> <span className="font-medium text-slate-700 dark:text-white">{t.ncfType} · {t.ncfType === 'B01' ? (lang === 'es' ? 'Crédito Fiscal' : 'Tax Credit') : (lang === 'es' ? 'Consumidor Final' : 'Consumer')}</span></div>
             <div className="col-span-2"><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Cliente' : 'Client'}:</span> <span className="font-medium text-slate-700 dark:text-white">{t.client}</span></div>
-            {washerNames.length > 0 && (
-              <div className="col-span-2"><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Lavador(es)' : 'Washer(s)'}:</span> <span className="font-medium text-slate-700 dark:text-white">{washerNames.join(', ')}</span></div>
+            {workerNames.length > 0 && (
+              <div className="col-span-2"><span className="text-slate-400 dark:text-white/40">{workerLabel}:</span> <span className="font-medium text-slate-700 dark:text-white">{workerNames.join(', ')}</span></div>
             )}
           </div>
 
@@ -191,11 +209,11 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
             {loadingItems ? (
               <div className="flex items-center justify-center h-16 text-slate-400 dark:text-white/40 text-[12px] gap-2">
                 <div className="w-3 h-3 border-2 border-slate-300 border-t-sky-500 rounded-full animate-spin" />
-                {lang === 'es' ? 'Cargando servicios…' : 'Loading services…'}
+                {lang === 'es' ? `Cargando ${itemsLabel}…` : `Loading ${itemsLabel}…`}
               </div>
             ) : services.length === 0 ? (
               <div className="px-4 py-3 text-[12px] text-slate-400 dark:text-white/40">
-                {lang === 'es' ? 'Sin servicios registrados' : 'No services recorded'}
+                {lang === 'es' ? `Sin ${itemsLabel} registrados` : `No ${itemsLabel} recorded`}
               </div>
             ) : (
               services.map((s, i) => (
@@ -214,7 +232,9 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
               <span>{fmtRD(t.subtotal)}</span>
             </div>
             <div className="flex justify-between text-slate-500 dark:text-white/60">
-              <span>ITBIS 18%</span>
+              {/* Derive rate from the ticket's stored figures so historic tickets
+                  computed at a different rate still display accurately. */}
+              <span>ITBIS {t.subtotal > 0 ? Math.round((t.itbis / t.subtotal) * 100) : 18}%</span>
               <span>{fmtRD(t.itbis)}</span>
             </div>
             <div className="flex justify-between text-slate-500 dark:text-white/60">
@@ -398,6 +418,9 @@ export default function DailyReport() {
   const api = useAPI()
   const { lang }   = useLang()
   const { user: currentUser } = useAuth()
+  const { businessType } = useBusinessType()
+  const showVehicle    = hasVehicles(businessType)
+  const isServiceBiz   = isServiceBased(businessType)
 
   const [transactions, setTransactions] = useState([])
   const [loading,      setLoading]      = useState(false)
@@ -639,11 +662,18 @@ export default function DailyReport() {
         <div className="flex-1 overflow-y-auto overflow-x-auto">
           {/* Column headers — sticky inside scroll so they share the same width as rows */}
           <div className="hidden md:flex items-center h-9 bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/10 px-5 sticky top-0 z-10">
-            {COLS.map(col => (
-              <div key={col.key} className={`${col.cls} text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider pr-4`}>
-                {lang === 'es' ? col.es : col.en}
-              </div>
-            ))}
+            {COLS.map(col => {
+              const label = col.key === 'client'
+                ? (lang === 'es' ? (showVehicle ? col.esVehicle : col.es) : (showVehicle ? col.enVehicle : col.en))
+                : col.key === 'services'
+                  ? (lang === 'es' ? (isServiceBiz ? col.es : col.esProduct) : (isServiceBiz ? col.en : col.enProduct))
+                  : (lang === 'es' ? col.es : col.en)
+              return (
+                <div key={col.key} className={`${col.cls} text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider pr-4`}>
+                  {label}
+                </div>
+              )
+            })}
           </div>
           {loading ? (
             <div className="flex flex-col items-center justify-center h-40 text-slate-300 gap-3">
@@ -684,7 +714,7 @@ export default function DailyReport() {
                       <EstadoBadge t={t} lang={lang} />
                     </div>
                     <div className="flex items-center gap-3 text-[11px] text-slate-400 dark:text-white/40">
-                      <span>{t.vehicle}</span>
+                      {showVehicle && <span>{t.vehicle}</span>}
                       <span>{fmtDate(t.date)} {fmtTime(t.date)}</span>
                     </div>
                   </div>
@@ -699,7 +729,7 @@ export default function DailyReport() {
                     {/* Client / Vehicle */}
                     <div className="flex-1 min-w-[120px] pr-4">
                       <p className={`text-[12px] font-semibold truncate ${isNula ? 'text-slate-400' : 'text-slate-800 dark:text-white'}`}>{t.client || '—'}</p>
-                      {t.vehicle && t.vehicle !== '—' && <p className="text-[11px] text-slate-400 dark:text-white/40 truncate">{t.vehicle}</p>}
+                      {showVehicle && t.vehicle && t.vehicle !== '—' && <p className="text-[11px] text-slate-400 dark:text-white/40 truncate">{t.vehicle}</p>}
                     </div>
 
                     {/* Service(s) */}
@@ -767,7 +797,9 @@ export default function DailyReport() {
           </button>
           <div className="flex-1 min-w-0">
             <span className="text-[13px] font-bold text-sky-600">{selectedTicket.ticketNo}</span>
-            <span className="text-[13px] text-slate-500 dark:text-white/60 ml-2">{selectedTicket.vehicle}</span>
+            {showVehicle && selectedTicket.vehicle && selectedTicket.vehicle !== '—' && (
+              <span className="text-[13px] text-slate-500 dark:text-white/60 ml-2">{selectedTicket.vehicle}</span>
+            )}
             <span className="text-[13px] font-semibold text-slate-800 dark:text-white ml-3">{fmtRD(selectedTicket.total)}</span>
           </div>
           <div className="flex gap-2">

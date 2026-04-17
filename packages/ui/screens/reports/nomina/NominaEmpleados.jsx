@@ -18,6 +18,8 @@ import {
 import { useAuth } from '../../../context/AuthContext'
 import { useAPI } from '../../../context/DataContext'
 import { useLang } from '../../../i18n'
+import { useBusinessType } from '../../../hooks/useBusinessType.jsx'
+import { isServiceBased } from '@terminal-x/config/businessTypes'
 import {
   fmtRD, TYPE_COLORS, MetricCard, TypeBadge, EmployeePanel, PayPayrollModal,
   PayrollHistoryPanel, printPaycheckStub,
@@ -28,6 +30,8 @@ export default function NominaEmpleados() {
   const api = useAPI()
   const { user } = useAuth()
   const { lang } = useLang()
+  const { businessType } = useBusinessType()
+  const showWashers = isServiceBased(businessType)
   const L = (es, en) => lang === 'es' ? es : en
 
   const [empleados,       setEmpleados]       = useState([])
@@ -74,19 +78,30 @@ export default function NominaEmpleados() {
       setEmpleados(list || [])
       setSettings(sets)
       if (empresa) setBiz({ name: empresa.name || empresa.nombre, rnc: empresa.rnc, address: empresa.address || empresa.direccion, phone: empresa.phone || empresa.telefono, email: empresa.email, logo: empresa.logo })
-      // Build per-ref_id commission totals
-      const build = (rows, idKey) => {
-        const map = {}
+      // v2.1: Build commission totals keyed by empleado_supabase_id first, with
+      // legacy fallbacks (washer_supabase_id → washer_id, etc.) so pre-migration
+      // rows still render until sync backfills empleado_supabase_id.
+      const build = (rows, legacySupaKey, legacyIdKey) => {
+        const bySid = {}, byLegacySid = {}, byLegacyId = {}
         for (const r of (rows || [])) {
-          const id = String(r[idKey])
-          map[id] = (map[id] || 0) + (r.total_commission || r.commission_amount || 0)
+          const amt = Number(r.total_commission || r.commission_amount || 0)
+          if (r.empleado_supabase_id) {
+            const k = String(r.empleado_supabase_id)
+            bySid[k] = (bySid[k] || 0) + amt
+          } else if (r[legacySupaKey]) {
+            const k = String(r[legacySupaKey])
+            byLegacySid[k] = (byLegacySid[k] || 0) + amt
+          } else if (r[legacyIdKey] != null) {
+            const k = String(r[legacyIdKey])
+            byLegacyId[k] = (byLegacyId[k] || 0) + amt
+          }
         }
-        return map
+        return { bySid, byLegacySid, byLegacyId }
       }
       setCommTotals({
-        washers: build(washerComm, 'washer_id'),
-        sellers: build(sellerComm, 'seller_id'),
-        cajeros: build(cajeroComm, 'cajero_id'),
+        washers: build(washerComm, 'washer_supabase_id', 'washer_id'),
+        sellers: build(sellerComm, 'seller_supabase_id', 'seller_id'),
+        cajeros: build(cajeroComm, 'cajero_supabase_id', 'cajero_id'),
       })
     } catch {}
     setLoading(false)
@@ -96,11 +111,22 @@ export default function NominaEmpleados() {
   const selected = useMemo(() => empleados.find(e => String(e.id) === String(selectedId)) || null, [selectedId, empleados])
 
   function getCommissionTotal(emp) {
-    if (!emp?.ref_id) return 0
-    const ref = String(emp.ref_id)
-    if (emp.tipo === 'lavador')  return commTotals.washers[ref] || 0
-    if (emp.tipo === 'vendedor') return commTotals.sellers[ref] || 0
-    if (emp.tipo === 'cajero')   return commTotals.cajeros[ref] || 0
+    if (!emp) return 0
+    // Pick the table for this empleado's tipo.
+    const bucket = emp.tipo === 'lavador'  ? commTotals.washers
+                 : emp.tipo === 'vendedor' ? commTotals.sellers
+                 : emp.tipo === 'cajero'   ? commTotals.cajeros
+                 : null
+    if (!bucket) return 0
+    // v2.1 canonical: match on empleados.supabase_id → commission.empleado_supabase_id.
+    // Fallback 1: legacy washer/seller/cajero supabase_id via empleados.ref_supabase_id.
+    // Fallback 2: legacy integer ref_id.
+    const sid = emp.supabase_id ? String(emp.supabase_id) : null
+    if (sid && bucket.bySid?.[sid]) return bucket.bySid[sid]
+    const refSid = emp.ref_supabase_id ? String(emp.ref_supabase_id) : null
+    if (refSid && bucket.byLegacySid?.[refSid]) return bucket.byLegacySid[refSid]
+    const ref = emp.ref_id != null ? String(emp.ref_id) : null
+    if (ref && bucket.byLegacyId?.[ref]) return bucket.byLegacyId[ref]
     return 0
   }
 
@@ -277,13 +303,13 @@ export default function NominaEmpleados() {
           </div>
           <div className="flex gap-1 flex-wrap">
             {[
-              { id: 'all', label: L('Todos', 'All') },
-              { id: 'lavador', label: L('Lavadores', 'Washers') },
-              { id: 'vendedor', label: L('Vendedores', 'Sellers') },
-              { id: 'cajero', label: L('Cajeros', 'Cashiers') },
-              { id: 'seguridad', label: L('Seguridad', 'Security') },
-              { id: 'servicio', label: L('Servicio', 'Service') },
-            ].map(f => (
+              { id: 'all', label: L('Todos', 'All'), show: true },
+              { id: 'lavador', label: L('Lavadores', 'Washers'), show: showWashers },
+              { id: 'vendedor', label: L('Vendedores', 'Sellers'), show: true },
+              { id: 'cajero', label: L('Cajeros', 'Cashiers'), show: true },
+              { id: 'seguridad', label: L('Seguridad', 'Security'), show: true },
+              { id: 'servicio', label: L('Servicio', 'Service'), show: true },
+            ].filter(f => f.show).map(f => (
               <button key={f.id} onClick={() => setFilterTipo(f.id)}
                 className={`flex-1 px-1 py-1 rounded-lg text-[10px] font-semibold transition-colors ${
                   filterTipo === f.id
@@ -333,10 +359,12 @@ export default function NominaEmpleados() {
                         <p className="text-[11px] font-semibold text-sky-700 dark:text-sky-400">{fmtRD(commTotal)}</p>
                         <p className="text-[9px] text-sky-500 dark:text-sky-400/70">{L('comisiones', 'commissions')}</p>
                       </div>
-                    ) : (
-                      <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                        <AlertCircle size={10} /> {L('Sin salario', 'No salary')}
+                    ) : ['lavador', 'vendedor', 'cajero', 'hybrid'].includes(emp.tipo) ? (
+                      <span className="text-[10px] text-slate-400 dark:text-white/40">
+                        {L('por comisión', 'by commission')}
                       </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-400 dark:text-white/40">—</span>
                     )}
                   </div>
                 </button>
@@ -489,6 +517,7 @@ export default function NominaEmpleados() {
           onSave={handleSave}
           onClose={() => setShowPanel(null)}
           lang={lang}
+          showWashers={showWashers}
         />
       )}
 
