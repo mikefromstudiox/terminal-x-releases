@@ -1058,6 +1058,39 @@ function RetailPOS() {
     api.clients?.all?.().then(r => setClients(r || [])).catch(() => {})
   }, [api])
 
+  // Hybrid cross-mode conversion — absorb items pushed from the Mesa pane so
+  // converting a dine-in ticket to takeout preserves every line + keeps a
+  // breadcrumb (converted_from_*) that rides along at cobro time.
+  const [hybridConvertMeta, setHybridConvertMeta] = useState(null)
+  useEffect(() => {
+    if (!isHybrid) return
+    try {
+      const raw = window.localStorage.getItem('tx_hybrid_convert_cart')
+      if (!raw) return
+      window.localStorage.removeItem('tx_hybrid_convert_cart')
+      const payload = JSON.parse(raw)
+      if (!payload?.items?.length) return
+      setCart(payload.items.map((it, idx) => ({
+        id: `conv_${idx}_${Date.now()}`,
+        service_id: it.service_id || null,
+        inventory_item_id: null,
+        sku: null,
+        name: it.name,
+        price: Number(it.price) || 0,
+        cost: 0,
+        qty: Number(it.qty) || 1,
+        aplica_itbis: 1,
+      })))
+      setHybridConvertMeta({
+        convertedFromTicketSupabaseId: payload.from_ticket_supabase_id || null,
+        convertedFromMesaSupabaseId:   payload.from_mesa_supabase_id   || null,
+      })
+      setToast(payload.note || 'Items movidos a Venta Directa')
+      setTimeout(() => setToast(null), 3500)
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHybrid])
+
   // ITBIS rate — lives in app_settings, mutable per-business. Default 18.
   const [itbisRate, setItbisRate] = useState(18)
   useEffect(() => {
@@ -1104,6 +1137,7 @@ function RetailPOS() {
     setSearchResults([])
     setAgeVerified(null)
     setPendingAgeItem(null)
+    setHybridConvertMeta(null)
   }
 
   // ── Licorería quick-sells: load top-N active products ────────────────────
@@ -1357,6 +1391,11 @@ function RetailPOS() {
         total:            tot,
         beverage_subtotal: 0,
         ecf_result:       paymentData.ecf || {},
+        // Hybrid vertical — flag retail-cart sales so the Ventas report can
+        // filter dine-in vs. takeout vs. direct-retail independently.
+        mode:             isHybrid ? 'directa' : undefined,
+        converted_from_ticket_supabase_id: pending.convertedFromTicketSupabaseId || hybridConvertMeta?.convertedFromTicketSupabaseId || undefined,
+        converted_from_mesa_supabase_id:   pending.convertedFromMesaSupabaseId   || hybridConvertMeta?.convertedFromMesaSupabaseId   || undefined,
         items:            pending.items.map(i => ({
           service_id:        i.service_id || null,
           inventory_item_id: i.inventory_item_id || null,
@@ -1941,11 +1980,56 @@ function LendingDashboard() {
 
 // ── POS Wrapper ───────────────────────────────────────────────────────────────
 
+// Hybrid wrapper — Mesa / Venta Directa toggle. Mode persists per-user in
+// localStorage so a server reopens in the segment they last used.
+function HybridPOS() {
+  const KEY = 'tx_hybrid_pos_mode'
+  const initial = (typeof window !== 'undefined' && window.localStorage?.getItem(KEY)) || 'mesa'
+  const [mode, setMode] = useState(initial === 'directa' ? 'directa' : 'mesa')
+  useEffect(() => {
+    try { window.localStorage?.setItem(KEY, mode) } catch {}
+  }, [mode])
+  // Allow the Mesa pane to push the cart into Venta Directa via a custom event.
+  // Keeps the two panes decoupled — no prop drilling, no shared context needed.
+  useEffect(() => {
+    const onSwitch = (e) => {
+      const next = e?.detail === 'directa' || e?.detail === 'mesa' ? e.detail : null
+      if (next) setMode(next)
+    }
+    window.addEventListener('tx_hybrid_mode_change', onSwitch)
+    return () => window.removeEventListener('tx_hybrid_mode_change', onSwitch)
+  }, [])
+  return (
+    <div className="flex flex-col h-full">
+      <div className="shrink-0 flex items-center justify-center gap-0 px-3 py-2 bg-black border-b border-white/10">
+        <div className="inline-flex rounded-full bg-white/5 border border-white/10 p-0.5">
+          <button
+            onClick={() => setMode('mesa')}
+            className={`px-5 py-1.5 rounded-full text-[12px] font-semibold transition-colors ${
+              mode === 'mesa' ? 'bg-[#b3001e] text-white' : 'text-white/70 hover:text-white'
+            }`}
+          >Mesa</button>
+          <button
+            onClick={() => setMode('directa')}
+            className={`px-5 py-1.5 rounded-full text-[12px] font-semibold transition-colors ${
+              mode === 'directa' ? 'bg-[#b3001e] text-white' : 'text-white/70 hover:text-white'
+            }`}
+          >Venta Directa</button>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0">
+        {mode === 'mesa' ? <RestaurantPOS /> : <RetailPOS />}
+      </div>
+    </div>
+  )
+}
+
 export default function POS() {
   const { isRetail, isRestaurant, isHybrid, isPrestamos } = useBusinessType()
   const { plan } = usePlan()
   if (plan === 'facturacion') return <Navigate to="/invoicing" replace />
-  if (isRestaurant || isHybrid) return <RestaurantPOS />
+  if (isHybrid) return <HybridPOS />
+  if (isRestaurant) return <RestaurantPOS />
   if (isPrestamos) return <LendingDashboard />
   return isRetail ? <RetailPOS /> : <CarWashPOS />
 }

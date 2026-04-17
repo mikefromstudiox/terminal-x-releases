@@ -325,6 +325,12 @@ function init(userDataPath) {
     'ALTER TABLE tickets ADD COLUMN mesa_supabase_id TEXT',
     'ALTER TABLE tickets ADD COLUMN void_by TEXT',
     'ALTER TABLE tickets ADD COLUMN void_at TEXT',
+    // hybrid vertical — dine-in vs takeout vs retail mode + cross-mode conversion trail
+    "ALTER TABLE tickets ADD COLUMN mode TEXT",
+    "ALTER TABLE tickets ADD COLUMN converted_from_mesa_id INTEGER",
+    "ALTER TABLE tickets ADD COLUMN converted_from_mesa_supabase_id TEXT",
+    "ALTER TABLE tickets ADD COLUMN converted_from_ticket_id INTEGER",
+    "ALTER TABLE tickets ADD COLUMN converted_from_ticket_supabase_id TEXT",
     // v2.1.3 — defensive ALTERs for v2.1 schema columns (in case the gated migration block was skipped)
     "ALTER TABLE tickets ADD COLUMN washer_empleado_supabase_ids TEXT DEFAULT '[]'",
     'ALTER TABLE tickets ADD COLUMN seller_empleado_supabase_id TEXT',
@@ -612,6 +618,137 @@ function init(userDataPath) {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_wash_combos_supabase_id ON wash_combos(supabase_id)`,
     `CREATE INDEX IF NOT EXISTS idx_wash_combos_client ON wash_combos(client_id)`,
     `CREATE INDEX IF NOT EXISTS idx_wash_combos_status ON wash_combos(status)`,
+
+    // v2.6 — Service vertical: recurring billing, prepaid packages, projects, per-client rates, hourly billing
+    `CREATE TABLE IF NOT EXISTS subscriptions (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id          TEXT,
+      client_id            INTEGER REFERENCES clients(id),
+      client_supabase_id   TEXT,
+      service_id           INTEGER REFERENCES services(id),
+      service_supabase_id  TEXT,
+      plan_name            TEXT,
+      interval_days        INTEGER NOT NULL DEFAULT 30,
+      amount               REAL    NOT NULL DEFAULT 0,
+      start_date           TEXT    NOT NULL DEFAULT (date('now')),
+      next_billing_date    TEXT    NOT NULL DEFAULT (date('now')),
+      last_billed_at       TEXT,
+      status               TEXT    NOT NULL DEFAULT 'active',
+      notes                TEXT,
+      created_at           TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at           TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_supabase_id ON subscriptions(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_subscriptions_next ON subscriptions(next_billing_date)`,
+    `CREATE INDEX IF NOT EXISTS idx_subscriptions_client ON subscriptions(client_id)`,
+    `CREATE TABLE IF NOT EXISTS service_packages (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id          TEXT,
+      client_id            INTEGER REFERENCES clients(id),
+      client_supabase_id   TEXT,
+      service_id           INTEGER REFERENCES services(id),
+      service_supabase_id  TEXT,
+      package_name         TEXT    NOT NULL,
+      total_sessions       INTEGER NOT NULL DEFAULT 0,
+      used_sessions        INTEGER NOT NULL DEFAULT 0,
+      purchase_price       REAL    NOT NULL DEFAULT 0,
+      purchased_at         TEXT    NOT NULL DEFAULT (datetime('now')),
+      expires_at           TEXT,
+      status               TEXT    NOT NULL DEFAULT 'active',
+      notes                TEXT,
+      created_at           TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at           TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_service_packages_supabase_id ON service_packages(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_service_packages_client ON service_packages(client_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_service_packages_status ON service_packages(status)`,
+    `CREATE TABLE IF NOT EXISTS projects (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id          TEXT,
+      client_id            INTEGER REFERENCES clients(id),
+      client_supabase_id   TEXT,
+      name                 TEXT    NOT NULL,
+      description          TEXT,
+      status               TEXT    NOT NULL DEFAULT 'draft',
+      total_billed         REAL    NOT NULL DEFAULT 0,
+      created_at           TEXT    NOT NULL DEFAULT (datetime('now')),
+      closed_at            TEXT,
+      updated_at           TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_supabase_id ON projects(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_projects_client ON projects(client_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)`,
+    `CREATE TABLE IF NOT EXISTS client_service_rates (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id          TEXT,
+      client_id            INTEGER REFERENCES clients(id),
+      client_supabase_id   TEXT NOT NULL,
+      service_id           INTEGER REFERENCES services(id),
+      service_supabase_id  TEXT NOT NULL,
+      custom_price         REAL NOT NULL,
+      notes                TEXT,
+      created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_csr_supabase_id ON client_service_rates(supabase_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_csr_client_service ON client_service_rates(client_supabase_id, service_supabase_id)`,
+    // Tickets: project link
+    'ALTER TABLE tickets ADD COLUMN project_id INTEGER',
+    'ALTER TABLE tickets ADD COLUMN project_supabase_id TEXT',
+    'CREATE INDEX IF NOT EXISTS idx_tickets_project ON tickets(project_supabase_id)',
+    // Ticket items: hourly billing
+    'ALTER TABLE ticket_items ADD COLUMN duration_minutes INTEGER',
+    'ALTER TABLE ticket_items ADD COLUMN hourly_rate REAL',
+
+    // v2.7 — Prestamos phase 2: amortization + mora + papeleta + collections
+    "ALTER TABLE loans ADD COLUMN method TEXT NOT NULL DEFAULT 'french'",
+    "ALTER TABLE loans ADD COLUMN mora_rate_daily REAL NOT NULL DEFAULT 0.005",
+    "ALTER TABLE loans ADD COLUMN days_late INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE loans ADD COLUMN mora_amount REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE pawn_items ADD COLUMN ticket_code TEXT",
+    "ALTER TABLE pawn_items ADD COLUMN redemption_date TEXT",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_pawn_items_ticket_code ON pawn_items(ticket_code) WHERE ticket_code IS NOT NULL",
+
+    `CREATE TABLE IF NOT EXISTS loan_schedule (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id         TEXT,
+      loan_id             INTEGER NOT NULL REFERENCES loans(id),
+      loan_supabase_id    TEXT,
+      installment_no      INTEGER NOT NULL,
+      due_date            TEXT    NOT NULL,
+      principal_due       REAL    NOT NULL DEFAULT 0,
+      interest_due        REAL    NOT NULL DEFAULT 0,
+      total_due           REAL    NOT NULL DEFAULT 0,
+      paid_amount         REAL    NOT NULL DEFAULT 0,
+      paid_at             TEXT,
+      status              TEXT    NOT NULL DEFAULT 'pending',
+      created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_schedule_supabase_id ON loan_schedule(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_loan_schedule_loan ON loan_schedule(loan_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_loan_schedule_due  ON loan_schedule(due_date, status)`,
+
+    `CREATE TABLE IF NOT EXISTS collections_log (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id           TEXT,
+      client_id             INTEGER REFERENCES clients(id),
+      client_supabase_id    TEXT,
+      loan_id               INTEGER REFERENCES loans(id),
+      loan_supabase_id      TEXT,
+      channel               TEXT NOT NULL,
+      outcome               TEXT,
+      notes                 TEXT,
+      contacted_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      next_contact_date     TEXT,
+      created_by_staff_id   INTEGER,
+      created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_collections_log_supabase_id ON collections_log(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_collections_log_loan   ON collections_log(loan_supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_collections_log_client ON collections_log(client_supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_collections_log_next   ON collections_log(next_contact_date)`,
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -820,7 +957,7 @@ function init(userDataPath) {
   // old `datetime('now')` shape produced "YYYY-MM-DD HH:MM:SS" (space), which
   // sorted lower than Supabase's "YYYY-MM-DDTHH:MM:SS.µµµ+00:00" (T). That was
   // the root cause of the LWW inversion that clobbered every local edit.
-  const triggerTables = ['businesses', 'services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions', 'activity_log', 'mesas', 'modificadores', 'service_modificadores', 'ticket_item_modificadores', 'kds_events', 'vehicles', 'service_bays', 'work_orders', 'work_order_items', 'appointments', 'stylist_schedules', 'loans', 'loan_payments', 'pawn_items']
+  const triggerTables = ['businesses', 'services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions', 'activity_log', 'mesas', 'modificadores', 'service_modificadores', 'ticket_item_modificadores', 'kds_events', 'vehicles', 'service_bays', 'work_orders', 'work_order_items', 'appointments', 'stylist_schedules', 'loans', 'loan_payments', 'pawn_items', 'subscriptions', 'service_packages', 'projects', 'client_service_rates']
 
   // v2.0 — one-shot: drop the legacy SQL-space triggers so the ISO-8601
   // replacements below are the only ones that fire. Gated so we don't drop
@@ -2849,8 +2986,10 @@ function ticketCreate(data) {
     const status = data.status || (data.payment_method === 'credit' ? 'pendiente' : 'cobrado')
     const result = db.prepare(`INSERT INTO tickets
       (doc_number,client_id,washer_empleado_supabase_ids,seller_empleado_supabase_id,cajero_id,subtotal,descuento,itbis,ley,total,
-       beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,supabase_id,client_supabase_id,seller_supabase_id,cajero_supabase_id,created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
+       beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,supabase_id,client_supabase_id,seller_supabase_id,cajero_supabase_id,
+       mesa_id,mesa_supabase_id,fulfillment_type,tip_amount,mode,converted_from_mesa_id,converted_from_mesa_supabase_id,converted_from_ticket_id,converted_from_ticket_supabase_id,
+       created_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
       docNumber,
       data.client_id || null,
       JSON.stringify(washerEmpSids),
@@ -2873,6 +3012,15 @@ function ticketCreate(data) {
       clientSid,
       sellerEmpSid,
       cajeroSid,
+      data.mesa_id || null,
+      data.mesa_supabase_id || null,
+      data.fulfillment_type || null,
+      Number(data.tip_amount || 0),
+      data.mode || null,
+      data.converted_from_mesa_id || null,
+      data.converted_from_mesa_supabase_id || null,
+      data.converted_from_ticket_id || null,
+      data.converted_from_ticket_supabase_id || null,
     )
     const ticketId = result.lastInsertRowid
 
@@ -4273,23 +4421,69 @@ function stylistScheduleDelete(id) {
 }
 
 // ── LOANS ────────────────────────────────────────────────────────────────────
-function loanCreate({ client_id, principal, term_months, interest_rate, monthly_payment, disbursed_at, next_due_date, notes }) {
+// Amortization — French (cuota fija) / flat (interés fijo sobre capital) / balloon (solo intereses + capital final).
+function _computeSchedule({ principal, termMonths, rateMonthlyPct, method, startDate }) {
+  const P = Number(principal) || 0
+  const n = Number(termMonths) || 0
+  const r = (Number(rateMonthlyPct) || 0) / 100
+  if (P <= 0 || n <= 0) return []
+  const rows = []
+  const start = startDate ? new Date(startDate) : new Date()
+  const dueOf = (i) => { const d = new Date(start); d.setMonth(d.getMonth() + i); return d.toISOString().slice(0, 10) }
+  if (method === 'flat') {
+    const principalEach = P / n
+    const interestEach  = P * r
+    for (let i = 1; i <= n; i++) rows.push({ installment_no: i, due_date: dueOf(i), principal_due: principalEach, interest_due: interestEach, total_due: principalEach + interestEach })
+  } else if (method === 'balloon') {
+    const interestEach = P * r
+    for (let i = 1; i < n; i++) rows.push({ installment_no: i, due_date: dueOf(i), principal_due: 0, interest_due: interestEach, total_due: interestEach })
+    rows.push({ installment_no: n, due_date: dueOf(n), principal_due: P, interest_due: interestEach, total_due: P + interestEach })
+  } else {
+    // French / cuota fija
+    const M = r === 0 ? P / n : P * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1)
+    let balance = P
+    for (let i = 1; i <= n; i++) {
+      const interest = r === 0 ? 0 : balance * r
+      const principalPortion = Math.min(balance, M - interest)
+      balance = Math.max(0, balance - principalPortion)
+      rows.push({ installment_no: i, due_date: dueOf(i), principal_due: principalPortion, interest_due: interest, total_due: principalPortion + interest })
+    }
+  }
+  return rows.map(r => ({
+    ...r,
+    principal_due: Math.round(r.principal_due * 100) / 100,
+    interest_due:  Math.round(r.interest_due  * 100) / 100,
+    total_due:     Math.round(r.total_due     * 100) / 100,
+  }))
+}
+
+function loanCreate({ client_id, principal, term_months, interest_rate, monthly_payment, disbursed_at, next_due_date, notes, method, mora_rate_daily }) {
   if (!db) return null
   const sid = crypto.randomUUID()
   const client = db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(client_id)
-  const mp = monthly_payment || (Number(principal) * (1 + Number(interest_rate) / 100 * Number(term_months) / 12)) / Number(term_months)
-  const r = db.prepare(`INSERT INTO loans(supabase_id, client_id, client_supabase_id, principal, term_months, interest_rate, monthly_payment, disbursed_at, next_due_date, notes)
-    VALUES(@sid, @client_id, @client_sid, @principal, @term_months, @interest_rate, @monthly_payment, @disbursed_at, @next_due_date, @notes)`).run({
+  const meth = (method || 'french')
+  const schedule = _computeSchedule({ principal, termMonths: term_months, rateMonthlyPct: interest_rate, method: meth, startDate: disbursed_at })
+  const mp = monthly_payment || (schedule[0]?.total_due) || 0
+  const nextDue = next_due_date || schedule[0]?.due_date || null
+  const r = db.prepare(`INSERT INTO loans(supabase_id, client_id, client_supabase_id, principal, term_months, interest_rate, monthly_payment, disbursed_at, next_due_date, method, mora_rate_daily, notes)
+    VALUES(@sid, @client_id, @client_sid, @principal, @term_months, @interest_rate, @monthly_payment, @disbursed_at, @next_due_date, @method, @mora, @notes)`).run({
     sid, client_id, client_sid: client?.supabase_id || null,
     principal: Number(principal), term_months: Number(term_months), interest_rate: Number(interest_rate),
-    monthly_payment: Number(mp), disbursed_at: disbursed_at || null,
-    next_due_date: next_due_date || null, notes: notes || null,
+    monthly_payment: Number(mp), disbursed_at: disbursed_at || new Date().toISOString().slice(0, 10),
+    next_due_date: nextDue, method: meth, mora: Number(mora_rate_daily ?? 0.005),
+    notes: notes || null,
   })
-  return { id: r.lastInsertRowid, supabase_id: sid }
+  const loanId = r.lastInsertRowid
+  // Persist schedule rows
+  const ins = db.prepare(`INSERT INTO loan_schedule(supabase_id, loan_id, loan_supabase_id, installment_no, due_date, principal_due, interest_due, total_due)
+    VALUES(@sid, @loan_id, @loan_sid, @n, @due, @p, @i, @t)`)
+  const tx = db.transaction((rows) => { for (const row of rows) ins.run({ sid: crypto.randomUUID(), loan_id: loanId, loan_sid: sid, n: row.installment_no, due: row.due_date, p: row.principal_due, i: row.interest_due, t: row.total_due }) })
+  tx(schedule)
+  return { id: loanId, supabase_id: sid }
 }
 function loanUpdate(id, data) {
   if (!db) return
-  const allowed = ['client_id','client_supabase_id','principal','term_months','interest_rate','monthly_payment','status','disbursed_at','next_due_date','total_paid','total_interest','notes']
+  const allowed = ['client_id','client_supabase_id','principal','term_months','interest_rate','monthly_payment','status','disbursed_at','next_due_date','total_paid','total_interest','method','mora_rate_daily','days_late','mora_amount','notes']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (data.client_id && !data.client_supabase_id) { const c = db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id); if (c) patch.client_supabase_id = c.supabase_id }
   if (!Object.keys(patch).length) return db.prepare('SELECT * FROM loans WHERE id=?').get(id)
@@ -4341,24 +4535,41 @@ function loanPaymentList({ loan_id } = {}) {
 }
 
 // ── PAWN ITEMS ───────────────────────────────────────────────────────────────
+function _generatePawnTicketCode() {
+  // P + YYMMDD + 4 random alphanum — collision probability negligible per day
+  const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const d = new Date()
+  const yymmdd = String(d.getFullYear()).slice(2) + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0')
+  let tail = ''
+  for (let i = 0; i < 4; i++) tail += ALPHA[Math.floor(Math.random() * ALPHA.length)]
+  return `P${yymmdd}${tail}`
+}
 function pawnItemCreate({ client_id, loan_id, description, estimated_value, storage_location, redeem_deadline, notes }) {
   if (!db) return null
   const sid = crypto.randomUUID()
   const client = client_id ? db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(client_id) : null
   const loan = loan_id ? db.prepare('SELECT supabase_id FROM loans WHERE id=?').get(loan_id) : null
-  const r = db.prepare(`INSERT INTO pawn_items(supabase_id, client_id, client_supabase_id, loan_id, loan_supabase_id, description, estimated_value, storage_location, redeem_deadline, notes)
-    VALUES(@sid, @client_id, @client_sid, @loan_id, @loan_sid, @description, @estimated_value, @storage_location, @redeem_deadline, @notes)`).run({
+  // Generate unique ticket_code (retry on hash collision)
+  let ticket_code = null
+  for (let i = 0; i < 5; i++) {
+    const cand = _generatePawnTicketCode()
+    const clash = db.prepare('SELECT 1 FROM pawn_items WHERE ticket_code=?').get(cand)
+    if (!clash) { ticket_code = cand; break }
+  }
+  const r = db.prepare(`INSERT INTO pawn_items(supabase_id, client_id, client_supabase_id, loan_id, loan_supabase_id, description, estimated_value, storage_location, redeem_deadline, ticket_code, notes)
+    VALUES(@sid, @client_id, @client_sid, @loan_id, @loan_sid, @description, @estimated_value, @storage_location, @redeem_deadline, @ticket_code, @notes)`).run({
     sid, client_id: client_id || null, client_sid: client?.supabase_id || null,
     loan_id: loan_id || null, loan_sid: loan?.supabase_id || null,
     description, estimated_value: Number(estimated_value) || 0,
     storage_location: storage_location || null, redeem_deadline: redeem_deadline || null,
+    ticket_code,
     notes: notes || null,
   })
-  return { id: r.lastInsertRowid, supabase_id: sid }
+  return { id: r.lastInsertRowid, supabase_id: sid, ticket_code }
 }
 function pawnItemUpdate(id, data) {
   if (!db) return
-  const allowed = ['client_id','client_supabase_id','loan_id','loan_supabase_id','description','estimated_value','storage_location','status','redeem_deadline','notes']
+  const allowed = ['client_id','client_supabase_id','loan_id','loan_supabase_id','description','estimated_value','storage_location','status','redeem_deadline','redemption_date','ticket_code','notes']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (data.client_id && !data.client_supabase_id) { const c = db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id); if (c) patch.client_supabase_id = c.supabase_id }
   if (data.loan_id && !data.loan_supabase_id) { const l = db.prepare('SELECT supabase_id FROM loans WHERE id=?').get(data.loan_id); if (l) patch.loan_supabase_id = l.supabase_id }
@@ -4380,6 +4591,86 @@ function pawnItemList({ client_id, loan_id, status } = {}) {
 function pawnItemDelete(id) {
   if (!db) return
   db.prepare("UPDATE pawn_items SET status='forfeited', updated_at=datetime('now') WHERE id=?").run(id)
+}
+function pawnItemRedeem(id) {
+  if (!db) return
+  db.prepare("UPDATE pawn_items SET status='redeemed', redemption_date=datetime('now'), updated_at=datetime('now') WHERE id=?").run(id)
+  return db.prepare('SELECT * FROM pawn_items WHERE id=?').get(id)
+}
+function pawnItemGetByCode(code) {
+  if (!db || !code) return null
+  return db.prepare('SELECT pi.*, c.name AS client_name, c.phone AS client_phone FROM pawn_items pi LEFT JOIN clients c ON c.id = pi.client_id WHERE pi.ticket_code=?').get(code)
+}
+
+// ── LOAN SCHEDULE (amortization) ─────────────────────────────────────────────
+function loanScheduleList({ loan_id }) {
+  if (!db || !loan_id) return []
+  return db.prepare('SELECT * FROM loan_schedule WHERE loan_id=? ORDER BY installment_no').all(loan_id)
+}
+function loanScheduleMarkPaid({ id, paid_amount }) {
+  if (!db) return
+  db.prepare("UPDATE loan_schedule SET paid_amount=?, paid_at=datetime('now'), status='paid', updated_at=datetime('now') WHERE id=?").run(Number(paid_amount) || 0, id)
+  return db.prepare('SELECT * FROM loan_schedule WHERE id=?').get(id)
+}
+
+// ── COLLECTIONS (mora + CRM log) ─────────────────────────────────────────────
+function _todayYmd() { return new Date().toISOString().slice(0, 10) }
+
+/**
+ * Compute mora for every active loan whose next_due_date has passed.
+ * Safe to call every startup / every day — idempotent, writes days_late + mora_amount.
+ */
+function loansComputeMora() {
+  if (!db) return []
+  const today = _todayYmd()
+  const loans = db.prepare("SELECT id, principal, total_paid, mora_rate_daily, next_due_date FROM loans WHERE status='active' AND next_due_date IS NOT NULL AND next_due_date < ?").all(today)
+  const upd = db.prepare("UPDATE loans SET days_late=?, mora_amount=?, updated_at=datetime('now') WHERE id=?")
+  const tx = db.transaction((rows) => {
+    for (const l of rows) {
+      const days = Math.max(0, Math.floor((new Date(today) - new Date(l.next_due_date)) / 86400000))
+      const outstanding = Math.max(0, Number(l.principal || 0) - Number(l.total_paid || 0))
+      const mora = Math.round(outstanding * Number(l.mora_rate_daily || 0) * days * 100) / 100
+      upd.run(days, mora, l.id)
+    }
+  })
+  tx(loans)
+  return loans.map(l => l.id)
+}
+
+/**
+ * List overdue loans (post mora computation) with client contact info.
+ */
+function loansOverdueList() {
+  if (!db) return []
+  const today = _todayYmd()
+  return db.prepare(`SELECT l.*, c.name AS client_name, c.phone AS client_phone
+    FROM loans l LEFT JOIN clients c ON c.id = l.client_id
+    WHERE l.status='active' AND l.next_due_date IS NOT NULL AND l.next_due_date < ?
+    ORDER BY l.next_due_date ASC`).all(today)
+}
+
+function collectionsLogCreate({ client_id, loan_id, channel, outcome, notes, next_contact_date, created_by_staff_id }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const client = client_id ? db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(client_id) : null
+  const loan   = loan_id   ? db.prepare('SELECT supabase_id FROM loans WHERE id=?').get(loan_id)   : null
+  const r = db.prepare(`INSERT INTO collections_log(supabase_id, client_id, client_supabase_id, loan_id, loan_supabase_id, channel, outcome, notes, next_contact_date, created_by_staff_id)
+    VALUES(@sid, @client_id, @client_sid, @loan_id, @loan_sid, @channel, @outcome, @notes, @next, @staff)`).run({
+    sid, client_id: client_id || null, client_sid: client?.supabase_id || null,
+    loan_id: loan_id || null, loan_sid: loan?.supabase_id || null,
+    channel, outcome: outcome || null, notes: notes || null,
+    next: next_contact_date || null, staff: created_by_staff_id || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function collectionsLogList({ client_id, loan_id } = {}) {
+  if (!db) return []
+  let sql = `SELECT cl.*, c.name AS client_name FROM collections_log cl LEFT JOIN clients c ON c.id = cl.client_id WHERE 1=1`
+  const params = []
+  if (client_id) { sql += ' AND cl.client_id=?'; params.push(client_id) }
+  if (loan_id)   { sql += ' AND cl.loan_id=?';   params.push(loan_id) }
+  sql += ' ORDER BY cl.contacted_at DESC LIMIT 500'
+  return db.prepare(sql).all(...params)
 }
 
 // ── MEMBERSHIPS (carwash monthly subscription per vehicle) ───────────────────
@@ -4602,6 +4893,226 @@ function ticketsByClient(client_id, limit = 10) {
   `).all(client_id, Math.min(Number(limit) || 10, 50))
 }
 
+// ── SERVICE VERTICAL ─────────────────────────────────────────────────────────
+// Recurring billing, prepaid packages, projects, per-client rates, hourly billing.
+
+function _svcResolveClientSid(client_id) {
+  if (!client_id) return null
+  const r = db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(client_id)
+  return r?.supabase_id || null
+}
+function _svcResolveServiceSid(service_id) {
+  if (!service_id) return null
+  const r = db.prepare('SELECT supabase_id FROM services WHERE id=?').get(service_id)
+  return r?.supabase_id || null
+}
+function _svcAddDays(dateStr, days) {
+  const d = new Date(dateStr + 'T12:00:00')
+  d.setDate(d.getDate() + Number(days || 0))
+  return d.toISOString().split('T')[0]
+}
+
+function subscriptionCreate({ client_id, service_id, plan_name, interval_days, amount, start_date, notes }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const csid = _svcResolveClientSid(client_id)
+  const svsid = _svcResolveServiceSid(service_id)
+  const start = start_date || new Date().toISOString().split('T')[0]
+  const r = db.prepare(`INSERT INTO subscriptions
+    (supabase_id, client_id, client_supabase_id, service_id, service_supabase_id,
+     plan_name, interval_days, amount, start_date, next_billing_date, status, notes)
+    VALUES(@sid,@cid,@csid,@svid,@svsid,@pn,@iv,@amt,@sd,@nd,'active',@notes)`).run({
+    sid, cid: client_id || null, csid, svid: service_id || null, svsid,
+    pn: plan_name || null, iv: Number(interval_days) || 30,
+    amt: Number(amount) || 0, sd: start, nd: start, notes: notes || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function subscriptionUpdate(id, data) {
+  if (!db) return null
+  const allowed = ['plan_name','interval_days','amount','next_billing_date','status','notes']
+  const patch = {}
+  for (const k of allowed) if (k in data) patch[k] = data[k]
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM subscriptions WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(', ')
+  db.prepare(`UPDATE subscriptions SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM subscriptions WHERE id=?').get(id)
+}
+function subscriptionList({ status, clientId, dueWithinDays } = {}) {
+  if (!db) return []
+  let sql = `SELECT s.*, c.name AS client_name, sv.name AS service_name
+             FROM subscriptions s
+             LEFT JOIN clients  c  ON c.id = s.client_id
+             LEFT JOIN services sv ON sv.id = s.service_id
+             WHERE 1=1`
+  const p = {}
+  if (status)   { sql += ' AND s.status=@status'; p.status = status }
+  if (clientId) { sql += ' AND s.client_id=@cid'; p.cid = clientId }
+  if (dueWithinDays != null) { sql += " AND s.next_billing_date <= date('now', '+' || @d || ' days')"; p.d = Number(dueWithinDays) || 0 }
+  sql += ' ORDER BY s.next_billing_date ASC'
+  return db.prepare(sql).all(p)
+}
+function subscriptionMarkBilled(id) {
+  if (!db) return null
+  const s = db.prepare('SELECT * FROM subscriptions WHERE id=?').get(id)
+  if (!s) return null
+  const nextDate = _svcAddDays(s.next_billing_date, s.interval_days)
+  db.prepare(`UPDATE subscriptions SET last_billed_at=datetime('now'), next_billing_date=@nd, updated_at=datetime('now') WHERE id=@id`).run({ id, nd: nextDate })
+  return db.prepare('SELECT * FROM subscriptions WHERE id=?').get(id)
+}
+function subscriptionDelete(id) {
+  if (!db) return
+  db.prepare("UPDATE subscriptions SET status='cancelled', updated_at=datetime('now') WHERE id=?").run(id)
+}
+
+function servicePackageCreate({ client_id, service_id, package_name, total_sessions, purchase_price, expires_at, notes }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const csid = _svcResolveClientSid(client_id)
+  const svsid = _svcResolveServiceSid(service_id)
+  const r = db.prepare(`INSERT INTO service_packages
+    (supabase_id, client_id, client_supabase_id, service_id, service_supabase_id,
+     package_name, total_sessions, used_sessions, purchase_price, expires_at, status, notes)
+    VALUES(@sid,@cid,@csid,@svid,@svsid,@pn,@tot,0,@price,@exp,'active',@notes)`).run({
+    sid, cid: client_id || null, csid, svid: service_id || null, svsid,
+    pn: package_name, tot: Number(total_sessions) || 0,
+    price: Number(purchase_price) || 0, exp: expires_at || null, notes: notes || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function servicePackageUpdate(id, data) {
+  if (!db) return null
+  const allowed = ['package_name','total_sessions','purchase_price','expires_at','status','notes']
+  const patch = {}
+  for (const k of allowed) if (k in data) patch[k] = data[k]
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM service_packages WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(', ')
+  db.prepare(`UPDATE service_packages SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM service_packages WHERE id=?').get(id)
+}
+function servicePackageList({ status, clientId } = {}) {
+  if (!db) return []
+  let sql = `SELECT sp.*, c.name AS client_name, sv.name AS service_name
+             FROM service_packages sp
+             LEFT JOIN clients  c  ON c.id = sp.client_id
+             LEFT JOIN services sv ON sv.id = sp.service_id
+             WHERE 1=1`
+  const p = {}
+  if (status)   { sql += ' AND sp.status=@status'; p.status = status }
+  if (clientId) { sql += ' AND sp.client_id=@cid'; p.cid = clientId }
+  sql += ' ORDER BY sp.purchased_at DESC'
+  return db.prepare(sql).all(p)
+}
+function servicePackageActiveForClient(clientId) {
+  if (!db || !clientId) return []
+  return db.prepare(`SELECT sp.*, sv.name AS service_name
+                     FROM service_packages sp
+                     LEFT JOIN services sv ON sv.id = sp.service_id
+                     WHERE sp.client_id=? AND sp.status='active'
+                       AND sp.used_sessions < sp.total_sessions
+                     ORDER BY sp.purchased_at ASC`).all(clientId)
+}
+function servicePackageConsume(id) {
+  if (!db) return { ok: false }
+  const sp = db.prepare('SELECT * FROM service_packages WHERE id=?').get(id)
+  if (!sp) return { ok: false, error: 'not_found' }
+  if (sp.status !== 'active') return { ok: false, error: 'inactive' }
+  if (sp.used_sessions >= sp.total_sessions) return { ok: false, error: 'exhausted', remaining: 0 }
+  db.prepare(`UPDATE service_packages SET used_sessions = used_sessions + 1, updated_at=datetime('now') WHERE id=?`).run(id)
+  const remaining = sp.total_sessions - sp.used_sessions - 1
+  if (remaining <= 0) {
+    db.prepare("UPDATE service_packages SET status='exhausted', updated_at=datetime('now') WHERE id=?").run(id)
+  }
+  return { ok: true, remaining }
+}
+function servicePackageDelete(id) {
+  if (!db) return
+  db.prepare("UPDATE service_packages SET status='cancelled', updated_at=datetime('now') WHERE id=?").run(id)
+}
+
+function projectCreate({ client_id, name, description, status }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const csid = _svcResolveClientSid(client_id)
+  const r = db.prepare(`INSERT INTO projects
+    (supabase_id, client_id, client_supabase_id, name, description, status)
+    VALUES(@sid,@cid,@csid,@name,@desc,@status)`).run({
+    sid, cid: client_id || null, csid,
+    name, desc: description || null, status: status || 'draft',
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function projectUpdate(id, data) {
+  if (!db) return null
+  const allowed = ['name','description','status','closed_at']
+  const patch = {}
+  for (const k of allowed) if (k in data) patch[k] = data[k]
+  if (data.status === 'closed' && !patch.closed_at) patch.closed_at = new Date().toISOString()
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM projects WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(', ')
+  db.prepare(`UPDATE projects SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM projects WHERE id=?').get(id)
+}
+function projectList({ status, clientId } = {}) {
+  if (!db) return []
+  let sql = `SELECT p.*, c.name AS client_name,
+                    (SELECT COALESCE(SUM(t.total),0) FROM tickets t
+                     WHERE t.project_id = p.id AND t.voided = 0) AS total_billed_live
+             FROM projects p
+             LEFT JOIN clients c ON c.id = p.client_id
+             WHERE 1=1`
+  const p = {}
+  if (status)   { sql += ' AND p.status=@status'; p.status = status }
+  if (clientId) { sql += ' AND p.client_id=@cid'; p.cid = clientId }
+  sql += ' ORDER BY p.created_at DESC'
+  return db.prepare(sql).all(p)
+}
+function projectGetById(id) {
+  if (!db) return null
+  return db.prepare(`SELECT p.*, c.name AS client_name FROM projects p
+                     LEFT JOIN clients c ON c.id = p.client_id WHERE p.id=?`).get(id)
+}
+
+function clientRateSet({ client_id, service_id, custom_price, notes }) {
+  if (!db) return null
+  const csid = _svcResolveClientSid(client_id)
+  const svsid = _svcResolveServiceSid(service_id)
+  if (!csid || !svsid) return null
+  const existing = db.prepare('SELECT id FROM client_service_rates WHERE client_supabase_id=? AND service_supabase_id=?').get(csid, svsid)
+  if (existing) {
+    db.prepare(`UPDATE client_service_rates SET custom_price=?, notes=?, updated_at=datetime('now') WHERE id=?`)
+      .run(Number(custom_price) || 0, notes || null, existing.id)
+    return db.prepare('SELECT * FROM client_service_rates WHERE id=?').get(existing.id)
+  }
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO client_service_rates
+    (supabase_id, client_id, client_supabase_id, service_id, service_supabase_id, custom_price, notes)
+    VALUES(?,?,?,?,?,?,?)`).run(sid, client_id || null, csid, service_id || null, svsid, Number(custom_price) || 0, notes || null)
+  return db.prepare('SELECT * FROM client_service_rates WHERE id=?').get(r.lastInsertRowid)
+}
+function clientRateList({ clientId } = {}) {
+  if (!db) return []
+  let sql = `SELECT r.*, c.name AS client_name, sv.name AS service_name, sv.price AS base_price
+             FROM client_service_rates r
+             LEFT JOIN clients  c  ON c.id = r.client_id
+             LEFT JOIN services sv ON sv.id = r.service_id
+             WHERE 1=1`
+  const p = {}
+  if (clientId) { sql += ' AND r.client_id=@cid'; p.cid = clientId }
+  sql += ' ORDER BY c.name, sv.name'
+  return db.prepare(sql).all(p)
+}
+function clientRateGet({ clientId, serviceId }) {
+  if (!db || !clientId || !serviceId) return null
+  return db.prepare(`SELECT r.*, sv.price AS base_price FROM client_service_rates r
+                     LEFT JOIN services sv ON sv.id = r.service_id
+                     WHERE r.client_id=? AND r.service_id=?`).get(clientId, serviceId)
+}
+function clientRateDelete(id) {
+  if (!db) return
+  db.prepare('DELETE FROM client_service_rates WHERE id=?').run(id)
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 // ── Raw DB access for sync module ────────────────────────────────────────────
 function rawPrepare(sql) { return db ? db.prepare(sql) : null }
@@ -4689,11 +5200,20 @@ module.exports = {
   stylistScheduleCreate, stylistScheduleUpdate, stylistScheduleList, stylistScheduleDelete,
   loanCreate, loanUpdate, loanList, loanGetById,
   loanPaymentCreate, loanPaymentList,
-  pawnItemCreate, pawnItemUpdate, pawnItemList, pawnItemDelete,
+  pawnItemCreate, pawnItemUpdate, pawnItemList, pawnItemDelete, pawnItemRedeem, pawnItemGetByCode,
+  loanScheduleList, loanScheduleMarkPaid,
+  loansComputeMora, loansOverdueList,
+  collectionsLogCreate, collectionsLogList,
   // Carwash expansion — memberships, combos, queue metrics, top washers, vehicle history
   membershipCreate, membershipUpdate, membershipList, membershipGetActiveForClient,
   membershipConsumeWash, membershipDelete,
   washComboCreate, washComboUpdate, washComboList, washComboActiveForClient,
   washComboConsume, washComboDelete,
   queueWaitMetrics, topWashersThisMonth, ticketsByClient,
+  // Service vertical — recurring, packages, projects, per-client rates
+  subscriptionCreate, subscriptionUpdate, subscriptionList, subscriptionMarkBilled, subscriptionDelete,
+  servicePackageCreate, servicePackageUpdate, servicePackageList, servicePackageActiveForClient,
+  servicePackageConsume, servicePackageDelete,
+  projectCreate, projectUpdate, projectList, projectGetById,
+  clientRateSet, clientRateList, clientRateGet, clientRateDelete,
 }

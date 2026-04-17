@@ -380,6 +380,9 @@ const SYNC_TABLES = [
         tip_amount: r.tip_amount,
         fulfillment_type: r.fulfillment_type,
         mesa_supabase_id: r.mesa_supabase_id,
+        mode: r.mode || null,
+        converted_from_mesa_supabase_id: r.converted_from_mesa_supabase_id || null,
+        converted_from_ticket_supabase_id: r.converted_from_ticket_supabase_id || null,
         payment_parts: r.payment_parts
           ? (typeof r.payment_parts === 'string' ? JSON.parse(r.payment_parts) : r.payment_parts)
           : null,
@@ -451,6 +454,10 @@ const SYNC_TABLES = [
       next_due_date: r.next_due_date,
       total_paid: r.total_paid,
       total_interest: r.total_interest,
+      method: r.method || 'french',
+      mora_rate_daily: r.mora_rate_daily ?? 0.005,
+      days_late: r.days_late ?? 0,
+      mora_amount: r.mora_amount ?? 0,
       notes: r.notes,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
@@ -817,6 +824,69 @@ const SYNC_TABLES = [
       updated_at: r.updated_at || null,
     }),
   },
+  // v2.6 — Service vertical
+  {
+    name: 'subscriptions',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id || null,
+      service_supabase_id: r.service_supabase_id || null,
+      plan_name: r.plan_name,
+      interval_days: r.interval_days,
+      amount: r.amount,
+      start_date: r.start_date,
+      next_billing_date: r.next_billing_date,
+      last_billed_at: r.last_billed_at,
+      status: r.status,
+      notes: r.notes,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'service_packages',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id || null,
+      service_supabase_id: r.service_supabase_id || null,
+      package_name: r.package_name,
+      total_sessions: r.total_sessions,
+      used_sessions: r.used_sessions,
+      purchase_price: r.purchase_price,
+      purchased_at: r.purchased_at,
+      expires_at: r.expires_at,
+      status: r.status,
+      notes: r.notes,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'projects',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id || null,
+      name: r.name,
+      description: r.description,
+      status: r.status,
+      total_billed: r.total_billed,
+      closed_at: r.closed_at,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'client_service_rates',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id,
+      service_supabase_id: r.service_supabase_id,
+      custom_price: r.custom_price,
+      notes: r.notes,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
 ]
 
 // -- Init ---------------------------------------------------------------------
@@ -1176,7 +1246,7 @@ const PULL_TABLES = [
     // v2.1: washer_ids legacy INT-array column dropped → washer_empleado_supabase_ids JSON of UUIDs.
     // seller_supabase_id is still the column name on the wire, but it now points at empleados.supabase_id
     // (tipo='vendedor'/'hybrid'); explicitly resolved against empleados below.
-    cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','void_by','void_at','vehicle_plate','vehicle_color','vehicle_make','notes','washer_empleado_supabase_ids','tip_amount','fulfillment_type','mesa_supabase_id','payment_parts','split_bill','created_at','updated_at'],
+    cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','void_by','void_at','vehicle_plate','vehicle_color','vehicle_make','notes','washer_empleado_supabase_ids','tip_amount','fulfillment_type','mesa_supabase_id','mode','converted_from_mesa_supabase_id','converted_from_ticket_supabase_id','payment_parts','split_bill','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', seller_empleado_supabase_id: 'empleados', cajero_supabase_id: 'users' },
     statusSync: ['status', 'void_reason', 'void_by', 'void_at', 'updated_at'] },
   { name: 'ticket_items', strategy: 'fww',
@@ -1201,7 +1271,7 @@ const PULL_TABLES = [
     cols: ['date','start_time','end_time','status','services','notes','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', empleado_supabase_id: 'empleados' } },
   { name: 'loans', strategy: 'lww',
-    cols: ['principal','term_months','interest_rate','monthly_payment','status','disbursed_at','next_due_date','total_paid','total_interest','notes','created_at','updated_at'],
+    cols: ['principal','term_months','interest_rate','monthly_payment','status','disbursed_at','next_due_date','total_paid','total_interest','method','mora_rate_daily','days_late','mora_amount','notes','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients' } },
 
   // Phase 3 — financial (FWW)
@@ -1271,6 +1341,22 @@ const PULL_TABLES = [
     cols: ['combo_name','total_washes','used_washes','purchase_price','purchased_at',
            'expires_at','status','notes','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', vehicle_supabase_id: 'vehicles' } },
+
+  // v2.6 — Service vertical
+  { name: 'subscriptions', strategy: 'lww',
+    cols: ['plan_name','interval_days','amount','start_date','next_billing_date','last_billed_at',
+           'status','notes','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', service_supabase_id: 'services' } },
+  { name: 'service_packages', strategy: 'lww',
+    cols: ['package_name','total_sessions','used_sessions','purchase_price','purchased_at',
+           'expires_at','status','notes','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', service_supabase_id: 'services' } },
+  { name: 'projects', strategy: 'lww',
+    cols: ['name','description','status','total_billed','closed_at','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients' } },
+  { name: 'client_service_rates', strategy: 'lww',
+    cols: ['custom_price','notes','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', service_supabase_id: 'services' } },
 ]
 
 // -- Pull upsert: Supabase row -> SQLite row ----------------------------------
@@ -2086,6 +2172,7 @@ async function startRealtime() {
     'vehicles','service_bays','work_orders','work_order_items','appointments',
     'stylist_schedules','loans','loan_payments','pawn_items',
     'memberships','wash_combos',
+    'subscriptions','service_packages','projects','client_service_rates',
   ]
 
   _realtimeChannel = _realtimeClient.channel(`tx-sync-${bizId}`)

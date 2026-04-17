@@ -591,8 +591,19 @@ export default function WorkerReport() {
     { id: 'mes',    es: 'Este mes',      en: 'This month' },
   ]
 
+  // Hybrid vertical mixes dine-in service (waiter/mesero) with retail sales.
+  // Relabel the "lavadores" bucket to "Meseros" so the owner sees the
+  // correct Spanish role for the dine-in side while retail sellers keep
+  // their own tab. The underlying data model (empleados.tipo) is unchanged.
+  const lavadoresLabel = businessType === 'hybrid'
+    ? { es: 'Meseros',   en: 'Waiters' }
+    : businessType === 'mechanic'
+      ? { es: 'Mecánicos', en: 'Mechanics' }
+      : businessType === 'salon'
+        ? { es: 'Estilistas', en: 'Stylists' }
+        : { es: 'Lavadores', en: 'Washers' }
   const SUB_TABS = [
-    { id: 'lavadores',  es: 'Lavadores',  en: 'Washers',     show: showWashers },
+    { id: 'lavadores',  ...lavadoresLabel,  show: showWashers },
     { id: 'vendedores', es: 'Vendedores', en: 'Salespeople', show: true },
     { id: 'cajeras',    es: 'Cajeras',    en: 'Cashiers',    show: true },
   ].filter(st => st.show)

@@ -643,6 +643,7 @@ export default function RestaurantPOS() {
       mesa_supabase_id: mesa.supabase_id,
       tip_amount: tipAmount,
       fulfillment_type: 'dine_in',
+      mode: 'mesa',
     }
   }
 
@@ -708,6 +709,7 @@ export default function RestaurantPOS() {
         mesa_id: activeTicket.mesa.id,
         mesa_supabase_id: activeTicket.mesa.supabase_id,
         fulfillment_type: 'dine_in',
+        mode: 'mesa',
         tip_amount: cobrarModal.tipAmount || 0,
         total,
         payment_method: parts[0].method,
@@ -933,6 +935,36 @@ export default function RestaurantPOS() {
                     <CreditCard size={16} /> Cobrar
                   </button>
                 </div>
+                {/* Cross-mode conversion — hybrid vertical only. Moves the
+                    current mesa's lines into the Venta Directa cart (takeout)
+                    via localStorage so no items are lost in the switch. */}
+                <button
+                  onClick={() => {
+                    if (!activeTicket?.items?.length) return
+                    const payload = {
+                      items: activeTicket.items.map(it => ({
+                        service_id: it.service_id,
+                        service_supabase_id: it.service_supabase_id,
+                        name: it.name,
+                        price: Number(it.price) + (it.modifiers || []).reduce((x, m) => x + Number(m.price_delta || 0), 0),
+                        qty: it.qty,
+                      })),
+                      from_mesa_id: activeTicket.mesa?.id || null,
+                      from_mesa_supabase_id: activeTicket.mesa?.supabase_id || null,
+                      from_ticket_supabase_id: activeTicket.supabase_id || null,
+                      note: activeTicket.mesa ? `Convertido de Mesa ${activeTicket.mesa.name}` : '',
+                    }
+                    try {
+                      window.localStorage.setItem('tx_hybrid_convert_cart', JSON.stringify(payload))
+                      window.localStorage.setItem('tx_hybrid_pos_mode', 'directa')
+                      window.dispatchEvent(new CustomEvent('tx_hybrid_mode_change', { detail: 'directa' }))
+                    } catch {}
+                  }}
+                  disabled={!activeTicket?.items?.length}
+                  className="mt-2 w-full py-2 rounded-lg bg-transparent border border-white/15 hover:border-[#b3001e] text-white/70 hover:text-white text-[11px] font-semibold transition-colors disabled:opacity-40"
+                >
+                  Convertir a Venta Directa (Takeout)
+                </button>
               </div>
             </>
           )}

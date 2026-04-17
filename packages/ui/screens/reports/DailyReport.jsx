@@ -52,6 +52,8 @@ function dbToTxn(t) {
     voidedBy:   t.void_by,
     voidedAt:   t.void_at ? new Date(t.void_at) : null,
     washerNames: t.washer_names || [],
+    mode:       t.mode || null,    // hybrid vertical: 'mesa' | 'directa' | 'takeout' | null
+    mesa_id:    t.mesa_id || null,
   }
 }
 
@@ -463,7 +465,7 @@ export default function DailyReport() {
   const api = useAPI()
   const { lang }   = useLang()
   const { user: currentUser } = useAuth()
-  const { businessType } = useBusinessType()
+  const { businessType, isHybrid } = useBusinessType()
   const showVehicle    = hasVehicles(businessType)
   const isServiceBiz   = isServiceBased(businessType)
 
@@ -472,6 +474,9 @@ export default function DailyReport() {
   const [tab,          setTab]          = useState('todas')
   const [datePill,     setDatePill]     = useState('mes')
   const [cashier,      setCashier]      = useState('all')
+  // Hybrid only — split Ventas by originating mode. Persist in the component
+  // only; resets every mount. 'todas' = no filter.
+  const [modeFilter,   setModeFilter]   = useState('todas') // todas | mesa | directa
   const [search,       setSearch]       = useState('')
   const [selectedId,   setSelectedId]   = useState(null)
   const [detailModal,  setDetailModal]  = useState(null)
@@ -509,12 +514,21 @@ export default function DailyReport() {
     return names.sort()
   }, [transactions])
 
-  // Base set: cashier filtered (date already filtered at DB level)
+  // Base set: cashier filtered (date already filtered at DB level).
+  // Hybrid also applies the Mesa/Directa segment filter so every downstream
+  // metric (summary, tab counts, CSV export) respects the segmentation.
   const baseFiltered = useMemo(() =>
-    transactions.filter(t =>
-      cashier === 'all' || t.cashier === cashier
-    )
-  , [transactions, cashier])
+    transactions.filter(t => {
+      if (cashier !== 'all' && t.cashier !== cashier) return false
+      if (isHybrid && modeFilter !== 'todas') {
+        // "directa" matches either explicit 'directa' tagging OR legacy rows
+        // with no mesa and no mode — those are retail-style entries.
+        if (modeFilter === 'mesa' && t.mode !== 'mesa' && !t.mesa_id) return false
+        if (modeFilter === 'directa' && (t.mode === 'mesa' || t.mesa_id)) return false
+      }
+      return true
+    })
+  , [transactions, cashier, modeFilter, isHybrid])
 
   // Summary metrics (base, not tab/search filtered)
   const summary = useMemo(() => {
@@ -645,8 +659,29 @@ export default function DailyReport() {
             ))}
           </div>
 
-          {/* Date pills + export */}
+          {/* Date pills + mode chips (hybrid) + export */}
           <div className="flex items-center gap-1.5 pb-2.5 overflow-x-auto scrollbar-none">
+            {isHybrid && (
+              <div className="inline-flex rounded-lg bg-slate-100 dark:bg-white/10 p-0.5 mr-1 shrink-0">
+                {[
+                  { id: 'todas',   es: 'Todas',   en: 'All'      },
+                  { id: 'mesa',    es: 'Mesa',    en: 'Dine-in'  },
+                  { id: 'directa', es: 'Directa', en: 'Retail'   },
+                ].map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => setModeFilter(m.id)}
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${
+                      modeFilter === m.id
+                        ? 'bg-[#b3001e] text-white'
+                        : 'text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white'
+                    }`}
+                  >
+                    {lang === 'es' ? m.es : m.en}
+                  </button>
+                ))}
+              </div>
+            )}
             {DATE_PILLS.map(p => (
               <button
                 key={p.id}

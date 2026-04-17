@@ -56,6 +56,7 @@ const Reportes            = lazy(() => import('./screens/Reportes'))
 const Empleados           = lazy(() => import('./screens/reports/nomina'))
 const Mesas               = lazy(() => import('./screens/restaurant/Mesas'))
 const MenuBuilder         = lazy(() => import('./screens/restaurant/MenuBuilder'))
+const HybridCatalogo      = lazy(() => import('./screens/hybrid/Catalogo'))
 const KDS                 = lazy(() => import('./screens/restaurant/KDS'))
 const WorkOrders          = lazy(() => import('./screens/mechanic/WorkOrders'))
 const Vehicles            = lazy(() => import('./screens/mechanic/Vehicles'))
@@ -215,6 +216,7 @@ export default function App() {
         <Route path="/inventory"             element={<ProtectedRoute element={<PlanGate feature="inventory"><Inventory /></PlanGate>} />} />
         <Route path="/mesas"                 element={<PlanGate feature="restaurant_mode"><Mesas /></PlanGate>} />
         <Route path="/menu-builder"          element={<ProtectedRoute element={<PlanGate feature="restaurant_mode"><MenuBuilder /></PlanGate>} />} />
+        <Route path="/catalogo"              element={<ProtectedRoute element={<HybridCatalogo />} />} />
         <Route path="/cash-recon"            element={<ProtectedRoute element={<PlanGate feature="cash_recon"><CashReconciliation /></PlanGate>} />} />
         <Route path="/empleados"             element={<ProtectedRoute element={<Empleados />} />} />
         <Route path="/dgii"                  element={<ProtectedRoute element={<PlanGate feature="dgii"><DGII /></PlanGate>} />} />

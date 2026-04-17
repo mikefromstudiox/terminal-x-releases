@@ -48,7 +48,15 @@ const NAV = [
   {
     id: 'menu_builder', to: '/menu-builder', icon: UtensilsCrossed,
     es: 'Menu', en: 'Menu',
-    businessTypes: ['restaurant', 'hybrid'],
+    businessTypes: ['restaurant'],
+    roles: ['owner','manager'],
+  },
+  {
+    // Hybrid — unified Menú + Productos editor in one screen so owners
+    // don't have to bounce between Menu and Inventario just to add an item.
+    id: 'catalogo', to: '/catalogo', icon: UtensilsCrossed,
+    es: 'Catálogo', en: 'Catalog',
+    businessTypes: ['hybrid'],
     roles: ['owner','manager'],
   },
   {
