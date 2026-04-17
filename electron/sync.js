@@ -78,6 +78,9 @@ const SYNC_TABLES = [
       is_menu_item: !!(r.is_menu_item || 0),
       course: r.course,
       station: r.station,
+      happy_hour_price: r.happy_hour_price != null ? r.happy_hour_price : null,
+      happy_hour_start: r.happy_hour_start || null,
+      happy_hour_end:   r.happy_hour_end   || null,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
     }),
@@ -100,6 +103,10 @@ const SYNC_TABLES = [
       total_spent: r.total_spent,
       notes: r.notes,
       active: r.active,
+      // v2.4 — Salon: loyalty + stylist preference + allergies
+      loyalty_points: r.loyalty_points ?? 0,
+      allergies: r.allergies || null,
+      preferred_stylist_supabase_id: r.preferred_stylist_supabase_id || null,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
     }),
@@ -218,6 +225,11 @@ const SYNC_TABLES = [
       year: r.year,
       color: r.color,
       mileage: r.mileage,
+      odometer_km: r.odometer_km,
+      last_service_km: r.last_service_km,
+      last_service_at: r.last_service_at,
+      next_service_km: r.next_service_km,
+      next_service_at: r.next_service_at,
       client_supabase_id: r.client_supabase_id || null,
       notes: r.notes,
       active: !!(r.active ?? 1),
@@ -366,6 +378,10 @@ const SYNC_TABLES = [
         tip_amount: r.tip_amount,
         fulfillment_type: r.fulfillment_type,
         mesa_supabase_id: r.mesa_supabase_id,
+        payment_parts: r.payment_parts
+          ? (typeof r.payment_parts === 'string' ? JSON.parse(r.payment_parts) : r.payment_parts)
+          : null,
+        split_bill: !!(r.split_bill || 0),
         paid_at: r.status === 'cobrado' ? (r.created_at || new Date().toISOString()) : null,
         created_at: r.created_at || new Date().toISOString(),
         updated_at: r.updated_at || null,
@@ -446,6 +462,9 @@ const SYNC_TABLES = [
       unit: r.unit || null,
       price_per_unit: r.price_per_unit != null ? r.price_per_unit : null,
       inventory_item_supabase_id: r.inventory_item_supabase_id || null,
+      course:        r.course || null,
+      kds_fired_at:  r.kds_fired_at || null,
+      guest_number:  r.guest_number != null ? r.guest_number : null,
       updated_at: r.updated_at || null,
     }),
   },
@@ -1106,10 +1125,11 @@ const PULL_TABLES = [
   // NOTE: `created_at` only included for tables whose local SQLite schema actually has
   // that column. db/schema.sql: services/sellers/inventory_items/empleados/categorias_servicio
   // never declared created_at, so including it in the pull causes "no such column" failures.
-  { name: 'services', strategy: 'lww', naturalKey: 'name', cols: ['name','name_en','category','price','cost','aplica_itbis','active','is_wash','no_commission','commission_washer','commission_seller','commission_cashier','sort_order','printer_route','is_menu_item','course','station','updated_at'] },
+  { name: 'services', strategy: 'lww', naturalKey: 'name', cols: ['name','name_en','category','price','cost','aplica_itbis','active','is_wash','no_commission','commission_washer','commission_seller','commission_cashier','sort_order','printer_route','is_menu_item','course','station','happy_hour_price','happy_hour_start','happy_hour_end','updated_at'] },
   // v2.1: washers + sellers PULL entries removed — consolidated into `empleados`
   // (tipo='lavador'/'vendedor'). Their data is now part of the empleados pull below.
-  { name: 'clients', strategy: 'lww', naturalKey: 'name', cols: ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','created_at','updated_at'] },
+  { name: 'clients', strategy: 'lww', naturalKey: 'name', cols: ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','loyalty_points','allergies','created_at','updated_at'],
+    fkCols: { preferred_stylist_supabase_id: 'empleados' } },
   { name: 'inventory_items', strategy: 'lww', naturalKey: 'name', cols: ['name','sku','barcode','category','price','cost','quantity','min_quantity','aplica_itbis','sold_by_weight','unit','price_per_unit','bottle_deposit','tare_default','active','updated_at'] },
   { name: 'mesas', strategy: 'lww', naturalKey: 'name', cols: ['name','zone','capacity','status','guests_count','seated_at','sort_order','active','created_at','updated_at'],
     fkCols: { waiter_empleado_supabase_id: 'empleados' } },
@@ -1143,11 +1163,11 @@ const PULL_TABLES = [
     // v2.1: washer_ids legacy INT-array column dropped → washer_empleado_supabase_ids JSON of UUIDs.
     // seller_supabase_id is still the column name on the wire, but it now points at empleados.supabase_id
     // (tipo='vendedor'/'hybrid'); explicitly resolved against empleados below.
-    cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','void_by','void_at','vehicle_plate','vehicle_color','vehicle_make','notes','washer_empleado_supabase_ids','tip_amount','fulfillment_type','mesa_supabase_id','created_at','updated_at'],
+    cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','void_by','void_at','vehicle_plate','vehicle_color','vehicle_make','notes','washer_empleado_supabase_ids','tip_amount','fulfillment_type','mesa_supabase_id','payment_parts','split_bill','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', seller_empleado_supabase_id: 'empleados', cajero_supabase_id: 'users' },
     statusSync: ['status', 'void_reason', 'void_by', 'void_at', 'updated_at'] },
   { name: 'ticket_items', strategy: 'fww',
-    cols: ['name','price','cost','itbis','is_wash','quantity','sku','weight','unit','price_per_unit','created_at','updated_at'],
+    cols: ['name','price','cost','itbis','is_wash','quantity','sku','weight','unit','price_per_unit','course','kds_fired_at','guest_number','created_at','updated_at'],
     fkCols: { ticket_supabase_id: 'tickets', service_supabase_id: 'services', inventory_item_supabase_id: 'inventory_items' } },
   { name: 'queue', strategy: 'lww',
     cols: ['status','assigned_at','completed_at','created_at','updated_at'],

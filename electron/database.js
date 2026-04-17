@@ -308,6 +308,17 @@ function init(userDataPath) {
     'ALTER TABLE services ADD COLUMN is_menu_item INTEGER DEFAULT 0',
     'ALTER TABLE services ADD COLUMN course TEXT',
     'ALTER TABLE services ADD COLUMN station TEXT',
+    // v2.2 — Restaurant: happy-hour pricing window (time-of-day strings HH:MM)
+    'ALTER TABLE services ADD COLUMN happy_hour_price REAL',
+    'ALTER TABLE services ADD COLUMN happy_hour_start TEXT',
+    'ALTER TABLE services ADD COLUMN happy_hour_end   TEXT',
+    // v2.2 — Restaurant: per-item course tag, KDS fire timestamp, guest-split tag
+    'ALTER TABLE ticket_items ADD COLUMN course TEXT',
+    'ALTER TABLE ticket_items ADD COLUMN kds_fired_at TEXT',
+    'ALTER TABLE ticket_items ADD COLUMN guest_number INTEGER',
+    // v2.2 — Restaurant: split-bill persistence (parts[] as JSON on ticket)
+    'ALTER TABLE tickets ADD COLUMN payment_parts TEXT',
+    'ALTER TABLE tickets ADD COLUMN split_bill    INTEGER DEFAULT 0',
     'ALTER TABLE tickets ADD COLUMN tip_amount REAL DEFAULT 0',
     'ALTER TABLE tickets ADD COLUMN fulfillment_type TEXT',
     'ALTER TABLE tickets ADD COLUMN mesa_id INTEGER',
@@ -361,6 +372,12 @@ function init(userDataPath) {
     "ALTER TABLE ticket_items ADD COLUMN weight REAL",
     "ALTER TABLE ticket_items ADD COLUMN unit TEXT",
     "ALTER TABLE ticket_items ADD COLUMN price_per_unit REAL",
+    // v2.4 — Salon vertical: client loyalty + preferences
+    "ALTER TABLE clients ADD COLUMN loyalty_points REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE clients ADD COLUMN allergies TEXT",
+    "ALTER TABLE clients ADD COLUMN preferred_stylist_id INTEGER",
+    "ALTER TABLE clients ADD COLUMN preferred_stylist_supabase_id TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_clients_preferred_stylist ON clients(preferred_stylist_supabase_id)",
     // v2.2 — Multi-vertical expansion: 9 new tables
     `CREATE TABLE IF NOT EXISTS vehicles (
       id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -532,6 +549,24 @@ function init(userDataPath) {
     "UPDATE salary_changes SET updated_at = created_at WHERE updated_at IS NULL",
     'ALTER TABLE salary_changes ADD COLUMN supabase_id TEXT',
     "UPDATE salary_changes SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
+    // v2.5 — Mechanic vertical: odometer + digital inspection + parts back-order + estimate approval
+    'ALTER TABLE vehicles ADD COLUMN odometer_km INTEGER',
+    'ALTER TABLE vehicles ADD COLUMN last_service_km INTEGER',
+    'ALTER TABLE vehicles ADD COLUMN last_service_at TEXT',
+    'ALTER TABLE vehicles ADD COLUMN next_service_km INTEGER',
+    'ALTER TABLE vehicles ADD COLUMN next_service_at TEXT',
+    'ALTER TABLE work_orders ADD COLUMN labor_total REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE work_orders ADD COLUMN parts_total REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE work_orders ADD COLUMN itbis REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE work_orders ADD COLUMN total REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE work_orders ADD COLUMN inspection_json TEXT',
+    'ALTER TABLE work_orders ADD COLUMN estimate_approved_at TEXT',
+    'ALTER TABLE work_orders ADD COLUMN customer_signature_url TEXT',
+    'ALTER TABLE work_orders ADD COLUMN customer_approval_token TEXT',
+    'ALTER TABLE work_orders ADD COLUMN expected_parts_arrival TEXT',
+    'ALTER TABLE work_orders ADD COLUMN odometer_in_km INTEGER',
+    'ALTER TABLE work_orders ADD COLUMN odometer_out_km INTEGER',
+    'CREATE INDEX IF NOT EXISTS idx_work_orders_approval_token ON work_orders(customer_approval_token)',
     // v2.4 — Carwash expansion: memberships (monthly subscription) + wash_combos (punch-card)
     `CREATE TABLE IF NOT EXISTS memberships (
       id                        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1889,8 +1924,8 @@ function serviceCreate(data) {
   const cs = data.commission_seller ?? 1
   const cc = data.commission_cashier ?? 1
   const noComm = (!cw && !cs && !cc) ? 1 : 0
-  const r = db.prepare(`INSERT INTO services(name,name_en,category,categoria_id,price,cost,aplica_itbis,is_wash,no_commission,commission_washer,commission_seller,commission_cashier,active,sort_order,supabase_id)
-    VALUES(@name,@name_en,@category,@categoria_id,@price,COALESCE(@cost,0),COALESCE(@aplica_itbis,1),@is_wash,@no_commission,@commission_washer,@commission_seller,@commission_cashier,1,COALESCE(@sort_order,0),@supabase_id)`).run({
+  const r = db.prepare(`INSERT INTO services(name,name_en,category,categoria_id,price,cost,aplica_itbis,is_wash,no_commission,commission_washer,commission_seller,commission_cashier,active,sort_order,supabase_id,is_menu_item,course,station,printer_route,happy_hour_price,happy_hour_start,happy_hour_end)
+    VALUES(@name,@name_en,@category,@categoria_id,@price,COALESCE(@cost,0),COALESCE(@aplica_itbis,1),@is_wash,@no_commission,@commission_washer,@commission_seller,@commission_cashier,1,COALESCE(@sort_order,0),@supabase_id,@is_menu_item,@course,@station,@printer_route,@happy_hour_price,@happy_hour_start,@happy_hour_end)`).run({
     name: data.name, name_en: data.name_en || null,
     category: data.category || 'Lavado', categoria_id: data.categoria_id || null,
     price: data.price, cost: data.cost || 0, aplica_itbis: data.aplica_itbis ?? 1,
@@ -1898,12 +1933,19 @@ function serviceCreate(data) {
     commission_washer: cw, commission_seller: cs, commission_cashier: cc,
     sort_order: data.sort_order || 0,
     supabase_id: sid,
+    is_menu_item: data.is_menu_item ? 1 : 0,
+    course: data.course || null,
+    station: data.station || null,
+    printer_route: data.printer_route || null,
+    happy_hour_price: data.happy_hour_price != null ? data.happy_hour_price : null,
+    happy_hour_start: data.happy_hour_start || null,
+    happy_hour_end:   data.happy_hour_end   || null,
   })
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function serviceUpdate(id, data) {
   if (!db) return
-  const allowed = ['name','name_en','category','categoria_id','price','cost','aplica_itbis','is_wash','no_commission','commission_washer','commission_seller','commission_cashier','active','sort_order']
+  const allowed = ['name','name_en','category','categoria_id','price','cost','aplica_itbis','is_wash','no_commission','commission_washer','commission_seller','commission_cashier','active','sort_order','is_menu_item','course','station','printer_route','happy_hour_price','happy_hour_start','happy_hour_end']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   // Auto-derive no_commission when all 3 role flags are off (or any provided)
   if ('commission_washer' in patch || 'commission_seller' in patch || 'commission_cashier' in patch) {
@@ -2634,11 +2676,21 @@ function clientCreate(data) {
 }
 function clientUpdate(id, data) {
   if (!db) return
-  const allowed = ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active']
+  const allowed = ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','loyalty_points','allergies','preferred_stylist_id','preferred_stylist_supabase_id','last_service_date']
   const patch   = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  // Keep preferred_stylist_supabase_id in sync when only the numeric id is given.
+  if (data.preferred_stylist_id && !data.preferred_stylist_supabase_id) {
+    const e = db.prepare('SELECT supabase_id FROM empleados WHERE id=?').get(data.preferred_stylist_id)
+    if (e) patch.preferred_stylist_supabase_id = e.supabase_id
+  }
   if (Object.keys(patch).length === 0) return
   const fields  = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
   db.prepare(`UPDATE clients SET ${fields} WHERE id=@id`).run({ ...patch, id })
+}
+// Increment/decrement loyalty points atomically. `delta` may be negative (redemption).
+function clientAddLoyaltyPoints(id, delta) {
+  if (!db || !id) return
+  db.prepare("UPDATE clients SET loyalty_points = COALESCE(loyalty_points,0) + @delta WHERE id=@id").run({ id, delta: Number(delta) || 0 })
 }
 function clientUpdateBalance(id, delta) {
   if (!db) return
@@ -3895,21 +3947,22 @@ function activityLogList({ dateFrom, dateTo, eventTypes, limit = 200 } = {}) {
 }
 
 // ── VEHICLES ─────────────────────────────────────────────────────────────────
-function vehicleCreate({ vin, plate, make, model, year, color, mileage, client_id, notes }) {
+function vehicleCreate({ vin, plate, make, model, year, color, mileage, odometer_km, client_id, notes }) {
   if (!db) return null
   const sid = crypto.randomUUID()
   const client = client_id ? db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(client_id) : null
-  const r = db.prepare(`INSERT INTO vehicles(supabase_id, vin, plate, make, model, year, color, mileage, client_id, client_supabase_id, notes)
-    VALUES(@supabase_id, @vin, @plate, @make, @model, @year, @color, @mileage, @client_id, @client_supabase_id, @notes)`).run({
+  const r = db.prepare(`INSERT INTO vehicles(supabase_id, vin, plate, make, model, year, color, mileage, odometer_km, client_id, client_supabase_id, notes)
+    VALUES(@supabase_id, @vin, @plate, @make, @model, @year, @color, @mileage, @odometer_km, @client_id, @client_supabase_id, @notes)`).run({
     supabase_id: sid, vin: vin || null, plate: plate || null, make: make || null, model: model || null,
     year: year != null ? Number(year) : null, color: color || null, mileage: mileage != null ? Number(mileage) : null,
+    odometer_km: odometer_km != null ? Number(odometer_km) : (mileage != null ? Number(mileage) : null),
     client_id: client_id || null, client_supabase_id: client?.supabase_id || null, notes: notes || null,
   })
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function vehicleUpdate(id, data) {
   if (!db) return
-  const allowed = ['vin','plate','make','model','year','color','mileage','client_id','client_supabase_id','notes','active']
+  const allowed = ['vin','plate','make','model','year','color','mileage','odometer_km','last_service_km','last_service_at','next_service_km','next_service_at','client_id','client_supabase_id','notes','active']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (data.client_id && !data.client_supabase_id) {
     const c = db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id)
@@ -3988,7 +4041,7 @@ function workOrderCreate({ vehicle_id, client_id, technician_empleado_id, bay_id
 }
 function workOrderUpdate(id, data) {
   if (!db) return
-  const allowed = ['vehicle_id','vehicle_supabase_id','client_id','client_supabase_id','technician_empleado_id','technician_empleado_supabase_id','bay_id','bay_supabase_id','status','estimated_total','actual_total','promised_date','completed_date','notes']
+  const allowed = ['vehicle_id','vehicle_supabase_id','client_id','client_supabase_id','technician_empleado_id','technician_empleado_supabase_id','bay_id','bay_supabase_id','status','estimated_total','actual_total','labor_total','parts_total','itbis','total','inspection_json','estimate_approved_at','customer_signature_url','customer_approval_token','expected_parts_arrival','odometer_in_km','odometer_out_km','promised_date','completed_date','notes']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   // Resolve FK supabase_ids
   if (data.vehicle_id && !data.vehicle_supabase_id) { const v = db.prepare('SELECT supabase_id FROM vehicles WHERE id=?').get(data.vehicle_id); if (v) patch.vehicle_supabase_id = v.supabase_id }
@@ -4049,9 +4102,7 @@ function workOrderItemCreate({ work_order_id, type, name, description, quantity,
     total, warranty_months: Number(warranty_months) || 0,
     inv_id: inventory_item_id || null, inv_sid: inv?.supabase_id || null,
   })
-  // Recalculate work order totals
-  const sum = db.prepare('SELECT COALESCE(SUM(total),0) AS t FROM work_order_items WHERE work_order_id=?').get(work_order_id)
-  db.prepare("UPDATE work_orders SET estimated_total=?, updated_at=datetime('now') WHERE id=?").run(sum.t, work_order_id)
+  recalcWorkOrderTotals(work_order_id)
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function workOrderItemUpdate(id, data) {
@@ -4071,26 +4122,74 @@ function workOrderItemUpdate(id, data) {
   if (!Object.keys(patch).length) return db.prepare('SELECT * FROM work_order_items WHERE id=?').get(id)
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
   db.prepare(`UPDATE work_order_items SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
-  // Recalculate parent
   const item = db.prepare('SELECT work_order_id FROM work_order_items WHERE id=?').get(id)
-  if (item) {
-    const sum = db.prepare('SELECT COALESCE(SUM(total),0) AS t FROM work_order_items WHERE work_order_id=?').get(item.work_order_id)
-    db.prepare("UPDATE work_orders SET estimated_total=?, updated_at=datetime('now') WHERE id=?").run(sum.t, item.work_order_id)
-  }
+  if (item) recalcWorkOrderTotals(item.work_order_id)
   return db.prepare('SELECT * FROM work_order_items WHERE id=?').get(id)
 }
 function workOrderItemDelete(id) {
   if (!db) return
   const item = db.prepare('SELECT work_order_id FROM work_order_items WHERE id=?').get(id)
   db.prepare('DELETE FROM work_order_items WHERE id=?').run(id)
-  if (item) {
-    const sum = db.prepare('SELECT COALESCE(SUM(total),0) AS t FROM work_order_items WHERE work_order_id=?').get(item.work_order_id)
-    db.prepare("UPDATE work_orders SET estimated_total=?, updated_at=datetime('now') WHERE id=?").run(sum.t, item.work_order_id)
-  }
+  if (item) recalcWorkOrderTotals(item.work_order_id)
 }
 function workOrderItemsByOrder(work_order_id) {
   if (!db) return []
   return db.prepare('SELECT * FROM work_order_items WHERE work_order_id=? ORDER BY id').all(work_order_id)
+}
+
+// ── Work Order advanced: totals split, inspection, approval, parts order ────
+// ITBIS 18% DR on parts only; labor exempt.
+function recalcWorkOrderTotals(work_order_id) {
+  if (!db || !work_order_id) return
+  const labor = db.prepare(`SELECT COALESCE(SUM(total),0) AS t FROM work_order_items WHERE work_order_id=? AND type IN ('labor','service')`).get(work_order_id).t || 0
+  const parts = db.prepare(`SELECT COALESCE(SUM(total),0) AS t FROM work_order_items WHERE work_order_id=? AND type='part'`).get(work_order_id).t || 0
+  const itbis = Math.round(parts * 0.18 * 100) / 100
+  const total = Math.round((labor + parts + itbis) * 100) / 100
+  db.prepare(`UPDATE work_orders SET labor_total=?, parts_total=?, itbis=?, total=?, estimated_total=?, updated_at=datetime('now') WHERE id=?`)
+    .run(labor, parts, itbis, total, total, work_order_id)
+}
+function workOrderSaveInspection(work_order_id, inspection) {
+  if (!db) return null
+  const json = typeof inspection === 'string' ? inspection : JSON.stringify(inspection || {})
+  db.prepare("UPDATE work_orders SET inspection_json=?, updated_at=datetime('now') WHERE id=?").run(json, work_order_id)
+  return db.prepare('SELECT * FROM work_orders WHERE id=?').get(work_order_id)
+}
+function workOrderGenerateApprovalToken(work_order_id) {
+  if (!db) return null
+  const wo = db.prepare('SELECT supabase_id FROM work_orders WHERE id=?').get(work_order_id)
+  if (!wo) return null
+  const token = crypto.randomUUID().replace(/-/g,'') + crypto.randomUUID().replace(/-/g,'').slice(0,16)
+  db.prepare("UPDATE work_orders SET customer_approval_token=?, updated_at=datetime('now') WHERE id=?").run(token, work_order_id)
+  return { token, work_order_supabase_id: wo.supabase_id }
+}
+function workOrderApproveEstimate(work_order_id, { signature_url } = {}) {
+  if (!db) return null
+  db.prepare(`UPDATE work_orders SET status='aprobado', estimate_approved_at=datetime('now'),
+    customer_signature_url=COALESCE(?, customer_signature_url), updated_at=datetime('now') WHERE id=?`)
+    .run(signature_url || null, work_order_id)
+  return db.prepare('SELECT * FROM work_orders WHERE id=?').get(work_order_id)
+}
+function workOrderSetPartsOrder(work_order_id, { expected_parts_arrival } = {}) {
+  if (!db) return null
+  db.prepare(`UPDATE work_orders SET status='awaiting_parts', expected_parts_arrival=?, updated_at=datetime('now') WHERE id=?`)
+    .run(expected_parts_arrival || null, work_order_id)
+  return db.prepare('SELECT * FROM work_orders WHERE id=?').get(work_order_id)
+}
+function workOrderClose(work_order_id, { odometer_out_km } = {}) {
+  if (!db) return null
+  const wo = db.prepare('SELECT vehicle_id FROM work_orders WHERE id=?').get(work_order_id)
+  db.prepare(`UPDATE work_orders SET status='closed', completed_date=datetime('now'),
+    odometer_out_km=COALESCE(?, odometer_out_km), updated_at=datetime('now') WHERE id=?`)
+    .run(odometer_out_km != null ? Number(odometer_out_km) : null, work_order_id)
+  if (wo?.vehicle_id && odometer_out_km != null) {
+    const km = Number(odometer_out_km)
+    const next = km + 5000
+    const nextDate = new Date(Date.now() + 1000*60*60*24*180).toISOString()
+    db.prepare(`UPDATE vehicles SET odometer_km=?, last_service_km=?, last_service_at=datetime('now'),
+      next_service_km=?, next_service_at=?, updated_at=datetime('now') WHERE id=?`)
+      .run(km, km, next, nextDate, wo.vehicle_id)
+  }
+  return db.prepare('SELECT * FROM work_orders WHERE id=?').get(work_order_id)
 }
 
 // ── APPOINTMENTS ─────────────────────────────────────────────────────────────
@@ -4537,7 +4636,7 @@ module.exports = {
   // Adelantos de nomina (salary advances)
   adelantoCreate, adelantoList, adelantosByEmpleado, adelantoPendingTotal, adelantoDeduct, adelantoCancel, adelantoSummary,
   // Clients
-  clientsGetAll, clientGetById, clientCreate, clientUpdate, clientUpdateBalance, clientGetOpenTickets, collectCredit,
+  clientsGetAll, clientGetById, clientCreate, clientUpdate, clientUpdateBalance, clientAddLoyaltyPoints, clientGetOpenTickets, collectCredit,
   // Tickets
   ticketsGetAll, ticketGetById, ticketCreate, ticketMarkPaid, ticketVoid, ticketGetByDateRange,
   // Price changes
@@ -4584,6 +4683,8 @@ module.exports = {
   serviceBayCreate, serviceBayUpdate, serviceBayList, serviceBayDelete,
   workOrderCreate, workOrderUpdate, workOrderList, workOrderGetById,
   workOrderItemCreate, workOrderItemUpdate, workOrderItemDelete, workOrderItemsByOrder,
+  workOrderSaveInspection, workOrderGenerateApprovalToken, workOrderApproveEstimate,
+  workOrderSetPartsOrder, workOrderClose, recalcWorkOrderTotals,
   appointmentCreate, appointmentUpdate, appointmentList, appointmentGetById, appointmentDelete,
   stylistScheduleCreate, stylistScheduleUpdate, stylistScheduleList, stylistScheduleDelete,
   loanCreate, loanUpdate, loanList, loanGetById,

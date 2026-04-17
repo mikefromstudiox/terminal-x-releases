@@ -8,6 +8,8 @@ import { useAPI } from '../../context/DataContext'
 import CobrarModal from '../../components/CobrarModal'
 import TipEntryModal from './TipEntryModal'
 import SplitBillModal from './SplitBillModal'
+import SplitByItemModal from './SplitByItemModal'
+import { effectivePrice, isHappyHourActive } from './happyHour'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtRD(n) {
@@ -50,8 +52,28 @@ const COURSES = [
 
 function courseForService(svc) {
   const c = (svc.course || svc.categoria || '').toLowerCase().trim()
+  // Accept legacy singular aliases shipped in sampleMenus / MenuBuilder options
+  // so a menu seeded with `course='bebida'` still slots into the `bebidas` tab.
+  const alias = {
+    entrada: 'entradas', entradas: 'entradas', appetizer: 'entradas',
+    principal: 'principales', principales: 'principales', entree: 'principales', main: 'principales',
+    bebida: 'bebidas', bebidas: 'bebidas', drink: 'bebidas',
+    coctel: 'cocteles', cocteles: 'cocteles', cocktail: 'cocteles',
+    postre: 'postres', postres: 'postres', dessert: 'postres',
+  }
+  const mapped = alias[c]
+  if (mapped) return mapped
   const hit = COURSES.find(x => x.id === c)
   return hit ? hit.id : 'otros'
+}
+
+// Persist a course tag on an item so KDS + DB + analytics agree. Falls back
+// to the service's course/categoria; defaults to 'otros' so every line has
+// exactly one non-null bucket.
+function itemCourseTag(it, services) {
+  if (it.course) return it.course
+  const svc = services.find(s => s.id === it.service_id || s.supabase_id === it.service_supabase_id)
+  return svc ? courseForService(svc) : 'otros'
 }
 
 // ── MODIFIER MODAL (inline) ───────────────────────────────────────────────────
@@ -323,9 +345,11 @@ export default function RestaurantPOS() {
   const [seatPrompt, setSeatPrompt] = useState(null)     // mesa
   const [modifierState, setModifierState] = useState(null) // { service, groups }
   const [tipModal, setTipModal]     = useState(false)
-  const [splitModal, setSplitModal] = useState(null)     // { subtotal, tip, total, parts? }
+  const [splitModal, setSplitModal] = useState(null)     // { total }
+  const [splitItemModal, setSplitItemModal] = useState(null) // { total }
   const [cobrarModal, setCobrarModal] = useState(null)   // ticket shape
   const [busy, setBusy]             = useState(null)     // label while async
+  const [happyHourEnabled, setHappyHourEnabled] = useState(true)
 
   // Tick for elapsed times
   useEffect(() => {
@@ -337,11 +361,14 @@ export default function RestaurantPOS() {
   const reload = useCallback(async () => {
     setLoading(true)
     try {
-      const [mList, sList, eList] = await Promise.all([
+      const [mList, sList, eList, settings] = await Promise.all([
         api.mesas?.list?.() || [],
         api.services?.getAll?.() || [],
         api.empleados?.list?.() || api.empleados?.getAll?.() || [],
+        api.settings?.get?.() || Promise.resolve({}),
       ])
+      const hhFlag = settings?.restaurant_happy_hour_enabled
+      setHappyHourEnabled(hhFlag == null ? true : (hhFlag === '1' || hhFlag === 1 || hhFlag === true))
       setMesas(Array.isArray(mList) ? mList : [])
       setServices((Array.isArray(sList) ? sList : []).filter(s => s.is_menu_item === 1 || s.is_menu_item === true))
       setEmpleados(Array.isArray(eList) ? eList : [])
@@ -390,6 +417,18 @@ export default function RestaurantPOS() {
     () => !!activeTicket?.items?.some(it => !it.kds_fired_at),
     [activeTicket]
   )
+
+  // Courses present in the current ticket's unfired queue — drives the
+  // per-course "Fire entradas / Fire principales" buttons in the footer.
+  const unfiredCoursesInTicket = useMemo(() => {
+    if (!activeTicket) return []
+    const set = new Set()
+    for (const it of activeTicket.items) {
+      if (it.kds_fired_at) continue
+      set.add(itemCourseTag(it, services))
+    }
+    return COURSES.filter(c => set.has(c.id))
+  }, [activeTicket, services])
 
   // Actions
   const openMesa = async (mesa) => {
@@ -482,6 +521,8 @@ export default function RestaurantPOS() {
   const pushItem = (svc, modifiers) => {
     setActiveTicket(t => {
       if (!t) return t
+      const unit = effectivePrice(svc, { enabled: happyHourEnabled, now: new Date() })
+      const applied = unit !== Number(svc.price || 0)
       return {
         ...t,
         items: [
@@ -492,11 +533,13 @@ export default function RestaurantPOS() {
             ticket_item_supabase_id: uuidv4(),
             service_id: svc.id,
             service_supabase_id: svc.supabase_id,
-            name: svc.name,
-            price: Number(svc.price || 0),
+            name: applied ? `${svc.name} · Happy Hour` : svc.name,
+            price: unit,
             qty: 1,
             modifiers,
             kds_fired_at: null,
+            course: courseForService(svc),
+            happy_hour_applied: applied,
           },
         ],
       }
@@ -528,9 +571,13 @@ export default function RestaurantPOS() {
     })
   }
 
-  const fireToKDS = async () => {
+  // When courseId is null/undefined → fire ALL unfired. Otherwise only fire
+  // the items whose course tag matches — classic "coursing" workflow (appetizers
+  // first, entrees when the table is ready, dessert at the end).
+  const fireToKDS = async (courseId = null) => {
     if (!activeTicket) return
-    const unfired = activeTicket.items.filter(it => !it.kds_fired_at)
+    let unfired = activeTicket.items.filter(it => !it.kds_fired_at)
+    if (courseId) unfired = unfired.filter(it => itemCourseTag(it, services) === courseId)
     if (!unfired.length) return
     try {
       setBusy('Enviando a cocina...')
@@ -553,9 +600,10 @@ export default function RestaurantPOS() {
         })
       }
       const firedAt = new Date().toISOString()
+      const firedIds = new Set(unfired.map(u => u.local_id))
       setActiveTicket(t => ({
         ...t,
-        items: t.items.map(it => it.kds_fired_at ? it : { ...it, kds_fired_at: firedAt }),
+        items: t.items.map(it => (it.kds_fired_at || !firedIds.has(it.local_id)) ? it : { ...it, kds_fired_at: firedAt }),
       }))
     } catch (e) {
       console.error(e)
@@ -839,18 +887,48 @@ export default function RestaurantPOS() {
                   <span className="text-white/60 text-sm">Subtotal</span>
                   <span className="text-white text-xl font-bold">{fmtRD(ticketSubtotal)}</span>
                 </div>
+
+                {/* Coursing — fire one course at a time */}
+                {unfiredCoursesInTicket.length > 0 && (
+                  <div className="mb-2">
+                    <div className="text-[10px] uppercase tracking-wider text-white/50 mb-1.5 flex items-center gap-1.5">
+                      <ChefHat size={11} /> Firing courses
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {unfiredCoursesInTicket.map(c => {
+                        const Icon = c.icon
+                        return (
+                          <button
+                            key={c.id}
+                            onClick={() => fireToKDS(c.id)}
+                            className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-white/10 hover:border-[#b3001e] text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                          >
+                            <Icon size={12} /> {c.label}
+                          </button>
+                        )
+                      })}
+                      <button
+                        onClick={() => fireToKDS(null)}
+                        className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-white/10 hover:border-white/30 text-white/70 text-xs font-medium flex items-center gap-1.5"
+                      >
+                        Todo
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-2">
                   <button
-                    onClick={fireToKDS}
+                    onClick={() => fireToKDS(null)}
                     disabled={!hasUnfiredItems}
                     className="py-3 rounded-xl bg-zinc-900 border border-white/10 hover:border-white/30 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    <ChefHat size={16} /> Enviar a cocina
+                    <ChefHat size={16} /> Enviar todo
                   </button>
                   <button
                     onClick={openCobroFlow}
                     disabled={activeTicket.items.length === 0}
-                    className="py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="py-3 rounded-xl bg-[#b3001e] hover:bg-red-700 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <CreditCard size={16} /> Cobrar
                   </button>
@@ -895,19 +973,36 @@ export default function RestaurantPOS() {
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-2">
-                {activeCourseGroup.map(svc => (
-                  <button
-                    key={svc.id}
-                    onClick={() => addServiceToTicket(svc)}
-                    className="bg-zinc-900 rounded-xl border border-white/5 hover:border-red-500/50 p-3 text-left transition-colors"
-                  >
-                    <div className="text-sm font-semibold text-white line-clamp-2">{svc.name}</div>
-                    <div className="mt-1 flex items-center justify-between">
-                      <span className="text-red-400 font-bold text-sm">{fmtRD(Number(svc.price || 0))}</span>
-                      <Plus size={14} className="text-white/40" />
-                    </div>
-                  </button>
-                ))}
+                {activeCourseGroup.map(svc => {
+                  const hh = isHappyHourActive(svc, { enabled: happyHourEnabled })
+                  const base = Number(svc.price || 0)
+                  const eff  = effectivePrice(svc, { enabled: happyHourEnabled })
+                  return (
+                    <button
+                      key={svc.id}
+                      onClick={() => addServiceToTicket(svc)}
+                      className={`bg-zinc-900 rounded-xl border p-3 text-left transition-colors ${
+                        hh ? 'border-[#b3001e]/60 hover:border-[#b3001e]' : 'border-white/5 hover:border-red-500/50'
+                      }`}
+                    >
+                      <div className="text-sm font-semibold text-white line-clamp-2">{svc.name}</div>
+                      <div className="mt-1 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          {hh ? (
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="text-[#b3001e] font-bold text-sm">{fmtRD(eff)}</span>
+                              <span className="text-[10px] text-white/40 line-through">{fmtRD(base)}</span>
+                            </div>
+                          ) : (
+                            <span className="text-red-400 font-bold text-sm">{fmtRD(base)}</span>
+                          )}
+                          {hh && <div className="text-[9px] uppercase tracking-wider text-[#b3001e] font-bold mt-0.5">Happy Hour</div>}
+                        </div>
+                        <Plus size={14} className="text-white/40 shrink-0" />
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -938,14 +1033,26 @@ export default function RestaurantPOS() {
         onConfirm={handleTipConfirmed}
       />
 
-      {/* Floating "Dividir cuenta" button on top of CobrarModal */}
-      {cobrarModal && !splitModal && (
-        <button
-          onClick={openSplit}
-          className="fixed bottom-6 left-6 z-[65] px-4 py-2.5 rounded-full bg-red-600 hover:bg-red-500 text-white text-sm font-semibold shadow-2xl flex items-center gap-2"
-        >
-          <Split size={14} /> Dividir cuenta
-        </button>
+      {/* Floating "Dividir" buttons on top of CobrarModal */}
+      {cobrarModal && !splitModal && !splitItemModal && (
+        <div className="fixed bottom-6 left-6 z-[65] flex flex-col gap-2">
+          <button
+            onClick={openSplit}
+            className="px-4 py-2.5 rounded-full bg-zinc-900 border border-white/20 hover:border-white/40 text-white text-sm font-semibold shadow-2xl flex items-center gap-2"
+          >
+            <Split size={14} /> Dividir en partes iguales
+          </button>
+          <button
+            onClick={() => {
+              if (!cobrarModal) return
+              const total = cobrarModal.ticket.services.reduce((s, svc) => s + svc.price * (svc.qty || 1), 0)
+              setSplitItemModal({ total })
+            }}
+            className="px-4 py-2.5 rounded-full bg-[#b3001e] hover:bg-red-700 text-white text-sm font-semibold shadow-2xl flex items-center gap-2"
+          >
+            <Users size={14} /> Dividir por plato
+          </button>
+        </div>
       )}
 
       {cobrarModal && (
@@ -962,6 +1069,26 @@ export default function RestaurantPOS() {
           totalAmount={splitModal.total}
           onClose={() => setSplitModal(null)}
           onPay={handleSplitPay}
+        />
+      )}
+
+      {splitItemModal && (
+        <SplitByItemModal
+          open={true}
+          items={activeTicket?.items || []}
+          guestsCount={activeTicket?.guests || 2}
+          tipAmount={cobrarModal?.tipAmount || 0}
+          onClose={() => setSplitItemModal(null)}
+          onPay={async (parts, assignment) => {
+            // Stamp guest_number onto each item from the assignment map so the
+            // downstream ticket_items rows carry per-guest attribution.
+            setActiveTicket(t => t && {
+              ...t,
+              items: t.items.map(it => ({ ...it, guest_number: (assignment[it.local_id] ?? 0) + 1 })),
+            })
+            await handleSplitPay(parts)
+            setSplitItemModal(null)
+          }}
         />
       )}
     </div>

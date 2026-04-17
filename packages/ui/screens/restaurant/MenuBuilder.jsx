@@ -459,6 +459,9 @@ function ItemModal({ editing, categorias, onClose, onSave }) {
     course:        editing?.course        || '',
     printer_route: editing?.printer_route || 'kitchen',
     station:       editing?.station       || '',
+    happy_hour_price: editing?.happy_hour_price ?? '',
+    happy_hour_start: editing?.happy_hour_start || '',
+    happy_hour_end:   editing?.happy_hour_end   || '',
     active:        editing ? (editing.active === 1 || editing.active === true) : true,
   })
   const [saving, setSaving] = useState(false)
@@ -482,6 +485,9 @@ function ItemModal({ editing, categorias, onClose, onSave }) {
         course:        form.course || null,
         printer_route: form.printer_route || 'receipt',
         station:       form.station.trim() || null,
+        happy_hour_price: form.happy_hour_price === '' ? null : (parseFloat(form.happy_hour_price) || 0),
+        happy_hour_start: form.happy_hour_start || null,
+        happy_hour_end:   form.happy_hour_end   || null,
         active:        form.active ? 1 : 0,
       }
       if (editing?.id) await api.services.update(editing.id, payload)
@@ -557,6 +563,32 @@ function ItemModal({ editing, categorias, onClose, onSave }) {
               placeholder="Ej: Parrilla, Fríos…"
               className={inputCls} />
           </Field>
+        </div>
+
+        {/* Happy Hour — optional time-bounded discount. Leave price blank to disable. */}
+        <div className="bg-black/40 border border-white/10 rounded-xl p-3">
+          <div className="text-xs font-semibold text-white/70 uppercase tracking-wide mb-2">Happy Hour (opcional)</div>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Precio HH (RD$)">
+              <input type="number" min="0" step="0.01" value={form.happy_hour_price}
+                onChange={e => set('happy_hour_price', e.target.value)}
+                placeholder="—"
+                className={inputCls} />
+            </Field>
+            <Field label="Inicio (HH:MM)">
+              <input type="time" value={form.happy_hour_start}
+                onChange={e => set('happy_hour_start', e.target.value)}
+                className={inputCls} />
+            </Field>
+            <Field label="Fin (HH:MM)">
+              <input type="time" value={form.happy_hour_end}
+                onChange={e => set('happy_hour_end', e.target.value)}
+                className={inputCls} />
+            </Field>
+          </div>
+          <p className="text-[11px] text-white/40 mt-1.5">
+            Ventana horaria que cruza medianoche es válida (ej: 22:00 → 02:00). Deja el precio en blanco para desactivar.
+          </p>
         </div>
 
         <div className="flex items-center gap-5 pt-1 flex-wrap">

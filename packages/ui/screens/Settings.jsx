@@ -7,7 +7,7 @@ import {
   Pencil, Check, KeyRound, Printer, Server, X, Lock,
   Cloud, CloudUpload, RotateCcw, AlertTriangle, RefreshCw,
   ShieldCheck, FileText, Download, FolderOpen,
-  Car, Store, Briefcase, CarFront, UtensilsCrossed, LayoutGrid,
+  Car, Store, Briefcase, CarFront, UtensilsCrossed, LayoutGrid, Wine,
 } from 'lucide-react'
 import { useRNC } from '../hooks/useRNC'
 import { useAuth } from '../context/AuthContext'
@@ -38,7 +38,6 @@ const NAV = [
     group: 'Empleados',
     items: [
       { key: 'empleados',  label: 'Maestro Empleados',   icon: UserCheck    },
-      { key: 'lavadores',  label: 'Lavadores',           icon: UserCheck    },
       { key: 'vendedores', label: 'Vendedores',          icon: Users        },
       { key: 'asistencia', label: 'Asistencia',          icon: CalendarCheck},
       { key: 'avances',    label: 'Avances de Sueldo',   icon: WalletCards  },
@@ -69,10 +68,23 @@ const NAV = [
       { key: 'tasas',      label: 'Tasas y Monedas',     icon: BadgeDollarSign },
     ],
   },
+  // Licorería-only — conditionally filtered in the Settings component below.
+  {
+    group: 'Licorería',
+    items: [
+      { key: 'licoreria',  label: 'Licorería',           icon: Wine, licoreriaOnly: true },
+    ],
+  },
+  // Restaurante-only
+  {
+    group: 'Restaurante',
+    items: [
+      { key: 'restaurante', label: 'Restaurante',        icon: Wine, restaurantOnly: true },
+    ],
+  },
 ]
 
 const INIT_USERS   = []
-const INIT_WASHERS = []
 const INIT_NCF     = []
 
 // ── Permissions matrix ────────────────────────────────────────────────────────
@@ -446,57 +458,9 @@ function PanelPermisos({ onSave }) {
   )
 }
 
-function PanelLavadores({ onSave }) {
-  const [washers, setWashers] = useState(INIT_WASHERS)
-  function setComm(id, v) { setWashers(ws => ws.map(w => w.id === id ? { ...w, comm: Number(v) } : w)) }
-  function toggleStatus(id) { setWashers(ws => ws.map(w => w.id === id ? { ...w, status: w.status === 'activo' ? 'inactivo' : 'activo' } : w)) }
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <SectionLabel>Lavadores</SectionLabel>
-        <button className="flex items-center gap-1.5 text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700">
-          <Plus size={13} /> Nuevo lavador
-        </button>
-      </div>
-      <div className="rounded-xl border border-slate-100 dark:border-white/10 overflow-hidden">
-        <div className="flex items-center px-4 py-2 bg-slate-50 dark:bg-white/5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/40">
-          <span className="flex-1">Nombre</span>
-          <span className="w-28 text-center">Comisión %</span>
-          <span className="w-28">Desde</span>
-          <span className="w-20 text-center">Estado</span>
-        </div>
-        {washers.map(w => (
-          <div key={w.id} className="flex items-center px-4 h-12 border-t border-slate-50 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/10">
-            <div className="flex items-center gap-2 flex-1">
-              <div className="w-7 h-7 rounded-full bg-sky-100 flex items-center justify-center text-[11px] font-bold text-sky-600">
-                {initials(w.name)}
-              </div>
-              <span className="text-sm text-slate-800 dark:text-white">{w.name}</span>
-            </div>
-            <div className="w-28 flex justify-center">
-              <div className="relative w-20">
-                <input
-                  type="number"
-                  value={w.comm}
-                  onChange={e => setComm(w.id, e.target.value)}
-                  className="w-full border border-slate-200 dark:border-white/10 rounded-lg pr-5 pl-2 py-1 text-sm text-right bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400"
-                />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 dark:text-white/40">%</span>
-              </div>
-            </div>
-            <span className="w-28 text-xs text-slate-500 dark:text-white/60">{w.start}</span>
-            <div className="w-20 flex justify-center">
-              <button onClick={() => toggleStatus(w.id)} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${w.status === 'activo' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-white/60'}`}>
-                {w.status}
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="mt-4 flex justify-end"><SaveBtn onClick={onSave} /></div>
-    </div>
-  )
-}
+// PanelLavadores removed in v2.1 — employee management consolidated into the
+// top-level "Empleados" sidebar route (packages/ui/screens/reports/nomina/
+// NominaEmpleados.jsx). See CLAUDE.md "Employee consolidation".
 
 function PanelObjetivos({ onSave }) {
   const [vals, setVals] = useState({ diario: 8000, semanal: 48000, quincenal: 95000, mensual: 190000, anual: 2200000 })
@@ -1344,13 +1308,141 @@ function PanelTipoNegocio({ onSave }) {
 }
 
 // ── Panel router ──────────────────────────────────────────────────────────────
+// ── Panel: Licorería preferences ──────────────────────────────────────────────
+function PanelLicoreria({ onSave }) {
+  const api = useAPI()
+  const [s, setS] = useState({
+    licoreria_age_verify_enabled: '1',
+    licoreria_age_min:            '18',
+    licoreria_bottle_deposit_enabled: '1',
+    licoreria_bottle_deposit_default: '5',
+  })
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    api?.settings?.get?.().then(cur => {
+      setS(prev => ({
+        ...prev,
+        ...Object.fromEntries(Object.keys(prev).map(k => [k, cur?.[k] ?? prev[k]])),
+      }))
+      setLoaded(true)
+    }).catch(() => setLoaded(true))
+  }, [api])
+
+  function upd(k, v) { setS(prev => ({ ...prev, [k]: v })) }
+
+  async function save() {
+    await api?.settings?.update?.(s)
+    onSave?.()
+  }
+
+  if (!loaded) return null
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Wine size={18} className="text-[#b3001e]" />
+          <h3 className="font-bold text-slate-800 dark:text-white">Verificación de Edad</h3>
+        </div>
+        <p className="text-xs text-slate-500 dark:text-white/50 mb-4">
+          Ley 42-01 — prohíbe la venta de alcohol a menores de 18 años. Al activar esta opción el cajero debe confirmar edad del cliente cada vez que se añade un producto restringido al carrito.
+        </p>
+        <Toggle on={s.licoreria_age_verify_enabled === '1'}
+          onToggle={() => upd('licoreria_age_verify_enabled', s.licoreria_age_verify_enabled === '1' ? '0' : '1')}
+          label="Exigir verificación de edad al vender alcohol" />
+        <FieldRow label="Edad mínima">
+          <SmInput type="number" value={s.licoreria_age_min} onChange={v => upd('licoreria_age_min', v)} />
+        </FieldRow>
+      </div>
+
+      <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Wine size={18} className="text-[#b3001e]" />
+          <h3 className="font-bold text-slate-800 dark:text-white">Depósito de Botellas</h3>
+        </div>
+        <p className="text-xs text-slate-500 dark:text-white/50 mb-4">
+          El depósito se añade como línea separada al cobrar. El monto por producto se configura en Inventario; este valor aplica como sugerencia por defecto para productos nuevos.
+        </p>
+        <Toggle on={s.licoreria_bottle_deposit_enabled === '1'}
+          onToggle={() => upd('licoreria_bottle_deposit_enabled', s.licoreria_bottle_deposit_enabled === '1' ? '0' : '1')}
+          label="Cobrar depósito de botellas" />
+        <FieldRow label="Monto sugerido (RD$)">
+          <SmInput type="number" value={s.licoreria_bottle_deposit_default} onChange={v => upd('licoreria_bottle_deposit_default', v)} />
+        </FieldRow>
+      </div>
+
+      <SaveBtn onClick={save} />
+    </div>
+  )
+}
+
+function PanelRestaurante({ onSave }) {
+  const api = useAPI()
+  const [s, setS] = useState({
+    restaurant_happy_hour_enabled: '1',
+    restaurant_auto_gratuity_pct:  '',
+    restaurant_auto_gratuity_min_guests: '6',
+  })
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    api?.settings?.get?.().then(cur => {
+      setS(prev => ({
+        ...prev,
+        ...Object.fromEntries(Object.keys(prev).map(k => [k, cur?.[k] ?? prev[k]])),
+      }))
+      setLoaded(true)
+    }).catch(() => setLoaded(true))
+  }, [api])
+
+  function upd(k, v) { setS(prev => ({ ...prev, [k]: v })) }
+  async function save() { await api?.settings?.update?.(s); onSave?.() }
+
+  if (!loaded) return null
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Wine size={18} className="text-[#b3001e]" />
+          <h3 className="font-bold text-slate-800 dark:text-white">Happy Hour</h3>
+        </div>
+        <p className="text-xs text-slate-500 dark:text-white/50 mb-4">
+          Cuando está activo, los platos con precio y ventana de Happy Hour configurados en Menú aplican automáticamente dentro de su horario. Útil para 2x1, bar-nights y especiales de almuerzo.
+        </p>
+        <Toggle on={s.restaurant_happy_hour_enabled === '1'}
+          onToggle={() => upd('restaurant_happy_hour_enabled', s.restaurant_happy_hour_enabled === '1' ? '0' : '1')}
+          label="Aplicar precios de Happy Hour automáticamente" />
+      </div>
+
+      <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Wine size={18} className="text-[#b3001e]" />
+          <h3 className="font-bold text-slate-800 dark:text-white">Propina sugerida para grupos</h3>
+        </div>
+        <p className="text-xs text-slate-500 dark:text-white/50 mb-4">
+          Sugerencia (no obligatoria) — mesas con N o más comensales mostrarán este porcentaje preseleccionado en el modal de propina. Deja el porcentaje vacío para no sugerir nada.
+        </p>
+        <FieldRow label="Porcentaje sugerido (%)">
+          <SmInput type="number" value={s.restaurant_auto_gratuity_pct} onChange={v => upd('restaurant_auto_gratuity_pct', v)} placeholder="Ej. 18" />
+        </FieldRow>
+        <FieldRow label="A partir de N comensales">
+          <SmInput type="number" value={s.restaurant_auto_gratuity_min_guests} onChange={v => upd('restaurant_auto_gratuity_min_guests', v)} />
+        </FieldRow>
+      </div>
+
+      <SaveBtn onClick={save} />
+    </div>
+  )
+}
+
 function PanelContent({ active, onSave }) {
   switch (active) {
     case 'tipo_negocio': return <PanelTipoNegocio onSave={onSave} />
+    case 'licoreria':  return <PanelLicoreria  onSave={onSave} />
+    case 'restaurante': return <PanelRestaurante onSave={onSave} />
     case 'empresa':    return <PanelEmpresa    onSave={onSave} />
     case 'usuarios':   return <PanelUsuarios   onSave={onSave} />
     case 'permisos':   return <PanelPermisos   onSave={onSave} />
-    case 'lavadores':  return <PanelLavadores  onSave={onSave} />
     case 'objetivos':  return <PanelObjetivos  onSave={onSave} />
     case 'ncf':        return <PanelNCF        onSave={onSave} />
     case 'ecf':        return <PanelECF        onSave={onSave} />
@@ -1369,10 +1461,19 @@ function PanelContent({ active, onSave }) {
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function Settings() {
   const { user } = useAuth()
+  const { isLicoreria, isRestaurant, isHybrid } = useBusinessType()
   const [active, setActive] = useState('empresa')
   const [toast, setToast]   = useState(null)
 
-  const allItems = NAV.flatMap(g => g.items)
+  // Hide vertical-specific groups that don't apply to the active business.
+  const filteredNav = NAV
+    .map(g => ({ ...g, items: g.items.filter(i =>
+      (!i.licoreriaOnly  || isLicoreria) &&
+      (!i.restaurantOnly || isRestaurant || isHybrid)
+    ) }))
+    .filter(g => g.items.length > 0)
+
+  const allItems = filteredNav.flatMap(g => g.items)
   const activeItem = allItems.find(i => i.key === active)
 
   function handleSave() {
@@ -1414,7 +1515,7 @@ export default function Settings() {
           <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-white/40">Ajustes</p>
         </div>
         <nav className="flex-1 py-2">
-          {NAV.map(group => (
+          {filteredNav.map(group => (
             <div key={group.group} className="mb-1">
               <p className="px-4 pt-3 pb-1 text-[9px] font-bold uppercase tracking-widest text-slate-300 dark:text-white/30">
                 {group.group}

@@ -2769,20 +2769,103 @@ export function createWebAPI(supabase, businessId) {
 
     workOrders: {
       list: (params) => tryOr(async () => {
-        let q = supabase.from('work_orders').select('*, vehicles(plate,make,model), clients(name), empleados!technician_empleado_id(nombre)').eq('business_id', bid)
+        let q = supabase.from('work_orders').select('*, vehicles(plate,make,model,odometer_km), clients(name), empleados!technician_empleado_id(nombre), work_order_items(*)').eq('business_id', bid)
         if (params?.status) q = q.eq('status', params.status)
-        return throwSupaError(await q.order('created_at', { ascending: false }))
+        const rows = throwSupaError(await q.order('created_at', { ascending: false }))
+        return (rows || []).map(r => ({
+          ...r,
+          plate: r.vehicles?.plate || null,
+          make: r.vehicles?.make || null,
+          model: r.vehicles?.model || null,
+          client_name: r.clients?.name || null,
+          technician_name: r.empleados?.nombre || null,
+          items: (r.work_order_items || []).map(it => ({ ...it, qty: it.quantity })),
+        }))
       }, []),
-      getById: (id) => tryOr(async () => throwSupaError(await supabase.from('work_orders').select('*, vehicles(plate,make,model,vin,year,color), clients(name,phone,rnc)').eq('id', id).eq('business_id', bid).single())),
+      getById: (id) => tryOr(async () => throwSupaError(await supabase.from('work_orders').select('*, vehicles(plate,make,model,vin,year,color,odometer_km), clients(name,phone,rnc), work_order_items(*)').eq('id', id).eq('business_id', bid).single())),
       create: (data) => tryOr(async () => {
         const row = throwSupaError(await supabase.from('work_orders').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }).select('id').single())
         return row
       }),
       update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('work_orders').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      updateStatus: ({ id, status }) => tryWrite(async () => {
+        const patch = { status, updated_at: new Date().toISOString() }
+        if (status === 'completed' || status === 'closed' || status === 'facturado') patch.completed_date = new Date().toISOString()
+        throwSupaError(await supabase.from('work_orders').update(patch).eq('id', id).eq('business_id', bid))
+      }),
       setStatus: (id, status) => tryOr(async () => {
         const patch = { status, updated_at: new Date().toISOString() }
-        if (status === 'completed') patch.completed_date = new Date().toISOString()
+        if (status === 'completed' || status === 'closed') patch.completed_date = new Date().toISOString()
         throwSupaError(await supabase.from('work_orders').update(patch).eq('id', id).eq('business_id', bid))
+      }),
+      addItem: ({ work_order_id, type, name, qty, quantity, unit_price, description, warranty_months, inventory_item_id }) => tryWrite(async () => {
+        const q = Number(quantity ?? qty ?? 1)
+        const p = Number(unit_price) || 0
+        const { data: parent } = await supabase.from('work_orders').select('supabase_id').eq('id', work_order_id).eq('business_id', bid).single()
+        let invSid = null
+        if (inventory_item_id) {
+          const { data: inv } = await supabase.from('inventory_items').select('supabase_id').eq('id', inventory_item_id).eq('business_id', bid).single()
+          invSid = inv?.supabase_id || null
+        }
+        const row = throwSupaError(await supabase.from('work_order_items').insert({
+          supabase_id: crypto.randomUUID(), business_id: bid,
+          work_order_id, work_order_supabase_id: parent?.supabase_id || null,
+          type: type || 'labor', name, description: description || null,
+          quantity: q, unit_price: p, total: q * p, warranty_months: Number(warranty_months) || 0,
+          inventory_item_id: inventory_item_id || null, inventory_item_supabase_id: invSid,
+        }).select('id').single())
+        await recalcWorkOrderTotalsWeb(supabase, bid, work_order_id)
+        return row
+      }),
+      updateItem: ({ item_id, ...rest }) => tryWrite(async () => {
+        const patch = { ...rest, updated_at: new Date().toISOString() }
+        if (rest.quantity !== undefined || rest.unit_price !== undefined) {
+          const { data: cur } = await supabase.from('work_order_items').select('quantity,unit_price,work_order_id').eq('id', item_id).eq('business_id', bid).single()
+          const q = rest.quantity !== undefined ? Number(rest.quantity) : Number(cur.quantity)
+          const p = rest.unit_price !== undefined ? Number(rest.unit_price) : Number(cur.unit_price)
+          patch.total = q * p
+          throwSupaError(await supabase.from('work_order_items').update(patch).eq('id', item_id).eq('business_id', bid))
+          await recalcWorkOrderTotalsWeb(supabase, bid, cur.work_order_id)
+          return { id: item_id }
+        }
+        throwSupaError(await supabase.from('work_order_items').update(patch).eq('id', item_id).eq('business_id', bid))
+        return { id: item_id }
+      }),
+      deleteItem: ({ item_id }) => tryWrite(async () => {
+        const { data: cur } = await supabase.from('work_order_items').select('work_order_id').eq('id', item_id).eq('business_id', bid).single()
+        throwSupaError(await supabase.from('work_order_items').delete().eq('id', item_id).eq('business_id', bid))
+        if (cur?.work_order_id) await recalcWorkOrderTotalsWeb(supabase, bid, cur.work_order_id)
+      }),
+      saveInspection: ({ id, inspection }) => tryWrite(async () => {
+        throwSupaError(await supabase.from('work_orders').update({ inspection_json: inspection || {}, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+      }),
+      generateApprovalToken: ({ id }) => tryWrite(async () => {
+        const token = (crypto.randomUUID().replace(/-/g,'') + crypto.randomUUID().replace(/-/g,'').slice(0,16))
+        const { data: wo } = await supabase.from('work_orders').select('supabase_id').eq('id', id).eq('business_id', bid).single()
+        throwSupaError(await supabase.from('work_orders').update({ customer_approval_token: token, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        return { token, work_order_supabase_id: wo?.supabase_id || null }
+      }),
+      approveEstimate: ({ id, signature_url }) => tryWrite(async () => {
+        throwSupaError(await supabase.from('work_orders').update({ status: 'aprobado', estimate_approved_at: new Date().toISOString(), customer_signature_url: signature_url || null, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+      }),
+      setPartsOrder: ({ id, expected_parts_arrival }) => tryWrite(async () => {
+        throwSupaError(await supabase.from('work_orders').update({ status: 'awaiting_parts', expected_parts_arrival: expected_parts_arrival || null, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+      }),
+      close: ({ id, odometer_out_km }) => tryWrite(async () => {
+        const patch = { status: 'closed', completed_date: new Date().toISOString(), updated_at: new Date().toISOString() }
+        if (odometer_out_km != null) patch.odometer_out_km = Number(odometer_out_km)
+        throwSupaError(await supabase.from('work_orders').update(patch).eq('id', id).eq('business_id', bid))
+        if (odometer_out_km != null) {
+          const { data: wo } = await supabase.from('work_orders').select('vehicle_id').eq('id', id).eq('business_id', bid).single()
+          if (wo?.vehicle_id) {
+            const km = Number(odometer_out_km)
+            const next = new Date(Date.now() + 1000*60*60*24*180).toISOString()
+            await supabase.from('vehicles').update({
+              odometer_km: km, last_service_km: km, last_service_at: new Date().toISOString(),
+              next_service_km: km + 5000, next_service_at: next, updated_at: new Date().toISOString(),
+            }).eq('id', wo.vehicle_id).eq('business_id', bid)
+          }
+        }
       }),
       delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('work_orders').delete().eq('id', id).eq('business_id', bid)) }),
     },
