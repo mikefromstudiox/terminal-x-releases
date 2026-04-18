@@ -11,17 +11,17 @@ import { printCuadreCaja } from '@terminal-x/services/printer'
 
 // ── Denomination rows ─────────────────────────────────────────────────────────
 const BILLS = [
-  { label: 'RD$2,000', value: 2000 },
-  { label: 'RD$1,000', value: 1000 },
-  { label: 'RD$500',   value: 500  },
-  { label: 'RD$200',   value: 200  },
-  { label: 'RD$100',   value: 100  },
-  { label: 'RD$50',    value: 50   },
-  { label: 'RD$25',    value: 25   },
-  { label: 'RD$20',    value: 20   },
-  { label: 'RD$10',    value: 10   },
-  { label: 'RD$5',     value: 5    },
-  { label: 'RD$1',     value: 1    },
+  { label: '2,000', value: 2000 },
+  { label: '1,000', value: 1000 },
+  { label: '500',   value: 500  },
+  { label: '200',   value: 200  },
+  { label: '100',   value: 100  },
+  { label: '50',    value: 50   },
+  { label: '25',    value: 25   },
+  { label: '20',    value: 20   },
+  { label: '10',    value: 10   },
+  { label: '5',     value: 5    },
+  { label: '1',     value: 1    },
 ]
 
 const EMPTY_QTY = Object.fromEntries(BILLS.map(b => [b.value, 0]))
@@ -77,14 +77,14 @@ function SmallInput({ value, onChange, className = '' }) {
 function RightInput({ label, value, onChange }) {
   return (
     <div className="flex items-center justify-between gap-2 py-1">
-      <span className="text-sm text-slate-600 dark:text-white/60 truncate">{label}</span>
+      <span className="text-base font-bold text-slate-800 dark:text-white whitespace-nowrap flex-1">{label}</span>
       <input
         type="number"
         min="0"
         value={value || ''}
         onChange={e => onChange(Number(e.target.value) || 0)}
         placeholder="0"
-        className="w-28 text-right border border-slate-200 dark:border-white/10 rounded px-2 py-1 md:py-0.5 text-sm min-h-[44px] md:min-h-0 dark:bg-white/5 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+        className="w-24 flex-shrink-0 text-right border border-slate-200 dark:border-white/10 rounded px-2 py-1 text-sm tabular-nums dark:bg-white/5 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400"
       />
     </div>
   )
@@ -633,7 +633,7 @@ export default function CashReconciliation() {
               const amount = b.value * (qty[b.value] || 0)
               return (
                 <div key={b.value} className="flex items-center justify-between py-0.5">
-                  <span className="text-sm text-slate-700 dark:text-white flex-1">{b.label}</span>
+                  <span className="text-lg font-bold text-slate-800 dark:text-white flex-1 tabular-nums">{b.label}</span>
                   <SmallInput
                     value={qty[b.value] || 0}
                     onChange={v => setQty(q => ({ ...q, [b.value]: v }))}

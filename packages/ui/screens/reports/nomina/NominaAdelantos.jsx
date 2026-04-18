@@ -8,7 +8,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import {
   HandCoins, Plus, X, Search, Filter, AlertCircle, Check, Ban,
-  Calendar, Users, DollarSign,
+  Calendar, Users, DollarSign, User, FileText, Wallet, Loader2,
 } from 'lucide-react'
 import { useAuth } from '../../../context/AuthContext'
 import { useAPI } from '../../../context/DataContext'
@@ -102,7 +102,11 @@ export default function NominaAdelantos() {
       setShowModal(false)
       await loadAll()
       showToast(L('Adelanto registrado', 'Advance recorded'))
-    } catch (e) { showToast(e?.message || L('Error al registrar', 'Error recording'), 'error') }
+      return true
+    } catch (e) {
+      showToast(e?.message || L('Error al registrar', 'Error recording'), 'error')
+      return false
+    }
   }
 
   if (loading) {
@@ -120,18 +124,29 @@ export default function NominaAdelantos() {
           <MetricCard icon={HandCoins} label={L('Adelantos Pendientes', 'Pending Advances')} value={String(metrics.pendingCount)} accent="violet" />
         </div>
 
-        {/* ── Filters + New button ───────────────────────────────────── */}
-        <div className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-4">
-          <div className="flex flex-col md:flex-row md:items-center gap-3">
-            {/* Search */}
-            <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg flex-1 min-w-0 focus-within:border-sky-400">
-              <Search size={13} className="text-slate-400 dark:text-white/40 shrink-0" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder={L('Buscar...', 'Search...')}
-                className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-slate-700 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40" />
-            </div>
+        {/* ── Unified panel: Form + Filters + Table ── */}
+        <div className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl shadow-sm overflow-hidden">
 
-            {/* Status filter */}
-            <div className="flex gap-1 flex-wrap">
+          {/* Section 1: Entry form */}
+          <InlineAdelantoForm
+            embedded
+            empleados={empleados}
+            user={user}
+            lang={lang}
+            onSave={handleCreate}
+            api={api}
+          />
+
+          {/* Section 2: Filters toolbar */}
+          <div className="border-t border-slate-200 dark:border-white/10 p-3 space-y-2 bg-slate-50/60 dark:bg-white/[0.02]">
+          {/* Row 1: Search (flex) + status pills (nowrap) */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 h-11 px-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg flex-1 min-w-[180px] focus-within:ring-2 focus-within:ring-blue-400">
+              <Search size={14} className="text-slate-400 dark:text-white/40 shrink-0" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder={L('Buscar...', 'Search...')}
+                className="flex-1 min-w-0 bg-transparent outline-none text-sm text-slate-700 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40" />
+            </div>
+            <div className="flex gap-1 shrink-0">
               {[
                 { id: 'all',        label: L('Todos', 'All') },
                 { id: 'pendiente',  label: L('Pendiente', 'Pending') },
@@ -139,37 +154,30 @@ export default function NominaAdelantos() {
                 { id: 'cancelado',  label: L('Cancelado', 'Cancelled') },
               ].map(f => (
                 <button key={f.id} onClick={() => setFilterStatus(f.id)}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors border ${
+                  className={`h-11 px-3 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors border ${
                     filterStatus === f.id
-                      ? 'bg-slate-800 text-white dark:bg-white dark:text-black border-slate-800 dark:border-white'
+                      ? 'bg-black text-white dark:bg-white dark:text-black border-black dark:border-white'
                       : 'bg-white dark:bg-white/5 text-slate-500 dark:text-white/60 border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/10'
                   }`}>{f.label}</button>
               ))}
             </div>
-
-            {/* Employee filter */}
+          </div>
+          {/* Row 2: Employee dropdown + date range */}
+          <div className="flex items-center gap-2 flex-wrap">
             <select value={filterEmpleado} onChange={e => setFilterEmpleado(e.target.value)}
-              className="px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[12px] bg-white dark:bg-white/5 text-slate-700 dark:text-white">
+              className="h-11 px-3 border border-slate-200 dark:border-white/10 rounded-lg text-sm bg-white dark:bg-white/5 text-slate-700 dark:text-white flex-1 min-w-[180px] focus:outline-none focus:ring-2 focus:ring-blue-400">
               <option value="">{L('Todos los empleados', 'All employees')}</option>
               {empleados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
             </select>
-
-            {/* Date range */}
             <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
-              className="px-2 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] bg-white dark:bg-white/5 dark:text-white w-[130px]" />
+              className="h-11 px-2 border border-slate-200 dark:border-white/10 rounded-lg text-xs bg-white dark:bg-white/5 dark:text-white w-[140px] focus:outline-none focus:ring-2 focus:ring-blue-400" />
             <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
-              className="px-2 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] bg-white dark:bg-white/5 dark:text-white w-[130px]" />
-
-            {/* New button */}
-            <button onClick={() => setShowModal(true)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors shrink-0">
-              <Plus size={14} /> {L('Nuevo Adelanto', 'New Advance')}
-            </button>
+              className="h-11 px-2 border border-slate-200 dark:border-white/10 rounded-lg text-xs bg-white dark:bg-white/5 dark:text-white w-[140px] focus:outline-none focus:ring-2 focus:ring-blue-400" />
           </div>
-        </div>
+          </div>
 
-        {/* ── Table ──────────────────────────────────────────────────── */}
-        <div className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden">
+          {/* Section 3: Table */}
+          <div className="border-t border-slate-200 dark:border-white/10">
           {/* Desktop table */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-[12px]">
@@ -260,20 +268,9 @@ export default function NominaAdelantos() {
               )
             })}
           </div>
+          </div>
         </div>
       </div>
-
-      {/* ── New Adelanto Modal ───────────────────────────────────────── */}
-      {showModal && (
-        <AdelantoModal
-          empleados={empleados}
-          user={user}
-          lang={lang}
-          onSave={handleCreate}
-          onClose={() => setShowModal(false)}
-          api={api}
-        />
-      )}
 
       {/* Toast */}
       {toast && (
@@ -287,7 +284,193 @@ export default function NominaAdelantos() {
   )
 }
 
-// ── New Adelanto Modal ──────────────────────────────────────────────────────────
+// ── Inline Adelanto Form (middle section) ───────────────────────────────────────
+function InlineAdelantoForm({ empleados, user, lang, onSave, api, embedded = false }) {
+  const L = (es, en) => lang === 'es' ? es : en
+
+  const [empleadoId,  setEmpleadoId]  = useState('')
+  const [amount,      setAmount]      = useState('')
+  const [notes,       setNotes]       = useState('')
+  const [saving,      setSaving]      = useState(false)
+  const [pendingInfo, setPendingInfo] = useState(null)
+
+  useEffect(() => {
+    if (!empleadoId) { setPendingInfo(null); return }
+    let cancelled = false
+    Promise.resolve(api?.adelantos?.pendingTotal?.(Number(empleadoId)) || 0)
+      .then(total => { if (!cancelled) setPendingInfo({ total }) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [empleadoId])
+
+  const selectedEmp = empleados.find(e => String(e.id) === empleadoId)
+  const salary = selectedEmp?.salary || 0
+  const amtNum = Number(amount) || 0
+  const totalWithNew = (pendingInfo?.total || 0) + amtNum
+  const warnHigh = salary > 0 && totalWithNew > salary * 0.5
+  const formValid = empleadoId && amtNum > 0
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!formValid) return
+    setSaving(true)
+    try {
+      const ok = await onSave({
+        empleado_id: Number(empleadoId),
+        amount: amtNum,
+        notes: notes.trim() || null,
+        approved_by: user?.name || user?.username || null,
+      })
+      if (ok) { setEmpleadoId(''); setAmount(''); setNotes(''); setPendingInfo(null) }
+    } finally { setSaving(false) }
+  }
+
+  function handleReset() {
+    setEmpleadoId(''); setAmount(''); setNotes(''); setPendingInfo(null)
+  }
+
+  return (
+    <form onSubmit={handleSubmit}
+      className={embedded
+        ? 'p-4 md:p-5'
+        : 'bg-white dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10 shadow-sm p-4 md:p-5'
+      }>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <HandCoins size={15} className="text-[#b3001e]" />
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-white">
+            {L('Registrar adelanto', 'Record advance')}
+          </h3>
+        </div>
+        {selectedEmp && salary > 0 && (
+          <span className="text-[11px] text-slate-400 dark:text-white/40 tabular-nums">
+            {L('Salario', 'Salary')}: <span className="font-semibold text-slate-600 dark:text-white/70">{fmtRD(salary)}</span>
+          </span>
+        )}
+      </div>
+
+      {/* Grid: 12-col on md+ */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+        {/* Empleado (5) */}
+        <div className="md:col-span-5">
+          <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/50 mb-1">
+            {L('Empleado', 'Employee')}
+          </label>
+          <div className="relative">
+            <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 pointer-events-none" />
+            <select
+              value={empleadoId}
+              onChange={e => setEmpleadoId(e.target.value)}
+              required
+              className="w-full h-11 pl-10 pr-3 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none"
+            >
+              <option value="">{L('Seleccionar empleado…', 'Select employee…')}</option>
+              {empleados.filter(e => e.active !== 0).map(e => (
+                <option key={e.id} value={e.id}>{e.nombre}{e.tipo ? ` — ${e.tipo}` : ''}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Monto (3) */}
+        <div className="md:col-span-3">
+          <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/50 mb-1">
+            {L('Monto', 'Amount')}
+          </label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400 dark:text-white/40 pointer-events-none">RD$</span>
+            <input
+              type="number"
+              min="1"
+              step="0.01"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              placeholder="0.00"
+              required
+              className="w-full h-11 pl-12 pr-3 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white rounded-lg text-sm text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+          </div>
+        </div>
+
+        {/* Notas (4) */}
+        <div className="md:col-span-4">
+          <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/50 mb-1">
+            {L('Motivo / Notas', 'Reason / Notes')}
+          </label>
+          <div className="relative">
+            <FileText size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 pointer-events-none" />
+            <input
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder={L('Opcional', 'Optional')}
+              className="w-full h-11 pl-10 pr-3 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white rounded-lg text-sm text-slate-700 placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Footer row — pending pill + actions */}
+      <div className="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-4 border-t border-slate-100 dark:border-white/10">
+        {/* Pending / warning pill */}
+        <div className={`rounded-xl flex items-center gap-3 px-3 py-2 text-sm transition flex-wrap ${
+          warnHigh
+            ? 'bg-red-50 border border-red-200 dark:bg-red-500/10 dark:border-red-500/20'
+            : (pendingInfo?.total || 0) > 0
+              ? 'bg-amber-50 border border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/20'
+              : 'bg-slate-50 border border-slate-100 dark:bg-white/5 dark:border-white/10'
+        }`}>
+          <div className="flex items-center gap-1.5">
+            <Wallet size={13} className="text-slate-400 dark:text-white/50" />
+            <span className="text-xs text-slate-500 dark:text-white/50">{L('Pendiente actual', 'Current pending')}</span>
+            <span className="font-semibold tabular-nums text-slate-700 dark:text-white">
+              {fmtRD(pendingInfo?.total || 0)}
+            </span>
+          </div>
+          {amtNum > 0 && (
+            <>
+              <span className="text-slate-300 dark:text-white/30">→</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-500 dark:text-white/50">{L('Total', 'Total')}</span>
+                <span className={`font-bold tabular-nums ${warnHigh ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-white'}`}>
+                  {fmtRD(totalWithNew)}
+                </span>
+              </div>
+              {warnHigh && (
+                <span className="text-xs text-red-500 dark:text-red-400 flex items-center gap-1">
+                  <AlertCircle size={11} /> {L('Supera 50% del salario', 'Exceeds 50% of salary')}
+                </span>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleReset}
+            disabled={!empleadoId && !amount && !notes}
+            className="flex-1 md:flex-none flex items-center justify-center gap-1.5 h-11 px-4 rounded-lg border border-slate-200 dark:border-white/10 text-sm text-slate-600 dark:text-white/70 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+          >
+            <X size={14} />
+            {L('Limpiar', 'Clear')}
+          </button>
+          <button
+            type="submit"
+            disabled={!formValid || saving}
+            className="flex-1 md:flex-none h-11 px-5 rounded-lg bg-black text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap flex items-center justify-center gap-1.5"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+            {saving ? L('Registrando…', 'Recording…') : L('Registrar adelanto', 'Record advance')}
+          </button>
+        </div>
+      </div>
+    </form>
+  )
+}
+
+// ── New Adelanto Modal (legacy — kept for back-compat) ──────────────────────────
 function AdelantoModal({ empleados, user, lang, onSave, onClose, api }) {
   const L = (es, en) => lang === 'es' ? es : en
 

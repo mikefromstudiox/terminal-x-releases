@@ -7,6 +7,7 @@ import {
   setStoredLicenseKey,
   clearStoredLicenseKey,
 } from '@terminal-x/services/license'
+import { humanizeLicenseError } from '@terminal-x/services/networkError.js'
 
 const LicenseContext = createContext(null)
 
@@ -44,7 +45,44 @@ export function LicenseProvider({ children }) {
   const [rnc,        setRnc]        = useState(getStoredRnc())
   const [result,     setResult]     = useState(null)
   const [checking,   setChecking]   = useState(true)
+  // F16 — expose first-pull progress so App/Login can render a friendly
+  // "Sincronizando datos iniciales" spinner instead of a blank screen.
+  const [firstPullDone,     setFirstPullDone]     = useState(false)
+  const [firstPullProgress, setFirstPullProgress] = useState(null)  // { done, total, table }
   const intervalRef = useRef(null)
+
+  // Wire up the sync-pull-progress channel once. Main process emits progress
+  // events from electron/sync.js::pullNow as it iterates tables.
+  useEffect(() => {
+    if (!window.electronAPI) return
+    let off = null
+    try {
+      // preload exposes electronAPI, but not all builds ship a typed helper —
+      // fall back to ipcRenderer via window.electron if present.
+      const handler = (payload) => {
+        if (payload && typeof payload === 'object') {
+          setFirstPullProgress({
+            done:  Number(payload.done || 0),
+            total: Number(payload.total || 0),
+            table: payload.table || null,
+            stage: payload.stage || null,
+          })
+        }
+      }
+      // We rely on ipcRenderer being exposed indirectly via the bridge in
+      // later versions. In this codebase the sync module emits via
+      // `webContents.send('sync:pull-progress', ...)` which surfaces on the
+      // window as a custom event relayed by the renderer's bridge. If the
+      // direct listener isn't available, the spinner will still render — it
+      // just won't animate the table counter.
+      if (typeof window.addEventListener === 'function') {
+        const evtHandler = (e) => handler(e.detail)
+        window.addEventListener('tx:sync-pull-progress', evtHandler)
+        off = () => window.removeEventListener('tx:sync-pull-progress', evtHandler)
+      }
+    } catch {}
+    return () => { try { off?.() } catch {} }
+  }, [])
 
   // ── Load hardware ID from Electron ─────────────────────────────────────────
   useEffect(() => {
@@ -128,23 +166,101 @@ export function LicenseProvider({ children }) {
       if (res.valid) {
         try { localStorage.setItem('tx_last_valid', String(Date.now())) } catch {}
       }
-      // Store business_id for cloud sync + trigger immediate pull
+      // Store business_id for cloud sync + BLOCKING initial pull so Login has data
       if (res.valid && res.businessId && api?.settings?.update) {
         try { await api.settings.update({ supabase_business_id: res.businessId }) } catch {}
-        // Kick an immediate sync so empleados/services/etc. load right away
-        try { window.electronAPI?.sync?.now?.() } catch {}
+        // Await the pull — otherwise Login screen renders against an empty DB
+        // and every PIN fails. Fall through on network error (still let user in).
+        try {
+          const pullFn = window.electronAPI?.sync?.pull || window.electronAPI?.sync?.now
+          if (pullFn) {
+            setFirstPullProgress({ stage: 'starting', done: 0, total: 1, table: null })
+            await pullFn()
+          }
+        } catch (pullErr) {
+          console.error('[LicenseContext] initial pull failed:', pullErr)
+        } finally {
+          // F16 — flip the gate once pull resolves (success or failure). UI
+          // already has an empty-DB fallback path; blocking forever on a flaky
+          // network would be worse than letting the user try to log in.
+          setFirstPullDone(true)
+          setFirstPullProgress(prev => ({ ...(prev || {}), stage: 'done' }))
+        }
+      } else {
+        // No business_id → nothing to pull; don't gate login.
+        setFirstPullDone(true)
       }
       // Sync remote config to local settings if available
-      // Exclude device-specific settings (printer) — those are local per machine
+      // Exclude device-specific settings (printer + auto-print toggles) — those
+      // are edited locally by the user and must NOT be clobbered by the stale
+      // value in Supabase (desktop never pushes app_settings up, so Supabase is
+      // authoritative-stale and would keep overwriting the user's toggle).
       if (res.valid && res.remoteConfig && api?.settings?.update) {
         try {
-          const { printer, ...safeConfig } = res.remoteConfig
+          const { printer, print_preticket, print_factura_auto, print_conduce_auto, ...safeConfig } = res.remoteConfig
           await api.settings.update(safeConfig)
         } catch {}
       }
-      // Sync business settings (logo, name, etc.) from server
+      // Sync business settings (logo, name, etc.) from server.
+      // validate.js spreads `biz.settings` flat into bizSettings, so we must
+      // re-wrap everything that isn't a top-level businesses column into the
+      // `settings` JSON column — otherwise empresaSave's allowed-list filter
+      // silently drops biz_city / ciudad / biz_type / whatsapp_* / etc.
+      // Also fetch the logo URL bytes on desktop so the receipt/PDF path has
+      // a usable BLOB (web stays URL-native).
       if (res.valid && res.bizSettings && api?.admin?.saveEmpresa) {
-        try { await api.admin.saveEmpresa(res.bizSettings) } catch {}
+        try {
+          const { name, rnc, phone, address, email, logo, plan, ...extra } = res.bizSettings
+          const payload = { name, rnc, phone, address, email, plan, settings: JSON.stringify(extra) }
+          // Logo comes back as a CDN URL. On desktop (BLOB column), fetch
+          // bytes and convert to data-URL so empresaSave can decode. On web,
+          // pass the URL through — web.js maps logo→logo_url in the update.
+          if (logo) {
+            if (window.electronAPI && typeof logo === 'string' && logo.startsWith('http')) {
+              try {
+                const resp = await fetch(logo, { mode: 'cors' })
+                if (resp.ok) {
+                  const blob = await resp.blob()
+                  const b64 = await new Promise((resolve) => {
+                    const r = new FileReader()
+                    r.onload = () => resolve(r.result)
+                    r.readAsDataURL(blob)
+                  })
+                  payload.logo = b64
+                }
+              } catch (logoErr) { console.warn('[LicenseContext] logo fetch failed:', logoErr?.message) }
+            } else {
+              payload.logo = logo
+            }
+          }
+          await api.admin.saveEmpresa(payload)
+
+          // F17 — auto-restore .p12 from PEM blobs stashed in bizSettings.
+          // Only runs on desktop, only if (a) PEMs exist server-side,
+          // (b) local cert is currently missing (post-wipe scenario).
+          try {
+            if (window.electronAPI?.dgii_ecf?.restoreCertFromPEM) {
+              const certInfo = await window.electronAPI.dgii_ecf.certInfo?.().catch(() => null)
+              const alreadyInstalled = !!(certInfo?.installed)
+              const privateKeyPem = extra?.ecf_private_key_pem
+              const certificatePem = extra?.ecf_certificate_pem
+              if (!alreadyInstalled && privateKeyPem && certificatePem) {
+                const restoreRes = await window.electronAPI.dgii_ecf.restoreCertFromPEM({
+                  privateKeyPem,
+                  certificatePem,
+                  password: 'terminal-x-restored',
+                }).catch((e) => ({ ok: false, error: e?.message }))
+                if (restoreRes && restoreRes.ok !== false) {
+                  console.info('[LicenseContext] e-CF cert restored from server PEM')
+                } else {
+                  console.warn('[LicenseContext] e-CF cert restore failed:', restoreRes?.error)
+                }
+              }
+            }
+          } catch (certErr) {
+            console.warn('[LicenseContext] cert restore block error:', certErr?.message)
+          }
+        } catch (saveErr) { console.warn('[LicenseContext] saveEmpresa from bizSettings failed:', saveErr?.message) }
       }
       setResult(res)
     } catch (err) {
@@ -152,13 +268,14 @@ export function LicenseProvider({ children }) {
       // Only grant offline grace if there was a successful validation within 72h
       const lastValid = Number(localStorage.getItem('tx_last_valid') || '0')
       const withinGrace = lastValid > 0 && (Date.now() - lastValid) < OFFLINE_GRACE_MS
+      const humanMsg = humanizeLicenseError(err, { context: 'LicenseContext.runCheck' })
       if (withinGrace) {
         setResult({
           valid:      true,
           status:     'offline_grace',
           readOnly:   false,
           warning:    true,
-          warningMsg: 'Error al verificar licencia. Modo sin conexión activo.',
+          warningMsg: `${humanMsg} Modo sin conexión activo.`,
         })
       } else {
         setResult({
@@ -168,7 +285,7 @@ export function LicenseProvider({ children }) {
           warning:    true,
           warningMsg: lastValid > 0
             ? 'Período de gracia sin conexión expirado. Conéctese a internet para verificar su licencia.'
-            : 'No se puede verificar la licencia. Conéctese a internet.',
+            : humanMsg,
         })
       }
     } finally {
@@ -253,6 +370,8 @@ export function LicenseProvider({ children }) {
       isDevMode,
       hasWarning,
       warningMsg,
+      firstPullDone,
+      firstPullProgress,
       activate,
       deactivate,
       refresh: () => runCheck(),

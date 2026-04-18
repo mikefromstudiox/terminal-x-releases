@@ -13,6 +13,9 @@
  */
 
 // ── Config ────────────────────────────────────────────────────────────────────
+import { withRetry } from './retry.js'
+import { humanizeLicenseError } from './networkError.js'
+
 const LICENSE_API  = import.meta.env.VITE_LICENSE_API || 'https://terminalxpos.com'
 const CACHE_TTL_MS = 72 * 60 * 60 * 1000  // 72 hours offline grace
 const GRACE_DAYS   = 3
@@ -95,8 +98,11 @@ export async function validateLicense(licenseKey, hardwareId, rnc = '', bizSync 
 
     let data
     if (window.electronAPI?.remote) {
-      // Desktop: use IPC (no CORS issues)
-      data = await window.electronAPI.remote.validate(payload)
+      // Desktop: use IPC (no CORS issues). Retry transient IPC/network errors.
+      data = await withRetry(
+        () => window.electronAPI.remote.validate(payload),
+        { label: 'license.validate.ipc' },
+      )
     } else {
       // Web: use fetch — include Supabase auth token for web-client HWID verification
       const hdrs = { 'Content-Type': 'application/json' }
@@ -108,14 +114,20 @@ export async function validateLicense(licenseKey, hardwareId, rnc = '', bizSync 
           if (stored?.access_token) hdrs['Authorization'] = `Bearer ${stored.access_token}`
         }
       } catch {}
-      const response = await fetch(`${LICENSE_API}/api/validate`, {
-        method:  'POST',
-        headers: hdrs,
-        body:    JSON.stringify(payload),
-        signal: AbortSignal.timeout(10000),
-      })
-      if (!response.ok) throw new Error(`Server error: ${response.status}`)
-      data = await response.json()
+      data = await withRetry(async () => {
+        const response = await fetch(`${LICENSE_API}/api/validate`, {
+          method:  'POST',
+          headers: hdrs,
+          body:    JSON.stringify(payload),
+          signal: AbortSignal.timeout(10000),
+        })
+        if (!response.ok) {
+          const e = new Error(`Server error: ${response.status}`)
+          e.status = response.status
+          throw e
+        }
+        return response.json()
+      }, { label: 'license.validate.http' })
     }
 
     // Rehydrate date strings from server
@@ -129,7 +141,7 @@ export async function validateLicense(licenseKey, hardwareId, rnc = '', bizSync 
     return result
 
   } catch (err) {
-    console.warn('[license] Server unreachable, falling back to cache:', err.message)
+    const humanMsg = humanizeLicenseError(err, { context: 'license.validate' })
 
     const cached = getCachedResult()
     if (cached) {
@@ -143,7 +155,7 @@ export async function validateLicense(licenseKey, hardwareId, rnc = '', bizSync 
       readOnly:   true,
       status:     'no_connection',
       warning:    true,
-      warningMsg: 'No se pudo conectar para validar la licencia. Verifica tu conexion a internet.',
+      warningMsg: humanMsg,
     }
   }
 }

@@ -16,6 +16,16 @@ import { printDailyReport } from '@terminal-x/services/report-html'
 function fmtRD(n) {
   return `RD$ ${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
+function parseSqliteUtc(v) {
+  // SQLite datetime('now') writes UTC as 'YYYY-MM-DD HH:MM:SS' without timezone.
+  // new Date(str) treats it as LOCAL. Normalise to ISO-Z so display is correct.
+  if (!v) return new Date(NaN)
+  if (v instanceof Date) return v
+  if (typeof v === 'string' && !v.endsWith('Z') && !/[+-]\d\d:?\d\d$/.test(v)) {
+    return new Date(v.replace(' ', 'T') + 'Z')
+  }
+  return new Date(v)
+}
 function fmtDate(d) {
   return d.toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })
 }
@@ -39,7 +49,7 @@ function dbToTxn(t) {
                   : (t.items || []).map(i => ({ name: i.name || i.service_name || '—', price: i.price || 0, cost: i.cost || 0 })),
     items:      t.items || [],
     cashier:    t.cajero_name || '—',
-    date:       new Date(t.created_at),
+    date:       parseSqliteUtc(t.created_at),
     subtotal:   t.subtotal || 0,
     itbis:      t.itbis || 0,
     ley:        t.ley || 0,
@@ -50,10 +60,13 @@ function dbToTxn(t) {
     ncf:        t.ncf || null,
     voidReason: t.void_reason,
     voidedBy:   t.void_by,
-    voidedAt:   t.void_at ? new Date(t.void_at) : null,
+    voidedAt:   t.void_at ? parseSqliteUtc(t.void_at) : null,
     washerNames: t.washer_names || [],
     mode:       t.mode || null,    // hybrid vertical: 'mesa' | 'directa' | 'takeout' | null
     mesa_id:    t.mesa_id || null,
+    notes:      t.notes || t.comentario || null,
+    comentario: t.comentario || t.notes || null,
+    descuento:  t.descuento || 0,
   }
 }
 
@@ -284,10 +297,18 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
               <span>ITBIS {t.subtotal > 0 ? Math.round((t.itbis / t.subtotal) * 100) : 18}%</span>
               <span>{fmtRD(t.itbis)}</span>
             </div>
-            <div className="flex justify-between text-slate-500 dark:text-white/60">
-              <span>{lang === 'es' ? 'Ley 10%' : 'Service Charge 10%'}</span>
-              <span>{fmtRD(t.ley)}</span>
-            </div>
+            {t.ley > 0 && (
+              <div className="flex justify-between text-slate-500 dark:text-white/60">
+                <span>{lang === 'es' ? 'Ley 10%' : 'Service Charge 10%'}</span>
+                <span>{fmtRD(t.ley)}</span>
+              </div>
+            )}
+            {t.descuento > 0 && (
+              <div className="flex justify-between text-rose-600 dark:text-rose-400">
+                <span>{lang === 'es' ? 'Descuento' : 'Discount'}</span>
+                <span>−{fmtRD(t.descuento)}</span>
+              </div>
+            )}
             <div className="flex justify-between font-bold text-slate-800 dark:text-white text-[14px] pt-1 border-t border-slate-200 dark:border-white/10">
               <span>Total</span>
               <span>{fmtRD(t.total)}</span>
@@ -300,6 +321,16 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
             <span className="font-semibold text-slate-700 dark:text-white">{payLabel(t.payMethod, lang)}</span>
             <EstadoBadge t={t} lang={lang} />
           </div>
+
+          {/* Comentario / Notes */}
+          {(t.comentario || t.notes) && (
+            <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl px-3 py-2">
+              <p className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-0.5">
+                {lang === 'es' ? 'Comentario' : 'Notes'}
+              </p>
+              <p className="text-[12px] text-slate-700 dark:text-white whitespace-pre-wrap">{t.comentario || t.notes}</p>
+            </div>
+          )}
 
           {/* Void info */}
           {t.estado === 'nula' && (

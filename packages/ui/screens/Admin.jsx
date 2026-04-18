@@ -185,6 +185,16 @@ function RoleBadge({ role }) {
 
 const EMPTY_USER = { employee_id: '', username: '', pin: '' }
 
+// Privilege hierarchy. A user can only edit/delete another user whose role
+// is STRICTLY LOWER in this list than theirs. This prevents a manager from
+// resetting the owner's PIN to lock the owner out and escalate.
+const ROLE_LEVEL = { owner: 100, cfo: 70, accountant: 60, manager: 50, cashier: 10, none: 0 }
+function canActOn(actorRole, targetRole) {
+  const a = ROLE_LEVEL[actorRole] ?? 0
+  const t = ROLE_LEVEL[targetRole] ?? 0
+  return a > t
+}
+
 function Usuarios() {
   const api                       = useAPI()
   const { lang }                  = useLang()
@@ -220,14 +230,14 @@ function Usuarios() {
   async function handleRowDelete(u) {
     if (!canDelete || u.id === user?.id) return
     const ok = confirm(L(
-      `¿Eliminar a ${u.name || u.username}? Si tiene historial se desactivará en su lugar.`,
-      `Delete ${u.name || u.username}? If it has history it will be deactivated instead.`
+      `¿Eliminar a ${u.name || u.username}?\n\nSe borra el usuario y se desvincula su historial (tickets, comisiones, cuadres). No se puede deshacer.`,
+      `Delete ${u.name || u.username}?\n\nRemoves the user and unlinks history (tickets, commissions, cash counts). Cannot be undone.`
     ))
     if (!ok) return
     try {
-      const r = await api.users.delete?.({ id: u.id })
-      if (r?.softDeleted) show(L('Usuario desactivado (tiene historial)', 'User deactivated (has history)'))
-      else                show(L('Usuario eliminado ✓', 'User deleted ✓'))
+      const r = await api.users.deleteHard?.({ id: u.id }) ?? await api.users.delete?.({ id: u.id })
+      if (r?.deleted) show(L('Usuario eliminado ✓', 'User deleted ✓'))
+      else            show(L('No se pudo eliminar.', 'Could not delete.'), 'error')
       load()
     } catch (err) { show(err.message || L('Error al eliminar.', 'Error deleting.'), 'error') }
   }
@@ -258,7 +268,16 @@ function Usuarios() {
   }
 
   function openAdd()   { setForm(EMPTY_USER); setShowPin(false); setError(''); setSaved(false); setConfirmDelete(false); setPanel('add') }
-  function openEdit(u) { setForm({ employee_id: u.employee_id || '', username: u.username, pin: '' }); setShowPin(false); setError(''); setSaved(false); setConfirmDelete(false); setPanel(u) }
+  function openEdit(u) {
+    // Block editing users at the same or higher privilege level (e.g. manager
+    // trying to edit owner). Prevents PIN-reset → lockout → takeover attacks.
+    if (user?.id !== u.id && !canActOn(user?.role, u.role)) {
+      show(L('No tienes permiso para editar este usuario.', "You don't have permission to edit this user."), 'error')
+      return
+    }
+    setForm({ employee_id: u.employee_id || '', username: u.username, pin: '' })
+    setShowPin(false); setError(''); setSaved(false); setConfirmDelete(false); setPanel(u)
+  }
   function closePanel(){ setPanel(null); setConfirmDelete(false) }
   function set(k, v)   { setForm(f => ({ ...f, [k]: v })) }
 
@@ -266,6 +285,13 @@ function Usuarios() {
     if (panel === 'add' && !form.employee_id) { setError(L('Selecciona un empleado.', 'Select an employee.')); return }
     if (!form.username.trim()) { setError(L('El usuario es requerido.', 'Username is required.')); return }
     if (panel === 'add' && !form.pin.trim()) { setError(L('El PIN es requerido.', 'PIN is required.')); return }
+    // Belt-and-suspenders privilege check — mirrors openEdit. Prevents a
+    // manager from calling handleSave directly via DevTools to edit a
+    // higher-role user after bypassing openEdit's guard.
+    if (panel !== 'add' && user?.id !== panel.id && !canActOn(user?.role, panel.role)) {
+      setError(L('No tienes permiso para editar este usuario.', "You don't have permission to edit this user."))
+      return
+    }
     setSaving(true); setError('')
     try {
       // Compare as string — empleado ids are UUIDs on web and integers on
@@ -385,7 +411,17 @@ function Usuarios() {
             <div>
               <Label>{panel === 'add' ? 'PIN *' : L('PIN (vacio = sin cambio)', 'PIN (blank = no change)')}</Label>
               <div className="relative">
-                <Input type={showPin ? 'text' : 'password'} value={form.pin} onChange={e => set('pin', e.target.value)} placeholder={L('4-6 digitos', '4-6 digits')} maxLength={6} />
+                <Input
+                  type={showPin ? 'text' : 'password'}
+                  value={form.pin ?? ''}
+                  onChange={e => set('pin', e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder={L('4-6 digitos', '4-6 digits')}
+                  maxLength={6}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="off"
+                  name="new-pin"
+                />
                 <button type="button" onClick={() => setShowPin(v => !v)}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 dark:text-white/30 hover:text-slate-500 dark:hover:text-white/60">
                   {showPin ? <EyeOff size={13} /> : <Eye size={13} />}
@@ -1218,7 +1254,7 @@ function MiEmpresa() {
           biz_rnc:     row.rnc     || '',
           biz_address: row.address || '',
           biz_phone:   row.phone   || '',
-          biz_city:    extra.biz_city  || '',
+          biz_city:    extra.biz_city  || extra.ciudad || '',
           biz_type:    extra.biz_type  || '',
         })
         setLogo(row.logo || '')
@@ -1243,13 +1279,18 @@ function MiEmpresa() {
     if (!form.biz_name.trim()) { setError(L('El nombre del negocio es requerido.', 'Business name is required.')); return }
     setSaving(true); setError('')
     try {
+      const current = await api?.admin?.getEmpresa?.()
+      let existing = {}
+      try { existing = current?.settings ? (typeof current.settings === 'string' ? JSON.parse(current.settings) : current.settings) : {} } catch {}
+      const city = form.biz_city.trim()
+      const mergedSettings = { ...existing, biz_city: city, ciudad: city, biz_type: form.biz_type }
       await api.admin.saveEmpresa({
         name:     form.biz_name.trim(),
         rnc:      form.biz_rnc.trim(),
         address:  form.biz_address.trim(),
         phone:    form.biz_phone.trim(),
         logo:     logo || null,
-        settings: JSON.stringify({ biz_city: form.biz_city.trim(), biz_type: form.biz_type }),
+        settings: JSON.stringify(mergedSettings),
       })
       show(L('Empresa guardada ✓', 'Business saved ✓'))
       setSaved(true)

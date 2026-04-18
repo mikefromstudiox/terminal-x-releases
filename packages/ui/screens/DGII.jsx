@@ -3,9 +3,11 @@ import {
   FileText, FilePlus, Download, Send, CheckCircle2, AlertCircle,
   Clock, AlertTriangle, RefreshCw, Database, ShoppingCart,
   Package, Minus, ChevronDown, Search, Trash2, Plus, X, Ban,
+  ShieldCheck, Upload, KeyRound,
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
+import { useAuth } from '../context/AuthContext'
 
 // ── Shared date helpers ───────────────────────────────────────────────────────
 function fmtDate(d) {
@@ -1238,12 +1240,327 @@ function ScreenANECF() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ── ScreenCert — web-only Viafirma .p12 installer ───────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+function ScreenCert() {
+  const api = useAPI()
+  const { lang } = useLang()
+  const L = (es, en) => lang === 'es' ? es : en
+
+  const [info, setInfo]           = useState(null)
+  const [loading, setLoading]     = useState(true)
+  const [file, setFile]           = useState(null)
+  const [passphrase, setPass]     = useState('')
+  const [showPass, setShowPass]   = useState(false)
+  const [busy, setBusy]           = useState(false)
+  const [toast, setToast]         = useState(null) // {kind:'ok'|'err', msg}
+  const [envBusy, setEnvBusy]     = useState(false)
+  const fileRef = useRef(null)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const r = await api.dgii_ecf.certInfo()
+      setInfo(r || { installed: false })
+    } catch {
+      setInfo({ installed: false })
+    } finally {
+      setLoading(false)
+    }
+  }, [api])
+
+  useEffect(() => { refresh() }, [refresh])
+
+  function pickFile(f) {
+    if (!f) return
+    if (!/\.(p12|pfx)$/i.test(f.name)) {
+      setToast({ kind: 'err', msg: L('El archivo debe ser .p12 o .pfx', 'File must be .p12 or .pfx') })
+      return
+    }
+    if (f.size > 1024 * 1024) {
+      setToast({ kind: 'err', msg: L('Archivo demasiado grande (máx 1MB)', 'File too large (max 1MB)') })
+      return
+    }
+    setFile(f)
+    setToast(null)
+  }
+
+  async function handleUpload() {
+    if (!file) {
+      setToast({ kind: 'err', msg: L('Seleccione un archivo .p12', 'Select a .p12 file') })
+      return
+    }
+    if (!passphrase) {
+      setToast({ kind: 'err', msg: L('Ingrese la contraseña del certificado', 'Enter the certificate passphrase') })
+      return
+    }
+    setBusy(true)
+    setToast(null)
+    try {
+      const res = await api.dgii_ecf.uploadCert({ file, passphrase })
+      if (res?.ok) {
+        setToast({ kind: 'ok', msg: L('Certificado instalado correctamente', 'Certificate installed successfully') })
+        setFile(null)
+        setPass('')
+        if (fileRef.current) fileRef.current.value = ''
+        await refresh()
+      } else {
+        setToast({ kind: 'err', msg: res?.error || L('Error al instalar el certificado', 'Failed to install certificate') })
+      }
+    } catch (err) {
+      setToast({ kind: 'err', msg: err.message || L('Error de red', 'Network error') })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function flipEnv(targetEnv) {
+    if (envBusy) return
+    setEnvBusy(true)
+    try {
+      const res = await api.dgii_ecf.setEnvironment(targetEnv)
+      if (res?.ok) {
+        setToast({ kind: 'ok', msg: targetEnv === 'ecf'
+          ? L('Modo Producción activado', 'Production mode enabled')
+          : L('Modo Pruebas activado', 'Test mode enabled') })
+        await refresh()
+      } else {
+        setToast({ kind: 'err', msg: L('No se pudo cambiar el entorno', 'Could not switch environment') })
+      }
+    } catch (err) {
+      setToast({ kind: 'err', msg: err.message || L('Error', 'Error') })
+    } finally {
+      setEnvBusy(false)
+    }
+  }
+
+  const installed = !!info?.installed
+  const expired   = !!info?.expired
+  const env       = info?.environment || 'certecf'
+  const isProd    = env === 'ecf'
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-6">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center">
+            <ShieldCheck size={20} className="text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-slate-800 dark:text-white">{L('Certificado e-CF', 'e-CF Certificate')}</h2>
+            <p className="text-xs text-slate-500 dark:text-white/60">
+              {L('Instale su certificado .p12 de Viafirma para emitir e-CFs desde la web',
+                 'Install your Viafirma .p12 certificate to issue e-CFs from the web')}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Status card */}
+      <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-bold text-slate-700 dark:text-white/80 uppercase tracking-wider">
+            {L('Estado actual', 'Current status')}
+          </h3>
+          {loading && <RefreshCw size={14} className="text-slate-400 animate-spin" />}
+        </div>
+
+        {!loading && !installed && (
+          <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+            <AlertCircle size={18} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-semibold text-amber-800 dark:text-amber-300">{L('Sin certificado instalado', 'No certificate installed')}</p>
+              <p className="text-amber-700 dark:text-amber-300/80 text-xs mt-1">
+                {L('No podrá emitir e-CFs hasta instalar su certificado .p12.',
+                   'You cannot issue e-CFs until you install your .p12 certificate.')}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {!loading && installed && (
+          <div className="space-y-3">
+            <div className={`flex items-start gap-3 p-4 rounded-xl border ${
+              expired
+                ? 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30'
+                : 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30'
+            }`}>
+              {expired
+                ? <AlertCircle size={18} className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                : <CheckCircle2 size={18} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />}
+              <div className="text-sm flex-1">
+                <p className={`font-semibold ${expired ? 'text-red-800 dark:text-red-300' : 'text-emerald-800 dark:text-emerald-300'}`}>
+                  {expired ? L('Certificado VENCIDO', 'Certificate EXPIRED') : L('Certificado activo', 'Certificate active')}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
+                  <div>
+                    <span className="text-slate-500 dark:text-white/50">{L('Sujeto:', 'Subject:')}</span>{' '}
+                    <span className="font-mono text-slate-800 dark:text-white/90">{info.subject || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 dark:text-white/50">{L('Vence:', 'Expires:')}</span>{' '}
+                    <span className="font-mono text-slate-800 dark:text-white/90">{fmtDate(info.expiry)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Environment toggle */}
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800 dark:text-white">{L('Entorno DGII', 'DGII environment')}</p>
+                  <p className="text-xs text-slate-500 dark:text-white/60">
+                    {isProd
+                      ? L('Producción — los e-CFs se envían a la DGII real', 'Production — e-CFs are sent to the live DGII')
+                      : L('Pruebas (CertECF) — los e-CFs no son fiscalmente válidos', 'Test (CertECF) — e-CFs are not fiscally valid')}
+                  </p>
+                </div>
+                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                  isProd
+                    ? 'bg-red-600 text-white'
+                    : 'bg-amber-500 text-white'
+                }`}>
+                  {isProd ? 'PROD' : 'TEST'}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => flipEnv('certecf')} disabled={envBusy || env === 'certecf'}
+                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition ${
+                    env === 'certecf'
+                      ? 'bg-amber-500 text-white cursor-default'
+                      : 'border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/70 hover:bg-white dark:hover:bg-white/10'
+                  }`}>
+                  {L('Pruebas', 'Test')}
+                </button>
+                <button onClick={() => flipEnv('ecf')} disabled={envBusy || env === 'ecf'}
+                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition ${
+                    env === 'ecf'
+                      ? 'bg-red-600 text-white cursor-default'
+                      : 'border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/70 hover:bg-white dark:hover:bg-white/10'
+                  }`}>
+                  {L('Producción', 'Production')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Upload form */}
+      <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-6">
+        <h3 className="text-sm font-bold text-slate-700 dark:text-white/80 uppercase tracking-wider mb-4">
+          {installed ? L('Reemplazar certificado', 'Replace certificate') : L('Instalar certificado', 'Install certificate')}
+        </h3>
+
+        <div className="space-y-4">
+          {/* File picker */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider mb-1.5">
+              {L('Archivo .p12 / .pfx', '.p12 / .pfx file')}
+            </label>
+            <div className="relative">
+              <input ref={fileRef} type="file" accept=".p12,.pfx,application/x-pkcs12"
+                onChange={e => pickFile(e.target.files?.[0])}
+                className="block w-full text-sm text-slate-600 dark:text-white/70
+                  file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0
+                  file:text-xs file:font-semibold
+                  file:bg-slate-100 dark:file:bg-white/10
+                  file:text-slate-700 dark:file:text-white/80
+                  hover:file:bg-slate-200 dark:hover:file:bg-white/20
+                  cursor-pointer
+                  border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2
+                  bg-white dark:bg-white/5"
+              />
+            </div>
+            {file && (
+              <p className="mt-1.5 text-xs text-slate-500 dark:text-white/50 font-mono">
+                {file.name} · {(file.size / 1024).toFixed(1)} KB
+              </p>
+            )}
+          </div>
+
+          {/* Passphrase */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider mb-1.5">
+              {L('Contraseña del certificado', 'Certificate passphrase')}
+            </label>
+            <div className="relative">
+              <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 pointer-events-none" />
+              <input type={showPass ? 'text' : 'password'} value={passphrase} onChange={e => setPass(e.target.value)}
+                placeholder={L('Su contraseña Viafirma', 'Your Viafirma password')}
+                autoComplete="new-password"
+                className="w-full border border-slate-200 dark:border-white/10 dark:bg-white/5 dark:text-white rounded-xl pl-10 pr-16 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 placeholder:text-slate-300 dark:placeholder:text-white/20" />
+              <button type="button" onClick={() => setShowPass(p => !p)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-500 dark:text-white/60 hover:text-slate-700 dark:hover:text-white/90 px-2 py-1">
+                {showPass ? L('OCULTAR', 'HIDE') : L('VER', 'SHOW')}
+              </button>
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-400 dark:text-white/40">
+              {L('Su contraseña no se guarda. Solo se usa para extraer la llave.',
+                 'Your passphrase is never stored. It is only used to extract the key.')}
+            </p>
+          </div>
+
+          {/* Submit */}
+          <button onClick={handleUpload} disabled={busy || !file || !passphrase}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition">
+            {busy ? (
+              <>
+                <RefreshCw size={15} className="animate-spin" />
+                {L('Instalando...', 'Installing...')}
+              </>
+            ) : (
+              <>
+                <Upload size={15} />
+                {installed ? L('Reemplazar certificado', 'Replace certificate') : L('Instalar certificado', 'Install certificate')}
+              </>
+            )}
+          </button>
+
+          {/* Toast */}
+          {toast && (
+            <div className={`p-3 rounded-xl border text-sm ${
+              toast.kind === 'ok'
+                ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
+                : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30 text-red-800 dark:text-red-300'
+            }`}>
+              <div className="flex items-start gap-2">
+                {toast.kind === 'ok'
+                  ? <CheckCircle2 size={16} className="flex-shrink-0 mt-0.5" />
+                  : <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />}
+                <p>{toast.msg}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Footer help */}
+      <div className="text-xs text-slate-400 dark:text-white/40 text-center">
+        {L('¿No tiene certificado? Solicítelo en ',
+           'Don\u2019t have a certificate? Request one at ')}
+        <a href="https://studioxrdtech.com/ecf-certification" target="_blank" rel="noreferrer"
+          className="text-[#b3001e] hover:underline font-medium">studioxrdtech.com/ecf-certification</a>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ── Main DGII shell with 606 / 607 / ANECF tabs ─────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 export default function DGII() {
   const [screen, setScreen] = useState('606')
   const { lang } = useLang()
+  const { user } = useAuth()
   const L = (es, en) => lang === 'es' ? es : en
+
+  // Cert tab is web-only (desktop has its own installer in Settings) and owner-only.
+  const isWeb       = typeof window !== 'undefined' && !window.electronAPI
+  const isOwner     = String(user?.role || '').toLowerCase() === 'owner'
+  const showCertTab = isWeb && isOwner
 
   return (
     <div className="h-full flex flex-col bg-slate-50 dark:bg-black overflow-hidden">
@@ -1270,6 +1587,13 @@ export default function DGII() {
             <Ban size={14} />
             {L('Anular e-NCF', 'Void e-NCF')}
           </button>
+          {showCertTab && (
+            <button onClick={() => setScreen('cert')}
+              className={`flex items-center gap-1.5 px-5 py-2 font-medium transition ${screen === 'cert' ? 'bg-emerald-600 text-white' : 'text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10'}`}>
+              <ShieldCheck size={14} />
+              {L('Certificado', 'Certificate')}
+            </button>
+          )}
         </div>
         <div className="ml-auto">
           <span className="text-xs text-slate-400 dark:text-white/40">
@@ -1277,7 +1601,9 @@ export default function DGII() {
               ? L('Ventas / Comprobantes emitidos', 'Sales / Issued receipts')
               : screen === '607'
                 ? L('Compras / Gastos recibidos', 'Purchases / Received expenses')
-                : L('Anulación de rangos no utilizados', 'Void unused sequence ranges')
+                : screen === 'anecf'
+                  ? L('Anulación de rangos no utilizados', 'Void unused sequence ranges')
+                  : L('Certificado digital Viafirma', 'Viafirma digital certificate')
             }
           </span>
         </div>
@@ -1285,7 +1611,13 @@ export default function DGII() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
-        {screen === '606' ? <Screen606 /> : screen === '607' ? <Screen607 /> : <ScreenANECF />}
+        {screen === '606'
+          ? <Screen606 />
+          : screen === '607'
+            ? <Screen607 />
+            : screen === 'cert' && showCertTab
+              ? <ScreenCert />
+              : <ScreenANECF />}
       </div>
     </div>
   )

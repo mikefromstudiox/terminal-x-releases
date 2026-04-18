@@ -48,6 +48,16 @@ function init(userDataPath) {
   const schema = fs.readFileSync(schemaPath, 'utf8')
   db.exec(schema)
 
+  // v2.1 legacy FK stubs — users.vendedor_id references sellers(id) in the
+  // checked-in schema, and washer_id references washers(id). Both tables were
+  // DROPPED in v2.1 (consolidated into empleados) but the FK declarations
+  // remain. With foreign_keys=ON, any INSERT into users throws
+  // "no such table: main.sellers" on fresh installs. Create empty stubs so
+  // the FKs have a target. Legacy single-POS installs that still have real
+  // sellers/washers data are unaffected (IF NOT EXISTS).
+  try { db.exec('CREATE TABLE IF NOT EXISTS sellers (id INTEGER PRIMARY KEY AUTOINCREMENT)') } catch {}
+  try { db.exec('CREATE TABLE IF NOT EXISTS washers (id INTEGER PRIMARY KEY AUTOINCREMENT)') } catch {}
+
   // Schema migrations — safe to run multiple times (ignored if column exists)
   const migrations = [
     'ALTER TABLE washers ADD COLUMN start_date TEXT',
@@ -749,6 +759,96 @@ function init(userDataPath) {
     `CREATE INDEX IF NOT EXISTS idx_collections_log_loan   ON collections_log(loan_supabase_id)`,
     `CREATE INDEX IF NOT EXISTS idx_collections_log_client ON collections_log(client_supabase_id)`,
     `CREATE INDEX IF NOT EXISTS idx_collections_log_next   ON collections_log(next_contact_date)`,
+
+    // ── v2.3 — Multi-POS block allocation (NCF, doc_number, inventory oversell) ──
+    // Mirrors Supabase ncf_blocks / doc_number_blocks / inventory_oversells.
+    // See docs/MULTI-POS-ARCHITECTURE.md §1–§3 and backend migration
+    // 20260418000000_multipos_blocks.sql. Every write is feature-flagged by
+    // app_settings.multi_pos_enabled (default '0') so single-POS installs stay
+    // on the legacy ncf_sequences + MAX(doc_number)+1 path.
+    `CREATE TABLE IF NOT EXISTS ncf_blocks (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id     TEXT UNIQUE,
+      business_id     TEXT NOT NULL,
+      hwid            TEXT NOT NULL,
+      ncf_type        TEXT NOT NULL,
+      prefix          TEXT,
+      range_start     INTEGER NOT NULL,
+      range_end       INTEGER NOT NULL,
+      next_available  INTEGER NOT NULL,
+      size            INTEGER,
+      allocated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      exhausted_at    TEXT,
+      last_used_at    TEXT,
+      updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_ncf_blocks_lookup ON ncf_blocks(business_id, hwid, ncf_type, exhausted_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_ncf_blocks_type_active ON ncf_blocks(ncf_type) WHERE exhausted_at IS NULL`,
+
+    `CREATE TABLE IF NOT EXISTS doc_number_blocks (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id     TEXT UNIQUE,
+      business_id     TEXT NOT NULL,
+      hwid            TEXT NOT NULL,
+      scope           TEXT NOT NULL DEFAULT 'ticket',
+      range_start     INTEGER NOT NULL,
+      range_end       INTEGER NOT NULL,
+      next_available  INTEGER NOT NULL,
+      size            INTEGER,
+      allocated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      exhausted_at    TEXT,
+      updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_doc_blocks_lookup ON doc_number_blocks(business_id, hwid, scope, exhausted_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_doc_blocks_scope_active ON doc_number_blocks(scope) WHERE exhausted_at IS NULL`,
+
+    `CREATE TABLE IF NOT EXISTS inventory_oversells (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id          TEXT UNIQUE,
+      business_id          TEXT NOT NULL,
+      ticket_supabase_id   TEXT,
+      item_supabase_id     TEXT,
+      item_name            TEXT,
+      requested_qty        REAL NOT NULL,
+      actual_qty           REAL NOT NULL,
+      detected_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      resolved_at          TEXT,
+      resolved_by          TEXT,
+      resolution_notes     TEXT,
+      resolution_type      TEXT,
+      updated_at           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_oversells_unresolved ON inventory_oversells(business_id) WHERE resolved_at IS NULL`,
+
+    // Queued oversell-aware deducts for post-sync RPC (see §3.1 in spec).
+    `CREATE TABLE IF NOT EXISTS pending_inventory_deducts (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id         TEXT UNIQUE,
+      ticket_supabase_id  TEXT NOT NULL,
+      items_json          TEXT NOT NULL,
+      created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      pushed_at           TEXT,
+      last_error          TEXT,
+      attempts            INTEGER NOT NULL DEFAULT 0
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_pending_deducts_unpushed ON pending_inventory_deducts(pushed_at)`,
+
+    // Multi-POS ticket origin forensic columns (null on existing rows).
+    `ALTER TABLE tickets ADD COLUMN origin_hwid TEXT`,
+    `ALTER TABLE tickets ADD COLUMN origin_device_label TEXT`,
+    `ALTER TABLE tickets ADD COLUMN used_legacy_counter INTEGER NOT NULL DEFAULT 0`,
+
+    // Default flag off.
+    `INSERT OR IGNORE INTO app_settings(key, value) VALUES('multi_pos_enabled','0')`,
+    `INSERT OR IGNORE INTO app_settings(key, value) VALUES('ncf_block_size','500')`,
+    `INSERT OR IGNORE INTO app_settings(key, value) VALUES('doc_block_size','200')`,
+    // v2.3 — app_settings sync parity: add business_id/updated_at/supabase_id
+    // so business-level keys (itbis_pct, biz_rnc, whatsapp_*, etc.) can ride
+    // the normal push pipeline. Device-only keys (printer, print_*) stay local
+    // via the whitelist in electron/settingsWhitelist.js.
+    'ALTER TABLE app_settings ADD COLUMN business_id TEXT',
+    'ALTER TABLE app_settings ADD COLUMN updated_at TEXT',
+    'ALTER TABLE app_settings ADD COLUMN supabase_id TEXT',
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -768,6 +868,37 @@ function init(userDataPath) {
       }
     }
   }
+
+  // ── app_settings sync parity backfill (v2.3) ─────────────────────────────
+  // Stamp business_id / updated_at / supabase_id on pre-existing rows so the
+  // normal push pipeline can lift business-level keys to Supabase. Device-only
+  // keys still get the columns populated (harmless), but the rowFilter in
+  // electron/sync.js keeps them out of the push batch.
+  try {
+    const bizId = db.prepare("SELECT value FROM app_settings WHERE key='supabase_business_id'").get()?.value
+    if (bizId) {
+      db.prepare("UPDATE app_settings SET business_id = ? WHERE business_id IS NULL").run(bizId)
+    }
+    db.prepare("UPDATE app_settings SET updated_at = datetime('now') WHERE updated_at IS NULL").run()
+    // UUID v4 generator inline (matches the randomblob pattern used elsewhere)
+    const uuidSql = "lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6)))"
+    db.exec(`UPDATE app_settings SET supabase_id = ${uuidSql} WHERE supabase_id IS NULL`)
+  } catch (e) { console.error('[db] app_settings backfill error:', e.message) }
+
+  // Trigger — auto-bump updated_at on UPDATE (matches pattern for other synced
+  // tables in this file). We keep it narrow (only when value actually changes)
+  // to avoid storms when the setters write the same value.
+  try {
+    db.exec(`DROP TRIGGER IF EXISTS trg_app_settings_updated_at`)
+    db.exec(`CREATE TRIGGER trg_app_settings_updated_at AFTER UPDATE ON app_settings
+             FOR EACH ROW WHEN NEW.value IS NOT OLD.value
+             BEGIN
+               UPDATE app_settings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+             END`)
+  } catch (e) { console.error('[db] app_settings trigger error:', e.message) }
+
+  // Patch the setter so INSERT OR REPLACE also stamps business_id/supabase_id/updated_at.
+  // See setSetting() below — it now reads the live tenant on write.
 
   // ── Employee consolidation backfill ──────────────────────────────────────
   // Backfill empleados.role from users (one-time)
@@ -994,6 +1125,11 @@ function init(userDataPath) {
   if (v2TriggersDone !== '1') {
     try { db.prepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('updated_at_triggers_v2_done','1')").run() } catch {}
   }
+
+  // v2.2.1 — activity_log self-heal (idempotent column + index backfill). Runs
+  // every boot so legacy installs that never had the v1.9.21 migration still
+  // get the columns sync + the unique index.
+  try { activityLogSelfHeal() } catch (e) { console.error('[db] activityLogSelfHeal:', e.message) }
 
   // v2.0 — one-shot migration: rewrite any existing SQL-space timestamps to ISO-8601
   // with `T` + `.fff` + `Z`. Idempotent on ISO-formatted rows (REPLACE(' ','T') is a no-op).
@@ -1832,7 +1968,20 @@ function getSetting(key) {
 }
 function setSetting(key, value) {
   if (!db) return
-  db.prepare('INSERT OR REPLACE INTO app_settings(key,value) VALUES(?,?)').run(key, String(value))
+  // UPSERT that preserves business_id/supabase_id on existing rows and stamps
+  // them on new rows. updated_at is bumped by the AFTER UPDATE trigger; for
+  // INSERT we set it explicitly.
+  const bizId = db.prepare("SELECT value FROM app_settings WHERE key='supabase_business_id'").get()?.value || null
+  const uuid  = crypto.randomUUID()
+  db.prepare(`
+    INSERT INTO app_settings(key, value, business_id, supabase_id, updated_at)
+    VALUES(?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(key) DO UPDATE SET
+      value       = excluded.value,
+      business_id = COALESCE(app_settings.business_id, excluded.business_id),
+      supabase_id = COALESCE(app_settings.supabase_id, excluded.supabase_id),
+      updated_at  = datetime('now')
+  `).run(key, String(value), bizId, uuid)
 }
 
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
@@ -1843,13 +1992,22 @@ function settingsGet() {
 }
 function settingsUpdate(obj) {
   if (!db) return
-  const stmt = db.prepare('INSERT OR REPLACE INTO app_settings(key,value) VALUES(?,?)')
+  const bizId = db.prepare("SELECT value FROM app_settings WHERE key='supabase_business_id'").get()?.value || null
+  const stmt = db.prepare(`
+    INSERT INTO app_settings(key, value, business_id, supabase_id, updated_at)
+    VALUES(?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(key) DO UPDATE SET
+      value       = excluded.value,
+      business_id = COALESCE(app_settings.business_id, excluded.business_id),
+      supabase_id = COALESCE(app_settings.supabase_id, excluded.supabase_id),
+      updated_at  = datetime('now')
+  `)
   const run  = db.transaction(() => {
     for (const [k, v] of Object.entries(obj)) {
       // Skip undefined/null so we never poison a setting with the literal
       // string 'undefined'. An empty string is still a valid stored value.
       if (v === undefined || v === null) continue
-      stmt.run(k, String(v))
+      stmt.run(k, String(v), bizId, crypto.randomUUID())
     }
   })
   run()
@@ -1981,8 +2139,26 @@ function userUpdate(id, data) {
   if (pin && !rest.pin_hash) rest.pin_hash = sha256(pin)
   const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
+  // v2.2.1 — capture "before" row so we can audit sensitive changes (PIN, role).
+  let before = null
+  try { before = db.prepare('SELECT name, username, role, pin_hash FROM users WHERE id=?').get(id) } catch {}
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
   db.prepare(`UPDATE users SET ${fields} WHERE id=@id`).run({ ...patch, id })
+  if (before) {
+    const targetName = `${before.name || ''} (@${before.username || ''})`
+    try {
+      if (patch.pin_hash && patch.pin_hash !== before.pin_hash) {
+        activityLogRecord({ event_type: 'user_pin_changed', severity: 'critical',
+          target_type: 'user', target_id: id, target_name: targetName,
+          reason: 'PIN reset from Admin/Usuarios' })
+      }
+      if (patch.role && patch.role !== before.role) {
+        activityLogRecord({ event_type: 'user_role_changed', severity: 'warn',
+          target_type: 'user', target_id: id, target_name: targetName,
+          old_value: before.role, new_value: patch.role })
+      }
+    } catch {}
+  }
 }
 function userDelete(id) {
   if (!db) return { softDeleted: true }
@@ -2714,9 +2890,9 @@ function salaryChangeCreate({ empleado_id, new_salary, effective_date, reason, c
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function salaryChangeDelete(id) {
-  if (!db) return
-  const row = db.prepare('SELECT empleado_id FROM salary_changes WHERE id=?').get(id)
-  if (!row) return
+  if (!db) return null
+  const row = db.prepare('SELECT empleado_id, supabase_id FROM salary_changes WHERE id=?').get(id)
+  if (!row) return null
   db.prepare('DELETE FROM salary_changes WHERE id=?').run(id)
   // Re-sync empleados.salary to whatever the new latest change is (or 0 if none)
   const latest = db.prepare(`
@@ -2725,6 +2901,7 @@ function salaryChangeDelete(id) {
     ORDER BY effective_date DESC, id DESC LIMIT 1
   `).get(row.empleado_id)
   db.prepare('UPDATE empleados SET salary=? WHERE id=?').run(Number(latest?.new_salary || 0), row.empleado_id)
+  return { supabase_id: row.supabase_id || null }
 }
 
 function salaryAtDate(empleadoId, date) {
@@ -2931,14 +3108,40 @@ function ticketGetById(id) {
 function ticketCreate(data) {
   if (!db) return null
 
-  // v2.1.7 — self-heal: some upgraded installs are missing v2.1 columns
-  // because the gated migration block was skipped/aborted. Add them on
-  // every ticket create (no-op if already present).
-  try { db.exec("ALTER TABLE tickets ADD COLUMN washer_empleado_supabase_ids TEXT DEFAULT '[]'") } catch {}
-  try { db.exec("ALTER TABLE tickets ADD COLUMN seller_empleado_supabase_id TEXT") } catch {}
-  try { db.exec("ALTER TABLE queue ADD COLUMN empleado_supabase_id TEXT") } catch {}
-  try { db.exec("ALTER TABLE queue ADD COLUMN ticket_supabase_id TEXT") } catch {}
-  try { db.exec("ALTER TABLE queue ADD COLUMN supabase_id TEXT") } catch {}
+  // v2.1.7+ — self-heal: some upgraded installs are missing columns because
+  // the gated migration block was skipped/aborted. Add them on every ticket
+  // create (no-op if already present). The INSERT below references every
+  // column in this list — if any is missing the INSERT throws "no such column"
+  // with no clue. Self-heal = zero surprises on upgrade.
+  const SELF_HEAL_TICKETS_COLS = [
+    "ALTER TABLE tickets ADD COLUMN washer_empleado_supabase_ids TEXT DEFAULT '[]'",
+    "ALTER TABLE tickets ADD COLUMN seller_empleado_supabase_id TEXT",
+    "ALTER TABLE tickets ADD COLUMN beverage_subtotal REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE tickets ADD COLUMN supabase_id TEXT",
+    "ALTER TABLE tickets ADD COLUMN client_supabase_id TEXT",
+    "ALTER TABLE tickets ADD COLUMN seller_supabase_id TEXT",
+    "ALTER TABLE tickets ADD COLUMN cajero_supabase_id TEXT",
+    "ALTER TABLE tickets ADD COLUMN mesa_id INTEGER",
+    "ALTER TABLE tickets ADD COLUMN mesa_supabase_id TEXT",
+    "ALTER TABLE tickets ADD COLUMN fulfillment_type TEXT",
+    "ALTER TABLE tickets ADD COLUMN tip_amount REAL DEFAULT 0",
+    "ALTER TABLE tickets ADD COLUMN mode TEXT",
+    "ALTER TABLE tickets ADD COLUMN converted_from_mesa_id INTEGER",
+    "ALTER TABLE tickets ADD COLUMN converted_from_mesa_supabase_id TEXT",
+    "ALTER TABLE tickets ADD COLUMN converted_from_ticket_id INTEGER",
+    "ALTER TABLE tickets ADD COLUMN converted_from_ticket_supabase_id TEXT",
+    "ALTER TABLE tickets ADD COLUMN origin_hwid TEXT",
+    "ALTER TABLE tickets ADD COLUMN origin_device_label TEXT",
+    "ALTER TABLE tickets ADD COLUMN used_legacy_counter INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE tickets ADD COLUMN vehicle_plate TEXT",
+    "ALTER TABLE tickets ADD COLUMN comprobante_type TEXT",
+    "ALTER TABLE tickets ADD COLUMN ecf_result TEXT",
+    "ALTER TABLE tickets ADD COLUMN ncf TEXT",
+    "ALTER TABLE queue ADD COLUMN empleado_supabase_id TEXT",
+    "ALTER TABLE queue ADD COLUMN ticket_supabase_id TEXT",
+    "ALTER TABLE queue ADD COLUMN supabase_id TEXT",
+  ]
+  for (const sql of SELF_HEAL_TICKETS_COLS) { try { db.exec(sql) } catch {} }
 
   // Resolve the ITBIS rate once per ticket creation — stored as a string
   // percentage in app_settings.itbis_pct (default '18'). Avoid hitting the
@@ -2947,23 +3150,62 @@ function ticketCreate(data) {
   const itbisPct = Number(itbisPctRow?.value)
   const itbisFactor = (Number.isFinite(itbisPct) && itbisPct >= 0 ? itbisPct : 18) / 100
 
-  const tx = db.transaction(() => {
-    // Get next doc number
-    const last = db.prepare('SELECT doc_number FROM tickets ORDER BY id DESC LIMIT 1').get()
-    let nextNum = 1
-    if (last?.doc_number) {
-      const m = last.doc_number.match(/T-(\d+)/)
-      if (m) nextNum = parseInt(m[1]) + 1
-    }
-    const docNumber = `T-${String(nextNum).padStart(4, '0')}`
+  // v2.3 — multi-POS gates. HWID is stamped by main.js onto app_settings so
+  // database.js (no electron dep) can read it without reaching back up.
+  const multiPos = multiPosEnabled()
+  const bizId    = _bizId()
+  const hwid     = (() => {
+    try { return db.prepare("SELECT value FROM app_settings WHERE key='hwid'").get()?.value || null }
+    catch { return null }
+  })()
 
-    // Get next NCF
-    const ncfRow = db.prepare('SELECT * FROM ncf_sequences WHERE type=? AND active=1').get(data.comprobante_type || 'B02')
+  const tx = db.transaction(() => {
+    let docNumber  = null
+    let usedLegacyCounter = 0
+
+    // ── doc_number ────────────────────────────────────────────────────────
+    if (multiPos && bizId && hwid) {
+      const blk = docNumberBlockConsumeNext({ businessId: bizId, hwid, scope: 'ticket' })
+      if (blk && Number.isFinite(blk.value)) {
+        docNumber = `T-${String(blk.value).padStart(4, '0')}`
+      }
+    }
+    if (!docNumber) {
+      // Legacy fallback — MAX(doc_number)+1. Flag the ticket so forensic
+      // can tell it was born outside the block system (offline-from-install
+      // edge case).
+      usedLegacyCounter = 1
+      const last = db.prepare('SELECT doc_number FROM tickets ORDER BY id DESC LIMIT 1').get()
+      let nextNum = 1
+      if (last?.doc_number) {
+        const m = last.doc_number.match(/T-(\d+)/)
+        if (m) nextNum = parseInt(m[1]) + 1
+      }
+      docNumber = `T-${String(nextNum).padStart(4, '0')}`
+    }
+
+    // ── NCF / e-CF ────────────────────────────────────────────────────────
+    const ncfType = data.comprobante_type || 'B02'
     let ncf = null
-    if (ncfRow) {
-      const nextNCF = ncfRow.current_number + 1
-      ncf = `${ncfRow.prefix}${String(nextNCF).padStart(8, '0')}`
-      db.prepare('UPDATE ncf_sequences SET current_number=? WHERE type=?').run(nextNCF, ncfRow.type)
+    let ncfFromBlock = false
+    if (multiPos && bizId && hwid) {
+      const blk = ncfBlockConsumeNext({ businessId: bizId, hwid, ncfType })
+      if (blk?.ncf) {
+        ncf = blk.ncf
+        ncfFromBlock = true
+      }
+      // If the block system is ON but no block is available, fall through to
+      // legacy. Caller UI (CobrarModal) is responsible for prompting a refill
+      // when offline+exhausted; here we keep the ticket atomic.
+    }
+    if (!ncfFromBlock) {
+      const ncfRow = db.prepare('SELECT * FROM ncf_sequences WHERE type=? AND active=1').get(ncfType)
+      if (ncfRow) {
+        const nextNCF = ncfRow.current_number + 1
+        ncf = `${ncfRow.prefix}${String(nextNCF).padStart(8, '0')}`
+        db.prepare('UPDATE ncf_sequences SET current_number=? WHERE type=?').run(nextNCF, ncfRow.type)
+        if (multiPos) usedLegacyCounter = 1
+      }
     }
 
     const ticketSid = crypto.randomUUID()
@@ -2988,8 +3230,9 @@ function ticketCreate(data) {
       (doc_number,client_id,washer_empleado_supabase_ids,seller_empleado_supabase_id,cajero_id,subtotal,descuento,itbis,ley,total,
        beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,supabase_id,client_supabase_id,seller_supabase_id,cajero_supabase_id,
        mesa_id,mesa_supabase_id,fulfillment_type,tip_amount,mode,converted_from_mesa_id,converted_from_mesa_supabase_id,converted_from_ticket_id,converted_from_ticket_supabase_id,
+       origin_hwid,used_legacy_counter,notes,
        created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
       docNumber,
       data.client_id || null,
       JSON.stringify(washerEmpSids),
@@ -3021,6 +3264,9 @@ function ticketCreate(data) {
       data.converted_from_mesa_supabase_id || null,
       data.converted_from_ticket_id || null,
       data.converted_from_ticket_supabase_id || null,
+      hwid || null,
+      usedLegacyCounter,
+      data.comentario || data.notes || null,
     )
     const ticketId = result.lastInsertRowid
 
@@ -3156,6 +3402,33 @@ function ticketCreate(data) {
         .run(ticketId, 'waiting', firstEmpSid, qSid, ticketSid)
     }
 
+    // v2.3 — queue post-sync inventory deduct for oversell detection. The
+    // optimistic local deduct already happened in the items loop above
+    // (UPDATE inventory_items SET quantity = MAX(0, quantity - ?) ...);
+    // sync.js reads pending_inventory_deducts and calls the authoritative
+    // deduct_inventory_atomic RPC, logging any oversells server-detected.
+    // Gated by multiPos so single-POS installs don't accumulate a queue
+    // that nothing drains.
+    if (multiPos) {
+      const invItems = []
+      for (const item of (data.items || [])) {
+        if (!item.inventory_item_id) continue
+        const sid = invSidById.get(item.inventory_item_id)
+        if (!sid) continue
+        invItems.push({
+          item_supabase_id: sid,
+          qty: Math.max(1, parseInt(item.quantity || 1)),
+          name: item.name || null,
+        })
+      }
+      if (invItems.length) {
+        const pdSid = crypto.randomUUID()
+        db.prepare(`INSERT INTO pending_inventory_deducts
+          (supabase_id, ticket_supabase_id, items_json) VALUES (?,?,?)`)
+          .run(pdSid, ticketSid, JSON.stringify(invItems))
+      }
+    }
+
     return { ticketId, docNumber, ncf, supabase_id: ticketSid }
   })
 
@@ -3165,31 +3438,35 @@ function ticketCreate(data) {
   const pct  = subt > 0 ? (desc / subt) * 100 : 0
   if (desc > 500 || pct > 15) {
     activityLogRecord({ event_type: 'discount_applied',
-      severity: desc > 2000 || pct > 30 ? 'warn' : 'info',
+      severity: desc > 2000 || pct > 30 ? 'critical' : 'warn',
       actor_user_id: data.cajero_id || null,
       target_type: 'ticket', target_id: res.ticketId, target_name: res.docNumber || `#${res.ticketId}`,
       amount: desc,
-      metadata: { subtotal: subt, total: data.total, pct: Math.round(pct * 10) / 10, payment_method: data.payment_method } })
+      metadata: { subtotal: subt, total: data.total, pct: Math.round(pct * 10) / 10, payment_method: data.payment_method, reason: data.descuento_reason || null } })
   }
   return res
 }
-function ticketMarkPaid(id, { paymentMethod, ncf, ecfResult, cajeroId, tipoVenta, clientId } = {}) {
+function ticketMarkPaid(id, { paymentMethod, ncf, ecfResult, cajeroId, tipoVenta, clientId, comentario, notes, descuento, descuento_reason } = {}) {
   if (!db) return null
   db.transaction(() => {
-    // Credit tickets stay 'pendiente' so they appear in Cuentas x Cobrar.
-    // Only mark 'cobrado' when collected as contado/cash/card/transfer.
     const newStatus = tipoVenta === 'credito' ? 'pendiente' : 'cobrado'
+    const noteVal = (comentario ?? notes ?? null) || null
 
     db.prepare(`UPDATE tickets SET status=?,
       payment_method=COALESCE(?,payment_method),
       ncf=COALESCE(?,ncf),
       ecf_result=COALESCE(?,ecf_result),
-      cajero_id=COALESCE(?,cajero_id)
+      cajero_id=COALESCE(?,cajero_id),
+      notes=COALESCE(?,notes),
+      descuento=COALESCE(?,descuento)
       WHERE id=?`).run(
       newStatus,
       paymentMethod || null, ncf || null,
       ecfResult ? JSON.stringify(ecfResult) : null,
-      cajeroId || null, id)
+      cajeroId || null,
+      noteVal,
+      (descuento != null ? Number(descuento) : null),
+      id)
 
     if (tipoVenta === 'credito' && clientId) {
       // Fetch original tipo_venta to avoid double-counting if ticket was already posted as credit
@@ -3203,6 +3480,23 @@ function ticketMarkPaid(id, { paymentMethod, ncf, ecfResult, cajeroId, tipoVenta
       }
     }
   })()
+  // v2.3.20 — discount_applied audit event on the queue→cobrar path. Previously
+  // only fired in ticketCreate, which is the direct-cobro path; queued tickets
+  // cobraron via markPaid bypassed audit. Mirror the same threshold logic.
+  const desc = Number(descuento || 0)
+  if (desc > 0) {
+    const row = db.prepare('SELECT doc_number, subtotal, total, payment_method FROM tickets WHERE id=?').get(id)
+    const subt = Number(row?.subtotal || 0)
+    const pct  = subt > 0 ? (desc / subt) * 100 : 0
+    if (desc > 500 || pct > 15) {
+      activityLogRecord({ event_type: 'discount_applied',
+        severity: desc > 2000 || pct > 30 ? 'critical' : 'warn',
+        actor_user_id: cajeroId || null,
+        target_type: 'ticket', target_id: id, target_name: row?.doc_number || `#${id}`,
+        amount: desc,
+        metadata: { subtotal: subt, total: row?.total, pct: Math.round(pct * 10) / 10, payment_method: row?.payment_method, source: 'markPaid', reason: descuento_reason || null } })
+    }
+  }
   return { id }
 }
 function ticketVoid(id, reason, voidById) {
@@ -4036,6 +4330,39 @@ function setActiveUser(user) {
 }
 function getActiveUser() { return _currentActor }
 
+// Injectable error sink — main.js wires this to writeErrorLog() at startup so
+// silent activity_log failures surface in userData/error.log instead of only
+// the console (which nobody reads in production Electron builds).
+let _activityErrorSink = null
+function setActivityErrorSink(fn) { _activityErrorSink = typeof fn === 'function' ? fn : null }
+
+function activityLogSelfHeal() {
+  if (!db) return
+  // v2.2.1 — self-heal for installs that predate one of the columns or the
+  // supabase_id unique index. ALTER adds are idempotent (SQLite throws
+  // "duplicate column"), so swallow per-statement.
+  const cols = [
+    'supabase_id TEXT', 'event_type TEXT', 'severity TEXT',
+    'actor_user_id INTEGER', 'actor_supabase_id TEXT',
+    'actor_name TEXT', 'actor_role TEXT',
+    'target_type TEXT', 'target_id TEXT', 'target_name TEXT',
+    'amount REAL', 'old_value TEXT', 'new_value TEXT',
+    'reason TEXT', 'metadata TEXT',
+    'created_at TEXT', 'updated_at TEXT',
+  ]
+  for (const c of cols) {
+    try { db.exec(`ALTER TABLE activity_log ADD COLUMN ${c}`) } catch {}
+  }
+  // Backfill any pre-existing rows missing supabase_id so push doesn't skip them.
+  try {
+    const legacy = db.prepare(`SELECT id FROM activity_log WHERE supabase_id IS NULL OR supabase_id=''`).all()
+    for (const row of legacy) {
+      db.prepare('UPDATE activity_log SET supabase_id=? WHERE id=?').run(crypto.randomUUID(), row.id)
+    }
+  } catch {}
+  try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_log_supabase_id ON activity_log(supabase_id)`) } catch {}
+}
+
 function activityLogRecord(evt) {
   if (!db || !evt || !evt.event_type) return
   try {
@@ -4046,24 +4373,52 @@ function activityLogRecord(evt) {
       actor_role    = actor_role || _currentActor.role
     }
     let actor_supabase_id = null
-    if (actor_user_id) {
-      const u = db.prepare('SELECT name, role, supabase_id FROM users WHERE id=?').get(actor_user_id)
-      if (u) {
-        actor_supabase_id = u.supabase_id || null
-        if (!actor_name) actor_name = u.name
-        if (!actor_role) actor_role = u.role
-      }
+    // actor_user_id may be an int (desktop local users.id) or a UUID string
+    // (web / supabase_id). Only query local `users` for numeric ids — passing a
+    // UUID through `WHERE id=?` is harmless but wastes a prepare cycle.
+    if (actor_user_id != null && Number.isFinite(Number(actor_user_id))) {
+      try {
+        const u = db.prepare('SELECT name, role, supabase_id FROM users WHERE id=?').get(Number(actor_user_id))
+        if (u) {
+          actor_supabase_id = u.supabase_id || null
+          if (!actor_name) actor_name = u.name
+          if (!actor_role) actor_role = u.role
+        }
+      } catch {}
+    } else if (typeof actor_user_id === 'string' && actor_user_id.includes('-')) {
+      // Treat as a supabase_id when it looks like a UUID.
+      actor_supabase_id = actor_user_id
+      try {
+        const u = db.prepare('SELECT id, name, role FROM users WHERE supabase_id=?').get(actor_user_id)
+        if (u) {
+          actor_user_id = u.id
+          if (!actor_name) actor_name = u.name
+          if (!actor_role) actor_role = u.role
+        } else {
+          actor_user_id = null
+        }
+      } catch { actor_user_id = null }
+    }
+    // Resilience: background jobs / sync callbacks may fire without an actor.
+    // Mark them as 'system' so the owner can visually distinguish them in the
+    // feed from unauthenticated / unknown actions.
+    if (!actor_name && !actor_role && !actor_supabase_id && !actor_user_id) {
+      actor_name = 'system'
+      actor_role = 'system'
     }
     const sid = crypto.randomUUID()
+    const nowIso = new Date().toISOString()
     db.prepare(`INSERT INTO activity_log
       (supabase_id, event_type, severity, actor_user_id, actor_supabase_id, actor_name, actor_role,
-       target_type, target_id, target_name, amount, old_value, new_value, reason, metadata)
+       target_type, target_id, target_name, amount, old_value, new_value, reason, metadata,
+       created_at, updated_at)
       VALUES (@supabase_id, @event_type, @severity, @actor_user_id, @actor_supabase_id, @actor_name, @actor_role,
-              @target_type, @target_id, @target_name, @amount, @old_value, @new_value, @reason, @metadata)`).run({
+              @target_type, @target_id, @target_name, @amount, @old_value, @new_value, @reason, @metadata,
+              @created_at, @updated_at)`).run({
       supabase_id: sid,
       event_type:  evt.event_type,
       severity:    evt.severity || 'info',
-      actor_user_id:     actor_user_id || null,
+      actor_user_id:     (actor_user_id != null && Number.isFinite(Number(actor_user_id))) ? Number(actor_user_id) : null,
       actor_supabase_id: actor_supabase_id,
       actor_name:        actor_name || null,
       actor_role:        actor_role || null,
@@ -4075,8 +4430,16 @@ function activityLogRecord(evt) {
       new_value:   evt.new_value != null ? String(evt.new_value) : null,
       reason:      evt.reason || null,
       metadata:    evt.metadata ? JSON.stringify(evt.metadata) : null,
+      created_at:  nowIso,
+      updated_at:  nowIso,
     })
-  } catch (e) { console.error('[activity_log] record failed:', e.message) }
+    return sid
+  } catch (e) {
+    console.error('[activity_log] record failed:', e.message)
+    if (_activityErrorSink) {
+      try { _activityErrorSink('activity_log:record', e, evt) } catch {}
+    }
+  }
 }
 
 function activityLogList({ dateFrom, dateTo, eventTypes, limit = 200 } = {}) {
@@ -5115,6 +5478,295 @@ function clientRateDelete(id) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 // ── Raw DB access for sync module ────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// Multi-POS — NCF / doc_number block allocation + consumption (v2.3)
+// ───────────────────────────────────────────────────────────────────────────────
+// NETWORK-FREE. Every function here is pure SQLite (synchronous). The Supabase
+// RPC that mints a block (`allocate_ncf_block` / `allocate_doc_number_block`)
+// is called from electron/sync.js, which passes the resulting row to
+// ncfBlockInsert / docNumberBlockInsert below.
+//
+// Concurrency: consume uses a BEGIN IMMEDIATE transaction — better-sqlite3
+// serialises writes so two simultaneous consumers can never hand out the same
+// next_available.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function _bizId() {
+  if (!db) return null
+  try { return db.prepare("SELECT value FROM app_settings WHERE key='supabase_business_id'").get()?.value || null }
+  catch { return null }
+}
+
+function multiPosEnabled() {
+  if (!db) return false
+  try { return (db.prepare("SELECT value FROM app_settings WHERE key='multi_pos_enabled'").get()?.value || '0') === '1' }
+  catch { return false }
+}
+
+// ── NCF blocks ──────────────────────────────────────────────────────────────
+function ncfBlockInsert(row) {
+  if (!db || !row) return null
+  // Upsert by supabase_id so the RPC "reuse partial block" path doesn't
+  // duplicate a row already living locally.
+  const sid = row.supabase_id || row.id || null
+  if (!sid) return null
+  const existing = db.prepare('SELECT id FROM ncf_blocks WHERE supabase_id=?').get(sid)
+  if (existing) {
+    db.prepare(`UPDATE ncf_blocks SET
+        next_available=?, exhausted_at=?, last_used_at=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE id=?`).run(
+      Number(row.next_available),
+      row.exhausted_at || null,
+      row.last_used_at || null,
+      existing.id,
+    )
+    return existing.id
+  }
+  const r = db.prepare(`INSERT INTO ncf_blocks
+    (supabase_id, business_id, hwid, ncf_type, prefix,
+     range_start, range_end, next_available, size,
+     allocated_at, exhausted_at, last_used_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    sid,
+    row.business_id,
+    row.hwid,
+    row.ncf_type,
+    row.prefix || row.ncf_type,
+    Number(row.range_start),
+    Number(row.range_end),
+    Number(row.next_available),
+    Number(row.size || (row.range_end - row.range_start + 1)),
+    row.allocated_at || new Date().toISOString(),
+    row.exhausted_at || null,
+    row.last_used_at || null,
+  )
+  return r.lastInsertRowid
+}
+
+function ncfBlockActive({ businessId, hwid, ncfType }) {
+  if (!db) return null
+  return db.prepare(`SELECT * FROM ncf_blocks
+    WHERE business_id=? AND hwid=? AND ncf_type=? AND exhausted_at IS NULL
+      AND next_available <= range_end
+    ORDER BY range_start ASC LIMIT 1`).get(businessId, hwid, ncfType) || null
+}
+
+function ncfBlockAvailableCount({ businessId, hwid, ncfType }) {
+  if (!db) return 0
+  const r = db.prepare(`SELECT COALESCE(SUM(range_end - next_available + 1), 0) AS n
+    FROM ncf_blocks
+    WHERE business_id=? AND hwid=? AND ncf_type=?
+      AND exhausted_at IS NULL AND next_available <= range_end`).get(businessId, hwid, ncfType)
+  return Number(r?.n || 0)
+}
+
+function ncfBlockConsumeNext({ businessId, hwid, ncfType }) {
+  if (!db) return null
+  const tx = db.transaction(() => {
+    const row = db.prepare(`SELECT * FROM ncf_blocks
+      WHERE business_id=? AND hwid=? AND ncf_type=? AND exhausted_at IS NULL
+        AND next_available <= range_end
+      ORDER BY range_start ASC LIMIT 1`).get(businessId, hwid, ncfType)
+    if (!row) return null
+    const consumed = row.next_available
+    const nextVal  = consumed + 1
+    const willExhaust = nextVal > row.range_end
+    const nowIso = new Date().toISOString()
+    db.prepare(`UPDATE ncf_blocks
+      SET next_available=?, last_used_at=?,
+          exhausted_at = CASE WHEN ? = 1 THEN ? ELSE exhausted_at END,
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE id=?`).run(nextVal, nowIso, willExhaust ? 1 : 0, nowIso, row.id)
+    const ncf = `${row.prefix || row.ncf_type}${String(consumed).padStart(8, '0')}`
+    return {
+      ncf,
+      value: consumed,
+      blockId: row.id,
+      blockSupabaseId: row.supabase_id,
+      remaining: row.range_end - consumed,
+      exhausted: willExhaust,
+    }
+  })
+  return tx()
+}
+
+function ncfBlocksListLocal({ businessId = null, hwid = null } = {}) {
+  if (!db) return []
+  const where = []
+  const args  = []
+  if (businessId) { where.push('business_id=?'); args.push(businessId) }
+  if (hwid)       { where.push('hwid=?');        args.push(hwid) }
+  const sql = `SELECT * FROM ncf_blocks ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ncf_type, range_start`
+  return db.prepare(sql).all(...args)
+}
+
+// ── Doc-number blocks ───────────────────────────────────────────────────────
+function docNumberBlockInsert(row) {
+  if (!db || !row) return null
+  const sid = row.supabase_id || row.id || null
+  if (!sid) return null
+  const existing = db.prepare('SELECT id FROM doc_number_blocks WHERE supabase_id=?').get(sid)
+  if (existing) {
+    db.prepare(`UPDATE doc_number_blocks SET
+        next_available=?, exhausted_at=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE id=?`).run(Number(row.next_available), row.exhausted_at || null, existing.id)
+    return existing.id
+  }
+  const r = db.prepare(`INSERT INTO doc_number_blocks
+    (supabase_id, business_id, hwid, scope,
+     range_start, range_end, next_available, size,
+     allocated_at, exhausted_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
+    sid,
+    row.business_id,
+    row.hwid,
+    row.scope || 'ticket',
+    Number(row.range_start),
+    Number(row.range_end),
+    Number(row.next_available),
+    Number(row.size || (row.range_end - row.range_start + 1)),
+    row.allocated_at || new Date().toISOString(),
+    row.exhausted_at || null,
+  )
+  return r.lastInsertRowid
+}
+
+function docNumberBlockActive({ businessId, hwid, scope = 'ticket' }) {
+  if (!db) return null
+  return db.prepare(`SELECT * FROM doc_number_blocks
+    WHERE business_id=? AND hwid=? AND scope=? AND exhausted_at IS NULL
+      AND next_available <= range_end
+    ORDER BY range_start ASC LIMIT 1`).get(businessId, hwid, scope) || null
+}
+
+function docNumberBlockAvailableCount({ businessId, hwid, scope = 'ticket' }) {
+  if (!db) return 0
+  const r = db.prepare(`SELECT COALESCE(SUM(range_end - next_available + 1), 0) AS n
+    FROM doc_number_blocks
+    WHERE business_id=? AND hwid=? AND scope=?
+      AND exhausted_at IS NULL AND next_available <= range_end`).get(businessId, hwid, scope)
+  return Number(r?.n || 0)
+}
+
+function docNumberBlockConsumeNext({ businessId, hwid, scope = 'ticket' }) {
+  if (!db) return null
+  const tx = db.transaction(() => {
+    const row = db.prepare(`SELECT * FROM doc_number_blocks
+      WHERE business_id=? AND hwid=? AND scope=? AND exhausted_at IS NULL
+        AND next_available <= range_end
+      ORDER BY range_start ASC LIMIT 1`).get(businessId, hwid, scope)
+    if (!row) return null
+    const consumed = row.next_available
+    const nextVal  = consumed + 1
+    const willExhaust = nextVal > row.range_end
+    const nowIso = new Date().toISOString()
+    db.prepare(`UPDATE doc_number_blocks
+      SET next_available=?,
+          exhausted_at = CASE WHEN ? = 1 THEN ? ELSE exhausted_at END,
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE id=?`).run(nextVal, willExhaust ? 1 : 0, nowIso, row.id)
+    return {
+      value: consumed,
+      blockId: row.id,
+      blockSupabaseId: row.supabase_id,
+      remaining: row.range_end - consumed,
+      exhausted: willExhaust,
+    }
+  })
+  return tx()
+}
+
+function docNumberBlocksListLocal({ businessId = null, hwid = null } = {}) {
+  if (!db) return []
+  const where = []
+  const args  = []
+  if (businessId) { where.push('business_id=?'); args.push(businessId) }
+  if (hwid)       { where.push('hwid=?');        args.push(hwid) }
+  const sql = `SELECT * FROM doc_number_blocks ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY scope, range_start`
+  return db.prepare(sql).all(...args)
+}
+
+// ── Pending inventory deducts (post-sync oversell detection) ───────────────
+function pendingDeductEnqueue({ ticketSupabaseId, items }) {
+  if (!db || !ticketSupabaseId || !Array.isArray(items) || !items.length) return null
+  const sid = crypto.randomUUID()
+  db.prepare(`INSERT INTO pending_inventory_deducts
+    (supabase_id, ticket_supabase_id, items_json)
+    VALUES (?,?,?)`).run(sid, ticketSupabaseId, JSON.stringify(items))
+  return sid
+}
+
+function pendingDeductList() {
+  if (!db) return []
+  return db.prepare(`SELECT * FROM pending_inventory_deducts
+    WHERE pushed_at IS NULL ORDER BY id ASC`).all()
+}
+
+function pendingDeductMarkPushed(id) {
+  if (!db) return
+  db.prepare(`UPDATE pending_inventory_deducts
+    SET pushed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), last_error = NULL
+    WHERE id=?`).run(id)
+}
+
+function pendingDeductMarkFailed(id, errMsg) {
+  if (!db) return
+  db.prepare(`UPDATE pending_inventory_deducts
+    SET attempts = attempts + 1, last_error = ?
+    WHERE id=?`).run(String(errMsg || '').slice(0, 500), id)
+}
+
+// ── Oversells ──────────────────────────────────────────────────────────────
+function oversellRecord({ businessId, ticketSupabaseId, itemSupabaseId, itemName, requested, actual }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const existing = db.prepare(`SELECT id FROM inventory_oversells
+    WHERE ticket_supabase_id=? AND item_supabase_id=? AND resolved_at IS NULL`).get(ticketSupabaseId, itemSupabaseId)
+  if (existing) return existing.id
+  db.prepare(`INSERT INTO inventory_oversells
+    (supabase_id, business_id, ticket_supabase_id, item_supabase_id, item_name, requested_qty, actual_qty)
+    VALUES (?,?,?,?,?,?,?)`).run(
+    sid, businessId || _bizId(), ticketSupabaseId, itemSupabaseId,
+    itemName || null, Number(requested) || 0, Number(actual) || 0,
+  )
+  try {
+    activityLogRecord({
+      event_type: 'inventory_oversell',
+      severity: 'warn',
+      target_type: 'inventory_item',
+      target_id: itemSupabaseId,
+      target_name: itemName || null,
+      amount: Number(requested) || 0,
+      metadata: { ticket_supabase_id: ticketSupabaseId, actual: Number(actual) || 0 },
+    })
+  } catch {}
+  return sid
+}
+
+function oversellList({ unresolvedOnly = false } = {}) {
+  if (!db) return []
+  const where = unresolvedOnly ? 'WHERE resolved_at IS NULL' : ''
+  return db.prepare(`SELECT * FROM inventory_oversells ${where}
+    ORDER BY detected_at DESC LIMIT 500`).all()
+}
+
+function oversellResolveLocal({ supabase_id, resolution_type, notes, resolved_by }) {
+  if (!db || !supabase_id) return false
+  db.prepare(`UPDATE inventory_oversells
+    SET resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+        resolved_by = ?, resolution_type = ?, resolution_notes = ?,
+        updated_at  = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    WHERE supabase_id = ?`).run(resolved_by || null, resolution_type || null, notes || null, supabase_id)
+  return true
+}
+
+function oversellUnresolvedCount() {
+  if (!db) return 0
+  try {
+    return Number(db.prepare(`SELECT COUNT(*) AS n FROM inventory_oversells WHERE resolved_at IS NULL`).get()?.n || 0)
+  } catch { return 0 }
+}
+
 function rawPrepare(sql) { return db ? db.prepare(sql) : null }
 function rawExec(sql) { if (db) db.exec(sql) }
 
@@ -5182,7 +5834,7 @@ module.exports = {
   ecfSubmissionAdd, ecfSubmissionUpdate, ecfSubmissionGetByTrackId, ecfSubmissionGetByTicket,
   ecfSubmissionGetPending, ecfSubmissionGetAll,
   // Activity log (owner audit feed)
-  setActiveUser, getActiveUser, activityLogRecord, activityLogList,
+  setActiveUser, getActiveUser, activityLogRecord, activityLogList, activityLogSelfHeal, setActivityErrorSink,
   // Restaurant Mode — mesas / modificadores / kds / ticket-item modifier snapshots
   mesasGetAll, mesaCreate, mesaUpdate, mesaSetStatus, mesaDelete,
   modificadoresGetAll, modificadoresGetAllAdmin, modificadorCreate, modificadorUpdate, modificadorDelete,
@@ -5216,4 +5868,10 @@ module.exports = {
   servicePackageConsume, servicePackageDelete,
   projectCreate, projectUpdate, projectList, projectGetById,
   clientRateSet, clientRateList, clientRateGet, clientRateDelete,
+  // Multi-POS — block allocation + oversell detection (v2.3)
+  multiPosEnabled,
+  ncfBlockInsert, ncfBlockActive, ncfBlockAvailableCount, ncfBlockConsumeNext, ncfBlocksListLocal,
+  docNumberBlockInsert, docNumberBlockActive, docNumberBlockAvailableCount, docNumberBlockConsumeNext, docNumberBlocksListLocal,
+  pendingDeductEnqueue, pendingDeductList, pendingDeductMarkPushed, pendingDeductMarkFailed,
+  oversellRecord, oversellList, oversellResolveLocal, oversellUnresolvedCount,
 }

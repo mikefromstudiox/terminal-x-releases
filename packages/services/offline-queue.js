@@ -137,12 +137,13 @@ export async function syncPendingTickets(supabase, businessId) {
         const status = data.tipo_venta === 'credito' || data.payment_method === 'credit' ? 'pendiente' : 'cobrado'
 
         const { data: ticket, error: ticketErr } = await supabase.from('tickets').insert({
-          business_id:      businessId,
-          doc_number:       docNum,
-          client_id:        data.client_id || null,
-          washer_ids:       data.washer_ids || [],
-          seller_id:        data.seller_id || null,
-          cajero_id:        data.cajero_id || null,
+          business_id:                  businessId,
+          supabase_id:                  data.supabase_id || crypto.randomUUID(),
+          doc_number:                   docNum,
+          client_supabase_id:           data.client_supabase_id || null,
+          washer_empleado_supabase_ids: data.washer_empleado_supabase_ids || data.washer_ids || [],
+          seller_empleado_supabase_id:  data.seller_empleado_supabase_id || data.seller_supabase_id || null,
+          cajero_supabase_id:           data.cajero_supabase_id || null,
           subtotal:         data.subtotal || 0,
           descuento:        data.descuento || 0,
           itbis:            data.itbis || 0,
@@ -178,11 +179,15 @@ export async function syncPendingTickets(supabase, businessId) {
         // Add to queue
         if (ticket?.id) {
           const firstWasher = Array.isArray(data.washer_ids) && data.washer_ids[0] ? data.washer_ids[0] : null
+          // v2.1: queue.washer_id (legacy INT FK to washers) replaced by
+          // empleado_supabase_id (UUID FK to empleados.supabase_id, tipo='lavador'/'hybrid').
+          // ticket.id here is the Supabase UUID returned by the tickets insert above,
+          // so it goes into ticket_supabase_id. business_id is the Supabase business UUID.
           await supabase.from('queue').insert({
-            business_id: businessId,
-            ticket_id:   ticket.id,
-            status:      'waiting',
-            washer_id:   firstWasher,
+            business_id:           businessId,
+            ticket_supabase_id:    ticket.id,
+            status:                'waiting',
+            empleado_supabase_id:  firstWasher,
           })
         }
 

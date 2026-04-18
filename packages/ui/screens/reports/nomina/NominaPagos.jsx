@@ -165,30 +165,47 @@ export default function NominaPagos() {
     return () => { cancelled = true }
   }, [period?.start, period?.end])
 
-  // ── Commission totals per employee ref_id ─────────────────────────────────
+  // ── Commission totals per employee (v2.1: keyed by empleado_supabase_id) ─
+  // Each bucket holds three parallel maps so we can match empleados by
+  // supabase_id first, then fall back to legacy washer/seller/cajero keys.
   const commTotals = useMemo(() => {
-    const washers = {}, sellers = {}, cajeros = {}
-    for (const r of commRows.washers) {
-      const id = String(r.washer_id)
-      washers[id] = (washers[id] || 0) + Number(r.total_commission || r.commission_amount || 0)
+    const build = (rows, legacySupaKey, legacyIdKey) => {
+      const bySid = {}, byLegacySid = {}, byLegacyId = {}
+      for (const r of (rows || [])) {
+        const amt = Number(r.total_commission || r.commission_amount || 0)
+        if (r.empleado_supabase_id) {
+          const k = String(r.empleado_supabase_id)
+          bySid[k] = (bySid[k] || 0) + amt
+        } else if (r[legacySupaKey]) {
+          const k = String(r[legacySupaKey])
+          byLegacySid[k] = (byLegacySid[k] || 0) + amt
+        } else if (r[legacyIdKey] != null) {
+          const k = String(r[legacyIdKey])
+          byLegacyId[k] = (byLegacyId[k] || 0) + amt
+        }
+      }
+      return { bySid, byLegacySid, byLegacyId }
     }
-    for (const r of commRows.sellers) {
-      const id = String(r.seller_id)
-      sellers[id] = (sellers[id] || 0) + Number(r.total_commission || r.commission_amount || 0)
+    return {
+      washers: build(commRows.washers, 'washer_supabase_id', 'washer_id'),
+      sellers: build(commRows.sellers, 'seller_supabase_id', 'seller_id'),
+      cajeros: build(commRows.cajeros, 'cajero_supabase_id', 'cajero_id'),
     }
-    for (const r of commRows.cajeros) {
-      const id = String(r.cajero_id)
-      cajeros[id] = (cajeros[id] || 0) + Number(r.total_commission || r.commission_amount || 0)
-    }
-    return { washers, sellers, cajeros }
   }, [commRows])
 
   function getCommission(emp) {
-    if (!emp?.ref_id) return 0
-    const ref = String(emp.ref_id)
-    if (emp.tipo === 'lavador')  return commTotals.washers[ref] || 0
-    if (emp.tipo === 'vendedor') return commTotals.sellers[ref] || 0
-    if (emp.tipo === 'cajero')   return commTotals.cajeros[ref] || 0
+    if (!emp) return 0
+    const bucket = emp.tipo === 'lavador'  ? commTotals.washers
+                 : emp.tipo === 'vendedor' ? commTotals.sellers
+                 : emp.tipo === 'cajero'   ? commTotals.cajeros
+                 : null
+    if (!bucket) return 0
+    const sid = emp.supabase_id ? String(emp.supabase_id) : null
+    if (sid && bucket.bySid?.[sid]) return bucket.bySid[sid]
+    const refSid = emp.ref_supabase_id ? String(emp.ref_supabase_id) : null
+    if (refSid && bucket.byLegacySid?.[refSid]) return bucket.byLegacySid[refSid]
+    const ref = emp.ref_id != null ? String(emp.ref_id) : null
+    if (ref && bucket.byLegacyId?.[ref]) return bucket.byLegacyId[ref]
     return 0
   }
 

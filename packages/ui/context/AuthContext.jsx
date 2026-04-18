@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { useAPI } from './DataContext'
 
 const AuthContext = createContext(null)
@@ -15,6 +15,10 @@ const TEMP_OWNER = { id: 'web', name: 'Owner', username: 'owner', role: 'owner',
 // Persist PIN-auth user to sessionStorage on web so navigation doesn't kick
 // them back to the PIN screen. Desktop has no lazy-reload issue.
 const STORAGE_KEY = 'tx_pos_user'
+// Sticky flag — survives full page reload. While set, the TEMP_OWNER auto-login
+// path must NOT fire, otherwise logging out of the seeded demo accounts (which
+// have active users) silently re-grants owner access on the very next render.
+const LOGOUT_FLAG = 'tx_logging_out'
 function loadStoredUser() {
   if (DEV_USER) return DEV_USER
   if (!isWeb || typeof sessionStorage === 'undefined') return null
@@ -28,6 +32,7 @@ export function AuthProvider({ children }) {
   const api = useAPI()
   const [user, setUserState] = useState(loadStoredUser)
   const [webChecked, setWebChecked] = useState(!isWeb || !!loadStoredUser()) // desktop skips check; web skips if user already cached
+  const loggingOutRef = useRef(false)
 
   // Persist user state on every change (web only) + push actor to electron DB
   const setUser = (u) => {
@@ -45,18 +50,23 @@ export function AuthProvider({ children }) {
 
   // On web, check if business has staff — if none, allow temporary owner for setup.
   // Skip entirely if a cached user already exists (avoids wiping auth on navigation).
+  // CRITICAL: also skip while a logout is in flight, otherwise this effect will
+  // re-instate TEMP_OWNER right after setUser(null) and the user is silently
+  // signed back in before the Supabase signOut callback flips the auth gate.
   useEffect(() => {
     if (!isWeb || DEV_USER) { setWebChecked(true); return }
     if (user) { setWebChecked(true); return }
+    if (loggingOutRef.current) { setWebChecked(true); return }
+    try { if (sessionStorage.getItem(LOGOUT_FLAG)) { setWebChecked(true); return } } catch {}
     if (!api?.admin?.getUsuarios) return
     api.admin.getUsuarios().then(users => {
       const active = users?.filter(u => u.active)
-      if (!active?.length) {
+      if (!active?.length && !loggingOutRef.current) {
         setUser(TEMP_OWNER)
       }
       setWebChecked(true)
     }).catch(() => {
-      setUser(TEMP_OWNER)
+      if (!loggingOutRef.current) setUser(TEMP_OWNER)
       setWebChecked(true)
     })
   }, [api])
@@ -95,18 +105,65 @@ export function AuthProvider({ children }) {
     }
   }
 
-  function logout() {
-    setUser(null)
-    // On web, also kill the Supabase session so SupabaseAuthGate flips back
-    // to the email/password sign-in screen. Use the EXACT same client instance
-    // that SupabaseAuthGate created — stashed on window.__txSupabase by
-    // web/main.jsx. Without using the same instance, signOut fires on a
-    // different client and the gate's onAuthStateChange never sees it.
+  async function logout() {
+    // Mark logout in flight FIRST so the TEMP_OWNER auto-login effect cannot
+    // race in and silently re-authenticate the user after setUser(null) flips.
+    loggingOutRef.current = true
     if (isWeb) {
-      try {
-        const sb = typeof window !== 'undefined' ? window.__txSupabase : null
-        if (sb?.auth?.signOut) sb.auth.signOut().catch(() => {})
-      } catch {}
+      try { sessionStorage.setItem(LOGOUT_FLAG, '1') } catch {}
+    }
+    setUser(null)
+    if (!isWeb) return
+
+    // On web, kill the Supabase session, every cached license/auth artifact,
+    // and hard-redirect so the SupabaseAuthGate remounts cleanly on the
+    // landing/email-password screen with zero stale state. Using the EXACT
+    // same client instance that SupabaseAuthGate created (window.__txSupabase)
+    // is mandatory — otherwise signOut fires on a different client and the
+    // gate's onAuthStateChange never sees it.
+    try {
+      const sb = typeof window !== 'undefined' ? window.__txSupabase : null
+      if (sb?.auth?.signOut) {
+        // AWAIT so we don't race the hard reload below — the gate's
+        // onAuthStateChange must fire before we tear the page down so the
+        // sb-*-auth-token row is wiped from localStorage by the SDK.
+        await sb.auth.signOut().catch(() => {})
+      }
+    } catch {}
+
+    // Wipe every key that could keep the user signed in across the reload:
+    // - tx_pos_user (already cleared by setUser(null), but be defensive)
+    // - tx_last_valid (offline-grace timestamp — would let LicenseContext
+    //   bypass re-validation)
+    // - tx_license_key (auto-fetched from licenses table on next sign-in)
+    // - tx_setting_business_id / supabase_business_id (cached business id)
+    // - sb-*-auth-token (Supabase SDK session — the SDK clears its own copy
+    //   in signOut, but we belt-and-suspenders it here in case signOut failed
+    //   silently due to network)
+    try {
+      sessionStorage.removeItem(STORAGE_KEY)
+      const lsKeys = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (!k) continue
+        if (
+          k === 'tx_last_valid' ||
+          k === 'tx_license_key' ||
+          k.startsWith('tx_setting_') ||
+          k.startsWith('sb-')
+        ) lsKeys.push(k)
+      }
+      lsKeys.forEach(k => { try { localStorage.removeItem(k) } catch {} })
+    } catch {}
+
+    // Hard reload to the public landing so EVERY in-memory React state
+    // (LicenseContext, DataContext, BusinessTypeContext, cached api ref) is
+    // discarded. The LOGOUT_FLAG sessionStorage entry is consumed on the
+    // very next mount of SupabaseAuthGate's children — see useEffect above.
+    try {
+      window.location.replace('/')
+    } catch {
+      window.location.href = '/'
     }
   }
 

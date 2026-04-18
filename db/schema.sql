@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS services (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   name          TEXT    NOT NULL,
   name_en       TEXT,
-  category      TEXT    NOT NULL DEFAULT 'Lavado',  -- Lavado | Detallado | Adicionales | Bebidas
+  category      TEXT    NOT NULL DEFAULT 'General',  -- Vertical-agnostic default; UI/seed pick a localized bucket
   categoria_id  INTEGER REFERENCES categorias_servicio(id),
   price         REAL    NOT NULL,
   cost          REAL    NOT NULL DEFAULT 0,   -- unit cost (for profit margin tracking)

@@ -93,9 +93,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Activity log (owner audit feed) ────────────────────────────────────────
   activity: {
-    setActor: (user) => call('activity:set-actor', user),
-    list:     (args) => call('activity:list', args),
-    record:   (evt)  => call('activity:record', evt),
+    setActor:          (user) => call('activity:set-actor', user),
+    list:              (args) => call('activity:list', args),
+    record:            (evt)  => call('activity:record', evt),
+    permissionDenied:  (args) => call('activity:permission-denied', args),
   },
 
   // ── Categorías de Servicio ─────────────────────────────────────────────────
@@ -483,6 +484,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   license: {
     hwid:     ()    => ipcRenderer.invoke('license:hwid'),
     isMaster: (key) => ipcRenderer.invoke('license:is-master', key),
+    status:   ()    => ipcRenderer.invoke('license:status'),
   },
 
   // ── Remote API (main process, no CORS) ────────────────────────────────────
@@ -496,6 +498,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     status: () => ipcRenderer.invoke('sync:status'),
     now:    () => ipcRenderer.invoke('sync:now'),
     pull:   () => ipcRenderer.invoke('sync:pull'),
+  },
+
+  // ── Multi-POS: block allocation status + manual refill (v2.3) ────────────
+  blocks: {
+    status: ()   => ipcRenderer.invoke('blocks:status'),
+    refill: ()   => ipcRenderer.invoke('blocks:refill'),
+    list:   ()   => ipcRenderer.invoke('blocks:list'),
+  },
+  oversells: {
+    list:    (args)   => ipcRenderer.invoke('oversells:list', args || {}),
+    count:   ()       => ipcRenderer.invoke('oversells:count'),
+    resolve: (payload)=> ipcRenderer.invoke('oversells:resolve', payload || {}),
   },
 
   // ── App version ────────────────────────────────────────────────────────────
@@ -561,4 +575,5 @@ contextBridge.exposeInMainWorld('printerAPI', {
   listPrinters:       ()             => ipcRenderer.invoke('print:list-usb-printers'),
   openDrawer:         ()             => ipcRenderer.invoke('print:open-drawer'),
   testDrawerVariants: (printerName)  => ipcRenderer.invoke('print:test-drawer-variants', printerName),
+  fireDrawerVariant:  (index, printerName) => ipcRenderer.invoke('print:fire-drawer-variant', { index, printerName }),
 })

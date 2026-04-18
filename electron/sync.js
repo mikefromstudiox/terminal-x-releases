@@ -22,6 +22,7 @@
 
 const https = require('https')
 const crypto = require('crypto')
+const { isBusinessSetting } = require('./settingsWhitelist')
 
 // Route all sync log output through electron-log so it lands in
 // %APPDATA%/terminal-x/logs/main.log where support can actually see it.
@@ -49,6 +50,8 @@ let _intervalId = null
 let _syncing = false
 let _pendingSync = false
 let _status = { state: 'idle', lastSync: null, tables: {}, error: null }
+let _errorLogSink = null
+function setErrorLogSink(fn) { _errorLogSink = typeof fn === 'function' ? fn : null }
 let _realtimeClient = null
 let _realtimeChannel = null
 let _realtimeDebounce = null
@@ -956,6 +959,22 @@ const SYNC_TABLES = [
       updated_at: r.updated_at || null,
     }),
   },
+
+  // v2.3 — app_settings (business-level keys only — whitelist-driven).
+  // Device-only keys (printer, print_*, hwid, sync internals) are filtered
+  // out via rowFilter so they never leak to the cloud. See
+  // electron/settingsWhitelist.js for the full key classification.
+  {
+    name: 'app_settings',
+    naturalKey: 'key',
+    rowFilter: (r) => isBusinessSetting(r.key),
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      key: r.key,
+      value: r.value,
+      updated_at: r.updated_at || new Date().toISOString(),
+    }),
+  },
 ]
 
 // -- Init ---------------------------------------------------------------------
@@ -1195,6 +1214,12 @@ function getLastSyncedAt(tableName) {
 
 // -- Update sync log ----------------------------------------------------------
 function updateSyncLog(tableName, lastId, rowCount, error) {
+  // v2.3.9 — mirror sync errors into the main error.log so they're visible to
+  // users / support without having to query sync_log. Silent sync failures
+  // cost us hours on the activity_log RLS bug.
+  if (error && _errorLogSink) {
+    try { _errorLogSink(`sync-push:${tableName}`, new Error(String(error).slice(0, 500)), [{ lastId, rowCount }]) } catch {}
+  }
   try {
     // v2.0.2 — use ISO 8601 UTC format so last_synced_at is lexicographically
     // comparable to updated_at (which the v2 triggers also write in ISO).
@@ -1291,7 +1316,10 @@ const PULL_TABLES = [
   { name: 'ncf_sequences', strategy: 'lww', cols: ['type','prefix','current_number','limit_number','valid_until','active','enabled','updated_at'] },
   { name: 'empleados', strategy: 'lww', naturalKey: 'nombre', cols: ['nombre','cedula','phone','tipo','salary','start_date','active','ref_id','puesto','email','bank_account','tss_id','role','comision_pct','updated_at'] },
   { name: 'categorias_servicio', strategy: 'lww', naturalKey: 'nombre', cols: ['nombre','orden','updated_at'] },
-  { name: 'users', strategy: 'lww', naturalKey: 'username', cols: ['name','username','pin_hash','role','discount_pct','commission_pct','cedula','start_date','employee_id','active','created_at','updated_at'] },
+  // `users` is a VIEW on `staff` in Supabase — PostgREST can't upsert into a
+  // view without INSTEAD OF triggers. Route push to the base `staff` table.
+  // Without this, every PIN/username/role change on desktop was silently lost.
+  { name: 'users', supabaseTable: 'staff', strategy: 'lww', naturalKey: 'username', cols: ['name','username','pin_hash','role','discount_pct','commission_pct','cedula','start_date','employee_id','active','created_at','updated_at'] },
 
   // Phase 1 (cont.) — multi-vertical root entities
   { name: 'vehicles', strategy: 'lww', naturalKey: 'vin', cols: ['vin','plate','make','model','year','color','mileage','odometer_km','last_service_km','last_service_at','next_service_km','next_service_at','notes','active','created_at','updated_at'],
@@ -1432,6 +1460,12 @@ const PULL_TABLES = [
   { name: 'client_service_rates', strategy: 'lww',
     cols: ['custom_price','notes','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', service_supabase_id: 'services' } },
+
+  // v2.3 — app_settings pull (whitelist-guarded, handled by pullAppSettings()).
+  // cols/strategy are informational only — the pull path short-circuits at the
+  // top of pullTable() for this name.
+  { name: 'app_settings', strategy: 'lww', naturalKey: 'key',
+    cols: ['key','value','updated_at'] },
 ]
 
 // -- Pull upsert: Supabase row -> SQLite row ----------------------------------
@@ -1597,6 +1631,13 @@ async function pullTable(tableConfig) {
   const bizId = await resolveBusinessId()
   if (!bizId) throw new Error('No business_id')
 
+  // Special-case: app_settings is keyed by TEXT `key` and we only accept
+  // whitelisted business-level keys on pull. Device keys (printer, print_*)
+  // on this device MUST NEVER be clobbered by cloud state.
+  if (name === 'app_settings') {
+    return await pullAppSettings(bizId)
+  }
+
   const lastPull = getLastPullAt(name)
   const FETCH_SIZE = 500
   let totalPulled = 0
@@ -1664,6 +1705,65 @@ async function pullTable(tableConfig) {
   }
 
   if (totalPulled > 0) log.info(`[sync-pull] ${name}: pulled ${totalPulled} rows`)
+  return totalPulled
+}
+
+// -- app_settings pull (whitelist-guarded, keyed by TEXT) --------------------
+// Pulls business-level keys from Supabase into local SQLite. Device-local keys
+// are defended at TWO layers: (1) the whitelist check here drops any rogue
+// cloud row whose key is classified device-only, and (2) the web writer in
+// packages/data/web.js refuses to upsert device keys in the first place.
+async function pullAppSettings(bizId) {
+  const lastPull = getLastPullAt('app_settings')
+  const FETCH_SIZE = 500
+  let totalPulled = 0
+  let latestUpdatedAt = lastPull
+  let offset = 0
+
+  const upsert = _db.rawPrepare(`
+    INSERT INTO app_settings(key, value, business_id, supabase_id, updated_at)
+    VALUES(?, ?, ?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET
+      value       = excluded.value,
+      business_id = excluded.business_id,
+      supabase_id = COALESCE(app_settings.supabase_id, excluded.supabase_id),
+      updated_at  = excluded.updated_at
+    WHERE excluded.updated_at >= COALESCE(app_settings.updated_at, '')
+  `)
+
+  while (true) {
+    const params = {
+      'business_id': `eq.${bizId}`,
+      'order': 'updated_at.asc',
+      'limit': String(FETCH_SIZE),
+      'offset': String(offset),
+      'supabase_id': 'not.is.null',
+    }
+    if (lastPull) params['updated_at'] = `gte.${lastPull}`
+
+    let rows
+    try { rows = await supabaseFetch('app_settings', params) }
+    catch (e) { log.error('[sync-pull] app_settings: fetch failed:', e.message); break }
+    if (!rows.length) break
+
+    for (const row of rows) {
+      if (!row.supabase_id || !row.key) continue
+      if (!isBusinessSetting(row.key)) continue // device keys rejected defensively
+      try {
+        upsert.run(row.key, row.value ?? '', row.business_id || bizId, row.supabase_id, row.updated_at || new Date().toISOString())
+      } catch (e) {
+        log.error('[sync-pull] app_settings: upsert failed for', row.key, ':', e.message)
+      }
+      if (row.updated_at) latestUpdatedAt = row.updated_at
+    }
+
+    totalPulled += rows.length
+    offset += FETCH_SIZE
+    if (rows.length < FETCH_SIZE) break
+  }
+
+  if (latestUpdatedAt) updatePullLog('app_settings', latestUpdatedAt)
+  if (totalPulled > 0) log.info(`[sync-pull] app_settings: pulled ${totalPulled} business-level rows`)
   return totalPulled
 }
 
@@ -1764,6 +1864,10 @@ async function pullNow() {
   }
   sendProgress({ stage: 'pulling', done: step, total: totalSteps, table: 'businesses' })
 
+  // Reconcile deletes: owner-deletable tables. If a row was deleted in
+  // Supabase (from web or another device), mirror the delete locally.
+  try { await reconcileDeletes() } catch (e) { log.warn('[sync-pull] reconcile failed:', e.message) }
+
   log.info(`[sync-pull] Manual pull complete — ${totalPulled} rows`)
 
   // Notify renderer
@@ -1778,12 +1882,16 @@ async function pullNow() {
 
 // -- Sync a single table (PUSH) -----------------------------------------------
 async function syncTable(tableConfig) {
-  const { name, cols } = tableConfig
+  const { name, cols, rowFilter } = tableConfig
   const pushTable = tableConfig.supabaseTable || name // VIEW override (e.g. users → staff)
   const bizId = await resolveBusinessId()
   if (!bizId) throw new Error('No business_id')
 
   const FETCH_SIZE = 500
+  // app_settings has no `id INTEGER` column — it's keyed by TEXT `key`.
+  // Use rowid as the cursor surrogate so pagination still works.
+  const isKeyedTable = (name === 'app_settings')
+  const idExpr = isKeyedTable ? 'rowid AS id' : 'id'
   let cursor = getLastSyncedId(name)
   let totalSynced = 0
 
@@ -1791,15 +1899,31 @@ async function syncTable(tableConfig) {
   while (true) {
     let rows
     try {
-      rows = _db.rawPrepare(`SELECT * FROM ${name} WHERE id > ? ORDER BY id LIMIT ?`).all(cursor, FETCH_SIZE)
+      rows = _db.rawPrepare(`SELECT *, ${idExpr} FROM ${name} WHERE ${isKeyedTable ? 'rowid' : 'id'} > ? ORDER BY ${isKeyedTable ? 'rowid' : 'id'} LIMIT ?`).all(cursor, FETCH_SIZE)
     } catch (e) {
       throw new Error(`SQLite read ${name}: ${e.message}`)
     }
 
     if (!rows.length) break
 
+    // Apply rowFilter (business-setting whitelist, etc.) BEFORE supabase_id
+    // stamping so we don't generate UUIDs on rows we'd immediately discard.
+    let filtered = rowFilter ? rows.filter(rowFilter) : rows
+
+    // Stamp supabase_id on rows that lack it (e.g. app_settings rows created
+    // before the v2.3 backfill). Persist locally so the next push is a no-op.
+    if (filtered.length && (name === 'app_settings')) {
+      const stampStmt = _db.rawPrepare('UPDATE app_settings SET supabase_id = ? WHERE key = ?')
+      for (const r of filtered) {
+        if (!r.supabase_id) {
+          const uuid = crypto.randomUUID()
+          try { stampStmt.run(uuid, r.key); r.supabase_id = uuid } catch {}
+        }
+      }
+    }
+
     // Map rows to Supabase format, skip rows without supabase_id (pre-migration)
-    const mapped = rows.map(r => ({ business_id: bizId, ...cols(r) })).filter(r => r.supabase_id)
+    const mapped = filtered.map(r => ({ business_id: bizId, ...cols(r) })).filter(r => r.supabase_id)
 
     // Batch upsert (500 at a time)
     if (mapped.length) {
@@ -1822,11 +1946,13 @@ async function syncTable(tableConfig) {
   const lastSyncedAt = getLastSyncedAt(name)
   if (lastSyncedAt) {
     try {
+      const orderCol = isKeyedTable ? 'rowid' : 'id'
       const updatedRows = _db.rawPrepare(
-        `SELECT * FROM ${name} WHERE updated_at > ? AND supabase_id IS NOT NULL ORDER BY id LIMIT 2000`
+        `SELECT * FROM ${name} WHERE updated_at > ? AND supabase_id IS NOT NULL ORDER BY ${orderCol} LIMIT 2000`
       ).all(lastSyncedAt)
-      if (updatedRows.length) {
-        const mapped = updatedRows.map(r => ({ business_id: bizId, ...cols(r) })).filter(r => r.supabase_id)
+      const passTwoFiltered = rowFilter ? updatedRows.filter(rowFilter) : updatedRows
+      if (passTwoFiltered.length) {
+        const mapped = passTwoFiltered.map(r => ({ business_id: bizId, ...cols(r) })).filter(r => r.supabase_id)
         if (mapped.length) {
           for (let i = 0; i < mapped.length; i += FETCH_SIZE) {
             const batch = mapped.slice(i, i + FETCH_SIZE)
@@ -2160,6 +2286,12 @@ async function syncNow() {
       } catch (e) { log.error(`[sync] post-pull cursor advance ${table.name}:`, e.message) }
     }
 
+    // v2.3 — multi-POS: drain pending inventory deducts (oversell detect)
+    // and refill NCF/doc blocks whenever they dip below threshold. Both are
+    // no-ops when multi_pos_enabled=0.
+    try { await processPendingDeducts() } catch (e) { log.warn('[multipos] processPendingDeducts:', e.message) }
+    try { await ensureBlocks()          } catch (e) { log.warn('[multipos] ensureBlocks:', e.message) }
+
     _status.state = 'idle'
     _status.lastSync = new Date().toISOString()
     _status.totalRows = totalRows
@@ -2200,6 +2332,8 @@ function startAutoSync(intervalMs = 30 * 60 * 1000) {
   // instead of waiting up to intervalMs. Fires in the background; failures
   // degrade gracefully to the polling interval.
   startRealtime().catch(e => log.warn('[sync] realtime start failed:', e.message))
+  // v2.3 — block refill scheduler. No-op if multi_pos_enabled=0.
+  try { startMultiPosRefill() } catch (e) { log.warn('[multipos] startMultiPosRefill:', e.message) }
 }
 
 function stopAutoSync() {
@@ -2275,4 +2409,351 @@ function getStatus() {
   return { ..._status }
 }
 
-module.exports = { init, startAutoSync, stopAutoSync, syncNow, pullNow, getStatus }
+// Hard-delete a single row in Supabase by supabase_id. Used by mutation IPCs
+// where the owner explicitly erases a record (salary_changes, adelantos, etc.)
+// and we do NOT want the next upsert to resurrect the row.
+async function supabaseDelete(table, supabaseId, businessId) {
+  if (!_url || !_key || !table || !supabaseId) return { ok: false, error: 'missing args' }
+  const bizId = businessId || await resolveBusinessId().catch(() => null)
+  if (!bizId) return { ok: false, error: 'no business_id' }
+  const reqUrl = new URL(`${_url}/rest/v1/${table}?business_id=eq.${bizId}&supabase_id=eq.${supabaseId}`)
+  return new Promise((resolve) => {
+    const request = https.request({
+      hostname: reqUrl.hostname,
+      path: reqUrl.pathname + reqUrl.search,
+      method: 'DELETE',
+      headers: {
+        'apikey': _key,
+        'Authorization': `Bearer ${_key}`,
+        'Prefer': 'return=minimal',
+      },
+    }, (response) => {
+      response.on('data', () => {})
+      response.on('end', () => {
+        const ok = response.statusCode >= 200 && response.statusCode < 300
+        if (!ok) log.warn(`[sync] supabaseDelete ${table} ${supabaseId}: HTTP ${response.statusCode}`)
+        resolve({ ok, status: response.statusCode })
+      })
+    })
+    request.on('error', (err) => { log.warn(`[sync] supabaseDelete ${table}: ${err.message}`); resolve({ ok: false, error: err.message }) })
+    request.end()
+  })
+}
+
+// Pull-time reconciliation for owner-deletable tables: fetch every supabase_id
+// from Supabase and hard-delete any local rows whose supabase_id is not in the
+// remote set. Ensures a delete performed in web or another desktop propagates
+// to this desktop on next pull.
+const RECONCILE_TABLES = ['salary_changes', 'adelantos', 'caja_chica', 'notas_credito']
+
+async function reconcileDeletes() {
+  if (!_db || !_url || !_key) return
+  const bizId = await resolveBusinessId().catch(() => null)
+  if (!bizId) return
+  for (const table of RECONCILE_TABLES) {
+    try {
+      // Skip if table doesn't exist locally (older DBs)
+      const has = _db.rawPrepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)
+      if (!has) continue
+      const remote = await supabaseFetch(table, `select=supabase_id&business_id=eq.${bizId}&limit=20000`)
+      if (!Array.isArray(remote)) continue
+      const remoteSet = new Set(remote.map(r => r.supabase_id).filter(Boolean))
+      const localRows = _db.rawPrepare(`SELECT id, supabase_id FROM ${table} WHERE business_id = ? AND supabase_id IS NOT NULL`).all(bizId)
+      const toDelete = localRows.filter(r => !remoteSet.has(r.supabase_id))
+      if (toDelete.length === 0) continue
+      const stmt = _db.rawPrepare(`DELETE FROM ${table} WHERE id = ?`)
+      for (const r of toDelete) { try { stmt.run(r.id) } catch (e) { log.warn(`[sync] reconcile delete ${table} id=${r.id}: ${e.message}`) } }
+      log.info(`[sync] reconcile ${table}: deleted ${toDelete.length} local row(s) not present in Supabase`)
+    } catch (e) {
+      log.warn(`[sync] reconcile ${table} failed: ${e.message}`)
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Multi-POS — Block refill + oversell-aware deduct (v2.3)
+// See docs/MULTI-POS-ARCHITECTURE.md §1–§3 and migration
+// 20260418000000_multipos_blocks.sql. All of this is gated by
+// app_settings.multi_pos_enabled; when OFF the functions return silently so
+// single-POS installs carry no network overhead.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const MULTIPOS = {
+  NCF_REFILL_THRESHOLD:  100,
+  NCF_BLOCK_SIZE:        500,
+  DOC_REFILL_THRESHOLD:  50,
+  DOC_BLOCK_SIZE:        200,
+  REFILL_INTERVAL_MS:    10 * 60 * 1000,
+  // Every NCF/e-CF type we may need a block for. Only allocated on demand if
+  // the type is "enabled" (i.e. has a row in ncf_sequences with enabled=1)
+  // or is a directly-requested e-CF type.
+  KNOWN_NCF_TYPES: ['B01','B02','B14','B15','E31','E32','E33','E34','E41','E43','E44','E47'],
+}
+
+let _multiposInterval = null
+
+function _mpEnabled() {
+  try { return (_db.rawPrepare("SELECT value FROM app_settings WHERE key='multi_pos_enabled'").get()?.value || '0') === '1' }
+  catch { return false }
+}
+
+function _mpHwid() {
+  try {
+    const row = _db.rawPrepare("SELECT value FROM app_settings WHERE key='hwid'").get()
+    if (row?.value) return row.value
+  } catch {}
+  try {
+    const { app } = require('electron')
+    const fs = require('fs')
+    const path = require('path')
+    const hwidPath = path.join(app.getPath('userData'), 'hwid.json')
+    const j = JSON.parse(fs.readFileSync(hwidPath, 'utf8'))
+    const hwid = j.id || j.hwid
+    if (hwid) {
+      try { _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('hwid',?)").run(hwid) } catch {}
+      return hwid
+    }
+  } catch {}
+  return null
+}
+
+function _enabledNcfTypes() {
+  try {
+    const rows = _db.rawPrepare("SELECT type FROM ncf_sequences WHERE active=1 AND (enabled=1 OR enabled IS NULL)").all()
+    const set = new Set(rows.map(r => r.type).filter(Boolean))
+    // Always include the common e-CF types so clients never hit "no block"
+    // mid-sale for a type the cashier just opted into in the POS dropdown.
+    for (const t of ['E31','E32','B01','B02']) set.add(t)
+    return [...set]
+  } catch { return ['B01','B02','E31','E32'] }
+}
+
+// POST to Supabase RPC and parse JSON. Returns null on failure (caller retries
+// on next tick — never throws into the ticket path).
+function _rpcPost(fnName, payload) {
+  return new Promise((resolve) => {
+    if (!_url || !_key) return resolve(null)
+    const body = JSON.stringify(payload)
+    const reqUrl = new URL(`${_url}/rest/v1/rpc/${fnName}`)
+    const req = https.request({
+      hostname: reqUrl.hostname,
+      path: reqUrl.pathname + reqUrl.search,
+      method: 'POST',
+      headers: {
+        'apikey': _key,
+        'Authorization': `Bearer ${_key}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    }, (res) => {
+      let data = ''
+      res.on('data', chunk => { data += chunk.toString() })
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try { resolve(JSON.parse(data || 'null')) } catch { resolve(null) }
+        } else {
+          log.warn(`[multipos] rpc ${fnName} HTTP ${res.statusCode}: ${String(data).slice(0,200)}`)
+          resolve(null)
+        }
+      })
+    })
+    req.on('error', (e) => { log.warn(`[multipos] rpc ${fnName} err: ${e.message}`); resolve(null) })
+    req.setTimeout(20_000, () => { req.destroy(new Error('rpc timeout')); resolve(null) })
+    req.write(body)
+    req.end()
+  })
+}
+
+async function _allocateNcfBlock(bizId, hwid, ncfType, size) {
+  const row = await _rpcPost('allocate_ncf_block', {
+    p_business_id: bizId,
+    p_hwid:        hwid,
+    p_ncf_type:    ncfType,
+    p_size:        size,
+  })
+  if (!row) return null
+  // RPC may return a single row object or an array — normalise.
+  const r = Array.isArray(row) ? row[0] : row
+  if (!r) return null
+  try {
+    const db = require('./database')
+    db.ncfBlockInsert({
+      supabase_id:    r.supabase_id || r.id,
+      business_id:    r.business_id || bizId,
+      hwid:           r.hwid || hwid,
+      ncf_type:       r.ncf_type || ncfType,
+      prefix:         r.prefix || ncfType,
+      range_start:    Number(r.range_start),
+      range_end:      Number(r.range_end),
+      next_available: Number(r.next_available),
+      size:           Number(r.size || (r.range_end - r.range_start + 1)),
+      allocated_at:   r.allocated_at,
+      exhausted_at:   r.exhausted_at,
+      last_used_at:   r.last_used_at,
+    })
+    return r
+  } catch (e) { log.warn('[multipos] ncfBlockInsert failed:', e.message); return null }
+}
+
+async function _allocateDocBlock(bizId, hwid, size) {
+  const row = await _rpcPost('allocate_doc_number_block', {
+    p_business_id: bizId,
+    p_hwid:        hwid,
+    p_scope:       'ticket',
+    p_size:        size,
+  })
+  if (!row) return null
+  const r = Array.isArray(row) ? row[0] : row
+  if (!r) return null
+  try {
+    const db = require('./database')
+    db.docNumberBlockInsert({
+      supabase_id:    r.supabase_id || r.id,
+      business_id:    r.business_id || bizId,
+      hwid:           r.hwid || hwid,
+      scope:          r.scope || 'ticket',
+      range_start:    Number(r.range_start),
+      range_end:      Number(r.range_end),
+      next_available: Number(r.next_available),
+      size:           Number(r.size || (r.range_end - r.range_start + 1)),
+      allocated_at:   r.allocated_at,
+      exhausted_at:   r.exhausted_at,
+    })
+    return r
+  } catch (e) { log.warn('[multipos] docNumberBlockInsert failed:', e.message); return null }
+}
+
+async function ensureBlocks() {
+  if (!_mpEnabled()) return { ok: true, skipped: true }
+  if (!_url || !_key) return { ok: false, reason: 'no_supabase' }
+  const bizId = await resolveBusinessId()
+  if (!bizId) return { ok: false, reason: 'no_business_id' }
+  const hwid  = _mpHwid()
+  if (!hwid)  return { ok: false, reason: 'no_hwid' }
+
+  const db = require('./database')
+  const ncfSize = Number(_db.rawPrepare("SELECT value FROM app_settings WHERE key='ncf_block_size'").get()?.value) || MULTIPOS.NCF_BLOCK_SIZE
+  const docSize = Number(_db.rawPrepare("SELECT value FROM app_settings WHERE key='doc_block_size'").get()?.value) || MULTIPOS.DOC_BLOCK_SIZE
+
+  let allocated = 0
+  for (const t of _enabledNcfTypes()) {
+    const remaining = db.ncfBlockAvailableCount({ businessId: bizId, hwid, ncfType: t })
+    if (remaining < MULTIPOS.NCF_REFILL_THRESHOLD) {
+      const r = await _allocateNcfBlock(bizId, hwid, t, ncfSize)
+      if (r) allocated++
+    }
+  }
+  const docRemaining = db.docNumberBlockAvailableCount({ businessId: bizId, hwid, scope: 'ticket' })
+  if (docRemaining < MULTIPOS.DOC_REFILL_THRESHOLD) {
+    const r = await _allocateDocBlock(bizId, hwid, docSize)
+    if (r) allocated++
+  }
+  return { ok: true, allocated }
+}
+
+async function processPendingDeducts() {
+  if (!_mpEnabled()) return { ok: true, skipped: true }
+  if (!_url || !_key) return { ok: false, reason: 'no_supabase' }
+  const bizId = await resolveBusinessId()
+  if (!bizId) return { ok: false, reason: 'no_business_id' }
+  const db = require('./database')
+  const hwid = _mpHwid()
+
+  const queue = db.pendingDeductList()
+  if (!queue.length) return { ok: true, processed: 0 }
+
+  let processed = 0
+  for (const row of queue) {
+    let items = []
+    try { items = JSON.parse(row.items_json || '[]') } catch {}
+    if (!items.length) { db.pendingDeductMarkPushed(row.id); continue }
+    const result = await _rpcPost('deduct_inventory_atomic', {
+      p_business_id: bizId,
+      p_ticket_sid:  row.ticket_supabase_id,
+      p_hwid:        hwid,
+      p_items:       items,
+    })
+    if (result === null) {
+      db.pendingDeductMarkFailed(row.id, 'rpc_null')
+      // Don't break — try the rest, Supabase may have rejected one payload.
+      continue
+    }
+    const rows = Array.isArray(result) ? result : (result?.rows || [])
+    for (const r of rows) {
+      if (r && r.oversold === true) {
+        const item = items.find(i => i.item_supabase_id === r.item_supabase_id)
+        db.oversellRecord({
+          businessId:        bizId,
+          ticketSupabaseId:  row.ticket_supabase_id,
+          itemSupabaseId:    r.item_supabase_id,
+          itemName:          item?.name || null,
+          requested:         Number(r.requested || item?.qty || 0),
+          actual:            Number(r.actual || 0),
+        })
+      }
+    }
+    db.pendingDeductMarkPushed(row.id)
+    processed++
+  }
+  return { ok: true, processed }
+}
+
+async function resolveOversellRemote({ supabase_id, resolution_type, notes, resolved_by }) {
+  if (!_url || !_key) return { ok: false, reason: 'no_supabase' }
+  const result = await _rpcPost('resolve_oversell', {
+    p_supabase_id:      supabase_id,
+    p_resolution_type:  resolution_type || null,
+    p_notes:            notes || null,
+    p_resolved_by:      resolved_by || null,
+  })
+  // Regardless of remote outcome, stamp locally so the UI badge clears
+  // immediately — next pull will merge FWW.
+  try { require('./database').oversellResolveLocal({ supabase_id, resolution_type, notes, resolved_by }) } catch {}
+  return { ok: result !== null, remote: result }
+}
+
+function startMultiPosRefill() {
+  if (_multiposInterval) clearInterval(_multiposInterval)
+  // Fire once ~30s after boot so ensureBlocks() runs after the first syncNow
+  // has had a chance to resolve business_id, then every 10 min.
+  setTimeout(() => {
+    ensureBlocks().catch(e => log.warn('[multipos] ensureBlocks:', e.message))
+    processPendingDeducts().catch(e => log.warn('[multipos] processPendingDeducts:', e.message))
+  }, 30_000)
+  _multiposInterval = setInterval(() => {
+    ensureBlocks().catch(e => log.warn('[multipos] ensureBlocks:', e.message))
+    processPendingDeducts().catch(e => log.warn('[multipos] processPendingDeducts:', e.message))
+  }, MULTIPOS.REFILL_INTERVAL_MS)
+}
+
+function stopMultiPosRefill() {
+  if (_multiposInterval) { clearInterval(_multiposInterval); _multiposInterval = null }
+}
+
+function blocksStatus() {
+  const db = require('./database')
+  const bizId = _businessId
+  const hwid  = _mpHwid()
+  const out = {
+    enabled: _mpEnabled(),
+    businessId: bizId,
+    hwid,
+    ncf: {},
+    doc_number: 0,
+  }
+  if (!bizId || !hwid) return out
+  for (const t of _enabledNcfTypes()) {
+    out.ncf[t] = db.ncfBlockAvailableCount({ businessId: bizId, hwid, ncfType: t })
+  }
+  out.doc_number = db.docNumberBlockAvailableCount({ businessId: bizId, hwid, scope: 'ticket' })
+  return out
+}
+
+module.exports = {
+  init, startAutoSync, stopAutoSync, syncNow, pullNow, getStatus,
+  supabaseDelete, reconcileDeletes, setErrorLogSink,
+  // Multi-POS
+  ensureBlocks, processPendingDeducts, resolveOversellRemote,
+  startMultiPosRefill, stopMultiPosRefill, blocksStatus,
+}

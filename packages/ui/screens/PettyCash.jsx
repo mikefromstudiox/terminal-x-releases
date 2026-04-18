@@ -422,7 +422,7 @@ export default function PettyCash() {
           </div>
 
           {/* Table header */}
-          <div className="hidden md:flex items-center px-4 py-2 bg-slate-50 dark:bg-white/5 border-b border-slate-100 dark:border-white/10 flex-shrink-0">
+          <div className="hidden md:flex items-center px-4 py-2 gap-3 bg-slate-50 dark:bg-white/5 border-b border-slate-100 dark:border-white/10 flex-shrink-0">
             {COLS.map(c => (
               <span key={c.key} className={`text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/50 ${c.cls}`}>
                 {L(c.label_es, c.label_en)}
@@ -507,7 +507,7 @@ export default function PettyCash() {
                   </div>
 
                   {/* Desktop row layout */}
-                  <div className="hidden md:flex items-center px-4 h-12 gap-0">
+                  <div className="hidden md:flex items-center px-4 h-12 gap-3">
                     {/* # */}
                     <span className={`${COLS[0].cls} text-xs text-slate-400 dark:text-white/50 tabular-nums`}>{idx + 1}</span>
 
@@ -593,128 +593,146 @@ export default function PettyCash() {
         </div>
 
         {/* ── Entry form ── */}
-        <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 shadow-sm p-3 md:p-4 flex-shrink-0">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-white/50 mb-3">
-            {L('Registrar gasto', 'Log expense')}
-          </p>
+        <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 shadow-sm p-4 md:p-5 flex-shrink-0">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Receipt size={15} className="text-slate-500 dark:text-white/50" />
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-white">
+                {L('Registrar gasto', 'Log expense')}
+              </h3>
+            </div>
+            {/* Tipo toggle — top-right, compact */}
+            <div className="flex rounded-lg border border-slate-200 dark:border-white/10 overflow-hidden text-xs">
+              {['Gasto', 'Compra'].map(t => (
+                <button
+                  key={t}
+                  onClick={() => setTipo(t)}
+                  className={`px-3 py-1.5 min-h-[36px] font-medium transition ${
+                    tipo === t
+                      ? t === 'Gasto'
+                        ? 'bg-amber-500 text-white'
+                        : 'bg-emerald-500 text-white'
+                      : 'text-slate-500 dark:text-white/50 hover:bg-slate-50 dark:hover:bg-white/10'
+                  }`}
+                >
+                  {t === 'Gasto' ? L('Gasto', 'Expense') : L('Compra', 'Purchase')}
+                </button>
+              ))}
+            </div>
+          </div>
 
-          {/* Form row */}
-          <div className="flex flex-col md:flex-row md:items-center gap-2 md:flex-wrap">
-            {/* Descripción */}
-            <input
-              value={desc}
-              onChange={e => setDesc(e.target.value)}
-              placeholder={L('Descripción del gasto…', 'Expense description…')}
-              className="w-full md:flex-1 md:min-w-[180px] border border-slate-200 dark:border-white/10 dark:bg-white/5 dark:text-white rounded-lg px-3 py-2 min-h-[44px] md:min-h-0 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-            />
-
-            <div className="flex gap-2 flex-wrap">
-              {/* Categoría */}
+          {/* Grid: 12-col on md+ */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+            {/* Row 1 — Categoría (4) + Descripción (8) */}
+            <div className="md:col-span-4">
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/50 mb-1">
+                {L('Categoría', 'Category')}
+              </label>
               <select
                 value={cat}
                 onChange={e => setCat(e.target.value)}
-                className="flex-1 md:flex-none border border-slate-200 dark:border-white/10 dark:bg-white/5 dark:text-white rounded-lg px-3 py-2 min-h-[44px] md:min-h-0 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                className="w-full h-11 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white rounded-lg px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 {CATEGORIAS.map(c => <option key={c}>{c}</option>)}
               </select>
-
-              {/* Tipo toggle */}
-              <div className="flex rounded-lg border border-slate-200 dark:border-white/10 overflow-hidden text-sm">
-                {['Gasto', 'Compra'].map(t => (
-                  <button
-                    key={t}
-                    onClick={() => setTipo(t)}
-                    className={`px-3 py-2 min-h-[44px] md:min-h-0 font-medium transition ${
-                      tipo === t
-                        ? t === 'Gasto'
-                          ? 'bg-amber-500 text-white'
-                          : 'bg-emerald-500 text-white'
-                        : 'text-slate-500 dark:text-white/50 hover:bg-slate-50 dark:hover:bg-white/10'
-                    }`}
-                  >
-                    {t === 'Gasto' ? L('Gasto', 'Expense') : L('Compra', 'Purchase')}
-                  </button>
-                ))}
-              </div>
             </div>
 
-            <div className="flex gap-2">
-              {/* Monto */}
-              <div className="relative flex-1 md:flex-none">
-                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 dark:text-white/40">RD$</span>
+            <div className="md:col-span-8">
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/50 mb-1">
+                {L('Descripción', 'Description')}
+              </label>
+              <input
+                value={desc}
+                onChange={e => setDesc(e.target.value)}
+                placeholder={L('Descripción del gasto…', 'Expense description…')}
+                className="w-full h-11 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white rounded-lg px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
+
+            {/* Row 2 — Monto (6) + Recibo (6) */}
+            <div className="md:col-span-6">
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/50 mb-1">
+                {L('Monto', 'Amount')}
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400 dark:text-white/40 pointer-events-none">RD$</span>
                 <input
                   type="number"
                   min="0"
                   value={monto}
                   onChange={e => setMonto(e.target.value)}
                   placeholder="0.00"
-                  className="w-full md:w-32 pl-9 pr-3 py-2 min-h-[44px] md:min-h-0 border border-slate-200 dark:border-white/10 dark:bg-white/5 dark:text-white rounded-lg text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400"
-                />
-              </div>
-
-              {/* Recibo */}
-              <div className="flex items-center gap-2 px-3 py-2 min-h-[44px] md:min-h-0 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus-within:ring-2 focus-within:ring-blue-400 w-full md:w-36 flex-1 md:flex-none">
-                <Receipt size={13} className="text-slate-400 dark:text-white/40 shrink-0" />
-                <input
-                  value={recibo}
-                  onChange={e => setRecibo(e.target.value)}
-                  placeholder={L('Recibo # (opc.)', 'Receipt # (opt.)')}
-                  className="flex-1 min-w-0 bg-transparent outline-none text-sm text-slate-700 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40"
+                  className="w-full h-11 pl-12 pr-3 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white rounded-lg text-sm text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
               </div>
             </div>
 
-            {/* Buttons */}
+            <div className="md:col-span-6">
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/50 mb-1">
+                {L('Recibo #', 'Receipt #')}
+              </label>
+              <div className="relative">
+                <Receipt size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 pointer-events-none" />
+                <input
+                  value={recibo}
+                  onChange={e => setRecibo(e.target.value)}
+                  placeholder={L('Opcional', 'Optional')}
+                  className="w-full h-11 pl-10 pr-3 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white rounded-lg text-sm text-slate-700 placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Row 3 — Disponible pill (left) + Actions (right) */}
+          <div className="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-4 border-t border-slate-100 dark:border-white/10">
+            {/* Disponible pill */}
+            <div className={`rounded-xl flex items-center gap-3 px-3 py-2 text-sm transition flex-wrap ${
+              montoNum > 0
+                ? restante < 0
+                  ? 'bg-red-50 border border-red-200 dark:bg-red-500/10 dark:border-red-500/20'
+                  : 'bg-blue-50 border border-blue-200 dark:bg-blue-500/10 dark:border-blue-500/20'
+                : 'bg-slate-50 border border-slate-100 dark:bg-white/5 dark:border-white/10'
+            }`}>
+              <div className="flex items-center gap-1.5">
+                <Wallet size={13} className="text-slate-400 dark:text-white/50" />
+                <span className="text-xs text-slate-500 dark:text-white/50">{L('Disponible', 'Available')}</span>
+                <span className="font-semibold tabular-nums text-slate-700 dark:text-white">{fmt(disponible)}</span>
+              </div>
+              {montoNum > 0 && (
+                <>
+                  <span className="text-slate-300 dark:text-white/30">→</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-500 dark:text-white/50">{L('Restante', 'Remaining')}</span>
+                    <span className={`font-bold tabular-nums ${restante < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {fmt(restante)}
+                    </span>
+                  </div>
+                  {restante < 0 && (
+                    <span className="text-xs text-red-500">⚠ {L('Excede', 'Exceeds')}</span>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Actions */}
             <div className="flex gap-2">
               <button
-                onClick={handleGuardar}
-                disabled={!formValid || saving}
-                className="flex-1 md:flex-none px-4 py-2 min-h-[44px] md:min-h-0 rounded-lg bg-black text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap flex items-center justify-center gap-1"
-              >
-                {saving && <Loader2 size={13} className="animate-spin" />}
-                {L('Guardar gasto', 'Save expense')}
-              </button>
-              <button
                 onClick={handleSolicitar}
-                className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2 min-h-[44px] md:min-h-0 rounded-lg border border-slate-200 dark:border-white/10 text-sm text-slate-600 dark:text-white/70 hover:bg-slate-50 dark:hover:bg-white/10 whitespace-nowrap"
+                className="flex-1 md:flex-none flex items-center justify-center gap-1.5 h-11 px-4 rounded-lg border border-slate-200 dark:border-white/10 text-sm text-slate-600 dark:text-white/70 hover:bg-slate-50 dark:hover:bg-white/10 whitespace-nowrap"
               >
                 <Send size={14} />
                 {L('Solicitar fondos', 'Request funds')}
               </button>
+              <button
+                onClick={handleGuardar}
+                disabled={!formValid || saving}
+                className="flex-1 md:flex-none h-11 px-5 rounded-lg bg-black text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap flex items-center justify-center gap-1.5"
+              >
+                {saving && <Loader2 size={13} className="animate-spin" />}
+                {L('Guardar gasto', 'Save expense')}
+              </button>
             </div>
-          </div>
-
-          {/* Balance strip */}
-          <div className={`mt-3 rounded-xl flex items-center gap-6 px-4 py-2.5 text-sm transition ${
-            montoNum > 0
-              ? restante < 0
-                ? 'bg-red-50 border border-red-200 dark:bg-red-500/10 dark:border-red-500/20'
-                : 'bg-blue-50 border border-blue-200 dark:bg-blue-500/10 dark:border-blue-500/20'
-              : 'bg-slate-50 border border-slate-100 dark:bg-white/5 dark:border-white/10'
-          }`}>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-slate-500 dark:text-white/50">{L('Disponible', 'Available')}</span>
-              <span className="font-semibold tabular-nums text-slate-700 dark:text-white">{fmt(disponible)}</span>
-            </div>
-            {montoNum > 0 && (
-              <>
-                <span className="text-slate-300 dark:text-white/30">→</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-slate-500 dark:text-white/50">{L('Este gasto', 'This expense')}</span>
-                  <span className="font-semibold tabular-nums text-slate-700 dark:text-white">− {fmt(montoNum)}</span>
-                </div>
-                <span className="text-slate-300 dark:text-white/30">→</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-slate-500 dark:text-white/50">{L('Restante', 'Remaining')}</span>
-                  <span className={`font-bold tabular-nums ${restante < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                    {fmt(restante)}
-                  </span>
-                  {restante < 0 && (
-                    <span className="text-xs text-red-500 ml-1">⚠ {L('Excede disponible', 'Exceeds available')}</span>
-                  )}
-                </div>
-              </>
-            )}
           </div>
         </div>
 

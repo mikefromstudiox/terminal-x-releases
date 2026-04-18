@@ -301,9 +301,26 @@ export async function syncToCloud() {
     const upserts = []
 
     if (changes.tickets.length > 0) {
+      // v2.1: strip legacy columns (washer_ids, seller_id, vehicle_color/make,
+      // notes, mesa_id) that were dropped from Supabase. Only push the v2.1
+      // columns the cloud schema knows about. electron/sync.js is the
+      // authoritative push path; this is a backup/redundancy layer.
+      const TICKET_COLS = new Set([
+        'supabase_id', 'doc_number', 'client_supabase_id',
+        'washer_empleado_supabase_ids', 'seller_empleado_supabase_id',
+        'cajero_supabase_id', 'subtotal', 'descuento', 'itbis', 'ley', 'total',
+        'beverage_subtotal', 'payment_method', 'comprobante_type', 'ncf',
+        'ecf_result', 'tipo_venta', 'status', 'void_reason', 'void_by',
+        'void_at', 'vehicle_plate', 'tip_amount', 'fulfillment_type',
+        'mesa_supabase_id', 'created_at', 'updated_at',
+      ])
       upserts.push(
         sb.from('tickets').upsert(
-          changes.tickets.map(({ id, ...t }) => ({ ...t, business_id: biz })),
+          changes.tickets.map(t => {
+            const out = { business_id: biz }
+            for (const k of Object.keys(t)) if (TICKET_COLS.has(k)) out[k] = t[k]
+            return out
+          }).filter(r => r.supabase_id),
           { onConflict: 'business_id,supabase_id' }
         )
       )

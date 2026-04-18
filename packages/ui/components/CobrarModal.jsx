@@ -474,9 +474,14 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   // change without a manual reload.
   const [itbisRate, setItbisRate] = useState(DEFAULT_ITBIS_RATE)
   const itbisFactor = Number(itbisRate) / 100
+  const [descuentoInput, setDescuentoInput] = useState('')
 
-  // Totals — prices already include ITBIS, extract it for display
-  const total    = ticket.services.reduce((s, svc) => s + svc.price * (svc.qty || 1), 0)
+  // Totals — prices already include ITBIS, extract it for display.
+  // Descuento = RD$ flat amount subtracted from gross; proportionally
+  // reduces subtotal + itbis so e-CF totals stay internally consistent.
+  const totalGross = ticket.services.reduce((s, svc) => s + svc.price * (svc.qty || 1), 0)
+  const descuento = Math.min(Math.max(0, parseFloat(descuentoInput) || 0), totalGross)
+  const total    = parseFloat((totalGross - descuento).toFixed(2))
   const subtotal = parseFloat((total / (1 + itbisFactor)).toFixed(2))
   const itbis    = parseFloat((total - subtotal).toFixed(2))
   const ley      = 0
@@ -495,6 +500,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const [formaPago,  setFormaPago]  = useState(null)
   const [recibido,   setRecibido]   = useState('')
   const [comentario, setComentario] = useState('')
+  const [descuentoReason, setDescuentoReason] = useState('')
+  const [descuentoError,  setDescuentoError]  = useState('')
   // e-CF referencia fields (E33/E34 — credit/debit notes)
   const [refNCF,    setRefNCF]    = useState('')  // NCFModificado — original e-CF being modified
   const [refRazon,  setRefRazon]  = useState('')  // RazonModificacion — reason
@@ -685,6 +692,12 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
     if (!canSubmit) return
     if (confirmedRef.current) return
     if (ecfState === 'submitting' || ecfState === 'success') return
+    // v2.3.21 — require a reason when descuento > 0. Keeps manual overrides
+    // auditable (reason lands in notes + activity_log metadata).
+    if (descuento > 0 && !descuentoReason.trim()) {
+      setDescuentoError(lang === 'es' ? 'Razón del descuento obligatoria' : 'Discount reason required')
+      return
+    }
 
     // ── Legacy B01/B02 mode: use DB sequence, skip ECF ──────────────────────
     if (isLegacy) {
@@ -724,7 +737,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
           formaPago: tipo === 'credito' ? 'credit' : formaPago,
           recibido:  recibidoNum,
           devuelta:  showEfectivo ? devuelta : null,
-          comentario, total,
+          comentario, total, descuento, descuentoReason: descuentoReason.trim() || null, subtotal, itbis,
           paidAt:    new Date(),
           ecf:       legacyResult,
         })
@@ -806,7 +819,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
           formaPago: tipo === 'credito' ? 'credit' : formaPago,
           recibido:  recibidoNum,
           devuelta:  showEfectivo ? devuelta : null,
-          comentario, total,
+          comentario, total, descuento, descuentoReason: descuentoReason.trim() || null, subtotal, itbis,
           paidAt:    new Date(),
           ecf:       result,
         })
@@ -1320,6 +1333,37 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                   )}
                 </div>
               )}
+
+              {/* Descuento */}
+              <div>
+                <SectionLabel>{lang === 'es' ? 'Descuento (RD$)' : 'Discount (RD$)'}</SectionLabel>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={descuentoInput}
+                  onChange={e => { setDescuentoInput(e.target.value); setDescuentoError('') }}
+                  placeholder="0.00"
+                  className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-[13px] text-slate-700 dark:text-white focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/30 placeholder:text-slate-400 dark:placeholder:text-white/40"
+                />
+                {descuento > 0 && (
+                  <>
+                    <p className="mt-1 text-[11px] text-slate-500 dark:text-white/60">
+                      {lang === 'es' ? 'Bruto' : 'Gross'}: RD${totalGross.toFixed(2)} · {lang === 'es' ? 'Neto' : 'Net'}: RD${total.toFixed(2)}
+                    </p>
+                    <input
+                      type="text"
+                      value={descuentoReason}
+                      onChange={e => { setDescuentoReason(e.target.value); setDescuentoError('') }}
+                      placeholder={lang === 'es' ? 'Razón del descuento (obligatorio)' : 'Discount reason (required)'}
+                      className={`mt-2 w-full bg-slate-50 dark:bg-white/5 border rounded-xl px-3.5 py-2.5 text-[13px] text-slate-700 dark:text-white focus:outline-none focus:ring-1 placeholder:text-slate-400 dark:placeholder:text-white/40 ${descuentoError ? 'border-red-400 focus:border-red-500 focus:ring-red-400/30' : 'border-slate-200 dark:border-white/10 focus:border-sky-400 focus:ring-sky-400/30'}`}
+                    />
+                    {descuentoError && (
+                      <p className="mt-1 text-[11px] text-red-500 font-medium">{descuentoError}</p>
+                    )}
+                  </>
+                )}
+              </div>
 
               {/* Comentario */}
               <div>

@@ -12,6 +12,8 @@ import { isValidKeyFormat } from '@terminal-x/services/license'
 import { useAPI } from '../context/DataContext'
 import { useLicense } from '../context/LicenseContext'
 import { getSupabaseClient, setStoredSetting, getStoredSetting, ensureBusinessRegistered } from '@terminal-x/services/supabase'
+import { withRetry, isSupabaseRetryable } from '@terminal-x/services/retry.js'
+import { humanizeNetworkError } from '@terminal-x/services/networkError.js'
 import { BUSINESS_TYPES, BUSINESS_TYPE_KEYS, isBusinessTypeEnabled } from '@terminal-x/config/businessTypes'
 
 // ── Bilingual copy ─────────────────────────────────────────────────────────────
@@ -477,12 +479,12 @@ function StepReconnect({ t, onBack, onComplete }) {
       const sb = getSupabaseClient()
       if (!sb) throw new Error('Supabase no disponible. Verifica tu conexion.')
 
-      // 1. Sign in
-      const { data: authData, error: authError } = await sb.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      })
-      if (authError) throw new Error(authError.message)
+      // 1. Sign in (retry transient network errors; auth errors surface immediately)
+      const { data: authData, error: authError } = await withRetry(
+        () => sb.auth.signInWithPassword({ email: email.trim(), password }),
+        { label: 'auth.reconnect.signIn', isRetryable: isSupabaseRetryable },
+      )
+      if (authError) throw authError
       if (!authData?.session) throw new Error('No se pudo iniciar sesion.')
 
       const userId = authData.session.user.id
@@ -605,7 +607,7 @@ function StepReconnect({ t, onBack, onComplete }) {
       setTimeout(() => onComplete(), 1500)
     } catch (e) {
       console.error('[reconnect]', e)
-      setError(e.message || 'Error al conectar.')
+      setError(humanizeNetworkError(e, { context: 'reconnect' }))
       setStatus('error')
     }
   }

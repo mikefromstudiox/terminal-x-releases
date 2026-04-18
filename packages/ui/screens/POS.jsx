@@ -16,6 +16,7 @@ import RestaurantPOS from './restaurant/RestaurantPOS'
 import { syncTicket } from '@terminal-x/services/supabase'
 import { saveReceiptPDF } from '@terminal-x/services/pdf'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
+import { isServiceBased } from '@terminal-x/config/businessTypes'
 import { usePlan } from '../hooks/usePlan.jsx'
 import logoImg from '../assets/logo.webp'
 
@@ -78,7 +79,11 @@ function GridSkeleton({ cols }) {
 
 // ── Worker Multi-Select ───────────────────────────────────────────────────────
 
-function WorkerSelect({ selected, onChange, washers, t }) {
+function WorkerSelect({ selected, onChange, washers, t, businessType, lang }) {
+  const washCtx = isServiceBased(businessType) && businessType === 'carwash'
+  const emptyLabel = washCtx
+    ? (lang === 'es' ? 'Sin lavadores disponibles' : 'No washers available')
+    : (lang === 'es' ? 'Sin empleados disponibles' : 'No employees available')
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -135,7 +140,7 @@ function WorkerSelect({ selected, onChange, washers, t }) {
       {open && (
         <div className="absolute top-full mt-1 left-0 right-0 bg-white dark:bg-black border border-slate-200 dark:border-white/10 rounded-xl shadow-lg z-20 overflow-hidden max-h-48 overflow-y-auto">
           {washers.length === 0 ? (
-            <p className="px-3 py-2.5 text-[12px] text-slate-400 dark:text-white/40 italic">Sin lavadores disponibles</p>
+            <p className="px-3 py-2.5 text-[12px] text-slate-400 dark:text-white/40 italic">{emptyLabel}</p>
           ) : (
             washers.map(w => {
               const checked = selected.some(s => s.id === w.id)
@@ -200,6 +205,7 @@ function CarWashPOS() {
   const printerApi = usePrinterAPI()
   const { t, lang } = useLang()
   const { collapsed } = useLayout()
+  const { businessType } = useBusinessType()
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -480,6 +486,8 @@ function CarWashPOS() {
 
     try {
       const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(pending.items, itbisRate)
+      const descNum = Number(paymentData.descuento || 0)
+      const netTotal = Math.max(0, tot - descNum)
       const beverageSubtotal = pending.items
         .filter(s => s.is_wash === 0)
         .reduce((s, i) => s + i.price, 0)
@@ -497,7 +505,7 @@ function CarWashPOS() {
         subtotal:         sub,
         itbis:            itp,
         ley:              ly,
-        total:            tot,
+        total:            netTotal,
         beverage_subtotal: beverageSubtotal,
         ecf_result:       paymentData.ecf || {},
         items:            pending.items.map(s => ({
@@ -511,7 +519,11 @@ function CarWashPOS() {
           sku:               s.sku || null,
           aplica_itbis:      s.aplica_itbis ?? 1,
         })),
-        comentario: paymentData.comentario || '',
+        comentario: (Number(paymentData.descuento || 0) > 0 && paymentData.descuentoReason)
+                     ? `[Descuento: ${paymentData.descuentoReason}] ${paymentData.comentario || ''}`.trim()
+                     : (paymentData.comentario || ''),
+        descuento:  Number(paymentData.descuento || 0),
+        descuento_reason: paymentData.descuentoReason || null,
       })
 
       // Direct cobrar does NOT add to queue — the ticket is already cobrado.
@@ -616,7 +628,7 @@ function CarWashPOS() {
                   : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white hover:border-slate-300 dark:hover:border-white/30'
               }`}
             >
-              {catLabel(cat.label, lang)}
+              {categories.length === 1 ? (lang === 'es' ? 'Todos' : 'All') : catLabel(cat.label, lang)}
             </button>
           ))}
         </div>
@@ -855,7 +867,7 @@ function CarWashPOS() {
               {wsrLoading ? (
                 <div className="h-9 bg-slate-100 dark:bg-white/10 rounded-lg animate-pulse" />
               ) : (
-                <WorkerSelect selected={workers} onChange={setWorkers} washers={rawWashers} t={t} />
+                <WorkerSelect selected={workers} onChange={setWorkers} washers={rawWashers} t={t} businessType={businessType} lang={lang} />
               )}
             </div>
 
@@ -1217,10 +1229,15 @@ function RetailPOS() {
       setPendingWeightItem(product)
       return
     }
+    let nextQty = 1
+    let stackedExisting = false
+    let stockCapped = false
     setCart(prev => {
       const existing = prev.find(i => i.inventory_item_id === product.id)
       if (existing) {
-        if (existing.qty >= (product.quantity || Infinity)) return prev
+        if (existing.qty >= (product.quantity || Infinity)) { stockCapped = true; nextQty = existing.qty; return prev }
+        stackedExisting = true
+        nextQty = existing.qty + 1
         return prev.map(i => i.inventory_item_id === product.id ? { ...i, qty: i.qty + 1 } : i)
       }
       return [...prev, {
@@ -1241,6 +1258,9 @@ function RetailPOS() {
         age_restricted: isLicoreria ? requiresAgeCheck(licoreriaConfig, product) : false,
       }]
     })
+    if (stockCapped) flash(lang === 'es' ? `Stock maximo (${nextQty}) — ${product.name}` : `Max stock (${nextQty}) — ${product.name}`)
+    else if (stackedExisting) flash(`${product.name} × ${nextQty}`)
+    else flash(lang === 'es' ? `${product.name} agregado` : `${product.name} added`)
   }
 
   // Expand cart → final line items, appending synthetic bottle-deposit lines
@@ -1319,9 +1339,14 @@ function RetailPOS() {
   }
 
   function addServiceToCart(svc) {
+    const svcName = lang === 'es' ? svc.name : (svc.name_en || svc.name)
+    let nextQty = 1
+    let stacked = false
     setCart(prev => {
       const existing = prev.find(i => i.service_id === svc.id)
       if (existing) {
+        stacked = true
+        nextQty = existing.qty + 1
         return prev.map(i => i.service_id === svc.id ? { ...i, qty: i.qty + 1 } : i)
       }
       return [...prev, {
@@ -1329,7 +1354,7 @@ function RetailPOS() {
         inventory_item_id: null,
         service_id: svc.id,
         sku: '',
-        name: lang === 'es' ? svc.name : (svc.name_en || svc.name),
+        name: svcName,
         price: svc.price,
         cost: svc.cost || 0,
         qty: 1,
@@ -1337,6 +1362,8 @@ function RetailPOS() {
         is_wash: svc.is_wash ?? 0,
       }]
     })
+    if (stacked) flash(`${svcName} × ${nextQty}`)
+    else flash(lang === 'es' ? `${svcName} agregado` : `${svcName} added`)
   }
 
   function updateQty(cartId, delta) {
@@ -1375,6 +1402,8 @@ function RetailPOS() {
 
     try {
       const { subtotal: sub, itbis: itp, total: tot } = calcTotals(pending.items, itbisRate)
+      const descNum = Number(paymentData.descuento || 0)
+      const netTotal = Math.max(0, tot - descNum)
 
       const result = await api.tickets.create({
         vehicle_plate:    null,
@@ -1388,7 +1417,7 @@ function RetailPOS() {
         subtotal:         sub,
         itbis:            itp,
         ley:              0,
-        total:            tot,
+        total:            netTotal,
         beverage_subtotal: 0,
         ecf_result:       paymentData.ecf || {},
         // Hybrid vertical — flag retail-cart sales so the Ventas report can
@@ -1410,7 +1439,11 @@ function RetailPOS() {
           unit:              i.unit || null,
           price_per_unit:    i.price_per_unit != null ? Number(i.price_per_unit) : null,
         })),
-        comentario: paymentData.comentario || '',
+        comentario: (Number(paymentData.descuento || 0) > 0 && paymentData.descuentoReason)
+                     ? `[Descuento: ${paymentData.descuentoReason}] ${paymentData.comentario || ''}`.trim()
+                     : (paymentData.comentario || ''),
+        descuento:  Number(paymentData.descuento || 0),
+        descuento_reason: paymentData.descuentoReason || null,
       })
 
       clearForm()
@@ -1477,10 +1510,10 @@ function RetailPOS() {
     <div className="h-full flex flex-col md:flex-row">
       {/* ── Left: Product browser ─────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        {/* Search bar */}
+        {/* Search bar — flex layout guarantees icon and input never overlap */}
         <div className="p-3 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-black">
-          <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <div className="flex items-center gap-2 px-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus-within:ring-2 focus-within:ring-[#b3001e]/30 focus-within:border-[#b3001e]">
+            <Search size={16} className="text-slate-400 shrink-0" />
             <input
               ref={searchRef}
               type="text"
@@ -1488,12 +1521,12 @@ function RetailPOS() {
               onChange={e => handleSearchInput(e.target.value)}
               onKeyDown={handleBarcodeScan}
               placeholder={lang === 'es' ? 'Buscar producto, SKU o codigo de barras...' : 'Search product, SKU or barcode...'}
-              className="w-full pl-9 pr-4 py-2.5 text-sm bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30 focus:border-[#b3001e]"
+              className="flex-1 min-w-0 bg-transparent py-2.5 text-sm text-slate-800 dark:text-white placeholder-slate-400 outline-none"
             />
-            {searching && <Loader2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin" />}
+            {searching && <Loader2 size={16} className="text-slate-400 animate-spin shrink-0" />}
             {!searching && searchQuery && (
               <button onClick={() => { setSearchQuery(''); setSearchResults([]) }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                className="text-slate-400 hover:text-slate-600 shrink-0">
                 <X size={14} />
               </button>
             )}

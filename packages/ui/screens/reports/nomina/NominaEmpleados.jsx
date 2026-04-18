@@ -302,14 +302,27 @@ export default function NominaEmpleados() {
               className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-slate-700 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40" />
           </div>
           <div className="flex gap-1 flex-wrap">
-            {[
-              { id: 'all', label: L('Todos', 'All'), show: true },
-              { id: 'lavador', label: L('Lavadores', 'Washers'), show: showWashers },
-              { id: 'vendedor', label: L('Vendedores', 'Sellers'), show: true },
-              { id: 'cajero', label: L('Cajeros', 'Cashiers'), show: true },
-              { id: 'seguridad', label: L('Seguridad', 'Security'), show: true },
-              { id: 'servicio', label: L('Servicio', 'Service'), show: true },
-            ].filter(f => f.show).map(f => (
+            {(() => {
+              // Dynamic filter chips — only show a tipo chip when the business
+              // has MORE THAN ONE empleado of that tipo. A business with one of
+              // each type stays on "Todos". Clutter-free by default, unlocks as
+              // the team grows. Lavadores additionally gated by showWashers.
+              const counts = empleados.reduce((m, e) => { m[e.tipo] = (m[e.tipo] || 0) + 1; return m }, {})
+              const chips = [
+                { id: 'all', label: L('Todos', 'All'), show: true },
+                { id: 'lavador',   label: L('Lavadores', 'Washers'),    show: showWashers && (counts.lavador || 0) > 1 },
+                { id: 'vendedor',  label: L('Vendedores', 'Sellers'),   show: (counts.vendedor || 0) > 1 },
+                { id: 'cajero',    label: L('Cajeros', 'Cashiers'),     show: (counts.cajero || 0) > 1 },
+                { id: 'seguridad', label: L('Seguridad', 'Security'),   show: (counts.seguridad || 0) > 1 },
+                { id: 'servicio',  label: L('Servicio', 'Service'),     show: (counts.servicio || 0) > 1 },
+              ]
+              // If the currently-selected filter was auto-hidden (count dropped
+              // to ≤1), fall back to 'all' so the list isn't empty.
+              if (filterTipo !== 'all' && !chips.find(c => c.id === filterTipo)?.show) {
+                setTimeout(() => setFilterTipo('all'), 0)
+              }
+              return chips.filter(f => f.show)
+            })().map(f => (
               <button key={f.id} onClick={() => setFilterTipo(f.id)}
                 className={`flex-1 px-1 py-1 rounded-lg text-[10px] font-semibold transition-colors ${
                   filterTipo === f.id

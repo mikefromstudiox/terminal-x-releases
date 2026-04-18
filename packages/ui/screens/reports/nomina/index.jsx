@@ -22,7 +22,7 @@ const NominaAjustes   = lazy(() => import('./NominaAjustes'))
 // `advanced` views require the `nomina_advanced` feature flag (Pro MAX only).
 const VIEWS = [
   { id: 'dashboard',  icon: LayoutDashboard, es: 'Dashboard',  en: 'Dashboard',  Component: NominaDashboard, advanced: false },
-  { id: 'empleados',  icon: Users,           es: 'Empleados',  en: 'Employees',  Component: NominaEmpleados, advanced: false },
+  { id: 'empleados',  icon: Users,           es: 'Lista',      en: 'List',       Component: NominaEmpleados, advanced: false },
   { id: 'pagos',      icon: Banknote,        es: 'Pagos',      en: 'Payments',   Component: NominaPagos,     advanced: true },
   { id: 'adelantos',  icon: HandCoins,       es: 'Adelantos',  en: 'Advances',   Component: NominaAdelantos, advanced: true },
   { id: 'reportes',   icon: FileText,        es: 'Reportes',   en: 'Reports',    Component: NominaReportes,  advanced: true },

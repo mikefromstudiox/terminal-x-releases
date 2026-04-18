@@ -94,15 +94,18 @@ export function calcLiquidacion(emp, tipo, commissionTotal) {
 
   const ant = calcAntiguedad(startDate)
 
-  // Commission-based workers: use average monthly commissions as base
-  // when the employee has no fixed salary.
-  let monthlySalary = emp.salary || 0
-  let isCommissionBased = false
-  const commissionTipos = ['lavador', 'vendedor', 'cajero']
-  if (commissionTipos.includes(emp.tipo) && commissionTotal > 0 && ant.totalMonths > 0 && !emp.salary) {
-    monthlySalary = parseFloat((commissionTotal / ant.totalMonths).toFixed(2))
-    isCommissionBased = true
+  // Ley 16-92: "salario ordinario" for liquidation is base salary + average
+  // monthly commissions. Lavadores are typically commission-only; cajeros,
+  // vendedores and hybrid typically have BOTH. We sum whichever components
+  // exist so every role is calculated correctly without special-casing.
+  const baseSalary = Number(emp.salary) || 0
+  const commissionTipos = ['lavador', 'vendedor', 'cajero', 'hybrid']
+  let commissionComponent = 0
+  if (commissionTipos.includes(emp.tipo) && commissionTotal > 0 && ant.totalMonths > 0) {
+    commissionComponent = parseFloat((commissionTotal / ant.totalMonths).toFixed(2))
   }
+  const monthlySalary = parseFloat((baseSalary + commissionComponent).toFixed(2))
+  const isCommissionBased = !baseSalary && commissionComponent > 0
 
   if (!monthlySalary) return null
 
@@ -122,6 +125,8 @@ export function calcLiquidacion(emp, tipo, commissionTotal) {
     cesantia,
     total: parseFloat(total.toFixed(2)),
     isCommissionBased,
-    commissionTotal: isCommissionBased ? commissionTotal : null,
+    baseSalary,
+    commissionComponent,
+    commissionTotal: commissionComponent > 0 ? commissionTotal : null,
   }
 }

@@ -49,13 +49,23 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
+import { withRetry, isSupabaseRetryable } from './retry.js'
+import { humanizeNetworkError } from './networkError.js'
 
 // ── Lazy singleton client ─────────────────────────────────────────────────────
 let _client = null
 
 export function getSupabaseClient() {
-  const url = getStoredSetting('supabase_url')
-  const key = getStoredSetting('supabase_anon_key')
+  let url = getStoredSetting('supabase_url')
+  let key = getStoredSetting('supabase_anon_key')
+  // Web fallback — on terminalxpos.com the credentials are baked in via Vite
+  // env, not stored in localStorage. Without this fallback Remote Dashboard
+  // reports "Supabase no configurado" even though Supabase is working fine
+  // for the rest of the app.
+  if ((!url || !key) && typeof import.meta !== 'undefined' && import.meta.env) {
+    url = url || import.meta.env.VITE_SUPABASE_URL || ''
+    key = key || import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+  }
   if (!url || !key) return null
   if (!_client || _client._supabaseUrl !== url) {
     _client = createClient(url, key, {
@@ -101,12 +111,11 @@ export async function ensureBusinessRegistered(api) {
     const existingId = getBusinessId()
 
     if (existingId) {
-      // Verify it still exists
-      const { data, error } = await sb
-        .from('businesses')
-        .select('id')
-        .eq('id', existingId)
-        .maybeSingle()
+      // Verify it still exists (retry transient network failures)
+      const { data, error } = await withRetry(
+        () => sb.from('businesses').select('id').eq('id', existingId).maybeSingle(),
+        { label: 'supabase.ensureBusiness.verify', isRetryable: isSupabaseRetryable },
+      )
 
       if (!error && data) return { ok: true, businessId: existingId }
       // Row missing (e.g. new Supabase project) — fall through to create
@@ -122,18 +131,17 @@ export async function ensureBusinessRegistered(api) {
       if (biz?.rnc)  rnc  = biz.rnc
     } catch {}
 
-    const { data, error } = await sb
-      .from('businesses')
-      .insert({ name, rnc })
-      .select('id')
-      .single()
+    const { data, error } = await withRetry(
+      () => sb.from('businesses').insert({ name, rnc }).select('id').single(),
+      { label: 'supabase.ensureBusiness.insert', isRetryable: isSupabaseRetryable },
+    )
 
-    if (error) return { ok: false, error: error.message }
+    if (error) return { ok: false, error: humanizeNetworkError(error, { context: 'ensureBusiness.insert' }) }
 
     setStoredSetting('business_id', data.id)
     return { ok: true, businessId: data.id }
   } catch (e) {
-    return { ok: false, error: e.message }
+    return { ok: false, error: humanizeNetworkError(e, { context: 'ensureBusiness' }) }
   }
 }
 
@@ -145,11 +153,14 @@ export async function testConnection() {
     || (typeof window !== 'undefined' ? window.__txSupabase : null)
   if (!sb) return { ok: false, error: 'Credenciales no configuradas' }
   try {
-    const { error } = await sb.from('businesses').select('id').limit(1)
-    if (error) return { ok: false, error: error.message }
+    const { error } = await withRetry(
+      () => sb.from('businesses').select('id').limit(1),
+      { label: 'supabase.testConnection', isRetryable: isSupabaseRetryable },
+    )
+    if (error) return { ok: false, error: humanizeNetworkError(error, { context: 'testConnection' }) }
     return { ok: true }
   } catch (e) {
-    return { ok: false, error: e.message }
+    return { ok: false, error: humanizeNetworkError(e, { context: 'testConnection' }) }
   }
 }
 
@@ -268,6 +279,6 @@ export async function fetchDashboardData() {
       paymentBreakdown,
     }
   } catch (e) {
-    return { error: e.message }
+    return { error: humanizeNetworkError(e, { context: 'dashboard.fetch' }) }
   }
 }

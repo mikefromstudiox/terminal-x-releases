@@ -6,6 +6,7 @@ const crypto = require('crypto')
 const https  = require('https')
 const { initUpdater } = require('./updater')
 const sync = require('./sync')
+const guard = require('./auth-guard')
 
 // ── Process-level error handlers (prevent silent crashes) ─────────────────────
 process.on('uncaughtException', (err) => {
@@ -673,6 +674,29 @@ ipcMain.handle('license:hwid', () => {
   return getHardwareId()
 })
 
+// ── License cache status (for Diagnosticar Red panel) ───────────────────────
+// Renderer owns the real license cache (localStorage). Main reports the
+// hwid.json file mtime as a proxy for "last touched by license flow" so the
+// diagnostic panel can render a meaningful timestamp even if localStorage was
+// wiped. Renderer merges this with its own localStorage values.
+ipcMain.handle('license:status', () => {
+  try {
+    const hwidFile = path.join(app.getPath('userData'), 'hwid.json')
+    if (!fs.existsSync(hwidFile)) {
+      return { hasHwid: false, lastValidated: null, expiresAt: null, inGrace: false }
+    }
+    const stat = fs.statSync(hwidFile)
+    return {
+      hasHwid:       true,
+      lastValidated: stat.mtime.toISOString(),
+      expiresAt:     null,  // renderer reads real value from localStorage cache
+      inGrace:       false, // renderer computes this from localStorage cache
+    }
+  } catch (e) {
+    return { hasHwid: false, lastValidated: null, expiresAt: null, inGrace: false, error: String(e?.message || e) }
+  }
+})
+
 // ── Master license key ────────────────────────────────────────────────────────
 ipcMain.handle('license:is-master', (_, key) => {
   if (typeof key !== 'string' || !env.masterKey) return false
@@ -828,6 +852,14 @@ app.whenReady().then(async () => {
       const ok = db.init(app.getPath('userData'))
       if (!ok) console.error('[main] DB init returned false:', db.getError?.())
       else console.log('[main] DB initialized at', app.getPath('userData'))
+      // v2.3 — stamp HWID into app_settings so database.js (no electron dep)
+      // can read it inside ticketCreate for multi-POS block consumption.
+      try {
+        const hwid = getHardwareId()
+        if (hwid && db.rawPrepare) {
+          db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('hwid',?)").run(hwid)
+        }
+      } catch (e) { console.warn('[main] hwid stamp failed:', e.message) }
       // Prestamos — recompute mora at startup so dashboard numbers are fresh.
       try { const ids = db.loansComputeMora?.(); if (ids?.length) console.log(`[main] mora recomputed for ${ids.length} loans`) } catch (e) { console.warn('[main] computeMora failed:', e.message) }
       // Daily cron (12h interval — idempotent, cheap).
@@ -901,20 +933,57 @@ function handle(channel, fn) {
 // waiting up to 5 minutes for the auto-sync tick. During that window a
 // concurrent pull could clobber the fresh local write, so every channel
 // that writes state goes through `handleMut` rather than `handle`.
-function handleMut(channel, fn) {
+function writeErrorLog(channel, err, args) {
+  try {
+    const logPath = path.join(app.getPath('userData'), 'error.log')
+    const line = `[${new Date().toISOString()}] ${channel}: ${err.message}\n  stack: ${err.stack?.split('\n').slice(0, 4).join(' | ')}\n  args: ${JSON.stringify(args).slice(0, 1500)}\n\n`
+    fs.appendFileSync(logPath, line)
+  } catch {}
+}
+
+function handleMut(channel, fn, opts = {}) {
   ipcMain.handle(channel, async (event, ...args) => {
     if (!db || !db.isReady()) return { ok: false, error: db?.getError?.() || 'Base de datos no disponible' }
+    // ── Server-side role guard (auth-guard.js) ───────────────────────────────
+    // If a `requires` predicate is supplied, it returns null to allow or a
+    // string reason to deny. Denials log `permission_denied` to activity_log
+    // so the owner sees them in the Actividad feed.
+    if (typeof opts.requires === 'function') {
+      try {
+        const actor = db.getActiveUser?.() || null
+        const reason = opts.requires({ actor, args, db, channel })
+        if (reason) {
+          try {
+            const ctx = (typeof opts.targetCtx === 'function') ? opts.targetCtx({ args, db }) : {}
+            guard.logDenied(db, { actor, attempted_op: channel, reason, ...ctx })
+          } catch {}
+          return { ok: false, error: reason }
+        }
+      } catch (e) {
+        console.error(`[guard:${channel}]`, e.message)
+        return { ok: false, error: 'Error de autorización' }
+      }
+    }
     try {
       const data = await fn(...args)
       try { sync.syncNow?.() } catch {}
       return { ok: true, data }
     } catch (err) {
+      writeErrorLog(channel, err, args)
       if (err.message?.includes('FOREIGN KEY')) {
         const argSummary = JSON.stringify(args).slice(0, 800)
         console.error(`[ipc:${channel}] FOREIGN KEY constraint failed. Args: ${argSummary}`)
         return { ok: false, error: `FOREIGN KEY constraint failed — channel: ${channel}. Verify washer_id, seller_id, service_id, and cajero_id all exist in their respective tables.` }
       }
       console.error(`[ipc:${channel}]`, err.message)
+      // Pop a native dialog for critical ticket/queue failures so the cashier
+      // sees them even if the in-app toast is covered by a modal.
+      if (channel === 'tickets:create' || channel === 'ticket:void') {
+        try {
+          const w = BrowserWindow.getAllWindows()[0]
+          dialog.showErrorBox(`Terminal X — Error en ${channel}`, `${err.message}\n\n(Guardado en error.log)`)
+        } catch {}
+      }
       return { ok: false, error: err.message }
     }
   })
@@ -923,12 +992,30 @@ function handleMut(channel, fn) {
 // ── Admin panel — unified CRUD handlers ───────────────────────────────────────
 // Empresa
 handle('get-empresa',   ()     => db.empresaGet())
-handleMut('save-empresa',  (data) => { db.empresaSave(data); return true })
+handleMut('save-empresa',  (data) => { db.empresaSave(data); return true }, {
+  // v2.3.12 — allow during FirstTimeSetup bootstrap. The reconnect wizard
+  // authenticates via Supabase Auth and then needs to seed the local
+  // empresa BEFORE any local user exists. If there's no actor, we're
+  // guaranteed to be in the bootstrap path (every other call site happens
+  // after a login). Once an actor exists, require owner as before.
+  requires: ({ actor }) => actor ? guard.guardOwnerOnly(db, actor, null, 'save-empresa') : null,
+})
 
 // Usuarios
 handle('get-usuarios',    ()     => db.usersGetAll())
-handleMut('save-usuario',    (data) => data.id ? db.userUpdate(data.id, data) : db.userCreate(data))
-handleMut('delete-usuario',  ({id}) => { db.userDelete(id); return true })
+handleMut('save-usuario',    (data) => data.id ? db.userUpdate(data.id, data) : db.userCreate(data), {
+  requires: ({ actor, args }) => {
+    const data = args[0] || {}
+    return data.id
+      ? guard.guardUserUpdate(db, actor, data)
+      : guard.guardUserCreate(db, actor, data)
+  },
+  targetCtx: ({ args }) => args[0]?.id ? guard.userTargetCtx(db, args[0].id) : { target_type: 'user' },
+})
+handleMut('delete-usuario',  ({id}) => { db.userDelete(id); return true }, {
+  requires: ({ actor, args }) => guard.guardUserDelete(db, actor, args[0] || {}),
+  targetCtx: ({ args }) => guard.userTargetCtx(db, args[0]?.id),
+})
 
 // Lavadores
 handle('get-lavadores',   ()     => db.washersGetAllAdmin())
@@ -942,8 +1029,14 @@ handleMut('delete-vendedor', ({id}) => { db.sellerDelete(id); return true })
 
 // Servicios
 handle('get-servicios',   ()     => db.servicesGetAllAdmin())
-handleMut('save-servicio',   (data) => data.id ? db.serviceUpdate(data.id, data) : db.serviceCreate(data))
-handleMut('delete-servicio', ({id}) => { db.serviceDelete(id); return true })
+handleMut('save-servicio',   (data) => data.id ? db.serviceUpdate(data.id, data) : db.serviceCreate(data), {
+  requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'save-servicio'),
+  targetCtx: ({ args }) => args[0]?.id ? guard.serviceTargetCtx(db, args[0].id) : { target_type: 'service' },
+})
+handleMut('delete-servicio', ({id}) => { db.serviceDelete(id); return true }, {
+  requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'delete-servicio'),
+  targetCtx: ({ args }) => guard.serviceTargetCtx(db, args[0]?.id),
+})
 handle('get-categorias',  ()     => db.categoriasGetAll())
 
 // Secuencias NCF
@@ -968,18 +1061,85 @@ handle('sync:status', () => sync.getStatus())
 handle('sync:now',    async () => { await sync.syncNow(); return sync.getStatus() })
 handle('sync:pull',   async () => { return sync.pullNow() })
 
+// ── Multi-POS: block allocation status + manual refill (v2.3) ───────────────
+handle('blocks:status',  () => sync.blocksStatus())
+handle('blocks:refill',  async () => {
+  const res = await sync.ensureBlocks()
+  return { ...res, status: sync.blocksStatus() }
+})
+handle('blocks:list',    () => {
+  try {
+    const bizId = (db.settingsGet?.() || {}).supabase_business_id || null
+    return {
+      ncf: db.ncfBlocksListLocal ? db.ncfBlocksListLocal({}) : [],
+      doc: db.docNumberBlocksListLocal ? db.docNumberBlocksListLocal({}) : [],
+      bizId,
+    }
+  } catch (e) { return { ncf: [], doc: [], error: e.message } }
+})
+
+// ── Multi-POS: inventory oversells ───────────────────────────────────────────
+handle('oversells:list',    ({ unresolvedOnly } = {}) => db.oversellList?.({ unresolvedOnly }) || [])
+handle('oversells:count',   () => db.oversellUnresolvedCount?.() || 0)
+handleMut('oversells:resolve', async ({ id, supabase_id, resolution_type, notes, resolved_by }) => {
+  // Accept either the local id or supabase_id — UI may pass either.
+  let sid = supabase_id
+  if (!sid && id) {
+    try {
+      const row = db.rawPrepare('SELECT supabase_id FROM inventory_oversells WHERE id=?').get(id)
+      sid = row?.supabase_id
+    } catch {}
+  }
+  if (!sid) return { ok: false, error: 'missing supabase_id' }
+  return await sync.resolveOversellRemote({ supabase_id: sid, resolution_type, notes, resolved_by })
+})
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 handle('auth:pin',         (pin)  => db.authByPin(pin))
 handle('users:all',        ()     => db.usersGetAll())
-handleMut('users:create',     (data)          => db.userCreate(data))
-handleMut('users:update',     ({id, ...data}) => db.userUpdate(id, data))
-handleMut('users:delete',     ({id})          => db.userDelete(id))
-handleMut('users:delete-hard',({id})          => db.userDeleteHard(id))
+handleMut('users:create',     (data)          => db.userCreate(data), {
+  requires: ({ actor, args }) => guard.guardUserCreate(db, actor, args[0] || {}),
+  targetCtx: () => ({ target_type: 'user' }),
+})
+handleMut('users:update',     ({id, ...data}) => db.userUpdate(id, data), {
+  requires: ({ actor, args }) => guard.guardUserUpdate(db, actor, args[0] || {}),
+  targetCtx: ({ args }) => guard.userTargetCtx(db, args[0]?.id),
+})
+handleMut('users:delete',     ({id})          => db.userDelete(id), {
+  requires: ({ actor, args }) => guard.guardUserDelete(db, actor, args[0] || {}),
+  targetCtx: ({ args }) => guard.userTargetCtx(db, args[0]?.id),
+})
+handleMut('users:delete-hard',({id})          => db.userDeleteHard(id), {
+  requires: ({ actor, args }) => {
+    const r = guard.guardOwnerOnly(db, actor, null, 'users:delete-hard')
+    if (r) return r
+    if (actor?.id === args[0]?.id) return 'No puedes eliminar tu propia cuenta'
+    return null
+  },
+  targetCtx: ({ args }) => guard.userTargetCtx(db, args[0]?.id),
+})
 
 // ── Activity log (owner audit feed) ───────────────────────────────────────────
+// v2.2.1 — route silent activity_log failures into error.log so we never
+// swallow audit-feed breakage again (root cause of the 0-rows incident).
+try { db.setActivityErrorSink?.((channel, err, args) => writeErrorLog(channel, err, args)) } catch {}
+try { sync.setErrorLogSink?.((channel, err, args) => writeErrorLog(channel, err, args)) } catch {}
 handle('activity:set-actor', (user) => { db.setActiveUser(user); return true })
 handle('activity:list',      (args) => db.activityLogList(args || {}))
 handleMut('activity:record',    (evt)  => { db.activityLogRecord(evt || {}); return true })
+// permission_denied — renderer logs every role-gated action rejection so the
+// owner sees attempted escalations in the audit feed.
+handleMut('activity:permission-denied', ({ action, requiredRole, currentRole, reason } = {}) => {
+  db.activityLogRecord({
+    event_type: 'permission_denied',
+    severity: 'warn',
+    target_type: 'action',
+    target_id: action || null,
+    reason: reason || `required=${requiredRole || '?'} current=${currentRole || '?'}`,
+    metadata: { action, requiredRole, currentRole },
+  })
+  return true
+})
 
 // ── Categorías de Servicio ────────────────────────────────────────────────────
 handle('categorias:all',    ()              => db.categoriasGetAll())
@@ -990,9 +1150,18 @@ handleMut('categorias:delete', ({id})          => db.categoriaDelete(id))
 // ── Services ──────────────────────────────────────────────────────────────────
 handle('services:all',       ()              => db.servicesGetAll())
 handle('services:all-admin', ()              => db.servicesGetAllAdmin())
-handleMut('services:create',    (data)          => db.serviceCreate(data))
-handleMut('services:update',    ({id,...data})  => db.serviceUpdate(id, data))
-handleMut('services:delete',    ({id})          => db.serviceDelete(id))
+handleMut('services:create',    (data)          => db.serviceCreate(data), {
+  requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'services:create'),
+  targetCtx: () => ({ target_type: 'service' }),
+})
+handleMut('services:update',    ({id,...data})  => db.serviceUpdate(id, data), {
+  requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'services:update'),
+  targetCtx: ({ args }) => guard.serviceTargetCtx(db, args[0]?.id),
+})
+handleMut('services:delete',    ({id})          => db.serviceDelete(id), {
+  requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'services:delete'),
+  targetCtx: ({ args }) => guard.serviceTargetCtx(db, args[0]?.id),
+})
 
 // ── Washers ───────────────────────────────────────────────────────────────────
 handle('washers:all',       ()              => db.washersGetAll())
@@ -1009,10 +1178,22 @@ handleMut('sellers:update',    ({id,...data})  => db.sellerUpdate(id, data))
 // ── Empleados (payroll) ──────────────────────────────────────────────────────
 handle('empleados:all',       ()              => db.empleadosGetAll())
 handle('empleados:all-admin', ()              => db.empleadosGetAllAdmin())
-handleMut('empleados:create',    (data)          => db.empleadoCreate(data))
-handleMut('empleados:update',    ({id,...data})  => db.empleadoUpdate(id, data))
-handleMut('empleados:delete',    ({id})          => { db.empleadoDelete(id); return true })
-handleMut('empleados:hard-delete', ({id})        => db.empleadoHardDelete(id))
+handleMut('empleados:create',    (data)          => db.empleadoCreate(data), {
+  requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'empleados:create'),
+  targetCtx: () => ({ target_type: 'empleado' }),
+})
+handleMut('empleados:update',    ({id,...data})  => db.empleadoUpdate(id, data), {
+  requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'empleados:update'),
+  targetCtx: ({ args }) => guard.empleadoTargetCtx(db, args[0]?.id),
+})
+handleMut('empleados:delete',    ({id})          => { db.empleadoDelete(id); return true }, {
+  requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'empleados:delete'),
+  targetCtx: ({ args }) => guard.empleadoTargetCtx(db, args[0]?.id),
+})
+handleMut('empleados:hard-delete', ({id})        => db.empleadoHardDelete(id), {
+  requires: ({ actor }) => guard.guardOwnerOnly(db, actor, null, 'empleados:hard-delete'),
+  targetCtx: ({ args }) => guard.empleadoTargetCtx(db, args[0]?.id),
+})
 
 // ── Restaurant Mode — Mesas ──────────────────────────────────────────────────
 handle('mesas:list',       ()                    => db.mesasGetAll())
@@ -1054,8 +1235,14 @@ handle('payroll-settings:get',     ()                    => db.payrollSettingsGe
 handleMut('payroll-settings:update',  (data)                => { db.payrollSettingsUpdate(data); return true })
 handle('salary-changes:by-empleado', ({empleadoId})      => db.salaryChangesByEmpleado(empleadoId))
 handle('salary-changes:at-date',    ({empleadoId, date}) => db.salaryAtDate(empleadoId, date))
-handleMut('salary-changes:create',     (data)               => db.salaryChangeCreate(data))
-handleMut('salary-changes:delete',     ({id})               => { db.salaryChangeDelete(id); return true })
+handleMut('salary-changes:create',     (data)               => db.salaryChangeCreate(data), {
+  requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'salary-changes:create'),
+  targetCtx: ({ args }) => ({ target_type: 'salary_change', target_id: args[0]?.empleado_id }),
+})
+handleMut('salary-changes:delete',     async ({id})         => { const r = db.salaryChangeDelete(id); if (r?.supabase_id) { try { await sync.supabaseDelete?.('salary_changes', r.supabase_id) } catch {} } return true }, {
+  requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'salary-changes:delete'),
+  targetCtx: ({ args }) => ({ target_type: 'salary_change', target_id: args[0]?.id }),
+})
 
 // ── Adelantos de nomina (salary advances) ────────────────────────────────────
 handleMut('adelantos:create',        (data)               => db.adelantoCreate(data))
@@ -1477,8 +1664,16 @@ ipcMain.handle('print:receipt', async (_, { data, printerName }) => {
 })
 
 ipcMain.handle('print:open-drawer', async () => {
-  // ESC p m t1 t2 kick on pin 2
-  const drawerCmd = Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA])
+  // v2.3.24 — default is now the StarSISA-captured pulse with CR LF terminator,
+  // which opens DR-clone POS-80 drawers out of the box. Saved variant from
+  // Probar Variantes still wins if the operator picked a different one.
+  let drawerCmd = Buffer.from(DRAWER_DEFAULT_HEX, 'hex')
+  try {
+    const savedHex = db?.settingsGet?.()?.drawer_pulse_hex
+    if (savedHex && /^[0-9a-fA-F]+$/.test(savedHex) && savedHex.length % 2 === 0) {
+      drawerCmd = Buffer.from(savedHex, 'hex')
+    }
+  } catch {}
   try {
     // Prefer saved printer from settings; fall back to system default
     let targetPrinter
@@ -1501,17 +1696,57 @@ ipcMain.handle('print:open-drawer', async () => {
   }
 })
 
-// ── Drawer kick variant tester ────────────────────────────────────────────────
-// Tries multiple ESC/POS drawer-kick sequences with a 2-second gap between each.
-// Returns an array of { variant, hex, success, error? } for diagnosis.
+// ── Drawer kick variants ──────────────────────────────────────────────────────
+// Shared variant list used by both the legacy bulk tester and the new
+// per-variant tester (one-at-a-time so the cashier can identify which one
+// opens the drawer).
+const DRAWER_VARIANTS = [
+  // v2.3.24 — CONFIRMED WORKING pulse captured from StarSISA's print spool file
+  // (00117.SPL) while it physically opened Studio X's drawer. The CR+LF (0D 0A)
+  // terminator forces DR-clone firmwares to flush/execute the drawer command
+  // instead of queueing it indefinitely. Ship as variant 1 (highest priority)
+  // and as the global default fallback for every new install.
+  { desc: 'StarSISA captured (pin-2, 30/126ms + CR LF)', hex: '1B70000F3F0D0A' },
+  // v2.3.23 — StarSISA reverse-engineered variants from static binary analysis.
+  { desc: 'StarSISA pin-5 instant (m=1, t1=0, t2=0)', hex: '1B7001000000' },
+  { desc: 'StarSISA pin-2 38/30ms (m=0, t1=38, t2=30)', hex: '1B7000261E' },
+  { desc: 'StarSISA pin-2 41/28ms (m=0, t1=41, t2=28)', hex: '1B7000291C' },
+  // Standard ESC/POS variants (kept as fallbacks).
+  { desc: 'Original (m=0, t1=25, t2=250)',    hex: '1B700019FA' },
+  { desc: 'Longer pulse (m=0, t1=50, t2=250)', hex: '1B700032FA' },
+  { desc: 'Epson alt (m=0, t1=30, t2=255)',    hex: '1B70001EFF' },
+  { desc: 'm=48 decimal pin2 (clone fix)',      hex: '1B703019FA' },
+  { desc: 'Pin5 variant (m=1, t1=25, t2=250)',  hex: '1B700119FA' },
+]
+const DRAWER_DEFAULT_HEX = '1B70000F3F0D0A'
+
+// Fire a SINGLE drawer variant by index. Lets the UI walk through them one at
+// a time so the operator can identify which one opens the drawer and save it.
+ipcMain.handle('print:fire-drawer-variant', async (_, { index, printerName } = {}) => {
+  if (typeof index !== 'number' || index < 0 || index >= DRAWER_VARIANTS.length) {
+    return { success: false, error: 'invalid_index', total: DRAWER_VARIANTS.length }
+  }
+  const v = DRAWER_VARIANTS[index]
+  let targetPrinter = printerName
+  if (!targetPrinter) { try { targetPrinter = db?.settingsGet?.()?.printer || undefined } catch {} }
+  if (!targetPrinter) {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win) {
+      const printers = await win.webContents.getPrintersAsync().catch(() => [])
+      targetPrinter = printers.find(p => p.isDefault)?.name || printers[0]?.name
+    }
+  }
+  if (!targetPrinter) return { success: false, error: 'no_printer', total: DRAWER_VARIANTS.length }
+  const buf = Buffer.from(v.hex, 'hex')
+  const result = process.platform === 'win32'
+    ? await printWindows(buf.toString('binary'), targetPrinter)
+    : await printUnix(buf.toString('binary'), targetPrinter)
+  return { ...result, index, variant: v.desc, hex: v.hex, total: DRAWER_VARIANTS.length }
+})
+
+// ── Drawer kick variant tester (bulk, legacy) ─────────────────────────────────
 ipcMain.handle('print:test-drawer-variants', async (_, printerName) => {
-  const VARIANTS = [
-    { desc: 'Original (m=0, t1=25, t2=250)',    hex: '1B700019FA' },
-    { desc: 'Longer pulse (m=0, t1=50, t2=250)', hex: '1B700032FA' },
-    { desc: 'Epson alt (m=0, t1=30, t2=255)',    hex: '1B70001EFF' },
-    { desc: 'm=48 decimal pin2 (clone fix)',      hex: '1B703019FA' },
-    { desc: 'Pin5 variant (m=1)',                 hex: '1B700119FA' },
-  ]
+  const VARIANTS = DRAWER_VARIANTS
 
   let targetPrinter = printerName
   if (!targetPrinter) {

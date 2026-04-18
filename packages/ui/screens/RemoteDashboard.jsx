@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Globe, Eye, WifiOff, RefreshCw, TrendingUp, ReceiptText, Banknote, CreditCard, ArrowRightLeft, Clock,
-  Activity, UserX, Tag, XCircle, Wallet, Percent, Package, PiggyBank, Scale, ChevronDown, ChevronUp } from 'lucide-react'
+  Activity, UserX, Tag, XCircle, Wallet, Percent, Package, PiggyBank, Scale, Lock, ChevronDown, ChevronUp } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { useAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
 import { getSupabaseClient, getBusinessId, fetchDashboardData, ensureBusinessRegistered } from '@terminal-x/services/supabase.js'
 
@@ -12,9 +13,61 @@ const REFRESH_MS = 30_000
 function fmtRD(n) {
   return 'RD$' + Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
+function parseSqliteUtc(v) {
+  if (!v) return null
+  if (v instanceof Date) return v
+  if (typeof v === 'string' && !v.endsWith('Z') && !/[+-]\d\d:?\d\d$/.test(v)) {
+    return new Date(v.replace(' ', 'T') + 'Z')
+  }
+  return new Date(v)
+}
 function fmtTime(iso) {
   if (!iso) return '—'
-  return new Date(iso).toLocaleString('es-DO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+  return parseSqliteUtc(iso).toLocaleString('es-DO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+function fmtClock(iso) {
+  if (!iso) return '—'
+  return parseSqliteUtc(iso).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+// Pull-to-refresh for iOS Safari. No deps. Fires onRefresh() when user drags
+// >80px down while scrollTop=0. Returns ref to attach to scroll container
+// plus current pull distance so we can render a visual indicator.
+function usePullToRefresh(onRefresh, enabled = true) {
+  const ref = useRef(null)
+  const startY = useRef(0)
+  const pulling = useRef(false)
+  const [pull, setPull] = useState(0)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !enabled) return
+    const onStart = (e) => {
+      if (el.scrollTop > 0) { pulling.current = false; return }
+      startY.current = e.touches[0].clientY
+      pulling.current = true
+    }
+    const onMove = (e) => {
+      if (!pulling.current) return
+      const dy = e.touches[0].clientY - startY.current
+      if (dy > 0 && el.scrollTop <= 0) {
+        setPull(Math.min(dy, 120))
+        if (dy > 10) e.preventDefault()
+      }
+    }
+    const onEnd = () => {
+      if (pulling.current && pull > 80) onRefresh()
+      pulling.current = false
+      setPull(0)
+    }
+    el.addEventListener('touchstart', onStart, { passive: true })
+    el.addEventListener('touchmove',  onMove,  { passive: false })
+    el.addEventListener('touchend',   onEnd,   { passive: true })
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchmove',  onMove)
+      el.removeEventListener('touchend',   onEnd)
+    }
+  }, [onRefresh, enabled, pull])
+  return [ref, pull]
 }
 function pctChange(current, previous) {
   if (!previous) return null
@@ -39,10 +92,10 @@ function MetricCard({ label, value, sub, trend, accent = 'blue' }) {
   }
   const trendColor = trend === null ? '' : Number(trend) >= 0 ? 'text-emerald-600' : 'text-red-500'
   return (
-    <div className={`rounded-xl border p-4 ${colors[accent]} dark:border-white/10 dark:bg-white/5`}>
-      <p className="text-xs text-slate-500 dark:text-white/60 mb-1">{label}</p>
-      <p className="text-2xl font-bold text-slate-800 dark:text-white tracking-tight">{value}</p>
-      {sub  && <p className="text-xs text-slate-500 dark:text-white/60 mt-0.5">{sub}</p>}
+    <div className={`rounded-xl border p-3 md:p-4 ${colors[accent]} dark:border-white/10 dark:bg-white/5`}>
+      <p className="text-[11px] md:text-xs text-slate-500 dark:text-white/60 mb-1 leading-tight">{label}</p>
+      <p className="text-xl md:text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight tabular-nums">{value}</p>
+      {sub  && <p className="text-[11px] md:text-xs text-slate-500 dark:text-white/60 mt-0.5">{sub}</p>}
       {trend !== null && trend !== undefined && (
         <p className={`text-xs font-medium mt-1 ${trendColor}`}>
           {Number(trend) >= 0 ? '▲' : '▼'} {Math.abs(trend)}% vs ayer
@@ -54,7 +107,13 @@ function MetricCard({ label, value, sub, trend, accent = 'blue' }) {
 
 export default function RemoteDashboard() {
   const { user } = useAuth()
+  const api = useAPI()
   const { lang }  = useLang()
+  // Web sessions resolve business_id via the authenticated Supabase JWT
+  // (api.dashboard.fetch is wired in packages/data/web.js). When that path
+  // exists we skip the legacy localStorage + ensureBusinessRegistered flow —
+  // trying to INSERT a new businesses row with the anon key always fails RLS.
+  const isWebSession = !!api?.dashboard?.fetch
 
   if (!ALLOWED.includes(user?.role)) {
     return (
@@ -86,7 +145,7 @@ export default function RemoteDashboard() {
     )
   }
 
-  if (!getBusinessId()) {
+  if (!isWebSession && !getBusinessId()) {
     return <RegisteringBusiness lang={lang} />
   }
 
@@ -131,19 +190,19 @@ function RegisteringBusiness({ lang }) {
 
 function Header({ onRefresh, refreshing, lastUpdated }) {
   return (
-    <div className="bg-white dark:bg-white/5 border-b border-slate-100 dark:border-white/10 px-6 py-4 flex items-center gap-3 shrink-0">
-      <Globe size={18} className="text-slate-500 dark:text-white/60" />
-      <div className="flex-1">
-        <h1 className="text-lg font-semibold text-slate-800 dark:text-white">Dashboard Remoto</h1>
-        <p className="text-xs text-slate-400 dark:text-white/40">
-          {lastUpdated ? `Actualizado ${fmtTime(lastUpdated)}` : 'Solo lectura — datos en tiempo real'}
+    <div className="bg-white dark:bg-white/5 border-b border-slate-100 dark:border-white/10 px-4 md:px-6 py-2.5 md:py-4 flex items-center gap-3 shrink-0">
+      <Globe size={18} className="text-slate-500 dark:text-white/60 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <h1 className="text-base md:text-lg font-semibold text-slate-800 dark:text-white leading-tight">Dashboard Remoto</h1>
+        <p className="text-[11px] md:text-xs text-slate-400 dark:text-white/40 truncate">
+          {lastUpdated ? <>Actualizado <span className="font-semibold text-slate-600 dark:text-white/70 tabular-nums">{fmtClock(lastUpdated)}</span></> : 'Solo lectura — datos en tiempo real'}
         </p>
       </div>
       {onRefresh && (
-        <button onClick={onRefresh} disabled={refreshing}
-          className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-white/10 rounded-lg text-xs text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40">
-          <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
-          Actualizar
+        <button onClick={onRefresh} disabled={refreshing} aria-label="Actualizar"
+          className="flex items-center justify-center gap-1.5 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 md:px-3 md:py-1.5 border border-slate-200 dark:border-white/10 rounded-lg text-xs text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40">
+          <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+          <span className="hidden md:inline">Actualizar</span>
         </button>
       )}
     </div>
@@ -151,6 +210,7 @@ function Header({ onRefresh, refreshing, lastUpdated }) {
 }
 
 function Dashboard({ lang }) {
+  const api = useAPI()
   const [data,        setData]        = useState(null)
   const [loading,     setLoading]     = useState(true)
   const [error,       setError]       = useState(null)
@@ -163,7 +223,12 @@ function Dashboard({ lang }) {
     else           setLoading(true)
     setError(null)
 
-    const result = await fetchDashboardData()
+    // Prefer the auth-bound api.dashboard.fetch (web — uses SupabaseAuthGate
+    // session). Falls back to the legacy fetchDashboardData (desktop — reads
+    // creds from localStorage configured in Settings → Respaldo).
+    const result = api?.dashboard?.fetch
+      ? await api.dashboard.fetch()
+      : await fetchDashboardData()
 
     if (result?.error) {
       setError(result.error)
@@ -174,7 +239,7 @@ function Dashboard({ lang }) {
 
     setLoading(false)
     setRefreshing(false)
-  }, [])
+  }, [api])
 
   useEffect(() => {
     load()
@@ -186,8 +251,19 @@ function Dashboard({ lang }) {
     return (
       <div className="h-full flex flex-col bg-slate-50 dark:bg-black overflow-hidden">
         <Header />
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-slate-400 dark:text-white/40 text-sm">Cargando datos…</p>
+        <div className="flex-1 overflow-y-auto p-4 md:p-5 space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[0,1,2,3].map(i => (
+              <div key={i} className="rounded-xl border border-slate-100 dark:border-white/10 bg-white dark:bg-white/5 p-3 md:p-4 animate-pulse">
+                <div className="h-3 w-16 bg-slate-100 dark:bg-white/10 rounded mb-2" />
+                <div className="h-6 w-24 bg-slate-200 dark:bg-white/10 rounded" />
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="h-40 rounded-xl border border-slate-100 dark:border-white/10 bg-white dark:bg-white/5 animate-pulse" />
+            <div className="lg:col-span-2 h-56 rounded-xl border border-slate-100 dark:border-white/10 bg-white dark:bg-white/5 animate-pulse" />
+          </div>
         </div>
       </div>
     )
@@ -219,9 +295,9 @@ function Dashboard({ lang }) {
 
       <TabBar lang={lang} active={activeTab} onChange={setActiveTab} />
 
-      {activeTab === 'activity' && <ActivityFeed lang={lang} />}
+      {activeTab === 'activity' && <ActivityFeed lang={lang} onRefreshDashboard={() => load(true)} />}
       {activeTab === 'summary' && (
-      <div className="flex-1 overflow-y-auto p-5 space-y-5">
+      <SummaryPane onRefresh={() => load(true)} refreshing={refreshing}>
 
         {/* ── KPI row ────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -303,9 +379,9 @@ function Dashboard({ lang }) {
                   const pm   = PM_LABEL[t.payment_method] || { label: t.payment_method || '—', color: 'text-slate-500 bg-slate-50' }
                   const Icon = pm.icon || Banknote
                   return (
-                    <div key={i} className="py-2 flex items-center gap-3">
-                      <span className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${pm.color}`}>
-                        <Icon size={11} />
+                    <div key={i} className="py-2.5 flex items-center gap-3">
+                      <span className={`w-8 h-8 md:w-6 md:h-6 rounded-md flex items-center justify-center shrink-0 ${pm.color}`}>
+                        <Icon size={13} />
                       </span>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-slate-800 dark:text-white truncate">
@@ -315,10 +391,10 @@ function Dashboard({ lang }) {
                         <p className="text-[11px] text-slate-400 dark:text-white/40 truncate">{t.services || '—'}</p>
                       </div>
                       {t.ncf && (
-                        <span className="text-[10px] text-slate-400 dark:text-white/40 font-mono shrink-0">{t.ncf}</span>
+                        <span className="hidden md:inline text-[10px] text-slate-400 dark:text-white/40 font-mono shrink-0">{t.ncf}</span>
                       )}
                       <div className="text-right shrink-0">
-                        <p className="text-xs font-semibold text-slate-700 dark:text-white">{fmtRD(t.total)}</p>
+                        <p className="text-sm md:text-xs font-bold md:font-semibold text-slate-800 dark:text-white tabular-nums">{fmtRD(t.total)}</p>
                         <p className="text-[11px] text-slate-400 dark:text-white/40">{fmtTime(t.paid_at)}</p>
                       </div>
                     </div>
@@ -329,8 +405,26 @@ function Dashboard({ lang }) {
           </div>
         </div>
 
-      </div>
+      </SummaryPane>
       )}
+    </div>
+  )
+}
+
+// Scroll container wrapping the Summary tab. Hosts pull-to-refresh for iOS.
+function SummaryPane({ onRefresh, refreshing, children }) {
+  const [ref, pull] = usePullToRefresh(onRefresh, true)
+  const ready = pull > 80
+  return (
+    <div ref={ref} className="flex-1 overflow-y-auto overscroll-contain p-4 md:p-5 space-y-4 md:space-y-5 relative">
+      <div
+        className="absolute left-0 right-0 top-0 flex items-center justify-center pointer-events-none transition-opacity"
+        style={{ height: pull, opacity: pull > 0 ? 1 : 0 }}>
+        <RefreshCw size={18}
+          className={`${refreshing || ready ? 'text-[#b3001e]' : 'text-slate-400 dark:text-white/40'} ${refreshing ? 'animate-spin' : ''}`}
+          style={{ transform: `rotate(${pull * 3}deg)` }} />
+      </div>
+      {children}
     </div>
   )
 }
@@ -342,15 +436,15 @@ function TabBar({ lang, active, onChange }) {
     { id: 'activity', es: 'Actividad', en: 'Activity',  Icon: Activity },
   ]
   return (
-    <div className="bg-white dark:bg-white/5 border-b border-slate-100 dark:border-white/10 px-6 flex items-center gap-1 shrink-0">
+    <div className="sticky top-0 z-20 bg-white dark:bg-white/5 border-b border-slate-100 dark:border-white/10 px-4 md:px-6 flex items-center gap-1 shrink-0">
       {tabs.map(({ id, es, en, Icon }) => (
         <button key={id} onClick={() => onChange(id)}
-          className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-colors ${
+          className={`flex items-center justify-center gap-1.5 flex-1 md:flex-none md:px-3 min-h-[44px] py-2.5 text-sm md:text-xs font-semibold border-b-2 -mb-px transition-colors ${
             active === id
               ? 'border-[#b3001e] text-[#b3001e] dark:text-red-400'
               : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white'
           }`}>
-          <Icon size={13} /> {lang === 'es' ? es : en}
+          <Icon size={15} /> {lang === 'es' ? es : en}
         </button>
       ))}
     </div>
@@ -365,11 +459,22 @@ const EVENT_META = {
   service_price_changed: { Icon: Tag,      color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Precio cambiado',           en: 'Price changed' },
   ticket_voided:         { Icon: XCircle,  color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Ticket anulado',            en: 'Ticket voided' },
   nota_credito_created:  { Icon: ReceiptText, color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',     es: 'Nota de crédito',           en: 'Credit note' },
+  invoice_issued:        { Icon: ReceiptText, color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',      es: 'Factura emitida',           en: 'Invoice issued' },
   payroll_paid:          { Icon: Wallet,   color: 'text-violet-600 bg-violet-50 dark:bg-violet-500/10 dark:text-violet-300', es: 'Nómina pagada',         en: 'Payroll paid' },
   discount_applied:      { Icon: Percent,  color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Descuento aplicado',        en: 'Discount applied' },
   inventory_adjusted:    { Icon: Package,  color: 'text-blue-600 bg-blue-50 dark:bg-blue-500/10 dark:text-blue-300',    es: 'Ajuste de inventario',      en: 'Inventory adjusted' },
   caja_chica_withdrawal: { Icon: PiggyBank,color: 'text-blue-600 bg-blue-50 dark:bg-blue-500/10 dark:text-blue-300',    es: 'Retiro caja chica',         en: 'Petty cash withdrawal' },
   cuadre_discrepancy:    { Icon: Scale,    color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Descuadre en caja',         en: 'Cash reconciliation discrepancy' },
+  permission_denied:     { Icon: XCircle,  color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Permiso denegado',          en: 'Permission denied' },
+  user_pin_changed:      { Icon: Lock,     color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'PIN de usuario cambiado',   en: 'User PIN changed' },
+  user_hard_deleted:     { Icon: UserX,    color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Usuario eliminado (definitivo)', en: 'User hard deleted' },
+  adelanto_created:      { Icon: Wallet,   color: 'text-blue-600 bg-blue-50 dark:bg-blue-500/10 dark:text-blue-300',    es: 'Adelanto creado',           en: 'Advance created' },
+  adelanto_cancelled:    { Icon: Wallet,   color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Adelanto cancelado',        en: 'Advance cancelled' },
+}
+function eventLabel(evt, lang) {
+  const m = EVENT_META[evt]
+  if (!m) return evt
+  return lang === 'es' ? m.es : m.en
 }
 
 const FILTER_CHIPS = [
@@ -377,6 +482,7 @@ const FILTER_CHIPS = [
   { id: 'deletes',  es: 'Eliminaciones',en: 'Deletions',    types: ['user_deleted','user_deactivated','service_deleted'] },
   { id: 'prices',   es: 'Precios',      en: 'Prices',       types: ['service_price_changed'] },
   { id: 'voids',    es: 'Anulaciones',  en: 'Voids',        types: ['ticket_voided','nota_credito_created'] },
+  { id: 'invoices', es: 'Facturas',     en: 'Invoices',     types: ['invoice_issued'] },
   { id: 'payouts',  es: 'Pagos',        en: 'Payouts',      types: ['payroll_paid'] },
   { id: 'discounts',es: 'Descuentos',   en: 'Discounts',    types: ['discount_applied'] },
   { id: 'stock',    es: 'Inventario',   en: 'Inventory',    types: ['inventory_adjusted'] },
@@ -397,7 +503,7 @@ function fmtRel(iso, lang) {
   return new Date(iso).toLocaleDateString('es-DO', { day: '2-digit', month: 'short' })
 }
 
-function ActivityFeed({ lang }) {
+function ActivityFeed({ lang, onRefreshDashboard }) {
   const sb = getSupabaseClient()
   const bid = getBusinessId()
   const [rows, setRows]       = useState([])
@@ -426,13 +532,22 @@ function ActivityFeed({ lang }) {
   useEffect(() => { load() }, [load])
   useEffect(() => { const t = setInterval(load, 45000); return () => clearInterval(t) }, [load])
 
+  const [ptrRef, pull] = usePullToRefresh(load, true)
+  const ready = pull > 80
+
   return (
-    <div className="flex-1 overflow-y-auto p-5 space-y-4">
-      {/* Filter chips */}
-      <div className="flex flex-wrap gap-1.5">
+    <div ref={ptrRef} className="flex-1 overflow-y-auto overscroll-contain p-4 md:p-5 space-y-4 relative">
+      <div className="absolute left-0 right-0 top-0 flex items-center justify-center pointer-events-none transition-opacity"
+        style={{ height: pull, opacity: pull > 0 ? 1 : 0 }}>
+        <RefreshCw size={18}
+          className={`${loading || ready ? 'text-[#b3001e]' : 'text-slate-400 dark:text-white/40'} ${loading ? 'animate-spin' : ''}`}
+          style={{ transform: `rotate(${pull * 3}deg)` }} />
+      </div>
+      {/* Filter chips — scrollable row on mobile, wrap on desktop */}
+      <div className="flex md:flex-wrap gap-1.5 overflow-x-auto md:overflow-x-visible -mx-4 md:mx-0 px-4 md:px-0 pb-1 md:pb-0">
         {FILTER_CHIPS.map(c => (
           <button key={c.id} onClick={() => setChip(c.id)}
-            className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${
+            className={`shrink-0 text-xs md:text-[11px] font-semibold px-3 md:px-2.5 py-2 md:py-1 rounded-full border transition-colors ${
               chip === c.id
                 ? 'bg-[#b3001e] text-white border-[#b3001e]'
                 : 'bg-white dark:bg-white/5 text-slate-600 dark:text-white/60 border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/10'
@@ -440,7 +555,7 @@ function ActivityFeed({ lang }) {
             {lang === 'es' ? c.es : c.en}
           </button>
         ))}
-        <button onClick={load} className="ml-auto text-[11px] flex items-center gap-1 px-2.5 py-1 rounded-full border border-slate-200 dark:border-white/10 text-slate-500 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10">
+        <button onClick={load} className="shrink-0 ml-auto text-xs md:text-[11px] flex items-center gap-1 px-3 md:px-2.5 py-2 md:py-1 rounded-full border border-slate-200 dark:border-white/10 text-slate-500 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10">
           <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
           {lang === 'es' ? 'Actualizar' : 'Refresh'}
         </button>
@@ -505,7 +620,7 @@ function ActivityFeed({ lang }) {
                             <span className="text-slate-800 dark:text-white font-semibold">{r.new_value}</span>
                           </div>
                         )}
-                        <div><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Tipo:' : 'Type:'}</span> <span className="text-slate-700 dark:text-white/80 font-mono">{r.event_type}</span></div>
+                        <div><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Tipo:' : 'Type:'}</span> <span className="text-slate-700 dark:text-white/80">{eventLabel(r.event_type, lang)}</span></div>
                         <div><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Fecha:' : 'Date:'}</span> <span className="text-slate-700 dark:text-white/80">{fmtTime(r.created_at)}</span></div>
                         {r.target_type && <div><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Destino:' : 'Target:'}</span> <span className="text-slate-700 dark:text-white/80">{r.target_type}{r.target_id ? ` #${r.target_id}` : ''}</span></div>}
                         {r.reason && <div className="col-span-2"><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Motivo:' : 'Reason:'}</span> <span className="text-slate-700 dark:text-white/80">{r.reason}</span></div>}

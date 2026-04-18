@@ -1,16 +1,18 @@
 import { useState } from 'react'
-import { BarChart2, Calendar, DollarSign, Package } from 'lucide-react'
+import { BarChart2, Calendar, DollarSign, Package, Wine } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import DailyReport from './reports/DailyReport'
 import MonthlyReport from './reports/MonthlyReport'
 import WorkerReport from './reports/WorkerReport'
 import ProductsReport from './reports/ProductsReport'
+import BottleDepositReport from './reports/BottleDepositReport'
 
 const TABS = [
   { id: 'daily',      es: 'Diario',     en: 'Daily',       icon: BarChart2  },
   { id: 'monthly',    es: 'Mensual',    en: 'Monthly',     icon: Calendar   },
-  { id: 'productos',  es: 'Productos',  en: 'Products',    icon: Package,   businessTypes: ['retail', 'dealership', 'restaurant', 'hybrid'] },
+  { id: 'productos',  es: 'Productos',  en: 'Products',    icon: Package,   businessTypes: ['retail', 'dealership', 'restaurant', 'hybrid', 'licoreria', 'carniceria'] },
+  { id: 'depositos',  es: 'Depósitos',  en: 'Deposits',    icon: Wine,      businessTypes: ['licoreria'] },
   { id: 'comisiones', es: 'Comisiones', en: 'Commissions', icon: DollarSign },
 ]
 
@@ -43,6 +45,7 @@ export default function Reportes() {
         {tab === 'daily'      && <DailyReport />}
         {tab === 'monthly'    && <MonthlyReport />}
         {tab === 'productos'  && <ProductsReport />}
+        {tab === 'depositos'  && <BottleDepositReport />}
         {tab === 'comisiones' && <WorkerReport />}
       </div>
     </div>

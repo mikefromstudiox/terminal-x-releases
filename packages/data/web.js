@@ -13,6 +13,35 @@
  */
 
 import { enqueueTicket } from '@terminal-x/services/offline-queue'
+import { isBusinessSetting, isDeviceSetting, DEVICE_SETTING_KEYS } from '@terminal-x/services/settingsWhitelist'
+
+// Device-local settings on web live in localStorage (one "device" = one browser).
+// Defaults mirror the desktop SISTEMA_DEFAULTS so the UI sees valid strings.
+const WEB_DEVICE_DEFAULTS = {
+  printer: '',
+  print_factura_auto: '0',
+  print_conduce_auto: '0',
+  print_preticket: '0',
+  multi_pos_enabled: '0',
+  ncf_block_size: '500',
+  doc_block_size: '200',
+}
+const DEVICE_LS_PREFIX = 'tx_device_setting:'
+function webDeviceGet(key) {
+  try { return (typeof localStorage !== 'undefined' ? localStorage.getItem(DEVICE_LS_PREFIX + key) : null) ?? (WEB_DEVICE_DEFAULTS[key] ?? '') }
+  catch { return WEB_DEVICE_DEFAULTS[key] ?? '' }
+}
+function webDeviceSet(key, value) {
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(DEVICE_LS_PREFIX + key, String(value)) } catch {}
+}
+function webDeviceAll() {
+  const out = { ...WEB_DEVICE_DEFAULTS }
+  for (const k of DEVICE_SETTING_KEYS) {
+    const v = webDeviceGet(k)
+    if (v !== null && v !== undefined) out[k] = v
+  }
+  return out
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -42,6 +71,30 @@ async function tryWrite(fn) {
 function throwSupaError(res) {
   if (res.error) throw new Error(res.error.message || res.error.code || 'Supabase error')
   return res.data
+}
+
+// ── Embedded-join replacement helper ──────────────────────────────────────────
+// PostgREST embedded selects (table(col)) require real FK constraints to exist
+// on Supabase. Many of our cross-table refs use *_supabase_id UUIDs without a
+// formal FK, so we resolve them via a separate IN-fetch and merge in JS.
+//
+//   rows: array of parent rows
+//   fkCol: parent column holding the target's lookup key (e.g. 'client_supabase_id')
+//   targetTable: 'clients'
+//   targetKey: 'supabase_id' (or 'id')
+//   selectCols: 'name,phone'
+//   asKey: alias merged onto each row (e.g. 'clients' => row.clients = {...})
+async function attachRel(supabase, rows, { fkCol, targetTable, targetKey = 'supabase_id', selectCols, asKey, businessId }) {
+  if (!Array.isArray(rows) || !rows.length) return rows
+  const ids = [...new Set(rows.map(r => r?.[fkCol]).filter(v => v != null))]
+  if (!ids.length) { for (const r of rows) r[asKey] = null; return rows }
+  let q = supabase.from(targetTable).select(`${targetKey}, ${selectCols}`).in(targetKey, ids)
+  if (businessId) q = q.eq('business_id', businessId)
+  const { data: refs } = await q
+  const map = {}
+  for (const x of (refs || [])) map[x[targetKey]] = x
+  for (const r of rows) r[asKey] = map[r?.[fkCol]] || null
+  return rows
 }
 
 // Mechanic WO totals recalc — labor (labor|service) untaxed; parts taxed 18% ITBIS DR.
@@ -141,11 +194,13 @@ export function createWebAPI(supabase, businessId) {
     if (!evt || !evt.event_type) return
     try {
       const actor = _webActor || {}
+      const nowIso = new Date().toISOString()
       await supabase.from('activity_log').insert({
         supabase_id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()),
         business_id: bid,
         event_type: evt.event_type,
         severity: evt.severity || 'info',
+        actor_supabase_id: evt.actor_supabase_id || (actor && actor.id && typeof actor.id === 'string' && actor.id.includes('-') ? actor.id : null),
         actor_name: evt.actor_name || actor.name || null,
         actor_role: evt.actor_role || actor.role || null,
         target_type: evt.target_type || null,
@@ -156,8 +211,100 @@ export function createWebAPI(supabase, businessId) {
         new_value:   evt.new_value != null ? String(evt.new_value) : null,
         reason:      evt.reason || null,
         metadata:    evt.metadata || null,
+        created_at:  nowIso,
+        updated_at:  nowIso,
       })
     } catch (e) { console.error('[activity_log web] failed:', e?.message || e) }
+  }
+
+  // ── Server-side role-hierarchy guard (parity with electron/auth-guard.js) ─
+  // Renderer can set _webActor via api.activity.setActor, but for security we
+  // ALSO re-fetch the actor's role from Supabase on every mutation so a
+  // tampered renderer cannot impersonate a higher role.
+  const ROLE_LEVEL = { owner: 100, cfo: 70, accountant: 60, manager: 50, cashier: 10, none: 0 }
+  const canActOn = (a, t) => (ROLE_LEVEL[a] ?? 0) > (ROLE_LEVEL[t] ?? 0)
+
+  async function resolveActorRole() {
+    // Prefer authoritative Supabase lookup via JWT.
+    try {
+      const { data: { user } = {} } = await supabase.auth.getUser()
+      if (user?.id) {
+        const { data: row } = await supabase.from('staff')
+          .select('id,name,role').eq('auth_user_id', user.id).eq('business_id', bid).maybeSingle()
+        if (row) return { id: row.id, name: row.name, role: row.role }
+      }
+    } catch {}
+    // Fallback to renderer-supplied actor (still enforced — just weaker).
+    return _webActor || null
+  }
+
+  async function fetchTargetRole(id) {
+    try {
+      const { data } = await supabase.from('staff').select('id,name,username,role')
+        .eq('id', id).eq('business_id', bid).maybeSingle()
+      return data || null
+    } catch { return null }
+  }
+
+  async function denyAndLog(op, reason, ctx = {}) {
+    const actor = await resolveActorRole()
+    await logActivity({
+      event_type: 'permission_denied', severity: 'warn',
+      actor_name: actor?.name || null, actor_role: actor?.role || null,
+      target_type: ctx.target_type || null,
+      target_id:   ctx.target_id != null ? String(ctx.target_id) : null,
+      target_name: ctx.target_name || null,
+      reason, metadata: { attempted_op: op, source: 'web' },
+    })
+    throw new Error(reason)
+  }
+
+  /** Enforce: actor can act on target user. Self-edits of role/active blocked. */
+  async function guardUserMutation(op, patch) {
+    const actor = await resolveActorRole()
+    if (!actor) return denyAndLog(op, 'No hay usuario activo')
+    const targetId = patch?.id
+    if (!targetId) {
+      // Create path — only owner/manager allowed, and new role cannot be >= actor
+      if (!['owner', 'manager'].includes(actor.role)) return denyAndLog(op, 'Solo owner/manager pueden crear usuarios')
+      if (patch?.role && (ROLE_LEVEL[patch.role] ?? 0) >= (ROLE_LEVEL[actor.role] ?? 0) && actor.role !== 'owner') {
+        return denyAndLog(op, 'Solo el propietario puede asignar este rol')
+      }
+      return
+    }
+    const target = await fetchTargetRole(targetId)
+    if (!target) return denyAndLog(op, 'Usuario no encontrado', { target_type: 'user', target_id: targetId })
+    const ctx = { target_type: 'user', target_id: targetId, target_name: `${target.name} (@${target.username})` }
+    const self = String(actor.id) === String(target.id)
+    if (op.endsWith(':delete') || op.endsWith(':delete-hard')) {
+      if (self) return denyAndLog(op, 'No puedes eliminar tu propia cuenta', ctx)
+      if (!canActOn(actor.role, target.role)) return denyAndLog(op, 'No tienes permiso para eliminar este usuario', ctx)
+      if (op.endsWith(':delete-hard') && actor.role !== 'owner') return denyAndLog(op, 'Solo el propietario puede eliminar usuarios permanentemente', ctx)
+      return
+    }
+    // update
+    const changingRole   = 'role'   in patch && patch.role   !== target.role
+    const changingActive = 'active' in patch && Boolean(patch.active) !== true // self-deactivation
+    if (self) {
+      if (changingRole)   return denyAndLog(op, 'No puedes cambiar tu propio rol', ctx)
+      if (changingActive) return denyAndLog(op, 'No puedes desactivar tu propia cuenta', ctx)
+      return
+    }
+    if (!canActOn(actor.role, target.role)) return denyAndLog(op, 'No tienes permiso para editar este usuario', ctx)
+    if (patch.role && (ROLE_LEVEL[patch.role] ?? 0) >= (ROLE_LEVEL[actor.role] ?? 0) && actor.role !== 'owner') {
+      return denyAndLog(op, 'Solo el propietario puede asignar este rol', ctx)
+    }
+  }
+
+  async function requireOwnerOrManager(op) {
+    const actor = await resolveActorRole()
+    if (!actor) return denyAndLog(op, 'No hay usuario activo')
+    if (!['owner', 'manager'].includes(actor.role)) return denyAndLog(op, `Solo owner/manager pueden ejecutar ${op}`)
+  }
+  async function requireOwner(op) {
+    const actor = await resolveActorRole()
+    if (!actor) return denyAndLog(op, 'No hay usuario activo')
+    if (actor.role !== 'owner') return denyAndLog(op, `Solo el propietario puede ejecutar ${op}`)
   }
 
   return {
@@ -166,6 +313,14 @@ export function createWebAPI(supabase, businessId) {
     activity: {
       setActor: (user) => { _webActor = user ? { id: user.id, name: user.name, role: user.role } : null },
       record: (evt) => logActivity(evt),
+      permissionDenied: ({ action, requiredRole, currentRole, reason } = {}) => logActivity({
+        event_type: 'permission_denied',
+        severity: 'warn',
+        target_type: 'action',
+        target_id: action || null,
+        reason: reason || `required=${requiredRole || '?'} current=${currentRole || '?'}`,
+        metadata: { action, requiredRole, currentRole },
+      }),
       list: ({ dateFrom, dateTo, eventTypes, limit = 200 } = {}) => tryOr(async () => {
         let q = supabase.from('activity_log').select('*').eq('business_id', bid)
         if (dateFrom) q = q.gte('created_at', dateFrom)
@@ -339,16 +494,44 @@ export function createWebAPI(supabase, businessId) {
     // ── Settings ─────────────────────────────────────────────────────────────
 
     settings: {
+      // get() merges:
+      //   1) BUSINESS-level keys from Supabase app_settings (cloud-synced)
+      //   2) DEVICE-local keys from localStorage (per-browser, never leaves this device)
+      // Desktop defaults fill any gaps so the UI always sees defined strings.
       get: () => tryOr(async () => {
         const rows = throwSupaError(await supabase.from('app_settings').select('key,value').eq('business_id', bid))
-        return Object.fromEntries((rows || []).map(r => [r.key, r.value]))
-      }, {}),
+        const business = Object.fromEntries((rows || []).map(r => [r.key, r.value]))
+        return { ...webDeviceAll(), ...business }
+      }, webDeviceAll()),
 
+      // update() splits writes by whitelist:
+      //   - business keys -> Supabase (synced to all devices)
+      //   - device keys   -> localStorage (this browser only)
+      //   - unknown keys  -> treated as device-local (safe default; never leak to cloud)
       update: (obj) => tryOr(async () => {
+        const cloudUpserts = []
         for (const [key, value] of Object.entries(obj)) {
+          if (isBusinessSetting(key)) {
+            cloudUpserts.push({
+              business_id: bid,
+              key,
+              value: String(value),
+              supabase_id: (crypto?.randomUUID?.() || undefined),
+            })
+          } else if (isDeviceSetting(key)) {
+            webDeviceSet(key, value)
+          } else {
+            // Unknown key — default to device-local. Log a warning so devs notice.
+            try { console.warn('[web settings] unknown key treated as device-local:', key) } catch {}
+            webDeviceSet(key, value)
+          }
+        }
+        if (cloudUpserts.length) {
+          // Batch upsert — onConflict on (business_id,key) so existing rows
+          // get their supabase_id preserved (the trigger bumps updated_at).
           throwSupaError(await supabase.from('app_settings').upsert(
-            { business_id: bid, key, value: String(value) },
-            { onConflict: 'business_id,key' }
+            cloudUpserts,
+            { onConflict: 'business_id,key', ignoreDuplicates: false }
           ))
         }
       }),
@@ -405,10 +588,12 @@ export function createWebAPI(supabase, businessId) {
       }),
 
       transactions: ({ id }) => tryOr(async () => {
-        return throwSupaError(
-          await supabase.from('inventory_transactions').select('*, staff!user_id(name)')
+        const rows = throwSupaError(
+          await supabase.from('inventory_transactions').select('*')
             .eq('item_id', id).order('created_at', { ascending: false }).limit(50)
-        )
+        ) || []
+        await attachRel(supabase, rows, { fkCol: 'user_supabase_id', targetTable: 'staff', targetKey: 'supabase_id', selectCols: 'name', asKey: 'staff', businessId: bid })
+        return rows
       }, []),
 
       lowStockCount: () => tryOr(async () => {
@@ -470,21 +655,60 @@ export function createWebAPI(supabase, businessId) {
       }, []),
 
       create: (data) => tryOr(async () => {
+        await guardUserMutation('users:create', data)
         if (!data.pin) throw new Error('PIN requerido')
         const pin_hash = await hashPin(data.pin)
-        const { pin: _p, ...rest } = data
-        const row = throwSupaError(await supabase.from('staff').insert({ id: crypto.randomUUID(), supabase_id: crypto.randomUUID(), ...rest, pin_hash, discount_pct: rest.discount_pct || 0, business_id: bid, active: true }).select('id').single())
+        const { pin: _p, employee_id, ...rest } = data
+        // Web: empleado.id is UUID — staff.employee_id is INT (legacy). Route
+        // UUIDs through empleado_supabase_id and leave employee_id null.
+        const empIdStr = String(employee_id || '')
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(empIdStr)
+        const empFields = isUuid
+          ? { empleado_supabase_id: empIdStr }
+          : (empIdStr ? { employee_id: Number(empIdStr) || null } : {})
+        const row = throwSupaError(await supabase.from('staff').insert({
+          id: crypto.randomUUID(), supabase_id: crypto.randomUUID(),
+          ...rest, ...empFields, pin_hash,
+          discount_pct: rest.discount_pct || 0, business_id: bid, active: true,
+        }).select('id').single())
         return row
       }),
 
       update: (data) => tryOr(async () => {
-        const { id, pin, ...rest } = data
+        await guardUserMutation('users:update', data)
+        const { id, pin, employee_id, ...rest } = data
         if (pin) rest.pin_hash = await hashPin(pin)
         if ('active' in rest) rest.active = !!rest.active
+        if (employee_id !== undefined) {
+          const empIdStr = String(employee_id || '')
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(empIdStr)
+          if (isUuid) { rest.empleado_supabase_id = empIdStr; rest.employee_id = null }
+          else if (empIdStr) rest.employee_id = Number(empIdStr) || null
+        }
+        // v2.2.1 — audit PIN / role changes (security-critical)
+        let before = null
+        try {
+          const snap = await supabase.from('staff').select('name, username, role, pin_hash').eq('id', id).eq('business_id', bid).maybeSingle()
+          if (snap?.data) before = snap.data
+        } catch {}
         throwSupaError(await supabase.from('staff').update(rest).eq('id', id).eq('business_id', bid))
+        if (before) {
+          const targetName = `${before.name || ''} (@${before.username || ''})`
+          if (rest.pin_hash && rest.pin_hash !== before.pin_hash) {
+            await logActivity({ event_type: 'user_pin_changed', severity: 'critical',
+              target_type: 'user', target_id: id, target_name: targetName,
+              reason: 'PIN reset from Admin/Usuarios' })
+          }
+          if (rest.role && rest.role !== before.role) {
+            await logActivity({ event_type: 'user_role_changed', severity: 'warn',
+              target_type: 'user', target_id: id, target_name: targetName,
+              old_value: before.role, new_value: rest.role })
+          }
+        }
       }),
 
       delete: ({ id }) => tryOr(async () => {
+        await guardUserMutation('users:delete', { id })
         // Soft-delete only — hard-delete resurrects after the next desktop
         // sync push (desktop still has the row locally and upserts it back).
         const snap = await supabase.from('staff').select('name, username').eq('id', id).eq('business_id', bid).maybeSingle()
@@ -495,6 +719,7 @@ export function createWebAPI(supabase, businessId) {
       }),
 
       deleteHard: ({ id }) => tryOr(async () => {
+        await guardUserMutation('users:delete-hard', { id })
         const snap = await supabase.from('staff').select('name, username').eq('id', id).eq('business_id', bid).maybeSingle()
         const name = snap?.data ? `${snap.data.name} (@${snap.data.username})` : `#${id}`
         throwSupaError(await supabase.from('staff').delete().eq('id', id).eq('business_id', bid))
@@ -553,6 +778,7 @@ export function createWebAPI(supabase, businessId) {
       }, []),
 
       create: (data) => tryOr(async () => {
+        await requireOwnerOrManager('services:create')
         const row = throwSupaError(await supabase.from('services').insert({
           supabase_id: crypto.randomUUID(),
           name: data.name, name_en: data.name_en || null,
@@ -577,6 +803,7 @@ export function createWebAPI(supabase, businessId) {
       }),
 
       update: (data) => tryOr(async () => {
+        await requireOwnerOrManager('services:update')
         const { id, ...rest } = data
         const allowed = ['name', 'name_en', 'category', 'categoria_id', 'price', 'cost', 'aplica_itbis', 'is_wash', 'no_commission', 'commission_washer', 'commission_seller', 'commission_cashier', 'active', 'sort_order', 'is_menu_item', 'course', 'station', 'printer_route', 'happy_hour_price', 'happy_hour_start', 'happy_hour_end']
         const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
@@ -601,6 +828,7 @@ export function createWebAPI(supabase, businessId) {
       }),
 
       delete: ({ id }) => tryOr(async () => {
+        await requireOwnerOrManager('services:delete')
         // Soft-delete — set active=false, bump updated_at. Desktop pulls the
         // change via LWW and hides the service from the POS grid. Hard-delete
         // is useless here: the desktop's next sync push would just re-upsert
@@ -703,6 +931,7 @@ export function createWebAPI(supabase, businessId) {
       }, []),
 
       create: (data) => tryOr(async () => {
+        await requireOwnerOrManager('empleados:create')
         const empSid = crypto.randomUUID()
         const row = throwSupaError(await supabase.from('empleados').insert({
           supabase_id: empSid,
@@ -737,6 +966,7 @@ export function createWebAPI(supabase, businessId) {
       }),
 
       update: (data) => tryOr(async () => {
+        await requireOwnerOrManager('empleados:update')
         const { id, salary_change_reason, changed_by, ...rest } = data
         const allowed = ['nombre','tipo','role','ref_id','salary','comision_pct','start_date','cedula','phone','puesto','email','bank_account','tss_id','active']
         const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
@@ -764,6 +994,7 @@ export function createWebAPI(supabase, businessId) {
       }),
 
       delete: (id) => tryOr(async () => {
+        await requireOwnerOrManager('empleados:delete')
         throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid))
       }),
 
@@ -828,13 +1059,14 @@ export function createWebAPI(supabase, businessId) {
       }, []),
       byPeriod: (from, to) => tryOr(async () => {
         let q = supabase.from('payroll_runs')
-          .select('*, empleados(nombre, tipo)')
+          .select('*')
           .eq('business_id', bid)
           .order('paid_at', { ascending: false })
         if (from) q = q.gte('paid_at', from)
         if (to)   q = q.lte('paid_at', to + ' 23:59:59')
-        const rows = throwSupaError(await q)
-        return (rows || []).map(r => ({
+        const rows = throwSupaError(await q) || []
+        await attachRel(supabase, rows, { fkCol: 'empleado_supabase_id', targetTable: 'empleados', selectCols: 'nombre, tipo', asKey: 'empleados', businessId: bid })
+        return rows.map(r => ({
           ...r,
           empleado_nombre: r.empleados?.nombre || null,
           empleado_tipo:   r.empleados?.tipo || null,
@@ -895,14 +1127,15 @@ export function createWebAPI(supabase, businessId) {
         return { id: row.id, supabase_id: sid }
       }),
       list: (params = {}) => tryOr(async () => {
-        let q = supabase.from('adelantos').select('*, empleados(nombre, tipo)').eq('business_id', bid)
+        let q = supabase.from('adelantos').select('*').eq('business_id', bid)
         if (params.empleado_id) q = q.eq('empleado_id', params.empleado_id)
         if (params.status)      q = q.eq('status', params.status)
         if (params.dateFrom)    q = q.gte('date', params.dateFrom)
         if (params.dateTo)      q = q.lte('date', params.dateTo)
         q = q.order('created_at', { ascending: false })
-        const rows = throwSupaError(await q)
-        return (rows || []).map(r => ({
+        const rows = throwSupaError(await q) || []
+        await attachRel(supabase, rows, { fkCol: 'empleado_supabase_id', targetTable: 'empleados', selectCols: 'nombre, tipo', asKey: 'empleados', businessId: bid })
+        return rows.map(r => ({
           ...r,
           empleado_nombre: r.empleados?.nombre || null,
           empleado_tipo: r.empleados?.tipo || null,
@@ -937,10 +1170,11 @@ export function createWebAPI(supabase, businessId) {
         }
       }),
       summary: () => tryOr(async () => {
-        const rows = throwSupaError(await supabase.from('adelantos').select('empleado_id, amount, empleados(id, nombre, tipo)')
-          .eq('business_id', bid).eq('status', 'pendiente'))
+        const rows = throwSupaError(await supabase.from('adelantos').select('empleado_id, empleado_supabase_id, amount')
+          .eq('business_id', bid).eq('status', 'pendiente')) || []
+        await attachRel(supabase, rows, { fkCol: 'empleado_supabase_id', targetTable: 'empleados', selectCols: 'id, nombre, tipo', asKey: 'empleados', businessId: bid })
         const map = {}
-        for (const r of (rows || [])) {
+        for (const r of rows) {
           const eid = r.empleado_id
           if (!map[eid]) map[eid] = { id: eid, nombre: r.empleados?.nombre || '', tipo: r.empleados?.tipo || '', pending_total: 0, pending_count: 0 }
           map[eid].pending_total += Number(r.amount || 0)
@@ -975,6 +1209,7 @@ export function createWebAPI(supabase, businessId) {
         return Number(emp?.salary || 0)
       }, 0),
       create: (data) => tryOr(async () => {
+        await requireOwnerOrManager('salary-changes:create')
         // The UI (NominaEmpleados.handleSaveSalaryChange) passes:
         //   { empleado_id, new_salary, effective_date, reason, changed_by }
         // We resolve empleado_id → empleado_supabase_id, insert the row, and
@@ -1011,6 +1246,7 @@ export function createWebAPI(supabase, businessId) {
         return { id: inserted.id, supabase_id: sid }
       }),
       remove: (id) => tryOr(async () => {
+        await requireOwnerOrManager('salary-changes:delete')
         // Look up empleado_supabase_id before deleting so we can re-sync
         // empleados.salary to whatever becomes the new latest row.
         const { data: row } = await supabase.from('salary_changes').select('empleado_supabase_id').eq('id', id).eq('business_id', bid).maybeSingle()
@@ -1510,6 +1746,8 @@ export function createWebAPI(supabase, businessId) {
         if (data.ecfResult || data.ecf_result) updates.ecf_result = data.ecfResult || data.ecf_result
         if (data.tipoVenta || data.tipo_venta) updates.tipo_venta = data.tipoVenta || data.tipo_venta
         if (data.client_supabase_id) updates.client_supabase_id = data.client_supabase_id
+        if (data.comentario != null || data.notes != null) updates.notes = data.comentario ?? data.notes
+        if (data.descuento != null) updates.descuento = Number(data.descuento)
 
         const ticketId = data.id || data.ticket_id
         throwSupaError(await supabase.from('tickets').update(updates).eq('id', ticketId).eq('business_id', bid))
@@ -1973,10 +2211,12 @@ export function createWebAPI(supabase, businessId) {
 
       history: () => tryOr(async () => {
         const { data } = await supabase.from('cuadre_caja')
-          .select('*, staff!cajero_id(name)')
+          .select('*')
           .eq('business_id', bid)
           .order('closed_at', { ascending: false }).limit(20)
-        return (data || []).map(r => ({
+        const rows = data || []
+        await attachRel(supabase, rows, { fkCol: 'cajero_supabase_id', targetTable: 'staff', selectCols: 'name', asKey: 'staff', businessId: bid })
+        return rows.map(r => ({
           ...r,
           cajero_name: r.staff?.name || null,
           staff: undefined,
@@ -1986,13 +2226,14 @@ export function createWebAPI(supabase, businessId) {
       list: (filters = {}) => tryOr(async () => {
         const { dateFrom, dateTo, limit = 100 } = filters
         let q = supabase.from('cuadre_caja')
-          .select('*, staff!cajero_id(name)')
+          .select('*')
           .eq('business_id', bid)
         if (dateFrom) q = q.gte('date', dateFrom)
         if (dateTo)   q = q.lte('date', dateTo)
         q = q.order('closed_at', { ascending: false }).limit(limit)
-        const rows = throwSupaError(await q)
-        return (rows || []).map(r => ({
+        const rows = throwSupaError(await q) || []
+        await attachRel(supabase, rows, { fkCol: 'cajero_supabase_id', targetTable: 'staff', selectCols: 'name', asKey: 'staff', businessId: bid })
+        return rows.map(r => ({
           ...r,
           cajero_name: r.staff?.name || null,
           staff: undefined,
@@ -2054,10 +2295,12 @@ export function createWebAPI(supabase, businessId) {
     cajaChica: {
       all: () => tryOr(async () => {
         const { data } = await supabase.from('caja_chica')
-          .select('*, staff!approved_by(name)')
+          .select('*')
           .eq('business_id', bid)
           .order('created_at', { ascending: false }).limit(100)
-        return (data || []).map(r => ({
+        const rows = data || []
+        await attachRel(supabase, rows, { fkCol: 'approved_by_supabase_id', targetTable: 'staff', selectCols: 'name', asKey: 'staff', businessId: bid })
+        return rows.map(r => ({
           ...r,
           approved_name: r.staff?.name || null,
           staff: undefined,
@@ -2085,10 +2328,12 @@ export function createWebAPI(supabase, businessId) {
     notas: {
       all: () => tryOr(async () => {
         const { data } = await supabase.from('notas_credito')
-          .select('*, clients!client_id(name)')
+          .select('*')
           .eq('business_id', bid)
           .order('created_at', { ascending: false }).limit(100)
-        return (data || []).map(r => ({
+        const rows = data || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name', asKey: 'clients', businessId: bid })
+        return rows.map(r => ({
           ...r,
           client_name: r.clients?.name || null,
           clients: undefined,
@@ -2110,13 +2355,14 @@ export function createWebAPI(supabase, businessId) {
       get606: (params) => tryOr(async () => {
         const { dateFrom, dateTo } = params || {}
         let q = supabase.from('tickets')
-          .select('id, ncf, comprobante_type, created_at, subtotal, itbis, ley, total, status, clients!client_id(name, rnc)')
+          .select('id, ncf, comprobante_type, created_at, subtotal, itbis, ley, total, status, client_supabase_id')
           .eq('business_id', bid)
         if (dateFrom) q = q.gte('created_at', dateFrom)
         if (dateTo)   q = q.lte('created_at', dateTo)
         q = q.order('created_at', { ascending: false })
-        const rows = throwSupaError(await q)
-        return (rows || []).map(r => ({
+        const rows = throwSupaError(await q) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name, rnc', asKey: 'clients', businessId: bid })
+        return rows.map(r => ({
           id: r.id, ncf: r.ncf, tipo: r.comprobante_type,
           fecha: r.created_at, subtotal: r.subtotal, itbis: r.itbis,
           ley: r.ley, total: r.total, estado: r.status,
@@ -2741,8 +2987,24 @@ export function createWebAPI(supabase, businessId) {
     // ── Vehicles ──────────────────────────────────────────────────────────────
 
     vehicles: {
-      list: () => tryOr(async () => throwSupaError(await supabase.from('vehicles').select('*, clients(name)').eq('business_id', bid).order('created_at', { ascending: false })), []),
-      getById: (id) => tryOr(async () => throwSupaError(await supabase.from('vehicles').select('*, clients(name)').eq('id', id).eq('business_id', bid).single())),
+      list: () => tryOr(async () => {
+        // Embedded `clients(name)` join requires a discoverable FK between
+        // vehicles.client_id and clients.id, which doesn't exist on Supabase
+        // (FK refs business_id only). Fetch separately + merge instead.
+        const rows = throwSupaError(await supabase.from('vehicles').select('*').eq('business_id', bid).order('created_at', { ascending: false }))
+        const sids = [...new Set((rows || []).map(r => r.client_supabase_id).filter(Boolean))]
+        let cmap = {}
+        if (sids.length) { const { data: cs } = await supabase.from('clients').select('supabase_id, name').in('supabase_id', sids); for (const c of (cs || [])) cmap[c.supabase_id] = c }
+        return (rows || []).map(r => ({ ...r, clients: cmap[r.client_supabase_id] ? { name: cmap[r.client_supabase_id].name } : null }))
+      }, []),
+      getById: (id) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('vehicles').select('*').eq('id', id).eq('business_id', bid).single())
+        if (row?.client_supabase_id) {
+          const { data: c } = await supabase.from('clients').select('name').eq('supabase_id', row.client_supabase_id).maybeSingle()
+          if (c) row.clients = { name: c.name }
+        }
+        return row
+      }),
       create: (data) => tryOr(async () => {
         const row = throwSupaError(await supabase.from('vehicles').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
         return row
@@ -2769,20 +3031,42 @@ export function createWebAPI(supabase, businessId) {
 
     workOrders: {
       list: (params) => tryOr(async () => {
-        let q = supabase.from('work_orders').select('*, vehicles(plate,make,model,odometer_km), clients(name), empleados!technician_empleado_id(nombre), work_order_items(*)').eq('business_id', bid)
+        let q = supabase.from('work_orders').select('*').eq('business_id', bid)
         if (params?.status) q = q.eq('status', params.status)
-        const rows = throwSupaError(await q.order('created_at', { ascending: false }))
-        return (rows || []).map(r => ({
+        const rows = throwSupaError(await q.order('created_at', { ascending: false })) || []
+        await attachRel(supabase, rows, { fkCol: 'vehicle_supabase_id', targetTable: 'vehicles', selectCols: 'plate,make,model,odometer_km', asKey: 'vehicles', businessId: bid })
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name', asKey: 'clients', businessId: bid })
+        await attachRel(supabase, rows, { fkCol: 'technician_empleado_supabase_id', targetTable: 'empleados', selectCols: 'nombre', asKey: 'empleados', businessId: bid })
+        // work_order_items: fetch by work_order_supabase_id
+        const woSids = [...new Set(rows.map(r => r.supabase_id).filter(Boolean))]
+        let itemsByWo = {}
+        if (woSids.length) {
+          const { data: items } = await supabase.from('work_order_items').select('*').eq('business_id', bid).in('work_order_supabase_id', woSids)
+          for (const it of (items || [])) {
+            const k = it.work_order_supabase_id
+            ;(itemsByWo[k] = itemsByWo[k] || []).push(it)
+          }
+        }
+        return rows.map(r => ({
           ...r,
           plate: r.vehicles?.plate || null,
           make: r.vehicles?.make || null,
           model: r.vehicles?.model || null,
           client_name: r.clients?.name || null,
           technician_name: r.empleados?.nombre || null,
-          items: (r.work_order_items || []).map(it => ({ ...it, qty: it.quantity })),
+          work_order_items: itemsByWo[r.supabase_id] || [],
+          items: (itemsByWo[r.supabase_id] || []).map(it => ({ ...it, qty: it.quantity })),
         }))
       }, []),
-      getById: (id) => tryOr(async () => throwSupaError(await supabase.from('work_orders').select('*, vehicles(plate,make,model,vin,year,color,odometer_km), clients(name,phone,rnc), work_order_items(*)').eq('id', id).eq('business_id', bid).single())),
+      getById: (id) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('work_orders').select('*').eq('id', id).eq('business_id', bid).single())
+        if (!row) return null
+        await attachRel(supabase, [row], { fkCol: 'vehicle_supabase_id', targetTable: 'vehicles', selectCols: 'plate,make,model,vin,year,color,odometer_km', asKey: 'vehicles', businessId: bid })
+        await attachRel(supabase, [row], { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name,phone,rnc', asKey: 'clients', businessId: bid })
+        const { data: items } = await supabase.from('work_order_items').select('*').eq('business_id', bid).eq('work_order_supabase_id', row.supabase_id || '__none__')
+        row.work_order_items = items || []
+        return row
+      }),
       create: (data) => tryOr(async () => {
         const row = throwSupaError(await supabase.from('work_orders').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }).select('id').single())
         return row
@@ -2908,11 +3192,18 @@ export function createWebAPI(supabase, businessId) {
 
     salesDeals: {
       list: (params) => tryOr(async () => {
-        let q = supabase.from('sales_deals').select('*, clients(name,phone)').eq('business_id', bid).eq('active', true)
+        let q = supabase.from('sales_deals').select('*').eq('business_id', bid).eq('active', true)
         if (params?.status) q = q.eq('status', params.status)
-        return throwSupaError(await q.order('created_at', { ascending: false }))
+        const rows = throwSupaError(await q.order('created_at', { ascending: false })) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name,phone', asKey: 'clients', businessId: bid })
+        return rows
       }, []),
-      getById: (id) => tryOr(async () => throwSupaError(await supabase.from('sales_deals').select('*, clients(name,phone,rnc)').eq('id', id).eq('business_id', bid).single())),
+      getById: (id) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('sales_deals').select('*').eq('id', id).eq('business_id', bid).single())
+        if (!row) return null
+        await attachRel(supabase, [row], { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name,phone,rnc', asKey: 'clients', businessId: bid })
+        return row
+      }),
       create: (data) => tryOr(async () => {
         const row = throwSupaError(await supabase.from('sales_deals').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id, supabase_id').single())
         return row
@@ -2930,7 +3221,11 @@ export function createWebAPI(supabase, businessId) {
     // ── Dealership: Test Drives ─────────────────────────────────────────────
 
     testDrives: {
-      list: () => tryOr(async () => throwSupaError(await supabase.from('test_drives').select('*, clients(name,phone)').eq('business_id', bid).eq('active', true).order('scheduled_at', { ascending: false })), []),
+      list: () => tryOr(async () => {
+        const rows = throwSupaError(await supabase.from('test_drives').select('*').eq('business_id', bid).eq('active', true).order('scheduled_at', { ascending: false })) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name,phone', asKey: 'clients', businessId: bid })
+        return rows
+      }, []),
       create: (data) => tryOr(async () => {
         const row = throwSupaError(await supabase.from('test_drives').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
         return row
@@ -2961,14 +3256,26 @@ export function createWebAPI(supabase, businessId) {
 
     appointments: {
       list: (params) => tryOr(async () => {
-        let q = supabase.from('appointments').select('*, clients(name,phone), empleados(nombre,tipo)').eq('business_id', bid)
+        let q = supabase.from('appointments').select('*').eq('business_id', bid)
         if (params?.date) q = q.eq('date', params.date)
         if (params?.empleadoId) q = q.eq('empleado_id', params.empleadoId)
         if (params?.status) q = q.eq('status', params.status)
-        return throwSupaError(await q.order('date').order('start_time'))
+        const rows = throwSupaError(await q.order('date').order('start_time')) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name,phone', asKey: 'clients', businessId: bid })
+        await attachRel(supabase, rows, { fkCol: 'empleado_supabase_id', targetTable: 'empleados', selectCols: 'nombre,tipo', asKey: 'empleados', businessId: bid })
+        return rows
       }, []),
-      byDate: (date) => tryOr(async () => throwSupaError(await supabase.from('appointments').select('*, clients(name,phone), empleados(nombre,tipo)').eq('business_id', bid).eq('date', date).order('start_time')), []),
-      byEmpleado: (empleadoId) => tryOr(async () => throwSupaError(await supabase.from('appointments').select('*, clients(name,phone)').eq('business_id', bid).eq('empleado_id', empleadoId).order('date', { ascending: false }).limit(50)), []),
+      byDate: (date) => tryOr(async () => {
+        const rows = throwSupaError(await supabase.from('appointments').select('*').eq('business_id', bid).eq('date', date).order('start_time')) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name,phone', asKey: 'clients', businessId: bid })
+        await attachRel(supabase, rows, { fkCol: 'empleado_supabase_id', targetTable: 'empleados', selectCols: 'nombre,tipo', asKey: 'empleados', businessId: bid })
+        return rows
+      }, []),
+      byEmpleado: (empleadoId) => tryOr(async () => {
+        const rows = throwSupaError(await supabase.from('appointments').select('*').eq('business_id', bid).eq('empleado_id', empleadoId).order('date', { ascending: false }).limit(50)) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name,phone', asKey: 'clients', businessId: bid })
+        return rows
+      }, []),
       create: (data) => tryOr(async () => {
         const row = throwSupaError(await supabase.from('appointments').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }).select('id').single())
         return row
@@ -2981,7 +3288,11 @@ export function createWebAPI(supabase, businessId) {
     // ── Stylist Schedules ───────────────────────────────────────────────────
 
     stylistSchedules: {
-      list: () => tryOr(async () => throwSupaError(await supabase.from('stylist_schedules').select('*, empleados(nombre,tipo)').eq('business_id', bid).eq('active', true).order('empleado_id').order('day_of_week')), []),
+      list: () => tryOr(async () => {
+        const rows = throwSupaError(await supabase.from('stylist_schedules').select('*').eq('business_id', bid).eq('active', true).order('empleado_id').order('day_of_week')) || []
+        await attachRel(supabase, rows, { fkCol: 'empleado_supabase_id', targetTable: 'empleados', selectCols: 'nombre,tipo', asKey: 'empleados', businessId: bid })
+        return rows
+      }, []),
       byEmpleado: (empleadoId) => tryOr(async () => throwSupaError(await supabase.from('stylist_schedules').select('*').eq('business_id', bid).eq('empleado_id', empleadoId).eq('active', true).order('day_of_week')), []),
       create: (data) => tryOr(async () => {
         const row = throwSupaError(await supabase.from('stylist_schedules').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
@@ -2995,12 +3306,19 @@ export function createWebAPI(supabase, businessId) {
 
     loans: {
       list: (params) => tryOr(async () => {
-        let q = supabase.from('loans').select('*, clients(name,phone,rnc)').eq('business_id', bid)
+        let q = supabase.from('loans').select('*').eq('business_id', bid)
         if (params?.status) q = q.eq('status', params.status)
         if (params?.clientId) q = q.eq('client_id', params.clientId)
-        return throwSupaError(await q.order('created_at', { ascending: false }))
+        const rows = throwSupaError(await q.order('created_at', { ascending: false })) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name,phone,rnc', asKey: 'clients', businessId: bid })
+        return rows
       }, []),
-      getById: (id) => tryOr(async () => throwSupaError(await supabase.from('loans').select('*, clients(name,phone,rnc)').eq('id', id).eq('business_id', bid).single())),
+      getById: (id) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('loans').select('*').eq('id', id).eq('business_id', bid).single())
+        if (!row) return null
+        await attachRel(supabase, [row], { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name,phone,rnc', asKey: 'clients', businessId: bid })
+        return row
+      }),
       byClient: (clientId) => tryOr(async () => throwSupaError(await supabase.from('loans').select('*').eq('business_id', bid).eq('client_id', clientId).order('created_at', { ascending: false })), []),
       create: (data) => tryOr(async () => {
         const method = data.method || 'french'
@@ -3064,11 +3382,20 @@ export function createWebAPI(supabase, businessId) {
 
     pawnItems: {
       list: (params) => tryOr(async () => {
-        let q = supabase.from('pawn_items').select('*, clients(name), loans(principal,status)').eq('business_id', bid)
+        let q = supabase.from('pawn_items').select('*').eq('business_id', bid)
         if (params?.status) q = q.eq('status', params.status)
-        return throwSupaError(await q.order('created_at', { ascending: false }))
+        const rows = throwSupaError(await q.order('created_at', { ascending: false })) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name', asKey: 'clients', businessId: bid })
+        await attachRel(supabase, rows, { fkCol: 'loan_supabase_id', targetTable: 'loans', selectCols: 'principal,status', asKey: 'loans', businessId: bid })
+        return rows
       }, []),
-      getById: (id) => tryOr(async () => throwSupaError(await supabase.from('pawn_items').select('*, clients(name), loans(principal,status)').eq('id', id).eq('business_id', bid).single())),
+      getById: (id) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('pawn_items').select('*').eq('id', id).eq('business_id', bid).single())
+        if (!row) return null
+        await attachRel(supabase, [row], { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name', asKey: 'clients', businessId: bid })
+        await attachRel(supabase, [row], { fkCol: 'loan_supabase_id', targetTable: 'loans', selectCols: 'principal,status', asKey: 'loans', businessId: bid })
+        return row
+      }),
       create: (data) => tryOr(async () => {
         // Web-side papeleta ticket code — same PYYMMDDxxxx format as desktop
         const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -3086,7 +3413,12 @@ export function createWebAPI(supabase, businessId) {
         throwSupaError(await supabase.from('pawn_items').update(patch).eq('id', id).eq('business_id', bid))
         if (status === 'forfeited') await logActivity({ event_type: 'pawn_forfeited', severity: 'critical', target_type: 'pawn_item', target_id: id })
       }),
-      byCode: (code) => tryOr(async () => throwSupaError(await supabase.from('pawn_items').select('*, clients(name,phone)').eq('business_id', bid).eq('ticket_code', code).maybeSingle())),
+      byCode: (code) => tryOr(async () => {
+        const row = throwSupaError(await supabase.from('pawn_items').select('*').eq('business_id', bid).eq('ticket_code', code).maybeSingle())
+        if (!row) return null
+        await attachRel(supabase, [row], { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name,phone', asKey: 'clients', businessId: bid })
+        return row
+      }),
     },
 
     // ── Loan schedule (amortization rows) ────────────────────────────────────
@@ -3110,12 +3442,13 @@ export function createWebAPI(supabase, businessId) {
       overdue: () => tryOr(async () => {
         const today = new Date().toISOString().slice(0, 10)
         const rows = throwSupaError(await supabase.from('loans')
-          .select('*, clients(name,phone,rnc)')
+          .select('*')
           .eq('business_id', bid)
           .eq('status', 'active')
           .lt('next_due_date', today)
-          .order('next_due_date', { ascending: true }))
-        return (rows || []).map(r => ({
+          .order('next_due_date', { ascending: true })) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name,phone,rnc', asKey: 'clients', businessId: bid })
+        return rows.map(r => ({
           ...r,
           client_name:  r.clients?.name  || null,
           client_phone: r.clients?.phone || null,
@@ -3142,11 +3475,12 @@ export function createWebAPI(supabase, businessId) {
         return row
       }),
       logList: ({ client_id, loan_id } = {}) => tryOr(async () => {
-        let q = supabase.from('collections_log').select('*, clients(name)').eq('business_id', bid)
+        let q = supabase.from('collections_log').select('*').eq('business_id', bid)
         if (client_id) q = q.eq('client_id', client_id)
         if (loan_id)   q = q.eq('loan_id', loan_id)
-        const rows = throwSupaError(await q.order('contacted_at', { ascending: false }).limit(500))
-        return (rows || []).map(r => ({ ...r, client_name: r.clients?.name || null }))
+        const rows = throwSupaError(await q.order('contacted_at', { ascending: false }).limit(500)) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name', asKey: 'clients', businessId: bid })
+        return rows.map(r => ({ ...r, client_name: r.clients?.name || null }))
       }, []),
     },
 
@@ -3154,12 +3488,14 @@ export function createWebAPI(supabase, businessId) {
     memberships: {
       list: (params = {}) => tryOr(async () => {
         let q = supabase.from('memberships')
-          .select('*, clients(name), vehicles(plate,make,model)')
+          .select('*')
           .eq('business_id', bid)
         if (params.status)     q = q.eq('status', params.status)
         if (params.client_id)  q = q.eq('client_id', params.client_id)
-        const rows = throwSupaError(await q.order('created_at', { ascending: false }))
-        return (rows || []).map(r => ({
+        const rows = throwSupaError(await q.order('created_at', { ascending: false })) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name', asKey: 'clients', businessId: bid })
+        await attachRel(supabase, rows, { fkCol: 'vehicle_supabase_id', targetTable: 'vehicles', selectCols: 'plate,make,model', asKey: 'vehicles', businessId: bid })
+        return rows.map(r => ({
           ...r,
           client_name: r.clients?.name || null,
           vehicle_plate: r.vehicles?.plate || null,
@@ -3217,12 +3553,14 @@ export function createWebAPI(supabase, businessId) {
     washCombos: {
       list: (params = {}) => tryOr(async () => {
         let q = supabase.from('wash_combos')
-          .select('*, clients(name), vehicles(plate)')
+          .select('*')
           .eq('business_id', bid)
         if (params.status)    q = q.eq('status', params.status)
         if (params.client_id) q = q.eq('client_id', params.client_id)
-        const rows = throwSupaError(await q.order('purchased_at', { ascending: false }))
-        return (rows || []).map(r => ({ ...r, client_name: r.clients?.name, vehicle_plate: r.vehicles?.plate }))
+        const rows = throwSupaError(await q.order('purchased_at', { ascending: false })) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name', asKey: 'clients', businessId: bid })
+        await attachRel(supabase, rows, { fkCol: 'vehicle_supabase_id', targetTable: 'vehicles', selectCols: 'plate', asKey: 'vehicles', businessId: bid })
+        return rows.map(r => ({ ...r, client_name: r.clients?.name, vehicle_plate: r.vehicles?.plate }))
       }, []),
       activeForClient: (clientSupabaseId) => tryOr(async () => {
         const today = new Date().toISOString().slice(0, 10)
@@ -3268,7 +3606,7 @@ export function createWebAPI(supabase, businessId) {
     subscriptions: {
       list: (params = {}) => tryOr(async () => {
         let q = supabase.from('subscriptions')
-          .select('*, clients(name), services(name)')
+          .select('*')
           .eq('business_id', bid)
         if (params.status)    q = q.eq('status', params.status)
         if (params.clientId)  q = q.eq('client_id', params.clientId)
@@ -3276,8 +3614,10 @@ export function createWebAPI(supabase, businessId) {
           const d = new Date(); d.setDate(d.getDate() + Number(params.dueWithinDays))
           q = q.lte('next_billing_date', d.toISOString().slice(0, 10))
         }
-        const rows = throwSupaError(await q.order('next_billing_date', { ascending: true }))
-        return (rows || []).map(r => ({ ...r, client_name: r.clients?.name || null, service_name: r.services?.name || null }))
+        const rows = throwSupaError(await q.order('next_billing_date', { ascending: true })) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name', asKey: 'clients', businessId: bid })
+        await attachRel(supabase, rows, { fkCol: 'service_supabase_id', targetTable: 'services', selectCols: 'name', asKey: 'services', businessId: bid })
+        return rows.map(r => ({ ...r, client_name: r.clients?.name || null, service_name: r.services?.name || null }))
       }, []),
       create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('subscriptions').insert({
@@ -3321,20 +3661,23 @@ export function createWebAPI(supabase, businessId) {
     servicePackages: {
       list: (params = {}) => tryOr(async () => {
         let q = supabase.from('service_packages')
-          .select('*, clients(name), services(name)')
+          .select('*')
           .eq('business_id', bid)
         if (params.status)    q = q.eq('status', params.status)
         if (params.clientId)  q = q.eq('client_id', params.clientId)
-        const rows = throwSupaError(await q.order('purchased_at', { ascending: false }))
-        return (rows || []).map(r => ({ ...r, client_name: r.clients?.name || null, service_name: r.services?.name || null }))
+        const rows = throwSupaError(await q.order('purchased_at', { ascending: false })) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name', asKey: 'clients', businessId: bid })
+        await attachRel(supabase, rows, { fkCol: 'service_supabase_id', targetTable: 'services', selectCols: 'name', asKey: 'services', businessId: bid })
+        return rows.map(r => ({ ...r, client_name: r.clients?.name || null, service_name: r.services?.name || null }))
       }, []),
       activeForClient: (clientSupabaseId) => tryOr(async () => {
         const rows = throwSupaError(await supabase.from('service_packages')
-          .select('*, services(name)')
+          .select('*')
           .eq('business_id', bid).eq('status', 'active')
           .eq('client_supabase_id', clientSupabaseId)
-          .order('purchased_at', { ascending: true }))
-        return (rows || []).filter(r => r.used_sessions < r.total_sessions)
+          .order('purchased_at', { ascending: true })) || []
+        await attachRel(supabase, rows, { fkCol: 'service_supabase_id', targetTable: 'services', selectCols: 'name', asKey: 'services', businessId: bid })
+        return rows.filter(r => r.used_sessions < r.total_sessions)
           .map(r => ({ ...r, service_name: r.services?.name || null }))
       }, []),
       create: (data) => tryWrite(async () => {
@@ -3381,15 +3724,18 @@ export function createWebAPI(supabase, businessId) {
     // ── Service vertical: project / job tracker ────────────────────────────
     projects: {
       list: (params = {}) => tryOr(async () => {
-        let q = supabase.from('projects').select('*, clients(name)').eq('business_id', bid)
+        let q = supabase.from('projects').select('*').eq('business_id', bid)
         if (params.status)    q = q.eq('status', params.status)
         if (params.clientId)  q = q.eq('client_id', params.clientId)
-        const rows = throwSupaError(await q.order('created_at', { ascending: false }))
-        return (rows || []).map(r => ({ ...r, client_name: r.clients?.name || null }))
+        const rows = throwSupaError(await q.order('created_at', { ascending: false })) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name', asKey: 'clients', businessId: bid })
+        return rows.map(r => ({ ...r, client_name: r.clients?.name || null }))
       }, []),
       byId: (id) => tryOr(async () => {
-        const row = throwSupaError(await supabase.from('projects').select('*, clients(name)').eq('business_id', bid).eq('id', id).maybeSingle())
-        return row ? { ...row, client_name: row.clients?.name || null } : null
+        const row = throwSupaError(await supabase.from('projects').select('*').eq('business_id', bid).eq('id', id).maybeSingle())
+        if (!row) return null
+        await attachRel(supabase, [row], { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name', asKey: 'clients', businessId: bid })
+        return { ...row, client_name: row.clients?.name || null }
       }, null),
       create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('projects').insert({
@@ -3413,10 +3759,12 @@ export function createWebAPI(supabase, businessId) {
     // ── Service vertical: client-specific rate overrides ───────────────────
     clientRates: {
       list: (params = {}) => tryOr(async () => {
-        let q = supabase.from('client_service_rates').select('*, clients(name), services(name, price)').eq('business_id', bid)
+        let q = supabase.from('client_service_rates').select('*').eq('business_id', bid)
         if (params.clientId) q = q.eq('client_id', params.clientId)
-        const rows = throwSupaError(await q)
-        return (rows || []).map(r => ({
+        const rows = throwSupaError(await q) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name', asKey: 'clients', businessId: bid })
+        await attachRel(supabase, rows, { fkCol: 'service_supabase_id', targetTable: 'services', selectCols: 'name, price', asKey: 'services', businessId: bid })
+        return rows.map(r => ({
           ...r,
           client_name:  r.clients?.name || null,
           service_name: r.services?.name || null,
@@ -3487,11 +3835,12 @@ export function createWebAPI(supabase, businessId) {
       topWashers: (limit = 3) => tryOr(async () => {
         const ps = new Date(); ps.setDate(1); ps.setHours(0,0,0,0)
         const rows = throwSupaError(await supabase.from('washer_commissions')
-          .select('ticket_id,commission_amount,empleado_supabase_id,empleados(nombre)')
+          .select('ticket_id,commission_amount,empleado_supabase_id')
           .eq('business_id', bid)
-          .gte('created_at', ps.toISOString()))
+          .gte('created_at', ps.toISOString())) || []
+        await attachRel(supabase, rows, { fkCol: 'empleado_supabase_id', targetTable: 'empleados', selectCols: 'nombre', asKey: 'empleados', businessId: bid })
         const map = new Map()
-        for (const r of (rows || [])) {
+        for (const r of rows) {
           const k = r.empleado_supabase_id
           if (!k) continue
           if (!map.has(k)) map.set(k, { name: r.empleados?.nombre || '—', ticket_ids: new Set(), total_commission: 0 })
@@ -3607,12 +3956,19 @@ export function createWebAPI(supabase, businessId) {
           services:       Array.isArray(r.services_json) ? r.services_json.map(s => s.name).join(', ') : '—',
         }))
 
+        // RemoteDashboard expects an array of { method, total } — the desktop
+        // path returns one too. Transform the accumulator map into that shape
+        // and sort desc by total so the heaviest payment type renders first.
+        const paymentBreakdown = Object.entries(payMap)
+          .map(([method, total]) => ({ method, total }))
+          .sort((a, b) => b.total - a.total)
+
         return {
           today:     { revenue: todayRevenue,  count: todayCount  },
           yesterday: { revenue: yesterRevenue, count: yesterCount },
           week:      { revenue: weekRevenue, count: (rows || []).length },
           recentTickets,
-          paymentBreakdown: payMap,
+          paymentBreakdown,
         }
       }, null),
     },

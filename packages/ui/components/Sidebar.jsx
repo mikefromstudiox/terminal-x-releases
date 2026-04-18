@@ -522,12 +522,19 @@ function MobileBottomNav({ visibleNav, ecfQueue, businessType }) {
   ]
   const bottomItems = allBottomItems.filter(i => !i.businessTypes || i.businessTypes.includes(businessType))
 
-  // Drawer items = everything not in bottom bar, flattened
+  // Bottom bar covers the primary routes; drawer surfaces everything else.
+  // For grouped items whose group id is in BOTTOM_NAV_KEYS (e.g. reports),
+  // we still expose any SECONDARY children in the drawer (e.g. /remote) —
+  // only the primary link that already lives in the bottom bar is suppressed.
+  const bottomRoutes = new Set(bottomItems.map(b => b.to))
   const drawerItems = []
   for (const item of visibleNav) {
-    if (BOTTOM_NAV_KEYS.includes(item.id)) continue
+    const isBottomGroup = BOTTOM_NAV_KEYS.includes(item.id)
     if (item.children) {
-      const visibleChildren = item.children.filter(c => !c.roles || c.roles.includes(user?.role))
+      const visibleChildren = item.children.filter(c =>
+        (!c.roles || c.roles.includes(user?.role)) &&
+        !bottomRoutes.has(c.to)
+      )
       if (visibleChildren.length === 0) continue
       drawerItems.push({ type: 'header', label: lang === 'es' ? item.es : item.en, icon: item.icon })
       for (const child of visibleChildren) {
@@ -535,6 +542,7 @@ function MobileBottomNav({ visibleNav, ecfQueue, businessType }) {
         drawerItems.push({ type: 'link', to: child.to, label: lang === 'es' ? child.es : child.en, icon: child.icon, locked: childLocked })
       }
     } else {
+      if (isBottomGroup) continue
       const locked = item.feature && !hasFeature(item.feature)
       drawerItems.push({ type: 'link', to: item.to, label: lang === 'es' ? item.es : item.en, icon: item.icon, locked, badge: item.hasBadge ? ecfQueue : 0 })
     }

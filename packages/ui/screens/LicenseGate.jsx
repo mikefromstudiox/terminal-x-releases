@@ -12,6 +12,38 @@ const WHATSAPP_URL    = `https://wa.me/${WHATSAPP_NUMBER}?text=${WHATSAPP_MSG}`
 
 const fmtDate = d => d ? new Date(d).toLocaleDateString('es-DO', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'
 
+// ─── Auto-formatters for license + RNC/Cédula inputs ──────────────────────────
+// License format: TXL-XXXX-XXXX-XXXX (TXL prefix locked + 3 groups of 4 alnum)
+function formatLicenseKey(raw) {
+  // Strip everything that isn't alphanumeric, uppercase
+  let clean = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  // Don't auto-prepend TXL if user is mid-typing — only on paste of 12+ chars
+  // that don't start with T
+  if (clean.length >= 12 && !clean.startsWith('TXL')) clean = 'TXL' + clean
+  // Cap at 3 prefix + 12 chars = 15 alnum
+  clean = clean.slice(0, 15)
+  // Apply dashes: TXL-XXXX-XXXX-XXXX
+  const parts = []
+  if (clean.length > 0) parts.push(clean.slice(0, 3))
+  if (clean.length > 3) parts.push(clean.slice(3, 7))
+  if (clean.length > 7) parts.push(clean.slice(7, 11))
+  if (clean.length > 11) parts.push(clean.slice(11, 15))
+  return parts.join('-')
+}
+
+// RNC (9 digits) = XXX-XXXXX-X  |  Cédula (11 digits) = XXX-XXXXXXX-X
+function formatRncCedula(raw) {
+  const digits = String(raw || '').replace(/\D/g, '').slice(0, 11)
+  if (digits.length <= 3) return digits
+  if (digits.length <= 9) {
+    // Assume RNC layout until 9 digits: XXX-XXXXX-X
+    if (digits.length <= 8) return `${digits.slice(0, 3)}-${digits.slice(3)}`
+    return `${digits.slice(0, 3)}-${digits.slice(3, 8)}-${digits.slice(8)}`
+  }
+  // 10–11 digits → cédula: XXX-XXXXXXX-X
+  return `${digits.slice(0, 3)}-${digits.slice(3, 10)}-${digits.slice(10)}`
+}
+
 const STATUS_INFO = {
   not_found:        { icon: ShieldX,       color: 'red',   msg: 'Clave de licencia no encontrada.' },
   hardware_mismatch:{ icon: ShieldX,       color: 'red',   msg: 'Esta licencia está registrada en otro equipo.' },
@@ -21,7 +53,7 @@ const STATUS_INFO = {
   suspended:        { icon: ShieldX,       color: 'red',   msg: 'Licencia suspendida. Contacta a Terminal X.' },
   pending:          { icon: AlertTriangle, color: 'amber', msg: 'Tu licencia está pendiente de activación. Contacta a Terminal X.' },
   expired:          { icon: AlertTriangle, color: 'amber', msg: 'Tu licencia ha vencido.' },
-  no_key:           { icon: KeyRound,      color: 'sky',   msg: 'Ingresa tu clave de licencia para continuar.' },
+  no_key:           { icon: KeyRound,      color: 'brand', msg: 'Ingresa tu clave de licencia para continuar.' },
 }
 
 export default function LicenseGate() {
@@ -76,12 +108,16 @@ export default function LicenseGate() {
 
             <div className="space-y-2">
               <label className="block text-[11px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider">Nueva Clave</label>
-              <input type="text" value={key} onChange={e => { setKey(e.target.value); setError('') }}
+              <input type="text" value={key} onChange={e => { setKey(formatLicenseKey(e.target.value)); setError('') }}
                 onKeyDown={e => e.key === 'Enter' && handleActivate()}
                 placeholder="TXL-XXXX-XXXX-XXXX"
-                className="w-full px-4 py-3 border border-slate-200 dark:border-white/10 rounded-xl text-[14px] font-mono tracking-widest focus:outline-none focus:border-amber-400 bg-slate-50 dark:bg-white/5 dark:text-white text-center" />
-              <input type="text" value={rnc} onChange={e => { setRnc(e.target.value); setError('') }}
+                maxLength={16}
+                inputMode="text"
+                className="w-full px-4 py-3 border border-slate-200 dark:border-white/10 rounded-xl text-[14px] font-mono tracking-widest focus:outline-none focus:border-amber-400 bg-slate-50 dark:bg-white/5 dark:text-white text-center uppercase" />
+              <input type="text" value={rnc} onChange={e => { setRnc(formatRncCedula(e.target.value)); setError('') }}
                 placeholder="RNC / Cédula del negocio"
+                maxLength={13}
+                inputMode="numeric"
                 className="w-full px-4 py-3 border border-slate-200 dark:border-white/10 rounded-xl text-[14px] focus:outline-none focus:border-amber-400 bg-slate-50 dark:bg-white/5 dark:text-white text-center" />
               {error && <p className="text-[11px] text-red-500 text-center">{error}</p>}
             </div>
@@ -108,15 +144,15 @@ export default function LicenseGate() {
 
   // ── Full gate — invalid / no license ───────────────────────────────────────
   const colorMap = {
-    red:   { header: 'bg-red-50 border-red-100',    icon: 'text-red-500'   },
-    amber: { header: 'bg-amber-50 border-amber-100', icon: 'text-amber-500' },
-    slate: { header: 'bg-slate-50 border-slate-200', icon: 'text-slate-500' },
-    sky:   { header: 'bg-sky-50 border-sky-100',     icon: 'text-sky-500'   },
+    red:   { header: 'bg-red-50 border-red-100',         icon: 'text-red-500'     },
+    amber: { header: 'bg-amber-50 border-amber-100',     icon: 'text-amber-500'   },
+    slate: { header: 'bg-slate-50 border-slate-200',     icon: 'text-slate-500'   },
+    brand: { header: 'bg-[#b3001e]/5 border-[#b3001e]/20', icon: 'text-[#b3001e]' },
   }
-  const colors = colorMap[info.color] || colorMap.sky
+  const colors = colorMap[info.color] || colorMap.brand
 
   return (
-    <div className="fixed inset-0 bg-gradient-to-br from-slate-900 to-slate-800 flex flex-col items-center justify-center z-50 p-8">
+    <div className="fixed inset-0 bg-black flex flex-col items-center justify-center z-50 p-8">
       {/* Brand */}
       <div className="mb-8 text-center flex flex-col items-center">
         <div className="flex items-center gap-0">
@@ -145,11 +181,12 @@ export default function LicenseGate() {
               Clave de Licencia
             </label>
             <input type="text" value={key}
-              onChange={e => { setKey(e.target.value); setError('') }}
+              onChange={e => { setKey(formatLicenseKey(e.target.value)); setError('') }}
               onKeyDown={e => e.key === 'Enter' && handleActivate()}
               placeholder="TXL-XXXX-XXXX-XXXX"
+              maxLength={16}
               autoFocus
-              className="w-full px-4 py-3.5 border border-slate-200 dark:border-white/10 rounded-xl text-[15px] font-mono tracking-widest focus:outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 bg-slate-50 dark:bg-white/5 dark:text-white text-center uppercase" />
+              className="w-full px-4 py-3.5 border border-slate-200 dark:border-white/10 rounded-xl text-[15px] font-mono tracking-widest focus:outline-none focus:border-[#b3001e] focus:ring-2 focus:ring-[#b3001e]/20 bg-slate-50 dark:bg-white/5 dark:text-white text-center uppercase" />
           </div>
 
           {/* RNC input */}
@@ -158,10 +195,12 @@ export default function LicenseGate() {
               RNC / Cédula del Negocio
             </label>
             <input type="text" value={rnc}
-              onChange={e => { setRnc(e.target.value); setError('') }}
+              onChange={e => { setRnc(formatRncCedula(e.target.value)); setError('') }}
               onKeyDown={e => e.key === 'Enter' && handleActivate()}
-              placeholder="Ej: 130123456"
-              className="w-full px-4 py-3 border border-slate-200 dark:border-white/10 rounded-xl text-[14px] focus:outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 bg-slate-50 dark:bg-white/5 dark:text-white text-center" />
+              placeholder="130-12345-6 / 001-1234567-8"
+              maxLength={13}
+              inputMode="numeric"
+              className="w-full px-4 py-3 border border-slate-200 dark:border-white/10 rounded-xl text-[14px] focus:outline-none focus:border-[#b3001e] focus:ring-2 focus:ring-[#b3001e]/20 bg-slate-50 dark:bg-white/5 dark:text-white text-center" />
           </div>
 
           {error && (
@@ -177,7 +216,7 @@ export default function LicenseGate() {
 
           <button onClick={handleActivate}
             disabled={activating || !key.trim() || !rnc.trim() || checking}
-            className="w-full py-3.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl text-[14px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-md shadow-sky-600/20">
+            className="w-full py-3.5 bg-[#b3001e] hover:bg-[#8c0017] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl text-[14px] transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-md shadow-[#b3001e]/20">
             {activating || checking
               ? <><Loader2 size={16} className="animate-spin" /> Verificando…</>
               : <><KeyRound size={16} /> Activar Terminal X</>

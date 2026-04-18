@@ -107,6 +107,7 @@
     <li><a href="#s18">Glosario DGII y técnico</a></li>
     <li><a href="#s19">Escalamiento y contactos</a></li>
     <li><a href="#s20">Apéndice — scripts y plantillas</a></li>
+    <li><a href="#s21">Guía para demos a clientes</a></li>
   </ol>
 </section>
 
@@ -916,6 +917,253 @@ Cualquier duda, estoy a un WhatsApp.</pre>
   <p style="text-align:center; color:#999; font-size:10pt;">
     <strong>Terminal X</strong> · Studio X SRL · RNC 133410321<br/>
     Manual Interno v2026-04-13 · Uso exclusivo del equipo
+  </p>
+</section>
+
+<!-- 21 — DEMO PLAYBOOK -->
+<section class="page pagebreak" id="s21">
+  <h2>21. Guía para demos a clientes</h2>
+  <p>Esta sección es para el <strong>vendedor que hace demos en vivo</strong>. El resto del manual es para operadores; esto es para ti — el que va a sentarse con el prospecto, abrir el sistema y cerrar la venta.</p>
+
+  <div class="note">
+    <strong>Regla de oro:</strong> El cliente no compra software, compra <em>tranquilidad</em>. Tres cosas que él quiere oír — "no me voy a meter en líos con DGII", "voy a saber dónde está mi dinero", "si algo falla, alguien me contesta el WhatsApp". Todo lo que muestres tiene que apuntar a una de esas tres.
+  </div>
+
+  <h3>21.1 Antes de la demo (preparación 5 min)</h3>
+  <ul>
+    <li>Verifica <strong>internet</strong> estable y <strong>cargador</strong> conectado — no quieres que se te apague la laptop a mitad del pitch.</li>
+    <li>Actualiza el <strong>navegador</strong> (Chrome/Edge última versión).</li>
+    <li>Abre <code>https://terminalxpos.com/pos</code> en una pestaña <em>fresca</em> (sesión limpia, sin caché viejo).</li>
+    <li>Inicia sesión con la <strong>cuenta demo correcta</strong> según el tipo de negocio del prospecto (ver tabla abajo).</li>
+    <li>Confirma que <strong>Reportes</strong> muestra datos y que la cola/queue no está vacía (en demos de car wash o mecánica).</li>
+    <li>Ten listas en pestañas paralelas: <code>terminalxpos.com</code> (landing) y <code>terminalxpos.com/#precios</code>.</li>
+    <li>Silencia notificaciones de WhatsApp Web y Slack — nada de pop-ups durante el screenshare.</li>
+  </ul>
+
+  <h3>21.2 Cuentas demo disponibles</h3>
+  <p>Todas las cuentas demo viven en producción con datos sembrados. <strong>No emiten e-CFs reales</strong> (están en ambiente de prueba). PIN del cajero para todas: <code>1234</code>.</p>
+  <table>
+    <thead>
+      <tr><th>Tipo de negocio</th><th>Email</th><th>Password</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Car Wash</td><td><code>admin@carwash.demo.terminalxpos.com</code></td><td><code>Demo2026!</code></td></tr>
+      <tr><td>Tienda</td><td><code>admin@retail.demo.terminalxpos.com</code></td><td><code>Demo2026!</code></td></tr>
+      <tr><td>Restaurante</td><td><code>admin@restaurant.demo.terminalxpos.com</code></td><td><code>Demo2026!</code></td></tr>
+      <tr><td>Salón / Barbería</td><td><code>admin@salon.demo.terminalxpos.com</code></td><td><code>Demo2026!</code></td></tr>
+      <tr><td>Híbrido (lavadero + tienda)</td><td><code>admin@hybrid.demo.terminalxpos.com</code></td><td><code>Demo2026!</code></td></tr>
+      <tr><td>Mecánica</td><td><code>admin@mechanic.demo.terminalxpos.com</code></td><td><code>Demo2026!</code></td></tr>
+      <tr><td>Servicios pro</td><td><code>admin@service.demo.terminalxpos.com</code></td><td><code>Demo2026!</code></td></tr>
+      <tr><td>Préstamos</td><td><code>admin@prestamos.demo.terminalxpos.com</code></td><td><code>Demo2026!</code></td></tr>
+      <tr><td>Concesionario</td><td><code>admin@dealership.demo.terminalxpos.com</code></td><td><code>Demo2026!</code></td></tr>
+    </tbody>
+  </table>
+  <div class="warn">
+    Si vas a una demo donde el prospecto tiene un negocio <em>raro</em> (ej. funeraria, escuela), usa la cuenta <strong>Servicios pro</strong> — es la más genérica y se adapta a casi todo.
+  </div>
+
+  <h3>21.3 Estructura de la demo (20 min)</h3>
+  <table>
+    <thead><tr><th>Tiempo</th><th>Bloque</th><th>Qué haces</th></tr></thead>
+    <tbody>
+      <tr><td>0–2 min</td><td>Descubrimiento</td><td>Pregunta tipo de negocio, # de cajeras, si emite factura electrónica hoy, qué POS usa.</td></tr>
+      <tr><td>2–10 min</td><td>POS en acción</td><td>Servicios/productos, comisiones, cobrar, queue (si aplica).</td></tr>
+      <tr><td>10–14 min</td><td>e-CF / DGII</td><td>El sello de la marca — Ley 32-23. Aquí ganas o pierdes la venta.</td></tr>
+      <tr><td>14–17 min</td><td>Reportes</td><td>Ventas + Comisiones + Cuadre + Caja Chica + exportar a Excel.</td></tr>
+      <tr><td>17–20 min</td><td>Cierre</td><td>Precios + 7 días gratis + WhatsApp <code>+1 (809) 828-2971</code>.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>21.4 Script de demo por tipo de negocio</h3>
+
+  <h4>Car Wash</h4>
+  <ul>
+    <li>Abre <strong>Cola</strong> → muestra los vehículos en espera. <em>"Aquí su recepcionista ve todo lo que está entrando."</em></li>
+    <li>Crea ticket: selecciona servicio (Lavado Premium) → asigna 2 lavadores → encolar. <em>"Las comisiones se calculan automáticas, usted no hace nada."</em></li>
+    <li>Mueve el ticket a <strong>Cobrar</strong> → método efectivo → imprime. <em>"Listo. Factura entregada, comisiones registradas, inventario de químicos descontado."</em></li>
+    <li>Ve a <strong>Reportes → Comisiones</strong> → muestra que ya se sumó al lavador. <em>"Quincena cierra solo. Se acaban los pleitos por comisiones."</em></li>
+    <li>Cierra con <strong>Cuadre de Caja</strong> con denominaciones. <em>"Su cajera no se va hasta que cuadre billete por billete."</em></li>
+  </ul>
+
+  <h4>Tienda</h4>
+  <ul>
+    <li>En el POS, escanea (o teclea) un código de barras → producto cae al carrito. <em>"Velocidad de cajero entrenado."</em></li>
+    <li>Sube cantidad con +/− → agrega un segundo producto. <em>"Carrito multi-producto, igual que cualquier supermercado."</em></li>
+    <li>Cobra con tarjeta → muestra cambio (si aplica) → imprime. <em>"Recibo térmico estándar de 80mm."</em></li>
+    <li>Ve a <strong>Inventario</strong> → muestra que el stock bajó. <em>"Cada venta descuenta solo. Reportes de stock bajo le avisan qué pedir."</em></li>
+    <li>En <strong>Reportes → Productos</strong> muestra los más vendidos. <em>"Sabe qué le da plata y qué le coge espacio."</em></li>
+  </ul>
+
+  <h4>Restaurante</h4>
+  <ul>
+    <li>Abre vista de <strong>Mesas</strong> → toca una mesa libre → asigna mesero. <em>"Misma lógica que Square o Toast."</em></li>
+    <li>Agrega platos → envía a <strong>Cocina (KDS)</strong>. <em>"La cocina ve la orden en su pantalla, sin papelitos."</em></li>
+    <li>Agrega un plato extra después → muestra que se reenvía a cocina solo lo nuevo. <em>"No reimprime la orden completa, solo lo nuevo."</em></li>
+    <li>Cierra mesa → divide cuenta si quiere → cobra. <em>"Splits, propinas, todo de un toque."</em></li>
+    <li>Reporte por mesero/turno. <em>"Ve quién vendió más, quién dio más vueltas."</em></li>
+  </ul>
+
+  <h4>Salón / Barbería</h4>
+  <ul>
+    <li>Abre <strong>Citas/Agenda</strong> → crea cita con cliente, estilista y servicio. <em>"Su recepcionista deja de usar libreta."</em></li>
+    <li>Cuando llega el cliente, convierte la cita en ticket de un click. <em>"No re-tipea nada, ya está enlazado al estilista."</em></li>
+    <li>Cobra → comisión del estilista se registra automática. <em>"El estilista ve su comisión en tiempo real."</em></li>
+    <li>Reporte de comisiones por estilista para el día/quincena.</li>
+    <li>Recordatorio WhatsApp opcional al cliente del día anterior. <em>"Bajan las inasistencias 30%."</em></li>
+  </ul>
+
+  <h4>Mecánica</h4>
+  <ul>
+    <li>Abre <strong>Órdenes de Trabajo</strong> → crea OT con vehículo, cliente y diagnóstico. <em>"Cada vehículo tiene su historial completo."</em></li>
+    <li>Asigna técnico + bahía → muestra estado en pantalla taller. <em>"El dueño sabe quién está en qué carro."</em></li>
+    <li>Agrega repuestos del inventario → mano de obra → cierra OT. <em>"Inventario de repuestos descontado al instante."</em></li>
+    <li>Genera ticket → cobra → emite e-CF. <em>"Si el cliente pide factura, ya está."</em></li>
+    <li>Historial del vehículo: muestra que cuando vuelva el cliente en 6 meses, todo está ahí.</li>
+  </ul>
+
+  <h4>Híbrido (lavadero + tienda)</h4>
+  <ul>
+    <li>Abre POS y muestra que tiene <strong>dos pestañas</strong>: Servicios + Productos.</li>
+    <li>Crea un ticket que mezcla <em>Lavado + bebida + ambientador</em> en una sola venta. <em>"Su cliente lava el carro y se lleva una Coca-Cola en la misma factura."</em></li>
+    <li>Cobra → muestra que comisiones (lavador) e inventario (bebida) se actualizan en una sola operación.</li>
+    <li>Reportes: separa ingresos por servicios vs productos. <em>"Sabe cuánto le da la lavada y cuánto la tienda."</em></li>
+    <li>Cuadre único al cierre, no dos sistemas separados. <em>"Una caja, un cuadre, una vida."</em></li>
+  </ul>
+
+  <h4>Servicios profesionales (consultoría, agencia, etc.)</h4>
+  <ul>
+    <li>Crea ticket de tarifa plana — selecciona "Honorarios profesionales" → monto manual.</li>
+    <li>Pide RNC del cliente B2B → busca en base local DGII (900K registros). <em>"No tiene que tipear el nombre, sale solo."</em></li>
+    <li>Cobra y emite <strong>e-CF tipo E31</strong> (crédito fiscal) → cliente recibe XML + PDF con QR DGII. <em>"Esto es lo que va a deducir su cliente."</em></li>
+    <li>Reporte mensual para el contador con todos los e-CFs. <em>"Su contador deja de odiarlo."</em></li>
+    <li>Exporta a CSV/Excel para conciliar con el banco.</li>
+  </ul>
+
+  <h4>Préstamos / Casa de empeños</h4>
+  <ul>
+    <li>Crea préstamo: cliente, monto, tasa, plazo → genera tabla de amortización. <em>"Calculada automática, no use Excel."</em></li>
+    <li>Si es empeño, registra el artículo con foto y avalúo. <em>"Inventario de prendas con foto, búsqueda por cliente."</em></li>
+    <li>Recibe abono parcial → muestra cómo se actualiza el saldo. <em>"Capital, interés, mora — todo separado."</em></li>
+    <li>Reporte de cartera: vigentes, en mora, vencidos. <em>"Sabe a quién llamar mañana."</em></li>
+    <li>Recordatorio WhatsApp automático antes de la fecha de pago.</li>
+  </ul>
+
+  <h4>Concesionario</h4>
+  <ul>
+    <li>Registra venta de vehículo con VIN, cliente, monto, financiamiento. <em>"El vehículo queda atado al cliente para siempre."</em></li>
+    <li>Emite e-CF tipo E32 (consumo) o E31 según el caso.</li>
+    <li>Crea seguimiento <strong>post-venta</strong>: 1ra visita de mantenimiento, garantía. <em>"Su asesor lo llama cuando toca, no cuando se acuerda."</em></li>
+    <li>Historial completo del vehículo y de los servicios facturados.</li>
+    <li>Reporte de ventas por asesor con comisión configurable.</li>
+  </ul>
+
+  <h3>21.5 Puntos clave a resaltar (vendiendo el VALOR)</h3>
+  <ul>
+    <li><strong>"Único POS en RD con e-CF DIRECTO a DGII"</strong> — sin intermediario PSFE, sin costos por timbre. Studio X SRL es Emisor Electrónico certificado.</li>
+    <li><strong>"Funciona 100% offline"</strong> — venda aunque se vaya el internet. Cuando vuelve, sincroniza solo (regla de 72 horas DGII cubierta).</li>
+    <li><strong>"Sincronización en la nube"</strong> — vea sus ventas desde el celular, en la playa, en Miami, en cualquier parte.</li>
+    <li><strong>"Comisiones automáticas"</strong> — calculadas por servicio o producto, por empleado, por porcentaje o monto fijo.</li>
+    <li><strong>"Cuadre de caja con denominaciones"</strong> — billete por billete, moneda por moneda. Se acaban los faltantes "misteriosos".</li>
+    <li><strong>"Reportes que se exportan a Excel/CSV"</strong> — su contador feliz, usted feliz.</li>
+    <li><strong>"Soporte por WhatsApp en español"</strong> — dominicanos atendiendo dominicanos. No hay call center en India.</li>
+  </ul>
+
+  <h3>21.6 Objeciones comunes + respuestas</h3>
+
+  <div class="note">
+    <strong>"Es muy caro."</strong><br/>
+    "Compárelo con STARSISA — ellos cobran RD$3,500/mes y no le incluyen el e-CF. Nuestro Pro está en RD$2,490 con e-CF incluido. Y si paga anual, 15% de descuento adicional. Termina pagando menos de lo que paga ahora y con la certificación DGII resuelta."
+  </div>
+
+  <div class="note">
+    <strong>"Ya tengo un POS."</strong><br/>
+    "Perfecto, ¿le emite e-CF directo a DGII? Después de mayo 2026 es <em>obligatorio</em> por Ley 32-23. Si su POS actual no lo hace, tiene que migrar antes de esa fecha. Nosotros se lo dejamos certificado en 30 minutos."
+  </div>
+
+  <div class="note">
+    <strong>"¿Qué pasa si se va el internet?"</strong><br/>
+    "Sigue vendiendo offline, sin parar. Cuando vuelva el internet, todo sube a la nube y a DGII automáticamente. La ley le da 72 horas — nosotros las manejamos por debajo, usted ni se entera. Su negocio nunca para."
+  </div>
+
+  <div class="note">
+    <strong>"¿Cuánto se demora la instalación?"</strong><br/>
+    "Mismo día. 30 minutos por sesión remota. Le entregamos el certificado e-CF instalado, su catálogo de servicios cargado, sus empleados y comisiones configurados, y capacitación incluida para sus cajeras."
+  </div>
+
+  <div class="note">
+    <strong>"¿Tienen referencias?"</strong><br/>
+    "Studio X Auto Detailing en Santo Domingo lleva 3 semanas en producción facturando con e-CF real. Si quiere, le coordino una llamada con el dueño para que le cuente."
+  </div>
+
+  <div class="note">
+    <strong>"¿Y si necesito agregar otra sucursal?"</strong><br/>
+    "El plan Pro MAX incluye multi-sucursal — todas sincronizadas en tiempo real. Usted ve el dashboard consolidado desde el celular y reportes por sucursal."
+  </div>
+
+  <h3>21.7 Precios + cierre</h3>
+  <div class="two">
+    <div class="price">
+      <p class="plan">Pro</p>
+      <p class="amt">RD$2,490<small>/mes</small></p>
+      <small>POS + reportes + comisiones + cuadre</small>
+    </div>
+    <div class="price featured">
+      <p class="plan">Pro PLUS</p>
+      <p class="amt">RD$4,490<small>/mes</small></p>
+      <small>+ e-CF + restaurante + órdenes de trabajo + citas</small>
+    </div>
+    <div class="price">
+      <p class="plan">Pro MAX</p>
+      <p class="amt">RD$6,990<small>/mes</small></p>
+      <small>+ multi-sucursal + dashboard remoto + WhatsApp + analytics</small>
+    </div>
+  </div>
+  <ul>
+    <li><strong>Anual: 15% OFF</strong> en cualquier plan.</li>
+    <li><strong>7 días gratis</strong> en Pro MAX para todos los signups nuevos.</li>
+    <li><strong>Certificado e-CF Viafirma incluido</strong> en todos los planes nuevos (sin costo extra).</li>
+  </ul>
+  <div class="ok">
+    <strong>Closing line:</strong> <em>"¿Le dejo coordinada la instalación para esta semana?"</em><br/>
+    Si dice sí — sacas el calendario y agendas. Si dice "déjame pensarlo" — pasa al follow-up de 21.8.
+  </div>
+
+  <h3>21.8 Después de la demo (follow-up)</h3>
+  <ul>
+    <li><strong>Dentro de 1 hora:</strong> envía resumen por WhatsApp con los 3 puntos clave que le movieron al cliente + link a <code>terminalxpos.com/signup</code> con tu nombre de referido.</li>
+    <li><strong>Si dijo sí:</strong> agenda instalación en Calendar (sesión remota o presencial) — confirma fecha, hora y persona que va a estar en la caja.</li>
+    <li><strong>Si dijo "déjame pensarlo":</strong> nota interna en Notion con las objeciones que mencionó + follow-up programado a 48 horas con un mensaje suave: <em>"¿Pudo revisar lo que conversamos?"</em></li>
+    <li><strong>Si dijo no:</strong> pregunta el porqué (educadamente) y registra la razón en Notion. Esa data nos sirve para mejorar la próxima demo.</li>
+    <li><strong>Día 7:</strong> si no compró, envía un caso de éxito relevante a su tipo de negocio.</li>
+  </ul>
+
+  <h3>21.9 Recursos técnicos para el demoer</h3>
+  <table>
+    <tbody>
+      <tr><td><strong>Landing</strong></td><td><code>https://terminalxpos.com</code></td></tr>
+      <tr><td><strong>Signup</strong></td><td><code>https://terminalxpos.com/signup</code></td></tr>
+      <tr><td><strong>Demo POS</strong></td><td><code>https://terminalxpos.com/pos</code></td></tr>
+      <tr><td><strong>Admin panel</strong></td><td><code>https://terminalxpos.com/admin</code></td></tr>
+      <tr><td><strong>Soporte WhatsApp</strong></td><td><code>+1 (809) 828-2971</code></td></tr>
+      <tr><td><strong>Email</strong></td><td><code>admin@studiox.com.do</code></td></tr>
+    </tbody>
+  </table>
+
+  <div class="warn">
+    <strong>Lo que NO debes hacer en una demo:</strong>
+    <ul>
+      <li>Mostrar el código fuente, GitHub, o paneles internos de desarrollo.</li>
+      <li>Compartir credenciales de clientes reales (usa SOLO las cuentas demo de la tabla).</li>
+      <li>Prometer features que no existen — si no estás seguro, di "déjame confirmar y te respondo".</li>
+      <li>Dar precios diferentes a los de la tabla sin autorización de Mike.</li>
+      <li>Hablar mal de la competencia por nombre. Compara, no ataques.</li>
+    </ul>
+  </div>
+
+  <hr class="thin" />
+  <p style="text-align:center; color:#999; font-size:10pt;">
+    <strong>Terminal X — Demo Playbook</strong> · Studio X SRL · RNC 133410321<br/>
+    Sección 21 añadida 2026-04-16 · Uso exclusivo del equipo de ventas
   </p>
 </section>
 

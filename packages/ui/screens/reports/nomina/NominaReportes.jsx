@@ -57,18 +57,28 @@ export default function NominaReportes() {
       setEmpleados(list || [])
       setSettings(sets)
       if (empresa) setBiz({ name: empresa.name || empresa.nombre, rnc: empresa.rnc, address: empresa.address || empresa.direccion, phone: empresa.phone || empresa.telefono, email: empresa.email, logo: empresa.logo })
-      const build = (rows, key) => {
-        const map = {}
+      // v2.1: index by empleado_supabase_id first with legacy fallbacks.
+      const build = (rows, legacySupaKey, legacyIdKey) => {
+        const bySid = {}, byLegacySid = {}, byLegacyId = {}
         for (const r of (rows || [])) {
-          const id = String(r[key])
-          map[id] = (map[id] || 0) + (r.total_commission || r.commission_amount || 0)
+          const amt = Number(r.total_commission || r.commission_amount || 0)
+          if (r.empleado_supabase_id) {
+            const k = String(r.empleado_supabase_id)
+            bySid[k] = (bySid[k] || 0) + amt
+          } else if (r[legacySupaKey]) {
+            const k = String(r[legacySupaKey])
+            byLegacySid[k] = (byLegacySid[k] || 0) + amt
+          } else if (r[legacyIdKey] != null) {
+            const k = String(r[legacyIdKey])
+            byLegacyId[k] = (byLegacyId[k] || 0) + amt
+          }
         }
-        return map
+        return { bySid, byLegacySid, byLegacyId }
       }
       setCommTotals({
-        washers: build(wc, 'washer_id'),
-        sellers: build(sc, 'seller_id'),
-        cajeros: build(cc, 'cajero_id'),
+        washers: build(wc, 'washer_supabase_id', 'washer_id'),
+        sellers: build(sc, 'seller_supabase_id', 'seller_id'),
+        cajeros: build(cc, 'cajero_supabase_id', 'cajero_id'),
       })
     } catch {}
     setLoading(false)
@@ -118,13 +128,23 @@ export default function NominaReportes() {
 
   // ── Liquidaciones acumuladas (current snapshot for all active employees) ────
   const liquidaciones = useMemo(() => {
+    const pickCommission = (emp) => {
+      const bucket = emp.tipo === 'lavador'  ? commTotals.washers
+                   : emp.tipo === 'vendedor' ? commTotals.sellers
+                   : emp.tipo === 'cajero'   ? commTotals.cajeros
+                   : null
+      if (!bucket) return 0
+      const sid = emp.supabase_id ? String(emp.supabase_id) : null
+      if (sid && bucket.bySid?.[sid]) return bucket.bySid[sid]
+      const refSid = emp.ref_supabase_id ? String(emp.ref_supabase_id) : null
+      if (refSid && bucket.byLegacySid?.[refSid]) return bucket.byLegacySid[refSid]
+      const ref = emp.ref_id != null ? String(emp.ref_id) : null
+      if (ref && bucket.byLegacyId?.[ref]) return bucket.byLegacyId[ref]
+      return 0
+    }
     const out = []
     for (const emp of empleados) {
-      const commRef = emp.tipo === 'lavador'  ? commTotals.washers[String(emp.ref_id)]
-                    : emp.tipo === 'vendedor' ? commTotals.sellers[String(emp.ref_id)]
-                    : emp.tipo === 'cajero'   ? commTotals.cajeros[String(emp.ref_id)]
-                    : 0
-      const liq = calcLiquidacion(emp, 'desahucio', commRef || 0)
+      const liq = calcLiquidacion(emp, 'desahucio', pickCommission(emp) || 0)
       if (liq) out.push({ ...liq, nombre: emp.nombre })
     }
     return out

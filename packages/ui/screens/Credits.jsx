@@ -202,6 +202,18 @@ function ClientDetail({ client, onReload }) {
   const [paying,   setPaying]   = useState(false)
   const [toast,    setToast]    = useState(null)
 
+  // ITBIS rate — from app_settings.itbis_pct (string), default 18.
+  const [itbisRate, setItbisRate] = useState(18)
+  useEffect(() => {
+    api?.settings?.get?.()
+      .then(s => {
+        const pct = Number(s?.itbis_pct)
+        if (Number.isFinite(pct) && pct >= 0) setItbisRate(pct)
+      })
+      .catch(() => {})
+  }, [api])
+  const itbisFactor = Number(itbisRate) / 100
+
   const loadTickets = useCallback(async () => {
     setLoading(true)
     try {
@@ -265,7 +277,7 @@ function ClientDetail({ client, onReload }) {
         for (const ticket of selectedTickets) {
           const items = ticket.items || []
           const subtotal = items.reduce((s, i) => s + (i.price || 0), 0)
-          const itbis = items.reduce((s, i) => s + (i.is_wash ? Math.round(i.price * 0.18 * 100) / 100 : 0), 0)
+          const itbis = items.reduce((s, i) => s + (i.is_wash ? Math.round(i.price * itbisFactor * 100) / 100 : 0), 0)
           await printClientReceipt({
             ncf:          ticket.ncf || '',
             ncfType:      ncfType || ticket.comprobante_type || 'B02',

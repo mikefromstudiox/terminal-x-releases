@@ -84,7 +84,10 @@ export default function NominaDashboard({ onNavigate }) {
     if (missingCedula > 0) {
       issues.push({ level: 'amber', text: L(`${missingCedula} empleado(s) sin cédula`, `${missingCedula} employee(s) without ID`), hint: L('Necesaria para reportes TSS/ISR', 'Needed for TSS/ISR filings') })
     }
-    const noSalary = empleados.filter(e => !e.salary && !e.ref_id).length
+    // Only flag as "no salary/no commission" when the employee tipo is salary-expected
+    // (not lavador/vendedor/cajero/hybrid — those are commission-first by design).
+    const commissionTipos = ['lavador', 'vendedor', 'cajero', 'hybrid']
+    const noSalary = empleados.filter(e => !e.salary && !e.ref_id && !commissionTipos.includes(e.tipo)).length
     if (noSalary > 0) {
       issues.push({ level: 'amber', text: L(`${noSalary} empleado(s) sin salario ni comisiones`, `${noSalary} employee(s) with no salary or commissions`), hint: L('Revise la configuración', 'Review configuration') })
     }

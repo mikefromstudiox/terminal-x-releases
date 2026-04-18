@@ -30,20 +30,36 @@ function fmtRD(n) {
   return `RD$ ${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 function fmtTime(date) {
-  return new Date(date).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
+  // SQLite datetime('now') stores UTC as 'YYYY-MM-DD HH:MM:SS' with no timezone
+  // marker. Chrome's Date parser treats that as LOCAL time, producing a UTC-offset
+  // drift (off by 4h in DR). Normalise to ISO-8601 Z before parsing.
+  if (!date) return ''
+  const s = typeof date === 'string' && !date.endsWith('Z') && !/[+-]\d\d:?\d\d$/.test(date)
+    ? date.replace(' ', 'T') + 'Z'
+    : date
+  return new Date(s).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
 }
 
 // ── Map raw DB row to UI ticket shape ─────────────────────────────────────────
 
 function mapRow(row) {
+  const plate  = (row.vehicle_plate || '').trim()
+  const client = (row.client_name   || '').trim()
+  const vehicle = plate || client || 'Al Portador'
+  const fullWasher = (row.washer_name || '').trim()
+  const firstNameWasher = fullWasher.split(/\s+/)[0] || '—'
   return {
     id:          row.id,
     ticketId:    row.ticket_id,
     ticketNo:    row.doc_number || `Q-${row.id}`,
-    vehicle:     row.client_name || row.vehicle_plate || 'Al Portador',
+    plate,
+    clientName:  client,
+    vehicle,
     servicesStr: row.services || '',
     services:    (row.services || '').split(' + ').filter(Boolean).map(n => ({ name: n, price: 0 })),
-    worker:      row.washer_id ? { id: row.washer_id, name: row.washer_name || '—' } : null,
+    worker:      (row.empleado_supabase_id || row.washer_supabase_id || fullWasher)
+                   ? { id: row.empleado_supabase_id || row.washer_supabase_id, name: firstNameWasher, fullName: fullWasher || '—' }
+                   : null,
     amount:      row.total || 0,
     createdAt:   row.ticket_created || row.created_at,
     status:      FROM_DB[row.status] || 'pendiente',
@@ -89,7 +105,10 @@ function QueueCard({ ticket, washers, assigningId, setAssigningId, onCycle, onAs
         <span className="text-[13px] font-bold text-sky-600 truncate max-w-[120px]">{ticket.ticketNo}</span>
         <span className="text-[11px] text-slate-400 dark:text-white/40 shrink-0">{fmtTime(ticket.createdAt)}</span>
       </div>
-      <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">{ticket.vehicle}</p>
+      <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">
+        {ticket.plate || ticket.clientName || 'Al Portador'}
+        {ticket.plate && ticket.clientName ? <span className="text-slate-400 dark:text-white/40 font-normal"> · {ticket.clientName}</span> : null}
+      </p>
       <p className="text-[12px] text-slate-500 dark:text-white/60 truncate mt-0.5">{main}</p>
       <div className="flex items-center justify-between mt-2">
         <div className="flex items-center gap-1.5">
@@ -99,12 +118,7 @@ function QueueCard({ ticket, washers, assigningId, setAssigningId, onCycle, onAs
           </button>
         </div>
         {ticket.worker ? (
-          <div className="flex items-center gap-1.5">
-            <div className="w-5 h-5 bg-slate-100 dark:bg-white/10 rounded-full flex items-center justify-center text-[9px] font-bold text-slate-600 dark:text-white/60 shrink-0">
-              {ticket.worker.name[0]}
-            </div>
-            <span className="text-[12px] text-slate-600 dark:text-white/60 truncate max-w-[80px]">{ticket.worker.name}</span>
-          </div>
+          <span className="text-[12px] text-slate-600 dark:text-white/60 truncate max-w-[80px]" title={ticket.worker.fullName}>{ticket.worker.name}</span>
         ) : (
           <div className="relative">
             <button
@@ -162,17 +176,20 @@ function QueueRow({ ticket, washers, assigningId, setAssigningId, onCycle, onAss
   const extra = ticket.services.length - 1
 
   return (
-    <div className={`flex items-center h-14 border-b border-slate-100 dark:border-white/10 px-5 transition-colors group ${sc.bg} hover:brightness-95`}>
+    <div className={`flex items-center h-14 w-full border-b border-slate-100 dark:border-white/10 px-5 transition-colors group ${sc.bg} hover:brightness-95`}>
 
-      <div className="w-[90px] shrink-0">
-        <span className="text-[13px] font-bold text-sky-600 truncate block">{ticket.ticketNo}</span>
+      <div className="w-[64px] shrink-0">
+        <span className="text-[11px] font-semibold text-sky-600 truncate block">{ticket.ticketNo}</span>
       </div>
 
-      <div className="flex-1 min-w-0 pr-4">
-        <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">{ticket.vehicle}</p>
+      <div className="w-[150px] pr-2">
+        <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">
+          {ticket.plate || ticket.clientName || 'Al Portador'}
+          {ticket.plate && ticket.clientName ? <span className="text-slate-400 dark:text-white/40 font-normal"> · {ticket.clientName}</span> : null}
+        </p>
       </div>
 
-      <div className="w-[190px] shrink-0 pr-4 flex items-center gap-1.5 min-w-0">
+      <div className="w-[160px] shrink-0 pr-2 flex items-center gap-1.5 min-w-0">
         <span className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">{main}</span>
         {extra > 0 && (
           <span className="shrink-0 text-[10px] font-bold bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-white/60 px-1.5 py-0.5 rounded-full">
@@ -181,14 +198,9 @@ function QueueRow({ ticket, washers, assigningId, setAssigningId, onCycle, onAss
         )}
       </div>
 
-      <div className="w-[148px] shrink-0 pr-4 relative">
+      <div className="w-[110px] shrink-0 pr-2 relative">
         {ticket.worker ? (
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-slate-100 dark:bg-white/10 rounded-full flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-white/60 shrink-0">
-              {ticket.worker.name[0]}
-            </div>
-            <span className="text-[13px] text-slate-700 dark:text-white truncate">{ticket.worker.name}</span>
-          </div>
+          <span className="text-[13px] text-slate-700 dark:text-white truncate" title={ticket.worker.fullName}>{ticket.worker.name}</span>
         ) : (
           <div className="flex items-center gap-2">
             <span className="text-[12px] font-medium text-amber-600 dark:text-amber-400">
@@ -215,22 +227,22 @@ function QueueRow({ ticket, washers, assigningId, setAssigningId, onCycle, onAss
         )}
       </div>
 
-      <div className="w-[96px] shrink-0 pr-4 text-right flex items-center justify-end gap-1">
+      <div className="w-[96px] shrink-0 pr-2 text-right flex items-center justify-end gap-1">
         <button
           onClick={() => onEditPrice(ticket)}
-          className="p-1 text-slate-300 dark:text-white/30 hover:text-[#b3001e] rounded transition-colors opacity-0 group-hover:opacity-100"
+          className="p-1 text-slate-400 dark:text-white/50 hover:text-[#b3001e] hover:bg-[#b3001e]/10 rounded transition-colors shrink-0"
           title={lang === 'es' ? 'Cambiar precio' : 'Change price'}
         >
-          <Pencil size={11} />
+          <Pencil size={12} />
         </button>
         <span className="text-[13px] font-semibold text-slate-700 dark:text-white">{fmtRD(ticket.amount)}</span>
       </div>
 
-      <div className="w-[56px] shrink-0 pr-4">
+      <div className="w-[52px] shrink-0 pr-2">
         <span className="text-[12px] text-slate-400 dark:text-white/40">{fmtTime(ticket.createdAt)}</span>
       </div>
 
-      <div className="w-[192px] shrink-0 flex items-center gap-2">
+      <div className="w-[200px] shrink-0 flex items-center gap-1.5">
         <button
           onClick={() => onCycle(ticket.id)}
           title={lang === 'es' ? 'Clic para cambiar estado' : 'Click to change status'}
@@ -251,10 +263,10 @@ function QueueRow({ ticket, washers, assigningId, setAssigningId, onCycle, onAss
         </button>
         <button
           onClick={() => onDelete(ticket)}
-          className="p-1.5 text-slate-300 dark:text-white/30 hover:text-red-500 rounded transition-colors opacity-0 group-hover:opacity-100"
+          className="p-1.5 text-slate-400 dark:text-white/50 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded transition-colors shrink-0"
           title={lang === 'es' ? 'Eliminar de cola' : 'Remove from queue'}
         >
-          <Trash2 size={13} />
+          <Trash2 size={14} />
         </button>
       </div>
     </div>
@@ -568,6 +580,11 @@ export default function Queue() {
           ecfResult:     data.ecf || null,
           clientId:      data.clientId || null,
           tipoVenta:     data.tipo || null,
+          comentario:    (Number(data.descuento || 0) > 0 && data.descuentoReason)
+                           ? `[Descuento: ${data.descuentoReason}] ${data.comentario || ''}`.trim()
+                           : (data.comentario || null),
+          descuento:     data.descuento != null ? Number(data.descuento) : null,
+          descuento_reason: data.descuentoReason || null,
         })
         if (queueId) await api.queue.updateStatus({ id: queueId, status: 'done' })
       } catch (err) {
@@ -693,17 +710,17 @@ export default function Queue() {
   // verticals keep the original labels (carwash terminology is the default).
   const isSalon = businessType === 'salon'
   const COL_HEADERS = [
-    { label_es: 'Ticket',      label_en: 'Ticket',    w: 'w-[72px]'  },
+    { label_es: 'Ticket',      label_en: 'Ticket',    w: 'w-[64px]'  },
     isSalon
-      ? { label_es: 'Cliente',   label_en: 'Client',    w: 'flex-1'    }
-      : { label_es: 'Vehículo',  label_en: 'Vehicle',   w: 'flex-1'    },
-    { label_es: 'Servicio(s)', label_en: 'Service(s)',w: 'w-[190px]' },
+      ? { label_es: 'Cliente',   label_en: 'Client',    w: 'w-[150px]'    }
+      : { label_es: 'Vehículo',  label_en: 'Vehicle',   w: 'w-[150px]'    },
+    { label_es: 'Servicio(s)', label_en: 'Service(s)',w: 'w-[160px]' },
     isSalon
-      ? { label_es: 'Estilista', label_en: 'Stylist',   w: 'w-[148px]' }
-      : { label_es: 'Lavador',   label_en: 'Washer',    w: 'w-[148px]' },
+      ? { label_es: 'Estilista', label_en: 'Stylist',   w: 'w-[110px]' }
+      : { label_es: 'Lavador',   label_en: 'Washer',    w: 'w-[110px]' },
     { label_es: 'Monto',       label_en: 'Amount',    w: 'w-[96px] text-right' },
-    { label_es: 'Hora',        label_en: 'Time',      w: 'w-[56px]'  },
-    { label_es: 'Estado',      label_en: 'Status',    w: 'w-[192px]' },
+    { label_es: 'Hora',        label_en: 'Time',      w: 'w-[52px]'  },
+    { label_es: 'Estado',      label_en: 'Status',    w: 'w-[200px]' },
   ]
 
   return (
@@ -786,9 +803,9 @@ export default function Queue() {
       </div>
 
       {/* Column headers — desktop only */}
-      <div className="hidden md:flex items-center h-9 bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/10 px-5 shrink-0">
+      <div className="hidden md:flex items-center h-9 w-full bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/10 px-5 shrink-0">
         {COL_HEADERS.map((col, i) => (
-          <div key={i} className={`${col.w} text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider pr-4`}>
+          <div key={i} className={`${col.w} text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider pr-2`}>
             {lang === 'es' ? col.label_es : col.label_en}
           </div>
         ))}

@@ -10,8 +10,9 @@ import { useLang } from '../i18n'
 import { signAndSubmitECF } from '@terminal-x/services/ecf'
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const ITBIS_RATE    = 0.18
-const LEY_RATE      = 0.10
+// Fallback rate only — actual rate pulled from app_settings.itbis_pct at runtime.
+const DEFAULT_ITBIS_RATE = 18
+const LEY_RATE           = 0.10
 
 const MOTIVOS = ['Devolución', 'Descuento', 'Error']
 const FORMAS  = ['Efectivo', 'Crédito en cuenta', 'Transferencia']
@@ -199,6 +200,18 @@ export default function CreditNotes() {
   const [submitting,  setSubmitting]  = useState(false)
   const pendingEmit                   = useRef(null)
 
+  // ── ITBIS rate — from app_settings.itbis_pct, default 18. ──────────────────
+  const [itbisRate, setItbisRate] = useState(DEFAULT_ITBIS_RATE)
+  useEffect(() => {
+    api?.settings?.get?.()
+      .then(s => {
+        const pct = Number(s?.itbis_pct)
+        if (Number.isFinite(pct) && pct >= 0) setItbisRate(pct)
+      })
+      .catch(() => {})
+  }, [api])
+  const itbisFactor = Number(itbisRate) / 100
+
   // ── Load data from DB ──────────────────────────────────────────────────────
   useEffect(() => {
     loadAll()
@@ -278,7 +291,7 @@ export default function CreditNotes() {
 
   // ── Derived form calc ────────────────────────────────────────────────────────
   const montoNum  = parseFloat(monto) || 0
-  const itbisRev  = parseFloat((montoNum * ITBIS_RATE / (1 + ITBIS_RATE + LEY_RATE)).toFixed(2))
+  const itbisRev  = parseFloat((montoNum * itbisFactor / (1 + itbisFactor + LEY_RATE)).toFixed(2))
   const formValid = clientName.trim() && montoNum > 0
 
   // ── Emit ──────────────────────────────────────────────────────────────────────
@@ -302,7 +315,7 @@ export default function CreditNotes() {
       let assignedNCF = null
 
       if (isECF) {
-        const subtotal  = parseFloat((montoNum / (1 + ITBIS_RATE + LEY_RATE)).toFixed(2))
+        const subtotal  = parseFloat((montoNum / (1 + itbisFactor + LEY_RATE)).toFixed(2))
         const ecfResult = await signAndSubmitECF({
           tipoECF:    '34',
           emisor: {

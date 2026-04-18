@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, Component } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { LayoutDashboard, KeyRound, Building2, Users, LogOut, Loader2, Sun, Moon, Monitor, ShieldCheck, MessageCircle } from 'lucide-react'
+import { withRetry, isSupabaseRetryable } from '@terminal-x/services/retry.js'
+import { humanizeNetworkError } from '@terminal-x/services/networkError.js'
 
 class AdminErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null } }
@@ -110,11 +112,14 @@ export default function AdminApp({ supabase }) {
     e.preventDefault()
     setSubmitting(true); setError(null)
     try {
-      const { error: err } = await supabase.auth.signInWithPassword({ email: loginEmail, password: loginPw })
+      const { error: err } = await withRetry(
+        () => supabase.auth.signInWithPassword({ email: loginEmail, password: loginPw }),
+        { label: 'auth.admin.signIn', isRetryable: isSupabaseRetryable },
+      )
       if (err) throw err
       await checkAdmin(true)
     } catch (err) {
-      setError(err.message || 'Error al iniciar sesion')
+      setError(humanizeNetworkError(err, { context: 'auth.admin.signIn' }))
     }
     setSubmitting(false)
   }

@@ -595,13 +595,23 @@ export default function WorkerReport() {
   // Relabel the "lavadores" bucket to "Meseros" so the owner sees the
   // correct Spanish role for the dine-in side while retail sellers keep
   // their own tab. The underlying data model (empleados.tipo) is unchanged.
-  const lavadoresLabel = businessType === 'hybrid'
-    ? { es: 'Meseros',   en: 'Waiters' }
-    : businessType === 'mechanic'
-      ? { es: 'Mecánicos', en: 'Mechanics' }
-      : businessType === 'salon'
-        ? { es: 'Estilistas', en: 'Stylists' }
-        : { es: 'Lavadores', en: 'Washers' }
+  // Per-vertical relabel for the primary-worker bucket ("lavadores" in the data
+  // model). Keeps the underlying empleados.tipo unchanged — UI only.
+  const WORKER_LABELS = {
+    carwash:    { plural: { es: 'Lavadores',  en: 'Washers'     }, singular: { es: 'Lavador',  en: 'Washer'     }, metric: { es: 'Carros Lavados',   en: 'Cars Washed'   } },
+    mechanic:   { plural: { es: 'Mecánicos',  en: 'Mechanics'   }, singular: { es: 'Mecánico', en: 'Mechanic'   }, metric: { es: 'Órdenes Atendidas', en: 'Orders Served' } },
+    dealership: { plural: { es: 'Vendedores', en: 'Salespeople' }, singular: { es: 'Vendedor', en: 'Salesperson' }, metric: { es: 'Ventas Realizadas', en: 'Sales Closed' } },
+    restaurant: { plural: { es: 'Meseros',    en: 'Servers'     }, singular: { es: 'Mesero',   en: 'Server'     }, metric: { es: 'Órdenes Atendidas', en: 'Orders Served' } },
+    hybrid:     { plural: { es: 'Meseros',    en: 'Servers'     }, singular: { es: 'Mesero',   en: 'Server'     }, metric: { es: 'Órdenes Atendidas', en: 'Orders Served' } },
+    salon:      { plural: { es: 'Estilistas', en: 'Stylists'    }, singular: { es: 'Estilista', en: 'Stylist'    }, metric: { es: 'Servicios Realizados', en: 'Services Done' } },
+    service:    { plural: { es: 'Prestadores', en: 'Providers'  }, singular: { es: 'Prestador', en: 'Provider'  }, metric: { es: 'Trabajos Realizados', en: 'Jobs Done'    } },
+    retail:     { plural: { es: 'Empleados',  en: 'Employees'   }, singular: { es: 'Empleado', en: 'Employee'   }, metric: { es: 'Ventas Realizadas', en: 'Sales Closed' } },
+    licoreria:  { plural: { es: 'Empleados',  en: 'Employees'   }, singular: { es: 'Empleado', en: 'Employee'   }, metric: { es: 'Ventas Realizadas', en: 'Sales Closed' } },
+    carniceria: { plural: { es: 'Empleados',  en: 'Employees'   }, singular: { es: 'Empleado', en: 'Employee'   }, metric: { es: 'Ventas Realizadas', en: 'Sales Closed' } },
+    prestamos:  { plural: { es: 'Empleados',  en: 'Employees'   }, singular: { es: 'Empleado', en: 'Employee'   }, metric: { es: 'Préstamos Gestionados', en: 'Loans Handled' } },
+  }
+  const workerSet = WORKER_LABELS[businessType] || WORKER_LABELS.carwash
+  const lavadoresLabel = workerSet.plural
   const SUB_TABS = [
     { id: 'lavadores',  ...lavadoresLabel,  show: showWashers },
     { id: 'vendedores', es: 'Vendedores', en: 'Salespeople', show: true },
@@ -697,13 +707,13 @@ export default function WorkerReport() {
           <CommissionPanel
             lang={lang} period={period} customY={customY} customM={customM}
             people={washers} periodSummaries={washerSummaries} loadingSummary={loadingWS}
-            personLabel={lang === 'es' ? 'Lavador' : 'Washer'}
-            personLabelAll={lang === 'es' ? 'Todos los lavadores' : 'All washers'}
+            personLabel={workerSet.singular[lang] ?? workerSet.singular.es}
+            personLabelAll={lang === 'es' ? `Todos los ${workerSet.plural.es.toLowerCase()}` : `All ${workerSet.plural.en.toLowerCase()}`}
             metricLabels={{
               total:  lang === 'es' ? 'Total Comisiones'     : 'Total Commissions',
-              count:  lang === 'es' ? 'Carros Lavados'       : 'Cars Washed',
-              active: lang === 'es' ? 'Lavadores Activos'    : 'Active Washers',
-              avg:    lang === 'es' ? 'Promedio por Lavador' : 'Avg per Washer',
+              count:  workerSet.metric[lang] ?? workerSet.metric.es,
+              active: lang === 'es' ? `${workerSet.plural.es} Activos` : `Active ${workerSet.plural.en}`,
+              avg:    lang === 'es' ? `Promedio por ${workerSet.singular.es}` : `Avg per ${workerSet.singular.en}`,
             }}
             baseLabel={lang === 'es' ? 'base s/ITBIS' : 'base ex-ITBIS'}
             selectedId={washerId} setSelectedId={setWasherId}

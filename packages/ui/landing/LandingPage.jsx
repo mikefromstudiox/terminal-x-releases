@@ -296,17 +296,17 @@ const ECOSYSTEM = [
 
 function CheckIcon() { return <Check size={16} className="text-[#b3001e] mx-auto" /> }
 function XIcon() { return <X size={16} className="text-white/20 mx-auto" /> }
-function XIconLight() { return <X size={16} className="text-gray-300 mx-auto" /> }
+function XIconLight() { return <X size={16} className="text-black/20 mx-auto" /> }
 
 function FaqItem({ q, a }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="rounded-2xl border border-gray-100 bg-gray-50 overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-lg">
+    <div className="rounded-2xl border border-black/10 bg-white overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-lg">
       <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-6 py-5 text-left">
         <span className="font-bold text-[15px] text-black pr-4">{q}</span>
-        {open ? <ChevronUp size={18} className="text-gray-500 shrink-0" /> : <ChevronDown size={18} className="text-gray-500 shrink-0" />}
+        {open ? <ChevronUp size={18} className="text-black/60 shrink-0" /> : <ChevronDown size={18} className="text-black/60 shrink-0" />}
       </button>
-      {open && <p className="px-6 pb-5 text-sm text-gray-500 leading-relaxed">{a}</p>}
+      {open && <p className="px-6 pb-5 text-sm text-black/60 leading-relaxed">{a}</p>}
     </div>
   )
 }
@@ -372,10 +372,10 @@ export default function LandingPage({ section }) {
           <h1 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">
             {L(<>El unico POS en RD certificado como <span className="text-[#b3001e]">Emisor Electronico directo</span> ante DGII</>, <>The only POS in DR certified as a <span className="text-[#b3001e]">direct Electronic Issuer</span> with DGII</>)}
           </h1>
-          <p className="mt-4 text-lg text-gray-500 max-w-2xl mx-auto">
+          <p className="mt-4 text-lg text-black/60 max-w-2xl mx-auto">
             {L('Facturacion electronica directa a DGII — sin intermediarios, sin PSFE, sin costo por comprobante. Desktop + Web + Movil. Modo offline. Configuracion remota por nuestro equipo.', 'Direct electronic invoicing to DGII — no middlemen, no PSFE, no per-invoice fees. Desktop + Web + Mobile. Offline mode. Remote setup by our team.')}
           </p>
-          <p className="mt-2 text-sm text-gray-500">
+          <p className="mt-2 text-sm text-black/60">
             {L('Car Wash, tiendas, retail, talleres, barber shops, dealers — cualquier negocio en RD. Inventario con codigo de barras, POS con cantidades, stock automatico. Cumple la Ley 32-23.', 'Car Wash, stores, retail, workshops, barber shops, dealers — any business in DR. Inventory with barcode, POS with quantities, auto stock. Meet Ley 32-23.')}
           </p>
           <div className="flex items-center justify-center gap-4 flex-wrap mt-10">
@@ -384,11 +384,11 @@ export default function LandingPage({ section }) {
               {L('Empezar ahora', 'Start now')} <ArrowRight size={16} className="inline ml-1" />
             </button>
             <a href="https://wa.me/18098282971?text=Hola%2C%20quiero%20informacion%20sobre%20Terminal%20X" target="_blank" rel="noopener noreferrer"
-              className="border border-gray-300 text-gray-700 hover:border-gray-400 hover:shadow-lg px-6 py-3 text-sm font-bold rounded-lg transition-all">
+              className="border border-black/20 text-black/80 hover:border-black/40 hover:shadow-lg px-6 py-3 text-sm font-bold rounded-lg transition-all">
               {L('Hablar con ventas', 'Talk to sales')}
             </a>
             <a href="https://wa.me/18098282971?text=Hola%2C%20quiero%20ver%20un%20demo%20de%20Terminal%20X" target="_blank" rel="noopener noreferrer"
-              className="border border-gray-300 text-gray-700 hover:border-gray-400 hover:shadow-lg px-6 py-3 text-sm font-bold rounded-lg transition-all flex items-center gap-2">
+              className="border border-black/20 text-black/80 hover:border-black/40 hover:shadow-lg px-6 py-3 text-sm font-bold rounded-lg transition-all flex items-center gap-2">
               <Smartphone size={16} />
               {L('Ver demo', 'See demo')}
             </a>
@@ -405,12 +405,12 @@ export default function LandingPage({ section }) {
             {STATS[lang].map((s, i) => (
               <div key={i} className="text-center">
                 <p className="text-3xl sm:text-4xl font-extrabold text-[#b3001e]">{s.value}</p>
-                <p className="text-sm text-gray-500 font-medium mt-1">{s.label}</p>
+                <p className="text-sm text-black/60 font-medium mt-1">{s.label}</p>
               </div>
             ))}
           </div>
           {/* Trust bar */}
-          <p className="mt-10 text-xs text-gray-500 tracking-wide text-center">
+          <p className="mt-10 text-xs text-black/60 tracking-wide text-center">
             {L(
               'Certificado digital Viafirma \u00B7 Solicitud DGII #42483 \u00B7 RNC 133410321 \u00B7 Santo Domingo, RD',
               'Viafirma digital certificate \u00B7 DGII Application #42483 \u00B7 RNC 133410321 \u00B7 Santo Domingo, DR'
@@ -451,16 +451,16 @@ export default function LandingPage({ section }) {
           <div className="text-center">
             <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Funciones', 'Features')}</p>
             <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">{L('Todo lo que necesitas en un solo sistema', 'Everything you need in one system')}</h2>
-            <p className="mt-4 text-lg text-gray-500 max-w-2xl mx-auto">{L('Terminal X es el unico sistema de punto de venta en Republica Dominicana que combina facturacion electronica e-CF directa con DGII, inventario con codigo de barras, modo offline 100% y herramientas completas para car wash, tiendas y negocios de servicios.', 'Terminal X is the only POS system in the Dominican Republic that combines direct e-CF electronic invoicing with DGII, barcode inventory, 100% offline mode, and complete tools for car washes, stores, and service businesses.')}</p>
+            <p className="mt-4 text-lg text-black/60 max-w-2xl mx-auto">{L('Terminal X es el unico sistema de punto de venta en Republica Dominicana que combina facturacion electronica e-CF directa con DGII, inventario con codigo de barras, modo offline 100% y herramientas completas para car wash, tiendas y negocios de servicios.', 'Terminal X is the only POS system in the Dominican Republic that combines direct e-CF electronic invoicing with DGII, barcode inventory, 100% offline mode, and complete tools for car washes, stores, and service businesses.')}</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
             {FEATURES[lang].map((f, i) => (
-              <div key={i} className={`rounded-2xl border p-8 transition-all hover:-translate-y-2 hover:shadow-2xl ${f.cta ? 'border-[#b3001e] bg-[#b3001e]/5' : 'border-gray-100 bg-gray-50'}`}>
+              <div key={i} className={`rounded-2xl border p-8 transition-all hover:-translate-y-2 hover:shadow-2xl ${f.cta ? 'border-[#b3001e] bg-[#b3001e]/5' : 'border-black/10 bg-white'}`}>
                 <div className="w-12 h-12 bg-[#b3001e]/10 rounded-xl flex items-center justify-center mb-5">
                   <f.icon size={22} className="text-[#b3001e]" />
                 </div>
                 <h3 className="text-base font-bold text-black mb-2">{f.title}</h3>
-                <p className="text-sm text-gray-600 leading-relaxed">{f.desc}</p>
+                <p className="text-sm text-black/60 leading-relaxed">{f.desc}</p>
                 {f.cta && (
                   <a href="https://wa.me/18098282971?text=Quiero%20el%20servicio%20de%20certificaci%C3%B3n%20DGII" target="_blank" rel="noopener noreferrer"
                     className="mt-4 inline-flex items-center gap-2 bg-[#b3001e] hover:bg-[#d4002a] px-4 py-2 text-xs font-bold text-white rounded-lg transition-colors">
@@ -567,7 +567,7 @@ export default function LandingPage({ section }) {
             <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">
               {L('Un sistema, cualquier tipo de negocio', 'One system, any business type')}
             </h2>
-            <p className="mt-4 text-lg text-gray-500 max-w-2xl mx-auto">
+            <p className="mt-4 text-lg text-black/60 max-w-2xl mx-auto">
               {L(
                 'Terminal X se adapta automaticamente a tu tipo de negocio. Car wash, tienda, retail, taller, salon — el mismo sistema con la interfaz perfecta para cada uno.',
                 'Terminal X automatically adapts to your business type. Car wash, store, retail, workshop, salon — the same system with the perfect interface for each.'
@@ -603,9 +603,9 @@ export default function LandingPage({ section }) {
                 items: [L('Servicios + productos', 'Services + products'), L('Creditos a clientes', 'Client credits'), L('Reportes 606/607', '606/607 reports')],
               },
             ].map((biz, i) => (
-              <div key={i} className={`rounded-2xl border p-8 transition-all hover:-translate-y-2 hover:shadow-2xl ${biz.highlight ? 'border-[#b3001e] bg-[#b3001e]/5' : 'border-gray-100 bg-gray-50'}`}>
+              <div key={i} className={`rounded-2xl border p-8 transition-all hover:-translate-y-2 hover:shadow-2xl ${biz.highlight ? 'border-[#b3001e] bg-[#b3001e]/5' : 'border-black/10 bg-white'}`}>
                 <h3 className="text-lg font-bold text-black mb-2">{biz.title}</h3>
-                <p className="text-sm text-gray-600 leading-relaxed mb-4">{biz.desc}</p>
+                <p className="text-sm text-black/70 leading-relaxed mb-4">{biz.desc}</p>
                 <ul className="space-y-2">
                   {biz.items.map((item, j) => (
                     <li key={j} className="flex items-center gap-2 text-sm text-black">
@@ -768,16 +768,16 @@ export default function LandingPage({ section }) {
           <div className="text-center">
             <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Soporte', 'Support')}</p>
             <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">{L('Nivel de soporte por plan', 'Support level by plan')}</h2>
-            <p className="mt-4 text-lg text-gray-500">{L('No solo vendemos software. Te acompanamos.', 'We don\'t just sell software. We walk with you.')}</p>
+            <p className="mt-4 text-lg text-black/60">{L('No solo vendemos software. Te acompanamos.', 'We don\'t just sell software. We walk with you.')}</p>
           </div>
           <div className="max-w-4xl mx-auto overflow-x-auto mt-12">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b-2 border-gray-200">
+                <tr className="border-b-2 border-black/20">
                   <th className="text-left py-3 px-4 font-bold text-black">{L('Soporte', 'Support')}</th>
-                  <th className="py-3 px-3 text-center font-bold text-gray-600">Pro</th>
+                  <th className="py-3 px-3 text-center font-bold text-black/70">Pro</th>
                   <th className="py-3 px-3 text-center font-bold text-[#b3001e]">Pro PLUS</th>
-                  <th className="py-3 px-3 text-center font-bold text-gray-600">Pro MAX</th>
+                  <th className="py-3 px-3 text-center font-bold text-black/70">Pro MAX</th>
                 </tr>
               </thead>
               <tbody className="text-sm">
@@ -789,15 +789,15 @@ export default function LandingPage({ section }) {
                   { s: L('Visitas tecnicas a tu negocio', 'On-site tech visits'), pro: L('Pago extra', 'Extra fee'), plus: L('1 por trimestre', '1 per quarter'), max: L('1 por mes', '1 per month') },
                   { s: L('Ejecutivo de cuenta dedicado', 'Dedicated account executive'), pro: false, plus: false, max: true },
                 ].map((row, i) => (
-                  <tr key={i} className={i % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
+                  <tr key={i} className={i % 2 === 0 ? 'bg-black/[0.03]' : 'bg-white'}>
                     <td className="py-3 px-4 font-medium text-black">{row.s}</td>
                     {['pro', 'plus', 'max'].map(col => {
                       const v = row[col]
                       return (
                         <td key={col} className="py-3 px-3 text-center">
                           {v === true ? <Check size={16} className="text-[#b3001e] mx-auto" /> :
-                           v === false ? <X size={16} className="text-gray-300 mx-auto" /> :
-                           <span className="text-gray-600 font-medium">{v}</span>}
+                           v === false ? <X size={16} className="text-black/30 mx-auto" /> :
+                           <span className="text-black/70 font-medium">{v}</span>}
                         </td>
                       )
                     })}
@@ -916,20 +916,176 @@ export default function LandingPage({ section }) {
         </div>
       </section>
 
-      {/* SECTION 6.6: Certification CTA — BLACK (maintains WHITE→BLACK alternation before FAQ) */}
-      <section className="bg-black px-4 py-16 sm:px-6 lg:px-8">
-        <div className="max-w-4xl mx-auto text-center">
-          <h3 className="text-2xl sm:text-3xl font-extrabold text-white">
-            {L('La Ley 32-23 es obligatoria. No esperes mas.', 'Law 32-23 is mandatory. Don\'t wait.')}
-          </h3>
-          <p className="mt-3 text-white/50 text-lg">
-            {L('Ya certificamos nuestro propio negocio. Ahora te certificamos a ti.', 'We already certified our own business. Now we certify yours.')}
-          </p>
-          <a href="https://wa.me/18098282971?text=Quiero%20certificarme%20como%20Emisor%20Electr%C3%B3nico" target="_blank" rel="noopener noreferrer"
-            className="mt-8 inline-flex items-center gap-2 bg-[#b3001e] hover:bg-[#d4002a] px-6 py-3 text-sm font-bold text-white rounded-lg shadow-lg shadow-red-500/25 transition-colors">
-            <MessageSquare size={16} />
-            {L('Hablar con un experto', 'Talk to an expert')}
-          </a>
+      {/* SECTION 6.6: DGII e-CF FAQ — BLACK (answers the questions every lead asks Mike) */}
+      <section id="ecf-faq" className="bg-black px-4 py-24 sm:px-6 lg:px-8 scroll-mt-32">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center">
+            <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Guia e-CF DGII', 'DGII e-CF Guide')}</p>
+            <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-white">
+              {L('Todo lo que necesitas saber sobre e-CF', 'Everything you need to know about e-CF')}
+            </h2>
+            <p className="mt-4 text-lg text-white/50 max-w-2xl mx-auto">
+              {L(
+                'Antes de que contactes, revisa las opciones. La Ley 32-23 te obliga a emitir Comprobantes Fiscales Electronicos, pero no todas las soluciones sirven para tu negocio.',
+                'Before you reach out, review the options. Law 32-23 requires you to issue Electronic Fiscal Receipts, but not every solution fits your business.'
+              )}
+            </p>
+          </div>
+
+          {/* A) Facturador Gratuito DGII vs Terminal X Pro PLUS */}
+          <div className="mt-16">
+            <div className="text-center">
+              <h3 className="text-2xl sm:text-3xl font-extrabold text-white">
+                {L('Y el Facturador Gratuito de DGII?', 'What about DGII\'s Free Facturador?')}
+              </h3>
+              <p className="mt-3 text-white/50 max-w-2xl mx-auto text-sm">
+                {L(
+                  'Es una herramienta valida para profesionales liberales. Pero si tienes un negocio con volumen, te quedas corto en semanas.',
+                  'It\'s a valid tool for liberal professionals. But if you run a business with volume, you\'ll outgrow it in weeks.'
+                )}
+              </p>
+            </div>
+
+            <div className="max-w-4xl mx-auto overflow-x-auto mt-10 rounded-2xl border border-white/10 bg-white/5">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b-2 border-white/20">
+                    <th className="text-left py-4 px-4 font-bold text-white">{L('Caracteristica', 'Feature')}</th>
+                    <th className="py-4 px-3 font-medium text-white/60 text-center">
+                      {L('Facturador Gratuito', 'Free Facturador')}
+                    </th>
+                    <th className="py-4 px-3 font-bold text-[#b3001e] text-center whitespace-nowrap">
+                      <span className="inline-flex items-center gap-0">
+                        <span className="text-sm font-black tracking-[2px] leading-none -mt-1">TERMINAL</span>
+                        <img src={logoImg} alt="X" width="48" height="48" className="h-4 w-auto object-contain" draggable="false" />
+                      </span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { f: L('Facturas por mes', 'Invoices per month'),                              g: L('~150 max', '~150 max'),                                  t: L('ILIMITADAS', 'UNLIMITED'),                                 tBold: true },
+                    { f: L('Inventario / SKU / codigo de barras', 'Inventory / SKU / barcode'),    g: false,                                                      t: true },
+                    { f: L('Base de clientes guardada', 'Saved client database'),                  g: false,                                                      t: true },
+                    { f: L('POS (cobrar, imprimir, gaveta)', 'POS (charge, print, drawer)'),       g: false,                                                      t: true },
+                    { f: L('Multi-moneda (USD)', 'Multi-currency (USD)'),                          g: L('Solo DOP', 'DOP only'),                                  t: true },
+                    { f: L('Certificado digital incluido', 'Digital certificate included'),        g: L('Solo dentro del facturador', 'Only inside the tool'),    t: L('Viafirma en todos los planes', 'Viafirma in all plans'), tBold: true },
+                    { f: L('Reportes avanzados (ventas, inventario, nomina)', 'Advanced reports (sales, inventory, payroll)'), g: false, t: true },
+                    { f: L('Funciona offline', 'Works offline'),                                   g: false,                                                      t: L('Desktop', 'Desktop') },
+                    { f: L('Costo', 'Cost'),                                                       g: L('Gratis', 'Free'),                                        t: 'RD$4,490/mes' },
+                    { f: L('Ideal para', 'Ideal for'),                                             g: L('Profesionales liberales (3–5 facturas/mes)', 'Liberal professionals (3–5 invoices/mo)'), t: L('Negocios con 50+ ventas/dia', 'Businesses with 50+ sales/day') },
+                  ].map((row, i) => (
+                    <tr key={i} className={i % 2 === 0 ? 'bg-white/5' : ''}>
+                      <td className="py-3 px-4 text-white/80 font-medium">{row.f}</td>
+                      <td className="py-3 px-3 text-center">
+                        {row.g === true ? <CheckIcon /> :
+                         row.g === false ? <XIcon /> :
+                         <span className="text-white/60 text-[13px]">{row.g}</span>}
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        {row.t === true ? <CheckIcon /> :
+                         row.t === false ? <XIcon /> :
+                         <span className={`text-[13px] ${row.tBold ? 'text-[#b3001e] font-bold' : 'text-white font-semibold'}`}>{row.t}</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="text-center mt-6 text-sm text-white/50 italic max-w-2xl mx-auto">
+              {L(
+                '"El Facturador Gratuito es una herramienta de emergencia. Si tu negocio hace mas de 150 facturas al mes, necesitas un sistema real."',
+                '"The Free Facturador is an emergency tool. If your business issues more than 150 invoices per month, you need a real system."'
+              )}
+            </p>
+          </div>
+
+          {/* B) FAQ cards */}
+          <div className="mt-20">
+            <div className="text-center">
+              <h3 className="text-2xl sm:text-3xl font-extrabold text-white">
+                {L('Preguntas frecuentes sobre e-CF', 'Frequently asked questions about e-CF')}
+              </h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-10">
+              {[
+                {
+                  q: L('Que es el e-CF y cuando es obligatorio?', 'What is e-CF and when is it mandatory?'),
+                  a: L(
+                    'La Ley 32-23 obliga a todos los contribuyentes a emitir Comprobantes Fiscales Electronicos (e-CF). Grandes y medianos desde 15 nov 2025. MIPYMEs y personas fisicas: 15 de mayo 2026.',
+                    'Law 32-23 requires all taxpayers to issue Electronic Fiscal Receipts (e-CF). Large and medium companies since Nov 15 2025. MSMEs and individuals: May 15 2026.'
+                  ),
+                },
+                {
+                  q: L('Necesito pagar para emitir e-CF?', 'Do I need to pay to issue e-CF?'),
+                  a: L(
+                    'Si. Necesitas un certificado digital (RD$2,360/ano) + un sistema autorizado. Terminal X incluye ambos desde RD$2,490/mes.',
+                    'Yes. You need a digital certificate (RD$2,360/yr) + an authorized system. Terminal X includes both starting at RD$2,490/mo.'
+                  ),
+                },
+                {
+                  q: L('Que es el Facturador Gratuito de DGII?', 'What is DGII\'s Free Facturador?'),
+                  a: L(
+                    'Una herramienta de DGII para profesionales liberales. Maximo ~150 facturas/mes, sin inventario, sin POS, sin base de clientes. No funciona para negocios con volumen.',
+                    'A DGII tool for liberal professionals. Max ~150 invoices/mo, no inventory, no POS, no client database. Doesn\'t work for businesses with volume.'
+                  ),
+                },
+                {
+                  q: L('Cuanto cuesta certificarme?', 'How much does certification cost?'),
+                  a: L(
+                    'Nosotros te hacemos todo el proceso por RD$45,000 (one-time). Incluye Viafirma, configuracion, los 15 examenes DGII y paso a produccion. Con garantia de 90 dias.',
+                    'We run the whole process for RD$45,000 (one-time). Includes Viafirma, setup, the 15 DGII tests and production go-live. 90-day warranty.'
+                  ),
+                },
+                {
+                  q: L('Cuanto tiempo toma certificarse?', 'How long does certification take?'),
+                  a: L(
+                    '2–3 semanas desde que firmas hasta que estas emitiendo e-CF en produccion.',
+                    '2–3 weeks from signing until you\'re issuing e-CF in production.'
+                  ),
+                },
+                {
+                  q: L('Que pasa si no me certifico antes del 15 de mayo?', 'What happens if I don\'t certify before May 15?'),
+                  a: L(
+                    'Tu RNC queda marcado como incumplidor. No podras emitir facturas con credito fiscal, lo que significa que tus clientes empresariales se van con la competencia que si emite e-CF.',
+                    'Your RNC gets flagged as non-compliant. You won\'t be able to issue invoices with tax credit, which means your business clients switch to competitors who do issue e-CF.'
+                  ),
+                },
+              ].map((item, i) => (
+                <div key={i} className="rounded-2xl border border-white/10 bg-white/5 p-6 hover:border-[#b3001e]/40 hover:bg-white/10 transition-all">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 shrink-0 rounded-lg bg-[#b3001e]/20 flex items-center justify-center">
+                      <FileText size={16} className="text-[#b3001e]" />
+                    </div>
+                    <div>
+                      <h4 className="text-[15px] font-bold text-white leading-snug">{item.q}</h4>
+                      <p className="mt-2 text-sm text-white/60 leading-relaxed">{item.a}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* C) Reinforced CTA */}
+          <div className="mt-16 rounded-3xl border border-[#b3001e]/40 bg-[#b3001e]/10 p-8 sm:p-12 text-center">
+            <h3 className="text-2xl sm:text-3xl font-extrabold text-white">
+              {L('La Ley 32-23 es obligatoria. No esperes mas.', 'Law 32-23 is mandatory. Don\'t wait.')}
+            </h3>
+            <p className="mt-3 text-white/70 text-base max-w-2xl mx-auto">
+              {L(
+                'Ya certificamos nuestro propio negocio. Ahora te certificamos a ti, con garantia de 90 dias.',
+                'We already certified our own business. Now we certify yours, with a 90-day warranty.'
+              )}
+            </p>
+            <a href="https://wa.me/18098282971?text=Hola%2C%20quiero%20agendar%20mi%20certificaci%C3%B3n%20e-CF%20con%20Terminal%20X" target="_blank" rel="noopener noreferrer"
+              className="mt-8 inline-flex items-center gap-2 bg-[#b3001e] hover:bg-[#d4002a] px-8 py-4 text-base font-bold text-white rounded-xl shadow-lg shadow-red-500/25 transition-colors">
+              <MessageSquare size={18} />
+              {L('Agenda tu certificacion e-CF', 'Schedule your e-CF certification')}
+              <ArrowRight size={18} />
+            </a>
+          </div>
         </div>
       </section>
 
@@ -983,16 +1139,16 @@ export default function LandingPage({ section }) {
         <div className="max-w-7xl mx-auto text-center">
           <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Empieza hoy', 'Start today')}</p>
           <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">{L('Listo para modernizar tu negocio?', 'Ready to modernize your business?')}</h2>
-          <p className="mt-4 text-lg text-gray-500 max-w-lg mx-auto">{L('Facturacion electronica directa con DGII, sin intermediarios. El unico POS en RD con e-CF directo, modo offline y configuracion remota.', 'Direct electronic invoicing with DGII, no middlemen. The only POS in DR with direct e-CF, offline mode and remote configuration.')}</p>
+          <p className="mt-4 text-lg text-black/60 max-w-lg mx-auto">{L('Facturacion electronica directa con DGII, sin intermediarios. El unico POS en RD con e-CF directo, modo offline y configuracion remota.', 'Direct electronic invoicing with DGII, no middlemen. The only POS in DR with direct e-CF, offline mode and remote configuration.')}</p>
           <p className="mt-3 text-[#b3001e] font-bold text-lg">{L('Desde RD$995/mes. Sin contrato. Sin sorpresas.', 'From RD$995/mo. No contract. No surprises.')}</p>
-          <p className="mt-2 text-sm text-gray-500 font-medium">{L('La Ley 32-23 es obligatoria desde mayo 2026. No esperes a que tu PSFE te resuelva — resuelve tu mismo.', 'Ley 32-23 is mandatory from May 2026. Don\'t wait for your PSFE to figure it out — take control.')}</p>
+          <p className="mt-2 text-sm text-black/60 font-medium">{L('La Ley 32-23 es obligatoria desde mayo 2026. No esperes a que tu PSFE te resuelva — resuelve tu mismo.', 'Ley 32-23 is mandatory from May 2026. Don\'t wait for your PSFE to figure it out — take control.')}</p>
           <div className="flex items-center justify-center gap-4 flex-wrap mt-10">
             <button onClick={() => navigate('/signup?plan=pro_plus')}
               className="bg-[#b3001e] hover:bg-[#d4002a] px-6 py-3 text-sm font-bold text-white rounded-lg transition-colors shadow-lg shadow-red-500/25">
               {L('Empezar ahora', 'Start now')} <ArrowRight size={16} className="inline ml-1" />
             </button>
             <a href="https://wa.me/18098282971?text=Hola%2C%20quiero%20informacion%20sobre%20Terminal%20X" target="_blank" rel="noopener noreferrer"
-              className="border border-gray-300 text-gray-700 hover:border-gray-400 hover:shadow-lg px-6 py-3 text-sm font-bold rounded-lg transition-all">
+              className="border border-black/20 text-black/80 hover:border-black/40 hover:shadow-lg px-6 py-3 text-sm font-bold rounded-lg transition-all">
               {L('Hablar por WhatsApp', 'Chat on WhatsApp')}
             </a>
           </div>

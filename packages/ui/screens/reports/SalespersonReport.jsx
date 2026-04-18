@@ -239,8 +239,21 @@ export default function SalespersonReport() {
   // Load sellers + biz once on mount
   useEffect(() => {
     if (!allowed) return
-    api.sellers.allAdmin()
-      .then(rows => setSellers(rows || []))
+    // Post-v2.1 canonical source: empleados table, filtered by tipo (vendedor/hybrid).
+    // Map commission_pct <- comision_pct so existing UI keeps working.
+    api.empleados?.allAdmin?.()
+      .then(rows => {
+        const filtered = (rows || [])
+          .filter(e => e.tipo === 'vendedor' || e.tipo === 'hybrid')
+          .map(e => ({
+            id: e.id,
+            supabase_id: e.supabase_id,
+            name: e.nombre,
+            commission_pct: e.comision_pct || 0,
+            tipo: e.tipo,
+          }))
+        setSellers(filtered)
+      })
       .catch(() => setSellers([]))
     api.admin?.getEmpresa?.().then(e => {
       if (e) setBiz({ name: e.name || e.nombre, rnc: e.rnc, address: e.address || e.direccion, phone: e.phone || e.telefono, email: e.email, logo: e.logo })
@@ -263,20 +276,29 @@ export default function SalespersonReport() {
 
   // ── Group tickets by seller ──────────────────────────────────────────────
   const sellerSummaries = useMemo(() => {
-    // Map seller_id → seller record for commission_pct lookup
-    const sellerMap = Object.fromEntries(sellers.map(s => [s.id, s]))
+    // Index sellers (empleados-sourced) by supabase_id and legacy id for
+    // dual-key lookup during the v2.1 schema transition.
+    const sellerBySid = Object.fromEntries(sellers.filter(s => s.supabase_id).map(s => [s.supabase_id, s]))
+    const sellerById  = Object.fromEntries(sellers.map(s => [s.id, s]))
 
-    // Group tickets by seller_id (fall back to cajero_name if no seller_id)
+    // Group tickets by empleado_supabase_id first; fall back to seller_supabase_id,
+    // then legacy seller_id, and finally cajero_name when no linkage exists.
     const groups = {}
     for (const t of tickets) {
       if (t.status === 'void') continue  // skip voided
-      const sid   = t.seller_id ?? null
-      const key   = sid != null ? `id:${sid}` : `name:${t.cajero_name || 'Sin asignar'}`
+      const empSid = t.empleado_supabase_id ?? t.seller_supabase_id ?? null
+      const legacyId = empSid == null ? (t.seller_id ?? null) : null
+      const key = empSid != null ? `sid:${empSid}`
+                : legacyId != null ? `id:${legacyId}`
+                : `name:${t.cajero_name || 'Sin asignar'}`
       if (!groups[key]) {
-        const seller = sid != null ? sellerMap[sid] : null
+        const seller = empSid != null
+          ? (sellerBySid[empSid] || null)
+          : (legacyId != null ? (sellerById[legacyId] || null) : null)
         groups[key] = {
           key,
-          sellerId:      sid,
+          sellerId:      seller?.id ?? legacyId,
+          supabaseId:    seller?.supabase_id ?? empSid,
           name:          seller?.name ?? t.cajero_name ?? L('Sin asignar', 'Unassigned'),
           commissionPct: seller?.commission_pct ?? 0,
           tickets:       [],
