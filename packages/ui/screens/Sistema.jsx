@@ -196,19 +196,6 @@ function DrawerTester({ printerApi, cfg, set, persistKey, show, L }) {
           className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold border border-slate-200 dark:border-white/10 rounded-lg text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 whitespace-nowrap">
           {L('Abrir Caja', 'Open Drawer')}
         </button>
-        <span className="text-[10px] text-slate-400 dark:text-white/40 ml-1">{L('Variantes:', 'Variants:')}</span>
-        {Array.from({ length: total }, (_, i) => (
-          <button key={i} onClick={() => fireVariant(i)} disabled={autoIdx !== null}
-            className={`w-8 h-8 rounded-lg text-[12px] font-bold transition-all disabled:opacity-40 ${
-              (autoIdx === i)
-                ? 'bg-amber-500 text-white border-2 border-amber-500 animate-pulse'
-                : selected === i
-                  ? 'bg-[#b3001e] text-white border-2 border-[#b3001e] shadow-sm'
-                  : 'bg-white dark:bg-white/5 text-slate-600 dark:text-white/60 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/10'
-            }`}>
-            {i + 1}
-          </button>
-        ))}
         {autoIdx === null ? (
           <button onClick={startAutoDetect}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold bg-sky-50 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/30 rounded-lg text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-500/20 whitespace-nowrap">
@@ -226,6 +213,30 @@ function DrawerTester({ printerApi, cfg, set, persistKey, show, L }) {
             </button>
           </>
         )}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[10px] text-slate-400 dark:text-white/40">{L('Variantes:', 'Variants:')}</span>
+        {[[0, 5], [5, total]].map(([start, end], rowIdx) => (
+          end > start && (
+            <div key={rowIdx} className="flex items-center gap-1.5">
+              {Array.from({ length: end - start }, (_, j) => {
+                const i = start + j
+                return (
+                  <button key={i} onClick={() => fireVariant(i)} disabled={autoIdx !== null}
+                    className={`w-8 h-8 rounded-lg text-[12px] font-bold transition-all disabled:opacity-40 ${
+                      (autoIdx === i)
+                        ? 'bg-amber-500 text-white border-2 border-amber-500 animate-pulse'
+                        : selected === i
+                          ? 'bg-[#b3001e] text-white border-2 border-[#b3001e] shadow-sm'
+                          : 'bg-white dark:bg-white/5 text-slate-600 dark:text-white/60 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/10'
+                    }`}>
+                    {i + 1}
+                  </button>
+                )
+              })}
+            </div>
+          )
+        ))}
       </div>
       {autoIdx !== null && (
         <p className="text-[11px] text-amber-700 dark:text-amber-300">
@@ -252,6 +263,9 @@ const SISTEMA_DEFAULTS = {
   drawer_pulse_hex:     '',
   whatsapp_instance:    '',
   whatsapp_token:       '',
+  wa_listo_template:    '',
+  wa_balance_template:  '',
+  biz_bank_accounts:    '',
   // v2.3 — Multi-POS (NCF/doc_number block allocation, oversell detection).
   // OFF by default; Pro MAX only. See docs/MULTI-POS-ARCHITECTURE.md.
   multi_pos_enabled:    '0',
@@ -577,6 +591,33 @@ export function WhatsAppSettings() {
         </SettingRow>
         <SettingRow label="Token" hint={L('Token de autenticacion', 'Auth token')}>
           <Input type="text" value={cfg.whatsapp_token} onChange={e => set('whatsapp_token', e.target.value)} placeholder="token..." className="w-44" />
+        </SettingRow>
+        <SettingRow label={L('Mensaje "Vehículo Listo"', 'Vehicle Ready Message')} hint={L('Placeholders: {cliente} {vehiculo} {ticket} {biz}', 'Placeholders: {cliente} {vehiculo} {ticket} {biz}')}>
+          <textarea
+            value={cfg.wa_listo_template}
+            onChange={e => set('wa_listo_template', e.target.value)}
+            rows={3}
+            placeholder={L('Tu mensaje aquí. Ej: Hola {cliente}, tu vehículo {vehiculo} está listo en {biz}.', 'Your message here. E.g. Hi {cliente}, your vehicle {vehiculo} is ready at {biz}.')}
+            className="flex-1 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 resize-none"
+          />
+        </SettingRow>
+        <SettingRow label={L('Mensaje "Saldo Pendiente"', 'Balance Reminder Message')} hint={L('Placeholders: {cliente} {saldo} {cuentas} {biz}', 'Placeholders: {cliente} {saldo} {cuentas} {biz}')}>
+          <textarea
+            value={cfg.wa_balance_template}
+            onChange={e => set('wa_balance_template', e.target.value)}
+            rows={4}
+            placeholder={L('Tu mensaje aquí. Ej: Hola {cliente}, tu saldo pendiente con {biz} es {saldo}. Cuentas para pagar:\n{cuentas}', 'Your message here. E.g. Hi {cliente}, your pending balance with {biz} is {saldo}. Accounts:\n{cuentas}')}
+            className="flex-1 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 resize-none"
+          />
+        </SettingRow>
+        <SettingRow label={L('Cuentas Bancarias', 'Bank Accounts')} hint={L('Un banco/cuenta por línea. Usado como {cuentas} en los mensajes.', 'One bank/account per line. Used as {cuentas} in messages.')}>
+          <textarea
+            value={cfg.biz_bank_accounts}
+            onChange={e => set('biz_bank_accounts', e.target.value)}
+            rows={3}
+            placeholder={L('Banco Popular 000-123456-7\nBanreservas 000-987654-3', 'Banco Popular 000-123456-7\nBanreservas 000-987654-3')}
+            className="flex-1 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 resize-none font-mono"
+          />
         </SettingRow>
       </SettingSection>
       <div className="flex justify-end mt-2">

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, Plus, ChevronDown, CheckCircle2, Loader2, RefreshCw, AlertCircle, Trash2, Pencil, Lock } from 'lucide-react'
+import { Search, Plus, ChevronDown, CheckCircle2, Loader2, RefreshCw, AlertCircle, Trash2, Pencil, Lock, MessageCircle } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI, usePrinterAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -20,9 +20,14 @@ const STATUS = {
 }
 
 // DB status → UI status
-const FROM_DB  = { waiting: 'pendiente', in_progress: 'proceso', done: 'listo' }
+// v2.3.30 — `ready` introduced so "listo" (green) stays visible in Cola until
+// cashier explicitly Cobrars. Previously listo mapped to DB 'done', which the
+// queue.active filter excluded → the row silently disappeared when the lavador
+// marked it ready. 'done' still maps back to listo so any legacy rows keep
+// rendering correctly on older data.
+const FROM_DB  = { waiting: 'pendiente', in_progress: 'proceso', ready: 'listo', done: 'listo' }
 // UI status → DB status
-const TO_DB    = { pendiente: 'waiting', proceso: 'in_progress', listo: 'done' }
+const TO_DB    = { pendiente: 'waiting', proceso: 'in_progress', listo: 'ready' }
 // UI cycle order
 const CYCLE_UI = { pendiente: 'proceso', proceso: 'listo', listo: 'listo' }
 
@@ -54,7 +59,9 @@ function mapRow(row) {
     ticketNo:    row.doc_number || `Q-${row.id}`,
     plate,
     clientName:  client,
+    clientPhone: (row.client_phone || '').trim() || null,
     vehicle,
+    queueCreatedAt: row.created_at || null,
     servicesStr: row.services || '',
     services:    (row.services || '').split(' + ').filter(Boolean).map(n => ({ name: n, price: 0 })),
     worker:      (row.empleado_supabase_id || row.washer_supabase_id || fullWasher)
@@ -95,7 +102,7 @@ function AssignDropdown({ ticketId, washers, onAssign, onClose }) {
 
 // ── Mobile card for queue ──────────────────────────────────────────────────────
 
-function QueueCard({ ticket, washers, assigningId, setAssigningId, onCycle, onAssign, onCobrar, onDelete, onEditPrice, lang }) {
+function QueueCard({ ticket, washers, assigningId, setAssigningId, onCycle, onAssign, onCobrar, onNotify, onDelete, onEditPrice, lang }) {
   const sc   = STATUS[ticket.status]
   const main = ticket.services[0]?.name || ticket.servicesStr
 
@@ -148,6 +155,15 @@ function QueueCard({ ticket, washers, assigningId, setAssigningId, onCycle, onAs
           {lang === 'es' ? sc.es : sc.en}
           <ChevronDown size={9} className="ml-0.5 opacity-50" />
         </button>
+        {ticket.status === 'listo' && ticket.clientPhone && (
+          <button
+            onClick={() => onNotify?.(ticket)}
+            title={lang === 'es' ? 'Notificar al cliente por WhatsApp' : 'Notify client via WhatsApp'}
+            className="p-2 text-emerald-600 hover:text-white hover:bg-emerald-500 rounded-lg min-h-[44px] min-w-[44px] flex items-center justify-center border border-emerald-200 dark:border-emerald-500/30 transition-all active:scale-95"
+          >
+            <MessageCircle size={16} />
+          </button>
+        )}
         {ticket.status === 'listo' && (
           <button
             onClick={() => onCobrar(ticket)}
@@ -170,7 +186,7 @@ function QueueCard({ ticket, washers, assigningId, setAssigningId, onCycle, onAs
 
 // ── Desktop table row ─────────────────────────────────────────────────────────
 
-function QueueRow({ ticket, washers, assigningId, setAssigningId, onCycle, onAssign, onCobrar, onDelete, onEditPrice, lang }) {
+function QueueRow({ ticket, washers, assigningId, setAssigningId, onCycle, onAssign, onCobrar, onNotify, onDelete, onEditPrice, lang }) {
   const sc   = STATUS[ticket.status]
   const main = ticket.services[0]?.name || ticket.servicesStr
   const extra = ticket.services.length - 1
@@ -253,6 +269,15 @@ function QueueRow({ ticket, washers, assigningId, setAssigningId, onCycle, onAss
           <ChevronDown size={9} className="ml-0.5 opacity-50" />
         </button>
 
+        {ticket.status === 'listo' && ticket.clientPhone && (
+          <button
+            onClick={() => onNotify?.(ticket)}
+            title={lang === 'es' ? 'Notificar al cliente por WhatsApp' : 'Notify client via WhatsApp'}
+            className="p-1.5 text-emerald-600 hover:text-white hover:bg-emerald-500 rounded-lg transition-all shrink-0 active:scale-95 border border-emerald-200 dark:border-emerald-500/30"
+          >
+            <MessageCircle size={14} />
+          </button>
+        )}
         <button
           onClick={() => onCobrar(ticket)}
           className={`px-3 py-1.5 bg-green-500 hover:bg-green-400 text-white text-[11px] font-bold rounded-lg transition-all active:scale-95 shrink-0 ${
@@ -503,6 +528,33 @@ export default function Queue() {
     }
   }
 
+  // v2.3.29 — WhatsApp "car is ready" notifier. Fires from the listo row's
+  // green message-circle icon. Uses template from Settings → WhatsApp, falls
+  // back to a sensible default. Doesn't block the cobrar flow — cashier still
+  // has to explicitly click Cobrar when the client arrives.
+  async function notifyReady(ticket) {
+    const phone = (ticket.clientPhone || '').replace(/\D/g, '')
+    if (!phone) { flash(lang === 'es' ? 'Cliente sin teléfono' : 'Client has no phone'); return }
+    const to = phone.length === 10 && (phone[0] === '8' || phone[0] === '9') ? '1' + phone
+             : phone.length === 11 && phone[0] === '1' ? phone : phone
+    try {
+      const s = await api?.settings?.get?.()
+      const bizName = s?.biz_name || 'Terminal X'
+      const tpl = (s?.wa_listo_template || '').trim() ||
+        (lang === 'es'
+          ? `Hola {cliente}, tu vehículo {vehiculo} ya está listo para recoger en ${bizName}. ¡Gracias!`
+          : `Hi {cliente}, your vehicle {vehiculo} is ready for pickup at ${bizName}. Thanks!`)
+      const body = tpl
+        .replace(/\{cliente\}/g, ticket.clientName || '')
+        .replace(/\{vehiculo\}/g, ticket.plate || ticket.vehicle || '')
+        .replace(/\{ticket\}/g, ticket.ticketNo || '')
+        .replace(/\{biz\}/g, bizName)
+      const r = await api?.whatsapp?.send?.({ to, body })
+      if (r?.success || r === true || r?.ok) flash(lang === 'es' ? 'WhatsApp enviado ✓' : 'WhatsApp sent ✓')
+      else flash(lang === 'es' ? 'No se pudo enviar WhatsApp' : 'Could not send WhatsApp')
+    } catch (e) { flash(`Error: ${e.message || e}`) }
+  }
+
   async function cobrar(ticket) {
     setLoadingTicket(true)
     try {
@@ -606,6 +658,7 @@ export default function Queue() {
         address: empresa?.direccion || empresa?.address || '',
         phone:   empresa?.telefono  || empresa?.phone   || '',
         rnc:     empresa?.rnc       || '',
+        settings: empresa?.settings || {},
       }
       const services = snapshot.services || []
       const subtotal  = services.reduce((s, i) => s + (i.price || 0), 0)
@@ -842,6 +895,7 @@ export default function Queue() {
                   onCycle={cycleStatus}
                   onAssign={assignWorker}
                   onCobrar={cobrar}
+                  onNotify={notifyReady}
                   onDelete={t => setDeleteConfirm(t)}
                   onEditPrice={t => setPriceChangeModal(t)}
                   lang={lang}
@@ -860,6 +914,7 @@ export default function Queue() {
                   onCycle={cycleStatus}
                   onAssign={assignWorker}
                   onCobrar={cobrar}
+                  onNotify={notifyReady}
                   onDelete={t => setDeleteConfirm(t)}
                   onEditPrice={t => setPriceChangeModal(t)}
                   lang={lang}

@@ -1373,8 +1373,8 @@ export function createWebAPI(supabase, businessId) {
 
     tickets: {
       all: (params = {}) => tryOr(async () => {
-        const { dateFrom, dateTo, status, limit = 200 } = params
-        const safeLimit = Math.min(limit || 200, 500)
+        const { dateFrom, dateTo, status, limit = 5000 } = params
+        const safeLimit = Math.min(limit || 5000, 50000)
         let q = supabase.from('tickets').select('*').eq('business_id', bid)
         if (dateFrom) q = q.gte('created_at', dateFrom)
         if (dateTo)   q = q.lte('created_at', dateTo)
@@ -1874,11 +1874,11 @@ export function createWebAPI(supabase, businessId) {
         const washerMap = {}
         if (wSids.length)  { const { data: wr } = await supabase.from('empleados').select('supabase_id, nombre').in('supabase_id', wSids); for (const w of (wr || [])) washerMap[w.supabase_id] = w.nombre }
 
-        // Resolve clients
+        // Resolve clients (name + phone for WhatsApp "listo" notification)
         const allTickets = Object.values(ticketMap)
         const cSids  = [...new Set(allTickets.map(t => t.client_supabase_id).filter(Boolean))]
         const clientMap = {}
-        if (cSids.length)  { const { data: cls } = await supabase.from('clients').select('supabase_id, name').in('supabase_id', cSids); for (const c of (cls || [])) clientMap[c.supabase_id] = c.name }
+        if (cSids.length)  { const { data: cls } = await supabase.from('clients').select('supabase_id, name, phone').in('supabase_id', cSids); for (const c of (cls || [])) clientMap[c.supabase_id] = c }
 
         // Resolve ticket items
         const itemsMap = {}
@@ -1895,7 +1895,8 @@ export function createWebAPI(supabase, businessId) {
             total:          t.total          || 0,
             vehicle_plate:  t.vehicle_plate  || null,
             ticket_created: t.created_at     || null,
-            client_name:    clientMap[cKey]   || null,
+            client_name:    clientMap[cKey]?.name || null,
+            client_phone:   clientMap[cKey]?.phone || null,
             services:       (itemsMap[tKey] || []).join(' + '),
             washer_name:    washerMap[wKey]   || null,
           }
@@ -1906,9 +1907,10 @@ export function createWebAPI(supabase, businessId) {
         const { id, status, washerId } = data
         const now = new Date().toISOString()
         const patch = { status }
+        // washerId is the lavador's empleados.supabase_id (UUID). Save it
+        // regardless of status so a later listo→ready transition keeps the assignee.
+        if (washerId) patch.washer_supabase_id = washerId
         if (status === 'in_progress') {
-          // washerId is the lavador's empleados.supabase_id (UUID)
-          if (washerId) patch.washer_supabase_id = washerId
           patch.assigned_at = now
         } else if (status === 'done') {
           patch.completed_at = now

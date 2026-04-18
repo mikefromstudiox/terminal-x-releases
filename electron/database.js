@@ -2365,10 +2365,11 @@ function empleadosGetAllAdmin() {
 function empleadoCreate(data) {
   if (!db) return null
   const sid = crypto.randomUUID()
-  const r = db.prepare(`INSERT INTO empleados(nombre,tipo,ref_id,salary,start_date,cedula,phone,puesto,email,bank_account,tss_id,role,active,supabase_id)
-    VALUES(@nombre,@tipo,@ref_id,@salary,@start_date,@cedula,@phone,@puesto,@email,@bank_account,@tss_id,@role,1,@supabase_id)`).run({
+  const r = db.prepare(`INSERT INTO empleados(nombre,tipo,ref_id,salary,comision_pct,start_date,cedula,phone,puesto,email,bank_account,tss_id,role,active,supabase_id)
+    VALUES(@nombre,@tipo,@ref_id,@salary,@comision_pct,@start_date,@cedula,@phone,@puesto,@email,@bank_account,@tss_id,@role,1,@supabase_id)`).run({
     nombre: data.nombre, tipo: data.tipo, ref_id: data.ref_id || null,
-    salary: data.salary || 0, start_date: data.start_date,
+    salary: data.salary || 0, comision_pct: data.comision_pct || 0,
+    start_date: data.start_date,
     cedula: data.cedula || null, phone: data.phone || null,
     puesto: data.puesto || null, email: data.email || null,
     bank_account: data.bank_account || null, tss_id: data.tss_id || null,
@@ -2393,7 +2394,7 @@ function empleadoCreate(data) {
 }
 function empleadoUpdate(id, data) {
   if (!db) return
-  const allowed = ['nombre','tipo','ref_id','salary','start_date','cedula','phone','puesto','email','bank_account','tss_id','role','active']
+  const allowed = ['nombre','tipo','ref_id','salary','comision_pct','start_date','cedula','phone','puesto','email','bank_account','tss_id','role','active']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
 
@@ -3050,9 +3051,12 @@ function collectCredit({ clientId, ticketIds, amount, paymentMethod, ncf, notes,
 }
 
 // ── TICKETS ───────────────────────────────────────────────────────────────────
-function ticketsGetAll({ dateFrom, dateTo, status, limit = 200 } = {}) {
+function ticketsGetAll({ dateFrom, dateTo, status, limit = 5000 } = {}) {
   if (!db) return []
-  const safeLimit = Math.min(limit || 200, 500)
+  // Bumped from 500 after the StarSISA migration landed 11.5 months of history
+  // (7,557 tickets). Carwashes doing 500+/mo need to see the full month in one
+  // view. 50k is the new hard cap — enough for any reasonable dateFrom/dateTo.
+  const safeLimit = Math.min(limit || 5000, 50000)
   let sql  = `SELECT t.*, c.name as client_name, c.rnc as client_rnc,
                      u.name as cajero_name,
                      GROUP_CONCAT(ti.name, ' + ') as service_names
@@ -3606,7 +3610,7 @@ function queueGetActive() {
   try {
     return db.prepare(
       `SELECT q.*, t.doc_number, t.total, t.vehicle_plate, t.created_at as ticket_created,
-              c.name as client_name,
+              c.name as client_name, c.phone as client_phone,
               GROUP_CONCAT(ti.name, ' + ') as services,
               e.nombre as washer_name
        FROM queue q
@@ -3635,7 +3639,17 @@ function queueUpdateStatus(id, status, washerId = null) {
     }
   }
   if (status === 'in_progress') {
-    db.prepare(`UPDATE queue SET status=?,empleado_supabase_id=?,assigned_at=? WHERE id=?`).run(status, empSid, now, id)
+    if (empSid) {
+      db.prepare(`UPDATE queue SET status=?,empleado_supabase_id=?,assigned_at=? WHERE id=?`).run(status, empSid, now, id)
+    } else {
+      db.prepare(`UPDATE queue SET status=?,assigned_at=? WHERE id=?`).run(status, now, id)
+    }
+  } else if (status === 'ready') {
+    if (empSid) {
+      db.prepare(`UPDATE queue SET status=?,empleado_supabase_id=? WHERE id=?`).run(status, empSid, id)
+    } else {
+      db.prepare(`UPDATE queue SET status=? WHERE id=?`).run(status, id)
+    }
   } else if (status === 'done') {
     db.prepare(`UPDATE queue SET status=?,completed_at=? WHERE id=?`).run(status, now, id)
   } else {
