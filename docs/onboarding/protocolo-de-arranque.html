@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="es-DO">
+<head>
+<meta charset="utf-8" />
+<title>Terminal X — Protocolo de Arranque</title>
+<style>
+  :root { --red:#b3001e; --ink:#0a0a0a; --muted:#555; --line:#e5e5e5; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; color:var(--ink); font-size:11.5pt; line-height:1.55; background:#fff; }
+  .page { padding:48pt 54pt; max-width:820pt; margin:0 auto; }
+  h1,h2,h3,h4 { font-family:"Segoe UI",-apple-system,Roboto,Arial,sans-serif; color:var(--ink); }
+  h1 { font-size:30pt; line-height:1.15; margin:0 0 6pt 0; letter-spacing:-0.5pt; }
+  h2 { font-size:22pt; margin:36pt 0 12pt 0; border-bottom:3pt solid var(--red); padding-bottom:6pt; letter-spacing:-0.3pt; page-break-before:always; }
+  h2:first-of-type { page-break-before:avoid; }
+  h3 { font-size:14pt; margin:18pt 0 6pt 0; color:var(--red); }
+  h4 { font-size:12pt; margin:14pt 0 4pt 0; }
+  p { margin:6pt 0; }
+  ul, ol { margin:6pt 0 6pt 18pt; padding:0; }
+  li { margin:3pt 0; }
+  code { font-family:"Consolas","Courier New",monospace; background:#f4f4f4; padding:1pt 4pt; border-radius:3pt; font-size:10pt; }
+  pre { background:#0a0a0a; color:#fff; padding:10pt 12pt; border-radius:4pt; font-family:"Consolas",monospace; font-size:9.5pt; line-height:1.45; overflow:hidden; white-space:pre-wrap; word-break:break-word; }
+  table { width:100%; border-collapse:collapse; margin:10pt 0; font-size:10.5pt; }
+  th, td { border:1pt solid var(--line); padding:6pt 8pt; text-align:left; vertical-align:top; }
+  th { background:#0a0a0a; color:#fff; font-weight:600; }
+  tr:nth-child(even) td { background:#fafafa; }
+  .cover { text-align:left; padding:110pt 54pt 60pt 54pt; background:#0a0a0a; color:#fff; min-height:860pt; page-break-after:always; }
+  .cover .x { color:var(--red); font-weight:900; font-size:120pt; line-height:1; letter-spacing:-6pt; margin-bottom:20pt; }
+  .cover h1 { color:#fff; font-size:48pt; margin-bottom:12pt; letter-spacing:-1pt; }
+  .cover .sub { color:#d0d0d0; font-size:17pt; max-width:520pt; line-height:1.35; }
+  .cover .meta { margin-top:80pt; color:#999; font-size:11pt; border-top:1pt solid #333; padding-top:16pt; }
+  .cover .meta strong { color:#fff; }
+  .pill { display:inline-block; background:var(--red); color:#fff; font-size:10pt; font-weight:700; padding:2pt 12pt; border-radius:999pt; letter-spacing:0.3pt; text-transform:uppercase; }
+  .phase-pill { display:inline-block; background:var(--red); color:#fff; font-size:10pt; font-weight:700; padding:3pt 14pt; border-radius:999pt; margin-right:10pt; letter-spacing:0.3pt; text-transform:uppercase; }
+  .note { background:#fff8f8; border-left:3pt solid var(--red); padding:10pt 14pt; margin:10pt 0; border-radius:3pt; }
+  .ok   { background:#f4faf5; border-left:3pt solid #1a8a3c; padding:10pt 14pt; margin:10pt 0; border-radius:3pt; }
+  .warn { background:#fffaf0; border-left:3pt solid #d97706; padding:10pt 14pt; margin:10pt 0; border-radius:3pt; }
+  .check { list-style:none; margin-left:0; padding-left:0; }
+  .check li { padding-left:22pt; position:relative; margin:5pt 0; }
+  .check li::before { content:"☐"; position:absolute; left:0; color:var(--red); font-size:14pt; line-height:1; top:0; }
+  .meta-row { display:grid; grid-template-columns:140pt 1fr; gap:6pt 14pt; font-size:10.5pt; margin:10pt 0 14pt 0; }
+  .meta-row dt { font-weight:700; color:var(--muted); }
+  .meta-row dd { margin:0; color:var(--ink); }
+  .template { background:#f9f9f9; border:1pt dashed #aaa; padding:12pt 14pt; border-radius:4pt; font-family:"Segoe UI",sans-serif; font-size:10.5pt; line-height:1.5; white-space:pre-wrap; margin:8pt 0; }
+  .toc { background:#fafafa; padding:18pt 22pt; border-radius:4pt; margin-top:18pt; }
+  .toc ol { margin-left:22pt; }
+  .toc li { margin:4pt 0; font-size:12pt; }
+  .section-lead { color:var(--muted); font-style:italic; margin-bottom:14pt; font-size:12pt; }
+  hr { border:none; border-top:1pt solid var(--line); margin:18pt 0; }
+  .badge-cashier { background:#eef; color:#234; }
+  .badge-manager { background:#ffe; color:#552; }
+  .badge-owner   { background:#fee; color:var(--red); }
+  .small { font-size:9.5pt; color:var(--muted); }
+  @media print {
+    .cover { page-break-after:always; }
+    h2 { page-break-before:always; }
+    h3 { page-break-after:avoid; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ─────────── COVER ─────────── -->
+<section class="cover">
+  <div class="x">X</div>
+  <h1>Protocolo de Arranque</h1>
+  <p class="sub">La guía oficial para instalar, configurar y poner en producción un nuevo cliente Terminal X en 5 fases.</p>
+  <div class="meta">
+    <strong>Versión 1.0</strong> · abril 2026 · Uso interno Studio X<br>
+    Actualizar esta guía con cada nueva versión mayor del producto.
+  </div>
+</section>
+
+<div class="page">
+
+<!-- ─────────── INTRO ─────────── -->
+<h1>Qué es esto</h1>
+<p class="section-lead">El <strong>Protocolo de Arranque</strong> (PAT-5) es nuestra secuencia estandarizada de 5 fases para llevar a un cliente nuevo desde "firmó" hasta "está vendiendo en Terminal X" sin perder ningún paso crítico. Úsala como checklist en cada instalación.</p>
+
+<div class="ok">
+  <strong>Objetivo del PAT-5:</strong> un cliente puede vender su primera factura en Terminal X dentro de las 48 horas de haber firmado — con su inventario, su personal, sus precios y su tarjeta de gerente listos.
+</div>
+
+<div class="toc">
+  <strong>Índice de fases</strong>
+  <ol>
+    <li>Fase 1 — <strong>Preparación</strong> · recolección de datos</li>
+    <li>Fase 2 — <strong>Montaje</strong> · provisión técnica</li>
+    <li>Fase 3 — <strong>Categorización &amp; Precios</strong> · carga del catálogo</li>
+    <li>Fase 4 — <strong>Entrenamiento</strong> · capacitación del personal</li>
+    <li>Fase 5 — <strong>Lanzamiento &amp; Acompañamiento</strong> · go-live + seguimiento</li>
+  </ol>
+</div>
+
+<h3>Roles en el protocolo</h3>
+<table>
+  <tr><th>Rol</th><th>Quién</th><th>Responsabilidad</th></tr>
+  <tr><td>Cliente Lead</td><td>Dueño del negocio</td><td>Provee información, aprueba, firma</td></tr>
+  <tr><td>Agente PAT</td><td>Nuevo hire Studio X</td><td>Ejecuta las 5 fases en orden</td></tr>
+  <tr><td>Ingeniero</td><td>Mike / dev</td><td>Solo se involucra si Fase 2 se rompe</td></tr>
+  <tr><td>Soporte</td><td>WhatsApp +1 (809) 828-2971</td><td>Toma el relevo al terminar la Fase 5</td></tr>
+</table>
+
+<!-- ─────────── FASE 1 ─────────── -->
+<h2><span class="phase-pill">Fase 1</span>Preparación</h2>
+<p class="section-lead">Recolectar toda la información antes de tocar una sola pantalla. Si la Fase 1 queda incompleta, la Fase 2 falla.</p>
+
+<dl class="meta-row">
+  <dt>Objetivo</dt><dd>Tener el 100% de los datos del cliente en un solo archivo antes de empezar la instalación técnica.</dd>
+  <dt>Responsable</dt><dd>Agente PAT</dd>
+  <dt>Tiempo estimado</dt><dd>1 a 3 días (depende de la rapidez del cliente)</dd>
+  <dt>Inputs necesarios</dt><dd>Teléfono o WhatsApp del dueño</dd>
+  <dt>Criterio de "Hecho"</dt><dd>Las tres plantillas de abajo están todas respondidas y archivadas.</dd>
+</dl>
+
+<h3>Checklist de la Fase 1</h3>
+<ul class="check">
+  <li>Enviar al cliente la <strong>plantilla de datos del negocio</strong> por WhatsApp</li>
+  <li>Enviar la <strong>plantilla de acceso</strong> (email + contraseña)</li>
+  <li>Enviar la <strong>plantilla de cajeras/empleados</strong></li>
+  <li>Pedir el <strong>inventario en Excel, CSV o foto</strong> del sistema actual</li>
+  <li>Pedir la <strong>lista de precios de canales alternos</strong> (Pedidos Ya, Uber Eats, etc.) si aplica</li>
+  <li>Pedir el <strong>logo en PNG</strong> (opcional pero recomendado)</li>
+  <li>Confirmar el <strong>tipo de negocio</strong>: licorería, tienda, lavadero, restaurante, salón, mecánica, servicios, préstamos, concesionario</li>
+  <li>Guardar todos los mensajes en una carpeta del cliente</li>
+</ul>
+
+<h3>Plantilla 1 — Datos del negocio</h3>
+<div class="template">Hola! Para dejarte montada tu cuenta de Terminal X con todos tus productos ya cargados, necesito estos datos:
+
+1️⃣ Datos del negocio
+• Nombre comercial (como quieres que salga en las facturas)
+• RNC o Cédula del negocio (si tienes)
+• Teléfono principal
+• Dirección / Ciudad
+• Logo (opcional, en PNG si lo tienes)</div>
+
+<h3>Plantilla 2 — Acceso del dueño</h3>
+<div class="template">2️⃣ Acceso del dueño (tu login)
+• Correo electrónico con el que vas a entrar
+• Contraseña que quieras usar (mínimo 8 caracteres)
+• PIN de 4 dígitos para el interior del sistema
+• Tu nombre completo</div>
+
+<h3>Plantilla 3 — Cajeras / empleados</h3>
+<div class="template">3️⃣ Cajeras / empleados
+Por cada cajera mándame:
+• Nombre completo
+• Cédula (opcional)
+• Usuario corto (ej: maria, ana)
+• PIN de 4 dígitos
+• Rol: cajera / manager / vendedora</div>
+
+<div class="warn">
+  <strong>Trampa común:</strong> El cliente manda "todo" en un bloque de texto. Léelo línea por línea y rellena cada campo. Si falta el PIN del dueño, usa <code>0000</code> como placeholder y márcalo en rojo en la nota de handoff para que lo cambien en la primera sesión.
+</div>
+
+<!-- ─────────── FASE 2 ─────────── -->
+<h2><span class="phase-pill">Fase 2</span>Montaje</h2>
+<p class="section-lead">Toda la configuración técnica en Supabase + importación de datos. El cliente no necesita estar presente.</p>
+
+<dl class="meta-row">
+  <dt>Objetivo</dt><dd>La cuenta del cliente existe en Supabase con el inventario cargado, las cajeras creadas y el tipo de negocio correcto.</dd>
+  <dt>Responsable</dt><dd>Agente PAT</dd>
+  <dt>Tiempo estimado</dt><dd>30 a 60 minutos</dd>
+  <dt>Inputs necesarios</dt><dd>Fase 1 completa</dd>
+  <dt>Criterio de "Hecho"</dt><dd>El Agente PAT puede loguearse con las credenciales del cliente y ver el catálogo cargado en la pantalla POS.</dd>
+</dl>
+
+<h3>Checklist de la Fase 2</h3>
+<ul class="check">
+  <li>Convertir el inventario del cliente a CSV Terminal X (columnas: <code>SKU, Barcode, Name, Category, Price, Cost, Stock, Min Stock</code>)</li>
+  <li>Crear o adaptar el script <code>scripts/provision-&lt;cliente&gt;.mjs</code></li>
+  <li>Ejecutar el script — genera: auth user, business, license, NCF sequences, staff, y carga todo el CSV</li>
+  <li>Confirmar en Supabase que la tabla <code>app_settings</code> tiene la fila <code>business_type</code> correcta (sin esto la UI muestra carwash por defecto)</li>
+  <li>Confirmar que <code>inventory_items</code> tiene la cantidad esperada de filas</li>
+  <li>Loguear en terminalxpos.com/pos con el email del cliente y verificar que el sidebar se ve correcto según el tipo de negocio</li>
+  <li>Guardar las credenciales finales en la carpeta del cliente</li>
+</ul>
+
+<h3>Conversión de Excel → CSV Terminal X</h3>
+<p>Para inventarios Excel, usar este snippet Node:</p>
+<pre>cd "A:/Studio X HUB/Terminal X" &amp;&amp; node -e "
+const XLSX = require('xlsx'), fs = require('fs')
+const wb = XLSX.readFile('C:/ruta/al/archivo.xls')
+const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, defval:''})
+const products = rows.filter(r =&gt; r[0] &amp;&amp; r[2] &amp;&amp; typeof r[8]==='number')
+const esc = v =&gt; { const s=String(v??''); return /[,\"\n]/.test(s)?'\"'+s.replace(/\"/g,'\"\"')+'\"':s }
+const out = ['SKU,Barcode,Name,Category,Price,Cost,Stock,Min Stock']
+for (const r of products) out.push([esc(r[0]),esc(r[7]||r[0]),esc(r[2]),'General',
+  Number(r[16]||0).toFixed(2),Number(r[8]||0).toFixed(2),Math.max(0,Math.round(r[11]||0)),5].join(','))
+fs.writeFileSync('C:/ruta/cliente-terminalx-import.csv', out.join('\n'))
+"</pre>
+
+<div class="note">
+  <strong>Nota técnica — sembrar app_settings:</strong> El hook <code>useBusinessType()</code> lee del KV <code>app_settings</code>, NO de <code>businesses.settings</code> JSONB. El script de provisión debe hacer upsert en <code>app_settings</code> con keys: <code>business_type, biz_business_type, biz_name, biz_phone, biz_city, biz_rnc, itbis_pct</code>. Sin esto el cliente ve UI de carwash aunque el tipo esté correcto en el business.
+</div>
+
+<h3>Handoff de la Fase 2</h3>
+<p>Al terminar, archivar en la carpeta del cliente un <strong>Informe de Handoff</strong> con:</p>
+<ul>
+  <li>URL: <code>https://terminalxpos.com/pos</code></li>
+  <li>Email + contraseña (del cliente)</li>
+  <li>PIN del dueño + PIN de cada cajera</li>
+  <li>Business ID (UUID de Supabase)</li>
+  <li>License key <code>TXL-XXXX-XXXX-XXXX</code></li>
+  <li>Cantidad de productos cargados</li>
+  <li>Fecha de expiración de trial (30 días)</li>
+</ul>
+
+<!-- ─────────── FASE 3 ─────────── -->
+<h2><span class="phase-pill">Fase 3</span>Categorización &amp; Precios</h2>
+<p class="section-lead">El catálogo bruto entra plano. Esta fase lo vuelve usable en el POS.</p>
+
+<dl class="meta-row">
+  <dt>Objetivo</dt><dd>Cada producto pertenece a una categoría específica, los precios alternos (Pedidos Ya, mayorista) están cargados, y el POS se ve limpio para el cajero.</dd>
+  <dt>Responsable</dt><dd>Agente PAT + dueño del negocio</dd>
+  <dt>Tiempo estimado</dt><dd>30 a 90 minutos (depende del tamaño del catálogo)</dd>
+  <dt>Inputs necesarios</dt><dd>Fase 2 completa + lista de precios Pedidos Ya si aplica</dd>
+  <dt>Criterio de "Hecho"</dt><dd>El dueño puede abrir el POS y encontrar cualquier producto en menos de 3 segundos vía tabs.</dd>
+</dl>
+
+<h3>Checklist de la Fase 3</h3>
+<ul class="check">
+  <li>Definir la <strong>lista de categorías</strong> con el dueño (ej. licorería: Cervezas, Rones, Vinos, Whiskey, Snacks, Refrescos, Cigarrillos, Agua)</li>
+  <li>Abrir <strong>Inventario → Organizar</strong></li>
+  <li>Usar el buscador por keyword (ej. "ron", "cerveza", "vino") para filtrar, luego "Seleccionar todos" + aplicar categoría en lote</li>
+  <li>Repetir hasta que no queden productos en "General"</li>
+  <li>Si hay precios Pedidos Ya — cargarlos vía la columna <strong>PY Precio</strong> en Inventario (edición inline) o re-importar el CSV con la columna <code>precio_py</code></li>
+  <li>Si el cliente tiene clientes mayoristas — ir a <strong>Clientes → (cliente) → Precios especiales</strong> y cargar overrides</li>
+  <li>Probar el toggle <strong>Pedidos Ya</strong> en el POS — verificar que las tejas cambian al precio PY</li>
+</ul>
+
+<h3>Regla de oro para categorías</h3>
+<div class="ok">
+  Máximo <strong>10 categorías</strong>. Si el dueño pide 20, negocia. Más de 10 convierte los tabs en un desastre visual en mobile.
+</div>
+
+<!-- ─────────── FASE 4 ─────────── -->
+<h2><span class="phase-pill">Fase 4</span>Entrenamiento</h2>
+<p class="section-lead">Ahora el cliente entra en escena. Entrena primero al dueño, luego al equipo.</p>
+
+<dl class="meta-row">
+  <dt>Objetivo</dt><dd>El dueño + las cajeras pueden operar el POS sin nuestro apoyo continuo.</dd>
+  <dt>Responsable</dt><dd>Agente PAT en sitio o por videollamada</dd>
+  <dt>Tiempo estimado</dt><dd>1.5 a 2 horas</dd>
+  <dt>Inputs necesarios</dt><dd>Fase 3 completa + personal presente</dd>
+  <dt>Criterio de "Hecho"</dt><dd>El cliente firma el formulario de entrenamiento; cada cajera completó una venta de prueba sola.</dd>
+</dl>
+
+<h3>Bloque 1 — POS básico (30 min)</h3>
+<ul class="check">
+  <li>Búsqueda por nombre + categoría tabs</li>
+  <li>Scanner de código de barras</li>
+  <li>Ajustar cantidad en el carrito</li>
+  <li>Buscar o crear cliente</li>
+  <li>Botón Cobrar · pagos efectivo / tarjeta / transferencia / crédito / mixto</li>
+  <li>Gaveta se abre sola en pagos en efectivo</li>
+  <li>Imprimir factura + mostrar vuelto</li>
+</ul>
+
+<h3>Bloque 2 — Funciones especiales (20 min)</h3>
+<ul class="check">
+  <li>Toggle <strong>Pedidos Ya</strong> — mostrar el cambio de precios en vivo</li>
+  <li>Aplicar descuento con motivo (requerirá tarjeta de gerente si es grande)</li>
+  <li>Seleccionar cliente con Precios Especiales</li>
+  <li>Anular ticket (requerirá tarjeta)</li>
+  <li>Nota de crédito (requerirá tarjeta)</li>
+</ul>
+
+<h3>Bloque 3 — Admin + tarjetas de gerente (30 min)</h3>
+<ul class="check">
+  <li>Mostrar <strong>Admin → Usuarios</strong> — cómo agregar/desactivar empleados</li>
+  <li>Generar <strong>Tarjeta de Autorización</strong> para cada manager — imprimirlas y laminarlas</li>
+  <li>Demostrar: cajera intenta descuento grande → aparece el gate modal → manager pasa su tarjeta → aprobado</li>
+  <li>Mostrar <strong>Remote Dashboard → Actividad</strong> — cómo revisar quién autorizó qué</li>
+  <li>Enseñar cómo revocar una tarjeta si se pierde</li>
+</ul>
+
+<h3>Bloque 4 — Inventario + Reportes (30 min)</h3>
+<ul class="check">
+  <li>Agregar / editar producto</li>
+  <li>Importar CSV (para agregar lotes grandes)</li>
+  <li><strong>Conteo Físico</strong> — cómo iniciar, imprimir hoja en blanco, entrar conteos, ver reporte de varianza (pérdidas RD$)</li>
+  <li>Reporte diario · reporte semanal · reporte de productos</li>
+  <li>Cuadre de caja al cierre del día</li>
+  <li>Exportar a PDF / CSV para el contador</li>
+</ul>
+
+<h3>Formulario de entrenamiento</h3>
+<p>Al terminar, el dueño firma un formulario simple que confirma: (1) recibió el entrenamiento, (2) tiene sus credenciales, (3) tiene sus tarjetas de gerente impresas, (4) sabe a quién llamar para soporte. Archivarlo en la carpeta del cliente.</p>
+
+<!-- ─────────── FASE 5 ─────────── -->
+<h2><span class="phase-pill">Fase 5</span>Lanzamiento &amp; Acompañamiento</h2>
+<p class="section-lead">El día que el cliente hace su primera venta real, estamos observando. Después, 7 días de seguimiento.</p>
+
+<dl class="meta-row">
+  <dt>Objetivo</dt><dd>Las primeras 20 transacciones del cliente pasan sin errores, y cualquier fricción se corrige en caliente.</dd>
+  <dt>Responsable</dt><dd>Agente PAT + Ingeniero en standby</dd>
+  <dt>Tiempo estimado</dt><dd>Día 1: 4 horas de monitoreo. Después: 3 check-ins en 7 días (día 1, día 3, día 7)</dd>
+  <dt>Inputs necesarios</dt><dd>Fase 4 completa</dd>
+  <dt>Criterio de "Hecho"</dt><dd>Día 7: cliente no ha reportado problemas nuevos, cuadre del día 1 cuadró, no hay tickets en cola DGII atorados.</dd>
+</dl>
+
+<h3>Día del Lanzamiento (go-live)</h3>
+<ul class="check">
+  <li>Llamar al dueño 30 min antes de abrir</li>
+  <li>Verificar que el internet funciona en el local</li>
+  <li>Verificar que la impresora y el scanner encendieron OK</li>
+  <li>Hacer una venta de prueba (ej. una cerveza) — anular después</li>
+  <li>Poner el <strong>Remote Dashboard</strong> en pantalla durante las primeras 2 horas</li>
+  <li>Estar disponible por WhatsApp sin distracciones hasta las 3 PM</li>
+</ul>
+
+<h3>Check-in Día 3</h3>
+<ul class="check">
+  <li>WhatsApp: "¿Cómo va todo?"</li>
+  <li>Revisar Remote Dashboard → Actividad → buscar eventos <strong>warn</strong> o <strong>critical</strong></li>
+  <li>Revisar cuadres de los últimos 3 días — ¿alguna discrepancia grande?</li>
+  <li>Si hubo PINs fallback en lugar de tarjeta → entrenar al manager otra vez</li>
+</ul>
+
+<h3>Check-in Día 7</h3>
+<ul class="check">
+  <li>Ofrecer un primer <strong>Conteo Físico</strong> semanal para revisar merma</li>
+  <li>Recoger feedback — qué les gustaría diferente</li>
+  <li>Archivar feedback para la próxima versión</li>
+  <li>Transferir oficialmente al canal de soporte de WhatsApp</li>
+</ul>
+
+<h3>Plantilla — Mensaje Día 7</h3>
+<div class="template">¡Una semana en Terminal X! Espero que todo haya ido bien.
+
+Antes de cerrar oficialmente tu arranque, me gustaría:
+1. Correr contigo un primer Conteo Físico para ver cómo les fue con la merma
+2. Escuchar cualquier cosita que te gustaría diferente
+3. Pasarte oficialmente al canal de soporte
+
+¿Cuándo te viene bien una llamada de 20 minutos?</div>
+
+<!-- ─────────── ESCALACIÓN ─────────── -->
+<h2>Escalación — cuándo tocar al Ingeniero</h2>
+<p class="section-lead">Reglas claras para que el Agente PAT sepa cuándo resolver solo y cuándo pedir ayuda.</p>
+
+<table>
+  <tr><th>Situación</th><th>Quién</th><th>SLA</th></tr>
+  <tr><td>El login da "failed to fetch"</td><td>Ingeniero</td><td>15 min</td></tr>
+  <tr><td>Pull de Supabase no trae los productos</td><td>Ingeniero</td><td>15 min</td></tr>
+  <tr><td>La impresora no imprime</td><td>Agente PAT — probar driver / cable / spool</td><td>30 min</td></tr>
+  <tr><td>La gaveta no abre</td><td>Agente PAT — Settings → Impresión → Probar Variantes</td><td>30 min</td></tr>
+  <tr><td>Ticket atorado en cola DGII</td><td>Ingeniero</td><td>1 hora</td></tr>
+  <tr><td>Cliente pide feature nueva</td><td>Agente PAT — anotar, NO prometer</td><td>N/A</td></tr>
+  <tr><td>Cuadre sale con discrepancia &gt; RD$500</td><td>Agente PAT — revisar Actividad → escalar si hay patrón</td><td>2 horas</td></tr>
+</table>
+
+<div class="note">
+  <strong>Regla sagrada:</strong> Nunca prometer una feature. "Lo voy a consultar con el equipo y te vuelvo" es la única respuesta correcta. Después escalar a Mike.
+</div>
+
+<!-- ─────────── SUPABASE / PROVISIÓN ─────────── -->
+<h2>Apéndice — Referencia técnica rápida</h2>
+
+<h3>Archivos clave</h3>
+<table>
+  <tr><th>Propósito</th><th>Ruta</th></tr>
+  <tr><td>Script de provisión (base)</td><td><code>scripts/provision-ranoza.mjs</code></td></tr>
+  <tr><td>Script para cambiar credenciales</td><td><code>scripts/swap-ranoza-creds.mjs</code></td></tr>
+  <tr><td>Re-seed de demos</td><td><code>scripts/seedDemoBusinesses.js</code></td></tr>
+  <tr><td>Whitelist de settings business vs device</td><td><code>packages/services/settingsWhitelist.js</code></td></tr>
+  <tr><td>Esta guía</td><td><code>docs/onboarding/protocolo-de-arranque.html</code></td></tr>
+</table>
+
+<h3>Tabla de configuración de business_type</h3>
+<table>
+  <tr><th>Tipo</th><th>Valor en app_settings</th><th>Usar para…</th></tr>
+  <tr><td>Carwash</td><td><code>carwash</code></td><td>Lavaderos, detailing</td></tr>
+  <tr><td>Tienda / Licorería</td><td><code>tienda</code></td><td>Retail general, licorería, colmados</td></tr>
+  <tr><td>Restaurante</td><td><code>restaurante</code></td><td>Restaurantes con mesas + KDS</td></tr>
+  <tr><td>Salón</td><td><code>salon</code></td><td>Salones de belleza</td></tr>
+  <tr><td>Híbrido</td><td><code>hibrido</code></td><td>Lavadero + tienda</td></tr>
+  <tr><td>Mecánica</td><td><code>mecanica</code></td><td>Talleres mecánicos</td></tr>
+  <tr><td>Servicios</td><td><code>servicios</code></td><td>Servicios profesionales</td></tr>
+  <tr><td>Préstamos</td><td><code>prestamos</code></td><td>Casas de préstamos / empeños</td></tr>
+  <tr><td>Concesionario</td><td><code>concesionario</code></td><td>Venta de vehículos</td></tr>
+</table>
+
+<h3>Credenciales de demos (uso para pruebas, NO vender)</h3>
+<p>Todos en <code>terminalxpos.com/pos</code> · Password <code>Demo2026!</code> · PIN <code>1234</code></p>
+<ul class="small">
+  <li><code>admin@carwash.demo.terminalxpos.com</code></li>
+  <li><code>admin@retail.demo.terminalxpos.com</code></li>
+  <li><code>admin@restaurant.demo.terminalxpos.com</code></li>
+  <li><code>admin@salon.demo.terminalxpos.com</code></li>
+  <li><code>admin@hybrid.demo.terminalxpos.com</code></li>
+  <li><code>admin@mechanic.demo.terminalxpos.com</code></li>
+  <li><code>admin@service.demo.terminalxpos.com</code></li>
+  <li><code>admin@prestamos.demo.terminalxpos.com</code></li>
+  <li><code>admin@dealership.demo.terminalxpos.com</code></li>
+</ul>
+
+<hr>
+<p class="small">Protocolo de Arranque v1.0 — Studio X Terminal X — Para uso interno. Actualizar con cada release mayor.</p>
+
+</div>
+</body>
+</html>
