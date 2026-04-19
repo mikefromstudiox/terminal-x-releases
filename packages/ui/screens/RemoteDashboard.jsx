@@ -551,6 +551,85 @@ function eventLabel(evt, lang) {
   return lang === 'es' ? m.es : m.en
 }
 
+// Human-readable labels for activity_log metadata keys.
+// Keys are spoken in Spanish; we skip internal-only IDs that mean nothing to the owner.
+const META_KEY_LABELS = {
+  es: {
+    ticket_number: 'Factura', ticket_id: 'Factura', ticket_supabase_id: null,
+    item_name: 'Producto', product_name: 'Producto', service_name: 'Servicio',
+    sku: 'Código', barcode: 'Código de barras',
+    client_name: 'Cliente', washer_name: 'Lavador', seller_name: 'Vendedor',
+    amount: 'Monto', total: 'Total', subtotal: 'Subtotal',
+    discount_amount: 'Descuento', discount_pct: 'Descuento %',
+    itbis: 'ITBIS', ley: 'Ley',
+    old_qty: 'Cantidad anterior', new_qty: 'Cantidad nueva',
+    old_price: 'Precio anterior', new_price: 'Precio nuevo',
+    old_value: 'Valor anterior', new_value: 'Valor nuevo',
+    variance: 'Diferencia', total_variance_value: 'Diferencia total',
+    count_id: 'Conteo', count_title: 'Conteo',
+    top_losses: 'Productos con más diferencia',
+    method: 'Método',
+    approved_by_name: 'Autorizado por', approved_by_role: 'Rol',
+    action: 'Acción', reason: 'Motivo', note: 'Nota', notes: 'Nota',
+    payment_method: 'Forma de pago', payment_parts: 'Pagos',
+    quantity: 'Cantidad', qty: 'Cantidad',
+    currency: null, business_id: null,
+    user_id: null, user_supabase_id: null,
+    id: null, supabase_id: null,
+  },
+}
+const METHOD_LABELS = {
+  es: { card: 'Tarjeta de gerente', pin_fallback: 'PIN de emergencia', pin: 'PIN' },
+}
+const ACTION_LABELS = {
+  es: {
+    price_edit: 'Cambio de precio', void: 'Anulación', credit_note: 'Nota de crédito',
+    discount_big: 'Descuento grande', inv_adjust: 'Ajuste de inventario',
+    ticket_delete: 'Borrar factura', product_disable: 'Desactivar producto',
+  },
+}
+function fmtMetaValue(key, v, lang) {
+  if (v == null) return '—'
+  if (typeof v === 'boolean') return v ? (lang === 'es' ? 'Sí' : 'Yes') : (lang === 'es' ? 'No' : 'No')
+  if (Array.isArray(v)) {
+    if (!v.length) return '—'
+    // top_losses: array of {name, variance_qty, variance_cost}
+    if (v.every(x => x && typeof x === 'object' && ('name' in x))) {
+      return v.slice(0, 5).map(x => {
+        const qty = x.variance_qty ?? x.qty ?? ''
+        const loss = x.variance_cost ?? x.loss ?? x.amount
+        return `${x.name}${qty !== '' ? ` (${qty})` : ''}${loss != null ? ` — ${fmtRD(loss)}` : ''}`
+      }).join('\n')
+    }
+    return v.join(', ')
+  }
+  if (typeof v === 'object') {
+    // Skip nested objects (rare) — flatten to short JSON
+    try { return JSON.stringify(v) } catch { return '—' }
+  }
+  const num = Number(v)
+  const isNum = !Number.isNaN(num) && v !== '' && typeof v !== 'boolean'
+  if (key === 'method') return (METHOD_LABELS.es[v] || v)
+  if (key === 'action') return (ACTION_LABELS.es[v] || v)
+  if (/_pct$|percent/i.test(key) && isNum) return `${num}%`
+  if (/amount|total|price|cost|variance|subtotal|itbis|ley|loss|value|descuento|monto/i.test(key) && isNum) return fmtRD(num)
+  return String(v)
+}
+function renderMetaPairs(obj, lang) {
+  if (!obj || typeof obj !== 'object') return []
+  const out = []
+  for (const [k, v] of Object.entries(obj)) {
+    // Skip UUID-ish and internal IDs
+    if (typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(v) && /_id$/.test(k)) continue
+    const label = META_KEY_LABELS.es[k]
+    if (label === null) continue   // explicitly suppressed
+    if (label === undefined && /_id$|_uuid$/i.test(k)) continue
+    const pretty = label || k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    out.push({ key: k, label: pretty, value: fmtMetaValue(k, v, lang) })
+  }
+  return out
+}
+
 const FILTER_CHIPS = [
   { id: 'all',      es: 'Todo',         en: 'All',          types: null },
   { id: 'deletes',  es: 'Eliminaciones',en: 'Deletions',    types: ['user_deleted','user_deactivated','service_deleted'] },
@@ -705,12 +784,20 @@ function ActivityFeed({ lang, onRefreshDashboard, sinceIso }) {
                         <div><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Fecha:' : 'Date:'}</span> <span className="text-slate-700 dark:text-white/80">{fmtTime(r.created_at)}</span></div>
                         {r.target_type && <div><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Destino:' : 'Target:'}</span> <span className="text-slate-700 dark:text-white/80">{r.target_type}{r.target_id ? ` #${r.target_id}` : ''}</span></div>}
                         {r.reason && <div className="col-span-2"><span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Motivo:' : 'Reason:'}</span> <span className="text-slate-700 dark:text-white/80">{r.reason}</span></div>}
-                        {metaObj && Object.keys(metaObj).length > 0 && (
-                          <div className="col-span-2">
-                            <span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Detalles:' : 'Details:'}</span>
-                            <pre className="mt-1 p-2 bg-white dark:bg-black/40 rounded text-[10px] text-slate-600 dark:text-white/70 overflow-x-auto">{JSON.stringify(metaObj, null, 2)}</pre>
-                          </div>
-                        )}
+                        {(() => {
+                          const pairs = renderMetaPairs(metaObj, lang)
+                          if (!pairs.length) return null
+                          return (
+                            <div className="col-span-2 mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                              {pairs.map(({ key, label, value }) => (
+                                <div key={key} className={value && value.includes('\n') ? 'col-span-2' : ''}>
+                                  <span className="text-slate-400 dark:text-white/40">{label}:</span>{' '}
+                                  <span className="text-slate-800 dark:text-white whitespace-pre-line">{value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        })()}
                       </div>
                     )}
                   </div>
