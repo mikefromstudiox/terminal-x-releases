@@ -493,6 +493,31 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   // Enabled e-CF types (loaded from NCF sequences)
   const [enabledEcfTypes, setEnabledEcfTypes] = useState(null) // null = loading, [] after load
 
+  // Prerequisite check — printer configured, business type set, fiscal path
+  // available (NCF sequence OR DGII .p12). Not a hard block — renders a warning
+  // banner so the cashier sees what's missing before cobrar. Ranoza's Day-1
+  // silent-failure trap: no printer + no NCF = sale succeeds but no receipt.
+  const [prereqs, setPrereqs] = useState({ missing: [], loading: true })
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const missing = []
+      try {
+        const printerCfg = await (api?.settings?.get?.('printer') || Promise.resolve(null))
+        const printerName = printerCfg?.value || printerCfg || ''
+        if (!printerName) missing.push({ k: 'printer', es: 'Impresora no configurada (Sistema → Impresión)', en: 'Printer not configured (Settings → Printing)' })
+        if (!businessType) missing.push({ k: 'biz_type', es: 'Tipo de negocio no configurado', en: 'Business type not set' })
+        const seqs = await (api?.ncf?.sequences?.() || Promise.resolve([]))
+        const certInfo = await (api?.dgii_ecf?.certInfo?.() || Promise.resolve({ installed: false }))
+        if ((seqs || []).length === 0 && !certInfo?.installed) {
+          missing.push({ k: 'fiscal', es: 'Ni NCF ni certificado DGII instalado — el ticket no tendrá comprobante fiscal', en: 'No NCF sequence or DGII cert installed — ticket will not have a fiscal receipt' })
+        }
+      } catch {}
+      if (!cancelled) setPrereqs({ missing, loading: false })
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   const { lookup: rncLookup } = useRNC()
 
   // Form state
@@ -887,6 +912,23 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
             <X size={18} />
           </button>
         </div>
+
+        {/* ── Prerequisites warning banner ────────────────────────────────── */}
+        {!prereqs.loading && prereqs.missing.length > 0 && ecfState !== 'success' && (
+          <div className="bg-amber-50 dark:bg-amber-500/10 border-b border-amber-300 dark:border-amber-500/30 px-4 py-3 shrink-0">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] font-bold text-amber-900 dark:text-amber-200">
+                  {lang === 'es' ? 'Configuración pendiente' : 'Setup pending'}
+                </p>
+                <ul className="mt-1 space-y-0.5 text-[11px] text-amber-800 dark:text-amber-300">
+                  {prereqs.missing.map(m => <li key={m.k}>• {lang === 'es' ? m.es : m.en}</li>)}
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Success view ─────────────────────────────────────────────────── */}
         {ecfState === 'success' && ecfResult ? (
