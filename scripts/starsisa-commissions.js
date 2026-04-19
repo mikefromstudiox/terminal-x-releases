@@ -376,6 +376,60 @@ function wipePrior() {
   } catch (e) { console.error('  wipe error:', e.message) }
 }
 
+// Build month distribution from StarSISA tickets. Each employee's aggregate
+// commission is split across months proportionally to the ticket $ share in
+// that month — so Liquidación filtered by "Nov 2025" sees the Nov 2025 portion,
+// and "total acumulado" still sums to the correct full-period amount.
+//
+// For Jonnathan (vendedor): use tickets ≥ RD$1000 & !commission_exclude directly.
+// For everyone else: use ALL starsisa tickets as the distribution basis.
+const monthlyAllTickets = db.prepare(`
+  SELECT strftime('%Y-%m', created_at) AS ym,
+         SUM(total) AS sum_total,
+         COUNT(*) AS cnt
+  FROM tickets
+  WHERE legacy_source='starsisa'
+  GROUP BY ym
+  ORDER BY ym
+`).all()
+const monthlyVendedorTickets = db.prepare(`
+  SELECT strftime('%Y-%m', created_at) AS ym,
+         SUM(total) AS sum_total,
+         COUNT(*) AS cnt
+  FROM tickets
+  WHERE legacy_source='starsisa' AND total >= ? AND commission_exclude = 0
+  GROUP BY ym
+  ORDER BY ym
+`).all(VENDEDOR_THRESHOLD)
+
+function endOfMonthIso(ym) {
+  // ym = "YYYY-MM"  →  last day of that month, 23:59:59 UTC
+  const [y, m] = ym.split('-').map(Number)
+  const lastDay = new Date(Date.UTC(y, m, 0)) // day 0 of next month = last day of current
+  lastDay.setUTCHours(23, 59, 59, 999)
+  return lastDay.toISOString()
+}
+
+function splitAcrossMonths(totalAmount, monthlyBasis, totalBasis) {
+  // Returns [{ym, amount, created_at}, ...] summing to totalAmount (rounded)
+  if (!totalBasis || !monthlyBasis.length) return []
+  let running = 0
+  const out = monthlyBasis.map((m, i) => {
+    const share = m.sum_total / totalBasis
+    let amt = Math.round(totalAmount * share * 100) / 100
+    // Absorb rounding drift into the last month so the sum is exact
+    if (i === monthlyBasis.length - 1) amt = Math.round((totalAmount - running) * 100) / 100
+    running += amt
+    return { ym: m.ym, amount: amt, created_at: endOfMonthIso(m.ym) }
+  })
+  return out
+}
+
+const totalAllBasis = monthlyAllTickets.reduce((s, m) => s + Number(m.sum_total || 0), 0)
+const totalVendedorBasis = monthlyVendedorTickets.reduce((s, m) => s + Number(m.sum_total || 0), 0)
+
+console.log(`\n  Month buckets: ${monthlyAllTickets.length} (all) / ${monthlyVendedorTickets.length} (vendedor ≥${VENDEDOR_THRESHOLD})`)
+
 const tx = db.transaction(() => {
   if (pairsToFlag.length) {
     const stmt = db.prepare(`UPDATE tickets SET commission_exclude=1 WHERE id=?`)
@@ -385,24 +439,42 @@ const tx = db.transaction(() => {
 
   wipePrior()
 
-  let written = 0
+  let written = 0, rowsTotal = 0
   for (const r of report) {
     if (!r.empleado_id || !r.commission) continue
     const emp = empleados.find(e => e.id === r.empleado_id)
     if (!emp?.supabase_id) { console.log(`  SKIP ${r.empleado || r.file}: no supabase_id`); continue }
-    const base = Number(r.net_base || 0)
-    const pct  = Number(r.comision_pct || 0)
-    const amt  = Number(r.commission || 0)
-    const tipo = emp.tipo
-    const args = [uuid(), emp.supabase_id, base, pct, amt, nowIso, nowIso, BUSINESS_ID]
-    if (tipo === 'lavador' || tipo === 'hybrid') insWasher.run(...args)
-    else if (tipo === 'vendedor')                 insSeller.run(...args)
-    else if (tipo === 'cajero')                   insCajero.run(...args)
-    else { console.log(`  SKIP ${emp.nombre}: unknown tipo=${tipo}`); continue }
+    const fullBase = Number(r.net_base || 0)
+    const fullAmt  = Number(r.commission || 0)
+    const pct      = Number(r.comision_pct || 0)
+    const tipo     = emp.tipo
+
+    const isVendedor = tipo === 'vendedor'
+    const monthly    = isVendedor ? monthlyVendedorTickets : monthlyAllTickets
+    const totalBasis = isVendedor ? totalVendedorBasis     : totalAllBasis
+    const baseSlices = splitAcrossMonths(fullBase, monthly, totalBasis)
+    const amtSlices  = splitAcrossMonths(fullAmt,  monthly, totalBasis)
+
+    if (baseSlices.length === 0) {
+      console.log(`  SKIP ${emp.nombre}: no months in basis`)
+      continue
+    }
+
+    for (let i = 0; i < amtSlices.length; i++) {
+      const slice = amtSlices[i]
+      if (!slice.amount) continue
+      const baseAmt = baseSlices[i].amount
+      const args = [uuid(), emp.supabase_id, baseAmt, pct, slice.amount, slice.created_at, slice.created_at, BUSINESS_ID]
+      if (tipo === 'lavador' || tipo === 'hybrid') insWasher.run(...args)
+      else if (tipo === 'vendedor')                 insSeller.run(...args)
+      else if (tipo === 'cajero')                   insCajero.run(...args)
+      else { console.log(`  SKIP ${emp.nombre} slice ${slice.ym}: unknown tipo=${tipo}`); continue }
+      rowsTotal++
+    }
     written++
-    console.log(`  ✓ ${emp.nombre} (${tipo}) → RD$${amt.toFixed(2)}`)
+    console.log(`  ✓ ${emp.nombre} (${tipo}) → RD$${fullAmt.toFixed(2)} across ${amtSlices.length} months`)
   }
-  console.log(`\n  wrote ${written} commission rows`)
+  console.log(`\n  wrote ${rowsTotal} monthly commission rows for ${written} employees`)
 })
 tx()
 console.log('\n✓ Applied. Commission rows written — next sync push will upload to Supabase.')
