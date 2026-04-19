@@ -9,6 +9,8 @@ import { useAuth } from '../context/AuthContext'
 import { useAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
+import ManagerAuthGate from '../components/ManagerAuthGate'
+import { needsGate } from '@terminal-x/services/managerGateRules'
 import { getCarniceriaCategoryOptions, getCutSuggestions } from '@terminal-x/config/carniceriaCatalog'
 
 const ALLOWED = ['owner', 'manager', 'cfo', 'accountant']
@@ -264,12 +266,19 @@ function AdjustModal({ item, onSave, onClose }) {
   const [notes,  setNotes]  = useState('')
   const [saving, setSaving] = useState(false)
   const [err,    setErr]    = useState('')
+  const [gateOpen, setGateOpen] = useState(false)
+  const gateApprovedRef = useRef(false)
 
   const newQty = item.quantity + Number(delta || 0)
 
   async function handleSave() {
     const d = Number(delta)
     if (!d || isNaN(d)) { setErr('Ingresa una cantidad distinta de cero.'); return }
+    // v2.6 — Manager Authorization Gate for negative (or any, per rules) adjustments.
+    if (!gateApprovedRef.current && needsGate(user, 'inv_adjust')) {
+      setGateOpen(true)
+      return
+    }
     setSaving(true)
     try {
       await api.inventory.adjust({ id: item.id, delta: d, notes, userId: user?.id })
@@ -332,6 +341,21 @@ function AdjustModal({ item, onSave, onClose }) {
           </button>
         </div>
       </div>
+
+      {gateOpen && (
+        <ManagerAuthGate
+          action="inv_adjust"
+          actionLabel={`Ajuste de ${item.name}: ${Number(delta) > 0 ? '+' : ''}${delta}`}
+          context={{ target_id: item.id, target_name: item.name, amount: Number(delta) || 0,
+            old_value: item.quantity, new_value: newQty, reason: notes }}
+          onApprove={() => {
+            gateApprovedRef.current = true
+            setGateOpen(false)
+            setTimeout(() => handleSave(), 0)
+          }}
+          onCancel={() => setGateOpen(false)}
+        />
+      )}
     </div>
   )
 }

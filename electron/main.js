@@ -1109,6 +1109,21 @@ handleMut('users:delete',     ({id})          => db.userDelete(id), {
   requires: ({ actor, args }) => guard.guardUserDelete(db, actor, args[0] || {}),
   targetCtx: ({ args }) => guard.userTargetCtx(db, args[0]?.id),
 })
+// v2.6 — Manager Authorization Card (scan-only barcode token).
+// generate/revoke are owner-or-manager only (enforced via auth-guard). verify
+// is intentionally NOT mutation-guarded — any logged-in user (including
+// cashiers) must be able to invoke it to pass the gate. The hash comparison
+// itself is the security boundary.
+handleMut('staff:generateAuthCard', ({ id }) => db.staffGenerateAuthCard(id), {
+  requires: ({ actor }) => guard.guardOwnerOrManager(null, actor, null, 'staff:generateAuthCard'),
+  targetCtx: ({ args }) => guard.userTargetCtx(db, args[0]?.id),
+})
+handleMut('staff:revokeAuthCard',   ({ id }) => db.staffRevokeAuthCard(id), {
+  requires: ({ actor }) => guard.guardOwnerOrManager(null, actor, null, 'staff:revokeAuthCard'),
+  targetCtx: ({ args }) => guard.userTargetCtx(db, args[0]?.id),
+})
+handle('staff:verifyAuthToken',     (token)  => db.staffVerifyAuthToken(token))
+
 handleMut('users:delete-hard',({id})          => db.userDeleteHard(id), {
   requires: ({ actor, args }) => {
     const r = guard.guardOwnerOnly(db, actor, null, 'users:delete-hard')

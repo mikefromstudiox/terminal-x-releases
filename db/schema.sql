@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS users (
   discount_pct  REAL    NOT NULL DEFAULT 0,
   vendedor_id   INTEGER REFERENCES sellers(id),  -- linked seller for commission tracking
   active        INTEGER NOT NULL DEFAULT 1,
+  manager_auth_hash       TEXT,                       -- v2.6: SHA-256 hex of manager card token
+  manager_auth_rotated_at TEXT,                       -- v2.6: ISO timestamp of last rotate/revoke
   created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 

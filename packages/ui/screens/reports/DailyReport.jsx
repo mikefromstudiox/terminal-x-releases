@@ -7,6 +7,7 @@ import {
 import { useLang } from '../../i18n'
 import { useAPI } from '../../context/DataContext'
 import { useAuth } from '../../context/AuthContext'
+import ManagerAuthGate from '../../components/ManagerAuthGate'
 import { useBusinessType } from '../../hooks/useBusinessType.jsx'
 import { hasVehicles, isServiceBased } from '@terminal-x/config/businessTypes'
 import { exportDailyReport } from '@terminal-x/services/csv'
@@ -364,36 +365,17 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
 
 // ── Anular modal ──────────────────────────────────────────────────────────────
 function AnularModal({ ticket: t, onConfirm, onClose, lang, currentUser }) {
-  const api = useAPI()
   const [reason,    setReason]    = useState('')
-  const [pin,       setPin]       = useState('')
   const [error,     setError]     = useState('')
-  const [verifying, setVerifying] = useState(false)
+  const [gateOpen,  setGateOpen]  = useState(false)
 
-  async function handleConfirm() {
+  function handleConfirm() {
     setError('')
     if (!reason.trim()) {
       setError(lang === 'es' ? 'El motivo es requerido.' : 'Reason is required.')
       return
     }
-    if (!pin.trim()) {
-      setError(lang === 'es' ? 'El PIN del gerente es requerido.' : 'Manager PIN is required.')
-      return
-    }
-    setVerifying(true)
-    try {
-      const manager = await api.auth.byPin(pin)
-      if (!manager) {
-        setError(lang === 'es' ? 'PIN de gerente incorrecto.' : 'Incorrect manager PIN.')
-        setPin('')
-        return
-      }
-      onConfirm({ ticketId: t.id, reason: reason.trim(), voidedBy: manager.name || manager.username || 'Manager', voidedAt: new Date() })
-    } catch {
-      setError(lang === 'es' ? 'Error al verificar el PIN.' : 'Error verifying PIN.')
-    } finally {
-      setVerifying(false)
-    }
+    setGateOpen(true)
   }
 
   return (
@@ -438,19 +420,10 @@ function AnularModal({ ticket: t, onConfirm, onClose, lang, currentUser }) {
             />
           </div>
 
-          {/* Manager PIN */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 dark:text-white/60 mb-1.5">
-              {lang === 'es' ? 'PIN del gerente' : 'Manager PIN'}
-            </label>
-            <input
-              type="password"
-              value={pin}
-              onChange={e => setPin(e.target.value.slice(0, 4))}
-              placeholder="••••"
-              maxLength={4}
-              className="w-full px-3 py-2 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[16px] dark:text-white text-center tracking-[0.5em] focus:outline-none focus:border-red-400 letter-spacing-wide"
-            />
+          <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-white/60 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2">
+            {lang === 'es'
+              ? 'Al confirmar, se pedirá la tarjeta de autorización del gerente.'
+              : "On confirm, you'll be asked for the manager's authorization card."}
           </div>
 
           {/* Error */}
@@ -469,15 +442,26 @@ function AnularModal({ ticket: t, onConfirm, onClose, lang, currentUser }) {
           </button>
           <button
             onClick={handleConfirm}
-            disabled={verifying}
-            className="flex-1 py-2.5 bg-red-500 hover:bg-red-400 text-white rounded-xl text-[13px] font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            className="flex-1 py-2.5 bg-red-500 hover:bg-red-400 text-white rounded-xl text-[13px] font-bold transition-colors"
           >
-            {verifying
-              ? (lang === 'es' ? 'Verificando…' : 'Verifying…')
-              : (lang === 'es' ? 'Confirmar Anulación' : 'Confirm Void')}
+            {lang === 'es' ? 'Confirmar Anulación' : 'Confirm Void'}
           </button>
         </div>
       </div>
+
+      {gateOpen && (
+        <ManagerAuthGate
+          action="void"
+          actionLabel={lang === 'es' ? `Anular factura ${t.ticketNo} · ${fmtRD(t.total)}` : `Void invoice ${t.ticketNo} · ${fmtRD(t.total)}`}
+          context={{ target_id: t.id, target_name: t.ticketNo, amount: t.total, reason }}
+          onApprove={({ staff_name }) => {
+            setGateOpen(false)
+            onConfirm({ ticketId: t.id, reason: reason.trim(),
+              voidedBy: staff_name || 'Manager', voidedAt: new Date() })
+          }}
+          onCancel={() => setGateOpen(false)}
+        />
+      )}
     </div>
   )
 }

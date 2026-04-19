@@ -103,6 +103,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteHard: (data) => call('users:delete-hard', data),
   },
 
+  // ── Staff / Manager Authorization Card (v2.6) ─────────────────────────────
+  staff: {
+    generateAuthCard: (id)    => call('staff:generateAuthCard', { id }),
+    revokeAuthCard:   (id)    => call('staff:revokeAuthCard',   { id }),
+    verifyAuthToken:  (token) => call('staff:verifyAuthToken',  token),
+  },
+
   // ── Activity log (owner audit feed) ────────────────────────────────────────
   activity: {
     setActor:          (user) => call('activity:set-actor', user),

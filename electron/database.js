@@ -880,6 +880,10 @@ function init(userDataPath) {
     'ALTER TABLE inventory_items ADD COLUMN price_pedidos_ya REAL',
     "ALTER TABLE tickets ADD COLUMN order_source TEXT DEFAULT 'pos'",
 
+    // v2.6 — Manager Authorization Card (barcode token, stored as hash)
+    'ALTER TABLE users ADD COLUMN manager_auth_hash TEXT',
+    'ALTER TABLE users ADD COLUMN manager_auth_rotated_at TEXT',
+
     // v2.5 — Conteo Fisico (physical inventory count + variance / theft report)
     `CREATE TABLE IF NOT EXISTS inventory_counts (
       id                    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2114,7 +2118,10 @@ function authByPin(pin) {
 }
 function usersGetAll() {
   if (!db) return []
-  return db.prepare('SELECT id,name,username,role,discount_pct,active FROM users ORDER BY id').all()
+  return db.prepare(`SELECT id,name,username,role,discount_pct,active,employee_id,supabase_id,
+    manager_auth_hash IS NOT NULL AS has_auth_card,
+    manager_auth_rotated_at
+    FROM users ORDER BY id`).all()
 }
 function userCreate(data) {
   if (!db) return null
@@ -2274,6 +2281,89 @@ function userDeleteHard(id) {
     target_type: 'user', target_id: id, target_name: targetName,
     reason: 'force delete from Admin → Usuarios' })
   return { deleted: true, hard: true }
+}
+
+// ── MANAGER AUTHORIZATION CARD (v2.6) ─────────────────────────────────────────
+// Scan-only physical card holding a 20-char random token. Raw token stays in
+// the cashier's hand once (for printing) and immediately disappears — only the
+// SHA-256 hash lives in the DB. Role-gated: only owner/manager can hold a card.
+
+const MGR_TOKEN_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+const MGR_TOKEN_LENGTH   = 20
+
+function _mgrGenerateToken() {
+  const bytes = crypto.randomBytes(MGR_TOKEN_LENGTH)
+  const A = MGR_TOKEN_ALPHABET
+  let out = ''
+  for (let i = 0; i < MGR_TOKEN_LENGTH; i++) out += A[bytes[i] % A.length]
+  return out
+}
+function _mgrHashToken(token) {
+  const raw = String(token || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  return crypto.createHash('sha256').update(raw, 'utf8').digest('hex')
+}
+
+/**
+ * Rotate (or first-time issue) a manager card for a user. Returns the PLAIN
+ * token exactly ONCE — caller MUST print it immediately.
+ * Rejects users whose role is not owner/manager.
+ */
+function staffGenerateAuthCard(userId) {
+  if (!db) return { ok: false, error: 'DB not ready' }
+  const u = db.prepare('SELECT id, name, username, role, active FROM users WHERE id=?').get(userId)
+  if (!u) return { ok: false, error: 'Usuario no encontrado' }
+  if (!u.active) return { ok: false, error: 'Usuario inactivo' }
+  if (u.role !== 'owner' && u.role !== 'manager') {
+    return { ok: false, error: 'Solo dueño o gerente pueden tener tarjeta' }
+  }
+  const token = _mgrGenerateToken()
+  const hash  = _mgrHashToken(token)
+  const now   = new Date().toISOString()
+  db.prepare(`UPDATE users SET manager_auth_hash=@hash, manager_auth_rotated_at=@now, updated_at=@now WHERE id=@id`)
+    .run({ hash, now, id: userId })
+  activityLogRecord({
+    event_type: 'manager_card_rotated', severity: 'warn',
+    target_type: 'user', target_id: userId,
+    target_name: `${u.name} (@${u.username})`,
+    reason: 'Tarjeta de autorización emitida/rotada',
+  })
+  return { ok: true, token, rotatedAt: now, user: { id: u.id, name: u.name, username: u.username, role: u.role } }
+}
+
+function staffRevokeAuthCard(userId) {
+  if (!db) return { ok: false }
+  const u = db.prepare('SELECT id, name, username, role FROM users WHERE id=?').get(userId)
+  if (!u) return { ok: false, error: 'Usuario no encontrado' }
+  const now = new Date().toISOString()
+  db.prepare(`UPDATE users SET manager_auth_hash=NULL, manager_auth_rotated_at=@now, updated_at=@now WHERE id=@id`)
+    .run({ now, id: userId })
+  activityLogRecord({
+    event_type: 'manager_card_revoked', severity: 'warn',
+    target_type: 'user', target_id: userId,
+    target_name: `${u.name} (@${u.username})`,
+    reason: 'Tarjeta de autorización revocada',
+  })
+  return { ok: true, rotatedAt: now }
+}
+
+/**
+ * Verify a scanned token. Returns the matching active manager/owner user or
+ * null. Constant-time-ish: we hash the input before touching the DB.
+ */
+function staffVerifyAuthToken(token) {
+  if (!db) return null
+  const raw = String(token || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (raw.length < 8) return null
+  const hash = _mgrHashToken(raw)
+  const row = db.prepare(`SELECT id, name, username, role, supabase_id, manager_auth_rotated_at
+                            FROM users
+                           WHERE manager_auth_hash = ?
+                             AND active = 1
+                             AND role IN ('owner','manager')
+                           LIMIT 1`).get(hash)
+  if (!row) return null
+  return { id: row.id, name: row.name, username: row.username, role: row.role,
+           supabase_id: row.supabase_id, rotatedAt: row.manager_auth_rotated_at }
 }
 
 // ── CATEGORIAS SERVICIO ───────────────────────────────────────────────────────
@@ -3097,6 +3187,21 @@ function clientUpdateBalance(id, delta) {
   if (!db) return
   db.prepare('UPDATE clients SET balance=balance+@delta WHERE id=@id').run({ id, delta })
 }
+
+// Reverse a credit ticket's effect on clients.balance. Used by any path that
+// removes / voids / cancels a ticket (ticketVoid, queueDelete, tickets:void web).
+// Subtracts the net owed (total - descuento). Idempotent-ish via MAX(0, ...) —
+// repeated calls clamp at zero rather than producing negative balances.
+// Leaves credit_payments rows in place as audit history.
+function reverseClientBalanceForTicket(ticket) {
+  if (!db || !ticket) return
+  if (ticket.tipo_venta !== 'credito') return
+  const cid = ticket.client_id || null
+  if (!cid) return
+  const delta = Number(ticket.total || 0) - Number(ticket.descuento || 0)
+  if (delta <= 0) return
+  db.prepare('UPDATE clients SET balance=MAX(0,balance-?) WHERE id=?').run(delta, cid)
+}
 function clientGetOpenTickets(clientId) {
   if (!db) return []
   const rows = db.prepare(
@@ -3599,10 +3704,13 @@ function ticketVoid(id, reason, voidById) {
     voidedTicket = ticket
     db.prepare(`UPDATE tickets SET status='nula',void_reason=?,void_by=?,void_at=datetime('now') WHERE id=?`)
       .run(reason, voidById || null, id)
-    // Reverse client balance if it was a credit ticket
-    if (ticket.client_id && ticket.tipo_venta === 'credito') {
-      db.prepare('UPDATE clients SET balance=balance-? WHERE id=?').run(ticket.total, ticket.client_id)
-    }
+    // Reverse client balance if it was a credit ticket (clamped at 0, net of descuento)
+    reverseClientBalanceForTicket(ticket)
+    // Reverse commissions — any washer/seller/cajero commission rows tied to
+    // this ticket are now unearned, delete them so liquidación stays honest.
+    db.prepare('DELETE FROM washer_commissions WHERE ticket_id=? OR (ticket_supabase_id IS NOT NULL AND ticket_supabase_id=?)').run(id, ticket.supabase_id || null)
+    db.prepare('DELETE FROM seller_commissions WHERE ticket_id=? OR (ticket_supabase_id IS NOT NULL AND ticket_supabase_id=?)').run(id, ticket.supabase_id || null)
+    db.prepare('DELETE FROM cajero_commissions WHERE ticket_id=? OR (ticket_supabase_id IS NOT NULL AND ticket_supabase_id=?)').run(id, ticket.supabase_id || null)
     // Reverse inventory stock for product items
     const items = db.prepare('SELECT * FROM ticket_items WHERE ticket_id=? AND inventory_item_id IS NOT NULL').all(id)
     for (const item of items) {
@@ -3750,6 +3858,17 @@ function queueDelete(id, deletedBy) {
   if (!row) return null
   const now = new Date().toISOString()
   db.transaction(() => {
+    // Reverse any credit-ticket balance BEFORE we mark the ticket anulado.
+    // Without this, deleted credit tickets leave a ghost debt on the client.
+    if (row.ticket_id) {
+      const ticket = db.prepare('SELECT id, client_id, tipo_venta, total, descuento FROM tickets WHERE id=?').get(row.ticket_id)
+      reverseClientBalanceForTicket(ticket)
+      // Also reverse any commissions tied to this ticket — they were written
+      // at create time; if the ticket is cancelled, they're unearned.
+      db.prepare('DELETE FROM washer_commissions WHERE ticket_id=? OR ticket_supabase_id IN (SELECT supabase_id FROM tickets WHERE id=?)').run(row.ticket_id, row.ticket_id)
+      db.prepare('DELETE FROM seller_commissions WHERE ticket_id=? OR ticket_supabase_id IN (SELECT supabase_id FROM tickets WHERE id=?)').run(row.ticket_id, row.ticket_id)
+      db.prepare('DELETE FROM cajero_commissions WHERE ticket_id=? OR ticket_supabase_id IN (SELECT supabase_id FROM tickets WHERE id=?)').run(row.ticket_id, row.ticket_id)
+    }
     db.prepare(`UPDATE queue SET status='cancelled', completed_at=? WHERE id=?`).run(now, id)
     db.prepare(`UPDATE tickets SET status='anulado' WHERE id=?`).run(row.ticket_id)
     db.prepare(`INSERT OR IGNORE INTO queue_deletions (queue_id, ticket_id, doc_number, deleted_by, deleted_at, reason) VALUES (?,?,?,?,?,?)`)
@@ -6227,6 +6346,7 @@ module.exports = {
   settingsGet, settingsUpdate, getSetting, setSetting,
   // Auth
   authByPin, usersGetAll, userCreate, userUpdate, userDelete, userDeleteHard,
+  staffGenerateAuthCard, staffRevokeAuthCard, staffVerifyAuthToken,
   // Categorías de servicio
   categoriasGetAll, categoriaCreate, categoriaUpdate, categoriaDelete,
   // Services

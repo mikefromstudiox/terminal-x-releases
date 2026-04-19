@@ -386,6 +386,30 @@ export function Preferencias() {
         </SettingRow>
       </SettingSection>
 
+      <SettingSection title={L('Autorización de Gerente', 'Manager Authorization')}>
+        <div className="text-[11px] text-slate-500 dark:text-white/60 mb-2">
+          {L(
+            'Exige tarjeta de autorización (o PIN de emergencia) para acciones sensibles. El gerente escanea su tarjeta; el cajero nunca ve el token.',
+            'Require an authorization card (or emergency PIN) for sensitive actions. The manager scans the card; the cashier never sees the token.',
+          )}
+        </div>
+        <SettingRow label={L('Descuentos grandes', 'Large discounts')} hint={L('> RD$500 o > 15% del total', '> RD$500 or > 15% of total')}>
+          <Toggle enabled={String(cfg.mgr_gate_enabled_discount_big ?? '1') === '1'} onChange={v => set('mgr_gate_enabled_discount_big', v ? '1' : '0')} />
+        </SettingRow>
+        <SettingRow label={L('Anulación de factura', 'Invoice void')}>
+          <Toggle enabled={String(cfg.mgr_gate_enabled_void ?? '1') === '1'} onChange={v => set('mgr_gate_enabled_void', v ? '1' : '0')} />
+        </SettingRow>
+        <SettingRow label={L('Nota de crédito', 'Credit note')}>
+          <Toggle enabled={String(cfg.mgr_gate_enabled_credit_note ?? '1') === '1'} onChange={v => set('mgr_gate_enabled_credit_note', v ? '1' : '0')} />
+        </SettingRow>
+        <SettingRow label={L('Ajuste de inventario', 'Inventory adjustment')}>
+          <Toggle enabled={String(cfg.mgr_gate_enabled_inv_adjust ?? '1') === '1'} onChange={v => set('mgr_gate_enabled_inv_adjust', v ? '1' : '0')} />
+        </SettingRow>
+        <SettingRow label={L('Edición de precio en POS', 'Price edit in POS')} hint={L('Disponible en v2.6.1', 'Available in v2.6.1')}>
+          <Toggle enabled={String(cfg.mgr_gate_enabled_price_edit ?? '1') === '1'} onChange={v => set('mgr_gate_enabled_price_edit', v ? '1' : '0')} />
+        </SettingRow>
+      </SettingSection>
+
       <SettingSection title={L('Impuestos y Cargos', 'Taxes & Charges')}>
         <SettingRow label="Ley 10%" hint={L('Cargo de servicio en facturas', 'Service charge on invoices')}>
           <Toggle enabled={on('ley_enabled')} onChange={v => set('ley_enabled', v ? '1' : '0')} />

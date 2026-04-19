@@ -987,6 +987,93 @@ export function createWebAPI(supabase, businessId) {
       }),
     },
 
+    // ── Staff / Manager Authorization Card (v2.6) ────────────────────────────
+    // Generate / revoke write the hash directly via the staff table — RLS
+    // already scopes to business_id, and we re-guard role client-side. Verify
+    // MUST go through the server endpoint because anon JWT can read the table
+    // but we don't want the hash travelling over the wire.
+    staff: {
+      generateAuthCard: (id) => tryOr(async () => {
+        const actor = await resolveActorRole()
+        if (!actor || (actor.role !== 'owner' && actor.role !== 'manager')) {
+          throw new Error('Solo dueño o gerente pueden emitir tarjetas')
+        }
+        const target = throwSupaError(await supabase.from('staff')
+          .select('id,name,username,role,active').eq('id', id).eq('business_id', bid).maybeSingle())
+        if (!target) throw new Error('Usuario no encontrado')
+        if (!target.active) throw new Error('Usuario inactivo')
+        if (target.role !== 'owner' && target.role !== 'manager') {
+          throw new Error('Solo dueño o gerente pueden tener tarjeta')
+        }
+        const { generateToken, hashToken } = await import('@terminal-x/services/managerAuthToken')
+        const token = generateToken()
+        const hash  = await hashToken(token)
+        const now   = new Date().toISOString()
+        throwSupaError(await supabase.from('staff')
+          .update({ manager_auth_hash: hash, manager_auth_rotated_at: now, updated_at: now })
+          .eq('id', id).eq('business_id', bid))
+        await logActivity({ event_type: 'manager_card_rotated', severity: 'warn',
+          target_type: 'user', target_id: id, target_name: `${target.name} (@${target.username})`,
+          reason: 'Tarjeta de autorización emitida/rotada' })
+        return { ok: true, token, rotatedAt: now,
+                 user: { id: target.id, name: target.name, username: target.username, role: target.role } }
+      }),
+
+      revokeAuthCard: (id) => tryOr(async () => {
+        const actor = await resolveActorRole()
+        if (!actor || (actor.role !== 'owner' && actor.role !== 'manager')) {
+          throw new Error('Solo dueño o gerente pueden revocar tarjetas')
+        }
+        const target = throwSupaError(await supabase.from('staff')
+          .select('id,name,username').eq('id', id).eq('business_id', bid).maybeSingle())
+        const now = new Date().toISOString()
+        throwSupaError(await supabase.from('staff')
+          .update({ manager_auth_hash: null, manager_auth_rotated_at: now, updated_at: now })
+          .eq('id', id).eq('business_id', bid))
+        await logActivity({ event_type: 'manager_card_revoked', severity: 'warn',
+          target_type: 'user', target_id: id,
+          target_name: target ? `${target.name} (@${target.username})` : `#${id}`,
+          reason: 'Tarjeta de autorización revocada' })
+        return { ok: true, rotatedAt: now }
+      }),
+
+      /**
+       * Verify a scanned token. Hits the server endpoint so the hash never
+       * leaves the server. Falls back to a client-side hash-then-select if the
+       * endpoint is unavailable (e.g. preview deploys) — the fallback is
+       * semantically identical; just higher blast radius if the anon key leaks.
+       */
+      verifyAuthToken: (token) => tryOr(async () => {
+        const raw = String(token || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+        if (raw.length < 8) return null
+        // Prefer server endpoint — pass JWT for auth.
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          const jwt = session?.access_token
+          if (jwt) {
+            const r = await fetch('/api/staff-verify-auth', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + jwt },
+              body: JSON.stringify({ token: raw, businessId: bid }),
+            })
+            if (r.ok) {
+              const j = await r.json()
+              return j?.match || null
+            }
+          }
+        } catch {}
+        // Fallback — client-side hash + select. Same correctness, weaker isolation.
+        const { hashToken } = await import('@terminal-x/services/managerAuthToken')
+        const hash = await hashToken(raw)
+        const { data } = await supabase.from('staff')
+          .select('id,name,username,role,supabase_id,manager_auth_rotated_at')
+          .eq('business_id', bid).eq('active', true).eq('manager_auth_hash', hash)
+          .in('role', ['owner','manager']).limit(1).maybeSingle()
+        return data ? { id: data.id, name: data.name, username: data.username, role: data.role,
+                        supabase_id: data.supabase_id, rotatedAt: data.manager_auth_rotated_at } : null
+      }, null),
+    },
+
     // ── Categorias ───────────────────────────────────────────────────────────
 
     categorias: {

@@ -2,6 +2,9 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, Loader2, QrCode, User, MessageSquare } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
+import { useAuth } from '../context/AuthContext'
+import ManagerAuthGate from './ManagerAuthGate'
+import { needsGate, isBigDiscount } from '@terminal-x/services/managerGateRules'
 import { signAndSubmitECF, getQRCode, ECF_TYPES, validateRNC } from '@terminal-x/services/ecf'
 const buildReceiptPDFBase64 = (...args) => import('@terminal-x/services/pdf').then(m => m.buildReceiptPDFBase64(...args))
 import { useRNC } from '../hooks/useRNC'
@@ -502,6 +505,9 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const [comentario, setComentario] = useState('')
   const [descuentoReason, setDescuentoReason] = useState('')
   const [descuentoError,  setDescuentoError]  = useState('')
+  // v2.6 — Manager Authorization Gate (big-discount path).
+  const { user: currentUser } = useAuth()
+  const [gateOpen, setGateOpen] = useState(false)
   // e-CF referencia fields (E33/E34 — credit/debit notes)
   const [refNCF,    setRefNCF]    = useState('')  // NCFModificado — original e-CF being modified
   const [refRazon,  setRefRazon]  = useState('')  // RazonModificacion — reason
@@ -526,6 +532,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const [showClientDrop, setShowClientDrop] = useState(false)
   const clientRef = useRef(null)
   const confirmedRef = useRef(false)
+  // v2.6 — latches approval for the current attempt so re-entry skips the gate.
+  const _gateApprovedRef = useRef(false)
 
   // ── Carwash memberships / combos ─────────────────────────────────────────
   // When a client is selected, check if they have an active monthly membership
@@ -696,6 +704,14 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
     // auditable (reason lands in notes + activity_log metadata).
     if (descuento > 0 && !descuentoReason.trim()) {
       setDescuentoError(lang === 'es' ? 'Razón del descuento obligatoria' : 'Discount reason required')
+      return
+    }
+    // v2.6 — Manager Authorization Gate for "big" discounts. Opens the modal;
+    // the gate's onApprove re-enters handleConfirm via the _gateApproved ref.
+    if (!_gateApprovedRef.current && descuento > 0 &&
+        isBigDiscount({ descuento, subtotal: totalGross, userDiscountPct: currentUser?.discount_pct || 0 }) &&
+        needsGate(currentUser, 'discount_big', bizSettings)) {
+      setGateOpen(true)
       return
     }
 
@@ -1405,6 +1421,23 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
           </>
         )}
       </div>
+
+      {/* v2.6 — Manager Authorization Gate (big-discount override) */}
+      {gateOpen && (
+        <ManagerAuthGate
+          action="discount_big"
+          actionLabel={lang === 'es'
+            ? `Descuento de ${fmtRD(descuento)} (${((descuento / (totalGross || 1)) * 100).toFixed(1)}%)`
+            : `Discount of ${fmtRD(descuento)} (${((descuento / (totalGross || 1)) * 100).toFixed(1)}%)`}
+          context={{ amount: descuento, subtotal: totalGross, reason: descuentoReason, ticket_id: ticket?.id }}
+          onApprove={() => {
+            _gateApprovedRef.current = true
+            setGateOpen(false)
+            setTimeout(() => handleConfirm(), 0)
+          }}
+          onCancel={() => setGateOpen(false)}
+        />
+      )}
     </div>
   )
 }

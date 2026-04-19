@@ -544,6 +544,10 @@ const EVENT_META = {
   user_hard_deleted:     { Icon: UserX,    color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Usuario eliminado (definitivo)', en: 'User hard deleted' },
   adelanto_created:      { Icon: Wallet,   color: 'text-blue-600 bg-blue-50 dark:bg-blue-500/10 dark:text-blue-300',    es: 'Adelanto creado',           en: 'Advance created' },
   adelanto_cancelled:    { Icon: Wallet,   color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Adelanto cancelado',        en: 'Advance cancelled' },
+  // v2.6 — Manager Authorization Card audit events
+  manager_override:      { Icon: Lock,     color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Autorización de gerente',   en: 'Manager override' },
+  manager_card_rotated:  { Icon: Lock,     color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Tarjeta de gerente emitida', en: 'Manager card issued' },
+  manager_card_revoked:  { Icon: Lock,     color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Tarjeta de gerente revocada', en: 'Manager card revoked' },
 }
 function eventLabel(evt, lang) {
   const m = EVENT_META[evt]
@@ -642,6 +646,7 @@ const FILTER_CHIPS = [
   { id: 'counts',   es: 'Conteos',      en: 'Counts',       types: ['inventory_count_completed'] },
   { id: 'caja',     es: 'Caja Chica',   en: 'Petty Cash',   types: ['caja_chica_withdrawal'] },
   { id: 'cuadre',   es: 'Cuadre',       en: 'Reconciliation', types: ['cuadre_discrepancy'] },
+  { id: 'mgr',      es: 'Gerente',      en: 'Manager',      types: ['manager_override','manager_card_rotated','manager_card_revoked'] },
 ]
 
 function fmtRel(iso, lang) {

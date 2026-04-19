@@ -8,6 +8,8 @@ import { useAuth } from '../context/AuthContext'
 import { useAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
 import { signAndSubmitECF } from '@terminal-x/services/ecf'
+import ManagerAuthGate from '../components/ManagerAuthGate'
+import { needsGate } from '@terminal-x/services/managerGateRules'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 // Fallback rate only — actual rate pulled from app_settings.itbis_pct at runtime.
@@ -297,7 +299,8 @@ export default function CreditNotes() {
   // ── Emit ──────────────────────────────────────────────────────────────────────
   function tryEmit() {
     if (!formValid) return
-    if (isCashier) {
+    // v2.6 — Credit notes are always gated (even for managers, per audit rules).
+    if (needsGate(user, 'credit_note')) {
       pendingEmit.current = doEmit
       setShowPin(true)
     } else {
@@ -380,9 +383,12 @@ export default function CreditNotes() {
   return (
     <div className="h-full flex flex-col bg-slate-50 dark:bg-black overflow-hidden">
       {showPin && (
-        <PinModal
-          onConfirm={() => { setShowPin(false); pendingEmit.current?.() }}
-          onClose={() => setShowPin(false)}
+        <ManagerAuthGate
+          action="credit_note"
+          actionLabel={L(`Nota de crédito · RD$ ${montoNum.toFixed(2)}`, `Credit note · RD$ ${montoNum.toFixed(2)}`)}
+          context={{ amount: montoNum, motivo, reason: comentario, original_ticket_id: factLookup?.id || null }}
+          onApprove={() => { setShowPin(false); const fn = pendingEmit.current; pendingEmit.current = null; fn?.() }}
+          onCancel={() => { setShowPin(false); pendingEmit.current = null }}
         />
       )}
       {toast && <Toast msg={toast} />}

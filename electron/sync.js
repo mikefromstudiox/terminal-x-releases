@@ -303,6 +303,9 @@ const SYNC_TABLES = [
       start_date: r.start_date,
       employee_id: r.employee_id != null ? r.employee_id : null,
       active: r.active,
+      // v2.6 — Manager Authorization Card columns (null-safe both directions).
+      manager_auth_hash:       r.manager_auth_hash ?? null,
+      manager_auth_rotated_at: r.manager_auth_rotated_at ?? null,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
     }),
@@ -1396,7 +1399,7 @@ const PULL_TABLES = [
   // `users` is a VIEW on `staff` in Supabase — PostgREST can't upsert into a
   // view without INSTEAD OF triggers. Route push to the base `staff` table.
   // Without this, every PIN/username/role change on desktop was silently lost.
-  { name: 'users', supabaseTable: 'staff', strategy: 'lww', naturalKey: 'username', cols: ['name','username','pin_hash','role','discount_pct','commission_pct','cedula','start_date','employee_id','active','created_at','updated_at'] },
+  { name: 'users', supabaseTable: 'staff', strategy: 'lww', naturalKey: 'username', cols: ['name','username','pin_hash','role','discount_pct','commission_pct','cedula','start_date','employee_id','active','manager_auth_hash','manager_auth_rotated_at','created_at','updated_at'] },
 
   // Phase 1 (cont.) — multi-vertical root entities
   { name: 'vehicles', strategy: 'lww', naturalKey: 'vin', cols: ['vin','plate','make','model','year','color','mileage','odometer_km','last_service_km','last_service_at','next_service_km','next_service_at','notes','active','created_at','updated_at'],

@@ -3,8 +3,9 @@ import {
   Building2, Upload, X, CheckCircle2, Loader2, ImageOff,
   Users, UserCheck, KeyRound, LayoutGrid, Plus, Edit2, Power,
   Eye, EyeOff, AlertCircle, FileText, Wifi, WifiOff, ExternalLink,
-  Check, Coffee, Lock, ChevronUp, ChevronDown, Trash2,
+  Check, Coffee, Lock, ChevronUp, ChevronDown, Trash2, CreditCard,
 } from 'lucide-react'
+import ManagerCardModal from '../components/ManagerCardModal'
 import { useLang } from '../i18n'
 import { useAPI, usePrinterAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -213,6 +214,8 @@ function Usuarios() {
   const [error,     setError]     = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting,  setDeleting]  = useState(false)
+  const [cardUser,  setCardUser]  = useState(null)   // v2.6: ManagerCardModal target
+  const [bizName,   setBizName]   = useState('')
   const { toast, show }           = useToast()
 
   async function handleDelete() {
@@ -247,14 +250,29 @@ function Usuarios() {
   async function load() {
     setLoading(true); setLoadErr('')
     try {
-      const [users, emps] = await Promise.all([
+      const [users, emps, emp] = await Promise.all([
         api?.users?.all?.() || [],
         api?.empleados?.all?.() || [],
+        api?.admin?.getEmpresa?.().catch(() => null),
       ])
       setList(users)
       setEmpleados(emps)
+      if (emp?.name) setBizName(emp.name)
     } catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
     finally { setLoading(false) }
+  }
+
+  async function revokeCard(u) {
+    const ok = confirm(L(
+      `¿Revocar la tarjeta de ${u.name}? La tarjeta física dejará de funcionar de inmediato.`,
+      `Revoke ${u.name}'s card? The physical card will stop working immediately.`,
+    ))
+    if (!ok) return
+    try {
+      await api.staff.revokeAuthCard(u.id)
+      show(L('Tarjeta revocada ✓', 'Card revoked ✓'))
+      load()
+    } catch (e) { show(e?.message || L('Error al revocar', 'Revoke error'), 'error') }
   }
 
   // Employees that don't already have a user account
@@ -339,8 +357,9 @@ function Usuarios() {
           <div className="hidden md:flex items-center px-4 py-2 bg-slate-50 dark:bg-white/5 border-b border-slate-100 dark:border-white/10 text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">
             <span className="flex-1">{L('Empleado / Usuario', 'Employee / Username')}</span>
             <span className="w-28 text-center">{L('Rol', 'Role')}</span>
+            <span className="w-28 text-center">{L('Tarjeta', 'Card')}</span>
             <span className="w-24 text-center">{L('Estado', 'Status')}</span>
-            <span className="w-24 text-right">{L('Accion', 'Action')}</span>
+            <span className="w-28 text-right">{L('Accion', 'Action')}</span>
           </div>
           {loading
             ? <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-slate-300 dark:text-white/30" size={20} /></div>
@@ -365,6 +384,17 @@ function Usuarios() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1 md:hidden">
+                      {(() => {
+                        const role = emp?.role || u.role
+                        const eligible = role === 'owner' || role === 'manager'
+                        return eligible ? (
+                          <button onClick={() => setCardUser({ ...u, role })}
+                            title={L('Tarjeta', 'Card')}
+                            className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 dark:text-white/40 hover:text-[#b3001e] hover:bg-[#b3001e]/10 transition-colors">
+                            <CreditCard size={15} />
+                          </button>
+                        ) : null
+                      })()}
                       <button onClick={() => openEdit(u)} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={15} /></button>
                       <button onClick={() => toggleActive(u)} className={`p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors ${u.active ? 'text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={15} /></button>
                       {canDelete && u.id !== user?.id && (
@@ -373,8 +403,30 @@ function Usuarios() {
                     </div>
                   </div>
                   <span className="hidden md:flex w-28 justify-center"><RoleBadge role={emp?.role || u.role} /></span>
+                  <span className="hidden md:flex w-28 justify-center">
+                    {(() => {
+                      const role = emp?.role || u.role
+                      const eligible = role === 'owner' || role === 'manager'
+                      if (!eligible) return <span className="text-[10px] text-slate-300 dark:text-white/20">—</span>
+                      const has = !!(u.has_auth_card || u.manager_auth_rotated_at)
+                      return has
+                        ? <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#b3001e]"><CreditCard size={11} /> {L('Activa', 'Active')}</span>
+                        : <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400 dark:text-white/40"><CreditCard size={11} /> {L('Sin tarjeta', 'None')}</span>
+                    })()}
+                  </span>
                   <span className="hidden md:flex w-24 justify-center"><ActiveBadge active={u.active} /></span>
-                  <div className="hidden md:flex w-24 items-center justify-end gap-1">
+                  <div className="hidden md:flex w-28 items-center justify-end gap-1">
+                    {(() => {
+                      const role = emp?.role || u.role
+                      const eligible = role === 'owner' || role === 'manager'
+                      return eligible ? (
+                        <button onClick={() => setCardUser({ ...u, role })}
+                          title={L('Gestionar tarjeta de autorización', 'Manage authorization card')}
+                          className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-[#b3001e] hover:bg-[#b3001e]/10 transition-colors">
+                          <CreditCard size={13} />
+                        </button>
+                      ) : null
+                    })()}
                     <button onClick={() => openEdit(u)} className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={13} /></button>
                     <button onClick={() => toggleActive(u)} className={`p-1.5 rounded-lg transition-colors ${u.active ? 'text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={13} /></button>
                     {canDelete && u.id !== user?.id && (
@@ -463,6 +515,15 @@ function Usuarios() {
             </div>
           )}
         </Panel>
+      )}
+
+      {cardUser && (
+        <ManagerCardModal
+          user={cardUser}
+          businessName={bizName}
+          onClose={() => { setCardUser(null); load() }}
+          onRevoke={async () => { await revokeCard(cardUser); setCardUser(null) }}
+        />
       )}
     </div>
   )
