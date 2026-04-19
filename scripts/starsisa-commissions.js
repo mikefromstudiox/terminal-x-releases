@@ -366,12 +366,16 @@ const insWasher = db.prepare(`INSERT INTO washer_commissions (supabase_id, emple
 const insSeller = db.prepare(`INSERT INTO seller_commissions (supabase_id, empleado_supabase_id, ticket_supabase_id, ticket_id, base_amount, commission_pct, commission_amount, paid, created_at, updated_at, business_id, source) VALUES (?, ?, NULL, NULL, ?, ?, ?, 0, ?, ?, ?, 'starsisa-import')`)
 const insCajero = db.prepare(`INSERT INTO cajero_commissions (supabase_id, empleado_supabase_id, ticket_supabase_id, ticket_id, base_amount, commission_pct, commission_amount, paid, created_at, updated_at, business_id, source) VALUES (?, ?, NULL, NULL, ?, ?, ?, 0, ?, ?, ?, 'starsisa-import')`)
 
-// Wipe prior starsisa-import rows so re-runs are idempotent
+// Wipe prior starsisa-import rows so re-runs are idempotent.
+// Also catches legacy rows from earlier script versions that didn't tag source —
+// those are identifiable as having NULL ticket linkage (no ticket_id AND no
+// ticket_supabase_id). Safe: live POS commissions always reference a ticket.
 function wipePrior() {
   try {
-    const w = db.prepare(`DELETE FROM washer_commissions WHERE source='starsisa-import'`).run()
-    const s = db.prepare(`DELETE FROM seller_commissions WHERE source='starsisa-import'`).run()
-    const c = db.prepare(`DELETE FROM cajero_commissions WHERE source='starsisa-import'`).run()
+    const where = `source='starsisa-import' OR (ticket_id IS NULL AND ticket_supabase_id IS NULL)`
+    const w = db.prepare(`DELETE FROM washer_commissions WHERE ${where}`).run()
+    const s = db.prepare(`DELETE FROM seller_commissions WHERE ${where}`).run()
+    const c = db.prepare(`DELETE FROM cajero_commissions WHERE ${where}`).run()
     console.log(`  wiped prior imports — washers:${w.changes} sellers:${s.changes} cajeros:${c.changes}`)
   } catch (e) { console.error('  wipe error:', e.message) }
 }
