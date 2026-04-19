@@ -4,6 +4,7 @@ import xMark from '../assets/x-mark.webp'
 import { Delete, UserPlus, Loader2, CheckCircle2 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAuth } from '../context/AuthContext'
+const isWebRuntime = () => typeof window !== 'undefined' && !window.electronAPI
 import { useAPI } from '../context/DataContext'
 import LanguageToggle from '../components/LanguageToggle'
 
@@ -115,7 +116,7 @@ function PasswordMode({ username, password, error, onChange, onSubmit, t }) {
 // ── Login Screen ──────────────────────────────────────────────────────────────
 export default function Login() {
   const { t, lang } = useLang()
-  const { login, loginWithPassword } = useAuth()
+  const { login, loginWithPassword, logout } = useAuth()
   const api = useAPI()
   const L = (es, en) => lang === 'es' ? es : en
 
@@ -320,22 +321,35 @@ export default function Login() {
             {demoCreating ? L('Creando…', 'Creating…') : L('Crear Usuario Demo', 'Quick Create Demo User')}
           </button>
 
-          {/* Disconnect device — returns to setup/reconnect wizard */}
+          {/* Disconnect device — on web = full sign out (clears Supabase
+              session + redirects to landing). On desktop = wipe local DB
+              and reload so setup wizard re-runs. */}
           <button
             onClick={async () => {
-              const ok = confirm(L(
-                '¿Desconectar este dispositivo? Volverás a la pantalla de configuración para vincular una cuenta. Tus datos locales se mantienen.',
-                'Disconnect this device? You will return to the setup screen to link an account. Your local data is preserved.'
-              ))
+              const onWeb = isWebRuntime()
+              const msg = onWeb
+                ? L(
+                    '¿Cerrar sesión en este dispositivo? Volverás a la pantalla de inicio de sesión.',
+                    'Sign out on this device? You will return to the login screen.'
+                  )
+                : L(
+                    '¿Desconectar este dispositivo? Volverás a la pantalla de configuración para vincular una cuenta. Tus datos locales se mantienen.',
+                    'Disconnect this device? You will return to the setup screen to link an account. Your local data is preserved.'
+                  )
+              const ok = confirm(msg)
               if (!ok) return
-              try {
-                await window.electronAPI?.resetLocalDatabase?.()
-              } catch {}
+              if (onWeb) {
+                try { await logout?.() } catch {}
+                return
+              }
+              try { await window.electronAPI?.resetLocalDatabase?.() } catch {}
               window.location.reload()
             }}
             className="mt-6 w-full text-center text-slate-300 dark:text-white/20 text-[10px] hover:text-red-400 dark:hover:text-red-400 transition-colors"
           >
-            {L('Desconectar dispositivo', 'Disconnect device')}
+            {isWebRuntime()
+              ? L('Cerrar sesión', 'Sign out')
+              : L('Desconectar dispositivo', 'Disconnect device')}
           </button>
 
         </div>
