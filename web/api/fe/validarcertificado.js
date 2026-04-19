@@ -1,8 +1,23 @@
 /**
  * POST /fe/autenticacion/api/validacioncertificado
  * Receives DGII's signed seed (multipart), verifies it, returns a JWT token.
+ *
+ * v2.8.1 — adds replay protection: seeds with the same `valor` within a 5-min
+ * window return a fresh token for the same nonce (idempotent) but can't mint
+ * arbitrary new JWTs from one captured seed.
  */
 import jwt from 'jsonwebtoken'
+
+// In-memory nonce store — not durable across serverless cold starts, but
+// raises the cost of replay within a single instance lifetime. A true
+// durable store (Supabase KV or Redis) would be the follow-up; for now this
+// catches naive replay at the same Vercel instance.
+const _seedNonceTtl = 5 * 60 * 1000
+const _seedSeen = new Map()   // valor -> { token, exp }
+function sweepNonces() {
+  const now = Date.now()
+  for (const [k, v] of _seedSeen) if (v.exp <= now) _seedSeen.delete(k)
+}
 
 function parseMultipartXml(body, contentType) {
   const boundaryMatch = contentType.match(/boundary=(.+?)(?:;|$)/)
@@ -64,11 +79,22 @@ export default async function handler(req, res) {
     }
 
     const key = keyPem.replace(/\\n/g, '\n')
-    const token = jwt.sign(
-      { valor: valorMatch[1], timestamp: new Date().toISOString() },
-      key,
-      { algorithm: 'RS256', expiresIn: '1h' }
-    )
+
+    // Replay guard: idempotent for the same seed `valor` within the TTL window.
+    sweepNonces()
+    const valor = valorMatch[1]
+    const cached = _seedSeen.get(valor)
+    let token
+    if (cached && cached.exp > Date.now()) {
+      token = cached.token
+    } else {
+      token = jwt.sign(
+        { valor, timestamp: new Date().toISOString() },
+        key,
+        { algorithm: 'RS256', expiresIn: '1h' }
+      )
+      _seedSeen.set(valor, { token, exp: Date.now() + _seedNonceTtl })
+    }
 
     const now = new Date()
     const expira = new Date(now.getTime() + 3600000).toISOString()

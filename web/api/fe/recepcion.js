@@ -100,8 +100,13 @@ export default async function handler(req, res) {
     return
   }
 
+  // v2.8.1 — verify JWT with PUBLIC key derived from the certificate, not the
+  // private key. Node's crypto.createPublicKey accepts a PEM cert and returns
+  // the encapsulated public key; that's what RS256 verify semantically wants.
   try {
-    jwt.verify(token, keyPem, { algorithms: ['RS256'] })
+    const { createPublicKey } = await import('node:crypto')
+    const publicKey = createPublicKey(certPem)
+    jwt.verify(token, publicKey, { algorithms: ['RS256'] })
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' })
     return

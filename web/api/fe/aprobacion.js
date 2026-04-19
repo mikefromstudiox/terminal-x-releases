@@ -96,7 +96,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    jwt.verify(token, keyPem, { algorithms: ['RS256'] })
+    const { createPublicKey } = await import('node:crypto')
+    const publicKey = createPublicKey(certPem)
+    jwt.verify(token, publicKey, { algorithms: ['RS256'] })
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' })
     return
