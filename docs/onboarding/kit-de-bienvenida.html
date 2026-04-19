@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="es-DO">
+<head>
+<meta charset="utf-8" />
+<title>Terminal X — Kit de Bienvenida</title>
+<style>
+  :root { --red:#b3001e; --ink:#0a0a0a; --muted:#555; --line:#e5e5e5; --soft:#fafafa; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; color:var(--ink); font-size:11.5pt; line-height:1.6; background:#fff; }
+  .page { padding:54pt 60pt; max-width:820pt; margin:0 auto; page-break-after:always; }
+  .page:last-of-type { page-break-after:auto; }
+  h1, h2, h3, h4 { font-family:"Segoe UI",-apple-system,Roboto,Arial,sans-serif; color:var(--ink); }
+  h1 { font-size:30pt; line-height:1.15; margin:0 0 6pt 0; letter-spacing:-0.5pt; }
+  h2 { font-size:22pt; margin:0 0 14pt 0; border-bottom:3pt solid var(--red); padding-bottom:8pt; letter-spacing:-0.3pt; }
+  h3 { font-size:15pt; margin:22pt 0 6pt 0; color:var(--red); }
+  h4 { font-size:12pt; margin:14pt 0 4pt 0; }
+  p { margin:7pt 0; }
+  ul, ol { margin:6pt 0 6pt 20pt; padding:0; }
+  li { margin:4pt 0; }
+
+  /* Cover */
+  .cover { text-align:left; padding:130pt 60pt 60pt 60pt; background:#0a0a0a; color:#fff; min-height:860pt; page-break-after:always; position:relative; }
+  .cover .x { color:var(--red); font-weight:900; font-size:160pt; line-height:1; letter-spacing:-8pt; margin-bottom:20pt; }
+  .cover .pill { background:var(--red); color:#fff; font-size:10pt; font-weight:700; padding:3pt 12pt; border-radius:999pt; letter-spacing:0.5pt; text-transform:uppercase; display:inline-block; margin-bottom:20pt; }
+  .cover h1 { color:#fff; font-size:54pt; margin-bottom:10pt; letter-spacing:-1.5pt; line-height:1.05; }
+  .cover .sub { color:#d0d0d0; font-size:18pt; max-width:540pt; line-height:1.4; }
+  .cover .meta { position:absolute; left:60pt; bottom:60pt; color:#888; font-size:11pt; border-top:1pt solid #333; padding-top:14pt; width:calc(100% - 120pt); }
+  .cover .meta strong { color:#fff; }
+
+  /* Boxes */
+  .promise { background:var(--red); color:#fff; padding:22pt 26pt; border-radius:6pt; margin:14pt 0 22pt 0; font-size:14pt; line-height:1.5; }
+  .promise strong { font-weight:800; }
+  .note { background:#fff8f8; border-left:3pt solid var(--red); padding:12pt 16pt; margin:12pt 0; border-radius:3pt; }
+  .ok   { background:#f4faf5; border-left:3pt solid #1a8a3c; padding:12pt 16pt; margin:12pt 0; border-radius:3pt; }
+  .timeline-box { background:#0a0a0a; color:#fff; padding:20pt 24pt; border-radius:6pt; margin:18pt 0; }
+  .timeline-box h4 { color:var(--red); margin-top:0; }
+
+  /* Phase cards (5 steps, client view) */
+  .phase { border:1pt solid var(--line); border-radius:6pt; padding:18pt 22pt; margin:14pt 0; background:var(--soft); page-break-inside:avoid; }
+  .phase-num { background:var(--red); color:#fff; font-weight:800; width:28pt; height:28pt; display:inline-flex; align-items:center; justify-content:center; border-radius:999pt; margin-right:10pt; font-size:12pt; }
+  .phase-title { font-size:16pt; font-weight:700; display:inline; vertical-align:middle; }
+  .phase-time { float:right; background:#0a0a0a; color:#fff; font-size:10pt; padding:2pt 10pt; border-radius:999pt; font-weight:600; }
+  .phase p { margin:8pt 0; }
+
+  /* Form section */
+  .form-section { background:#fff; border:1pt solid var(--line); border-radius:6pt; padding:20pt 24pt; margin:14pt 0; page-break-inside:avoid; }
+  .form-section h3 { margin-top:0; }
+  .form-field { margin:10pt 0; display:grid; grid-template-columns:160pt 1fr; gap:10pt; align-items:baseline; }
+  .form-field label { font-weight:700; color:#333; font-size:10.5pt; }
+  .form-line { border-bottom:1pt solid #888; min-height:20pt; padding:2pt 4pt; font-size:11pt; }
+  .form-why { font-size:10pt; color:var(--muted); margin-left:160pt; margin-top:-4pt; margin-bottom:10pt; font-style:italic; }
+  .form-multi { border:1pt solid #888; border-radius:4pt; min-height:80pt; padding:6pt 8pt; font-size:10.5pt; margin-top:4pt; }
+
+  /* Why-it-matters table */
+  .why-table { width:100%; border-collapse:collapse; margin:12pt 0; font-size:10.5pt; }
+  .why-table th, .why-table td { border:1pt solid var(--line); padding:8pt 10pt; text-align:left; vertical-align:top; }
+  .why-table th { background:#0a0a0a; color:#fff; font-weight:700; font-size:11pt; }
+  .why-table tr:nth-child(even) td { background:#fafafa; }
+
+  /* Commitments */
+  .commitments { display:grid; grid-template-columns:1fr 1fr; gap:16pt; margin:14pt 0; }
+  .commitments .box { padding:18pt 22pt; border-radius:6pt; }
+  .commitments .ours { background:#fff8f8; border:1pt solid var(--red); }
+  .commitments .yours { background:#0a0a0a; color:#fff; }
+  .commitments .box h4 { margin:0 0 10pt 0; font-size:13pt; }
+  .commitments .ours h4 { color:var(--red); }
+  .commitments .yours h4 { color:#fff; }
+  .commitments ul { margin:8pt 0 0 18pt; }
+  .commitments li { margin:5pt 0; }
+
+  /* Support */
+  .support { background:#0a0a0a; color:#fff; padding:26pt 30pt; border-radius:8pt; text-align:center; margin-top:22pt; }
+  .support h3 { color:#fff; font-size:20pt; margin:0 0 8pt 0; }
+  .support .red { color:var(--red); font-size:22pt; font-weight:700; letter-spacing:0.5pt; }
+  .support .lines { margin-top:14pt; font-size:12pt; line-height:1.8; color:#ddd; }
+
+  /* Signature */
+  .sig-row { display:grid; grid-template-columns:1fr 1fr; gap:40pt; margin-top:40pt; }
+  .sig-line { border-top:1pt solid #555; padding-top:6pt; font-size:10pt; color:var(--muted); text-align:center; }
+
+  .small { font-size:9.5pt; color:var(--muted); }
+
+  @media print {
+    .page { page-break-after:always; }
+    .page:last-of-type { page-break-after:auto; }
+    .cover { page-break-after:always; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ========== COVER ========== -->
+<section class="cover">
+  <div class="x">X</div>
+  <span class="pill">Kit de Bienvenida</span>
+  <h1>Bienvenido a<br>Terminal X.</h1>
+  <p class="sub">Todo lo que necesitas para arrancar tu sistema en las próximas 48 a 72 horas — sin sorpresas, sin códigos raros, con todo listo para vender el lunes.</p>
+  <div class="meta">
+    <strong>Versión 1.0 · abril 2026</strong> &nbsp;·&nbsp; Para el cliente. Entregar completo a tu Agente PAT.
+  </div>
+</section>
+
+<!-- ========== PAGE 1 — INTRO ========== -->
+<section class="page">
+
+  <h2>¿Qué es este kit?</h2>
+  <p>Este documento es tu hoja de ruta para montar Terminal X. Está dividido en dos partes:</p>
+  <ol>
+    <li><strong>Lo que tú recibirás</strong> — los 5 pasos que vamos a ejecutar contigo, con fechas y entregables claros.</li>
+    <li><strong>Lo que necesitamos de ti</strong> — los datos específicos, con una explicación de <em>por qué</em> cada uno importa para tu negocio.</li>
+  </ol>
+
+  <div class="promise">
+    <strong>Nuestra promesa:</strong> desde que nos entregas este kit completo, tendrás tu sistema corriendo con tus productos, tu personal y tus precios dentro de 72 horas. Sin excepciones.
+  </div>
+
+  <h3>Así vamos a trabajar</h3>
+  <p>Usamos un proceso probado de 5 fases llamado <strong>Protocolo de Arranque Terminal X</strong>. No te preocupes por los nombres técnicos — lo importante es que cada fase tiene un objetivo claro y un momento preciso en el que tú participas.</p>
+
+  <div class="timeline-box">
+    <h4>Timeline estándar</h4>
+    <ul style="margin:6pt 0 0 20pt;">
+      <li><strong>Día 1 (hoy):</strong> Recibes este kit. Empiezas a llenar la información.</li>
+      <li><strong>Día 2:</strong> Nos entregas los datos completos. Nosotros montamos tu sistema (tú descansas).</li>
+      <li><strong>Día 3:</strong> Entrenamiento de 2 horas para ti + tu equipo.</li>
+      <li><strong>Día 4:</strong> Go-live — tu primer cliente paga con Terminal X.</li>
+      <li><strong>Días 5-10:</strong> Acompañamiento cercano. Llamadas en los días 3 y 7 post go-live.</li>
+    </ul>
+  </div>
+
+</section>
+
+<!-- ========== PAGE 2 — THE 5 PHASES ========== -->
+<section class="page">
+
+  <h2>Las 5 fases de tu arranque</h2>
+  <p class="small">Cada fase tiene un objetivo concreto. Lee la tuya antes de llegar — así aprovechamos el tiempo juntos.</p>
+
+  <div class="phase">
+    <span class="phase-time">1 a 3 días</span>
+    <div><span class="phase-num">1</span><span class="phase-title">Preparación</span></div>
+    <p><strong>Qué hacemos:</strong> Te enviamos este kit. Tú nos respondes con la información de tu negocio, tus cajeras y tu inventario.</p>
+    <p><strong>Qué necesitas hacer:</strong> Llenar la sección "Lo que necesitamos de ti" (página siguiente). Subir tu lista de productos en Excel o CSV — o una foto clara de tu sistema anterior.</p>
+    <p><strong>Entregable:</strong> todos los datos que completes en este kit.</p>
+  </div>
+
+  <div class="phase">
+    <span class="phase-time">30 a 60 min</span>
+    <div><span class="phase-num">2</span><span class="phase-title">Montaje</span></div>
+    <p><strong>Qué hacemos:</strong> Creamos tu cuenta en la nube, cargamos todos tus productos, configuramos las facturas (NCF + e-CF), generamos las claves de acceso de cada cajera.</p>
+    <p><strong>Qué necesitas hacer:</strong> nada — esta fase es 100% nuestra.</p>
+    <p><strong>Entregable:</strong> tu usuario + contraseña + PIN + licencia + link al sistema.</p>
+  </div>
+
+  <div class="phase">
+    <span class="phase-time">30 a 90 min</span>
+    <div><span class="phase-num">3</span><span class="phase-title">Categorización &amp; Precios</span></div>
+    <p><strong>Qué hacemos:</strong> Organizamos tus productos por categorías (cervezas, rones, snacks, etc.) para que el POS sea rápido de usar. Si tienes precios de Pedidos Ya u otros canales, los cargamos.</p>
+    <p><strong>Qué necesitas hacer:</strong> Sentarte 30 minutos con tu Agente PAT para decidir las categorías — tú conoces tu inventario mejor que nadie.</p>
+    <p><strong>Entregable:</strong> POS organizado + precios alternos listos.</p>
+  </div>
+
+  <div class="phase">
+    <span class="phase-time">1.5 a 2 horas</span>
+    <div><span class="phase-num">4</span><span class="phase-title">Entrenamiento</span></div>
+    <p><strong>Qué hacemos:</strong> Capacitamos a ti y a tus cajeras. POS, pagos, descuentos, inventario, reportes, cuadre de caja, tarjetas de autorización de gerente.</p>
+    <p><strong>Qué necesitas hacer:</strong> Tener a todo tu equipo presente (aunque sea por videollamada). Entregar las tarjetas de gerente impresas a los managers.</p>
+    <p><strong>Entregable:</strong> equipo certificado + tarjetas físicas en mano.</p>
+  </div>
+
+  <div class="phase">
+    <span class="phase-time">Día 1 + 7 días</span>
+    <div><span class="phase-num">5</span><span class="phase-title">Lanzamiento &amp; Acompañamiento</span></div>
+    <p><strong>Qué hacemos:</strong> Monitoreamos tus primeras ventas en vivo desde nuestro dashboard remoto. Tu Agente PAT queda disponible por WhatsApp durante las primeras 4 horas. Después, check-ins los días 3 y 7.</p>
+    <p><strong>Qué necesitas hacer:</strong> Abrir tu negocio como un día normal. Llamarnos si algo te preocupa.</p>
+    <p><strong>Entregable:</strong> tu sistema en producción, estable, con soporte permanente.</p>
+  </div>
+
+</section>
+
+<!-- ========== PAGE 3 — DATA FORM ========== -->
+<section class="page">
+
+  <h2>Lo que necesitamos de ti</h2>
+  <p>Llena esta sección con calma. Cada campo tiene una razón concreta — te explicamos el <em>por qué</em> para que entiendas cómo cada dato impacta tu operación.</p>
+
+  <div class="form-section">
+    <h3>1. Datos del negocio</h3>
+    <p class="small">Estos datos aparecen en cada factura que emites. La DGII los usa para identificarte como emisor electrónico.</p>
+
+    <div class="form-field">
+      <label>Nombre comercial</label>
+      <div class="form-line">&nbsp;</div>
+    </div>
+    <p class="form-why">Así como aparecerá en el encabezado de cada factura impresa y electrónica. Ejemplo: "Ranoza Liquor Store".</p>
+
+    <div class="form-field">
+      <label>RNC o Cédula</label>
+      <div class="form-line">&nbsp;</div>
+    </div>
+    <p class="form-why">Obligatorio para emitir facturas con valor fiscal (B01, B02, e-CF). Sin esto no puedes recibir pagos corporativos.</p>
+
+    <div class="form-field">
+      <label>Teléfono principal</label>
+      <div class="form-line">&nbsp;</div>
+    </div>
+    <p class="form-why">Se imprime en las facturas para que tus clientes puedan contactarte por reclamos o devoluciones.</p>
+
+    <div class="form-field">
+      <label>Dirección</label>
+      <div class="form-line">&nbsp;</div>
+    </div>
+    <p class="form-why">Requerida por la DGII en e-CF. También aparece en la factura impresa.</p>
+
+    <div class="form-field">
+      <label>Ciudad / Sector</label>
+      <div class="form-line">&nbsp;</div>
+    </div>
+
+    <div class="form-field">
+      <label>Correo del negocio</label>
+      <div class="form-line">&nbsp;</div>
+    </div>
+    <p class="form-why">Se usa para enviar facturas electrónicas por correo a tus clientes (cuando aplique).</p>
+
+    <div class="form-field">
+      <label>Logo (PNG)</label>
+      <div class="form-line">adjuntar por WhatsApp</div>
+    </div>
+    <p class="form-why">Opcional — pero si lo adjuntas, imprimimos tu logo en la factura y lo ponemos en el dashboard. Más profesional a la vista del cliente.</p>
+  </div>
+
+</section>
+
+<!-- ========== PAGE 4 — ACCESS + STAFF ========== -->
+<section class="page">
+
+  <div class="form-section">
+    <h3>2. Tu acceso como dueño</h3>
+    <p class="small">Este es tu login personal. Solo tú lo conoces. Con esto entras al sistema desde cualquier dispositivo — tu celular, laptop, tablet.</p>
+
+    <div class="form-field">
+      <label>Correo electrónico</label>
+      <div class="form-line">&nbsp;</div>
+    </div>
+    <p class="form-why">Recomendamos un correo que no compartas con empleados. Es tu llave al sistema.</p>
+
+    <div class="form-field">
+      <label>Contraseña (mín. 8)</label>
+      <div class="form-line">&nbsp;</div>
+    </div>
+    <p class="form-why">Usa algo que solo tú puedas recordar. No la anotes en un papel visible.</p>
+
+    <div class="form-field">
+      <label>PIN de 4 dígitos</label>
+      <div class="form-line">&nbsp;</div>
+    </div>
+    <p class="form-why">Para cambiar de usuario rápido dentro del sistema sin volver a teclear la contraseña completa.</p>
+
+    <div class="form-field">
+      <label>Tu nombre completo</label>
+      <div class="form-line">&nbsp;</div>
+    </div>
+    <p class="form-why">Aparece en los reportes cuando autorizas algo como dueño.</p>
+  </div>
+
+  <div class="form-section">
+    <h3>3. Tus cajeras y personal</h3>
+    <p class="small">Cada cajera tiene su propio PIN. Así sabes <em>exactamente</em> quién hizo cada venta, quién abrió caja, quién aplicó un descuento.</p>
+
+    <p>Completa una fila por cada empleado. Si tienes más personal, continúa en la última página de este kit.</p>
+
+    <table class="why-table" style="margin-top:10pt;">
+      <tr>
+        <th style="width:140pt;">Nombre completo</th>
+        <th style="width:80pt;">Cédula</th>
+        <th style="width:60pt;">Usuario</th>
+        <th style="width:50pt;">PIN</th>
+        <th>Rol</th>
+      </tr>
+      <tr><td style="height:22pt;">&nbsp;</td><td></td><td></td><td></td><td></td></tr>
+      <tr><td style="height:22pt;">&nbsp;</td><td></td><td></td><td></td><td></td></tr>
+      <tr><td style="height:22pt;">&nbsp;</td><td></td><td></td><td></td><td></td></tr>
+      <tr><td style="height:22pt;">&nbsp;</td><td></td><td></td><td></td><td></td></tr>
+      <tr><td style="height:22pt;">&nbsp;</td><td></td><td></td><td></td><td></td></tr>
+    </table>
+
+    <p class="small"><strong>Roles disponibles:</strong> Cajera (solo vende), Manager (autoriza descuentos y anulaciones), Dueño (todo).</p>
+
+    <div class="note">
+      <strong>¿Por qué pedimos PIN individual?</strong> Porque cuando algo sale raro (cuadre desbalanceado, descuento grande, ticket anulado), el sistema te dice exactamente quién lo hizo y a qué hora. Es tu mejor herramienta contra merma interna.
+    </div>
+  </div>
+
+</section>
+
+<!-- ========== PAGE 5 — INVENTORY + CHANNELS ========== -->
+<section class="page">
+
+  <div class="form-section">
+    <h3>4. Tu inventario</h3>
+    <p>Mándanos tu lista de productos en <strong>cualquiera</strong> de estos formatos. Nosotros lo convertimos al formato de Terminal X — tú no tocas Excel.</p>
+    <ul>
+      <li><strong>Excel o CSV</strong> exportado de tu sistema anterior (ideal)</li>
+      <li><strong>Foto clara</strong> de las pantallas de tu POS actual</li>
+      <li><strong>Lista escrita a mano</strong> si tu inventario es pequeño (menos de 50 productos)</li>
+      <li><strong>Acceso de lectura</strong> a tu sistema actual si lo tienes online</li>
+    </ul>
+
+    <h4>Columnas que necesitamos por producto</h4>
+    <table class="why-table">
+      <tr><th>Columna</th><th>¿Por qué importa?</th></tr>
+      <tr><td>Código de barras</td><td>Para que el scanner lo encuentre en menos de 1 segundo.</td></tr>
+      <tr><td>Nombre</td><td>Lo que aparece en la factura. Debe ser claro para el cliente.</td></tr>
+      <tr><td>Precio de venta</td><td>Obvio — pero cada centavo cuenta. Valida antes de enviar.</td></tr>
+      <tr><td>Costo</td><td>Nos permite calcular tu margen y tu pérdida por merma en reportes.</td></tr>
+      <tr><td>Existencia actual</td><td>Así el sistema sabe cuánto tienes al iniciar. No se pierde una botella.</td></tr>
+      <tr><td>Categoría (opcional)</td><td>Si ya la tienes, ahorramos 30 minutos en la Fase 3.</td></tr>
+    </table>
+
+    <div class="ok">
+      <strong>Tranquilo:</strong> Si algo falta, lo llenamos con valor razonable y tú lo corriges después. Lo importante es empezar.
+    </div>
+  </div>
+
+  <div class="form-section">
+    <h3>5. Precios alternos (opcional pero recomendado)</h3>
+    <p>Si vendes también por canales como <strong>Pedidos Ya, Uber Eats, DiDi Food</strong> — o tienes clientes mayoristas que pagan precio diferente — mándanos esa lista.</p>
+
+    <table class="why-table">
+      <tr><th>Canal / Cliente</th><th>Qué unlocks para ti</th></tr>
+      <tr><td>Pedidos Ya</td><td>Un botón en el POS que cambia todos los precios al tarifario de Pedidos Ya con un toque. Cuando entra una orden, tu cajera no se equivoca.</td></tr>
+      <tr><td>Mayorista</td><td>Ese cliente específico siempre ve su precio negociado al pasar su nombre. Sin tener que calcular descuentos manuales.</td></tr>
+      <tr><td>Happy hour</td><td>Precios especiales entre ciertas horas (avanzado — lo configuramos si lo pides).</td></tr>
+    </table>
+  </div>
+
+</section>
+
+<!-- ========== PAGE 6 — COMMITMENTS ========== -->
+<section class="page">
+
+  <h2>Nuestros compromisos mutuos</h2>
+  <p>Para que esto funcione, cada parte tiene responsabilidades claras. Esto no es un contrato legal — es un acuerdo de colaboración.</p>
+
+  <div class="commitments">
+    <div class="box ours">
+      <h4>Nosotros nos comprometemos a:</h4>
+      <ul>
+        <li>Montar tu sistema en las 72 horas después de recibir tu información completa.</li>
+        <li>Cargar TODO tu inventario — no importa si son 50 o 5,000 productos.</li>
+        <li>Entrenar a ti y tu equipo en una sola sesión de 2 horas.</li>
+        <li>Monitorear tu primer día de go-live en vivo.</li>
+        <li>Contestarte por WhatsApp dentro de 30 minutos durante horario laboral.</li>
+        <li>Mantener tu sistema actualizado con cada nueva versión — sin costo extra.</li>
+        <li>Cumplir con la DGII por ti — e-CF, reportes 606/607, todo.</li>
+      </ul>
+    </div>
+
+    <div class="box yours">
+      <h4>Tú te comprometes a:</h4>
+      <ul>
+        <li>Entregar la información de este kit completa antes de la fecha acordada.</li>
+        <li>Tener a todo tu equipo presente para la sesión de entrenamiento.</li>
+        <li>Imprimir y laminar las tarjetas de autorización para los managers.</li>
+        <li>Usar el sistema — no volver al POS anterior en paralelo (crea confusión).</li>
+        <li>Reportar bugs o quejas por WhatsApp (no por comentarios en redes).</li>
+        <li>Pagar la mensualidad a tiempo para mantener el servicio activo.</li>
+        <li>Darnos feedback honesto — hacemos el producto mejor gracias a ti.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:22pt;">
+    <strong>Si algo se rompe, es nuestro problema.</strong> Tu trabajo es vender y crecer. El nuestro es que el sistema siempre esté listo cuando abras la puerta en la mañana.
+  </div>
+
+  <h3>Firmas</h3>
+  <div class="sig-row">
+    <div>
+      <div class="sig-line">Firma del Cliente — Fecha</div>
+    </div>
+    <div>
+      <div class="sig-line">Firma del Agente PAT — Fecha</div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ========== PAGE 7 — SUPPORT + EXTRAS ========== -->
+<section class="page">
+
+  <h2>Contacto y soporte</h2>
+
+  <div class="support">
+    <h3>Terminal X</h3>
+    <p class="red">+1 (809) 828-2971</p>
+    <div class="lines">
+      WhatsApp · Lun a Sáb · 8:00 AM – 8:00 PM<br>
+      Respuesta garantizada dentro de 30 minutos
+    </div>
+    <div class="lines" style="margin-top:18pt; border-top:1pt solid #333; padding-top:14pt;">
+      <strong>terminalxpos.com</strong> &nbsp;·&nbsp; <strong>studioxrd.tech</strong><br>
+      Soporte · actualizaciones · nuevas funciones
+    </div>
+  </div>
+
+  <h3>Antes de la primera llamada de entrenamiento</h3>
+  <ul>
+    <li>Asegúrate de que tu internet funciona en el local. Prueba abrir YouTube en tu teléfono mientras estés parado detrás de la caja.</li>
+    <li>Ten tu impresora térmica conectada y con papel.</li>
+    <li>Si usarás scanner de código de barras, conéctalo antes de la llamada.</li>
+    <li>Ten este kit impreso a mano — vamos a repasar cada sección.</li>
+  </ul>
+
+  <h3>Notas adicionales (espacio libre)</h3>
+  <div class="form-multi">&nbsp;</div>
+  <div class="form-multi">&nbsp;</div>
+
+  <p class="small" style="margin-top:30pt; text-align:center;">
+    Kit de Bienvenida v1.0 · Terminal X · Studio X Group Holdings SRL · Santo Domingo, RD
+  </p>
+
+</section>
+
+</body>
+</html>
