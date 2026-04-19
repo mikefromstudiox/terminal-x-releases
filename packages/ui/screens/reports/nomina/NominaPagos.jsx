@@ -58,7 +58,8 @@ export default function NominaPagos() {
   const [commRows,        setCommRows]        = useState({ washers: [], sellers: [], cajeros: [] })
   const [historical,      setHistorical]      = useState([])
   const [showHistory,     setShowHistory]     = useState(false)
-  const [adelantoTotals,  setAdelantoTotals] = useState({}) // empleado_id → pending total
+  const [adelantoTotals,    setAdelantoTotals]    = useState({}) // empleado_id → pending total (all-time)
+  const [periodAdelantos,   setPeriodAdelantos]   = useState({}) // empleado_id → pending total *within this period*
 
   // Period state
   const [preset,      setPreset]      = useState('q-previous')
@@ -140,6 +141,32 @@ export default function NominaPagos() {
     setSelected({})
     setBonuses({})
   }, [period?.start, period?.end])
+
+  // ── Load adelantos that fall WITHIN this pay period ────────────────────────
+  // Prior behavior deducted ALL pending adelantos (across all time) from this
+  // paycheck, which could zero out a paycheck if the employee had old unpaid
+  // adelantos. Now we only deduct those taken within the period — legacy
+  // pending adelantos keep their pending status and must be cleared manually
+  // or in a dedicated "settle older" UI.
+  useEffect(() => {
+    if (!period || !empleados.length) { setPeriodAdelantos({}); return }
+    let cancelled = false
+    Promise.all(empleados.map(async emp => {
+      try {
+        const list = await (api?.adelantos?.byEmpleado?.(emp.id) || [])
+        const inPeriod = (list || []).filter(a => {
+          const d = a.fecha_otorgado || a.created_at || ''
+          return (a.paid === 0 || a.paid === false || a.status === 'pendiente')
+              && d >= period.start && d <= period.end + ' 23:59:59'
+        })
+        const sum = inPeriod.reduce((s, a) => s + Number(a.amount || 0), 0)
+        return [emp.id, sum]
+      } catch { return [emp.id, 0] }
+    })).then(pairs => {
+      if (!cancelled) setPeriodAdelantos(Object.fromEntries(pairs))
+    })
+    return () => { cancelled = true }
+  }, [period?.start, period?.end, empleados])
 
   // Load historical salary for each employee at the period end date
   useEffect(() => {
@@ -237,7 +264,8 @@ export default function NominaPagos() {
     const isr        = settings?.isr_enabled === false
       ? { periodTax: 0, bracket: 'deshabilitado' }
       : calcISR(gross, cycle, settings?.isr_brackets)
-    const adelanto   = Number(adelantoTotals[emp.id] || 0)
+    // Only deduct adelantos taken within this pay period (not the all-time total)
+    const adelanto   = Number(periodAdelantos[emp.id] || 0)
     const totalDeductions = tssEmp.total + isr.periodTax + adelanto
     const net = gross - totalDeductions
     return {
@@ -305,17 +333,36 @@ export default function NominaPagos() {
     setSaving(true)
     try {
       const result = await api.payrollRuns.bulkCreate(rows)
-      // Auto-deduct pending adelantos for each paid employee
+      // Auto-deduct pending adelantos — ONLY those created within this period
       for (const row of rows) {
-        if (Number(adelantoTotals[row.empleado_id] || 0) > 0) {
+        if (Number(periodAdelantos[row.empleado_id] || 0) > 0) {
           try {
             const pending = await (api?.adelantos?.byEmpleado?.(row.empleado_id) || [])
             for (const a of (pending || [])) {
+              const d = a.fecha_otorgado || a.created_at || ''
+              if (d < period.start || d > period.end + ' 23:59:59') continue
               try { await api.adelantos.deduct(a.id, result?.ids?.[0] || null) } catch {}
             }
           } catch {}
         }
       }
+
+      // Mark commissions paid — prevents double-pay on re-run of same period.
+      // Use markPaidByPeriod so we don't depend on row-level ids (byPeriod
+      // returns aggregates). Covers all 3 commission types in one pass per type.
+      try {
+        const empIdsSelected = new Set(rows.map(r => String(r.empleado_id)))
+        const empSidsSelected = empleados
+          .filter(e => empIdsSelected.has(String(e.id)))
+          .map(e => e.supabase_id)
+          .filter(Boolean)
+        if (empSidsSelected.length) {
+          const args = { empleado_supabase_ids: empSidsSelected, from: period.start, to: period.end }
+          if (api?.commissions?.markPaidByPeriod)       await api.commissions.markPaidByPeriod(args)
+          if (api?.sellerCommissions?.markPaidByPeriod) await api.sellerCommissions.markPaidByPeriod(args)
+          if (api?.cajeroCommissions?.markPaidByPeriod) await api.cajeroCommissions.markPaidByPeriod(args)
+        }
+      } catch (e) { /* non-fatal; next reload refetches paid=false anyway */ }
       showToast(L(`${result.created || rows.length} pagos registrados`, `${result.created || rows.length} payments recorded`))
       setSelected({})
       setBonuses({})

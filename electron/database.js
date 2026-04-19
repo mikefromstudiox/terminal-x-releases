@@ -3928,6 +3928,7 @@ function commissionsGetByPeriod(dateFrom, dateTo) {
        LEFT JOIN tickets t ON (t.id = wc.ticket_id OR t.supabase_id = wc.ticket_supabase_id)
        JOIN empleados e ON e.supabase_id = wc.empleado_supabase_id
        WHERE (t.id IS NULL OR t.status='cobrado')
+         AND COALESCE(wc.paid, 0) = 0
          AND COALESCE(t.created_at, wc.created_at) >= ?
          AND COALESCE(t.created_at, wc.created_at) <= ?
        GROUP BY wc.empleado_supabase_id ORDER BY total_commission DESC`
@@ -3938,6 +3939,17 @@ function commissionsMarkPaid(washerCommissionIds) {
   if (!db) return
   const stmt = db.prepare(`UPDATE washer_commissions SET paid=1,paid_at=datetime('now') WHERE id=?`)
   db.transaction(() => washerCommissionIds.forEach(id => stmt.run(id)))()
+}
+function commissionsMarkPaidByPeriod({ empleado_supabase_ids, from, to }) {
+  if (!db || !empleado_supabase_ids?.length) return { updated: 0 }
+  const placeholders = empleado_supabase_ids.map(() => '?').join(',')
+  const res = db.prepare(
+    `UPDATE washer_commissions SET paid=1, paid_at=datetime('now')
+     WHERE COALESCE(paid,0)=0
+       AND empleado_supabase_id IN (${placeholders})
+       AND created_at BETWEEN ? AND ?`
+  ).run(...empleado_supabase_ids, from, to + ' 23:59:59')
+  return { updated: res.changes }
 }
 
 // ── SELLER COMMISSIONS (v2.1 — JOIN empleados on empleado_supabase_id) ──────
@@ -3982,6 +3994,7 @@ function sellerCommissionsByPeriod(dateFrom, dateTo) {
        LEFT JOIN tickets t ON (t.id = sc.ticket_id OR t.supabase_id = sc.ticket_supabase_id)
        JOIN empleados e ON e.supabase_id = sc.empleado_supabase_id
        WHERE (t.id IS NULL OR t.status='cobrado')
+         AND COALESCE(sc.paid, 0) = 0
          AND COALESCE(t.created_at, sc.created_at) >= ?
          AND COALESCE(t.created_at, sc.created_at) <= ?
        GROUP BY sc.empleado_supabase_id ORDER BY total_commission DESC`
@@ -3992,6 +4005,17 @@ function sellerCommissionsMarkPaid(ids) {
   if (!db) return
   const stmt = db.prepare(`UPDATE seller_commissions SET paid=1,paid_at=datetime('now') WHERE id=?`)
   db.transaction(() => ids.forEach(id => stmt.run(id)))()
+}
+function sellerCommissionsMarkPaidByPeriod({ empleado_supabase_ids, from, to }) {
+  if (!db || !empleado_supabase_ids?.length) return { updated: 0 }
+  const placeholders = empleado_supabase_ids.map(() => '?').join(',')
+  const res = db.prepare(
+    `UPDATE seller_commissions SET paid=1, paid_at=datetime('now')
+     WHERE COALESCE(paid,0)=0
+       AND empleado_supabase_id IN (${placeholders})
+       AND created_at BETWEEN ? AND ?`
+  ).run(...empleado_supabase_ids, from, to + ' 23:59:59')
+  return { updated: res.changes }
 }
 // Standalone commission row insert — used by the invoicing flow where the
 // flat `invoiceTotal * pct / 100` model replaces ticketCreate's per-item gating.
@@ -4059,6 +4083,7 @@ function cajeroCommissionsByPeriod(dateFrom, dateTo) {
        LEFT JOIN tickets t ON (t.id = cc.ticket_id OR t.supabase_id = cc.ticket_supabase_id)
        JOIN empleados e ON e.supabase_id = cc.empleado_supabase_id
        WHERE (t.id IS NULL OR t.status='cobrado')
+         AND COALESCE(cc.paid, 0) = 0
          AND COALESCE(t.created_at, cc.created_at) >= ?
          AND COALESCE(t.created_at, cc.created_at) <= ?
        GROUP BY cc.empleado_supabase_id ORDER BY total_commission DESC`
@@ -4069,6 +4094,17 @@ function cajeroCommissionsMarkPaid(ids) {
   if (!db) return
   const stmt = db.prepare(`UPDATE cajero_commissions SET paid=1,paid_at=datetime('now') WHERE id=?`)
   db.transaction(() => ids.forEach(id => stmt.run(id)))()
+}
+function cajeroCommissionsMarkPaidByPeriod({ empleado_supabase_ids, from, to }) {
+  if (!db || !empleado_supabase_ids?.length) return { updated: 0 }
+  const placeholders = empleado_supabase_ids.map(() => '?').join(',')
+  const res = db.prepare(
+    `UPDATE cajero_commissions SET paid=1, paid_at=datetime('now')
+     WHERE COALESCE(paid,0)=0
+       AND empleado_supabase_id IN (${placeholders})
+       AND created_at BETWEEN ? AND ?`
+  ).run(...empleado_supabase_ids, from, to + ' 23:59:59')
+  return { updated: res.changes }
 }
 function cajeroCommissionCreate({ cajero_id, ticket_id, ticket_supabase_id, base_amount, commission_pct, commission_amount }) {
   if (!db || !cajero_id || !ticket_id) return null
@@ -6377,9 +6413,9 @@ module.exports = {
   // Queue
   queueGetActive, queueUpdateStatus, queueDelete,
   // Commissions
-  commissionsGetByWasher, commissionsGetByPeriod, commissionsMarkPaid,
-  sellerCommissionsBySeller, sellerCommissionsByPeriod, sellerCommissionsMarkPaid, sellerCommissionCreate,
-  cajeroCommissionsByCajero, cajeroCommissionsByPeriod, cajeroCommissionsMarkPaid, cajeroCommissionCreate,
+  commissionsGetByWasher, commissionsGetByPeriod, commissionsMarkPaid, commissionsMarkPaidByPeriod,
+  sellerCommissionsBySeller, sellerCommissionsByPeriod, sellerCommissionsMarkPaid, sellerCommissionsMarkPaidByPeriod, sellerCommissionCreate,
+  cajeroCommissionsByCajero, cajeroCommissionsByPeriod, cajeroCommissionsMarkPaid, cajeroCommissionsMarkPaidByPeriod, cajeroCommissionCreate,
   // Cuadre
   cuadreCreate, cuadreGetHistory, cuadreList, cuadreDailySummary,
   // NCF

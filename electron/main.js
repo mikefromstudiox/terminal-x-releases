@@ -1421,14 +1421,17 @@ handleMut('queue:delete',       ({id,deletedBy})         => db.queueDelete(id, d
 handle('commissions:byWasher', ({washerId,from,to}) => db.commissionsGetByWasher(washerId, from, to))
 handle('commissions:byPeriod', ({from,to})          => db.commissionsGetByPeriod(from, to))
 handleMut('commissions:markPaid', (ids)                => db.commissionsMarkPaid(ids))
+handleMut('commissions:markPaidByPeriod', (args)       => db.commissionsMarkPaidByPeriod(args))
 handleMut('sellerCommissions:create', (data)           => db.sellerCommissionCreate(data))
 handleMut('cajeroCommissions:create', (data)           => db.cajeroCommissionCreate(data))
 handle('sellerCommissions:bySeller', ({sellerId,from,to}) => db.sellerCommissionsBySeller(sellerId, from, to))
 handle('sellerCommissions:byPeriod', ({from,to})          => db.sellerCommissionsByPeriod(from, to))
 handleMut('sellerCommissions:markPaid', (ids)                => db.sellerCommissionsMarkPaid(ids))
+handleMut('sellerCommissions:markPaidByPeriod', (args)       => db.sellerCommissionsMarkPaidByPeriod(args))
 handle('cajeroCommissions:byCajero', ({cajeroId,from,to}) => db.cajeroCommissionsByCajero(cajeroId, from, to))
 handle('cajeroCommissions:byPeriod', ({from,to})          => db.cajeroCommissionsByPeriod(from, to))
 handleMut('cajeroCommissions:markPaid', (ids)                => db.cajeroCommissionsMarkPaid(ids))
+handleMut('cajeroCommissions:markPaidByPeriod', (args)       => db.cajeroCommissionsMarkPaidByPeriod(args))
 
 // ── Cuadre de Caja ────────────────────────────────────────────────────────────
 handleMut('cuadre:create',  (data)    => db.cuadreCreate(data))

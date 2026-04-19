@@ -2389,15 +2389,15 @@ export function createWebAPI(supabase, businessId) {
         const dateFrom = params.from || params.dateFrom
         const dateTo   = params.to   || params.dateTo
         const { data: rows, error } = await supabase.from('washer_commissions')
-          .select('empleado_supabase_id, ticket_supabase_id, base_amount, commission_pct, commission_amount, created_at')
+          .select('empleado_supabase_id, ticket_supabase_id, base_amount, commission_pct, commission_amount, created_at, paid')
           .eq('business_id', bid)
         if (error) throw new Error(error.message)
         if (!rows?.length) return []
 
-        // Filter by date range using commission's own created_at
+        // Filter by date range + only unpaid (so re-running payroll doesn't double-pay).
         const from = dateFrom || '2000-01-01'
         const to   = dateTo   || '2099-12-31'
-        const filtered = rows.filter(r => r.created_at >= from && r.created_at <= to)
+        const filtered = rows.filter(r => !r.paid && r.created_at >= from && r.created_at <= to)
         if (!filtered.length) return []
 
         // Fetch empleado names via empleado_supabase_id
@@ -2426,6 +2426,23 @@ export function createWebAPI(supabase, businessId) {
         throwSupaError(await supabase.from('washer_commissions')
           .update({ paid: true, paid_at: now }).in('id', ids).eq('business_id', bid))
       }),
+
+      // Mark all unpaid commissions within a period for a set of empleados as paid.
+      // Used by NominaPagos bulk save to prevent re-running the same period
+      // from double-counting commissions already included in a payroll run.
+      markPaidByPeriod: ({ empleado_supabase_ids, from, to }) => tryOr(async () => {
+        if (!empleado_supabase_ids?.length) return { updated: 0 }
+        const now = new Date().toISOString()
+        const { data } = await supabase.from('washer_commissions')
+          .update({ paid: true, paid_at: now })
+          .eq('business_id', bid)
+          .eq('paid', false)
+          .in('empleado_supabase_id', empleado_supabase_ids)
+          .gte('created_at', from)
+          .lte('created_at', to + ' 23:59:59')
+          .select('id')
+        return { updated: (data || []).length }
+      }, { updated: 0 }),
     },
 
     // ── Seller Commissions ──────────────────────────────────────────────────
@@ -2489,6 +2506,18 @@ export function createWebAPI(supabase, businessId) {
         throwSupaError(await supabase.from('seller_commissions')
           .update({ paid: true, paid_at: now }).in('id', ids).eq('business_id', bid))
       }),
+
+      markPaidByPeriod: ({ empleado_supabase_ids, from, to }) => tryOr(async () => {
+        if (!empleado_supabase_ids?.length) return { updated: 0 }
+        const now = new Date().toISOString()
+        const { data } = await supabase.from('seller_commissions')
+          .update({ paid: true, paid_at: now })
+          .eq('business_id', bid).eq('paid', false)
+          .in('empleado_supabase_id', empleado_supabase_ids)
+          .gte('created_at', from).lte('created_at', to + ' 23:59:59')
+          .select('id')
+        return { updated: (data || []).length }
+      }, { updated: 0 }),
 
       create: (data) => tryOr(async () => {
         const sid = crypto.randomUUID()
@@ -2573,6 +2602,18 @@ export function createWebAPI(supabase, businessId) {
         throwSupaError(await supabase.from('cajero_commissions')
           .update({ paid: true, paid_at: now }).in('id', ids).eq('business_id', bid))
       }),
+
+      markPaidByPeriod: ({ empleado_supabase_ids, from, to }) => tryOr(async () => {
+        if (!empleado_supabase_ids?.length) return { updated: 0 }
+        const now = new Date().toISOString()
+        const { data } = await supabase.from('cajero_commissions')
+          .update({ paid: true, paid_at: now })
+          .eq('business_id', bid).eq('paid', false)
+          .in('empleado_supabase_id', empleado_supabase_ids)
+          .gte('created_at', from).lte('created_at', to + ' 23:59:59')
+          .select('id')
+        return { updated: (data || []).length }
+      }, { updated: 0 }),
 
       create: (data) => tryOr(async () => {
         const sid = crypto.randomUUID()
@@ -2661,17 +2702,25 @@ export function createWebAPI(supabase, businessId) {
           .gte('created_at', `${d}T00:00:00`)
           .lte('created_at', `${d}T23:59:59`)
         if (!rows) return { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0, totalVendido: 0, totalCobrado: 0, count: 0 }
-        const result = { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0, credit: 0 }
+        // payment_method may come from desktop (Spanish: efectivo/tarjeta/...) OR
+        // from web (English: cash/card/transfer/check/credit). Normalize both.
+        const PM_ALIAS = {
+          cash: 'efectivo', efectivo: 'efectivo',
+          card: 'tarjeta',  tarjeta: 'tarjeta',
+          transfer: 'transferencia', transferencia: 'transferencia',
+          check: 'cheque',  cheque: 'cheque',
+          credit: 'credito', credito: 'credito',
+        }
+        const result = { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0 }
         let totalVendido = 0, totalCobrado = 0
         for (const r of rows) {
           const t = Number(r.total || 0)
-          const pm = r.payment_method || 'efectivo'
+          const raw = r.payment_method || 'efectivo'
+          const pm = PM_ALIAS[raw] || raw
           result[pm] = (result[pm] || 0) + t
           totalVendido += t
-          if (pm !== 'credit') totalCobrado += t
+          if (pm !== 'credito') totalCobrado += t
         }
-        // Normalize: 'credit' → 'credito' for the UI
-        result.credito = result.credit || 0
         return { ...result, totalVendido, totalCobrado, count: rows.length }
       }, { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0, totalVendido: 0, totalCobrado: 0, count: 0 }),
     },

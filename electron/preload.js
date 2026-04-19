@@ -425,17 +425,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     byWasher: (params) => call('commissions:byWasher', params),
     byPeriod: (params) => call('commissions:byPeriod', params),
     markPaid: (ids)    => call('commissions:markPaid', ids),
+    markPaidByPeriod: (args) => call('commissions:markPaidByPeriod', args),
   },
   sellerCommissions: {
     bySeller: (params) => call('sellerCommissions:bySeller', params),
     byPeriod: (params) => call('sellerCommissions:byPeriod', params),
     markPaid: (ids)    => call('sellerCommissions:markPaid', ids),
+    markPaidByPeriod: (args) => call('sellerCommissions:markPaidByPeriod', args),
     create:   (data)   => call('sellerCommissions:create', data),
   },
   cajeroCommissions: {
     byCajero: (params) => call('cajeroCommissions:byCajero', params),
     byPeriod: (params) => call('cajeroCommissions:byPeriod', params),
     markPaid: (ids)    => call('cajeroCommissions:markPaid', ids),
+    markPaidByPeriod: (args) => call('cajeroCommissions:markPaidByPeriod', args),
     create:   (data)   => call('cajeroCommissions:create', data),
   },
 
