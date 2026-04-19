@@ -4,7 +4,7 @@ import { FileText, Search, Download, Send, X, AlertCircle, Check, Plus, ArrowLef
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
 import { useAuth } from '../../context/AuthContext'
-import { saveReceiptPDF } from '@terminal-x/services/pdf'
+const saveReceiptPDF = (...args) => import('@terminal-x/services/pdf').then(m => m.saveReceiptPDF(...args))
 import { getQRCode } from '@terminal-x/services/ecf'
 
 function fmtRD(n) {

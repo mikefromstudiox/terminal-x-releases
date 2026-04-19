@@ -5,7 +5,7 @@ import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
 import { useAuth } from '../../context/AuthContext'
 import { signAndSubmitECF, validateRNC } from '@terminal-x/services/ecf'
-import { saveReceiptPDF } from '@terminal-x/services/pdf'
+const saveReceiptPDF = (...args) => import('@terminal-x/services/pdf').then(m => m.saveReceiptPDF(...args))
 
 function fmtRD(n) {
   return 'RD$ ' + Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })

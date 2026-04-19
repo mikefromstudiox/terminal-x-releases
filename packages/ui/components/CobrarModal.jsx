@@ -3,7 +3,7 @@ import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
 import { signAndSubmitECF, getQRCode, ECF_TYPES, validateRNC } from '@terminal-x/services/ecf'
-import { buildReceiptPDFBase64 } from '@terminal-x/services/pdf'
+const buildReceiptPDFBase64 = (...args) => import('@terminal-x/services/pdf').then(m => m.buildReceiptPDFBase64(...args))
 import { useRNC } from '../hooks/useRNC'
 import { usePlan } from '../hooks/usePlan'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'

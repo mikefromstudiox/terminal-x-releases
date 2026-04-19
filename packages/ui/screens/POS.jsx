@@ -14,7 +14,7 @@ import { NewClientForm } from './Clients'
 import { printClientReceipt, printWasherConduce } from '@terminal-x/services/printer'
 import RestaurantPOS from './restaurant/RestaurantPOS'
 import { syncTicket } from '@terminal-x/services/supabase'
-import { saveReceiptPDF } from '@terminal-x/services/pdf'
+const saveReceiptPDF = (...args) => import('@terminal-x/services/pdf').then(m => m.saveReceiptPDF(...args))
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import { isServiceBased } from '@terminal-x/config/businessTypes'
 import { usePlan } from '../hooks/usePlan.jsx'

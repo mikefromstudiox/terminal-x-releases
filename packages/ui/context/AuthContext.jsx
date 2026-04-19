@@ -112,65 +112,90 @@ export function AuthProvider({ children }) {
     if (isWeb) {
       try { sessionStorage.setItem(LOGOUT_FLAG, '1') } catch {}
     }
-    setUser(null)
-    if (!isWeb) return
+    if (!isWeb) { setUser(null); return }
 
-    // On web, kill the Supabase session, every cached license/auth artifact,
-    // and hard-redirect so the SupabaseAuthGate remounts cleanly on the
-    // landing/email-password screen with zero stale state. Using the EXACT
-    // same client instance that SupabaseAuthGate created (window.__txSupabase)
-    // is mandatory — otherwise signOut fires on a different client and the
-    // gate's onAuthStateChange never sees it.
+    // CRITICAL ORDERING (web): do signOut + storage wipe BEFORE any React state
+    // mutation that could unmount this component and cancel the in-flight work.
+    // Previously we called setUser(null) first — that re-rendered ancestors,
+    // could unmount AuthProvider mid-await, and leave the Supabase session
+    // half-revoked. On the next sign-in the SDK's fetch layer then failed with
+    // "Failed to fetch" because localStorage still had a stale sb-*-auth-token
+    // that the new client tried (and failed) to refresh before accepting the
+    // new signInWithPassword call.
+
+    // Use the SAME client SupabaseAuthGate mounted — window.__txSupabase is
+    // the single canonical instance set in web/main.jsx. Fall back to the
+    // services-side client on desktop/hybrid contexts.
+    let sb = null
+    try { sb = typeof window !== 'undefined' ? window.__txSupabase : null } catch {}
+
+    // Issue signOut while component is still mounted. Use { scope: 'local' }
+    // so the SDK only touches local storage + broadcasts to other tabs; this
+    // avoids the server round-trip that was being aborted by the subsequent
+    // location.replace() and leaving the refresh token in a weird state.
+    // A separate global signOut is fired-and-forgotten so other devices still
+    // get revoked server-side, but we never block on it.
     try {
-      const sb = typeof window !== 'undefined' ? window.__txSupabase : null
       if (sb?.auth?.signOut) {
-        // AWAIT with a 3s timeout — the gate's onAuthStateChange should fire
-        // before the hard reload, BUT if the network is flaky or the Supabase
-        // endpoint hangs, we must not block the logout. The localStorage wipe
-        // below is a belt-and-suspenders fallback. Without the timeout, a
-        // hung signOut would block forever and surface as "failed to fetch"
-        // on the next sign-in attempt.
         await Promise.race([
-          sb.auth.signOut().catch(() => {}),
-          new Promise(resolve => setTimeout(resolve, 3000)),
+          sb.auth.signOut({ scope: 'local' }).catch(() => {}),
+          new Promise(resolve => setTimeout(resolve, 1500)),
         ])
+        // Fire-and-forget global revocation — does not block redirect.
+        try { sb.auth.signOut({ scope: 'global' }).catch(() => {}) } catch {}
       }
     } catch {}
 
-    // Wipe every key that could keep the user signed in across the reload:
-    // - tx_pos_user (already cleared by setUser(null), but be defensive)
-    // - tx_last_valid (offline-grace timestamp — would let LicenseContext
-    //   bypass re-validation)
-    // - tx_license_key (auto-fetched from licenses table on next sign-in)
-    // - tx_setting_business_id / supabase_business_id (cached business id)
-    // - sb-*-auth-token (Supabase SDK session — the SDK clears its own copy
-    //   in signOut, but we belt-and-suspenders it here in case signOut failed
-    //   silently due to network)
+    // Wipe EVERY key that could keep the user signed in across the reload.
+    // Belt-and-suspenders for the SDK's own cleanup. This MUST include every
+    // tx_* and sb-* key from BOTH storages — a stale sb-*-auth-token is the
+    // exact trigger for "Failed to fetch" on the next signInWithPassword.
     try {
-      sessionStorage.removeItem(STORAGE_KEY)
-      const lsKeys = []
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i)
-        if (!k) continue
-        if (
-          k === 'tx_last_valid' ||
-          k === 'tx_license_key' ||
-          k.startsWith('tx_setting_') ||
-          k.startsWith('sb-')
-        ) lsKeys.push(k)
+      const wipeFrom = (store) => {
+        if (!store) return
+        const kill = []
+        for (let i = 0; i < store.length; i++) {
+          const k = store.key(i)
+          if (!k) continue
+          if (
+            k === STORAGE_KEY ||
+            k === LOGOUT_FLAG ||
+            k === 'tx_last_valid' ||
+            k === 'tx_license_key' ||
+            k.startsWith('tx_setting_') ||
+            k.startsWith('tx_') ||
+            k.startsWith('sb-') ||
+            k.startsWith('supabase.')
+          ) kill.push(k)
+        }
+        kill.forEach(k => { try { store.removeItem(k) } catch {} })
       }
-      lsKeys.forEach(k => { try { localStorage.removeItem(k) } catch {} })
+      wipeFrom(typeof localStorage !== 'undefined' ? localStorage : null)
+      wipeFrom(typeof sessionStorage !== 'undefined' ? sessionStorage : null)
+      // Re-set LOGOUT_FLAG — we just wiped it above, but SupabaseAuthGate's
+      // clearLogoutFlag() only fires after mount, so it MUST exist across the
+      // hard reload to suppress the TEMP_OWNER auto-login race.
+      try { sessionStorage.setItem(LOGOUT_FLAG, '1') } catch {}
     } catch {}
+
+    // Drop the cached client reference so that if, for any reason, the SPA
+    // reuses the module cache (e.g. redirect blocked by a beforeunload), the
+    // next auth call forces a fresh createClient instead of reusing a client
+    // whose GoTrue subsystem is now torn down.
+    try { if (typeof window !== 'undefined') window.__txSupabase = null } catch {}
 
     // Hard reload to the public landing so EVERY in-memory React state
-    // (LicenseContext, DataContext, BusinessTypeContext, cached api ref) is
-    // discarded. The LOGOUT_FLAG sessionStorage entry is consumed on the
-    // very next mount of SupabaseAuthGate's children — see useEffect above.
+    // (LicenseContext, DataContext, BusinessTypeContext, cached api ref,
+    // module-scoped _supabase in web/main.jsx) is discarded. Only flip the
+    // React state AFTER the navigation is queued — if the browser honors
+    // the replace synchronously the setUser is a no-op; if it doesn't, the
+    // gate still sees user=null and shows the login screen.
     try {
       window.location.replace('/')
     } catch {
-      window.location.href = '/'
+      try { window.location.href = '/' } catch {}
     }
+    setUser(null)
   }
 
   return (
