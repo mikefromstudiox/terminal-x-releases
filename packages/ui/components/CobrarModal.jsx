@@ -502,17 +502,22 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
     let cancelled = false
     ;(async () => {
       const missing = []
+      // Per-check try/catch so one API failure doesn't hide the other warnings.
       try {
         const printerCfg = await (api?.settings?.get?.('printer') || Promise.resolve(null))
         const printerName = printerCfg?.value || printerCfg || ''
         if (!printerName) missing.push({ k: 'printer', es: 'Impresora no configurada (Sistema → Impresión)', en: 'Printer not configured (Settings → Printing)' })
+      } catch { missing.push({ k: 'printer_err', es: 'No se pudo verificar la impresora', en: 'Could not verify printer' }) }
+      try {
         if (!businessType) missing.push({ k: 'biz_type', es: 'Tipo de negocio no configurado', en: 'Business type not set' })
+      } catch {}
+      try {
         const seqs = await (api?.ncf?.sequences?.() || Promise.resolve([]))
         const certInfo = await (api?.dgii_ecf?.certInfo?.() || Promise.resolve({ installed: false }))
         if ((seqs || []).length === 0 && !certInfo?.installed) {
           missing.push({ k: 'fiscal', es: 'Ni NCF ni certificado DGII instalado — el ticket no tendrá comprobante fiscal', en: 'No NCF sequence or DGII cert installed — ticket will not have a fiscal receipt' })
         }
-      } catch {}
+      } catch { missing.push({ k: 'fiscal_err', es: 'No se pudo verificar configuración fiscal', en: 'Could not verify fiscal setup' }) }
       if (!cancelled) setPrereqs({ missing, loading: false })
     })()
     return () => { cancelled = true }

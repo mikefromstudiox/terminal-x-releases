@@ -58,7 +58,11 @@ const where = ONLY_BID ? `WHERE c.business_id = '${ONLY_BID}'` : ''
 const diffSql = `
 WITH ticket_sum AS (
   SELECT t.client_supabase_id AS client_sid,
-         SUM(GREATEST(0, COALESCE(t.total,0) - COALESCE(t.descuento,0))) AS pending_owed
+         -- v2.6.2+: tickets.total is already NET (POS sends netTotal), so
+         -- we do NOT subtract descuento again here. Historical tickets
+         -- created pre-v2.6.2 stored gross total with descuento as separate
+         -- column; those need manual review via a per-ticket date check.
+         SUM(GREATEST(0, COALESCE(t.total,0))) AS pending_owed
     FROM tickets t
    WHERE t.tipo_venta = 'credito'
      AND t.status = 'pendiente'
@@ -116,7 +120,11 @@ console.log('\nApplying corrections...')
 const applySql = `
 WITH ticket_sum AS (
   SELECT t.client_supabase_id AS client_sid,
-         SUM(GREATEST(0, COALESCE(t.total,0) - COALESCE(t.descuento,0))) AS pending_owed
+         -- v2.6.2+: tickets.total is already NET (POS sends netTotal), so
+         -- we do NOT subtract descuento again here. Historical tickets
+         -- created pre-v2.6.2 stored gross total with descuento as separate
+         -- column; those need manual review via a per-ticket date check.
+         SUM(GREATEST(0, COALESCE(t.total,0))) AS pending_owed
     FROM tickets t
    WHERE t.tipo_venta = 'credito' AND t.status = 'pendiente' AND t.client_supabase_id IS NOT NULL
    GROUP BY t.client_supabase_id

@@ -153,8 +153,18 @@ const macStore = require('./mac-store')
  * void a test ticket.
  */
 function guardMac(action, extractTargetId = () => null) {
-  return ({ actor, args }) => {
-    if (actor?.role === 'owner') return null
+  return ({ actor, args, db }) => {
+    // Owner exemption — but VERIFY role from DB, not from the in-memory actor.
+    // `activity:set-actor` is an unauthenticated IPC (renderer-controlled), so a
+    // compromised renderer could craft {role:'owner'} and bypass MAC entirely.
+    // Re-reading role by id from the `users` VIEW closes the loop.
+    if (actor?.role === 'owner' && actor?.id != null) {
+      try {
+        const real = db.rawPrepare('SELECT role FROM users WHERE id=? AND active=1').get(actor.id)
+        if (real?.role === 'owner') return null
+      } catch {}
+      // Fall through to MAC check if DB verify fails — do NOT trust the claim.
+    }
     const payload = args[0] || {}
     const jti = payload.mac_jti || payload.macJti || null
     if (!jti) return 'Esta acción requiere la Tarjeta de Autorización del gerente'

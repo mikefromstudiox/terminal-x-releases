@@ -19,12 +19,19 @@
 const crypto = require('crypto')
 
 const DEFAULT_TTL_MS = 60 * 1000   // 60s — covers the scan → action round-trip
+const MAX_STORE_SIZE = 500         // cap to bound memory under a spam-issue DoS
 const _store = new Map()           // jti -> { staff_id, role, action, target_id, exp }
 
 // Cheap periodic sweep. Runs only when ops are active.
 function sweep() {
   const now = Date.now()
   for (const [jti, rec] of _store) if (rec.exp <= now) _store.delete(jti)
+  // If sweep didn't reclaim enough, evict oldest (FIFO via Map insertion order).
+  while (_store.size > MAX_STORE_SIZE) {
+    const firstKey = _store.keys().next().value
+    if (firstKey === undefined) break
+    _store.delete(firstKey)
+  }
 }
 
 /**

@@ -80,14 +80,18 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
         return
       }
       clearStrikes()
-      // Mint a server-side one-time MAC jti bound to this action + target so
-      // the subsequent protected IPC can consume + validate it. Falls back
-      // gracefully if the host API doesn't have `mac.issue` (older builds).
+      // Mint a server-side one-time MAC jti bound to this action + target.
+      // If mac.issue is unavailable or fails, we DO NOT proceed — better to
+      // fail loudly than approve without a server-verifiable token that
+      // downstream guardMac will reject anyway.
       let mac_jti = null
-      try {
-        const issued = await (api?.mac?.issue?.({ scan_token: raw, action, target_id: context?.target_id ?? null }) || null)
-        mac_jti = issued?.jti || null
-      } catch {}
+      if (api?.mac?.issue) {
+        try {
+          const issued = await api.mac.issue({ scan_token: raw, action, target_id: context?.target_id ?? null })
+          mac_jti = issued?.jti || null
+        } catch {}
+        if (!mac_jti) { flashError(L('No se pudo autorizar en el servidor', 'Server authorization failed')); return }
+      }
       try {
         await api.activity.record({
           event_type: 'manager_override', severity: 'info',
@@ -114,10 +118,13 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
         return
       }
       let mac_jti = null
-      try {
-        const issued = await (api?.mac?.issue?.({ pin, action, target_id: context?.target_id ?? null }) || null)
-        mac_jti = issued?.jti || null
-      } catch {}
+      if (api?.mac?.issue) {
+        try {
+          const issued = await api.mac.issue({ pin, action, target_id: context?.target_id ?? null })
+          mac_jti = issued?.jti || null
+        } catch {}
+        if (!mac_jti) { flashError(L('No se pudo autorizar en el servidor', 'Server authorization failed')); return }
+      }
       try {
         await api.activity.record({
           event_type: 'manager_override', severity: 'warn',
