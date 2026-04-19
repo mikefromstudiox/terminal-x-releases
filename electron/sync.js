@@ -14,6 +14,18 @@
  *   - FWW (first-write-wins) for financial tables: tickets, commissions, etc.
  *   - Ticket status/void_reason can still be pulled (selective status sync).
  *
+ * mesas.status race (v1.9.25):
+ *   Two waiters flipping the same table (libre → ocupada) at the same instant
+ *   would both upsert under plain LWW and the later push would silently
+ *   clobber the earlier. mesas now carries a monotonic `rev` integer that is
+ *   incremented locally on every `mesaSetStatus()` call. It is included in
+ *   the push payload; a BEFORE UPDATE trigger on Supabase (see migration
+ *   20260419100000_restaurant_sync_hardening.sql) rejects the write with a
+ *   23514 check-constraint error when the incoming rev is not strictly
+ *   greater than the stored rev AND status changed. The HTTP push layer
+ *   surfaces this as a non-fatal per-row error so the loser's local state
+ *   stays intact until the next pull heals it.
+ *
  * Usage in main.js:
  *   const sync = require('./sync')
  *   sync.init(db, { supabaseUrl, supabaseKey })
@@ -141,6 +153,9 @@ const SYNC_TABLES = [
   },
   {
     name: 'ncf_sequences',
+    // v1.9.25 — natural key so local rebuild heals supabase_id collisions on
+    // (business_id, type) — one live sequence per NCF type per business.
+    naturalKey: 'type',
     cols: r => ({
       supabase_id: r.supabase_id,
       type: r.type,
@@ -192,6 +207,8 @@ const SYNC_TABLES = [
       zone: r.zone,
       capacity: r.capacity,
       status: r.status,
+      // v1.9.25 — monotonic revision counter. See top-of-file "mesas.status race".
+      rev: r.rev != null ? Number(r.rev) : 0,
       waiter_empleado_supabase_id: r.waiter_empleado_supabase_id,
       guests_count: r.guests_count,
       seated_at: r.seated_at,
@@ -1314,7 +1331,7 @@ const PULL_TABLES = [
   { name: 'clients', strategy: 'lww', naturalKey: 'name', cols: ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','loyalty_points','allergies','created_at','updated_at'],
     fkCols: { preferred_stylist_supabase_id: 'empleados' } },
   { name: 'inventory_items', strategy: 'lww', naturalKey: 'name', cols: ['name','sku','barcode','category','price','cost','quantity','min_quantity','aplica_itbis','sold_by_weight','unit','price_per_unit','bottle_deposit','tare_default','active','updated_at'] },
-  { name: 'mesas', strategy: 'lww', naturalKey: 'name', cols: ['name','zone','capacity','status','guests_count','seated_at','sort_order','active','created_at','updated_at'],
+  { name: 'mesas', strategy: 'lww', naturalKey: 'name', cols: ['name','zone','capacity','status','rev','guests_count','seated_at','sort_order','active','created_at','updated_at'],
     fkCols: { waiter_empleado_supabase_id: 'empleados' } },
   { name: 'modificadores', strategy: 'lww', naturalKey: 'name', cols: ['name','group_name','price_delta','min_select','max_select','default_selected','sort_order','active','created_at','updated_at'] },
   { name: 'service_modificadores', strategy: 'lww', cols: ['is_required','created_at','updated_at'],
@@ -1362,7 +1379,10 @@ const PULL_TABLES = [
   { name: 'ticket_item_modificadores', strategy: 'fww',
     cols: ['name_snapshot','price_delta_snapshot','created_at','updated_at'],
     fkCols: { ticket_item_supabase_id: 'ticket_items', modificador_supabase_id: 'modificadores' } },
-  { name: 'kds_events', strategy: 'fww',
+  // v1.9.25 — kds_events flipped FWW → LWW so station/status/bumped_at
+  // propagate across multi-device KDS (expo bumping a ticket must reach the
+  // line station in real time). `updated_at` exists on both SQLite + Supabase.
+  { name: 'kds_events', strategy: 'lww',
     cols: ['station','status','fired_at','started_at','ready_at','bumped_at','created_at','updated_at'],
     fkCols: { ticket_item_supabase_id: 'ticket_items', mesa_supabase_id: 'mesas' } },
 

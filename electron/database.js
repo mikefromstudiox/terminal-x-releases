@@ -849,6 +849,9 @@ function init(userDataPath) {
     'ALTER TABLE app_settings ADD COLUMN business_id TEXT',
     'ALTER TABLE app_settings ADD COLUMN updated_at TEXT',
     'ALTER TABLE app_settings ADD COLUMN supabase_id TEXT',
+    // v1.9.25 — mesas.rev: monotonic revision counter used to detect the
+    // simultaneous-waiter status race (see electron/sync.js header comment).
+    'ALTER TABLE mesas ADD COLUMN rev INTEGER NOT NULL DEFAULT 0',
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -2477,9 +2480,12 @@ function mesaSetStatus(id, status, opts = {}) {
   const waiterId    = opts.waiter_empleado_id          !== undefined ? opts.waiter_empleado_id          : current.waiter_empleado_id
   const waiterSid   = opts.waiter_empleado_supabase_id !== undefined ? opts.waiter_empleado_supabase_id : current.waiter_empleado_supabase_id
   const guests      = opts.guests_count                !== undefined ? opts.guests_count                : current.guests_count
+  // v1.9.25 — bump monotonic rev so Supabase trigger can reject a slower
+  // concurrent status change. See sync.js header "mesas.status race".
   db.prepare(`UPDATE mesas
     SET status=?, waiter_empleado_id=?, waiter_empleado_supabase_id=?, guests_count=?,
         seated_at=COALESCE(seated_at, CASE WHEN ?='ocupada' THEN datetime('now') END),
+        rev=COALESCE(rev,0)+1,
         updated_at=datetime('now')
     WHERE id=?`).run(status, waiterId, waiterSid, guests, status, id)
   return db.prepare('SELECT * FROM mesas WHERE id=?').get(id)
