@@ -188,7 +188,7 @@ function RegisteringBusiness({ lang }) {
   )
 }
 
-function Header({ onRefresh, refreshing, lastUpdated }) {
+function Header({ onRefresh, refreshing, lastUpdated, goLiveDate, goLiveOnly, onToggleGoLive }) {
   return (
     <div className="bg-white dark:bg-white/5 border-b border-slate-100 dark:border-white/10 px-4 md:px-6 py-2.5 md:py-4 flex items-center gap-3 shrink-0">
       <Globe size={18} className="text-slate-500 dark:text-white/60 shrink-0" />
@@ -198,6 +198,9 @@ function Header({ onRefresh, refreshing, lastUpdated }) {
           {lastUpdated ? <>Actualizado <span className="font-semibold text-slate-600 dark:text-white/70 tabular-nums">{fmtClock(lastUpdated)}</span></> : 'Solo lectura — datos en tiempo real'}
         </p>
       </div>
+      {goLiveDate && onToggleGoLive && (
+        <GoLivePill enabled={goLiveOnly} onToggle={onToggleGoLive} />
+      )}
       {onRefresh && (
         <button onClick={onRefresh} disabled={refreshing} aria-label="Actualizar"
           className="flex items-center justify-center gap-1.5 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 md:px-3 md:py-1.5 border border-slate-200 dark:border-white/10 rounded-lg text-xs text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 disabled:opacity-40">
@@ -205,6 +208,43 @@ function Header({ onRefresh, refreshing, lastUpdated }) {
           <span className="hidden md:inline">Actualizar</span>
         </button>
       )}
+    </div>
+  )
+}
+
+// Brand-compliant segmented pill. Black/white/#b3001e only.
+// ON  = "Solo go-live" (filters historical imports)
+// OFF = "Todo el historial"
+function GoLivePill({ enabled, onToggle }) {
+  const seg = 'px-2.5 md:px-3 h-8 md:h-7 text-[11px] md:text-[10px] font-semibold rounded-full transition-colors whitespace-nowrap min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 flex items-center justify-center'
+  return (
+    <div
+      role="group"
+      aria-label="Filtro go-live"
+      className="inline-flex items-center gap-0.5 p-0.5 rounded-full border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 shrink-0"
+    >
+      <button
+        type="button"
+        onClick={() => onToggle(true)}
+        aria-pressed={enabled}
+        className={`${seg} ${enabled
+          ? 'bg-[#b3001e] text-white'
+          : 'text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10'}`}
+      >
+        <span className="hidden md:inline">Solo go-live</span>
+        <span className="md:hidden">Go-live</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => onToggle(false)}
+        aria-pressed={!enabled}
+        className={`${seg} ${!enabled
+          ? 'bg-[#b3001e] text-white'
+          : 'text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10'}`}
+      >
+        <span className="hidden md:inline">Todo el historial</span>
+        <span className="md:hidden">Todo</span>
+      </button>
     </div>
   )
 }
@@ -217,6 +257,24 @@ function Dashboard({ lang }) {
   const [refreshing,  setRefreshing]  = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [activeTab,   setActiveTab]   = useState('summary')
+  const [goLiveDate,  setGoLiveDate]  = useState(null) // 'YYYY-MM-DD' or null
+  const [goLiveOnly,  setGoLiveOnly]  = useState(true) // default ON
+
+  // Load go_live_date from settings once. Cheap; no dependency churn.
+  useEffect(() => {
+    let alive = true
+    api?.settings?.get?.().then(s => {
+      if (!alive) return
+      const v = s?.go_live_date
+      setGoLiveDate(typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null)
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [api])
+
+  // DR is UTC-4; local midnight = T04:00:00Z
+  const sinceIso = goLiveDate && goLiveOnly
+    ? new Date(goLiveDate + 'T04:00:00Z').toISOString()
+    : null
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
@@ -226,9 +284,10 @@ function Dashboard({ lang }) {
     // Prefer the auth-bound api.dashboard.fetch (web — uses SupabaseAuthGate
     // session). Falls back to the legacy fetchDashboardData (desktop — reads
     // creds from localStorage configured in Settings → Respaldo).
+    const opts = sinceIso ? { since: sinceIso } : {}
     const result = api?.dashboard?.fetch
-      ? await api.dashboard.fetch()
-      : await fetchDashboardData()
+      ? await api.dashboard.fetch(opts)
+      : await fetchDashboardData(opts)
 
     if (result?.error) {
       setError(result.error)
@@ -239,7 +298,7 @@ function Dashboard({ lang }) {
 
     setLoading(false)
     setRefreshing(false)
-  }, [api])
+  }, [api, sinceIso])
 
   useEffect(() => {
     load()
@@ -272,7 +331,14 @@ function Dashboard({ lang }) {
   if (error) {
     return (
       <div className="h-full flex flex-col bg-slate-50 dark:bg-black overflow-hidden">
-        <Header onRefresh={() => load(true)} refreshing={refreshing} lastUpdated={lastUpdated} />
+        <Header
+          onRefresh={() => load(true)}
+          refreshing={refreshing}
+          lastUpdated={lastUpdated}
+          goLiveDate={goLiveDate}
+          goLiveOnly={goLiveOnly}
+          onToggleGoLive={setGoLiveOnly}
+        />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-sm">
             <WifiOff size={36} className="text-red-300 mx-auto mb-3" />
@@ -291,11 +357,18 @@ function Dashboard({ lang }) {
 
   return (
     <div className="h-full flex flex-col bg-slate-50 dark:bg-black overflow-hidden">
-      <Header onRefresh={() => load(true)} refreshing={refreshing} lastUpdated={lastUpdated} />
+      <Header
+        onRefresh={() => load(true)}
+        refreshing={refreshing}
+        lastUpdated={lastUpdated}
+        goLiveDate={goLiveDate}
+        goLiveOnly={goLiveOnly}
+        onToggleGoLive={setGoLiveOnly}
+      />
 
       <TabBar lang={lang} active={activeTab} onChange={setActiveTab} />
 
-      {activeTab === 'activity' && <ActivityFeed lang={lang} onRefreshDashboard={() => load(true)} />}
+      {activeTab === 'activity' && <ActivityFeed lang={lang} onRefreshDashboard={() => load(true)} sinceIso={sinceIso} />}
       {activeTab === 'summary' && (
       <SummaryPane onRefresh={() => load(true)} refreshing={refreshing}>
 
@@ -503,7 +576,7 @@ function fmtRel(iso, lang) {
   return new Date(iso).toLocaleDateString('es-DO', { day: '2-digit', month: 'short' })
 }
 
-function ActivityFeed({ lang, onRefreshDashboard }) {
+function ActivityFeed({ lang, onRefreshDashboard, sinceIso }) {
   const sb = getSupabaseClient()
   const bid = getBusinessId()
   const [rows, setRows]       = useState([])
@@ -514,10 +587,16 @@ function ActivityFeed({ lang, onRefreshDashboard }) {
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
+    // Skip the query entirely if business_id isn't a valid UUID.
+    const validBid = typeof bid === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bid)
+    if (!sb || !validBid) { setRows([]); setLoading(false); return }
     try {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString()
+      // When go-live filter is ON and its cutoff is newer than 30d,
+      // clamp UP so activity from pre-go-live imports stays hidden.
+      const fromIso = sinceIso && sinceIso > thirtyDaysAgo ? sinceIso : thirtyDaysAgo
       let q = sb.from('activity_log').select('*').eq('business_id', bid)
-        .gte('created_at', thirtyDaysAgo)
+        .gte('created_at', fromIso)
         .order('created_at', { ascending: false })
         .limit(300)
       const chipDef = FILTER_CHIPS.find(c => c.id === chip)
@@ -527,7 +606,7 @@ function ActivityFeed({ lang, onRefreshDashboard }) {
       setRows(r || [])
     } catch (e) { setError(e?.message || String(e)) }
     finally { setLoading(false) }
-  }, [sb, bid, chip])
+  }, [sb, bid, chip, sinceIso])
 
   useEffect(() => { load() }, [load])
   useEffect(() => { const t = setInterval(load, 45000); return () => clearInterval(t) }, [load])

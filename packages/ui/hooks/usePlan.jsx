@@ -2,11 +2,44 @@ import { useState, useEffect, useCallback, createContext, useContext } from 'rea
 import { useAPI } from '../context/DataContext'
 import { useLicense } from '../context/LicenseContext'
 
+// v2.3.30 re-bucket per plan-gate audit:
+//  - pos/queue were ungated → now gated at Pro (closes Facturacion exploit)
+//  - Basic nomina → Pro (one-employee-at-a-time view). Batch nomina_advanced stays Pro MAX.
+//  - whatsapp_receipts (post-cobro send) → Pro PLUS (moved down from Pro MAX)
+//  - whatsapp_automation (Cola Listo + Balance Reminder + future auto-triggers) → Pro PLUS (NEW)
+//  - custom_receipt_design (crimson-branded PDF, logos, custom footers) → Pro MAX (NEW)
+//  - dgii_606_607 (monthly TXT export) → Pro PLUS (NEW — strong upgrade driver from Pro)
+// Prices unchanged: RD$995 / 2,490 / 4,490 / 6,990.
 const PLAN_FEATURES = {
-  facturacion: ['invoicing', 'ecf', 'dgii', 'clients', 'reports'],
-  pro:       ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory', 'invoicing'],
-  pro_plus:  ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory', 'ecf', 'dgii', 'restaurant_mode', 'work_orders', 'appointments', 'service_bays', 'loans', 'vehicles', 'invoicing'],
-  pro_max:   ['pos', 'queue', 'clients', 'credits', 'reports', 'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'ecf', 'dgii', 'inventory', 'remote_dashboard', 'whatsapp_receipts', 'multi_location', 'nomina_advanced', 'restaurant_mode', 'work_orders', 'appointments', 'service_bays', 'loans', 'vehicles', 'pawn_items', 'loan_analytics', 'vehicle_history', 'stylist_schedules', 'invoicing'],
+  facturacion: [
+    'invoicing', 'ecf', 'dgii', 'clients', 'reports',
+    // Facturacion is WEB-ONLY for e-CF issuance. No POS/queue access.
+  ],
+  pro: [
+    'pos', 'queue', 'clients', 'credits', 'reports',
+    'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory',
+    'invoicing', 'nomina_basic',
+  ],
+  pro_plus: [
+    'pos', 'queue', 'clients', 'credits', 'reports',
+    'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory',
+    'ecf', 'dgii', 'dgii_606_607',
+    'whatsapp_receipts', 'whatsapp_automation',
+    'restaurant_mode', 'work_orders', 'appointments', 'service_bays',
+    'loans', 'vehicles', 'invoicing', 'nomina_basic',
+  ],
+  pro_max: [
+    'pos', 'queue', 'clients', 'credits', 'reports',
+    'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory',
+    'ecf', 'dgii', 'dgii_606_607',
+    'whatsapp_receipts', 'whatsapp_automation', 'custom_receipt_design',
+    'remote_dashboard', 'multi_location',
+    'nomina_basic', 'nomina_advanced',
+    'restaurant_mode', 'work_orders', 'appointments', 'service_bays',
+    'loans', 'vehicles',
+    'pawn_items', 'loan_analytics', 'vehicle_history', 'stylist_schedules',
+    'invoicing',
+  ],
 }
 
 const PLAN_DISPLAY = { facturacion: 'Facturacion', pro: 'Pro', pro_plus: 'Pro PLUS', pro_max: 'Pro MAX' }

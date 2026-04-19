@@ -171,8 +171,8 @@ function SettingSection({ title, children }) {
 // ── USUARIOS (simplified — pick employee + username + PIN) ───────────────────
 
 const ROLES = [
-  { value: 'owner',      label: 'Owner',    color: 'bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400'             },
-  { value: 'manager',    label: 'Manager',  color: 'bg-orange-100 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400' },
+  { value: 'owner',      label: 'Dueño',    color: 'bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400'             },
+  { value: 'manager',    label: 'Gerente',  color: 'bg-orange-100 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400' },
   { value: 'cfo',        label: 'CFO',      color: 'bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400' },
   { value: 'accountant', label: 'Contador', color: 'bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400'         },
   { value: 'cashier',    label: 'Cajero',   color: 'bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-white/60'          },

@@ -3,6 +3,21 @@ import { createClient } from '@supabase/supabase-js'
 
 const ALLOWED_ORIGINS = ['https://terminalxpos.com', 'http://localhost:5173']
 
+// businesses.settings is JSONB, but historical rows were written as a
+// JSON-encoded *string* (because a client called JSON.stringify() before insert).
+// When Supabase returns such a row we get the string back, and spreading it
+// yields an array of characters instead of an object. This helper normalises
+// either shape into a native JS object so downstream `{ ...settings }` works.
+// It also tolerates double-encoded strings defensively.
+function parseSettingsIfString(raw) {
+  let s = raw
+  for (let i = 0; i < 3; i++) {
+    if (typeof s !== 'string') break
+    try { s = JSON.parse(s) } catch { return {} }
+  }
+  return (s && typeof s === 'object' && !Array.isArray(s)) ? s : {}
+}
+
 function cors(req, res) {
   const origin = req.headers.origin || ''
   if (ALLOWED_ORIGINS.includes(origin)) {
@@ -193,7 +208,7 @@ async function handleClients(req, res) {
           first_service: (serviceMap[b.id] || 0) > 0,
           first_client: (clientMap[b.id] || 0) > 0,
           first_sale: (ticketMap[b.id] || 0) > 0,
-          fiscal_configured: !!(b.settings?.facturacion_mode),
+          fiscal_configured: !!(parseSettingsIfString(b.settings)?.facturacion_mode),
           setup_complete: !!configMap[b.id],
         }
         const score = Object.values(onboarding).filter(Boolean).length
@@ -328,7 +343,7 @@ async function handleClientConfig(req, res) {
         auth.supabase.from('app_settings').select('key, value').eq('business_id', id),
       ])
       const appSettings = Object.fromEntries((cfgRows || []).map(r => [r.key, r.value]))
-      return res.json({ data: { bizSettings: biz?.settings || {}, appSettings, notes: biz?.notes || '', logo_url: biz?.logo_url || null } })
+      return res.json({ data: { bizSettings: parseSettingsIfString(biz?.settings), appSettings, notes: biz?.notes || '', logo_url: biz?.logo_url || null } })
     } catch (err) { return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'PATCH') {
@@ -339,7 +354,9 @@ async function handleClientConfig(req, res) {
     try {
       if (bizSettings) {
         const { data: current } = await auth.supabase.from('businesses').select('settings').eq('id', id).single()
-        const merged = { ...(current?.settings || {}), ...bizSettings }
+        const currentObj = parseSettingsIfString(current?.settings)
+        const patchObj   = parseSettingsIfString(bizSettings) // tolerate string body too
+        const merged = { ...currentObj, ...patchObj }
         await auth.supabase.from('businesses').update({ settings: merged, updated_at: new Date().toISOString() }).eq('id', id)
       }
       if (appSettings) {
@@ -400,13 +417,23 @@ async function handleClientDetail(req, res) {
   const id = req.query.id
   if (!id) return res.status(400).json({ error: 'id required' })
   try {
-    const [bizRes, licRes, staffRes, svcRes, clientRes, ticketRes, configRes] = await Promise.all([
+    // Compute month / year boundaries in DR-local time (UTC-4).
+    const now = new Date()
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString()
+    const yearStart  = new Date(Date.UTC(now.getUTCFullYear(), 0, 1)).toISOString()
+    const [bizRes, licRes, staffRes, svcRes, clientRes, ticketRes, ticketCountAllRes, ticketCountYearRes, ticketCountMonthRes, configRes] = await Promise.all([
       auth.supabase.from('businesses').select('*').eq('id', id).single(),
       auth.supabase.from('licenses').select('*, plans(name, display_name)').eq('business_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
       auth.supabase.from('staff').select('id, name, username, role, auth_user_id, active, pin_hash, created_at').eq('business_id', id).order('created_at'),
       auth.supabase.from('services').select('id', { count: 'exact', head: true }).eq('business_id', id).eq('active', true),
       auth.supabase.from('clients').select('id', { count: 'exact', head: true }).eq('business_id', id).eq('active', true),
-      auth.supabase.from('tickets').select('id, total, status, created_at').eq('business_id', id).neq('status', 'nula').order('created_at', { ascending: false }).limit(1000),
+      // Bumped row fetch from 1,000 → 10,000 after StarSISA migration landed
+      // 11.5 months (7,557 tickets). Separate count queries give the accurate
+      // M/Y/A breakdowns regardless of the row-fetch cap.
+      auth.supabase.from('tickets').select('id, total, status, created_at').eq('business_id', id).neq('status', 'nula').order('created_at', { ascending: false }).limit(10000),
+      auth.supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('business_id', id).neq('status', 'nula'),
+      auth.supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('business_id', id).neq('status', 'nula').gte('created_at', yearStart),
+      auth.supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('business_id', id).neq('status', 'nula').gte('created_at', monthStart),
       auth.supabase.from('configuracion').select('valor').eq('business_id', id).eq('clave', 'setup_complete').maybeSingle(),
     ])
     if (bizRes.error) throw bizRes.error
@@ -415,8 +442,15 @@ async function handleClientDetail(req, res) {
     const tickets = ticketRes.data || []
     const serviceCount = svcRes.count || 0
     const clientCount = clientRes.count || 0
-    const ticketCount = tickets.length
-    const totalRevenue = tickets.reduce((sum, t) => sum + (parseFloat(t.total) || 0), 0)
+    const ticketCount      = ticketCountAllRes.count   ?? tickets.length
+    const ticketCountYear  = ticketCountYearRes.count  ?? 0
+    const ticketCountMonth = ticketCountMonthRes.count ?? 0
+    const totalRevenue       = tickets.reduce((sum, t) => sum + (parseFloat(t.total) || 0), 0)
+    // Period revenue derived from the fetched rows (ordered DESC, limit 10k).
+    // Safe because any realistic year-to-date count fits well under 10k for
+    // current clients. Switch to an RPC SUM if tenants ever exceed that.
+    const totalRevenueYear   = tickets.filter(t => t.created_at && t.created_at >= yearStart).reduce((s, t) => s + (parseFloat(t.total) || 0), 0)
+    const totalRevenueMonth  = tickets.filter(t => t.created_at && t.created_at >= monthStart).reduce((s, t) => s + (parseFloat(t.total) || 0), 0)
     const lastSaleDate = tickets[0]?.created_at || null
     const onboarding = {
       business_info: !!(biz.name && biz.rnc),
@@ -425,7 +459,7 @@ async function handleClientDetail(req, res) {
       first_service: serviceCount > 0,
       first_client: clientCount > 0,
       first_sale: ticketCount > 0,
-      fiscal_configured: !!(biz.settings?.facturacion_mode),
+      fiscal_configured: !!(parseSettingsIfString(biz.settings)?.facturacion_mode),
       setup_complete: configRes.data?.valor === '1',
     }
     // Strip non-primitive fields to prevent React #310
@@ -441,7 +475,7 @@ async function handleClientDetail(req, res) {
     } : null
     return res.json({
       business: bizSafe, license: licSafe, staff, onboarding,
-      metrics: { ticketCount, totalRevenue, lastSaleDate, serviceCount, clientCount },
+      metrics: { ticketCount, ticketCountYear, ticketCountMonth, totalRevenue, totalRevenueYear, totalRevenueMonth, lastSaleDate, serviceCount, clientCount },
     })
   } catch (err) { return res.status(500).json({ error: err.message }) }
 }
@@ -859,7 +893,7 @@ async function handleBulkAction(req, res) {
       if (!feature || !business_ids?.length) return res.status(400).json({ error: 'feature and business_ids required' })
       for (const bid of business_ids) {
         const { data: biz } = await auth.supabase.from('businesses').select('settings').eq('id', bid).single()
-        const settings = biz?.settings || {}
+        const settings = parseSettingsIfString(biz?.settings)
         const overrides = settings.feature_overrides || {}
         overrides[feature] = enabled
         await auth.supabase.from('businesses').update({ settings: { ...settings, feature_overrides: overrides }, updated_at: new Date().toISOString() }).eq('id', bid)
@@ -1073,7 +1107,7 @@ async function handleClientVisits(req, res) {
     if (!id) return res.status(400).json({ error: 'id required' })
     try {
       const { data: biz } = await auth.supabase.from('businesses').select('settings').eq('id', id).single()
-      return res.json({ data: biz?.settings?.visits || [] })
+      return res.json({ data: parseSettingsIfString(biz?.settings)?.visits || [] })
     } catch (err) { return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'POST') {
@@ -1083,7 +1117,7 @@ async function handleClientVisits(req, res) {
     if (!business_id || !scheduled_date) return res.status(400).json({ error: 'business_id and scheduled_date required' })
     try {
       const { data: biz } = await auth.supabase.from('businesses').select('settings').eq('id', business_id).single()
-      const settings = biz?.settings || {}
+      const settings = parseSettingsIfString(biz?.settings)
       const visits = settings.visits || []
       visits.push({
         id: crypto.randomUUID(),
@@ -1104,7 +1138,7 @@ async function handleClientVisits(req, res) {
     if (!business_id || !visit_id) return res.status(400).json({ error: 'business_id and visit_id required' })
     try {
       const { data: biz } = await auth.supabase.from('businesses').select('settings').eq('id', business_id).single()
-      const settings = biz?.settings || {}
+      const settings = parseSettingsIfString(biz?.settings)
       const visits = (settings.visits || []).map(v => v.id === visit_id ? { ...v, ...(completed !== undefined ? { completed } : {}), ...(notes !== undefined ? { notes } : {}), completed_at: completed ? new Date().toISOString() : v.completed_at } : v)
       await auth.supabase.from('businesses').update({ settings: { ...settings, visits }, updated_at: new Date().toISOString() }).eq('id', business_id)
       return res.json({ ok: true })

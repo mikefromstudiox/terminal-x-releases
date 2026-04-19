@@ -80,7 +80,7 @@ CREATE TABLE services (
   categoria_id  UUID REFERENCES categorias_servicio(id) ON DELETE SET NULL,
   name          TEXT NOT NULL,
   name_en       TEXT,                             -- English translation for bilingual UI
-  category      TEXT NOT NULL DEFAULT 'Lavado',   -- legacy text category
+  category      TEXT NOT NULL DEFAULT 'General',  -- legacy text category; vertical-agnostic default
   price         NUMERIC(12,2) NOT NULL,
   aplica_itbis  BOOLEAN NOT NULL DEFAULT true,    -- true = ITBIS applies, false = exempt
   is_wash       BOOLEAN NOT NULL DEFAULT true,    -- false = beverage/snack, excluded from washer commission

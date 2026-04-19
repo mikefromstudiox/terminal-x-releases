@@ -7,16 +7,25 @@
  */
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import QRCode from 'qrcode'
+import { formatPhoneForReceipt } from './phone.js'
 
 // 80mm receipt width in pts (1mm ≈ 2.835 pts). Height is dynamic.
 const PAGE_W  = 226   // 80mm in pts
-const MARGIN  = 12
+const MARGIN  = 14
 const COL_W   = PAGE_W - MARGIN * 2
 const LINE_H  = 13
 const SMALL   = 8
 const NORMAL  = 9
 const LARGE   = 13
 const QR_SIZE = 90
+
+// Brand palette
+const CRIMSON  = [0.702, 0, 0.118]   // #b3001e
+const INK      = [0, 0, 0]
+const MUTED    = [0.42, 0.42, 0.42]
+const HAIRLINE = [0.78, 0.78, 0.78]
+const PAPER    = [1, 1, 1]
+const RGB = (c) => rgb(c[0], c[1], c[2])
 
 function fmtDate(d = new Date()) {
   return d.toLocaleDateString('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -81,16 +90,16 @@ async function buildPDF(data) {
   const lines = buildLines(data)
   const isECF = data.ncf && data.ncf.startsWith('E')
 
-  // Generate QR for e-CF receipts — use qrLink from DGII submission or build locally
+  // Generate QR for e-CF receipts
   let qrPngBase64 = null
   if (isECF) {
     const qrUrl = data.qrLink || buildQRUrl(data)
     qrPngBase64 = await generateQRPng(qrUrl)
   }
 
-  // Try to embed business logo
+  // ── Embed business logo (optional — drawn INSIDE the crimson header band) ──
   let logoImage = null
-  const LOGO_H = 40
+  const LOGO_H = 36
   const logoUrl = data.biz?.logo || ''
   if (logoUrl) {
     try {
@@ -113,25 +122,91 @@ async function buildPDF(data) {
     } catch { logoImage = null }
   }
 
-  const logoBlockH = logoImage ? LOGO_H + 6 : 0
-  const secCodeH = (qrPngBase64 && data.securityCode) ? 10 : 0
-  const firmaH = (qrPngBase64 && data.signatureDate) ? 14 : 0
-  const qrBlockH = qrPngBase64 ? QR_SIZE + 20 + secCodeH + firmaH : 0
-  const pageH = MARGIN * 2 + logoBlockH + lines.reduce((h, l) => h + l.height, 0) + qrBlockH + 10
+  // ── Height calculation ──
+  const biz = data.biz || {}
+  const bizName = (biz.name || 'TERMINAL X').toUpperCase()
+  // Header band: logo (if any) + name + 2 lines of contact info
+  let addrFull = biz.address || ''
+  try {
+    const s = typeof biz.settings === 'string' ? JSON.parse(biz.settings) : (biz.settings || {})
+    if (s.ciudad || s.biz_city) addrFull = (addrFull ? addrFull + ', ' : '') + (s.ciudad || s.biz_city)
+  } catch {}
+  const headerLogoH = logoImage ? LOGO_H + 4 : 0
+  const HEADER_BAND_H = 14 + headerLogoH + 18 + (addrFull ? 11 : 0) + ((biz.phone || biz.rnc) ? 11 : 0) + 10
+
+  const TOTAL_BOX_H = 34
+  const secCodeH = (qrPngBase64 && data.securityCode) ? 11 : 0
+  const firmaH   = (qrPngBase64 && data.signatureDate) ? 11 : 0
+  const qrBlockH = qrPngBase64 ? QR_SIZE + 26 + secCodeH + firmaH : 0
+  const FOOTER_H = 46 // X mark + powered by + grace lines
+  const bodyH = lines.reduce((h, l) => h + l.height, 0)
+  const pageH = HEADER_BAND_H + 10 + bodyH + TOTAL_BOX_H + 8 + qrBlockH + FOOTER_H + MARGIN
 
   const page = doc.addPage([PAGE_W, pageH])
   const { width, height } = page.getSize()
 
-  let y = height - MARGIN
+  // ═══ CRIMSON HEADER BAND ═══════════════════════════════════════════════════
+  page.drawRectangle({
+    x: 0, y: height - HEADER_BAND_H,
+    width: PAGE_W, height: HEADER_BAND_H,
+    color: RGB(CRIMSON),
+  })
 
-  // Draw logo at top center
+  let y = height - 14
+
   if (logoImage) {
     const aspect = logoImage.width / logoImage.height
-    const logoW = Math.min(LOGO_H * aspect, COL_W * 0.6)
+    const logoW = Math.min(LOGO_H * aspect, COL_W * 0.55)
     const logoX = MARGIN + (COL_W - logoW) / 2
     page.drawImage(logoImage, { x: logoX, y: y - LOGO_H, width: logoW, height: LOGO_H })
-    y -= LOGO_H + 6
+    y -= LOGO_H + 4
   }
+
+  // Business name — white on crimson, bold, letter-spaced feel via uppercase
+  const nameSize = 13
+  const nameW = fontB.widthOfTextAtSize(bizName, nameSize)
+  if (nameW <= COL_W) {
+    page.drawText(bizName, {
+      x: MARGIN + (COL_W - nameW) / 2, y: y - nameSize,
+      size: nameSize, font: fontB, color: RGB(PAPER),
+    })
+    y -= nameSize + 4
+  } else {
+    // Scale down if too long
+    const sz = Math.max(9, Math.floor(nameSize * COL_W / nameW))
+    const w = fontB.widthOfTextAtSize(bizName, sz)
+    page.drawText(bizName, { x: MARGIN + (COL_W - w) / 2, y: y - sz, size: sz, font: fontB, color: RGB(PAPER) })
+    y -= sz + 4
+  }
+
+  // Contact info — white muted (0.88 white), small
+  const headerMuted = rgb(1, 1, 1)
+  if (addrFull) {
+    const w = font.widthOfTextAtSize(addrFull, SMALL)
+    if (w <= COL_W) {
+      page.drawText(addrFull, { x: MARGIN + (COL_W - w) / 2, y: y - SMALL, size: SMALL, font, color: headerMuted, opacity: 0.88 })
+    } else {
+      // truncate
+      let t = addrFull
+      while (font.widthOfTextAtSize(t + '...', SMALL) > COL_W && t.length > 4) t = t.slice(0, -1)
+      t += '...'
+      const w2 = font.widthOfTextAtSize(t, SMALL)
+      page.drawText(t, { x: MARGIN + (COL_W - w2) / 2, y: y - SMALL, size: SMALL, font, color: headerMuted, opacity: 0.88 })
+    }
+    y -= 11
+  }
+  const contactParts = []
+  if (biz.phone) contactParts.push(formatPhoneForReceipt(biz.phone))
+  if (biz.rnc)   contactParts.push('RNC ' + biz.rnc)
+  if (contactParts.length) {
+    const t = contactParts.join('   ')
+    const w = font.widthOfTextAtSize(t, SMALL)
+    page.drawText(t, { x: MARGIN + (COL_W - w) / 2, y: y - SMALL, size: SMALL, font, color: headerMuted, opacity: 0.88 })
+    y -= 11
+  }
+
+  // ═══ BODY ══════════════════════════════════════════════════════════════════
+  y = height - HEADER_BAND_H - 12
 
   for (const line of lines) {
     y -= line.height
@@ -140,58 +215,117 @@ async function buildPDF(data) {
         start: { x: MARGIN, y: y + line.height / 2 },
         end:   { x: width - MARGIN, y: y + line.height / 2 },
         thickness: 0.5,
-        color: rgb(0.8, 0.8, 0.8),
+        color: RGB(HAIRLINE),
       })
+    } else if (line.type === 'pill') {
+      // Small inverted caption (black block, white text) — invoice type
+      const size = line.size || SMALL
+      const t = String(line.text || '')
+      const tw = fontB.widthOfTextAtSize(t, size)
+      const padX = 6, padY = 3
+      const pw = tw + padX * 2, ph = size + padY * 2
+      const px = MARGIN + (COL_W - pw) / 2
+      page.drawRectangle({ x: px, y: y - padY + 1, width: pw, height: ph, color: RGB(INK) })
+      page.drawText(t, { x: px + padX, y: y + 2, size, font: fontB, color: RGB(PAPER) })
     } else if (line.type === 'text') {
       const f    = line.bold ? fontB : font
       const size = line.size || NORMAL
+      const color = line.muted ? RGB(MUTED) : RGB(INK)
       const text = String(line.text || '')
       const x = line.right
         ? MARGIN + COL_W - f.widthOfTextAtSize(text, size)
         : line.center
           ? MARGIN + (COL_W - f.widthOfTextAtSize(text, size)) / 2
           : MARGIN
-      page.drawText(text, { x, y, size, font: f, color: rgb(0, 0, 0) })
-      if (line.right2) {
-        const t2 = String(line.right2)
-        const x2 = MARGIN + COL_W - f.widthOfTextAtSize(t2, size)
-        page.drawText(t2, { x: x2, y, size, font: f, color: rgb(0.3, 0.3, 0.3) })
-      }
+      page.drawText(text, { x, y, size, font: f, color })
     } else if (line.type === 'cols') {
       const f    = line.bold ? fontB : font
       const size = line.size || NORMAL
-      page.drawText(String(line.left || ''),  { x: MARGIN, y, size, font: f, color: rgb(0.3, 0.3, 0.3) })
+      const leftColor  = line.boldLeft ? RGB(INK) : RGB(MUTED)
+      const leftFont   = line.boldLeft ? fontB : font
+      const leftLabel  = line.upper ? String(line.left || '').toUpperCase() : String(line.left || '')
+      page.drawText(leftLabel,  { x: MARGIN, y, size, font: leftFont, color: leftColor })
       const right = String(line.right || '')
       const xr = MARGIN + COL_W - f.widthOfTextAtSize(right, size)
-      page.drawText(right, { x: xr, y, size, font: f, color: rgb(0, 0, 0) })
+      page.drawText(right, { x: xr, y, size, font: f, color: RGB(INK) })
     }
   }
 
-  // Embed QR code for e-CF receipts
+  // ═══ CRIMSON TOTAL BOX ═════════════════════════════════════════════════════
+  y -= 6
+  const totalBoxY = y - TOTAL_BOX_H
+  page.drawRectangle({
+    x: MARGIN, y: totalBoxY,
+    width: COL_W, height: TOTAL_BOX_H,
+    color: RGB(CRIMSON),
+  })
+  const totalLabel = 'TOTAL'
+  const totalAmt   = fmtRD(data.total)
+  page.drawText(totalLabel, {
+    x: MARGIN + 12, y: totalBoxY + (TOTAL_BOX_H - 14) / 2,
+    size: 14, font: fontB, color: RGB(PAPER),
+  })
+  const amtW = fontB.widthOfTextAtSize(totalAmt, 15)
+  page.drawText(totalAmt, {
+    x: MARGIN + COL_W - 12 - amtW, y: totalBoxY + (TOTAL_BOX_H - 15) / 2,
+    size: 15, font: fontB, color: RGB(PAPER),
+  })
+  y = totalBoxY - 10
+
+  // ═══ QR VERIFICATION (e-CF only) ═══════════════════════════════════════════
   if (qrPngBase64) {
     const qrBytes = Uint8Array.from(atob(qrPngBase64), c => c.charCodeAt(0))
     const qrImage = await doc.embedPng(qrBytes)
-    y -= 6
+    const header = 'COMPROBANTE FISCAL ELECTRONICO'
+    const hw = fontB.widthOfTextAtSize(header, 7.5)
+    page.drawText(header, { x: MARGIN + (COL_W - hw) / 2, y: y - 8, size: 7.5, font: fontB, color: RGB(INK) })
+    y -= 16
     const qrX = MARGIN + (COL_W - QR_SIZE) / 2
     page.drawImage(qrImage, { x: qrX, y: y - QR_SIZE, width: QR_SIZE, height: QR_SIZE })
-    y -= QR_SIZE + 2
-    const label = 'Verificar en DGII'
+    y -= QR_SIZE + 4
+    const label = 'Verifique en DGII'
     const labelW = font.widthOfTextAtSize(label, 7)
-    page.drawText(label, { x: MARGIN + (COL_W - labelW) / 2, y: y - 8, size: 7, font, color: rgb(0.4, 0.4, 0.4) })
-    y -= 18
+    page.drawText(label, { x: MARGIN + (COL_W - labelW) / 2, y: y - 7, size: 7, font, color: RGB(MUTED) })
+    y -= 11
     if (data.securityCode) {
-      const scLabel = `Codigo de Seguridad: ${data.securityCode}`
-      const scW = font.widthOfTextAtSize(scLabel, 6)
-      page.drawText(scLabel, { x: MARGIN + (COL_W - scW) / 2, y: y - 2, size: 6, font, color: rgb(0.4, 0.4, 0.4) })
-      y -= 10
+      const scLabel = `Codigo Seguridad  ${data.securityCode}`
+      const scW = font.widthOfTextAtSize(scLabel, 6.5)
+      page.drawText(scLabel, { x: MARGIN + (COL_W - scW) / 2, y: y - 7, size: 6.5, font, color: RGB(MUTED) })
+      y -= 11
     }
     if (data.signatureDate) {
       const firmaStr = fmtFirmaDate(data.signatureDate)
-      const firmaLabel = `Fecha de Firma Digital: ${firmaStr}`
-      const firmaW = font.widthOfTextAtSize(firmaLabel, 6)
-      page.drawText(firmaLabel, { x: MARGIN + (COL_W - firmaW) / 2, y: y - 2, size: 6, font, color: rgb(0.4, 0.4, 0.4) })
+      const firmaLabel = `Firma Digital  ${firmaStr}`
+      const firmaW = font.widthOfTextAtSize(firmaLabel, 6.5)
+      page.drawText(firmaLabel, { x: MARGIN + (COL_W - firmaW) / 2, y: y - 7, size: 6.5, font, color: RGB(MUTED) })
+      y -= 11
     }
   }
+
+  // ═══ FOOTER — X logo mark + gracias + powered by ═══════════════════════════
+  y -= 8
+  const graceA = 'GRACIAS POR SU PREFERENCIA'
+  const gaW = fontB.widthOfTextAtSize(graceA, 8)
+  page.drawText(graceA, { x: MARGIN + (COL_W - gaW) / 2, y: y - 8, size: 8, font: fontB, color: RGB(INK) })
+  y -= 12
+  const graceB = 'Conserve este comprobante'
+  const gbW = font.widthOfTextAtSize(graceB, 7)
+  page.drawText(graceB, { x: MARGIN + (COL_W - gbW) / 2, y: y - 7, size: 7, font, color: RGB(MUTED) })
+  y -= 16
+
+  // X logo mark — vector, crimson: circle + two crossed lines
+  const xCy = y - 6
+  const xCx = PAGE_W / 2
+  const xR  = 6
+  page.drawCircle({ x: xCx, y: xCy, size: xR, borderColor: RGB(CRIMSON), borderWidth: 0.9, color: RGB(PAPER) })
+  const d = xR * 0.58
+  page.drawLine({ start: { x: xCx - d, y: xCy - d }, end: { x: xCx + d, y: xCy + d }, thickness: 1.1, color: RGB(CRIMSON) })
+  page.drawLine({ start: { x: xCx - d, y: xCy + d }, end: { x: xCx + d, y: xCy - d }, thickness: 1.1, color: RGB(CRIMSON) })
+  y -= (xR * 2 + 4)
+
+  const tagline = 'Powered by Terminal X'
+  const tw = font.widthOfTextAtSize(tagline, 6.5)
+  page.drawText(tagline, { x: MARGIN + (COL_W - tw) / 2, y: y - 7, size: 6.5, font, color: RGB(MUTED) })
 
   const pdfBytes = await doc.save()
   const filename = `${(data.docNo || 'recibo').replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`
@@ -241,59 +375,69 @@ export async function buildReceiptPDFBase64(data) {
   return { base64, filename }
 }
 
+function formatFormaPagoPDF(f) {
+  const map = {
+    cash: 'Efectivo', card: 'Tarjeta', transfer: 'Transferencia', cheque: 'Cheque', credit: 'A credito',
+    efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia',
+  }
+  return map[f] || (f ? f.charAt(0).toUpperCase() + f.slice(1) : 'Efectivo')
+}
+
 function buildLines(data) {
   const lines = []
 
   function text(t, opts = {})   { lines.push({ type: 'text', text: t, height: LINE_H, ...opts }) }
   function cols(l, r, opts = {}) { lines.push({ type: 'cols', left: l, right: r, height: LINE_H, ...opts }) }
+  function pill(t, opts = {})   { lines.push({ type: 'pill', text: t, height: 18, ...opts }) }
   function rule()               { lines.push({ type: 'rule', height: 8 }) }
-  function gap(h = 4)           { lines.push({ type: 'rule', height: h }) } // invisible spacer
-
-  const biz = data.biz || {}
-  // Header
-  text(biz.name || 'CAR WASH', { bold: true, size: LARGE, center: true })
-  if (biz.address) text(biz.address, { size: SMALL, center: true })
-  if (biz.phone)   text('Tel: ' + biz.phone, { size: SMALL, center: true })
-  if (biz.rnc)     text('RNC: ' + biz.rnc, { size: SMALL, center: true })
-  rule()
+  function gap(h = 4)           { lines.push({ type: 'rule', height: h }) }
 
   const isCredito = ['E31', 'B01'].includes(data.ncfType)
-  text(isCredito ? 'FACTURA DE CREDITO FISCAL' : 'FACTURA CONSUMIDOR FINAL', { bold: true, center: true, size: SMALL })
-  gap()
+  pill(isCredito ? 'FACTURA DE CREDITO FISCAL' : 'FACTURA CONSUMIDOR FINAL', { size: SMALL })
+  gap(6)
 
-  cols('Fecha:', fmtDate(data.paidAt))
-  cols('NCF:', data.ncf || '-')
-  cols('Doc:', data.docNo || '-')
-  if (data.cajero)  cols('Cajero:', data.cajero)
-  if (data.lavador) cols('Lavador:', data.lavador)
-  if (data.vehiclePlate) cols('Vehiculo:', data.vehiclePlate)
-  if (data.client?.name) cols('Cliente:', data.client.name)
-  if (data.client?.rnc)  cols('RNC:', data.client.rnc)
+  // Metadata — small caps labels, bold right-values
+  cols('FECHA', fmtDate(data.paidAt), { upper: true, size: SMALL })
+  cols('DOC',   data.docNo || '-',    { upper: true, size: SMALL })
+  cols('NCF',   data.ncf || '-',      { upper: true, size: SMALL })
+  if (data.cajero)       cols('CAJERO',   data.cajero,       { upper: true, size: SMALL })
+  if (data.lavador)      cols('LAVADOR',  data.lavador,      { upper: true, size: SMALL })
+  if (data.vehiclePlate) cols('VEHICULO', data.vehiclePlate, { upper: true, size: SMALL })
+
+  if (data.client?.name || data.client?.rnc || data.client?.phone) {
+    gap(4)
+    if (data.client?.name) cols('CLIENTE', data.client.name, { upper: true, size: SMALL })
+    if (data.client?.rnc)  cols('RNC',     data.client.rnc,  { upper: true, size: SMALL })
+    if (data.client?.phone) cols('TEL',    formatPhoneForReceipt(data.client.phone), { upper: true, size: SMALL })
+  }
+
+  cols('FORMA PAGO', formatFormaPagoPDF(data.formaPago), { upper: true, size: SMALL })
+  if (data.tipo === 'credito') cols('TIPO VENTA', 'Credito', { upper: true, size: SMALL })
+
   rule()
 
-  // Services / Products
+  // Column header
+  cols('DESCRIPCION', 'TOTAL', { bold: true, boldLeft: true, upper: true, size: SMALL })
+  gap(4)
+
+  // Items
   for (const svc of data.services || []) {
     const qty = svc.qty || svc.quantity || 1
     const name = qty > 1 ? `${qty}x ${svc.name}` : svc.name
-    cols(name, fmtRD(svc.price * qty))
+    cols(name, fmtRD(svc.price * qty), { boldLeft: true, size: NORMAL })
   }
+
   rule()
 
-  // Totals
-  cols('Subtotal:', fmtRD(data.subtotal))
-  cols('ITBIS (18%):', fmtRD(data.itbis))
-  cols('Ley (10%):', fmtRD(data.ley))
-  if (data.descuento > 0) cols('Descuento:', '-' + fmtRD(data.descuento))
-  gap(2)
-  cols('TOTAL:', fmtRD(data.total), { bold: true, size: LARGE })
-  gap()
-  cols('Forma de pago:', data.formaPago || 'Efectivo')
-  rule()
-
-  text('Gracias por preferirnos!', { center: true, size: SMALL })
-  text('Conserve este comprobante', { center: true, size: SMALL })
-  gap()
-  text('- Powered by Terminal X -', { center: true, size: 7 })
+  // Fiscal breakdown (hidden for B02/walk-in)
+  const ncfStr = String(data.ncf || '').toUpperCase()
+  const isFiscal = /^B01/.test(ncfStr) || /^B14/.test(ncfStr) || /^B15/.test(ncfStr) || /^E\d/.test(ncfStr)
+  if (data.descuento > 0) cols('Descuento', '-' + fmtRD(data.descuento), { size: SMALL })
+  if (isFiscal) {
+    cols('Subtotal',    fmtRD(data.subtotal), { size: SMALL })
+    cols('ITBIS 18%',   fmtRD(data.itbis),    { size: SMALL })
+  }
+  if (data.ley > 0) cols('Ley 10%', fmtRD(data.ley), { size: SMALL })
 
   return lines
 }

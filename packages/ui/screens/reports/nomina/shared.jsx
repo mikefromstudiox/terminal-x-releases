@@ -142,8 +142,14 @@ export function EmployeePanel({ emp, onSave, onClose, lang, t, showWashers = tru
   const field = (key, label, props = {}) => (
     <div>
       <label className="block text-[11px] font-bold text-slate-500 dark:text-white/60 mb-1">{label}</label>
-      <input value={form[key]} onChange={e => set(key, e.target.value)} {...props}
-        className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] dark:text-white dark:bg-white/5 focus:outline-none focus:border-sky-400" />
+      <input
+        name={key}
+        autoComplete="off"
+        value={form[key]}
+        onChange={e => set(key, e.target.value)}
+        {...props}
+        className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] dark:text-white dark:bg-white/5 focus:outline-none focus:border-sky-400"
+      />
     </div>
   )
 

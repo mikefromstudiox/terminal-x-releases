@@ -226,16 +226,32 @@ export function createWebAPI(supabase, businessId) {
 
   async function resolveActorRole() {
     // Prefer authoritative Supabase lookup via JWT.
+    let jwtUserId = null, jwtEmail = null
     try {
       const { data: { user } = {} } = await supabase.auth.getUser()
       if (user?.id) {
+        jwtUserId = user.id; jwtEmail = user.email || null
+        // 1) Direct auth_user_id match on staff (strongest signal).
         const { data: row } = await supabase.from('staff')
-          .select('id,name,role').eq('auth_user_id', user.id).eq('business_id', bid).maybeSingle()
-        if (row) return { id: row.id, name: row.name, role: row.role }
+          .select('id,name,role,username').eq('auth_user_id', user.id).eq('business_id', bid).maybeSingle()
+        if (row) return { id: row.id, name: row.name, role: row.role, username: row.username, jwtUserId, jwtEmail }
+        // 2) Username==email-local match as a recovery path for staff rows with NULL auth_user_id.
+        //    Intentionally NOT falling back to businesses.owner_id — ownership auth_user_id can be
+        //    shared with a non-owner staff row (e.g. admin@ account used by a manager).
+        if (user.email) {
+          const local = String(user.email).split('@')[0].toLowerCase()
+          const { data: byName } = await supabase.from('staff')
+            .select('id,name,role,username').eq('business_id', bid).eq('active', true)
+            .or(`username.eq.${local},email.eq.${user.email}`).limit(2)
+          if (byName && byName.length === 1) {
+            return { id: byName[0].id, name: byName[0].name, role: byName[0].role, username: byName[0].username, jwtUserId, jwtEmail }
+          }
+        }
       }
     } catch {}
     // Fallback to renderer-supplied actor (still enforced — just weaker).
-    return _webActor || null
+    if (_webActor) return { ..._webActor, jwtUserId, jwtEmail }
+    return null
   }
 
   async function fetchTargetRole(id) {
@@ -250,11 +266,21 @@ export function createWebAPI(supabase, businessId) {
     const actor = await resolveActorRole()
     await logActivity({
       event_type: 'permission_denied', severity: 'warn',
+      actor_supabase_id: actor?.id && typeof actor.id === 'string' && actor.id.includes('-') ? actor.id : null,
       actor_name: actor?.name || null, actor_role: actor?.role || null,
       target_type: ctx.target_type || null,
       target_id:   ctx.target_id != null ? String(ctx.target_id) : null,
       target_name: ctx.target_name || null,
-      reason, metadata: { attempted_op: op, source: 'web' },
+      reason,
+      metadata: {
+        attempted_op: op,
+        source: 'web',
+        resolved_role: actor?.role || null,
+        resolved_username: actor?.username || null,
+        jwt_user_id: actor?.jwtUserId || null,
+        jwt_email: actor?.jwtEmail || null,
+        actor_source: actor ? (actor.jwtUserId && actor.username ? 'staff_lookup' : 'renderer_fallback') : 'none',
+      },
     })
     throw new Error(reason)
   }
@@ -827,17 +853,24 @@ export function createWebAPI(supabase, businessId) {
         }
       }),
 
-      delete: ({ id }) => tryOr(async () => {
+      delete: ({ id }) => tryWrite(async () => {
         await requireOwnerOrManager('services:delete')
-        // Soft-delete — set active=false, bump updated_at. Desktop pulls the
-        // change via LWW and hides the service from the POS grid. Hard-delete
-        // is useless here: the desktop's next sync push would just re-upsert
-        // its still-active local copy and resurrect the row on Supabase.
-        const svc = await supabase.from('services').select('name, price').eq('id', id).eq('business_id', bid).maybeSingle()
-        throwSupaError(await supabase.from('services').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        // Hard-delete when possible. FK from ticket_items keeps historical
+        // sales intact — on 23503 we fall back to soft-delete.
+        const svc = (await supabase.from('services').select('name, price').eq('id', id).eq('business_id', bid).maybeSingle())?.data
+        const del = await supabase.from('services').delete().eq('id', id).eq('business_id', bid)
+        if (del.error) {
+          const fkBlocked = del.error.code === '23503' || /foreign key|referenced/i.test(del.error.message || '')
+          if (!fkBlocked) throw new Error(del.error.message || 'Error al eliminar servicio')
+          throwSupaError(await supabase.from('services').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+          await logActivity({ event_type: 'service_deleted', severity: 'warn',
+            target_type: 'service', target_id: id,
+            target_name: svc?.name || `#${id}`, amount: svc?.price, metadata: { soft: true, reason: 'has_history' } })
+          return { softDeleted: true }
+        }
         await logActivity({ event_type: 'service_deleted', severity: 'warn',
           target_type: 'service', target_id: id,
-          target_name: svc?.data?.name || `#${id}`, amount: svc?.data?.price })
+          target_name: svc?.name || `#${id}`, amount: svc?.price, metadata: { hard: true } })
         return { deleted: true }
       }),
     },
@@ -1245,12 +1278,12 @@ export function createWebAPI(supabase, businessId) {
         }
         return { id: inserted.id, supabase_id: sid }
       }),
-      remove: (id) => tryOr(async () => {
+      remove: (id) => tryWrite(async () => {
         await requireOwnerOrManager('salary-changes:delete')
         // Look up empleado_supabase_id before deleting so we can re-sync
         // empleados.salary to whatever becomes the new latest row.
         const { data: row } = await supabase.from('salary_changes').select('empleado_supabase_id').eq('id', id).eq('business_id', bid).maybeSingle()
-        if (!row?.empleado_supabase_id) return
+        if (!row?.empleado_supabase_id) throw new Error('No se encontró el cambio de salario (id ' + id + ')')
         throwSupaError(await supabase.from('salary_changes').delete().eq('id', id).eq('business_id', bid))
         const { data: latest } = await supabase.from('salary_changes').select('new_salary')
           .eq('business_id', bid).eq('empleado_supabase_id', row.empleado_supabase_id)
@@ -1373,7 +1406,9 @@ export function createWebAPI(supabase, businessId) {
 
     tickets: {
       all: (params = {}) => tryOr(async () => {
-        const { dateFrom, dateTo, status, limit = 5000 } = params
+        const dateFrom = params.dateFrom ?? params.from
+        const dateTo   = params.dateTo   ?? params.to
+        const { status, limit = 5000 } = params
         const safeLimit = Math.min(limit || 5000, 50000)
         let q = supabase.from('tickets').select('*').eq('business_id', bid)
         if (dateFrom) q = q.gte('created_at', dateFrom)
@@ -1798,7 +1833,8 @@ export function createWebAPI(supabase, businessId) {
       }),
 
       byDateRange: (params) => tryOr(async () => {
-        const { dateFrom, dateTo } = params
+        const dateFrom = params?.dateFrom ?? params?.from
+        const dateTo   = params?.dateTo   ?? params?.to
         let q = supabase.from('tickets').select('*').eq('business_id', bid)
         if (dateFrom) q = q.gte('created_at', dateFrom)
         if (dateTo)   q = q.lte('created_at', dateTo)
@@ -2226,7 +2262,9 @@ export function createWebAPI(supabase, businessId) {
       }, []),
 
       list: (filters = {}) => tryOr(async () => {
-        const { dateFrom, dateTo, limit = 100 } = filters
+        const dateFrom = filters.dateFrom ?? filters.from
+        const dateTo   = filters.dateTo   ?? filters.to
+        const { limit = 100 } = filters
         let q = supabase.from('cuadre_caja')
           .select('*')
           .eq('business_id', bid)
@@ -2355,7 +2393,8 @@ export function createWebAPI(supabase, businessId) {
 
     dgii: {
       get606: (params) => tryOr(async () => {
-        const { dateFrom, dateTo } = params || {}
+        const dateFrom = params?.dateFrom ?? params?.from
+        const dateTo   = params?.dateTo   ?? params?.to
         let q = supabase.from('tickets')
           .select('id, ncf, comprobante_type, created_at, subtotal, itbis, ley, total, status, client_supabase_id')
           .eq('business_id', bid)
@@ -2375,7 +2414,8 @@ export function createWebAPI(supabase, businessId) {
       }, []),
 
       get607: (params) => tryOr(async () => {
-        const { dateFrom, dateTo } = params || {}
+        const dateFrom = params?.dateFrom ?? params?.from
+        const dateTo   = params?.dateTo   ?? params?.to
         let q = supabase.from('compras_607').select('*').eq('business_id', bid)
         if (dateFrom) q = q.gte('fecha_ncf', dateFrom)
         if (dateTo)   q = q.lte('fecha_ncf', dateTo)
@@ -3914,17 +3954,22 @@ export function createWebAPI(supabase, businessId) {
     // Auth-bound replacement for the legacy services/supabase.js
     // fetchDashboardData (which read business_id + creds from localStorage).
     dashboard: {
-      fetch: () => tryOr(async () => {
+      fetch: ({ since } = {}) => tryOr(async () => {
         const now       = new Date()
         const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1)
         const weekStart = new Date(now); weekStart.setDate(now.getDate() - 6); weekStart.setHours(0, 0, 0, 0)
+
+        // If caller supplies a go-live cutoff newer than the 7d floor, clamp
+        // up so imported historical rows stay hidden.
+        const weekIso = weekStart.toISOString()
+        const fromIso = since && since > weekIso ? since : weekIso
 
         const { data: rows } = await supabase
           .from('tickets')
           .select('total, itbis, payment_method, doc_number, client_name, ncf, ncf_type, status, paid_at, created_at, services_json, cajero_name')
           .eq('business_id', bid)
           .eq('status', 'cobrado')
-          .gte('paid_at', weekStart.toISOString())
+          .gte('paid_at', fromIso)
           .order('paid_at', { ascending: false })
 
         const todayStr  = now.toDateString()

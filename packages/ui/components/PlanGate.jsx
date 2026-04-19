@@ -4,11 +4,22 @@ import { Lock, ArrowUpCircle } from 'lucide-react'
 
 const FEATURE_PLAN_MIN = {
   invoicing: 'facturacion',
-  credits: 'pro', reports: 'pro', petty_cash: 'pro', credit_notes: 'pro', cash_recon: 'pro', commissions: 'pro', inventory: 'pro',
-  ecf: 'pro_plus', dgii: 'pro_plus', restaurant_mode: 'pro_plus',
-  work_orders: 'pro_plus', appointments: 'pro_plus', service_bays: 'pro_plus', loans: 'pro_plus', vehicles: 'pro_plus',
-  remote_dashboard: 'pro_max', whatsapp_receipts: 'pro_max', multi_location: 'pro_max',
-  pawn_items: 'pro_max', loan_analytics: 'pro_max', vehicle_history: 'pro_max', stylist_schedules: 'pro_max',
+  // Pro — core POS + basic back-office
+  pos: 'pro', queue: 'pro',  // v2.3.30 — closed the ungated hole
+  credits: 'pro', reports: 'pro', petty_cash: 'pro', credit_notes: 'pro',
+  cash_recon: 'pro', commissions: 'pro', inventory: 'pro',
+  nomina_basic: 'pro',
+  // Pro PLUS — fiscal + automation
+  ecf: 'pro_plus', dgii: 'pro_plus', dgii_606_607: 'pro_plus',
+  whatsapp_receipts: 'pro_plus', whatsapp_automation: 'pro_plus',
+  restaurant_mode: 'pro_plus',
+  work_orders: 'pro_plus', appointments: 'pro_plus', service_bays: 'pro_plus',
+  loans: 'pro_plus', vehicles: 'pro_plus',
+  // Pro MAX — scale + advanced
+  remote_dashboard: 'pro_max', multi_location: 'pro_max',
+  custom_receipt_design: 'pro_max', nomina_advanced: 'pro_max',
+  pawn_items: 'pro_max', loan_analytics: 'pro_max',
+  vehicle_history: 'pro_max', stylist_schedules: 'pro_max',
 }
 
 export default function PlanGate({ feature, children }) {

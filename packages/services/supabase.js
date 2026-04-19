@@ -83,12 +83,23 @@ export function resetSupabaseClient() {
 
 // ── Settings helpers ──────────────────────────────────────────────────────────
 export function getStoredSetting(key) {
-  try { return localStorage.getItem(`tx_setting_${key}`) || '' }
-  catch { return '' }
+  try {
+    const v = localStorage.getItem(`tx_setting_${key}`)
+    // Guard against literal "null"/"undefined" strings that sneak in when
+    // code does String(x) on a nullish value. PostgREST rejects these as
+    // UUID inputs ("invalid input syntax for type uuid: 'null'").
+    if (v === null || v === 'null' || v === 'undefined' || v === '') return ''
+    return v
+  } catch { return '' }
 }
 export function setStoredSetting(key, value) {
-  try { localStorage.setItem(`tx_setting_${key}`, value) }
-  catch {}
+  try {
+    if (value == null || value === 'null' || value === 'undefined') {
+      localStorage.removeItem(`tx_setting_${key}`)
+      return
+    }
+    localStorage.setItem(`tx_setting_${key}`, String(value))
+  } catch {}
 }
 
 // ── Business ID ───────────────────────────────────────────────────────────────
@@ -209,7 +220,7 @@ function endOf(date) {
  * Fetches all dashboard metrics in a single call.
  * Returns { today, yesterday, week, recentTickets, paymentBreakdown }.
  */
-export async function fetchDashboardData() {
+export async function fetchDashboardData({ since } = {}) {
   const sb         = getSupabaseClient()
   const businessId = getBusinessId()
   if (!sb || !businessId) return null
@@ -220,6 +231,14 @@ export async function fetchDashboardData() {
   const weekStart = new Date(now)
   weekStart.setDate(now.getDate() - 6)
 
+  // Clamp the week window by the caller-provided `since` cutoff (go-live).
+  // When go-live is within the last 7 days, we start from the cutoff instead.
+  const fromIso = (() => {
+    const weekIso = startOf(weekStart)
+    if (!since) return weekIso
+    return weekIso > since ? weekIso : since
+  })()
+
   try {
     // Fetch last 7 days of tickets in one query
     const { data: rows, error } = await sb
@@ -227,7 +246,7 @@ export async function fetchDashboardData() {
       .select('total, itbis, payment_method, doc_number, client_name, ncf, ncf_type, status, paid_at, services_json, cajero_name')
       .eq('business_id', businessId)
       .eq('status', 'cobrado')
-      .gte('paid_at', startOf(weekStart))
+      .gte('paid_at', fromIso)
       .order('paid_at', { ascending: false })
 
     if (error) throw error

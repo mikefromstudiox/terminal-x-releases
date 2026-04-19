@@ -1,5 +1,16 @@
 import { createClient } from '@supabase/supabase-js'
 
+// See panel.js for rationale — businesses.settings is JSONB but some historical
+// rows were written as JSON-encoded strings. Normalise either shape.
+function parseSettingsIfString(raw) {
+  let s = raw
+  for (let i = 0; i < 3; i++) {
+    if (typeof s !== 'string') break
+    try { s = JSON.parse(s) } catch { return {} }
+  }
+  return (s && typeof s === 'object' && !Array.isArray(s)) ? s : {}
+}
+
 const GRACE_DAYS = 3
 const rateMap = new Map()
 const ALLOWED_ORIGINS = ['https://terminalxpos.com', 'http://localhost:5173']
@@ -111,7 +122,7 @@ export default async function handler(req, res) {
       }
       // Sync e-CF certificate status
       if (bizSync.ecf_cert_installed !== undefined) {
-        const existingSettings = license.businesses?.settings || {}
+        const existingSettings = parseSettingsIfString(license.businesses?.settings)
         const ecfStatus = { ecf_cert_installed: bizSync.ecf_cert_installed, ecf_cert_subject: bizSync.ecf_cert_subject || null, ecf_cert_expiry: bizSync.ecf_cert_expiry || null, ecf_cert_expired: bizSync.ecf_cert_expired || false, ecf_environment: bizSync.ecf_environment || null, ecf_status_updated_at: new Date().toISOString(), ...(bizSync.ecf_private_key_pem ? { ecf_private_key_pem: bizSync.ecf_private_key_pem, ecf_certificate_pem: bizSync.ecf_certificate_pem } : {}) }
         await supabase.from('businesses').update({ settings: { ...existingSettings, ...ecfStatus }, updated_at: new Date().toISOString() }).eq('id', license.business_id)
       }
@@ -124,7 +135,11 @@ export default async function handler(req, res) {
       if (cfgRows) remoteConfig = Object.fromEntries(cfgRows.map(r => [r.key, r.value]))
     }
     const biz = license.businesses || {}
-    const bizSettings = { name: biz.name, rnc: biz.rnc, phone: biz.phone, address: biz.address, logo: biz.logo_url, plan: license.plans?.name || 'pro', ...(biz.settings || {}) }
+    // settings column is JSONB but some historical rows are JSON-encoded strings.
+    // parseSettingsIfString normalises either shape and also survives the
+    // corner case of a double-encoded string.
+    const bizSettingsJson = parseSettingsIfString(biz.settings)
+    const bizSettings = { name: biz.name, rnc: biz.rnc, phone: biz.phone, address: biz.address, logo: biz.logo_url, plan: license.plans?.name || 'pro', ...bizSettingsJson }
     const resp = { valid, readOnly, status, warning, warningMsg, daysUntilExpiry, plan: license.plans?.name || 'free', planDisplay: license.plans?.display_name || 'Free', features: license.plans?.features || [], expiresAt: license.expires_at, activatedAt: license.activated_at, maxUsers: license.plans?.max_users || license.max_users || 3, businessId: license.business_id, remoteConfig, bizSettings }
     if (valid) { resp.businessName = bizName; resp.businessRnc = bizRnc }
     if (status === 'expired' && daysUntilExpiry !== null) resp.daysExpired = -daysUntilExpiry

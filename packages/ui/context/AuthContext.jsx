@@ -124,10 +124,16 @@ export function AuthProvider({ children }) {
     try {
       const sb = typeof window !== 'undefined' ? window.__txSupabase : null
       if (sb?.auth?.signOut) {
-        // AWAIT so we don't race the hard reload below — the gate's
-        // onAuthStateChange must fire before we tear the page down so the
-        // sb-*-auth-token row is wiped from localStorage by the SDK.
-        await sb.auth.signOut().catch(() => {})
+        // AWAIT with a 3s timeout — the gate's onAuthStateChange should fire
+        // before the hard reload, BUT if the network is flaky or the Supabase
+        // endpoint hangs, we must not block the logout. The localStorage wipe
+        // below is a belt-and-suspenders fallback. Without the timeout, a
+        // hung signOut would block forever and surface as "failed to fetch"
+        // on the next sign-in attempt.
+        await Promise.race([
+          sb.auth.signOut().catch(() => {}),
+          new Promise(resolve => setTimeout(resolve, 3000)),
+        ])
       }
     } catch {}
 

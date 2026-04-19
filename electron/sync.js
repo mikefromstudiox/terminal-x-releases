@@ -391,6 +391,11 @@ const SYNC_TABLES = [
           : null,
         split_bill: !!(r.split_bill || 0),
         paid_at: r.status === 'cobrado' ? (r.created_at || new Date().toISOString()) : null,
+        // v2.3.28 — push the StarSISA migration audit fields + commission_exclude
+        // flag so the web admin + RemoteDashboard see the same dedupe state.
+        legacy_source: r.legacy_source || null,
+        legacy_code: r.legacy_code || null,
+        commission_exclude: r.commission_exclude || 0,
         created_at: r.created_at || new Date().toISOString(),
         updated_at: r.updated_at || null,
       }
@@ -570,6 +575,7 @@ const SYNC_TABLES = [
     cols: r => ({
       supabase_id: r.supabase_id,
       cajero_supabase_id: r.cajero_supabase_id,
+      empleado_supabase_id: r.empleado_supabase_id,
       ticket_supabase_id: r.ticket_supabase_id,
       base_amount: r.base_amount,
       commission_pct: r.commission_pct,

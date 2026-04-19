@@ -8,6 +8,16 @@ import QuickActions from '../components/QuickActions'
 import ConfigEditor from '../components/ConfigEditor'
 import { listContainer, listItem } from '../motion'
 
+const ROLE_LABELS = {
+  owner:      { es: 'Dueño',    en: 'Owner' },
+  manager:    { es: 'Gerente',  en: 'Manager' },
+  cfo:        { es: 'CFO',      en: 'CFO' },
+  accountant: { es: 'Contador', en: 'Accountant' },
+  cashier:    { es: 'Cajero',   en: 'Cashier' },
+  none:       { es: '—',        en: '—' },
+}
+const roleLbl = (r, lang) => (ROLE_LABELS[r]?.[lang] || r || '—')
+
 const STATUS_CLS_LIGHT = {
   active:    'bg-emerald-500/10 text-emerald-600 border-emerald-500/30',
   pending:   'bg-amber-500/10 text-amber-600 border-amber-500/30',
@@ -180,8 +190,13 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
 
   const planDisplay = typeof biz.plan === 'string' ? biz.plan.replace('_', ' ').toUpperCase() : '—'
   const licPlanDisplay = license?.plans?.display_name || '—'
-  const ticketCount = metrics.ticketCount || 0
-  const totalRevenue = metrics.totalRevenue || 0
+  const ticketCount      = metrics.ticketCount || 0
+  const ticketCountYear  = metrics.ticketCountYear || 0
+  const ticketCountMonth = metrics.ticketCountMonth || 0
+  const totalRevenue      = metrics.totalRevenue || 0
+  const totalRevenueYear  = metrics.totalRevenueYear || 0
+  const totalRevenueMonth = metrics.totalRevenueMonth || 0
+  const fmtRev = v => 'RD$' + Math.round(v).toLocaleString('es-DO')
   const serviceCount = metrics.serviceCount || 0
   const clientCount = metrics.clientCount || 0
   const staffActive = staff.filter(s => s.active).length
@@ -368,8 +383,30 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                   <ShoppingCart size={14} className="inline mr-1.5 text-[#b3001e]" />{L('Metricas', 'Metrics')}
                 </p>
                 <div className="grid grid-cols-3 gap-4">
-                  <div><p className={lbl}>Tickets</p><p className={`text-[18px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>{ticketCount}</p></div>
-                  <div><p className={lbl}>{L('Ingresos', 'Revenue')}</p><p className={`text-[14px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>{'RD$' + totalRevenue.toLocaleString('es-DO', { minimumFractionDigits: 0 })}</p></div>
+                  <div>
+                    <p className={lbl}>Tickets</p>
+                    <p className={`text-[11px] font-bold mt-0.5 leading-tight ${isDark ? 'text-white' : 'text-black'}`}>
+                      <span className="text-slate-400 mr-1">M:</span>{ticketCountMonth.toLocaleString('es-DO')}
+                    </p>
+                    <p className={`text-[11px] font-bold leading-tight ${isDark ? 'text-white' : 'text-black'}`}>
+                      <span className="text-slate-400 mr-1">Y:</span>{ticketCountYear.toLocaleString('es-DO')}
+                    </p>
+                    <p className={`text-[11px] font-bold leading-tight ${isDark ? 'text-white' : 'text-black'}`}>
+                      <span className="text-slate-400 mr-1">A:</span>{ticketCount.toLocaleString('es-DO')}
+                    </p>
+                  </div>
+                  <div>
+                    <p className={lbl}>{L('Ingresos', 'Revenue')}</p>
+                    <p className={`text-[11px] font-bold mt-0.5 leading-tight ${isDark ? 'text-white' : 'text-black'}`}>
+                      <span className="text-slate-400 mr-1">M:</span>{fmtRev(totalRevenueMonth)}
+                    </p>
+                    <p className={`text-[11px] font-bold leading-tight ${isDark ? 'text-white' : 'text-black'}`}>
+                      <span className="text-slate-400 mr-1">Y:</span>{fmtRev(totalRevenueYear)}
+                    </p>
+                    <p className={`text-[11px] font-bold leading-tight ${isDark ? 'text-white' : 'text-black'}`}>
+                      <span className="text-slate-400 mr-1">A:</span>{fmtRev(totalRevenue)}
+                    </p>
+                  </div>
                   <div><p className={lbl}>{L('Servicios', 'Services')}</p><p className={`text-[18px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>{serviceCount}</p></div>
                   <div><p className={lbl}>{L('Clientes', 'Customers')}</p><p className={`text-[18px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>{clientCount}</p></div>
                   <div><p className={lbl}>Staff</p><p className={`text-[18px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>{staffActive}</p></div>
@@ -511,7 +548,7 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                         <div className="min-w-0">
                           <p className={`text-[13px] font-semibold ${isDark ? 'text-white' : 'text-black'}`}>{String(s.name)}</p>
                           <p className={`text-[11px] mt-0.5 ${isDark ? 'text-white/35' : 'text-black/35'}`}>
-                            {String(s.username)} &middot; {String(s.role)}
+                            {String(s.username)} &middot; {roleLbl(s.role, lang)}
                             {s.has_pin ? '' : <span className="ml-1.5 text-amber-500">&middot; {L('Sin PIN', 'No PIN')}</span>}
                           </p>
                         </div>

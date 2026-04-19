@@ -10,6 +10,7 @@ export const BUSINESS_SETTING_KEYS = new Set([
   'biz_email', 'biz_logo', 'biz_website',
   'business_type', 'biz_business_type',
   'ley_enabled',
+  'go_live_date',
   // Add any future business-wide key here. If unsure, keep it device-local.
 ])
 

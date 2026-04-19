@@ -25,6 +25,17 @@ function json(res, status, data) {
   return res.status(status).json(data)
 }
 
+// businesses.settings is JSONB but historical rows may be JSON-encoded strings.
+// Normalise either shape into a native object before reading cert PEMs.
+function parseSettingsIfString(raw) {
+  let s = raw
+  for (let i = 0; i < 3; i++) {
+    if (typeof s !== 'string') break
+    try { s = JSON.parse(s) } catch { return {} }
+  }
+  return (s && typeof s === 'object' && !Array.isArray(s)) ? s : {}
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return json(res, 200, { ok: true })
   if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'POST only' })
@@ -50,7 +61,7 @@ export default async function handler(req, res) {
     const { data: staffRow } = await supabase.from('staff').select('id').eq('business_id', bid).eq('auth_id', user.id).single()
     if (!staffRow) return json(res, 403, { ok: false, error: 'No access to this business' })
     const { data: biz } = await supabase.from('businesses').select('settings').eq('id', bid).single()
-    const s = biz?.settings || {}
+    const s = parseSettingsIfString(biz?.settings)
     if (!s.ecf_private_key_pem || !s.ecf_certificate_pem) return json(res, 200, { ok: false, error: 'Certificado no configurado' })
     try {
       const env = s.dgii_environment || 'certecf'
@@ -73,9 +84,10 @@ export default async function handler(req, res) {
   const { data: biz } = await supabase.from('businesses').select('settings,rnc').eq('id', bid).single()
   if (!biz) return json(res, 404, { ok: false, error: 'Business not found' })
 
-  const privateKeyPem = biz.settings?.ecf_private_key_pem
-  const certificatePem = biz.settings?.ecf_certificate_pem
-  const dgiiEnv = biz.settings?.dgii_environment || 'certecf'
+  const bizSettings = parseSettingsIfString(biz.settings)
+  const privateKeyPem = bizSettings.ecf_private_key_pem
+  const certificatePem = bizSettings.ecf_certificate_pem
+  const dgiiEnv = bizSettings.dgii_environment || 'certecf'
 
   if (!privateKeyPem || !certificatePem) {
     return json(res, 400, { ok: false, error: 'Certificado e-CF no configurado. Instale el .p12 desde el escritorio.' })

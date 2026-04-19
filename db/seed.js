@@ -43,7 +43,15 @@ module.exports = function seed(db) {
   ]
   users.forEach(u => insUser.run({ ...u, pin_hash: sha256(u.pin) }))
 
-  const insWasher = db.prepare(`INSERT OR IGNORE INTO washers(name,phone,cedula,commission_pct,active,start_date) VALUES(@name,@phone,@cedula,@commission_pct,1,@start_date)`)
+  // v2.1: washers + sellers are gone — seed empleados directly.
+  // UUIDs generated inline so commission inserts below can reference
+  // empleado_supabase_id without a post-insert query.
+  const uuid = () => {
+    // SQLite-native v4 UUID generator (matches database.js line 601 pattern)
+    return db.prepare(`SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) AS u`).get().u
+  }
+
+  const insEmpLavador = db.prepare(`INSERT OR IGNORE INTO empleados(nombre,tipo,salary,start_date,cedula,phone,comision_pct,role,active,supabase_id,updated_at) VALUES(@nombre,'lavador',@salary,@start_date,@cedula,@phone,@comision_pct,'none',1,@supabase_id,datetime('now'))`)
   const washers = [
     { name: 'Juan Perez', phone: '829-310-4521', cedula: '001-1985432-7', commission_pct: 20, start_date: '2025-06-01' },
     { name: 'Pedro Lopez', phone: '829-220-8834', cedula: '001-1990127-3', commission_pct: 20, start_date: '2025-07-15' },
@@ -54,16 +62,32 @@ module.exports = function seed(db) {
     { name: 'Franklyn Diaz', phone: '829-882-5519', cedula: '402-1993567-2', commission_pct: 22, start_date: '2026-01-10' },
     { name: 'Yohan Castillo', phone: '829-991-0387', cedula: '001-1997803-6', commission_pct: 20, start_date: '2026-02-15' },
   ]
-  washers.forEach(w => insWasher.run(w))
+  // Assign supabase_id upfront so ticket/commission inserts below can reference them.
+  washers.forEach(w => {
+    w.supabase_id = uuid()
+    insEmpLavador.run({
+      nombre: w.name, salary: srand(15, 20) * 1000, start_date: w.start_date,
+      cedula: w.cedula, phone: w.phone, comision_pct: w.commission_pct,
+      supabase_id: w.supabase_id,
+    })
+  })
 
-  const insSeller = db.prepare(`INSERT OR IGNORE INTO sellers(name,commission_pct,phone,active) VALUES(@name,@commission_pct,@phone,1)`)
+  const insEmpVendedor = db.prepare(`INSERT OR IGNORE INTO empleados(nombre,tipo,salary,start_date,cedula,phone,comision_pct,role,active,supabase_id,updated_at) VALUES(@nombre,'vendedor',@salary,@start_date,@cedula,@phone,@comision_pct,'none',1,@supabase_id,datetime('now'))`)
   const sellers = [
     { name: 'Ana Martinez', commission_pct: 5, phone: '829-401-2233' },
     { name: 'Roberto Santos', commission_pct: 7, phone: '829-502-3344' },
     { name: 'Yesenia Polanco', commission_pct: 3, phone: '829-603-4455' },
     { name: 'Fernando Vega', commission_pct: 6, phone: '829-704-5566' },
   ]
-  sellers.forEach(s => insSeller.run(s))
+  sellers.forEach(s => {
+    s.supabase_id = uuid()
+    s.cedula = `001-${srand(1980, 2000)}${srand(100, 999)}-${srand(1, 9)}`
+    insEmpVendedor.run({
+      nombre: s.name, salary: srand(18, 25) * 1000, start_date: '2025-06-01',
+      cedula: s.cedula, phone: s.phone, comision_pct: s.commission_pct,
+      supabase_id: s.supabase_id,
+    })
+  })
 
   const insClient = db.prepare(`INSERT INTO clients(name,rnc,phone,email,address,credit_limit,balance,visits,total_spent,notes,active) VALUES(@name,@rnc,@phone,@email,@address,@credit_limit,@balance,@visits,@total_spent,@notes,1)`)
   const clientsData = [
@@ -122,14 +146,15 @@ module.exports = function seed(db) {
   const MAKES = ['Toyota', 'Honda', 'Hyundai', 'Nissan', 'Kia', 'Jeep', 'Ford', 'BMW', 'Mercedes', 'Chevrolet', 'Mitsubishi', 'Suzuki']
   const COLORS = ['Blanco', 'Negro', 'Rojo', 'Gris', 'Plateado', 'Azul', 'Verde', 'Beige', 'Marron']
   const CAJERO_IDS = [3, 5]
-  const WASHER_IDS = [1, 2, 3, 4, 5, 6, 7, 8]
-  const SELLER_IDS = [1, 2, 3, 4]
+  // v2.1: WASHER_IDS / SELLER_IDS removed — ticket seed walks empleados directly via .supabase_id.
 
-  const insTicket = db.prepare(`INSERT INTO tickets(doc_number,client_id,washer_ids,seller_id,cajero_id,subtotal,descuento,itbis,ley,total,payment_method,comprobante_type,ncf,tipo_venta,status,vehicle_plate,vehicle_make,vehicle_color,void_reason,void_by,void_at,created_at) VALUES(@doc_number,@client_id,@washer_ids,@seller_id,@cajero_id,@subtotal,@descuento,@itbis,@ley,@total,@payment_method,@comprobante_type,@ncf,@tipo_venta,@status,@vehicle_plate,@vehicle_make,@vehicle_color,@void_reason,@void_by,@void_at,@created_at)`)
+  // v2.1: ticket writes new `washer_empleado_supabase_ids` JSON column + `seller_empleado_supabase_id`.
+  // washer/seller commissions FK to empleados via empleado_supabase_id.
+  const insTicket = db.prepare(`INSERT INTO tickets(doc_number,client_id,washer_empleado_supabase_ids,seller_empleado_supabase_id,cajero_id,subtotal,descuento,itbis,ley,total,payment_method,comprobante_type,ncf,tipo_venta,status,vehicle_plate,vehicle_make,vehicle_color,void_reason,void_by,void_at,created_at) VALUES(@doc_number,@client_id,@washer_empleado_supabase_ids,@seller_empleado_supabase_id,@cajero_id,@subtotal,@descuento,@itbis,@ley,@total,@payment_method,@comprobante_type,@ncf,@tipo_venta,@status,@vehicle_plate,@vehicle_make,@vehicle_color,@void_reason,@void_by,@void_at,@created_at)`)
   const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,itbis,is_wash) VALUES(@ticket_id,@service_id,@name,@price,@itbis,@is_wash)`)
-  const insQueue = db.prepare(`INSERT INTO queue(ticket_id,status,washer_id,assigned_at,completed_at,created_at) VALUES(@ticket_id,@status,@washer_id,@assigned_at,@completed_at,@created_at)`)
-  const insWasherComm = db.prepare(`INSERT INTO washer_commissions(washer_id,ticket_id,base_amount,commission_pct,commission_amount,created_at) VALUES(@washer_id,@ticket_id,@base_amount,@commission_pct,@commission_amount,@created_at)`)
-  const insSellerComm = db.prepare(`INSERT INTO seller_commissions(seller_id,ticket_id,base_amount,commission_pct,commission_amount,created_at) VALUES(@seller_id,@ticket_id,@base_amount,@commission_pct,@commission_amount,@created_at)`)
+  const insQueue = db.prepare(`INSERT INTO queue(ticket_id,status,empleado_supabase_id,assigned_at,completed_at,created_at) VALUES(@ticket_id,@status,@empleado_supabase_id,@assigned_at,@completed_at,@created_at)`)
+  const insWasherComm = db.prepare(`INSERT INTO washer_commissions(empleado_supabase_id,ticket_id,base_amount,commission_pct,commission_amount,created_at) VALUES(@empleado_supabase_id,@ticket_id,@base_amount,@commission_pct,@commission_amount,@created_at)`)
+  const insSellerComm = db.prepare(`INSERT INTO seller_commissions(empleado_supabase_id,ticket_id,base_amount,commission_pct,commission_amount,created_at) VALUES(@empleado_supabase_id,@ticket_id,@base_amount,@commission_pct,@commission_amount,@created_at)`)
   const insCajeroComm = db.prepare(`INSERT INTO cajero_commissions(cajero_id,ticket_id,base_amount,commission_pct,commission_amount,created_at) VALUES(@cajero_id,@ticket_id,@base_amount,@commission_pct,@commission_amount,@created_at)`)
 
   let b01N = 1, b02N = 1, docN = 1
@@ -198,14 +223,17 @@ module.exports = function seed(db) {
         }
 
         const numWashers = srand(1, 100) <= 25 ? 2 : 1
-        const wIds = []
+        // v2.1: walk empleado supabase_id array instead of INT ids.
+        const wIndexes = []
         for (let w = 0; w < numWashers; w++) {
-          let wid = spick(WASHER_IDS)
-          while (wIds.includes(wid)) wid = spick(WASHER_IDS)
-          wIds.push(wid)
+          let wi = srand(0, washers.length - 1)
+          while (wIndexes.includes(wi)) wi = srand(0, washers.length - 1)
+          wIndexes.push(wi)
         }
+        const wSids = wIndexes.map(i => washers[i].supabase_id)
 
-        const sellerId = srand(1, 100) <= 40 ? spick(SELLER_IDS) : null
+        const sellerIdx = srand(1, 100) <= 40 ? srand(0, sellers.length - 1) : -1
+        const sellerSid = sellerIdx >= 0 ? sellers[sellerIdx].supabase_id : null
         const cajeroId = spick(CAJERO_IDS)
 
         const isVoid = VOID_INDICES.has(ticketIndex)
@@ -216,7 +244,10 @@ module.exports = function seed(db) {
 
         const row = {
           doc_number: `T-${docDate}-${String(docN++).padStart(4, '0')}`,
-          client_id: clientId, washer_ids: JSON.stringify(wIds), seller_id: sellerId, cajero_id: cajeroId,
+          client_id: clientId,
+          washer_empleado_supabase_ids: JSON.stringify(wSids),
+          seller_empleado_supabase_id: sellerSid,
+          cajero_id: cajeroId,
           subtotal, descuento: 0, itbis, ley: 0, total,
           payment_method: tipoVenta === 'credito' ? 'credit' : paymentMethod,
           comprobante_type: isB01 ? 'B01' : 'B02', ncf, tipo_venta: tipoVenta, status,
@@ -235,26 +266,26 @@ module.exports = function seed(db) {
           itbis: i.is_wash ? round2(i.price * 0.18) : 0, is_wash: i.is_wash,
         }))
 
-        // queue
+        // queue (v2.1 — empleado_supabase_id)
         const completedMin = srand(20, 45)
         const completedDate = new Date(d)
         completedDate.setHours(hour, minute + completedMin, 0, 0)
         insQueue.run({
-          ticket_id: tid, status: 'done', washer_id: wIds[0],
+          ticket_id: tid, status: 'done', empleado_supabase_id: wSids[0],
           assigned_at: createdAt, completed_at: completedDate.toISOString().replace('Z', '').slice(0, 19),
           created_at: createdAt,
         })
 
-        // washer commissions
+        // washer/seller commissions (v2.1 — empleado_supabase_id)
         if (!isVoid) {
-          const perWasher = round2(washSubtotal / wIds.length)
-          wIds.forEach(wid => {
-            const wpct = washers[wid - 1]?.commission_pct || 20
-            insWasherComm.run({ washer_id: wid, ticket_id: tid, base_amount: perWasher, commission_pct: wpct, commission_amount: round2(perWasher * wpct / 100), created_at: createdAt })
+          const perWasher = round2(washSubtotal / wSids.length)
+          wIndexes.forEach((wi, idx) => {
+            const w = washers[wi]
+            insWasherComm.run({ empleado_supabase_id: w.supabase_id, ticket_id: tid, base_amount: perWasher, commission_pct: w.commission_pct, commission_amount: round2(perWasher * w.commission_pct / 100), created_at: createdAt })
           })
-          if (sellerId) {
-            const spct = sellers[sellerId - 1]?.commission_pct || 5
-            insSellerComm.run({ seller_id: sellerId, ticket_id: tid, base_amount: washSubtotal, commission_pct: spct, commission_amount: round2(washSubtotal * spct / 100), created_at: createdAt })
+          if (sellerSid) {
+            const s = sellers[sellerIdx]
+            insSellerComm.run({ empleado_supabase_id: s.supabase_id, ticket_id: tid, base_amount: washSubtotal, commission_pct: s.commission_pct, commission_amount: round2(washSubtotal * s.commission_pct / 100), created_at: createdAt })
           }
           insCajeroComm.run({ cajero_id: cajeroId, ticket_id: tid, base_amount: total, commission_pct: 2, commission_amount: round2(total * 0.02), created_at: createdAt })
         }
@@ -383,12 +414,11 @@ module.exports = function seed(db) {
       insInvTx.run({ item_id: itemId, type: txType, delta, notes: txType === 'compra' ? 'Compra proveedor' : (txType === 'uso' ? 'Uso diario' : 'Ajuste inventario'), user_id: 1, created_at: ts(d, srand(8, 16), srand(0, 59)) })
     }
 
-    // empleados - mirror washers, sellers, cashiers
-    const insEmpleado = db.prepare(`INSERT INTO empleados(nombre,tipo,ref_id,salary,start_date,cedula,phone,active) VALUES(@nombre,@tipo,@ref_id,@salary,@start_date,@cedula,@phone,1)`)
-    washers.forEach((w, i) => insEmpleado.run({ nombre: w.name, tipo: 'lavador', ref_id: i + 1, salary: srand(15, 20) * 1000, start_date: w.start_date, cedula: w.cedula, phone: w.phone }))
-    sellers.forEach((s, i) => insEmpleado.run({ nombre: s.name, tipo: 'vendedor', ref_id: i + 1, salary: srand(18, 25) * 1000, start_date: '2025-06-01', cedula: `001-${srand(1980, 2000)}${srand(100, 999)}-${srand(1, 9)}`, phone: s.phone }))
-    ;[{ name: 'Maria Gonzalez', id: 3, pin: '3333' }, { name: 'Luisa Batista', id: 5, pin: '5555' }].forEach(c => {
-      insEmpleado.run({ nombre: c.name, tipo: 'cajero', ref_id: c.id, salary: srand(20, 28) * 1000, start_date: '2025-06-01', cedula: `402-${srand(1985, 2000)}${srand(100, 999)}-${srand(1, 9)}`, phone: `829-${srand(100, 999)}-${srand(1000, 9999)}` })
+    // empleados — cashiers only (lavadores + vendedores already seeded above with UUIDs).
+    // v2.1: the mirroring step (ref_id → washers/sellers) is gone since those tables no longer exist.
+    const insEmpCajero = db.prepare(`INSERT INTO empleados(nombre,tipo,ref_id,salary,start_date,cedula,phone,role,active,supabase_id,updated_at) VALUES(@nombre,'cajero',@ref_id,@salary,@start_date,@cedula,@phone,'cashier',1,@supabase_id,datetime('now'))`)
+    ;[{ name: 'Maria Gonzalez', id: 3 }, { name: 'Luisa Batista', id: 5 }].forEach(c => {
+      insEmpCajero.run({ nombre: c.name, ref_id: c.id, salary: srand(20, 28) * 1000, start_date: '2025-06-01', cedula: `402-${srand(1985, 2000)}${srand(100, 999)}-${srand(1, 9)}`, phone: `829-${srand(100, 999)}-${srand(1000, 9999)}`, supabase_id: uuid() })
     })
 
     // compras 607 - 18 purchase records

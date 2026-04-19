@@ -11,6 +11,7 @@ const BUSINESS_SETTING_KEYS = new Set([
   'biz_email', 'biz_logo', 'biz_website',
   'business_type', 'biz_business_type',
   'ley_enabled',
+  'go_live_date',
 ])
 
 // Device-local settings — NEVER synced. Each POS/device has its own.

@@ -8,6 +8,10 @@ import {
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
+import {
+  generateFormato606Txt, generateFormato607Txt,
+  downloadTxt, filename606, filename607,
+} from '@terminal-x/services/dgii-reports'
 
 // ── Shared date helpers ───────────────────────────────────────────────────────
 function fmtDate(d) {
@@ -220,7 +224,7 @@ function Screen606() {
     setLoading(true)
     try {
       const { from, to } = periodToDateRange(period)
-      const rows = await api.dgii.get606({ from, to })
+      const rows = await api.dgii.get606({ dateFrom: from, dateTo: to })
       // Normalize field names from DB
       const normalized = (rows || []).map(r => ({
         id:      r.id,
@@ -297,14 +301,34 @@ function Screen606() {
   const countB01   = txns.filter(t => ['B01','E31'].includes(t.tipo)).length
   const countB02   = txns.filter(t => ['B02','E32'].includes(t.tipo)).length
 
-  function generateTXT() {
-    const lines = txns.map(t =>
-      [t.ncf, t.rnc||'', fmtDate(t.fecha), t.subtotal.toFixed(2), t.itbis.toFixed(2), t.total.toFixed(2), t.estado].join('|')
-    )
-    const content = `# DGII 606 — Período: ${period}\n` + lines.join('\n')
-    const blob = new Blob([content], { type: 'text/plain' })
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'dgii_606.txt'; a.click()
-    showToast('Archivo 606 generado')
+  async function generateTXT() {
+    // This screen shows SALES data → produces DGII Formato 607 (Ventas).
+    try {
+      const empresa = await api?.admin?.getEmpresa?.().catch(() => ({}))
+      const rncEmisor = empresa?.rnc || empresa?.RNC || ''
+      const { from } = periodToDateRange(period)
+      const d = new Date(from)
+      const year = d.getUTCFullYear()
+      const month = d.getUTCMonth() + 1
+      // Map screen-normalized rows back to the fields the generator expects
+      const rows = txns.map(t => ({
+        client_rnc:      t.rnc,
+        ncf:             t.ncf === '—' ? '' : t.ncf,
+        created_at:      t.fecha,
+        subtotal:        t.subtotal,
+        itbis:           t.itbis,
+        total:           t.total,
+        payment_method:  t.payment_method || 'cash',
+        tipo_venta:      t.tipo_venta || 'contado',
+        status:          t.estado === 'anulado' ? 'nula' : 'cobrado',
+        ley:             0,
+      }))
+      const content = generateFormato607Txt(rows, rncEmisor, year, month)
+      downloadTxt(content, filename607(rncEmisor, year, month))
+      showToast(L('Archivo 607 (Ventas) generado', '607 Sales file generated'))
+    } catch (e) {
+      showToast(L('Error al generar: ', 'Error generating: ') + (e?.message || ''))
+    }
   }
   function generateXML() {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<Reportes606>\n` +
@@ -486,7 +510,7 @@ function HistorialPanel({ showToast }) {
           })
         }
         const results = await Promise.all(
-          months.map(m => api.dgii.get606({ from: m.from, to: m.to }).then(r => ({ ...m, records: (r||[]).length, total: (r||[]).reduce((s,t)=>s+(t.total||0),0) })).catch(() => ({ ...m, records: 0, total: 0 })))
+          months.map(m => api.dgii.get606({ dateFrom: m.from, dateTo: m.to }).then(r => ({ ...m, records: (r||[]).length, total: (r||[]).reduce((s,t)=>s+(t.total||0),0) })).catch(() => ({ ...m, records: 0, total: 0 })))
         )
         setRows(results)
       } catch {
@@ -574,7 +598,7 @@ function Screen607() {
     setLoading(true)
     try {
       const { from, to } = periodToDateRange(period)
-      const data = await api.dgii.get607({ from, to })
+      const data = await api.dgii.get607({ dateFrom: from, dateTo: to })
       setRows(data || [])
     } catch { setRows([]) }
     finally { setLoading(false) }
@@ -648,18 +672,21 @@ function Screen607() {
   const countConNCF  = rows.filter(r => r.ncf && r.ncf.trim()).length
   const countSinNCF  = rows.filter(r => !r.ncf || !r.ncf.trim()).length
 
-  function generateTXT() {
-    const header = `REPORTE 607\nRNC Empresa\tNCF\tTipo\tFecha\tServicios\tBienes\tTotal\tITBIS\tRetITBIS\tRetISR\tFormaPago`
-    const lines = rows.map(r => [
-      r.rnc_proveedor, r.ncf, r.tipo_ncf, r.fecha_ncf,
-      (r.monto_servicios||0).toFixed(2), (r.monto_bienes||0).toFixed(2),
-      (r.total||0).toFixed(2), (r.itbis_facturado||0).toFixed(2),
-      (r.itbis_retenido||0).toFixed(2), (r.retencion_renta||0).toFixed(2),
-      r.forma_pago,
-    ].join('\t'))
-    const blob = new Blob([header + '\n' + lines.join('\n')], { type: 'text/plain' })
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'dgii_607.txt'; a.click()
-    showToast('Archivo 607 generado')
+  async function generateTXT() {
+    // This screen shows PURCHASES data → produces DGII Formato 606 (Compras).
+    try {
+      const empresa = await api?.admin?.getEmpresa?.().catch(() => ({}))
+      const rncEmisor = empresa?.rnc || empresa?.RNC || ''
+      const { from } = periodToDateRange(period)
+      const d = new Date(from)
+      const year = d.getUTCFullYear()
+      const month = d.getUTCMonth() + 1
+      const content = generateFormato606Txt(rows, rncEmisor, year, month)
+      downloadTxt(content, filename606(rncEmisor, year, month))
+      showToast(L('Archivo 606 (Compras) generado', '606 Purchases file generated'))
+    } catch (e) {
+      showToast(L('Error al generar: ', 'Error generating: ') + (e?.message || ''))
+    }
   }
 
   function generateXML() {
@@ -946,7 +973,7 @@ function Historial607Panel({ showToast }) {
         }
         const results = await Promise.all(
           months.map(m =>
-            api.dgii.get607({ from: m.from, to: m.to })
+            api.dgii.get607({ dateFrom: m.from, dateTo: m.to })
               .then(r => ({ ...m, records: (r||[]).length, total: (r||[]).reduce((s,x)=>s+(x.total||0),0) }))
               .catch(() => ({ ...m, records: 0, total: 0 }))
           )
@@ -1572,15 +1599,19 @@ export default function DGII() {
         </div>
         {/* Tab switcher */}
         <div className="flex rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden text-sm">
+          {/* Tab labels match DGII's official naming: 607=Ventas (sales), 606=Compras (purchases).
+              Underlying screens were historically mis-labeled; tabs now match screen content. */}
           <button onClick={() => setScreen('606')}
+            title={L('Ventas emitidas por tu negocio', 'Sales issued by your business')}
             className={`flex items-center gap-1.5 px-5 py-2 font-medium transition ${screen === '606' ? 'bg-blue-600 text-white' : 'text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10'}`}>
             <Database size={14} />
-            {L('Reporte 606', 'Report 606')}
+            {L('607 Ventas', '607 Sales')}
           </button>
           <button onClick={() => setScreen('607')}
+            title={L('Compras a proveedores con comprobante fiscal', 'Purchases from suppliers with fiscal receipt')}
             className={`flex items-center gap-1.5 px-5 py-2 font-medium transition ${screen === '607' ? 'bg-emerald-600 text-white' : 'text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10'}`}>
             <ShoppingCart size={14} />
-            {L('Reporte 607', 'Report 607')}
+            {L('606 Compras', '606 Purchases')}
           </button>
           <button onClick={() => setScreen('anecf')}
             className={`flex items-center gap-1.5 px-5 py-2 font-medium transition ${screen === 'anecf' ? 'bg-red-600 text-white' : 'text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10'}`}>

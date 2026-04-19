@@ -126,8 +126,12 @@ if ('serviceWorker' in navigator) {
 // ---------------------------------------------------------------------------
 function PageLoader() {
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-      <div className="text-white text-lg">Cargando...</div>
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4">
+      <div className="relative w-12 h-12">
+        <div className="absolute inset-0 rounded-full border-2 border-white/10" />
+        <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#b3001e] animate-spin" />
+      </div>
+      <div className="text-white/70 text-sm tracking-wider uppercase font-semibold">Terminal X</div>
     </div>
   )
 }
@@ -156,16 +160,23 @@ function SupabaseAuthGate({ children, supabase, createWebAPI, createWebPrinterAP
   useEffect(() => {
     if (!supabase) { setLoading(false); return }
 
+    // Consume any in-flight logout flag — the moment the gate (re)mounts and
+    // discovers no session, the post-logout cleanup is finished and downstream
+    // contexts are free to behave normally again on the next sign-in.
+    function clearLogoutFlag() {
+      try { sessionStorage.removeItem('tx_logging_out') } catch {}
+    }
+
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s)
       if (s) fetchBusinessId(s.user.id)
-      else setLoading(false)
+      else { clearLogoutFlag(); setLoading(false) }
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s)
       if (s) fetchBusinessId(s.user.id)
-      else { setBusinessId(null); setLoading(false) }
+      else { clearLogoutFlag(); setBusinessId(null); setLoading(false) }
     })
 
     return () => subscription.unsubscribe()
@@ -221,10 +232,18 @@ function SupabaseAuthGate({ children, supabase, createWebAPI, createWebPrinterAP
     e.preventDefault()
     setSubmitting(true); setError(null)
     try {
-      const { error: err } = await supabase.auth.signInWithPassword({ email, password })
-      if (err) throw err
+      const { withRetry, isSupabaseRetryable } = await import('@terminal-x/services/retry.js')
+      const { humanizeNetworkError } = await import('@terminal-x/services/networkError.js')
+      const { error: err } = await withRetry(
+        () => supabase.auth.signInWithPassword({ email, password }),
+        { label: 'auth.web.signIn', isRetryable: isSupabaseRetryable },
+      )
+      if (err) {
+        setError(humanizeNetworkError(err, { context: 'auth.web.signIn' }))
+      }
     } catch (err) {
-      setError(typeof err === 'string' ? err : err?.message || 'Error al iniciar sesion')
+      const { humanizeNetworkError } = await import('@terminal-x/services/networkError.js')
+      setError(humanizeNetworkError(err, { context: 'auth.web.signIn' }))
     } finally { setSubmitting(false) }
   }
 
@@ -359,8 +378,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               </React.Suspense>
             } />
 
-            {/* Invoicing app — uses same POS shell (auth + data layer) */}
-            <Route path="/invoicing/*" element={<POSRoute />} />
+            {/* Invoicing app — uses same POS shell. Redirect to /pos/invoicing/*
+                so the inner App.jsx Routes (which look for absolute /invoicing/...)
+                actually match on the remaining path after /pos/*. */}
+            <Route path="/invoicing" element={<Navigate to="/pos/invoicing" replace />} />
+            <Route path="/invoicing/create" element={<Navigate to="/pos/invoicing/create" replace />} />
+            <Route path="/invoicing/history" element={<Navigate to="/pos/invoicing/history" replace />} />
 
             {/* POS app — lazy loads everything */}
             <Route path="/pos/*" element={<POSRoute />} />
@@ -385,6 +408,23 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/sistema" element={<Navigate to="/pos/sistema" replace />} />
             <Route path="/license-admin" element={<Navigate to="/pos/license-admin" replace />} />
             <Route path="/settings" element={<Navigate to="/pos/admin" replace />} />
+            {/* v2.1+ vertical screens — same redirect pattern as the rest. */}
+            <Route path="/memberships" element={<Navigate to="/pos/memberships" replace />} />
+            <Route path="/work-orders" element={<Navigate to="/pos/work-orders" replace />} />
+            <Route path="/vehicles" element={<Navigate to="/pos/vehicles" replace />} />
+            <Route path="/service-bays" element={<Navigate to="/pos/service-bays" replace />} />
+            <Route path="/appointments" element={<Navigate to="/pos/appointments" replace />} />
+            <Route path="/stylist-schedules" element={<Navigate to="/pos/stylist-schedules" replace />} />
+            <Route path="/loans" element={<Navigate to="/pos/loans" replace />} />
+            <Route path="/pawn-items" element={<Navigate to="/pos/pawn-items" replace />} />
+            <Route path="/mesas" element={<Navigate to="/pos/mesas" replace />} />
+            <Route path="/menu" element={<Navigate to="/pos/menu" replace />} />
+            <Route path="/menu-builder" element={<Navigate to="/pos/menu-builder" replace />} />
+            <Route path="/kds" element={<Navigate to="/pos/kds" replace />} />
+            <Route path="/vehicle-inventory" element={<Navigate to="/pos/vehicle-inventory" replace />} />
+            <Route path="/sales-pipeline" element={<Navigate to="/pos/sales-pipeline" replace />} />
+            <Route path="/test-drives" element={<Navigate to="/pos/test-drives" replace />} />
+            <Route path="/deal-builder" element={<Navigate to="/pos/deal-builder" replace />} />
 
             {/* Catch-all */}
             <Route path="*" element={<Navigate to="/" replace />} />

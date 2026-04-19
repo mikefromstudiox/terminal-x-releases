@@ -10,6 +10,8 @@
  * ESC/POS reference: https://reference.epson-biz.com/modules/ref_escpos/
  */
 
+import { formatPhoneForReceipt } from './phone.js'
+
 // ── ESC/POS command constants ─────────────────────────────────────────────────
 const ESC  = '\x1B'
 const GS   = '\x1D'
@@ -28,6 +30,8 @@ const DOUBLE_ON    = GS  + '!' + '\x11' // Double width + height (titles)
 const DOUBLE_OFF   = GS  + '!' + '\x00'
 const UNDERLINE_ON = ESC + '-' + '\x01'
 const UNDERLINE_OFF= ESC + '-' + '\x00'
+const INVERT_ON    = GS  + 'B' + '\x01' // White-on-black block (premium TOTAL)
+const INVERT_OFF   = GS  + 'B' + '\x00'
 const CUT          = GS  + 'V' + '\x41' + '\x03' // Partial cut
 const DRAWER_KICK  = ESC + 'p' + '\x00' + '\x19' + '\xFA' // Kick cash drawer (pin 2)
 
@@ -184,7 +188,7 @@ async function buildLogoEscPos(logoInput) {
 // ── Business header ───────────────────────────────────────────────────────────
 // logoBytes: optional pre-computed ESC/POS bitmap string (from buildLogoEscPos)
 function buildHeader(biz, logoBytes = '') {
-  const nameLines = wrapText(biz.name || '', COL_WIDTH)
+  const nameLines = wrapText((biz.name || '').toUpperCase(), COL_WIDTH / 2)
   const parts = [
     INIT,
     CHARSET_858,
@@ -194,17 +198,22 @@ function buildHeader(biz, logoBytes = '') {
     parts.push(logoBytes)
     parts.push(LF)
   }
+  // Business name — large, tight, airy spacing above
   parts.push(BOLD_ON, DOUBLE_ON)
   nameLines.forEach(l => { parts.push(l); parts.push(LF) })
   parts.push(DOUBLE_OFF, BOLD_OFF)
+  // Thin breathing space, then muted contact info
+  parts.push(LF)
   if (biz.address) {
     let addr = biz.address
     try { const s = typeof biz.settings === 'string' ? JSON.parse(biz.settings) : (biz.settings || {}); if (s.ciudad || s.biz_city) addr += ', ' + (s.ciudad || s.biz_city) } catch {}
-    parts.push(addr, LF)
+    wrapText(addr, COL_WIDTH).forEach(l => { parts.push(l); parts.push(LF) })
   }
-  if (biz.phone) parts.push('Tel: ' + biz.phone, LF)
-  if (biz.rnc) parts.push('RNC: ' + biz.rnc, LF)
-  parts.push(ALIGN_LEFT, SEP, LF)
+  const contact = []
+  if (biz.phone) contact.push(formatPhoneForReceipt(biz.phone))
+  if (biz.rnc) contact.push('RNC ' + biz.rnc)
+  if (contact.length) { parts.push(contact.join('   '), LF) }
+  parts.push(ALIGN_LEFT, LF)
   return parts.join('')
 }
 
@@ -212,17 +221,16 @@ function buildHeader(biz, logoBytes = '') {
 function buildFooter() {
   return [
     LF,
-    SEP,
-    LF,
     ALIGN_CENTER,
     BOLD_ON,
-    '!GRACIAS POR PREFERIRNOS!',
+    'GRACIAS POR SU PREFERENCIA',
     LF,
     BOLD_OFF,
     'Conserve este comprobante',
     LF,
     LF,
-    '- Powered by Terminal X -',
+    'Powered by Terminal X',
+    LF,
     LF,
     LF,
     CUT,
@@ -259,143 +267,141 @@ export function buildClientReceipt(data, logoBytes = '') {
 
   const lines = []
 
-  // Header
+  // Header (business brand block)
   lines.push(buildHeader(data.biz || {}, logoBytes))
 
-  // Doc info
-  lines.push(ALIGN_LEFT)
-  lines.push(cols('Fecha:',    fmtDate(data.paidAt)))
-  lines.push(LF)
-  lines.push(cols('NCF:',      data.ncf || '-'))
-  lines.push(LF)
-  lines.push(cols('Cajero:',   data.cajero  || '-'))
-  lines.push(LF)
-  lines.push(cols('Lavador:',  data.lavador || '-'))
-  lines.push(LF)
-  lines.push(cols('Doc #:',    data.docNo   || '-'))
-  lines.push(LF)
-  lines.push(SEP)
-  lines.push(LF)
-
-  // Client info (if available)
-  if (data.client?.name) {
-    lines.push(cols('Cliente:', data.client.name))
-    lines.push(LF)
-    if (data.client.rnc) {
-      lines.push(cols('RNC:', data.client.rnc))
-      lines.push(LF)
-    }
-    if (data.client.phone) {
-      lines.push(cols('Tel:', data.client.phone))
-      lines.push(LF)
-    }
-  }
-  if (data.vehiclePlate) {
-    lines.push(cols('Vehiculo:', data.vehiclePlate))
-    lines.push(LF)
-  }
-  lines.push(cols('Tipo venta:', data.tipo === 'credito' ? 'Credito' : 'Contado'))
-  lines.push(LF)
-  lines.push(cols('Forma pago:', formatFormaPago(data.formaPago)))
-  lines.push(LF)
-  lines.push(SEP)
-  lines.push(LF)
-
-  // Invoice type header — centered, framed by separators
+  // Invoice-type caption — inverted pill, centered. Premium signature moment.
   lines.push(ALIGN_CENTER)
-  lines.push(BOLD_ON)
-  lines.push(factType)
+  lines.push(INVERT_ON)
+  lines.push(' ' + factType + ' ')
+  lines.push(INVERT_OFF)
   lines.push(LF)
-  lines.push(BOLD_OFF)
+  lines.push(LF)
+
+  // ── Doc info block — two columns, no separators, typographic hierarchy
   lines.push(ALIGN_LEFT)
+  const docRows = [
+    ['FECHA',   fmtDate(data.paidAt)],
+    ['DOC',     data.docNo || '-'],
+    ['NCF',     data.ncf || '-'],
+  ]
+  if (data.cajero)  docRows.push(['CAJERO',  data.cajero])
+  if (data.lavador) docRows.push(['LAVADOR', data.lavador])
+  docRows.forEach(([k, v]) => {
+    lines.push(cols(k, String(v), COL_WIDTH))
+    lines.push(LF)
+  })
+
+  // ── Client + vehicle + payment (only if any present)
+  const hasClientBlock = !!(data.client?.name || data.client?.rnc || data.client?.phone || data.vehiclePlate)
+  if (hasClientBlock || data.formaPago || data.tipo) {
+    lines.push(LF)
+    if (data.client?.name) { lines.push(cols('CLIENTE', data.client.name, COL_WIDTH)); lines.push(LF) }
+    if (data.client?.rnc)  { lines.push(cols('RNC',     data.client.rnc,  COL_WIDTH)); lines.push(LF) }
+    if (data.client?.phone){ lines.push(cols('TEL',     formatPhoneForReceipt(data.client.phone), COL_WIDTH)); lines.push(LF) }
+    if (data.vehiclePlate) { lines.push(cols('VEHICULO', data.vehiclePlate, COL_WIDTH)); lines.push(LF) }
+    lines.push(cols('TIPO VENTA', data.tipo === 'credito' ? 'Credito' : 'Contado', COL_WIDTH))
+    lines.push(LF)
+    lines.push(cols('FORMA PAGO', formatFormaPago(data.formaPago), COL_WIDTH))
+    lines.push(LF)
+  }
+
+  // ── First separator: header → body. Column header baseline.
+  lines.push(LF)
   lines.push(SEP)
   lines.push(LF)
-
-  // Column headers
   lines.push(BOLD_ON)
-  lines.push(cols('DESCRIPCION', 'ITBIS   TOTAL', COL_WIDTH))
+  lines.push(cols('DESCRIPCION', '     TOTAL', COL_WIDTH))
   lines.push(LF)
   lines.push(BOLD_OFF)
-  lines.push(SEP)
   lines.push(LF)
 
-  // Service lines
+  // ── Line items — clean, no per-item separators
   const services = data.services || []
   services.forEach(s => {
     const qty = s.qty || s.quantity || 1
     const lineTotal = s.price * qty
-    const itbisAmt = s.itbis != null ? fmt(s.itbis * qty) : ''
-    const totalAmt = fmt(lineTotal)
-    // Weight-priced line (carniceria): "Bistec Res" + subline "0.750 lb x RD$195.00/lb"
+    const totalAmt  = fmt(lineTotal)
     const weight = s.weight != null ? Number(s.weight) : null
     const unit   = s.unit || null
     const ppu    = s.price_per_unit != null ? Number(s.price_per_unit) : null
     const name   = weight != null
-      ? String(s.name).replace(/\s*\([0-9.]+ (?:lb|kg|oz|g)\)\s*$/, '')  // strip cart label duplication
+      ? String(s.name).replace(/\s*\([0-9.]+ (?:lb|kg|oz|g)\)\s*$/, '')
       : (qty > 1 ? `${qty}x ${s.name}` : String(s.name))
-    const rightPart = itbisAmt ? `${itbisAmt}  ${totalAmt}` : totalAmt
-    if (name.length + rightPart.length + 1 > COL_WIDTH) {
-      wrapText(name, COL_WIDTH).forEach(l => { lines.push(l); lines.push(LF) })
-      lines.push(right(rightPart, COL_WIDTH))
+
+    if (name.length + totalAmt.length + 2 > COL_WIDTH) {
+      wrapText(name, COL_WIDTH - totalAmt.length - 2).forEach((l, i, arr) => {
+        if (i === arr.length - 1) lines.push(cols(l, totalAmt, COL_WIDTH))
+        else lines.push(l)
+        lines.push(LF)
+      })
     } else {
-      lines.push(cols(name, rightPart, COL_WIDTH))
+      lines.push(cols(name, totalAmt, COL_WIDTH))
+      lines.push(LF)
     }
-    lines.push(LF)
+    // Per-item secondary info (weight pricing, ITBIS share) — indented, muted
     if (weight != null && unit && ppu != null) {
-      lines.push(`  ${weight.toFixed(3)} ${unit} x RD$${fmt(ppu)}/${unit}`)
+      lines.push(`  ${weight.toFixed(3)} ${unit} x ${fmt(ppu)}/${unit}`)
+      lines.push(LF)
+    } else if (s.itbis != null && s.itbis > 0) {
+      lines.push(`  incl. ITBIS ${fmt(s.itbis * qty)}`)
       lines.push(LF)
     }
   })
 
-  // Totals
+  // ── Second separator: body → totals.
   lines.push(SEP)
   lines.push(LF)
-  if (data.descuento > 0) {
-    lines.push(cols('Descuento:', '- ' + fmt(data.descuento)))
-    lines.push(LF)
-  }
-  lines.push(cols('Subtotal:', fmt(data.subtotal)))
-  lines.push(LF)
-  lines.push(cols('ITBIS 18%:', fmt(data.itbis)))
-  lines.push(LF)
-  if (data.ley > 0) {
-    lines.push(cols('Ley 10%:', fmt(data.ley)))
-    lines.push(LF)
-  }
-  lines.push(SEP)
-  lines.push(LF)
-  // TOTAL — bold + large (ESC ! 0x38)
-  lines.push(BOLD_ON)
-  lines.push(LARGE_ON)
-  lines.push(cols('TOTAL:', fmt(data.total), COL_WIDTH))
-  lines.push(LF)
-  lines.push(LARGE_OFF)
-  lines.push(BOLD_OFF)
 
-  // QR / e-CF verification
+  const ncfStr = String(data.ncf || '').toUpperCase()
+  const isFiscal = /^B01/.test(ncfStr) || /^B14/.test(ncfStr) || /^B15/.test(ncfStr) || /^E\d/.test(ncfStr)
+  if (data.descuento > 0) {
+    lines.push(cols('Descuento', '- ' + fmt(data.descuento), COL_WIDTH))
+    lines.push(LF)
+  }
+  if (isFiscal) {
+    lines.push(cols('Subtotal',   fmt(data.subtotal), COL_WIDTH))
+    lines.push(LF)
+    lines.push(cols('ITBIS 18%',  fmt(data.itbis),    COL_WIDTH))
+    lines.push(LF)
+  }
+  if (data.ley > 0) {
+    lines.push(cols('Ley 10%', fmt(data.ley), COL_WIDTH))
+    lines.push(LF)
+  }
+
+  // ── TOTAL — premium: breathing space + inverted block + double-height
+  lines.push(LF)
+  lines.push(INVERT_ON)
+  lines.push(LARGE_ON)
+  // 21-char interior (42 / 2) because LARGE doubles width.
+  const totalInner = ' TOTAL'.padEnd(11) + fmt(data.total).padStart(10)
+  lines.push(totalInner)
+  lines.push(LARGE_OFF)
+  lines.push(INVERT_OFF)
+  lines.push(LF)
+  lines.push(LF)
+
+  // ── QR / e-CF verification (fiscal electronic only)
   if (data.ncf && data.ncf.startsWith('E')) {
-    lines.push(LF)
     lines.push(ALIGN_CENTER)
-    lines.push(SEP)
-    lines.push(LF)
     lines.push(BOLD_ON)
-    lines.push('COMPROBANTE ELECTRONICO')
+    lines.push('COMPROBANTE FISCAL ELECTRONICO')
     lines.push(LF)
     lines.push(BOLD_OFF)
-    lines.push('Escanee para verificar en DGII:')
+    lines.push('Escanee para verificar en DGII')
+    lines.push(LF)
     lines.push(LF)
     const verUrl = data.qrLink || buildQRUrlESC(data)
     lines.push(buildQRCommand(verUrl))
+    lines.push(LF)
     if (data.securityCode) {
-      lines.push(LF)
-      lines.push(`Cod. Seguridad: ${data.securityCode}`)
+      lines.push(`Codigo Seguridad  ${data.securityCode}`)
       lines.push(LF)
     }
     if (data.signatureDate) {
       const firmaStr = fmtFirmaDateESC(data.signatureDate)
-      lines.push('Fecha de Firma Digital:')
-      lines.push(LF)
-      lines.push(firmaStr)
+      lines.push('Firma Digital  ' + firmaStr)
       lines.push(LF)
     }
     lines.push(ALIGN_LEFT)

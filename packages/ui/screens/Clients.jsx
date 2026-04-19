@@ -3,7 +3,7 @@ import {
   Search, Plus, X, AlertTriangle, CheckCircle2,
   Phone, MapPin, Mail, CreditCard, Banknote,
   ArrowRightLeft, Landmark, Building2, ChevronRight,
-  SquareCheckBig, Square, Loader2, RefreshCw, AlertCircle, Pencil, Trash2,
+  SquareCheckBig, Square, Loader2, RefreshCw, AlertCircle, Pencil, Trash2, MessageCircle,
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
@@ -210,6 +210,7 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
   const [comentario,    setComentario]    = useState('')
   const [toast,         setToast]         = useState(null)
   const [savingPayment, setSavingPayment] = useState(false)
+  const [waModal,       setWaModal]       = useState(false)
 
   // ITBIS rate — from app_settings.itbis_pct (string), default 18.
   const [itbisRate, setItbisRate] = useState(18)
@@ -477,6 +478,11 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
         <div className="flex items-center gap-1">
           {!editing && (
             <>
+              {client.phone && (
+                <button onClick={() => setWaModal(true)} className="text-emerald-500 dark:text-emerald-400 hover:text-white hover:bg-emerald-500 p-1.5 rounded-lg border border-emerald-200 dark:border-emerald-500/30 transition-colors" title={lang === 'es' ? 'Enviar WhatsApp' : 'Send WhatsApp'}>
+                  <MessageCircle size={14} />
+                </button>
+              )}
               <button onClick={startEdit} className="text-slate-400 dark:text-white/40 hover:text-sky-600 p-1.5 rounded-lg hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors" title={lang === 'es' ? 'Editar' : 'Edit'}>
                 <Pencil size={14} />
               </button>
@@ -883,6 +889,118 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
           {toast}
         </div>
       )}
+      {waModal && (
+        <WhatsAppClientModal
+          client={client}
+          onClose={() => setWaModal(false)}
+          onSent={() => { setWaModal(false); setToast(lang === 'es' ? 'WhatsApp enviado ✓' : 'WhatsApp sent ✓'); setTimeout(() => setToast(null), 2200) }}
+          onError={(msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }}
+          lang={lang}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── WhatsApp client modal ─────────────────────────────────────────────────────
+// Shows the balance-reminder template with {cliente}/{saldo}/{cuentas}/{biz}
+// interpolated. Operator can edit the message before sending, or blank it and
+// type a fully custom message. "Enviar" sends via UltraMsg.
+function WhatsAppClientModal({ client, onClose, onSent, onError, lang }) {
+  const api = useAPI()
+  const [settings, setSettings] = useState(null)
+  const [body, setBody] = useState('')
+  const [sending, setSending] = useState(false)
+
+  useEffect(() => {
+    api?.settings?.get?.().then(s => {
+      setSettings(s || {})
+      const bizName = s?.biz_name || 'Terminal X'
+      const accounts = s?.biz_bank_accounts || ''
+      const tpl = (s?.wa_balance_template || '').trim() ||
+        (lang === 'es'
+          ? 'Hola {cliente}, cuando puedas, tu saldo pendiente con {biz} es {saldo}. Cuentas para pagar:\n{cuentas}'
+          : 'Hi {cliente}, whenever you can, your pending balance with {biz} is {saldo}. Accounts:\n{cuentas}')
+      const filled = tpl
+        .replace(/\{cliente\}/g, client.name || '')
+        .replace(/\{saldo\}/g, fmtRD(client.balance || 0))
+        .replace(/\{cuentas\}/g, accounts || '(configurar cuentas en Settings)')
+        .replace(/\{biz\}/g, bizName)
+      setBody(filled)
+    }).catch(() => {})
+  }, [])
+
+  function normalizePhone(raw) {
+    const d = String(raw || '').replace(/\D/g, '')
+    if (d.length === 10 && (d[0] === '8' || d[0] === '9')) return '1' + d
+    if (d.length === 11 && d[0] === '1') return d
+    return d
+  }
+
+  async function send() {
+    const to = normalizePhone(client.phone)
+    if (!to) { onError?.(lang === 'es' ? 'Teléfono inválido' : 'Invalid phone'); return }
+    if (!body.trim()) { onError?.(lang === 'es' ? 'Mensaje vacío' : 'Empty message'); return }
+    setSending(true)
+    try {
+      const r = await api?.whatsapp?.send?.({ to, body })
+      if (r?.success || r === true || r?.ok) onSent?.()
+      else onError?.(lang === 'es' ? 'No se pudo enviar' : 'Send failed')
+    } catch (e) { onError?.(`Error: ${e.message || e}`) }
+    finally { setSending(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-white/10">
+          <div className="flex items-center gap-2">
+            <MessageCircle size={18} className="text-emerald-500" />
+            <h3 className="text-[14px] font-bold text-slate-800 dark:text-white">
+              {lang === 'es' ? 'Enviar WhatsApp' : 'Send WhatsApp'}
+            </h3>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 text-slate-400">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div className="flex items-center gap-3 bg-slate-50 dark:bg-white/5 rounded-xl px-3 py-2.5">
+            <div>
+              <p className="text-[11px] text-slate-400 dark:text-white/40">{lang === 'es' ? 'Para' : 'To'}</p>
+              <p className="text-[13px] font-semibold text-slate-800 dark:text-white">{client.name}</p>
+            </div>
+            <div className="ml-auto text-right">
+              <p className="text-[11px] text-slate-400 dark:text-white/40">{client.phone}</p>
+              <p className="text-[13px] font-bold text-amber-600">{fmtRD(client.balance || 0)}</p>
+            </div>
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold text-slate-500 dark:text-white/60 mb-1">
+              {lang === 'es' ? 'Mensaje (editable)' : 'Message (editable)'}
+            </label>
+            <textarea
+              value={body}
+              onChange={e => setBody(e.target.value)}
+              rows={8}
+              className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-emerald-400 resize-none whitespace-pre-wrap"
+            />
+            <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1">
+              {lang === 'es' ? 'Plantilla en Settings → WhatsApp. Puedes editar o escribir mensaje personalizado.' : 'Template in Settings → WhatsApp. Edit or type a fully custom message.'}
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2 px-5 py-3 border-t border-slate-200 dark:border-white/10">
+          <button onClick={onClose} disabled={sending}
+            className="flex-1 py-2.5 border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 text-[13px] font-semibold rounded-lg hover:bg-slate-50 dark:hover:bg-white/5 disabled:opacity-40">
+            {lang === 'es' ? 'Cancelar' : 'Cancel'}
+          </button>
+          <button onClick={send} disabled={sending || !body.trim()}
+            className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[13px] font-bold rounded-lg disabled:opacity-40 flex items-center justify-center gap-2">
+            {sending ? (<><Loader2 size={14} className="animate-spin" />{lang === 'es' ? 'Enviando…' : 'Sending…'}</>) : (<><MessageCircle size={14} />{lang === 'es' ? 'Enviar' : 'Send'}</>)}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

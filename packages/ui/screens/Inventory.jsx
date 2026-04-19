@@ -649,6 +649,29 @@ export default function Inventory() {
     load()
   }
 
+  // v2.3.27 — bulk wipe. Loops through each row and deletes. Sync pushes the
+  // deletions on next cycle via supabaseDelete. Confirmation is destructive.
+  async function handleWipeAll() {
+    const n = items.length
+    if (n === 0) return
+    const confirm1 = window.confirm(
+      lang === 'en'
+        ? `Delete ALL ${n} inventory items? This cannot be undone.`
+        : `¿Eliminar TODOS los ${n} productos del inventario? No se puede deshacer.`)
+    if (!confirm1) return
+    const typed = window.prompt(lang === 'en' ? `Type ERASE to confirm:` : `Escribe BORRAR para confirmar:`)
+    if ((typed || '').toUpperCase().trim() !== (lang === 'en' ? 'ERASE' : 'BORRAR')) return
+    setLoading(true)
+    try {
+      for (const it of items) {
+        try { await api.inventory.delete({ id: it.id }) } catch {}
+      }
+    } finally {
+      setLoading(false)
+      load()
+    }
+  }
+
   const filtered = useMemo(() => {
     let list = items
     if (filter === 'low') list = list.filter(i => i.quantity <= i.min_quantity)
@@ -673,6 +696,13 @@ export default function Inventory() {
           <h1 className="text-[14px] md:text-[16px] font-bold text-slate-800 dark:text-white">{lang === 'en' ? 'Inventory' : 'Inventario'}</h1>
         </div>
         <div className="flex items-center gap-2">
+          {items.length > 0 && (
+            <button onClick={handleWipeAll}
+              title={lang === 'en' ? 'Delete all inventory (destructive)' : 'Borrar todo el inventario (destructivo)'}
+              className="flex items-center gap-2 px-3 py-2 border border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 rounded-xl text-sm font-medium hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors">
+              <Trash2 size={15} /> {lang === 'en' ? 'Erase All' : 'Borrar Todo'}
+            </button>
+          )}
           <button onClick={() => setShowImport(true)}
             className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 rounded-xl text-sm font-medium hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
             <Upload size={15} /> {lang === 'en' ? 'Import CSV' : 'Importar CSV'}

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
-import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck } from 'lucide-react'
+import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck, Beer, Coffee, Cookie, Droplet, CupSoda, Candy, IceCreamCone, UtensilsCrossed, Sparkles, Cigarette, Flame, Leaf, Pizza } from 'lucide-react'
 import AgeVerifyModal, { requiresAgeCheck } from '../components/AgeVerifyModal'
 import WeightModal from '../components/WeightModal'
 import { useLang } from '../i18n'
@@ -422,6 +422,20 @@ function CarWashPOS() {
     setItems(prev => prev.filter(i => (i._cartKey || i.id) !== key))
   }
 
+  function adjustOrderQty(item, delta) {
+    const key = item._cartKey || item.id
+    setItems(prev => prev.map(i => {
+      const iKey = i._cartKey || i.id
+      if (iKey !== key) return i
+      const nextQty = (i.qty || 1) + delta
+      if (nextQty <= 0) return null
+      // Respect stock cap for inventory items
+      const isInv = typeof iKey === 'string' && iKey.startsWith('inv:')
+      if (delta > 0 && isInv && i.stock != null && nextQty > i.stock) return i
+      return { ...i, qty: nextQty, quantity: nextQty }
+    }).filter(Boolean))
+  }
+
   async function handleRncLookup() {
     if (rnc.replace(/\D/g, '').length < 9) return
     const res = await rncLookup(rnc)
@@ -556,6 +570,7 @@ function CarWashPOS() {
           phone:   empresa?.telefono  || empresa?.phone   || '',
           rnc:     empresa?.rnc       || '',
           logo:    empresa?.logo      || '',
+          settings: empresa?.settings || {},
         }
         const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(pending.items, itbisRate)
         const ticketData = {
@@ -599,7 +614,7 @@ function CarWashPOS() {
     <div className="h-full flex flex-col md:flex-row">
 
       {/* ══ CENTER ══════════════════════════════════════════════════════════ */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-black">
 
         {/* Mobile header with logo — matches desktop sidebar style */}
         <div className="md:hidden flex items-center justify-between px-4 py-2 bg-white dark:bg-white/5 border-b border-slate-200 dark:border-white/10 shrink-0">
@@ -652,18 +667,28 @@ function CarWashPOS() {
                   <button
                     key={key}
                     onClick={() => toggleService(svc)}
-                    className={`rounded-xl p-3 md:p-3.5 text-left transition-all border min-h-[44px] ${
+                    className={`group relative overflow-hidden flex flex-col justify-between p-4 md:p-5 rounded-2xl border text-left transition-all duration-200 ease-out min-h-[124px] md:min-h-[132px] will-change-transform ${
                       selected
-                        ? 'bg-[#b3001e]/10 dark:bg-[#b3001e]/20 border-[#b3001e] text-[#b3001e] dark:text-white shadow-sm'
-                        : 'bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-700 dark:text-white hover:border-[#b3001e]/40 dark:hover:border-[#b3001e]/60 hover:shadow-sm'
+                        ? 'border-[#b3001e] bg-gradient-to-br from-[#b3001e]/[0.09] via-white to-white dark:from-[#b3001e]/25 dark:via-white/[0.04] dark:to-white/[0.03] shadow-[0_12px_30px_-12px_rgba(179,0,30,0.55),inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:shadow-[0_12px_30px_-12px_rgba(179,0,30,0.55),inset_0_1px_0_0_rgba(255,255,255,0.06)]'
+                        : 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] hover:border-[#b3001e] hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-12px_rgba(179,0,30,0.45),inset_0_1px_0_0_rgba(255,255,255,0.6)] active:translate-y-0 active:scale-[0.99]'
                     }`}
                   >
-                    <p className="text-xs md:text-[13px] font-semibold leading-snug">
+                    <span className={`absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#b3001e] to-transparent transition-opacity duration-300 ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} />
+                    <span className={`pointer-events-none absolute -inset-px rounded-2xl bg-gradient-to-b from-white/60 via-transparent to-transparent dark:from-white/[0.06] transition-opacity ${selected ? 'opacity-100' : 'opacity-40 group-hover:opacity-80'}`} />
+                    {selected && (
+                      <span className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-[#b3001e] text-white flex items-center justify-center shadow-[0_4px_10px_-2px_rgba(179,0,30,0.6)] ring-2 ring-white dark:ring-black">
+                        <Check size={12} strokeWidth={3.5} />
+                      </span>
+                    )}
+                    <p className={`relative text-[14px] md:text-[15px] font-semibold leading-snug line-clamp-2 pr-6 tracking-[-0.01em] ${selected ? 'text-[#b3001e] dark:text-white' : 'text-slate-800 dark:text-white'}`}>
                       {lang === 'es' ? svc.name : (svc.name_en || svc.name)}
                     </p>
-                    <p className={`text-[11px] md:text-[12px] font-bold mt-1 md:mt-1.5 ${selected ? 'text-[#b3001e]/70 dark:text-white/70' : 'text-slate-400 dark:text-white/40'}`}>
-                      {fmtRD(svc.price)}
-                    </p>
+                    <div className="relative flex justify-end items-baseline gap-1.5 mt-3 pt-2.5 border-t border-dashed border-slate-200/70 dark:border-white/10">
+                      <span className="text-[11px] font-medium text-slate-400 dark:text-white/40 uppercase tracking-[0.1em]">RD$</span>
+                      <span className="font-black tabular-nums leading-none tracking-[-0.02em] text-[26px] md:text-[28px] text-[#b3001e]">
+                        {Number(svc.price || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
                   </button>
                 )
               })}
@@ -899,24 +924,46 @@ function CarWashPOS() {
             {allOrderItems.length === 0 ? (
               <p className="text-[11px] text-slate-300 dark:text-white/30 italic">{t('pos_order_empty')}</p>
             ) : (
-              <div className="space-y-1.5 md:space-y-1">
-                {allOrderItems.map(item => (
-                  <div key={item.id} className="flex items-center justify-between gap-1 group">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm md:text-[12px] text-slate-700 dark:text-white font-medium truncate leading-snug">
-                        {item.name}
-                      </p>
-                      <p className="text-xs md:text-[11px] text-slate-400 dark:text-white/40 leading-none">{fmtRD(item.price)}</p>
+              <div className="space-y-1.5">
+                {allOrderItems.map(item => {
+                  const key = item._cartKey || item.id
+                  const isInv = typeof key === 'string' && key.startsWith('inv:')
+                  const qty = item.qty || 1
+                  const lineTotal = (item.price || 0) * qty
+                  return (
+                    <div key={key} className="flex items-center gap-2 py-1.5 border-b border-slate-50 dark:border-white/[0.04] last:border-0">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[12px] font-semibold text-slate-800 dark:text-white leading-tight truncate">{item.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-slate-400 dark:text-white/40 tabular-nums">{fmtRD(item.price)} {qty > 1 && `× ${qty}`}</span>
+                          {qty > 1 && <span className="text-[11px] font-black text-[#b3001e] tabular-nums">{fmtRD(lineTotal)}</span>}
+                        </div>
+                      </div>
+                      {isInv ? (
+                        <div className="flex items-center rounded-lg overflow-hidden border border-slate-200 dark:border-white/10 bg-white dark:bg-black shrink-0">
+                          <button onClick={() => adjustOrderQty(item, -1)}
+                            className="w-7 h-7 flex items-center justify-center text-[#b3001e] hover:bg-[#b3001e] hover:text-white active:scale-95 transition-all"
+                            title={qty <= 1 ? 'Quitar' : '-1'}>
+                            {qty <= 1 ? <X size={12} /> : <Minus size={12} />}
+                          </button>
+                          <span className="w-7 text-center text-[12px] font-black text-slate-800 dark:text-white tabular-nums border-x border-slate-200 dark:border-white/10 py-1">{qty}</span>
+                          <button onClick={() => adjustOrderQty(item, 1)}
+                            className="w-7 h-7 flex items-center justify-center text-[#b3001e] hover:bg-[#b3001e] hover:text-white active:scale-95 transition-all"
+                            title="+1">
+                            <Plus size={12} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => removeOrderItem(item)}
+                          className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 dark:text-white/30 hover:text-white hover:bg-[#b3001e] transition-colors shrink-0"
+                          title="Quitar">
+                          <X size={14} />
+                        </button>
+                      )}
                     </div>
-                    <button
-                      onClick={() => removeOrderItem(item)}
-                      className="w-8 h-8 md:w-5 md:h-5 flex items-center justify-center rounded-full text-slate-400 dark:text-white/40 md:text-slate-300 dark:md:text-white/30 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 md:opacity-0 md:group-hover:opacity-100 transition-all shrink-0 min-h-[44px] md:min-h-0 min-w-[44px] md:min-w-0"
-                    >
-                      <X size={14} className="md:hidden" />
-                      <X size={11} className="hidden md:block" />
-                    </button>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -1472,6 +1519,7 @@ function RetailPOS() {
           phone: empresa?.telefono || empresa?.phone || '',
           rnc: empresa?.rnc || '',
           logo: empresa?.logo || '',
+          settings: empresa?.settings || {},
         }
         const ticketData = {
           ncf: result?.ncf || '',
@@ -1509,7 +1557,7 @@ function RetailPOS() {
   return (
     <div className="h-full flex flex-col md:flex-row">
       {/* ── Left: Product browser ─────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white dark:bg-black">
         {/* Search bar — flex layout guarantees icon and input never overlap */}
         <div className="p-3 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-black">
           <div className="flex items-center gap-2 px-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus-within:ring-2 focus-within:ring-[#b3001e]/30 focus-within:border-[#b3001e]">
@@ -1554,7 +1602,7 @@ function RetailPOS() {
         )}
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-3 bg-slate-50 dark:bg-black">
+        <div className="flex-1 overflow-y-auto p-3 bg-white dark:bg-black">
           {/* Search results overlay */}
           {searchQuery && tab === 'products' && (
             <div className="mb-4">
@@ -1599,13 +1647,27 @@ function RetailPOS() {
                   const restricted = requiresAgeCheck(licoreriaConfig, item)
                   return (
                     <button key={`qs-${item.id}`} onClick={() => addToCart(item)}
-                      className="relative flex flex-col items-start p-3 rounded-xl border-2 border-[#b3001e]/40 bg-[#b3001e]/5 dark:bg-[#b3001e]/10 hover:border-[#b3001e] hover:bg-[#b3001e]/15 transition-all text-left">
-                      {restricted && (
-                        <span className="absolute top-1.5 right-1.5 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-[#b3001e] text-white">18+</span>
-                      )}
-                      <p className="text-[13px] font-semibold text-slate-800 dark:text-white leading-tight line-clamp-2">{item.name}</p>
-                      {item.sku && <p className="text-[10px] text-slate-400 mt-0.5">{item.sku}</p>}
-                      <p className="text-[13px] font-bold text-[#b3001e] mt-1.5">{fmtRD(item.price)}</p>
+                      className="group relative overflow-hidden flex flex-col justify-between p-4 md:p-5 rounded-2xl border border-[#b3001e]/50 bg-gradient-to-br from-[#b3001e]/[0.07] via-white to-white dark:from-[#b3001e]/20 dark:via-white/[0.04] dark:to-white/[0.03] text-left transition-all duration-200 ease-out min-h-[136px] will-change-transform shadow-[inset_0_1px_0_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] hover:border-[#b3001e] hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-12px_rgba(179,0,30,0.55),inset_0_1px_0_0_rgba(255,255,255,0.7)] active:translate-y-0 active:scale-[0.99]">
+                      <span className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#b3001e] to-transparent opacity-70 group-hover:opacity-100 transition-opacity duration-300" />
+                      <span className="pointer-events-none absolute -inset-px rounded-2xl bg-gradient-to-b from-white/50 via-transparent to-transparent dark:from-white/[0.05] opacity-60 group-hover:opacity-100 transition-opacity" />
+                      <div className="relative flex items-start justify-between gap-2 mb-1.5">
+                        <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-[0.14em] px-1.5 py-0.5 rounded-md bg-[#b3001e] text-white shadow-[0_4px_10px_-2px_rgba(179,0,30,0.6)]">
+                          <Zap size={9} strokeWidth={3} /> TOP
+                        </span>
+                        {restricted && (
+                          <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-black text-white border border-[#b3001e] shadow-sm">18+</span>
+                        )}
+                      </div>
+                      <div className="relative flex-1">
+                        <p className="text-[14px] md:text-[15px] font-semibold text-slate-800 dark:text-white leading-snug line-clamp-2 tracking-[-0.01em]">{item.name}</p>
+                        {item.sku && <p className="text-[10px] text-slate-400 dark:text-white/40 mt-0.5 font-mono tracking-tight">{item.sku}</p>}
+                      </div>
+                      <div className="relative flex justify-end items-baseline gap-1.5 mt-2 pt-2.5 border-t border-dashed border-[#b3001e]/20 dark:border-white/10">
+                        <span className="text-[11px] font-medium text-slate-400 dark:text-white/40 uppercase tracking-[0.1em]">RD$</span>
+                        <span className="font-black tabular-nums leading-none tracking-[-0.02em] text-[26px] text-[#b3001e]">
+                          {Number(item.price || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
                     </button>
                   )
                 })}
@@ -1636,9 +1698,16 @@ function RetailPOS() {
               <div className={`grid ${gridCols} gap-2`}>
                 {rawServices.filter(s => s.category === svcCategory).map(svc => (
                   <button key={svc.id} onClick={() => addServiceToCart(svc)}
-                    className="flex flex-col items-start p-3 rounded-xl border-2 border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-[#b3001e] hover:bg-[#b3001e]/10 dark:hover:bg-[#b3001e]/15 transition-all text-left">
-                    <p className="text-[13px] font-semibold text-slate-800 dark:text-white leading-tight">{lang === 'es' ? svc.name : (svc.name_en || svc.name)}</p>
-                    <p className="text-[13px] font-bold text-[#b3001e] dark:text-blue-400 mt-1">{fmtRD(svc.price)}</p>
+                    className="group relative overflow-hidden flex flex-col justify-between p-4 md:p-5 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] text-left transition-all duration-200 ease-out min-h-[124px] md:min-h-[132px] will-change-transform shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] hover:border-[#b3001e] hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-12px_rgba(179,0,30,0.45),inset_0_1px_0_0_rgba(255,255,255,0.6)] active:translate-y-0 active:scale-[0.99]">
+                    <span className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#b3001e] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                    <span className="pointer-events-none absolute -inset-px rounded-2xl bg-gradient-to-b from-white/50 via-transparent to-transparent dark:from-white/[0.05] opacity-40 group-hover:opacity-90 transition-opacity" />
+                    <p className="relative text-[14px] md:text-[15px] font-semibold text-slate-800 dark:text-white leading-snug line-clamp-2 tracking-[-0.01em]">{lang === 'es' ? svc.name : (svc.name_en || svc.name)}</p>
+                    <div className="relative flex justify-end items-baseline gap-1.5 mt-3 pt-2.5 border-t border-dashed border-slate-200/70 dark:border-white/10">
+                      <span className="text-[11px] font-medium text-slate-400 dark:text-white/40 uppercase tracking-[0.1em]">RD$</span>
+                      <span className="font-black tabular-nums leading-none tracking-[-0.02em] text-[26px] text-[#b3001e]">
+                        {Number(svc.price || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
                   </button>
                 ))}
               </div>
@@ -1706,35 +1775,40 @@ function RetailPOS() {
               <p className="text-[13px]">{lang === 'es' ? 'Carrito vacio' : 'Cart empty'}</p>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {cart.map(item => (
-                <div key={item.id} className="flex items-center gap-2 py-2 border-b border-slate-50 dark:border-white/5 last:border-0">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-slate-800 dark:text-white truncate">{item.name}</p>
-                    {item.weight != null
-                      ? <p className="text-[10px] text-slate-400 tabular-nums">{item.weight.toFixed(3)} {item.unit} × {fmtRD(item.price_per_unit || 0)}/{item.unit}</p>
-                      : (item.sku && <p className="text-[10px] text-slate-400">{item.sku}</p>)}
-                    <p className="text-[12px] text-[#b3001e] dark:text-blue-400 font-semibold">{fmtRD(item.price * item.qty)}</p>
+                <div key={item.id} className="group relative py-2.5 px-2 rounded-xl border border-slate-100 dark:border-white/5 hover:border-[#b3001e]/30 dark:hover:border-[#b3001e]/40 bg-white dark:bg-white/[0.02] transition-colors">
+                  {/* Row 1 — name + delete */}
+                  <div className="flex items-start gap-2 mb-1.5">
+                    <p className="flex-1 text-[13px] font-semibold text-slate-800 dark:text-white leading-tight line-clamp-2">{item.name}</p>
+                    <button onClick={() => removeFromCart(item.id)}
+                      className="shrink-0 w-6 h-6 rounded-md text-slate-400 dark:text-white/30 hover:bg-[#b3001e] hover:text-white transition-colors flex items-center justify-center"
+                      title={lang === 'es' ? 'Quitar' : 'Remove'}>
+                      <X size={13} />
+                    </button>
                   </div>
-                  <div className="flex items-center gap-1">
-                    {item.weight != null ? (
-                      <button onClick={() => removeFromCart(item.id)}
-                        className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-500 hover:bg-red-100 hover:text-red-500 transition-colors"
-                        title="Eliminar">
-                        <X size={12} />
-                      </button>
-                    ) : (
-                      <>
+                  {/* Row 2 — unit price / detail + qty controls + line total */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      {item.weight != null
+                        ? <p className="text-[10px] text-slate-400 dark:text-white/40 tabular-nums">{item.weight.toFixed(3)} {item.unit} × {fmtRD(item.price_per_unit || 0)}/{item.unit}</p>
+                        : <p className="text-[10px] text-slate-400 dark:text-white/40 tabular-nums">{fmtRD(item.price)} c/u</p>}
+                      <p className="text-[14px] font-black text-[#b3001e] tabular-nums leading-none mt-0.5">{fmtRD(item.price * (item.qty || 1))}</p>
+                    </div>
+                    {item.weight == null && (
+                      <div className="flex items-center gap-0 rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 bg-white dark:bg-black shrink-0">
                         <button onClick={() => item.qty <= 1 ? removeFromCart(item.id) : updateQty(item.id, -1)}
-                          className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-500 hover:bg-red-100 hover:text-red-500 transition-colors">
-                          {item.qty <= 1 ? <X size={12} /> : <Minus size={12} />}
+                          className="w-9 h-9 flex items-center justify-center text-[#b3001e] hover:bg-[#b3001e] hover:text-white active:scale-95 transition-all"
+                          title={item.qty <= 1 ? (lang === 'es' ? 'Quitar' : 'Remove') : '-1'}>
+                          {item.qty <= 1 ? <X size={14} /> : <Minus size={14} />}
                         </button>
-                        <span className="w-7 text-center text-[13px] font-bold text-slate-800 dark:text-white">{item.qty}</span>
+                        <span className="w-10 text-center text-[15px] font-black text-slate-800 dark:text-white tabular-nums border-x border-slate-200 dark:border-white/10 py-1.5">{item.qty}</span>
                         <button onClick={() => updateQty(item.id, 1)}
-                          className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-white/10 flex items-center justify-center text-slate-500 hover:bg-[#b3001e]/10 hover:text-[#b3001e] transition-colors">
-                          <Plus size={12} />
+                          className="w-9 h-9 flex items-center justify-center text-[#b3001e] hover:bg-[#b3001e] hover:text-white active:scale-95 transition-all"
+                          title="+1">
+                          <Plus size={14} />
                         </button>
-                      </>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1882,9 +1956,35 @@ function RetailPOS() {
 
 // ── Product grid (lazy-loaded inventory) ──────────────────────────────────────
 
+// Category → icon map. Falls back to Package. Keyword match is case-insensitive.
+const PRODUCT_ICON_RULES = [
+  { match: /(cerveza|brahma|presidente|modelo|corona|heineken|stella|miller|beer|lata|malta)/i, icon: Beer },
+  { match: /(vino|whisky|ron|vodka|tequila|gin|licor|wine|liquor)/i, icon: Wine },
+  { match: /(agua|water|enriquillo|cristal|pellegrino|mineral)/i, icon: Droplet },
+  { match: /(refresco|pepsi|coca|soda|sprite|7up|seven|fanta|gatorade|jugo|juice|natural|energizante|red bull|monster)/i, icon: CupSoda },
+  { match: /(cafe|coffee|té|tea|chocolate caliente|capuchino|espresso)/i, icon: Coffee },
+  { match: /(cheetos|doritos|frito|rufles|papitas|chips|snack|platanitos|caribas|hojuela)/i, icon: Cookie },
+  { match: /(caramelo|chocolate|dulce|candy|chicle|gum|bombon)/i, icon: Candy },
+  { match: /(helado|popsicle|ice cream|paleta|sorbete)/i, icon: IceCreamCone },
+  { match: /(cigarro|cigarette|marlboro|tabaco|cigar)/i, icon: Cigarette },
+  { match: /(mofongo|sancocho|pollo|carne|comida|food|plato|almuerzo|cena|burger|pizza|taco|sandwich|wrap|ensalada|salad)/i, icon: UtensilsCrossed },
+  { match: /(pizza)/i, icon: Pizza },
+  { match: /(aromatizante|limpia|lavado|shampoo|pulido|cera|ozono|fragancia|perfume|desinfectante)/i, icon: Sparkles },
+  { match: /(encendedor|fosforo|fuego|combustible|gas|lighter)/i, icon: Flame },
+  { match: /(flan|postre|dessert|leche|natilla|pudín)/i, icon: IceCreamCone },
+  { match: /(hierba|organic|natural|verde|saludable|organico)/i, icon: Leaf },
+]
+
+function iconFor(product) {
+  const txt = `${product.name || ''} ${product.category || ''}`
+  for (const r of PRODUCT_ICON_RULES) if (r.match.test(txt)) return r.icon
+  return Package
+}
+
 function ProductGrid({ api, lang, gridCols, onAdd }) {
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
+  const [activeCat, setActiveCat] = useState('all')
 
   useEffect(() => {
     api.inventory?.all?.().then(items => {
@@ -1896,51 +1996,123 @@ function ProductGrid({ api, lang, gridCols, onAdd }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 size={24} className="animate-spin text-slate-400" />
+        <Loader2 size={24} className="animate-spin text-[#b3001e]" />
       </div>
     )
   }
 
   if (products.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
-        <Package size={40} strokeWidth={1} />
-        <p className="text-sm">{lang === 'es' ? 'No hay productos en inventario' : 'No inventory products'}</p>
-        <p className="text-xs text-slate-300">{lang === 'es' ? 'Agrega productos en Inventario' : 'Add products in Inventory'}</p>
+      <div className="flex flex-col items-center justify-center py-14 gap-3">
+        <div className="w-14 h-14 rounded-2xl bg-[#b3001e]/10 border border-[#b3001e]/30 flex items-center justify-center">
+          <Package size={26} className="text-[#b3001e]" strokeWidth={1.75} />
+        </div>
+        <p className="text-[13px] font-semibold text-slate-700 dark:text-white">{lang === 'es' ? 'No hay productos en inventario' : 'No inventory products'}</p>
+        <p className="text-[11px] text-slate-500 dark:text-white/50">{lang === 'es' ? 'Agrega productos en Inventario' : 'Add products in Inventory'}</p>
       </div>
     )
   }
 
   const groups = {}
   for (const p of products) {
-    const cat = p.category || (lang === 'es' ? 'Sin Categoria' : 'Uncategorized')
+    const cat = p.category || (lang === 'es' ? 'Sin Categoría' : 'Uncategorized')
     if (!groups[cat]) groups[cat] = []
     groups[cat].push(p)
   }
+  const catNames = Object.keys(groups).sort()
+  const visibleCats = activeCat === 'all' ? catNames : catNames.filter(c => c === activeCat)
 
   return (
-    <div className="space-y-4">
-      {Object.entries(groups).map(([cat, items]) => (
+    <div className="space-y-5">
+      {/* Category filter chips */}
+      {catNames.length > 1 && (
+        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide -mx-1 px-1">
+          <button onClick={() => setActiveCat('all')}
+            className={`shrink-0 px-3.5 py-1.5 rounded-full text-[11px] font-semibold uppercase tracking-wider transition-all border ${
+              activeCat === 'all'
+                ? 'bg-[#b3001e] text-white border-[#b3001e] shadow-[0_0_0_3px_rgba(179,0,30,0.15)]'
+                : 'bg-white dark:bg-white/5 text-slate-600 dark:text-white/70 border-slate-200 dark:border-white/10 hover:border-[#b3001e]/60'
+            }`}>
+            {lang === 'es' ? 'Todo' : 'All'} <span className="ml-1 opacity-60">{products.length}</span>
+          </button>
+          {catNames.map(c => (
+            <button key={c} onClick={() => setActiveCat(c)}
+              className={`shrink-0 px-3.5 py-1.5 rounded-full text-[11px] font-semibold uppercase tracking-wider transition-all border ${
+                activeCat === c
+                  ? 'bg-[#b3001e] text-white border-[#b3001e] shadow-[0_0_0_3px_rgba(179,0,30,0.15)]'
+                  : 'bg-white dark:bg-white/5 text-slate-600 dark:text-white/70 border-slate-200 dark:border-white/10 hover:border-[#b3001e]/60'
+              }`}>
+              {c} <span className="ml-1 opacity-60">{groups[c].length}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {visibleCats.map(cat => (
         <div key={cat}>
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">{cat}</p>
-          <div className={`grid ${gridCols} gap-2`}>
-            {items.map(item => (
-              <button key={item.id} onClick={() => onAdd(item)}
-                className="flex flex-col items-start p-3 rounded-xl border-2 border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-[#b3001e] hover:bg-[#b3001e]/10 dark:hover:bg-[#b3001e]/15 transition-all text-left">
-                <p className="text-[13px] font-semibold text-slate-800 dark:text-white leading-tight line-clamp-2">{item.name}</p>
-                {item.sku && <p className="text-[10px] text-slate-400 mt-0.5">{item.sku}</p>}
-                <div className="flex items-center justify-between w-full mt-2">
-                  <p className="text-[13px] font-bold text-[#b3001e] dark:text-blue-400">{fmtRD(item.price)}</p>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                    item.quantity <= 0 ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400'
-                    : item.quantity <= (item.min_quantity || 5) ? 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'
-                    : 'bg-green-100 text-green-600 dark:bg-green-500/20 dark:text-green-400'
-                  }`}>
-                    {item.quantity <= 0 ? (lang === 'es' ? 'Agotado' : 'Out') : `${item.quantity}`}
-                  </span>
-                </div>
-              </button>
-            ))}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="inline-block w-1 h-4 rounded-full bg-[#b3001e]" />
+            <p className="text-[10px] font-black text-slate-700 dark:text-white uppercase tracking-[0.15em]">{cat}</p>
+            <span className="text-[10px] text-slate-400 dark:text-white/40 font-medium">{groups[cat].length}</span>
+            <span className="flex-1 h-px bg-gradient-to-r from-slate-200 dark:from-white/10 to-transparent" />
+          </div>
+          <div className={`grid ${gridCols} gap-2.5`}>
+            {groups[cat].map(item => {
+              const Icon = iconFor(item)
+              const out = item.quantity <= 0
+              const low = !out && item.quantity <= (item.min_quantity || 5)
+              return (
+                <button key={item.id} onClick={() => !out && onAdd(item)} disabled={out}
+                  className={`group relative overflow-hidden flex flex-col justify-between p-4 md:p-5 rounded-2xl border bg-white dark:bg-white/[0.03] text-left transition-all duration-200 ease-out min-h-[140px] md:min-h-[148px] will-change-transform
+                    ${out
+                      ? 'border-slate-200 dark:border-white/10 opacity-55 cursor-not-allowed grayscale-[0.3]'
+                      : 'border-slate-200 dark:border-white/10 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] hover:border-[#b3001e] hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-12px_rgba(179,0,30,0.45),inset_0_1px_0_0_rgba(255,255,255,0.6)] active:translate-y-0 active:scale-[0.99]'
+                    }`}
+                >
+                  {/* Crimson accent sweep on hover */}
+                  {!out && <span className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#b3001e] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />}
+                  {!out && <span className="pointer-events-none absolute -inset-px rounded-2xl bg-gradient-to-b from-white/50 via-transparent to-transparent dark:from-white/[0.05] opacity-40 group-hover:opacity-90 transition-opacity" />}
+                  {/* Icon badge */}
+                  <div className="relative flex items-start justify-between gap-2 mb-2">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all duration-200 ring-1 ring-inset
+                      ${out
+                        ? 'bg-slate-100 dark:bg-white/5 ring-slate-200/60 dark:ring-white/5'
+                        : 'bg-slate-100 dark:bg-white/5 ring-slate-200/60 dark:ring-white/10 group-hover:bg-[#b3001e] group-hover:ring-[#b3001e] group-hover:text-white group-hover:shadow-[0_6px_14px_-4px_rgba(179,0,30,0.5)]'
+                      }`}>
+                      <Icon size={18} strokeWidth={1.75} className={out ? 'text-slate-400 dark:text-white/30' : 'text-[#b3001e] group-hover:text-white transition-colors'} />
+                    </div>
+                    {out ? (
+                      <span className="text-[9px] font-black uppercase tracking-[0.14em] px-2 py-0.5 rounded-full bg-[#b3001e] text-white shadow-[0_4px_10px_-2px_rgba(179,0,30,0.5)]">
+                        {lang === 'es' ? 'Agotado' : 'Out'}
+                      </span>
+                    ) : low ? (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-[0.12em] px-2 py-0.5 rounded-full bg-white dark:bg-white/10 text-[#b3001e] border border-[#b3001e]/40 shadow-sm">
+                        <span className="w-1 h-1 rounded-full bg-[#b3001e] animate-pulse" />
+                        {item.quantity}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold text-slate-400 dark:text-white/40 tabular-nums tracking-tight">
+                        ×{item.quantity}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Name + SKU */}
+                  <div className="relative mb-2.5 min-h-[36px]">
+                    <p className="text-[14px] md:text-[15px] font-semibold text-slate-800 dark:text-white leading-snug line-clamp-2 tracking-[-0.01em]">{item.name}</p>
+                    {item.sku && <p className="text-[10px] text-slate-400 dark:text-white/30 mt-0.5 font-mono tracking-tight">{item.sku}</p>}
+                  </div>
+
+                  {/* Price row */}
+                  <div className="relative flex justify-end items-baseline gap-1.5 pt-2.5 border-t border-dashed border-slate-200/70 dark:border-white/10">
+                    <p className="text-[11px] font-medium text-slate-400 dark:text-white/40 uppercase tracking-[0.1em]">RD$</p>
+                    <p className={`font-black tabular-nums leading-none tracking-[-0.02em] ${out ? 'text-slate-400 dark:text-white/30 line-through decoration-[#b3001e]/40' : 'text-[#b3001e]'} text-[26px] transition-colors`}>
+                      {Number(item.price || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                </button>
+              )
+            })}
           </div>
         </div>
       ))}

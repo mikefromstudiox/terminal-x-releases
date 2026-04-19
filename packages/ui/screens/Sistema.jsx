@@ -8,6 +8,7 @@ import {
 import { isDeviceSetting } from '@terminal-x/services/settingsWhitelist'
 import { useLang } from '../i18n'
 import { useAPI, usePrinterAPI } from '../context/DataContext'
+import { useAuth } from '../context/AuthContext'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import { hasVehicles } from '@terminal-x/config/businessTypes'
 import { usePlan } from '../hooks/usePlan.jsx'
@@ -271,6 +272,10 @@ const SISTEMA_DEFAULTS = {
   multi_pos_enabled:    '0',
   ncf_block_size:       '500',
   doc_block_size:       '200',
+  // Go-live date (YYYY-MM-DD). Empty = disabled. When set, the Dashboard
+  // Remoto shows a "Solo go-live" toggle that filters out imported historical
+  // tickets (created before this date).
+  go_live_date:         '',
 }
 
 // Shared settings hook — loads cfg from DB once, provides set/save
@@ -314,10 +319,12 @@ function useSettings() {
 // ── Preferencias (General settings: language, taxes, POS toggles, printing) ──
 
 export function Preferencias() {
-  const { cfg, set, on, handleSave, saving, saved, printers, toast, show, printerApi } = useSettings()
+  const { cfg, set, on, handleSave, saving, saved, printers, toast, show, printerApi, api } = useSettings()
   const { lang, setLang } = useLang()
   const { businessType } = useBusinessType()
   const { plan, hasFeature } = usePlan()
+  const { user } = useAuth()
+  const isOwner = user?.role === 'owner'
   const showPreTicket = hasVehicles(businessType)
   const multiPosAllowed = plan === 'pro_max' || hasFeature?.('multi_pos')
   const L = (es, en) => lang === 'es' ? es : en
@@ -393,6 +400,25 @@ export function Preferencias() {
           <Toggle enabled={on('rnc_verify')} onChange={v => set('rnc_verify', v ? '1' : '0')} />
         </SettingRow>
       </SettingSection>
+
+      {isOwner && (
+        <SettingSection title={L('Fecha de Go-Live', 'Go-Live Date')}>
+          <SettingRow
+            label={L('Fecha de inicio operativo', 'Operational start date')}
+            hint={L(
+              'Filtra tickets historicos importados en el Dashboard Remoto. Dejar vacio para ver todo.',
+              'Filters imported historical tickets in Remote Dashboard. Leave empty to see all.'
+            )}
+          >
+            <input
+              type="date"
+              value={cfg.go_live_date || ''}
+              onChange={e => set('go_live_date', e.target.value)}
+              className="border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-[#b3001e]"
+            />
+          </SettingRow>
+        </SettingSection>
+      )}
 
       <SettingSection title={L('Impresora', 'Printer')}>
         <SettingRow settingKey="printer" label={L('Impresora del sistema', 'System Printer')} hint={L('Impresora configurada en el OS', 'OS-configured printer')}>
