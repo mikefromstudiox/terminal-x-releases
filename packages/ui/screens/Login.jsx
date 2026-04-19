@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react'
 import logoImg from '../assets/logo.webp'
 import xMark from '../assets/x-mark.webp'
-import { Delete, UserPlus, Loader2, CheckCircle2 } from 'lucide-react'
+import { Delete } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAuth } from '../context/AuthContext'
 const isWebRuntime = () => typeof window !== 'undefined' && !window.electronAPI
-import { useAPI } from '../context/DataContext'
 import LanguageToggle from '../components/LanguageToggle'
 
 // ── PIN Dots ──────────────────────────────────────────────────────────────────
@@ -117,7 +116,6 @@ function PasswordMode({ username, password, error, onChange, onSubmit, t }) {
 export default function Login() {
   const { t, lang } = useLang()
   const { login, loginWithPassword, logout } = useAuth()
-  const api = useAPI()
   const L = (es, en) => lang === 'es' ? es : en
 
   const [mode, setMode]         = useState('pin')
@@ -126,8 +124,6 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError]       = useState(null)
   const [shake, setShake]       = useState(false)
-  const [demoCreating, setDemoCreating] = useState(false)
-  const [demoResult, setDemoResult]     = useState(null)
   // Keyboard support for PIN mode
   useEffect(() => {
     if (mode !== 'pin') return
@@ -207,37 +203,6 @@ export default function Login() {
     setError(null)
   }
 
-  async function handleQuickDemo() {
-    setDemoCreating(true); setDemoResult(null); setError(null)
-    try {
-      const demoPin = String(Math.floor(1000 + Math.random() * 9000))
-      const demoUser = 'demo'
-      // Check if demo user already exists
-      const users = await api?.users?.all?.()
-      const existing = users?.find(u => u.username === demoUser && u.active)
-      if (existing) {
-        // Update PIN of existing demo user
-        await api.users.update({ id: existing.id, pin: demoPin })
-      } else {
-        // Create empleado first, then user
-        let empId = null
-        try {
-          const emps = await api?.empleados?.all?.()
-          const demoEmp = emps?.find(e => e.nombre === 'Demo')
-          if (demoEmp) {
-            empId = demoEmp.id
-          } else {
-            const emp = await api?.empleados?.create?.({ nombre: 'Demo', tipo: 'cajero', role: 'cashier', salary: 0, comision_pct: 0, start_date: new Date().toISOString().split('T')[0] })
-            empId = emp?.id
-          }
-        } catch {}
-        await api.users.create({ name: 'Demo', username: demoUser, pin: demoPin, role: 'cashier', discount_pct: 0, employee_id: empId })
-      }
-      setDemoResult({ pin: demoPin, username: demoUser })
-    } catch (err) { setError(err.message || L('Error al crear demo', 'Error creating demo')) }
-    finally { setDemoCreating(false) }
-  }
-
   return (
     <div className="min-h-screen flex overflow-hidden bg-white dark:bg-black">
 
@@ -300,26 +265,6 @@ export default function Login() {
             </button>
           </div>
 
-          {/* Demo result card */}
-          {demoResult && (
-            <div className="mt-4 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 rounded-xl p-4 text-center">
-              <CheckCircle2 size={20} className="mx-auto text-emerald-600 dark:text-emerald-400 mb-2" />
-              <p className="text-[13px] font-bold text-emerald-700 dark:text-emerald-300">{L('Usuario demo listo', 'Demo user ready')}</p>
-              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">{L('Usuario:', 'User:')} <span className="font-mono font-bold">{demoResult.username}</span></p>
-              <p className="text-[18px] font-black text-emerald-800 dark:text-emerald-200 tracking-[6px] mt-1">{demoResult.pin}</p>
-              <p className="text-[10px] text-emerald-500 dark:text-emerald-400/60 mt-1">{L('Ingresa este PIN arriba', 'Enter this PIN above')}</p>
-            </div>
-          )}
-
-          {/* Quick Demo button */}
-          <button
-            onClick={handleQuickDemo}
-            disabled={demoCreating}
-            className="mt-4 w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-dashed border-slate-300 dark:border-white/20 text-slate-500 dark:text-white/50 hover:border-[#b3001e] hover:text-[#b3001e] dark:hover:border-[#b3001e] dark:hover:text-[#b3001e] transition-colors text-[12px] font-medium disabled:opacity-50"
-          >
-            {demoCreating ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
-            {demoCreating ? L('Creando…', 'Creating…') : L('Crear Usuario Demo', 'Quick Create Demo User')}
-          </button>
 
           {/* Disconnect device — on web = full sign out (clears Supabase
               session + redirects to landing). On desktop = wipe local DB
