@@ -59,14 +59,29 @@ export function AuthProvider({ children }) {
     if (loggingOutRef.current) { setWebChecked(true); return }
     try { if (sessionStorage.getItem(LOGOUT_FLAG)) { setWebChecked(true); return } } catch {}
     if (!api?.admin?.getUsuarios) return
-    api.admin.getUsuarios().then(users => {
+    api.admin.getUsuarios().then(async users => {
       const active = users?.filter(u => u.active)
       if (!active?.length && !loggingOutRef.current) {
-        setUser(TEMP_OWNER)
+        // Defense-in-depth: an empty active list could mean (a) genuine
+        // first-time-setup, or (b) an RLS silent-empty (staff SELECT missing,
+        // network hiccup, stale JWT). Before granting TEMP_OWNER, verify we
+        // are really in a fresh state by also checking for a setup marker.
+        // Require BOTH: no users AND no business/empresa record visible.
+        let isFreshInstall = false
+        try {
+          const empresa = await api?.admin?.getEmpresa?.()
+          // Fresh install = empresa row absent OR lacking a rnc
+          isFreshInstall = !empresa || !empresa.rnc
+        } catch { isFreshInstall = false }
+        if (isFreshInstall) setUser(TEMP_OWNER)
+        // else: leave user null → Login screen renders → user must auth properly
       }
       setWebChecked(true)
     }).catch(() => {
-      if (!loggingOutRef.current) setUser(TEMP_OWNER)
+      // A failed getUsuarios is NO LONGER a green light for TEMP_OWNER.
+      // Network/RLS/JWT failures should surface as a login-required state,
+      // not silently grant owner role (prior vector: staff RLS missing SELECT
+      // → every web user got TEMP_OWNER).
       setWebChecked(true)
     })
   }, [api])
