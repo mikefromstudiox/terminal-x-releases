@@ -702,6 +702,30 @@ function init(userDataPath) {
     )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_csr_supabase_id ON client_service_rates(supabase_id)`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_csr_client_service ON client_service_rates(client_supabase_id, service_supabase_id)`,
+
+    // v2.5 — Per-client custom item pricing (inventory overrides). Mirrors
+    // client_service_rates exactly but scoped to inventory_items. Hard rule:
+    // never merge the two tables — keep service/item axes separate.
+    `CREATE TABLE IF NOT EXISTS client_item_prices (
+      id                         INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                TEXT,
+      client_id                  INTEGER REFERENCES clients(id),
+      client_supabase_id         TEXT NOT NULL,
+      inventory_item_id          INTEGER REFERENCES inventory_items(id),
+      inventory_item_supabase_id TEXT NOT NULL,
+      custom_price               REAL NOT NULL,
+      notes                      TEXT,
+      created_at                 TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at                 TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_cip_supabase_id ON client_item_prices(supabase_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_cip_client_item ON client_item_prices(client_supabase_id, inventory_item_supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_cip_client ON client_item_prices(client_supabase_id)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_cip_updated_at
+       AFTER UPDATE ON client_item_prices
+       FOR EACH ROW BEGIN
+         UPDATE client_item_prices SET updated_at = datetime('now') WHERE id = NEW.id;
+       END`,
     // Tickets: project link
     'ALTER TABLE tickets ADD COLUMN project_id INTEGER',
     'ALTER TABLE tickets ADD COLUMN project_supabase_id TEXT',
@@ -855,6 +879,59 @@ function init(userDataPath) {
     // v2.3.32 — Pedidos Ya per-channel pricing + ticket order source
     'ALTER TABLE inventory_items ADD COLUMN price_pedidos_ya REAL',
     "ALTER TABLE tickets ADD COLUMN order_source TEXT DEFAULT 'pos'",
+
+    // v2.5 — Conteo Fisico (physical inventory count + variance / theft report)
+    `CREATE TABLE IF NOT EXISTS inventory_counts (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id           TEXT,
+      title                 TEXT    NOT NULL DEFAULT 'Conteo Fisico',
+      started_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+      completed_at          TEXT,
+      counted_by_name       TEXT,
+      status                TEXT    NOT NULL DEFAULT 'abierto',
+      notes                 TEXT,
+      total_expected_value  REAL    NOT NULL DEFAULT 0,
+      total_counted_value   REAL    NOT NULL DEFAULT 0,
+      total_variance_value  REAL    NOT NULL DEFAULT 0,
+      created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at            TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_counts_supabase_id ON inventory_counts(supabase_id)`,
+    `CREATE INDEX        IF NOT EXISTS idx_inv_counts_status      ON inventory_counts(status, started_at DESC)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_inventory_counts_updated_at
+      AFTER UPDATE ON inventory_counts
+      FOR EACH ROW
+      BEGIN
+        UPDATE inventory_counts SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+      END`,
+
+    `CREATE TABLE IF NOT EXISTS inventory_count_items (
+      id                         INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                TEXT,
+      count_id                   INTEGER REFERENCES inventory_counts(id) ON DELETE CASCADE,
+      count_supabase_id          TEXT NOT NULL,
+      inventory_item_id          INTEGER REFERENCES inventory_items(id),
+      inventory_item_supabase_id TEXT NOT NULL,
+      sku                        TEXT,
+      name                       TEXT NOT NULL,
+      category                   TEXT,
+      expected_qty               REAL NOT NULL DEFAULT 0,
+      counted_qty                REAL,
+      unit_cost                  REAL NOT NULL DEFAULT 0,
+      unit_price                 REAL NOT NULL DEFAULT 0,
+      notes                      TEXT,
+      created_at                 TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at                 TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_count_items_supabase_id ON inventory_count_items(supabase_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_count_items_count_item  ON inventory_count_items(count_supabase_id, inventory_item_supabase_id)`,
+    `CREATE INDEX        IF NOT EXISTS idx_inv_count_items_count       ON inventory_count_items(count_supabase_id)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_inventory_count_items_updated_at
+      AFTER UPDATE ON inventory_count_items
+      FOR EACH ROW
+      BEGIN
+        UPDATE inventory_count_items SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+      END`,
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -5542,6 +5619,87 @@ function clientRateDelete(id) {
   db.prepare('DELETE FROM client_service_rates WHERE id=?').run(id)
 }
 
+// ── v2.5 — Per-client custom inventory pricing ──────────────────────────────
+// Mirror of client_service_rates, scoped to inventory_items. Write path guards
+// non-positive prices: the DR market never legitimately sells below zero, and
+// a silent 0 would let a wholesaler walk out with free product. Upsert on
+// natural key (client_supabase_id, inventory_item_supabase_id).
+function _cipResolveItemSid(inventory_item_id) {
+  if (!db || !inventory_item_id) return null
+  try { return db.prepare('SELECT supabase_id FROM inventory_items WHERE id=?').get(inventory_item_id)?.supabase_id || null }
+  catch { return null }
+}
+function clientItemPriceSet({ client_id, client_supabase_id, inventory_item_id, inventory_item_supabase_id, custom_price, notes }) {
+  if (!db) return null
+  const priceNum = Number(custom_price)
+  if (!Number.isFinite(priceNum) || priceNum <= 0) return null
+  const csid  = client_supabase_id  || _svcResolveClientSid(client_id)
+  const iisid = inventory_item_supabase_id || _cipResolveItemSid(inventory_item_id)
+  if (!csid || !iisid) return null
+  // Resolve local IDs (best-effort; FKs may be null on rows synced from web).
+  const cid = client_id || db.prepare('SELECT id FROM clients WHERE supabase_id=?').get(csid)?.id || null
+  const iid = inventory_item_id || db.prepare('SELECT id FROM inventory_items WHERE supabase_id=?').get(iisid)?.id || null
+  const existing = db.prepare('SELECT id FROM client_item_prices WHERE client_supabase_id=? AND inventory_item_supabase_id=?').get(csid, iisid)
+  if (existing) {
+    db.prepare(`UPDATE client_item_prices SET custom_price=?, notes=?, updated_at=datetime('now') WHERE id=?`)
+      .run(priceNum, notes || null, existing.id)
+    return db.prepare('SELECT * FROM client_item_prices WHERE id=?').get(existing.id)
+  }
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO client_item_prices
+    (supabase_id, client_id, client_supabase_id, inventory_item_id, inventory_item_supabase_id, custom_price, notes)
+    VALUES(?,?,?,?,?,?,?)`).run(sid, cid, csid, iid, iisid, priceNum, notes || null)
+  return db.prepare('SELECT * FROM client_item_prices WHERE id=?').get(r.lastInsertRowid)
+}
+function clientItemPriceList({ clientId, itemId } = {}) {
+  if (!db) return []
+  let sql = `SELECT p.*, c.name AS client_name, i.name AS item_name, i.sku,
+                    i.price AS base_price, i.active AS item_active, c.active AS client_active
+             FROM client_item_prices p
+             LEFT JOIN clients         c ON c.id = p.client_id
+             LEFT JOIN inventory_items i ON i.id = p.inventory_item_id
+             WHERE 1=1`
+  const params = {}
+  if (clientId) { sql += ' AND p.client_id=@cid'; params.cid = clientId }
+  if (itemId)   { sql += ' AND p.inventory_item_id=@iid'; params.iid = itemId }
+  sql += ' ORDER BY i.name'
+  return db.prepare(sql).all(params)
+}
+function clientItemPriceGet({ clientId, itemId }) {
+  if (!db || !clientId || !itemId) return null
+  return db.prepare('SELECT * FROM client_item_prices WHERE client_id=? AND inventory_item_id=?').get(clientId, itemId)
+}
+function clientItemPriceDelete(id) {
+  if (!db) return
+  db.prepare('DELETE FROM client_item_prices WHERE id=?').run(id)
+}
+// CSV bulk import — { client: <rnc|id>, sku: <sku|barcode>, custom_price, notes }
+function clientItemPriceBulkImport(rows) {
+  if (!db || !Array.isArray(rows)) return { ok: 0, skip: 0, errors: [] }
+  const out = { ok: 0, skip: 0, errors: [] }
+  const txn = db.transaction((list) => {
+    for (const r of list) {
+      try {
+        const clientKey = String(r.client ?? r.client_rnc ?? r.rnc ?? '').trim()
+        const skuKey    = String(r.sku ?? r.barcode ?? '').trim()
+        if (!clientKey || !skuKey) { out.skip++; continue }
+        const client = db.prepare('SELECT id FROM clients WHERE rnc=? OR id=?').get(clientKey, Number(clientKey) || 0)
+        const item   = db.prepare('SELECT id FROM inventory_items WHERE sku=? OR barcode=?').get(skuKey, skuKey)
+        if (!client || !item) { out.skip++; continue }
+        const res = clientItemPriceSet({
+          client_id: client.id,
+          inventory_item_id: item.id,
+          custom_price: r.custom_price,
+          notes: r.notes || null,
+        })
+        if (res) out.ok++; else out.skip++
+      } catch (e) { out.errors.push({ row: r, err: String(e && e.message || e) }) }
+    }
+  })
+  try { txn(rows) } catch (e) { out.errors.push({ err: String(e && e.message || e) }) }
+  return out
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 // ── Raw DB access for sync module ────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -5833,6 +5991,225 @@ function oversellUnresolvedCount() {
   } catch { return 0 }
 }
 
+// ── CONTEO FISICO (physical inventory count + variance/theft report) ─────────
+// Header = inventory_counts, one row per count session.
+// Items  = inventory_count_items, snapshot of every active SKU at start time.
+// variance_qty / variance_cost / variance_price are computed in SELECT — SQLite
+// has GENERATED columns but portability wins. Supabase mirror uses GENERATED.
+
+function _countRollup(countSid) {
+  // Totals use unit_cost for "value" (cost basis = what the loss actually costs
+  // the business). unit_price is carried for the report so the owner sees both
+  // cost and price variance. counted_qty is NULL until the cashier enters it —
+  // treat NULL as "not counted yet" (contributes to counted side as expected, so
+  // the running variance reflects only items actually counted). On completion
+  // that's no different because completeCount() only touches counted rows.
+  const row = db.prepare(`
+    SELECT
+      COALESCE(SUM(expected_qty * unit_cost), 0)                           AS total_expected_value,
+      COALESCE(SUM(COALESCE(counted_qty, expected_qty) * unit_cost), 0)    AS total_counted_value,
+      COALESCE(SUM((COALESCE(counted_qty, expected_qty) - expected_qty) * unit_cost), 0) AS total_variance_value
+    FROM inventory_count_items
+    WHERE count_supabase_id = ?
+  `).get(countSid) || {}
+  return {
+    total_expected_value: Number(row.total_expected_value) || 0,
+    total_counted_value:  Number(row.total_counted_value)  || 0,
+    total_variance_value: Number(row.total_variance_value) || 0,
+  }
+}
+
+function _applyRollup(countSid) {
+  const t = _countRollup(countSid)
+  db.prepare(`UPDATE inventory_counts
+    SET total_expected_value = ?, total_counted_value = ?, total_variance_value = ?,
+        updated_at = datetime('now')
+    WHERE supabase_id = ?`)
+    .run(t.total_expected_value, t.total_counted_value, t.total_variance_value, countSid)
+  return t
+}
+
+function inventoryCountStart({ title, counted_by_name, notes } = {}) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const nowIso = new Date().toISOString()
+  const headerTitle = (title && String(title).trim()) || `Conteo Fisico ${new Date().toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })}`
+  const items = db.prepare(`
+    SELECT id, supabase_id, sku, name, category, quantity, cost, price
+    FROM inventory_items
+    WHERE active = 1 AND supabase_id IS NOT NULL
+    ORDER BY category COLLATE NOCASE, name COLLATE NOCASE
+  `).all()
+
+  const run = db.transaction(() => {
+    const r = db.prepare(`INSERT INTO inventory_counts
+      (supabase_id, title, started_at, counted_by_name, status, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'abierto', ?, ?, ?)`)
+      .run(sid, headerTitle, nowIso, counted_by_name || null, notes || null, nowIso, nowIso)
+    const headerId = r.lastInsertRowid
+
+    const insItem = db.prepare(`INSERT INTO inventory_count_items
+      (supabase_id, count_id, count_supabase_id, inventory_item_id, inventory_item_supabase_id,
+       sku, name, category, expected_qty, counted_qty, unit_cost, unit_price, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`)
+    for (const it of items) {
+      insItem.run(
+        crypto.randomUUID(), headerId, sid, it.id, it.supabase_id,
+        it.sku || null, it.name, it.category || null,
+        Number(it.quantity) || 0,
+        Number(it.cost) || 0, Number(it.price) || 0,
+        nowIso, nowIso
+      )
+    }
+    return headerId
+  })
+  const headerId = run()
+  _applyRollup(sid)
+  return inventoryCountGet(headerId)
+}
+
+function inventoryCountList({ limit = 50 } = {}) {
+  if (!db) return []
+  const rows = db.prepare(`
+    SELECT c.*,
+      (SELECT COUNT(*) FROM inventory_count_items WHERE count_supabase_id = c.supabase_id) AS items_count,
+      (SELECT COUNT(*) FROM inventory_count_items WHERE count_supabase_id = c.supabase_id AND counted_qty IS NOT NULL) AS counted_count
+    FROM inventory_counts c
+    ORDER BY c.started_at DESC
+    LIMIT ?
+  `).all(Math.min(Number(limit) || 50, 500))
+  return rows
+}
+
+function inventoryCountGet(idOrSid) {
+  if (!db) return null
+  const header = (typeof idOrSid === 'string' && idOrSid.includes('-'))
+    ? db.prepare('SELECT * FROM inventory_counts WHERE supabase_id = ?').get(idOrSid)
+    : db.prepare('SELECT * FROM inventory_counts WHERE id = ?').get(Number(idOrSid))
+  if (!header) return null
+  const items = db.prepare(`
+    SELECT *,
+      (COALESCE(counted_qty, 0) - expected_qty)               AS variance_qty,
+      (COALESCE(counted_qty, 0) - expected_qty) * unit_cost   AS variance_cost,
+      (COALESCE(counted_qty, 0) - expected_qty) * unit_price  AS variance_price
+    FROM inventory_count_items
+    WHERE count_supabase_id = ?
+    ORDER BY category COLLATE NOCASE, name COLLATE NOCASE
+  `).all(header.supabase_id)
+  return { ...header, items }
+}
+
+function inventoryCountSaveItem({ count_supabase_id, inventory_item_supabase_id, counted_qty, notes }) {
+  if (!db || !count_supabase_id || !inventory_item_supabase_id) return false
+  const qty = (counted_qty === null || counted_qty === '' || counted_qty === undefined) ? null : Number(counted_qty)
+  if (qty != null && (!Number.isFinite(qty) || qty < 0)) {
+    throw new Error('Cantidad invalida')
+  }
+  const nowIso = new Date().toISOString()
+  db.prepare(`UPDATE inventory_count_items
+    SET counted_qty = ?, notes = COALESCE(?, notes), updated_at = ?
+    WHERE count_supabase_id = ? AND inventory_item_supabase_id = ?`)
+    .run(qty, notes != null ? notes : null, nowIso, count_supabase_id, inventory_item_supabase_id)
+  _applyRollup(count_supabase_id)
+  return true
+}
+
+function inventoryCountComplete({ id, apply_to_inventory = true } = {}) {
+  if (!db || !id) return { ok: false, error: 'missing_id' }
+  const header = (typeof id === 'string' && id.includes('-'))
+    ? db.prepare('SELECT * FROM inventory_counts WHERE supabase_id = ?').get(id)
+    : db.prepare('SELECT * FROM inventory_counts WHERE id = ?').get(Number(id))
+  if (!header) return { ok: false, error: 'count_not_found' }
+  if (header.status !== 'abierto') return { ok: false, error: 'count_not_open' }
+
+  const countSid = header.supabase_id
+  const nowIso = new Date().toISOString()
+
+  // Row-level variance snapshot for activity_log metadata (top 10 losses).
+  const counted = db.prepare(`
+    SELECT sku, name, category, expected_qty, counted_qty, unit_cost, unit_price,
+      (counted_qty - expected_qty)              AS variance_qty,
+      (counted_qty - expected_qty) * unit_cost  AS variance_cost
+    FROM inventory_count_items
+    WHERE count_supabase_id = ? AND counted_qty IS NOT NULL
+  `).all(countSid)
+
+  const run = db.transaction(() => {
+    if (apply_to_inventory) {
+      const upd = db.prepare(`UPDATE inventory_items
+        SET quantity = ?, updated_at = datetime('now')
+        WHERE supabase_id = ?`)
+      for (const r of counted) {
+        // Look up supabase_id from the item rows in this count.
+        const sid = db.prepare('SELECT inventory_item_supabase_id FROM inventory_count_items WHERE count_supabase_id=? AND sku IS ? AND name=?')
+          .get(countSid, r.sku, r.name)?.inventory_item_supabase_id
+        if (sid) upd.run(Number(r.counted_qty) || 0, sid)
+      }
+    }
+    db.prepare(`UPDATE inventory_counts SET status='completado', completed_at=?, updated_at=? WHERE supabase_id=?`)
+      .run(nowIso, nowIso, countSid)
+  })
+  run()
+
+  const totals = _applyRollup(countSid)
+  const varianceCost = Math.abs(Number(totals.total_variance_value) || 0)
+  const severity = varianceCost > 10000 ? 'critical' : (varianceCost > 2000 ? 'warn' : 'info')
+  const topLosses = counted
+    .filter(r => Number(r.variance_cost) < 0)
+    .sort((a, b) => Number(a.variance_cost) - Number(b.variance_cost))
+    .slice(0, 10)
+    .map(r => ({
+      sku: r.sku || null, name: r.name,
+      expected: Number(r.expected_qty) || 0,
+      counted: Number(r.counted_qty) || 0,
+      variance_qty: Number(r.variance_qty) || 0,
+      variance_cost: Number(r.variance_cost) || 0,
+    }))
+
+  try {
+    activityLogRecord({
+      event_type: 'inventory_count_completed', severity,
+      target_type: 'inventory_count', target_id: header.id, target_name: header.title,
+      amount: totals.total_variance_value,
+      reason: apply_to_inventory ? 'Conteo aplicado al inventario' : 'Conteo sin aplicar al inventario',
+      metadata: {
+        count_supabase_id: countSid,
+        items_total: counted.length,
+        total_expected_value: totals.total_expected_value,
+        total_counted_value: totals.total_counted_value,
+        total_variance_value: totals.total_variance_value,
+        applied: !!apply_to_inventory,
+        top_losses: topLosses,
+      },
+    })
+  } catch {}
+
+  return { ok: true, totals, severity, topLosses }
+}
+
+function inventoryCountCancel(id) {
+  if (!db || !id) return false
+  const nowIso = new Date().toISOString()
+  const where = (typeof id === 'string' && id.includes('-')) ? 'supabase_id = ?' : 'id = ?'
+  db.prepare(`UPDATE inventory_counts SET status='cancelado', completed_at=?, updated_at=? WHERE ${where} AND status='abierto'`)
+    .run(nowIso, nowIso, typeof id === 'string' && id.includes('-') ? id : Number(id))
+  return true
+}
+
+function inventoryCountDelete(id) {
+  if (!db || !id) return false
+  const header = (typeof id === 'string' && id.includes('-'))
+    ? db.prepare('SELECT * FROM inventory_counts WHERE supabase_id = ?').get(id)
+    : db.prepare('SELECT * FROM inventory_counts WHERE id = ?').get(Number(id))
+  if (!header) return false
+  const run = db.transaction(() => {
+    db.prepare('DELETE FROM inventory_count_items WHERE count_supabase_id = ?').run(header.supabase_id)
+    db.prepare('DELETE FROM inventory_counts WHERE id = ?').run(header.id)
+  })
+  run()
+  return true
+}
+
 function rawPrepare(sql) { return db ? db.prepare(sql) : null }
 function rawExec(sql) { if (db) db.exec(sql) }
 
@@ -5894,6 +6271,9 @@ module.exports = {
   // Inventory
   inventoryGetAll, inventoryCreate, inventoryUpdate, inventoryBulkUpdate, inventoryDelete, inventoryAdjust, inventoryTransactions,
   inventoryLookupBySku, inventorySearch, inventoryLowStockCount,
+  // Conteo Fisico (v2.5)
+  inventoryCountStart, inventoryCountList, inventoryCountGet, inventoryCountSaveItem,
+  inventoryCountComplete, inventoryCountCancel, inventoryCountDelete,
   // e-CF offline queue
   ecfQueueAdd, ecfQueueGetPending, ecfQueueDelete, ecfQueueIncrAttempts, ecfQueueCount,
   // e-CF submissions log
@@ -5934,6 +6314,8 @@ module.exports = {
   servicePackageConsume, servicePackageDelete,
   projectCreate, projectUpdate, projectList, projectGetById,
   clientRateSet, clientRateList, clientRateGet, clientRateDelete,
+  // v2.5 — per-client item prices
+  clientItemPriceSet, clientItemPriceList, clientItemPriceGet, clientItemPriceDelete, clientItemPriceBulkImport,
   // Multi-POS — block allocation + oversell detection (v2.3)
   multiPosEnabled,
   ncfBlockInsert, ncfBlockActive, ncfBlockAvailableCount, ncfBlockConsumeNext, ncfBlocksListLocal,

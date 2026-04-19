@@ -1120,9 +1120,40 @@ function RetailPOS() {
   // lines (skip anything the cashier manually edited, gated by `_priceEdited`).
   const pyAvailable = isRetail || isLicoreria
   const [pyMode, setPyMode] = useState(false)
+
+  // ── v2.5 — Per-client inventory overrides ────────────────────────────────
+  // Fetched on client change. Precedence (highest → lowest):
+  //   clientOverride > pyMode ? price_pedidos_ya : null > price
+  // Client override ALWAYS wins (mayorista price beats PY promo pricing).
+  // Inactive clients never apply overrides; inactive items excluded from list.
+  const [clientItemOverrides, setClientItemOverrides] = useState({})
+  useEffect(() => {
+    const cid = selectedClient?.id
+    if (!cid || selectedClient?.active === 0) { setClientItemOverrides({}); return }
+    let cancelled = false
+    const webKey = typeof window !== 'undefined' && !window.electronAPI
+    const params = webKey ? { clientSupabaseId: selectedClient.supabase_id || cid } : { clientId: cid }
+    api?.clientItemPrices?.list?.(params)
+      .then(rows => {
+        if (cancelled) return
+        const map = {}
+        for (const r of (rows || [])) {
+          if (r.item_active === 0) continue
+          const key = r.inventory_item_supabase_id
+          const p   = Number(r.custom_price)
+          if (key && Number.isFinite(p) && p > 0) map[key] = p
+        }
+        setClientItemOverrides(map)
+      })
+      .catch(() => { if (!cancelled) setClientItemOverrides({}) })
+    return () => { cancelled = true }
+  }, [api, selectedClient?.id, selectedClient?.supabase_id, selectedClient?.active])
+
   function effectivePrice(product) {
     if (!product) return 0
     const base = Number(product.price || 0)
+    const ov = clientItemOverrides[product.supabase_id]
+    if (ov != null) return ov
     if (!pyMode) return base
     const py = product.price_pedidos_ya
     return (py != null && py !== '' && Number.isFinite(Number(py))) ? Number(py) : base
@@ -1252,11 +1283,38 @@ function RetailPOS() {
     setCart(prev => prev.map(it => {
       if (it._priceEdited) return it
       if (it._basePrice == null) return it        // not a re-priceable line
+      // Client override still wins over PY. Only reprice PY on non-override lines.
+      const ov = it._clientOverrideKey ? clientItemOverrides[it._clientOverrideKey] : undefined
+      if (ov != null) return it
       const next = pyMode && it._pyPrice != null ? it._pyPrice : it._basePrice
       if (Number(it.price) === Number(next)) return it
       return { ...it, price: next, _py: pyMode && it._pyPrice != null }
     }))
   }, [pyMode])
+
+  // ── v2.5 — Client-change reprice ─────────────────────────────────────────
+  // When the selected client changes (or overrides load after selection),
+  // re-apply pricing to every inventory line in the cart. Cashier-edited
+  // lines (`_priceEdited`) are locked. Service lines aren't touched — their
+  // override flow lives in `client_service_rates` via the carwash path.
+  useEffect(() => {
+    setCart(prev => prev.map(it => {
+      if (it._priceEdited) return it
+      if (it._basePrice == null) return it
+      if (!it._clientOverrideKey && !it.inventory_item_id) return it
+      const key = it._clientOverrideKey
+      const ov  = key ? clientItemOverrides[key] : undefined
+      if (ov != null) {
+        if (Number(it.price) === Number(ov) && it._clientPrice) return it
+        return { ...it, price: Number(ov), _clientPrice: true, _py: false }
+      }
+      // No override — fall back to PY (if toggle on) else base.
+      const next = pyMode && it._pyPrice != null ? it._pyPrice : it._basePrice
+      if (Number(it.price) === Number(next) && !it._clientPrice) return it
+      return { ...it, price: next, _clientPrice: false, _py: pyMode && it._pyPrice != null }
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedClient?.id, clientItemOverrides])
 
   // ── Search / barcode lookup ────────────────────────────────────────────────
   function handleSearchInput(value) {
@@ -1319,7 +1377,10 @@ function RetailPOS() {
       const basePrice = Number(product.price || 0)
       const pyPrice   = product.price_pedidos_ya != null && Number.isFinite(Number(product.price_pedidos_ya))
                           ? Number(product.price_pedidos_ya) : null
-      const usedPrice = pyMode && pyPrice != null ? pyPrice : basePrice
+      const clientOverride = clientItemOverrides[product.supabase_id]
+      const hasOverride = clientOverride != null
+      // Precedence: client override > PY > base.
+      const usedPrice = hasOverride ? clientOverride : (pyMode && pyPrice != null ? pyPrice : basePrice)
       return [...prev, {
         id: `inv-${product.id}`,
         inventory_item_id: product.id,
@@ -1329,7 +1390,9 @@ function RetailPOS() {
         price: usedPrice,
         _basePrice: basePrice,
         _pyPrice: pyPrice,
-        _py: pyMode && pyPrice != null,
+        _clientPrice: hasOverride,
+        _clientOverrideKey: product.supabase_id || null,
+        _py: !hasOverride && pyMode && pyPrice != null,
         cost: product.cost || 0,
         qty: 1,
         aplica_itbis: product.aplica_itbis ?? 1,
@@ -1689,10 +1752,13 @@ function RetailPOS() {
               )}
               <div className={`grid ${gridCols} gap-2`}>
                 {searchResults.map(item => {
+                  const base = Number(item.price || 0)
+                  const ov = clientItemOverrides[item.supabase_id]
                   const py = item.price_pedidos_ya != null && Number.isFinite(Number(item.price_pedidos_ya)) ? Number(item.price_pedidos_ya) : null
-                  const showPY = pyMode && py != null
-                  const shown  = showPY ? py : Number(item.price || 0)
-                  const showStrike = showPY && py !== Number(item.price || 0)
+                  const showOv = ov != null
+                  const showPY = !showOv && pyMode && py != null
+                  const shown  = showOv ? ov : (showPY ? py : base)
+                  const showStrike = shown !== base
                   return (
                   <button key={item.id} onClick={() => addToCart(item)}
                     className="flex flex-col items-start p-3 rounded-xl border-2 border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-[#b3001e] hover:bg-[#b3001e]/10 dark:hover:bg-[#b3001e]/15 transition-all text-left">
@@ -1730,6 +1796,10 @@ function RetailPOS() {
               <div className={`grid ${gridCols} gap-2`}>
                 {quickSells.map(item => {
                   const restricted = requiresAgeCheck(licoreriaConfig, item)
+                  const base = Number(item.price || 0)
+                  const ov = clientItemOverrides[item.supabase_id]
+                  const qsShown = ov != null ? ov : base
+                  const qsStrike = ov != null && ov !== base
                   return (
                     <button key={`qs-${item.id}`} onClick={() => addToCart(item)}
                       className="group relative overflow-hidden flex flex-col justify-between p-4 md:p-5 rounded-2xl border border-[#b3001e]/50 bg-gradient-to-br from-[#b3001e]/[0.07] via-white to-white dark:from-[#b3001e]/20 dark:via-white/[0.04] dark:to-white/[0.03] text-left transition-all duration-200 ease-out min-h-[136px] will-change-transform shadow-[inset_0_1px_0_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] hover:border-[#b3001e] hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-12px_rgba(179,0,30,0.55),inset_0_1px_0_0_rgba(255,255,255,0.7)] active:translate-y-0 active:scale-[0.99]">
@@ -1747,11 +1817,20 @@ function RetailPOS() {
                         <p className="text-[14px] md:text-[15px] font-semibold text-slate-800 dark:text-white leading-snug line-clamp-2 tracking-[-0.01em]">{item.name}</p>
                         {item.sku && <p className="text-[10px] text-slate-400 dark:text-white/40 mt-0.5 font-mono tracking-tight">{item.sku}</p>}
                       </div>
-                      <div className="relative flex justify-end items-baseline gap-1.5 mt-2 pt-2.5 border-t border-dashed border-[#b3001e]/20 dark:border-white/10">
-                        <span className="text-[11px] font-medium text-slate-400 dark:text-white/40 uppercase tracking-[0.1em]">RD$</span>
-                        <span className="font-black tabular-nums leading-none tracking-[-0.02em] text-[26px] text-[#b3001e]">
-                          {Number(item.price || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                        </span>
+                      <div className="relative mt-2 pt-2.5 border-t border-dashed border-[#b3001e]/20 dark:border-white/10">
+                        {qsStrike && (
+                          <div className="flex justify-end">
+                            <span className="text-[11px] text-slate-400 dark:text-white/40 line-through tabular-nums">
+                              RD$ {base.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex justify-end items-baseline gap-1.5">
+                          <span className="text-[11px] font-medium text-slate-400 dark:text-white/40 uppercase tracking-[0.1em]">RD$</span>
+                          <span className="font-black tabular-nums leading-none tracking-[-0.02em] text-[26px] text-[#b3001e]">
+                            {qsShown.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
                       </div>
                     </button>
                   )
@@ -1762,7 +1841,7 @@ function RetailPOS() {
 
           {/* Products tab — show all inventory */}
           {tab === 'products' && !searchQuery && (
-            <ProductGrid api={api} lang={lang} gridCols={gridCols} onAdd={addToCart} pyMode={pyMode} />
+            <ProductGrid api={api} lang={lang} gridCols={gridCols} onAdd={addToCart} pyMode={pyMode} overrides={clientItemOverrides} />
           )}
 
           {/* Services tab */}
@@ -2072,7 +2151,7 @@ function iconFor(product) {
   return Package
 }
 
-function ProductGrid({ api, lang, gridCols, onAdd, pyMode }) {
+function ProductGrid({ api, lang, gridCols, onAdd, pyMode, overrides = {} }) {
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeCat, setActiveCat] = useState('all')
@@ -2210,14 +2289,19 @@ function ProductGrid({ api, lang, gridCols, onAdd, pyMode }) {
                     {item.sku && <p className="text-[10px] text-slate-400 dark:text-white/30 mt-0.5 font-mono tracking-tight">{item.sku}</p>}
                   </div>
 
-                  {/* Price row — Pedidos Ya override when toggle is on */}
+                  {/* Price row — Pedidos Ya override when toggle is on.
+                      v2.5: client-specific override wins over PY. Same visual
+                      pattern as PY — main number = effective price, base price
+                      renders strikethrough above when different. */}
                   {(() => {
                     const base = Number(item.price || 0)
+                    const ov = overrides[item.supabase_id]
                     const pyRaw = item.price_pedidos_ya
                     const py = pyRaw != null && pyRaw !== '' && Number.isFinite(Number(pyRaw)) ? Number(pyRaw) : null
-                    const showPY = pyMode && py != null
-                    const shown = showPY ? py : base
-                    const strike = showPY && py !== base
+                    const showOv = ov != null
+                    const showPY = !showOv && pyMode && py != null
+                    const shown = showOv ? ov : (showPY ? py : base)
+                    const strike = shown !== base
                     return (
                       <div className="relative pt-2.5 border-t border-dashed border-slate-200/70 dark:border-white/10">
                         {strike && (

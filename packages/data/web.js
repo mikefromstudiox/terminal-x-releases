@@ -670,6 +670,182 @@ export function createWebAPI(supabase, businessId) {
       }, []),
     },
 
+    // ── Conteo Fisico (v2.5) ────────────────────────────────────────────────
+    // Mirrors the Electron inventoryCount namespace. Supabase has GENERATED
+    // variance_* columns — never send them in inserts/updates; always read them
+    // back from SELECT so the UI renders the same numbers on web and desktop.
+    inventoryCount: {
+      start: ({ title, counted_by_name, notes } = {}) => tryOr(async () => {
+        const sid = crypto.randomUUID()
+        const nowIso = new Date().toISOString()
+        const headerTitle = (title && String(title).trim()) ||
+          `Conteo Fisico ${new Date().toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })}`
+        // Snapshot active inventory once — atomically stamps expected_qty,
+        // unit_cost and unit_price so sales during the count don't poison the
+        // baseline. Variance gets computed against this snapshot on Supabase.
+        const items = throwSupaError(await supabase.from('inventory_items')
+          .select('supabase_id, sku, name, category, quantity, cost, price')
+          .eq('business_id', bid).eq('active', true)
+          .order('category').order('name')) || []
+        const header = throwSupaError(await supabase.from('inventory_counts').insert({
+          supabase_id: sid, business_id: bid,
+          title: headerTitle, started_at: nowIso,
+          counted_by_name: counted_by_name || null,
+          status: 'abierto', notes: notes || null,
+          total_expected_value: 0, total_counted_value: 0, total_variance_value: 0,
+          created_at: nowIso, updated_at: nowIso,
+        }).select('*').single())
+        if (items.length) {
+          const rows = items.map(it => ({
+            supabase_id: crypto.randomUUID(), business_id: bid,
+            count_supabase_id: sid,
+            inventory_item_supabase_id: it.supabase_id,
+            sku: it.sku || null, name: it.name, category: it.category || null,
+            expected_qty: Number(it.quantity) || 0,
+            counted_qty: null,
+            unit_cost: Number(it.cost) || 0,
+            unit_price: Number(it.price) || 0,
+            created_at: nowIso, updated_at: nowIso,
+          }))
+          // Insert in chunks of 500 to avoid PostgREST row-size caps.
+          for (let i = 0; i < rows.length; i += 500) {
+            throwSupaError(await supabase.from('inventory_count_items').insert(rows.slice(i, i + 500)))
+          }
+        }
+        // Prime header rollup so the UI shows correct totals before any count.
+        await refreshCountTotals(supabase, bid, sid)
+        return await fetchCount(supabase, bid, header.id)
+      }),
+
+      list: ({ limit = 50 } = {}) => tryOr(async () => {
+        const rows = throwSupaError(await supabase.from('inventory_counts')
+          .select('*').eq('business_id', bid)
+          .order('started_at', { ascending: false })
+          .limit(Math.min(Number(limit) || 50, 500))) || []
+        if (!rows.length) return []
+        // Attach items_count + counted_count via grouped HEAD counts. One
+        // round-trip per row would be N+1; do a single select of count rows and
+        // reduce client-side.
+        const sids = rows.map(r => r.supabase_id).filter(Boolean)
+        const counts = {}
+        if (sids.length) {
+          const ii = throwSupaError(await supabase.from('inventory_count_items')
+            .select('count_supabase_id, counted_qty')
+            .eq('business_id', bid).in('count_supabase_id', sids)) || []
+          for (const x of ii) {
+            const k = x.count_supabase_id
+            if (!counts[k]) counts[k] = { items_count: 0, counted_count: 0 }
+            counts[k].items_count++
+            if (x.counted_qty !== null && x.counted_qty !== undefined) counts[k].counted_count++
+          }
+        }
+        return rows.map(r => ({ ...r, ...(counts[r.supabase_id] || { items_count: 0, counted_count: 0 }) }))
+      }, []),
+
+      get: (idOrSid) => tryOr(async () => fetchCount(supabase, bid, idOrSid)),
+
+      saveItem: ({ count_supabase_id, inventory_item_supabase_id, counted_qty, notes }) => tryOr(async () => {
+        if (!count_supabase_id || !inventory_item_supabase_id) throw new Error('missing_key')
+        const qty = (counted_qty === null || counted_qty === '' || counted_qty === undefined) ? null : Number(counted_qty)
+        if (qty != null && (!Number.isFinite(qty) || qty < 0)) throw new Error('Cantidad invalida')
+        const patch = { counted_qty: qty, updated_at: new Date().toISOString() }
+        if (notes != null) patch.notes = notes
+        throwSupaError(await supabase.from('inventory_count_items').update(patch)
+          .eq('business_id', bid)
+          .eq('count_supabase_id', count_supabase_id)
+          .eq('inventory_item_supabase_id', inventory_item_supabase_id))
+        await refreshCountTotals(supabase, bid, count_supabase_id)
+        return true
+      }),
+
+      complete: ({ id, apply_to_inventory = true } = {}) => tryOr(async () => {
+        if (!id) throw new Error('missing_id')
+        const header = throwSupaError(await supabase.from('inventory_counts').select('*').eq('business_id', bid)
+          .eq(typeof id === 'string' && id.includes('-') ? 'supabase_id' : 'id', typeof id === 'string' && id.includes('-') ? id : Number(id))
+          .single())
+        if (!header) throw new Error('count_not_found')
+        if (header.status !== 'abierto') throw new Error('count_not_open')
+        const countSid = header.supabase_id
+        const nowIso = new Date().toISOString()
+
+        // Fetch counted rows to apply + build metadata snapshot in one pass.
+        const counted = throwSupaError(await supabase.from('inventory_count_items')
+          .select('inventory_item_supabase_id, sku, name, category, expected_qty, counted_qty, unit_cost, unit_price, variance_qty, variance_cost')
+          .eq('business_id', bid).eq('count_supabase_id', countSid)
+          .not('counted_qty', 'is', null)) || []
+
+        if (apply_to_inventory) {
+          // Individual UPDATEs — Supabase has no atomic bulk-set-by-value.
+          // Bounded by active SKU count (Ranoza ~= 976). Run sequential so the
+          // RLS policy check path doesn't fan out to thousands of parallel JWT
+          // validations on the Vercel edge.
+          for (const r of counted) {
+            await supabase.from('inventory_items')
+              .update({ quantity: Number(r.counted_qty) || 0, updated_at: nowIso })
+              .eq('business_id', bid).eq('supabase_id', r.inventory_item_supabase_id)
+          }
+        }
+        throwSupaError(await supabase.from('inventory_counts').update({
+          status: 'completado', completed_at: nowIso, updated_at: nowIso,
+        }).eq('business_id', bid).eq('supabase_id', countSid))
+
+        const totals = await refreshCountTotals(supabase, bid, countSid)
+        const varianceCost = Math.abs(Number(totals.total_variance_value) || 0)
+        const severity = varianceCost > 10000 ? 'critical' : (varianceCost > 2000 ? 'warn' : 'info')
+        const topLosses = counted
+          .filter(r => Number(r.variance_cost) < 0)
+          .sort((a, b) => Number(a.variance_cost) - Number(b.variance_cost))
+          .slice(0, 10)
+          .map(r => ({
+            sku: r.sku || null, name: r.name,
+            expected: Number(r.expected_qty) || 0,
+            counted: Number(r.counted_qty) || 0,
+            variance_qty: Number(r.variance_qty) || 0,
+            variance_cost: Number(r.variance_cost) || 0,
+          }))
+        await logActivity({
+          event_type: 'inventory_count_completed', severity,
+          target_type: 'inventory_count', target_id: header.id, target_name: header.title,
+          amount: totals.total_variance_value,
+          reason: apply_to_inventory ? 'Conteo aplicado al inventario' : 'Conteo sin aplicar al inventario',
+          metadata: {
+            count_supabase_id: countSid,
+            items_total: counted.length,
+            total_expected_value: totals.total_expected_value,
+            total_counted_value: totals.total_counted_value,
+            total_variance_value: totals.total_variance_value,
+            applied: !!apply_to_inventory,
+            top_losses: topLosses,
+          },
+        })
+        return { ok: true, totals, severity, topLosses }
+      }),
+
+      cancel: (id) => tryOr(async () => {
+        const nowIso = new Date().toISOString()
+        const key = (typeof id === 'string' && id.includes('-')) ? 'supabase_id' : 'id'
+        const val = key === 'id' ? Number(id) : id
+        throwSupaError(await supabase.from('inventory_counts').update({
+          status: 'cancelado', completed_at: nowIso, updated_at: nowIso,
+        }).eq('business_id', bid).eq(key, val).eq('status', 'abierto'))
+        return true
+      }),
+
+      delete: (id) => tryOr(async () => {
+        const header = throwSupaError(await supabase.from('inventory_counts').select('supabase_id').eq('business_id', bid)
+          .eq(typeof id === 'string' && id.includes('-') ? 'supabase_id' : 'id', typeof id === 'string' && id.includes('-') ? id : Number(id))
+          .maybeSingle())
+        if (!header) return false
+        // Delete items first — no ON DELETE CASCADE on Supabase to avoid
+        // accidentally wiping historical counts on header edits.
+        throwSupaError(await supabase.from('inventory_count_items').delete()
+          .eq('business_id', bid).eq('count_supabase_id', header.supabase_id))
+        throwSupaError(await supabase.from('inventory_counts').delete()
+          .eq('business_id', bid).eq('supabase_id', header.supabase_id))
+        return true
+      }),
+    },
+
     // ── Auth ─────────────────────────────────────────────────────────────────
 
     auth: {
@@ -3869,6 +4045,112 @@ export function createWebAPI(supabase, businessId) {
       delete: ({ id }) => tryWrite(async () => {
         throwSupaError(await supabase.from('client_service_rates').delete().eq('id', id).eq('business_id', bid))
         return true
+      }),
+    },
+
+    // ── v2.5 — Per-client inventory item prices ─────────────────────────────
+    // Mirrors clientRates but scoped to inventory. The POS path calls .list
+    // with { clientId }; the admin UI also passes { clientSupabaseId } for
+    // web-only callers. Either shape resolves — the join in attachRel fills
+    // item/client names so the UI can render without a second round-trip.
+    clientItemPrices: {
+      list: (params = {}) => tryOr(async () => {
+        let q = supabase.from('client_item_prices').select('*').eq('business_id', bid)
+        if (params.clientSupabaseId) q = q.eq('client_supabase_id', params.clientSupabaseId)
+        else if (params.clientId)    q = q.eq('client_supabase_id', params.clientId)
+        const rows = throwSupaError(await q.order('created_at', { ascending: false })) || []
+        await attachRel(supabase, rows, { fkCol: 'client_supabase_id',         targetTable: 'clients',          selectCols: 'name',              asKey: 'clients',         businessId: bid })
+        await attachRel(supabase, rows, { fkCol: 'inventory_item_supabase_id', targetTable: 'inventory_items',  selectCols: 'name, sku, price',  asKey: 'inventory_items', businessId: bid })
+        return rows.map(r => ({
+          ...r,
+          client_name: r.clients?.name || null,
+          item_name:   r.inventory_items?.name || null,
+          sku:         r.inventory_items?.sku  || null,
+          base_price:  r.inventory_items?.price ?? null,
+        }))
+      }, []),
+      get: ({ clientSupabaseId, itemSupabaseId }) => tryOr(async () => {
+        if (!clientSupabaseId || !itemSupabaseId) return null
+        const row = throwSupaError(await supabase.from('client_item_prices')
+          .select('custom_price,notes,supabase_id')
+          .eq('business_id', bid)
+          .eq('client_supabase_id', clientSupabaseId)
+          .eq('inventory_item_supabase_id', itemSupabaseId)
+          .maybeSingle())
+        return row
+      }, null),
+      set: (data) => tryWrite(async () => {
+        const price = Number(data.custom_price)
+        if (!Number.isFinite(price) || price <= 0) return null
+        const existing = await supabase.from('client_item_prices')
+          .select('id').eq('business_id', bid)
+          .eq('client_supabase_id',         data.client_supabase_id)
+          .eq('inventory_item_supabase_id', data.inventory_item_supabase_id).maybeSingle()
+        if (existing.data?.id) {
+          throwSupaError(await supabase.from('client_item_prices').update({
+            custom_price: price,
+            notes:        data.notes || null,
+            updated_at:   new Date().toISOString(),
+          }).eq('id', existing.data.id).eq('business_id', bid))
+          return { id: existing.data.id }
+        }
+        const row = throwSupaError(await supabase.from('client_item_prices').insert({
+          supabase_id:                 crypto.randomUUID(),
+          business_id:                 bid,
+          client_supabase_id:          data.client_supabase_id,
+          inventory_item_supabase_id:  data.inventory_item_supabase_id,
+          custom_price:                price,
+          notes:                       data.notes || null,
+        }).select('id,supabase_id').single())
+        return row
+      }),
+      delete: ({ id }) => tryWrite(async () => {
+        throwSupaError(await supabase.from('client_item_prices').delete().eq('id', id).eq('business_id', bid))
+        return true
+      }),
+      bulkImport: (rows) => tryWrite(async () => {
+        const out = { ok: 0, skip: 0, errors: [] }
+        if (!Array.isArray(rows)) return out
+        // Resolve all rnc/sku keys up-front (two round-trips). Map is cheap.
+        const rncs = [...new Set(rows.map(r => String(r.client_rnc || r.client || '').trim()).filter(Boolean))]
+        const skus = [...new Set(rows.map(r => String(r.sku || r.barcode || '').trim()).filter(Boolean))]
+        const clientsQ = rncs.length
+          ? throwSupaError(await supabase.from('clients').select('supabase_id,rnc').eq('business_id', bid).in('rnc', rncs)) || []
+          : []
+        const itemsQ = skus.length
+          ? throwSupaError(await supabase.from('inventory_items').select('supabase_id,sku,barcode').eq('business_id', bid).or(`sku.in.(${skus.map(s => `"${s}"`).join(',')}),barcode.in.(${skus.map(s => `"${s}"`).join(',')})`)) || []
+          : []
+        const byRnc = new Map(clientsQ.map(c => [c.rnc, c.supabase_id]))
+        const bySku = new Map()
+        for (const it of itemsQ) { if (it.sku) bySku.set(it.sku, it.supabase_id); if (it.barcode) bySku.set(it.barcode, it.supabase_id) }
+        for (const r of rows) {
+          try {
+            const rnc = String(r.client_rnc || r.client || '').trim()
+            const sku = String(r.sku || r.barcode || '').trim()
+            const csid = byRnc.get(rnc)
+            const iisid = bySku.get(sku)
+            const price = Number(r.custom_price)
+            if (!csid || !iisid || !Number.isFinite(price) || price <= 0) { out.skip++; continue }
+            await (async () => {
+              const existing = await supabase.from('client_item_prices').select('id')
+                .eq('business_id', bid).eq('client_supabase_id', csid)
+                .eq('inventory_item_supabase_id', iisid).maybeSingle()
+              if (existing.data?.id) {
+                throwSupaError(await supabase.from('client_item_prices').update({
+                  custom_price: price, notes: r.notes || null, updated_at: new Date().toISOString(),
+                }).eq('id', existing.data.id).eq('business_id', bid))
+              } else {
+                throwSupaError(await supabase.from('client_item_prices').insert({
+                  supabase_id: crypto.randomUUID(), business_id: bid,
+                  client_supabase_id: csid, inventory_item_supabase_id: iisid,
+                  custom_price: price, notes: r.notes || null,
+                }))
+              }
+            })()
+            out.ok++
+          } catch (e) { out.errors.push({ row: r, err: String(e && e.message || e) }) }
+        }
+        return out
       }),
     },
 

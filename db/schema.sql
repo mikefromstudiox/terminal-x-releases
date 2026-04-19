@@ -653,3 +653,63 @@ CREATE TABLE IF NOT EXISTS pawn_items (
   updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pawn_items_supabase_id ON pawn_items(supabase_id);
+
+-- v2.5 — Per-client custom inventory pricing
+CREATE TABLE IF NOT EXISTS client_item_prices (
+  id                         INTEGER PRIMARY KEY AUTOINCREMENT,
+  supabase_id                TEXT,
+  client_id                  INTEGER REFERENCES clients(id),
+  client_supabase_id         TEXT NOT NULL,
+  inventory_item_id          INTEGER REFERENCES inventory_items(id),
+  inventory_item_supabase_id TEXT NOT NULL,
+  custom_price               REAL NOT NULL,
+  notes                      TEXT,
+  created_at                 TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at                 TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cip_supabase_id  ON client_item_prices(supabase_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cip_client_item  ON client_item_prices(client_supabase_id, inventory_item_supabase_id);
+CREATE INDEX        IF NOT EXISTS idx_cip_client       ON client_item_prices(client_supabase_id);
+
+-- v2.5 — Conteo Fisico (physical inventory count + variance / theft report)
+-- variance_* columns are computed in JS/SELECT (not GENERATED) so SQLite
+-- stays portable across versions; the Supabase mirror uses GENERATED columns.
+CREATE TABLE IF NOT EXISTS inventory_counts (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  supabase_id           TEXT,
+  title                 TEXT    NOT NULL DEFAULT 'Conteo Fisico',
+  started_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+  completed_at          TEXT,
+  counted_by_name       TEXT,
+  status                TEXT    NOT NULL DEFAULT 'abierto', -- abierto | completado | cancelado
+  notes                 TEXT,
+  total_expected_value  REAL    NOT NULL DEFAULT 0,
+  total_counted_value   REAL    NOT NULL DEFAULT 0,
+  total_variance_value  REAL    NOT NULL DEFAULT 0,
+  created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at            TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_counts_supabase_id ON inventory_counts(supabase_id);
+CREATE INDEX        IF NOT EXISTS idx_inv_counts_status      ON inventory_counts(status, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS inventory_count_items (
+  id                         INTEGER PRIMARY KEY AUTOINCREMENT,
+  supabase_id                TEXT,
+  count_id                   INTEGER REFERENCES inventory_counts(id) ON DELETE CASCADE,
+  count_supabase_id          TEXT NOT NULL,
+  inventory_item_id          INTEGER REFERENCES inventory_items(id),
+  inventory_item_supabase_id TEXT NOT NULL,
+  sku                        TEXT,
+  name                       TEXT NOT NULL,
+  category                   TEXT,
+  expected_qty               REAL NOT NULL DEFAULT 0,
+  counted_qty                REAL,
+  unit_cost                  REAL NOT NULL DEFAULT 0,
+  unit_price                 REAL NOT NULL DEFAULT 0,
+  notes                      TEXT,
+  created_at                 TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at                 TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_count_items_supabase_id ON inventory_count_items(supabase_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_count_items_count_item  ON inventory_count_items(count_supabase_id, inventory_item_supabase_id);
+CREATE INDEX        IF NOT EXISTS idx_inv_count_items_count       ON inventory_count_items(count_supabase_id);

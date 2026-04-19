@@ -78,6 +78,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     lowStockCount: ()                           => call('inventory:lowStockCount'),
   },
 
+  // ── Conteo Fisico (v2.5) ──────────────────────────────────────────────────
+  inventoryCount: {
+    start:    (args) => call('inventoryCount:start', args),
+    list:     (args) => call('inventoryCount:list', args),
+    get:      (id)   => call('inventoryCount:get', id),
+    saveItem: (args) => call('inventoryCount:saveItem', args),
+    complete: (args) => call('inventoryCount:complete', args),
+    cancel:   (id)   => call('inventoryCount:cancel', { id }),
+    delete:   (id)   => call('inventoryCount:delete', { id }),
+  },
+
   // ── Auth ───────────────────────────────────────────────────────────────────
   auth: {
     byPin:  (pin)  => call('auth:pin', pin),
@@ -322,6 +333,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list:   (params)  => call('clientRates:list', params),
     get:    (params)  => call('clientRates:get', params),
     delete: (id)      => call('clientRates:delete', { id }),
+  },
+  clientItemPrices: {
+    set:        (data)    => call('clientItemPrices:set', data),
+    list:       (params)  => call('clientItemPrices:list', params),
+    get:        (params)  => call('clientItemPrices:get', params),
+    delete:     (id)      => call('clientItemPrices:delete', { id }),
+    bulkImport: (rows)    => call('clientItemPrices:bulkImport', { rows }),
   },
 
   // ── Restaurant Mode — Mesas (floor plan) ───────────────────────────────────

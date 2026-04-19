@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import {
   Search, Plus, X, AlertTriangle, CheckCircle2,
   Phone, MapPin, Mail, CreditCard, Banknote,
@@ -695,6 +695,9 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
           )}
         </div>
 
+        {/* v2.5 — Precios especiales (per-client item overrides) */}
+        <ClientItemPricesPanel client={client} api={api} lang={lang} />
+
         {/* Credit block */}
         {(client.creditLimit > 0 || client.balance > 0) && (
           <div className="px-3 py-3 md:px-6 md:py-4 border-b border-slate-100 dark:border-white/10">
@@ -897,6 +900,299 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
           onError={(msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }}
           lang={lang}
         />
+      )}
+    </div>
+  )
+}
+
+// ── v2.5 — Precios Especiales panel ──────────────────────────────────────────
+// Inline per-client inventory override manager. Mirrors client_service_rates
+// UX from ServiceHub but embedded in the client detail. Always visible so the
+// owner can spot-check existing overrides. Collapsed by default; expands to a
+// table with item picker + price input + notes + delete. CSV import included.
+function ClientItemPricesPanel({ client, api, lang }) {
+  const L = (es, en) => (lang === 'es' ? es : en)
+  const [open, setOpen] = useState(false)
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [inventory, setInventory] = useState([])
+  const [query, setQuery] = useState('')
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickedItem, setPickedItem] = useState(null)
+  const [newPrice, setNewPrice] = useState('')
+  const [newNotes, setNewNotes] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [toast, setToast] = useState(null)
+  const fileRef = useRef(null)
+
+  const webMode = typeof window !== 'undefined' && !window.electronAPI
+
+  function flash(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
+
+  async function reload() {
+    setLoading(true)
+    try {
+      const params = webMode
+        ? { clientSupabaseId: client.supabase_id || client.id }
+        : { clientId: client.id }
+      const list = await api?.clientItemPrices?.list?.(params)
+      setRows(list || [])
+    } catch { setRows([]) }
+    setLoading(false)
+  }
+
+  useEffect(() => { if (open) { reload(); api?.inventory?.all?.().then(r => setInventory(r || [])).catch(() => setInventory([])) } // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, client.id])
+
+  // Exclude inactive items and anything already overridden for this client.
+  const existingKeys = useMemo(() => new Set(rows.map(r => r.inventory_item_supabase_id)), [rows])
+  const filteredInventory = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return inventory
+      .filter(i => i.active !== 0 && i.active !== false)
+      .filter(i => !existingKeys.has(i.supabase_id))
+      .filter(i => !q || [i.name, i.sku, i.barcode].some(v => v && String(v).toLowerCase().includes(q)))
+      .slice(0, 50)
+  }, [inventory, query, existingKeys])
+
+  async function save() {
+    if (!pickedItem) { flash(L('Elige un producto', 'Pick a product')); return }
+    const p = Number(newPrice)
+    if (!Number.isFinite(p) || p <= 0) { flash(L('Precio inválido', 'Invalid price')); return }
+    setSaving(true)
+    try {
+      const payload = webMode
+        ? {
+            client_supabase_id:         client.supabase_id || client.id,
+            inventory_item_supabase_id: pickedItem.supabase_id,
+            custom_price:               p,
+            notes:                      newNotes.trim() || null,
+          }
+        : {
+            client_id:                  client.id,
+            client_supabase_id:         client.supabase_id || null,
+            inventory_item_id:          pickedItem.id,
+            inventory_item_supabase_id: pickedItem.supabase_id || null,
+            custom_price:               p,
+            notes:                      newNotes.trim() || null,
+          }
+      await api?.clientItemPrices?.set?.(payload)
+      setPickedItem(null); setNewPrice(''); setNewNotes(''); setQuery(''); setPickerOpen(false)
+      await reload()
+      flash(L('Precio especial guardado', 'Special price saved'))
+    } catch (e) { flash(`Error: ${e?.message || 'Error'}`) }
+    setSaving(false)
+  }
+
+  async function remove(row) {
+    if (!confirm(L('¿Eliminar este precio especial?', 'Delete this special price?'))) return
+    try { await api?.clientItemPrices?.delete?.(row.id); await reload() }
+    catch (e) { flash(`Error: ${e?.message || 'Error'}`) }
+  }
+
+  function onImportPick() { fileRef.current?.click() }
+  async function onImportFile(ev) {
+    const f = ev.target.files?.[0]
+    ev.target.value = ''
+    if (!f) return
+    setImporting(true)
+    try {
+      const text = await f.text()
+      const lines = text.split(/\r?\n/).filter(Boolean)
+      if (!lines.length) { flash(L('Archivo vacío', 'Empty file')); setImporting(false); return }
+      const delim = lines[0].includes('\t') ? '\t' : ','
+      const header = lines[0].split(delim).map(s => s.trim().toLowerCase())
+      const iRnc   = header.findIndex(h => /client|rnc/.test(h))
+      const iSku   = header.findIndex(h => /sku|barcode|codigo/.test(h))
+      const iPrice = header.findIndex(h => /price|precio/.test(h))
+      const iNotes = header.findIndex(h => /note|nota/.test(h))
+      if (iSku < 0 || iPrice < 0) { flash(L('CSV debe incluir sku y custom_price', 'CSV must include sku and custom_price')); setImporting(false); return }
+      const body = lines.slice(1).map(l => l.split(delim))
+      const rowsToImport = body.map(cols => ({
+        client_rnc:   iRnc >= 0 ? (cols[iRnc] || '').trim() : (client.rnc || ''),
+        sku:          (cols[iSku] || '').trim(),
+        custom_price: Number((cols[iPrice] || '').replace(/[^0-9.\-]/g, '')),
+        notes:        iNotes >= 0 ? (cols[iNotes] || '').trim() : '',
+      })).filter(r => r.sku && Number.isFinite(r.custom_price) && r.custom_price > 0)
+      const res = webMode
+        ? await api?.clientItemPrices?.bulkImport?.(rowsToImport)
+        : await api?.clientItemPrices?.bulkImport?.(rowsToImport)
+      const { ok = 0, skip = 0, errors = [] } = res || {}
+      await reload()
+      flash(L(`Importados: ${ok} · Saltados: ${skip}${errors.length ? ` · Errores: ${errors.length}` : ''}`,
+              `Imported: ${ok} · Skipped: ${skip}${errors.length ? ` · Errors: ${errors.length}` : ''}`))
+    } catch (e) { flash(`Error: ${e?.message || 'Error'}`) }
+    setImporting(false)
+  }
+
+  return (
+    <div className="px-3 py-3 md:px-6 md:py-4 border-b border-slate-100 dark:border-white/10">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between text-[11px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider hover:text-[#b3001e] transition-colors"
+      >
+        <span className="flex items-center gap-1.5">
+          <CreditCard size={11} />
+          {L('Precios Especiales', 'Special Prices')}
+          {rows.length > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-[#b3001e]/10 text-[#b3001e] text-[9px]">{rows.length}</span>
+          )}
+        </span>
+        <ChevronRight size={12} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-2">
+          {/* Toolbar */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPickerOpen(v => !v)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#b3001e] hover:bg-[#8a0017] text-white text-[11px] font-semibold transition-colors"
+            >
+              <Plus size={11} />{L('Agregar', 'Add')}
+            </button>
+            <button
+              onClick={onImportPick}
+              disabled={importing}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 text-[11px] font-medium hover:border-[#b3001e] hover:text-[#b3001e] transition-colors disabled:opacity-50"
+            >
+              {importing ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+              {L('Importar CSV', 'Import CSV')}
+            </button>
+            <input ref={fileRef} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" hidden onChange={onImportFile} />
+            <span className="ml-auto text-[10px] text-slate-400 dark:text-white/40">
+              {L('El descuento del cajero se aplica sobre el precio especial.', 'Cashier discount applies on top of the special price.')}
+            </span>
+          </div>
+
+          {/* Picker */}
+          {pickerOpen && (
+            <div className="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 p-2.5 space-y-2">
+              <div className="flex gap-2">
+                <div className="flex-1 relative">
+                  <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={query}
+                    onChange={e => { setQuery(e.target.value); setPickedItem(null) }}
+                    placeholder={L('Buscar por nombre, SKU o código', 'Search by name, SKU, or barcode')}
+                    className="w-full pl-7 pr-2 py-1.5 text-[12px] rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-black text-slate-700 dark:text-white focus:outline-none focus:border-[#b3001e]"
+                  />
+                </div>
+              </div>
+              {!pickedItem && query.trim() && (
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-black divide-y divide-slate-100 dark:divide-white/5">
+                  {filteredInventory.length === 0 ? (
+                    <p className="p-2 text-[11px] text-slate-400">{L('Sin resultados', 'No matches')}</p>
+                  ) : filteredInventory.map(it => (
+                    <button
+                      key={it.id || it.supabase_id}
+                      onClick={() => { setPickedItem(it); setNewPrice(String(Math.round((Number(it.price) || 0) * 100) / 100)); setQuery(it.name) }}
+                      className="w-full text-left px-2.5 py-1.5 hover:bg-[#b3001e]/10"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[12px] font-medium text-slate-700 dark:text-white truncate">{it.name}</span>
+                        <span className="text-[11px] text-slate-500 dark:text-white/50 tabular-nums">{fmtRD(Number(it.price) || 0)}</span>
+                      </div>
+                      {it.sku && <p className="text-[10px] text-slate-400 dark:text-white/40 font-mono">{it.sku}</p>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {pickedItem && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-slate-500 dark:text-white/60 mb-0.5">{L('Precio especial', 'Special price')}</label>
+                    <input
+                      type="number" step="0.01" min="0.01"
+                      value={newPrice}
+                      onChange={e => setNewPrice(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-[12px] rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-black text-slate-700 dark:text-white focus:outline-none focus:border-[#b3001e]"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-0.5">{L('Base', 'Base')}: {fmtRD(Number(pickedItem.price) || 0)}</p>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-500 dark:text-white/60 mb-0.5">{L('Notas', 'Notes')}</label>
+                    <input
+                      value={newNotes}
+                      onChange={e => setNewNotes(e.target.value)}
+                      placeholder={L('opcional', 'optional')}
+                      className="w-full px-2.5 py-1.5 text-[12px] rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-black text-slate-700 dark:text-white focus:outline-none focus:border-[#b3001e]"
+                    />
+                  </div>
+                  <div className="col-span-2 flex justify-end gap-2">
+                    <button onClick={() => { setPickedItem(null); setNewPrice(''); setNewNotes(''); setQuery('') }}
+                      className="px-2.5 py-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-white/10 text-slate-500 dark:text-white/60 hover:bg-white dark:hover:bg-white/10">
+                      {L('Limpiar', 'Clear')}
+                    </button>
+                    <button onClick={save} disabled={saving}
+                      className="px-3 py-1.5 text-[11px] font-bold rounded-lg bg-[#b3001e] hover:bg-[#8a0017] text-white disabled:opacity-60 flex items-center gap-1">
+                      {saving && <Loader2 size={10} className="animate-spin" />}
+                      {L('Guardar', 'Save')}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Rows */}
+          {loading ? (
+            <p className="text-[12px] text-slate-400 dark:text-white/40 py-2 flex items-center gap-2">
+              <Loader2 size={11} className="animate-spin" />
+              {L('Cargando…', 'Loading…')}
+            </p>
+          ) : rows.length === 0 ? (
+            <p className="text-[12px] text-slate-400 dark:text-white/40 py-2">
+              {L('Sin precios especiales para este cliente.', 'No special prices for this client.')}
+            </p>
+          ) : (
+            <div className="rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden">
+              <table className="w-full text-[12px]">
+                <thead className="bg-slate-50 dark:bg-white/5">
+                  <tr>
+                    <th className="text-left font-semibold text-slate-500 dark:text-white/60 px-2.5 py-1.5">{L('Producto', 'Product')}</th>
+                    <th className="text-right font-semibold text-slate-500 dark:text-white/60 px-2.5 py-1.5">{L('Base', 'Base')}</th>
+                    <th className="text-right font-semibold text-slate-500 dark:text-white/60 px-2.5 py-1.5">{L('Especial', 'Special')}</th>
+                    <th className="text-right font-semibold text-slate-500 dark:text-white/60 px-2.5 py-1.5">{L('Ahorro', 'Savings')}</th>
+                    <th className="px-2.5 py-1.5"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                  {rows.map(r => {
+                    const base = Number(r.base_price || 0)
+                    const custom = Number(r.custom_price || 0)
+                    const diff = base - custom
+                    return (
+                      <tr key={r.id} className="bg-white dark:bg-black">
+                        <td className="px-2.5 py-1.5">
+                          <div className="text-slate-700 dark:text-white truncate max-w-[180px]">{r.item_name || '—'}</div>
+                          {r.sku && <div className="text-[10px] text-slate-400 dark:text-white/40 font-mono">{r.sku}</div>}
+                          {r.notes && <div className="text-[10px] text-slate-500 dark:text-white/50 italic">{r.notes}</div>}
+                        </td>
+                        <td className="px-2.5 py-1.5 text-right tabular-nums text-slate-500 dark:text-white/60">{fmtRD(base)}</td>
+                        <td className="px-2.5 py-1.5 text-right tabular-nums font-bold text-[#b3001e]">{fmtRD(custom)}</td>
+                        <td className={`px-2.5 py-1.5 text-right tabular-nums ${diff > 0 ? 'text-emerald-600' : diff < 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                          {diff === 0 ? '—' : (diff > 0 ? `-${fmtRD(diff)}` : `+${fmtRD(-diff)}`)}
+                        </td>
+                        <td className="px-2.5 py-1.5 text-right">
+                          <button onClick={() => remove(r)}
+                            className="p-1 text-slate-400 hover:text-red-500 rounded hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors">
+                            <Trash2 size={12} />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {toast && (
+            <div className="text-[11px] text-[#b3001e] bg-[#b3001e]/10 border border-[#b3001e]/30 rounded-lg px-2.5 py-1.5">{toast}</div>
+          )}
+        </div>
       )}
     </div>
   )

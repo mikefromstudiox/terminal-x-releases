@@ -137,6 +137,7 @@ const SYNC_TABLES = [
       barcode: r.barcode,
       category: r.category,
       price: r.price,
+      price_pedidos_ya: r.price_pedidos_ya != null ? r.price_pedidos_ya : null,
       cost: r.cost,
       quantity: r.quantity,
       min_quantity: r.min_quantity,
@@ -413,6 +414,7 @@ const SYNC_TABLES = [
         legacy_source: r.legacy_source || null,
         legacy_code: r.legacy_code || null,
         commission_exclude: r.commission_exclude || 0,
+        order_source: r.order_source || 'pos',
         created_at: r.created_at || new Date().toISOString(),
         updated_at: r.updated_at || null,
       }
@@ -913,6 +915,18 @@ const SYNC_TABLES = [
       updated_at: r.updated_at || null,
     }),
   },
+  {
+    name: 'client_item_prices',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id,
+      inventory_item_supabase_id: r.inventory_item_supabase_id,
+      custom_price: r.custom_price,
+      notes: r.notes || null,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
   // Prestamos — phase 2 push shapers
   {
     name: 'loan_payments',
@@ -978,6 +992,46 @@ const SYNC_TABLES = [
       contacted_at: r.contacted_at || new Date().toISOString(),
       next_contact_date: r.next_contact_date || null,
       created_by_staff_id: r.created_by_staff_id || null,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+
+  // v2.5 — Conteo Fisico (physical inventory count + variance/theft report)
+  {
+    name: 'inventory_counts',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      title: r.title || 'Conteo Fisico',
+      started_at: r.started_at || new Date().toISOString(),
+      completed_at: r.completed_at || null,
+      counted_by_name: r.counted_by_name || null,
+      status: r.status || 'abierto',
+      notes: r.notes || null,
+      total_expected_value: Number(r.total_expected_value) || 0,
+      total_counted_value:  Number(r.total_counted_value)  || 0,
+      total_variance_value: Number(r.total_variance_value) || 0,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'inventory_count_items',
+    // NOTE: variance_qty / variance_cost / variance_price are GENERATED columns
+    // on Supabase — NEVER include them in the push payload (PostgREST rejects
+    // writes to generated cols with 428C9).
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      count_supabase_id: r.count_supabase_id,
+      inventory_item_supabase_id: r.inventory_item_supabase_id,
+      sku: r.sku || null,
+      name: r.name,
+      category: r.category || null,
+      expected_qty: Number(r.expected_qty) || 0,
+      counted_qty: (r.counted_qty === null || r.counted_qty === undefined) ? null : Number(r.counted_qty),
+      unit_cost:  Number(r.unit_cost)  || 0,
+      unit_price: Number(r.unit_price) || 0,
+      notes: r.notes || null,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
     }),
@@ -1330,7 +1384,7 @@ const PULL_TABLES = [
   // (tipo='lavador'/'vendedor'). Their data is now part of the empleados pull below.
   { name: 'clients', strategy: 'lww', naturalKey: 'name', cols: ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','loyalty_points','allergies','created_at','updated_at'],
     fkCols: { preferred_stylist_supabase_id: 'empleados' } },
-  { name: 'inventory_items', strategy: 'lww', naturalKey: 'name', cols: ['name','sku','barcode','category','price','cost','quantity','min_quantity','aplica_itbis','sold_by_weight','unit','price_per_unit','bottle_deposit','tare_default','active','updated_at'] },
+  { name: 'inventory_items', strategy: 'lww', naturalKey: 'name', cols: ['name','sku','barcode','category','price','price_pedidos_ya','cost','quantity','min_quantity','aplica_itbis','sold_by_weight','unit','price_per_unit','bottle_deposit','tare_default','active','updated_at'] },
   { name: 'mesas', strategy: 'lww', naturalKey: 'name', cols: ['name','zone','capacity','status','rev','guests_count','seated_at','sort_order','active','created_at','updated_at'],
     fkCols: { waiter_empleado_supabase_id: 'empleados' } },
   { name: 'modificadores', strategy: 'lww', naturalKey: 'name', cols: ['name','group_name','price_delta','min_select','max_select','default_selected','sort_order','active','created_at','updated_at'] },
@@ -1366,7 +1420,7 @@ const PULL_TABLES = [
     // v2.1: washer_ids legacy INT-array column dropped → washer_empleado_supabase_ids JSON of UUIDs.
     // seller_supabase_id is still the column name on the wire, but it now points at empleados.supabase_id
     // (tipo='vendedor'/'hybrid'); explicitly resolved against empleados below.
-    cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','void_by','void_at','vehicle_plate','vehicle_color','vehicle_make','notes','washer_empleado_supabase_ids','tip_amount','fulfillment_type','mesa_supabase_id','mode','converted_from_mesa_supabase_id','converted_from_ticket_supabase_id','payment_parts','split_bill','created_at','updated_at'],
+    cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','void_by','void_at','vehicle_plate','vehicle_color','vehicle_make','notes','washer_empleado_supabase_ids','tip_amount','fulfillment_type','mesa_supabase_id','mode','converted_from_mesa_supabase_id','converted_from_ticket_supabase_id','payment_parts','split_bill','order_source','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', seller_empleado_supabase_id: 'empleados', cajero_supabase_id: 'users' },
     statusSync: ['status', 'void_reason', 'void_by', 'void_at', 'updated_at'] },
   { name: 'ticket_items', strategy: 'fww',
@@ -1486,6 +1540,23 @@ const PULL_TABLES = [
   { name: 'client_service_rates', strategy: 'lww',
     cols: ['custom_price','notes','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', service_supabase_id: 'services' } },
+  { name: 'client_item_prices', strategy: 'lww',
+    cols: ['custom_price','notes','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', inventory_item_supabase_id: 'inventory_items' } },
+
+  // v2.5 — Conteo Fisico pull. LWW: UI edits on one device must propagate to
+  // the other until completion. Status transitions (abierto → completado /
+  // cancelado) flow through the same updated_at check.
+  { name: 'inventory_counts', strategy: 'lww',
+    cols: ['title','started_at','completed_at','counted_by_name','status','notes',
+           'total_expected_value','total_counted_value','total_variance_value',
+           'created_at','updated_at'] },
+  // inventory_count_items: variance_* are generated columns on Supabase — do
+  // NOT list them here (pull would try to write them into SQLite which has no
+  // such column and the row would be dropped on the "no such column" error).
+  { name: 'inventory_count_items', strategy: 'lww',
+    cols: ['sku','name','category','expected_qty','counted_qty','unit_cost','unit_price','notes','created_at','updated_at'],
+    fkCols: { count_supabase_id: 'inventory_counts', inventory_item_supabase_id: 'inventory_items' } },
 
   // v2.3 — app_settings pull (whitelist-guarded, handled by pullAppSettings()).
   // cols/strategy are informational only — the pull path short-circuits at the
@@ -2407,7 +2478,8 @@ async function startRealtime() {
     'vehicles','service_bays','work_orders','work_order_items','appointments',
     'stylist_schedules','loans','loan_payments','pawn_items',
     'memberships','wash_combos',
-    'subscriptions','service_packages','projects','client_service_rates',
+    'subscriptions','service_packages','projects','client_service_rates','client_item_prices',
+    'inventory_counts','inventory_count_items',
   ]
 
   _realtimeChannel = _realtimeClient.channel(`tx-sync-${bizId}`)

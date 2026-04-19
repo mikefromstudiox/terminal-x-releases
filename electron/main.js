@@ -1369,6 +1369,13 @@ handle('clientRates:list',   (params)          => db.clientRateList(params))
 handle('clientRates:get',    (params)          => db.clientRateGet(params))
 handleMut('clientRates:delete', ({id})            => { db.clientRateDelete(id); return true })
 
+// v2.5 — per-client inventory item prices
+handleMut('clientItemPrices:set',        (data)   => db.clientItemPriceSet(data))
+handle('clientItemPrices:list',          (params) => db.clientItemPriceList(params))
+handle('clientItemPrices:get',           (params) => db.clientItemPriceGet(params))
+handleMut('clientItemPrices:delete',     ({id})   => { db.clientItemPriceDelete(id); return true })
+handleMut('clientItemPrices:bulkImport', ({rows}) => db.clientItemPriceBulkImport(rows))
+
 // ── Clients ───────────────────────────────────────────────────────────────────
 handle('clients:all',          ()          => db.clientsGetAll())
 handle('clients:byId',         (id)        => db.clientGetById(id))
@@ -1588,6 +1595,15 @@ handle('inventory:transactions', ({id})                         => db.inventoryT
 handle('inventory:lookupSku',    (sku)                          => db.inventoryLookupBySku(sku))
 handle('inventory:search',       (query)                        => db.inventorySearch(query))
 handle('inventory:lowStockCount', ()                             => db.inventoryLowStockCount())
+
+// ── Conteo Fisico (v2.5) ──────────────────────────────────────────────────────
+handleMut('inventoryCount:start',     (args)                          => db.inventoryCountStart(args || {}))
+handle   ('inventoryCount:list',      (args)                          => db.inventoryCountList(args || {}))
+handle   ('inventoryCount:get',       (id)                            => db.inventoryCountGet(id))
+handleMut('inventoryCount:saveItem',  (args)                          => db.inventoryCountSaveItem(args || {}))
+handleMut('inventoryCount:complete',  (args)                          => db.inventoryCountComplete(args || {}))
+handleMut('inventoryCount:cancel',    ({id})                          => db.inventoryCountCancel(id))
+handleMut('inventoryCount:delete',    ({id})                          => db.inventoryCountDelete(id))
 
 // ── Backup / Export ───────────────────────────────────────────────────────────
 handle('db:exportAll',   ()      => db.exportAll())
