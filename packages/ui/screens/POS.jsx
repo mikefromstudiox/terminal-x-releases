@@ -333,7 +333,7 @@ function CarWashPOS() {
 
   const allOrderItems = items
   const { subtotal, itbis, ley, total } = calcTotals(allOrderItems, itbisRate)
-  const gridCols = collapsed ? 'grid-cols-2 md:grid-cols-4 lg:grid-cols-5' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
+  const gridCols = collapsed ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid-cols-2 md:grid-cols-3 xl:grid-cols-4'
 
   // Mobile cart visibility
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
@@ -1589,7 +1589,7 @@ function RetailPOS() {
   }, [cobrarModal, lang])
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  const gridCols = collapsed ? 'grid-cols-2 md:grid-cols-4 lg:grid-cols-5' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
+  const gridCols = collapsed ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid-cols-2 md:grid-cols-3 xl:grid-cols-4'
 
   return (
     <div className="h-full flex flex-col md:flex-row">
