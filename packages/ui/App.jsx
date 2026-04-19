@@ -52,6 +52,7 @@ const RemoteDashboard     = lazy(() => import('./screens/RemoteDashboard'))
 // LicenseAdmin removed — dead code (API key auth never matched Supabase JWT backend)
 const Sistema             = lazy(() => import('./screens/Sistema'))
 const Inventory           = lazy(() => import('./screens/Inventory'))
+const InventoryCount      = lazy(() => import('./screens/inventory/InventoryCount'))
 const Reportes            = lazy(() => import('./screens/Reportes'))
 const Empleados           = lazy(() => import('./screens/reports/nomina'))
 const Mesas               = lazy(() => import('./screens/restaurant/Mesas'))
@@ -77,7 +78,7 @@ const InvoiceCreate       = lazy(() => import('./screens/invoicing/InvoiceCreate
 const InvoiceList         = lazy(() => import('./screens/invoicing/InvoiceList'))
 
 // Routes accessible only to non-cashier roles
-const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin','/sistema','/inventory','/config']
+const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin','/sistema','/inventory','/conteo-fisico','/config']
 
 function ProtectedRoute({ element }) {
   const { user } = useAuth()
@@ -216,6 +217,7 @@ export default function App() {
         <Route path="/reports/workers"       element={<Navigate to="/reports" replace />} />
         <Route path="/reports/salesperson"   element={<Navigate to="/reports" replace />} />
         <Route path="/inventory"             element={<ProtectedRoute element={<PlanGate feature="inventory"><Inventory /></PlanGate>} />} />
+        <Route path="/conteo-fisico"         element={<ProtectedRoute element={<PlanGate feature="inventory"><InventoryCount /></PlanGate>} />} />
         <Route path="/mesas"                 element={<PlanGate feature="restaurant_mode"><Mesas /></PlanGate>} />
         <Route path="/menu-builder"          element={<ProtectedRoute element={<PlanGate feature="restaurant_mode"><MenuBuilder /></PlanGate>} />} />
         <Route path="/catalogo"              element={<ProtectedRoute element={<HybridCatalogo />} />} />

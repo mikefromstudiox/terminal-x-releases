@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Globe, Eye, WifiOff, RefreshCw, TrendingUp, ReceiptText, Banknote, CreditCard, ArrowRightLeft, Clock,
-  Activity, UserX, Tag, XCircle, Wallet, Percent, Package, PiggyBank, Scale, Lock, ChevronDown, ChevronUp } from 'lucide-react'
+  Activity, UserX, Tag, XCircle, Wallet, Percent, Package, PiggyBank, Scale, Lock, ChevronDown, ChevronUp, ClipboardList } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
@@ -536,6 +536,7 @@ const EVENT_META = {
   payroll_paid:          { Icon: Wallet,   color: 'text-violet-600 bg-violet-50 dark:bg-violet-500/10 dark:text-violet-300', es: 'Nómina pagada',         en: 'Payroll paid' },
   discount_applied:      { Icon: Percent,  color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Descuento aplicado',        en: 'Discount applied' },
   inventory_adjusted:    { Icon: Package,  color: 'text-blue-600 bg-blue-50 dark:bg-blue-500/10 dark:text-blue-300',    es: 'Ajuste de inventario',      en: 'Inventory adjusted' },
+  inventory_count_completed: { Icon: ClipboardList, color: 'text-slate-700 bg-slate-100 dark:bg-white/10 dark:text-white/80', es: 'Conteo fisico',        en: 'Physical count' },
   caja_chica_withdrawal: { Icon: PiggyBank,color: 'text-blue-600 bg-blue-50 dark:bg-blue-500/10 dark:text-blue-300',    es: 'Retiro caja chica',         en: 'Petty cash withdrawal' },
   cuadre_discrepancy:    { Icon: Scale,    color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Descuadre en caja',         en: 'Cash reconciliation discrepancy' },
   permission_denied:     { Icon: XCircle,  color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Permiso denegado',          en: 'Permission denied' },
@@ -559,6 +560,7 @@ const FILTER_CHIPS = [
   { id: 'payouts',  es: 'Pagos',        en: 'Payouts',      types: ['payroll_paid'] },
   { id: 'discounts',es: 'Descuentos',   en: 'Discounts',    types: ['discount_applied'] },
   { id: 'stock',    es: 'Inventario',   en: 'Inventory',    types: ['inventory_adjusted'] },
+  { id: 'counts',   es: 'Conteos',      en: 'Counts',       types: ['inventory_count_completed'] },
   { id: 'caja',     es: 'Caja Chica',   en: 'Petty Cash',   types: ['caja_chica_withdrawal'] },
   { id: 'cuadre',   es: 'Cuadre',       en: 'Reconciliation', types: ['cuadre_discrepancy'] },
 ]

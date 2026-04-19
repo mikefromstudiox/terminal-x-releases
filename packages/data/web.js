@@ -176,6 +176,45 @@ async function markCommissionsPaidForEmpleado(supabase, businessId, empleadoId, 
   return (updated || []).length
 }
 
+// ── Conteo Fisico helpers (v2.5) ────────────────────────────────────────────
+// Both helpers are file-scope so the `inventoryCount` namespace and any
+// future consumers (e.g. scheduled variance-report jobs) can reuse them.
+
+async function fetchCount(supabase, bid, idOrSid) {
+  const key = (typeof idOrSid === 'string' && idOrSid.includes('-')) ? 'supabase_id' : 'id'
+  const val = key === 'id' ? Number(idOrSid) : idOrSid
+  const { data: header } = await supabase.from('inventory_counts')
+    .select('*').eq('business_id', bid).eq(key, val).maybeSingle()
+  if (!header) return null
+  const { data: items = [] } = await supabase.from('inventory_count_items')
+    .select('*').eq('business_id', bid).eq('count_supabase_id', header.supabase_id)
+    .order('category').order('name')
+  return { ...header, items: items || [] }
+}
+
+async function refreshCountTotals(supabase, bid, countSid) {
+  // Fetch raw row values and compute rollups in JS so the same math runs on web
+  // and desktop. Supabase has generated cols but they're per-row — we still
+  // need the SUM here to feed the header totals. Small dataset (≤ thousands of
+  // items) keeps this fast.
+  const { data = [] } = await supabase.from('inventory_count_items')
+    .select('expected_qty, counted_qty, unit_cost')
+    .eq('business_id', bid).eq('count_supabase_id', countSid)
+  const totals = (data || []).reduce((acc, r) => {
+    const exp = Number(r.expected_qty) || 0
+    const cnt = (r.counted_qty === null || r.counted_qty === undefined) ? exp : Number(r.counted_qty)
+    const cost = Number(r.unit_cost) || 0
+    acc.total_expected_value += exp * cost
+    acc.total_counted_value  += cnt * cost
+    acc.total_variance_value += (cnt - exp) * cost
+    return acc
+  }, { total_expected_value: 0, total_counted_value: 0, total_variance_value: 0 })
+  await supabase.from('inventory_counts').update({
+    ...totals, updated_at: new Date().toISOString(),
+  }).eq('business_id', bid).eq('supabase_id', countSid)
+  return totals
+}
+
 // ── Main factory ───────────────────────────────────────────────────────────────
 
 export function createWebAPI(supabase, businessId) {

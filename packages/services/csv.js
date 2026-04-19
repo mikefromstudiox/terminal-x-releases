@@ -343,3 +343,71 @@ export function exportNominaPeriod(biz, rows, period) {
   ]
   downloadCSV(csv, `nomina-${period.toLowerCase().replace(/\s+/g, '-')}.csv`)
 }
+
+// ── Conteo Fisico — Variance report CSV (v2.5) ──────────────────────────────
+// Excel ES convention: semicolon delimiter + BOM. downloadCSV() already writes
+// the BOM; we swap commas to semicolons in the serialization by using a local
+// builder so number-decimals (e.g. 12,50) don't collide with the delimiter.
+export function exportInventoryCount(biz, count) {
+  const items = (count?.items || []).map(it => {
+    const exp = Number(it.expected_qty) || 0
+    const cnt = (it.counted_qty === null || it.counted_qty === undefined) ? exp : Number(it.counted_qty)
+    const dq  = cnt - exp
+    return {
+      sku: it.sku || '',
+      name: it.name || '',
+      category: it.category || '',
+      expected: exp,
+      counted: (it.counted_qty === null || it.counted_qty === undefined) ? '' : cnt,
+      variance_qty: dq,
+      unit_cost: Number(it.unit_cost) || 0,
+      unit_price: Number(it.unit_price) || 0,
+      variance_cost: dq * (Number(it.unit_cost) || 0),
+      variance_price: dq * (Number(it.unit_price) || 0),
+    }
+  }).sort((a, b) => Math.abs(b.variance_cost) - Math.abs(a.variance_cost))
+
+  const totalExpCost = items.reduce((s, r) => s + r.expected * r.unit_cost, 0)
+  const totalCntCost = items.reduce((s, r) => s + (Number(r.counted) || r.expected) * r.unit_cost, 0)
+  const totalVarCost = totalCntCost - totalExpCost
+
+  const rows = [
+    ...buildHeader(biz, 'REPORTE DE VARIANZA — CONTEO FISICO', count?.title || ''),
+    [`Estado: ${count?.status || '—'}`],
+    [`Iniciado: ${count?.started_at || ''}`],
+    [`Completado: ${count?.completed_at || '—'}`],
+    [`Contado por: ${count?.counted_by_name || '—'}`],
+    [],
+    ['SKU', 'Producto', 'Categoria', 'Esperado', 'Contado', 'Dif. unidades', 'Costo unit.', 'Precio unit.', 'Perdida RD$ (costo)', 'Perdida RD$ (precio)'],
+    ...items.map(r => [
+      r.sku, r.name, r.category,
+      fmtMoney(r.expected), r.counted === '' ? '' : fmtMoney(r.counted),
+      fmtMoney(r.variance_qty),
+      fmtMoney(r.unit_cost), fmtMoney(r.unit_price),
+      fmtMoney(r.variance_cost), fmtMoney(r.variance_price),
+    ]),
+    [],
+    [`Total esperado (costo): ${fmtMoney(totalExpCost)}`],
+    [`Total contado (costo): ${fmtMoney(totalCntCost)}`],
+    [`Varianza total (costo): ${fmtMoney(totalVarCost)}`],
+    [`Items con variacion: ${items.filter(x => x.variance_qty !== 0).length}`],
+    [`Generado: ${todayFormatted()}`],
+  ]
+
+  // Use ; as the field delimiter (ES Excel convention) so fmtMoney values
+  // like 1,234.56 don't collide with comma-delimited CSV. BOM preserved.
+  const esc = (v) => {
+    if (v == null) return ''
+    const s = String(v)
+    if (s.includes(';') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`
+    return s
+  }
+  const csv = rows.map(r => r.map(esc).join(';')).join('\n')
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `conteo-varianza-${(count?.title || 'conteo').replace(/[^\w\-]+/g, '_').slice(0, 40)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}

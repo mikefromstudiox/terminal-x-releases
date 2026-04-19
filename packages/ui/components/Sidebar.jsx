@@ -163,11 +163,19 @@ const NAV = [
     ],
   },
   {
-    id: 'inventory', to: '/inventory', icon: Package,
+    id: 'inventory', icon: Package,
     es: 'Inventario', en: 'Inventory',
     feature: 'inventory',
     roles: ['owner','manager','cfo','accountant'],
     hasBadge: 'lowStock',
+    children: [
+      { to: '/inventory',      es: 'Productos',       en: 'Products' },
+      // Conteo Fisico is only meaningful where stock is actually tracked. The
+      // wash/salon/prestamos verticals have no SKUs to count, so hide it there
+      // — the route itself stays routable for deep links.
+      { to: '/conteo-fisico',  es: 'Conteo Fisico',   en: 'Physical Count',
+        businessTypes: ['retail','dealership','restaurant','hybrid','mechanic','licoreria','carniceria'] },
+    ],
   },
   {
     id: 'reports', icon: BarChart3,
