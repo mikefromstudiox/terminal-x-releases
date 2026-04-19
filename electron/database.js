@@ -852,6 +852,9 @@ function init(userDataPath) {
     // v1.9.25 — mesas.rev: monotonic revision counter used to detect the
     // simultaneous-waiter status race (see electron/sync.js header comment).
     'ALTER TABLE mesas ADD COLUMN rev INTEGER NOT NULL DEFAULT 0',
+    // v2.3.32 — Pedidos Ya per-channel pricing + ticket order source
+    'ALTER TABLE inventory_items ADD COLUMN price_pedidos_ya REAL',
+    "ALTER TABLE tickets ADD COLUMN order_source TEXT DEFAULT 'pos'",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -3240,9 +3243,9 @@ function ticketCreate(data) {
       (doc_number,client_id,washer_empleado_supabase_ids,seller_empleado_supabase_id,cajero_id,subtotal,descuento,itbis,ley,total,
        beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,supabase_id,client_supabase_id,seller_supabase_id,cajero_supabase_id,
        mesa_id,mesa_supabase_id,fulfillment_type,tip_amount,mode,converted_from_mesa_id,converted_from_mesa_supabase_id,converted_from_ticket_id,converted_from_ticket_supabase_id,
-       origin_hwid,used_legacy_counter,notes,
+       origin_hwid,used_legacy_counter,notes,order_source,
        created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
       docNumber,
       data.client_id || null,
       JSON.stringify(washerEmpSids),
@@ -3277,6 +3280,7 @@ function ticketCreate(data) {
       hwid || null,
       usedLegacyCounter,
       data.comentario || data.notes || null,
+      data.order_source || 'pos',
     )
     const ticketId = result.lastInsertRowid
 
@@ -4202,11 +4206,13 @@ function inventoryGetAll() {
 function inventoryCreate(data) {
   if (!db) return null
   const sid = crypto.randomUUID()
-  const r = db.prepare(`INSERT INTO inventory_items(sku,name,category,quantity,min_quantity,price,cost,barcode,aplica_itbis,sold_by_weight,unit,price_per_unit,bottle_deposit,tare_default,supabase_id)
-    VALUES(@sku,@name,@category,@quantity,@min_quantity,@price,@cost,@barcode,@aplica_itbis,@sold_by_weight,@unit,@price_per_unit,@bottle_deposit,@tare_default,@supabase_id)`).run({
+  const r = db.prepare(`INSERT INTO inventory_items(sku,name,category,quantity,min_quantity,price,price_pedidos_ya,cost,barcode,aplica_itbis,sold_by_weight,unit,price_per_unit,bottle_deposit,tare_default,supabase_id)
+    VALUES(@sku,@name,@category,@quantity,@min_quantity,@price,@price_pedidos_ya,@cost,@barcode,@aplica_itbis,@sold_by_weight,@unit,@price_per_unit,@bottle_deposit,@tare_default,@supabase_id)`).run({
     sku: data.sku || null, name: data.name, category: data.category || '',
     quantity: data.quantity || 0, min_quantity: data.min_quantity ?? 5,
-    price: data.price || 0, cost: data.cost || 0,
+    price: data.price || 0,
+    price_pedidos_ya: data.price_pedidos_ya != null && data.price_pedidos_ya !== '' ? Number(data.price_pedidos_ya) : null,
+    cost: data.cost || 0,
     barcode: data.barcode || null, aplica_itbis: data.aplica_itbis ?? 1,
     sold_by_weight: data.sold_by_weight ? 1 : 0,
     unit: data.unit || null,
@@ -4219,18 +4225,44 @@ function inventoryCreate(data) {
 }
 function inventoryUpdate(id, data) {
   if (!db) return
-  db.prepare(`UPDATE inventory_items
-    SET sku=@sku, name=@name, category=@category, min_quantity=@min_quantity, price=@price, cost=@cost, barcode=@barcode, aplica_itbis=@aplica_itbis,
-        sold_by_weight=@sold_by_weight, unit=@unit, price_per_unit=@price_per_unit, bottle_deposit=@bottle_deposit, tare_default=@tare_default
-    WHERE id=@id`).run({ sku: data.sku || null, name: data.name, category: data.category || '',
-    min_quantity: data.min_quantity ?? 5, price: data.price || 0, cost: data.cost || 0,
-    barcode: data.barcode || null, aplica_itbis: data.aplica_itbis ?? 1,
-    sold_by_weight: data.sold_by_weight ? 1 : 0,
-    unit: data.unit || null,
-    price_per_unit: data.price_per_unit != null ? Number(data.price_per_unit) : null,
-    bottle_deposit: data.bottle_deposit != null ? Number(data.bottle_deposit) : null,
-    tare_default: data.tare_default != null ? Number(data.tare_default) : null,
-    id })
+  // Build a dynamic SET clause so bulk-edit patches (e.g. { category } or
+  // { price_pedidos_ya }) only touch the fields provided and never blank out
+  // the rest of the row.
+  const ALLOWED = ['sku','name','category','min_quantity','price','price_pedidos_ya','cost','barcode','aplica_itbis','sold_by_weight','unit','price_per_unit','bottle_deposit','tare_default','quantity']
+  const sets = []
+  const params = { id }
+  for (const k of ALLOWED) {
+    if (!(k in data)) continue
+    let v = data[k]
+    if (k === 'sold_by_weight') v = v ? 1 : 0
+    else if (k === 'aplica_itbis') v = v ?? 1
+    else if (['price_pedidos_ya','price_per_unit','bottle_deposit','tare_default'].includes(k)) {
+      v = (v === '' || v == null) ? null : Number(v)
+    } else if (['price','cost'].includes(k)) {
+      v = v === '' || v == null ? 0 : Number(v)
+    } else if (k === 'min_quantity') {
+      v = v ?? 5
+    } else if (k === 'quantity') {
+      v = Number(v) || 0
+    } else if (['sku','barcode','unit'].includes(k)) {
+      v = v || null
+    } else if (k === 'category') {
+      v = v || ''
+    }
+    sets.push(`${k}=@${k}`)
+    params[k] = v
+  }
+  if (!sets.length) return
+  sets.push(`updated_at=datetime('now')`)
+  db.prepare(`UPDATE inventory_items SET ${sets.join(', ')} WHERE id=@id`).run(params)
+}
+function inventoryBulkUpdate(ids, patch) {
+  if (!db || !Array.isArray(ids) || !ids.length) return 0
+  const run = db.transaction(() => {
+    for (const id of ids) inventoryUpdate(id, patch)
+  })
+  run()
+  return ids.length
 }
 function inventoryDelete(id) {
   if (!db) return
@@ -5860,7 +5892,7 @@ module.exports = {
   // RNC contribuyentes
   rncLookupLocal, rncSave, rncBulkSync, rncCount, rncLastSync,
   // Inventory
-  inventoryGetAll, inventoryCreate, inventoryUpdate, inventoryDelete, inventoryAdjust, inventoryTransactions,
+  inventoryGetAll, inventoryCreate, inventoryUpdate, inventoryBulkUpdate, inventoryDelete, inventoryAdjust, inventoryTransactions,
   inventoryLookupBySku, inventorySearch, inventoryLowStockCount,
   // e-CF offline queue
   ecfQueueAdd, ecfQueueGetPending, ecfQueueDelete, ecfQueueIncrAttempts, ecfQueueCount,

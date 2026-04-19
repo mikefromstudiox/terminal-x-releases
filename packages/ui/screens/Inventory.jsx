@@ -3,7 +3,7 @@ import {
   Package, Plus, Search, AlertTriangle, X,
   ChevronUp, ChevronDown, Pencil, Trash2,
   History, RefreshCw, Loader2, Upload, FileSpreadsheet,
-  Check, Wine,
+  Check, Wine, Tags, Bike,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useAPI } from '../context/DataContext'
@@ -44,6 +44,7 @@ function ItemModal({ item, onSave, onClose }) {
     quantity:       item?.quantity     ?? 0,
     min_quantity:   item?.min_quantity ?? 5,
     price:          item?.price        ?? 0,
+    price_pedidos_ya: item?.price_pedidos_ya ?? '',
     cost:           item?.cost         ?? 0,
     bottle_deposit: item?.bottle_deposit ?? (isLicoreria ? (licoreriaConfig?.bottleDeposit?.defaultAmount || 0) : 0),
     // Carnicería — sold-by-weight defaults. When enabled, `price` is ignored at
@@ -75,6 +76,7 @@ function ItemModal({ item, onSave, onClose }) {
         // For weighted products we mirror price_per_unit → price so legacy
         // reports (which only understand `price`) still see a sane number.
         price:          sold_by_weight ? ppu : (parseFloat(form.price) || 0),
+        price_pedidos_ya: (form.price_pedidos_ya === '' || form.price_pedidos_ya == null) ? null : Number(form.price_pedidos_ya),
         cost:           parseFloat(form.cost)     || 0,
         bottle_deposit: parseFloat(form.bottle_deposit) || 0,
         sold_by_weight,
@@ -206,6 +208,18 @@ function ItemModal({ item, onSave, onClose }) {
                 className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
             </div>
           </div>
+          {!form.sold_by_weight && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                <Bike size={11} className="text-[#b3001e]" /> Precio Pedidos Ya (opcional)
+              </label>
+              <input type="number" min="0" step="0.01" value={form.price_pedidos_ya}
+                onChange={e => set('price_pedidos_ya', e.target.value)}
+                placeholder="Deja en blanco para usar el precio normal"
+                className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
+              <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1">Se usa al facturar pedidos del canal de delivery Pedidos Ya.</p>
+            </div>
+          )}
           {!item && (
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -414,6 +428,7 @@ const FIELD_MAP = {
   name: ['name', 'nombre', 'producto', 'product', 'descripcion', 'description', 'item'],
   category: ['category', 'categoria', 'cat', 'tipo'],
   price: ['price', 'precio', 'precio_venta', 'venta', 'sell'],
+  price_pedidos_ya: ['price_pedidos_ya', 'precio_pedidos_ya', 'precio_py', 'py_precio', 'pedidos_ya', 'py', 'precio_pedidosya', 'pedidosya'],
   cost: ['cost', 'costo', 'precio_costo', 'compra', 'buy'],
   quantity: ['quantity', 'stock', 'cantidad', 'qty', 'existencia'],
   min_quantity: ['min_quantity', 'min_stock', 'minimo', 'min', 'reorder'],
@@ -478,6 +493,7 @@ function ImportModal({ onDone, onClose }) {
           barcode:        raw.barcode || null,
           category:       raw.category || 'Otro',
           price:          parseFloat(raw.price) || 0,
+          price_pedidos_ya: (raw.price_pedidos_ya === '' || raw.price_pedidos_ya == null) ? null : (parseFloat(raw.price_pedidos_ya) || null),
           cost:           parseFloat(raw.cost) || 0,
           quantity:       parseInt(raw.quantity) || 0,
           min_quantity:   parseInt(raw.min_quantity) || 5,
@@ -609,6 +625,255 @@ function ImportModal({ onDone, onClose }) {
   )
 }
 
+// ── Organizar (bulk categorize + PY price) modal ─────────────────────────────
+function OrganizeModal({ items, categories, onDone, onClose }) {
+  const api = useAPI()
+  const [query, setQuery]           = useState('')
+  const [selected, setSelected]     = useState(() => new Set())
+  const [newCategory, setNewCategory] = useState('')
+  const [newPY, setNewPY]           = useState('')
+  const [saving, setSaving]         = useState(false)
+  const [toast, setToast]           = useState('')
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return items
+    return items.filter(i =>
+      (i.name || '').toLowerCase().includes(q)
+      || (i.sku || '').toLowerCase().includes(q)
+      || (i.barcode || '').toLowerCase().includes(q)
+      || (i.category || '').toLowerCase().includes(q)
+    )
+  }, [items, query])
+
+  const allVisibleSelected = filtered.length > 0 && filtered.every(i => selected.has(i.id))
+
+  function toggleAll() {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (allVisibleSelected) filtered.forEach(i => next.delete(i.id))
+      else                    filtered.forEach(i => next.add(i.id))
+      return next
+    })
+  }
+  function toggleOne(id) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  async function apply() {
+    const ids = Array.from(selected)
+    if (!ids.length) return
+    const patch = {}
+    if (newCategory.trim())                             patch.category = newCategory.trim()
+    if (newPY !== '' && !Number.isNaN(Number(newPY)))   patch.price_pedidos_ya = Number(newPY)
+    if (!Object.keys(patch).length) { setToast('Ingresa una categoría o un precio Pedidos Ya.'); return }
+    setSaving(true)
+    try {
+      if (typeof api.inventory.bulkUpdate === 'function') {
+        await api.inventory.bulkUpdate(ids, patch)
+      } else {
+        for (const id of ids) await api.inventory.update({ id, ...patch })
+      }
+      setToast(`${ids.length} producto${ids.length === 1 ? '' : 's'} actualizado${ids.length === 1 ? '' : 's'}.`)
+      setSelected(new Set())
+      setNewCategory('')
+      setNewPY('')
+      await onDone()
+    } catch (e) {
+      setToast(e?.message || 'Error al aplicar cambios.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl w-full max-w-4xl shadow-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-white/10 shrink-0">
+          <div>
+            <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+              <Tags size={18} className="text-[#b3001e]" /> Organizar productos
+            </h3>
+            <p className="text-[11px] text-slate-400 dark:text-white/40 mt-0.5">
+              Filtra, selecciona y aplica categoría o precio Pedidos Ya a varios productos a la vez.
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:text-white/40 dark:hover:text-white"><X size={18} /></button>
+        </div>
+
+        {/* Search */}
+        <div className="px-6 pt-4 shrink-0">
+          <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus-within:ring-2 focus-within:ring-[#b3001e]/30">
+            <Search size={14} className="text-slate-400 dark:text-white/40 shrink-0" />
+            <input autoFocus value={query} onChange={e => setQuery(e.target.value)}
+              placeholder="Buscar por nombre, SKU, código de barras o categoría…"
+              className="flex-1 bg-transparent outline-none text-sm text-slate-700 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40" />
+            {query && (
+              <button onClick={() => setQuery('')} className="text-slate-400 dark:text-white/40 hover:text-slate-600 dark:hover:text-white">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center justify-between mt-2 text-[11px]">
+            <span className="text-slate-500 dark:text-white/60">
+              {filtered.length} coincidencia{filtered.length === 1 ? '' : 's'} · {selected.size} seleccionado{selected.size === 1 ? '' : 's'}
+            </span>
+            <button onClick={toggleAll} disabled={filtered.length === 0}
+              className="text-[11px] font-medium text-[#b3001e] hover:underline disabled:opacity-40">
+              {allVisibleSelected ? 'Deseleccionar todos' : 'Seleccionar todos'}
+            </button>
+          </div>
+        </div>
+
+        {/* List */}
+        <div className="flex-1 overflow-auto px-6 py-3 min-h-[200px]">
+          {filtered.length === 0 ? (
+            <div className="text-center py-12 text-slate-400 dark:text-white/40 text-sm">Sin resultados.</div>
+          ) : (
+            <div className="border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 dark:bg-white/5 text-[11px] text-slate-500 dark:text-white/50 uppercase tracking-wide">
+                  <tr>
+                    <th className="w-10 px-3 py-2"></th>
+                    <th className="px-3 py-2 text-left font-semibold">Producto</th>
+                    <th className="px-3 py-2 text-left font-semibold">Categoría</th>
+                    <th className="px-3 py-2 text-right font-semibold">Precio</th>
+                    <th className="px-3 py-2 text-right font-semibold">PY</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.slice(0, 500).map(i => {
+                    const checked = selected.has(i.id)
+                    return (
+                      <tr key={i.id}
+                        onClick={() => toggleOne(i.id)}
+                        className={`border-t border-slate-100 dark:border-white/5 cursor-pointer transition-colors ${checked ? 'bg-[#b3001e]/5 dark:bg-[#b3001e]/10' : 'hover:bg-slate-50 dark:hover:bg-white/5'}`}>
+                        <td className="px-3 py-2">
+                          <input type="checkbox" checked={checked} onChange={() => toggleOne(i.id)}
+                            onClick={e => e.stopPropagation()}
+                            className="w-4 h-4 rounded border-slate-300 text-[#b3001e] focus:ring-[#b3001e]/30" />
+                        </td>
+                        <td className="px-3 py-2">
+                          <p className="font-medium text-slate-800 dark:text-white text-[13px]">{i.name}</p>
+                          {i.sku && <p className="text-[10px] text-slate-400 dark:text-white/40">{i.sku}</p>}
+                        </td>
+                        <td className="px-3 py-2 text-slate-500 dark:text-white/60 text-xs">{i.category || '—'}</td>
+                        <td className="px-3 py-2 text-right text-slate-600 dark:text-white/70 text-xs">{fmtRD(i.price)}</td>
+                        <td className="px-3 py-2 text-right text-xs">
+                          {i.price_pedidos_ya != null
+                            ? <span className="text-[#b3001e] font-semibold">{fmtRD(i.price_pedidos_ya)}</span>
+                            : <span className="text-slate-300 dark:text-white/20">—</span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              {filtered.length > 500 && (
+                <p className="px-3 py-2 text-[10px] text-slate-400 dark:text-white/40 bg-slate-50 dark:bg-white/5 border-t border-slate-100 dark:border-white/10">
+                  Mostrando 500 de {filtered.length}. Refina tu búsqueda para ver más.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Action strip */}
+        <div className="px-6 py-4 border-t border-slate-100 dark:border-white/10 bg-slate-50/50 dark:bg-white/5 shrink-0 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">Categoría</label>
+              <input list="org-categories" value={newCategory} onChange={e => setNewCategory(e.target.value)}
+                placeholder="Ej: Ron, Whisky, Cerveza…"
+                className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
+              <datalist id="org-categories">
+                {categories.map(c => <option key={c} value={c} />)}
+              </datalist>
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                <Bike size={11} className="text-[#b3001e]" /> Precio Pedidos Ya (RD$)
+              </label>
+              <input type="number" min="0" step="0.01" value={newPY} onChange={e => setNewPY(e.target.value)}
+                placeholder="Deja en blanco para no cambiar"
+                className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] text-slate-500 dark:text-white/60 flex-1 truncate">
+              {toast || (selected.size === 0 ? 'Selecciona al menos un producto.' : 'Listo para aplicar cambios.')}
+            </p>
+            <div className="flex gap-2">
+              <button onClick={onClose}
+                className="px-4 py-2 border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-600 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/10">
+                Cerrar
+              </button>
+              <button onClick={apply} disabled={saving || selected.size === 0 || (!newCategory.trim() && newPY === '')}
+                className="px-6 py-2 bg-black text-white rounded-xl text-sm font-medium hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-colors">
+                {saving && <Loader2 size={14} className="animate-spin" />}
+                Aplicar a {selected.size || 0} seleccionado{selected.size === 1 ? '' : 's'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Inline PY price editor ────────────────────────────────────────────────────
+function InlinePYPrice({ item, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue]     = useState(item.price_pedidos_ya ?? '')
+  const [saving, setSaving]   = useState(false)
+  const inputRef = useRef(null)
+
+  useEffect(() => { setValue(item.price_pedidos_ya ?? '') }, [item.price_pedidos_ya])
+  useEffect(() => { if (editing) inputRef.current?.focus() }, [editing])
+
+  async function commit() {
+    const normalized = value === '' || value == null ? null : Number(value)
+    if (normalized === (item.price_pedidos_ya ?? null)) { setEditing(false); return }
+    setSaving(true)
+    try {
+      await onSave(normalized)
+    } finally {
+      setSaving(false)
+      setEditing(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <button onClick={() => setEditing(true)}
+        className="w-full text-right px-2 py-1 rounded-md hover:bg-[#b3001e]/5 dark:hover:bg-[#b3001e]/10 transition-colors group">
+        {item.price_pedidos_ya != null
+          ? <span className="text-[#b3001e] font-semibold text-xs">{fmtRD(item.price_pedidos_ya)}</span>
+          : <span className="text-slate-300 dark:text-white/20 text-xs group-hover:text-[#b3001e]/60">Añadir</span>}
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1 justify-end">
+      <input ref={inputRef} type="number" min="0" step="0.01" value={value}
+        onChange={e => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit()
+          else if (e.key === 'Escape') { setValue(item.price_pedidos_ya ?? ''); setEditing(false) }
+        }}
+        placeholder="—"
+        className="w-24 text-right border border-[#b3001e]/40 rounded-md px-2 py-1 text-xs dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
+      {saving && <Loader2 size={11} className="animate-spin text-[#b3001e]" />}
+    </div>
+  )
+}
+
 // ── Main screen ───────────────────────────────────────────────────────────────
 export default function Inventory() {
   const api = useAPI()
@@ -621,6 +886,7 @@ export default function Inventory() {
   const [filter,   setFilter]   = useState('all')   // 'all' | 'low'
   const [modal,    setModal]    = useState(null)     // null | { type: 'item'|'adjust'|'history'|'import', item }
   const [showImport, setShowImport] = useState(false)
+  const [showOrganize, setShowOrganize] = useState(false)
   const [delConfirm, setDelConfirm] = useState(null)
 
   if (!ALLOWED.includes(user?.role)) {
@@ -703,6 +969,13 @@ export default function Inventory() {
               <Trash2 size={15} /> {lang === 'en' ? 'Erase All' : 'Borrar Todo'}
             </button>
           )}
+          {items.length > 0 && (
+            <button onClick={() => setShowOrganize(true)}
+              title={lang === 'en' ? 'Bulk categorize + Pedidos Ya prices' : 'Categorizar en bloque + precios Pedidos Ya'}
+              className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 rounded-xl text-sm font-medium hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+              <Tags size={15} className="text-[#b3001e]" /> {lang === 'en' ? 'Organize' : 'Organizar'}
+            </button>
+          )}
           <button onClick={() => setShowImport(true)}
             className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 rounded-xl text-sm font-medium hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
             <Upload size={15} /> {lang === 'en' ? 'Import CSV' : 'Importar CSV'}
@@ -772,6 +1045,7 @@ export default function Inventory() {
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">Stock</th>
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">Costo</th>
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">Precio</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-[#b3001e] uppercase tracking-wide text-right whitespace-nowrap">PY Precio</th>
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">Margen</th>
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">Valor</th>
                   <th className="px-4 py-3"></th>
@@ -799,6 +1073,15 @@ export default function Inventory() {
                       </td>
                       <td className="px-4 py-3 text-right text-slate-500 dark:text-white/50 text-xs">{item.cost > 0 ? fmtRD(item.cost) : '—'}</td>
                       <td className="px-4 py-3 text-right text-slate-600 dark:text-white/60">{fmtRD(item.price)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <InlinePYPrice item={item}
+                          onSave={async (py) => {
+                            await api.inventory.update({ id: item.id, price_pedidos_ya: py })
+                            // Optimistic local patch so the inline cell reflects the new value
+                            // without a full reload round-trip (avoids flash).
+                            setItems(prev => prev.map(x => x.id === item.id ? { ...x, price_pedidos_ya: py } : x))
+                          }} />
+                      </td>
                       <td className="px-4 py-3 text-right text-xs">
                         {item.cost > 0 && item.price > 0 ? (
                           <span className={`font-semibold ${item.price > item.cost ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}>
@@ -853,6 +1136,11 @@ export default function Inventory() {
                       <span className="text-slate-500 dark:text-white/60">Precio: <span className="font-semibold text-slate-700 dark:text-white">{fmtRD(item.price)}</span></span>
                       <span className="text-slate-400 dark:text-white/40">Valor: {fmtRD(item.quantity * item.price)}</span>
                     </div>
+                    {item.price_pedidos_ya != null && (
+                      <div className="flex items-center gap-1.5 text-[11px] text-[#b3001e]">
+                        <Bike size={11} /> <span className="font-semibold">PY: {fmtRD(item.price_pedidos_ya)}</span>
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       <button onClick={() => setModal({ type: 'adjust', item })}
                         className="flex-1 py-2 text-[11px] font-medium border border-slate-200 dark:border-white/10 rounded-lg text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10">
@@ -887,6 +1175,13 @@ export default function Inventory() {
       )}
       {showImport && (
         <ImportModal onDone={load} onClose={() => setShowImport(false)} />
+      )}
+      {showOrganize && (
+        <OrganizeModal
+          items={items}
+          categories={Array.from(new Set(items.map(i => (i.category || '').trim()).filter(Boolean))).sort()}
+          onDone={load}
+          onClose={() => setShowOrganize(false)} />
       )}
 
       {/* Delete confirm */}

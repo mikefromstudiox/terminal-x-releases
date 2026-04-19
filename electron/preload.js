@@ -69,6 +69,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     all:          ()                            => call('inventory:all'),
     create:       (data)                        => call('inventory:create', data),
     update:       (data)                        => call('inventory:update', data),
+    bulkUpdate:   (ids, patch)                  => call('inventory:bulkUpdate', { ids, patch }),
     delete:       (data)                        => call('inventory:delete', data),
     adjust:       ({id, delta, notes, userId})  => call('inventory:adjust', {id, delta, notes, userId}),
     transactions: ({id})                        => call('inventory:transactions', {id}),

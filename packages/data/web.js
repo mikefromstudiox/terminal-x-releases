@@ -577,8 +577,26 @@ export function createWebAPI(supabase, businessId) {
 
       update: (data) => tryOr(async () => {
         const { id, ...rest } = data
+        // Normalize price_pedidos_ya: blank string → null so Supabase stores NULL
+        if ('price_pedidos_ya' in rest) {
+          rest.price_pedidos_ya = (rest.price_pedidos_ya === '' || rest.price_pedidos_ya == null)
+            ? null : Number(rest.price_pedidos_ya)
+        }
+        rest.updated_at = new Date().toISOString()
         throwSupaError(await supabase.from('inventory_items').update(rest).eq('id', id).eq('business_id', bid))
       }),
+
+      bulkUpdate: (ids, patch) => tryOr(async () => {
+        if (!Array.isArray(ids) || !ids.length || !patch || !Object.keys(patch).length) return 0
+        const clean = { ...patch }
+        if ('price_pedidos_ya' in clean) {
+          clean.price_pedidos_ya = (clean.price_pedidos_ya === '' || clean.price_pedidos_ya == null)
+            ? null : Number(clean.price_pedidos_ya)
+        }
+        clean.updated_at = new Date().toISOString()
+        throwSupaError(await supabase.from('inventory_items').update(clean).in('id', ids).eq('business_id', bid))
+        return ids.length
+      }, 0),
 
       delete: (data) => tryOr(async () => {
         const id = typeof data === 'object' ? data.id : data

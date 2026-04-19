@@ -1581,6 +1581,7 @@ ipcMain.handle('rnc:lookup', async (_, { rnc }) => {
 handle('inventory:all',          ()                              => db.inventoryGetAll())
 handleMut('inventory:create',       (data)                         => db.inventoryCreate(data))
 handleMut('inventory:update',       ({id, ...data})                => { db.inventoryUpdate(id, data); return true })
+handleMut('inventory:bulkUpdate',   ({ids, patch})                 => db.inventoryBulkUpdate(ids || [], patch || {}))
 handleMut('inventory:delete',       ({id})                         => { db.inventoryDelete(id); return true })
 handleMut('inventory:adjust',       ({id, delta, notes, userId})   => db.inventoryAdjust(id, delta, notes, userId))
 handle('inventory:transactions', ({id})                         => db.inventoryTransactions(id))
