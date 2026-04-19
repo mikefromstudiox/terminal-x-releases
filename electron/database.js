@@ -3666,9 +3666,12 @@ function ticketMarkPaid(id, { paymentMethod, ncf, ecfResult, cajeroId, tipoVenta
 
     if (tipoVenta === 'credito' && clientId) {
       // Fetch original tipo_venta to avoid double-counting if ticket was already posted as credit
-      const row = db.prepare('SELECT total, tipo_venta FROM tickets WHERE id=?').get(id)
+      const row = db.prepare('SELECT total, descuento, tipo_venta FROM tickets WHERE id=?').get(id)
       if (row && row.tipo_venta !== 'credito') {
-        const amount = row.total || 0
+        // Use NET amount (total - descuento) so descuento applied in CobrarModal
+        // is honored on the client's balance. The gross total stays on the ticket.
+        const netOwed = Number(row.total || 0) - Number(row.descuento || 0)
+        const amount = Math.max(0, netOwed)
         db.prepare('UPDATE tickets SET tipo_venta=?,client_id=? WHERE id=?')
           .run('credito', clientId, id)
         db.prepare('UPDATE clients SET balance=balance+?,visits=visits+1,total_spent=total_spent+? WHERE id=?')

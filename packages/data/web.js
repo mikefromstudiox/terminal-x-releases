@@ -1688,7 +1688,17 @@ export function createWebAPI(supabase, businessId) {
       collect: (data) => tryOr(async () => {
         // Mirrors desktop collectCredit(): mark tickets paid, insert credit_payment,
         // decrease client balance. No RPC — done step-by-step.
-        const { clientId, ticketIds, amount, paymentMethod, ncf, notes, cajeroId } = data
+        // Idempotency: caller can pass a precomputed supabase_id. If a row with
+        // that supabase_id already exists for this business, we skip steps 1-2
+        // (they ran on a prior attempt) and return the existing row.
+        const { clientId, ticketIds, amount, paymentMethod, ncf, notes, cajeroId, supabase_id: callerSid } = data
+        const sid = callerSid || crypto.randomUUID()
+
+        if (callerSid) {
+          const { data: existing } = await supabase.from('credit_payments')
+            .select('id, supabase_id').eq('business_id', bid).eq('supabase_id', callerSid).maybeSingle()
+          if (existing) return { id: existing.id, supabase_id: existing.supabase_id, idempotent: true }
+        }
 
         // 1. Mark each ticket as 'cobrado' with the payment method
         for (const tid of (ticketIds || [])) {
@@ -1703,9 +1713,8 @@ export function createWebAPI(supabase, businessId) {
             .eq('id', clientId).eq('business_id', bid)
         }
 
-        // 3. Insert credit_payment record
-        const sid = crypto.randomUUID()
-        const row = throwSupaError(await supabase.from('credit_payments').insert({
+        // 3. Insert credit_payment record (upsert on supabase_id so retries are safe)
+        const row = throwSupaError(await supabase.from('credit_payments').upsert({
           supabase_id: sid,
           client_id: clientId,
           client_supabase_id: cl?.supabase_id || null,
@@ -1716,7 +1725,7 @@ export function createWebAPI(supabase, businessId) {
           notes: notes || null,
           cajero_id: cajeroId || null,
           business_id: bid,
-        }).select('id').single())
+        }, { onConflict: 'supabase_id' }).select('id').single())
 
         return { id: row.id, supabase_id: sid }
       }),
@@ -2120,7 +2129,7 @@ export function createWebAPI(supabase, businessId) {
 
       void: (data) => tryOr(async () => {
         const { id, reason, voidBy } = typeof data === 'object' ? data : { id: data }
-        const priorRow = (await supabase.from('tickets').select('doc_number, total, payment_method, tipo_venta, ncf').eq('id', id).eq('business_id', bid).maybeSingle())?.data
+        const priorRow = (await supabase.from('tickets').select('supabase_id, doc_number, total, descuento, payment_method, tipo_venta, client_supabase_id, ncf').eq('id', id).eq('business_id', bid).maybeSingle())?.data
         throwSupaError(await supabase.from('tickets').update({
           status: 'nula',
           void_reason: reason || '',
@@ -2132,12 +2141,29 @@ export function createWebAPI(supabase, businessId) {
             target_type: 'ticket', target_id: id, target_name: priorRow.doc_number || `#${id}`,
             amount: priorRow.total, reason: reason || null,
             metadata: { payment_method: priorRow.payment_method, tipo_venta: priorRow.tipo_venta, ncf: priorRow.ncf } })
+
+          // Reverse credit-ticket balance (net of descuento, clamped at 0)
+          if (priorRow.tipo_venta === 'credito' && priorRow.client_supabase_id) {
+            const net = Math.max(0, Number(priorRow.total || 0) - Number(priorRow.descuento || 0))
+            if (net > 0) {
+              const { data: cl } = await supabase.from('clients').select('balance').eq('supabase_id', priorRow.client_supabase_id).eq('business_id', bid).single()
+              if (cl) await supabase.from('clients').update({ balance: Math.max(0, (cl.balance || 0) - net) })
+                .eq('supabase_id', priorRow.client_supabase_id).eq('business_id', bid)
+            }
+          }
+
+          // Reverse commissions tied to this ticket — they're unearned on void
+          if (priorRow.supabase_id) {
+            const tSid = priorRow.supabase_id
+            await supabase.from('washer_commissions').delete().eq('business_id', bid).eq('ticket_supabase_id', tSid)
+            await supabase.from('seller_commissions').delete().eq('business_id', bid).eq('ticket_supabase_id', tSid)
+            await supabase.from('cajero_commissions').delete().eq('business_id', bid).eq('ticket_supabase_id', tSid)
+          }
         }
 
         // Reverse inventory stock for product items (by supabase_id)
         try {
-          const { data: tRow } = await supabase.from('tickets').select('supabase_id').eq('id', id).maybeSingle()
-          const tSid = tRow?.supabase_id
+          const tSid = priorRow?.supabase_id
           if (tSid) {
             const { data: items } = await supabase.from('ticket_items')
               .select('inventory_item_supabase_id, quantity')
@@ -2280,11 +2306,32 @@ export function createWebAPI(supabase, businessId) {
         const now = new Date().toISOString()
         const row = await supabase.from('queue').select('ticket_supabase_id').eq('id', id).single()
         if (row.error) throw new Error(row.error.message)
-        await supabase.from('queue').update({ status: 'cancelled', completed_at: now }).eq('id', id)
-        if (row.data?.ticket_supabase_id) {
-          await supabase.from('tickets').update({ status: 'anulado' }).eq('supabase_id', row.data.ticket_supabase_id)
+        const tSid = row.data?.ticket_supabase_id || null
+
+        // Reverse credit-ticket balance + commissions BEFORE marking anulado,
+        // so deleted credit tickets don't leave ghost debt on clients.
+        if (tSid) {
+          const { data: t } = await supabase.from('tickets')
+            .select('total, descuento, tipo_venta, client_supabase_id')
+            .eq('supabase_id', tSid).eq('business_id', bid).maybeSingle()
+          if (t?.tipo_venta === 'credito' && t?.client_supabase_id) {
+            const net = Math.max(0, Number(t.total || 0) - Number(t.descuento || 0))
+            if (net > 0) {
+              const { data: cl } = await supabase.from('clients').select('balance').eq('supabase_id', t.client_supabase_id).eq('business_id', bid).single()
+              if (cl) await supabase.from('clients').update({ balance: Math.max(0, (cl.balance || 0) - net) })
+                .eq('supabase_id', t.client_supabase_id).eq('business_id', bid)
+            }
+          }
+          await supabase.from('washer_commissions').delete().eq('business_id', bid).eq('ticket_supabase_id', tSid)
+          await supabase.from('seller_commissions').delete().eq('business_id', bid).eq('ticket_supabase_id', tSid)
+          await supabase.from('cajero_commissions').delete().eq('business_id', bid).eq('ticket_supabase_id', tSid)
         }
-        await supabase.from('queue_deletions').insert({ supabase_id: crypto.randomUUID(), queue_id: id, ticket_supabase_id: row.data?.ticket_supabase_id, deleted_by: deletedBy || 'unknown', deleted_at: now, reason: 'manual', business_id: bid })
+
+        await supabase.from('queue').update({ status: 'cancelled', completed_at: now }).eq('id', id)
+        if (tSid) {
+          await supabase.from('tickets').update({ status: 'anulado' }).eq('supabase_id', tSid)
+        }
+        await supabase.from('queue_deletions').insert({ supabase_id: crypto.randomUUID(), queue_id: id, ticket_supabase_id: tSid, deleted_by: deletedBy || 'unknown', deleted_at: now, reason: 'manual', business_id: bid })
         return { id }
       }),
     },

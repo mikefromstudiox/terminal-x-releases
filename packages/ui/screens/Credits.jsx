@@ -47,9 +47,13 @@ function CreditBar({ balance, limit, height = 'h-1.5' }) {
 
 // ── Client list card ──────────────────────────────────────────────────────────
 
-function ClientCard({ client, selected, onClick }) {
+function ClientCard({ client, selected, onClick, hasOpenTickets }) {
   const overLimit = client.balance > client.credit_limit && client.credit_limit > 0
   const pct       = client.credit_limit > 0 ? Math.round((client.balance / client.credit_limit) * 100) : 0
+  // Regression guard — if the client carries a balance but has NO pendiente
+  // credit tickets, something left a ghost debt behind (common cause: ticket
+  // deleted/voided without reversing clients.balance before v2.4.2). Surface it.
+  const ghostBalance = client.balance > 0.01 && hasOpenTickets === false
   return (
     <button
       onClick={onClick}
@@ -65,6 +69,11 @@ function ClientCard({ client, selected, onClick }) {
             {overLimit && (
               <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 rounded-full leading-none">
                 EXCEDIDO
+              </span>
+            )}
+            {ghostBalance && (
+              <span title="Saldo sin tickets pendientes — revisar" className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 rounded-full leading-none">
+                REVISAR
               </span>
             )}
           </div>
@@ -545,6 +554,7 @@ export default function Credits() {
   const api = useAPI()
   const { t } = useLang()
   const [clients,   setClients]   = useState([])
+  const [openClientIds, setOpenClientIds] = useState(() => new Set())
   const [loading,   setLoading]   = useState(true)
   const [search,    setSearch]    = useState('')
   const [selectedId,setSelectedId]= useState(null)
@@ -553,9 +563,20 @@ export default function Credits() {
   const loadClients = useCallback(async () => {
     setLoading(true)
     try {
-      const rows = await api?.clients?.all?.()
+      const [rows, openTickets] = await Promise.all([
+        api?.clients?.all?.() || [],
+        api?.tickets?.all?.({ status: 'pendiente' }) || [],
+      ])
       setClients(rows || [])
-    } catch { setClients([]) }
+      // Build a Set of client ids that actually have pendiente credit tickets.
+      // Drives the REVISAR badge — balance>0 + no open ticket = drift.
+      const s = new Set()
+      for (const t of (openTickets || [])) {
+        if (t.tipo_venta !== 'credito') continue
+        if (t.client_id != null) s.add(String(t.client_id))
+      }
+      setOpenClientIds(s)
+    } catch { setClients([]); setOpenClientIds(new Set()) }
     finally  { setLoading(false) }
   }, [])
 
@@ -631,6 +652,7 @@ export default function Credits() {
                 key={c.id}
                 client={c}
                 selected={c.id === selectedId}
+                hasOpenTickets={openClientIds.has(String(c.id))}
                 onClick={() => setSelectedId(c.id === selectedId ? null : c.id)}
               />
             ))
