@@ -70,8 +70,15 @@ export default async function handler(req, res) {
       const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser(authHeader)
       if (authErr || !authUser) { await audit(supabase, license.id, key, hwid, 'validate', 'hardware_mismatch', ip); return res.json({ valid: false, status: 'hardware_mismatch' }) }
       if (license.business_id) {
-        const { data: staff } = await supabase.from('staff').select('id').eq('business_id', license.business_id).eq('auth_user_id', authUser.id).maybeSingle()
-        if (!staff) { await audit(supabase, license.id, key, hwid, 'validate', 'hardware_mismatch', ip); return res.json({ valid: false, status: 'hardware_mismatch' }) }
+        // Accept if authUser is business owner OR a linked staff member.
+        const { data: biz } = await supabase.from('businesses').select('owner_id').eq('id', license.business_id).maybeSingle()
+        const isOwner = biz?.owner_id && biz.owner_id === authUser.id
+        let staff = null
+        if (!isOwner) {
+          const r = await supabase.from('staff').select('id').eq('business_id', license.business_id).eq('auth_user_id', authUser.id).maybeSingle()
+          staff = r.data
+        }
+        if (!isOwner && !staff) { await audit(supabase, license.id, key, hwid, 'validate', 'hardware_mismatch', ip); return res.json({ valid: false, status: 'hardware_mismatch' }) }
       }
     }
     if (license.hardware_id && license.hardware_id !== hwid && !isWebClient) { await audit(supabase, license.id, key, hwid, 'validate', 'hardware_mismatch', ip); return res.json({ valid: false, status: 'hardware_mismatch' }) }

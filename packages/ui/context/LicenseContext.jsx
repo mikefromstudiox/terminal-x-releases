@@ -95,12 +95,9 @@ export function LicenseProvider({ children }) {
           setHwid('browser-dev')
         }
       } else {
-        const stored = localStorage.getItem('tx_dev_hwid') || (() => {
-          const id = 'dev-' + Math.random().toString(36).slice(2)
-          localStorage.setItem('tx_dev_hwid', id)
-          return id
-        })()
-        setHwid(stored)
+        // Web: use the sentinel 'web-client' so validate.js takes the
+        // Supabase-JWT + owner/staff-linkage branch (not desktop HWID check).
+        setHwid('web-client')
       }
     }
     loadHwid()

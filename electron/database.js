@@ -3689,18 +3689,18 @@ function commissionsGetByWasher(washerId, dateFrom, dateTo) {
       }
     }
     if (!empSid) return []
-    let sql = `SELECT wc.*, t.doc_number, t.created_at as ticket_date, t.vehicle_plate,
+    let sql = `SELECT wc.*, t.doc_number, COALESCE(t.created_at, wc.created_at) as ticket_date, t.vehicle_plate,
                       e.nombre as washer_name, e.comision_pct as commission_pct,
                       GROUP_CONCAT(ti.name, ' + ') as services
                FROM washer_commissions wc
-               JOIN tickets t ON (t.id = wc.ticket_id OR t.supabase_id = wc.ticket_supabase_id)
+               LEFT JOIN tickets t ON (t.id = wc.ticket_id OR t.supabase_id = wc.ticket_supabase_id)
                JOIN empleados e ON e.supabase_id = wc.empleado_supabase_id
                LEFT JOIN ticket_items ti ON ti.ticket_id = t.id AND ti.is_wash=1
-               WHERE wc.empleado_supabase_id=? AND t.status='cobrado'`
+               WHERE wc.empleado_supabase_id=? AND (t.id IS NULL OR t.status='cobrado')`
     const params = [empSid]
-    if (dateFrom) { sql += ' AND t.created_at >= ?'; params.push(dateFrom) }
-    if (dateTo)   { sql += ' AND t.created_at <= ?'; params.push(dateTo)   }
-    sql += ' GROUP BY wc.id ORDER BY t.created_at DESC LIMIT 2000'
+    if (dateFrom) { sql += ' AND COALESCE(t.created_at, wc.created_at) >= ?'; params.push(dateFrom) }
+    if (dateTo)   { sql += ' AND COALESCE(t.created_at, wc.created_at) <= ?'; params.push(dateTo)   }
+    sql += ' GROUP BY wc.id ORDER BY ticket_date DESC LIMIT 2000'
     return db.prepare(sql).all(...params)
   } catch (e) { console.error('[commissionsGetByWasher]', e.message); return [] }
 }
@@ -3714,10 +3714,11 @@ function commissionsGetByPeriod(dateFrom, dateTo) {
               SUM(wc.base_amount) as total_base,
               SUM(wc.commission_amount) as total_commission
        FROM washer_commissions wc
-       JOIN tickets t ON (t.id = wc.ticket_id OR t.supabase_id = wc.ticket_supabase_id)
+       LEFT JOIN tickets t ON (t.id = wc.ticket_id OR t.supabase_id = wc.ticket_supabase_id)
        JOIN empleados e ON e.supabase_id = wc.empleado_supabase_id
-       WHERE t.status='cobrado'
-         AND t.created_at >= ? AND t.created_at <= ?
+       WHERE (t.id IS NULL OR t.status='cobrado')
+         AND COALESCE(t.created_at, wc.created_at) >= ?
+         AND COALESCE(t.created_at, wc.created_at) <= ?
        GROUP BY wc.empleado_supabase_id ORDER BY total_commission DESC`
     ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
   } catch (e) { console.error('[commissionsGetByPeriod]', e.message); return [] }
@@ -3742,18 +3743,18 @@ function sellerCommissionsBySeller(sellerId, dateFrom, dateTo) {
     }
   }
   if (!empSid) return []
-  let sql = `SELECT sc.*, t.doc_number, t.created_at as ticket_date, t.vehicle_plate,
+  let sql = `SELECT sc.*, t.doc_number, COALESCE(t.created_at, sc.created_at) as ticket_date, t.vehicle_plate,
                     e.nombre as seller_name, e.comision_pct as commission_pct,
                     GROUP_CONCAT(ti.name, ' + ') as services
              FROM seller_commissions sc
-             JOIN tickets t ON (t.id = sc.ticket_id OR t.supabase_id = sc.ticket_supabase_id)
+             LEFT JOIN tickets t ON (t.id = sc.ticket_id OR t.supabase_id = sc.ticket_supabase_id)
              JOIN empleados e ON e.supabase_id = sc.empleado_supabase_id
              LEFT JOIN ticket_items ti ON ti.ticket_id = t.id AND ti.is_wash=1
-             WHERE sc.empleado_supabase_id=? AND t.status='cobrado'`
+             WHERE sc.empleado_supabase_id=? AND (t.id IS NULL OR t.status='cobrado')`
   const params = [empSid]
-  if (dateFrom) { sql += ' AND t.created_at >= ?'; params.push(dateFrom) }
-  if (dateTo)   { sql += ' AND t.created_at <= ?'; params.push(dateTo)   }
-  sql += ' GROUP BY sc.id ORDER BY t.created_at DESC LIMIT 2000'
+  if (dateFrom) { sql += ' AND COALESCE(t.created_at, sc.created_at) >= ?'; params.push(dateFrom) }
+  if (dateTo)   { sql += ' AND COALESCE(t.created_at, sc.created_at) <= ?'; params.push(dateTo)   }
+  sql += ' GROUP BY sc.id ORDER BY ticket_date DESC LIMIT 2000'
   return db.prepare(sql).all(...params)
   } catch (e) { console.error('[sellerCommissionsBySeller]', e.message); return [] }
 }
@@ -3767,10 +3768,11 @@ function sellerCommissionsByPeriod(dateFrom, dateTo) {
               SUM(sc.base_amount) as total_base,
               SUM(sc.commission_amount) as total_commission
        FROM seller_commissions sc
-       JOIN tickets t ON (t.id = sc.ticket_id OR t.supabase_id = sc.ticket_supabase_id)
+       LEFT JOIN tickets t ON (t.id = sc.ticket_id OR t.supabase_id = sc.ticket_supabase_id)
        JOIN empleados e ON e.supabase_id = sc.empleado_supabase_id
-       WHERE t.status='cobrado'
-         AND t.created_at >= ? AND t.created_at <= ?
+       WHERE (t.id IS NULL OR t.status='cobrado')
+         AND COALESCE(t.created_at, sc.created_at) >= ?
+         AND COALESCE(t.created_at, sc.created_at) <= ?
        GROUP BY sc.empleado_supabase_id ORDER BY total_commission DESC`
     ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
   } catch (e) { console.error('[sellerCommissionsByPeriod]', e.message); return [] }
@@ -3808,18 +3810,28 @@ function sellerCommissionCreate({ seller_id, empleado_supabase_id, seller_supaba
 function cajeroCommissionsByCajero(cajeroId, dateFrom, dateTo) {
   if (!db) return []
   try {
-    let sql = `SELECT cc.*, t.doc_number, t.created_at as ticket_date, t.vehicle_plate,
-                      u.name as cajero_name, u.commission_pct,
+    // Resolve to empleado_supabase_id so StarSISA rows (cajero_id NULL) still match
+    let empSid = null
+    if (cajeroId) {
+      if (typeof cajeroId === 'string' && cajeroId.includes('-')) {
+        empSid = cajeroId
+      } else {
+        const row = db.prepare(`SELECT supabase_id FROM empleados WHERE id=? AND tipo IN ('cajero','hybrid') LIMIT 1`).get(cajeroId)
+        empSid = row?.supabase_id || null
+      }
+    }
+    let sql = `SELECT cc.*, t.doc_number, COALESCE(t.created_at, cc.created_at) as ticket_date, t.vehicle_plate,
+                      e.nombre as cajero_name, e.comision_pct as commission_pct,
                       GROUP_CONCAT(ti.name, ' + ') as services
                FROM cajero_commissions cc
-               JOIN tickets t ON (t.id = cc.ticket_id OR t.supabase_id = cc.ticket_supabase_id)
-               JOIN users u ON u.id = cc.cajero_id
+               LEFT JOIN tickets t ON (t.id = cc.ticket_id OR t.supabase_id = cc.ticket_supabase_id)
+               JOIN empleados e ON e.supabase_id = cc.empleado_supabase_id
                LEFT JOIN ticket_items ti ON ti.ticket_id = t.id AND ti.is_wash=0
-               WHERE cc.cajero_id=? AND t.status='cobrado'`
-    const params = [cajeroId]
-    if (dateFrom) { sql += ' AND t.created_at >= ?'; params.push(dateFrom) }
-    if (dateTo)   { sql += ' AND t.created_at <= ?'; params.push(dateTo)   }
-    sql += ' GROUP BY cc.id ORDER BY t.created_at DESC LIMIT 2000'
+               WHERE cc.empleado_supabase_id=? AND (t.id IS NULL OR t.status='cobrado')`
+    const params = [empSid]
+    if (dateFrom) { sql += ' AND COALESCE(t.created_at, cc.created_at) >= ?'; params.push(dateFrom) }
+    if (dateTo)   { sql += ' AND COALESCE(t.created_at, cc.created_at) <= ?'; params.push(dateTo)   }
+    sql += ' GROUP BY cc.id ORDER BY ticket_date DESC LIMIT 2000'
     return db.prepare(sql).all(...params)
   } catch (e) { console.error('[cajeroCommissionsByCajero]', e.message); return [] }
 }
@@ -3827,16 +3839,18 @@ function cajeroCommissionsByPeriod(dateFrom, dateTo) {
   if (!db) return []
   try {
     return db.prepare(
-      `SELECT cc.cajero_id, u.name as cajero_name, u.commission_pct,
+      `SELECT cc.empleado_supabase_id, cc.cajero_id,
+              e.id as cajero_emp_id, e.nombre as cajero_name, e.comision_pct as commission_pct,
               COUNT(cc.id) as ticket_count,
               SUM(cc.base_amount) as total_base,
               SUM(cc.commission_amount) as total_commission
        FROM cajero_commissions cc
-       JOIN tickets t ON (t.id = cc.ticket_id OR t.supabase_id = cc.ticket_supabase_id)
-       JOIN users u ON u.id = cc.cajero_id
-       WHERE t.status='cobrado'
-         AND t.created_at >= ? AND t.created_at <= ?
-       GROUP BY cc.cajero_id ORDER BY total_commission DESC`
+       LEFT JOIN tickets t ON (t.id = cc.ticket_id OR t.supabase_id = cc.ticket_supabase_id)
+       JOIN empleados e ON e.supabase_id = cc.empleado_supabase_id
+       WHERE (t.id IS NULL OR t.status='cobrado')
+         AND COALESCE(t.created_at, cc.created_at) >= ?
+         AND COALESCE(t.created_at, cc.created_at) <= ?
+       GROUP BY cc.empleado_supabase_id ORDER BY total_commission DESC`
     ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
   } catch (e) { console.error('[cajeroCommissionsByPeriod]', e.message); return [] }
 }
