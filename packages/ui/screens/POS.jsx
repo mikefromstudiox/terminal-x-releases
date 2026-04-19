@@ -1063,7 +1063,7 @@ function RetailPOS() {
   const { collapsed } = useLayout()
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { businessType, isHybrid, isMechanic, isDealership, isLicoreria, licoreriaConfig, isCarniceria } = useBusinessType()
+  const { businessType, isRetail, isHybrid, isMechanic, isDealership, isLicoreria, licoreriaConfig, isCarniceria } = useBusinessType()
 
   // ── Carnicería-specific state ──────────────────────────────────────────────
   // Weight entry modal. When the cashier taps a sold_by_weight product we park
