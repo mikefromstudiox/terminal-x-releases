@@ -1054,6 +1054,23 @@ function CarWashPOS() {
   )
 }
 
+// ── Pedidos Ya wordmark ───────────────────────────────────────────────────────
+// Inline SVG reproduction — sunrise arc over the "Y", Pedidos Ya pink (#FA0050)
+// as default, accepts a color prop so it can render on white (pink) or red (white).
+function PedidosYaWordmark({ color = '#FA0050', height = 16 }) {
+  return (
+    <svg viewBox="0 0 140 24" height={height} style={{ height, width: 'auto' }} aria-label="PedidosYa">
+      {/* Sunrise arc over the Y (positions 96-114 cover the Y glyph) */}
+      <path d="M 100 6 A 5 5 0 0 1 110 6" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <text
+        x="0" y="20"
+        fill={color}
+        style={{ fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', fontWeight: 900, fontSize: '20px', fontStyle: 'italic', letterSpacing: '-0.5px' }}
+      >PedidosYa</text>
+    </svg>
+  )
+}
+
 // ── Retail POS ────────────────────────────────────────────────────────────────
 
 function RetailPOS() {
@@ -1660,16 +1677,13 @@ function RetailPOS() {
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white dark:bg-black">
         {/* Channel toolbar — Pedidos Ya toggle (retail + licoreria only) */}
         {pyAvailable && (
-          <div className={`flex items-center justify-between px-3 py-2 border-b border-slate-200 dark:border-white/10 transition-colors ${pyMode ? 'bg-[#b3001e]' : 'bg-white dark:bg-black'}`}>
+          <div className={`flex items-center justify-between px-3 py-2 border-b border-slate-200 dark:border-white/10 transition-colors ${pyMode ? 'bg-[#FA0050]' : 'bg-white dark:bg-black'}`}>
             <div className="flex items-center gap-2 min-w-0">
               {pyMode ? (
                 <>
-                  <span className="inline-flex items-center gap-1.5 text-white font-black text-[11px] tracking-[0.14em] uppercase">
-                    <Smartphone size={14} strokeWidth={2.5} />
-                    {lang === 'es' ? 'Pedidos Ya Activo' : 'Pedidos Ya Active'}
-                  </span>
-                  <span className="hidden sm:inline text-[10px] text-white/80 font-medium">
-                    {lang === 'es' ? 'Precios del canal de delivery aplicados' : 'Delivery channel pricing applied'}
+                  <PedidosYaWordmark color="#ffffff" height={18} />
+                  <span className="hidden sm:inline text-[11px] text-white font-semibold uppercase tracking-[0.14em]">
+                    {lang === 'es' ? 'Precios delivery' : 'Delivery pricing'}
                   </span>
                 </>
               ) : (
@@ -1683,15 +1697,14 @@ function RetailPOS() {
               onClick={() => setPyMode(v => !v)}
               aria-pressed={pyMode}
               title={lang === 'es' ? 'Alternar precios Pedidos Ya' : 'Toggle Pedidos Ya pricing'}
-              className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-bold uppercase tracking-wider min-h-[36px] transition-all border active:scale-[0.97] ${
+              className={`shrink-0 inline-flex items-center gap-2 px-3 py-1.5 rounded-full min-h-[36px] transition-all border active:scale-[0.97] ${
                 pyMode
-                  ? 'bg-white text-[#b3001e] border-white shadow-[0_4px_12px_-2px_rgba(0,0,0,0.35)] hover:bg-white/95'
-                  : 'bg-white dark:bg-white/5 text-slate-700 dark:text-white/80 border-slate-200 dark:border-white/10 hover:border-[#b3001e] hover:text-[#b3001e]'
+                  ? 'bg-white border-white shadow-[0_4px_12px_-2px_rgba(0,0,0,0.35)] hover:bg-white/95'
+                  : 'bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 hover:border-[#FA0050]'
               }`}
             >
-              <span className="text-[13px] leading-none">📱</span>
-              <span>Pedidos Ya</span>
-              <span className={`w-8 h-[18px] rounded-full relative transition-colors ${pyMode ? 'bg-[#b3001e]' : 'bg-slate-300 dark:bg-white/20'}`}>
+              <PedidosYaWordmark color={pyMode ? '#FA0050' : '#FA0050'} height={16} />
+              <span className={`w-8 h-[18px] rounded-full relative transition-colors ${pyMode ? 'bg-[#FA0050]' : 'bg-slate-300 dark:bg-white/20'}`}>
                 <span className={`absolute top-0.5 w-[14px] h-[14px] rounded-full bg-white shadow transition-transform ${pyMode ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
               </span>
             </button>
