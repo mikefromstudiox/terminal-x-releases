@@ -58,7 +58,7 @@ export default async function handler(req, res) {
   // Auth test mode — just verify cert is configured and DGII auth works
   if (body.test) {
     const bid = body.business_id
-    const { data: staffRow } = await supabase.from('staff').select('id').eq('business_id', bid).eq('auth_id', user.id).single()
+    const { data: staffRow } = await supabase.from('staff').select('id').eq('business_id', bid).eq('auth_user_id', user.id).single()
     if (!staffRow) return json(res, 403, { ok: false, error: 'No access to this business' })
     const { data: biz } = await supabase.from('businesses').select('settings').eq('id', bid).single()
     const s = parseSettingsIfString(biz?.settings)
@@ -77,7 +77,7 @@ export default async function handler(req, res) {
   const bid = body.business_id
 
   // Verify user belongs to this business
-  const { data: staffRow } = await supabase.from('staff').select('id').eq('business_id', bid).eq('auth_id', user.id).single()
+  const { data: staffRow } = await supabase.from('staff').select('id').eq('business_id', bid).eq('auth_user_id', user.id).single()
   if (!staffRow) return json(res, 403, { ok: false, error: 'No access to this business' })
 
   // Load cert from business settings

@@ -3190,15 +3190,17 @@ function clientUpdateBalance(id, delta) {
 
 // Reverse a credit ticket's effect on clients.balance. Used by any path that
 // removes / voids / cancels a ticket (ticketVoid, queueDelete, tickets:void web).
-// Subtracts the net owed (total - descuento). Idempotent-ish via MAX(0, ...) —
-// repeated calls clamp at zero rather than producing negative balances.
+// `ticket.total` is already NET (POS sends `netTotal = gross - descuento` to
+// ticketCreate, so clients.balance was incremented by that net figure). Reverse
+// by the same net — do NOT subtract descuento again. Clamped at 0 to guard
+// against double-invocation.
 // Leaves credit_payments rows in place as audit history.
 function reverseClientBalanceForTicket(ticket) {
   if (!db || !ticket) return
   if (ticket.tipo_venta !== 'credito') return
   const cid = ticket.client_id || null
   if (!cid) return
-  const delta = Number(ticket.total || 0) - Number(ticket.descuento || 0)
+  const delta = Number(ticket.total || 0)
   if (delta <= 0) return
   db.prepare('UPDATE clients SET balance=MAX(0,balance-?) WHERE id=?').run(delta, cid)
 }
@@ -4327,6 +4329,7 @@ function deleteCompra607(id) {
 // ── DGII data ─────────────────────────────────────────────────────────────────
 function get606Data(dateFrom, dateTo) {
   if (!db) return []
+  // Exclude anulado/nula so voided tickets don't over-report to DGII.
   return db.prepare(
     `SELECT t.id, t.ncf, t.comprobante_type as tipo, t.created_at as fecha,
             t.subtotal, t.itbis, t.ley, t.total, t.status as estado,
@@ -4334,6 +4337,7 @@ function get606Data(dateFrom, dateTo) {
      FROM tickets t
      LEFT JOIN clients c ON c.id=t.client_id
      WHERE t.created_at BETWEEN ? AND ?
+       AND t.status NOT IN ('anulado','nula')
      ORDER BY t.created_at DESC`
   ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
 }

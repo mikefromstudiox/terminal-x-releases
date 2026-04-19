@@ -107,7 +107,7 @@ export default async function handler(req, res) {
     .from('staff')
     .select('id,role')
     .eq('business_id', businessId)
-    .eq('auth_id', user.id)
+    .eq('auth_user_id', user.id)
     .maybeSingle()
   if (staffErr) return json(res, 500, { ok: false, error: 'Auth lookup failed' })
   if (!staffRow) return json(res, 403, { ok: false, error: 'No access to this business' })

@@ -2144,7 +2144,8 @@ export function createWebAPI(supabase, businessId) {
 
           // Reverse credit-ticket balance (net of descuento, clamped at 0)
           if (priorRow.tipo_venta === 'credito' && priorRow.client_supabase_id) {
-            const net = Math.max(0, Number(priorRow.total || 0) - Number(priorRow.descuento || 0))
+            // ticket.total is already NET (POS sends net); do not subtract descuento again.
+            const net = Math.max(0, Number(priorRow.total || 0))
             if (net > 0) {
               const { data: cl } = await supabase.from('clients').select('balance').eq('supabase_id', priorRow.client_supabase_id).eq('business_id', bid).single()
               if (cl) await supabase.from('clients').update({ balance: Math.max(0, (cl.balance || 0) - net) })
@@ -2315,7 +2316,8 @@ export function createWebAPI(supabase, businessId) {
             .select('total, descuento, tipo_venta, client_supabase_id')
             .eq('supabase_id', tSid).eq('business_id', bid).maybeSingle()
           if (t?.tipo_venta === 'credito' && t?.client_supabase_id) {
-            const net = Math.max(0, Number(t.total || 0) - Number(t.descuento || 0))
+            // ticket.total is already NET (POS sends net); do not re-subtract descuento.
+            const net = Math.max(0, Number(t.total || 0))
             if (net > 0) {
               const { data: cl } = await supabase.from('clients').select('balance').eq('supabase_id', t.client_supabase_id).eq('business_id', bid).single()
               if (cl) await supabase.from('clients').update({ balance: Math.max(0, (cl.balance || 0) - net) })
