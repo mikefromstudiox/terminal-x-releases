@@ -1623,6 +1623,7 @@ export function createWebAPI(supabase, businessId) {
               status,
               vehicle_plate:   data.vehicle_plate || null,
               notes:           data.notes || null,
+              order_source:    data.order_source || 'pos',
             }).select().single())
 
             // Insert ticket items — try with business_id first, fall back without

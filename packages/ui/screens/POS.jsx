@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
-import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck, Beer, Coffee, Cookie, Droplet, CupSoda, Candy, IceCreamCone, UtensilsCrossed, Sparkles, Cigarette, Flame, Leaf, Pizza } from 'lucide-react'
+import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck, Beer, Coffee, Cookie, Droplet, CupSoda, Candy, IceCreamCone, UtensilsCrossed, Sparkles, Cigarette, Flame, Leaf, Pizza, Smartphone } from 'lucide-react'
 import AgeVerifyModal, { requiresAgeCheck } from '../components/AgeVerifyModal'
 import WeightModal from '../components/WeightModal'
 import { useLang } from '../i18n'
@@ -1113,6 +1113,21 @@ function RetailPOS() {
   // Mobile cart
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
 
+  // ── Pedidos Ya channel toggle ─────────────────────────────────────────────
+  // Retail + licoreria only. When on, tiles + cart re-price to each item's
+  // `price_pedidos_ya` (fallback to `price`), and the resulting ticket is
+  // stamped `order_source='pedidos_ya'`. Toggling mid-cart reprices untouched
+  // lines (skip anything the cashier manually edited, gated by `_priceEdited`).
+  const pyAvailable = isRetail || isLicoreria
+  const [pyMode, setPyMode] = useState(false)
+  function effectivePrice(product) {
+    if (!product) return 0
+    const base = Number(product.price || 0)
+    if (!pyMode) return base
+    const py = product.price_pedidos_ya
+    return (py != null && py !== '' && Number.isFinite(Number(py))) ? Number(py) : base
+  }
+
   useEffect(() => {
     api.clients?.all?.().then(r => setClients(r || [])).catch(() => {})
   }, [api])
@@ -1229,6 +1244,20 @@ function RetailPOS() {
     return () => { cancelled = true }
   }, [api, isLicoreria, licoreriaConfig])
 
+  // Toggle Pedidos Ya — reprice untouched inventory lines in-place. Lines
+  // without a `_basePrice` were added before the toggle existed (or are
+  // services / bottle-deposit synthetics) — we leave them alone. Cashier edits
+  // (`_priceEdited`) lock a line from automatic reprice.
+  useEffect(() => {
+    setCart(prev => prev.map(it => {
+      if (it._priceEdited) return it
+      if (it._basePrice == null) return it        // not a re-priceable line
+      const next = pyMode && it._pyPrice != null ? it._pyPrice : it._basePrice
+      if (Number(it.price) === Number(next)) return it
+      return { ...it, price: next, _py: pyMode && it._pyPrice != null }
+    }))
+  }, [pyMode])
+
   // ── Search / barcode lookup ────────────────────────────────────────────────
   function handleSearchInput(value) {
     setSearchQuery(value)
@@ -1287,13 +1316,20 @@ function RetailPOS() {
         nextQty = existing.qty + 1
         return prev.map(i => i.inventory_item_id === product.id ? { ...i, qty: i.qty + 1 } : i)
       }
+      const basePrice = Number(product.price || 0)
+      const pyPrice   = product.price_pedidos_ya != null && Number.isFinite(Number(product.price_pedidos_ya))
+                          ? Number(product.price_pedidos_ya) : null
+      const usedPrice = pyMode && pyPrice != null ? pyPrice : basePrice
       return [...prev, {
         id: `inv-${product.id}`,
         inventory_item_id: product.id,
         service_id: null,
         sku: product.sku || product.barcode || '',
         name: product.name,
-        price: product.price,
+        price: usedPrice,
+        _basePrice: basePrice,
+        _pyPrice: pyPrice,
+        _py: pyMode && pyPrice != null,
         cost: product.cost || 0,
         qty: 1,
         aplica_itbis: product.aplica_itbis ?? 1,
@@ -1433,7 +1469,7 @@ function RetailPOS() {
       else if (e.key === 'F2') {
         e.preventDefault()
         if (cart.length > 0) {
-          setCobrarModal({ items: expandCartWithDeposits(cart), ageVerified, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, salesperson })
+          setCobrarModal({ items: expandCartWithDeposits(cart), ageVerified, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, salesperson, pyMode })
         }
       }
       else if (e.key === 'F4') { e.preventDefault(); searchRef.current?.focus() }
@@ -1470,6 +1506,7 @@ function RetailPOS() {
         // Hybrid vertical — flag retail-cart sales so the Ventas report can
         // filter dine-in vs. takeout vs. direct-retail independently.
         mode:             isHybrid ? 'directa' : undefined,
+        order_source:     pending.pyMode ? 'pedidos_ya' : 'pos',
         converted_from_ticket_supabase_id: pending.convertedFromTicketSupabaseId || hybridConvertMeta?.convertedFromTicketSupabaseId || undefined,
         converted_from_mesa_supabase_id:   pending.convertedFromMesaSupabaseId   || hybridConvertMeta?.convertedFromMesaSupabaseId   || undefined,
         items:            pending.items.map(i => ({
@@ -1558,6 +1595,45 @@ function RetailPOS() {
     <div className="h-full flex flex-col md:flex-row">
       {/* ── Left: Product browser ─────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white dark:bg-black">
+        {/* Channel toolbar — Pedidos Ya toggle (retail + licoreria only) */}
+        {pyAvailable && (
+          <div className={`flex items-center justify-between px-3 py-2 border-b border-slate-200 dark:border-white/10 transition-colors ${pyMode ? 'bg-[#b3001e]' : 'bg-white dark:bg-black'}`}>
+            <div className="flex items-center gap-2 min-w-0">
+              {pyMode ? (
+                <>
+                  <span className="inline-flex items-center gap-1.5 text-white font-black text-[11px] tracking-[0.14em] uppercase">
+                    <Smartphone size={14} strokeWidth={2.5} />
+                    {lang === 'es' ? 'Pedidos Ya Activo' : 'Pedidos Ya Active'}
+                  </span>
+                  <span className="hidden sm:inline text-[10px] text-white/80 font-medium">
+                    {lang === 'es' ? 'Precios del canal de delivery aplicados' : 'Delivery channel pricing applied'}
+                  </span>
+                </>
+              ) : (
+                <span className="text-[11px] font-semibold text-slate-400 dark:text-white/40 uppercase tracking-[0.14em]">
+                  {lang === 'es' ? 'Canal de venta' : 'Sales channel'}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setPyMode(v => !v)}
+              aria-pressed={pyMode}
+              title={lang === 'es' ? 'Alternar precios Pedidos Ya' : 'Toggle Pedidos Ya pricing'}
+              className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-bold uppercase tracking-wider min-h-[36px] transition-all border active:scale-[0.97] ${
+                pyMode
+                  ? 'bg-white text-[#b3001e] border-white shadow-[0_4px_12px_-2px_rgba(0,0,0,0.35)] hover:bg-white/95'
+                  : 'bg-white dark:bg-white/5 text-slate-700 dark:text-white/80 border-slate-200 dark:border-white/10 hover:border-[#b3001e] hover:text-[#b3001e]'
+              }`}
+            >
+              <span className="text-[13px] leading-none">📱</span>
+              <span>Pedidos Ya</span>
+              <span className={`w-8 h-[18px] rounded-full relative transition-colors ${pyMode ? 'bg-[#b3001e]' : 'bg-slate-300 dark:bg-white/20'}`}>
+                <span className={`absolute top-0.5 w-[14px] h-[14px] rounded-full bg-white shadow transition-transform ${pyMode ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+              </span>
+            </button>
+          </div>
+        )}
         {/* Search bar — flex layout guarantees icon and input never overlap */}
         <div className="p-3 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-black">
           <div className="flex items-center gap-2 px-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus-within:ring-2 focus-within:ring-[#b3001e]/30 focus-within:border-[#b3001e]">
@@ -1612,13 +1688,21 @@ function RetailPOS() {
                 </p>
               )}
               <div className={`grid ${gridCols} gap-2`}>
-                {searchResults.map(item => (
+                {searchResults.map(item => {
+                  const py = item.price_pedidos_ya != null && Number.isFinite(Number(item.price_pedidos_ya)) ? Number(item.price_pedidos_ya) : null
+                  const showPY = pyMode && py != null
+                  const shown  = showPY ? py : Number(item.price || 0)
+                  const showStrike = showPY && py !== Number(item.price || 0)
+                  return (
                   <button key={item.id} onClick={() => addToCart(item)}
                     className="flex flex-col items-start p-3 rounded-xl border-2 border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-[#b3001e] hover:bg-[#b3001e]/10 dark:hover:bg-[#b3001e]/15 transition-all text-left">
                     <p className="text-[13px] font-semibold text-slate-800 dark:text-white leading-tight line-clamp-2">{item.name}</p>
                     {item.sku && <p className="text-[10px] text-slate-400 mt-0.5">{item.sku}</p>}
                     <div className="flex items-center justify-between w-full mt-2">
-                      <p className="text-[13px] font-bold text-[#b3001e] dark:text-blue-400">{fmtRD(item.price)}</p>
+                      <div className="flex flex-col">
+                        <p className="text-[13px] font-bold text-[#b3001e] dark:text-blue-400">{fmtRD(shown)}</p>
+                        {showStrike && <p className="text-[10px] text-slate-400 line-through tabular-nums">{fmtRD(Number(item.price || 0))}</p>}
+                      </div>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
                         item.quantity <= 0 ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400'
                         : item.quantity <= (item.min_quantity || 5) ? 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'
@@ -1628,7 +1712,8 @@ function RetailPOS() {
                       </span>
                     </div>
                   </button>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
@@ -1677,7 +1762,7 @@ function RetailPOS() {
 
           {/* Products tab — show all inventory */}
           {tab === 'products' && !searchQuery && (
-            <ProductGrid api={api} lang={lang} gridCols={gridCols} onAdd={addToCart} />
+            <ProductGrid api={api} lang={lang} gridCols={gridCols} onAdd={addToCart} pyMode={pyMode} />
           )}
 
           {/* Services tab */}
@@ -1735,6 +1820,11 @@ function RetailPOS() {
             <ShoppingCart size={16} />
             {lang === 'es' ? 'Carrito' : 'Cart'}
             {cart.length > 0 && <span className="text-[11px] font-medium text-slate-400">({cartCount})</span>}
+            {pyMode && (
+              <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-[0.14em] px-1.5 py-0.5 rounded-md bg-[#b3001e] text-white shadow-sm">
+                <Smartphone size={9} strokeWidth={3} /> PY
+              </span>
+            )}
           </h2>
           <div className="flex items-center gap-2">
             {cart.length > 0 && (
@@ -1854,6 +1944,7 @@ function RetailPOS() {
                   clientId: selectedClient?.id || null,
                   clientName: selectedClient?.name || rncName || '',
                   client: selectedClient || null,
+                  pyMode,
                 })
               }
             }}
@@ -1981,7 +2072,7 @@ function iconFor(product) {
   return Package
 }
 
-function ProductGrid({ api, lang, gridCols, onAdd }) {
+function ProductGrid({ api, lang, gridCols, onAdd, pyMode }) {
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeCat, setActiveCat] = useState('all')
@@ -2019,32 +2110,48 @@ function ProductGrid({ api, lang, gridCols, onAdd }) {
     if (!groups[cat]) groups[cat] = []
     groups[cat].push(p)
   }
-  const catNames = Object.keys(groups).sort()
+  // Alphabetical, then push "General" / "Sin Categoría" to the end.
+  const catNames = Object.keys(groups).sort((a, b) => {
+    const TAIL = ['general', 'sin categoría', 'sin categoria', 'uncategorized']
+    const ai = TAIL.includes(a.toLowerCase()) ? 1 : 0
+    const bi = TAIL.includes(b.toLowerCase()) ? 1 : 0
+    if (ai !== bi) return ai - bi
+    return a.localeCompare(b, 'es', { sensitivity: 'base' })
+  })
   const visibleCats = activeCat === 'all' ? catNames : catNames.filter(c => c === activeCat)
 
   return (
     <div className="space-y-5">
-      {/* Category filter chips */}
+      {/* Category tabs — scrollable horizontally on mobile. Active tab gets a
+         crimson underline. "Todos" always first; "General" sorted last. */}
       {catNames.length > 1 && (
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide -mx-1 px-1">
-          <button onClick={() => setActiveCat('all')}
-            className={`shrink-0 px-3.5 py-1.5 rounded-full text-[11px] font-semibold uppercase tracking-wider transition-all border ${
-              activeCat === 'all'
-                ? 'bg-[#b3001e] text-white border-[#b3001e] shadow-[0_0_0_3px_rgba(179,0,30,0.15)]'
-                : 'bg-white dark:bg-white/5 text-slate-600 dark:text-white/70 border-slate-200 dark:border-white/10 hover:border-[#b3001e]/60'
-            }`}>
-            {lang === 'es' ? 'Todo' : 'All'} <span className="ml-1 opacity-60">{products.length}</span>
-          </button>
-          {catNames.map(c => (
-            <button key={c} onClick={() => setActiveCat(c)}
-              className={`shrink-0 px-3.5 py-1.5 rounded-full text-[11px] font-semibold uppercase tracking-wider transition-all border ${
-                activeCat === c
-                  ? 'bg-[#b3001e] text-white border-[#b3001e] shadow-[0_0_0_3px_rgba(179,0,30,0.15)]'
-                  : 'bg-white dark:bg-white/5 text-slate-600 dark:text-white/70 border-slate-200 dark:border-white/10 hover:border-[#b3001e]/60'
+        <div className="sticky top-0 z-10 -mx-3 px-3 bg-white dark:bg-black border-b border-slate-200 dark:border-white/10">
+          <div className="flex gap-1 overflow-x-auto scrollbar-hide">
+            <button onClick={() => setActiveCat('all')}
+              className={`shrink-0 px-4 py-2.5 text-[13px] font-semibold whitespace-nowrap border-b-2 transition-colors min-h-[44px] ${
+                activeCat === 'all'
+                  ? 'border-[#b3001e] text-[#b3001e]'
+                  : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white'
               }`}>
-              {c} <span className="ml-1 opacity-60">{groups[c].length}</span>
+              {lang === 'es' ? 'Todos' : 'All'}
+              <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                activeCat === 'all' ? 'bg-[#b3001e]/10 text-[#b3001e]' : 'bg-slate-100 dark:bg-white/10 text-slate-400'
+              }`}>{products.length}</span>
             </button>
-          ))}
+            {catNames.map(c => (
+              <button key={c} onClick={() => setActiveCat(c)}
+                className={`shrink-0 px-4 py-2.5 text-[13px] font-semibold whitespace-nowrap border-b-2 transition-colors min-h-[44px] ${
+                  activeCat === c
+                    ? 'border-[#b3001e] text-[#b3001e]'
+                    : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white'
+                }`}>
+                {c}
+                <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                  activeCat === c ? 'bg-[#b3001e]/10 text-[#b3001e]' : 'bg-slate-100 dark:bg-white/10 text-slate-400'
+                }`}>{groups[c].length}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -2103,13 +2210,32 @@ function ProductGrid({ api, lang, gridCols, onAdd }) {
                     {item.sku && <p className="text-[10px] text-slate-400 dark:text-white/30 mt-0.5 font-mono tracking-tight">{item.sku}</p>}
                   </div>
 
-                  {/* Price row */}
-                  <div className="relative flex justify-end items-baseline gap-1.5 pt-2.5 border-t border-dashed border-slate-200/70 dark:border-white/10">
-                    <p className="text-[11px] font-medium text-slate-400 dark:text-white/40 uppercase tracking-[0.1em]">RD$</p>
-                    <p className={`font-black tabular-nums leading-none tracking-[-0.02em] ${out ? 'text-slate-400 dark:text-white/30 line-through decoration-[#b3001e]/40' : 'text-[#b3001e]'} text-[26px] transition-colors`}>
-                      {Number(item.price || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                    </p>
-                  </div>
+                  {/* Price row — Pedidos Ya override when toggle is on */}
+                  {(() => {
+                    const base = Number(item.price || 0)
+                    const pyRaw = item.price_pedidos_ya
+                    const py = pyRaw != null && pyRaw !== '' && Number.isFinite(Number(pyRaw)) ? Number(pyRaw) : null
+                    const showPY = pyMode && py != null
+                    const shown = showPY ? py : base
+                    const strike = showPY && py !== base
+                    return (
+                      <div className="relative pt-2.5 border-t border-dashed border-slate-200/70 dark:border-white/10">
+                        {strike && (
+                          <div className="flex justify-end">
+                            <span className="text-[11px] text-slate-400 dark:text-white/40 line-through tabular-nums">
+                              RD$ {base.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex justify-end items-baseline gap-1.5">
+                          <p className="text-[11px] font-medium text-slate-400 dark:text-white/40 uppercase tracking-[0.1em]">RD$</p>
+                          <p className={`font-black tabular-nums leading-none tracking-[-0.02em] ${out ? 'text-slate-400 dark:text-white/30 line-through decoration-[#b3001e]/40' : 'text-[#b3001e]'} text-[26px] transition-colors`}>
+                            {shown.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </button>
               )
             })}
