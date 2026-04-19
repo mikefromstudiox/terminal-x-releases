@@ -201,6 +201,7 @@ export default function CreditNotes() {
   const [factLoading, setFactLoading] = useState(false)
   const [submitting,  setSubmitting]  = useState(false)
   const pendingEmit                   = useRef(null)
+  const pendingMacJti                 = useRef(null)
 
   // ── ITBIS rate — from app_settings.itbis_pct, default 18. ──────────────────
   const [itbisRate, setItbisRate] = useState(DEFAULT_ITBIS_RATE)
@@ -355,8 +356,10 @@ export default function CreditNotes() {
         forma_devolucion:   forma,
         comentario:         comentario.trim(),
         cajero_id:          user?.id || null,
+        mac_jti:            pendingMacJti.current || null,
       }
       await api.notas.create(data)
+      pendingMacJti.current = null
       const fresh = await api.notas.all()
       setNotes(fresh || [])
       setClientName(''); setClientRNC(''); setFactNo(''); setMonto(''); setComentario('')
@@ -387,8 +390,8 @@ export default function CreditNotes() {
           action="credit_note"
           actionLabel={L(`Nota de crédito · RD$ ${montoNum.toFixed(2)}`, `Credit note · RD$ ${montoNum.toFixed(2)}`)}
           context={{ amount: montoNum, motivo, reason: comentario, original_ticket_id: factLookup?.id || null }}
-          onApprove={() => { setShowPin(false); const fn = pendingEmit.current; pendingEmit.current = null; fn?.() }}
-          onCancel={() => { setShowPin(false); pendingEmit.current = null }}
+          onApprove={({ mac_jti } = {}) => { pendingMacJti.current = mac_jti || null; setShowPin(false); const fn = pendingEmit.current; pendingEmit.current = null; fn?.() }}
+          onCancel={() => { setShowPin(false); pendingEmit.current = null; pendingMacJti.current = null }}
         />
       )}
       {toast && <Toast msg={toast} />}

@@ -139,6 +139,36 @@ function serviceTargetCtx(db, id) {
   return { target_type: 'service', target_id: id, target_name: t.name }
 }
 
+const macStore = require('./mac-store')
+
+/**
+ * guardMac(action) — returns a `requires:` predicate that enforces a valid
+ * Manager Authorization Card jti on the incoming call. The renderer obtains
+ * the jti via `mac:issue` AFTER scanning a valid card; it's one-time use and
+ * bound to (action, target_id). Fails closed — missing / expired / wrong
+ * action = 403.
+ *
+ * Exception: if actor.role === 'owner', MAC is waived (the owner can always
+ * authorize themselves). Keeps the owner from needing their own card to
+ * void a test ticket.
+ */
+function guardMac(action, extractTargetId = () => null) {
+  return ({ actor, args }) => {
+    if (actor?.role === 'owner') return null
+    const payload = args[0] || {}
+    const jti = payload.mac_jti || payload.macJti || null
+    if (!jti) return 'Esta acción requiere la Tarjeta de Autorización del gerente'
+    const target_id = extractTargetId(args)
+    const ok = macStore.consume(jti, action, target_id)
+    if (!ok) {
+      const peek = macStore.peek(jti)
+      if (!peek) return 'Autorización inválida o expirada — vuelve a escanear'
+      return 'Autorización no corresponde a esta acción'
+    }
+    return null
+  }
+}
+
 module.exports = {
   ROLE_LEVEL, canActOn, actorAtLeast,
   fetchUser, fetchEmpleado, fetchService,
@@ -146,4 +176,5 @@ module.exports = {
   guardUserUpdate, guardUserDelete, guardUserCreate,
   guardOwnerOnly, guardOwnerOrManager,
   userTargetCtx, empleadoTargetCtx, serviceTargetCtx,
+  guardMac, macStore,
 }

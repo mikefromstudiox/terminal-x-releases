@@ -80,6 +80,14 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
         return
       }
       clearStrikes()
+      // Mint a server-side one-time MAC jti bound to this action + target so
+      // the subsequent protected IPC can consume + validate it. Falls back
+      // gracefully if the host API doesn't have `mac.issue` (older builds).
+      let mac_jti = null
+      try {
+        const issued = await (api?.mac?.issue?.({ scan_token: raw, action, target_id: context?.target_id ?? null }) || null)
+        mac_jti = issued?.jti || null
+      } catch {}
       try {
         await api.activity.record({
           event_type: 'manager_override', severity: 'info',
@@ -89,7 +97,7 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
           metadata: { method: 'card', action, approved_by: match.name, approved_by_role: match.role, ...(context || {}) },
         })
       } catch {}
-      onApprove?.({ staff_id: match.id, staff_name: match.name, role: match.role, method: 'card' })
+      onApprove?.({ staff_id: match.id, staff_name: match.name, role: match.role, method: 'card', mac_jti })
     } catch (e) {
       flashError(e?.message || L('Error al verificar', 'Verify error'))
     } finally { setBusy(false) }
@@ -105,6 +113,11 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
         flashError(L('PIN de gerente incorrecto', 'Invalid manager PIN'))
         return
       }
+      let mac_jti = null
+      try {
+        const issued = await (api?.mac?.issue?.({ pin, action, target_id: context?.target_id ?? null }) || null)
+        mac_jti = issued?.jti || null
+      } catch {}
       try {
         await api.activity.record({
           event_type: 'manager_override', severity: 'warn',
@@ -114,7 +127,7 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
           metadata: { method: 'pin_fallback', action, approved_by: manager.name, approved_by_role: manager.role, ...(context || {}) },
         })
       } catch {}
-      onApprove?.({ staff_id: manager.id, staff_name: manager.name, role: manager.role, method: 'pin' })
+      onApprove?.({ staff_id: manager.id, staff_name: manager.name, role: manager.role, method: 'pin', mac_jti })
     } catch (e) {
       flashError(e?.message || L('Error al verificar PIN', 'PIN verify error'))
     } finally { setBusy(false) }

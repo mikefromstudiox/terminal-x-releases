@@ -110,6 +110,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     verifyAuthToken:  (token) => call('staff:verifyAuthToken',  token),
   },
 
+  // v2.8.0 — MAC server-side enforcement. `mac.issue` validates a scanned
+  // manager card and returns a one-time jti bound to (action, target_id).
+  // The renderer passes `mac_jti` in the subsequent protected IPC payload;
+  // auth-guard's `guardMac` consumes + validates it server-side.
+  mac: {
+    issue: (args) => call('mac:issue', args),
+  },
+
   // ── Activity log (owner audit feed) ────────────────────────────────────────
   activity: {
     setActor:          (user) => call('activity:set-actor', user),

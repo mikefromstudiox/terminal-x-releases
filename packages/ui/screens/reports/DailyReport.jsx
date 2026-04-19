@@ -454,10 +454,10 @@ function AnularModal({ ticket: t, onConfirm, onClose, lang, currentUser }) {
           action="void"
           actionLabel={lang === 'es' ? `Anular factura ${t.ticketNo} · ${fmtRD(t.total)}` : `Void invoice ${t.ticketNo} · ${fmtRD(t.total)}`}
           context={{ target_id: t.id, target_name: t.ticketNo, amount: t.total, reason }}
-          onApprove={({ staff_name }) => {
+          onApprove={({ staff_name, mac_jti }) => {
             setGateOpen(false)
             onConfirm({ ticketId: t.id, reason: reason.trim(),
-              voidedBy: staff_name || 'Manager', voidedAt: new Date() })
+              voidedBy: staff_name || 'Manager', voidedAt: new Date(), mac_jti })
           }}
           onCancel={() => setGateOpen(false)}
         />
@@ -591,9 +591,9 @@ export default function DailyReport() {
     return res
   }, [baseFiltered])
 
-  async function handleVoid({ ticketId, reason, voidedBy, voidedAt }) {
+  async function handleVoid({ ticketId, reason, voidedBy, voidedAt, mac_jti }) {
     try {
-      await api.tickets.void({ id: ticketId, reason, voidById: currentUser?.id })
+      await api.tickets.void({ id: ticketId, reason, voidById: currentUser?.id, mac_jti })
       setTransactions(ts => ts.map(t =>
         t.id === ticketId
           ? { ...t, estado: 'nula', voidReason: reason, voidedBy, voidedAt }

@@ -315,6 +315,12 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
 // dgii:void-sequence — ANECF: void unused e-NCF sequence ranges
 ipcMain.handle('dgii:void-sequence', async (_, data) => {
   try {
+    // MAC required unless owner (owner can always authorize themselves)
+    const actor = db.getActiveUser?.() || null
+    if (actor?.role !== 'owner') {
+      const check = guard.macStore.consume(data?.mac_jti, 'dgii:void-sequence')
+      if (!check) return { ok: false, error: 'Autorización de gerente requerida (o expirada)' }
+    }
     const { privateKeyPem, certificatePem } = certManager.loadCert()
     const dgiiEnv = getDgiiEnv()
 
@@ -363,8 +369,14 @@ ipcMain.handle('dgii:void-sequence', async (_, data) => {
 })
 
 // dgii:install-cert — open file dialog, install .p12, return cert info
-ipcMain.handle('dgii:install-cert', async (event, { filePath, passphrase } = {}) => {
+ipcMain.handle('dgii:install-cert', async (event, { filePath, passphrase, mac_jti } = {}) => {
   try {
+    // MAC required unless owner
+    const actor = db.getActiveUser?.() || null
+    if (actor?.role !== 'owner') {
+      const check = guard.macStore.consume(mac_jti, 'dgii:install-cert')
+      if (!check) return { ok: false, error: 'Autorización de gerente requerida (o expirada)' }
+    }
     let certPath = filePath
     if (!certPath) {
       const win = BrowserWindow.fromWebContents(event.sender)
@@ -1054,6 +1066,9 @@ handleMut('save-configuracion',  (data) => {
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 handle('settings:get',    ()     => db.settingsGet())
+// NOTE: settings:update MAC enforcement deferred — UI doesn't yet wrap via
+// ManagerAuthGate so gating here would break all non-owner settings edits.
+// Will add once Sistema/DGII screens wrap their save buttons in ManagerAuthGate.
 handleMut('settings:update', (obj)  => { db.settingsUpdate(obj); return true })
 
 // ── Cloud Sync ───────────────────────────────────────────────────────────────
@@ -1123,6 +1138,34 @@ handleMut('staff:revokeAuthCard',   ({ id }) => db.staffRevokeAuthCard(id), {
   targetCtx: ({ args }) => guard.userTargetCtx(db, args[0]?.id),
 })
 handle('staff:verifyAuthToken',     (token)  => db.staffVerifyAuthToken(token))
+
+// ── MAC issue ────────────────────────────────────────────────────────────────
+// Validate a scanned Manager Auth Card token, then mint a one-time jti bound
+// to (action, target_id). Renderer includes jti on the subsequent protected
+// IPC; guardMac consumes it server-side. Owner is exempt — they can self-
+// authorize without a scan (see guardMac in auth-guard.js).
+handle('mac:issue', ({ scan_token, pin, action, target_id } = {}) => {
+  if (!action) return { ok: false, error: 'action required' }
+  let verified = null
+  if (scan_token) {
+    verified = db.staffVerifyAuthToken(scan_token)
+    if (!verified) return { ok: false, error: 'Tarjeta invalida' }
+  } else if (pin) {
+    // PIN fallback — validate via authByPin server-side, require owner/manager
+    const u = db.authByPin?.(String(pin).replace(/\D/g, ''))
+    if (!u || !['owner', 'manager'].includes(u.role)) return { ok: false, error: 'PIN invalido o sin permiso' }
+    verified = { id: u.id, name: u.name, role: u.role, supabase_id: u.supabase_id }
+  } else {
+    return { ok: false, error: 'scan_token o pin requerido' }
+  }
+  const out = guard.macStore.issue({
+    staff_id: verified.id,
+    role:     verified.role,
+    action,
+    target_id,
+  })
+  return { ok: true, jti: out.jti, exp: out.exp, staff: { id: verified.id, name: verified.name, role: verified.role } }
+})
 
 handleMut('users:delete-hard',({id})          => db.userDeleteHard(id), {
   requires: ({ actor, args }) => {
@@ -1406,7 +1449,9 @@ handle('tickets:all',         (params)    => db.ticketsGetAll(params))
 handle('tickets:byId',        (id)        => db.ticketGetById(id))
 handleMut('tickets:create',      (data)      => db.ticketCreate(data))
 handleMut('tickets:markPaid',    ({id,...d})            => db.ticketMarkPaid(id, d))
-handleMut('tickets:void',        ({id,reason,voidById}) => db.ticketVoid(id, reason, voidById))
+handleMut('tickets:void',        ({id,reason,voidById}) => db.ticketVoid(id, reason, voidById), {
+  requires: guard.guardMac('tickets:void', ([a]) => a?.id),
+})
 handle('tickets:byDateRange', ({from,to}) => db.ticketGetByDateRange(from, to))
 handleMut('tickets:updateItemPrice', (data) => db.ticketItemUpdatePrice(data))
 handle('tickets:priceChanges',    ({ticketId}) => db.priceChangesGetByTicket(ticketId))
@@ -1451,7 +1496,9 @@ handleMut('cajachica:updateStatus', ({id,status,by}) => db.cajaChicaUpdateStatus
 
 // ── Notas de Crédito ──────────────────────────────────────────────────────────
 handle('notas:all',    ()     => db.notasGetAll())
-handleMut('notas:create', (data) => db.notaCreate(data))
+handleMut('notas:create', (data) => db.notaCreate(data), {
+  requires: guard.guardMac('notas:create', ([a]) => a?.original_ticket_id || null),
+})
 
 // ── DGII ──────────────────────────────────────────────────────────────────────
 handle('dgii:606',        ({from,to}) => db.get606Data(from, to))
