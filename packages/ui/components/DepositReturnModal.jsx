@@ -97,38 +97,62 @@ export default function DepositReturnModal({ open, onClose, onDone }) {
     const noteMarker = `[deposit_return] envase=${picked.sku || picked.name} qty=${q} method=${method}${client ? ` client=${client.name}` : ''}`
 
     try {
-      // 1) Persist refund ticket (negative total → cuadre picks it up).
+      // 1) Credit payout → decrement client balance (store credit) FIRST so
+      //    we never book a refund line we can't honor. If this throws, the
+      //    refund ticket is never created and cashier sees an error.
+      if (method === 'credito' && client?.id) {
+        try {
+          await api.clients.updateBalance({ id: client.id, delta: -amount })
+        } catch (balErr) {
+          console.error('[DepositReturn] balance update failed', balErr)
+          throw new Error(L(
+            'No se pudo actualizar el balance del cliente. Devolución cancelada.',
+            'Could not update client balance. Refund cancelled.'
+          ))
+        }
+      }
+
+      // 2) Persist refund ticket (negative total → cuadre picks it up).
       //    items = single synthetic line with is_deposit=true so analytics
       //    can later re-aggregate by product even without a receipt DB join.
-      await api.tickets.create({
-        date: new Date().toISOString(),
-        total: -amount,
-        subtotal: -amount,
-        itbis: 0,
-        discount: 0,
-        payment_method: method === 'credito' ? 'credito' : 'efectivo',
-        status: 'cobrado',
-        client_id: client?.id || null,
-        client_supabase_id: client?.supabase_id || null,
-        notes: noteMarker,
-        items: [{
-          service_id: null,
-          inventory_item_id: null,
-          sku: 'DEP-RET',
-          name: `${L('Devolución envase','Bottle return')} — ${picked.name}`,
-          price: -unitDeposit,
-          cost: 0,
-          qty: q,
-          aplica_itbis: 0,
-          is_wash: 0,
-          is_deposit: true,
-          bottle_deposit_line: true,
-        }],
-      })
-
-      // 2) Credit payout → decrement client balance (store credit).
-      if (method === 'credito' && client?.id) {
-        try { await api.clients.updateBalance({ id: client.id, delta: -amount }) } catch {}
+      try {
+        await api.tickets.create({
+          date: new Date().toISOString(),
+          total: -amount,
+          subtotal: -amount,
+          itbis: 0,
+          discount: 0,
+          payment_method: method === 'credito' ? 'credito' : 'efectivo',
+          status: 'cobrado',
+          client_id: client?.id || null,
+          client_supabase_id: client?.supabase_id || null,
+          notes: noteMarker,
+          items: [{
+            service_id: null,
+            inventory_item_id: null,
+            sku: 'DEP-RET',
+            name: `${L('Devolución envase','Bottle return')} — ${picked.name}`,
+            price: -unitDeposit,
+            cost: 0,
+            qty: q,
+            aplica_itbis: 0,
+            is_wash: 0,
+            is_deposit: true,
+            bottle_deposit_line: true,
+          }],
+        })
+      } catch (tkErr) {
+        // Reverse the balance debit if the refund ticket failed to persist.
+        if (method === 'credito' && client?.id) {
+          try { await api.clients.updateBalance({ id: client.id, delta: +amount }) } catch (revErr) {
+            console.error('[DepositReturn] CRITICAL: balance debited but ticket failed AND reversal failed', revErr)
+            try { window.alert(L(
+              `URGENTE: Balance del cliente ${client?.name || ''} ajustado en RD$${amount} pero la devolución no quedó registrada. Ajusta manualmente.`,
+              `URGENT: Client ${client?.name || ''} balance adjusted by RD$${amount} but refund ticket failed. Adjust manually.`
+            )) } catch {}
+          }
+        }
+        throw tkErr
       }
 
       // 3) Cash drawer kick (cash refunds only).

@@ -1832,7 +1832,7 @@ function RetailPOS() {
         if (paymentData.tipo !== 'credito' && !['tarjeta', 'transferencia'].includes(fm)) {
           printerApi?.openDrawer?.().catch?.(() => {})
         }
-      } catch {}
+      } catch (e) { console.error('post-sale side-effect failed', e) }
     } catch (err) {
       flash(`Error: ${err.message}`)
     }

@@ -72,16 +72,16 @@ async function main() {
   // ------------------------------------------------------------------
   for (const b of businesses) {
     const existing = await sql(
-      `SELECT COUNT(*)::int AS n FROM activity_log WHERE business_id='${b.id}' AND event_type='ticket_void' AND metadata->>'source'='seed-demos-v2120';`
+      `SELECT COUNT(*)::int AS n FROM activity_log WHERE business_id='${b.id}' AND event_type='ticket_voided' AND metadata->>'source'='seed-demos-v2120';`
     );
     if (existing[0].n > 0) {
-      log(b.email, `activity_log ticket_void already seeded (n=${existing[0].n}) — skip`);
+      log(b.email, `activity_log ticket_voided already seeded (n=${existing[0].n}) — skip`);
       continue;
     }
     const row = {
       supabase_id: randomUUID(),
       business_id: b.id,
-      event_type: 'ticket_void',
+      event_type: 'ticket_voided',
       severity: 'warn',
       actor_name: 'demo_owner',
       actor_role: 'owner',
@@ -247,7 +247,7 @@ async function main() {
   for (const b of businesses) {
     const r = await sql(
       `SELECT
-         (SELECT COUNT(*)::int FROM activity_log WHERE business_id='${b.id}' AND event_type='ticket_void' AND metadata->>'source'='seed-demos-v2120') AS void_n,
+         (SELECT COUNT(*)::int FROM activity_log WHERE business_id='${b.id}' AND event_type='ticket_voided' AND metadata->>'source'='seed-demos-v2120') AS void_n,
          (SELECT settings->>'ecf_cert_expiry' FROM businesses WHERE id='${b.id}') AS cert_expiry;`
     );
     log(b.email, `VERIFY void_n=${r[0].void_n} cert_expiry=${String(r[0].cert_expiry || '').slice(0, 10)}`);

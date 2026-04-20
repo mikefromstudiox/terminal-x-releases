@@ -915,9 +915,16 @@ export default function WorkOrders() {
           ticket_id:          result?.id || null,
           ticket_supabase_id: result?.supabase_id || null,
         })
-      } catch {
+      } catch (updErr) {
         // Fallback: if update schema rejects ticket_* cols, at least bump status.
-        try { await api.workOrders.updateStatus({ id: wo.id, status: 'facturado' }) } catch {}
+        try { await api.workOrders.updateStatus({ id: wo.id, status: 'facturado' }) }
+        catch (statErr) {
+          console.error('[WorkOrders] update + updateStatus both failed', { updErr, statErr })
+          try { window.alert(L(
+            'No se pudo actualizar el estado de la orden',
+            'Could not update work order status'
+          )) } catch {}
+        }
       }
 
       flash(L('Orden facturada ✓', 'Work order invoiced ✓'))

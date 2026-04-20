@@ -2186,7 +2186,7 @@ export function createWebAPI(supabase, businessId) {
             let nextNum = 1
             if (lastDoc?.doc_number) {
               const m = lastDoc.doc_number.match(/T-(\d+)/)
-              if (m) nextNum = parseInt(m[1]) + 1
+              if (m) nextNum = parseInt(m[1], 10) + 1
             }
             const docNum = `T-${String(nextNum).padStart(4, '0')}`
 

@@ -173,7 +173,7 @@ export default function CertificationDetail({ getToken, refreshToken, isDark, la
       await fetch('/api/panel?action=cert_docs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ id, ...docForm, step: docForm.step ? parseInt(docForm.step) : null }),
+        body: JSON.stringify({ id, ...docForm, step: docForm.step ? parseInt(docForm.step, 10) : null }),
       })
       setDocForm({ name: '', file_path: '', file_type: '', step: '' })
       setShowDocForm(false)

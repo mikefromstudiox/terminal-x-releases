@@ -605,7 +605,7 @@ function Servicios() {
       const cw = form.commission_washer ? 1 : 0
       const cs = form.commission_seller ? 1 : 0
       const cc = form.commission_cashier ? 1 : 0
-      const p = { name: form.name.trim(), name_en: form.name_en.trim()||null, category: form.category.trim(), price: parseFloat(form.price)||0, cost: parseFloat(form.cost)||0, is_wash: parseInt(form.is_wash), commission_washer: cw, commission_seller: cs, commission_cashier: cc, no_commission: (!cw && !cs && !cc) ? 1 : 0, sort_order: panel !== 'add' ? panel.sort_order : list.length }
+      const p = { name: form.name.trim(), name_en: form.name_en.trim()||null, category: form.category.trim(), price: parseFloat(form.price)||0, cost: parseFloat(form.cost)||0, is_wash: parseInt(form.is_wash, 10), commission_washer: cw, commission_seller: cs, commission_cashier: cc, no_commission: (!cw && !cs && !cc) ? 1 : 0, sort_order: panel !== 'add' ? panel.sort_order : list.length }
       if (panel === 'add') await api.services.create(p)
       else                 await api.services.update({ id: panel.id, ...p })
       setSaved(true)

@@ -499,13 +499,20 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
             notes: 'earn_ticket',
           })
         }
-      } catch {}
+      } catch (e) {
+        console.error('[loyalty] award failed', e)
+        try { window.alert('Puntos no acreditados — contacta soporte') } catch {}
+      }
       return
     }
     if (isSalon) {
       const pts = loyaltyPointsFor(totalAmount, 100)
       if (pts <= 0) return
-      try { await api?.clients?.addLoyaltyPoints?.({ id: clientId, delta: pts }) } catch {}
+      try { await api?.clients?.addLoyaltyPoints?.({ id: clientId, delta: pts }) }
+      catch (e) {
+        console.error('[loyalty] salon addLoyaltyPoints failed', e)
+        try { window.alert('Puntos no acreditados — contacta soporte') } catch {}
+      }
     }
   }
 
@@ -861,18 +868,30 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         })
         awardLoyaltyPoints(selectedClient, total, ticket?.supabase_id || null)
         // v2.7.1 — commit staged redemption (burn points + ledger row)
+        // SAFETY: ticket + descuento already booked. If burn fails, customer
+        // got the discount AND kept the points. Surface critically so cashier
+        // can manually adjust balance.
         if (loyaltyRedemption && loyaltyEnabled && selectedClient?.id) {
-          try {
-            if (api?.clients?.loyaltyRedeem) {
-              api.clients.loyaltyRedeem({
-                clientId: selectedClient.id,
-                clientSupabaseId: selectedClient.supabase_id || null,
-                ticketSupabaseId: ticket?.supabase_id || null,
-                points: loyaltyRedemption.points,
-                notes: `redeem_ticket:${ticket?.id ?? ''}`,
-              })
-            }
-          } catch {}
+          if (api?.clients?.loyaltyRedeem) {
+            Promise.resolve(api.clients.loyaltyRedeem({
+              clientId: selectedClient.id,
+              clientSupabaseId: selectedClient.supabase_id || null,
+              ticketSupabaseId: ticket?.supabase_id || null,
+              points: loyaltyRedemption.points,
+              notes: `redeem_ticket:${ticket?.id ?? ''}`,
+            })).catch(err => {
+              console.error('[loyalty] redeem failed after sale (legacy path)', err)
+              try { api?.activity?.record?.({
+                event_type: 'loyalty_redeem_failed', severity: 'critical',
+                target_type: 'client', target_id: String(selectedClient.id),
+                target_name: selectedClient?.name || null,
+                amount: loyaltyRedemption.discount,
+                reason: 'Redención falló post-venta — ajustar puntos manualmente',
+                metadata: { points: loyaltyRedemption.points, ticket_id: ticket?.id ?? null, error: err?.message || String(err) },
+              }) } catch {}
+              try { window.alert(`URGENTE: No se pudieron canjear ${loyaltyRedemption.points} puntos del cliente ${selectedClient?.name || ''}. El descuento se aplicó. Ajusta los puntos manualmente.`) } catch {}
+            })
+          }
         }
       }
       return
@@ -958,18 +977,29 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         })
         awardLoyaltyPoints(selectedClient, total, ticket?.supabase_id || null)
         // v2.7.1 — commit staged redemption (burn points + ledger row)
+        // SAFETY: e-CF + ticket already booked. If burn fails, surface a
+        // critical alert so cashier can adjust the client's points manually.
         if (loyaltyRedemption && loyaltyEnabled && selectedClient?.id) {
-          try {
-            if (api?.clients?.loyaltyRedeem) {
-              api.clients.loyaltyRedeem({
-                clientId: selectedClient.id,
-                clientSupabaseId: selectedClient.supabase_id || null,
-                ticketSupabaseId: ticket?.supabase_id || null,
-                points: loyaltyRedemption.points,
-                notes: `redeem_ticket:${ticket?.id ?? ''}`,
-              })
-            }
-          } catch {}
+          if (api?.clients?.loyaltyRedeem) {
+            Promise.resolve(api.clients.loyaltyRedeem({
+              clientId: selectedClient.id,
+              clientSupabaseId: selectedClient.supabase_id || null,
+              ticketSupabaseId: ticket?.supabase_id || null,
+              points: loyaltyRedemption.points,
+              notes: `redeem_ticket:${ticket?.id ?? ''}`,
+            })).catch(err => {
+              console.error('[loyalty] redeem failed after sale (e-CF path)', err)
+              try { api?.activity?.record?.({
+                event_type: 'loyalty_redeem_failed', severity: 'critical',
+                target_type: 'client', target_id: String(selectedClient.id),
+                target_name: selectedClient?.name || null,
+                amount: loyaltyRedemption.discount,
+                reason: 'Redención falló post-venta — ajustar puntos manualmente',
+                metadata: { points: loyaltyRedemption.points, ticket_id: ticket?.id ?? null, ecf: result?.eNCF || null, error: err?.message || String(err) },
+              }) } catch {}
+              try { window.alert(`URGENTE: No se pudieron canjear ${loyaltyRedemption.points} puntos del cliente ${selectedClient?.name || ''}. El descuento se aplicó. Ajusta los puntos manualmente.`) } catch {}
+            })
+          }
         }
       }
 

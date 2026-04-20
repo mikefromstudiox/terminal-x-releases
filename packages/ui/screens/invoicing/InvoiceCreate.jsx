@@ -685,7 +685,7 @@ export default function InvoiceCreate() {
                     type="number"
                     min="1"
                     value={item.cantidad}
-                    onChange={e => updateItem(idx, 'cantidad', Math.max(1, parseInt(e.target.value) || 1))}
+                    onChange={e => updateItem(idx, 'cantidad', Math.max(1, parseInt(e.target.value, 10) || 1))}
                     className="col-span-3 sm:col-span-1 px-2 py-2.5 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-center text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-[#b3001e]/30"
                   />
                   <input

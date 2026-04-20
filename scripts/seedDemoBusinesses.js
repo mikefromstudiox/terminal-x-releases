@@ -1024,7 +1024,7 @@ async function seedActivity(businessId, v) {
     for (const p of payRows.slice(0, 8)) {
       const emp = empByUuid[p.empleado_supabase_id] || owner
       actRows.push(baseRow({
-        event_type: 'nomina_paid',
+        event_type: 'payroll_paid',
         severity: 'info',
         target_type: 'payroll_run',
         target_id: p.supabase_id,
@@ -1055,7 +1055,7 @@ async function seedActivity(businessId, v) {
     // Petty cash approvals
     for (const c of ccRows.slice(0, 6)) {
       actRows.push(baseRow({
-        event_type: 'petty_cash_approved',
+        event_type: 'caja_chica_withdrawal',
         severity: 'info',
         target_type: 'caja_chica',
         target_id: c.supabase_id,
@@ -1070,7 +1070,7 @@ async function seedActivity(businessId, v) {
     // Notas de credito
     for (const n of notasRows) {
       actRows.push(baseRow({
-        event_type: 'nota_credito_emitida',
+        event_type: 'nota_credito_created',
         severity: 'warn',
         target_type: 'nota_credito',
         target_id: n.supabase_id,
@@ -1101,7 +1101,7 @@ async function seedActivity(businessId, v) {
     // Synthetic events (ticket voids, discounts, price changes, deactivations)
     const cobradoTk = tickets.filter(t => t.status === 'cobrado')
     const synth = [
-      { event_type: 'ticket_void', severity: 'warn', count: rand(1, 3), reason: 'Anulacion por error de captura', target_type: 'ticket' },
+      { event_type: 'ticket_voided', severity: 'warn', count: rand(1, 3), reason: 'Anulacion por error de captura', target_type: 'ticket' },
       { event_type: 'discount_applied', severity: 'info', count: rand(2, 4), reason: 'Descuento cliente VIP', target_type: 'ticket' },
       { event_type: 'service_price_changed', severity: 'info', count: rand(1, 2), reason: 'Ajuste de precio mensual', target_type: 'service' },
       { event_type: 'user_deactivated', severity: 'warn', count: 1, reason: 'Empleado renuncio', target_type: 'empleado' },
@@ -1116,7 +1116,7 @@ async function seedActivity(businessId, v) {
           if (s.event_type === 'discount_applied') {
             amount = rand(200, 2500)
             if (amount > 1500) severity = 'warn'
-          } else if (s.event_type === 'ticket_void') {
+          } else if (s.event_type === 'ticket_voided') {
             amount = Number(tk.total)
           }
         } else if (s.target_type === 'service') {

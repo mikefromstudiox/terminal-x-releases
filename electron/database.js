@@ -4083,7 +4083,7 @@ function ticketCreate(data) {
       let nextNum = 1
       if (last?.doc_number) {
         const m = last.doc_number.match(/T-(\d+)/)
-        if (m) nextNum = parseInt(m[1]) + 1
+        if (m) nextNum = parseInt(m[1], 10) + 1
       }
       docNumber = `T-${String(nextNum).padStart(4, '0')}`
     }
@@ -4274,7 +4274,7 @@ function ticketCreate(data) {
     let washerBaseGross = 0, sellerBaseGross = 0, cashierBaseGross = 0
     for (const item of (data.items || [])) {
       const svcId = item.service_id && validSvcIds.has(item.service_id) ? item.service_id : null
-      const qty = Math.max(1, parseInt(item.quantity || 1))
+      const qty = Math.max(1, parseInt(item.quantity || 1, 10))
       const line = (item.price || 0) * qty
       const itemIsWash = svcId ? (svcIsWashById.get(svcId) ?? 1) : (item.is_wash ?? 1)
       const washerOn  = svcId ? !!svcWasherById.get(svcId)  : (itemIsWash !== 0)
@@ -4353,7 +4353,7 @@ function ticketCreate(data) {
         if (!sid) continue
         invItems.push({
           item_supabase_id: sid,
-          qty: Math.max(1, parseInt(item.quantity || 1)),
+          qty: Math.max(1, parseInt(item.quantity || 1, 10)),
           name: item.name || null,
         })
       }

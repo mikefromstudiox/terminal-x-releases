@@ -36,12 +36,14 @@ async function run() {
   log('auth: email+password sign-in', !authErr && !!auth?.session, authErr?.message)
   if (!auth?.session) { console.log('\nBLOCKER — cannot proceed without session'); process.exit(1) }
 
-  // 2. PIN lookup (byPin flow)
-  const jerryHash = sha('434233')
-  const { data: staffRow, error: e2 } = await anon.from('staff')
-    .select('id,name,role,active,business_id')
-    .eq('business_id', BID).eq('pin_hash', jerryHash).eq('active', true).maybeSingle()
-  log('pin byPin: Jerry 434233', !e2 && staffRow?.name === 'Jerry Felix', e2?.message)
+  // 2. PIN lookup (byPin flow) — pin_hash is bcrypt, so fetch active owner row
+  // for this business and bcrypt-compare in Node, mirroring the AuthContext flow.
+  const bcrypt = (await import('bcryptjs')).default
+  const { data: staffRows, error: e2 } = await anon.from('staff')
+    .select('id,name,role,active,pin_hash,business_id')
+    .eq('business_id', BID).eq('active', true)
+  const jerryRow = staffRows?.find(r => r.name === 'Jerry Felix' && r.pin_hash && bcrypt.compareSync('434233', r.pin_hash))
+  log('pin byPin: Jerry 434233', !e2 && !!jerryRow, e2?.message || (staffRows ? `${staffRows.length} active staff scanned` : 'no rows'))
 
   // 3. License validation (direct API call)
   const valResp = await fetch(`${URL.replace('supabase.co','supabase.co').replace('https://csppjsoirjflumaiipqw.supabase.co','https://terminalxpos.com')}/api/validate`, {

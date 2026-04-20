@@ -241,7 +241,13 @@ export default function Returns() {
             approval_method:  approval?.method     || null,
           },
         })
-      } catch {}
+      } catch (logErr) {
+        console.error('[Returns] activity_log write failed', logErr)
+        try { window.alert(L(
+          'Devolución completada pero el registro de actividad falló',
+          'Return completed but activity log write failed'
+        )) } catch {}
+      }
 
       setToast(L('Devolución procesada ✓', 'Return processed ✓'))
       // Reset state

@@ -1168,9 +1168,6 @@ async function handlePublicCertAction(action, req, res, supabase) {
       const magicOk = (contentType === 'image/png' && isPNG) || (contentType === 'image/jpeg' && isJPEG) || (contentType === 'application/pdf' && isPDF)
       if (!magicOk) return res.status(415).json({ error: 'mime_mismatch_magic_bytes' })
 
-      // TODO: migrate storage target from general 'ecf-certs' bucket to a dedicated
-      // client-upload bucket (e.g. 'ecf-client-uploads') with tighter RLS. Separate
-      // schema change — tracked outside this hardening pass.
       const path = `${cert.id}/client/${filename}`
       const { error: uploadErr } = await supabase.storage.from('ecf-certs').upload(path, buffer, { contentType, upsert: true })
       if (uploadErr) return res.status(500).json({ error: uploadErr.message })

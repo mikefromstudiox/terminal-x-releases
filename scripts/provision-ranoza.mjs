@@ -71,7 +71,7 @@ async function main() {
       id, business_id: businessId, supabase_id: id,
       sku, barcode, name, category: category || 'General',
       price: Number(price) || 0, cost: Number(cost) || 0,
-      quantity: parseInt(stock) || 0, min_quantity: parseInt(min_qty) || 5,
+      quantity: parseInt(stock, 10) || 0, min_quantity: parseInt(min_qty, 10) || 5,
       active: true, aplica_itbis: 1,
     }
   })

@@ -3,7 +3,7 @@
 ## What This App Is
 Full-featured desktop POS for the Dominican Republic market, resold to multiple clients. Flagship differentiator: 100% working e-CF (electronic fiscal receipts) per Ley 32-23.
 
-## Current Release — v2.12.0 (2026-04-19 night → 2026-04-20)
+## Current Release — v2.12.2 (2026-04-20 — Error-handling hardening + cleanup)
 - **v2.4.0** — Retail POS categorization (tabs + count badges) + Pedidos Ya channel pricing (one-click toggle, `order_source` stamped on tickets).
 - **v2.4.1** — 1024px cash-register grid fix.
 - **v2.5.0** — Per-client pricing (`client_item_prices`, precedence: client > PY > base) + Conteo Físico + variance report PDF/CSV + severity-scaled activity log.
@@ -14,6 +14,8 @@ Full-featured desktop POS for the Dominican Republic market, resold to multiple 
 - **v2.11.0** — Cart-line price edit + Returns flow + persistent strike counter + multi-device ticket locks (Pro MAX) + daily owner digest (Pro MAX) + loyalty points (Pro PLUS/MAX) + offline PWA (Pro MAX) + full RLS audit completion.
 - **v2.11.1** / **v2.11.2** — hardening sprints.
 - **v2.12.0** — **Tienda subtype templates** (licorería/farmacia/colmado/supermercado/ferretería/papelería/boutique/otro with feature flags + default categories) + `loyalty_transactions` sync desktop↔cloud + admin panel Lealtad/Digest visibility + Terminal X vs STARSISA sales PDF + demo re-seed with v2.11 state + 22/22 Ranoza E2E smoke harness.
+- **v2.12.2** — Error-handling hardening + cleanup: 10 silent-swallow patches in revenue paths (CobrarModal loyalty redeem/earn, DepositReturnModal compensating reversal, Returns audit surfacing, Loans defaulted/cancel, DealBuilder close warning, POS post-sale, Inventory bulk-delete summary, WorkOrders fallback) + web Kiosk fix (`KioskProvider` wraps POS shell) + dead-code purge (`schema.js`, `print-web.js`, `ef2-proxy/`, `.env.example` EF2 block, stray TODOs) + 12 new `EVENT_META` entries + 9 stale `event_type` renames in seed scripts + 13 `parseInt` radix fixes across 8 files + phone normalizer consolidation in Clients + bcrypt update for ranoza-e2e-smoke (22/22) + audit prompt v2.2.
+- **v2.12.1** — Sprint 12 mega-bundle: **CSP strict-dynamic prod-blanker fix**, SQLCipher SQLite at-rest encryption (HKDF/HWID + safeStorage), Sentry telemetry (DSN-gated, PII-scrubbed), nightly SQLite→Supabase backup (3 AM, 14d retention, SQLCipher-aware), DGII EN_PROCESO reconciler + IndicadorEnvioDiferido cleanup, xml-crypto v6 fe receiver port (not yet deployed), inventory clamp symmetry (shortage-aware void reversal), apertura de turno prompt, kiosk idle auto-lock w/ session-preserve PIN, admin License Rebind approval UI, **Loyalty tiers Bronce/Plata/Oro** (lifetime-earned multipliers x1.0/1.25/1.5), **licorería deposit/bottle-return flow**, **WO→ticket bridge (mecánica)**, **DealBuilder→CobrarModal+E31 routing ≥250K (concesionario)**, restaurant mesa bridge (E-C4 fix), print queue USB retry+banner, activity log classification (kiosk/backup/dgii/rebind events), GitHub secret scanning + Dependabot + branch protection on main (signed commits required), training manual sections 28-33, ef2_token dead-field removal, Sidebar polls gated on user.id + tryOr console-error demotion (kills 250+ false E2E errors).
 
 Brand: crimson `#b3001e`/black/white only across Studio X sites. Pedidos Ya pink `#FA0050` appears ONLY inside POS on the PY channel toggle.
 

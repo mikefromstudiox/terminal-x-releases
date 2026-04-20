@@ -214,6 +214,7 @@ export default function DealBuilder() {
       })
 
       // Stamp ticket link back onto the deal so Reportes / dashboard joins work.
+      // non-fatal: ticket already booked, deal must be closed manually if this fails
       try {
         if (ctx.dealId) {
           await api.salesDeals.close(ctx.dealId, {
@@ -221,7 +222,10 @@ export default function DealBuilder() {
             ticket_supabase_id: result?.supabase_id || null,
           })
         }
-      } catch {}
+      } catch (e) {
+        console.error('[DealBuilder] salesDeals.close failed (ticket already booked)', e)
+        try { window.alert('Ticket creado pero el deal sigue abierto — ciérralo manualmente') } catch {}
+      }
 
       setResult({ ok: true, id: ctx.dealId })
     } catch (ex) {

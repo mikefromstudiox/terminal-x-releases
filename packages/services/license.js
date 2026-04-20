@@ -89,7 +89,7 @@ function monotonicNow() {
 
 function getCachedResult() {
   try {
-    const ts       = parseInt(localStorage.getItem(KEY_CACHE_TIME)   || '0')
+    const ts       = parseInt(localStorage.getItem(KEY_CACHE_TIME)   || '0', 10)
     const perfAt   = parseFloat(localStorage.getItem(KEY_CACHE_PERF) || '0')
     const originAt = parseFloat(localStorage.getItem(KEY_CACHE_ORIGIN) || '0')
     const data     = localStorage.getItem(KEY_CACHE)

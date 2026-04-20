@@ -75,7 +75,7 @@ async function exportLocalDB() {
 
 /** Restores a JSON snapshot to local SQLite via Electron IPC. */
 async function importToDB(snapshot) {
-  if (window.electronAPI?.db?.importAll) { // TODO: accept api param for web compat
+  if (window.electronAPI?.db?.importAll) {
     return window.electronAPI.db.importAll(snapshot)
   }
   console.warn('[backup] importToDB: no IPC handler — DB layer not yet connected')
@@ -290,7 +290,7 @@ export async function syncToCloud() {
     // Export only changes from local DB
     let changes = { tickets: [], clients: [], payments: [] }
     try {
-      if (window.electronAPI?.db?.exportSince) { // TODO: accept api param for web compat
+      if (window.electronAPI?.db?.exportSince) {
         changes = await window.electronAPI.db.exportSince(since)
       }
     } catch {}

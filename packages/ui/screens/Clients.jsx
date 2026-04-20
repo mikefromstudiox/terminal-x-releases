@@ -10,6 +10,7 @@ import { useAPI } from '../context/DataContext'
 import { useClients, useMutation } from '../hooks/useDB'
 import { useRNC } from '../hooks/useRNC'
 import { printClientReceipt } from '@terminal-x/services/printer'
+import { normalizeWaPhone } from '@terminal-x/services/phone'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import { usePlan } from '../hooks/usePlan'
 import { Scissors, Gift, Heart } from 'lucide-react'
@@ -1312,15 +1313,8 @@ function WhatsAppClientModal({ client, onClose, onSent, onError, lang }) {
     }).catch(() => {})
   }, [])
 
-  function normalizePhone(raw) {
-    const d = String(raw || '').replace(/\D/g, '')
-    if (d.length === 10 && (d[0] === '8' || d[0] === '9')) return '1' + d
-    if (d.length === 11 && d[0] === '1') return d
-    return d
-  }
-
   async function send() {
-    const to = normalizePhone(client.phone)
+    const to = normalizeWaPhone(client.phone)
     if (!to) { onError?.(lang === 'es' ? 'Teléfono inválido' : 'Invalid phone'); return }
     if (!body.trim()) { onError?.(lang === 'es' ? 'Mensaje vacío' : 'Empty message'); return }
     setSending(true)

@@ -538,7 +538,10 @@ function LoanDetail({ loan, onClose, onReload }) {
       await api.loans.update({ id: loan.id, status: 'defaulted' })
       setToast('Prestamo marcado en mora')
       setTimeout(() => { setToast(null); onReload() }, 1500)
-    } catch {}
+    } catch (e) {
+      console.error('[Loans] markDefaulted failed', e)
+      try { window.alert('No se pudo marcar el préstamo en mora: ' + (e?.message || e)) } catch {}
+    }
   }
 
   async function handleCancel() {
@@ -547,7 +550,10 @@ function LoanDetail({ loan, onClose, onReload }) {
       await api.loans.update({ id: loan.id, status: 'cancelled' })
       setToast('Prestamo cancelado')
       setTimeout(() => { setToast(null); onReload() }, 1500)
-    } catch {}
+    } catch (e) {
+      console.error('[Loans] cancel failed', e)
+      try { window.alert('No se pudo cancelar el préstamo: ' + (e?.message || e)) } catch {}
+    }
   }
 
   return (

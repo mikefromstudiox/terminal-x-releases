@@ -559,6 +559,21 @@ const EVENT_META = {
   manager_card_revoked:  { Icon: Lock,     color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Tarjeta de gerente revocada', en: 'Manager card revoked' },
   // v2.6 — Licoreria: envase deposit refund (bottle return)
   deposit_refund:        { Icon: ReceiptText, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-300', es: 'Devolución de envase',    en: 'Bottle deposit refund' },
+  // v2.12.1 — backfill for production emit sites missing from EVENT_META
+  user_role_changed:     { Icon: Lock,        color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Cambio de rol',             en: 'Role changed' },
+  empleado_created:      { Icon: UserX,       color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',          es: 'Empleado creado',           en: 'Employee created' },
+  empleado_updated:      { Icon: UserX,       color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',          es: 'Empleado actualizado',      en: 'Employee updated' },
+  empleado_deleted:      { Icon: UserX,       color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Empleado eliminado',        en: 'Employee deleted' },
+  inventory_oversell:    { Icon: Package,     color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Venta sobre stock',         en: 'Inventory oversell' },
+  manager_override_failed:{Icon: ShieldX,     color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Override de gerente fallido', en: 'Manager override failed' },
+  age_verified:          { Icon: ShieldAlert, color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',          es: 'Verificación de edad',      en: 'Age verified' },
+  return_processed:      { Icon: XCircle,     color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Devolución procesada',      en: 'Return processed' },
+  daily_digest_sent:     { Icon: ClipboardList, color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',        es: 'Resumen diario enviado',    en: 'Daily digest sent' },
+  loan_created:          { Icon: Wallet,      color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',          es: 'Préstamo creado',           en: 'Loan created' },
+  pawn_forfeited:        { Icon: ShieldAlert, color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Empeño vencido',            en: 'Pawn forfeited' },
+  // v2.12.2 — verification pass backfill
+  loyalty_redeem_failed: { Icon: ShieldAlert, color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',          es: 'Canje de puntos falló',     en: 'Loyalty redeem failed' },
+  empleado_deactivated:  { Icon: UserX,       color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Empleado desactivado',      en: 'Employee deactivated' },
 }
 function eventLabel(evt, lang) {
   const m = EVENT_META[evt]

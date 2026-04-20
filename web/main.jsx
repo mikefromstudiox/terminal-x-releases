@@ -45,10 +45,11 @@ const POSRoute = React.lazy(() =>
     import('@/context/DataContext'),
     import('@/hooks/usePlan.jsx'),
     import('@/hooks/useBusinessType.jsx'),
+    import('@/context/KioskContext'),
     import('@terminal-x/data/web'),
     import('@terminal-x/services/offline-queue'),
     supabaseReady,
-  ]).then(([App, i18n, Auth, License, Data, Plan, BizType, WebData, Offline]) => ({
+  ]).then(([App, i18n, Auth, License, Data, Plan, BizType, Kiosk, WebData, Offline]) => ({
     default: function POSShell() {
       return (
         <SupabaseAuthGate
@@ -62,7 +63,9 @@ const POSRoute = React.lazy(() =>
               <License.LicenseProvider>
                 <Plan.PlanProvider>
                   <BizType.BusinessTypeProvider>
-                    <App.default />
+                    <Kiosk.KioskProvider>
+                      <App.default />
+                    </Kiosk.KioskProvider>
                   </BizType.BusinessTypeProvider>
                 </Plan.PlanProvider>
               </License.LicenseProvider>

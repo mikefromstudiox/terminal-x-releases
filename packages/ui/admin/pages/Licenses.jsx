@@ -106,7 +106,7 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
         body: JSON.stringify({
           business_id: addForm.business_id,
           platform: addForm.platform,
-          max_users: parseInt(addForm.max_users) || 5,
+          max_users: parseInt(addForm.max_users, 10) || 5,
           notes: addForm.notes.trim() || null,
         }),
       })

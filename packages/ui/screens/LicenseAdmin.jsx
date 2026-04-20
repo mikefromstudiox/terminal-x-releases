@@ -132,8 +132,8 @@ function CreateModal({ adminKey, onClose, onCreated }) {
         business_name: form.business_name.trim(),
         business_rnc:  form.business_rnc.trim(),
         plan:          form.plan,
-        months:        parseInt(form.months) || null,
-        max_users:     parseInt(form.max_users) || 10,
+        months:        parseInt(form.months, 10) || null,
+        max_users:     parseInt(form.max_users, 10) || 10,
         notes:         form.notes.trim(),
         license_key:   key,
       })

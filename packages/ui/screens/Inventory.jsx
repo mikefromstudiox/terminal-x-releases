@@ -522,8 +522,8 @@ function ImportModal({ onDone, onClose }) {
           price:          parseFloat(raw.price) || 0,
           price_pedidos_ya: (raw.price_pedidos_ya === '' || raw.price_pedidos_ya == null) ? null : (parseFloat(raw.price_pedidos_ya) || null),
           cost:           parseFloat(raw.cost) || 0,
-          quantity:       parseInt(raw.quantity) || 0,
-          min_quantity:   parseInt(raw.min_quantity) || 5,
+          quantity:       parseInt(raw.quantity, 10) || 0,
+          min_quantity:   parseInt(raw.min_quantity, 10) || 5,
           bottle_deposit: parseFloat(raw.bottle_deposit) || 0,
         })
         ok++
@@ -1204,13 +1204,25 @@ export default function Inventory() {
     const typed = window.prompt(lang === 'en' ? `Type ERASE to confirm:` : `Escribe BORRAR para confirmar:`)
     if ((typed || '').toUpperCase().trim() !== (lang === 'en' ? 'ERASE' : 'BORRAR')) return
     setLoading(true)
+    const failures = []
     try {
       for (const it of items) {
-        try { await api.inventory.delete({ id: it.id }) } catch {}
+        try { await api.inventory.delete({ id: it.id }) }
+        catch (e) {
+          console.error('[Inventory] bulk delete failed for', it?.id, e)
+          failures.push(it)
+        }
       }
     } finally {
       setLoading(false)
       load()
+      if (failures.length > 0) {
+        try { window.alert(
+          lang === 'en'
+            ? `Could not delete ${failures.length} of ${items.length} items`
+            : `No se pudieron eliminar ${failures.length} de ${items.length} productos`
+        ) } catch {}
+      }
     }
   }
 
