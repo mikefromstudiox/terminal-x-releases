@@ -122,6 +122,20 @@ const COPY = {
     s4_ef2_token_ph: 'Se configura en Configuración → e-CF',
     s4_saving:       'Guardando…',
 
+    // Paper (B01/B02) sequence setup
+    s4_paper_title:  'Secuencia NCF',
+    s4_paper_sub:    'Ingresa el talonario autorizado por la DGII.',
+    s4_paper_type:   'Tipo de comprobante',
+    s4_paper_b01:    'B01 — Crédito Fiscal',
+    s4_paper_b02:    'B02 — Consumo Final',
+    s4_paper_from:   'Secuencia desde',
+    s4_paper_to:     'Secuencia hasta',
+    s4_paper_exp:    'Fecha de vencimiento',
+    s4_err_from:     'La secuencia inicial debe ser mayor a 0.',
+    s4_err_to:       'La secuencia final debe ser mayor a la inicial.',
+    s4_err_exp:      'La fecha de vencimiento debe ser posterior a hoy.',
+    s4_err_ncf_save: 'No se pudo guardar la secuencia NCF.',
+
     // Step — Done / Welcome
     s5_title:        '¡Bienvenido a Terminal X POS!',
     s5_sub:          'Tu negocio ha sido registrado exitosamente.',
@@ -249,6 +263,20 @@ const COPY = {
     s4_ef2_token:    '.p12 Certificate',
     s4_ef2_token_ph: 'Configure in Settings → e-CF',
     s4_saving:       'Saving…',
+
+    // Paper (B01/B02) sequence setup
+    s4_paper_title:  'NCF Sequence',
+    s4_paper_sub:    'Enter the DGII-authorized receipt book.',
+    s4_paper_type:   'Receipt type',
+    s4_paper_b01:    'B01 — Tax Credit',
+    s4_paper_b02:    'B02 — Final Consumer',
+    s4_paper_from:   'Sequence from',
+    s4_paper_to:     'Sequence to',
+    s4_paper_exp:    'Expiry date',
+    s4_err_from:     'Starting sequence must be greater than 0.',
+    s4_err_to:       'Ending sequence must be greater than the start.',
+    s4_err_exp:      'Expiry date must be after today.',
+    s4_err_ncf_save: 'Could not save the NCF sequence.',
 
     // Step 5 — Done
     s5_title:        'Welcome to Terminal X POS!',
@@ -1365,12 +1393,68 @@ function StepFiscal({ t, onNext, onBack }) {
   const api = useAPI()
   const [mode,     setMode]     = useState('paper')   // 'paper' | 'ecf'
   const [ef2User,  setEf2User]  = useState('')
-  const [ef2Token, setEf2Token] = useState('')
+  const [ef2Token, setEf2Token] = useState('')  // TODO remove — dead-code audit flagged (configured in Settings → e-CF)
   const [showToken,setShowToken]= useState(false)
   const [saving,   setSaving]   = useState(false)
   const [err,      setErr]      = useState('')
 
+  // Paper-mode NCF seed inputs (O-H3 fix — otherwise cobrar returns blank NCF)
+  const [ncfType, setNcfType] = useState('B02')           // 'B01' | 'B02'
+  const [ncfFrom, setNcfFrom] = useState('1')
+  const [ncfTo,   setNcfTo]   = useState('999')
+  const [ncfExp,  setNcfExp]  = useState('')              // YYYY-MM-DD (DGII-assigned)
+  const [fieldErr, setFieldErr] = useState({})            // { from?, to?, exp? }
+
+  function validatePaper() {
+    const from = parseInt(ncfFrom, 10)
+    const to   = parseInt(ncfTo,   10)
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const expDate = ncfExp ? new Date(`${ncfExp}T00:00:00`) : null
+    const e = {}
+    if (!Number.isFinite(from) || from <= 0) e.from = t('s4_err_from')
+    if (!Number.isFinite(to)   || to   <= from) e.to = t('s4_err_to')
+    if (!expDate || isNaN(expDate.getTime()) || expDate <= today) e.exp = t('s4_err_exp')
+    setFieldErr(e)
+    return { ok: Object.keys(e).length === 0, from, to, expDate }
+  }
+
   async function handleNext() {
+    setErr('')
+    if (mode === 'paper') {
+      const v = validatePaper()
+      if (!v.ok) return
+      setSaving(true)
+      try {
+        const biz = await api?.admin?.getEmpresa?.()
+        const s   = biz?.settings ? JSON.parse(biz.settings) : {}
+        await api?.admin?.saveEmpresa?.({
+          settings: JSON.stringify({ ...s, facturacion_mode: mode }),
+        })
+        // Seed the ncf_sequences row so cobrar can generate NCFs.
+        // Desktop: ncfUpdateSequence UPDATEs the pre-seeded B01/B02 row.
+        // Web:     saveSecuenciaNcf upserts on (business_id, type).
+        // Both paths are exposed via api.admin.saveSecuenciaNcf.
+        const saveSeq = api?.admin?.saveSecuenciaNcf
+        if (typeof saveSeq !== 'function') throw new Error('NCF API no disponible')
+        await saveSeq({
+          type:           ncfType,
+          prefix:         ncfType,                 // 'B01' | 'B02' — 11-digit NCF: prefix + 8 digits
+          current_number: Math.max(0, v.from - 1), // ncfGetNext() pre-increments, so store "last used"
+          limit_number:   v.to,
+          valid_until:    ncfExp,                   // ISO date string
+          active:         1,
+          enabled:        1,
+        })
+        onNext()
+      } catch (e) {
+        setErr(e?.message || t('s4_err_ncf_save'))
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
+    // e-CF branch — preserved verbatim
     setSaving(true)
     try {
       const biz = await api?.admin?.getEmpresa?.()
@@ -1378,7 +1462,7 @@ function StepFiscal({ t, onNext, onBack }) {
       await api?.admin?.saveEmpresa?.({
         settings: JSON.stringify({ ...s, facturacion_mode: mode }),
       })
-      if (mode === 'ecf' && ef2Token.trim()) {
+      if (ef2Token.trim()) {
         await api?.safe?.set?.('ef2_token', ef2Token.trim())
       }
       onNext()
@@ -1428,6 +1512,67 @@ function StepFiscal({ t, onNext, onBack }) {
             </button>
           ))}
         </div>
+
+        {/* Paper NCF sequence (required for cobrar to emit an NCF) */}
+        {mode === 'paper' && (
+          <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-xl p-5 mb-4 space-y-4">
+            <div>
+              <p className="text-[12px] font-bold text-zinc-300 mb-0.5">{t('s4_paper_title')}</p>
+              <p className="text-[11px] text-zinc-500">{t('s4_paper_sub')}</p>
+            </div>
+
+            <Field label={t('s4_paper_type')} id="ncf-type">
+              <div className="flex gap-2">
+                {['B01', 'B02'].map(tp => (
+                  <button
+                    key={tp}
+                    type="button"
+                    onClick={() => setNcfType(tp)}
+                    className={`flex-1 px-3 py-2.5 rounded-xl border-2 text-[12px] font-semibold transition-all
+                      ${ncfType === tp
+                        ? 'border-red-500 bg-red-500/10 text-white'
+                        : 'border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-500'
+                      }`}
+                  >
+                    {tp === 'B01' ? t('s4_paper_b01') : t('s4_paper_b02')}
+                  </button>
+                ))}
+              </div>
+            </Field>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={t('s4_paper_from')} id="ncf-from" error={fieldErr.from}>
+                <TextInput
+                  id="ncf-from"
+                  value={ncfFrom}
+                  onChange={setNcfFrom}
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="1"
+                />
+              </Field>
+              <Field label={t('s4_paper_to')} id="ncf-to" error={fieldErr.to}>
+                <TextInput
+                  id="ncf-to"
+                  value={ncfTo}
+                  onChange={setNcfTo}
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="999"
+                />
+              </Field>
+            </div>
+
+            <Field label={t('s4_paper_exp')} id="ncf-exp" error={fieldErr.exp}>
+              <TextInput
+                id="ncf-exp"
+                value={ncfExp}
+                onChange={setNcfExp}
+                type="date"
+              />
+            </Field>
+          </div>
+        )}
 
         {/* e-CF credentials (optional) */}
         {mode === 'ecf' && (
