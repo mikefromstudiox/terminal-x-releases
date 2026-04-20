@@ -119,8 +119,6 @@ const COPY = {
     s4_ef2_sub:      'Opcional — puedes configurarlo después en Configuración → e-CF.',
     s4_ef2_user:     'RNC Emisor',
     s4_ef2_user_ph:  'XXX-XXXXX-X',
-    s4_ef2_token:    'Certificado .p12',
-    s4_ef2_token_ph: 'Se configura en Configuración → e-CF',
     s4_saving:       'Guardando…',
 
     // Paper (B01/B02) sequence setup
@@ -261,8 +259,6 @@ const COPY = {
     s4_ef2_sub:      'Optional — you can configure this later in Settings → e-CF.',
     s4_ef2_user:     'Emisor RNC',
     s4_ef2_user_ph:  'XXX-XXXXX-X',
-    s4_ef2_token:    '.p12 Certificate',
-    s4_ef2_token_ph: 'Configure in Settings → e-CF',
     s4_saving:       'Saving…',
 
     // Paper (B01/B02) sequence setup
@@ -1429,8 +1425,6 @@ function StepFiscal({ t, onNext, onBack }) {
   const api = useAPI()
   const [mode,     setMode]     = useState('paper')   // 'paper' | 'ecf'
   const [ef2User,  setEf2User]  = useState('')
-  const [ef2Token, setEf2Token] = useState('')  // TODO remove — dead-code audit flagged (configured in Settings → e-CF)
-  const [showToken,setShowToken]= useState(false)
   const [saving,   setSaving]   = useState(false)
   const [err,      setErr]      = useState('')
 
@@ -1498,9 +1492,6 @@ function StepFiscal({ t, onNext, onBack }) {
       await api?.admin?.saveEmpresa?.({
         settings: JSON.stringify({ ...s, facturacion_mode: mode }),
       })
-      if (ef2Token.trim()) {
-        await api?.safe?.set?.('ef2_token', ef2Token.trim())
-      }
       onNext()
     } catch (e) {
       setErr(e?.message || 'Error al guardar.')
@@ -1621,25 +1612,6 @@ function StepFiscal({ t, onNext, onBack }) {
               <TextInput id="fiscal-ef2user" value={ef2User} onChange={setEf2User}
                 placeholder={t('s4_ef2_user_ph')} type="email" />
             </Field>
-            <div>
-              <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
-                {t('s4_ef2_token')}
-              </label>
-              <div className="relative">
-                <input
-                  type={showToken ? 'text' : 'password'}
-                  value={ef2Token}
-                  onChange={e => setEf2Token(e.target.value)}
-                  placeholder={t('s4_ef2_token_ph')}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white text-[13px] font-mono
-                             placeholder-zinc-600 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/30 transition-colors pr-10"
-                />
-                <button type="button" onClick={() => setShowToken(s => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors">
-                  {showToken ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
-            </div>
           </div>
         )}
 

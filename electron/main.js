@@ -4,6 +4,21 @@ const os     = require('os')
 const fs     = require('fs')
 const crypto = require('crypto')
 const https  = require('https')
+
+// ── Load .env from project root (MUST run before Sentry init so SENTRY_DSN
+// picked up from .env is visible) ────────────────────────────────────────────
+try {
+  require('dotenv').config({ path: path.join(__dirname, '../.env') })
+} catch { /* dotenv not available in packaged build — env vars must come from OS */ }
+
+// ── Sentry (error telemetry) — MUST be the first instrumentation so it can
+// hook uncaught exceptions BEFORE our own process.on handlers swallow them.
+// No-op when SENTRY_DSN is unset (dynamic require is guarded). ───────────────
+let pkgVersion = ''
+try { pkgVersion = require('../package.json').version } catch {}
+const { initSentryMain, captureSentryException: captureMainException } = require('./sentry-init')
+initSentryMain({ release: pkgVersion ? `terminal-x@${pkgVersion}` : undefined })
+
 const { initUpdater } = require('./updater')
 const sync = require('./sync')
 const guard = require('./auth-guard')
@@ -11,6 +26,7 @@ const guard = require('./auth-guard')
 // ── Process-level error handlers (prevent silent crashes) ─────────────────────
 process.on('uncaughtException', (err) => {
   console.error('[FATAL] Uncaught exception:', err)
+  try { captureMainException(err) } catch {}
   try {
     const { dialog } = require('electron')
     if (require('electron').app.isReady()) {
@@ -20,15 +36,8 @@ process.on('uncaughtException', (err) => {
 })
 process.on('unhandledRejection', (reason) => {
   console.error('[FATAL] Unhandled rejection:', reason)
+  try { captureMainException(reason instanceof Error ? reason : new Error(String(reason))) } catch {}
 })
-
-// ── Load .env from project root ───────────────────────────────────────────────
-// dotenv is a dev-dependency; in packaged builds the env vars must be set at
-// build time or via the OS environment — dotenv.config() is a no-op if the
-// file doesn't exist, so this is always safe to call.
-try {
-  require('dotenv').config({ path: path.join(__dirname, '../.env') })
-} catch { /* dotenv not available in packaged build — env vars must come from OS */ }
 
 // ── Env-var accessors (with safe fallbacks) ───────────────────────────────────
 // Anon key is SAFE TO SHIP: it's the public client key, and Supabase RLS
@@ -75,10 +84,10 @@ ipcMain.handle('safe:get', (_, key) => {
 })
 
 // Expose non-secret config to the renderer on request.
-// ef2Token and supabase keys are NOT sent proactively — only when requested,
+// Supabase keys are NOT sent proactively — only when requested,
 // so the renderer can detect stub/offline mode.
 ipcMain.handle('env:get', (_, key) => {
-  const allowed = { ef2Token: env.ef2Token, supabaseUrl: env.supabaseUrl, supabaseAnon: env.supabaseAnon }
+  const allowed = { supabaseUrl: env.supabaseUrl, supabaseAnon: env.supabaseAnon }
   return allowed[key] ?? null
 })
 
@@ -1163,9 +1172,77 @@ app.whenReady().then(async () => {
     processAnecfQueue().catch(() => {})
     setInterval(processAnecfQueue, 60_000)
   }, 45_000)
+
+  // Nightly SQLite → Supabase Storage backup (3:00 AM local, 24h cadence).
+  scheduleNightlyBackup()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+// ── Nightly cloud backup (3:00 AM local) ─────────────────────────────────────
+const dbBackup = require('./db-backup')
+
+function msUntilNext3AM() {
+  const now  = new Date()
+  const next = new Date(now)
+  next.setHours(3, 0, 0, 0)
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1)
+  return next.getTime() - now.getTime()
+}
+
+function backupCreds() {
+  const key = env.supabaseServiceKey || env.supabaseAnon
+  return { url: env.supabaseUrl, key }
+}
+
+// License-active predicate: hwid.json exists AND we have resolvable business_id.
+// (Fresh installs without a validated license skip backup to avoid burning
+// storage quota on trial-abandoned machines.)
+function isLicenseActive() {
+  try {
+    const hwidFile = path.join(app.getPath('userData'), 'hwid.json')
+    if (!fs.existsSync(hwidFile)) return false
+    const bizId = db?.rawPrepare?.("SELECT value FROM app_settings WHERE key='supabase_business_id'").get()?.value
+    return !!bizId
+  } catch { return false }
+}
+
+async function runBackupGuarded(reason) {
+  if (!db?.isReady?.()) throw new Error('DB not ready')
+  if (!isLicenseActive()) throw new Error('license not active')
+  const creds = backupCreds()
+  if (!creds.url || !creds.key) throw new Error('Supabase credentials missing')
+  return dbBackup.runNightlyBackup({
+    db,
+    supabase:    creds,
+    business_id: null, // resolved from app_settings inside
+    tmpDir:      path.join(app.getPath('userData'), 'backup-tmp'),
+    reason,
+  })
+}
+
+function scheduleNightlyBackup() {
+  const delay = msUntilNext3AM()
+  console.log(`[backup] next nightly run in ${Math.round(delay / 60000)} min`)
+  setTimeout(async () => {
+    try { await runBackupGuarded('scheduled') } catch (e) { console.warn('[backup] scheduled run failed:', e.message) }
+    scheduleNightlyBackup() // recompute for next 3 AM (handles DST drift)
+  }, delay)
+}
+
+ipcMain.handle('backup:runNow', async () => {
+  try {
+    const res = await runBackupGuarded('manual')
+    return { ok: true, data: res }
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) }
+  }
+})
+
+ipcMain.handle('backup:lastStatus', () => {
+  try { return { ok: true, data: dbBackup.getLastStatus(db) } }
+  catch (e) { return { ok: false, error: e?.message || String(e) } }
 })
 
 app.on('will-quit', () => {
