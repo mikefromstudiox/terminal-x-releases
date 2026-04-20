@@ -1,6 +1,6 @@
 {
   "name": "terminal-x",
-  "version": "2.13.0",
+  "version": "2.13.1",
   "private": true,
   "description": "Terminal X - POS System for Car Wash, Retail & Services",
   "author": "Studio X",
@@ -41,7 +41,7 @@
     "node-forge": "^1.4.0",
     "pdf-lib": "^1.17.1",
     "qrcode": "^1.5.4",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "xml-crypto": "^6.1.2"
   },
   "devDependencies": {
@@ -68,7 +68,11 @@
     "axios": "^1.15.0",
     "follow-redirects": "^1.15.12",
     "node-forge": "^1.4.0",
-    "@xmldom/xmldom": "^0.8.12"
+    "@xmldom/xmldom": "^0.8.12",
+    "lodash": "^4.18.0",
+    "brace-expansion": "^2.0.3",
+    "picomatch": "^4.0.4",
+    "esbuild": "^0.25.0"
   },
   "build": {
     "appId": "com.terminalx.pos",
