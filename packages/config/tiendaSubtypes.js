@@ -34,6 +34,46 @@ export const TIENDA_SUBTYPES = {
       'Tequilas', 'Ginebras', 'Cognac', 'Espumantes', 'Refrescos',
       'Snacks', 'Cigarrillos', 'Vapers', 'Energéticas', 'Aguas', 'Jugos',
     ],
+    // Vertical-specific business rules. Surfaced through
+    // `useBusinessType().licoreriaConfig`. Shape kept identical to the legacy
+    // `BUSINESS_TYPES.licoreria.licoreria` block (deprecated v2.13, removal v2.14)
+    // so existing consumers (POS.jsx, Inventory.jsx, AgeVerifyModal.jsx) keep
+    // working with zero changes.
+    config: {
+      ageVerification: {
+        enabled: true,
+        minAge: 18,
+        // Categories that trigger the 18+ prompt. Matched case-insensitively
+        // against inventory_items.category.
+        triggerCategories: [
+          'ron', 'whisky', 'whiskey', 'vodka', 'cerveza', 'beer',
+          'vino', 'wine', 'gin', 'tequila', 'licor', 'brandy',
+          'champagne', 'espumante', 'aperitivo', 'cocktail',
+        ],
+      },
+      bottleDeposit: {
+        enabled: true,
+        // DR standard deposit — operator can override per-SKU.
+        defaultAmount: 5,
+        lineLabel: { es: 'Depósito de botella', en: 'Bottle deposit' },
+      },
+      quickSell: {
+        enabled: true,
+        topN: 8,
+      },
+      // DR brand suggestions surfaced by the Inventory editor. Non-exhaustive
+      // but covers ~95% of what a small licorería stocks on shelf.
+      brandSuggestions: {
+        ron:      ['Brugal Añejo', 'Brugal Extra Viejo', 'Brugal 1888', 'Barceló Imperial', 'Barceló Añejo', 'Bermudez Aniversario', 'Macorix', 'Matusalem', 'Bacardi'],
+        whisky:   ['Johnnie Walker Red', 'Johnnie Walker Black', 'Buchanan\'s 12', 'Buchanan\'s 18', 'Chivas Regal 12', 'Jack Daniel\'s', 'Jim Beam', 'Macallan'],
+        vodka:    ['Absolut', 'Smirnoff', 'Grey Goose', 'Ciroc', 'Belvedere'],
+        cerveza:  ['Presidente', 'Presidente Light', 'Bohemia', 'Corona', 'Heineken', 'Modelo', 'Michelob', 'The One'],
+        vino:     ['Santa Rita', 'Casillero del Diablo', 'Concha y Toro', 'Yellow Tail', 'Trivento', 'Frontera'],
+        gin:      ['Bombay Sapphire', 'Tanqueray', 'Beefeater', 'Hendrick\'s'],
+        tequila:  ['Jose Cuervo', 'Don Julio', 'Patrón', 'Herradura', 'Sauza'],
+        champagne:['Moët & Chandon', 'Veuve Clicquot', 'Chandon', 'Martini Asti'],
+      },
+    },
   },
 
   farmacia: {

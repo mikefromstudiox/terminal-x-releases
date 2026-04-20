@@ -160,8 +160,11 @@ export const BUSINESS_TYPES = {
       showInventory: true,
       posSegmentToggle: false,
     },
-    // Licorería-specific business rules. Consumed via useBusinessType().config
-    // so any component can do `config.licoreria?.ageVerification?.enabled`.
+    // DEPRECATED v2.13: read from useBusinessType().licoreriaConfig instead.
+    // The canonical source is now TIENDA_SUBTYPES.licoreria.config in
+    // packages/config/tiendaSubtypes.js. This block is retained for one
+    // release as a fallback for installs that have business_type='licoreria'
+    // without a tienda_subtype seeded. Scheduled for removal in v2.14.
     licoreria: {
       ageVerification: {
         enabled: true,

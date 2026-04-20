@@ -28,7 +28,15 @@ const supabaseReady = (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE
       // call supabase.auth.signOut() on the exact session that SupabaseAuthGate
       // is tracking. Without this, logout was signing out a different client
       // instance and the gate never flipped back to the sign-in screen.
-      if (typeof window !== 'undefined') window.__txSupabase = _supabase
+      if (typeof window !== 'undefined') {
+        window.__txSupabase = _supabase
+        // Expose a resetter so AuthContext.logout() can null out the
+        // module-scope cache. Without this, if window.location.replace('/')
+        // is intercepted/blocked the SPA reuses the torn-down client and the
+        // next signInWithPassword fails with "Failed to fetch" because GoTrue
+        // already revoked its internal fetch wrapper.
+        window.__txResetSupabase = () => { _supabase = null }
+      }
       return _supabase
     })
   : Promise.resolve(null)

@@ -236,9 +236,28 @@ export async function syncPendingECFs(supabase, businessId) {
 // ---------------------------------------------------------------------------
 
 let syncInterval = null
+let _onOnlineHandler = null
+
+/**
+ * Globally cancel any in-flight offline-sync interval + online listener.
+ * Called by AuthContext.logout() to guarantee no closure keeps a reference
+ * to the (about-to-be-torn-down) Supabase client. Safe to call multiple
+ * times / before startOfflineSync was ever invoked.
+ */
+export function stopOfflineSync() {
+  try {
+    if (_onOnlineHandler) window.removeEventListener('online', _onOnlineHandler)
+  } catch {}
+  _onOnlineHandler = null
+  if (syncInterval) { clearInterval(syncInterval); syncInterval = null }
+}
 
 export function startOfflineSync(supabase, businessId) {
   if (!supabase || !businessId) return
+
+  // Defensive: wipe any prior interval/listener from a previous session so a
+  // logout→re-login cycle never ends up with two closures (old client + new).
+  stopOfflineSync()
 
   // Run once immediately if online
   if (navigator.onLine) {
@@ -251,10 +270,10 @@ export function startOfflineSync(supabase, businessId) {
     syncPendingTickets(supabase, businessId)
     syncPendingECFs(supabase, businessId)
   }
+  _onOnlineHandler = onOnline
   window.addEventListener('online', onOnline)
 
   // Poll every 60s when online
-  if (syncInterval) clearInterval(syncInterval)
   syncInterval = setInterval(() => {
     if (navigator.onLine) {
       syncPendingTickets(supabase, businessId)
@@ -262,9 +281,6 @@ export function startOfflineSync(supabase, businessId) {
     }
   }, 60_000)
 
-  // Return cleanup function
-  return () => {
-    window.removeEventListener('online', onOnline)
-    if (syncInterval) { clearInterval(syncInterval); syncInterval = null }
-  }
+  // Return cleanup function (used by React useEffect cleanup too)
+  return stopOfflineSync
 }

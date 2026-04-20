@@ -2473,6 +2473,47 @@ export function createWebAPI(supabase, businessId) {
             amount: priorRow.total, reason: reason || null,
             metadata: { payment_method: priorRow.payment_method, tipo_venta: priorRow.tipo_venta, ncf: priorRow.ncf } })
 
+          // v2.13.0 — NCF counter reclaim + ANECF auto-enqueue (E-C6).
+          // Legacy (B01/B02) only: decrement if last-issued so next ticket reuses.
+          // e-CF (E3x): enqueue ANECF so DGII is notified. Both paths best-effort;
+          // void has already succeeded above.
+          if (priorRow.ncf) {
+            try {
+              const m = String(priorRow.ncf).trim().match(/^([A-Z]\d{2})(\d+)$/)
+              if (m) {
+                const prefix = m[1]
+                const num = parseInt(m[2], 10)
+                const isEcf = prefix.startsWith('E')
+                if (!isEcf && Number.isFinite(num) && num > 0) {
+                  // Legacy: decrement if it matches current_number for this prefix.
+                  const { data: seq } = await supabase.from('ncf_sequences')
+                    .select('type, current_number').eq('business_id', bid).eq('prefix', prefix).eq('active', 1).maybeSingle()
+                  if (seq && Number(seq.current_number) === num) {
+                    await supabase.from('ncf_sequences').update({ current_number: num - 1 })
+                      .eq('business_id', bid).eq('type', seq.type)
+                  }
+                } else if (isEcf) {
+                  // e-CF: insert (idempotent) into anecf_queue; UNIQUE(business_id,ncf).
+                  const tipoEcf = prefix.substring(1, 3)
+                  await supabase.from('anecf_queue').insert({
+                    business_id: bid,
+                    ticket_id: id,
+                    ticket_supabase_id: priorRow.supabase_id || null,
+                    ncf: priorRow.ncf,
+                    tipo_ecf: tipoEcf,
+                    rango_desde: priorRow.ncf,
+                    rango_hasta: priorRow.ncf,
+                    environment: 'certecf',
+                    supabase_id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : undefined,
+                  })
+                  await logActivity({ event_type: 'ncf_auto_anecf', severity: 'warn',
+                    target_type: 'ticket', target_id: id, target_name: priorRow.ncf,
+                    metadata: { ncf: priorRow.ncf, tipo_ecf: tipoEcf, ticket_supabase_id: priorRow.supabase_id || null } })
+                }
+              }
+            } catch (e) { try { console.warn('[web.js] ncf/anecf post-void skip:', e.message) } catch {} }
+          }
+
           // Reverse credit-ticket balance (net of descuento, clamped at 0)
           if (priorRow.tipo_venta === 'credito' && priorRow.client_supabase_id) {
             // ticket.total is already NET (POS sends net); do not subtract descuento again.

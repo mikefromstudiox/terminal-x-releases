@@ -1,17 +1,36 @@
 /**
  * POST /fe/autenticacion/api/validacioncertificado
- * Receives DGII's signed seed (multipart), verifies it, returns a JWT token.
+ * Receives the emisor's signed seed (multipart or raw XML), verifies it,
+ * returns a JWT.
  *
- * v2.8.1 — adds replay protection: seeds with the same `valor` within a 5-min
- * window return a fresh token for the same nonce (idempotent) but can't mint
- * arbitrary new JWTs from one captured seed.
+ * v2.13.0 (architectural correction, 2026-04-20):
+ * -------------------------------------------------
+ * Prior revision pinned a `DGII_PUBLIC_CERT_PEM` env. That was wrong —
+ * DGII does not sign seeds. The correct model:
+ *   1. /semilla issues an UNSIGNED seed and persists <valor> as OUTSTANDING.
+ *   2. Emisor signs with their .p12 and posts back here.
+ *   3. verifySeed()   — XMLDSIG crypto + emisor cert window + clock skew.
+ *   4. requireIssuedNonce(valor) — we-issued-this check.
+ *   5. consumeNonce(valor)       — atomic single-use transition.
+ *   6. Mint JWT carrying the emisor's RNC (extracted from cert Subject).
+ *
+ * Known gap (TODO v2.14): cert-chain validation to trusted Dominican CA
+ * (Camara de Comercio SD / Viafirma / Avansi). Requires pinning the CA
+ * root certs as env (DOMINICAN_FE_CA_ROOTS) + chain validation via
+ * node-forge or a dedicated PKIX lib. Current impl validates crypto
+ * integrity + our-nonce-only, which is a meaningful uplift from the
+ * pre-v2.13 "accept any XML" but still trusts emisor self-identification.
+ *
+ * Opaque failure codes keep probing adversaries blind. DGII_VERIFY_OPEN=1
+ * disables gates entirely (emergency bypass).
  */
 import jwt from 'jsonwebtoken'
+import {
+  verifySeed,
+  requireIssuedNonce,
+  consumeNonce,
+} from '../../lib/dgii-seed-verify.js'
 
-// In-memory nonce store — not durable across serverless cold starts, but
-// raises the cost of replay within a single instance lifetime. A true
-// durable store (Supabase KV or Redis) would be the follow-up; for now this
-// catches naive replay at the same Vercel instance.
 const _seedNonceTtl = 5 * 60 * 1000
 const _seedSeen = new Map()   // valor -> { token, exp }
 function sweepNonces() {
@@ -64,52 +83,92 @@ export default async function handler(req, res) {
       return
     }
 
-    const valorMatch = signedXml.match(/<valor>([^<]+)<\/valor>/i)
-    const signatureMatch = signedXml.match(/<SignatureValue>([^<]+)<\/SignatureValue>/)
-
-    if (!valorMatch || !signatureMatch) {
-      res.status(400).json({ error: 'Invalid signed seed XML' })
-      return
-    }
-
     const keyPem = process.env.DGII_KEY_PEM
     if (!keyPem) {
       res.status(500).json({ error: 'Server certificate not configured' })
       return
     }
-
     const key = keyPem.replace(/\\n/g, '\n')
 
-    // Replay guard: idempotent for the same seed `valor` within the TTL window.
+    // 1) Crypto + cert-window + clock skew.
+    let valor, fecha, emisorCert
+    try {
+      const parsed = verifySeed(signedXml)
+      valor = parsed.valor
+      fecha = parsed.fecha
+      emisorCert = parsed.emisorCert || {}
+    } catch (e) {
+      const code = e?.message || 'SEED_INVALID'
+      res.status(401).json({ error: 'Invalid signed seed', code })
+      return
+    }
+
+    // 2) Same-process idempotency — lets DGII double-posts re-mint the
+    //    same JWT without a replay rejection from Supabase.
     sweepNonces()
-    const valor = valorMatch[1]
     const cached = _seedSeen.get(valor)
-    let token
     if (cached && cached.exp > Date.now()) {
-      token = cached.token
-    } else {
-      token = jwt.sign(
-        { valor, timestamp: new Date().toISOString() },
-        key,
-        { algorithm: 'RS256', expiresIn: '1h' }
-      )
-      _seedSeen.set(valor, { token, exp: Date.now() + _seedNonceTtl })
+      const nowIso = new Date().toISOString()
+      const expiraIso = new Date(Date.now() + 3600000).toISOString()
+      respondToken(req, res, cached.token, expiraIso, nowIso)
+      return
     }
 
-    const now = new Date()
-    const expira = new Date(now.getTime() + 3600000).toISOString()
-    const expedido = now.toISOString()
-
-    const accept = req.headers['accept'] || ''
-    if (accept.includes('application/json')) {
-      res.setHeader('Content-Type', 'application/json')
-      res.status(200).json({ token, expira, expedido })
-    } else {
-      const tokenXml = `<?xml version="1.0" encoding="utf-8"?>\n<AutenticacionResponse>\n  <token>${token}</token>\n  <expira>${expira}</expira>\n  <expedido>${expedido}</expedido>\n</AutenticacionResponse>`
-      res.setHeader('Content-Type', 'application/xml')
-      res.status(200).send(tokenXml)
+    // 3) We-issued-this gate.
+    try {
+      await requireIssuedNonce(valor)
+    } catch (e) {
+      const code = e?.message || 'SEED_NOT_ISSUED'
+      res.status(401).json({ error: 'Seed not recognized', code })
+      return
     }
+
+    // 4) Atomic single-use consume.
+    try {
+      await consumeNonce(valor)
+    } catch (e) {
+      if (e?.message === 'SEED_REPLAY_OR_UNKNOWN') {
+        res.status(401).json({ error: 'Seed already consumed', code: 'SEED_REPLAY_OR_UNKNOWN' })
+        return
+      }
+      // any other error = fail-open inside consumeNonce (logged there)
+    }
+
+    const rnc = emisorCert?.rnc || null
+    const token = jwt.sign(
+      {
+        valor,
+        timestamp: new Date().toISOString(),
+        fecha,
+        rnc,
+        emisor: {
+          rnc,
+          subject: emisorCert?.subject || null,
+          fingerprint: emisorCert?.fingerprint || null,
+          notAfter: emisorCert?.notAfter || null,
+        },
+      },
+      key,
+      { algorithm: 'RS256', expiresIn: '1h' }
+    )
+    _seedSeen.set(valor, { token, exp: Date.now() + _seedNonceTtl })
+
+    const nowIso = new Date().toISOString()
+    const expiraIso = new Date(Date.now() + 3600000).toISOString()
+    respondToken(req, res, token, expiraIso, nowIso)
   } catch (err) {
-    res.status(500).json({ error: 'Verification failed: ' + err.message })
+    res.status(500).json({ error: 'Verification failed' })
+  }
+}
+
+function respondToken(req, res, token, expira, expedido) {
+  const accept = req.headers['accept'] || ''
+  if (accept.includes('application/json')) {
+    res.setHeader('Content-Type', 'application/json')
+    res.status(200).json({ token, expira, expedido })
+  } else {
+    const tokenXml = `<?xml version="1.0" encoding="utf-8"?>\n<AutenticacionResponse>\n  <token>${token}</token>\n  <expira>${expira}</expira>\n  <expedido>${expedido}</expedido>\n</AutenticacionResponse>`
+    res.setHeader('Content-Type', 'application/xml')
+    res.status(200).send(tokenXml)
   }
 }

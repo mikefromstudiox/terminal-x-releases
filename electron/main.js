@@ -554,21 +554,68 @@ ipcMain.handle('cert:expiry-check', async () => {
 
 // dgii:cert-pem — returns PEM-encoded private key + certificate for web signing
 // proxy sync. ONLY the owner can call this — any other role would be able to
-// exfiltrate the DGII signing key, which is catastrophic. No MAC even for
-// owner: this IPC is invoked automatically by bizSync during license
-// validation, not by user interaction.
+// exfiltrate the DGII signing key, which is catastrophic.
+//
+// v2.13.0 hardening (audit 2026-04-19):
+//   1. Owner re-verified from DB (not from in-memory actor) to defeat
+//      activity:set-actor spoofing — same pattern guardMac uses.
+//   2. Every successful read writes a CRITICAL activity_log row
+//      (`cert_pem_export`) so any unauthorized exfiltration is visible
+//      in the Actividad feed within seconds, with full actor context
+//      and cert subject as metadata. Failed reads also log (warn).
+//   3. We deliberately do NOT require MAC here — bizSync invokes this
+//      automatically every license validation cycle and there is no UI
+//      surface to scan a card from. The audit trail is the compensating
+//      control.
 ipcMain.handle('dgii:cert-pem', () => {
+  const actor = db.getActiveUser?.() || null
+  // Re-verify role from DB (actor object may be spoofed via activity:set-actor).
+  let realRole = null
+  try { realRole = db.rawPrepare?.('SELECT role FROM users WHERE id=? AND active=1').get?.(actor?.id)?.role || null } catch {}
+  const isOwner = actor?.role === 'owner' && realRole === 'owner'
+  if (!isOwner) {
+    try {
+      db.activityLogRecord?.({
+        event_type: 'cert_pem_export',
+        severity: 'critical',
+        actor_user_id: actor?.id || null,
+        actor_name:    actor?.name || null,
+        actor_role:    actor?.role || realRole || null,
+        target_type:   'dgii_cert',
+        reason:        'denied: non-owner attempted to read DGII private key',
+        metadata:      { claimed_role: actor?.role || null, db_role: realRole },
+      })
+    } catch {}
+    return { ok: false, error: 'Solo el propietario puede leer el certificado' }
+  }
   try {
-    const actor = db.getActiveUser?.() || null
-    if (actor?.role !== 'owner') {
-      // Verify role from DB in case actor object was spoofed (same pattern as guardMac).
-      let real = null
-      try { real = db.rawPrepare?.('SELECT role FROM users WHERE id=? AND active=1').get?.(actor?.id) } catch {}
-      if (real?.role !== 'owner') return { ok: false, error: 'Solo el propietario puede leer el certificado' }
-    }
     const { privateKeyPem, certificatePem, subject, expiry } = certManager.loadCert()
+    try {
+      db.activityLogRecord?.({
+        event_type: 'cert_pem_export',
+        severity: 'critical',
+        actor_user_id: actor?.id || null,
+        actor_name:    actor?.name || null,
+        actor_role:    'owner',
+        target_type:   'dgii_cert',
+        target_name:   subject || null,
+        reason:        'DGII private key + cert PEM exported to renderer (web sync)',
+        metadata:      { subject, expiry },
+      })
+    } catch {}
     return { ok: true, data: { privateKeyPem, certificatePem, subject, expiry } }
-  } catch {
+  } catch (e) {
+    try {
+      db.activityLogRecord?.({
+        event_type: 'cert_pem_export',
+        severity: 'warn',
+        actor_user_id: actor?.id || null,
+        actor_name:    actor?.name || null,
+        actor_role:    'owner',
+        target_type:   'dgii_cert',
+        reason:        'cert load failed: ' + (e?.message || 'unknown'),
+      })
+    } catch {}
     return { ok: false }
   }
 })

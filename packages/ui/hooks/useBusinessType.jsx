@@ -138,6 +138,23 @@ export function BusinessTypeProvider({ children }) {
   // Subtype config — only meaningful when the base type is a tienda-like vertical.
   const subtypeConfig = flags.isTienda && tiendaSubtype ? getTiendaSubtype(tiendaSubtype) : null
 
+  // Unified licorería config selector.
+  // Precedence (v2.13):
+  //   1. Active tienda_subtype's `.config` block (canonical)
+  //   2. Implicit licoreria subtype for business_type='licoreria' without a
+  //      tienda_subtype set yet (forward-compat with legacy installs)
+  //   3. Legacy `BUSINESS_TYPES.licoreria.licoreria` block (DEPRECATED v2.13,
+  //      removal v2.14)
+  //   4. null
+  // Shape is guaranteed identical to the legacy block: { ageVerification,
+  // bottleDeposit, quickSell, brandSuggestions }.
+  let licoreriaConfig = null
+  if (subtypeConfig?.config) {
+    licoreriaConfig = subtypeConfig.config
+  } else if (flags.isLicoreria) {
+    licoreriaConfig = TIENDA_SUBTYPES.licoreria?.config || config.licoreria || null
+  }
+
   // Effective feature state: owner override wins → else subtype preset → else
   // hardwired legacy behavior for licoreria (backward-compat: isLicoreria
   // already implied age_verification + pedidos_ya + bottle_deposit) → else false.
@@ -169,7 +186,7 @@ export function BusinessTypeProvider({ children }) {
       modules: config.modules,
       ui: config.ui,
       config,
-      licoreriaConfig: config.licoreria || null,
+      licoreriaConfig,
       hasModule,
       // ── Tienda subtype template API ────────────────────────────────────
       tiendaSubtype,

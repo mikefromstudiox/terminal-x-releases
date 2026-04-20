@@ -167,6 +167,16 @@ export function AuthProvider({ children }) {
     }
     if (!isWeb) { setUser(null); return }
 
+    // Cancel any offline-sync interval BEFORE signOut. The interval's closure
+    // holds a reference to the Supabase client; if it fires mid-signOut it can
+    // issue fetches against a half-revoked GoTrue subsystem and poison the
+    // client's fetch wrapper — the trigger for "Failed to fetch" on the next
+    // signInWithPassword when location.replace('/') gets blocked/delayed.
+    try {
+      const { stopOfflineSync } = await import('@terminal-x/services/offline-queue.js')
+      stopOfflineSync?.()
+    } catch {}
+
     // CRITICAL ORDERING (web): do signOut + storage wipe BEFORE any React state
     // mutation that could unmount this component and cancel the in-flight work.
     // Previously we called setUser(null) first — that re-rendered ancestors,
@@ -235,7 +245,16 @@ export function AuthProvider({ children }) {
     // reuses the module cache (e.g. redirect blocked by a beforeunload), the
     // next auth call forces a fresh createClient instead of reusing a client
     // whose GoTrue subsystem is now torn down.
-    try { if (typeof window !== 'undefined') window.__txSupabase = null } catch {}
+    try {
+      if (typeof window !== 'undefined') {
+        window.__txSupabase = null
+        // Also reset the module-scope cache in web/main.jsx so a subsequent
+        // signInWithPassword (in the same SPA instance, e.g. if the hard
+        // reload is suppressed) recreates a fresh createClient() instead of
+        // reusing the torn-down one.
+        try { window.__txResetSupabase?.() } catch {}
+      }
+    } catch {}
 
     // Hard reload to the public landing so EVERY in-memory React state
     // (LicenseContext, DataContext, BusinessTypeContext, cached api ref,

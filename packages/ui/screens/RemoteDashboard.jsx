@@ -552,6 +552,7 @@ const EVENT_META = {
   db_backup:             { Icon: HardDrive,color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',          es: 'Respaldo nocturno',         en: 'Nightly backup' },
   cert_expiry_alert:     { Icon: ShieldAlert, color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Certificado por vencer', en: 'Certificate expiring' },
   dgii_reconcile:        { Icon: RefreshCw,color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',          es: 'Reconciliacion DGII',       en: 'DGII reconcile' },
+  ncf_auto_anecf:        { Icon: ReceiptText, color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'ANECF automático',          en: 'Auto-ANECF' },
   rebind_rejected:       { Icon: ShieldX,  color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Re-vinculo rechazado',      en: 'Rebind rejected' },
   // v2.6 — Manager Authorization Card audit events
   manager_override:      { Icon: Lock,     color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Autorización de gerente',   en: 'Manager override' },
@@ -574,6 +575,8 @@ const EVENT_META = {
   // v2.12.2 — verification pass backfill
   loyalty_redeem_failed: { Icon: ShieldAlert, color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',          es: 'Canje de puntos falló',     en: 'Loyalty redeem failed' },
   empleado_deactivated:  { Icon: UserX,       color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Empleado desactivado',      en: 'Employee deactivated' },
+  // v2.13.0 — DGII private key export (critical audit trail)
+  cert_pem_export:       { Icon: ShieldAlert, color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',          es: 'Exportación de certificado DGII', en: 'DGII cert exported' },
 }
 function eventLabel(evt, lang) {
   const m = EVENT_META[evt]
@@ -676,7 +679,7 @@ const FILTER_CHIPS = [
   { id: 'kiosko',   es: 'Kiosko',       en: 'Kiosk',        types: ['kiosk_locked','kiosk_unlocked'] },
   { id: 'backups',  es: 'Respaldos',    en: 'Backups',      types: ['db_backup'] },
   { id: 'cert',     es: 'Certificado',  en: 'Certificate',  types: ['cert_expiry_alert'] },
-  { id: 'dgii',     es: 'DGII',         en: 'DGII',         types: ['dgii_reconcile'] },
+  { id: 'dgii',     es: 'DGII',         en: 'DGII',         types: ['dgii_reconcile','ncf_auto_anecf'] },
   { id: 'rebind',   es: 'Re-vinculos',  en: 'Rebinds',      types: ['rebind_rejected'] },
   { id: 'mgr',      es: 'Gerente',      en: 'Manager',      types: ['manager_override','manager_card_rotated','manager_card_revoked'] },
 ]

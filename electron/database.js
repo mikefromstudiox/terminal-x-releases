@@ -4500,6 +4500,12 @@ function ticketVoid(id, reason, voidById) {
       target_type: 'ticket', target_id: id, target_name: voidedTicket.doc_number || `#${id}`,
       amount: voidedTicket.total, reason: reason || null,
       metadata: { payment_method: voidedTicket.payment_method, tipo_venta: voidedTicket.tipo_venta, ncf: voidedTicket.ncf } })
+    // v2.13.0 — legacy-only NCF counter reclaim (e-CFs guarded inside helper).
+    if (voidedTicket.ncf) {
+      try { ncfSequenceDecrementIfLast(voidedTicket.ncf) } catch (e) {
+        try { console.warn('[ticketVoid] ncf decrement skip:', e.message) } catch {}
+      }
+    }
     // v2.10.4 — auto-enqueue ANECF for voided e-CFs (audit E-C6).
     // Outside the transaction: never block the void on queue insertion.
     // Legacy B01/B02 NCFs are skipped inside anecfQueueEnqueue.
@@ -4689,6 +4695,10 @@ function queueDelete(id, deletedBy) {
   // Outside the transaction — non-blocking. Dedup vs ticketVoid path is
   // enforced by the UNIQUE(ncf) constraint on anecf_queue.
   if (row.t_ncf) {
+    // v2.13.0 — legacy-only NCF counter reclaim (guarded inside helper).
+    try { ncfSequenceDecrementIfLast(row.t_ncf) } catch (e) {
+      try { console.warn('[queueDelete] ncf decrement skip:', e.message) } catch {}
+    }
     anecfQueueEnqueue({ ncf: row.t_ncf, ticketId: row.ticket_id, ticketSupabaseId: row.t_supabase_id })
   }
   return { id, ticketId: row.ticket_id }
@@ -5590,6 +5600,10 @@ function isECF(ncf) {
  * Enqueue an ANECF for a voided e-CF. Fire-and-forget — never throws into
  * the caller's transaction. Silently no-ops for legacy NCFs and duplicates.
  * Returns the row id on insert, null on skip/error.
+ *
+ * v2.13.0 — also emits a classified `ncf_auto_anecf` activity_log event so
+ * the owner Actividad feed (DGII chip) shows every auto-anulación. Only on
+ * an actual insert (not on duplicate/skip) to avoid noise on double-voids.
  */
 function anecfQueueEnqueue({ ncf, ticketId, ticketSupabaseId, environment } = {}) {
   if (!db) return null
@@ -5604,12 +5618,57 @@ function anecfQueueEnqueue({ ncf, ticketId, ticketSupabaseId, environment } = {}
          (ticket_id, ticket_supabase_id, ncf, tipo_ecf, rango_desde, rango_hasta, environment, supabase_id)
        VALUES (?,?,?,?,?,?,?,?)`
     ).run(ticketId || null, ticketSupabaseId || null, ncf, tipoEcf, rango, rango, env, sid)
-    return info.changes > 0 ? info.lastInsertRowid : null
+    if (info.changes > 0) {
+      // Classified audit event — never block the void on log failure.
+      try {
+        activityLogRecord({
+          event_type: 'ncf_auto_anecf',
+          severity: 'warn',
+          target_type: 'ticket',
+          target_id: ticketId || null,
+          target_name: ncf,
+          metadata: { ncf, tipo_ecf: tipoEcf, environment: env, ticket_supabase_id: ticketSupabaseId || null }
+        })
+      } catch (e) { try { console.warn('[anecfQueueEnqueue] activity log skip:', e.message) } catch {} }
+      return info.lastInsertRowid
+    }
+    return null
   } catch (e) {
     // Never block a void on queue insert failure — log and move on.
     try { console.error('[anecfQueueEnqueue]', e.message, { ncf }) } catch {}
     return null
   }
+}
+
+// ── NCF sequence decrement on last-issued void (v2.13.0) ─────────────────────
+// LEGACY NCFs ONLY (B01/B02). When the voided ticket's NCF matches
+// `prefix + current_number`, decrement so the next issue reuses the slot.
+// e-CFs are NEVER decremented — once transmitted to DGII the number is
+// "published" and must stay consumed; the ANECF queue handles the
+// anulación. Non-last legacy voids create a gap that's harmless for paper
+// NCFs (the auditor just sees the range with a voided doc in it).
+//
+// Returns: { decremented: boolean, prefix, number, reason }
+function ncfSequenceDecrementIfLast(ncf) {
+  if (!db || !ncf || typeof ncf !== 'string') return { decremented: false, reason: 'invalid-ncf' }
+  // NCF format: prefix (B01/B02/E31/E32/...) + zero-padded sequence.
+  // Legacy B*: 3-char prefix + 8 or 11 digits. e-CF: E + 2 + 10 digits.
+  const m = ncf.trim().match(/^([A-Z]\d{2})(\d+)$/)
+  if (!m) return { decremented: false, reason: 'bad-format' }
+  const prefix = m[1]
+  const num = parseInt(m[2], 10)
+  if (!Number.isFinite(num) || num <= 0) return { decremented: false, reason: 'bad-number' }
+  // Guard: never decrement an e-CF (E3x) — ANECF handles these.
+  if (prefix.startsWith('E')) return { decremented: false, reason: 'ecf-no-decrement', prefix, number: num }
+  // Find active sequence whose prefix matches. Don't assume `type`: join on prefix.
+  const row = db.prepare('SELECT type, current_number FROM ncf_sequences WHERE prefix=? AND active=1').get(prefix)
+  if (!row) return { decremented: false, reason: 'no-sequence' }
+  if (Number(row.current_number) !== num) {
+    // Not the last issue — gap remains; ANECF handles.
+    return { decremented: false, reason: 'not-last', prefix, number: num, current: Number(row.current_number) }
+  }
+  db.prepare('UPDATE ncf_sequences SET current_number=? WHERE type=?').run(num - 1, row.type)
+  return { decremented: true, prefix, number: num }
 }
 
 function anecfQueueGetPending(limit = 10) {
@@ -7667,6 +7726,7 @@ module.exports = {
   ecfQueueGetStaleSubmitted, ecfQueueMarkDone, ecfClearDeferredForTicket,
   // ANECF auto-queue (v2.10.4 — audit E-C6)
   anecfQueueEnqueue, anecfQueueGetPending, anecfQueueMarkSubmitted, anecfQueueMarkFailed,
+  ncfSequenceDecrementIfLast,
   anecfQueueCount, anecfQueueList, isECF,
   // e-CF submissions log
   ecfSubmissionAdd, ecfSubmissionUpdate, ecfSubmissionGetByTrackId, ecfSubmissionGetByTicket,
