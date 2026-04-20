@@ -114,6 +114,12 @@
     <li><a href="#s25">Conteo Físico de Inventario (v2.5)</a></li>
     <li><a href="#s26">Tarjeta de Autorización de Gerente (v2.6)</a></li>
     <li><a href="#s27">Registro de Actividad — mejoras de lectura (v2.6.1)</a></li>
+    <li><a href="#s28">Tarjeta de Autorización del Gerente — flujo operativo (v2.12)</a></li>
+    <li><a href="#s29">Programa de Lealtad (v2.12)</a></li>
+    <li><a href="#s30">Alertas de Certificado Fiscal (v2.12)</a></li>
+    <li><a href="#s31">Reporte de Quiebres de Stock (v2.12)</a></li>
+    <li><a href="#s32">Subtipos de Tienda (v2.12)</a></li>
+    <li><a href="#s33">Pagos Mixtos — multi-método (v2.12)</a></li>
   </ol>
 </section>
 
@@ -1483,6 +1489,233 @@ Cualquier duda, estoy a un WhatsApp.</pre>
     <li>Si un cliente dice "no entiendo qué dice este evento" — tome pantallazo y repórtelo a ingeniería. Probablemente falta una traducción de metadata.</li>
     <li>Los eventos nuevos (como <code>inventory_count_completed</code> y <code>manager_override</code>) ya vienen con sus traducciones desde fábrica.</li>
   </ul>
+</section>
+
+<!-- 28 -->
+<section class="page pagebreak" id="s28">
+  <h2>28. Tarjeta de Autorización del Gerente — flujo operativo</h2>
+  <span class="pill">v2.12</span>
+  <p>Consolidación del flujo de la <strong>Tarjeta de Gerente</strong> (introducida en v2.6) dentro del Manual de Operación del día a día. Esta sección explica <em>cómo</em> se imprime, se usa en caja y qué queda auditado — sin mezclarla con teoría del sistema.</p>
+
+  <h3>Cómo imprimir la tarjeta</h3>
+  <ol>
+    <li>Ingrese a <strong>Admin → Empleados</strong>.</li>
+    <li>Ubique al empleado con rol <strong>owner</strong>, <strong>manager</strong>, <strong>cfo</strong> o <strong>accountant</strong>.</li>
+    <li>Toque <strong>Imprimir Tarjeta</strong> (ícono de tarjeta rojo en la fila del empleado).</li>
+    <li>El sistema genera un <strong>token único de 20 caracteres</strong> + <strong>PIN numérico de respaldo</strong>. Se muestran <strong>UNA sola vez</strong>.</li>
+    <li>Descargue el <strong>PDF en formato CR80</strong> (tamaño tarjeta de crédito, 2 por hoja carta) e imprima en cartulina o papel opaco.</li>
+    <li>Corte por las guías y <strong>lamine</strong>. Entregue la tarjeta principal al gerente; guarde la de respaldo en la caja fuerte.</li>
+  </ol>
+
+  <div class="note"><strong>Regla de oro:</strong> imprima y lamine todas las tarjetas de gerentes <em>antes</em> del go-live. Si el día que abre el negocio aparece un descuento grande y el owner no tiene tarjeta, la caja se traba.</div>
+
+  <h3>Cómo se usa en caja</h3>
+  <ol>
+    <li>El cajero intenta una acción protegida (descuento grande, anulación de ticket, nota de crédito, ajuste negativo de inventario).</li>
+    <li>Aparece un <strong>modal con borde rojo</strong>: <em>"Autorización de gerente requerida"</em>.</li>
+    <li>El gerente <strong>escanea su tarjeta</strong> con el lector USB estándar (mismo lector de productos) — Enter automático.</li>
+    <li>Si la tarjeta no está a mano, toque <strong>"Usar PIN de gerente"</strong> y digite el PIN numérico impreso en la tarjeta de respaldo.</li>
+    <li>Validación OK → la acción se ejecuta y queda <strong>sellada con el nombre del gerente</strong> que autorizó.</li>
+  </ol>
+
+  <h3>Qué queda en Actividad</h3>
+  <table>
+    <tr><th>Campo</th><th>Valor registrado</th></tr>
+    <tr><td>Evento</td><td><code>manager_override</code></td></tr>
+    <tr><td>Gerente</td><td>Nombre completo del autorizador</td></tr>
+    <tr><td>Cajero</td><td>Quién pidió la autorización</td></tr>
+    <tr><td>Acción</td><td>Descuento / Anulación / Nota de Crédito / Ajuste</td></tr>
+    <tr><td>Monto o ticket</td><td>RD$ afectado o número de ticket</td></tr>
+    <tr><td>Método</td><td>Tarjeta escaneada / PIN de emergencia</td></tr>
+    <tr><td>Severidad</td><td><strong>info</strong> si fue tarjeta · <strong>warn</strong> si fue PIN · <strong>critical</strong> si 5+ intentos fallidos en 5 min</td></tr>
+  </table>
+
+  <p>El owner revisa todos estos eventos en <strong>Dashboard Remoto → pestaña Actividad</strong>.</p>
+</section>
+
+<!-- 29 -->
+<section class="page pagebreak" id="s29">
+  <h2>29. Programa de Lealtad</h2>
+  <span class="pill">Nuevo en v2.12</span>
+  <p>Cada cliente enrolado <strong>acumula puntos</strong> automáticamente en cada cobro y los puede <strong>canjear como descuento</strong> en tickets futuros. Sin tarjetas físicas: todo va asociado al cliente registrado en el POS.</p>
+
+  <h3>Cómo funciona</h3>
+  <ul>
+    <li><strong>1 punto por cada RD$100</strong> cobrado (configurable en Settings → Lealtad).</li>
+    <li><strong>100 puntos = RD$100</strong> de descuento canjeable (configurable).</li>
+    <li>Los puntos se guardan por cliente y se sincronizan a la nube — se ven desde cualquier caja del negocio.</li>
+  </ul>
+
+  <h3>Enrolar un cliente</h3>
+  <ol>
+    <li>En el POS, toque el botón <strong>Cliente</strong> arriba a la derecha.</li>
+    <li>Busque al cliente por nombre, cédula o RNC — si no existe, toque <strong>Nuevo</strong>.</li>
+    <li>Dentro de la ficha del cliente, toque <strong>Activar Lealtad</strong> (switch verde).</li>
+    <li>Listo. Desde ese ticket en adelante, cada cobro suma puntos automático.</li>
+  </ol>
+
+  <h3>Canjear puntos</h3>
+  <ol>
+    <li>El cliente llega con puntos acumulados (se muestran en su ficha: <em>"Puntos disponibles: 340"</em>).</li>
+    <li>Arme el ticket normalmente.</li>
+    <li>Asigne el cliente al ticket (botón <strong>Cliente</strong>).</li>
+    <li>Si tiene puntos canjeables, aparece el botón <strong>Canjear puntos</strong> en el carrito.</li>
+    <li>Digite cuántos puntos aplicar (ej: 300 pts = RD$300 de descuento). Se resta del total.</li>
+    <li>Cobre. El sistema descuenta los puntos gastados y <em>suma puntos nuevos</em> sobre el monto cobrado restante.</li>
+  </ol>
+
+  <h3>Reporte</h3>
+  <p>En <strong>Admin → Lealtad</strong> (solo owner / cfo) se ve la lista de clientes enrolados, saldo de puntos, última acumulación y últimos canjes. Útil para campañas de <em>"te quedan 500 pts"</em> por WhatsApp.</p>
+
+  <div class="ok"><strong>Tip de venta:</strong> la lealtad sube el ticket promedio — el cliente vuelve buscando canjear. Combínelo con precios por cliente (sección 24) para clientes frecuentes/mayoristas.</div>
+</section>
+
+<!-- 30 -->
+<section class="page pagebreak" id="s30">
+  <h2>30. Alertas de Certificado Fiscal</h2>
+  <span class="pill">Nuevo en v2.12</span>
+  <p>El certificado digital Viafirma (.p12) que firma los e-CF <strong>vence cada año</strong>. Si vence, el negocio <em>no puede facturar</em>. Terminal X ahora avisa con anticipación por tres niveles de urgencia.</p>
+
+  <h3>Los tres estados</h3>
+  <table>
+    <tr><th>Estado</th><th>Cuándo aparece</th><th>Qué se ve</th></tr>
+    <tr><td><strong>Amarillo</strong></td><td>Faltan <strong>60 días</strong> o menos</td><td>Banner amarillo suave arriba del POS: <em>"Su certificado fiscal vence en 58 días. Renueve pronto."</em></td></tr>
+    <tr><td><strong>Naranja</strong></td><td>Faltan <strong>30 días</strong> o menos</td><td>Banner naranja + <strong>modal de bienvenida</strong> al abrir la app una vez al día.</td></tr>
+    <tr><td><strong>Rojo</strong></td><td>Certificado <strong>expirado</strong></td><td>Banner rojo persistente + bloqueo de nuevas e-CF (los e-CF no se firman). El POS sigue cobrando, pero las facturas quedan pendientes hasta renovar.</td></tr>
+  </table>
+
+  <h3>Cómo renovar el .p12</h3>
+  <ol>
+    <li>Entre a <strong>studioxrdtech.com/ecf-certification</strong> (servicio de renovación de Studio X Tech X).</li>
+    <li>Complete el formulario de renovación — el equipo tramita con Viafirma y le envía el <code>.p12</code> nuevo + la clave por WhatsApp/correo.</li>
+    <li>En Terminal X: <strong>Settings → e-CF → Certificado Digital</strong>.</li>
+    <li>Toque <strong>Cambiar certificado</strong>, seleccione el archivo <code>.p12</code> nuevo, digite la clave.</li>
+    <li>El banner desaparece. Emita un e-CF de prueba para confirmar.</li>
+  </ol>
+
+  <h3>Modal de bienvenida</h3>
+  <p>Cuando quedan <strong>menos de 30 días</strong>, al abrir Terminal X cada día aparece un modal que <strong>no se descarta sin leer</strong>. Incluye:</p>
+  <ul>
+    <li>Días exactos que faltan.</li>
+    <li>Botón directo <strong>Renovar ahora</strong> (abre studioxrdtech.com/ecf-certification).</li>
+    <li>Botón <strong>Recordar mañana</strong> (no más snooze — vuelve a aparecer en 24h).</li>
+  </ul>
+
+  <div class="warn"><strong>Importante:</strong> no ignore el banner rojo. Un certificado expirado bloquea e-CF y el negocio queda fuera de cumplimiento DGII. La renovación típica toma 1-2 días hábiles — <em>empiece en amarillo</em>.</div>
+</section>
+
+<!-- 31 -->
+<section class="page pagebreak" id="s31">
+  <h2>31. Reporte de Quiebres de Stock</h2>
+  <span class="pill">Nuevo en v2.12</span>
+  <p>Un <strong>quiebre</strong> es cuando un cliente pide un producto y no hay existencia. Antes se perdía la venta sin registro. Ahora Terminal X lo <strong>marca</strong> y lo reporta para que el dueño sepa <em>qué pedir</em>.</p>
+
+  <h3>Dónde verlo</h3>
+  <ol>
+    <li>Entre a <strong>Inventario</strong>.</li>
+    <li>Pestaña <strong>Quiebres</strong> (al lado de Productos / Importar / Conteo Físico).</li>
+    <li>Aplique filtros: <strong>rango de fecha</strong> (hoy / semana / mes / personalizado) y <strong>producto</strong> (autocomplete).</li>
+  </ol>
+
+  <h3>Qué muestra</h3>
+  <ul>
+    <li><strong>Top 5 productos con más faltantes</strong> — gráfico de barras con cantidad de veces que se pidieron sin stock.</li>
+    <li>Listado completo: fecha, producto, cantidad solicitada, cajero que atendió, cliente (si estaba asignado al ticket).</li>
+    <li>Botón <strong>Exportar CSV</strong> para compartir con el proveedor.</li>
+  </ul>
+
+  <h3>Cómo se registra un quiebre</h3>
+  <p>Cuando el cajero escanea o busca un producto y el stock está en <strong>0</strong>, el POS muestra: <em>"Sin existencia. ¿Marcar quiebre?"</em>. Toque <strong>Sí</strong> → se registra con cantidad y hora. El cliente se pierde (o compra otra cosa), pero el dato queda.</p>
+
+  <h3>Acción correctiva</h3>
+  <table>
+    <tr><th>Patrón</th><th>Qué hacer</th></tr>
+    <tr><td>Producto aparece 10+ veces en un mes</td><td>Subir <strong>min_stock</strong> en la ficha del producto para que la alerta salte antes.</td></tr>
+    <tr><td>Producto aparece esporádicamente</td><td>Reordenar con el proveedor en el próximo ciclo.</td></tr>
+    <tr><td>Producto nunca había faltado — ahora sí</td><td>Revisar si hubo <strong>robo</strong> (cruce con Conteo Físico) o un pico estacional.</td></tr>
+  </table>
+
+  <div class="ok"><strong>Tip:</strong> imprima el Top 5 el lunes de cada semana y déselo al encargado de compras. Son las ventas que están dejando de entrar.</div>
+</section>
+
+<!-- 32 -->
+<section class="page pagebreak" id="s32">
+  <h2>32. Subtipos de Tienda</h2>
+  <span class="pill">Nuevo en v2.12</span>
+  <p>El modo <strong>tienda</strong> ahora tiene <strong>8 subtipos</strong> que ajustan el layout del POS y pre-cargan las categorías típicas del rubro. Una licorería no vende igual que una ferretería — el POS ya viene configurado.</p>
+
+  <h3>Dónde se elige</h3>
+  <ol>
+    <li><strong>Settings → Tipo de Negocio</strong>.</li>
+    <li>Elija <strong>Tienda</strong>.</li>
+    <li>Aparece el selector de <strong>Subtipo</strong> con las 8 opciones.</li>
+    <li>Toque <strong>Guardar</strong> — el POS se reconfigura inmediatamente.</li>
+  </ol>
+
+  <h3>Los 8 subtipos</h3>
+  <table>
+    <tr><th>Subtipo</th><th>Categorías pre-cargadas (muestra)</th><th>Layout POS</th></tr>
+    <tr><td><strong>Licorería</strong></td><td>Ron, Whisky, Cerveza, Vino, Energéticas, Cigarros, Hielo</td><td>Grid grande con fotos — botellas se reconocen visual</td></tr>
+    <tr><td><strong>Farmacia</strong></td><td>OTC, Rx, Higiene, Bebé, Vitaminas, Primeros Auxilios</td><td>Búsqueda por nombre dominante — productos con SKU largo</td></tr>
+    <tr><td><strong>Ferretería</strong></td><td>Herramientas, Tornillería, Electricidad, Plomería, Pintura</td><td>Búsqueda + escaneo — catálogo muy ancho</td></tr>
+    <tr><td><strong>Supermercado</strong></td><td>Abarrotes, Lácteos, Carnes, Frutas, Limpieza, Bebidas</td><td>Escaneo rápido — mínimo toque en pantalla</td></tr>
+    <tr><td><strong>Ropa</strong></td><td>Damas, Caballeros, Niños, Calzado, Accesorios</td><td>Grid con variantes talla/color</td></tr>
+    <tr><td><strong>Electrónica</strong></td><td>Celulares, Accesorios, Audio, Computadoras, Cables</td><td>Búsqueda + IMEI/serial al vender</td></tr>
+    <tr><td><strong>Juguetería</strong></td><td>Bebés, Educativos, Muñecas, Vehículos, Exterior</td><td>Grid con fotos grandes</td></tr>
+    <tr><td><strong>Genérico</strong></td><td>Sin pre-carga — el cliente crea sus categorías</td><td>Layout estándar de tienda</td></tr>
+  </table>
+
+  <h3>Diferencias clave de layout</h3>
+  <ul>
+    <li><strong>Con grid (licorería, ropa, juguetería):</strong> productos visuales — fotos visibles en el POS.</li>
+    <li><strong>Con escaneo (supermercado, farmacia, ferretería, electrónica):</strong> prioridad al lector de código de barras, catálogo ancho.</li>
+    <li><strong>Genérico:</strong> negocio mixto o nuevo — el owner construye todo desde cero.</li>
+  </ul>
+
+  <div class="note"><strong>Cambiar de subtipo después:</strong> se puede, pero las categorías <em>ya creadas se conservan</em> — el subtipo nuevo <strong>añade</strong> las suyas sin borrar las anteriores. Si quiere limpiar, hágalo manual desde Inventario → Categorías.</div>
+</section>
+
+<!-- 33 -->
+<section class="page pagebreak" id="s33">
+  <h2>33. Pagos Mixtos — multi-método</h2>
+  <span class="pill">Nuevo en v2.12</span>
+  <p>Un ticket se puede <strong>cobrar con varios métodos al mismo tiempo</strong>: parte efectivo, parte tarjeta, parte transferencia. Útil cuando el cliente no trae el monto exacto en un solo método.</p>
+
+  <h3>Cómo cobrar mixto</h3>
+  <ol>
+    <li>Arme el ticket normalmente.</li>
+    <li>Toque <strong>Cobrar</strong>.</li>
+    <li>En el modal de cobro, toque <strong>+ Agregar método</strong>.</li>
+    <li>Seleccione el primer método (ej: <strong>Efectivo RD$500</strong>).</li>
+    <li>Toque <strong>+ Agregar método</strong> nuevamente → <strong>Tarjeta RD$1,200</strong>.</li>
+    <li>Agregue <strong>Transferencia RD$300</strong> si aplica.</li>
+    <li>El sistema valida que la suma cuadre con el total del ticket.</li>
+    <li>Cierre. El e-CF se emite con el total; los métodos quedan guardados por separado.</li>
+  </ol>
+
+  <h3>Cómo se ve en Reporte Diario</h3>
+  <ul>
+    <li>En <strong>Reportes → Diario</strong>, los tickets mixtos llevan un <strong>badge violeta</strong> que dice <em>"Mixto"</em>.</li>
+    <li>Al expandir el ticket, se listan las <strong>partes de pago</strong>: Efectivo RD$500 · Tarjeta RD$1,200 · Transferencia RD$300.</li>
+    <li>El totalizador del día suma cada método por separado — <em>no</em> se cuenta dos veces.</li>
+  </ul>
+
+  <h3>Cómo se ve en Cuadre</h3>
+  <ul>
+    <li>En <strong>Cuadre de Caja</strong>, cada parte aparece en su columna: la parte <strong>efectivo</strong> entra a la cuenta de efectivo contado; la parte <strong>tarjeta</strong> al totalizador de tarjeta; la parte <strong>transferencia</strong> al bloque de transferencias.</li>
+    <li>Las discrepancias se detectan por método — si falta RD$500 en efectivo pero la tarjeta cuadra, el sistema apunta al efectivo.</li>
+  </ul>
+
+  <h3>Reglas</h3>
+  <table>
+    <tr><th>Regla</th><th>Detalle</th></tr>
+    <tr><td>Mínimo de métodos</td><td>1 (ticket normal) · Máximo práctico: 4</td></tr>
+    <tr><td>Cambio (vuelto)</td><td>Solo sale de la parte <strong>efectivo</strong> — nunca de tarjeta</td></tr>
+    <tr><td>Anulación</td><td>Reversa cada parte al método original</td></tr>
+    <tr><td>Crédito + mixto</td><td>Sí se puede: parte efectivo + parte a crédito del cliente</td></tr>
+  </table>
+
+  <div class="ok"><strong>Caso típico:</strong> cliente quiere pagar RD$2,000 con tarjeta (tiene un límite) pero el total es RD$2,500. Agrega <em>Tarjeta RD$2,000</em> + <em>Efectivo RD$500</em>. Un solo ticket, un solo e-CF, dos partes de pago limpias.</div>
 </section>
 
 </body>
