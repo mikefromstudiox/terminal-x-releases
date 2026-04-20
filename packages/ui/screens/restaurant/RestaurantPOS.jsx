@@ -647,10 +647,67 @@ export default function RestaurantPOS() {
     }
   }
 
-  // Called when CobrarModal successfully records payment
-  const handleTicketPaid = async () => {
+  // Called when CobrarModal successfully records payment.
+  //
+  // E-C4 fix (Tier-1 audit): non-split flow previously freed the mesa without
+  // ever calling api.tickets.create(), so cuadre shorted and commissions had
+  // no ticket to attribute. We now persist the ticket FIRST, bail out on
+  // failure (mesa stays ocupada, error surfaced), and only then mark the
+  // mesa sucia. Matches handleSplitPay's contract.
+  const handleTicketPaid = async (payload = {}) => {
+    if (!activeTicket) { setCobrarModal(null); return }
     try {
-      // Persist modifier snapshots if needed (best-effort)
+      setBusy('Registrando ticket...')
+      const items = activeTicket.items.map(it => {
+        const modSum = (it.modifiers || []).reduce((x, m) => x + Number(m.price_delta || 0), 0)
+        return {
+          service_id: it.service_id,
+          service_supabase_id: it.service_supabase_id,
+          name: it.name,
+          price: Number(it.price) + modSum,
+          qty: it.qty,
+          modifiers: it.modifiers,
+          course: itemCourseTag(it, services),
+          guest_number: it.guest_number ?? null,
+        }
+      })
+      const tipAmount = Number(payload?.tip_amount ?? cobrarModal?.tipAmount ?? 0) || 0
+      const total = Number(payload?.total ?? (ticketSubtotal + tipAmount))
+      await api.tickets.create({
+        items,
+        mesa_id: activeTicket.mesa.id,
+        mesa_supabase_id: activeTicket.mesa.supabase_id,
+        waiter_empleado_id: activeTicket.waiterId || null,
+        guests: activeTicket.guests || null,
+        fulfillment_type: 'dine_in',
+        mode: 'mesa',
+        tip_amount: tipAmount,
+        total,
+        subtotal: Number(payload?.subtotal ?? ticketSubtotal),
+        itbis: Number(payload?.itbis ?? 0),
+        descuento: Number(payload?.descuento ?? 0),
+        descuento_reason: payload?.descuentoReason || null,
+        payment_method: payload?.formaPago || 'efectivo',
+        ncf_type: payload?.ncfType || null,
+        client_id: payload?.clientId || null,
+        rnc: payload?.rnc || null,
+        rnc_name: payload?.rncName || null,
+        comentario: payload?.comentario || null,
+        mac_jti: payload?.mac_jti || null,
+        ecf: payload?.ecf || null,
+        ticket_supabase_id: activeTicket.supabase_id || undefined,
+      })
+    } catch (e) {
+      // Ticket persist failed — LEAVE mesa occupied, keep ticket loaded, surface error.
+      console.error('[RestaurantPOS] ticket create failed — mesa left ocupada', e)
+      setError(e?.message || 'No se pudo registrar el ticket. La mesa permanece ocupada.')
+      setCobrarModal(null)
+      setBusy(null)
+      return
+    }
+
+    // Ticket persisted. Best-effort modifier snapshots + mesa free.
+    try {
       if (api.restaurant?.itemModificadores?.snapshot) {
         for (const it of activeTicket.items) {
           if (it.modifiers?.length) {
@@ -664,7 +721,6 @@ export default function RestaurantPOS() {
           }
         }
       }
-      // Free the mesa → sucia
       await api.mesas.setStatus(activeTicket.mesa.id, 'sucia', {
         guests: null,
         waiter_empleado_id: null,
@@ -675,6 +731,7 @@ export default function RestaurantPOS() {
     } finally {
       setCobrarModal(null)
       setActiveTicket(null)
+      setBusy(null)
       await reload()
     }
   }
