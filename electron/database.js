@@ -115,7 +115,7 @@ function init(userDataPath) {
     "ALTER TABLE ecf_queue ADD COLUMN track_id TEXT",
     "ALTER TABLE ecf_queue ADD COLUMN submitted_at TEXT",
     "ALTER TABLE ecf_queue ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))",
-    "ALTER TABLE ecf_queue ADD COLUMN error TEXT",
+    "ALTER TABLE ecf_queue ADD COLUMN last_error TEXT",
     "ALTER TABLE ecf_queue ADD COLUMN ticket_supabase_id TEXT",
     "CREATE INDEX IF NOT EXISTS idx_ecf_queue_status ON ecf_queue(status, created_at)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_ecf_queue_supabase_id ON ecf_queue(supabase_id) WHERE supabase_id IS NOT NULL",
@@ -1408,7 +1408,7 @@ function init(userDataPath) {
     track_id           TEXT,
     submitted_at       TEXT,
     updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
-    error              TEXT
+    last_error         TEXT
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS idx_ecf_queue_status ON ecf_queue(status, created_at)')
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uq_ecf_queue_supabase_id ON ecf_queue(supabase_id) WHERE supabase_id IS NOT NULL')
@@ -1451,7 +1451,7 @@ function init(userDataPath) {
     submitted_at       TEXT,
     track_id           TEXT,
     status             TEXT NOT NULL DEFAULT 'pending',
-    error              TEXT,
+    last_error         TEXT,
     attempts           INTEGER NOT NULL DEFAULT 0,
     last_tried         TEXT,
     environment        TEXT NOT NULL DEFAULT 'certecf',
@@ -5193,7 +5193,7 @@ function ecfQueueMarkSubmitted(id, trackId) {
                      track_id=COALESCE(?, track_id),
                      submitted_at=datetime('now'),
                      updated_at=datetime('now'),
-                     error=NULL
+                     last_error=NULL
                WHERE id=?`).run(trackId || null, id)
 }
 
@@ -5201,7 +5201,7 @@ function ecfQueueMarkFailed(id, errorMsg) {
   if (!db) return
   db.prepare(`UPDATE ecf_queue
                  SET status='failed',
-                     error=?,
+                     last_error=?,
                      updated_at=datetime('now')
                WHERE id=?`).run(String(errorMsg || '').slice(0, 500), id)
 }
@@ -5220,7 +5220,7 @@ function ecfQueueIncrAttempts(id, errorMsg) {
                  SET attempts=attempts+1,
                      last_tried=datetime('now'),
                      updated_at=datetime('now'),
-                     error=COALESCE(?, error)
+                     last_error=COALESCE(?, last_error)
                WHERE id=?`).run(errorMsg ? String(errorMsg).slice(0, 500) : null, id)
 }
 

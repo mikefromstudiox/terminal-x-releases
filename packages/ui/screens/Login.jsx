@@ -156,9 +156,19 @@ export default function Login() {
     if (pin.length < 4) return
     const delay = pin.length === 6 ? 100 : 600 // wait a bit longer at 4-5 so fast typists can extend
     const timer = setTimeout(async () => {
-      const ok = await login(pin)
+      const res = await login(pin)
+      // Back-compat: old return was a boolean; new return is { ok, lockedUntil }.
+      const ok = res === true || res?.ok === true
       if (!ok) {
-        setError(t('login_wrong_pin'))
+        // Sprint 10 — if any row is currently locked, surface it explicitly
+        // so the cashier knows to wait instead of pounding the pad.
+        const lockedUntil = res?.lockedUntil
+        if (lockedUntil) {
+          const mins = Math.max(1, Math.ceil((new Date(lockedUntil).getTime() - Date.now()) / 60000))
+          setError(`${L('Cuenta bloqueada. Espera', 'Account locked. Wait')} ${mins} min.`)
+        } else {
+          setError(t('login_wrong_pin'))
+        }
         if (pin.length >= 6) {
           setShake(true)
           setPin('')
@@ -192,8 +202,17 @@ export default function Login() {
 
   async function handlePasswordSubmit(e) {
     e.preventDefault()
-    const ok = await loginWithPassword(username, password)
-    if (!ok) setError(t('login_wrong_credentials'))
+    const res = await loginWithPassword(username, password)
+    const ok = res === true || res?.ok === true
+    if (!ok) {
+      const lockedUntil = res?.lockedUntil
+      if (lockedUntil) {
+        const mins = Math.max(1, Math.ceil((new Date(lockedUntil).getTime() - Date.now()) / 60000))
+        setError(`${L('Cuenta bloqueada. Espera', 'Account locked. Wait')} ${mins} min.`)
+      } else {
+        setError(t('login_wrong_credentials'))
+      }
+    }
   }
 
   function switchMode() {

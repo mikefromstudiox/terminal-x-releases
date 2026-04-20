@@ -97,26 +97,40 @@ export function AuthProvider({ children }) {
     return u
   }
 
+  // Sprint 10 (v2.10.5) — login returns a tri-state { ok, lockedUntil }.
+  // Callers that used the old boolean path (existing code) still work: truthy
+  // objects evaluate as truthy. The Login screen now checks the object shape
+  // to surface "Cuenta bloqueada" instead of a generic "PIN incorrecto" when
+  // the miss was accompanied by any row reaching the 5-attempt lockout.
   async function login(pin) {
     try {
       const u = await api?.auth?.byPin?.(pin)
-      if (u?.id) { setUser(await resolveRole(u)); return true }
-      return false
+      if (u?.id) { setUser(await resolveRole(u)); return { ok: true } }
+      let lockedUntil = null
+      try {
+        const s = await api?.auth?.lockoutStatus?.()
+        if (s?.locked) lockedUntil = s.until
+      } catch {}
+      return { ok: false, lockedUntil }
     } catch {
-      return false
+      return { ok: false, lockedUntil: null }
     }
   }
 
-  // For username+password mode, verify both username AND PIN match
   async function loginWithPassword(username, password) {
     try {
       const u = await api?.auth?.byPin?.(password)
       if (u?.id && u.username?.toLowerCase() === username.trim().toLowerCase()) {
-        setUser(await resolveRole(u)); return true
+        setUser(await resolveRole(u)); return { ok: true }
       }
-      return false
+      let lockedUntil = null
+      try {
+        const s = await api?.auth?.lockoutStatus?.()
+        if (s?.locked) lockedUntil = s.until
+      } catch {}
+      return { ok: false, lockedUntil }
     } catch {
-      return false
+      return { ok: false, lockedUntil: null }
     }
   }
 

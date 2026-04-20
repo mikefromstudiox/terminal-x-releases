@@ -301,10 +301,21 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
       c => err.message?.includes(c)
     )
     if (isNetwork && invoiceData.payload && invoiceData.eNCF) {
+      // v2.10.5 — stamp ticket_supabase_id so the cloud-mirrored queue row
+      // keeps a stable FK to the ticket (surviving local id re-sequencing).
+      let ticketSupabaseId = invoiceData.ticketSupabaseId || null
+      if (!ticketSupabaseId && invoiceData.ticketId) {
+        try {
+          const t = db.rawPrepare?.('SELECT supabase_id FROM tickets WHERE id = ?')?.get(invoiceData.ticketId)
+                 || db.prepare?.('SELECT supabase_id FROM tickets WHERE id = ?')?.get?.(invoiceData.ticketId)
+          ticketSupabaseId = t?.supabase_id || null
+        } catch {}
+      }
       db.ecfQueueAdd('dgii:submit', invoiceData, '', {
         encf: invoiceData.eNCF,
         tipoEcf: invoiceData.tipoECF,
         environment: getDgiiEnv(),
+        ticketSupabaseId,
       })
       return { ok: false, error: err.message, queued: true }
     }
@@ -537,6 +548,17 @@ async function processDgiiQueue() {
   const pending = db.ecfQueueGetPending(10)
   for (const item of pending) {
     try {
+      // v2.10.5 — peer-device race guard. Between the SELECT above and here a
+      // sync pull may have flipped this row to 'submitted' (another install of
+      // the same business already pushed the e-CF to DGII). Re-read live
+      // state; skip if no longer pending. DGII would reject a dupe submission
+      // (encf is globally unique), but this avoids the wasted auth round-trip
+      // and the scary-looking reject in error.log.
+      const live = db.ecfQueueGetById(item.id)
+      if (!live || live.status !== 'pending') {
+        console.info('[ecf-queue] Item', item.id, 'skipped — status=', live?.status || 'gone (peer handled it)')
+        continue
+      }
       if (item.body_json && item.encf) {
         // DGII direct path — rebuild XML with IndicadorEnvioDiferido=1, re-sign, submit
         const invoiceData = JSON.parse(item.body_json)
@@ -606,10 +628,13 @@ async function processDgiiQueue() {
           })
         }
 
+        // v2.10.5 — mark submitted instead of DELETE so the LWW status flip
+        // propagates to peer devices on the next sync push. DGII's trackId is
+        // the durable proof the e-CF reached the system.
         if (status.codigo === 1 || status.codigo === 4 || trackId) {
-          db.ecfQueueDelete(item.id)
+          db.ecfQueueMarkSubmitted(item.id, trackId)
         } else {
-          db.ecfQueueIncrAttempts(item.id)
+          db.ecfQueueIncrAttempts(item.id, status.mensajes?.join('; ') || status.estado)
         }
       } else if (item.xml_signed) {
         // Legacy pre-signed XML path (no deferred indicator rebuild possible)
@@ -622,12 +647,13 @@ async function processDgiiQueue() {
           if (status.codigo === 1 || status.codigo === 4) {
             db.ecfSubmissionUpdate(result.trackId, { dgiiStatus: status.codigo, dgiiMessage: status.estado })
           }
-          db.ecfQueueDelete(item.id)
+          db.ecfQueueMarkSubmitted(item.id, result.trackId)
         } else {
-          db.ecfQueueIncrAttempts(item.id)
+          db.ecfQueueIncrAttempts(item.id, 'no trackId from DGII')
         }
       } else {
-        // Legacy ef2.do path
+        // Legacy ef2.do path. Pre-supabase_id rows — keep DELETE for cleanup
+        // since they have no encf to survive on cloud anyway.
         const { status, json } = await ef2Fetch({
           method: 'POST', path: item.url_path,
           body: JSON.parse(item.body_json), token: item.token,
@@ -635,12 +661,12 @@ async function processDgiiQueue() {
         if (status >= 200 && status < 300 && json?.success) {
           db.ecfQueueDelete(item.id)
         } else {
-          db.ecfQueueIncrAttempts(item.id)
+          db.ecfQueueIncrAttempts(item.id, `ef2 ${status}`)
         }
       }
     } catch (e) {
       console.error('[ecf-queue] Item', item.id, 'failed:', e.message)
-      try { db.ecfQueueIncrAttempts(item.id) } catch {}
+      try { db.ecfQueueIncrAttempts(item.id, e.message) } catch {}
       // Alert on items approaching DGII 72h contingency limit (attempts > 100 ~ 50min at 30s interval)
       if ((item.attempts || 0) >= 100) {
         console.error('[ecf-queue] CRITICAL: Item', item.id, 'has', item.attempts, 'failed attempts — risk of exceeding DGII 72h contingency window')
@@ -1116,7 +1142,15 @@ handleMut('save-empresa',  (data) => { db.empresaSave(data); return true }, {
 
 // Usuarios
 handle('get-usuarios',    ()     => db.usersGetAll())
-handleMut('save-usuario',    (data) => data.id ? db.userUpdate(data.id, data) : db.userCreate(data), {
+handleMut('save-usuario',    (data) => {
+  // Inject actorId from server-side session so userUpdate can enforce the
+  // self-PIN old-PIN check (S-H6). Renderer cannot be trusted to send it.
+  if (data.id) {
+    const actor = db.getActiveUser?.() || null
+    return db.userUpdate(data.id, { ...data, actorId: actor?.id ?? null })
+  }
+  return db.userCreate(data)
+}, {
   requires: ({ actor, args }) => {
     const data = args[0] || {}
     return data.id
@@ -1212,12 +1246,17 @@ handleMut('oversells:resolve', async ({ id, supabase_id, resolution_type, notes,
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 handle('auth:pin',         (pin)  => db.authByPin(pin))
+handle('auth:lockout-status', ()  => db.authLockoutStatus?.() || { locked: false, until: null })
 handle('users:all',        ()     => db.usersGetAll())
 handleMut('users:create',     (data)          => db.userCreate(data), {
   requires: ({ actor, args }) => guard.guardUserCreate(db, actor, args[0] || {}),
   targetCtx: () => ({ target_type: 'user' }),
 })
-handleMut('users:update',     ({id, ...data}) => db.userUpdate(id, data), {
+handleMut('users:update',     ({id, ...data}) => {
+  // Inject trusted actorId for the S-H6 self-PIN guard.
+  const actor = db.getActiveUser?.() || null
+  return db.userUpdate(id, { ...data, actorId: actor?.id ?? null })
+}, {
   requires: ({ actor, args }) => guard.guardUserUpdate(db, actor, args[0] || {}),
   targetCtx: ({ args }) => guard.userTargetCtx(db, args[0]?.id),
 })

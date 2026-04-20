@@ -475,16 +475,23 @@ export function createWebAPI(supabase, businessId) {
       saveUsuario: (data) => tryOr(async () => {
         if (data.id) {
           const { pin, id, ...rest } = data
-          if (pin) rest.pin_hash = await hashPin(pin)
+          if (pin) {
+            const creds = await hashPin(pin)
+            Object.assign(rest, creds, { pin_failed_attempts: 0, pin_locked_until: null })
+          }
           if ('active' in rest) rest.active = !!rest.active
           throwSupaError(await supabase.from('staff').update(rest).eq('id', id).eq('business_id', bid))
           return { id }
         }
         if (!data.pin) throw new Error('PIN requerido')
-        const pin_hash = await hashPin(data.pin)
+        const creds = await hashPin(data.pin)
         const { pin: _p, ...rest } = data
         if ('active' in rest) rest.active = !!rest.active
-        const row = throwSupaError(await supabase.from('staff').insert({ id: crypto.randomUUID(), supabase_id: crypto.randomUUID(), ...rest, pin_hash, business_id: bid, active: rest.active !== false }).select('id').single())
+        const row = throwSupaError(await supabase.from('staff').insert({
+          id: crypto.randomUUID(), supabase_id: crypto.randomUUID(),
+          ...rest, ...creds,
+          business_id: bid, active: rest.active !== false,
+        }).select('id').single())
         return row
       }),
 
@@ -957,22 +964,102 @@ export function createWebAPI(supabase, businessId) {
     // ── Auth ─────────────────────────────────────────────────────────────────
 
     auth: {
-      // F10 — `.single()` throws on duplicate matches (a real state during the
-      // 2026-04-16 dedup window where 6+ active users shared PIN `1234`), so
-      // the web path was silently returning null and rejecting every legit
-      // cashier PIN. Use maybeSingle + order so duplicates don't brick auth.
-      // Deterministic order matches desktop's F9 tiebreaker.
+      // Sprint 10 — bcrypt + legacy SHA-256 fallback + per-row 5-attempt /
+      // 5-min lockout. Supabase-side enforcement mirrors desktop behaviour so
+      // web and desktop cashiers hit the exact same policy.
+      //
+      // Flow:
+      //   1. Pull every active, unlocked staff row for this business.
+      //   2. For each row: if pin_hash_algo='bcrypt', bcryptjs.compareSync;
+      //      else legacy SHA-256 eq. First hit wins (deterministic sort).
+      //   3. On hit: reset counters + opportunistic rehash to bcrypt.
+      //   4. On miss: increment pin_failed_attempts on every row we tried;
+      //      any row crossing PIN_MAX_FAILED_ATTEMPTS gets a 5-min lock.
+      //
+      // Rows with pin_locked_until > now() are excluded from the compare
+      // loop AND from the increment set — neither authorised nor penalised.
       byPin: (pin) => tryOr(async () => {
-        const hash = await hashPin(pin)
-        const { data } = await supabase.from('staff')
-          .select('id,name,username,role,discount_pct,employee_id,created_at')
-          .eq('business_id', bid).eq('pin_hash', hash).eq('active', true)
+        const nowIso = new Date().toISOString()
+        const { data: rows } = await supabase.from('staff')
+          .select('id,name,username,role,discount_pct,employee_id,supabase_id,created_at,pin_hash,pin_hash_algo,pin_salt,pin_failed_attempts,pin_locked_until')
+          .eq('business_id', bid).eq('active', true)
           .order('employee_id', { ascending: false, nullsFirst: false })
           .order('created_at', { ascending: true })
+
+        if (!rows?.length) return null
+
+        const pinStr = String(pin || '').replace(/\D/g, '')
+        if (!pinStr) return null
+        const legacyHash = await legacySha256Hex(pinStr)
+
+        let matched = null
+        const tried = []
+
+        for (const r of rows) {
+          if (r.pin_locked_until && r.pin_locked_until > nowIso) continue
+          const algo = r.pin_hash_algo || 'sha256'
+          const hit = algo === 'bcrypt'
+            ? bcryptComparePinWeb(pinStr, r.pin_salt, r.pin_hash)
+            : r.pin_hash === legacyHash
+          if (hit) { matched = r; break }
+          tried.push(r.id)
+        }
+
+        if (matched) {
+          const patch = {
+            pin_failed_attempts: 0,
+            pin_locked_until: null,
+            updated_at: nowIso,
+          }
+          if ((matched.pin_hash_algo || 'sha256') !== 'bcrypt') {
+            const newSalt = generatePinSaltWeb()
+            patch.pin_hash      = bcryptHashPinWeb(pinStr, newSalt)
+            patch.pin_salt      = newSalt
+            patch.pin_hash_algo = 'bcrypt'
+          }
+          try {
+            await supabase.from('staff').update(patch).eq('id', matched.id).eq('business_id', bid)
+          } catch (e) { console.warn('[auth.byPin] rehash/reset failed:', e.message) }
+          return {
+            id: matched.id, name: matched.name, username: matched.username,
+            role: matched.role, discount_pct: matched.discount_pct,
+            employee_id: matched.employee_id, supabase_id: matched.supabase_id,
+            created_at: matched.created_at,
+          }
+        }
+
+        // Miss — bump counters, lock over-threshold rows. Done per-row (not
+        // a single bulk UPDATE) so CASE-triggered locks are atomic.
+        if (tried.length) {
+          const lockAt = new Date(Date.now() + PIN_LOCKOUT_MS).toISOString()
+          // Fetch current counts for each tried row, compute lock eligibility
+          // client-side, issue one UPDATE per row. N is tiny (≤ staff size).
+          await Promise.all(tried.map(async rid => {
+            try {
+              const { data: cur } = await supabase.from('staff')
+                .select('pin_failed_attempts').eq('id', rid).eq('business_id', bid).maybeSingle()
+              const next = (cur?.pin_failed_attempts || 0) + 1
+              const patch = { pin_failed_attempts: next, updated_at: nowIso }
+              if (next >= PIN_MAX_FAILED_ATTEMPTS) patch.pin_locked_until = lockAt
+              await supabase.from('staff').update(patch).eq('id', rid).eq('business_id', bid)
+            } catch {}
+          }))
+        }
+
+        return null
+      }, null),
+
+      lockoutStatus: () => tryOr(async () => {
+        const nowIso = new Date().toISOString()
+        const { data } = await supabase.from('staff')
+          .select('pin_locked_until')
+          .eq('business_id', bid).eq('active', true)
+          .gt('pin_locked_until', nowIso)
+          .order('pin_locked_until', { ascending: true })
           .limit(1)
           .maybeSingle()
-        return data || null
-      }, null),
+        return data ? { locked: true, until: data.pin_locked_until } : { locked: false, until: null }
+      }, { locked: false, until: null }),
     },
 
     // ── Users ────────────────────────────────────────────────────────────────
@@ -985,7 +1072,7 @@ export function createWebAPI(supabase, businessId) {
       create: (data) => tryOr(async () => {
         await guardUserMutation('users:create', data)
         if (!data.pin) throw new Error('PIN requerido')
-        const pin_hash = await hashPin(data.pin)
+        const creds = await hashPin(data.pin)
         const { pin: _p, employee_id, ...rest } = data
         // Web: empleado.id is UUID — staff.employee_id is INT (legacy). Route
         // UUIDs through empleado_supabase_id and leave employee_id null.
@@ -996,7 +1083,8 @@ export function createWebAPI(supabase, businessId) {
           : (empIdStr ? { employee_id: Number(empIdStr) || null } : {})
         const row = throwSupaError(await supabase.from('staff').insert({
           id: crypto.randomUUID(), supabase_id: crypto.randomUUID(),
-          ...rest, ...empFields, pin_hash,
+          ...rest, ...empFields, ...creds,
+          pin_failed_attempts: 0, pin_locked_until: null,
           discount_pct: rest.discount_pct || 0, business_id: bid, active: true,
         }).select('id').single())
         return row
@@ -1004,8 +1092,32 @@ export function createWebAPI(supabase, businessId) {
 
       update: (data) => tryOr(async () => {
         await guardUserMutation('users:update', data)
-        const { id, pin, employee_id, ...rest } = data
-        if (pin) rest.pin_hash = await hashPin(pin)
+        const { id, pin, oldPin, actorId: _actorId, employee_id, ...rest } = data
+        if (pin) {
+          // Sprint 10 (S-H6) — self-PIN changes must verify oldPin. The
+          // guardUserMutation above already checked role; the "is this MY
+          // row?" test happens here because we need the current hash.
+          const actor = await resolveActorRole()
+          const isSelf = actor?.id && String(actor.id) === String(id)
+          if (isSelf) {
+            if (!oldPin) throw new Error('Old PIN required')
+            const { data: cur } = await supabase.from('staff')
+              .select('pin_hash,pin_hash_algo,pin_salt,pin_locked_until')
+              .eq('id', id).eq('business_id', bid).maybeSingle()
+            if (!cur) throw new Error('User not found')
+            const nowIso = new Date().toISOString()
+            if (cur.pin_locked_until && cur.pin_locked_until > nowIso) {
+              throw new Error('Account locked')
+            }
+            const algo = cur.pin_hash_algo || 'sha256'
+            const ok = algo === 'bcrypt'
+              ? bcryptComparePinWeb(oldPin, cur.pin_salt, cur.pin_hash)
+              : cur.pin_hash === await legacySha256Hex(oldPin)
+            if (!ok) throw new Error('Old PIN incorrect')
+          }
+          const creds = await hashPin(pin)
+          Object.assign(rest, creds, { pin_failed_attempts: 0, pin_locked_until: null })
+        }
         if ('active' in rest) rest.active = !!rest.active
         if (employee_id !== undefined) {
           const empIdStr = String(employee_id || '')

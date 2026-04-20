@@ -296,6 +296,15 @@ const SYNC_TABLES = [
       name: r.name,
       username: r.username,
       pin_hash: r.pin_hash || null,
+      // Sprint 10 (v2.10.5) — PIN algo + salt travel with pin_hash so a row
+      // rehashed to bcrypt on one device immediately authenticates on the
+      // other. Lockout state also syncs — a brute-force attempt on the web
+      // PWA will propagate the same lock to desktop, closing the cross-
+      // device bypass vector.
+      pin_hash_algo: r.pin_hash_algo || 'sha256',
+      pin_salt: r.pin_salt || null,
+      pin_failed_attempts: r.pin_failed_attempts ?? 0,
+      pin_locked_until: r.pin_locked_until || null,
       role: r.role,
       discount_pct: r.discount_pct,
       commission_pct: r.commission_pct,
@@ -807,6 +816,43 @@ const SYNC_TABLES = [
       submitted_at: r.submitted_at || new Date().toISOString(),
       created_at: r.submitted_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
+    }),
+  },
+  // v2.10.5 — ecf_queue cloud mirror (Recovery RTO HIGH fix). This is the
+  // PRE-submission queue: offline-signed e-CFs awaiting DGII. Without the
+  // mirror, a PC death mid-queue orphans fiscal obligations — the client
+  // already handed paper to the customer, but DGII never saw the e-CF.
+  // Pushed every 5 min + on every sale/void via the normal sync pipeline;
+  // pulled on a fresh install so processDgiiQueue() resumes submission.
+  // Dedup via UNIQUE (business_id, encf) on Supabase + partial index locally.
+  {
+    name: 'ecf_queue',
+    naturalKey: 'encf',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      ticket_supabase_id: r.ticket_supabase_id || null,
+      encf: r.encf || null,
+      tipo_ecf: r.tipo_ecf || null,
+      xml_signed: r.xml_signed || null,
+      // Supabase body_json is JSONB — send the parsed object so it stores as
+      // structured data. supabaseUpsert stringifies the full payload on the
+      // wire anyway; this just keeps the DB shape correct.
+      body_json: (() => {
+        if (!r.body_json) return {}
+        if (typeof r.body_json === 'object') return r.body_json
+        try { return JSON.parse(r.body_json) } catch { return { raw: r.body_json } }
+      })(),
+      url_path: r.url_path || '',
+      token: r.token || '',
+      environment: r.environment || 'certecf',
+      status: r.status || 'pending',
+      track_id: r.track_id || null,
+      attempts: r.attempts || 0,
+      last_error: r.last_error || null,
+      submitted_at: r.submitted_at || null,
+      last_tried: r.last_tried || null,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || new Date().toISOString(),
     }),
   },
   {
@@ -1392,7 +1438,9 @@ function updatePullLog(tableName, lastPullAt) {
 // v2.1: washer_ids → washer_empleado_supabase_ids (JSON array of empleado UUIDs).
 // v2.10.4: payment_parts is JSONB on Supabase, TEXT (JSON string) on SQLite.
 // Pull path must stringify the inbound array before binding to SQLite.
-const JSON_COLUMNS = new Set(['ecf_result', 'washer_empleado_supabase_ids', 'ticket_ids', 'denominaciones', 'services_json', 'metadata', 'services', 'payment_parts'])
+// v2.10.5: `body_json` is JSONB on Supabase, TEXT on SQLite — pull must
+// stringify before binding or better-sqlite3 rejects the row.
+const JSON_COLUMNS = new Set(['ecf_result', 'washer_empleado_supabase_ids', 'ticket_ids', 'denominaciones', 'services_json', 'metadata', 'services', 'payment_parts', 'body_json'])
 
 function sqliteValue(col, val) {
   if (val == null) return null
@@ -1428,7 +1476,7 @@ const PULL_TABLES = [
   // `users` is a VIEW on `staff` in Supabase — PostgREST can't upsert into a
   // view without INSTEAD OF triggers. Route push to the base `staff` table.
   // Without this, every PIN/username/role change on desktop was silently lost.
-  { name: 'users', supabaseTable: 'staff', strategy: 'lww', naturalKey: 'username', cols: ['name','username','pin_hash','role','discount_pct','commission_pct','cedula','start_date','employee_id','active','manager_auth_hash','manager_auth_rotated_at','created_at','updated_at'] },
+  { name: 'users', supabaseTable: 'staff', strategy: 'lww', naturalKey: 'username', cols: ['name','username','pin_hash','pin_hash_algo','pin_salt','pin_failed_attempts','pin_locked_until','role','discount_pct','commission_pct','cedula','start_date','employee_id','active','manager_auth_hash','manager_auth_rotated_at','created_at','updated_at'] },
 
   // Phase 1 (cont.) — multi-vertical root entities
   { name: 'vehicles', strategy: 'lww', naturalKey: 'vin', cols: ['vin','plate','make','model','year','color','mileage','odometer_km','last_service_km','last_service_at','next_service_km','next_service_at','notes','active','created_at','updated_at'],
@@ -1593,6 +1641,15 @@ const PULL_TABLES = [
   { name: 'inventory_count_items', strategy: 'lww',
     cols: ['sku','name','category','expected_qty','counted_qty','unit_cost','unit_price','notes','created_at','updated_at'],
     fkCols: { count_supabase_id: 'inventory_counts', inventory_item_supabase_id: 'inventory_items' } },
+
+  // v2.10.5 — ecf_queue pull (Recovery RTO HIGH fix). On a fresh install
+  // we WANT to pull the pending queue so processDgiiQueue() can resume
+  // submission. LWW on status transitions (pending → submitted/failed).
+  // Natural key `encf` heals supabase_id drift after a wipe-and-reinstall.
+  { name: 'ecf_queue', strategy: 'lww', naturalKey: 'encf',
+    cols: ['url_path','body_json','token','xml_signed','encf','tipo_ecf','environment',
+           'status','track_id','attempts','last_tried','submitted_at','last_error',
+           'ticket_supabase_id','created_at','updated_at'] },
 
   // v2.3 — app_settings pull (whitelist-guarded, handled by pullAppSettings()).
   // cols/strategy are informational only — the pull path short-circuits at the

@@ -91,7 +91,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Auth ───────────────────────────────────────────────────────────────────
   auth: {
-    byPin:  (pin)  => call('auth:pin', pin),
+    byPin:         (pin) => call('auth:pin', pin),
+    lockoutStatus: ()    => call('auth:lockout-status'),
   },
 
   // ── Users ──────────────────────────────────────────────────────────────────
