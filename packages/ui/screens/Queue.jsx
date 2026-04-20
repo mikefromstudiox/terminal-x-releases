@@ -637,6 +637,7 @@ export default function Queue() {
                            : (data.comentario || null),
           descuento:     data.descuento != null ? Number(data.descuento) : null,
           descuento_reason: data.descuentoReason || null,
+          mac_jti:       data.mac_jti || null,
         })
         if (queueId) await api.queue.updateStatus({ id: queueId, status: 'done' })
       } catch (err) {

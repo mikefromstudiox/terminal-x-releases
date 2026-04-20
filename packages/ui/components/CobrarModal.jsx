@@ -564,6 +564,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const confirmedRef = useRef(false)
   // v2.6 — latches approval for the current attempt so re-entry skips the gate.
   const _gateApprovedRef = useRef(false)
+  const _macJtiRef       = useRef(null)
 
   // ── Carwash memberships / combos ─────────────────────────────────────────
   // When a client is selected, check if they have an active monthly membership
@@ -784,6 +785,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
           recibido:  recibidoNum,
           devuelta:  showEfectivo ? devuelta : null,
           comentario, total, descuento, descuentoReason: descuentoReason.trim() || null, subtotal, itbis,
+          mac_jti:   _macJtiRef.current || null,
           paidAt:    new Date(),
           ecf:       legacyResult,
         })
@@ -866,6 +868,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
           recibido:  recibidoNum,
           devuelta:  showEfectivo ? devuelta : null,
           comentario, total, descuento, descuentoReason: descuentoReason.trim() || null, subtotal, itbis,
+          mac_jti:   _macJtiRef.current || null,
           paidAt:    new Date(),
           ecf:       result,
         })
@@ -1477,8 +1480,9 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
             ? `Descuento de ${fmtRD(descuento)} (${((descuento / (totalGross || 1)) * 100).toFixed(1)}%)`
             : `Discount of ${fmtRD(descuento)} (${((descuento / (totalGross || 1)) * 100).toFixed(1)}%)`}
           context={{ amount: descuento, subtotal: totalGross, reason: descuentoReason, ticket_id: ticket?.id }}
-          onApprove={() => {
+          onApprove={({ mac_jti } = {}) => {
             _gateApprovedRef.current = true
+            _macJtiRef.current = mac_jti || null
             setGateOpen(false)
             setTimeout(() => handleConfirm(), 0)
           }}

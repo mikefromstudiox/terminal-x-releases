@@ -1458,8 +1458,22 @@ handleMut('credits:collect',      (data)      => db.collectCredit(data))
 // ── Tickets ───────────────────────────────────────────────────────────────────
 handle('tickets:all',         (params)    => db.ticketsGetAll(params))
 handle('tickets:byId',        (id)        => db.ticketGetById(id))
-handleMut('tickets:create',      (data)      => db.ticketCreate(data))
-handleMut('tickets:markPaid',    ({id,...d})            => db.ticketMarkPaid(id, d))
+// Big-discount gate: if descuento > RD$500 or > 15% of subtotal, require MAC.
+// Owner is exempt (handled inside guardMac via DB role re-verify).
+function requiresBigDiscountMac({ actor, args, db: _db }) {
+  const d = args[0] || {}
+  const desc = Number(d.descuento || 0)
+  const sub  = Number(d.subtotal  || 0)
+  const isBig = desc > 500 || (sub > 0 && (desc / sub) > 0.15)
+  if (!isBig) return null
+  return guard.guardMac('discount_big')({ actor, args, db: _db })
+}
+handleMut('tickets:create',      (data)      => db.ticketCreate(data), {
+  requires: requiresBigDiscountMac,
+})
+handleMut('tickets:markPaid',    ({id,...d})            => db.ticketMarkPaid(id, d), {
+  requires: requiresBigDiscountMac,
+})
 handleMut('tickets:void',        ({id,reason,voidById}) => db.ticketVoid(id, reason, voidById), {
   requires: guard.guardMac('tickets:void', ([a]) => a?.id),
 })
@@ -1666,7 +1680,9 @@ handleMut('inventory:create',       (data)                         => db.invento
 handleMut('inventory:update',       ({id, ...data})                => { db.inventoryUpdate(id, data); return true })
 handleMut('inventory:bulkUpdate',   ({ids, patch})                 => db.inventoryBulkUpdate(ids || [], patch || {}))
 handleMut('inventory:delete',       ({id})                         => { db.inventoryDelete(id); return true })
-handleMut('inventory:adjust',       ({id, delta, notes, userId})   => db.inventoryAdjust(id, delta, notes, userId))
+handleMut('inventory:adjust',       ({id, delta, notes, userId})   => db.inventoryAdjust(id, delta, notes, userId), {
+  requires: guard.guardMac('inv_adjust', ([a]) => a?.id),
+})
 handle('inventory:transactions', ({id})                         => db.inventoryTransactions(id))
 handle('inventory:lookupSku',    (sku)                          => db.inventoryLookupBySku(sku))
 handle('inventory:search',       (query)                        => db.inventorySearch(query))

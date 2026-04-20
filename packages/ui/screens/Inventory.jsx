@@ -268,6 +268,7 @@ function AdjustModal({ item, onSave, onClose }) {
   const [err,    setErr]    = useState('')
   const [gateOpen, setGateOpen] = useState(false)
   const gateApprovedRef = useRef(false)
+  const macJtiRef       = useRef(null)
 
   const newQty = item.quantity + Number(delta || 0)
 
@@ -281,7 +282,8 @@ function AdjustModal({ item, onSave, onClose }) {
     }
     setSaving(true)
     try {
-      await api.inventory.adjust({ id: item.id, delta: d, notes, userId: user?.id })
+      await api.inventory.adjust({ id: item.id, delta: d, notes, userId: user?.id, mac_jti: macJtiRef.current })
+      macJtiRef.current = null
       onSave()
     } catch (e) {
       setErr(e?.message || 'Error al ajustar.')
@@ -348,8 +350,9 @@ function AdjustModal({ item, onSave, onClose }) {
           actionLabel={`Ajuste de ${item.name}: ${Number(delta) > 0 ? '+' : ''}${delta}`}
           context={{ target_id: item.id, target_name: item.name, amount: Number(delta) || 0,
             old_value: item.quantity, new_value: newQty, reason: notes }}
-          onApprove={() => {
+          onApprove={({ mac_jti } = {}) => {
             gateApprovedRef.current = true
+            macJtiRef.current = mac_jti || null
             setGateOpen(false)
             setTimeout(() => handleSave(), 0)
           }}
