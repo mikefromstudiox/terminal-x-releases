@@ -42,6 +42,30 @@ export function LicenseProvider({ children }) {
   const api = useAPI()
   const [hwid,       setHwid]       = useState(null)
   const [licenseKey, setLicenseKey] = useState(getStoredLicenseKey())
+
+  // v2.7 — on web, main.jsx auto-fetches the license key from Supabase and
+  // writes it to localStorage AFTER LicenseContext has already mounted. Poll
+  // for a few seconds so the first paint doesn't flash "Licencia inválida"
+  // when the key is about to arrive.
+  useEffect(() => {
+    const onDesktop = typeof window !== 'undefined' && !!window.electronAPI
+    if (onDesktop || licenseKey) return
+    let elapsed = 0
+    const intv = setInterval(() => {
+      elapsed += 300
+      const k = getStoredLicenseKey()
+      if (k) { setLicenseKey(k); clearInterval(intv); return }
+      if (elapsed >= 6000) clearInterval(intv) // give up after 6s
+    }, 300)
+    // Also listen to the storage event — covers cross-tab writes.
+    const onStorage = (e) => {
+      if (e.key === 'tx_license_key' && e.newValue) {
+        setLicenseKey(e.newValue); clearInterval(intv)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => { clearInterval(intv); window.removeEventListener('storage', onStorage) }
+  }, [licenseKey])
   const [rnc,        setRnc]        = useState(getStoredRnc())
   const [result,     setResult]     = useState(null)
   const [checking,   setChecking]   = useState(true)
@@ -290,10 +314,16 @@ export function LicenseProvider({ children }) {
     }
   }, [licenseKey, hwid, rnc])
 
-  // Run check when hwid is ready
+  // Run check when hwid is ready AND we know the key situation.
+  // v2.7 — on web, we need to wait for the licenseKey poll above to complete
+  // (or time out) before running the first check — otherwise the first paint
+  // flashes "Licencia inválida" for the 1-2s while main.jsx fetches the key.
   useEffect(() => {
-    if (hwid) runCheck()
-  }, [hwid])   // eslint-disable-line
+    if (!hwid) return
+    const onWeb = typeof window !== 'undefined' && !window.electronAPI
+    if (onWeb && !licenseKey) return   // wait for poll/storage event
+    runCheck()
+  }, [hwid, licenseKey])   // eslint-disable-line
 
   // Periodic re-check every 4 hours
   useEffect(() => {
