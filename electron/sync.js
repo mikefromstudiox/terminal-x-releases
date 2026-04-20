@@ -697,6 +697,25 @@ const SYNC_TABLES = [
       updated_at: r.updated_at || null,
     }),
   },
+  // RPT-H4: desktop-originated shortage ledger. Sale-time inserts (qty >
+  // available) push up so the Oversells report on any device sees them.
+  {
+    name: 'inventory_oversells',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      ticket_supabase_id: r.ticket_supabase_id,
+      item_supabase_id: r.item_supabase_id,
+      item_name: r.item_name,
+      requested_qty: r.requested_qty,
+      actual_qty: r.actual_qty,
+      detected_at: r.detected_at || new Date().toISOString(),
+      resolved_at: r.resolved_at || null,
+      resolved_by_name: r.resolved_by || null,
+      resolution_notes: r.resolution_notes || null,
+      resolution_type: r.resolution_type || null,
+      updated_at: r.updated_at || null,
+    }),
+  },
   {
     name: 'compras_607',
     cols: r => ({
@@ -1485,6 +1504,9 @@ const PULL_TABLES = [
   { name: 'inventory_transactions', strategy: 'fww',
     cols: ['type','delta','notes','created_at','updated_at'],
     fkCols: { item_supabase_id: 'inventory_items', user_supabase_id: 'users' } },
+  { name: 'inventory_oversells', strategy: 'lww',
+    cols: ['item_name','requested_qty','actual_qty','detected_at','resolved_at','resolution_notes','resolution_type','updated_at'],
+    fkCols: { item_supabase_id: 'inventory_items', ticket_supabase_id: 'tickets' } },
   { name: 'compras_607', strategy: 'fww',
     cols: ['rnc_proveedor','nombre_proveedor','ncf','ncf_modificado','fecha_ncf','total','itbis_facturado','itbis_retenido','retencion_renta','forma_pago','tipo_ncf','fecha_pago','monto_servicios','monto_bienes','notas','created_at','updated_at'] },
 

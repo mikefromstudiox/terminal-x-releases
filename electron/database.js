@@ -3230,10 +3230,130 @@ function clientUpdate(id, data) {
   const fields  = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
   db.prepare(`UPDATE clients SET ${fields} WHERE id=@id`).run({ ...patch, id })
 }
-// Increment/decrement loyalty points atomically. `delta` may be negative (redemption).
+// Compute loyalty tier bucket using app_settings thresholds
+// (defaults: bronze<1000, silver<5000, gold<10000, platinum>=10000).
+function _loyaltyTierFor(points) {
+  const pts = Number(points) || 0
+  const g = (k, d) => { try { const v = db.prepare('SELECT value FROM app_settings WHERE key=?').get(k)?.value; const n = Number(v); return Number.isFinite(n) ? n : d } catch { return d } }
+  const t1 = g('loyalty_tier_silver',   1000)
+  const t2 = g('loyalty_tier_gold',     5000)
+  const t3 = g('loyalty_tier_platinum', 10000)
+  if (pts >= t3) return 'platinum'
+  if (pts >= t2) return 'gold'
+  if (pts >= t1) return 'silver'
+  return 'bronze'
+}
+
+// Legacy: numeric-id loyalty delta (v2.4 salon). Now also refreshes tier.
 function clientAddLoyaltyPoints(id, delta) {
   if (!db || !id) return
-  db.prepare("UPDATE clients SET loyalty_points = COALESCE(loyalty_points,0) + @delta WHERE id=@id").run({ id, delta: Number(delta) || 0 })
+  const d = Number(delta) || 0
+  db.prepare("UPDATE clients SET loyalty_points = MAX(0, COALESCE(loyalty_points,0) + @delta) WHERE id=@id").run({ id, delta: d })
+  const row = db.prepare('SELECT loyalty_points FROM clients WHERE id=?').get(id)
+  if (row) db.prepare('UPDATE clients SET loyalty_tier=? WHERE id=?').run(_loyaltyTierFor(row.loyalty_points), id)
+}
+
+// v2.7.1 — ledger-backed loyalty award. Idempotent per ticket_supabase_id.
+function loyaltyAward({ clientId, clientSupabaseId, ticketId, ticketSupabaseId, points, notes } = {}) {
+  if (!db) return 0
+  const p = Number(points) || 0
+  if (p <= 0) return 0
+  const client = clientSupabaseId
+    ? db.prepare('SELECT id, supabase_id, loyalty_points, business_id FROM clients WHERE supabase_id=?').get(clientSupabaseId)
+    : (clientId ? db.prepare('SELECT id, supabase_id, loyalty_points, business_id FROM clients WHERE id=?').get(clientId) : null)
+  if (!client) return 0
+  if (ticketSupabaseId) {
+    const existing = db.prepare("SELECT balance_after FROM loyalty_transactions WHERE ticket_supabase_id=? AND event_type='earn'").get(ticketSupabaseId)
+    if (existing) return existing.balance_after
+  }
+  const newBalance = Math.max(0, (Number(client.loyalty_points) || 0) + p)
+  const tier = _loyaltyTierFor(newBalance)
+  db.prepare("UPDATE clients SET loyalty_points=?, loyalty_tier=?, updated_at=datetime('now') WHERE id=?")
+    .run(newBalance, tier, client.id)
+  const sid = crypto.randomUUID()
+  db.prepare(`INSERT INTO loyalty_transactions
+    (supabase_id,business_id,client_id,client_supabase_id,ticket_id,ticket_supabase_id,event_type,points,balance_after,notes)
+    VALUES(@supabase_id,@business_id,@client_id,@client_supabase_id,@ticket_id,@ticket_supabase_id,'earn',@points,@balance_after,@notes)`).run({
+    supabase_id: sid,
+    business_id: client.business_id || null,
+    client_id: client.id,
+    client_supabase_id: client.supabase_id,
+    ticket_id: ticketId || null,
+    ticket_supabase_id: ticketSupabaseId || null,
+    points: p,
+    balance_after: newBalance,
+    notes: notes || null,
+  })
+  return newBalance
+}
+
+function loyaltyRedeem({ clientId, clientSupabaseId, ticketId, ticketSupabaseId, points, notes } = {}) {
+  if (!db) return { ok: false, reason: 'no_db' }
+  const p = Number(points) || 0
+  if (p <= 0) return { ok: false, reason: 'invalid_amount' }
+  const client = clientSupabaseId
+    ? db.prepare('SELECT id, supabase_id, loyalty_points, business_id FROM clients WHERE supabase_id=?').get(clientSupabaseId)
+    : (clientId ? db.prepare('SELECT id, supabase_id, loyalty_points, business_id FROM clients WHERE id=?').get(clientId) : null)
+  if (!client) return { ok: false, reason: 'no_client' }
+  const current = Number(client.loyalty_points) || 0
+  if (current < p) return { ok: false, reason: 'insufficient', current }
+  const newBalance = current - p
+  const tier = _loyaltyTierFor(newBalance)
+  db.prepare("UPDATE clients SET loyalty_points=?, loyalty_tier=?, updated_at=datetime('now') WHERE id=?")
+    .run(newBalance, tier, client.id)
+  const sid = crypto.randomUUID()
+  db.prepare(`INSERT INTO loyalty_transactions
+    (supabase_id,business_id,client_id,client_supabase_id,ticket_id,ticket_supabase_id,event_type,points,balance_after,notes)
+    VALUES(@supabase_id,@business_id,@client_id,@client_supabase_id,@ticket_id,@ticket_supabase_id,'redeem',@points,@balance_after,@notes)`).run({
+    supabase_id: sid,
+    business_id: client.business_id || null,
+    client_id: client.id,
+    client_supabase_id: client.supabase_id,
+    ticket_id: ticketId || null,
+    ticket_supabase_id: ticketSupabaseId || null,
+    points: -p,
+    balance_after: newBalance,
+    notes: notes || null,
+  })
+  return { ok: true, balance: newBalance, tier }
+}
+
+function loyaltyAdjust({ clientId, clientSupabaseId, delta, notes } = {}) {
+  if (!db) return 0
+  const d = Number(delta) || 0
+  const client = clientSupabaseId
+    ? db.prepare('SELECT id, supabase_id, loyalty_points, business_id FROM clients WHERE supabase_id=?').get(clientSupabaseId)
+    : (clientId ? db.prepare('SELECT id, supabase_id, loyalty_points, business_id FROM clients WHERE id=?').get(clientId) : null)
+  if (!client) return 0
+  const newBalance = Math.max(0, (Number(client.loyalty_points) || 0) + d)
+  const tier = _loyaltyTierFor(newBalance)
+  db.prepare("UPDATE clients SET loyalty_points=?, loyalty_tier=?, updated_at=datetime('now') WHERE id=?")
+    .run(newBalance, tier, client.id)
+  const sid = crypto.randomUUID()
+  db.prepare(`INSERT INTO loyalty_transactions
+    (supabase_id,business_id,client_id,client_supabase_id,event_type,points,balance_after,notes)
+    VALUES(@supabase_id,@business_id,@client_id,@client_supabase_id,'adjust',@points,@balance_after,@notes)`).run({
+    supabase_id: sid,
+    business_id: client.business_id || null,
+    client_id: client.id,
+    client_supabase_id: client.supabase_id,
+    points: d,
+    balance_after: newBalance,
+    notes: notes || null,
+  })
+  return newBalance
+}
+
+function loyaltyHistory({ clientId, clientSupabaseId, limit = 100 } = {}) {
+  if (!db) return []
+  const lim = Math.max(1, Math.min(500, Number(limit) || 100))
+  if (clientSupabaseId) {
+    return db.prepare(`SELECT * FROM loyalty_transactions WHERE client_supabase_id=? ORDER BY created_at DESC LIMIT ?`).all(clientSupabaseId, lim)
+  }
+  if (clientId) {
+    return db.prepare(`SELECT * FROM loyalty_transactions WHERE client_id=? ORDER BY created_at DESC LIMIT ?`).all(clientId, lim)
+  }
+  return []
 }
 function clientUpdateBalance(id, delta) {
   if (!db) return

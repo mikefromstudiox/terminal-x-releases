@@ -1938,6 +1938,11 @@ export function createWebAPI(supabase, businessId) {
               vehicle_plate:   data.vehicle_plate || null,
               notes:           data.notes || null,
               order_source:    data.order_source || 'pos',
+              // v2.10.4 — restaurant split-bill persistence. JSONB column, so
+              // pass the array as-is (no stringify). NULL = single-method
+              // ticket. See supabase/migrations/20260420100000_*.sql.
+              payment_parts:   (Array.isArray(data.payment_parts) && data.payment_parts.length) ? data.payment_parts : null,
+              split_bill:      (data.split === true || (Array.isArray(data.payment_parts) && data.payment_parts.length > 1)) || false,
             }).select().single())
 
             // Insert ticket items — try with business_id first, fall back without
@@ -1981,14 +1986,33 @@ export function createWebAPI(supabase, businessId) {
                 if (err2) console.error('[ticket_items insert]', err2.message)
               }
 
-              // Auto-deduct inventory stock for product items (by supabase_id)
+              // Auto-deduct inventory stock for product items (by supabase_id).
+              // RPT-H4: when requested > available, record a shortage row in
+              // inventory_oversells so void-time reversal restores only what was
+              // actually deducted (fulfilled), never phantom stock.
               for (const item of items) {
                 const invSid = item.inventory_item_supabase_id
                 if (invSid) {
                   const qty = item.quantity || 1
                   try {
-                    const { data: inv } = await supabase.from('inventory_items').select('quantity').eq('supabase_id', invSid).eq('business_id', bid).single()
-                    if (inv) await supabase.from('inventory_items').update({ quantity: Math.max(0, (inv.quantity || 0) - qty) }).eq('supabase_id', invSid).eq('business_id', bid)
+                    const { data: inv } = await supabase.from('inventory_items').select('quantity, name').eq('supabase_id', invSid).eq('business_id', bid).single()
+                    if (inv) {
+                      const available = Math.max(0, Number(inv.quantity || 0))
+                      await supabase.from('inventory_items').update({ quantity: Math.max(0, available - qty) }).eq('supabase_id', invSid).eq('business_id', bid)
+                      if (qty > available) {
+                        try {
+                          await supabase.from('inventory_oversells').insert({
+                            supabase_id:        crypto.randomUUID(),
+                            business_id:        bid,
+                            ticket_supabase_id: ticketSid,
+                            item_supabase_id:   invSid,
+                            item_name:          inv.name || item.name || null,
+                            requested_qty:      qty,
+                            actual_qty:         available,
+                          })
+                        } catch (e2) { console.error('[web.js] oversell insert failed:', e2.message) }
+                      }
+                    }
                   } catch (e) { console.error('[web.js] stock deduction failed:', e.message) }
                 }
               }
@@ -2170,7 +2194,10 @@ export function createWebAPI(supabase, businessId) {
           }
         }
 
-        // Reverse inventory stock for product items (by supabase_id)
+        // Reverse inventory stock for product items (by supabase_id).
+        // RPT-H4: fair reversal — if a shortage was recorded at sale-time
+        // (requested > available), restore only actual_qty (what was deducted),
+        // not the requested qty. Prevents phantom stock on void.
         try {
           const tSid = priorRow?.supabase_id
           if (tSid) {
@@ -2181,8 +2208,22 @@ export function createWebAPI(supabase, businessId) {
             for (const item of (items || [])) {
               const qty = item.quantity || 1
               const invSid = item.inventory_item_supabase_id
+              // Check for shortage rows on this (ticket, item); if any, use actual_qty sum.
+              let fulfilled = qty
+              try {
+                const { data: shortages } = await supabase.from('inventory_oversells')
+                  .select('requested_qty, actual_qty')
+                  .eq('ticket_supabase_id', tSid)
+                  .eq('item_supabase_id', invSid)
+                  .eq('business_id', bid)
+                if (shortages && shortages.length) {
+                  const totReq = shortages.reduce((s, r) => s + Number(r.requested_qty || 0), 0)
+                  const totAct = shortages.reduce((s, r) => s + Number(r.actual_qty || 0), 0)
+                  if (totReq > 0) fulfilled = totAct
+                }
+              } catch { /* no shortages table access → fall back to qty */ }
               const { data: inv } = await supabase.from('inventory_items').select('quantity').eq('supabase_id', invSid).eq('business_id', bid).single()
-              if (inv) await supabase.from('inventory_items').update({ quantity: (inv.quantity || 0) + qty }).eq('supabase_id', invSid).eq('business_id', bid)
+              if (inv) await supabase.from('inventory_items').update({ quantity: (inv.quantity || 0) + fulfilled }).eq('supabase_id', invSid).eq('business_id', bid)
             }
           }
         } catch (e) { console.error('[web.js] void stock reversal failed:', e.message) }
@@ -2704,9 +2745,12 @@ export function createWebAPI(supabase, businessId) {
       daily: (date) => tryOr(async () => {
         // Direct query — the old RPC `cuadre_daily_summary` was never created on Supabase.
         // Fetch today's paid tickets and aggregate by payment_method in JS.
+        // v2.10.4 — also pull payment_parts (JSONB). Restaurant split bills
+        // credit each part to its own bucket instead of lumping the ticket
+        // total under the single payment_method.
         const d = date || new Date().toISOString().slice(0, 10)
         const { data: rows } = await supabase.from('tickets')
-          .select('total, payment_method')
+          .select('total, payment_method, payment_parts')
           .eq('business_id', bid)
           .eq('status', 'cobrado')
           .gte('created_at', `${d}T00:00:00`)
@@ -2724,12 +2768,30 @@ export function createWebAPI(supabase, businessId) {
         const result = { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0 }
         let totalVendido = 0, totalCobrado = 0
         for (const r of rows) {
-          const t = Number(r.total || 0)
-          const raw = r.payment_method || 'efectivo'
-          const pm = PM_ALIAS[raw] || raw
-          result[pm] = (result[pm] || 0) + t
-          totalVendido += t
-          if (pm !== 'credito') totalCobrado += t
+          const tot = Number(r.total || 0)
+          totalVendido += tot
+          // JSONB returns already-parsed arrays, but older desktop clients
+          // that wrote via raw SQL might hand back a string — handle both.
+          let parts = null
+          if (r.payment_parts) {
+            try {
+              const parsed = typeof r.payment_parts === 'string' ? JSON.parse(r.payment_parts) : r.payment_parts
+              if (Array.isArray(parsed) && parsed.length) parts = parsed
+            } catch { parts = null }
+          }
+          if (parts) {
+            for (const p of parts) {
+              const pm = PM_ALIAS[p?.method] || p?.method || 'efectivo'
+              const amt = Number(p?.amount || 0)
+              result[pm] = (result[pm] || 0) + amt
+              if (pm !== 'credito') totalCobrado += amt
+            }
+          } else {
+            const raw = r.payment_method || 'efectivo'
+            const pm = PM_ALIAS[raw] || raw
+            result[pm] = (result[pm] || 0) + tot
+            if (pm !== 'credito') totalCobrado += tot
+          }
         }
         return { ...result, totalVendido, totalCobrado, count: rows.length }
       }, { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0, totalVendido: 0, totalCobrado: 0, count: 0 }),
