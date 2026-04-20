@@ -1110,11 +1110,23 @@ export default function Inventory() {
                           }} />
                       </td>
                       <td className="px-4 py-3 text-right text-xs">
-                        {item.cost > 0 && item.price > 0 ? (
-                          <span className={`font-semibold ${item.price > item.cost ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}>
-                            {Math.round(((item.price - item.cost) / item.price) * 100)}%
-                          </span>
-                        ) : <span className="text-slate-300 dark:text-white/20">—</span>}
+                        {item.cost > 0 && item.price > 0 ? (() => {
+                          // DR convention: when a product aplica ITBIS, the 18%
+                          // belongs to DGII, not the owner. Compute margin on
+                          // the NET (ex-ITBIS) price so the number matches what
+                          // the owner actually keeps — same as what STARSISA +
+                          // other DR retail systems show. When aplica_itbis=0
+                          // (tax-exempt products) use the raw price.
+                          const aplica = item.aplica_itbis === 1 || item.aplica_itbis === true
+                          const netPrice = aplica ? item.price / 1.18 : item.price
+                          const marginPct = ((netPrice - item.cost) / netPrice) * 100
+                          return (
+                            <span className={`font-semibold ${netPrice > item.cost ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}
+                              title={aplica ? 'Margen neto (precio sin ITBIS − costo) ÷ precio sin ITBIS' : 'Margen (precio − costo) ÷ precio'}>
+                              {Math.round(marginPct)}%
+                            </span>
+                          )
+                        })() : <span className="text-slate-300 dark:text-white/20">—</span>}
                       </td>
                       <td className="px-4 py-3 text-right text-slate-500 dark:text-white/60 text-xs">{fmtRD(item.quantity * item.price)}</td>
                       <td className="px-4 py-3">
