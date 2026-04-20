@@ -12,3 +12,5 @@ release/
 
 .vercel
 test-dgii-auth*.js
+demo-cards.txt
+demo-cards-*.txt
