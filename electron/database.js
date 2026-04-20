@@ -394,6 +394,26 @@ function init(userDataPath) {
     "ALTER TABLE clients ADD COLUMN preferred_stylist_id INTEGER",
     "ALTER TABLE clients ADD COLUMN preferred_stylist_supabase_id TEXT",
     "CREATE INDEX IF NOT EXISTS idx_clients_preferred_stylist ON clients(preferred_stylist_supabase_id)",
+    // v2.7.1 — cross-vertical loyalty program (ledger + tier)
+    "ALTER TABLE clients ADD COLUMN loyalty_tier TEXT DEFAULT 'bronze'",
+    `CREATE TABLE IF NOT EXISTS loyalty_transactions (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id         TEXT,
+      business_id         TEXT,
+      client_id           INTEGER,
+      client_supabase_id  TEXT,
+      ticket_id           INTEGER,
+      ticket_supabase_id  TEXT,
+      event_type          TEXT NOT NULL CHECK (event_type IN ('earn','redeem','adjust','expire')),
+      points              REAL NOT NULL DEFAULT 0,
+      balance_after       REAL NOT NULL DEFAULT 0,
+      notes               TEXT,
+      created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS ux_loyalty_tx_supabase_id ON loyalty_transactions(supabase_id) WHERE supabase_id IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS ix_loyalty_tx_client ON loyalty_transactions(client_supabase_id, created_at DESC)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS ux_loyalty_tx_earn_per_ticket ON loyalty_transactions(ticket_supabase_id) WHERE event_type='earn' AND ticket_supabase_id IS NOT NULL`,
     // v2.2 — Multi-vertical expansion: 9 new tables
     `CREATE TABLE IF NOT EXISTS vehicles (
       id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1339,6 +1359,33 @@ function init(userDataPath) {
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS idx_ecf_sub_track ON ecf_submissions(track_id)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_ecf_sub_ticket ON ecf_submissions(ticket_id)')
+
+  // v2.10.4 — ANECF auto-queue for voided e-CFs (audit finding E-C6).
+  // Every void of an e-CF (E3x) enqueues one row here; processAnecfQueue()
+  // in electron/main.js submits to DGII in the background on a 60s tick.
+  // Legacy B01/B02 paper NCFs are never enqueued (no ANECF flow exists).
+  db.exec(`CREATE TABLE IF NOT EXISTS anecf_queue (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id          INTEGER,
+    ticket_supabase_id TEXT,
+    ncf                TEXT NOT NULL,
+    tipo_ecf           TEXT NOT NULL,
+    rango_desde        TEXT NOT NULL,
+    rango_hasta        TEXT NOT NULL,
+    voided_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    submitted_at       TEXT,
+    track_id           TEXT,
+    status             TEXT NOT NULL DEFAULT 'pending',
+    error              TEXT,
+    attempts           INTEGER NOT NULL DEFAULT 0,
+    last_tried         TEXT,
+    environment        TEXT NOT NULL DEFAULT 'certecf',
+    supabase_id        TEXT,
+    created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(ncf)
+  )`)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_anecf_queue_status ON anecf_queue(status, voided_at)')
 
   // Inventory items + transaction log
   db.exec(`CREATE TABLE IF NOT EXISTS inventory_items (
@@ -3270,7 +3317,19 @@ function ticketsGetAll({ dateFrom, dateTo, status, limit = 5000 } = {}) {
   if (status)   { sql += ' AND t.status = ?';      params.push(status)   }
   sql += ' GROUP BY t.id ORDER BY t.created_at DESC LIMIT ?'
   params.push(safeLimit)
-  return db.prepare(sql).all(...params)
+  const rows = db.prepare(sql).all(...params)
+  // v2.10.4 — surface payment_parts as a parsed array (or null) so Cuadre +
+  // reports don't each have to JSON.parse a TEXT blob.
+  for (const r of rows) {
+    if (r.payment_parts) {
+      try {
+        r.payment_parts = typeof r.payment_parts === 'string' ? JSON.parse(r.payment_parts) : r.payment_parts
+      } catch { r.payment_parts = null }
+    } else {
+      r.payment_parts = null
+    }
+  }
+  return rows
 }
 function ticketGetById(id) {
   if (!db) return null
@@ -3284,6 +3343,13 @@ function ticketGetById(id) {
   if (ticket) {
     ticket.items = db.prepare('SELECT * FROM ticket_items WHERE ticket_id=?').all(id)
     try { ticket.ecf_result = JSON.parse(ticket.ecf_result || '{}') } catch { ticket.ecf_result = {} }
+    // v2.10.4 — payment_parts stored as JSON string locally, JSONB on cloud.
+    // Readers always see an array or null.
+    try {
+      ticket.payment_parts = ticket.payment_parts
+        ? (typeof ticket.payment_parts === 'string' ? JSON.parse(ticket.payment_parts) : ticket.payment_parts)
+        : null
+    } catch { ticket.payment_parts = null }
     // v2.1: read washer UUIDs from the new column, fall back to legacy on a
     // partially-migrated DB. Populate washer_ids (empleados.id array) for UI
     // back-compat AND washer_supabase_ids (UUID array).
@@ -3429,13 +3495,22 @@ function ticketCreate(data) {
       washerEmpSids = data.washer_ids.map(wid => lookup.get(wid)?.supabase_id).filter(Boolean)
     }
     const status = data.status || (data.payment_method === 'credit' ? 'pendiente' : 'cobrado')
+    // v2.10.4 — split-bill parts persisted as JSON string on local SQLite
+    // (JSONB on Supabase). NULL == single-method ticket; non-null == split.
+    // See supabase/migrations/20260420100000_tickets_payment_parts.sql.
+    let paymentPartsJson = null
+    if (Array.isArray(data.payment_parts) && data.payment_parts.length) {
+      try { paymentPartsJson = JSON.stringify(data.payment_parts) } catch { paymentPartsJson = null }
+    }
+    const splitBillFlag = (data.split === true || (Array.isArray(data.payment_parts) && data.payment_parts.length > 1)) ? 1 : 0
+
     const result = db.prepare(`INSERT INTO tickets
       (doc_number,client_id,washer_empleado_supabase_ids,seller_empleado_supabase_id,cajero_id,subtotal,descuento,itbis,ley,total,
        beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,supabase_id,client_supabase_id,seller_supabase_id,cajero_supabase_id,
        mesa_id,mesa_supabase_id,fulfillment_type,tip_amount,mode,converted_from_mesa_id,converted_from_mesa_supabase_id,converted_from_ticket_id,converted_from_ticket_supabase_id,
-       origin_hwid,used_legacy_counter,notes,order_source,
+       origin_hwid,used_legacy_counter,notes,order_source,payment_parts,split_bill,
        created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
       docNumber,
       data.client_id || null,
       JSON.stringify(washerEmpSids),
@@ -3471,6 +3546,8 @@ function ticketCreate(data) {
       usedLegacyCounter,
       data.comentario || data.notes || null,
       data.order_source || 'pos',
+      paymentPartsJson,
+      splitBillFlag,
     )
     const ticketId = result.lastInsertRowid
 
@@ -3509,14 +3586,29 @@ function ticketCreate(data) {
         item.price_per_unit != null ? Number(item.price_per_unit) : null,
         itemSid, ticketSid, svcId ? svcSidById.get(svcId) : null, invItemSid)
 
-      // Auto-deduct inventory stock (floor at 0 — never go negative)
+      // Auto-deduct inventory stock (floor at 0 — never go negative).
+      // RPT-H4: when requested > available, record a shortage row in
+      // inventory_oversells so void-time reversal can restore only the
+      // fulfilled amount (not the requested qty), preventing phantom stock.
       if (item.inventory_item_id) {
-        const invRow = db.prepare('SELECT supabase_id, quantity FROM inventory_items WHERE id=?').get(item.inventory_item_id)
+        const invRow = db.prepare('SELECT supabase_id, quantity, name FROM inventory_items WHERE id=?').get(item.inventory_item_id)
+        const available = Math.max(0, Number(invRow?.quantity || 0))
+        const fulfilled = Math.min(qty, available)
         db.prepare('UPDATE inventory_items SET quantity = MAX(0, quantity - ?) WHERE id = ?')
           .run(qty, item.inventory_item_id)
+        if (qty > available) {
+          const osSid = crypto.randomUUID()
+          try {
+            db.prepare(`INSERT INTO inventory_oversells
+              (supabase_id, business_id, ticket_supabase_id, item_supabase_id, item_name, requested_qty, actual_qty)
+              VALUES (?,?,?,?,?,?,?)`).run(
+                osSid, _bizId(), ticketSid, invRow?.supabase_id || null,
+                invRow?.name || item.name || null, qty, available)
+          } catch (e) { /* non-fatal: shortage ledger is audit, never blocks sale */ }
+        }
         const txSid = crypto.randomUUID()
         db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id) VALUES(?,?,?,?,?,?,?)')
-          .run(item.inventory_item_id, 'sale', -qty, `Ticket #${ticketId}`, data.cajero_id || null,
+          .run(item.inventory_item_id, 'sale', -fulfilled, `Ticket #${ticketId}`, data.cajero_id || null,
                txSid, invRow?.supabase_id || null)
       }
     }
@@ -3725,15 +3817,28 @@ function ticketVoid(id, reason, voidById) {
     db.prepare('DELETE FROM washer_commissions WHERE ticket_id=? OR (ticket_supabase_id IS NOT NULL AND ticket_supabase_id=?)').run(id, ticket.supabase_id || null)
     db.prepare('DELETE FROM seller_commissions WHERE ticket_id=? OR (ticket_supabase_id IS NOT NULL AND ticket_supabase_id=?)').run(id, ticket.supabase_id || null)
     db.prepare('DELETE FROM cajero_commissions WHERE ticket_id=? OR (ticket_supabase_id IS NOT NULL AND ticket_supabase_id=?)').run(id, ticket.supabase_id || null)
-    // Reverse inventory stock for product items
+    // Reverse inventory stock for product items.
+    // RPT-H4: if a shortage was recorded at sale-time (requested > available),
+    // restore ONLY the fulfilled amount (actual_qty) — what was actually
+    // deducted — not the requested qty. Otherwise voids can create phantom
+    // stock (sold 3 of stock=1 → deducted 1 → voiding qty=3 would leave 3).
     const items = db.prepare('SELECT * FROM ticket_items WHERE ticket_id=? AND inventory_item_id IS NOT NULL').all(id)
     for (const item of items) {
       const qty = item.quantity || 1
-      db.prepare('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?').run(qty, item.inventory_item_id)
       const invRow = db.prepare('SELECT supabase_id FROM inventory_items WHERE id=?').get(item.inventory_item_id)
+      // Sum fulfilled across any shortage rows for (ticket, item). If none,
+      // fulfilled == qty (full deduction occurred at sale time).
+      let fulfilled = qty
+      if (ticket.supabase_id && invRow?.supabase_id) {
+        const sh = db.prepare(`SELECT COALESCE(SUM(actual_qty),0) AS actual, COALESCE(SUM(requested_qty),0) AS req
+          FROM inventory_oversells WHERE ticket_supabase_id=? AND item_supabase_id=?`)
+          .get(ticket.supabase_id, invRow.supabase_id)
+        if (sh && Number(sh.req) > 0) fulfilled = Number(sh.actual) || 0
+      }
+      db.prepare('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?').run(fulfilled, item.inventory_item_id)
       const vtSid = crypto.randomUUID()
       db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id) VALUES(?,?,?,?,?,?,?)')
-        .run(item.inventory_item_id, 'void_reversal', qty, `Void ticket #${id}`, voidById || null,
+        .run(item.inventory_item_id, 'void_reversal', fulfilled, `Void ticket #${id}`, voidById || null,
              vtSid, invRow?.supabase_id || null)
     }
   })()
@@ -3743,6 +3848,10 @@ function ticketVoid(id, reason, voidById) {
       target_type: 'ticket', target_id: id, target_name: voidedTicket.doc_number || `#${id}`,
       amount: voidedTicket.total, reason: reason || null,
       metadata: { payment_method: voidedTicket.payment_method, tipo_venta: voidedTicket.tipo_venta, ncf: voidedTicket.ncf } })
+    // v2.10.4 — auto-enqueue ANECF for voided e-CFs (audit E-C6).
+    // Outside the transaction: never block the void on queue insertion.
+    // Legacy B01/B02 NCFs are skipped inside anecfQueueEnqueue.
+    anecfQueueEnqueue({ ncf: voidedTicket.ncf, ticketId: id, ticketSupabaseId: voidedTicket.supabase_id })
   }
 }
 function ticketGetByDateRange(dateFrom, dateTo) {
@@ -3868,7 +3977,7 @@ function queueUpdateStatus(id, status, washerId = null) {
 
 function queueDelete(id, deletedBy) {
   if (!db) return null
-  const row = db.prepare('SELECT q.*, t.doc_number FROM queue q LEFT JOIN tickets t ON t.id = q.ticket_id WHERE q.id=?').get(id)
+  const row = db.prepare('SELECT q.*, t.doc_number, t.ncf as t_ncf, t.supabase_id as t_supabase_id FROM queue q LEFT JOIN tickets t ON t.id = q.ticket_id WHERE q.id=?').get(id)
   if (!row) return null
   const now = new Date().toISOString()
   db.transaction(() => {
@@ -3882,6 +3991,28 @@ function queueDelete(id, deletedBy) {
       db.prepare('DELETE FROM washer_commissions WHERE ticket_id=? OR ticket_supabase_id IN (SELECT supabase_id FROM tickets WHERE id=?)').run(row.ticket_id, row.ticket_id)
       db.prepare('DELETE FROM seller_commissions WHERE ticket_id=? OR ticket_supabase_id IN (SELECT supabase_id FROM tickets WHERE id=?)').run(row.ticket_id, row.ticket_id)
       db.prepare('DELETE FROM cajero_commissions WHERE ticket_id=? OR ticket_supabase_id IN (SELECT supabase_id FROM tickets WHERE id=?)').run(row.ticket_id, row.ticket_id)
+      // RPT-H4: reverse inventory stock for product items on cancelled pendiente
+      // ticket (sale deducted stock; cancel never returned it before this).
+      // Shortage-aware: restore fulfilled amount only, never phantom stock.
+      const tRow = db.prepare('SELECT supabase_id FROM tickets WHERE id=?').get(row.ticket_id)
+      const tSid = tRow?.supabase_id || null
+      const titems = db.prepare('SELECT * FROM ticket_items WHERE ticket_id=? AND inventory_item_id IS NOT NULL').all(row.ticket_id)
+      for (const it of titems) {
+        const qty = it.quantity || 1
+        const invRow = db.prepare('SELECT supabase_id FROM inventory_items WHERE id=?').get(it.inventory_item_id)
+        let fulfilled = qty
+        if (tSid && invRow?.supabase_id) {
+          const sh = db.prepare(`SELECT COALESCE(SUM(actual_qty),0) AS actual, COALESCE(SUM(requested_qty),0) AS req
+            FROM inventory_oversells WHERE ticket_supabase_id=? AND item_supabase_id=?`)
+            .get(tSid, invRow.supabase_id)
+          if (sh && Number(sh.req) > 0) fulfilled = Number(sh.actual) || 0
+        }
+        db.prepare('UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?').run(fulfilled, it.inventory_item_id)
+        const vtSid = crypto.randomUUID()
+        db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id) VALUES(?,?,?,?,?,?,?)')
+          .run(it.inventory_item_id, 'void_reversal', fulfilled, `Queue cancel ticket #${row.ticket_id}`, deletedBy || null,
+               vtSid, invRow?.supabase_id || null)
+      }
     }
     db.prepare(`UPDATE queue SET status='cancelled', completed_at=? WHERE id=?`).run(now, id)
     // v2.10.3 — bump rev alongside status so Supabase trg_tickets_rev_guard accepts.
@@ -3889,6 +4020,12 @@ function queueDelete(id, deletedBy) {
     db.prepare(`INSERT OR IGNORE INTO queue_deletions (queue_id, ticket_id, doc_number, deleted_by, deleted_at, reason) VALUES (?,?,?,?,?,?)`)
       .run(id, row.ticket_id, row.doc_number || '', deletedBy || 'unknown', now, 'manual')
   })()
+  // v2.10.4 — auto-enqueue ANECF for voided e-CFs (audit E-C6).
+  // Outside the transaction — non-blocking. Dedup vs ticketVoid path is
+  // enforced by the UNIQUE(ncf) constraint on anecf_queue.
+  if (row.t_ncf) {
+    anecfQueueEnqueue({ ncf: row.t_ncf, ticketId: row.ticket_id, ticketSupabaseId: row.t_supabase_id })
+  }
   return { id, ticketId: row.ticket_id }
 }
 
@@ -4185,20 +4322,49 @@ function cuadreDailySummary(date) {
   const d = date || new Date().toISOString().slice(0, 10)
   const from = `${d}T00:00:00`
   const to   = `${d}T23:59:59`
-  const rows = db.prepare(
-    `SELECT payment_method, SUM(total) as sum FROM tickets
-     WHERE status='cobrado' AND created_at BETWEEN ? AND ?
-     GROUP BY payment_method`
+  // v2.10.4 — tickets with payment_parts (restaurant split bills) credit each
+  // part to its own bucket instead of lumping the whole total under the single
+  // ticket.payment_method. Per-row scan (not GROUP BY) so parts can split.
+  // ES/EN method codes normalize through the same alias map web.js uses.
+  const tickets = db.prepare(
+    `SELECT total, payment_method, payment_parts FROM tickets
+     WHERE status='cobrado' AND created_at BETWEEN ? AND ?`
   ).all(from, to)
+  const PM_ALIAS = {
+    cash: 'efectivo', efectivo: 'efectivo',
+    card: 'tarjeta',  tarjeta: 'tarjeta',
+    transfer: 'transferencia', transferencia: 'transferencia',
+    check: 'cheque',  cheque: 'cheque',
+    credit: 'credito', credito: 'credito',
+  }
   const result = { efectivo:0, tarjeta:0, transferencia:0, cheque:0, credito:0 }
-  for (const r of rows) result[r.payment_method] = r.sum || 0
-  const totals = db.prepare(
-    `SELECT SUM(total) as vendido,
-            SUM(CASE WHEN payment_method != 'credit' THEN total ELSE 0 END) as cobrado,
-            COUNT(*) as count
-     FROM tickets WHERE status='cobrado' AND created_at BETWEEN ? AND ?`
-  ).get(from, to)
-  return { ...result, totalVendido: totals?.vendido||0, totalCobrado: totals?.cobrado||0, count: totals?.count||0 }
+  let totalVendido = 0, totalCobrado = 0
+  for (const t of tickets) {
+    const tot = Number(t.total || 0)
+    totalVendido += tot
+    let parts = null
+    if (t.payment_parts) {
+      try {
+        const parsed = typeof t.payment_parts === 'string' ? JSON.parse(t.payment_parts) : t.payment_parts
+        if (Array.isArray(parsed) && parsed.length) parts = parsed
+      } catch { parts = null }
+    }
+    if (parts) {
+      for (const p of parts) {
+        const pm = PM_ALIAS[p?.method] || p?.method || 'efectivo'
+        const amt = Number(p?.amount || 0)
+        if (!(pm in result)) result[pm] = 0
+        result[pm] += amt
+        if (pm !== 'credito') totalCobrado += amt
+      }
+    } else {
+      const pm = PM_ALIAS[t.payment_method] || t.payment_method || 'efectivo'
+      if (!(pm in result)) result[pm] = 0
+      result[pm] += tot
+      if (pm !== 'credito') totalCobrado += tot
+    }
+  }
+  return { ...result, totalVendido, totalCobrado, count: tickets.length }
 }
 
 // ── NCF ───────────────────────────────────────────────────────────────────────
@@ -4593,6 +4759,86 @@ function ecfQueueIncrAttempts(id) {
 function ecfQueueCount() {
   if (!db) return 0
   return db.prepare(`SELECT COUNT(*) as c FROM ecf_queue WHERE created_at > datetime('now','-72 hours')`).get()?.c || 0
+}
+
+// ── ANECF auto-queue (v2.10.4) ───────────────────────────────────────────────
+// Every e-CF void enqueues one row; electron/main.js processAnecfQueue()
+// flushes pending rows to DGII. The NCF UNIQUE constraint guarantees a
+// single void of any given e-CF even if ticketVoid + queueDelete both fire.
+
+/** Is this NCF an e-CF (E31..E47) vs legacy paper (B01/B02)? */
+function isECF(ncf) {
+  if (!ncf || typeof ncf !== 'string') return false
+  // E + 2-digit tipo + 10-digit sequence = 13 chars total, e.g. E310000000001
+  return /^E\d{12}$/.test(ncf.trim())
+}
+
+/**
+ * Enqueue an ANECF for a voided e-CF. Fire-and-forget — never throws into
+ * the caller's transaction. Silently no-ops for legacy NCFs and duplicates.
+ * Returns the row id on insert, null on skip/error.
+ */
+function anecfQueueEnqueue({ ncf, ticketId, ticketSupabaseId, environment } = {}) {
+  if (!db) return null
+  if (!isECF(ncf)) return null
+  try {
+    const tipoEcf = ncf.substring(1, 3)           // '31','32','33','34',...
+    const rango = ncf                              // single-NCF range: desde == hasta
+    const env = environment || getSetting('dgii_environment') || 'certecf'
+    const sid = crypto.randomUUID()
+    const info = db.prepare(
+      `INSERT OR IGNORE INTO anecf_queue
+         (ticket_id, ticket_supabase_id, ncf, tipo_ecf, rango_desde, rango_hasta, environment, supabase_id)
+       VALUES (?,?,?,?,?,?,?,?)`
+    ).run(ticketId || null, ticketSupabaseId || null, ncf, tipoEcf, rango, rango, env, sid)
+    return info.changes > 0 ? info.lastInsertRowid : null
+  } catch (e) {
+    // Never block a void on queue insert failure — log and move on.
+    try { console.error('[anecfQueueEnqueue]', e.message, { ncf }) } catch {}
+    return null
+  }
+}
+
+function anecfQueueGetPending(limit = 10) {
+  if (!db) return []
+  return db.prepare(
+    `SELECT * FROM anecf_queue
+       WHERE status='pending' AND attempts < 500
+       ORDER BY voided_at ASC LIMIT ?`
+  ).all(limit)
+}
+
+function anecfQueueMarkSubmitted(id, trackId) {
+  if (!db) return
+  db.prepare(
+    `UPDATE anecf_queue
+       SET status='submitted', track_id=?, submitted_at=datetime('now'),
+           updated_at=datetime('now'), error=NULL
+     WHERE id=?`
+  ).run(trackId || null, id)
+}
+
+function anecfQueueMarkFailed(id, errMsg) {
+  if (!db) return
+  db.prepare(
+    `UPDATE anecf_queue
+       SET attempts = attempts + 1,
+           last_tried = datetime('now'),
+           updated_at = datetime('now'),
+           error = ?,
+           status = CASE WHEN attempts + 1 >= 500 THEN 'failed' ELSE 'pending' END
+     WHERE id=?`
+  ).run(String(errMsg || '').slice(0, 500), id)
+}
+
+function anecfQueueCount() {
+  if (!db) return 0
+  return db.prepare(`SELECT COUNT(*) as c FROM anecf_queue WHERE status='pending'`).get()?.c || 0
+}
+
+function anecfQueueList(limit = 100) {
+  if (!db) return []
+  return db.prepare(`SELECT * FROM anecf_queue ORDER BY voided_at DESC LIMIT ?`).all(limit)
 }
 
 // ── e-CF submissions log ──────────────────────────────────────────────────────
@@ -6449,6 +6695,9 @@ module.exports = {
   inventoryCountComplete, inventoryCountCancel, inventoryCountDelete,
   // e-CF offline queue
   ecfQueueAdd, ecfQueueGetPending, ecfQueueDelete, ecfQueueIncrAttempts, ecfQueueCount,
+  // ANECF auto-queue (v2.10.4 — audit E-C6)
+  anecfQueueEnqueue, anecfQueueGetPending, anecfQueueMarkSubmitted, anecfQueueMarkFailed,
+  anecfQueueCount, anecfQueueList, isECF,
   // e-CF submissions log
   ecfSubmissionAdd, ecfSubmissionUpdate, ecfSubmissionGetByTrackId, ecfSubmissionGetByTicket,
   ecfSubmissionGetPending, ecfSubmissionGetAll,

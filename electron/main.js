@@ -649,6 +649,90 @@ async function processDgiiQueue() {
   }
 }
 
+// ── ANECF auto-queue processor (v2.10.4, audit E-C6) ─────────────────────────
+// Runs alongside processDgiiQueue on a 60s tick. For every pending row:
+//   1. Build ANECF XML (single-NCF range: desde == hasta == row.ncf).
+//   2. Sign with cert (same xml-signer used by regular e-CF submit).
+//   3. Authenticate + submit to DGII (existing dgii-client.submitANECF).
+//   4. Mark submitted (+ trackId) or failed (bump attempts, store error).
+// Failures stay pending and retry on the next tick until 500 attempts,
+// at which point the row flips to 'failed' (requires manual intervention).
+let _anecfProcessing = false
+async function processAnecfQueue() {
+  if (!db) return
+  if (_anecfProcessing) return           // reentrancy guard — tick could overlap a slow DGII call
+  _anecfProcessing = true
+  try {
+    const pending = db.anecfQueueGetPending(10)
+    if (!pending.length) return
+
+    // Resolve emitter RNC once per batch. Missing RNC = hard stop: we
+    // cannot build a valid ANECF without it. We mark the batch failed
+    // with a descriptive error so the admin sees it.
+    const biz = db.empresaGet?.()
+    const rncEmisor = String(biz?.rnc || '').replace(/[-\s]/g, '')
+    if (!rncEmisor) {
+      for (const item of pending) {
+        try { db.anecfQueueMarkFailed(item.id, 'RNC del emisor no configurado') } catch {}
+      }
+      return
+    }
+
+    // Load cert once per batch — avoid re-reading .p12 for every row.
+    let privateKeyPem, certificatePem
+    try {
+      ({ privateKeyPem, certificatePem } = certManager.loadCert())
+    } catch (e) {
+      // No cert installed = can't ANECF anything yet. Don't bump attempts
+      // so these rows stay pending until the cert is installed.
+      console.warn('[anecf-queue] cert not loaded, deferring batch:', e.message)
+      return
+    }
+
+    // Authenticate once per batch — DGII tokens are reusable for a bit.
+    let token
+    try {
+      const env0 = pending[0].environment || getDgiiEnv()
+      token = await dgiiClient.authenticate(env0, privateKeyPem, certificatePem)
+    } catch (e) {
+      console.warn('[anecf-queue] auth failed, retrying batch later:', e.message)
+      for (const item of pending) {
+        try { db.anecfQueueMarkFailed(item.id, `auth: ${e.message}`) } catch {}
+      }
+      return
+    }
+
+    for (const item of pending) {
+      try {
+        const env = item.environment || getDgiiEnv()
+        const xml = xmlBuilder.buildANECFXml({
+          rncEmisor,
+          cantidadNCF: 1,                      // single-NCF range per void
+          rangoDesde: item.rango_desde,
+          rangoHasta: item.rango_hasta,
+        })
+        const { signedXml } = xmlSigner.signXML(xml, privateKeyPem, certificatePem)
+        const result = await dgiiClient.submitANECF(signedXml, token, env)
+        db.anecfQueueMarkSubmitted(item.id, result?.trackId || result?.encf || null)
+        console.log('[anecf-queue] submitted ANECF for', item.ncf, '→', result?.trackId || 'ok')
+      } catch (e) {
+        console.error('[anecf-queue] item', item.id, 'failed:', e.message)
+        try { db.anecfQueueMarkFailed(item.id, e.message) } catch {}
+      }
+    }
+  } finally {
+    _anecfProcessing = false
+  }
+}
+
+// Manual trigger + pending count for UI (optional DGII panel indicator).
+ipcMain.handle('dgii:process-anecf-queue', async () => {
+  try { await processAnecfQueue(); return { ok: true, pending: db?.anecfQueueCount?.() ?? 0 } }
+  catch (err) { return { ok: false, error: err.message } }
+})
+ipcMain.handle('dgii:anecf-queue-count', () => db ? db.anecfQueueCount() : 0)
+ipcMain.handle('dgii:anecf-queue-list', (_, limit) => db ? db.anecfQueueList(limit || 100) : [])
+
 const isDev = process.argv.includes('--dev') || process.env.NODE_ENV === 'development'
 
 // ── Hardware ID (MAC address + hostname fingerprint, stable per machine) ───────
@@ -917,6 +1001,12 @@ app.whenReady().then(async () => {
 
   // Retry any queued e-CF submissions every 30s (DGII 72h contingency compliance)
   setInterval(processDgiiQueue, 30_000)
+  // v2.10.4 — flush ANECF queue (auto-void of e-CFs) every 60s. Offset from
+  // processDgiiQueue so they don't fight for the same DGII auth window.
+  setTimeout(() => {
+    processAnecfQueue().catch(() => {})
+    setInterval(processAnecfQueue, 60_000)
+  }, 45_000)
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
