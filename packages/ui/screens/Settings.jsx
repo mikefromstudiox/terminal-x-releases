@@ -18,6 +18,12 @@ import { testConnection } from '@terminal-x/services/supabase.js'
 import ExportToCloud from '../components/ExportToCloud'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import { BUSINESS_TYPES, BUSINESS_TYPE_KEYS, isBusinessTypeEnabled } from '@terminal-x/config/businessTypes'
+import {
+  TIENDA_SUBTYPES,
+  TIENDA_SUBTYPE_KEYS,
+  TIENDA_FEATURE_LABELS,
+  subtypeFeaturePreset,
+} from '@terminal-x/config/tiendaSubtypes'
 import { setupBusinessType } from '@terminal-x/data/setupBusinessType'
 
 // ── Sidebar nav structure ─────────────────────────────────────────────────────
@@ -1215,7 +1221,11 @@ const BIZ_TYPE_OPTIONS = BUSINESS_TYPE_KEYS.map(key => {
 
 function PanelTipoNegocio({ onSave }) {
   const api = useAPI()
-  const { businessType, setBusinessType } = useBusinessType()
+  const {
+    businessType, setBusinessType, isTienda,
+    tiendaSubtype, subtypeConfig, setTiendaSubtype,
+    featureOverrides, setFeatureOverride, clearFeatureOverrides, hasFeature,
+  } = useBusinessType()
   const [selected, setSelected] = useState(businessType)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -1303,6 +1313,142 @@ function PanelTipoNegocio({ onSave }) {
           {saving ? 'Guardando...' : 'Guardar'}
         </button>
       </div>
+
+      {/* Tienda subtype template — only visible when base type is a tienda vertical. */}
+      {isTienda && (
+        <TiendaSubtypePanel
+          tiendaSubtype={tiendaSubtype}
+          subtypeConfig={subtypeConfig}
+          setTiendaSubtype={setTiendaSubtype}
+          featureOverrides={featureOverrides}
+          setFeatureOverride={setFeatureOverride}
+          clearFeatureOverrides={clearFeatureOverrides}
+          hasFeature={hasFeature}
+          onSave={onSave}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Tienda subtype panel ──────────────────────────────────────────────────────
+// Rendered below the business-type selector when base type is tienda/retail.
+// Lets the owner pick a subtype (licorería / farmacia / colmado / …) and
+// toggle individual features on/off. Toggles override the subtype preset
+// and persist as app_settings keys `feature_<name>_enabled`.
+function TiendaSubtypePanel({
+  tiendaSubtype, subtypeConfig, setTiendaSubtype,
+  featureOverrides, setFeatureOverride, clearFeatureOverrides, hasFeature,
+  onSave,
+}) {
+  const [savingSub, setSavingSub] = useState(false)
+  const current = tiendaSubtype || ''
+  const featuresForSubtype = subtypeConfig ? Object.keys(subtypeConfig.features) : []
+
+  async function handleSubtypeChange(next) {
+    if (!next || next === current) return
+    setSavingSub(true)
+    try {
+      await setTiendaSubtype(next)
+      onSave?.()
+    } finally {
+      setSavingSub(false)
+    }
+  }
+
+  async function handleToggle(featureName, nextEffective) {
+    // Writing an explicit override sets the key; leaving it at preset clears it.
+    const preset = subtypeFeaturePreset(tiendaSubtype, featureName)
+    if (preset === nextEffective) await setFeatureOverride(featureName, null)
+    else                          await setFeatureOverride(featureName, nextEffective)
+  }
+
+  return (
+    <div className="mt-10 pt-8 border-t border-slate-200 dark:border-white/10">
+      <SectionLabel>Tipo de tienda</SectionLabel>
+      <p className="text-xs text-slate-400 dark:text-white/40 mb-4">
+        Elige tu vertical de tienda — esto configura las funciones y categorías por defecto para tu negocio.
+        Puedes activar o desactivar funciones individualmente más abajo.
+      </p>
+
+      <div className="mb-6">
+        <select
+          value={current}
+          onChange={(e) => handleSubtypeChange(e.target.value)}
+          disabled={savingSub}
+          className="w-full sm:w-72 px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-700 dark:text-white focus:outline-none focus:border-blue-500 disabled:opacity-50"
+        >
+          <option value="">— Seleccionar —</option>
+          {TIENDA_SUBTYPE_KEYS.map(key => (
+            <option key={key} value={key}>{TIENDA_SUBTYPES[key].es}</option>
+          ))}
+        </select>
+      </div>
+
+      {subtypeConfig && featuresForSubtype.length > 0 && (
+        <div className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[13px] font-semibold text-slate-700 dark:text-white">
+              Funciones del template
+            </p>
+            <button
+              onClick={() => { clearFeatureOverrides(); onSave?.() }}
+              className="text-[11px] font-semibold text-slate-500 dark:text-white/50 hover:text-slate-700 dark:hover:text-white transition-colors"
+            >
+              Restablecer al template
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-400 dark:text-white/40 mb-4">
+            Los toggles anulan el preset del template. "Valor del template" indica la función está en su configuración por defecto.
+          </p>
+
+          <div className="divide-y divide-slate-100 dark:divide-white/5">
+            {featuresForSubtype.map(featureName => {
+              const preset = subtypeFeaturePreset(tiendaSubtype, featureName)
+              const hasOverride = Object.prototype.hasOwnProperty.call(featureOverrides, featureName)
+                                  && featureOverrides[featureName] !== ''
+              const effective = hasFeature(featureName)
+              const label = TIENDA_FEATURE_LABELS[featureName]?.es || featureName
+              return (
+                <div key={featureName} className="flex items-center justify-between py-3">
+                  <div className="flex-1 min-w-0 pr-4">
+                    <div className="flex items-center gap-2">
+                      <p className="text-[13px] font-semibold text-slate-700 dark:text-white">{label}</p>
+                      {!hasOverride && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide text-slate-500 dark:text-white/50 bg-slate-100 dark:bg-white/10">
+                          Valor del template
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 dark:text-white/40 mt-0.5">
+                      Preset: {preset ? 'activado' : 'desactivado'}
+                    </p>
+                  </div>
+                  <Toggle on={effective} onToggle={() => handleToggle(featureName, !effective)} />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {subtypeConfig && subtypeConfig.defaultCategories?.length > 0 && (
+        <div className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 p-4">
+          <p className="text-[13px] font-semibold text-slate-700 dark:text-white mb-2">
+            Categorías por defecto
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {subtypeConfig.defaultCategories.map(c => (
+              <span key={c} className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-white/70">
+                {c}
+              </span>
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-400 dark:text-white/40 mt-2">
+            Usadas como sugerencias al crear productos. Los productos existentes no se modifican.
+          </p>
+        </div>
+      )}
     </div>
   )
 }

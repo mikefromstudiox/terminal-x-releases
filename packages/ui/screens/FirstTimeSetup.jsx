@@ -15,6 +15,7 @@ import { getSupabaseClient, setStoredSetting, getStoredSetting, ensureBusinessRe
 import { withRetry, isSupabaseRetryable } from '@terminal-x/services/retry.js'
 import { humanizeNetworkError } from '@terminal-x/services/networkError.js'
 import { BUSINESS_TYPES, BUSINESS_TYPE_KEYS, isBusinessTypeEnabled } from '@terminal-x/config/businessTypes'
+import { TIENDA_SUBTYPES, TIENDA_SUBTYPE_KEYS } from '@terminal-x/config/tiendaSubtypes'
 
 // ── Bilingual copy ─────────────────────────────────────────────────────────────
 const COPY = {
@@ -744,6 +745,9 @@ const BIZ_TYPES = BUSINESS_TYPE_KEYS.map(key => {
 function StepEmpresa({ t, lang, onNext, onBack }) {
   const api = useAPI()
   const [bizType,  setBizType]  = useState('carwash')
+  // Tienda subtype — only used when bizType is a tienda vertical. Defaults
+  // to 'otro' so we always write something; owner refines it later in Settings.
+  const [tiendaSub, setTiendaSub] = useState('otro')
   const [nombre,   setNombre]   = useState('')
   const [rnc,      setRnc]      = useState('')
   const [dir,      setDir]      = useState('')
@@ -778,7 +782,16 @@ function StepEmpresa({ t, lang, onNext, onBack }) {
         email:   email.trim(),
         logo:    logo || undefined,
       })
-      await api?.settings?.update?.({ business_type: bizType })
+      // Seed tienda_subtype for any tienda-like vertical. For top-level
+      // licoreria / carniceria we lock the subtype to match; for retail
+      // the owner picked it explicitly above.
+      const tiendaLike = bizType === 'retail' || bizType === 'licoreria' || bizType === 'carniceria'
+      const subtypeToWrite = bizType === 'licoreria' ? 'licoreria'
+                           : bizType === 'carniceria' ? 'otro'
+                           : tiendaSub
+      const payload = { business_type: bizType }
+      if (tiendaLike) payload.tienda_subtype = subtypeToWrite
+      await api?.settings?.update?.(payload)
       onNext({ rnc: rnc.trim(), nombre: nombre.trim() })
     } catch (e) {
       setErr(e?.message || 'Error al guardar.')
@@ -836,6 +849,29 @@ function StepEmpresa({ t, lang, onNext, onBack }) {
               ))}
             </div>
           </div>
+
+          {/* Tienda subtype — only when retail/tienda was picked */}
+          {bizType === 'retail' && (
+            <div>
+              <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+                {lang === 'en' ? 'Store type' : 'Tipo de tienda'}
+              </label>
+              <select
+                value={tiendaSub}
+                onChange={(e) => setTiendaSub(e.target.value)}
+                className="w-full px-3 py-2.5 text-sm rounded-lg border border-zinc-700 bg-zinc-800 text-white focus:outline-none focus:border-red-500"
+              >
+                {TIENDA_SUBTYPE_KEYS.map(key => (
+                  <option key={key} value={key}>{TIENDA_SUBTYPES[key][lang] || TIENDA_SUBTYPES[key].es}</option>
+                ))}
+              </select>
+              <p className="text-[10px] text-zinc-500 mt-1.5">
+                {lang === 'en'
+                  ? 'Sets default categories and features. You can change this later in Settings.'
+                  : 'Configura categorías y funciones por defecto. Puedes cambiarlo luego en Configuración.'}
+              </p>
+            </div>
+          )}
 
           {/* Logo upload */}
           <div>

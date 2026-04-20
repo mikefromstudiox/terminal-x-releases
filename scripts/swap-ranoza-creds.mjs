@@ -53,6 +53,9 @@ async function main() {
     biz_name: NEW.bizName, biz_rnc: NEW.rnc, biz_phone: NEW.phone,
     biz_city: NEW.city, ciudad: NEW.city, biz_address: NEW.address,
     business_type: 'tienda', biz_business_type: 'tienda',
+    // v2.11 — tienda subtype template (licorería preset: age verification,
+    // Pedidos Ya, bottle deposit all on by default).
+    tienda_subtype: bizRow?.settings?.tienda_subtype || 'licoreria',
   }
   const { error: bErr } = await SB.from('businesses').update({
     name: NEW.bizName, rnc: NEW.rnc, phone: NEW.phone,
@@ -63,6 +66,7 @@ async function main() {
   console.log('4/6  Upserting app_settings KV rows…')
   const kv = [
     ['business_type', 'tienda'], ['biz_business_type', 'tienda'],
+    ['tienda_subtype', 'licoreria'],
     ['biz_name', NEW.bizName], ['biz_rnc', NEW.rnc],
     ['biz_phone', NEW.phone], ['biz_city', NEW.city],
     ['biz_address', NEW.address], ['itbis_pct', '18'],

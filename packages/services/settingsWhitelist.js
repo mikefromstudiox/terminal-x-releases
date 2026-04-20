@@ -20,6 +20,26 @@ export const BUSINESS_SETTING_KEYS = new Set([
   'pos_tab_order', 'pos_tab_hidden',
   'loyalty_enabled', 'loyalty_points_ratio', 'loyalty_redemption_ratio',
   'loyalty_tier_silver', 'loyalty_tier_gold', 'loyalty_tier_platinum',
+  // Tienda subtype template system — cloud-synced, business-wide.
+  'tienda_subtype',
+  'feature_age_verification_enabled',
+  'feature_pedidos_ya_enabled',
+  'feature_bottle_deposit_enabled',
+  'feature_mamajuana_tracking_enabled',
+  'feature_prescription_tracking_enabled',
+  'feature_expiry_alerts_enabled',
+  'feature_controlled_substance_log_enabled',
+  'feature_mixed_food_nonfood_enabled',
+  'feature_credit_sales_enabled',
+  'feature_pricing_by_weight_enabled',
+  'feature_deli_counter_enabled',
+  'feature_serial_number_tracking_enabled',
+  'feature_job_estimates_enabled',
+  'feature_school_packages_enabled',
+  'feature_size_variants_enabled',
+  'feature_color_variants_enabled',
+  // loyalty override (feature_loyalty_enabled) intentionally NOT added —
+  // reuse existing `loyalty_enabled` above for that feature.
 ])
 
 export const DEVICE_LOCAL_CLOUD_MIRROR_KEYS = new Set([

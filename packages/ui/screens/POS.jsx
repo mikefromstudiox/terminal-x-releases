@@ -1084,7 +1084,13 @@ function RetailPOS() {
   const { collapsed } = useLayout()
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { businessType, isRetail, isHybrid, isMechanic, isDealership, isLicoreria, licoreriaConfig, isCarniceria } = useBusinessType()
+  const { businessType, isRetail, isHybrid, isMechanic, isDealership, isLicoreria, licoreriaConfig, isCarniceria, hasFeature: hasBizFeature } = useBusinessType()
+  // v2.11 — Tienda subtype feature gates. `hasBizFeature()` returns the
+  // effective feature state honoring the tienda_subtype preset + any owner
+  // override. Falls back to legacy isLicoreria behavior for un-migrated tenants.
+  const ageVerificationEnabled = hasBizFeature('age_verification')
+  const pedidosYaEnabled       = hasBizFeature('pedidos_ya')
+  const bottleDepositEnabled   = hasBizFeature('bottle_deposit')
   const { hasFeature } = usePlan()
 
   // ── v2.7.1 — Multi-device ticket locks (Pro MAX) ───────────────────────────
@@ -1164,7 +1170,12 @@ function RetailPOS() {
   // `price_pedidos_ya` (fallback to `price`), and the resulting ticket is
   // stamped `order_source='pedidos_ya'`. Toggling mid-cart reprices untouched
   // lines (skip anything the cashier manually edited, gated by `_priceEdited`).
-  const pyAvailable = isRetail || isLicoreria
+  // v2.11 — gate Pedidos Ya on the tienda subtype feature flag so a
+  // farmacia / ferretería / boutique owner doesn't see the delivery
+  // toolbar. Retail/licoreria tenants without a subtype yet fall back to
+  // the legacy "visible for any retail-style vertical" behavior via
+  // hasBizFeature()'s isLicoreria fallback — safe for un-migrated tenants.
+  const pyAvailable = (isRetail || isLicoreria) && pedidosYaEnabled
   const [pyMode, setPyMode] = useState(false)
 
   // ── v2.5 — Per-client inventory overrides ────────────────────────────────
@@ -1439,7 +1450,7 @@ function RetailPOS() {
     // Licorería — if this item is age-restricted and we haven't verified yet
     // for this ticket, park it and pop the modal. The cashier either confirms
     // (we then add the item) or cancels (we drop it).
-    if (isLicoreria && !ageVerified && requiresAgeCheck(licoreriaConfig, product)) {
+    if (ageVerificationEnabled && !ageVerified && requiresAgeCheck(licoreriaConfig, product)) {
       setPendingAgeItem(product)
       return
     }
@@ -1488,7 +1499,7 @@ function RetailPOS() {
         // Licorería metadata — bottle deposit flows through to the ticket line
         // as a separate synthetic item in handlePaymentConfirm().
         bottle_deposit: Number(product.bottle_deposit || 0) || 0,
-        age_restricted: isLicoreria ? requiresAgeCheck(licoreriaConfig, product) : false,
+        age_restricted: ageVerificationEnabled ? requiresAgeCheck(licoreriaConfig, product) : false,
       }]
     })
     if (stockCapped) flash(lang === 'es' ? `Stock maximo (${nextQty}) — ${product.name}` : `Max stock (${nextQty}) — ${product.name}`)
@@ -1525,7 +1536,7 @@ function RetailPOS() {
   // for licoreria. Each deposit line is non-ITBIS, qty-matched, and carries a
   // `bottle_deposit: true` flag so printer / PDF / reports can segregate it.
   function expandCartWithDeposits(items) {
-    if (!isLicoreria || !licoreriaConfig?.bottleDeposit?.enabled) return items
+    if (!bottleDepositEnabled || !licoreriaConfig?.bottleDeposit?.enabled) return items
     const lineLabel = licoreriaConfig.bottleDeposit.lineLabel?.[lang] ||
                       licoreriaConfig.bottleDeposit.lineLabel?.es || 'Depósito de botella'
     const out = []

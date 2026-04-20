@@ -32,6 +32,7 @@ async function main() {
   const settings = {
     ...(biz.settings || {}),
     business_type: 'tienda',
+    tienda_subtype: 'licoreria',
     biz_name: BIZ_NAME, biz_phone: BIZ_PHONE,
     ciudad: BIZ_CITY, biz_city: BIZ_CITY,
     language: 'es',
