@@ -1664,6 +1664,61 @@ export function createWebAPI(supabase, businessId) {
         }
       }),
 
+      // v2.7.1 — ledger-backed loyalty (calls SECURITY DEFINER RPCs)
+      loyaltyAward: async ({ clientSupabaseId, ticketSupabaseId, points, notes }) => {
+        if (!clientSupabaseId || !points) return 0
+        try {
+          const { data, error } = await supabase.rpc('loyalty_award', {
+            p_business_id:        bid,
+            p_client_supabase_id: clientSupabaseId,
+            p_ticket_supabase_id: ticketSupabaseId || null,
+            p_points:             Number(points) || 0,
+            p_notes:              notes || null,
+          })
+          if (error) return 0
+          return Number(data) || 0
+        } catch { return 0 }
+      },
+      loyaltyRedeem: async ({ clientSupabaseId, ticketSupabaseId, points, notes }) => {
+        if (!clientSupabaseId || !points) return { ok: false, reason: 'invalid_amount' }
+        try {
+          const { data, error } = await supabase.rpc('loyalty_redeem', {
+            p_business_id:        bid,
+            p_client_supabase_id: clientSupabaseId,
+            p_ticket_supabase_id: ticketSupabaseId || null,
+            p_points:             Number(points) || 0,
+            p_notes:              notes || null,
+          })
+          if (error) return { ok: false, reason: error.message || 'rpc_error' }
+          const bal = Number(data)
+          if (bal < 0) return { ok: false, reason: 'insufficient' }
+          return { ok: true, balance: bal }
+        } catch (e) { return { ok: false, reason: e?.message || 'error' } }
+      },
+      loyaltyAdjust: async ({ clientSupabaseId, delta, notes }) => {
+        if (!clientSupabaseId) return 0
+        try {
+          const { data, error } = await supabase.rpc('loyalty_adjust', {
+            p_business_id:        bid,
+            p_client_supabase_id: clientSupabaseId,
+            p_delta:              Number(delta) || 0,
+            p_notes:              notes || null,
+          })
+          if (error) return 0
+          return Number(data) || 0
+        } catch { return 0 }
+      },
+      loyaltyHistory: ({ clientSupabaseId, limit = 100 } = {}) => tryOr(async () => {
+        if (!clientSupabaseId) return []
+        const { data } = await supabase.from('loyalty_transactions')
+          .select('id, supabase_id, ticket_supabase_id, event_type, points, balance_after, notes, created_at')
+          .eq('business_id', bid)
+          .eq('client_supabase_id', clientSupabaseId)
+          .order('created_at', { ascending: false })
+          .limit(Math.max(1, Math.min(500, Number(limit) || 100)))
+        return data || []
+      }, []),
+
       openTickets: (clientId) => tryOr(async () => {
         // clientId is a Supabase row UUID — match either the row id or supabase_id
         // to remain backward compatible with both call sites.

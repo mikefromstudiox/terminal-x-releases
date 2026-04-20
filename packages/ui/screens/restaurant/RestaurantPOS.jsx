@@ -685,9 +685,10 @@ export default function RestaurantPOS() {
     setSplitModal({ total })
   }
 
-  // NOTE: the ticket API currently persists a single payment_method per ticket.
-  // We record the full parts[] array locally and set the primary method to parts[0].method.
-  // When the backend supports multi-payment, pass `parts` directly to api.tickets.create.
+  // v2.10.4 — backend now persists `payment_parts` as JSONB on tickets, so the
+  // full parts[] array is stored on the ticket row (not just parts[0].method).
+  // Cuadre + DGII 606 split cash/card correctly. parts[0].method is still set
+  // as the ticket's primary payment_method for single-method legacy readers.
   const handleSplitPay = async (parts) => {
     try {
       setBusy('Registrando pagos...')

@@ -1386,7 +1386,9 @@ function updatePullLog(tableName, lastPullAt) {
 
 // -- JSON columns that need stringify when inserting into SQLite ---------------
 // v2.1: washer_ids → washer_empleado_supabase_ids (JSON array of empleado UUIDs).
-const JSON_COLUMNS = new Set(['ecf_result', 'washer_empleado_supabase_ids', 'ticket_ids', 'denominaciones', 'services_json', 'metadata', 'services'])
+// v2.10.4: payment_parts is JSONB on Supabase, TEXT (JSON string) on SQLite.
+// Pull path must stringify the inbound array before binding to SQLite.
+const JSON_COLUMNS = new Set(['ecf_result', 'washer_empleado_supabase_ids', 'ticket_ids', 'denominaciones', 'services_json', 'metadata', 'services', 'payment_parts'])
 
 function sqliteValue(col, val) {
   if (val == null) return null

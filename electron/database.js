@@ -6782,6 +6782,8 @@ module.exports = {
   adelantoCreate, adelantoList, adelantosByEmpleado, adelantoPendingTotal, adelantoDeduct, adelantoCancel, adelantoSummary,
   // Clients
   clientsGetAll, clientGetById, clientCreate, clientUpdate, clientUpdateBalance, clientAddLoyaltyPoints, clientGetOpenTickets, collectCredit,
+  // v2.7.1 — Loyalty program (ledger)
+  loyaltyAward, loyaltyRedeem, loyaltyAdjust, loyaltyHistory,
   // Tickets
   ticketsGetAll, ticketGetById, ticketCreate, ticketMarkPaid, ticketVoid, ticketGetByDateRange,
   // Price changes
