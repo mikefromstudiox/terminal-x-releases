@@ -278,6 +278,11 @@ const SISTEMA_DEFAULTS = {
   go_live_date:         '',
   // v2.7.1 — daily owner digest (Pro MAX). OFF by default.
   daily_digest_enabled: '0',
+  // v2.6.2 — Kiosk auto-lock (idle timeout). OFF by default. Owner-configurable.
+  // When enabled, N minutes of no input triggers a PIN overlay that gates the
+  // terminal without flushing the session (cart, route, modals all survive).
+  kiosk_auto_lock_enabled: '0',
+  kiosk_auto_lock_minutes: '10',
 }
 
 // Shared settings hook — loads cfg from DB once, provides set/save
@@ -308,6 +313,9 @@ function useSettings() {
     setSaving(true)
     try {
       await api.settings.update(cfg)
+      // Notify in-app listeners (e.g. KioskProvider) that settings changed so
+      // they can reload without a full page refresh.
+      try { window.dispatchEvent(new CustomEvent('tx:settings-updated')) } catch {}
       setSaved(true)
       show(lang === 'es' ? 'Guardado' : 'Saved')
       setTimeout(() => setSaved(false), 2500)
@@ -580,6 +588,35 @@ export function Preferencias() {
           </>
         )}
       </SettingSection>
+
+      {isOwner && (
+        <SettingSection title={L('Kiosco / Auto-bloqueo', 'Kiosk / Auto-Lock')}>
+          <SettingRow
+            settingKey="kiosk_auto_lock_enabled"
+            label={L('Auto-bloqueo por inactividad', 'Auto-lock on inactivity')}
+            hint={L(
+              'Si el cajero se aleja, el POS exige su PIN para continuar. No cierra la sesión — vuelve exactamente donde estaba.',
+              'If the cashier walks away, the POS requires their PIN to continue. Does not sign out — resumes exactly where they were.',
+            )}
+          >
+            <Toggle enabled={on('kiosk_auto_lock_enabled')} onChange={v => set('kiosk_auto_lock_enabled', v ? '1' : '0')} />
+          </SettingRow>
+          {on('kiosk_auto_lock_enabled') && (
+            <SettingRow
+              settingKey="kiosk_auto_lock_minutes"
+              label={L('Minutos de inactividad', 'Idle minutes')}
+              hint={L('Entre 1 y 120. Recomendado: 10.', 'Between 1 and 120. Recommended: 10.')}
+            >
+              <Input
+                type="number" min="1" max="120" step="1"
+                value={cfg.kiosk_auto_lock_minutes ?? '10'}
+                onChange={e => set('kiosk_auto_lock_minutes', e.target.value)}
+                className="w-24 text-center"
+              />
+            </SettingRow>
+          )}
+        </SettingSection>
+      )}
 
       <div className="flex justify-end mt-2">
         <SaveBtn saving={saving} saved={saved} label={L('Guardar', 'Save')} onClick={handleSave} />

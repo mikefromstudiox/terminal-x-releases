@@ -28,6 +28,7 @@ import { useAuth } from './context/AuthContext'
 import { useLicense } from './context/LicenseContext'
 import Layout from './components/Layout'
 import UpdateBanner from './components/UpdateBanner'
+import KioskLock from './components/KioskLock'
 import ErrorBoundary from './components/ErrorBoundary'
 import PlanGate from './components/PlanGate'
 
@@ -260,6 +261,7 @@ export default function App() {
       </Suspense>
       </ErrorBoundary>
     </Layout>
+    <KioskLock />
     </>
   )
 }

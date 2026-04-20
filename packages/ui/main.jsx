@@ -8,6 +8,7 @@ import { LicenseProvider } from './context/LicenseContext'
 import { DataProvider } from './context/DataContext'
 import { PlanProvider } from './hooks/usePlan.jsx'
 import { BusinessTypeProvider } from './hooks/useBusinessType.jsx'
+import { KioskProvider } from './context/KioskContext'
 import { createElectronAPI, createElectronPrinterAPI, isElectron } from '@terminal-x/data/electron'
 import { createWebAPI, createWebPrinterAPI } from '@terminal-x/data/web'
 import './index.css'
@@ -33,7 +34,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <LicenseProvider>
               <PlanProvider>
                 <BusinessTypeProvider>
-                  <App />
+                  <KioskProvider>
+                    <App />
+                  </KioskProvider>
                 </BusinessTypeProvider>
               </PlanProvider>
             </LicenseProvider>

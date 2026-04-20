@@ -58,6 +58,8 @@ const DEVICE_LOCAL_CLOUD_MIRROR_KEYS = new Set([
   'print_preticket',
   'kiosk_mode',
   'kiosk_exit_pin',
+  'kiosk_auto_lock_enabled',
+  'kiosk_auto_lock_minutes',
   'default_form_pago',    // cashier's preferred default payment method
   'ncf_block_size',       // multi-POS block sizes (per-device config)
   'doc_block_size',

@@ -50,6 +50,8 @@ export const DEVICE_LOCAL_CLOUD_MIRROR_KEYS = new Set([
   'print_preticket',
   'kiosk_mode',
   'kiosk_exit_pin',
+  'kiosk_auto_lock_enabled',
+  'kiosk_auto_lock_minutes',
   'default_form_pago',
   'ncf_block_size',
   'doc_block_size',
