@@ -3,15 +3,43 @@
 ## What This App Is
 Full-featured desktop POS for the Dominican Republic market, resold to multiple clients. Flagship differentiator: 100% working e-CF (electronic fiscal receipts) per Ley 32-23.
 
-## Current Release — v2.6.1 (2026-04-19)
-Shipped in one afternoon on top of v2.3.33 (restaurant sync hardening + users VIEW fix):
-- **v2.4.0** — Retail POS categorization (category tabs with count badges) + Pedidos Ya channel pricing (one-click toggle, per-channel price override, `order_source` stamped on tickets).
-- **v2.4.1** — 1024px cash-register grid fix (lg: 4-col → 3-col so full service names fit).
-- **v2.5.0** — Per-client custom item prices (wholesale, `client_item_prices` table, precedence: client override > Pedidos Ya > base) + Conteo Fisico + variance report (blind count sheet PDF, category-grouped entry, variance CSV, severity-scaled activity log).
-- **v2.6.0** — Manager Authorization Card system: Code128 barcode + PIN printed on a PDF card, gates voids/credit-notes/sensitive ops via `ManagerAuthGate`, `managerAuthToken.js` signing, full audit trail. `web/api/staff-verify-auth.js` for web parity.
-- **v2.6.1** — CxC ghost-balance fix: ticket delete/void now reverses client balance + commissions.
+## Current Release — v2.12.0 (2026-04-19 night → 2026-04-20)
+- **v2.4.0** — Retail POS categorization (tabs + count badges) + Pedidos Ya channel pricing (one-click toggle, `order_source` stamped on tickets).
+- **v2.4.1** — 1024px cash-register grid fix.
+- **v2.5.0** — Per-client pricing (`client_item_prices`, precedence: client > PY > base) + Conteo Físico + variance report PDF/CSV + severity-scaled activity log.
+- **v2.6.0** — Manager Authorization Card system (Code128 barcode cards, `ManagerAuthGate`, PIN fallback, audit trail).
+- **v2.6.1** — CxC ghost-balance fix.
+- **v2.7.0** — POS 2-row category tabs + drag-reorder + hide + cloud-sync (`pos_tab_order`, `pos_tab_hidden`).
+- **v2.10.x** — CSP strict-dynamic, tickets.rev concurrency, CSRF groundwork, restaurant split-payment parts persistence, inventory oversells ledger, DGII cert expiry alerts, persistent rate limiting.
+- **v2.11.0** — Cart-line price edit + Returns flow + persistent strike counter + multi-device ticket locks (Pro MAX) + daily owner digest (Pro MAX) + loyalty points (Pro PLUS/MAX) + offline PWA (Pro MAX) + full RLS audit completion.
+- **v2.11.1** / **v2.11.2** — hardening sprints.
+- **v2.12.0** — **Tienda subtype templates** (licorería/farmacia/colmado/supermercado/ferretería/papelería/boutique/otro with feature flags + default categories) + `loyalty_transactions` sync desktop↔cloud + admin panel Lealtad/Digest visibility + Terminal X vs STARSISA sales PDF + demo re-seed with v2.11 state + 22/22 Ranoza E2E smoke harness.
 
-Pedidos Ya branding: wordmark on channel toggle + brand pink `#FA0050` (POS only — Studio X sites remain strict crimson/black/white).
+Brand: crimson `#b3001e`/black/white only across Studio X sites. Pedidos Ya pink `#FA0050` appears ONLY inside POS on the PY channel toggle.
+
+## Tienda Subtype System (v2.12 architecture)
+`tienda` is the base business_type. Verticals are **subtypes** chosen via `app_settings.tienda_subtype` (licoreria/farmacia/colmado/supermercado/ferreteria/papeleria/boutique/otro). Each subtype is a template at `packages/config/tiendaSubtypes.js` with:
+- `features`: map of `{feature_name: boolean}` defaults (age_verification, pedidos_ya, bottle_deposit, prescription_tracking, credit_sales, pricing_by_weight, deli_counter, etc.)
+- `defaultCategories`: suggested category list for the vertical
+- `es` / `en` display names
+
+Owner overrides a feature per business via `app_settings.feature_<name>_enabled = 'true' | 'false'`. `useBusinessType()` exposes `hasFeature(name)` which reads override first then falls back to subtype preset. When adding a new feature gate, prefer `hasFeature('xxx')` over `isLicoreria`/`isRetail` hardcoded checks.
+
+## Plan gating quick-reference (v2.12)
+| Feature key | Pro | Pro PLUS | Pro MAX | Notes |
+|---|---|---|---|---|
+| pos / queue / clients / credits / inventory (basic) | ✓ | ✓ | ✓ | core POS |
+| reports | — | ✓ | ✓ | includes products report + margin ITBIS-net |
+| credit_notes (also gates Returns) | — | ✓ | ✓ | |
+| ecf / dgii | — | ✓ | ✓ | |
+| petty_cash / cash_recon | — | ✓ | ✓ | |
+| loyalty | — | ✓ | ✓ | per-client points + tiers |
+| commissions | — | — | ✓ | |
+| whatsapp_receipts | — | — | ✓ | |
+| remote_dashboard | — | — | ✓ | also gates activity badge + daily digest |
+| multi_location | — | — | ✓ | gates ticket locks |
+| offline_mode | — | — | ✓ | gates service worker registration |
+Gating lives in `packages/ui/hooks/usePlan.jsx` — add new keys there.
 
 ## Tech Stack
 - **Electron 41** — desktop shell, IPC bridge
@@ -118,6 +146,11 @@ cp web/lib/xml-builder.js web/lib/xml-signer.js web/lib/dgii-client.js web/lib/r
 echo '{"projectId":"prj_AjhpUcrbNGuSWZrs9CLxQmKkGXnL","orgId":"team_J0ZQKmOPRiXDLC7I1RA00PM9"}' > dist-web/.vercel/project.json
 cd dist-web && npm install --silent && npx vercel --prod --yes
 ```
+
+## Desktop Release Gotchas (learned the hard way v2.11/2.12)
+- **`gh release upload` reports 404 on 220MB .exe but the upload actually succeeds.** Always verify with `gh release view v<ver> --json assets` before retrying — a retry fails with `already_exists`. Pattern: create release first, upload assets separately, verify list.
+- **`npm run dev` races `dist:win`.** If the Electron dev server is running in another terminal, it watches `dist/` and overwrites the freshly-built installer within ~30 s. Workaround: immediately after `npm run dist:win`, copy the 3 artifacts (.exe, latest.yml, .blockmap) into a `release-staging/` folder, then release from there. Delete staging after.
+- **Vercel Hobby cap: 12/12 functions.** Reached in v2.11. No new files in `web/api/` allowed — consolidate new endpoints into `web/api/panel.js?action=<name>` pattern and add a case to the switch.
 
 ## Hostinger VPS (root@srv1528760, 187.124.152.42)
 Hosts DGII e-CF Receiver (fe.terminalxpos.com, Express:3100) and Content X. Claude Code installed — SSH in and run `claude`.
