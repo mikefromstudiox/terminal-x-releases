@@ -3090,6 +3090,70 @@ export function createWebAPI(supabase, businessId) {
         }
         return { ...result, totalVendido, totalCobrado, count: rows.length }
       }, { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0, totalVendido: 0, totalCobrado: 0, count: 0 }),
+
+      // v2.6.2 — Apertura de Turno.
+      // Resolves the open shift row for a given staff/empleado id. Web uses
+      // empleado supabase_id (the canonical FK); we accept either user_id
+      // (numeric staff id) or cajero_supabase_id (string).
+      getOpen: ({ user_id, cajero_id, cajero_supabase_id } = {}) => tryOr(async () => {
+        const today = new Date().toISOString().slice(0, 10)
+        let q = supabase.from('cuadre_caja')
+          .select('*')
+          .eq('business_id', bid)
+          .eq('date', today)
+          .eq('status', 'abierto')
+          .order('id', { ascending: false })
+          .limit(1)
+        if (cajero_supabase_id) q = q.eq('cajero_supabase_id', cajero_supabase_id)
+        else if (cajero_id || user_id) q = q.eq('cajero_id', cajero_id || user_id)
+        else return null
+        const { data } = await q
+        return (data && data[0]) || null
+      }, null),
+
+      openShift: ({ user_id, cajero_id, cajero_supabase_id, opening_cash, opened_at } = {}) => tryWrite(async () => {
+        const when = opened_at || new Date().toISOString()
+        const today = when.slice(0, 10)
+        const fondo = Number(opening_cash || 0)
+        // Idempotent: if one is already open, return it.
+        const existing = await (async () => {
+          try {
+            let q = supabase.from('cuadre_caja')
+              .select('id, supabase_id')
+              .eq('business_id', bid)
+              .eq('date', today)
+              .eq('status', 'abierto')
+              .order('id', { ascending: false })
+              .limit(1)
+            if (cajero_supabase_id) q = q.eq('cajero_supabase_id', cajero_supabase_id)
+            else if (cajero_id || user_id) q = q.eq('cajero_id', cajero_id || user_id)
+            const { data } = await q
+            return data && data[0]
+          } catch { return null }
+        })()
+        if (existing?.id) return { id: existing.id, supabase_id: existing.supabase_id, existed: true }
+        const sid = crypto.randomUUID()
+        const row = throwSupaError(await supabase.from('cuadre_caja').insert({
+          business_id: bid,
+          cajero_id: cajero_id || user_id || null,
+          cajero_supabase_id: cajero_supabase_id || null,
+          date: today,
+          fondo,
+          opening_cash: fondo,
+          opened_at: when,
+          status: 'abierto',
+          supabase_id: sid,
+          denominaciones: '{}',
+        }).select('id').single())
+        try {
+          await logActivity({ event_type: 'shift_opened', severity: 'info',
+            target_type: 'cuadre_caja', target_id: row?.id || null,
+            target_name: `Turno ${today}`,
+            amount: fondo, reason: 'Apertura de turno',
+            metadata: { opening_cash: fondo, opened_at: when } })
+        } catch {}
+        return { id: row?.id || null, supabase_id: sid, existed: false }
+      }),
     },
 
     // ── NCF ──────────────────────────────────────────────────────────────────

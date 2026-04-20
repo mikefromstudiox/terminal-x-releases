@@ -4,6 +4,7 @@ import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, Shop
 import AgeVerifyModal, { requiresAgeCheck } from '../components/AgeVerifyModal'
 import WeightModal from '../components/WeightModal'
 import ManagerAuthGate from '../components/ManagerAuthGate'
+import AperturaTurnoModal from '../components/AperturaTurnoModal'
 import { needsGate } from '@terminal-x/services/managerGateRules'
 import { useLang } from '../i18n'
 import { useLayout } from '../context/LayoutContext'
@@ -2798,12 +2799,102 @@ function HybridPOS() {
   )
 }
 
+// v2.6.2 — Apertura de Turno gate.
+// Before routing to the vertical-specific POS screen we check that the logged-in
+// cashier has declared their opening cash for today. If not, we render the
+// Apertura modal and block the POS underneath. Skipped for:
+//   - kiosk/demo contexts (business setting kiosk_mode=1 or owner opt-out)
+//   - facturación-only plans (never touch cash)
+//   - users whose empleado.tipo has no cash responsibility (lavador/vendedor)
+//   - owner/manager in first-time-setup before any empleados exist
+function AperturaTurnoGate({ children }) {
+  const api = useAPI()
+  const { user } = useAuth()
+  const [ready, setReady] = useState(false)
+  const [needsOpen, setNeedsOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        // No user / web-setup owner: skip
+        if (!user?.id || user.id === 'web') { if (!cancelled) setReady(true); return }
+        // Settings: owner escape + kiosk/demo skip
+        let skip = false
+        try {
+          const s = await api?.settings?.get?.()
+          if (s && (String(s.skip_apertura_prompt) === '1' || String(s.kiosk_mode) === '1')) skip = true
+        } catch {}
+        if (skip) { if (!cancelled) setReady(true); return }
+        // Role filter: only cashier / owner / manager / hybrid need apertura.
+        // Lavador/vendedor-only staff who never touch the register are exempt.
+        let cashFacing = true
+        try {
+          const emps = await api?.empleados?.all?.()
+          if (Array.isArray(emps) && user.employee_id) {
+            const emp = emps.find(e => e.id === user.employee_id)
+            const tipo = String(emp?.tipo || '').toLowerCase()
+            if (tipo && ['lavador', 'vendedor'].includes(tipo)) cashFacing = false
+          }
+        } catch {}
+        if (!cashFacing) { if (!cancelled) setReady(true); return }
+        // Look for open shift
+        try {
+          const open = await api?.cuadre?.getOpen?.({ user_id: user.id, cajero_id: user.id })
+          if (!cancelled) {
+            setNeedsOpen(!open)
+            setReady(true)
+          }
+        } catch {
+          if (!cancelled) setReady(true)
+        }
+      } catch {
+        if (!cancelled) setReady(true)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [api, user?.id, user?.employee_id])
+
+  async function handleOpen(opening_cash) {
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      await api?.cuadre?.openShift?.({ user_id: user.id, cajero_id: user.id, opening_cash, opened_at: new Date().toISOString() })
+      setNeedsOpen(false)
+    } catch (e) {
+      // Surface the error by re-prompting; keep modal open.
+      console.error('[apertura]', e)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (!ready) return null
+  return (
+    <>
+      {children}
+      {needsOpen && (
+        <AperturaTurnoModal
+          userName={user?.name || ''}
+          onConfirm={handleOpen}
+          submitting={submitting}
+        />
+      )}
+    </>
+  )
+}
+
 export default function POS() {
   const { isRetail, isRestaurant, isHybrid, isPrestamos } = useBusinessType()
   const { plan } = usePlan()
   if (plan === 'facturacion') return <Navigate to="/invoicing" replace />
-  if (isHybrid) return <HybridPOS />
-  if (isRestaurant) return <RestaurantPOS />
-  if (isPrestamos) return <LendingDashboard />
-  return isRetail ? <RetailPOS /> : <CarWashPOS />
+  const inner = isHybrid
+    ? <HybridPOS />
+    : isRestaurant
+      ? <RestaurantPOS />
+      : isPrestamos
+        ? <LendingDashboard />
+        : isRetail ? <RetailPOS /> : <CarWashPOS />
+  return <AperturaTurnoGate>{inner}</AperturaTurnoGate>
 }

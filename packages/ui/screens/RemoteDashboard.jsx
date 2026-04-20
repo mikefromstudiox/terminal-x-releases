@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Globe, Eye, WifiOff, RefreshCw, TrendingUp, ReceiptText, Banknote, CreditCard, ArrowRightLeft, Clock,
-  Activity, UserX, Tag, XCircle, Wallet, Percent, Package, PiggyBank, Scale, Lock, ChevronDown, ChevronUp, ClipboardList } from 'lucide-react'
+  Activity, UserX, Tag, XCircle, Wallet, Percent, Package, PiggyBank, Scale, Lock, ChevronDown, ChevronUp, ClipboardList, Sunrise } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
@@ -539,6 +539,7 @@ const EVENT_META = {
   inventory_count_completed: { Icon: ClipboardList, color: 'text-slate-700 bg-slate-100 dark:bg-white/10 dark:text-white/80', es: 'Conteo fisico',        en: 'Physical count' },
   caja_chica_withdrawal: { Icon: PiggyBank,color: 'text-blue-600 bg-blue-50 dark:bg-blue-500/10 dark:text-blue-300',    es: 'Retiro caja chica',         en: 'Petty cash withdrawal' },
   cuadre_discrepancy:    { Icon: Scale,    color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Descuadre en caja',         en: 'Cash reconciliation discrepancy' },
+  shift_opened:          { Icon: Sunrise,  color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-300', es: 'Apertura de turno',    en: 'Shift opened' },
   permission_denied:     { Icon: XCircle,  color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Permiso denegado',          en: 'Permission denied' },
   user_pin_changed:      { Icon: Lock,     color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'PIN de usuario cambiado',   en: 'User PIN changed' },
   user_hard_deleted:     { Icon: UserX,    color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Usuario eliminado (definitivo)', en: 'User hard deleted' },
@@ -646,6 +647,7 @@ const FILTER_CHIPS = [
   { id: 'counts',   es: 'Conteos',      en: 'Counts',       types: ['inventory_count_completed'] },
   { id: 'caja',     es: 'Caja Chica',   en: 'Petty Cash',   types: ['caja_chica_withdrawal'] },
   { id: 'cuadre',   es: 'Cuadre',       en: 'Reconciliation', types: ['cuadre_discrepancy'] },
+  { id: 'turnos',   es: 'Turnos',       en: 'Shifts',       types: ['shift_opened'] },
   { id: 'mgr',      es: 'Gerente',      en: 'Manager',      types: ['manager_override','manager_card_rotated','manager_card_revoked'] },
 ]
 

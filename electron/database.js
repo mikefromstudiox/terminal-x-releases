@@ -44,14 +44,26 @@ function bcryptComparePin(pin, salt, hash) {
 const PIN_MAX_FAILED_ATTEMPTS = 5
 const PIN_LOCKOUT_MS = 5 * 60 * 1000
 
+// v2.13 — at-rest encryption via better-sqlite3-multiple-ciphers (SQLCipher-
+// compatible AES-256). API-identical fork of better-sqlite3, so every sync call
+// in this 6k-line file keeps working byte-for-byte. If the ciphers fork ever
+// fails to load we fall back to stock better-sqlite3 so the POS doesn't brick.
 let Database
 let dbLoadError = null
+let dbEngine    = null
 try {
-  Database = require('better-sqlite3')
-} catch (err) {
-  dbLoadError = err.message
-  console.error('[db] better-sqlite3 not available:', err.message)
-  Database = null
+  Database = require('better-sqlite3-multiple-ciphers')
+  dbEngine = 'ciphers'
+} catch (err1) {
+  try {
+    Database = require('better-sqlite3')
+    dbEngine = 'plain'
+    console.warn('[db] ciphers fork unavailable, using plain better-sqlite3:', err1.message)
+  } catch (err2) {
+    dbLoadError = err2.message
+    console.error('[db] no sqlite driver available:', err2.message)
+    Database = null
+  }
 }
 
 let db = null
@@ -61,14 +73,102 @@ let dbInitError = null
 function isReady() { return !!db }
 function getError() { return dbInitError || dbLoadError || null }
 
-function init(userDataPath) {
+// v2.13 — first-boot encryption migration.
+// Detects a plaintext DB (readable without a key), rewrites it as an encrypted
+// DB via SQLCipher's `sqlcipher_export` to an attached encrypted target, then
+// atomically swaps files. Keeps a .plaintext.bak for one boot so a failed
+// migration can be recovered. Idempotent: already-encrypted DBs short-circuit.
+function ensureEncrypted(dbPath, keyHex) {
+  if (!fs.existsSync(dbPath)) return { ok: true, migrated: false, reason: 'no-db' }
+
+  // Probe: can we open without a key?
+  let plaintext = false
+  let probe = null
+  try {
+    probe = new Database(dbPath, { fileMustExist: true })
+    probe.prepare('SELECT count(*) FROM sqlite_master').get()
+    plaintext = true
+  } catch { plaintext = false }
+  finally { try { probe && probe.close() } catch {} }
+
+  if (!plaintext) return { ok: true, migrated: false, reason: 'already-encrypted' }
+
+  console.log('[db] plaintext DB detected, running first-boot encryption migration...')
+  const bakPath = dbPath + '.plaintext.bak'
+  const encPath = dbPath + '.enc.tmp'
+  try { fs.copyFileSync(dbPath, bakPath) } catch (err) { return { ok: false, error: 'backup failed: ' + err.message } }
+  try { fs.existsSync(encPath) && fs.unlinkSync(encPath) } catch {}
+
+  try {
+    const src = new Database(dbPath)
+    src.exec(`ATTACH DATABASE '${encPath.replace(/'/g, "''")}' AS encrypted KEY "x'${keyHex}'"`)
+    src.exec("SELECT sqlcipher_export('encrypted')")
+    src.exec("DETACH DATABASE encrypted")
+    src.close()
+  } catch (err) {
+    try { fs.existsSync(encPath) && fs.unlinkSync(encPath) } catch {}
+    return { ok: false, error: 'sqlcipher_export: ' + err.message }
+  }
+
+  // Atomic-ish swap. Close nothing (we haven't opened db yet at call site).
+  try {
+    fs.renameSync(dbPath, dbPath + '.old')
+    fs.renameSync(encPath, dbPath)
+    try { fs.unlinkSync(dbPath + '.old') } catch {}
+    // Also drop any WAL/SHM siblings from the plaintext era.
+    try { fs.unlinkSync(dbPath + '-wal') } catch {}
+    try { fs.unlinkSync(dbPath + '-shm') } catch {}
+  } catch (err) {
+    return { ok: false, error: 'file swap: ' + err.message }
+  }
+
+  console.log('[db] encryption migration complete. backup at', bakPath)
+  return { ok: true, migrated: true }
+}
+
+function init(userDataPath, options = {}) {
   if (!Database) { dbInitError = dbLoadError || 'better-sqlite3 not available'; return false }
 
   const dbPath     = path.join(userDataPath, 'terminal-x.db')
   const schemaPath = path.join(__dirname, '../db/schema.sql')
   const seedPath   = path.join(__dirname, '../db/seed.js')
 
+  // v2.13 — at-rest encryption. main.js passes { encryptionKey } (64-hex HKDF
+  // output from key-vault.js). If the driver is the ciphers fork AND a key is
+  // supplied we PRAGMA key before the first read. Plaintext -> encrypted
+  // migration handled by ensureEncrypted() below.
+  const encryptionKey = (dbEngine === 'ciphers' && options.encryptionKey) ? options.encryptionKey : null
+  if (encryptionKey) {
+    try {
+      const migrated = ensureEncrypted(dbPath, encryptionKey)
+      if (!migrated.ok) {
+        console.error('[db] encryption migration failed, aborting init:', migrated.error)
+        dbInitError = 'encryption migration failed: ' + migrated.error
+        return false
+      }
+    } catch (err) {
+      console.error('[db] ensureEncrypted threw:', err.message)
+      dbInitError = err.message
+      return false
+    }
+  }
+
   db = new Database(dbPath)
+  if (encryptionKey) {
+    // Raw-key form — skip SQLCipher's built-in KDF since HKDF already ran.
+    db.pragma(`key = "x'${encryptionKey}'"`)
+    db.pragma('cipher_page_size = 4096')
+    // Smoke-test: any read that fails with "file is not a database" means the
+    // key is wrong. Better to fail here than halfway through ticket creation.
+    try { db.prepare('SELECT count(*) FROM sqlite_master').get() }
+    catch (err) {
+      dbInitError = 'DB key mismatch: ' + err.message
+      console.error('[db]', dbInitError)
+      try { db.close() } catch {}
+      db = null
+      return false
+    }
+  }
   db.pragma('journal_mode = WAL')
   db.pragma('synchronous = NORMAL')
   db.pragma('cache_size = -2000')
@@ -193,6 +293,13 @@ function init(userDataPath) {
     'ALTER TABLE notas_credito ADD COLUMN ticket_supabase_id TEXT',
     'ALTER TABLE notas_credito ADD COLUMN cajero_supabase_id TEXT',
     'ALTER TABLE inventory_transactions ADD COLUMN item_supabase_id TEXT',
+    // v2.6.2 — Apertura de Turno (shift open). Columns co-located on cuadre_caja
+    // so one row represents the full shift (open → close). While status='abierto'
+    // the closure fields stay at 0; when the cashier closes the shift the normal
+    // cuadreCreate flow upgrades the same row to 'cerrado' with the cash counts.
+    'ALTER TABLE cuadre_caja ADD COLUMN opening_cash REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE cuadre_caja ADD COLUMN opened_at TEXT',
+    "ALTER TABLE cuadre_caja ADD COLUMN status TEXT NOT NULL DEFAULT 'cerrado'",
     // v1.6 — backfill UUIDs for existing rows
     "UPDATE services SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
     "UPDATE washers SET supabase_id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE supabase_id IS NULL",
@@ -4747,6 +4854,51 @@ function cuadreCreate(data) {
   }
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
+// v2.6.2 — Apertura de Turno
+// Returns the currently-open shift row for `cajero_id` (today), or null.
+// "Open" = status='abierto' AND date=today. Any older abierto row is treated
+// as stale (POS screen auto-closes it client-side on next reconciliation).
+function cuadreGetOpen({ user_id, cajero_id } = {}) {
+  if (!db) return null
+  const id = Number(cajero_id ?? user_id)
+  if (!id) return null
+  const today = new Date().toISOString().slice(0, 10)
+  return db.prepare(
+    `SELECT * FROM cuadre_caja
+       WHERE cajero_id = ? AND date = ? AND status = 'abierto'
+       ORDER BY id DESC LIMIT 1`
+  ).get(id, today) || null
+}
+
+function cuadreOpenShift({ user_id, cajero_id, opening_cash, opened_at } = {}) {
+  if (!db) return null
+  const id = Number(cajero_id ?? user_id)
+  if (!id) return null
+  const fondo = Number(opening_cash || 0)
+  const when = opened_at || new Date().toISOString()
+  const today = when.slice(0, 10)
+  // Idempotent: if a shift is already open today for this cashier, return it.
+  const existing = cuadreGetOpen({ cajero_id: id })
+  if (existing) return { id: existing.id, supabase_id: existing.supabase_id, existed: true }
+  const sid = crypto.randomUUID()
+  const cajeroSid = db.prepare('SELECT supabase_id FROM users WHERE id=?').get(id)?.supabase_id || null
+  const r = db.prepare(`INSERT INTO cuadre_caja
+    (cajero_id, cajero_supabase_id, date, fondo, opening_cash, opened_at, status, supabase_id)
+    VALUES(?,?,?,?,?,?, 'abierto', ?)`).run(id, cajeroSid, today, fondo, fondo, when, sid)
+  try {
+    activityLogRecord({
+      event_type: 'shift_opened', severity: 'info',
+      actor_user_id: id,
+      target_type: 'cuadre_caja', target_id: r.lastInsertRowid,
+      target_name: `Turno ${today}`,
+      amount: fondo,
+      reason: 'Apertura de turno',
+      metadata: { opening_cash: fondo, opened_at: when },
+    })
+  } catch {}
+  return { id: r.lastInsertRowid, supabase_id: sid, existed: false }
+}
+
 function cuadreGetHistory(limit = 20) {
   if (!db) return []
   return db.prepare(
@@ -7239,6 +7391,7 @@ module.exports = {
   cajeroCommissionsByCajero, cajeroCommissionsByPeriod, cajeroCommissionsMarkPaid, cajeroCommissionsMarkPaidByPeriod, cajeroCommissionCreate,
   // Cuadre
   cuadreCreate, cuadreGetHistory, cuadreList, cuadreDailySummary,
+  cuadreGetOpen, cuadreOpenShift,
   // NCF
   ncfGetSequences, ncfGetNext, ncfUpdateSequence,
   // Caja chica

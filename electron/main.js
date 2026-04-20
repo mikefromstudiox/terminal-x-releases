@@ -1095,7 +1095,16 @@ app.whenReady().then(async () => {
   // Init database
   if (db) {
     try {
-      const ok = db.init(app.getPath('userData'))
+      // v2.13 — derive SQLCipher key from HWID + app-local salt. Feature flag
+      // TERMINAL_X_ENCRYPT_DB=0 disables encryption for rollback. Default ON.
+      let encryptionKey = null
+      try {
+        if (process.env.TERMINAL_X_ENCRYPT_DB !== '0') {
+          const { getDbKey } = require('./key-vault')
+          encryptionKey = getDbKey(app.getPath('userData'), getHardwareId())
+        }
+      } catch (e) { console.warn('[main] key derivation failed, opening plaintext:', e.message) }
+      const ok = db.init(app.getPath('userData'), { encryptionKey })
       if (!ok) console.error('[main] DB init returned false:', db.getError?.())
       else console.log('[main] DB initialized at', app.getPath('userData'))
       // v2.3 — stamp HWID into app_settings so database.js (no electron dep)
@@ -1763,6 +1772,8 @@ handleMut('cuadre:create',  (data)    => db.cuadreCreate(data))
 handle('cuadre:history', ()        => db.cuadreGetHistory())
 handle('cuadre:list',    (filters) => db.cuadreList(filters || {}))
 handle('cuadre:daily',   (date)    => db.cuadreDailySummary(date))
+handle('cuadre:getOpen',    (data)   => db.cuadreGetOpen(data || {}))
+handleMut('cuadre:openShift', (data) => db.cuadreOpenShift(data || {}))
 
 // ── NCF ───────────────────────────────────────────────────────────────────────
 handle('ncf:sequences',        ()            => db.ncfGetSequences())

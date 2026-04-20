@@ -471,6 +471,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     history: ()        => call('cuadre:history'),
     list:    (filters) => call('cuadre:list', filters),
     daily:   (date)    => call('cuadre:daily', date),
+    getOpen:   (data)  => call('cuadre:getOpen', data),
+    openShift: (data)  => call('cuadre:openShift', data),
   },
 
   // ── NCF ────────────────────────────────────────────────────────────────────
