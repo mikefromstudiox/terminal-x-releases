@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
-import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck, Beer, Coffee, Cookie, Droplet, CupSoda, Candy, IceCreamCone, UtensilsCrossed, Sparkles, Cigarette, Flame, Leaf, Pizza, Smartphone } from 'lucide-react'
+import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck, Beer, Coffee, Cookie, Droplet, CupSoda, Candy, IceCreamCone, UtensilsCrossed, Sparkles, Cigarette, Flame, Leaf, Pizza, Smartphone, Edit2, Eye, EyeOff } from 'lucide-react'
 import AgeVerifyModal, { requiresAgeCheck } from '../components/AgeVerifyModal'
 import WeightModal from '../components/WeightModal'
 import { useLang } from '../i18n'
@@ -538,6 +538,7 @@ function CarWashPOS() {
                      : (paymentData.comentario || ''),
         descuento:  Number(paymentData.descuento || 0),
         descuento_reason: paymentData.descuentoReason || null,
+        mac_jti:    paymentData.mac_jti || null,
       })
 
       // Direct cobrar does NOT add to queue — the ticket is already cobrado.
@@ -1608,6 +1609,7 @@ function RetailPOS() {
                      : (paymentData.comentario || ''),
         descuento:  Number(paymentData.descuento || 0),
         descuento_reason: paymentData.descuentoReason || null,
+        mac_jti:    paymentData.mac_jti || null,
       })
 
       clearForm()
@@ -2169,11 +2171,35 @@ function ProductGrid({ api, lang, gridCols, onAdd, pyMode, overrides = {} }) {
   const [loading, setLoading] = useState(true)
   const [activeCat, setActiveCat] = useState('all')
 
+  // v2.7 — cloud-synced tab customization. `pos_tab_order` is a JSON array of
+  // category names in the user's chosen order; `pos_tab_hidden` is a JSON
+  // array of names to suppress from the tab strip (products stay searchable).
+  // Both keys live in app_settings (business-scoped) so all devices share them.
+  const [tabOrder,  setTabOrder]  = useState([])
+  const [hiddenCats, setHiddenCats] = useState([])
+  const [editMode,  setEditMode]  = useState(false)
+  const [draftOrder, setDraftOrder] = useState([])
+  const [draftHidden, setDraftHidden] = useState([])
+  const [dragIdx, setDragIdx] = useState(null)
+
   useEffect(() => {
     api.inventory?.all?.().then(items => {
       setProducts(items || [])
       setLoading(false)
     }).catch(() => setLoading(false))
+    // Load saved tab preferences (fall through gracefully if not set).
+    ;(async () => {
+      try {
+        const s = await api?.settings?.get?.()
+        const parseArr = (v) => {
+          if (Array.isArray(v)) return v
+          if (typeof v === 'string') { try { const p = JSON.parse(v); return Array.isArray(p) ? p : [] } catch { return [] } }
+          return []
+        }
+        setTabOrder(parseArr(s?.pos_tab_order))
+        setHiddenCats(parseArr(s?.pos_tab_hidden))
+      } catch {}
+    })()
   }, [api])
 
   if (loading) {
@@ -2202,48 +2228,159 @@ function ProductGrid({ api, lang, gridCols, onAdd, pyMode, overrides = {} }) {
     if (!groups[cat]) groups[cat] = []
     groups[cat].push(p)
   }
-  // Alphabetical, then push "General" / "Sin Categoría" to the end.
-  const catNames = Object.keys(groups).sort((a, b) => {
-    const TAIL = ['general', 'sin categoría', 'sin categoria', 'uncategorized']
-    const ai = TAIL.includes(a.toLowerCase()) ? 1 : 0
-    const bi = TAIL.includes(b.toLowerCase()) ? 1 : 0
-    if (ai !== bi) return ai - bi
-    return a.localeCompare(b, 'es', { sensitivity: 'base' })
-  })
-  const visibleCats = activeCat === 'all' ? catNames : catNames.filter(c => c === activeCat)
+  // Build ordered list: saved order first (stable), then any new categories
+  // appended by product-count desc. "General" / "Sin Categoría" push to tail.
+  const allCatNames = Object.keys(groups)
+  const TAIL = new Set(['general','sin categoría','sin categoria','uncategorized'])
+  function baseOrder(names) {
+    return [...names].sort((a, b) => {
+      const ai = TAIL.has(a.toLowerCase()) ? 1 : 0
+      const bi = TAIL.has(b.toLowerCase()) ? 1 : 0
+      if (ai !== bi) return ai - bi
+      const d = (groups[b]?.length || 0) - (groups[a]?.length || 0)
+      return d !== 0 ? d : a.localeCompare(b, 'es', { sensitivity: 'base' })
+    })
+  }
+  const savedOrderFiltered = (editMode ? draftOrder : tabOrder).filter(c => allCatNames.includes(c))
+  const unseeded = allCatNames.filter(c => !savedOrderFiltered.includes(c))
+  const catNames = [...savedOrderFiltered, ...baseOrder(unseeded)]
+  const effectiveHidden = new Set(editMode ? draftHidden : hiddenCats)
+  const shownCats = editMode ? catNames : catNames.filter(c => !effectiveHidden.has(c))
+  const visibleCats = activeCat === 'all' ? shownCats : shownCats.filter(c => c === activeCat)
+
+  // Split into 2 rows — balanced by count, heavier on top.
+  const rowSize = Math.ceil(shownCats.length / 2)
+  const row1 = shownCats.slice(0, rowSize)
+  const row2 = shownCats.slice(rowSize)
+
+  function enterEdit() {
+    setDraftOrder(catNames)
+    setDraftHidden([...hiddenCats])
+    setEditMode(true)
+  }
+  function cancelEdit() { setEditMode(false); setDragIdx(null) }
+  async function saveEdit() {
+    try {
+      await api?.settings?.update?.({
+        pos_tab_order: JSON.stringify(draftOrder),
+        pos_tab_hidden: JSON.stringify(draftHidden),
+      })
+      setTabOrder(draftOrder)
+      setHiddenCats(draftHidden)
+    } catch {}
+    setEditMode(false); setDragIdx(null)
+  }
+  function toggleHidden(cat) {
+    setDraftHidden(h => h.includes(cat) ? h.filter(x => x !== cat) : [...h, cat])
+  }
+  function moveCat(fromIdx, toIdx) {
+    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0) return
+    setDraftOrder(prev => {
+      const next = [...prev]
+      const [m] = next.splice(fromIdx, 1)
+      next.splice(toIdx, 0, m)
+      return next
+    })
+  }
 
   return (
     <div className="space-y-5">
-      {/* Category tabs — scrollable horizontally on mobile. Active tab gets a
-         crimson underline. "Todos" always first; "General" sorted last. */}
+      {/* Category tabs — 2 rows, horizontally scrollable. Edit mode (pencil)
+         enables drag-to-reorder + hide-tab per-category. Preferences persist
+         to app_settings (cloud-synced). "Todos" always pinned, not reorderable. */}
       {catNames.length > 1 && (
         <div className="sticky top-0 z-10 -mx-3 px-3 bg-white dark:bg-black border-b border-slate-200 dark:border-white/10">
-          <div className="flex gap-1 overflow-x-auto scrollbar-hide">
-            <button onClick={() => setActiveCat('all')}
-              className={`shrink-0 px-4 py-2.5 text-[13px] font-semibold whitespace-nowrap border-b-2 transition-colors min-h-[44px] ${
-                activeCat === 'all'
-                  ? 'border-[#b3001e] text-[#b3001e]'
-                  : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white'
-              }`}>
-              {lang === 'es' ? 'Todos' : 'All'}
-              <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                activeCat === 'all' ? 'bg-[#b3001e]/10 text-[#b3001e]' : 'bg-slate-100 dark:bg-white/10 text-slate-400'
-              }`}>{products.length}</span>
-            </button>
-            {catNames.map(c => (
-              <button key={c} onClick={() => setActiveCat(c)}
-                className={`shrink-0 px-4 py-2.5 text-[13px] font-semibold whitespace-nowrap border-b-2 transition-colors min-h-[44px] ${
-                  activeCat === c
+          <div className="flex items-start gap-2 py-1">
+            {/* Pinned "Todos" + edit toggle */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button onClick={() => !editMode && setActiveCat('all')}
+                disabled={editMode}
+                className={`shrink-0 px-3 py-2 text-[12px] font-semibold whitespace-nowrap border-b-2 transition-colors min-h-[40px] ${
+                  activeCat === 'all' && !editMode
                     ? 'border-[#b3001e] text-[#b3001e]'
-                    : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white'
+                    : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white disabled:opacity-50'
                 }`}>
-                {c}
+                {lang === 'es' ? 'Todos' : 'All'}
                 <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                  activeCat === c ? 'bg-[#b3001e]/10 text-[#b3001e]' : 'bg-slate-100 dark:bg-white/10 text-slate-400'
-                }`}>{groups[c].length}</span>
+                  activeCat === 'all' ? 'bg-[#b3001e]/10 text-[#b3001e]' : 'bg-slate-100 dark:bg-white/10 text-slate-400'
+                }`}>{products.length}</span>
               </button>
-            ))}
+              {!editMode ? (
+                <button onClick={enterEdit}
+                  title={lang === 'es' ? 'Editar pestañas' : 'Edit tabs'}
+                  className="shrink-0 p-1.5 rounded-md text-slate-400 dark:text-white/40 hover:text-[#b3001e] hover:bg-[#b3001e]/10 transition-colors">
+                  <Edit2 size={14} />
+                </button>
+              ) : (
+                <div className="flex items-center gap-1 shrink-0 pl-1 border-l border-slate-200 dark:border-white/10 ml-1">
+                  <button onClick={saveEdit}
+                    className="px-2.5 py-1.5 rounded-md text-[11px] font-bold text-white bg-[#b3001e] hover:bg-[#b3001e]/90 transition-colors">
+                    {lang === 'es' ? 'Guardar' : 'Save'}
+                  </button>
+                  <button onClick={cancelEdit}
+                    className="px-2.5 py-1.5 rounded-md text-[11px] font-semibold text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white transition-colors">
+                    {lang === 'es' ? 'Cancelar' : 'Cancel'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Two-row tab strip */}
+            <div className="flex-1 min-w-0 flex flex-col gap-1">
+              {[row1, row2].map((row, rowIdx) => row.length > 0 && (
+                <div key={rowIdx} className="flex gap-1 overflow-x-auto scrollbar-hide">
+                  {row.map((c) => {
+                    const idx = catNames.indexOf(c)
+                    const isHidden = effectiveHidden.has(c)
+                    const isActive = activeCat === c && !editMode && !isHidden
+                    return (
+                      <div key={c}
+                        draggable={editMode}
+                        onDragStart={editMode ? () => setDragIdx(idx) : undefined}
+                        onDragOver={editMode ? (e) => { e.preventDefault() } : undefined}
+                        onDrop={editMode ? (e) => { e.preventDefault(); if (dragIdx !== null) moveCat(dragIdx, idx); setDragIdx(null) } : undefined}
+                        className={`shrink-0 inline-flex items-center rounded-md transition-all ${
+                          editMode
+                            ? `cursor-grab active:cursor-grabbing border ${isHidden ? 'border-dashed border-slate-200 dark:border-white/10 opacity-50' : 'border-slate-200 dark:border-white/10'} ${dragIdx === idx ? 'opacity-40' : ''} hover:border-[#b3001e]`
+                            : ''
+                        }`}>
+                        <button onClick={() => !editMode && setActiveCat(c)}
+                          disabled={editMode}
+                          className={`shrink-0 px-3 py-2 text-[12px] font-semibold whitespace-nowrap ${
+                            !editMode ? 'border-b-2 transition-colors min-h-[36px]' : 'min-h-[32px]'
+                          } ${
+                            isActive
+                              ? 'border-[#b3001e] text-[#b3001e]'
+                              : !editMode
+                                ? 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white'
+                                : `${isHidden ? 'text-slate-400 dark:text-white/30 line-through' : 'text-slate-700 dark:text-white/80'}`
+                          }`}>
+                          {c}
+                          <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                            isActive ? 'bg-[#b3001e]/10 text-[#b3001e]' : 'bg-slate-100 dark:bg-white/10 text-slate-400'
+                          }`}>{groups[c].length}</span>
+                        </button>
+                        {editMode && (
+                          <button onClick={() => toggleHidden(c)}
+                            title={isHidden ? (lang === 'es' ? 'Mostrar' : 'Show') : (lang === 'es' ? 'Ocultar' : 'Hide')}
+                            className="px-1.5 py-1 text-slate-400 hover:text-[#b3001e] dark:text-white/40 dark:hover:text-[#b3001e] transition-colors">
+                            {isHidden ? <Eye size={12} /> : <EyeOff size={12} />}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
           </div>
+          {editMode && (
+            <p className="text-[10px] text-slate-400 dark:text-white/40 pb-1.5">
+              {lang === 'es'
+                ? 'Arrastra para reordenar · El ojo oculta pestañas (los productos siguen buscables)'
+                : 'Drag to reorder · Eye icon hides tabs (products still searchable)'}
+            </p>
+          )}
         </div>
       )}
 

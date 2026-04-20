@@ -11,6 +11,9 @@ export const BUSINESS_SETTING_KEYS = new Set([
   'business_type', 'biz_business_type',
   'ley_enabled',
   'go_live_date',
+  // POS tab customization — cloud-synced so all devices at the same business
+  // share the same category order + hidden-tab preferences.
+  'pos_tab_order', 'pos_tab_hidden',
   // Add any future business-wide key here. If unsure, keep it device-local.
 ])
 
