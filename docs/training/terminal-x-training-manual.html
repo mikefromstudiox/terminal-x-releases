@@ -79,7 +79,7 @@
     Emisor Electrónico Certificado — DGII (Ley 32-23)<br/>
     Soporte: +1 (809) 828-2971 · terminalxpos.com · studioxrdtech.com
     <br/><br/>
-    Versión del manual: 2026-04-13 · Basado en Terminal X v1.9.21
+    Versión del manual: 2026-04-19 · Basado en Terminal X v2.7.0
   </div>
 </section>
 
@@ -108,6 +108,12 @@
     <li><a href="#s19">Escalamiento y contactos</a></li>
     <li><a href="#s20">Apéndice — scripts y plantillas</a></li>
     <li><a href="#s21">Guía para demos a clientes</a></li>
+    <li><a href="#s22">Categorías del POS y canal Pedidos Ya (v2.4 / v2.7)</a></li>
+    <li><a href="#s23">Organizar en bloque (Inventario)</a></li>
+    <li><a href="#s24">Precios por cliente (v2.5)</a></li>
+    <li><a href="#s25">Conteo Físico de Inventario (v2.5)</a></li>
+    <li><a href="#s26">Tarjeta de Autorización de Gerente (v2.6)</a></li>
+    <li><a href="#s27">Registro de Actividad — mejoras de lectura (v2.6.1)</a></li>
   </ol>
 </section>
 
@@ -1165,6 +1171,318 @@ Cualquier duda, estoy a un WhatsApp.</pre>
     <strong>Terminal X — Demo Playbook</strong> · Studio X SRL · RNC 133410321<br/>
     Sección 21 añadida 2026-04-16 · Uso exclusivo del equipo de ventas
   </p>
+</section>
+
+<!-- 22 -->
+<section class="page pagebreak" id="s22">
+  <h2>22. Categorías del POS y canal Pedidos Ya</h2>
+  <span class="pill">Nuevo en v2.4 · Rediseño en v2.7</span>
+  <p>El POS ahora muestra una <strong>barra de pestañas por categoría</strong> sobre la grilla de productos, en <strong>dos filas</strong> para que el cajero vea todas las categorías sin tener que hacer scroll horizontal. Además, un toggle de <strong>Pedidos Ya</strong> cambia toda la lista de precios con un toque.</p>
+
+  <h3>22.1 Pestañas de categoría (2 filas)</h3>
+  <h4>Qué hace</h4>
+  <ul>
+    <li>Muestra todas las categorías activas del inventario como pestañas arriba de la grilla.</li>
+    <li>Se organizan automáticamente en <strong>2 filas</strong> — el cajero siempre ve todo sin desplazarse.</li>
+    <li>La pestaña activa filtra la grilla; "Todo" muestra todo el catálogo.</li>
+    <li>La preferencia de orden y pestañas ocultas se <strong>sincroniza en la nube</strong> entre las cajas (guardado en <code>app_settings.pos_tab_order</code> y <code>pos_tab_hidden</code>).</li>
+  </ul>
+
+  <h4>Dónde está</h4>
+  <p>POS (modo tienda / licorería / híbrido) — barra superior sobre los productos.</p>
+
+  <h4>Cómo usarlo</h4>
+  <ol>
+    <li>Toca el <strong>ícono de lápiz</strong> a la derecha de las pestañas para entrar en <em>modo edición</em>.</li>
+    <li>Arrastra una pestaña para moverla entre la fila 1 y la fila 2, o para cambiar su orden.</li>
+    <li>Toca el <strong>ícono de ojo</strong> sobre una pestaña para ocultarla del POS (sigue existiendo en Inventario).</li>
+    <li>Vuelve a tocar el lápiz para <strong>guardar</strong>. Los cambios viajan a todas las cajas del negocio.</li>
+  </ol>
+
+  <div class="note">
+    <strong>Consejo para el cajero:</strong> ponga las categorías más vendidas en la <strong>primera fila, a la izquierda</strong>. Cerveza, refresco, cigarrillos — lo que se vende cada minuto. Las categorías raras van a la fila 2.
+  </div>
+
+  <h3>22.2 Canal Pedidos Ya</h3>
+  <h4>Qué hace</h4>
+  <ul>
+    <li>Pill con el wordmark oficial de <strong>PedidosYa</strong> (rosa #FA0050) en la barra del POS.</li>
+    <li>Con un toque, <strong>cambia toda la lista de precios</strong> al precio Pedidos Ya configurado por producto.</li>
+    <li>Si un producto no tiene precio Pedidos Ya, usa automáticamente el precio base (no se rompe la venta).</li>
+    <li>Cada ticket generado en modo Pedidos Ya queda marcado con <code>order_source = 'pedidos_ya'</code> — aparece así en reportes para separar la venta por canal.</li>
+  </ul>
+
+  <h4>Dónde está</h4>
+  <p>POS — barra superior, pill rosada junto a las pestañas.</p>
+
+  <h4>Cómo usarlo</h4>
+  <ol>
+    <li>Llega un pedido de Pedidos Ya al mostrador — el motorizado entrega el comprobante de la app.</li>
+    <li>El cajero toca la <strong>pill PedidosYa</strong> — se enciende (rosa sólido).</li>
+    <li>Agrega los productos normalmente. Los precios ya están ajustados.</li>
+    <li>Cobra en efectivo o transferencia (lo que indique el motorizado).</li>
+    <li>Al cerrar el ticket, el pill <strong>se apaga automáticamente</strong> para la próxima venta de mostrador.</li>
+  </ol>
+
+  <h4>Notas</h4>
+  <ul>
+    <li>Los precios Pedidos Ya se cargan por producto en Inventario (campo <em>Precio Pedidos Ya</em>) o en bloque desde <strong>Organizar</strong> (ver sección 23).</li>
+    <li>Si olvidó encender el pill y cobró a precio normal — se puede rectificar con una nota de crédito.</li>
+    <li>En Reportes → Productos puede filtrar por canal para ver cuánto vendió en Pedidos Ya vs mostrador.</li>
+  </ul>
+</section>
+
+<!-- 23 -->
+<section class="page pagebreak" id="s23">
+  <h2>23. Organizar en bloque (Inventario)</h2>
+  <span class="pill">Nuevo en v2.4</span>
+  <p>Herramienta masiva para <strong>categorizar cientos de productos de una vez</strong> y para <strong>cargar precios Pedidos Ya en bloque</strong>, sin tener que editar producto por producto.</p>
+
+  <h3>Qué hace</h3>
+  <ul>
+    <li>Filtra productos por palabra clave (ej: "coca", "presidente", "marlboro").</li>
+    <li>Selecciona todos los resultados con un clic.</li>
+    <li>Aplica una <strong>categoría</strong> y/o un <strong>precio Pedidos Ya</strong> al grupo completo en una sola acción.</li>
+  </ul>
+
+  <h3>Dónde está</h3>
+  <p>Inventario → botón <strong>Organizar</strong>.</p>
+
+  <h3>Cómo usarlo</h3>
+  <ol>
+    <li>Abra Inventario → Organizar.</li>
+    <li>Escriba la palabra clave (ej: <em>cerveza</em>) — se listan todos los productos que la contienen.</li>
+    <li>Toque <strong>Seleccionar todo</strong>, o marque individualmente.</li>
+    <li>Escoja la <strong>categoría destino</strong> (ej: Cervezas) del dropdown, o escriba una nueva.</li>
+    <li>Si maneja Pedidos Ya, ingrese el <strong>precio Pedidos Ya</strong> que aplica al grupo (ej: todas las cervezas grandes a RD$220).</li>
+    <li>Presione <strong>Aplicar</strong>. Listo — el inventario queda organizado.</li>
+  </ol>
+
+  <div class="ok">
+    <strong>Caso real:</strong> un cliente nuevo importa 1,200 productos por CSV sin categorías. Con Organizar, en 15 minutos queda todo categorizado (10 filtros × 15 segundos cada uno).
+  </div>
+
+  <h3>Notas</h3>
+  <ul>
+    <li>La acción es <strong>reversible</strong> producto por producto desde la ficha de inventario — pero no hay un "deshacer" global, así que revise el filtro antes de aplicar.</li>
+    <li>Si deja el precio Pedidos Ya vacío, solo se aplica la categoría (y viceversa).</li>
+  </ul>
+</section>
+
+<!-- 24 -->
+<section class="page pagebreak" id="s24">
+  <h2>24. Precios por cliente</h2>
+  <span class="pill">Nuevo en v2.5</span>
+  <p>Precios especiales que se aplican <strong>automáticamente</strong> cuando un cliente específico está asignado al ticket. Ideal para mayoristas, restaurantes que compran al por mayor, o clientes corporativos con tarifa negociada.</p>
+
+  <h3>Qué hace</h3>
+  <ul>
+    <li>Cada cliente puede tener su propia lista de precios para uno, varios o todos los productos.</li>
+    <li>Al escoger al cliente en el ticket, el POS detecta los precios personalizados y los aplica.</li>
+    <li>Funciona con escaneo de código de barras y con cambio de cliente a mitad del ticket.</li>
+    <li>Soporta <strong>notas por producto</strong> (ej: "precio acordado con Juan, revisar enero 2027").</li>
+  </ul>
+
+  <h3>Dónde está</h3>
+  <p>Clientes (ver sección 12) → abrir cualquier cliente → panel <strong>Precios especiales</strong>.</p>
+
+  <h3>Cómo usarlo (uno por uno)</h3>
+  <ol>
+    <li>Clientes → abra el cliente → <strong>Precios especiales</strong>.</li>
+    <li>Seleccione el producto del autocomplete.</li>
+    <li>Ingrese el <strong>precio personalizado</strong>.</li>
+    <li>(Opcional) Agregue nota — ej: "tarifa 2026, revisar diciembre".</li>
+    <li>Guardar. Listo.</li>
+  </ol>
+
+  <h3>Cómo usarlo (CSV en bloque)</h3>
+  <ol>
+    <li>En el mismo panel, toque <strong>Importar CSV</strong>.</li>
+    <li>El formato requerido es:</li>
+  </ol>
+  <pre>client_rnc,sku,custom_price,notes
+131234567,COCA-600,55.00,tarifa mayorista
+131234567,PRES-GRA,180.00,
+131234567,MARL-ROJ,300.00,pedido recurrente</pre>
+  <ol start="3">
+    <li>Suba el archivo — el sistema valida SKU y RNC antes de aplicar.</li>
+    <li>Confirma e importa. Los precios ya están activos.</li>
+  </ol>
+
+  <h3>Orden de precedencia de precios</h3>
+  <p>Cuando hay más de una regla activa, Terminal X aplica en este orden (de mayor a menor prioridad):</p>
+  <table>
+    <thead><tr><th>#</th><th>Regla</th><th>Cuándo aplica</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><strong>Precio personalizado del cliente</strong></td><td>Si el ticket tiene cliente y el producto tiene override</td></tr>
+      <tr><td>2</td><td><strong>Precio Pedidos Ya</strong></td><td>Si el pill Pedidos Ya está encendido</td></tr>
+      <tr><td>3</td><td><strong>Precio base del producto</strong></td><td>Caso por defecto</td></tr>
+    </tbody>
+  </table>
+  <p>Encima de eso, <strong>el descuento del cajero se aplica al final</strong> (de manera multiplicativa). Ejemplo: cliente con precio especial RD$180, cajero aplica 10% de descuento → el ticket cobra RD$162.</p>
+
+  <div class="warn">
+    <strong>Ojo:</strong> si el cajero <em>cambia al cliente a mitad del ticket</em>, los precios ya agregados se <strong>recalculan</strong> automáticamente. Avísele al cajero para que no se asuste cuando el subtotal cambie.
+  </div>
+
+  <h3>Notas</h3>
+  <ul>
+    <li>Si el cliente tiene RNC y el producto tiene e-CF, todo sigue funcionando igual — el override solo afecta el precio, no la fiscalización.</li>
+    <li>Para quitar un override, bórrelo desde el panel — el producto vuelve al precio base/Pedidos Ya según corresponda.</li>
+  </ul>
+</section>
+
+<!-- 25 -->
+<section class="page pagebreak" id="s25">
+  <h2>25. Conteo Físico de Inventario</h2>
+  <span class="pill">Nuevo en v2.5</span>
+  <p>Módulo completo para hacer <strong>conteos físicos de inventario</strong> (lo que tradicionalmente se llama "inventario físico") y detectar mermas, robos o diferencias. Deja rastro auditable en el registro de actividad.</p>
+
+  <h3>Qué hace</h3>
+  <ul>
+    <li>Congela un <strong>snapshot</strong> del inventario activo en el momento de iniciar el conteo (cantidad esperada, costo, precio por SKU).</li>
+    <li>El equipo va contando físicamente y digita la cantidad contada — Enter confirma y avanza al siguiente SKU.</li>
+    <li>Muestra subtotales por categoría <strong>en vivo</strong> mientras se cuenta.</li>
+    <li>Al finalizar, puede <strong>actualizar el inventario</strong> a lo contado (opción marcable) o solo guardar el reporte.</li>
+    <li>Genera <strong>2 PDFs</strong>: hoja en blanco para contar con papel, y reporte de varianza/mermas con top 10 pérdidas + tabla completa.</li>
+    <li>Exporta CSV con <strong>BOM + separador ;</strong> (abre directo en Excel español).</li>
+    <li>Registra el evento <code>inventory_count_completed</code> en el Registro de Actividad — la severidad sube según el monto de varianza (info / warn &gt; RD$2,000 / critical &gt; RD$10,000).</li>
+  </ul>
+
+  <h3>Dónde está</h3>
+  <p>Inventario → <strong>Nuevo Conteo</strong>.</p>
+
+  <h3>Cómo usarlo</h3>
+  <ol>
+    <li>Inventario → Nuevo Conteo — el sistema saca el snapshot (puede tardar unos segundos con inventarios grandes).</li>
+    <li>(Opcional) Imprima la <strong>hoja de conteo en blanco</strong> (PDF) para que el equipo vaya anotando con lápiz mientras cuenta en el almacén.</li>
+    <li>Cuenten físicamente. Regresen a la caja.</li>
+    <li>En el módulo, busque el SKU (o escanee el código de barras), digite la cantidad contada, <strong>Enter</strong> — avanza al siguiente.</li>
+    <li>Al terminar, revise los subtotales por categoría.</li>
+    <li>Marque <strong>"Actualizar inventario"</strong> si quiere que el sistema ajuste a lo contado, o déjelo sin marcar si solo quiere el reporte.</li>
+    <li>Presione <strong>Finalizar</strong> — se generan los PDFs y el CSV automáticamente.</li>
+  </ol>
+
+  <div class="ok">
+    <strong>Workflow recomendado:</strong> <em>"Corra un conteo físico cada domingo en la noche al cerrar."</em> Es la única forma real de saber cuánto está perdiendo por merma, robo o error. 15-20 minutos en un colmado mediano. El reporte de varianza le dice exactamente <strong>qué SKU y cuánta plata</strong>.
+  </div>
+
+  <h3>Reporte de varianza (el PDF clave)</h3>
+  <ul>
+    <li><strong>Top 10 pérdidas</strong> por monto en RD$ — lo primero que ve el dueño.</li>
+    <li>Tabla completa con: SKU, descripción, esperado, contado, diferencia, costo unitario, impacto RD$.</li>
+    <li>Las diferencias negativas (faltantes) se resaltan en rojo crimson.</li>
+    <li>Las diferencias positivas (sobrantes) aparecen en negro — usualmente indican errores de registro.</li>
+  </ul>
+
+  <h3>Notas</h3>
+  <ul>
+    <li>Solo usuarios con rol <strong>owner</strong>, <strong>manager</strong> o <strong>accountant</strong> pueden iniciar un conteo.</li>
+    <li>Si la varianza total supera RD$10,000, se dispara un evento <strong>crítico</strong> — el dueño lo ve inmediatamente en el Dashboard Remoto (tab Actividad).</li>
+    <li>Un conteo en progreso no bloquea las ventas — pero las ventas posteriores al snapshot no se reflejan en el conteo actual (por diseño: el snapshot es fijo).</li>
+  </ul>
+</section>
+
+<!-- 26 -->
+<section class="page pagebreak" id="s26">
+  <h2>26. Tarjeta de Autorización de Gerente</h2>
+  <span class="pill">Nuevo en v2.6</span>
+  <p>Sistema de <strong>autorización por tarjeta con código de barras</strong> para acciones sensibles. Cada gerente (owner o manager) recibe una tarjeta personal tipo CR80 (tamaño tarjeta de crédito), imprimible y laminable. Para ejecutar acciones protegidas, alguien tiene que <strong>escanear la tarjeta</strong>.</p>
+
+  <div class="note">
+    <strong>IMPORTANTE — antes del día de arranque:</strong> imprima y lamine las tarjetas de todos los gerentes <strong>antes</strong> del go-live. Si el día que abre el negocio el owner no tiene tarjeta y aparece un descuento grande, la caja se traba. <strong>Plastifique siempre</strong> — las tarjetas viven en el bolsillo del gerente y se maltratan.
+  </div>
+
+  <h3>Qué hace</h3>
+  <ul>
+    <li>Cada gerente obtiene un <strong>token aleatorio de 20 caracteres</strong>, impreso como código de barras (Code 128) en una tarjeta CR80.</li>
+    <li>Se imprimen <strong>2 tarjetas por hoja carta</strong> en PDF — una para el gerente, una de respaldo.</li>
+    <li>Cuando el cajero intenta una acción protegida, aparece una <strong>ventana con borde rojo</strong> pidiendo escanear la tarjeta.</li>
+    <li>El lector de código de barras escribe el token + Enter — el sistema valida y permite la acción.</li>
+    <li>Si la tarjeta se pierde → el owner la <strong>revoca</strong> desde Admin y el token muere al instante.</li>
+    <li>Cada escaneo (exitoso o fallido) queda registrado en el registro de actividad como evento <code>manager_override</code>.</li>
+  </ul>
+
+  <h3>Acciones protegidas por defecto</h3>
+  <table>
+    <thead><tr><th>Acción</th><th>Cuándo se dispara</th></tr></thead>
+    <tbody>
+      <tr><td>Descuento grande</td><td>Descuento &gt; RD$500 o mayor al % permitido al cajero</td></tr>
+      <tr><td>Anulación de ticket</td><td>Cualquier void después del cierre del ticket</td></tr>
+      <tr><td>Nota de crédito</td><td>Emisión de nota de crédito sobre una factura</td></tr>
+      <tr><td>Ajuste negativo de inventario</td><td>Reducir stock fuera de una venta (merma manual)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Dónde está (generar tarjetas)</h3>
+  <ol>
+    <li>Admin → <strong>Usuarios</strong>.</li>
+    <li>Junto a cada gerente (owner o manager) aparece el <strong>ícono de tarjeta rojo</strong>.</li>
+    <li>Toque el ícono → <strong>Generar tarjeta</strong>.</li>
+    <li>El token se muestra <strong>UNA sola vez</strong> — anótelo en un lugar seguro como respaldo.</li>
+    <li>Toque <strong>Imprimir tarjeta (PDF)</strong> — obtiene el PDF listo para imprimir.</li>
+    <li>Imprima, corte por las líneas guía, lamine. Entregue al gerente.</li>
+  </ol>
+
+  <h3>Cómo se usa en caja</h3>
+  <ol>
+    <li>El cajero intenta aplicar un descuento de RD$800 a un cliente.</li>
+    <li>Aparece el <strong>modal rojo</strong>: <em>"Autorización de gerente requerida"</em>.</li>
+    <li>El gerente pasa al lado del cajero y escanea su tarjeta con el lector → Enter.</li>
+    <li>Validación OK → el descuento se aplica y queda registrado con el nombre del gerente que autorizó.</li>
+  </ol>
+
+  <h3>PIN de emergencia (respaldo)</h3>
+  <p>Si el gerente <strong>perdió la tarjeta</strong> o la dejó en casa, debajo del scanner aparece el link <em>"Usar PIN de gerente (emergencia)"</em>.</p>
+  <ul>
+    <li>Funciona — pero el evento se registra con <strong>severidad warn</strong> (advertencia, fondo amarillo en el Dashboard).</li>
+    <li>El owner lo ve y sabe que ese día, esa persona, usó el respaldo.</li>
+    <li>Ideal para cubrir la operación sin quedarse parado, pero deja la huella para control.</li>
+  </ul>
+
+  <h3>Intentos fallidos</h3>
+  <div class="warn">
+    <strong>5 o más escaneos inválidos en 5 minutos</strong> elevan el evento a <strong>severidad crítica</strong>. El owner recibe alerta inmediata — puede ser un intento de fraude con tarjetas copiadas o un lector defectuoso.
+  </div>
+
+  <h3>Configuración</h3>
+  <p>En <strong>Settings → Preferencias</strong> hay toggles por acción — el owner puede <strong>desactivar el gate</strong> por acción si quiere reglas más flexibles (ej: permitir descuentos libres al cajero sin autorización). Recomendación: <em>déjelo todo activo hasta que el negocio tenga 3-6 meses corriendo</em>.</p>
+
+  <h3>Notas</h3>
+  <ul>
+    <li>El token no se puede ver dos veces — si se olvidó, revoque y genere una nueva tarjeta.</li>
+    <li>Cualquier lector de códigos de barras USB estándar sirve (los mismos que se usan para productos).</li>
+    <li>Todos los eventos <code>manager_override</code> aparecen en Dashboard Remoto → pestaña Actividad, con quién autorizó, qué acción, sobre qué ticket/producto y monto.</li>
+  </ul>
+</section>
+
+<!-- 27 -->
+<section class="page pagebreak" id="s27">
+  <h2>27. Registro de Actividad — mejoras de lectura</h2>
+  <span class="pill">Mejora en v2.6.1</span>
+  <p>Pulido de experiencia sobre el Registro de Actividad (Dashboard Remoto → pestaña <strong>Actividad</strong>) para que el owner pueda leer los eventos <strong>sin parecer que lee código</strong>.</p>
+
+  <h3>Qué cambió</h3>
+  <ul>
+    <li>La metadata de cada evento ya no se muestra como JSON crudo. Ahora aparece como pares <strong>"Etiqueta: Valor"</strong> en español.</li>
+    <li>Los montos se formatean como <strong>RD$ 1,250.00</strong> (antes: <code>1250</code>).</li>
+    <li>Los UUIDs internos ya <strong>no se muestran</strong> al owner (antes: líneas de <code>a3f2e1-...</code> ilegibles).</li>
+    <li>Los valores técnicos se traducen: <code>method: card</code> → <strong>Método: Tarjeta de gerente</strong>; <code>method: pin</code> → <strong>Método: PIN de emergencia</strong>.</li>
+  </ul>
+
+  <h3>Fix colateral</h3>
+  <div class="ok">
+    El botón de la pantalla de PIN decía <em>"Desconectar dispositivo"</em> y no cerraba sesión correctamente en la versión web. Ahora dice <strong>"Cerrar sesión"</strong> y funciona bien tanto en escritorio como en terminalxpos.com/pos.
+  </div>
+
+  <h3>Dónde está</h3>
+  <p>Dashboard Remoto (solo roles owner / cfo / accountant) → pestaña <strong>Actividad</strong>. Filtros de fecha, tipo de evento (9 chips) y severidad (info/warn/critical).</p>
+
+  <h3>Notas para el soporte</h3>
+  <ul>
+    <li>Si un cliente dice "no entiendo qué dice este evento" — tome pantallazo y repórtelo a ingeniería. Probablemente falta una traducción de metadata.</li>
+    <li>Los eventos nuevos (como <code>inventory_count_completed</code> y <code>manager_override</code>) ya vienen con sus traducciones desde fábrica.</li>
+  </ul>
 </section>
 
 </body>
