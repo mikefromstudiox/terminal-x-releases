@@ -599,6 +599,17 @@ export default function CashReconciliation() {
           {/* Resumen del día */}
           <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-4 shadow-sm flex-shrink-0">
             <SectionLabel>{L('Resumen del día', "Day's Summary")}</SectionLabel>
+            {/* v2.11.2 — explicit note: split-bill tickets already distribute
+                each part into its own bucket below (handled in cuadreDailySummary). */}
+            <p
+              className="text-[10px] text-slate-400 dark:text-white/40 -mt-1 mb-2"
+              title={L(
+                'Las facturas con pago mixto se reparten automáticamente entre Efectivo / Tarjeta / Transferencia según las partes registradas al cobrar.',
+                'Split-payment invoices are automatically distributed across Cash / Card / Transfer based on the parts recorded at checkout.'
+              )}
+            >
+              {L('Pagos mixtos distribuidos automáticamente', 'Split payments auto-distributed')}
+            </p>
             {loadingDay ? (
               <div className="flex items-center gap-2 text-slate-400 dark:text-white/40 text-sm py-4">
                 <Loader2 size={14} className="animate-spin" />

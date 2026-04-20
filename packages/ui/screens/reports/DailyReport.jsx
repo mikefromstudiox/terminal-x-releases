@@ -37,6 +37,24 @@ function payLabel(pm, lang) {
   const m = { cash: { es: 'Efectivo', en: 'Cash' }, card: { es: 'Tarjeta', en: 'Card' }, transfer: { es: 'Transferencia', en: 'Transfer' }, credit: { es: 'Crédito', en: 'Credit' } }
   return m[pm]?.[lang] ?? pm
 }
+// v2.11.2 — normalize payment_parts into a clean array of {method, amount}.
+// Accepts the JSONB/TEXT stored shape which may use `method`/`type` and
+// `amount`/`monto` keys depending on where it was written.
+function normalizeParts(raw) {
+  if (!raw) return null
+  let arr = raw
+  if (typeof raw === 'string') { try { arr = JSON.parse(raw) } catch { return null } }
+  if (!Array.isArray(arr) || arr.length === 0) return null
+  const out = arr.map(p => ({
+    method: String(p?.method ?? p?.type ?? p?.payment_method ?? 'cash').toLowerCase(),
+    amount: Number(p?.amount ?? p?.monto ?? p?.value ?? 0) || 0,
+  })).filter(p => p.amount > 0)
+  return out.length ? out : null
+}
+function partsSummaryText(parts, lang) {
+  if (!parts) return ''
+  return parts.map(p => `${payLabel(p.method, lang)} ${fmtRD(p.amount)}`).join(' + ')
+}
 
 // ── DB → UI transform ─────────────────────────────────────────────────────────
 function dbToTxn(t) {
@@ -56,6 +74,7 @@ function dbToTxn(t) {
     ley:        t.ley || 0,
     total:      t.total || 0,
     payMethod:  t.payment_method || 'cash',
+    paymentParts: normalizeParts(t.payment_parts),
     estado:     t.status === 'nula' ? 'nula' : 'normal',
     ncfType:    t.comprobante_type || 'B02',
     ncf:        t.ncf || null,
@@ -117,6 +136,23 @@ const COLS = [
   { key: 'total',    es: 'Total',           en: 'Total',         cls: 'w-[104px] shrink-0 text-right'           },
   { key: 'estado',   es: 'Estado',          en: 'Status',        cls: 'w-[108px] shrink-0'                      },
 ]
+
+// ── Mixto badge (split-payment indicator) ─────────────────────────────────────
+// v2.11.2 — surfaces payment_parts on the Ventas row. Native `title` attribute
+// gives a free cross-platform tooltip listing every part. Silent on tickets
+// without parts so single-method rows render identically to before.
+function MixtoBadge({ parts, lang }) {
+  if (!parts || parts.length < 2) return null
+  const tip = partsSummaryText(parts, lang)
+  return (
+    <span
+      title={tip}
+      className="inline-flex items-center text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-200 rounded-full px-2 py-0.5 cursor-help"
+    >
+      {lang === 'es' ? 'Mixto' : 'Split'}
+    </span>
+  )
+}
 
 // ── Estado badge ──────────────────────────────────────────────────────────────
 function EstadoBadge({ t, lang }) {
@@ -317,9 +353,21 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
           </div>
 
           {/* Payment */}
-          <div className="flex items-center gap-2 text-[12px]">
+          <div className="flex items-center gap-2 text-[12px] flex-wrap">
             <span className="text-slate-400 dark:text-white/40">{lang === 'es' ? 'Método de pago' : 'Payment method'}:</span>
-            <span className="font-semibold text-slate-700 dark:text-white">{payLabel(t.payMethod, lang)}</span>
+            {t.paymentParts && t.paymentParts.length > 1 ? (
+              <span className="font-semibold text-slate-700 dark:text-white">
+                {t.paymentParts.map((p, i) => (
+                  <span key={i}>
+                    {i > 0 && <span className="text-slate-400 dark:text-white/40"> + </span>}
+                    {payLabel(p.method, lang)} <span className="text-slate-500 dark:text-white/60">{fmtRD(p.amount)}</span>
+                  </span>
+                ))}
+              </span>
+            ) : (
+              <span className="font-semibold text-slate-700 dark:text-white">{payLabel(t.payMethod, lang)}</span>
+            )}
+            <MixtoBadge parts={t.paymentParts} lang={lang} />
             <EstadoBadge t={t} lang={lang} />
           </div>
 
@@ -809,7 +857,10 @@ export default function DailyReport() {
                     </div>
                     <div className="flex items-center justify-between">
                       <p className={`text-[12px] font-semibold truncate flex-1 ${isNula ? 'text-slate-400' : 'text-slate-800 dark:text-white'}`}>{t.client}</p>
-                      <EstadoBadge t={t} lang={lang} />
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <MixtoBadge parts={t.paymentParts} lang={lang} />
+                        <EstadoBadge t={t} lang={lang} />
+                      </div>
                     </div>
                     <div className="flex items-center gap-3 text-[11px] text-slate-400 dark:text-white/40">
                       {showVehicle && <span>{t.vehicle}</span>}
@@ -865,8 +916,9 @@ export default function DailyReport() {
                     </div>
 
                     {/* Estado */}
-                    <div className="w-[108px] shrink-0">
+                    <div className="w-[108px] shrink-0 flex items-center gap-1">
                       <EstadoBadge t={t} lang={lang} />
+                      <MixtoBadge parts={t.paymentParts} lang={lang} />
                     </div>
                   </div>
                 </button>
