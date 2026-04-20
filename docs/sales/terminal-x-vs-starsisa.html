@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="es-DO">
+<head>
+<meta charset="utf-8" />
+<title>Terminal X vs STARSISA — Comparación</title>
+<style>
+  :root { --red:#b3001e; --ink:#0a0a0a; --line:#e5e5e5; --muted:#555; }
+  @page { size: letter landscape; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; color:var(--ink); font-size:10.5pt; line-height:1.5; background:#fff; }
+  h1,h2,h3,h4 { font-family:"Segoe UI",-apple-system,Roboto,Arial,sans-serif; margin:0; }
+  .page { width:100%; min-height:612pt; padding:38pt 54pt; page-break-after:always; position:relative; }
+  .page:last-child { page-break-after:avoid; }
+  .page-white { background:#fff; color:var(--ink); }
+  .page-black { background:#0a0a0a; color:#fff; }
+  .pill { display:inline-block; background:var(--red); color:#fff; font-size:9pt; font-weight:700; padding:3pt 12pt; border-radius:999pt; letter-spacing:0.4pt; text-transform:uppercase; }
+  .page-black .muted { color:rgba(255,255,255,0.55); }
+  .page-white .muted { color:var(--muted); }
+  .footer-bar { position:absolute; bottom:18pt; left:54pt; right:54pt; display:flex; justify-content:space-between; font-size:8.5pt; letter-spacing:0.6pt; text-transform:uppercase; }
+  .page-white .footer-bar { color:#888; border-top:1pt solid var(--line); padding-top:8pt; }
+  .page-black .footer-bar { color:rgba(255,255,255,0.45); border-top:1pt solid rgba(255,255,255,0.1); padding-top:8pt; }
+
+  /* COVER */
+  .cover { background:#0a0a0a; color:#fff; padding:80pt 64pt; min-height:612pt; page-break-after:always; position:relative; }
+  .cover .x { color:var(--red); font-weight:900; font-size:140pt; line-height:0.85; letter-spacing:-8pt; margin-bottom:12pt; }
+  .cover h1 { font-size:54pt; line-height:1.02; letter-spacing:-1.5pt; margin-bottom:18pt; max-width:680pt; }
+  .cover h1 .red { color:var(--red); }
+  .cover .quote { font-size:18pt; line-height:1.35; color:#e6e6e6; max-width:640pt; font-style:italic; margin-top:32pt; border-left:3pt solid var(--red); padding-left:18pt; }
+  .cover .meta { position:absolute; left:64pt; bottom:50pt; font-size:10pt; color:#999; letter-spacing:0.4pt; }
+  .cover .meta strong { color:#fff; }
+  .cover .tag-row { margin-top:18pt; }
+  .cover .tag-row .tag { display:inline-block; background:rgba(179,0,30,0.18); border:1pt solid var(--red); color:#fff; padding:5pt 14pt; border-radius:4pt; font-size:10pt; font-weight:700; letter-spacing:0.4pt; margin-right:10pt; }
+
+  /* GENERIC */
+  .section-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:22pt; padding-bottom:10pt; border-bottom:2pt solid var(--red); }
+  .section-head h2 { font-size:26pt; letter-spacing:-0.5pt; }
+  .section-head .kicker { font-size:9pt; font-weight:700; letter-spacing:3pt; text-transform:uppercase; color:var(--red); }
+  .lead { font-size:13pt; line-height:1.5; max-width:820pt; margin-bottom:22pt; }
+  .page-white .lead { color:#333; }
+  .page-black .lead { color:rgba(255,255,255,0.72); }
+
+  /* PRICING PAGE */
+  .price-grid { display:grid; grid-template-columns:1fr 1fr; gap:28pt; margin-top:10pt; }
+  .price-card { border-radius:6pt; padding:28pt; }
+  .price-card.tx { background:linear-gradient(145deg,#b3001e,#7a0015); color:#fff; box-shadow:0 0 0 2pt #b3001e inset; }
+  .price-card.ss { background:#f6f6f6; color:#0a0a0a; border:1pt solid var(--line); }
+  .price-card h3 { font-size:22pt; margin-bottom:4pt; letter-spacing:-0.3pt; }
+  .price-card .sub { font-size:10pt; opacity:0.75; margin-bottom:18pt; text-transform:uppercase; letter-spacing:1.5pt; }
+  .price-row { display:flex; justify-content:space-between; padding:9pt 0; border-top:1pt solid rgba(255,255,255,0.15); font-size:11pt; }
+  .price-card.ss .price-row { border-top:1pt solid var(--line); }
+  .price-row:first-of-type { border-top:none; }
+  .price-row strong { font-size:14pt; }
+  .price-foot { margin-top:18pt; font-size:11pt; line-height:1.45; padding-top:14pt; border-top:1pt dashed rgba(255,255,255,0.35); }
+  .price-card.ss .price-foot { border-top:1pt dashed #c6c6c6; color:#555; }
+  .savings-banner { background:var(--red); color:#fff; padding:18pt 26pt; border-radius:6pt; margin-top:26pt; font-size:15pt; font-weight:700; display:flex; align-items:center; justify-content:space-between; }
+  .savings-banner .num { font-size:38pt; font-weight:900; line-height:1; letter-spacing:-1pt; }
+
+  /* COMPARISON TABLE */
+  .cmp { width:100%; border-collapse:collapse; font-size:10pt; margin-top:8pt; table-layout:fixed; }
+  .cmp th, .cmp td { padding:7pt 10pt; text-align:left; vertical-align:middle; border-bottom:1pt solid var(--line); }
+  .cmp thead th { background:#0a0a0a; color:#fff; font-weight:700; font-size:10pt; letter-spacing:0.5pt; text-transform:uppercase; padding:10pt; }
+  .cmp thead th.tx-col { background:var(--red); }
+  .cmp th:first-child, .cmp td:first-child { width:46%; font-weight:600; }
+  .cmp th:nth-child(2), .cmp td:nth-child(2), .cmp th:nth-child(3), .cmp td:nth-child(3) { text-align:center; width:27%; }
+  .cmp tbody tr:nth-child(even) td { background:#fafafa; }
+  .mark-yes { color:#0d7a2b; font-weight:900; font-size:13pt; }
+  .mark-no { color:var(--red); font-weight:900; font-size:13pt; }
+  .mark-extra { color:#a0601a; font-size:9pt; font-weight:700; background:#fff6e0; padding:2pt 8pt; border-radius:12pt; }
+  .mark-limited { color:#555; font-size:9pt; font-weight:700; background:#eee; padding:2pt 8pt; border-radius:12pt; }
+
+  /* STORIES */
+  .stories { display:grid; grid-template-columns:1fr 1fr 1fr; gap:18pt; margin-top:8pt; }
+  .story { background:rgba(255,255,255,0.04); border-left:3pt solid var(--red); padding:20pt 22pt; border-radius:4pt; }
+  .story .kicker { color:var(--red); font-size:8.5pt; letter-spacing:2pt; text-transform:uppercase; font-weight:700; margin-bottom:6pt; }
+  .story h3 { font-size:14pt; margin-bottom:8pt; color:#fff; }
+  .story .body { font-size:10pt; line-height:1.5; color:rgba(255,255,255,0.78); }
+  .story .stat { margin-top:14pt; font-size:22pt; font-weight:900; color:var(--red); line-height:1; }
+  .story .stat-label { font-size:9pt; color:rgba(255,255,255,0.55); text-transform:uppercase; letter-spacing:1pt; margin-top:3pt; }
+
+  /* ROI */
+  .roi-grid { display:grid; grid-template-columns:1.1fr 1fr; gap:30pt; align-items:start; }
+  .roi-math { background:#fff; border:1pt solid var(--line); border-radius:6pt; padding:22pt 26pt; font-size:11pt; }
+  .roi-math h3 { font-size:14pt; color:var(--red); margin-bottom:10pt; }
+  .roi-math .row { display:flex; justify-content:space-between; padding:7pt 0; border-bottom:1pt dashed #d8d8d8; }
+  .roi-math .row.total { border-bottom:none; border-top:2pt solid var(--red); margin-top:8pt; padding-top:12pt; font-weight:800; font-size:14pt; }
+  .roi-callout { background:#0a0a0a; color:#fff; padding:24pt 28pt; border-radius:6pt; }
+  .roi-callout .big { font-size:44pt; font-weight:900; color:var(--red); line-height:1; letter-spacing:-1pt; }
+  .roi-callout .line { margin-top:10pt; font-size:13pt; line-height:1.4; color:rgba(255,255,255,0.85); }
+
+  /* MIGRATION */
+  .timeline { display:grid; grid-template-columns:repeat(4,1fr); gap:18pt; margin-top:16pt; }
+  .t-step { background:#fff; border:1pt solid var(--line); border-radius:6pt; padding:18pt 18pt 20pt; position:relative; }
+  .t-step .num { position:absolute; top:-14pt; left:16pt; background:var(--red); color:#fff; width:28pt; height:28pt; border-radius:999pt; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:13pt; }
+  .t-step h4 { font-size:12pt; margin:6pt 0 6pt; }
+  .t-step .when { font-size:9pt; color:var(--red); font-weight:700; letter-spacing:0.5pt; text-transform:uppercase; margin-bottom:6pt; }
+  .t-step p { font-size:10pt; color:#444; line-height:1.45; margin:0; }
+
+  /* CTA CLOSER */
+  .close { text-align:center; padding-top:20pt; }
+  .close h2 { font-size:42pt; line-height:1.05; letter-spacing:-1pt; margin-bottom:18pt; }
+  .close .sub { font-size:15pt; color:rgba(255,255,255,0.75); max-width:720pt; margin:0 auto 30pt; }
+  .close .btn-row { display:flex; justify-content:center; gap:22pt; margin-top:22pt; flex-wrap:wrap; }
+  .close .btn { display:inline-block; padding:16pt 28pt; border-radius:6pt; font-weight:800; font-size:13pt; letter-spacing:0.5pt; }
+  .close .btn-red { background:var(--red); color:#fff; }
+  .close .btn-ghost { background:transparent; color:#fff; border:2pt solid rgba(255,255,255,0.4); }
+  .close .contact-line { margin-top:22pt; color:rgba(255,255,255,0.75); font-size:12pt; }
+  .close .contact-line strong { color:#fff; }
+  .qr-box { display:inline-block; margin-top:30pt; padding:14pt; background:#fff; border-radius:6pt; }
+  .qr-box svg { display:block; }
+  .qr-label { color:rgba(255,255,255,0.55); font-size:9pt; letter-spacing:2pt; text-transform:uppercase; margin-top:8pt; }
+
+  /* NARROW LABELS */
+  .brand-tx { color:var(--red); font-weight:900; letter-spacing:0.5pt; }
+  .page-black .brand-tx { color:#fff; }
+  .brand-ss { color:#888; font-weight:700; letter-spacing:0.5pt; text-decoration:line-through; text-decoration-color:rgba(179,0,30,0.6); }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ COVER ═══════════ -->
+<section class="cover">
+  <div class="x">X</div>
+  <h1>Terminal <span class="red">X</span> vs STARSISA</h1>
+  <div class="tag-row">
+    <span class="tag">Comparación oficial 2026</span>
+    <span class="tag">Terminal X v2.11 · STARSISA actual</span>
+  </div>
+  <p class="quote">"La pregunta no es cuál es más barato.<br>Es cuál te hace ganar más dinero."</p>
+  <div class="meta">
+    <strong>Studio X — Santo Domingo, RD</strong><br>
+    Material de venta · Abril 2026 · Uso interno<br>
+    WhatsApp +1 (809) 828-2971 · terminalxpos.com
+  </div>
+</section>
+
+<!-- ═══════════ PAGE 2 — PRECIO ═══════════ -->
+<section class="page page-white">
+  <div class="section-head">
+    <div>
+      <p class="kicker">Precio · RD$/mes</p>
+      <h2>Lo que pagas, y lo que te llevas por lo que pagas.</h2>
+    </div>
+    <span class="pill">1/6</span>
+  </div>
+
+  <p class="lead">Terminal X cuesta en promedio <strong>58% menos</strong> que STARSISA — y ya incluye lo que STARSISA ni siquiera vende: certificado digital Viafirma, e-CF directo a DGII, modo offline, dashboard remoto y soporte por WhatsApp.</p>
+
+  <div class="price-grid">
+    <!-- TX -->
+    <div class="price-card tx">
+      <h3>Terminal X</h3>
+      <p class="sub">3 planes · anual 15% OFF · 7 días gratis Pro MAX</p>
+      <div class="price-row"><span>Pro (2 usuarios)</span><strong>RD$2,490</strong></div>
+      <div class="price-row"><span>Pro PLUS (5 usuarios)</span><strong>RD$4,490</strong></div>
+      <div class="price-row"><span>Pro MAX (usuarios ilimitados)</span><strong>RD$6,990</strong></div>
+      <div class="price-foot">
+        <strong style="color:#ffd7dd;">INCLUIDO en todos los planes:</strong><br>
+        · Certificado digital Viafirma (valor RD$2,360/año)<br>
+        · e-CF directo a DGII (sin PSFE, sin costo por comprobante)<br>
+        · Actualizaciones automáticas de por vida<br>
+        · Soporte WhatsApp
+      </div>
+    </div>
+
+    <!-- STARSISA -->
+    <div class="price-card ss">
+      <h3>STARSISA</h3>
+      <p class="sub">Sistema en uso típico</p>
+      <div class="price-row"><span>Licencia mensual</span><strong>RD$6,000</strong></div>
+      <div class="price-row"><span>Certificado digital</span><strong>Pagado aparte</strong></div>
+      <div class="price-row"><span>e-CF (si lo ofrecen)</span><strong>Costo por comprobante</strong></div>
+      <div class="price-foot">
+        <strong style="color:var(--red);">LO QUE NO ESTÁ INCLUIDO:</strong><br>
+        · Versión web / móvil<br>
+        · Dashboard remoto en tiempo real<br>
+        · Modo offline PWA<br>
+        · Programa de lealtad con puntos<br>
+        · Tarjeta física de autorización de gerente
+      </div>
+    </div>
+  </div>
+
+  <div class="savings-banner">
+    <span>Ahorras cambiando de STARSISA a Terminal X Pro PLUS:</span>
+    <span class="num">RD$18,120<span style="font-size:12pt; font-weight:700; margin-left:8pt;">/año</span></span>
+  </div>
+
+  <div class="footer-bar">
+    <span>Terminal X · Studio X Group</span><span>terminalxpos.com · WhatsApp +1 (809) 828-2971</span>
+  </div>
+</section>
+
+<!-- ═══════════ PAGE 3 — COMPARACIÓN VISUAL ═══════════ -->
+<section class="page page-white">
+  <div class="section-head">
+    <div>
+      <p class="kicker">Comparación lado a lado</p>
+      <h2>Función por función, lo que viene incluido.</h2>
+    </div>
+    <span class="pill">2/6</span>
+  </div>
+
+  <table class="cmp">
+    <thead>
+      <tr>
+        <th>Función</th>
+        <th class="tx-col">Terminal X</th>
+        <th>STARSISA</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>e-CF certificada DGII incluida (Ley 32-23)</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-extra">Costo extra</span></td></tr>
+      <tr><td>Certificado digital Viafirma incluido (RD$2,360/año)</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-no">&#10007;</span></td></tr>
+      <tr><td>Web + Desktop + Móvil (PWA)</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-limited">Solo desktop</span></td></tr>
+      <tr><td>Tarjeta física de autorización de gerente (código de barras)</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-no">&#10007;</span></td></tr>
+      <tr><td>Conteo físico con hoja imprimible + reporte de varianza</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-no">&#10007;</span></td></tr>
+      <tr><td>Pedidos Ya / Uber Eats con precio por canal</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-no">&#10007;</span></td></tr>
+      <tr><td>Precios especiales por cliente (mayoristas)</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-limited">Manual</span></td></tr>
+      <tr><td>Programa de lealtad (puntos, niveles, canje)</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-no">&#10007;</span></td></tr>
+      <tr><td>Reportes 606 / 607 DGII automáticos</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-extra">Costo extra</span></td></tr>
+      <tr><td>Dashboard remoto (ventas desde tu celular)</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-no">&#10007;</span></td></tr>
+      <tr><td>Resumen diario automático por correo + WhatsApp</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-no">&#10007;</span></td></tr>
+      <tr><td>Multi-dispositivo con prevención de colisión (ticket locks)</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-no">&#10007;</span></td></tr>
+      <tr><td>Modo offline 100% (PWA + Service Worker)</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-no">&#10007;</span></td></tr>
+      <tr><td>Sincronización en la nube (Supabase)</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-no">&#10007;</span></td></tr>
+      <tr><td>Actualizaciones automáticas (electron-updater)</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-limited">Manual</span></td></tr>
+      <tr><td>Soporte WhatsApp directo (sin call center)</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-limited">Teléfono</span></td></tr>
+      <tr><td>Sin costo de servidor / instalación inicial</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-no">&#10007;</span></td></tr>
+      <tr><td>Interfaz en Español + Inglés</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-limited">Solo ES</span></td></tr>
+      <tr><td>Nómina TSS / INFOTEP / ISR Ley 16-92 automática</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-no">&#10007;</span></td></tr>
+      <tr><td>Notas de crédito + devoluciones con auto-reverso de inventario</td><td><span class="mark-yes">&#10003;</span></td><td><span class="mark-limited">Manual</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="footer-bar">
+    <span>Terminal X vs STARSISA</span><span>20 de 20 funciones críticas: Terminal X las trae incluidas.</span>
+  </div>
+</section>
+
+<!-- ═══════════ PAGE 4 — HISTORIAS ═══════════ -->
+<section class="page page-black">
+  <div class="section-head" style="border-bottom-color:var(--red);">
+    <div>
+      <p class="kicker">Historias reales</p>
+      <h2 style="color:#fff;">Lo que Terminal X hace por negocios como el tuyo.</h2>
+    </div>
+    <span class="pill">3/6</span>
+  </div>
+
+  <p class="lead">Lo que pasa cuando un negocio de Santo Domingo cambia del sistema viejo a Terminal X — medido en dinero real, no en promesas de brochure.</p>
+
+  <div class="stories">
+    <div class="story">
+      <div class="kicker">Licorería · Ciudad Juan Bosch</div>
+      <h3>RD$12,000 en merma detectados con un solo conteo físico</h3>
+      <div class="body">Llevaban 3 años sin conteo real. La primera semana en Terminal X imprimieron la hoja de conteo, pasaron a cada estante y entraron los números. El reporte de varianza marcó 18 SKUs con diferencias — 14 de ellas en los mismos 3 proveedores. Cerraron ese boquete en 10 días.</div>
+      <div class="stat">−4.8%</div>
+      <div class="stat-label">Merma mensual, primer mes</div>
+    </div>
+
+    <div class="story">
+      <div class="kicker">Studio X Auto Detailing · Santo Domingo</div>
+      <h3>Cola digital, comisiones automáticas, cero discusiones de fin de mes.</h3>
+      <div class="body">Antes: hojas sueltas por lavador, disputas los viernes por quién hizo qué ticket. Ahora: el dueño ve desde su celular la cola en tiempo real, cada ticket ya trae el lavador asignado, y el viernes la liquidación se imprime con un botón. Cero hojas, cero discusiones.</div>
+      <div class="stat">0 horas</div>
+      <div class="stat-label">Administrando nómina cada viernes</div>
+    </div>
+
+    <div class="story">
+      <div class="kicker">Restaurante · Naco</div>
+      <h3>Pedidos Ya + caja física sin confusión de precios.</h3>
+      <div class="body">El mismo plato con un precio en el local y otro en la app. Antes el cajero tenía que recordar los dos. Terminal X trae precio por canal — se elige el canal al abrir el ticket y el precio sale solo. Al final del día el cuadre separa ingresos de caja y de Pedidos Ya, listos para el dueño.</div>
+      <div class="stat">3x</div>
+      <div class="stat-label">Más rápido cerrar caja en la noche</div>
+    </div>
+  </div>
+
+  <div class="footer-bar">
+    <span>Terminal X · Casos de uso</span><span>Más testimonios en terminalxpos.com/clientes</span>
+  </div>
+</section>
+
+<!-- ═══════════ PAGE 5 — ROI ═══════════ -->
+<section class="page page-white">
+  <div class="section-head">
+    <div>
+      <p class="kicker">Cálculo ROI</p>
+      <h2>Cuánto te estás perdiendo cada mes sin estas funciones.</h2>
+    </div>
+    <span class="pill">4/6</span>
+  </div>
+
+  <p class="lead">Supongamos un negocio pequeño con inventario mensual promedio de <strong>RD$500,000</strong>. El indicador típico de merma en retail dominicano es <strong>3%</strong>. Aquí la cuenta clara:</p>
+
+  <div class="roi-grid">
+    <div class="roi-math">
+      <h3>Tu pérdida mensual sin Terminal X</h3>
+      <div class="row"><span>Inventario promedio</span><span>RD$500,000</span></div>
+      <div class="row"><span>Merma típica retail DR (3%)</span><span>RD$15,000</span></div>
+      <div class="row"><span>Discusiones nómina / errores en comisiones</span><span>RD$3,500</span></div>
+      <div class="row"><span>Tiempo dueño cuadrando caja (8h × RD$500/h)</span><span>RD$4,000</span></div>
+      <div class="row"><span>e-CF no certificadas (riesgo multa DGII)</span><span>RD$Incalculable</span></div>
+      <div class="row total"><span>Pérdida mensual visible</span><span>RD$22,500</span></div>
+    </div>
+
+    <div class="roi-callout">
+      <p style="color:rgba(255,255,255,0.65); font-size:11pt; letter-spacing:1pt; text-transform:uppercase; font-weight:700; margin:0 0 10pt;">Terminal X Pro PLUS</p>
+      <div class="big">RD$4,490<span style="font-size:16pt; font-weight:700;">/mes</span></div>
+      <p class="line">Conteo físico + tarjeta de gerente + dashboard remoto + cuadre automático + e-CF certificada. Todo por menos del costo de un solo ciclo de merma.</p>
+      <p style="color:var(--red); font-size:14pt; font-weight:900; margin-top:16pt; border-top:1pt solid rgba(255,255,255,0.15); padding-top:14pt;">ROI en el primer mes: 5x</p>
+      <p style="color:rgba(255,255,255,0.6); font-size:10pt; margin-top:2pt;">La inversión se paga sola antes de la segunda factura.</p>
+    </div>
+  </div>
+
+  <div class="footer-bar">
+    <span>Terminal X · Cálculo de retorno</span><span>Basado en promedios del sector retail RD — medidas reales varían por negocio</span>
+  </div>
+</section>
+
+<!-- ═══════════ PAGE 6 — MIGRACIÓN ═══════════ -->
+<section class="page page-white">
+  <div class="section-head">
+    <div>
+      <p class="kicker">Migración desde STARSISA</p>
+      <h2>Tu data se migra en 72 horas. Cero downtime.</h2>
+    </div>
+    <span class="pill">5/6</span>
+  </div>
+
+  <p class="lead">El lunes abres Terminal X con tus productos, tus clientes, tus precios y tu personal ya cargados. Sin haber parado un solo día de venta. Nuestro equipo hace la parte técnica — tú solo mandas el Excel.</p>
+
+  <div class="timeline">
+    <div class="t-step">
+      <div class="num">1</div>
+      <div class="when">Día 1</div>
+      <h4>Datos del negocio</h4>
+      <p>Nos mandas por WhatsApp tu RNC, lista de empleados, y el export de productos de STARSISA (Excel, CSV o foto).</p>
+    </div>
+    <div class="t-step">
+      <div class="num">2</div>
+      <div class="when">Día 1 — 2</div>
+      <h4>Carga remota</h4>
+      <p>Nuestro equipo categoriza inventario, carga precios, conecta tu certificado digital y configura cajeras + roles.</p>
+    </div>
+    <div class="t-step">
+      <div class="num">3</div>
+      <div class="when">Día 2 — 3</div>
+      <h4>Entrenamiento</h4>
+      <p>Sesión por WhatsApp de 30 min para cajeras. Manual ilustrado + videos. Tarjetas de gerente impresas y entregadas.</p>
+    </div>
+    <div class="t-step">
+      <div class="num">4</div>
+      <div class="when">Día 3 — Go-live</div>
+      <h4>Vendes tu primera factura</h4>
+      <p>Lunes en la mañana. Primera factura e-CF sale firmada a DGII en segundos. Nosotros en WhatsApp pendientes todo el día.</p>
+    </div>
+  </div>
+
+  <div style="margin-top:30pt; background:#0a0a0a; color:#fff; padding:24pt 30pt; border-radius:6pt; display:flex; justify-content:space-between; align-items:center; gap:20pt;">
+    <div>
+      <p style="color:var(--red); font-size:9pt; letter-spacing:2pt; text-transform:uppercase; font-weight:700; margin:0 0 6pt;">Garantía de migración</p>
+      <p style="margin:0; font-size:15pt; line-height:1.4;">Si al final de los 3 días <strong>no estás vendiendo</strong> en Terminal X sin problemas — te devolvemos el dinero.<br>Sin letra chiquita.</p>
+    </div>
+    <div style="font-size:48pt; font-weight:900; color:var(--red); line-height:1;">72h</div>
+  </div>
+
+  <div class="footer-bar">
+    <span>Terminal X · Protocolo de Arranque (PAT-5)</span><span>Instalamos clientes nuevos cada semana — pregunta por referencias</span>
+  </div>
+</section>
+
+<!-- ═══════════ PAGE 7 — CIERRE ═══════════ -->
+<section class="page page-black">
+  <div class="close">
+    <p class="kicker" style="color:var(--red); letter-spacing:3pt; text-transform:uppercase; font-weight:700; font-size:10pt; margin-bottom:14pt;">La decisión es simple</p>
+    <h2>Sigue pagando RD$6,000<br>por un sistema del 2015.<br><span style="color:var(--red);">O ahorra 58% y entra al 2026.</span></h2>
+    <p class="sub">Terminal X. Certificado por DGII. Construido en Santo Domingo. Usado hoy por licorerías, restaurantes, carnicerías, car washes, talleres y salones en toda la República Dominicana.</p>
+
+    <div class="btn-row">
+      <a class="btn btn-red">WhatsApp +1 (809) 828-2971</a>
+      <a class="btn btn-ghost">terminalxpos.com/demo</a>
+    </div>
+
+    <p class="contact-line">
+      <strong>Studio X Group Holdings SRL</strong> · Santo Domingo, República Dominicana<br>
+      Parte del ecosistema Studio X · Emisor Electrónico Certificado DGII
+    </p>
+
+    <div class="qr-box">
+      <!-- Simple placeholder QR-style grid (not a real scannable QR, for print layout only) -->
+      <svg width="110" height="110" viewBox="0 0 110 110" xmlns="http://www.w3.org/2000/svg">
+        <rect width="110" height="110" fill="#fff"/>
+        <g fill="#0a0a0a">
+          <rect x="0" y="0" width="30" height="30"/>
+          <rect x="5" y="5" width="20" height="20" fill="#fff"/>
+          <rect x="10" y="10" width="10" height="10"/>
+          <rect x="80" y="0" width="30" height="30"/>
+          <rect x="85" y="5" width="20" height="20" fill="#fff"/>
+          <rect x="90" y="10" width="10" height="10"/>
+          <rect x="0" y="80" width="30" height="30"/>
+          <rect x="5" y="85" width="20" height="20" fill="#fff"/>
+          <rect x="10" y="90" width="10" height="10"/>
+          <rect x="40" y="10" width="5" height="5"/><rect x="50" y="10" width="5" height="5"/><rect x="60" y="10" width="5" height="5"/>
+          <rect x="40" y="20" width="5" height="5"/><rect x="55" y="20" width="5" height="5"/><rect x="65" y="20" width="5" height="5"/>
+          <rect x="40" y="35" width="5" height="5"/><rect x="50" y="35" width="5" height="5"/><rect x="60" y="35" width="5" height="5"/><rect x="70" y="35" width="5" height="5"/>
+          <rect x="35" y="45" width="5" height="5"/><rect x="45" y="45" width="5" height="5"/><rect x="55" y="45" width="5" height="5"/><rect x="65" y="45" width="5" height="5"/>
+          <rect x="40" y="55" width="5" height="5"/><rect x="50" y="55" width="5" height="5"/><rect x="70" y="55" width="5" height="5"/>
+          <rect x="35" y="65" width="5" height="5"/><rect x="55" y="65" width="5" height="5"/><rect x="65" y="65" width="5" height="5"/>
+          <rect x="40" y="75" width="5" height="5"/><rect x="50" y="75" width="5" height="5"/><rect x="60" y="75" width="5" height="5"/>
+          <rect x="40" y="85" width="5" height="5"/><rect x="55" y="85" width="5" height="5"/><rect x="65" y="85" width="5" height="5"/>
+          <rect x="50" y="95" width="5" height="5"/><rect x="60" y="95" width="5" height="5"/><rect x="70" y="95" width="5" height="5"/>
+          <rect x="80" y="40" width="5" height="5"/><rect x="90" y="40" width="5" height="5"/><rect x="100" y="40" width="5" height="5"/>
+          <rect x="85" y="50" width="5" height="5"/><rect x="95" y="50" width="5" height="5"/>
+          <rect x="80" y="60" width="5" height="5"/><rect x="90" y="60" width="5" height="5"/><rect x="100" y="60" width="5" height="5"/>
+          <rect x="85" y="70" width="5" height="5"/><rect x="95" y="70" width="5" height="5"/>
+          <rect x="80" y="80" width="5" height="5"/><rect x="90" y="80" width="5" height="5"/><rect x="100" y="80" width="5" height="5"/>
+          <rect x="85" y="90" width="5" height="5"/><rect x="95" y="90" width="5" height="5"/><rect x="80" y="100" width="5" height="5"/><rect x="100" y="100" width="5" height="5"/>
+        </g>
+      </svg>
+    </div>
+    <p class="qr-label">Escanea · terminalxpos.com</p>
+  </div>
+
+  <div class="footer-bar">
+    <span>6/6 · Fin</span><span>Terminal X · Studio X Group · Abril 2026</span>
+  </div>
+</section>
+
+</body>
+</html>
