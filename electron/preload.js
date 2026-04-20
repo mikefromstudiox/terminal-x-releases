@@ -404,6 +404,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     addLoyaltyPoints: ({id, delta})     => call('clients:addLoyaltyPoints', {id, delta}),
     openTickets:   (clientId)           => call('clients:openTickets', clientId),
   },
+  // v2.7.1 — Loyalty program (ledger)
+  loyalty: {
+    award:   (data) => call('loyalty:award',   data),
+    redeem:  (data) => call('loyalty:redeem',  data),
+    adjust:  (data) => call('loyalty:adjust',  data),
+    history: (data) => call('loyalty:history', data),
+  },
   credits: {
     collect: (data) => call('credits:collect', data),
   },

@@ -34,8 +34,13 @@ function salonUpsellSuggestion(ticket, lang) {
   for (const t of SALON_UPSELL_TRIGGERS) if (t.match.test(joined)) return lang === 'es' ? t.es : t.en
   return null
 }
-// 1 loyalty point per RD$100 spent, rounded down — simple, salon-standard.
-function loyaltyPointsFor(amount) { return Math.max(0, Math.floor(Number(amount || 0) / 100)) }
+// v2.7.1 — configurable loyalty ratio. Earns = floor(amount / ratio). Default
+// ratio is 100 (1 point per RD$100). Keeps backward-compat with the original
+// salon-only helper that hardcoded 100.
+function loyaltyPointsFor(amount, ratio = 100) {
+  const r = Number(ratio) || 100
+  return Math.max(0, Math.floor(Number(amount || 0) / Math.max(1, r)))
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtRD(n) {
@@ -458,17 +463,49 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const api = useAPI()
   const { lang } = useLang()
   const { businessType } = useBusinessType()
+  const { hasFeature } = usePlan()
   const isSalon = businessType === 'salon'
   const upsellTip = useMemo(() => isSalon ? salonUpsellSuggestion(ticket, lang) : null, [isSalon, ticket, lang])
 
-  // Fire-and-forget loyalty accrual — gated to salon vertical. Runs AFTER the
-  // confirm callback fires so it never blocks the success view. Silently swallows
-  // errors (salon loyalty is additive, not transactional).
-  async function awardLoyaltyPoints(clientId, totalAmount) {
-    if (!isSalon || !clientId || !totalAmount) return
-    const pts = loyaltyPointsFor(totalAmount)
-    if (pts <= 0) return
-    try { await api?.clients?.addLoyaltyPoints?.({ id: clientId, delta: pts }) } catch {}
+  // v2.7.1 — cross-vertical loyalty program. Plan-gated (Pro PLUS + Pro MAX)
+  // + owner toggle in Settings. Legacy salon auto-accrual still works when the
+  // business hasn't enabled the program (back-compat).
+  const [loyaltyCfg, setLoyaltyCfg] = useState({
+    enabled: false,
+    pointsRatio: 100,       // RD$ per 1 point
+    redemptionRatio: 2,     // points per RD$1 off
+  })
+  const loyaltyEnabled = hasFeature?.('loyalty') && loyaltyCfg.enabled
+
+  // Fire-and-forget loyalty accrual. Runs AFTER onConfirm fires so it never
+  // blocks the success view. Silently swallows errors.
+  //   - Loyalty program ON + plan has 'loyalty'  → ledger-backed award
+  //   - Legacy salon auto-accrual                → simple balance bump
+  async function awardLoyaltyPoints(client, totalAmount, ticketSupabaseId) {
+    const clientId           = client?.id || null
+    const clientSupabaseId   = client?.supabase_id || null
+    if (!clientId || !totalAmount) return
+    if (loyaltyEnabled) {
+      const pts = loyaltyPointsFor(totalAmount, loyaltyCfg.pointsRatio)
+      if (pts <= 0) return
+      try {
+        if (api?.clients?.loyaltyAward) {
+          await api.clients.loyaltyAward({
+            clientId,
+            clientSupabaseId,
+            ticketSupabaseId,
+            points: pts,
+            notes: 'earn_ticket',
+          })
+        }
+      } catch {}
+      return
+    }
+    if (isSalon) {
+      const pts = loyaltyPointsFor(totalAmount, 100)
+      if (pts <= 0) return
+      try { await api?.clients?.addLoyaltyPoints?.({ id: clientId, delta: pts }) } catch {}
+    }
   }
 
   // ITBIS rate — loaded from app_settings.itbis_pct on mount (see useEffect
@@ -478,12 +515,35 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const [itbisRate, setItbisRate] = useState(DEFAULT_ITBIS_RATE)
   const itbisFactor = Number(itbisRate) / 100
   const [descuentoInput, setDescuentoInput] = useState('')
+  // v2.7.1 — pending loyalty redemption { points, discount }. Applied as a
+  // descuento line; consumed (ledger burn) on successful onConfirm.
+  const [loyaltyRedemption, setLoyaltyRedemption] = useState(null)
+  const [loyaltyPickerOpen, setLoyaltyPickerOpen]   = useState(false)
+
+  // v2.7.1 — offline detection (web PWA). Desktop (Electron) ignores
+  // navigator.onLine because it has local SQLite + offline queue.
+  const isWeb = typeof window !== 'undefined' && !window.electronAPI
+  const [online, setOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine)
+  useEffect(() => {
+    if (!isWeb) return
+    const on  = () => setOnline(true)
+    const off = () => setOnline(false)
+    window.addEventListener('online',  on)
+    window.addEventListener('offline', off)
+    return () => {
+      window.removeEventListener('online',  on)
+      window.removeEventListener('offline', off)
+    }
+  }, [isWeb])
+  const offlineBlock = isWeb && !online
 
   // Totals — prices already include ITBIS, extract it for display.
   // Descuento = RD$ flat amount subtracted from gross; proportionally
   // reduces subtotal + itbis so e-CF totals stay internally consistent.
   const totalGross = ticket.services.reduce((s, svc) => s + svc.price * (svc.qty || 1), 0)
-  const descuento = Math.min(Math.max(0, parseFloat(descuentoInput) || 0), totalGross)
+  const manualDescuento   = Math.max(0, parseFloat(descuentoInput) || 0)
+  const loyaltyDiscount   = Math.max(0, Number(loyaltyRedemption?.discount || 0))
+  const descuento         = Math.min(manualDescuento + loyaltyDiscount, totalGross)
   const total    = parseFloat((totalGross - descuento).toFixed(2))
   const subtotal = parseFloat((total / (1 + itbisFactor)).toFixed(2))
   const itbis    = parseFloat((total - subtotal).toFixed(2))
@@ -636,6 +696,12 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
       // Set sensible ncfType default based on fiscal mode
       const mode = cfg.fiscal_mode || 'ecf'
       setNcfType(mode === 'legacy' ? 'B02' : 'E32')
+      // v2.7.1 — loyalty program config
+      setLoyaltyCfg({
+        enabled:         String(cfg.loyalty_enabled || '0') === '1',
+        pointsRatio:     Math.max(1, Number(cfg.loyalty_points_ratio) || 100),
+        redemptionRatio: Math.max(0.1, Number(cfg.loyalty_redemption_ratio) || 2),
+      })
     }).catch(() => setBizSettings({}))
   }, [])
 
@@ -708,6 +774,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
   const showEfectivo = tipo === 'contado' && formaPago === 'efectivo'
 
   const canSubmit =
+    !offlineBlock &&
     (tipo === 'credito' || formaPago !== null) &&
     (tipo !== 'contado' || formaPago !== 'efectivo' || recibidoNum >= total) &&
     (!currentType?.requiresRnc || validateRNC(rnc)) &&
@@ -789,7 +856,21 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
           paidAt:    new Date(),
           ecf:       legacyResult,
         })
-        awardLoyaltyPoints(selectedClient?.id, total)
+        awardLoyaltyPoints(selectedClient, total, ticket?.supabase_id || null)
+        // v2.7.1 — commit staged redemption (burn points + ledger row)
+        if (loyaltyRedemption && loyaltyEnabled && selectedClient?.id) {
+          try {
+            if (api?.clients?.loyaltyRedeem) {
+              api.clients.loyaltyRedeem({
+                clientId: selectedClient.id,
+                clientSupabaseId: selectedClient.supabase_id || null,
+                ticketSupabaseId: ticket?.supabase_id || null,
+                points: loyaltyRedemption.points,
+                notes: `redeem_ticket:${ticket?.id ?? ''}`,
+              })
+            }
+          } catch {}
+        }
       }
       return
     }
@@ -872,7 +953,21 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
           paidAt:    new Date(),
           ecf:       result,
         })
-        awardLoyaltyPoints(selectedClient?.id, total)
+        awardLoyaltyPoints(selectedClient, total, ticket?.supabase_id || null)
+        // v2.7.1 — commit staged redemption (burn points + ledger row)
+        if (loyaltyRedemption && loyaltyEnabled && selectedClient?.id) {
+          try {
+            if (api?.clients?.loyaltyRedeem) {
+              api.clients.loyaltyRedeem({
+                clientId: selectedClient.id,
+                clientSupabaseId: selectedClient.supabase_id || null,
+                ticketSupabaseId: ticket?.supabase_id || null,
+                points: loyaltyRedemption.points,
+                notes: `redeem_ticket:${ticket?.id ?? ''}`,
+              })
+            }
+          } catch {}
+        }
       }
 
       // Use qrLink from DGII directly; fall back to QR generation
@@ -901,6 +996,16 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
       onMouseDown={e => { if (e.target === e.currentTarget && !isSubmitting) ecfState === 'success' ? handleSuccessClose() : onClose() }}
     >
       <div className="bg-white dark:bg-zinc-900 shadow-2xl w-full h-full md:w-auto md:h-auto md:max-w-[660px] md:rounded-2xl flex flex-col md:max-h-[93vh]">
+
+        {/* v2.7.1 — offline banner (web PWA only) */}
+        {offlineBlock && (
+          <div className="px-4 py-2 bg-[#b3001e] text-white text-[12px] font-semibold flex items-center gap-2 shrink-0">
+            <AlertTriangle size={14} />
+            {lang === 'es'
+              ? 'Sin conexión — cobro deshabilitado. La venta no se puede confirmar offline.'
+              : 'Offline — checkout disabled. Cannot confirm sale without connection.'}
+          </div>
+        )}
 
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-slate-100 dark:border-white/10 shrink-0">
@@ -1033,8 +1138,79 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                     <span className="font-semibold leading-snug">{upsellTip}</span>
                   </div>
                 )}
-                {/* Salon loyalty preview — points this ticket will earn */}
-                {isSalon && selectedClient?.id && loyaltyPointsFor(total) > 0 && (
+                {/* v2.7.1 — loyalty earn preview + redeem (cross-vertical, plan-gated) */}
+                {loyaltyEnabled && selectedClient?.id && (() => {
+                  const earn = loyaltyPointsFor(total, loyaltyCfg.pointsRatio)
+                  const currentPoints = Math.max(0, Number(selectedClient.loyalty_points) || 0)
+                  const redeemRatio = loyaltyCfg.redemptionRatio // pts per RD$1 off
+                  const minRedeemPts = Math.max(1, Math.round(50 * redeemRatio)) // RD$50 minimum
+                  const canRedeem = currentPoints >= minRedeemPts && !loyaltyRedemption
+                  const redeemOptions = [50, 100, 200, 500]
+                    .map(rd => ({ discount: rd, points: Math.round(rd * redeemRatio) }))
+                    .filter(o => o.points <= currentPoints && o.discount <= totalGross - manualDescuento)
+                  return (
+                    <div className="mb-3 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-2.5 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-[11px] text-slate-600 dark:text-white/70">
+                          <Gift size={12} className="text-[#b3001e]" />
+                          <span>
+                            {lang === 'es'
+                              ? `Saldo: ${currentPoints.toLocaleString()} pts`
+                              : `Balance: ${currentPoints.toLocaleString()} pts`}
+                          </span>
+                          {earn > 0 && (
+                            <span className="text-slate-400 dark:text-white/40">
+                              · {lang === 'es' ? `ganará ${earn} pts` : `earns ${earn} pts`}
+                            </span>
+                          )}
+                        </div>
+                        {canRedeem && (
+                          <button
+                            type="button"
+                            onClick={() => setLoyaltyPickerOpen(o => !o)}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-[#b3001e] text-white hover:bg-[#8c0017]"
+                          >
+                            {lang === 'es' ? 'Canjear' : 'Redeem'}
+                          </button>
+                        )}
+                        {loyaltyRedemption && (
+                          <button
+                            type="button"
+                            onClick={() => { setLoyaltyRedemption(null); setLoyaltyPickerOpen(false) }}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-[#b3001e] text-[#b3001e] hover:bg-[#b3001e]/5"
+                          >
+                            {lang === 'es' ? 'Quitar canje' : 'Remove redeem'}
+                          </button>
+                        )}
+                      </div>
+                      {loyaltyPickerOpen && canRedeem && (
+                        <div className="flex flex-wrap gap-1.5 pt-1 border-t border-slate-200 dark:border-white/10">
+                          {redeemOptions.length === 0 ? (
+                            <span className="text-[10px] text-slate-400">{lang === 'es' ? 'Sin opciones disponibles' : 'No options available'}</span>
+                          ) : redeemOptions.map(o => (
+                            <button
+                              key={o.discount}
+                              type="button"
+                              onClick={() => { setLoyaltyRedemption({ points: o.points, discount: o.discount }); setLoyaltyPickerOpen(false) }}
+                              className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white dark:bg-black border border-slate-300 dark:border-white/20 text-slate-700 dark:text-white hover:border-[#b3001e]"
+                            >
+                              {o.points} pts → RD${o.discount}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {loyaltyRedemption && (
+                        <div className="text-[11px] font-semibold text-[#b3001e]">
+                          {lang === 'es'
+                            ? `Canjeando ${loyaltyRedemption.points} pts por RD$${loyaltyRedemption.discount} de descuento`
+                            : `Redeeming ${loyaltyRedemption.points} pts for RD$${loyaltyRedemption.discount} off`}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+                {/* Legacy salon loyalty preview (back-compat when program disabled) */}
+                {!loyaltyEnabled && isSalon && selectedClient?.id && loyaltyPointsFor(total) > 0 && (
                   <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-[11px] text-slate-600 dark:text-white/70">
                     <Gift size={12} className="text-[#b3001e]" />
                     <span>

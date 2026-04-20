@@ -11,6 +11,7 @@ import { useClients, useMutation } from '../hooks/useDB'
 import { useRNC } from '../hooks/useRNC'
 import { printClientReceipt } from '@terminal-x/services/printer'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
+import { usePlan } from '../hooks/usePlan'
 import { Scissors, Gift, Heart } from 'lucide-react'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -44,6 +45,7 @@ function mapClient(c) {
     notes:       c.notes || '',
     // v2.4 — Salon-vertical client attributes (ignored by other verticals).
     loyaltyPoints:             Number(c.loyalty_points) || 0,
+    loyalty_tier:              c.loyalty_tier || 'bronze',
     allergies:                 c.allergies || '',
     preferredStylistId:        c.preferred_stylist_id || null,
     preferredStylistSupabaseId: c.preferred_stylist_supabase_id || null,
@@ -160,10 +162,65 @@ function SkeletonCard() {
 
 // ── Client detail panel ───────────────────────────────────────────────────────
 
+// v2.7.1 — tier color map (cross-vertical loyalty program)
+const TIER_STYLE = {
+  platinum: { es: 'Platinum', en: 'Platinum', color: 'bg-[#b3001e] text-white' },
+  gold:     { es: 'Gold',     en: 'Gold',     color: 'bg-amber-400 text-black' },
+  silver:   { es: 'Silver',   en: 'Silver',   color: 'bg-slate-300 text-slate-800' },
+  bronze:   { es: 'Bronze',   en: 'Bronze',   color: 'bg-slate-200 text-slate-700 dark:bg-white/10 dark:text-white/70' },
+}
+
+function LoyaltyHistoryPanel({ client, api, lang }) {
+  const [rows, setRows] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    const csid = client.supabase_id
+    const loader = api?.clients?.loyaltyHistory
+    if (!loader) { setRows([]); return }
+    loader({ clientSupabaseId: csid, clientId: client.id, limit: 50 })
+      .then(r => { if (!cancelled) setRows(r || []) })
+      .catch(() => { if (!cancelled) setRows([]) })
+    return () => { cancelled = true }
+  }, [client.id, client.supabase_id])
+  if (rows === null) return <p className="text-[11px] text-slate-400 dark:text-white/40">…</p>
+  if (!rows.length) return <p className="text-[11px] text-slate-400 dark:text-white/40">{lang === 'es' ? 'Sin movimientos de puntos' : 'No point activity'}</p>
+  return (
+    <ul className="space-y-1.5">
+      {rows.map(r => {
+        const pts = Number(r.points) || 0
+        const sign = pts >= 0 ? '+' : ''
+        const evtLabel = r.event_type === 'earn' ? (lang === 'es' ? 'Ganó' : 'Earn')
+                      : r.event_type === 'redeem' ? (lang === 'es' ? 'Canjeó' : 'Redeem')
+                      : r.event_type === 'adjust' ? (lang === 'es' ? 'Ajuste' : 'Adjust')
+                      : (lang === 'es' ? 'Expiró' : 'Expire')
+        return (
+          <li key={r.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 text-[11px]">
+            <div className="min-w-0 flex-1">
+              <span className="font-bold text-slate-700 dark:text-white">{evtLabel}</span>
+              <span className="text-slate-400 dark:text-white/40 ml-2">{fmtDate(String(r.created_at).slice(0, 10))}</span>
+              {r.notes && <p className="text-[10px] text-slate-400 dark:text-white/40 truncate">{r.notes}</p>}
+            </div>
+            <span className={`font-bold tabular-nums ${pts >= 0 ? 'text-green-600' : 'text-[#b3001e]'}`}>{sign}{pts.toLocaleString()}</span>
+            <span className="text-[10px] text-slate-400 dark:text-white/40 tabular-nums">= {Math.round(r.balance_after).toLocaleString()}</span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
   const api = useAPI()
   const { businessType } = useBusinessType()
+  const { hasFeature } = usePlan()
   const isSalon = businessType === 'salon'
+  const [loyaltyEnabledBiz, setLoyaltyEnabledBiz] = useState(false)
+  useEffect(() => {
+    api?.settings?.get?.()
+      .then(s => setLoyaltyEnabledBiz(String(s?.loyalty_enabled || '0') === '1'))
+      .catch(() => setLoyaltyEnabledBiz(false))
+  }, [])
+  const showLoyaltyCard = hasFeature?.('loyalty') && loyaltyEnabledBiz
   const [empleadosCache, setEmpleadosCache] = useState([])
   const [savingSalon,    setSavingSalon]    = useState(false)
   const [allergyInput,   setAllergyInput]   = useState(client.allergies || '')
@@ -606,6 +663,35 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
             </div>
           </div>
         )}
+
+        {/* v2.7.1 — cross-vertical loyalty card (program-gated, plan-gated) */}
+        {showLoyaltyCard && (() => {
+          const pts  = Math.round(Number(client.loyaltyPoints) || 0)
+          const tier = (client.loyalty_tier && TIER_STYLE[client.loyalty_tier]) || TIER_STYLE.bronze
+          return (
+            <div className="px-3 py-3 md:px-6 md:py-4 border-b border-slate-100 dark:border-white/10 space-y-3">
+              <p className="text-[11px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider flex items-center gap-1.5">
+                <Gift size={11} className="text-[#b3001e]" />{lang === 'es' ? 'Programa de Lealtad' : 'Loyalty Program'}
+              </p>
+              <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 px-3 py-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Gift size={14} className="text-[#b3001e] shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] text-slate-400 dark:text-white/40 leading-none">{lang === 'es' ? 'Puntos' : 'Points'}</p>
+                    <p className="text-[18px] font-bold text-slate-800 dark:text-white tabular-nums leading-tight mt-0.5">{pts.toLocaleString()}</p>
+                  </div>
+                </div>
+                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${tier.color}`}>
+                  {lang === 'es' ? tier.es : tier.en}
+                </span>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1.5">{lang === 'es' ? 'Movimientos recientes' : 'Recent activity'}</p>
+                <LoyaltyHistoryPanel client={client} api={api} lang={lang} />
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Salon — client preferences card: loyalty tier/points, preferred stylist, allergies */}
         {isSalon && (() => {

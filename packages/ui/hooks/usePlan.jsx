@@ -27,6 +27,8 @@ const PLAN_FEATURES = {
     'whatsapp_receipts', 'whatsapp_automation',
     'restaurant_mode', 'work_orders', 'appointments', 'service_bays',
     'loans', 'vehicles', 'invoicing', 'nomina_basic',
+    // v2.7.1
+    'loyalty',
   ],
   pro_max: [
     'pos', 'queue', 'clients', 'credits', 'reports',
@@ -39,6 +41,8 @@ const PLAN_FEATURES = {
     'loans', 'vehicles',
     'pawn_items', 'loan_analytics', 'vehicle_history', 'stylist_schedules',
     'invoicing',
+    // v2.7.1
+    'loyalty', 'offline_mode',
   ],
 }
 

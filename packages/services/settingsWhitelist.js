@@ -11,9 +11,15 @@ export const BUSINESS_SETTING_KEYS = new Set([
   'business_type', 'biz_business_type',
   'ley_enabled',
   'go_live_date',
+  // v2.7.1 — daily owner digest (Pro MAX). Business-level so the 9am cron
+  // reads the same flag regardless of which device set it.
+  'daily_digest_enabled', 'last_digest_sent',
   // POS tab customization — cloud-synced so all devices at the same business
   // share the same category order + hidden-tab preferences.
   'pos_tab_order', 'pos_tab_hidden',
+  // v2.7.1 — Loyalty program (business-wide)
+  'loyalty_enabled', 'loyalty_points_ratio', 'loyalty_redemption_ratio',
+  'loyalty_tier_silver', 'loyalty_tier_gold', 'loyalty_tier_platinum',
   // Add any future business-wide key here. If unsure, keep it device-local.
 ])
 

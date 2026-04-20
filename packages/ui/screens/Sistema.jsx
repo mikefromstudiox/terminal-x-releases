@@ -276,6 +276,8 @@ const SISTEMA_DEFAULTS = {
   // Remoto shows a "Solo go-live" toggle that filters out imported historical
   // tickets (created before this date).
   go_live_date:         '',
+  // v2.7.1 — daily owner digest (Pro MAX). OFF by default.
+  daily_digest_enabled: '0',
 }
 
 // Shared settings hook — loads cfg from DB once, provides set/save
@@ -410,6 +412,57 @@ export function Preferencias() {
         </SettingRow>
       </SettingSection>
 
+      {hasFeature?.('loyalty') && (
+        <SettingSection title={L('Programa de Lealtad', 'Loyalty Program')}>
+          <SettingRow
+            label={L('Activar programa', 'Enable program')}
+            hint={L('Acumula puntos por compra y permite canjear en cobro', 'Earn points per sale and redeem at checkout')}
+          >
+            <Toggle enabled={on('loyalty_enabled')} onChange={v => set('loyalty_enabled', v ? '1' : '0')} />
+          </SettingRow>
+          {on('loyalty_enabled') && (
+            <>
+              <SettingRow
+                label={L('RD$ por 1 punto', 'RD$ per 1 point')}
+                hint={L('Cuánto gasta el cliente para ganar 1 punto (defecto: 100)', 'How much client spends to earn 1 point (default: 100)')}
+              >
+                <Input type="number" min="1" max="100000" step="1"
+                  value={cfg.loyalty_points_ratio ?? '100'}
+                  onChange={e => set('loyalty_points_ratio', e.target.value)}
+                  className="w-24 text-center" />
+              </SettingRow>
+              <SettingRow
+                label={L('Puntos por RD$1 de descuento', 'Points per RD$1 off')}
+                hint={L('Canje: 2 = 100 pts dan RD$50 (defecto)', 'Redeem: 2 = 100 pts = RD$50 off (default)')}
+              >
+                <Input type="number" min="0.1" max="100" step="0.1"
+                  value={cfg.loyalty_redemption_ratio ?? '2'}
+                  onChange={e => set('loyalty_redemption_ratio', e.target.value)}
+                  className="w-24 text-center" />
+              </SettingRow>
+              <SettingRow label={L('Umbral Silver (pts)', 'Silver threshold (pts)')}>
+                <Input type="number" min="0" step="100"
+                  value={cfg.loyalty_tier_silver ?? '1000'}
+                  onChange={e => set('loyalty_tier_silver', e.target.value)}
+                  className="w-28 text-center" />
+              </SettingRow>
+              <SettingRow label={L('Umbral Gold (pts)', 'Gold threshold (pts)')}>
+                <Input type="number" min="0" step="100"
+                  value={cfg.loyalty_tier_gold ?? '5000'}
+                  onChange={e => set('loyalty_tier_gold', e.target.value)}
+                  className="w-28 text-center" />
+              </SettingRow>
+              <SettingRow label={L('Umbral Platinum (pts)', 'Platinum threshold (pts)')}>
+                <Input type="number" min="0" step="100"
+                  value={cfg.loyalty_tier_platinum ?? '10000'}
+                  onChange={e => set('loyalty_tier_platinum', e.target.value)}
+                  className="w-28 text-center" />
+              </SettingRow>
+            </>
+          )}
+        </SettingSection>
+      )}
+
       <SettingSection title={L('Impuestos y Cargos', 'Taxes & Charges')}>
         <SettingRow label="Ley 10%" hint={L('Cargo de servicio en facturas', 'Service charge on invoices')}>
           <Toggle enabled={on('ley_enabled')} onChange={v => set('ley_enabled', v ? '1' : '0')} />
@@ -473,6 +526,22 @@ export function Preferencias() {
         </SettingRow>
         <SettingRow settingKey="print_conduce_auto" label={L('Conduce', 'Delivery Note')} hint={showPreTicket ? L('Al confirmar cobro', 'On payment') : L('Copia para control de inventario', 'Copy for inventory check')}>
           <Toggle enabled={on('print_conduce_auto')} onChange={v => set('print_conduce_auto', v ? '1' : '0')} />
+        </SettingRow>
+      </SettingSection>
+
+      <SettingSection title={L('Resumen Diario del Dueño', 'Owner Daily Digest')}>
+        <SettingRow
+          settingKey="daily_digest_enabled"
+          label={L('Resumen diario', 'Daily digest')}
+          hint={hasFeature?.('remote_dashboard')
+            ? L('Recibe cada mañana a las 9 AM un resumen del día anterior (ventas, top 3 productos, alertas).',
+                'Every morning at 9 AM get yesterday\'s recap (sales, top 3 products, alerts).')
+            : L('Requiere plan Pro MAX', 'Requires Pro MAX plan')}
+        >
+          <Toggle
+            enabled={on('daily_digest_enabled')}
+            onChange={v => hasFeature?.('remote_dashboard') && set('daily_digest_enabled', v ? '1' : '0')}
+          />
         </SettingRow>
       </SettingSection>
 

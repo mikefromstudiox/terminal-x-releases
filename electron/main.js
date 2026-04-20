@@ -1542,6 +1542,11 @@ handleMut('clients:create',       (data)      => db.clientCreate(data))
 handleMut('clients:update',       ({id,...d}) => db.clientUpdate(id, d))
 handleMut('clients:updateBalance', ({id,delta}) => db.clientUpdateBalance(id, delta))
 handleMut('clients:addLoyaltyPoints', ({id,delta}) => { db.clientAddLoyaltyPoints(id, delta); return true })
+// v2.7.1 — ledger-backed loyalty
+handleMut('loyalty:award',   (data)      => db.loyaltyAward(data || {}))
+handleMut('loyalty:redeem',  (data)      => db.loyaltyRedeem(data || {}))
+handleMut('loyalty:adjust',  (data)      => db.loyaltyAdjust(data || {}))
+handle('loyalty:history',    (data)      => db.loyaltyHistory(data || {}))
 handle('clients:openTickets',  (clientId)  => db.clientGetOpenTickets(clientId))
 handleMut('credits:collect',      (data)      => db.collectCredit(data))
 

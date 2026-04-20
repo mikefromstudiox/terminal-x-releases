@@ -16,8 +16,17 @@ export function createElectronAPI() {
   // DataContext shape. For Restaurant Mode we make the namespaces explicit so
   // consumers (and type tooling) see the exact contract regardless of any
   // preload key renames down the line.
+  // v2.7.1 — loyalty surface: expose under api.clients.loyalty* and api.loyalty
+  // so UI can consume either namespace uniformly across desktop + web.
+  const loyalty = raw.loyalty ? {
+    loyaltyAward:   (d) => raw.loyalty.award(d),
+    loyaltyRedeem:  (d) => raw.loyalty.redeem(d),
+    loyaltyAdjust:  (d) => raw.loyalty.adjust(d),
+    loyaltyHistory: (d) => raw.loyalty.history(d),
+  } : {}
   return {
     ...raw,
+    clients: raw.clients ? { ...raw.clients, ...loyalty } : raw.clients,
     mesas: {
       list:      ()                   => raw.mesas.list(),
       create:    (data)               => raw.mesas.create(data),
