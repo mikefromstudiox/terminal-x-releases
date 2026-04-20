@@ -999,6 +999,24 @@ const SYNC_TABLES = [
       updated_at: r.updated_at || null,
     }),
   },
+  {
+    // v2.11 — loyalty ledger. Points bump on clients.loyalty_points is
+    // already handled by the clients push, but the per-ticket transaction
+    // audit trail lives here and must round-trip so desktop sees redeem +
+    // adjust events made from the web UI (and vice versa).
+    name: 'loyalty_transactions',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id,
+      ticket_supabase_id: r.ticket_supabase_id || null,
+      event_type: r.event_type,
+      points: r.points,
+      balance_after: r.balance_after,
+      notes: r.notes || null,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
   // Prestamos — phase 2 push shapers
   {
     name: 'loan_payments',
@@ -1627,6 +1645,13 @@ const PULL_TABLES = [
   { name: 'client_item_prices', strategy: 'lww',
     cols: ['custom_price','notes','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', inventory_item_supabase_id: 'inventory_items' } },
+  // v2.11 — loyalty ledger. FWW because each transaction is append-only
+  // (earn/redeem/adjust) — once written it should not be edited by another
+  // device. The derived clients.loyalty_points / loyalty_tier columns sync
+  // via the normal clients pull and are the source of truth for balance.
+  { name: 'loyalty_transactions', strategy: 'fww',
+    cols: ['event_type','points','balance_after','notes','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', ticket_supabase_id: 'tickets' } },
 
   // v2.5 — Conteo Fisico pull. LWW: UI edits on one device must propagate to
   // the other until completion. Status transitions (abierto → completado /
