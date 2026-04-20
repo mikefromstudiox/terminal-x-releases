@@ -73,6 +73,9 @@ export function LicenseProvider({ children }) {
   // "Sincronizando datos iniciales" spinner instead of a blank screen.
   const [firstPullDone,     setFirstPullDone]     = useState(false)
   const [firstPullProgress, setFirstPullProgress] = useState(null)  // { done, total, table }
+  // v2.10.2 — surface pull failures to the UI so users get a retry banner
+  // instead of silently landing on an empty login screen.
+  const [pullError,         setPullError]         = useState(null)  // string | null
   const intervalRef = useRef(null)
 
   // Wire up the sync-pull-progress channel once. Main process emits progress
@@ -196,10 +199,17 @@ export function LicenseProvider({ children }) {
           const pullFn = window.electronAPI?.sync?.pull || window.electronAPI?.sync?.now
           if (pullFn) {
             setFirstPullProgress({ stage: 'starting', done: 0, total: 1, table: null })
+            setPullError(null)
             await pullFn()
           }
         } catch (pullErr) {
           console.error('[LicenseContext] initial pull failed:', pullErr)
+          // v2.10.2 — surface a human-readable message so the UI can render a
+          // non-blocking retry banner. Keep the gate flip below intact.
+          const msg = humanizeLicenseError(pullErr, { context: 'LicenseContext.initialPull' })
+            || pullErr?.message
+            || 'No se pudo sincronizar los datos iniciales. Verifique su conexión.'
+          setPullError(msg)
         } finally {
           // F16 — flip the gate once pull resolves (success or failure). UI
           // already has an empty-DB fallback path; blocking forever on a flaky
@@ -368,6 +378,25 @@ export function LicenseProvider({ children }) {
     }
   }
 
+  // v2.10.2 — manual retry for the initial Supabase pull. Consumed by the
+  // Login banner when `pullError` is set. Safe to call repeatedly.
+  const retryPull = useCallback(async () => {
+    const pullFn = window.electronAPI?.sync?.pull || window.electronAPI?.sync?.now
+    if (!pullFn) return
+    setPullError(null)
+    setFirstPullProgress({ stage: 'starting', done: 0, total: 1, table: null })
+    try {
+      await pullFn()
+      setFirstPullProgress(prev => ({ ...(prev || {}), stage: 'done' }))
+    } catch (err) {
+      console.error('[LicenseContext] retryPull failed:', err)
+      const msg = humanizeLicenseError(err, { context: 'LicenseContext.retryPull' })
+        || err?.message
+        || 'No se pudo sincronizar los datos iniciales. Verifique su conexión.'
+      setPullError(msg)
+    }
+  }, [])
+
   function deactivate() {
     clearStoredLicenseKey()
     setLicenseKey('')
@@ -399,6 +428,8 @@ export function LicenseProvider({ children }) {
       warningMsg,
       firstPullDone,
       firstPullProgress,
+      pullError,
+      retryPull,
       activate,
       deactivate,
       refresh: () => runCheck(),
