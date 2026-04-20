@@ -42,6 +42,11 @@ export default function ProductsReport() {
   }, [from, to, api])
 
   // Aggregate by product
+  // DR convention: when a line aplica_itbis, the 18% belongs to DGII — not the
+  // owner. "Margen %" is computed on the NET (ex-ITBIS) price so the number
+  // reflects what the owner actually keeps, matching Inventario and STARSISA.
+  // We also track whether the bulk of a product's revenue came from taxed
+  // lines so the tooltip can be honest about which formula was applied.
   const products = useMemo(() => {
     const map = {}
     for (const t of tickets) {
@@ -56,20 +61,33 @@ export default function ProductsReport() {
             sku: item.sku || '',
             unitsSold: 0,
             revenue: 0,
+            revenueNet: 0,
             cost: 0,
             profit: 0,
+            profitNet: 0,
             transactions: 0,
+            taxedRevenue: 0,
           }
         }
         const qty = item.quantity || 1
         const lineTotal = (item.price || 0) * qty
         const lineCost = (item.cost || 0) * qty
+        const aplica = item.aplica_itbis === 1 || item.aplica_itbis === true
+        const lineNet = aplica ? lineTotal / 1.18 : lineTotal
         map[key].unitsSold += qty
         map[key].revenue += lineTotal
+        map[key].revenueNet += lineNet
         map[key].cost += lineCost
         map[key].profit += lineTotal - lineCost
+        map[key].profitNet += lineNet - lineCost
         map[key].transactions++
+        if (aplica) map[key].taxedRevenue += lineTotal
       }
+    }
+    // Derive margin % on net revenue (owner-keep basis).
+    for (const p of Object.values(map)) {
+      p.marginPct = p.revenueNet > 0 ? ((p.revenueNet - p.cost) / p.revenueNet) * 100 : 0
+      p.mostlyTaxed = p.revenue > 0 && (p.taxedRevenue / p.revenue) >= 0.5
     }
     return Object.values(map)
   }, [tickets])
@@ -89,12 +107,18 @@ export default function ProductsReport() {
   }, [products, search, sortBy, sortDir])
 
   // Totals
-  const totals = useMemo(() => ({
-    units: products.reduce((s, p) => s + p.unitsSold, 0),
-    revenue: products.reduce((s, p) => s + p.revenue, 0),
-    cost: products.reduce((s, p) => s + p.cost, 0),
-    profit: products.reduce((s, p) => s + p.profit, 0),
-  }), [products])
+  const totals = useMemo(() => {
+    const revenueNet = products.reduce((s, p) => s + (p.revenueNet || 0), 0)
+    const cost = products.reduce((s, p) => s + p.cost, 0)
+    return {
+      units: products.reduce((s, p) => s + p.unitsSold, 0),
+      revenue: products.reduce((s, p) => s + p.revenue, 0),
+      revenueNet,
+      cost,
+      profit: products.reduce((s, p) => s + p.profit, 0),
+      marginPct: revenueNet > 0 ? ((revenueNet - cost) / revenueNet) * 100 : 0,
+    }
+  }, [products])
 
   function toggleSort(col) {
     if (sortBy === col) setSortDir(d => d === 'desc' ? 'asc' : 'desc')
@@ -170,6 +194,10 @@ export default function ProductsReport() {
                 <th className="text-right px-3 py-2 font-semibold text-slate-500 dark:text-white/40 cursor-pointer select-none" onClick={() => toggleSort('profit')}>
                   <span className="inline-flex items-center gap-1">{L('Ganancia', 'Profit')} <SortIcon col="profit" /></span>
                 </th>
+                <th className="text-right px-3 py-2 font-semibold text-slate-500 dark:text-white/40 cursor-pointer select-none" onClick={() => toggleSort('marginPct')}
+                  title={L('Margen neto calculado sobre el precio sin ITBIS cuando aplica', 'Net margin computed on the ex-ITBIS price when applicable')}>
+                  <span className="inline-flex items-center gap-1">{L('Margen %', 'Margin %')} <SortIcon col="marginPct" /></span>
+                </th>
                 <th className="text-right px-3 py-2 font-semibold text-slate-500 dark:text-white/40">{L('Ventas', 'Sales')}</th>
               </tr>
             </thead>
@@ -182,6 +210,12 @@ export default function ProductsReport() {
                   <td className="px-3 py-2 text-right text-slate-700 dark:text-white tabular-nums">{fmtRD(p.revenue)}</td>
                   <td className="px-3 py-2 text-right text-slate-500 dark:text-white/60 tabular-nums">{fmtRD(p.cost)}</td>
                   <td className={`px-3 py-2 text-right tabular-nums font-medium ${p.profit > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>{fmtRD(p.profit)}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums font-semibold ${p.marginPct > 0 ? 'text-emerald-600 dark:text-emerald-400' : p.marginPct < 0 ? 'text-red-500 dark:text-red-400' : 'text-slate-400 dark:text-white/30'}`}
+                    title={p.mostlyTaxed
+                      ? L('Margen neto (precio sin ITBIS − costo) ÷ precio sin ITBIS', 'Net margin (ex-ITBIS price − cost) ÷ ex-ITBIS price')
+                      : L('Margen (precio − costo) ÷ precio', 'Margin (price − cost) ÷ price')}>
+                    {p.revenueNet > 0 ? `${Math.round(p.marginPct)}%` : '—'}
+                  </td>
                   <td className="px-3 py-2 text-right text-slate-500 dark:text-white/60">{p.transactions}</td>
                 </tr>
               ))}
@@ -193,6 +227,9 @@ export default function ProductsReport() {
                 <td className="px-3 py-2 text-right text-slate-800 dark:text-white tabular-nums">{fmtRD(totals.revenue)}</td>
                 <td className="px-3 py-2 text-right text-slate-500 dark:text-white/60 tabular-nums">{fmtRD(totals.cost)}</td>
                 <td className={`px-3 py-2 text-right tabular-nums ${totals.profit > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>{fmtRD(totals.profit)}</td>
+                <td className={`px-3 py-2 text-right tabular-nums ${totals.marginPct > 0 ? 'text-emerald-600 dark:text-emerald-400' : totals.marginPct < 0 ? 'text-red-500' : 'text-slate-400 dark:text-white/30'}`}>
+                  {totals.revenueNet > 0 ? `${Math.round(totals.marginPct)}%` : '—'}
+                </td>
                 <td className="px-3 py-2"></td>
               </tr>
             </tbody>

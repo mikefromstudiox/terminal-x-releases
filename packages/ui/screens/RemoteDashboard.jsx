@@ -665,6 +665,12 @@ function fmtRel(iso, lang) {
 function ActivityFeed({ lang, onRefreshDashboard, sinceIso }) {
   const sb = getSupabaseClient()
   const bid = getBusinessId()
+  // Mark the feed as "seen" so the Sidebar unread-badge clears. Fired once
+  // per tab-open; Sidebar stores the timestamp in localStorage per business.
+  useEffect(() => {
+    if (!bid) return
+    try { window.dispatchEvent(new CustomEvent('tx:actividad-seen', { detail: { businessId: bid } })) } catch {}
+  }, [bid])
   const [rows, setRows]       = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)

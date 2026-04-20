@@ -691,6 +691,36 @@ function OrganizeModal({ items, categories, onDone, onClose }) {
     })
   }
 
+  // Build a CSV pre-populated with this business's active inventory so the
+  // owner / supplier can bulk-fill Pedidos Ya prices in Excel and re-upload
+  // through the existing "Importar CSV" flow (headers auto-map via precio_py /
+  // pedidos_ya / price_pedidos_ya aliases). One row per item, PY price blank.
+  function downloadPYTemplate() {
+    const headers = ['sku', 'barcode', 'name', 'category', 'price', 'price_pedidos_ya']
+    const escape = (v) => {
+      if (v === null || v === undefined) return ''
+      const s = String(v)
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const rows = items.map(i => [
+      i.sku || '',
+      i.barcode || '',
+      i.name || '',
+      i.category || '',
+      i.price ?? '',
+      '', // PY price — left blank for the owner to fill
+    ].map(escape).join(','))
+    // UTF-8 BOM so Excel-DO opens accents correctly.
+    const csv = '\uFEFF' + headers.join(',') + '\n' + rows.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href = url
+    a.download = 'plantilla-precios-pedidos-ya.csv'
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 2000)
+  }
+
   async function apply() {
     const ids = Array.from(selected)
     if (!ids.length) return
@@ -822,9 +852,16 @@ function OrganizeModal({ items, categories, onDone, onClose }) {
               </datalist>
             </div>
             <div>
-              <label className="block text-[11px] font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1 flex items-center gap-1.5">
-                <Bike size={11} className="text-[#b3001e]" /> Precio Pedidos Ya (RD$)
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide flex items-center gap-1.5">
+                  <Bike size={11} className="text-[#b3001e]" /> Precio Pedidos Ya (RD$)
+                </label>
+                <button type="button" onClick={downloadPYTemplate}
+                  title="Descarga un CSV con todos tus productos para llenar los precios de Pedidos Ya en Excel, luego re-sube por Importar CSV."
+                  className="text-[10px] font-semibold text-[#b3001e] hover:underline flex items-center gap-1">
+                  <FileSpreadsheet size={11} /> Descargar plantilla CSV
+                </button>
+              </div>
               <input type="number" min="0" step="0.01" value={newPY} onChange={e => setNewPY(e.target.value)}
                 placeholder="Deja en blanco para no cambiar"
                 className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm bg-white dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />

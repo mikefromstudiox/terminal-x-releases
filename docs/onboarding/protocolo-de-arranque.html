@@ -261,9 +261,11 @@ fs.writeFileSync('C:/ruta/cliente-terminalx-import.csv', out.join('\n'))
 
 <h3>Bloque 2 — Funciones especiales (20 min)</h3>
 <ul class="check">
-  <li>Toggle <strong>Pedidos Ya</strong> — mostrar el cambio de precios en vivo</li>
-  <li>Aplicar descuento con motivo (requerirá tarjeta de gerente si es grande)</li>
-  <li>Seleccionar cliente con Precios Especiales</li>
+  <li>Tabs de categorías en 2 filas con botón <strong>Editar</strong> — reordenar, renombrar, ocultar</li>
+  <li>Toggle <strong>Pedidos Ya</strong> con su wordmark — mostrar el cambio de precios en vivo y el <em>order_source</em> en el ticket</li>
+  <li>Bulk-fill de precios PY: <strong>Inventario → Organizar → Descargar plantilla CSV</strong> → llenar en Excel → Importar CSV</li>
+  <li>Aplicar descuento con motivo (requerirá tarjeta de gerente si supera el umbral)</li>
+  <li>Seleccionar cliente con <strong>Precios Especiales</strong> (por cliente, mayorista)</li>
   <li>Anular ticket (requerirá tarjeta)</li>
   <li>Nota de crédito (requerirá tarjeta)</li>
 </ul>
@@ -271,18 +273,18 @@ fs.writeFileSync('C:/ruta/cliente-terminalx-import.csv', out.join('\n'))
 <h3>Bloque 3 — Admin + tarjetas de gerente (30 min)</h3>
 <ul class="check">
   <li>Mostrar <strong>Admin → Usuarios</strong> — cómo agregar/desactivar empleados</li>
-  <li>Generar <strong>Tarjeta de Autorización</strong> para cada manager — imprimirlas y laminarlas</li>
-  <li>Demostrar: cajera intenta descuento grande → aparece el gate modal → manager pasa su tarjeta → aprobado</li>
-  <li>Mostrar <strong>Remote Dashboard → Actividad</strong> — cómo revisar quién autorizó qué</li>
+  <li>Generar <strong>Tarjeta de Autorización</strong> para cada manager (Code128 + PIN) — imprimirlas y laminarlas</li>
+  <li>Demostrar: cajera intenta descuento grande → aparece el <em>ManagerAuthGate</em> → manager pasa su tarjeta → aprobado</li>
+  <li>Mostrar <strong>Reportes → Dashboard Remoto → Actividad</strong> — badge rojo en el sidebar avisa de nueva actividad; revisar quién autorizó qué</li>
   <li>Enseñar cómo revocar una tarjeta si se pierde</li>
 </ul>
 
 <h3>Bloque 4 — Inventario + Reportes (30 min)</h3>
 <ul class="check">
-  <li>Agregar / editar producto</li>
-  <li>Importar CSV (para agregar lotes grandes)</li>
-  <li><strong>Conteo Físico</strong> — cómo iniciar, imprimir hoja en blanco, entrar conteos, ver reporte de varianza (pérdidas RD$)</li>
-  <li>Reporte diario · reporte semanal · reporte de productos</li>
+  <li>Agregar / editar producto · margen % (sobre precio sin ITBIS cuando aplica)</li>
+  <li>Importar CSV (para agregar lotes grandes) + plantilla PY pre-poblada</li>
+  <li><strong>Conteo Físico</strong> — iniciar, imprimir hoja en blanco, entrar conteos, ver reporte de varianza (pérdidas RD$)</li>
+  <li>Reporte de productos con <strong>Margen %</strong> neto · reporte diario · reporte semanal</li>
   <li>Cuadre de caja al cierre del día</li>
   <li>Exportar a PDF / CSV para el contador</li>
 </ul>

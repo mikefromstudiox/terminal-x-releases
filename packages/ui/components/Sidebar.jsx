@@ -239,7 +239,7 @@ function isChildActive(children, pathname) {
 
 // ── Desktop Nav Item ────────────────────────────────────────────────────────
 
-function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowStock, pathname, businessType }) {
+function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowStock, unreadActivity, pathname, businessType }) {
   const isGroup = !!item.children
   const locked = item.feature && !hasFeature(item.feature)
   const active = isGroup
@@ -255,6 +255,9 @@ function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowSto
   const label = lang === 'es' ? item.es : item.en
   const Icon = item.icon
   const badge = item.hasBadge === 'lowStock' ? lowStock : item.hasBadge ? ecfQueue : 0
+  // Group-level roll-up: Reportes shows the unread activity badge so owners
+  // see new manager overrides at a glance even while the group is collapsed.
+  const groupBadge = item.id === 'reports' ? unreadActivity : 0
 
   // Filter children by role and business type
   const visibleChildren = isGroup
@@ -280,6 +283,12 @@ function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowSto
         <span className="relative flex items-center justify-center w-[22px] h-[22px]">
           <Icon size={17} strokeWidth={1.75} />
           {locked && <Lock size={8} className="absolute -top-0.5 -right-0.5 text-white/30" />}
+          {!locked && groupBadge > 0 && (
+            <span className="absolute top-0 right-0 w-4 h-4 rounded-full flex items-center justify-center leading-none pointer-events-none"
+              style={{ background: '#b3001e', color: '#fff', fontSize: 9, fontWeight: 500 }}>
+              {groupBadge > 99 ? '99+' : groupBadge}
+            </span>
+          )}
         </span>
         <span className="pointer-events-none absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-700 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-lg">
           {label}{locked ? ' (Pro)' : ''}
@@ -299,6 +308,12 @@ function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowSto
         >
           <Icon size={17} strokeWidth={1.75} className="shrink-0" />
           <span className="text-[13px] font-medium flex-1 text-left leading-none">{label}</span>
+          {!locked && groupBadge > 0 && (
+            <span className="min-w-[18px] h-[18px] px-1 text-[10px] bg-[#b3001e] text-white font-bold rounded-full flex items-center justify-center leading-none"
+              title={lang === 'es' ? 'Actividad nueva' : 'New activity'}>
+              {groupBadge > 99 ? '99+' : groupBadge}
+            </span>
+          )}
           {locked && <Lock size={12} className="text-white/30 shrink-0" />}
           {!locked && (
             <ChevronDown size={14} className={`text-white/30 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
@@ -309,6 +324,10 @@ function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowSto
             {visibleChildren.map(child => {
               const childLocked = child.feature && !hasFeature(child.feature)
               const childActive = pathname === child.to || pathname.startsWith(child.to + '/')
+              // The remote dashboard child carries the live "unread activity"
+              // dot so owners can tell at a glance that there are new manager
+              // overrides / voids / discrepancies since they last checked.
+              const childBadge = child.to === '/remote' ? unreadActivity : 0
               return (
                 <NavLink
                   key={child.to}
@@ -323,6 +342,12 @@ function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowSto
                 >
                   {child.icon && <child.icon size={13} strokeWidth={1.75} className="shrink-0" />}
                   <span className="flex-1">{lang === 'es' ? child.es : child.en}</span>
+                  {!childLocked && childBadge > 0 && (
+                    <span className="min-w-[16px] h-[16px] px-1 text-[9px] bg-[#b3001e] text-white font-bold rounded-full flex items-center justify-center leading-none"
+                      title={lang === 'es' ? 'Actividad nueva' : 'New activity'}>
+                      {childBadge > 99 ? '99+' : childBadge}
+                    </span>
+                  )}
                   {childLocked && <Lock size={10} className="text-white/30" />}
                 </NavLink>
               )
@@ -669,6 +694,7 @@ export default function Sidebar() {
   const location = useLocation()
   const [ecfQueue, setEcfQueue] = useState(0)
   const [lowStock, setLowStock] = useState(0)
+  const [unreadActivity, setUnreadActivity] = useState(0)
 
   useEffect(() => {
     async function poll() {
@@ -692,6 +718,54 @@ export default function Sidebar() {
     const id = setInterval(poll, 60_000)
     return () => clearInterval(id)
   }, [businessType, api])
+
+  // Unread-activity badge. Counts warn/critical rows in activity_log since the
+  // last time the current user opened the Actividad tab on this business.
+  // Roles: owner/cfo/accountant only (matches RemoteDashboard ALLOWED). Plan:
+  // requires remote_dashboard feature. Polls every 60s via a single shared
+  // interval. Mark-seen happens inside RemoteDashboard → tx:actividad-seen.
+  const allowedRole = ['owner','cfo','accountant'].includes(user?.role)
+  const canRemote = hasFeature('remote_dashboard')
+  const bidForActivity = result?.businessId || null
+  useEffect(() => {
+    if (!allowedRole || !canRemote || !bidForActivity) { setUnreadActivity(0); return }
+    let cancelled = false
+    const seenKey = `tx_actividad_seen_${bidForActivity}`
+    async function poll() {
+      try {
+        let count = 0
+        const sinceIso = localStorage.getItem(seenKey)
+          || new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString()
+        if (api?.activity?.unreadCount) {
+          count = await api.activity.unreadCount({ businessId: bidForActivity, sinceIso }) ?? 0
+        } else {
+          // Web: hit Supabase directly. Lazy-load the client so the Sidebar
+          // doesn't drag the SDK into non-authenticated routes.
+          const mod = await import('@terminal-x/services/supabase.js').catch(() => null)
+          const sb = mod?.getSupabaseClient?.()
+          if (sb) {
+            const { count: c } = await sb.from('activity_log')
+              .select('*', { count: 'exact', head: true })
+              .eq('business_id', bidForActivity)
+              .gt('created_at', sinceIso)
+              .in('severity', ['warn', 'critical'])
+            count = c || 0
+          }
+        }
+        if (!cancelled) setUnreadActivity(count)
+      } catch { if (!cancelled) setUnreadActivity(0) }
+    }
+    poll()
+    const id = setInterval(poll, 60_000)
+    // Listen for the mark-seen event fired when the Actividad tab opens.
+    function onSeen(e) {
+      if (e?.detail?.businessId && e.detail.businessId !== bidForActivity) return
+      try { localStorage.setItem(seenKey, new Date().toISOString()) } catch {}
+      setUnreadActivity(0)
+    }
+    window.addEventListener('tx:actividad-seen', onSeen)
+    return () => { cancelled = true; clearInterval(id); window.removeEventListener('tx:actividad-seen', onSeen) }
+  }, [allowedRole, canRemote, bidForActivity, api])
 
   // Filter nav items by role, business type and required features.
   // `featureAny` hides the item entirely unless the plan unlocks at least one
@@ -734,6 +808,7 @@ export default function Sidebar() {
               userRole={user?.role}
               ecfQueue={ecfQueue}
               lowStock={lowStock}
+              unreadActivity={unreadActivity}
               pathname={location.pathname}
               businessType={businessType}
             />
