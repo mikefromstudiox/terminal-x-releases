@@ -27,6 +27,19 @@ const KEY_RNC        = 'tx_license_rnc'
 const KEY_CACHE      = 'tx_license_cache'
 const KEY_CACHE_TIME = 'tx_license_cache_ts'
 
+// S-H10: monotonic clock-rollback detection. performance.now() is monotonic
+// *within a page session* (resets on full restart), and navigation.type /
+// performance.timeOrigin give us a per-session baseline that can't be rolled
+// back by the user's wall clock. We cross-check wall-delta against perf-delta
+// plus the process start offset — if wall moves backward or moves far less
+// than perf says it should, the clock was tampered with.
+const KEY_CACHE_PERF  = 'tx_license_cache_perf'   // performance.now() at write
+const KEY_CACHE_ORIGIN = 'tx_license_cache_origin' // performance.timeOrigin at write
+// Tolerance: wall time is expected to advance by AT LEAST (perfDelta - 60s) —
+// the 60s pad absorbs timer drift + sleep/hibernate. If wall-delta < threshold,
+// clock rolled back, cache denied.
+const ROLLBACK_SLACK_MS = 60 * 1000
+
 // ── License key format helpers ────────────────────────────────────────────────
 
 /** Generate a new random Terminal X license key: TXL-XXXX-XXXX-XXXX */
@@ -56,20 +69,65 @@ export function clearStoredLicenseKey() {
   localStorage.removeItem(KEY_RNC)
   localStorage.removeItem(KEY_CACHE)
   localStorage.removeItem(KEY_CACHE_TIME)
+  localStorage.removeItem(KEY_CACHE_PERF)
+  localStorage.removeItem(KEY_CACHE_ORIGIN)
+}
+
+// Current monotonic timestamp in the same reference frame used at cache write.
+// performance.timeOrigin + performance.now() == wall-clock of the perf mark,
+// so (timeOrigin_now - timeOrigin_cached) + perf_now is comparable across
+// page reloads within a session. On full app restart, timeOrigin changes and
+// we gracefully fall back to wall-only checks.
+function monotonicNow() {
+  try {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+      return { perf: performance.now(), origin: performance.timeOrigin || 0 }
+    }
+  } catch {}
+  return { perf: 0, origin: 0 }
 }
 
 function getCachedResult() {
   try {
-    const ts   = parseInt(localStorage.getItem(KEY_CACHE_TIME) || '0')
-    const data = localStorage.getItem(KEY_CACHE)
-    if (data && Date.now() - ts < CACHE_TTL_MS) return JSON.parse(data)
+    const ts       = parseInt(localStorage.getItem(KEY_CACHE_TIME)   || '0')
+    const perfAt   = parseFloat(localStorage.getItem(KEY_CACHE_PERF) || '0')
+    const originAt = parseFloat(localStorage.getItem(KEY_CACHE_ORIGIN) || '0')
+    const data     = localStorage.getItem(KEY_CACHE)
+    if (!data || !ts) return null
+
+    const nowWall = Date.now()
+    const wallDelta = nowWall - ts
+
+    // Hard rule: wall time must move forward. Negative delta = explicit rollback.
+    if (wallDelta < 0) {
+      console.warn('[license.cache] clock rollback detected (wall went backwards), denying cache')
+      return null
+    }
+
+    // Monotonic cross-check: only valid if we still have the same performance
+    // time origin (same page session). After a full restart, originAt changes
+    // and we skip this check — the wall-clock rule + server re-validate cover it.
+    const { perf: nowPerf, origin: nowOrigin } = monotonicNow()
+    if (perfAt > 0 && originAt > 0 && nowOrigin === originAt && nowPerf > 0) {
+      const perfDelta = nowPerf - perfAt
+      // If perf has advanced materially more than wall, the user rolled the clock back.
+      if (perfDelta - wallDelta > ROLLBACK_SLACK_MS) {
+        console.warn('[license.cache] clock rollback detected (perf vs wall divergence), denying cache', { perfDelta, wallDelta })
+        return null
+      }
+    }
+
+    if (wallDelta < CACHE_TTL_MS) return JSON.parse(data)
   } catch {}
   return null
 }
 
 function setCachedResult(result) {
-  localStorage.setItem(KEY_CACHE,      JSON.stringify(result))
-  localStorage.setItem(KEY_CACHE_TIME, String(Date.now()))
+  const { perf, origin } = monotonicNow()
+  localStorage.setItem(KEY_CACHE,        JSON.stringify(result))
+  localStorage.setItem(KEY_CACHE_TIME,   String(Date.now()))
+  localStorage.setItem(KEY_CACHE_PERF,   String(perf))
+  localStorage.setItem(KEY_CACHE_ORIGIN, String(origin))
 }
 
 // ── Core validation ───────────────────────────────────────────────────────────

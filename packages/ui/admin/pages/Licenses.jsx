@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Loader2, Plus, Search, RotateCcw, Ban, CheckCircle2, X } from 'lucide-react'
+import { Loader2, Plus, Search, RotateCcw, Ban, CheckCircle2, X, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { listContainer, listItem, modalBackdrop, modalPanel } from '../motion'
 
 const STATUS_BADGE_LIGHT = {
@@ -34,7 +34,34 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
   const [adding, setAdding] = useState(false)
   const [addErr, setAddErr] = useState('')
 
-  useEffect(() => { load() }, [])
+  const [rebinds, setRebinds] = useState([])
+  const [rebindBusy, setRebindBusy] = useState({})
+
+  useEffect(() => { load(); loadRebinds() }, [])
+
+  async function loadRebinds() {
+    try {
+      const token = getToken()
+      const resp = await fetch('/api/panel?action=rebind_requests', { headers: { 'Authorization': `Bearer ${token}` } })
+      if (resp.ok) setRebinds((await resp.json()).data || [])
+    } catch {}
+  }
+
+  async function actOnRebind(id, approve) {
+    setRebindBusy(b => ({ ...b, [id]: true }))
+    try {
+      const token = getToken()
+      const action = approve ? 'approve_rebind' : 'reject_rebind'
+      await fetch(`/api/panel?action=${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ id }),
+      })
+      await Promise.all([loadRebinds(), load()])
+    } finally {
+      setRebindBusy(b => { const n = { ...b }; delete n[id]; return n })
+    }
+  }
 
   async function load() {
     setLoading(true); setLoadErr('')
@@ -180,6 +207,72 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
           ))}
         </div>
       </motion.div>
+
+      {/* Pending HWID rebind requests (S-H9) */}
+      {rebinds.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`rounded-2xl overflow-hidden border ${isDark ? 'border-amber-500/30 bg-amber-500/[0.06]' : 'border-amber-400/40 bg-amber-50'}`}
+        >
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-inherit">
+            <ShieldAlert size={15} className="text-amber-500" />
+            <h2 className={`text-[13px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+              {L('Solicitudes de rebind de equipo', 'HWID rebind requests')}
+            </h2>
+            <span className="ml-auto text-[11px] font-bold text-amber-500">{rebinds.length}</span>
+          </div>
+          <div>
+            {rebinds.map(r => {
+              const biz = r.licenses?.businesses
+              const busy = !!rebindBusy[r.id]
+              const short = (h) => h ? `${h.slice(0, 8)}...${h.slice(-6)}` : '—'
+              return (
+                <div key={r.id} className={`flex items-center gap-3 px-5 py-3 border-b last:border-0 flex-wrap ${isDark ? 'border-white/5' : 'border-black/5'}`}>
+                  <div className="flex-1 min-w-[220px]">
+                    <p className={`text-[13px] font-semibold ${isDark ? 'text-white' : 'text-black'}`}>{biz?.name || '—'}</p>
+                    <p className={`text-[11px] ${isDark ? 'text-white/50' : 'text-black/50'}`}>
+                      {biz?.rnc || '—'} · <span className="font-mono">{r.licenses?.license_key || '—'}</span>
+                    </p>
+                  </div>
+                  <div className="text-[11px] font-mono">
+                    <p className={isDark ? 'text-white/60' : 'text-black/60'}>
+                      <span className={isDark ? 'text-white/30' : 'text-black/30'}>actual:</span> {short(r.current_hwid)}
+                    </p>
+                    <p className="text-amber-500">
+                      <span className={isDark ? 'text-white/30' : 'text-black/30'}>nuevo:</span> {short(r.requested_hwid)}
+                    </p>
+                  </div>
+                  <div className={`text-[10px] ${isDark ? 'text-white/40' : 'text-black/40'} min-w-[110px]`}>
+                    <p>{new Date(r.requested_at).toLocaleString(lang === 'es' ? 'es-DO' : 'en-US')}</p>
+                    <p>Expira: {new Date(r.expires_at).toLocaleDateString(lang === 'es' ? 'es-DO' : 'en-US')}</p>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
+                      disabled={busy}
+                      onClick={() => actOnRebind(r.id, true)}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-500 text-white disabled:opacity-50"
+                    >
+                      {busy ? <Loader2 size={11} className="animate-spin" /> : <ShieldCheck size={11} />}
+                      {L('Aprobar', 'Approve')}
+                    </motion.button>
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
+                      disabled={busy}
+                      onClick={() => actOnRebind(r.id, false)}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-[#b3001e] text-white disabled:opacity-50"
+                    >
+                      <X size={11} />
+                      {L('Rechazar', 'Reject')}
+                    </motion.button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </motion.div>
+      )}
 
       {/* Table */}
       {loading ? (

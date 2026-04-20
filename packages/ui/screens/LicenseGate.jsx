@@ -47,6 +47,7 @@ function formatRncCedula(raw) {
 const STATUS_INFO = {
   not_found:        { icon: ShieldX,       color: 'red',   msg: 'Clave de licencia no encontrada.' },
   hardware_mismatch:{ icon: ShieldX,       color: 'red',   msg: 'Esta licencia está registrada en otro equipo.' },
+  rebind_required:  { icon: AlertTriangle, color: 'amber', msg: 'Este equipo no está autorizado. El propietario ha sido notificado. Intenta de nuevo en unos minutos.' },
   rnc_mismatch:     { icon: ShieldX,       color: 'red',   msg: 'El RNC no coincide con el de esta licencia.' },
   invalid_format:   { icon: AlertTriangle, color: 'amber', msg: 'Formato de clave inválido. Ejemplo: TXL-A1B2-C3D4-E5F6' },
   inactive:         { icon: ShieldX,       color: 'slate', msg: 'Esta licencia ha sido desactivada.' },

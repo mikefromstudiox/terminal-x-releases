@@ -102,6 +102,9 @@ export default async function handler(req, res) {
   if (action === 'create_ticket') return handleCreateTicket(req, res)
   if (action === 'bulk_action') return handleBulkAction(req, res)
   if (action === 'client_visits') return handleClientVisits(req, res)
+  if (action === 'rebind_requests') return handleRebindRequests(req, res)
+  if (action === 'approve_rebind') return handleApproveRebind(req, res)
+  if (action === 'reject_rebind') return handleRejectRebind(req, res)
   return res.status(400).json({ error: 'Unknown action' })
 }
 
@@ -1190,4 +1193,85 @@ async function handleClientVisits(req, res) {
     } catch (err) { return res.status(500).json({ error: err.message }) }
   }
   return res.status(405).json({ error: 'Method not allowed' })
+}
+
+// ── HWID Rebind Approval (S-H9) ──────────────────────────────────────────────
+
+async function handleRebindRequests(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  try {
+    await auth.supabase.from('license_rebind_requests')
+      .update({ status: 'expired', updated_at: new Date().toISOString() })
+      .eq('status', 'pending').lt('expires_at', new Date().toISOString())
+    const { data, error } = await auth.supabase.from('license_rebind_requests')
+      .select('*, licenses!license_id(id, license_key, hardware_id, business_id, businesses!business_id(name, rnc))')
+      .eq('status', 'pending').order('requested_at', { ascending: false }).limit(200)
+    if (error) throw error
+    return res.json({ data: data || [] })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleApproveRebind(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req, 'admin')
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { id } = req.body || {}
+  if (!id) return res.status(400).json({ error: 'id required' })
+  try {
+    const { data: reqRow, error: rErr } = await auth.supabase.from('license_rebind_requests')
+      .select('*').eq('id', id).eq('status', 'pending').maybeSingle()
+    if (rErr) throw rErr
+    if (!reqRow) return res.status(404).json({ error: 'Pending rebind not found or already resolved' })
+    if (new Date(reqRow.expires_at) < new Date()) {
+      await auth.supabase.from('license_rebind_requests').update({ status: 'expired', updated_at: new Date().toISOString() }).eq('id', id)
+      return res.status(410).json({ error: 'Request expired' })
+    }
+    const nowIso = new Date().toISOString()
+    const { data: lic, error: lErr } = await auth.supabase.from('licenses').update({
+      hardware_id: reqRow.requested_hwid,
+      prior_hardware_id: reqRow.current_hwid || null,
+      status: 'active',
+      updated_at: nowIso,
+    }).eq('id', reqRow.license_id).select().single()
+    if (lErr) throw lErr
+    await auth.supabase.from('license_events').insert({
+      license_id: reqRow.license_id, action: 'rebind_approved', status: 'active',
+      ip: (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || null,
+      metadata: { request_id: id, prior_hwid: reqRow.current_hwid, new_hwid: reqRow.requested_hwid, admin_id: auth.admin.id, admin_name: auth.admin.name },
+    })
+    await auth.supabase.from('license_rebind_requests').update({
+      status: 'approved', approved_by_admin_id: auth.admin.id, approved_at: nowIso, updated_at: nowIso,
+    }).eq('id', id)
+    await auth.supabase.from('license_rebind_requests').update({
+      status: 'rejected', updated_at: nowIso,
+    }).eq('license_id', reqRow.license_id).eq('status', 'pending').neq('id', id)
+    return res.json({ data: lic, ok: true })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleRejectRebind(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req, 'admin')
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { id, reason } = req.body || {}
+  if (!id) return res.status(400).json({ error: 'id required' })
+  try {
+    const { data: reqRow, error: rErr } = await auth.supabase.from('license_rebind_requests')
+      .select('*').eq('id', id).eq('status', 'pending').maybeSingle()
+    if (rErr) throw rErr
+    if (!reqRow) return res.status(404).json({ error: 'Pending rebind not found' })
+    const nowIso = new Date().toISOString()
+    await auth.supabase.from('license_rebind_requests').update({
+      status: 'rejected', approved_by_admin_id: auth.admin.id, approved_at: nowIso, updated_at: nowIso,
+      metadata: { ...(reqRow.metadata || {}), reject_reason: reason || null },
+    }).eq('id', id)
+    await auth.supabase.from('license_events').insert({
+      license_id: reqRow.license_id, action: 'rebind_rejected', status: 'denied',
+      ip: (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || null,
+      metadata: { request_id: id, requested_hwid: reqRow.requested_hwid, admin_id: auth.admin.id, admin_name: auth.admin.name, reason: reason || null },
+    })
+    return res.json({ ok: true })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
 }
