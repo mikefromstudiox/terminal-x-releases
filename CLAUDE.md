@@ -3,6 +3,16 @@
 ## What This App Is
 Full-featured desktop POS for the Dominican Republic market, resold to multiple clients. Flagship differentiator: 100% working e-CF (electronic fiscal receipts) per Ley 32-23.
 
+## Current Release — v2.6.1 (2026-04-19)
+Shipped in one afternoon on top of v2.3.33 (restaurant sync hardening + users VIEW fix):
+- **v2.4.0** — Retail POS categorization (category tabs with count badges) + Pedidos Ya channel pricing (one-click toggle, per-channel price override, `order_source` stamped on tickets).
+- **v2.4.1** — 1024px cash-register grid fix (lg: 4-col → 3-col so full service names fit).
+- **v2.5.0** — Per-client custom item prices (wholesale, `client_item_prices` table, precedence: client override > Pedidos Ya > base) + Conteo Fisico + variance report (blind count sheet PDF, category-grouped entry, variance CSV, severity-scaled activity log).
+- **v2.6.0** — Manager Authorization Card system: Code128 barcode + PIN printed on a PDF card, gates voids/credit-notes/sensitive ops via `ManagerAuthGate`, `managerAuthToken.js` signing, full audit trail. `web/api/staff-verify-auth.js` for web parity.
+- **v2.6.1** — CxC ghost-balance fix: ticket delete/void now reverses client balance + commissions.
+
+Pedidos Ya branding: wordmark on channel toggle + brand pink `#FA0050` (POS only — Studio X sites remain strict crimson/black/white).
+
 ## Tech Stack
 - **Electron 41** — desktop shell, IPC bridge
 - **React 19 + Vite 5** — UI (JSX, no TS)
