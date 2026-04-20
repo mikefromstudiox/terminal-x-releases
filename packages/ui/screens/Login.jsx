@@ -6,6 +6,7 @@ import { useLang } from '../i18n'
 import { useAuth } from '../context/AuthContext'
 const isWebRuntime = () => typeof window !== 'undefined' && !window.electronAPI
 import LanguageToggle from '../components/LanguageToggle'
+import PullErrorBanner from '../components/PullErrorBanner'
 
 // ── PIN Dots ──────────────────────────────────────────────────────────────────
 function PinDots({ filled, shake }) {
@@ -233,6 +234,8 @@ export default function Login() {
 
         <div className="w-full max-w-xs">
           <h2 className="text-slate-800 dark:text-white text-[20px] font-bold mb-7 text-center">{t('login_title')}</h2>
+
+          <PullErrorBanner />
 
           {/* Card */}
           <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 shadow-sm p-6">
