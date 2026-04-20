@@ -5035,6 +5035,13 @@ function activityLogSelfHeal() {
     try { db.exec(`ALTER TABLE activity_log ADD COLUMN ${c}`) } catch {}
   }
   // Backfill any pre-existing rows missing supabase_id so push doesn't skip them.
+  // NOTE: This is the ONLY sanctioned UPDATE on activity_log — a one-time
+  // local-SQLite-only supabase_id backfill for legacy rows created before the
+  // column existed. Server-side Supabase has a BEFORE UPDATE/DELETE trigger
+  // (trg_activity_log_immutable) that raises feature_not_supported — that is
+  // the authoritative block against tampering. Do NOT add any other UPDATE or
+  // DELETE paths against activity_log in this file or anywhere else in the
+  // app. Any correction must go through a DBA with the trigger disabled.
   try {
     const legacy = db.prepare(`SELECT id FROM activity_log WHERE supabase_id IS NULL OR supabase_id=''`).all()
     for (const row of legacy) {
