@@ -16,6 +16,7 @@
  */
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'node:crypto'
+import { checkRateLimit, callerIp } from '../lib/rate-limit.js'
 
 const SUPABASE_URL         = process.env.SUPABASE_URL || 'https://xbmhtrdhbnkgdliuxcha.supabase.co'
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -32,6 +33,14 @@ export default async function handler(req, res) {
   }
   if (!SUPABASE_SERVICE_KEY) {
     return res.status(500).json({ error: 'Server misconfigured: SUPABASE_SERVICE_ROLE_KEY missing' })
+  }
+
+  // Persistent per-IP rate limit (30/min). Manager-card tokens carry ~100 bits
+  // of entropy so brute-force is already impractical, but belt + suspenders:
+  // a rate cap also curbs online guessing/DoS noise. Fails OPEN on RPC error.
+  const rlIp = callerIp(req)
+  if (!(await checkRateLimit(`staff-verify:${rlIp}`, 30))) {
+    return res.status(429).json({ error: 'rate_limited' })
   }
 
   // Parse body (Vercel Edge defaults to JSON body parsing for Node runtime).

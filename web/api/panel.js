@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { createClient } from '@supabase/supabase-js'
+import { checkRateLimit, callerIp } from '../lib/rate-limit.js'
 
 const ALLOWED_ORIGINS = ['https://terminalxpos.com', 'http://localhost:5173']
 
@@ -66,8 +67,15 @@ export default async function handler(req, res) {
   if (cors(req, res)) return
   const action = req.query.action || 'stats'
 
-  // Public portal actions — token-based auth, no admin required
+  // Public portal actions — token-based auth, no admin required. Rate-limit
+  // per-IP (30/min) to prevent portal-token brute force and message/upload
+  // flooding. Persistent bucket: same counter across Vercel regions + cold
+  // starts. Fails OPEN on RPC error (see web/lib/rate-limit.js).
   if (['cert_portal', 'cert_portal_message', 'cert_portal_upload'].includes(action)) {
+    const ip = callerIp(req)
+    if (!(await checkRateLimit(`cert_portal:${ip}`, 30))) {
+      return res.status(429).json({ error: 'rate_limited' })
+    }
     return handlePublicCertAction(action, req, res, getClient())
   }
 
@@ -105,6 +113,10 @@ export default async function handler(req, res) {
   if (action === 'rebind_requests') return handleRebindRequests(req, res)
   if (action === 'approve_rebind') return handleApproveRebind(req, res)
   if (action === 'reject_rebind') return handleRejectRebind(req, res)
+  if (action === 'loyalty-overview') return handleLoyaltyOverview(req, res)
+  if (action === 'business-loyalty') return handleBusinessLoyalty(req, res)
+  if (action === 'digest-health') return handleDigestHealth(req, res)
+  if (action === 'digest-send-now') return handleDigestSendNow(req, res)
   return res.status(400).json({ error: 'Unknown action' })
 }
 
@@ -382,14 +394,16 @@ async function handleClientConfig(req, res) {
   return res.status(405).json({ error: 'Method not allowed' })
 }
 
-const registerRateMap = new Map()
 async function handleRegister(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
-  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'unknown'
-  const now = Date.now()
-  const entry = registerRateMap.get(ip)
-  if (entry && now - entry.start < 3600000 && entry.count >= 5) return res.status(429).json({ error: 'Too many registrations' })
-  if (!entry || now - entry.start > 3600000) registerRateMap.set(ip, { start: now, count: 1 }); else entry.count++
+  const ip = callerIp(req)
+  // Short-window persistent rate limit: 5 registrations/min/ip. The prior
+  // 5/hour Map-based guard was defeated by Vercel cold starts + multi-region.
+  // Per-minute cap is tighter in the burst window while still allowing a
+  // legitimate re-attempt after failure; the signup flow is human-paced.
+  if (!(await checkRateLimit(`register:${ip}`, 5))) {
+    return res.status(429).json({ error: 'Too many registrations' })
+  }
   const { business_name, rnc, phone, email, address, hwid, language } = req.body || {}
   if (!business_name || !hwid) return res.status(400).json({ error: 'business_name and hwid required' })
   if (typeof hwid !== 'string' || !/^[a-f0-9]{16,64}$/i.test(hwid)) return res.status(400).json({ error: 'Invalid hardware ID' })

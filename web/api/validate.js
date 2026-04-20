@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import { checkRateLimit, callerIp } from '../lib/rate-limit.js'
 
 function hashHwid(h) {
   if (!h) return null
@@ -44,19 +45,10 @@ function parseSettingsIfString(raw) {
 }
 
 const GRACE_DAYS = 3
-const rateMap = new Map()
 const ALLOWED_ORIGINS = ['https://terminalxpos.com', 'http://localhost:5173']
 
 function getClient() {
   return createClient(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
-}
-
-function rateLimit(ip) {
-  const now = Date.now()
-  const entry = rateMap.get(ip)
-  if (!entry || now - entry.start > 60000) { rateMap.set(ip, { start: now, count: 1 }); return true }
-  entry.count++
-  return entry.count <= 30
 }
 
 export default async function handler(req, res) {
@@ -75,8 +67,12 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
   if (req.method === 'OPTIONS') return res.status(204).end()
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
-  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'unknown'
-  if (!rateLimit(ip)) return res.status(429).json({ valid: false, status: 'rate_limited' })
+  const ip = callerIp(req)
+  // Persistent Supabase-backed rate limit (30/min/ip). Fails OPEN on RPC
+  // error — see web/lib/rate-limit.js rationale.
+  if (!(await checkRateLimit(`validate:${ip}`, 30))) {
+    return res.status(429).json({ valid: false, status: 'rate_limited' })
+  }
 
   const { key, hwid, rnc, bizSync } = req.body || {}
   if (!key || !hwid) return res.status(400).json({ valid: false, status: 'invalid_request' })
