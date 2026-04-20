@@ -29,12 +29,15 @@ function rateLimit(ip) {
 
 export default async function handler(req, res) {
   const origin = req.headers.origin || ''
-  if (ALLOWED_ORIGINS.includes(origin)) {
+  // Strict origin enforcement: if Origin header is present, it MUST be allow-listed.
+  // Non-browser callers (desktop Electron IPC → remote.validate, server-to-server)
+  // send no Origin header and pass through. Browser cross-origin attempts get 403.
+  if (origin) {
+    if (!ALLOWED_ORIGINS.includes(origin)) {
+      return res.status(403).json({ error: 'origin_not_allowed' })
+    }
     res.setHeader('Access-Control-Allow-Origin', origin)
-  } else {
-    // Desktop Electron goes through IPC (remote:validate), not direct fetch
-    // Allow non-browser callers but do NOT echo wildcard to browsers
-    res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0] || 'https://terminalxpos.com')
+    res.setHeader('Vary', 'Origin')
   }
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')

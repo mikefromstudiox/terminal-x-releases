@@ -20,11 +20,16 @@ function parseSettingsIfString(raw) {
 
 function cors(req, res) {
   const origin = req.headers.origin || ''
-  if (ALLOWED_ORIGINS.includes(origin)) {
+  // Strict origin enforcement: if Origin is present, it MUST be allow-listed.
+  // Non-browser callers (no Origin header) pass through. Browser cross-origin
+  // attempts are rejected outright — no silent ACAO rewrite fallthrough.
+  if (origin) {
+    if (!ALLOWED_ORIGINS.includes(origin)) {
+      res.status(403).json({ error: 'origin_not_allowed' })
+      return true
+    }
     res.setHeader('Access-Control-Allow-Origin', origin)
-  } else {
-    // No wildcard — desktop uses IPC, not direct fetch
-    res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0] || 'https://terminalxpos.com')
+    res.setHeader('Vary', 'Origin')
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
@@ -534,7 +539,8 @@ async function handleLinkWebAccount(req, res) {
 
 async function handleResetPassword(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
-  const auth = await requireAdmin(req)
+  // Cross-tenant password reset — restrict to admin+ (support tier denied)
+  const auth = await requireAdmin(req, 'admin')
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
   const { user_id, password } = req.body || {}
   if (!user_id || !password) return res.status(400).json({ error: 'user_id and password required' })
@@ -614,7 +620,8 @@ async function handleActivityFeed(req, res) {
 
 async function handleDeleteStaff(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
-  const auth = await requireAdmin(req)
+  // Destructive cross-tenant mutation — restrict to admin+ (support tier denied)
+  const auth = await requireAdmin(req, 'admin')
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
   const { staff_id } = req.body || {}
   if (!staff_id) return res.status(400).json({ error: 'staff_id required' })
@@ -630,7 +637,8 @@ async function handleDeleteStaff(req, res) {
 
 async function handleSetStaffPin(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
-  const auth = await requireAdmin(req)
+  // Cross-tenant POS credential change — restrict to admin+ (support tier denied)
+  const auth = await requireAdmin(req, 'admin')
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
   const { staff_id, pin } = req.body || {}
   if (!staff_id || !pin) return res.status(400).json({ error: 'staff_id and pin required' })
@@ -1074,15 +1082,52 @@ async function handlePublicCertAction(action, req, res, supabase) {
 
   if (action === 'cert_portal_upload') {
     if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+
+    // Size cap: reject BEFORE buffering if Content-Length exceeds 10MB.
+    const MAX_UPLOAD_BYTES = 10 * 1024 * 1024 // 10MB
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10)
+    if (contentLength && contentLength > MAX_UPLOAD_BYTES) {
+      return res.status(413).json({ error: 'file_too_large', max_bytes: MAX_UPLOAD_BYTES })
+    }
+
     const { token, base64, filename } = req.body || {}
     if (!token || !base64 || !filename) return res.status(400).json({ error: 'token, base64, and filename required' })
     try {
-      const { data: cert, error } = await supabase.from('ecf_certifications').select('id').eq('portal_token', token).maybeSingle()
+      // Verify portal_token is present AND the certification is still active
+      // (not completed/cancelled). An expired/closed portal should reject uploads.
+      const { data: cert, error } = await supabase.from('ecf_certifications')
+        .select('id, status').eq('portal_token', token).maybeSingle()
       if (error) throw error
       if (!cert) return res.status(404).json({ error: 'Certification not found' })
+      const inactiveStatuses = ['completed', 'cancelled', 'archived']
+      if (cert.status && inactiveStatuses.includes(String(cert.status).toLowerCase())) {
+        return res.status(403).json({ error: 'portal_token_inactive' })
+      }
+
+      // MIME allowlist: png/jpeg/pdf only. Infer from extension + verify magic bytes.
+      const ALLOWED_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', pdf: 'application/pdf' }
+      const ext = String(filename.split('.').pop() || '').toLowerCase()
+      const contentType = ALLOWED_MIME[ext]
+      if (!contentType) return res.status(415).json({ error: 'unsupported_media_type', allowed: ['png', 'jpeg', 'pdf'] })
+
       const buffer = Buffer.from(base64, 'base64')
-      const ext = filename.split('.').pop() || 'bin'
-      const contentType = ext === 'pdf' ? 'application/pdf' : ext === 'p12' ? 'application/x-pkcs12' : ext === 'xml' ? 'application/xml' : ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'application/octet-stream'
+      // Post-decode size guard (base64 may arrive without Content-Length on some clients)
+      if (buffer.length > MAX_UPLOAD_BYTES) {
+        return res.status(413).json({ error: 'file_too_large', max_bytes: MAX_UPLOAD_BYTES })
+      }
+      if (buffer.length < 4) return res.status(415).json({ error: 'file_too_small_or_empty' })
+
+      // Magic-byte verification — defend against extension spoofing
+      const b0 = buffer[0], b1 = buffer[1], b2 = buffer[2], b3 = buffer[3]
+      const isPNG  = b0 === 0x89 && b1 === 0x50 && b2 === 0x4e && b3 === 0x47
+      const isJPEG = b0 === 0xff && b1 === 0xd8 && b2 === 0xff
+      const isPDF  = b0 === 0x25 && b1 === 0x50 && b2 === 0x44 && b3 === 0x46 // %PDF
+      const magicOk = (contentType === 'image/png' && isPNG) || (contentType === 'image/jpeg' && isJPEG) || (contentType === 'application/pdf' && isPDF)
+      if (!magicOk) return res.status(415).json({ error: 'mime_mismatch_magic_bytes' })
+
+      // TODO: migrate storage target from general 'ecf-certs' bucket to a dedicated
+      // client-upload bucket (e.g. 'ecf-client-uploads') with tighter RLS. Separate
+      // schema change — tracked outside this hardening pass.
       const path = `${cert.id}/client/${filename}`
       const { error: uploadErr } = await supabase.storage.from('ecf-certs').upload(path, buffer, { contentType, upsert: true })
       if (uploadErr) return res.status(500).json({ error: uploadErr.message })
