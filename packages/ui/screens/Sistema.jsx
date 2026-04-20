@@ -766,11 +766,19 @@ function Actualizaciones() {
   const [status,   setStatus]   = useState('idle')   // idle | checking | up-to-date | available | downloading | downloaded | error
   const [progress, setProgress] = useState(0)
   const [info,     setInfo]     = useState(null)      // { version } or error string
+  const [channel,  setChannel]  = useState('latest')  // 'latest' (stable) | 'beta'
+  const [chanSaving, setChanSaving] = useState(false)
+  const [chanNotice, setChanNotice] = useState('')
   const unsubRef = useRef(null)
 
   useEffect(() => {
     if (!api?.version) return
     api.version().then(v => setVersion(v)).catch(() => {})
+    if (api?.updater?.getChannel) {
+      api.updater.getChannel().then(r => {
+        if (r?.channel) setChannel(r.channel)
+      }).catch(() => {})
+    }
 
     if (!api?.updater?.onStatus) return
     const unsub = api.updater.onStatus((event, data) => {
@@ -787,6 +795,24 @@ function Actualizaciones() {
 
   function handleInstall() {
     api.updater.install()
+  }
+
+  async function handleChangeChannel(next) {
+    if (!api?.updater?.setChannel) return
+    if (next === channel) return
+    setChanSaving(true)
+    setChanNotice('')
+    const res = await api.updater.setChannel(next).catch(() => ({ error: 'failed' }))
+    setChanSaving(false)
+    if (res?.ok) {
+      setChannel(res.channel)
+      setChanNotice(L(
+        'Canal actualizado. Reinicia Terminal X para aplicar completamente.',
+        'Channel updated. Restart Terminal X to fully apply.'
+      ))
+    } else {
+      setChanNotice(L('No se pudo cambiar el canal', 'Could not change channel'))
+    }
   }
 
   async function handleCheckNow() {
@@ -896,6 +922,38 @@ function Actualizaciones() {
           </p>
         </div>
       )}
+
+      {/* Update channel picker */}
+      <div className="mt-6 border-t border-slate-100 dark:border-white/10 pt-5">
+        <p className="text-[11px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-2">
+          {L('Canal de actualizaciones', 'Update channel')}
+        </p>
+        <div className="flex items-center gap-3">
+          <select
+            value={channel}
+            disabled={chanSaving}
+            onChange={e => handleChangeChannel(e.target.value)}
+            className="px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] text-slate-800 dark:text-white font-semibold disabled:opacity-50"
+          >
+            <option value="latest">{L('Estable (recomendado)', 'Stable (recommended)')}</option>
+            <option value="beta">{L('Beta (pruebas tempranas)', 'Beta (early testing)')}</option>
+          </select>
+          {chanSaving && (
+            <span className="text-[12px] text-slate-400 dark:text-white/40">
+              {L('Guardando…', 'Saving…')}
+            </span>
+          )}
+        </div>
+        {chanNotice && (
+          <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">{chanNotice}</p>
+        )}
+        <p className="mt-2 text-[11px] text-slate-400 dark:text-white/40 leading-relaxed">
+          {L(
+            'El canal Beta recibe versiones pre-lanzamiento para probar nuevas funciones antes del lanzamiento oficial. Usa Estable en producción.',
+            'The Beta channel receives pre-release builds to test new features ahead of general release. Use Stable in production.'
+          )}
+        </p>
+      </div>
 
       {/* How updates work */}
       <div className="mt-6 border-t border-slate-100 dark:border-white/10 pt-5">

@@ -600,9 +600,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Auto-updater ───────────────────────────────────────────────────────────
   updater: {
-    install:  ()       => ipcRenderer.invoke('updater:install'),
-    check:    ()       => ipcRenderer.invoke('updater:check'),
-    onStatus: (cb)     => {
+    install:    ()       => ipcRenderer.invoke('updater:install'),
+    check:      ()       => ipcRenderer.invoke('updater:check'),
+    getChannel: ()       => ipcRenderer.invoke('updater:get-channel'),
+    setChannel: (ch)     => ipcRenderer.invoke('updater:set-channel', ch),
+    onStatus:   (cb)     => {
       const events = ['checking','up-to-date','available','progress','downloaded','error']
       const handlers = {}
       events.forEach(e => {

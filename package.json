@@ -15,7 +15,9 @@
     "build:protected": "vite build --mode production && electron-builder",
     "dist": "npm run build:react && electron-builder",
     "dist:win": "npm run build:react && electron-builder --win",
+    "dist:win:beta": "npm run build:react && electron-builder --win -c.publish.channel=beta",
     "dist:mac": "npm run build:react && electron-builder --mac",
+    "dist:mac:beta": "npm run build:react && electron-builder --mac -c.publish.channel=beta",
     "preview": "vite preview",
     "dev:web": "vite --config vite.web.config.mjs",
     "build:web": "vite build --config vite.web.config.mjs",
@@ -85,7 +87,8 @@
       {
         "provider": "github",
         "owner": "mikefromstudiox",
-        "repo": "terminal-x-releases"
+        "repo": "terminal-x-releases",
+        "channel": "latest"
       }
     ],
     "win": {
