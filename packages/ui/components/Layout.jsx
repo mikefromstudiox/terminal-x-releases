@@ -4,6 +4,7 @@ import { useLicense } from '../context/LicenseContext'
 import Sidebar from './Sidebar'
 import CertExpiryBanner from './CertExpiryBanner'
 import CertExpiryModal from './CertExpiryModal'
+import PrintQueueBanner from './PrintQueueBanner'
 import { AlertTriangle, ShieldX, KeyRound } from 'lucide-react'
 
 // Change to your WhatsApp number (must match LicenseGate.jsx)
@@ -80,6 +81,7 @@ function AppLayout({ children }) {
     <div className="flex h-screen bg-[#f0f2f5] dark:bg-zinc-950 overflow-hidden flex-col">
       <LicenseBanner />
       <CertExpiryBanner />
+      <PrintQueueBanner />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
         <main className="flex-1 flex flex-col overflow-hidden dark:bg-zinc-900 pb-20 md:pb-0">

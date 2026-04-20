@@ -460,6 +460,28 @@ function init(userDataPath, options = {}) {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON activity_log(created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_activity_log_event_type ON activity_log(event_type)`,
+    // v2.6.2 — ecf_cert_history (DGII cert rotation audit trail, synced to Supabase)
+    `CREATE TABLE IF NOT EXISTS ecf_cert_history (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id          TEXT NOT NULL,
+      cert_serial          TEXT,
+      subject_cn           TEXT,
+      subject_rnc          TEXT,
+      issued_at            TEXT,
+      expires_at           TEXT,
+      installed_at         TEXT NOT NULL DEFAULT (datetime('now')),
+      installed_by_user_id TEXT,
+      installed_by_name    TEXT,
+      installed_from       TEXT,
+      rotation_reason      TEXT,
+      sha256_fingerprint   TEXT,
+      prev_serial          TEXT,
+      prev_expires_at      TEXT,
+      created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at           TEXT
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_ecf_cert_history_supabase_id ON ecf_cert_history(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_ecf_cert_history_installed_at ON ecf_cert_history(installed_at DESC)`,
     // v1.9.22 — heal any app_settings rows previously poisoned with the
     // literal string 'undefined' or 'null' (from settingsUpdate's pre-fix
     // String(undefined) call). Most visible symptom: the printer dropdown
@@ -549,6 +571,9 @@ function init(userDataPath, options = {}) {
     "CREATE INDEX IF NOT EXISTS idx_clients_preferred_stylist ON clients(preferred_stylist_supabase_id)",
     // v2.7.1 — cross-vertical loyalty program (ledger + tier)
     "ALTER TABLE clients ADD COLUMN loyalty_tier TEXT DEFAULT 'bronze'",
+    // loyalty tiers v2 — lifetime earned + birthday flag. Idempotent ALTERs.
+    "ALTER TABLE clients ADD COLUMN loyalty_lifetime_earned REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE clients ADD COLUMN birthday_treat_available INTEGER NOT NULL DEFAULT 0",
     `CREATE TABLE IF NOT EXISTS loyalty_transactions (
       id                  INTEGER PRIMARY KEY AUTOINCREMENT,
       supabase_id         TEXT,
@@ -1062,6 +1087,10 @@ function init(userDataPath, options = {}) {
     // v2.3.32 — Pedidos Ya per-channel pricing + ticket order source
     'ALTER TABLE inventory_items ADD COLUMN price_pedidos_ya REAL',
     "ALTER TABLE tickets ADD COLUMN order_source TEXT DEFAULT 'pos'",
+    // DGII audit D-H — offline-deferred flag. Set to 1 when ticket's e-CF was
+    // queued while offline; cleared by ecfClearDeferredForTicket() after DGII
+    // accept so a later manual resubmit doesn't carry a stale IndicadorEnvioDiferido.
+    "ALTER TABLE tickets ADD COLUMN ecf_indicator_diferido INTEGER NOT NULL DEFAULT 0",
 
     // v2.6 — Manager Authorization Card (barcode token, stored as hash)
     'ALTER TABLE users ADD COLUMN manager_auth_hash TEXT',
@@ -1131,6 +1160,14 @@ function init(userDataPath, options = {}) {
       BEGIN
         UPDATE inventory_count_items SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
       END`,
+
+    // v2.6 — Licoreria bottle/envase deposit segregation on ticket_items.
+    // Canonical flag for deposit-only lines so cuadre / reports / refunds
+    // can treat them separately from product revenue. Back-fills legacy
+    // 'DEP' SKU rows for continuity with the pre-flag encoding.
+    "ALTER TABLE ticket_items ADD COLUMN is_deposit INTEGER NOT NULL DEFAULT 0",
+    "UPDATE ticket_items SET is_deposit = 1 WHERE is_deposit = 0 AND UPPER(COALESCE(sku,'')) = 'DEP'",
+    "CREATE INDEX IF NOT EXISTS idx_ticket_items_is_deposit ON ticket_items(ticket_supabase_id) WHERE is_deposit = 1",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -3652,7 +3689,7 @@ function clientCreate(data) {
 }
 function clientUpdate(id, data) {
   if (!db) return
-  const allowed = ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','loyalty_points','allergies','preferred_stylist_id','preferred_stylist_supabase_id','last_service_date']
+  const allowed = ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','loyalty_points','birthday_treat_available','allergies','preferred_stylist_id','preferred_stylist_supabase_id','last_service_date']
   const patch   = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   // Keep preferred_stylist_supabase_id in sync when only the numeric id is given.
   if (data.preferred_stylist_id && !data.preferred_stylist_supabase_id) {
@@ -3663,46 +3700,86 @@ function clientUpdate(id, data) {
   const fields  = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
   db.prepare(`UPDATE clients SET ${fields} WHERE id=@id`).run({ ...patch, id })
 }
-// Compute loyalty tier bucket using app_settings thresholds
-// (defaults: bronze<1000, silver<5000, gold<10000, platinum>=10000).
-function _loyaltyTierFor(points) {
-  const pts = Number(points) || 0
+// Tier bucket derived from LIFETIME earned (not current balance).
+// Owner-tunable via app_settings.loyalty_tier_{silver,gold}. Defaults per spec:
+//   bronze  <  1 000
+//   silver  >= 1 000
+//   gold    >= 5 000
+// Legacy 'platinum' rows are treated as 'gold' by the Spanish label helper.
+function _loyaltyTierFor(lifetime) {
+  const pts = Number(lifetime) || 0
   const g = (k, d) => { try { const v = db.prepare('SELECT value FROM app_settings WHERE key=?').get(k)?.value; const n = Number(v); return Number.isFinite(n) ? n : d } catch { return d } }
-  const t1 = g('loyalty_tier_silver',   1000)
-  const t2 = g('loyalty_tier_gold',     5000)
-  const t3 = g('loyalty_tier_platinum', 10000)
-  if (pts >= t3) return 'platinum'
-  if (pts >= t2) return 'gold'
-  if (pts >= t1) return 'silver'
+  const tSilver = g('loyalty_tier_silver', 1000)
+  const tGold   = g('loyalty_tier_gold',   5000)
+  if (pts >= tGold)   return 'gold'
+  if (pts >= tSilver) return 'silver'
   return 'bronze'
 }
 
-// Legacy: numeric-id loyalty delta (v2.4 salon). Now also refreshes tier.
+// Earn multiplier per tier (snapshot BEFORE the current earn so crossing a
+// threshold mid-award never retro-boosts previous points).
+function _loyaltyTierMultiplier(tier) {
+  switch (tier) {
+    case 'gold':
+    case 'platinum': return 1.5
+    case 'silver':   return 1.25
+    default:         return 1.0
+  }
+}
+
+// Recompute lifetime_earned from the canonical ledger. Idempotent.
+function _loyaltyRecomputeLifetime(clientId) {
+  if (!db || !clientId) return { lifetime: 0, tier: 'bronze' }
+  const row = db.prepare(`
+    SELECT COALESCE(SUM(points), 0) AS lifetime
+      FROM loyalty_transactions
+     WHERE client_id = ?
+       AND points > 0
+       AND event_type IN ('earn','adjust')
+  `).get(clientId)
+  const lifetime = Number(row?.lifetime) || 0
+  const tier = _loyaltyTierFor(lifetime)
+  db.prepare("UPDATE clients SET loyalty_lifetime_earned=?, loyalty_tier=?, updated_at=datetime('now') WHERE id=?")
+    .run(lifetime, tier, clientId)
+  return { lifetime, tier }
+}
+
+// Legacy: numeric-id loyalty delta (v2.4 salon). Does NOT go through the
+// ledger so it doesn't affect lifetime_earned or tier — intentionally, since
+// the salon auto-accrual path predates the tier system and shouldn't be
+// gaming tier progression.
 function clientAddLoyaltyPoints(id, delta) {
   if (!db || !id) return
   const d = Number(delta) || 0
   db.prepare("UPDATE clients SET loyalty_points = MAX(0, COALESCE(loyalty_points,0) + @delta) WHERE id=@id").run({ id, delta: d })
-  const row = db.prepare('SELECT loyalty_points FROM clients WHERE id=?').get(id)
-  if (row) db.prepare('UPDATE clients SET loyalty_tier=? WHERE id=?').run(_loyaltyTierFor(row.loyalty_points), id)
 }
 
-// v2.7.1 — ledger-backed loyalty award. Idempotent per ticket_supabase_id.
+// Ledger-backed loyalty award. Idempotent per ticket_supabase_id.
+// Applies the tier-earn multiplier (bronze 1.00 / silver 1.25 / gold 1.50)
+// from a snapshot of the client's CURRENT tier — a mid-award threshold
+// crossing doesn't retro-boost. Lifetime_earned + tier recomputed from the
+// ledger after insert so Supabase trigger + local logic stay bit-identical.
 function loyaltyAward({ clientId, clientSupabaseId, ticketId, ticketSupabaseId, points, notes } = {}) {
   if (!db) return 0
   const p = Number(points) || 0
   if (p <= 0) return 0
   const client = clientSupabaseId
-    ? db.prepare('SELECT id, supabase_id, loyalty_points, business_id FROM clients WHERE supabase_id=?').get(clientSupabaseId)
-    : (clientId ? db.prepare('SELECT id, supabase_id, loyalty_points, business_id FROM clients WHERE id=?').get(clientId) : null)
+    ? db.prepare('SELECT id, supabase_id, loyalty_points, loyalty_tier, business_id FROM clients WHERE supabase_id=?').get(clientSupabaseId)
+    : (clientId ? db.prepare('SELECT id, supabase_id, loyalty_points, loyalty_tier, business_id FROM clients WHERE id=?').get(clientId) : null)
   if (!client) return 0
   if (ticketSupabaseId) {
     const existing = db.prepare("SELECT balance_after FROM loyalty_transactions WHERE ticket_supabase_id=? AND event_type='earn'").get(ticketSupabaseId)
     if (existing) return existing.balance_after
   }
-  const newBalance = Math.max(0, (Number(client.loyalty_points) || 0) + p)
-  const tier = _loyaltyTierFor(newBalance)
-  db.prepare("UPDATE clients SET loyalty_points=?, loyalty_tier=?, updated_at=datetime('now') WHERE id=?")
-    .run(newBalance, tier, client.id)
+
+  const mult       = _loyaltyTierMultiplier(client.loyalty_tier || 'bronze')
+  const effective  = Math.round(p * mult * 100) / 100
+  const newBalance = Math.max(0, (Number(client.loyalty_points) || 0) + effective)
+  const tag        = mult > 1 ? ` [x${mult} ${client.loyalty_tier}]` : ''
+
+  db.prepare("UPDATE clients SET loyalty_points=?, updated_at=datetime('now') WHERE id=?")
+    .run(newBalance, client.id)
+
   const sid = crypto.randomUUID()
   db.prepare(`INSERT INTO loyalty_transactions
     (supabase_id,business_id,client_id,client_supabase_id,ticket_id,ticket_supabase_id,event_type,points,balance_after,notes)
@@ -3713,10 +3790,13 @@ function loyaltyAward({ clientId, clientSupabaseId, ticketId, ticketSupabaseId, 
     client_supabase_id: client.supabase_id,
     ticket_id: ticketId || null,
     ticket_supabase_id: ticketSupabaseId || null,
-    points: p,
+    points: effective,
     balance_after: newBalance,
-    notes: notes || null,
+    notes: (notes || '') + tag || null,
   })
+
+  // Recompute lifetime + tier from ledger sum (trigger-equivalent).
+  _loyaltyRecomputeLifetime(client.id)
   return newBalance
 }
 
@@ -3731,9 +3811,10 @@ function loyaltyRedeem({ clientId, clientSupabaseId, ticketId, ticketSupabaseId,
   const current = Number(client.loyalty_points) || 0
   if (current < p) return { ok: false, reason: 'insufficient', current }
   const newBalance = current - p
-  const tier = _loyaltyTierFor(newBalance)
-  db.prepare("UPDATE clients SET loyalty_points=?, loyalty_tier=?, updated_at=datetime('now') WHERE id=?")
-    .run(newBalance, tier, client.id)
+  // Redeem does NOT touch loyalty_tier — tier is lifetime-driven.
+  db.prepare("UPDATE clients SET loyalty_points=?, updated_at=datetime('now') WHERE id=?")
+    .run(newBalance, client.id)
+  const tier = client.loyalty_tier || 'bronze'
   const sid = crypto.randomUUID()
   db.prepare(`INSERT INTO loyalty_transactions
     (supabase_id,business_id,client_id,client_supabase_id,ticket_id,ticket_supabase_id,event_type,points,balance_after,notes)
@@ -3759,9 +3840,8 @@ function loyaltyAdjust({ clientId, clientSupabaseId, delta, notes } = {}) {
     : (clientId ? db.prepare('SELECT id, supabase_id, loyalty_points, business_id FROM clients WHERE id=?').get(clientId) : null)
   if (!client) return 0
   const newBalance = Math.max(0, (Number(client.loyalty_points) || 0) + d)
-  const tier = _loyaltyTierFor(newBalance)
-  db.prepare("UPDATE clients SET loyalty_points=?, loyalty_tier=?, updated_at=datetime('now') WHERE id=?")
-    .run(newBalance, tier, client.id)
+  db.prepare("UPDATE clients SET loyalty_points=?, updated_at=datetime('now') WHERE id=?")
+    .run(newBalance, client.id)
   const sid = crypto.randomUUID()
   db.prepare(`INSERT INTO loyalty_transactions
     (supabase_id,business_id,client_id,client_supabase_id,event_type,points,balance_after,notes)
@@ -3774,6 +3854,8 @@ function loyaltyAdjust({ clientId, clientSupabaseId, delta, notes } = {}) {
     balance_after: newBalance,
     notes: notes || null,
   })
+  // Positive delta counts toward lifetime; negative only affects balance.
+  _loyaltyRecomputeLifetime(client.id)
   return newBalance
 }
 
@@ -4119,8 +4201,8 @@ function ticketCreate(data) {
     const invRows = db.prepare('SELECT id, aplica_itbis, supabase_id FROM inventory_items').all()
     const invItbisById = new Map(invRows.map(r => [r.id, r.aplica_itbis]))
     const invSidById = new Map(invRows.map(r => [r.id, r.supabase_id || null]))
-    const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,cost,itbis,is_wash,quantity,sku,inventory_item_id,weight,unit,price_per_unit,supabase_id,ticket_supabase_id,service_supabase_id,inventory_item_supabase_id)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,cost,itbis,is_wash,quantity,sku,inventory_item_id,weight,unit,price_per_unit,is_deposit,supabase_id,ticket_supabase_id,service_supabase_id,inventory_item_supabase_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     for (const item of (data.items || [])) {
       const svcId = (item.service_id && validSvcIds.has(item.service_id)) ? item.service_id : null
       const qty = item.quantity || 1
@@ -4131,12 +4213,17 @@ function ticketCreate(data) {
       const aplica = item.aplica_itbis !== undefined ? item.aplica_itbis : (item.inventory_item_id ? (invItbisById.get(item.inventory_item_id) ?? 1) : 1)
       const itemItbis = aplica !== 0 ? parseFloat((item.price * itbisFactor).toFixed(2)) : 0
       const invItemSid = item.inventory_item_id ? (invSidById.get(item.inventory_item_id) || null) : null
+      // v2.6 — persist deposit flag. Accepts either the canonical `is_deposit`
+      // or the legacy runtime flag `bottle_deposit_line` (cart-side name).
+      const isDeposit = (item.is_deposit === true || item.is_deposit === 1 ||
+                         item.bottle_deposit_line === true) ? 1 : 0
       insItem.run(ticketId, svcId, item.name, item.price, itemCost,
         itemItbis, item.is_wash ?? 1,
         qty, item.sku || null, item.inventory_item_id || null,
         item.weight != null ? Number(item.weight) : null,
         item.unit || null,
         item.price_per_unit != null ? Number(item.price_per_unit) : null,
+        isDeposit,
         itemSid, ticketSid, svcId ? svcSidById.get(svcId) : null, invItemSid)
 
       // Auto-deduct inventory stock (floor at 0 — never go negative).
@@ -4393,6 +4480,18 @@ function ticketVoid(id, reason, voidById) {
       db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id) VALUES(?,?,?,?,?,?,?)')
         .run(item.inventory_item_id, 'void_reversal', fulfilled, `Void ticket #${id}`, voidById || null,
              vtSid, invRow?.supabase_id || null)
+      // RPT-H4: mark shortage rows as voided so the Quiebres tab shows the
+      // original shortage as historical (stock was already restored to its
+      // true pre-sale level; the ledger entry should reflect resolution).
+      if (ticket.supabase_id && invRow?.supabase_id) {
+        db.prepare(`UPDATE inventory_oversells
+          SET resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+              resolved_by = ?, resolution_type = 'voided',
+              resolution_notes = ?,
+              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE ticket_supabase_id=? AND item_supabase_id=? AND resolved_at IS NULL`)
+          .run(voidById || null, `Void ticket #${id}`, ticket.supabase_id, invRow.supabase_id)
+      }
     }
   })()
   if (voidedTicket) {
@@ -4568,6 +4667,16 @@ function queueDelete(id, deletedBy) {
         db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id) VALUES(?,?,?,?,?,?,?)')
           .run(it.inventory_item_id, 'void_reversal', fulfilled, `Queue cancel ticket #${row.ticket_id}`, deletedBy || null,
                vtSid, invRow?.supabase_id || null)
+        // RPT-H4: mark shortage rows voided (see ticketVoid for rationale).
+        if (tSid && invRow?.supabase_id) {
+          db.prepare(`UPDATE inventory_oversells
+            SET resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                resolved_by = ?, resolution_type = 'voided',
+                resolution_notes = ?,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE ticket_supabase_id=? AND item_supabase_id=? AND resolved_at IS NULL`)
+            .run(deletedBy || null, `Queue cancel ticket #${row.ticket_id}`, tSid, invRow.supabase_id)
+        }
       }
     }
     db.prepare(`UPDATE queue SET status='cancelled', completed_at=? WHERE id=?`).run(now, id)
@@ -4965,7 +5074,45 @@ function cuadreDailySummary(date) {
       if (pm !== 'credito') totalCobrado += tot
     }
   }
-  return { ...result, totalVendido, totalCobrado, count: tickets.length }
+  // v2.6 — Licoreria: segregate envase deposits for cuadre reconciliation.
+  // `depositos_cobrados`  = sum of ticket_items.is_deposit=1 price*qty on
+  //                         paid tickets in the window (revenue carried by
+  //                         deposits, *already* included in totalVendido).
+  // `depositos_devueltos` = sum of negative-total refund tickets tagged
+  //                         `refund_type='deposit_return'` in metadata —
+  //                         these are persisted as regular paid tickets
+  //                         with negative totals so sync stays trivial.
+  // `depositos_neto`      = cobrados − devueltos (= outstanding liability).
+  let depositos_cobrados = 0, depositos_devueltos = 0
+  try {
+    const depRows = db.prepare(
+      `SELECT COALESCE(SUM(ti.price * ti.quantity), 0) AS total
+         FROM ticket_items ti
+         JOIN tickets t ON t.id = ti.ticket_id
+        WHERE ti.is_deposit = 1
+          AND t.status = 'cobrado'
+          AND t.total >= 0
+          AND t.created_at BETWEEN ? AND ?`
+    ).get(from, to)
+    depositos_cobrados = Number(depRows?.total || 0)
+    const refundRows = db.prepare(
+      `SELECT COALESCE(SUM(ABS(total)), 0) AS total
+         FROM tickets
+        WHERE status = 'cobrado'
+          AND total < 0
+          AND payment_method IN ('efectivo','cash','credito','credit')
+          AND COALESCE(notes,'') LIKE '%[deposit_return]%'
+          AND created_at BETWEEN ? AND ?`
+    ).get(from, to)
+    depositos_devueltos = Number(refundRows?.total || 0)
+  } catch {}
+  return {
+    ...result,
+    totalVendido, totalCobrado, count: tickets.length,
+    depositos_cobrados,
+    depositos_devueltos,
+    depositos_neto: depositos_cobrados - depositos_devueltos,
+  }
 }
 
 // ── NCF ───────────────────────────────────────────────────────────────────────
@@ -5547,6 +5694,53 @@ function ecfSubmissionGetAll(limit = 50) {
   return db.prepare('SELECT * FROM ecf_submissions ORDER BY submitted_at DESC LIMIT ?').all(limit)
 }
 
+// DGII audit D-H — clear ticket.ecf_indicator_diferido after DGII accept so a
+// later manual resubmit of the same ticket builds XML without a stale
+// IndicadorEnvioDiferido=1. Safe to call repeatedly (idempotent UPDATE).
+function ecfClearDeferredForTicket(ticketId) {
+  if (!db || ticketId == null) return 0
+  try {
+    const info = db.prepare(
+      `UPDATE tickets
+          SET ecf_indicator_diferido = 0,
+              updated_at = datetime('now')
+        WHERE id = ?
+          AND ecf_indicator_diferido = 1`
+    ).run(ticketId)
+    return info.changes || 0
+  } catch { return 0 }
+}
+
+// Returns ecf_queue rows stuck in 'submitted' with no DGII final verdict yet.
+// Only rows older than staleMinutes (so we don't hammer DGII on freshly-submitted
+// e-CFs that still have their in-line pollStatus running). Capped at `limit`.
+function ecfQueueGetStaleSubmitted(limit = 20, staleMinutes = 5) {
+  if (!db) return []
+  const cutoff = `-${Math.max(1, Number(staleMinutes) || 5)} minutes`
+  return db.prepare(
+    `SELECT q.*
+       FROM ecf_queue q
+       LEFT JOIN ecf_submissions s ON s.track_id = q.track_id
+      WHERE q.status = 'submitted'
+        AND q.track_id IS NOT NULL
+        AND q.updated_at < datetime('now', ?)
+        AND (s.dgii_status IS NULL OR s.dgii_status = 3)
+      ORDER BY q.updated_at ASC
+      LIMIT ?`
+  ).all(cutoff, limit)
+}
+
+function ecfQueueMarkDone(id) {
+  if (!db) return
+  db.prepare(
+    `UPDATE ecf_queue
+        SET status='done',
+            updated_at=datetime('now'),
+            last_error=NULL
+      WHERE id=?`
+  ).run(id)
+}
+
 // ── ACTIVITY LOG (owner audit feed) ───────────────────────────────────────────
 // Module-level actor context — set by UI on login so every mutation knows "who"
 // without needing to thread an actor_id param through every function signature.
@@ -5689,6 +5883,53 @@ function activityLogList({ dateFrom, dateTo, eventTypes, limit = 200 } = {}) {
   sql += ' ORDER BY created_at DESC LIMIT ?'
   params.push(Math.min(Number(limit) || 200, 1000))
   return db.prepare(sql).all(...params)
+}
+
+// ── ECF CERT HISTORY ─────────────────────────────────────────────────────────
+// Append-only audit trail for DGII .p12 rotations. Synced push-only to
+// Supabase.ecf_cert_history via sync.js. Never edit or delete rows — each
+// install/renewal/replacement is a permanent historical record.
+function ecfCertHistoryInsert(row) {
+  if (!db || !row) return null
+  try {
+    const supabase_id = row.supabase_id || crypto.randomUUID()
+    const nowIso = new Date().toISOString()
+    db.prepare(`INSERT INTO ecf_cert_history
+      (supabase_id, cert_serial, subject_cn, subject_rnc, issued_at, expires_at,
+       installed_at, installed_by_user_id, installed_by_name, installed_from,
+       rotation_reason, sha256_fingerprint, prev_serial, prev_expires_at,
+       created_at, updated_at)
+      VALUES (@supabase_id, @cert_serial, @subject_cn, @subject_rnc, @issued_at, @expires_at,
+              @installed_at, @installed_by_user_id, @installed_by_name, @installed_from,
+              @rotation_reason, @sha256_fingerprint, @prev_serial, @prev_expires_at,
+              @created_at, @updated_at)`).run({
+      supabase_id,
+      cert_serial:          row.cert_serial || null,
+      subject_cn:           row.subject_cn || null,
+      subject_rnc:          row.subject_rnc || null,
+      issued_at:            row.issued_at || null,
+      expires_at:           row.expires_at || null,
+      installed_at:         row.installed_at || nowIso,
+      installed_by_user_id: row.installed_by_user_id || null,
+      installed_by_name:    row.installed_by_name || null,
+      installed_from:       row.installed_from || 'desktop',
+      rotation_reason:      row.rotation_reason || 'initial',
+      sha256_fingerprint:   row.sha256_fingerprint || null,
+      prev_serial:          row.prev_serial || null,
+      prev_expires_at:      row.prev_expires_at || null,
+      created_at:           row.created_at || nowIso,
+      updated_at:           row.updated_at || nowIso,
+    })
+    return supabase_id
+  } catch (e) {
+    console.error('[ecf_cert_history] insert failed:', e.message)
+    return null
+  }
+}
+function ecfCertHistoryList({ limit = 50 } = {}) {
+  if (!db) return []
+  return db.prepare(`SELECT * FROM ecf_cert_history ORDER BY installed_at DESC LIMIT ?`)
+    .all(Math.min(Number(limit) || 50, 500))
 }
 
 // ── VEHICLES ─────────────────────────────────────────────────────────────────
@@ -7346,13 +7587,21 @@ function inventoryCountDelete(id) {
 function rawPrepare(sql) { return db ? db.prepare(sql) : null }
 function rawExec(sql) { if (db) db.exec(sql) }
 
+// Consistent online snapshot via better-sqlite3's native backup API.
+// Preserves SQLCipher encryption page-by-page (ciphertext copied as-is).
+function dbBackupTo(destPath) {
+  if (!db) return Promise.reject(new Error('db not initialized'))
+  if (typeof db.backup !== 'function') return Promise.reject(new Error('better-sqlite3 backup() unavailable'))
+  return db.backup(destPath)
+}
+
 function closeDb() {
   try { if (db) db.close() } catch {}
   db = null
 }
 
 module.exports = {
-  init, isReady, getError, rawPrepare, rawExec, closeDb,
+  init, isReady, getError, rawPrepare, rawExec, closeDb, dbBackupTo,
   // Empresa
   configGet, configSet,
   empresaGet, empresaSave,
@@ -7414,6 +7663,8 @@ module.exports = {
   // e-CF offline queue
   ecfQueueAdd, ecfQueueGetPending, ecfQueueGetById, ecfQueueMarkSubmitted, ecfQueueMarkFailed,
   ecfQueueDelete, ecfQueueIncrAttempts, ecfQueueCount,
+  // DGII reconciler (EN_PROCESO → final verdict) + deferred-flag cleanup
+  ecfQueueGetStaleSubmitted, ecfQueueMarkDone, ecfClearDeferredForTicket,
   // ANECF auto-queue (v2.10.4 — audit E-C6)
   anecfQueueEnqueue, anecfQueueGetPending, anecfQueueMarkSubmitted, anecfQueueMarkFailed,
   anecfQueueCount, anecfQueueList, isECF,
@@ -7422,6 +7673,8 @@ module.exports = {
   ecfSubmissionGetPending, ecfSubmissionGetAll,
   // Activity log (owner audit feed)
   setActiveUser, getActiveUser, activityLogRecord, activityLogList, activityLogSelfHeal, setActivityErrorSink,
+  // e-CF certificate rotation history (audit trail — append-only, synced)
+  ecfCertHistoryInsert, ecfCertHistoryList,
   // Restaurant Mode — mesas / modificadores / kds / ticket-item modifier snapshots
   mesasGetAll, mesaCreate, mesaUpdate, mesaSetStatus, mesaDelete,
   modificadoresGetAll, modificadoresGetAllAdmin, modificadorCreate, modificadorUpdate, modificadorDelete,

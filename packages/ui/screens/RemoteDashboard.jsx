@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Globe, Eye, WifiOff, RefreshCw, TrendingUp, ReceiptText, Banknote, CreditCard, ArrowRightLeft, Clock,
-  Activity, UserX, Tag, XCircle, Wallet, Percent, Package, PiggyBank, Scale, Lock, ChevronDown, ChevronUp, ClipboardList, Sunrise } from 'lucide-react'
+  Activity, UserX, Tag, XCircle, Wallet, Percent, Package, PiggyBank, Scale, Lock, ChevronDown, ChevronUp, ClipboardList, Sunrise,
+  DoorOpen, Unlock, HardDrive, ShieldAlert, ShieldX } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
@@ -545,10 +546,19 @@ const EVENT_META = {
   user_hard_deleted:     { Icon: UserX,    color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Usuario eliminado (definitivo)', en: 'User hard deleted' },
   adelanto_created:      { Icon: Wallet,   color: 'text-blue-600 bg-blue-50 dark:bg-blue-500/10 dark:text-blue-300',    es: 'Adelanto creado',           en: 'Advance created' },
   adelanto_cancelled:    { Icon: Wallet,   color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Adelanto cancelado',        en: 'Advance cancelled' },
+  // v2.12.x — operational events (kiosk, backups, DGII reconciler, rebinds, cert expiry)
+  kiosk_locked:          { Icon: Lock,     color: 'text-slate-600 bg-slate-100 dark:bg-white/10 dark:text-white/70',    es: 'Kiosko bloqueado',          en: 'Kiosk locked' },
+  kiosk_unlocked:        { Icon: Unlock,   color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-300', es: 'Kiosko desbloqueado', en: 'Kiosk unlocked' },
+  db_backup:             { Icon: HardDrive,color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',          es: 'Respaldo nocturno',         en: 'Nightly backup' },
+  cert_expiry_alert:     { Icon: ShieldAlert, color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Certificado por vencer', en: 'Certificate expiring' },
+  dgii_reconcile:        { Icon: RefreshCw,color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',          es: 'Reconciliacion DGII',       en: 'DGII reconcile' },
+  rebind_rejected:       { Icon: ShieldX,  color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Re-vinculo rechazado',      en: 'Rebind rejected' },
   // v2.6 — Manager Authorization Card audit events
   manager_override:      { Icon: Lock,     color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Autorización de gerente',   en: 'Manager override' },
   manager_card_rotated:  { Icon: Lock,     color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Tarjeta de gerente emitida', en: 'Manager card issued' },
   manager_card_revoked:  { Icon: Lock,     color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Tarjeta de gerente revocada', en: 'Manager card revoked' },
+  // v2.6 — Licoreria: envase deposit refund (bottle return)
+  deposit_refund:        { Icon: ReceiptText, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-300', es: 'Devolución de envase',    en: 'Bottle deposit refund' },
 }
 function eventLabel(evt, lang) {
   const m = EVENT_META[evt]
@@ -648,6 +658,11 @@ const FILTER_CHIPS = [
   { id: 'caja',     es: 'Caja Chica',   en: 'Petty Cash',   types: ['caja_chica_withdrawal'] },
   { id: 'cuadre',   es: 'Cuadre',       en: 'Reconciliation', types: ['cuadre_discrepancy'] },
   { id: 'turnos',   es: 'Turnos',       en: 'Shifts',       types: ['shift_opened'] },
+  { id: 'kiosko',   es: 'Kiosko',       en: 'Kiosk',        types: ['kiosk_locked','kiosk_unlocked'] },
+  { id: 'backups',  es: 'Respaldos',    en: 'Backups',      types: ['db_backup'] },
+  { id: 'cert',     es: 'Certificado',  en: 'Certificate',  types: ['cert_expiry_alert'] },
+  { id: 'dgii',     es: 'DGII',         en: 'DGII',         types: ['dgii_reconcile'] },
+  { id: 'rebind',   es: 'Re-vinculos',  en: 'Rebinds',      types: ['rebind_rejected'] },
   { id: 'mgr',      es: 'Gerente',      en: 'Manager',      types: ['manager_override','manager_card_rotated','manager_card_revoked'] },
 ]
 

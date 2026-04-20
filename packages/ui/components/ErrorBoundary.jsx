@@ -58,7 +58,13 @@ export default class ErrorBoundary extends Component {
 
   componentDidCatch(error, info) {
     console.error('[ErrorBoundary] Uncaught render error:', error, info.componentStack)
-    if (isChunkError(error)) nukeCachesAndReload()
+    if (isChunkError(error)) { nukeCachesAndReload(); return }
+    // Forward to Sentry (no-op when DSN unset). Lazy-import so ErrorBoundary
+    // stays synchronous and doesn't pull the Sentry chunk into the landing
+    // bundle when DSN is unconfigured.
+    import('@terminal-x/services/sentry-renderer.js')
+      .then(m => m.captureSentryException?.(error, { componentStack: info?.componentStack }))
+      .catch(() => {})
   }
 
   render() {

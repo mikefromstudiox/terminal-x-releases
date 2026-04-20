@@ -60,6 +60,10 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
   const [digestStatus, setDigestStatus] = useState(null)
   const [digestSending, setDigestSending] = useState(false)
   const [digestMsg, setDigestMsg] = useState(null)
+  // e-CF certificate rotation history — loaded lazily when the section expands.
+  const [certHistory, setCertHistory] = useState(null)
+  const [certHistoryLoading, setCertHistoryLoading] = useState(false)
+  const [certHistoryOpen, setCertHistoryOpen] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -88,6 +92,21 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
       if (resp.ok) setLoyalty(await resp.json())
     } catch (e) { console.error('loadLoyalty:', e) }
     setLoyaltyLoading(false)
+  }
+
+  async function loadCertHistory() {
+    setCertHistoryLoading(true)
+    try {
+      let token = await refreshToken?.(); if (!token) token = getToken()
+      const resp = await fetch(`/api/panel?action=cert_history&id=${id}&limit=10`, { headers: { 'Authorization': `Bearer ${token}` } })
+      if (resp.ok) {
+        const d = await resp.json()
+        setCertHistory(d.history || [])
+      } else {
+        setCertHistory([])
+      }
+    } catch (e) { console.error('loadCertHistory:', e); setCertHistory([]) }
+    setCertHistoryLoading(false)
   }
 
   async function loadDigestStatus() {
@@ -761,6 +780,97 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                   </motion.div>
                 )
               })()}
+
+              {/* Historial de Certificados — DGII .p12 rotation audit trail */}
+              <motion.div variants={listItem} className={card}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !certHistoryOpen
+                    setCertHistoryOpen(next)
+                    if (next && certHistory == null && !certHistoryLoading) loadCertHistory()
+                  }}
+                  className="w-full flex items-center justify-between"
+                >
+                  <p className={`text-[14px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+                    <ShieldCheck size={14} className={`inline mr-1.5 ${isDark ? 'text-white/40' : 'text-black/40'}`} />
+                    {L('Historial de Certificados', 'Certificate History')}
+                  </p>
+                  <span className={`text-[11px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                    {certHistoryOpen ? '−' : '+'}
+                  </span>
+                </button>
+                {certHistoryOpen && (
+                  <div className="mt-4">
+                    {certHistoryLoading && (
+                      <p className={`text-[12px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>{L('Cargando…', 'Loading…')}</p>
+                    )}
+                    {!certHistoryLoading && certHistory && certHistory.length === 0 && (
+                      <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin rotaciones registradas todavia.', 'No rotations recorded yet.')}</p>
+                    )}
+                    {!certHistoryLoading && certHistory && certHistory.length > 0 && (
+                      <div className="space-y-2">
+                        {certHistory.map((h) => {
+                          const reasonColor = h.rotation_reason === 'initial'
+                            ? (isDark ? 'text-emerald-400' : 'text-emerald-600')
+                            : h.rotation_reason === 'replacement'
+                              ? (isDark ? 'text-orange-400' : 'text-orange-600')
+                              : (isDark ? 'text-amber-400' : 'text-amber-600')
+                          const reasonLabel = h.rotation_reason === 'initial' ? L('Inicial', 'Initial')
+                            : h.rotation_reason === 'renewal' ? L('Renovacion', 'Renewal')
+                            : h.rotation_reason === 'replacement' ? L('Reemplazo', 'Replacement')
+                            : (h.rotation_reason || '—')
+                          const fromLabel = h.installed_from === 'desktop' ? 'Desktop'
+                            : h.installed_from === 'web' ? 'Web'
+                            : h.installed_from === 'admin' ? 'Admin'
+                            : (h.installed_from || '—')
+                          return (
+                            <div key={h.id} className={`rounded-xl p-3 ${isDark ? 'bg-white/5 border border-white/5' : 'bg-black/5 border border-black/5'}`}>
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className={`text-[12px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+                                    {new Date(h.installed_at).toLocaleString('es-DO')}
+                                  </p>
+                                  <p className={`text-[11px] ${isDark ? 'text-white/50' : 'text-black/50'} truncate`}>
+                                    {h.installed_by_name || L('Sin nombre', 'Unknown')} · {fromLabel}
+                                  </p>
+                                </div>
+                                <span className={`text-[10px] font-bold uppercase tracking-wide ${reasonColor}`}>
+                                  {reasonLabel}
+                                </span>
+                              </div>
+                              <div className="mt-2 grid grid-cols-2 gap-y-1 gap-x-3">
+                                <div>
+                                  <p className={`text-[10px] uppercase tracking-wide ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Serial', 'Serial')}</p>
+                                  <p className={`text-[11px] font-mono ${isDark ? 'text-white/80' : 'text-black/80'} truncate`}>{h.cert_serial || '—'}</p>
+                                </div>
+                                <div>
+                                  <p className={`text-[10px] uppercase tracking-wide ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Expira', 'Expires')}</p>
+                                  <p className={`text-[11px] ${isDark ? 'text-white/80' : 'text-black/80'}`}>
+                                    {h.expires_at ? new Date(h.expires_at).toLocaleDateString('es-DO') : '—'}
+                                  </p>
+                                </div>
+                                {h.subject_cn && (
+                                  <div className="col-span-2">
+                                    <p className={`text-[10px] uppercase tracking-wide ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Titular', 'Subject')}</p>
+                                    <p className={`text-[11px] ${isDark ? 'text-white/80' : 'text-black/80'} truncate`}>{h.subject_cn}</p>
+                                  </div>
+                                )}
+                                {h.prev_serial && (
+                                  <div className="col-span-2">
+                                    <p className={`text-[10px] uppercase tracking-wide ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Reemplaza serial', 'Replaces serial')}</p>
+                                    <p className={`text-[11px] font-mono ${isDark ? 'text-white/50' : 'text-black/50'} truncate`}>{h.prev_serial}</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </motion.div>
 
               {/* Visits */}
               <motion.div variants={listItem} className={card}>

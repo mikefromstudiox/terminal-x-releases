@@ -28,6 +28,12 @@ import { useAPI } from '../../context/DataContext'
 import { useAuth } from '../../context/AuthContext'
 import { useLang } from '../../i18n'
 import { computeDeal } from './lib/financing.js'
+import CobrarModal from '../../components/CobrarModal'
+
+// DGII: E31 (Crédito Fiscal) required when the buyer expects ITBIS credit,
+// and is the norm for DR dealership vehicle sales ≥ RD$250,000. Below that
+// threshold, default to E32 (Consumo).
+const ECF_E31_THRESHOLD = 250000
 
 function fmtRD(n) { return `RD$ ${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
 
@@ -43,6 +49,10 @@ export default function DealBuilder() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [result, setResult] = useState(null)
+  // v2.6.2 — Ticket + e-CF bridge. After salesDeals.create succeeds we open
+  // CobrarModal with the vehicle as a single line item so the sale produces
+  // a fiscal receipt + hits Cuadre / reports.
+  const [cobrarCtx, setCobrarCtx] = useState(null)
 
   const [vehicleId, setVehicleId] = useState('')
   const [clientId, setClientId] = useState('')
@@ -83,7 +93,7 @@ export default function DealBuilder() {
     setVehicleId(''); setClientId(''); setSalespersonId(''); setSalePrice(0)
     setHasTradeIn(false); setTradeIn({ make: '', model: '', year: '', vin: '', mileage: 0, appraisal: 0 })
     setDownPayment(0); setAprAnnual(0); setTermMonths(0); setNotes('')
-    setResult(null)
+    setResult(null); setCobrarCtx(null)
   }
 
   async function closeDeal() {
@@ -131,7 +141,89 @@ export default function DealBuilder() {
       })
 
       await api.vehicleInventory.setStatus(vehicleId, 'sold')
-      setResult({ ok: true, id: created?.id })
+
+      // v2.6.2 — hand off to CobrarModal for the fiscal receipt. Total price
+      // ≥ RD$250K forces E31 (Crédito Fiscal). The success banner appears
+      // after the cashier confirms payment in the modal.
+      const totalPrice = Math.max(0, Number(salePrice) - (hasTradeIn ? Number(tradeIn.appraisal) || 0 : 0))
+      const forceType  = totalPrice >= ECF_E31_THRESHOLD ? 'E31' : 'E32'
+      setCobrarCtx({
+        dealId:         created?.id || null,
+        dealSupabaseId: created?.supabase_id || null,
+        client,
+        totalPrice,
+        forceType,
+        ticket: {
+          id:       `deal-${created?.id || 'new'}`,
+          ticketNo: `DEAL-${created?.id || ''}`,
+          vehicle:  selectedUnit ? `${selectedUnit.year || ''} ${selectedUnit.make || ''} ${selectedUnit.model || ''} ${selectedUnit.vin ? '· VIN ' + selectedUnit.vin : ''}`.trim() : '',
+          services: [{
+            id:           `deal-${created?.id || 'new'}-veh`,
+            name:         selectedUnit ? `${selectedUnit.year || ''} ${selectedUnit.make || ''} ${selectedUnit.model || ''}`.trim() : L('Vehículo', 'Vehicle'),
+            price:        totalPrice,
+            qty:          1,
+            cost:         Number(selectedUnit?.acquisition_cost) || 0,
+            is_wash:      0,
+            aplica_itbis: 0, // vehicle sales typically use ITBIS-exempt flow; owner can override via E31 RNC fields
+          }],
+          client: client ? { id: client.id, supabase_id: client.supabase_id, name: client.name } : null,
+        },
+      })
+    } catch (ex) {
+      setResult({ ok: false, err: ex?.message || 'Error' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDealCobrarConfirm(paymentData) {
+    const ctx = cobrarCtx
+    if (!ctx) return
+    try {
+      const result = await api.tickets.create({
+        vehicle_plate:    null,
+        client_id:        ctx.client?.id || null,
+        client_supabase_id: ctx.client?.supabase_id || null,
+        washer_ids:       [],
+        seller_id:        salespersonId || null,
+        cajero_id:        (user?.id && user.id !== 'web') ? user.id : null,
+        comprobante_type: paymentData.ncfType || ctx.forceType,
+        payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
+        tipo_venta:       paymentData.tipo || 'contado',
+        status:           paymentData.tipo === 'credito' ? 'pendiente' : 'cobrado',
+        subtotal:         Number(paymentData.subtotal) || 0,
+        itbis:            Number(paymentData.itbis) || 0,
+        ley:              Number(paymentData.ley) || 0,
+        total:            Number(paymentData.total) || 0,
+        ecf_result:       paymentData.ecf || {},
+        items: [{
+          service_id:        null,
+          inventory_item_id: null,
+          name:              ctx.ticket.services[0].name,
+          price:             ctx.ticket.services[0].price,
+          cost:              ctx.ticket.services[0].cost,
+          is_wash:           0,
+          quantity:          1,
+          sku:               selectedUnit?.vin || null,
+          aplica_itbis:      0,
+        }],
+        comentario:       `[Deal ${ctx.dealId || '?'} · Vehicle ${vehicleId}${selectedUnit?.vin ? ' · VIN ' + selectedUnit.vin : ''}] ${paymentData.comentario || ''}`.trim(),
+        descuento:        Number(paymentData.descuento) || 0,
+        descuento_reason: paymentData.descuentoReason || null,
+        mac_jti:          paymentData.mac_jti || null,
+      })
+
+      // Stamp ticket link back onto the deal so Reportes / dashboard joins work.
+      try {
+        if (ctx.dealId) {
+          await api.salesDeals.close(ctx.dealId, {
+            ticket_id:          result?.id || null,
+            ticket_supabase_id: result?.supabase_id || null,
+          })
+        }
+      } catch {}
+
+      setResult({ ok: true, id: ctx.dealId })
     } catch (ex) {
       setResult({ ok: false, err: ex?.message || 'Error' })
     } finally {
@@ -147,15 +239,25 @@ export default function DealBuilder() {
         <div className="border border-black p-8 text-center bg-white">
           <Check size={48} className="mx-auto mb-4" />
           <h2 className="text-2xl font-bold">{L('Venta cerrada', 'Deal closed')}</h2>
-          <p className="text-sm mt-2">{L('Unidad marcada como vendida. Emita la factura desde Facturación.', 'Unit marked as sold. Issue invoice from Invoicing.')}</p>
+          <p className="text-sm mt-2">{L('Unidad marcada como vendida y ticket emitido.', 'Unit marked as sold and ticket issued.')}</p>
           <button onClick={resetAll} className="mt-6 px-4 py-2 bg-black text-white inline-flex items-center gap-2"><Plus size={16} />{L('Nueva Venta', 'New Deal')}</button>
         </div>
       </div>
     )
   }
 
+  const cobrarModal = cobrarCtx ? (
+    <CobrarModal
+      ticket={cobrarCtx.ticket}
+      forceNcfType={cobrarCtx.forceType}
+      onConfirm={handleDealCobrarConfirm}
+      onClose={() => setCobrarCtx(null)}
+    />
+  ) : null
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
+      {cobrarModal}
       <h1 className="text-3xl font-bold mb-6 flex items-center gap-3"><CarFront size={32} />{L('Cierre de Venta', 'Deal Builder')}</h1>
 
       <div className="grid md:grid-cols-2 gap-4">

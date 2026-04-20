@@ -2,8 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import ErrorBoundary from '@/components/ErrorBoundary'
+import { initSentryRenderer, captureSentryException } from '@terminal-x/services/sentry-renderer.js'
 import '@/index.css'
 import xMark from '@/assets/x-mark.webp'
+
+// ── Sentry (no-op when VITE_SENTRY_DSN unset) — fire BEFORE any other work so
+// the SDK can capture chunk-load errors during the initial navigation. ──────
+const __release = (typeof __APP_VERSION__ !== 'undefined' ? `terminal-x-web@${__APP_VERSION__}` : undefined)
+initSentryRenderer({ release: __release })
 
 // Landing page eager-loaded (it's the entry route — must render fast for LCP)
 import LandingPage from '@/landing/LandingPage'
@@ -107,10 +113,25 @@ window.addEventListener('vite:preloadError', (event) => {
 })
 window.addEventListener('error', (event) => {
   if (event?.filename?.includes('/assets/')) handleChunkLoadError(event.message)
+  try {
+    if (!isChunkMsg(event?.error || event?.message)) {
+      captureSentryException(event?.error || new Error(String(event?.message || 'web error')))
+    }
+  } catch {}
 })
 window.addEventListener('unhandledrejection', (event) => {
   handleChunkLoadError(event.reason)
+  try {
+    if (!isChunkMsg(event?.reason)) {
+      captureSentryException(event?.reason instanceof Error ? event.reason : new Error(String(event?.reason)))
+    }
+  } catch {}
 })
+
+function isChunkMsg(x) {
+  const m = String((x && x.message) || x || '')
+  return /chunk|dynamically imported module|Importing a module script failed/i.test(m)
+}
 
 // ---------------------------------------------------------------------------
 // Service Worker

@@ -1,6 +1,6 @@
 {
   "name": "terminal-x",
-  "version": "2.12.0",
+  "version": "2.12.1",
   "private": true,
   "description": "Terminal X - POS System for Car Wash, Retail & Services",
   "author": "Studio X",
@@ -25,11 +25,14 @@
     "reset-db": "rm -f ~/Library/Application\\ Support/terminal-x/terminal-x.db"
   },
   "dependencies": {
+    "@sentry/electron": "^7.11.0",
+    "@sentry/react": "^10.49.0",
     "@vercel/speed-insights": "^2.0.0",
     "@xmldom/xmldom": "^0.8.12",
     "adm-zip": "^0.5.16",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^12.8.0",
+    "better-sqlite3-multiple-ciphers": "^12.9.0",
     "dgii-ecf": "^1.8.0",
     "electron-log": "^5.4.3",
     "electron-updater": "^6.8.3",

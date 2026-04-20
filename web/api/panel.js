@@ -84,6 +84,7 @@ export default async function handler(req, res) {
   if (action === 'clients') return handleClients(req, res)
   if (action === 'users') return handleUsers(req, res)
   if (action === 'client_detail') return handleClientDetail(req, res)
+  if (action === 'cert_history') return handleCertHistory(req, res)
   if (action === 'update_business') return handleUpdateBusiness(req, res)
   if (action === 'link_web_account') return handleLinkWebAccount(req, res)
   if (action === 'reset_password') return handleResetPassword(req, res)
@@ -500,6 +501,30 @@ async function handleClientDetail(req, res) {
       business: bizSafe, license: licSafe, staff, onboarding,
       metrics: { ticketCount, ticketCountYear, ticketCountMonth, totalRevenue, totalRevenueYear, totalRevenueMonth, lastSaleDate, serviceCount, clientCount },
     })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// handleCertHistory — DGII .p12 rotation audit trail for a single business.
+// Read-only list of the last N rows from ecf_cert_history, ordered by
+// installed_at DESC. Admin-only (requireAdmin gates all panel routes); the
+// service_role client bypasses RLS so we get the full history regardless of
+// my_business_ids() scoping.
+async function handleCertHistory(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const id = req.query.id || req.query.business_id
+  if (!id) return res.status(400).json({ error: 'id required' })
+  const limit = Math.min(parseInt(req.query.limit, 10) || 10, 100)
+  try {
+    const { data, error } = await auth.supabase
+      .from('ecf_cert_history')
+      .select('id, cert_serial, subject_cn, subject_rnc, issued_at, expires_at, installed_at, installed_by_name, installed_from, rotation_reason, sha256_fingerprint, prev_serial, prev_expires_at')
+      .eq('business_id', id)
+      .order('installed_at', { ascending: false })
+      .limit(limit)
+    if (error) throw error
+    return res.json({ history: data || [] })
   } catch (err) { return res.status(500).json({ error: err.message }) }
 }
 
@@ -1220,9 +1245,12 @@ async function handleRebindRequests(req, res) {
     await auth.supabase.from('license_rebind_requests')
       .update({ status: 'expired', updated_at: new Date().toISOString() })
       .eq('status', 'pending').lt('expires_at', new Date().toISOString())
-    const { data, error } = await auth.supabase.from('license_rebind_requests')
+    const statusFilter = String(req.query.status || 'pending').toLowerCase()
+    let q = auth.supabase.from('license_rebind_requests')
       .select('*, licenses!license_id(id, license_key, hardware_id, business_id, businesses!business_id(name, rnc))')
-      .eq('status', 'pending').order('requested_at', { ascending: false }).limit(200)
+      .order('requested_at', { ascending: false }).limit(300)
+    if (statusFilter !== 'all') q = q.eq('status', statusFilter)
+    const { data, error } = await q
     if (error) throw error
     return res.json({ data: data || [] })
   } catch (err) { return res.status(500).json({ error: err.message }) }
@@ -1311,12 +1339,23 @@ async function handleLoyaltyOverview(req, res) {
     const bizIds = [...new Set((licRows || []).map(r => r.business_id).filter(Boolean))]
     if (!bizIds.length) return res.json({ totalPoints: 0, businessCount: 0, topClients: [] })
 
-    const { data: clientRows } = await supabase.from('clients')
-      .select('id,business_id,name,loyalty_points,loyalty_tier')
+    // Optional tier filter (?tier=gold|silver|bronze). 'gold' leaderboard is
+    // ordered by lifetime_earned so long-running loyalists win even after
+    // redemptions; other tiers use current balance.
+    const tierFilter = String(req.query?.tier || '').toLowerCase()
+    const VALID_TIERS = new Set(['bronze','silver','gold','platinum'])
+    const useTier = VALID_TIERS.has(tierFilter) ? tierFilter : null
+
+    let q = supabase.from('clients')
+      .select('id,business_id,name,loyalty_points,loyalty_tier,loyalty_lifetime_earned,birthday_treat_available')
       .in('business_id', bizIds)
-      .gt('loyalty_points', 0)
-      .order('loyalty_points', { ascending: false })
-      .limit(500)
+    if (useTier) {
+      q = q.eq('loyalty_tier', useTier === 'gold' ? 'gold' : useTier)
+           .order('loyalty_lifetime_earned', { ascending: false, nullsFirst: false })
+    } else {
+      q = q.gt('loyalty_points', 0).order('loyalty_points', { ascending: false })
+    }
+    const { data: clientRows } = await q.limit(500)
     const clients = clientRows || []
 
     const { data: bizRows } = await supabase.from('businesses')
@@ -1329,13 +1368,28 @@ async function handleLoyaltyOverview(req, res) {
       business_name: bizMap[c.business_id] || '—',
       client_name:   c.name || '—',
       points:        Number(c.loyalty_points || 0),
+      lifetime:      Number(c.loyalty_lifetime_earned || 0),
       tier:          c.loyalty_tier || 'bronze',
+      birthday_treat: !!c.birthday_treat_available,
     }))
+
+    // Tier breakdown for the filter chips (all Pro-PLUS+ businesses).
+    const tierBreakdown = { bronze: 0, silver: 0, gold: 0, platinum: 0 }
+    if (!useTier) {
+      const { data: allTierRows } = await supabase.from('clients')
+        .select('loyalty_tier').in('business_id', bizIds)
+      for (const r of allTierRows || []) {
+        const t = (r.loyalty_tier || 'bronze').toLowerCase()
+        if (t in tierBreakdown) tierBreakdown[t] += 1
+      }
+    }
 
     return res.json({
       totalPoints,
       businessCount: bizIds.length,
       clientsWithPoints: clients.length,
+      tierFilter: useTier,
+      tierBreakdown,
       topClients,
     })
   } catch (err) { return res.status(500).json({ error: err.message }) }

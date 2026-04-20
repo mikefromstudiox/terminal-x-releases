@@ -3,6 +3,7 @@ import { useNavigate, Navigate } from 'react-router-dom'
 import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck, Beer, Coffee, Cookie, Droplet, CupSoda, Candy, IceCreamCone, UtensilsCrossed, Sparkles, Cigarette, Flame, Leaf, Pizza, Smartphone, Edit2, Eye, EyeOff, Lock } from 'lucide-react'
 import AgeVerifyModal, { requiresAgeCheck } from '../components/AgeVerifyModal'
 import WeightModal from '../components/WeightModal'
+import DepositReturnModal from '../components/DepositReturnModal'
 import ManagerAuthGate from '../components/ManagerAuthGate'
 import AperturaTurnoModal from '../components/AperturaTurnoModal'
 import { needsGate } from '@terminal-x/services/managerGateRules'
@@ -13,6 +14,7 @@ import { useAPI, usePrinterAPI } from '../context/DataContext'
 import { useServices, useWashers, useSellers } from '../hooks/useDB'
 import { useRNC } from '../hooks/useRNC'
 import CobrarModal from '../components/CobrarModal'
+import LoyaltyTierBadge from '../components/LoyaltyTierBadge'
 import { NewClientForm } from './Clients'
 import { printClientReceipt, printWasherConduce } from '@terminal-x/services/printer'
 import RestaurantPOS from './restaurant/RestaurantPOS'
@@ -765,8 +767,14 @@ function CarWashPOS() {
               <div className="flex items-center gap-2 bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-500/30 rounded-lg px-2.5 py-2 min-h-[44px] md:min-h-0">
                 <UserRound size={14} className="text-sky-600 shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-[12px] font-semibold text-sky-800 dark:text-sky-200 truncate">{selectedClient.name}</p>
-                  {selectedClient.rnc && <p className="text-[10px] text-sky-500 dark:text-sky-400">{selectedClient.rnc}</p>}
+                  <p className="text-[12px] font-semibold text-sky-800 dark:text-sky-200 truncate flex items-center gap-1.5">
+                    <span className="truncate">{selectedClient.name}</span>
+                    <LoyaltyTierBadge tier={selectedClient.loyalty_tier} lang={lang} />
+                  </p>
+                  <p className="text-[10px] text-sky-500 dark:text-sky-400">
+                    {selectedClient.rnc ? `${selectedClient.rnc} · ` : ''}
+                    {Math.max(0, Math.round(Number(selectedClient.loyalty_points) || 0)).toLocaleString()} pts
+                  </p>
                 </div>
                 <button onClick={() => setSelectedClient(null)} className="text-sky-400 hover:text-sky-600 p-1">
                   <X size={14} />
@@ -1135,6 +1143,9 @@ function RetailPOS() {
   const [ageVerified, setAgeVerified]       = useState(null)
   const [pendingAgeItem, setPendingAgeItem] = useState(null)
   const [quickSells, setQuickSells]         = useState([])
+  // v2.6 — Licoreria: Devolución de envases modal (bottle-return refunds).
+  const [depositReturnOpen, setDepositReturnOpen] = useState(false)
+  const [depositReturnToast, setDepositReturnToast] = useState(null)
 
   // Services for hybrid mode (services tab)
   const { data: rawServicesDB } = useServices()
@@ -1556,7 +1567,8 @@ function RetailPOS() {
           qty:               it.qty || 1,
           aplica_itbis:      0,
           is_wash:           0,
-          bottle_deposit_line: true,
+          is_deposit:        true,        // v2.6 canonical flag → ticket_items.is_deposit
+          bottle_deposit_line: true,      // legacy alias (printer/pdf/report readers)
           parent_inventory_item_id: it.inventory_item_id,
         })
       }
@@ -1868,6 +1880,26 @@ function RetailPOS() {
             </button>
           </div>
         )}
+        {/* v2.6 — Licoreria: Devolver envases (bottle-return refund). Only
+            visible when the tienda subtype is licoreria AND the bottle_deposit
+            feature flag is on. Button is compact so it never crowds the
+            Pedidos Ya channel toolbar on smaller registers. */}
+        {isLicoreria && bottleDepositEnabled && (
+          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-black">
+            <span className="text-[11px] font-semibold text-slate-400 dark:text-white/40 uppercase tracking-[0.14em]">
+              {lang === 'es' ? 'Envases' : 'Bottles'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setDepositReturnOpen(true)}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full min-h-[36px] text-[12px] font-bold uppercase tracking-[0.08em] border-2 border-[#b3001e] text-[#b3001e] hover:bg-[#b3001e] hover:text-white transition-colors active:scale-[0.97]"
+              title={lang === 'es' ? 'Registrar devolución de envases' : 'Record bottle return'}
+            >
+              <Wine size={14} />
+              {lang === 'es' ? 'Devolver envases' : 'Return bottles'}
+            </button>
+          </div>
+        )}
         {/* Search bar — flex layout guarantees icon and input never overlap */}
         <div className="p-3 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-black">
           <div className="flex items-center gap-2 px-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus-within:ring-2 focus-within:ring-[#b3001e]/30 focus-within:border-[#b3001e]">
@@ -2092,9 +2124,15 @@ function RetailPOS() {
         <div className="px-4 py-2 border-b border-slate-100 dark:border-white/5">
           {selectedClient ? (
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <UserRound size={14} className="text-[#b3001e]" />
-                <span className="text-[13px] font-medium text-slate-800 dark:text-white">{selectedClient.name}</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <UserRound size={14} className="text-[#b3001e] shrink-0" />
+                <span className="text-[13px] font-medium text-slate-800 dark:text-white truncate">{selectedClient.name}</span>
+                <LoyaltyTierBadge tier={selectedClient.loyalty_tier} lang={lang} />
+                {Number(selectedClient.loyalty_points) > 0 && (
+                  <span className="text-[10px] font-semibold text-[#b3001e] tabular-nums shrink-0">
+                    {Math.round(selectedClient.loyalty_points).toLocaleString()} pts
+                  </span>
+                )}
               </div>
               <button onClick={() => setSelectedClient(null)} className="text-slate-400 hover:text-red-500"><X size={14} /></button>
             </div>
@@ -2321,6 +2359,25 @@ function RetailPOS() {
           onConfirm={handleWeightConfirmed}
           onClose={() => setPendingWeightItem(null)}
         />
+      )}
+
+      {/* v2.6 — Licorería bottle-deposit return */}
+      <DepositReturnModal
+        open={depositReturnOpen}
+        onClose={() => setDepositReturnOpen(false)}
+        onDone={({ qty: rq, amount, method }) => {
+          setDepositReturnToast(
+            lang === 'es'
+              ? `Devolución registrada: ${rq} envase${rq === 1 ? '' : 's'} · ${method === 'efectivo' ? 'Efectivo' : 'Crédito'} · RD$${amount.toFixed(2)}`
+              : `Return recorded: ${rq} bottle${rq === 1 ? '' : 's'} · ${method === 'efectivo' ? 'Cash' : 'Credit'} · RD$${amount.toFixed(2)}`
+          )
+          setTimeout(() => setDepositReturnToast(null), 3500)
+        }}
+      />
+      {depositReturnToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[220] bg-[#b3001e] text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold">
+          {depositReturnToast}
+        </div>
       )}
 
       {/* v2.7.1 — Cart-line price edit: manager auth gate */}

@@ -1,0 +1,2180 @@
+{
+  "carwash": {
+    "truePass": 0,
+    "trueFail": 25,
+    "total": 25,
+    "authed": true,
+    "reLoginOk": true,
+    "noFailedFetch": true,
+    "realIssues": [
+      {
+        "href": "/pos",
+        "bodyLen": 967,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()",
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja",
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/rnc_cache"
+        ]
+      },
+      {
+        "href": "/pos/queue",
+        "bodyLen": 903,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/clients",
+        "bodyLen": 1015,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credits",
+        "bodyLen": 737,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/reports",
+        "bodyLen": 3705,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/inventory",
+        "bodyLen": 639,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/dgii",
+        "bodyLen": 3502,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/cash-recon",
+        "bodyLen": 1426,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/petty-cash",
+        "bodyLen": 1929,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credit-notes",
+        "bodyLen": 1184,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/empleados",
+        "bodyLen": 1573,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/remote",
+        "bodyLen": 1008,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing",
+        "bodyLen": 1266,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/create",
+        "bodyLen": 941,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/history",
+        "bodyLen": 2016,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/admin",
+        "bodyLen": 920,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/sistema",
+        "bodyLen": 2011,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/memberships",
+        "bodyLen": 527,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/work-orders",
+        "bodyLen": 728,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/vehicles",
+        "bodyLen": 534,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/appointments",
+        "bodyLen": 781,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/loans",
+        "bodyLen": 674,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/mesas",
+        "bodyLen": 548,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/menu-builder",
+        "bodyLen": 661,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/kds",
+        "bodyLen": 14708,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      }
+    ]
+  },
+  "retail": {
+    "truePass": 0,
+    "trueFail": 25,
+    "total": 25,
+    "authed": true,
+    "reLoginOk": true,
+    "noFailedFetch": true,
+    "realIssues": [
+      {
+        "href": "/pos",
+        "bodyLen": 1010,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()",
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja",
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/rnc_cache"
+        ]
+      },
+      {
+        "href": "/pos/queue",
+        "bodyLen": 659,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/clients",
+        "bodyLen": 1935,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credits",
+        "bodyLen": 1023,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/reports",
+        "bodyLen": 3098,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/inventory",
+        "bodyLen": 1347,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/dgii",
+        "bodyLen": 3331,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/cash-recon",
+        "bodyLen": 1426,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/petty-cash",
+        "bodyLen": 1616,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credit-notes",
+        "bodyLen": 1182,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/empleados",
+        "bodyLen": 1462,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/remote",
+        "bodyLen": 1744,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing",
+        "bodyLen": 1272,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/create",
+        "bodyLen": 1000,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/history",
+        "bodyLen": 1909,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/admin",
+        "bodyLen": 918,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/sistema",
+        "bodyLen": 2011,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/memberships",
+        "bodyLen": 527,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/work-orders",
+        "bodyLen": 728,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/vehicles",
+        "bodyLen": 534,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/appointments",
+        "bodyLen": 767,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/loans",
+        "bodyLen": 674,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/mesas",
+        "bodyLen": 548,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/menu-builder",
+        "bodyLen": 661,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/kds",
+        "bodyLen": 14708,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      }
+    ]
+  },
+  "restaurant": {
+    "truePass": 0,
+    "trueFail": 25,
+    "total": 25,
+    "authed": true,
+    "reLoginOk": true,
+    "noFailedFetch": true,
+    "realIssues": [
+      {
+        "href": "/pos",
+        "bodyLen": 734,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja"
+        ]
+      },
+      {
+        "href": "/kds",
+        "bodyLen": 14708,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/queue",
+        "bodyLen": 734,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja"
+        ]
+      },
+      {
+        "href": "/pos/clients",
+        "bodyLen": 1430,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credits",
+        "bodyLen": 1084,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/reports",
+        "bodyLen": 3361,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/inventory",
+        "bodyLen": 1916,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/dgii",
+        "bodyLen": 3595,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/cash-recon",
+        "bodyLen": 1448,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/petty-cash",
+        "bodyLen": 1725,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credit-notes",
+        "bodyLen": 1211,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/empleados",
+        "bodyLen": 1582,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/remote",
+        "bodyLen": 1431,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing",
+        "bodyLen": 1297,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/create",
+        "bodyLen": 1013,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/history",
+        "bodyLen": 2078,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/admin",
+        "bodyLen": 945,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/sistema",
+        "bodyLen": 1984,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/memberships",
+        "bodyLen": 1430,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/work-orders",
+        "bodyLen": 750,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/vehicles",
+        "bodyLen": 556,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/appointments",
+        "bodyLen": 795,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/loans",
+        "bodyLen": 696,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/mesas",
+        "bodyLen": 570,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/menu-builder",
+        "bodyLen": 683,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      }
+    ]
+  },
+  "salon": {
+    "truePass": 0,
+    "trueFail": 25,
+    "total": 25,
+    "authed": true,
+    "reLoginOk": true,
+    "noFailedFetch": true,
+    "realIssues": [
+      {
+        "href": "/pos",
+        "bodyLen": 1025,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()",
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja",
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/rnc_cache"
+        ]
+      },
+      {
+        "href": "/pos/queue",
+        "bodyLen": 659,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/clients",
+        "bodyLen": 1203,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credits",
+        "bodyLen": 872,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/reports",
+        "bodyLen": 3183,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/inventory",
+        "bodyLen": 1971,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/dgii",
+        "bodyLen": 3437,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/cash-recon",
+        "bodyLen": 1425,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/petty-cash",
+        "bodyLen": 1833,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credit-notes",
+        "bodyLen": 1112,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/empleados",
+        "bodyLen": 1461,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/remote",
+        "bodyLen": 1177,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing",
+        "bodyLen": 1229,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/create",
+        "bodyLen": 1007,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/history",
+        "bodyLen": 1923,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/admin",
+        "bodyLen": 927,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/sistema",
+        "bodyLen": 1961,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/memberships",
+        "bodyLen": 1203,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/work-orders",
+        "bodyLen": 727,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/vehicles",
+        "bodyLen": 533,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/appointments",
+        "bodyLen": 766,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/loans",
+        "bodyLen": 673,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/mesas",
+        "bodyLen": 547,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/menu-builder",
+        "bodyLen": 660,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/kds",
+        "bodyLen": 14708,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      }
+    ]
+  },
+  "hybrid": {
+    "truePass": 0,
+    "trueFail": 25,
+    "total": 25,
+    "authed": true,
+    "reLoginOk": true,
+    "noFailedFetch": true,
+    "realIssues": [
+      {
+        "href": "/pos",
+        "bodyLen": 762,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja"
+        ]
+      },
+      {
+        "href": "/kds",
+        "bodyLen": 14708,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/queue",
+        "bodyLen": 762,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja"
+        ]
+      },
+      {
+        "href": "/pos/clients",
+        "bodyLen": 1370,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credits",
+        "bodyLen": 922,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/reports",
+        "bodyLen": 3147,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/inventory",
+        "bodyLen": 1094,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/dgii",
+        "bodyLen": 3334,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/cash-recon",
+        "bodyLen": 1457,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/petty-cash",
+        "bodyLen": 2025,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credit-notes",
+        "bodyLen": 1213,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/empleados",
+        "bodyLen": 1613,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/remote",
+        "bodyLen": 1376,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing",
+        "bodyLen": 1284,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/create",
+        "bodyLen": 996,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/history",
+        "bodyLen": 1942,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/admin",
+        "bodyLen": 960,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/sistema",
+        "bodyLen": 1993,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/memberships",
+        "bodyLen": 1370,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/work-orders",
+        "bodyLen": 759,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/vehicles",
+        "bodyLen": 565,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/appointments",
+        "bodyLen": 815,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/loans",
+        "bodyLen": 705,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/mesas",
+        "bodyLen": 579,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/menu-builder",
+        "bodyLen": 692,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      }
+    ]
+  },
+  "mechanic": {
+    "truePass": 0,
+    "trueFail": 25,
+    "total": 25,
+    "authed": true,
+    "reLoginOk": true,
+    "noFailedFetch": true,
+    "realIssues": [
+      {
+        "href": "/pos",
+        "bodyLen": 806,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja"
+        ]
+      },
+      {
+        "href": "/pos/queue",
+        "bodyLen": 806,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja"
+        ]
+      },
+      {
+        "href": "/pos/clients",
+        "bodyLen": 1205,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credits",
+        "bodyLen": 933,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/reports",
+        "bodyLen": 3838,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/inventory",
+        "bodyLen": 668,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/dgii",
+        "bodyLen": 3672,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/cash-recon",
+        "bodyLen": 1455,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/petty-cash",
+        "bodyLen": 1907,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credit-notes",
+        "bodyLen": 1240,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/empleados",
+        "bodyLen": 1617,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/remote",
+        "bodyLen": 1787,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing",
+        "bodyLen": 1288,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/create",
+        "bodyLen": 970,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/history",
+        "bodyLen": 2137,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/admin",
+        "bodyLen": 956,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/sistema",
+        "bodyLen": 2040,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/memberships",
+        "bodyLen": 1205,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/work-orders",
+        "bodyLen": 757,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/vehicles",
+        "bodyLen": 563,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/appointments",
+        "bodyLen": 815,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/loans",
+        "bodyLen": 703,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/mesas",
+        "bodyLen": 577,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/menu-builder",
+        "bodyLen": 690,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/kds",
+        "bodyLen": 14708,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      }
+    ]
+  },
+  "service": {
+    "truePass": 0,
+    "trueFail": 25,
+    "total": 25,
+    "authed": true,
+    "reLoginOk": true,
+    "noFailedFetch": true,
+    "realIssues": [
+      {
+        "href": "/pos",
+        "bodyLen": 987,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()",
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja",
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/rnc_cache"
+        ]
+      },
+      {
+        "href": "/pos/queue",
+        "bodyLen": 987,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()",
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja",
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/rnc_cache"
+        ]
+      },
+      {
+        "href": "/pos/clients",
+        "bodyLen": 1390,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credits",
+        "bodyLen": 983,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/reports",
+        "bodyLen": 3256,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/inventory",
+        "bodyLen": 638,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/dgii",
+        "bodyLen": 3395,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/cash-recon",
+        "bodyLen": 1425,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/petty-cash",
+        "bodyLen": 1739,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credit-notes",
+        "bodyLen": 1306,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/empleados",
+        "bodyLen": 1451,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/remote",
+        "bodyLen": 1308,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing",
+        "bodyLen": 1289,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/create",
+        "bodyLen": 1001,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/history",
+        "bodyLen": 1979,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/admin",
+        "bodyLen": 934,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/sistema",
+        "bodyLen": 1961,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/memberships",
+        "bodyLen": 1390,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/work-orders",
+        "bodyLen": 727,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/vehicles",
+        "bodyLen": 533,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/appointments",
+        "bodyLen": 760,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/loans",
+        "bodyLen": 673,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/mesas",
+        "bodyLen": 547,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/menu-builder",
+        "bodyLen": 660,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/kds",
+        "bodyLen": 14708,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      }
+    ]
+  },
+  "prestamos": {
+    "truePass": 0,
+    "trueFail": 25,
+    "total": 25,
+    "authed": true,
+    "reLoginOk": true,
+    "noFailedFetch": true,
+    "realIssues": [
+      {
+        "href": "/pos",
+        "bodyLen": 722,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/app_settings",
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja"
+        ]
+      },
+      {
+        "href": "/pos/queue",
+        "bodyLen": 722,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja"
+        ]
+      },
+      {
+        "href": "/pos/clients",
+        "bodyLen": 1319,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credits",
+        "bodyLen": 948,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/reports",
+        "bodyLen": 3358,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/inventory",
+        "bodyLen": 658,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/dgii",
+        "bodyLen": 3553,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/cash-recon",
+        "bodyLen": 1445,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/petty-cash",
+        "bodyLen": 1705,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credit-notes",
+        "bodyLen": 1132,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/empleados",
+        "bodyLen": 1469,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/remote",
+        "bodyLen": 1403,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing",
+        "bodyLen": 1306,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/create",
+        "bodyLen": 999,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/history",
+        "bodyLen": 2011,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/admin",
+        "bodyLen": 940,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/sistema",
+        "bodyLen": 1981,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/memberships",
+        "bodyLen": 1319,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/work-orders",
+        "bodyLen": 747,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/vehicles",
+        "bodyLen": 553,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/appointments",
+        "bodyLen": 780,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/loans",
+        "bodyLen": 693,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/mesas",
+        "bodyLen": 567,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/menu-builder",
+        "bodyLen": 680,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/kds",
+        "bodyLen": 14708,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      }
+    ]
+  },
+  "dealership": {
+    "truePass": 0,
+    "trueFail": 25,
+    "total": 25,
+    "authed": true,
+    "reLoginOk": true,
+    "noFailedFetch": true,
+    "realIssues": [
+      {
+        "href": "/pos",
+        "bodyLen": 830,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja"
+        ]
+      },
+      {
+        "href": "/pos/queue",
+        "bodyLen": 830,
+        "sidebar": true,
+        "ce": [
+          "Failed to load resource: the server responded with a status of 400 ()"
+        ],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "400 https://csppjsoirjflumaiipqw.supabase.co/rest/v1/cuadre_caja"
+        ]
+      },
+      {
+        "href": "/pos/clients",
+        "bodyLen": 1385,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credits",
+        "bodyLen": 928,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/reports",
+        "bodyLen": 3896,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/inventory",
+        "bodyLen": 692,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/dgii",
+        "bodyLen": 3759,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/cash-recon",
+        "bodyLen": 1479,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/petty-cash",
+        "bodyLen": 1748,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/credit-notes",
+        "bodyLen": 1166,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/empleados",
+        "bodyLen": 1643,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/remote",
+        "bodyLen": 1428,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing",
+        "bodyLen": 1370,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/create",
+        "bodyLen": 1060,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/invoicing/history",
+        "bodyLen": 2122,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/admin",
+        "bodyLen": 978,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/sistema",
+        "bodyLen": 2064,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/memberships",
+        "bodyLen": 1385,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue",
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/work-orders",
+        "bodyLen": 781,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/vehicles",
+        "bodyLen": 587,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/appointments",
+        "bodyLen": 839,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/loans",
+        "bodyLen": 727,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/mesas",
+        "bodyLen": 601,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/pos/menu-builder",
+        "bodyLen": 714,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      },
+      {
+        "href": "/kds",
+        "bodyLen": 14708,
+        "sidebar": true,
+        "ce": [],
+        "net": [
+          "failed https://csppjsoirjflumaiipqw.supabase.co/rest/v1/ecf_queue"
+        ]
+      }
+    ]
+  }
+}

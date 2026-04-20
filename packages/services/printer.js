@@ -11,6 +11,7 @@
  */
 
 import { formatPhoneForReceipt } from './phone.js'
+import { enqueuePrint } from './printQueue.js'
 
 // ── ESC/POS command constants ─────────────────────────────────────────────────
 const ESC  = '\x1B'
@@ -678,19 +679,18 @@ async function sendToPrinter(type, escposString, biz, api) {
   // is undefined. Only fall back to HTML preview if the IPC itself fails
   // (e.g. no printer installed at all).
   if (eApi?.print) {
+    let printerName
     try {
-      let printerName
-      try {
-        const cfg = await eApi.settings.get()
-        printerName = cfg?.printer || undefined
-      } catch {}
-      const result = await eApi.print({ type, data: escposString, printerName })
-      if (result?.success) return { success: true }
-      // IPC returned failure — fall through to HTML preview so the receipt
-      // is at least visible / re-printable from a normal print dialog.
-    } catch {
-      // IPC threw — fall through
-    }
+      const cfg = await eApi.settings.get()
+      printerName = cfg?.printer || undefined
+    } catch {}
+    // Route through retry queue — handles backoff + persistent fail-over
+    // so USB hiccups don't drop the ticket silently.
+    const result = await enqueuePrint({ type, escpos: escposString, printerName, biz })
+    if (result?.success) return { success: true }
+    if (result?.queued)  return { success: false, queued: true, error: result.error }
+    // If retry disabled and direct attempt threw without queuing, fall through
+    // to HTML preview as a last-resort visual receipt.
   }
   // Fallback: open HTML print preview (web browser or no printer at all)
   openPrintPreview(escposString, biz)

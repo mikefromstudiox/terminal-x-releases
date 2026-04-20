@@ -4,6 +4,7 @@ import {
   Users, UserCheck, KeyRound, LayoutGrid, Plus, Edit2, Power,
   Eye, EyeOff, AlertCircle, FileText, Wifi, WifiOff, ExternalLink,
   Check, Coffee, Lock, ChevronUp, ChevronDown, Trash2, CreditCard,
+  CloudUpload,
 } from 'lucide-react'
 import ManagerCardModal from '../components/ManagerCardModal'
 import { useLang } from '../i18n'
@@ -1457,6 +1458,10 @@ function MiEmpresa() {
         <CollapsibleSection title={L('Respaldo / Nube', 'Backup / Cloud')} icon={Wifi}>
           <Respaldo />
         </CollapsibleSection>
+
+        <CollapsibleSection title={L('Respaldo en la Nube', 'Cloud Backup')} icon={CloudUpload}>
+          <CloudBackup />
+        </CollapsibleSection>
       </div>
     </div>
   )
@@ -1596,4 +1601,135 @@ export function Respaldo() {
       </div>
     </div>
   )
+}
+
+// ── Cloud Backup (nightly SQLite snapshot → Supabase Storage) ────────────────
+// Owner-only. No-op on web (window.electronAPI absent → guard returns early).
+export function CloudBackup() {
+  const { user } = useAuth()
+  const { lang } = useLang()
+  const L = (es, en) => (lang === 'en' ? en : es)
+
+  const isOwner = user?.role === 'owner'
+  const hasAPI  = typeof window !== 'undefined' && !!window.electronAPI?.backup
+
+  const [status, setStatus]   = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [running, setRunning] = useState(false)
+  const [flash, setFlash]     = useState(null)
+
+  const refresh = useCallback(async () => {
+    if (!hasAPI) return
+    setLoading(true)
+    try {
+      const s = await window.electronAPI.backup.lastStatus()
+      setStatus(s || null)
+    } catch (e) {
+      setStatus({ last_error: e?.message || 'N/A' })
+    } finally {
+      setLoading(false)
+    }
+  }, [hasAPI])
+
+  useEffect(() => { refresh() }, [refresh])
+
+  async function handleRunNow() {
+    if (!hasAPI || running) return
+    setRunning(true); setFlash(null)
+    try {
+      const res = await window.electronAPI.backup.runNow()
+      setFlash({ kind: 'ok', msg: L(`Respaldo subido (${formatBytes(res?.bytes || 0)})`,
+                                    `Backup uploaded (${formatBytes(res?.bytes || 0)})`) })
+    } catch (e) {
+      setFlash({ kind: 'err', msg: e?.message || L('Error', 'Error') })
+    } finally {
+      setRunning(false)
+      refresh()
+    }
+  }
+
+  if (!hasAPI) {
+    return (
+      <p className="text-[12px] text-slate-500 dark:text-white/60">
+        {L('El respaldo en la nube solo está disponible en la app de escritorio.',
+           'Cloud backup is only available in the desktop app.')}
+      </p>
+    )
+  }
+
+  const lastOk  = status?.last_ok_at ? new Date(status.last_ok_at) : null
+  const lastErr = status?.last_error || null
+
+  return (
+    <div className="max-w-lg space-y-4">
+      <div className="flex items-start gap-4 p-5 rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10">
+        <div className={`w-3 h-3 mt-1.5 rounded-full shrink-0 ${
+          lastOk ? 'bg-emerald-500' : lastErr ? 'bg-red-500' : 'bg-slate-300 dark:bg-white/20'
+        }`} />
+        <div className="flex-1 min-w-0">
+          <p className="text-[14px] font-bold text-slate-800 dark:text-white">
+            {lastOk
+              ? L('Último respaldo exitoso', 'Last successful backup')
+              : L('Sin respaldos aún', 'No backups yet')}
+          </p>
+          <p className="text-[11px] text-slate-500 dark:text-white/60 mt-0.5">
+            {lastOk
+              ? `${lastOk.toLocaleDateString('es-DO')} ${lastOk.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}`
+              : L('Ejecuta un respaldo manual para crear el primero.', 'Run a manual backup to create the first one.')}
+          </p>
+          {status?.last_bytes ? (
+            <p className="text-[11px] text-slate-400 dark:text-white/40 mt-0.5">
+              {formatBytes(status.last_bytes)} · {status.last_path}
+            </p>
+          ) : null}
+          {lastErr ? (
+            <p className="text-[11px] text-red-600 dark:text-red-400 mt-1">
+              {L('Último error:', 'Last error:')} {lastErr}
+            </p>
+          ) : null}
+        </div>
+        {isOwner ? (
+          <button
+            onClick={handleRunNow}
+            disabled={running || loading}
+            className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold bg-slate-900 text-white dark:bg-white dark:text-black hover:opacity-90 disabled:opacity-40"
+          >
+            <CloudUpload size={13} />
+            {running
+              ? L('Subiendo…', 'Uploading…')
+              : L('Hacer respaldo ahora', 'Backup now')}
+          </button>
+        ) : null}
+      </div>
+
+      {flash ? (
+        <div className={`rounded-lg px-3 py-2 text-[12px] font-semibold ${
+          flash.kind === 'ok'
+            ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/20'
+            : 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-500/20'
+        }`}>
+          {flash.msg}
+        </div>
+      ) : null}
+
+      <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 p-4 text-[12px] text-slate-500 dark:text-white/60 space-y-1.5">
+        <p className="text-slate-600 dark:text-white/80">
+          {L('Cada madrugada a las 3:00 AM subimos un respaldo cifrado de tu base de datos a la nube. Conservamos los últimos 14 días.',
+             'Every night at 3:00 AM we upload an encrypted snapshot of your database to the cloud. We keep the last 14 days.')}
+        </p>
+        <p className="text-slate-400 dark:text-white/40">
+          {L('Si tu PC falla, podemos restaurar tu negocio al estado de anoche.',
+             'If your PC fails, we can restore your business to last night’s state.')}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function formatBytes(n) {
+  if (!n || n < 1024) return `${n || 0} B`
+  const units = ['KB', 'MB', 'GB']
+  let v = n / 1024, i = 0
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
+  return `${v.toFixed(1)} ${units[i]}`
 }

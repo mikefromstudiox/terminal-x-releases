@@ -62,13 +62,21 @@ function buildACECF(rncEmisor, encf, fechaEmision, montoTotal, rncComprador) {
 }
 
 function signXml(xml, rootTag, keyPem, certPem) {
-  const sig = new SignedXml()
-  sig.signingKey = keyPem
-  sig.signatureAlgorithm = 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256'
-  sig.canonicalizationAlgorithm = 'http://www.w3.org/TR/2001/REC-xml-c14n-20010315'
-  sig.addReference(`//*[local-name()='${rootTag}']`, ['http://www.w3.org/2000/09/xmldsig#enveloped-signature'], 'http://www.w3.org/2001/04/xmlenc#sha256', null, null, null, true)
+  // xml-crypto v6 API — options in ctor, structured addReference, getKeyInfoContent hook
   const certB64 = certPem.replace(/-----BEGIN CERTIFICATE-----/g, '').replace(/-----END CERTIFICATE-----/g, '').replace(/\s/g, '')
-  sig.keyInfoProvider = { getKeyInfo: () => `<X509Data><X509Certificate>${certB64}</X509Certificate></X509Data>` }
+  const sig = new SignedXml({
+    privateKey: keyPem,
+    publicCert: certPem,
+    signatureAlgorithm: 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256',
+    canonicalizationAlgorithm: 'http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
+    getKeyInfoContent: () => `<X509Data><X509Certificate>${certB64}</X509Certificate></X509Data>`,
+  })
+  sig.addReference({
+    xpath: `//*[local-name()='${rootTag}']`,
+    transforms: ['http://www.w3.org/2000/09/xmldsig#enveloped-signature'],
+    digestAlgorithm: 'http://www.w3.org/2001/04/xmlenc#sha256',
+    isEmptyUri: true,
+  })
   sig.computeSignature(xml)
   return sig.getSignedXml()
 }

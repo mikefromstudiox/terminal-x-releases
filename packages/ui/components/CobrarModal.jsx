@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
+import LoyaltyTierBadge, { tierMultiplier } from './LoyaltyTierBadge'
 import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, Loader2, QrCode, User, MessageSquare } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
@@ -459,7 +460,7 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
-export default function CobrarModal({ ticket, onConfirm, onClose }) {
+export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType = null }) {
   const api = useAPI()
   const { lang } = useLang()
   const { businessType } = useBusinessType()
@@ -695,7 +696,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
       if (Number.isFinite(pct) && pct >= 0) setItbisRate(pct)
       // Set sensible ncfType default based on fiscal mode
       const mode = cfg.fiscal_mode || 'ecf'
-      setNcfType(mode === 'legacy' ? 'B02' : 'E32')
+      // forceNcfType (e.g. dealership E31 on ≥RD$250K) overrides the default.
+      setNcfType(forceNcfType || (mode === 'legacy' ? 'B02' : 'E32'))
       // v2.7.1 — loyalty program config
       setLoyaltyCfg({
         enabled:         String(cfg.loyalty_enabled || '0') === '1',
@@ -727,6 +729,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
 
   // Set ncfType to first enabled type once sequences load
   useEffect(() => {
+    if (forceNcfType) return // locked by caller (dealership / WO bridge)
     if (enabledEcfTypes && enabledEcfTypes.length > 0) {
       setNcfType(prev => {
         // Only update if current type is not in enabled list
@@ -734,7 +737,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
         return isCurrentEnabled ? prev : enabledEcfTypes[0].code
       })
     }
-  }, [enabledEcfTypes])
+  }, [enabledEcfTypes, forceNcfType])
 
   useEffect(() => {
     const handler = e => { if (clientRef.current && !clientRef.current.contains(e.target)) setShowClientDrop(false) }
@@ -1140,7 +1143,10 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                 )}
                 {/* v2.7.1 — loyalty earn preview + redeem (cross-vertical, plan-gated) */}
                 {loyaltyEnabled && selectedClient?.id && (() => {
-                  const earn = loyaltyPointsFor(total, loyaltyCfg.pointsRatio)
+                  const basePts      = loyaltyPointsFor(total, loyaltyCfg.pointsRatio)
+                  const currentTier  = selectedClient.loyalty_tier || 'bronze'
+                  const mult         = tierMultiplier(currentTier)
+                  const earn         = Math.round(basePts * mult * 100) / 100
                   const currentPoints = Math.max(0, Number(selectedClient.loyalty_points) || 0)
                   const redeemRatio = loyaltyCfg.redemptionRatio // pts per RD$1 off
                   const minRedeemPts = Math.max(1, Math.round(50 * redeemRatio)) // RD$50 minimum
@@ -1158,9 +1164,13 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                               ? `Saldo: ${currentPoints.toLocaleString()} pts`
                               : `Balance: ${currentPoints.toLocaleString()} pts`}
                           </span>
+                          <LoyaltyTierBadge tier={currentTier} lang={lang} />
                           {earn > 0 && (
                             <span className="text-slate-400 dark:text-white/40">
                               · {lang === 'es' ? `ganará ${earn} pts` : `earns ${earn} pts`}
+                              {mult > 1 && (
+                                <span className="ml-1 font-bold text-[#b3001e]">×{mult}</span>
+                              )}
                             </span>
                           )}
                         </div>
@@ -1257,7 +1267,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                   {isLegacy ? (
                     <div className="flex flex-wrap gap-2">
                       {LEGACY_TYPES.map(lt => (
-                        <ToggleBtn key={lt.code} active={ncfType === lt.code} onClick={() => setNcfType(lt.code)}>
+                        <ToggleBtn key={lt.code} active={ncfType === lt.code} onClick={() => { if (!forceNcfType) setNcfType(lt.code) }}>
                           {lt.code}
                           <span className="block text-[10px] font-normal opacity-60 mt-0.5">
                             {lang === 'es' ? lt.sub_es : lt.sub_en}
@@ -1275,7 +1285,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose }) {
                   ) : (
                     <div className="flex flex-wrap gap-2">
                       {enabledEcfTypes.map(ecf => (
-                        <ToggleBtn key={ecf.code} active={ncfType === ecf.code} onClick={() => setNcfType(ecf.code)}>
+                        <ToggleBtn key={ecf.code} active={ncfType === ecf.code} onClick={() => { if (!forceNcfType) setNcfType(ecf.code) }}>
                           {ecf.code}
                           <span className="block text-[10px] font-normal opacity-60 mt-0.5">
                             {lang === 'es' ? ecf.sub_es : ecf.sub_en}

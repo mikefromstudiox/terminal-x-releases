@@ -122,6 +122,9 @@ const SYNC_TABLES = [
       active: r.active,
       // v2.4 — Salon: loyalty + stylist preference + allergies
       loyalty_points: r.loyalty_points ?? 0,
+      loyalty_tier: r.loyalty_tier || 'bronze',
+      loyalty_lifetime_earned: r.loyalty_lifetime_earned ?? 0,
+      birthday_treat_available: !!r.birthday_treat_available,
       allergies: r.allergies || null,
       preferred_stylist_supabase_id: r.preferred_stylist_supabase_id || null,
       created_at: r.created_at || new Date().toISOString(),
@@ -525,6 +528,7 @@ const SYNC_TABLES = [
       unit: r.unit || null,
       price_per_unit: r.price_per_unit != null ? r.price_per_unit : null,
       inventory_item_supabase_id: r.inventory_item_supabase_id || null,
+      is_deposit:    r.is_deposit ? true : false,   // v2.6 — licoreria envase line
       course:        r.course || null,
       kds_fired_at:  r.kds_fired_at || null,
       guest_number:  r.guest_number != null ? r.guest_number : null,
@@ -1480,7 +1484,7 @@ const PULL_TABLES = [
   { name: 'services', strategy: 'lww', naturalKey: 'name', cols: ['name','name_en','category','price','cost','aplica_itbis','active','is_wash','no_commission','commission_washer','commission_seller','commission_cashier','sort_order','printer_route','is_menu_item','course','station','happy_hour_price','happy_hour_start','happy_hour_end','updated_at'] },
   // v2.1: washers + sellers PULL entries removed — consolidated into `empleados`
   // (tipo='lavador'/'vendedor'). Their data is now part of the empleados pull below.
-  { name: 'clients', strategy: 'lww', naturalKey: 'name', cols: ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','loyalty_points','allergies','created_at','updated_at'],
+  { name: 'clients', strategy: 'lww', naturalKey: 'name', cols: ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','loyalty_points','loyalty_tier','loyalty_lifetime_earned','birthday_treat_available','allergies','created_at','updated_at'],
     fkCols: { preferred_stylist_supabase_id: 'empleados' } },
   { name: 'inventory_items', strategy: 'lww', naturalKey: 'name', cols: ['name','sku','barcode','category','price','price_pedidos_ya','cost','quantity','min_quantity','aplica_itbis','sold_by_weight','unit','price_per_unit','bottle_deposit','tare_default','active','updated_at'] },
   { name: 'mesas', strategy: 'lww', naturalKey: 'name', cols: ['name','zone','capacity','status','rev','guests_count','seated_at','sort_order','active','created_at','updated_at'],
@@ -1523,7 +1527,7 @@ const PULL_TABLES = [
     // v2.10.3 — `rev` rides statusSync so both sides of a status flip stay in lockstep.
     statusSync: ['status', 'void_reason', 'void_by', 'void_at', 'rev', 'updated_at'] },
   { name: 'ticket_items', strategy: 'fww',
-    cols: ['name','price','cost','itbis','is_wash','quantity','sku','weight','unit','price_per_unit','course','kds_fired_at','guest_number','created_at','updated_at'],
+    cols: ['name','price','cost','itbis','is_wash','quantity','sku','weight','unit','price_per_unit','is_deposit','course','kds_fired_at','guest_number','created_at','updated_at'],
     fkCols: { ticket_supabase_id: 'tickets', service_supabase_id: 'services', inventory_item_supabase_id: 'inventory_items' } },
   { name: 'queue', strategy: 'lww',
     cols: ['status','assigned_at','completed_at','created_at','updated_at'],
@@ -1616,6 +1620,11 @@ const PULL_TABLES = [
   // Activity log — FWW (append-only audit feed)
   { name: 'activity_log', strategy: 'fww',
     cols: ['event_type','severity','actor_supabase_id','actor_name','actor_role','target_type','target_id','target_name','amount','old_value','new_value','reason','metadata','created_at','updated_at'] },
+
+  // e-CF certificate rotation history — FWW (append-only audit trail).
+  // Pushed to Supabase.ecf_cert_history. business_id stamped at push time.
+  { name: 'ecf_cert_history', strategy: 'fww',
+    cols: ['cert_serial','subject_cn','subject_rnc','issued_at','expires_at','installed_at','installed_by_user_id','installed_by_name','installed_from','rotation_reason','sha256_fingerprint','prev_serial','prev_expires_at','created_at','updated_at'] },
 
   // v2.4 — Carwash memberships + wash_combos (LWW — desktop is edit-heavy source of truth)
   { name: 'memberships', strategy: 'lww',

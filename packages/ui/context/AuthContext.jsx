@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { useAPI } from './DataContext'
+import { setSentryContext } from '@terminal-x/services/sentry-renderer.js'
 
 const AuthContext = createContext(null)
 
@@ -44,9 +45,32 @@ export function AuthProvider({ children }) {
       } catch {}
     }
     try { api?.activity?.setActor?.(u || null) } catch {}
+    // Sentry user context (no-op when DSN unset).
+    try { setSentryContext({ user: u || null }) } catch {}
   }
 
   useEffect(() => { try { api?.activity?.setActor?.(user || null) } catch {} }, [api, user])
+
+  // Push business context (id, type, vertical) to Sentry once we can read it.
+  // Safe when Sentry is disabled — setSentryContext is a no-op.
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [empresa, kv] = await Promise.all([
+          api?.admin?.getEmpresa?.().catch(() => null),
+          api?.settings?.getAll?.().catch(() => null),
+        ])
+        if (cancelled) return
+        const businessId   = empresa?.business_id || empresa?.id || empresa?.supabase_id || null
+        const businessType = kv?.business_type || empresa?.business_type || null
+        const vertical     = kv?.vertical || kv?.subtype || null
+        setSentryContext({ business: { id: businessId, type: businessType, vertical } })
+      } catch {}
+    })()
+    return () => { cancelled = true }
+  }, [api, user?.id])
 
   // On web, check if business has staff — if none, allow temporary owner for setup.
   // Skip entirely if a cached user already exists (avoids wiping auth on navigation).

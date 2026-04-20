@@ -16,6 +16,7 @@ import {
 import { useAPI } from '../../context/DataContext'
 import { useAuth } from '../../context/AuthContext'
 import { useLang } from '../../i18n'
+import CobrarModal from '../../components/CobrarModal'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -755,6 +756,10 @@ export default function WorkOrders() {
   const [showCreate, setShowCreate] = useState(false)
   const [detail,    setDetail]    = useState(null)
   const [toast,     setToast]     = useState(null)
+  // v2.6.2 — WO→Ticket bridge. `cobrarWO` holds the WO whose completed work
+  // we're ringing up via CobrarModal so Cuadre, Commissions, DGII, and
+  // reports see the sale.
+  const [cobrarWO,  setCobrarWO]  = useState(null)
 
   function flash(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
@@ -787,6 +792,13 @@ export default function WorkOrders() {
   }
 
   async function handleStatusChange(id, newStatus) {
+    // v2.6.2 — intercept the completado→facturado transition. Instead of a
+    // silent status flip (which left the sale invisible to Cuadre / DGII /
+    // commissions), open CobrarModal so the cashier rings it up.
+    if (newStatus === 'facturado') {
+      const wo = orders.find(o => o.id === id)
+      if (wo) { setDetail(null); openCobrarForWO(wo); return }
+    }
     await api.workOrders.updateStatus({ id, status: newStatus })
     await loadAll()
     // Refresh detail if open
@@ -821,6 +833,100 @@ export default function WorkOrders() {
     await loadAll()
     return r
   }
+  // ── WO → Ticket bridge ──────────────────────────────────────────────────
+  // Build a CobrarModal-shaped ticket from the completed work order. Labor
+  // and service lines go in as is_wash=1 (service row, no ITBIS), parts go
+  // in as is_wash=0 so ITBIS is calculated on them per the existing POS
+  // totals engine. Vehicle plate is stamped in the notes so the e-CF/print
+  // flow retains it.
+  function buildTicketFromWO(wo) {
+    const items = (wo.items || []).map(li => ({
+      id:               `wo-${wo.id}-${li.id}`,
+      name:             li.name,
+      price:            Number(li.unit_price) || 0,
+      qty:              Number(li.qty ?? li.quantity) || 1,
+      cost:             0,
+      is_wash:          li.type === 'part' ? 0 : 1,
+      aplica_itbis:     li.type === 'part' ? 1 : 0,
+      inventory_item_id: li.inventory_item_id || null,
+    }))
+    return {
+      id:         `wo-${wo.id}`,
+      ticketNo:   fmtWO(wo.order_number || wo.id),
+      vehicle:    wo.plate || '',
+      services:   items,
+      client:     wo.client_supabase_id || wo.client_id
+                   ? { id: wo.client_id, supabase_id: wo.client_supabase_id, name: wo.client_name }
+                   : null,
+      _wo:        wo,
+    }
+  }
+
+  function openCobrarForWO(wo) {
+    if (!wo || !(wo.items || []).length) {
+      flash(L('Agregar items antes de facturar', 'Add items before invoicing'))
+      return
+    }
+    setCobrarWO(wo)
+  }
+
+  async function handleWOCobrarConfirm(paymentData) {
+    const wo = cobrarWO
+    if (!wo) return
+    try {
+      const items = (wo.items || []).map(li => ({
+        service_id:        null,
+        inventory_item_id: li.inventory_item_id || null,
+        name:              li.name,
+        price:             Number(li.unit_price) || 0,
+        cost:              0,
+        is_wash:           li.type === 'part' ? 0 : 1,
+        quantity:          Number(li.qty ?? li.quantity) || 1,
+        sku:               null,
+        aplica_itbis:      li.type === 'part' ? 1 : 0,
+      }))
+      const result = await api.tickets.create({
+        vehicle_plate:    wo.plate || null,
+        client_id:        wo.client_id || null,
+        client_supabase_id: wo.client_supabase_id || null,
+        washer_ids:       [],
+        seller_id:        wo.technician_id || null,
+        cajero_id:        (user?.id && user.id !== 'web') ? user.id : null,
+        comprobante_type: paymentData.ncfType || 'E32',
+        payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
+        tipo_venta:       paymentData.tipo || 'contado',
+        status:           paymentData.tipo === 'credito' ? 'pendiente' : 'cobrado',
+        subtotal:         Number(paymentData.subtotal) || 0,
+        itbis:            Number(paymentData.itbis) || 0,
+        ley:              Number(paymentData.ley) || 0,
+        total:            Number(paymentData.total) || 0,
+        ecf_result:       paymentData.ecf || {},
+        items,
+        comentario:       `[WO ${fmtWO(wo.order_number || wo.id)} · ${wo.plate || 's/placa'}] ${paymentData.comentario || ''}`.trim(),
+        descuento:        Number(paymentData.descuento) || 0,
+        descuento_reason: paymentData.descuentoReason || null,
+        mac_jti:          paymentData.mac_jti || null,
+      })
+
+      // Stamp ticket link on the WO + flip to facturado (paid).
+      try {
+        await api.workOrders.update(wo.id, {
+          status:             'facturado',
+          ticket_id:          result?.id || null,
+          ticket_supabase_id: result?.supabase_id || null,
+        })
+      } catch {
+        // Fallback: if update schema rejects ticket_* cols, at least bump status.
+        try { await api.workOrders.updateStatus({ id: wo.id, status: 'facturado' }) } catch {}
+      }
+
+      flash(L('Orden facturada ✓', 'Work order invoiced ✓'))
+      await loadAll()
+    } catch (err) {
+      flash(`Error: ${err?.message || err}`)
+    }
+  }
+
   async function handleSetPartsOrder(orderId, expected_parts_arrival) {
     await api.workOrders.setPartsOrder({ id: orderId, expected_parts_arrival })
     await loadAll()
@@ -955,6 +1061,15 @@ export default function WorkOrders() {
           onGenerateApprovalLink={handleGenerateApprovalLink}
           onSetPartsOrder={handleSetPartsOrder}
           onClose={() => setDetail(null)}
+        />
+      )}
+
+      {/* WO → Cobrar bridge */}
+      {cobrarWO && (
+        <CobrarModal
+          ticket={buildTicketFromWO(cobrarWO)}
+          onConfirm={handleWOCobrarConfirm}
+          onClose={() => setCobrarWO(null)}
         />
       )}
 

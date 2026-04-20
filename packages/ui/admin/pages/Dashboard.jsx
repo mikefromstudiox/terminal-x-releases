@@ -50,12 +50,27 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
   const [stats, setStats] = useState(null)
   const [feed, setFeed] = useState([])
   const [loyalty, setLoyalty] = useState(null)
+  const [tierFilter, setTierFilter] = useState(null)   // null | 'gold' | 'silver' | 'bronze'
   const [digest, setDigest] = useState(null)
   const [loading, setLoading] = useState(true)
   const [bulkLoading, setBulkLoading] = useState(false)
   const [bulkResult, setBulkResult] = useState(null)
 
   useEffect(() => { load() }, [])
+  useEffect(() => { reloadLoyalty() }, [tierFilter])
+
+  async function reloadLoyalty() {
+    try {
+      let token = await refreshToken()
+      if (!token) token = getToken()
+      const headers = { 'Authorization': `Bearer ${token}` }
+      const url = tierFilter
+        ? `/api/panel?action=loyalty-overview&tier=${encodeURIComponent(tierFilter)}`
+        : '/api/panel?action=loyalty-overview'
+      const r = await fetch(url, { headers })
+      if (r.ok) setLoyalty(await r.json())
+    } catch {}
+  }
 
   async function load() {
     setLoading(true)
@@ -306,6 +321,34 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
             <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin datos.', 'No data.')}</p>
           ) : (
             <>
+              {/* Tier filter chips */}
+              <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                {[
+                  { key: null,      label: L('Todos', 'All'),   count: null },
+                  { key: 'gold',    label: L('Oro', 'Gold'),    count: loyalty.tierBreakdown?.gold },
+                  { key: 'silver',  label: L('Plata', 'Silver'),count: loyalty.tierBreakdown?.silver },
+                  { key: 'bronze',  label: L('Bronce', 'Bronze'),count: loyalty.tierBreakdown?.bronze },
+                ].map(chip => {
+                  const on = tierFilter === chip.key
+                  const tone = chip.key === 'gold'
+                    ? (on ? 'bg-amber-500 text-black' : 'bg-amber-400/15 text-amber-500 hover:bg-amber-400/25')
+                    : chip.key === 'silver'
+                    ? (on ? 'bg-slate-400 text-black' : 'bg-slate-400/15 text-slate-400 hover:bg-slate-400/25')
+                    : chip.key === 'bronze'
+                    ? (on ? 'bg-orange-700 text-white' : 'bg-orange-700/15 text-orange-500 hover:bg-orange-700/25')
+                    : (on ? 'bg-[#b3001e] text-white' : (isDark ? 'bg-white/5 text-white/60 hover:bg-white/10' : 'bg-black/5 text-black/60 hover:bg-black/10'))
+                  return (
+                    <button
+                      key={String(chip.key)}
+                      onClick={() => setTierFilter(chip.key)}
+                      className={`text-[10px] font-bold uppercase tracking-[1px] px-2.5 py-1 rounded-full transition-colors ${tone}`}
+                    >
+                      {chip.label}
+                      {chip.count != null && <span className="ml-1 opacity-60">({chip.count})</span>}
+                    </button>
+                  )
+                })}
+              </div>
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div>
                   <p className="text-[10px] font-bold text-[#b3001e] uppercase tracking-[1.2px]">{L('Puntos vivos', 'Outstanding')}</p>
@@ -324,19 +367,31 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
                 <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin clientes con puntos.', 'No clients with points.')}</p>
               ) : (
                 <div className="space-y-1.5">
-                  {loyalty.topClients.map((c, i) => (
-                    <button
-                      key={i}
-                      onClick={() => c.business_id && navigate(`/admin/clients/${c.business_id}`)}
-                      className={`w-full flex items-center gap-2 text-left py-1.5 border-b last:border-0 transition-colors hover:text-[#b3001e] ${isDark ? 'border-white/5 text-white/80' : 'border-black/5 text-black/80'}`}
-                    >
-                      <span className={`text-[10px] font-bold w-5 shrink-0 ${isDark ? 'text-white/30' : 'text-black/30'}`}>{i + 1}.</span>
-                      <span className="text-[12px] font-semibold truncate flex-1">{c.business_name}</span>
-                      <span className={`text-[11px] truncate max-w-[120px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>{c.client_name}</span>
-                      <span className="text-[11px] font-bold text-[#b3001e] shrink-0">{Math.round(c.points).toLocaleString()}</span>
-                      <span className={`text-[9px] font-bold uppercase tracking-[1px] shrink-0 px-1.5 py-0.5 rounded ${isDark ? 'bg-white/5 text-white/50' : 'bg-black/5 text-black/50'}`}>{c.tier}</span>
-                    </button>
-                  ))}
+                  {loyalty.topClients.map((c, i) => {
+                    const isGold = (c.tier || '').toLowerCase() === 'gold' || (c.tier || '').toLowerCase() === 'platinum'
+                    const isSilver = (c.tier || '').toLowerCase() === 'silver'
+                    const tierCls = isGold
+                      ? 'bg-amber-400/20 text-amber-500 border border-amber-500/40'
+                      : isSilver
+                      ? 'bg-slate-400/20 text-slate-400 border border-slate-400/40'
+                      : isDark ? 'bg-white/5 text-white/50' : 'bg-black/5 text-black/50'
+                    const tierLabel = isGold ? L('Oro','Gold') : isSilver ? L('Plata','Silver') : L('Bronce','Bronze')
+                    const valueShown = tierFilter ? Math.round(c.lifetime ?? c.points) : Math.round(c.points)
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => c.business_id && navigate(`/admin/clients/${c.business_id}`)}
+                        className={`w-full flex items-center gap-2 text-left py-1.5 border-b last:border-0 transition-colors hover:text-[#b3001e] ${isDark ? 'border-white/5 text-white/80' : 'border-black/5 text-black/80'}`}
+                      >
+                        <span className={`text-[10px] font-bold w-5 shrink-0 ${isDark ? 'text-white/30' : 'text-black/30'}`}>{i + 1}.</span>
+                        <span className="text-[12px] font-semibold truncate flex-1">{c.business_name}</span>
+                        <span className={`text-[11px] truncate max-w-[120px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>{c.client_name}</span>
+                        {c.birthday_treat && <span title={L('Regalo de cumpleaños disponible','Birthday treat available')} className="text-[10px]">🎂</span>}
+                        <span className="text-[11px] font-bold text-[#b3001e] shrink-0 tabular-nums">{valueShown.toLocaleString()}</span>
+                        <span className={`text-[9px] font-bold uppercase tracking-[1px] shrink-0 px-1.5 py-0.5 rounded ${tierCls}`}>{tierLabel}</span>
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </>

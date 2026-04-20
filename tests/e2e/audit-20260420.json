@@ -1,0 +1,912 @@
+{
+  "perDemo": {
+    "carwash": {
+      "email": "admin@carwash.demo.terminalxpos.com",
+      "key": "carwash",
+      "authed": true,
+      "ranAt": "2026-04-20T04:50:26.766Z",
+      "sidebarLinkCount": 1,
+      "pageResults": {
+        "/pos": {
+          "label": "POS",
+          "bodyLen": 967,
+          "hasSidebar": true,
+          "pass": false,
+          "newCE": 4,
+          "newNF": 0,
+          "n4xx": 0,
+          "sampleCE": [
+            {
+              "text": "Failed to load resource: the server responded with a status of 405 ()",
+              "at": "https://terminalxpos.com/pos"
+            },
+            {
+              "text": "Failed to load resource: the server responded with a status of 405 ()",
+              "at": "https://terminalxpos.com/pos"
+            }
+          ],
+          "sampleNF": []
+        }
+      },
+      "settings": {
+        "sistema": true,
+        "kiosk": false,
+        "apertura": false
+      },
+      "regr": {
+        "aperturaModal": null,
+        "kioskToggle": false,
+        "certBanner": false,
+        "quiebresTab": false,
+        "loyaltyLedger": false,
+        "mesaBridge": null,
+        "mixtoBadge": false
+      },
+      "mutations": {
+        "attempted": true,
+        "auditClient": {
+          "attempted": false,
+          "reason": "no add button"
+        }
+      },
+      "logout": {
+        "logoutClicked": false,
+        "loginReachable": false,
+        "reLoginOk": true,
+        "noFailedFetch": true
+      },
+      "totals": {
+        "consoleErrs": 24,
+        "netFails": 2
+      }
+    },
+    "retail": {
+      "email": "admin@retail.demo.terminalxpos.com",
+      "key": "retail",
+      "authed": true,
+      "ranAt": "2026-04-20T04:51:13.183Z",
+      "sidebarLinkCount": 1,
+      "pageResults": {
+        "/pos": {
+          "label": "POS",
+          "bodyLen": 1010,
+          "hasSidebar": true,
+          "pass": false,
+          "newCE": 3,
+          "newNF": 7,
+          "n4xx": 0,
+          "sampleCE": [
+            {
+              "text": "Failed to load resource: the server responded with a status of 405 ()",
+              "at": "https://terminalxpos.com/pos"
+            },
+            {
+              "text": "Failed to load resource: the server responded with a status of 400 ()",
+              "at": "https://terminalxpos.com/pos"
+            }
+          ],
+          "sampleNF": [
+            {
+              "url": "https://csppjsoirjflumaiipqw.supabase.co/rest/v1/services?select=*&business_id=eq.46c28a6c-a20a-4b91-9d7d-8f5bf3fd497e&active=eq.true&order=category.asc%2Csort_order.asc%2Cid.asc",
+              "failure": "net::ERR_ABORTED",
+              "status": "failed",
+              "at": "https://terminalxpos.com/pos"
+            },
+            {
+              "url": "https://csppjsoirjflumaiipqw.supabase.co/rest/v1/empleados?select=id%2Csupabase_id%2Cnombre%2Ccomision_pct%2Cphone%2Cactive&business_id=eq.46c28a6c-a20a-4b91-9d7d-8f5bf3fd497e&tipo=in.%28vendedor%2Chybrid%29&active=eq.true&order=nombre.asc",
+              "failure": "net::ERR_ABORTED",
+              "status": "failed",
+              "at": "https://terminalxpos.com/pos"
+            }
+          ]
+        }
+      },
+      "settings": {
+        "sistema": true,
+        "kiosk": false,
+        "apertura": false
+      },
+      "regr": {
+        "aperturaModal": null,
+        "kioskToggle": false,
+        "certBanner": false,
+        "quiebresTab": false,
+        "loyaltyLedger": false,
+        "mesaBridge": null,
+        "mixtoBadge": false
+      },
+      "mutations": {
+        "attempted": false
+      },
+      "logout": {
+        "logoutClicked": false,
+        "loginReachable": false,
+        "reLoginOk": true,
+        "noFailedFetch": true
+      },
+      "totals": {
+        "consoleErrs": 26,
+        "netFails": 7
+      }
+    },
+    "restaurant": {
+      "email": "admin@restaurant.demo.terminalxpos.com",
+      "key": "restaurant",
+      "authed": true,
+      "ranAt": "2026-04-20T04:52:05.028Z",
+      "sidebarLinkCount": 2,
+      "pageResults": {
+        "/pos": {
+          "label": "POS",
+          "bodyLen": 734,
+          "hasSidebar": true,
+          "pass": false,
+          "newCE": 2,
+          "newNF": 0,
+          "n4xx": 0,
+          "sampleCE": [
+            {
+              "text": "Failed to load resource: the server responded with a status of 405 ()",
+              "at": "https://terminalxpos.com/pos"
+            },
+            {
+              "text": "Failed to load resource: the server responded with a status of 400 ()",
+              "at": "https://terminalxpos.com/pos"
+            }
+          ],
+          "sampleNF": []
+        },
+        "/kds": {
+          "label": "Cocina (KDS)",
+          "bodyLen": 14708,
+          "hasSidebar": true,
+          "pass": false,
+          "newCE": 1,
+          "newNF": 0,
+          "n4xx": 0,
+          "sampleCE": [
+            {
+              "text": "Failed to load resource: the server responded with a status of 405 ()",
+              "at": "https://terminalxpos.com/"
+            }
+          ],
+          "sampleNF": []
+        }
+      },
+      "settings": {
+        "sistema": true,
+        "kiosk": false,
+        "apertura": false
+      },
+      "regr": {
+        "aperturaModal": false,
+        "kioskToggle": false,
+        "certBanner": false,
+        "quiebresTab": true,
+        "loyaltyLedger": false,
+        "mesaBridge": {
+          "hasMesas": true,
+          "hasErrorBanner": false,
+          "len": 570
+        },
+        "mixtoBadge": false
+      },
+      "mutations": {
+        "attempted": true,
+        "auditClient": {
+          "attempted": false,
+          "reason": "no add button"
+        }
+      },
+      "logout": {
+        "logoutClicked": false,
+        "loginReachable": false,
+        "reLoginOk": true,
+        "noFailedFetch": true
+      },
+      "totals": {
+        "consoleErrs": 21,
+        "netFails": 5
+      }
+    },
+    "salon": {
+      "email": "admin@salon.demo.terminalxpos.com",
+      "key": "salon",
+      "authed": true,
+      "ranAt": "2026-04-20T04:52:52.795Z",
+      "sidebarLinkCount": 1,
+      "pageResults": {
+        "/pos": {
+          "label": "POS",
+          "bodyLen": 1025,
+          "hasSidebar": true,
+          "pass": false,
+          "newCE": 3,
+          "newNF": 2,
+          "n4xx": 0,
+          "sampleCE": [
+            {
+              "text": "Failed to load resource: the server responded with a status of 405 ()",
+              "at": "https://terminalxpos.com/pos"
+            },
+            {
+              "text": "Failed to load resource: the server responded with a status of 400 ()",
+              "at": "https://terminalxpos.com/pos"
+            }
+          ],
+          "sampleNF": [
+            {
+              "url": "https://csppjsoirjflumaiipqw.supabase.co/rest/v1/empleados?select=*&business_id=eq.b14f83cb-15c9-4c1f-946c-5256265dab7a&active=eq.true&order=nombre.asc",
+              "failure": "net::ERR_ABORTED",
+              "status": "failed",
+              "at": "https://terminalxpos.com/pos"
+            },
+            {
+              "url": "https://csppjsoirjflumaiipqw.supabase.co/rest/v1/app_settings?select=key%2Cvalue&business_id=eq.b14f83cb-15c9-4c1f-946c-5256265dab7a&is_device_local=eq.false",
+              "failure": "net::ERR_ABORTED",
+              "status": "failed",
+              "at": "https://terminalxpos.com/pos"
+            }
+          ]
+        }
+      },
+      "settings": {
+        "sistema": true,
+        "kiosk": false,
+        "apertura": false
+      },
+      "regr": {
+        "aperturaModal": null,
+        "kioskToggle": false,
+        "certBanner": false,
+        "quiebresTab": false,
+        "loyaltyLedger": false,
+        "mesaBridge": null,
+        "mixtoBadge": false
+      },
+      "mutations": {
+        "attempted": true,
+        "auditClient": {
+          "attempted": false,
+          "reason": "no add button"
+        }
+      },
+      "logout": {
+        "logoutClicked": false,
+        "loginReachable": false,
+        "reLoginOk": true,
+        "noFailedFetch": true
+      },
+      "totals": {
+        "consoleErrs": 20,
+        "netFails": 5
+      }
+    },
+    "hybrid": {
+      "email": "admin@hybrid.demo.terminalxpos.com",
+      "key": "hybrid",
+      "authed": true,
+      "ranAt": "2026-04-20T04:53:42.140Z",
+      "sidebarLinkCount": 2,
+      "pageResults": {
+        "/pos": {
+          "label": "POS",
+          "bodyLen": 762,
+          "hasSidebar": true,
+          "pass": false,
+          "newCE": 2,
+          "newNF": 0,
+          "n4xx": 0,
+          "sampleCE": [
+            {
+              "text": "Failed to load resource: the server responded with a status of 405 ()",
+              "at": "https://terminalxpos.com/pos"
+            },
+            {
+              "text": "Failed to load resource: the server responded with a status of 400 ()",
+              "at": "https://terminalxpos.com/pos"
+            }
+          ],
+          "sampleNF": []
+        },
+        "/kds": {
+          "label": "Cocina (KDS)",
+          "bodyLen": 14708,
+          "hasSidebar": true,
+          "pass": false,
+          "newCE": 5,
+          "newNF": 0,
+          "n4xx": 0,
+          "sampleCE": [
+            {
+              "text": "Connecting to 'https://www.google.com/g/collect?v=2&tid=G-WV4EDKWVJP&gtm=45je64f1v9248599817za200zd9248599817&_p=1776660780623&gcd=13l3l3l3l1l1&npa=0&dma=0&_eu=AEAAAAQ&ae=a&are=1&cid=1040188723.1776660777&frm=0&pscdl=noapi&rcb=19&sr=1440x900&uaa=x86&uab=64&uafvl=Google%2520Chrome%3B147.0.7727.102%7CNot.A%252FBrand%3B8.0.0.0%7CChromium%3B147.0.7727.102&uam=&uamb=0&uap=Windows&uapv=19.0.0&uaw=0&ul=en-us&_s=2&tag_exp=0%7E115616985%7E115938466%7E115938468%7E117266400&sid=1776660776&sct=1&seg=1&dl=ht",
+              "at": "https://terminalxpos.com/pos"
+            },
+            {
+              "text": "Fetch API cannot load https://www.google.com/g/collect?v=2&tid=G-WV4EDKWVJP&gtm=45je64f1v9248599817za200zd9248599817&_p=1776660780623&gcd=13l3l3l3l1l1&npa=0&dma=0&_eu=AEAAAAQ&ae=a&are=1&cid=1040188723.1776660777&frm=0&pscdl=noapi&rcb=19&sr=1440x900&uaa=x86&uab=64&uafvl=Google%2520Chrome%3B147.0.7727.102%7CNot.A%252FBrand%3B8.0.0.0%7CChromium%3B147.0.7727.102&uam=&uamb=0&uap=Windows&uapv=19.0.0&uaw=0&ul=en-us&_s=2&tag_exp=0%7E115616985%7E115938466%7E115938468%7E117266400&sid=1776660776&sct=1&seg=",
+              "at": "https://terminalxpos.com/pos"
+            }
+          ],
+          "sampleNF": []
+        }
+      },
+      "settings": {
+        "sistema": true,
+        "kiosk": false,
+        "apertura": false
+      },
+      "regr": {
+        "aperturaModal": null,
+        "kioskToggle": false,
+        "certBanner": false,
+        "quiebresTab": true,
+        "loyaltyLedger": false,
+        "mesaBridge": null,
+        "mixtoBadge": false
+      },
+      "mutations": {
+        "attempted": true,
+        "auditClient": {
+          "attempted": false,
+          "reason": "no add button"
+        }
+      },
+      "logout": {
+        "logoutClicked": false,
+        "loginReachable": false,
+        "reLoginOk": true,
+        "noFailedFetch": true
+      },
+      "totals": {
+        "consoleErrs": 28,
+        "netFails": 5
+      }
+    },
+    "mechanic": {
+      "email": "admin@mechanic.demo.terminalxpos.com",
+      "key": "mechanic",
+      "authed": true,
+      "ranAt": "2026-04-20T04:54:28.323Z",
+      "sidebarLinkCount": 1,
+      "pageResults": {
+        "/pos": {
+          "label": "POS",
+          "bodyLen": 806,
+          "hasSidebar": true,
+          "pass": false,
+          "newCE": 2,
+          "newNF": 0,
+          "n4xx": 0,
+          "sampleCE": [
+            {
+              "text": "Failed to load resource: the server responded with a status of 405 ()",
+              "at": "https://terminalxpos.com/pos"
+            },
+            {
+              "text": "Failed to load resource: the server responded with a status of 400 ()",
+              "at": "https://terminalxpos.com/pos"
+            }
+          ],
+          "sampleNF": []
+        }
+      },
+      "settings": {
+        "sistema": true,
+        "kiosk": false,
+        "apertura": false
+      },
+      "regr": {
+        "aperturaModal": null,
+        "kioskToggle": false,
+        "certBanner": false,
+        "quiebresTab": false,
+        "loyaltyLedger": false,
+        "mesaBridge": null,
+        "mixtoBadge": false
+      },
+      "mutations": {
+        "attempted": true,
+        "auditClient": {
+          "attempted": false,
+          "reason": "no add button"
+        }
+      },
+      "logout": {
+        "logoutClicked": false,
+        "loginReachable": false,
+        "reLoginOk": true,
+        "noFailedFetch": true
+      },
+      "totals": {
+        "consoleErrs": 22,
+        "netFails": 3
+      }
+    },
+    "service": {
+      "email": "admin@service.demo.terminalxpos.com",
+      "key": "service",
+      "authed": true,
+      "ranAt": "2026-04-20T04:55:14.732Z",
+      "sidebarLinkCount": 1,
+      "pageResults": {
+        "/pos": {
+          "label": "POS",
+          "bodyLen": 987,
+          "hasSidebar": true,
+          "pass": false,
+          "newCE": 3,
+          "newNF": 0,
+          "n4xx": 0,
+          "sampleCE": [
+            {
+              "text": "Failed to load resource: the server responded with a status of 405 ()",
+              "at": "https://terminalxpos.com/pos"
+            },
+            {
+              "text": "Failed to load resource: the server responded with a status of 400 ()",
+              "at": "https://terminalxpos.com/pos"
+            }
+          ],
+          "sampleNF": []
+        }
+      },
+      "settings": {
+        "sistema": true,
+        "kiosk": false,
+        "apertura": false
+      },
+      "regr": {
+        "aperturaModal": null,
+        "kioskToggle": false,
+        "certBanner": false,
+        "quiebresTab": false,
+        "loyaltyLedger": false,
+        "mesaBridge": null,
+        "mixtoBadge": false
+      },
+      "mutations": {
+        "attempted": true,
+        "auditClient": {
+          "attempted": false,
+          "reason": "no add button"
+        }
+      },
+      "logout": {
+        "logoutClicked": false,
+        "loginReachable": false,
+        "reLoginOk": true,
+        "noFailedFetch": true
+      },
+      "totals": {
+        "consoleErrs": 21,
+        "netFails": 3
+      }
+    },
+    "prestamos": {
+      "email": "admin@prestamos.demo.terminalxpos.com",
+      "key": "prestamos",
+      "authed": true,
+      "ranAt": "2026-04-20T04:56:01.759Z",
+      "sidebarLinkCount": 1,
+      "pageResults": {
+        "/pos": {
+          "label": "POS",
+          "bodyLen": 722,
+          "hasSidebar": true,
+          "pass": false,
+          "newCE": 2,
+          "newNF": 0,
+          "n4xx": 0,
+          "sampleCE": [
+            {
+              "text": "Failed to load resource: the server responded with a status of 405 ()",
+              "at": "https://terminalxpos.com/pos"
+            },
+            {
+              "text": "Failed to load resource: the server responded with a status of 400 ()",
+              "at": "https://terminalxpos.com/pos"
+            }
+          ],
+          "sampleNF": []
+        }
+      },
+      "settings": {
+        "sistema": true,
+        "kiosk": false,
+        "apertura": false
+      },
+      "regr": {
+        "aperturaModal": null,
+        "kioskToggle": false,
+        "certBanner": false,
+        "quiebresTab": false,
+        "loyaltyLedger": false,
+        "mesaBridge": null,
+        "mixtoBadge": false
+      },
+      "mutations": {
+        "attempted": true,
+        "auditClient": {
+          "attempted": false,
+          "reason": "no add button"
+        }
+      },
+      "logout": {
+        "logoutClicked": false,
+        "loginReachable": false,
+        "reLoginOk": true,
+        "noFailedFetch": true
+      },
+      "totals": {
+        "consoleErrs": 22,
+        "netFails": 2
+      }
+    },
+    "dealership": {
+      "email": "admin@dealership.demo.terminalxpos.com",
+      "key": "dealership",
+      "authed": true,
+      "ranAt": "2026-04-20T04:56:54.160Z",
+      "sidebarLinkCount": 1,
+      "pageResults": {
+        "/pos": {
+          "label": "POS",
+          "bodyLen": 830,
+          "hasSidebar": true,
+          "pass": false,
+          "newCE": 2,
+          "newNF": 0,
+          "n4xx": 0,
+          "sampleCE": [
+            {
+              "text": "Failed to load resource: the server responded with a status of 405 ()",
+              "at": "https://terminalxpos.com/pos"
+            },
+            {
+              "text": "Failed to load resource: the server responded with a status of 400 ()",
+              "at": "https://terminalxpos.com/pos"
+            }
+          ],
+          "sampleNF": []
+        }
+      },
+      "settings": {
+        "sistema": false,
+        "kiosk": false,
+        "apertura": false
+      },
+      "regr": {
+        "aperturaModal": null,
+        "kioskToggle": false,
+        "certBanner": false,
+        "quiebresTab": false,
+        "loyaltyLedger": false,
+        "mesaBridge": null,
+        "mixtoBadge": false
+      },
+      "mutations": {
+        "attempted": true,
+        "auditClient": {
+          "attempted": false,
+          "reason": "no add button"
+        }
+      },
+      "logout": {
+        "logoutClicked": false,
+        "loginReachable": false,
+        "reLoginOk": true,
+        "noFailedFetch": true
+      },
+      "totals": {
+        "consoleErrs": 17,
+        "netFails": 11
+      }
+    }
+  },
+  "findings": [
+    {
+      "sev": "MED",
+      "demo": "carwash",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 405 ()",
+      "at": "2026-04-20T04:49:51.747Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "carwash",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 405 ()",
+      "at": "2026-04-20T04:49:51.748Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "carwash",
+      "area": "regression",
+      "title": "Kiosk/auto-lock toggle not found in Sistema",
+      "detail": "Expected per d5d62a4",
+      "at": "2026-04-20T04:50:00.264Z"
+    },
+    {
+      "sev": "LOW",
+      "demo": "carwash",
+      "area": "regression",
+      "title": "Quiebres tab not found in Inventory",
+      "detail": "Expected per v2.11.2",
+      "at": "2026-04-20T04:50:00.264Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "retail",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 405 ()",
+      "at": "2026-04-20T04:50:39.418Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "retail",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 400 ()",
+      "at": "2026-04-20T04:50:39.418Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "retail",
+      "area": "regression",
+      "title": "Kiosk/auto-lock toggle not found in Sistema",
+      "detail": "Expected per d5d62a4",
+      "at": "2026-04-20T04:50:48.058Z"
+    },
+    {
+      "sev": "LOW",
+      "demo": "retail",
+      "area": "regression",
+      "title": "Quiebres tab not found in Inventory",
+      "detail": "Expected per v2.11.2",
+      "at": "2026-04-20T04:50:48.058Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "restaurant",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 405 ()",
+      "at": "2026-04-20T04:51:24.776Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "restaurant",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 400 ()",
+      "at": "2026-04-20T04:51:24.776Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "restaurant",
+      "area": "console",
+      "title": "/kds: console error",
+      "detail": "Failed to load resource: the server responded with a status of 405 ()",
+      "at": "2026-04-20T04:51:27.119Z"
+    },
+    {
+      "sev": "LOW",
+      "demo": "restaurant",
+      "area": "regression",
+      "title": "Apertura modal not surfaced",
+      "detail": "Expected on first POS entry of day — may have been dismissed prior",
+      "at": "2026-04-20T04:51:38.987Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "restaurant",
+      "area": "regression",
+      "title": "Kiosk/auto-lock toggle not found in Sistema",
+      "detail": "Expected per d5d62a4",
+      "at": "2026-04-20T04:51:38.987Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "salon",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 405 ()",
+      "at": "2026-04-20T04:52:18.110Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "salon",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 400 ()",
+      "at": "2026-04-20T04:52:18.110Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "salon",
+      "area": "regression",
+      "title": "Kiosk/auto-lock toggle not found in Sistema",
+      "detail": "Expected per d5d62a4",
+      "at": "2026-04-20T04:52:26.728Z"
+    },
+    {
+      "sev": "LOW",
+      "demo": "salon",
+      "area": "regression",
+      "title": "Quiebres tab not found in Inventory",
+      "detail": "Expected per v2.11.2",
+      "at": "2026-04-20T04:52:26.728Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "hybrid",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 405 ()",
+      "at": "2026-04-20T04:53:04.925Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "hybrid",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 400 ()",
+      "at": "2026-04-20T04:53:04.925Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "hybrid",
+      "area": "console",
+      "title": "/kds: console error",
+      "detail": "Connecting to 'https://www.google.com/g/collect?v=2&tid=G-WV4EDKWVJP&gtm=45je64f1v9248599817za200zd9248599817&_p=1776660780623&gcd=13l3l3l3l1l1&npa=0&dma=0&_eu=AEAAAAQ&ae=a&are=1&cid=1040188723.1776660777&frm=0&pscdl=noapi&rcb=19&sr=1440x900&uaa=x86&uab=64&uafvl=Google%2520Chrome%3B147.0.7727.102%7CNot.A%252FBrand%3B8.0.0.0%7CChromium%3B147.0.7727.102&uam=&uamb=0&uap=Windows&uapv=19.0.0&uaw=0&ul=en-us&_s=2&tag_exp=0%7E115616985%7E115938466%7E115938468%7E117266400&sid=1776660776&sct=1&seg=1&dl=ht",
+      "at": "2026-04-20T04:53:07.489Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "hybrid",
+      "area": "console",
+      "title": "/kds: console error",
+      "detail": "Fetch API cannot load https://www.google.com/g/collect?v=2&tid=G-WV4EDKWVJP&gtm=45je64f1v9248599817za200zd9248599817&_p=1776660780623&gcd=13l3l3l3l1l1&npa=0&dma=0&_eu=AEAAAAQ&ae=a&are=1&cid=1040188723.1776660777&frm=0&pscdl=noapi&rcb=19&sr=1440x900&uaa=x86&uab=64&uafvl=Google%2520Chrome%3B147.0.7727.102%7CNot.A%252FBrand%3B8.0.0.0%7CChromium%3B147.0.7727.102&uam=&uamb=0&uap=Windows&uapv=19.0.0&uaw=0&ul=en-us&_s=2&tag_exp=0%7E115616985%7E115938466%7E115938468%7E117266400&sid=1776660776&sct=1&seg=",
+      "at": "2026-04-20T04:53:07.489Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "hybrid",
+      "area": "regression",
+      "title": "Kiosk/auto-lock toggle not found in Sistema",
+      "detail": "Expected per d5d62a4",
+      "at": "2026-04-20T04:53:16.084Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "mechanic",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 405 ()",
+      "at": "2026-04-20T04:53:53.720Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "mechanic",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 400 ()",
+      "at": "2026-04-20T04:53:53.720Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "mechanic",
+      "area": "regression",
+      "title": "Kiosk/auto-lock toggle not found in Sistema",
+      "detail": "Expected per d5d62a4",
+      "at": "2026-04-20T04:54:02.260Z"
+    },
+    {
+      "sev": "LOW",
+      "demo": "mechanic",
+      "area": "regression",
+      "title": "Quiebres tab not found in Inventory",
+      "detail": "Expected per v2.11.2",
+      "at": "2026-04-20T04:54:02.260Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "service",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 405 ()",
+      "at": "2026-04-20T04:54:38.861Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "service",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 400 ()",
+      "at": "2026-04-20T04:54:38.861Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "service",
+      "area": "regression",
+      "title": "Kiosk/auto-lock toggle not found in Sistema",
+      "detail": "Expected per d5d62a4",
+      "at": "2026-04-20T04:54:47.368Z"
+    },
+    {
+      "sev": "LOW",
+      "demo": "service",
+      "area": "regression",
+      "title": "Quiebres tab not found in Inventory",
+      "detail": "Expected per v2.11.2",
+      "at": "2026-04-20T04:54:47.368Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "prestamos",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 405 ()",
+      "at": "2026-04-20T04:55:27.233Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "prestamos",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 400 ()",
+      "at": "2026-04-20T04:55:27.233Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "prestamos",
+      "area": "regression",
+      "title": "Kiosk/auto-lock toggle not found in Sistema",
+      "detail": "Expected per d5d62a4",
+      "at": "2026-04-20T04:55:35.849Z"
+    },
+    {
+      "sev": "LOW",
+      "demo": "prestamos",
+      "area": "regression",
+      "title": "Quiebres tab not found in Inventory",
+      "detail": "Expected per v2.11.2",
+      "at": "2026-04-20T04:55:35.849Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "dealership",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 405 ()",
+      "at": "2026-04-20T04:56:19.486Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "dealership",
+      "area": "console",
+      "title": "/pos: console error",
+      "detail": "Failed to load resource: the server responded with a status of 400 ()",
+      "at": "2026-04-20T04:56:19.486Z"
+    },
+    {
+      "sev": "MED",
+      "demo": "dealership",
+      "area": "regression",
+      "title": "Kiosk/auto-lock toggle not found in Sistema",
+      "detail": "Expected per d5d62a4",
+      "at": "2026-04-20T04:56:28.033Z"
+    },
+    {
+      "sev": "LOW",
+      "demo": "dealership",
+      "area": "regression",
+      "title": "Quiebres tab not found in Inventory",
+      "detail": "Expected per v2.11.2",
+      "at": "2026-04-20T04:56:28.033Z"
+    }
+  ]
+}

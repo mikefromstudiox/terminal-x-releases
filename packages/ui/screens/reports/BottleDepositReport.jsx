@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Wine, Calendar, Loader2, TrendingUp } from 'lucide-react'
+import { Wine, Calendar, Loader2, TrendingUp, Undo2 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
 
@@ -32,20 +32,33 @@ export default function BottleDepositReport() {
     ;(async () => {
       try {
         const tickets = await api?.reports?.tickets?.({ from: range.from, to: range.to }) || []
-        // Flatten synthetic 'DEP' lines. Also tolerate items flagged with
-        // bottle_deposit_line=true (future-proof — proper column instead of SKU marker).
+        // v2.6 — deposit detection priority: explicit `is_deposit` flag
+        // (canonical, persisted on ticket_items) → legacy `bottle_deposit_line`
+        // runtime flag → synthetic 'DEP' / 'DEP-RET' SKU marker. Any row tied
+        // to a negative-total ticket with the [deposit_return] marker is
+        // accounted as a REFUND (kind='refund') so the report subtracts it
+        // from gross deposits and surfaces the net liability.
         const out = []
         for (const t of tickets) {
+          const notes = String(t.notes || '')
+          const ticketTotal = Number(t.total || 0)
+          const isRefundTicket = ticketTotal < 0 && notes.includes('[deposit_return]')
           for (const it of (t.items || t.services || [])) {
-            const isDeposit = it.bottle_deposit_line === true || String(it.sku || '').toUpperCase() === 'DEP'
+            const sku = String(it.sku || '').toUpperCase()
+            const isDeposit = it.is_deposit === true || it.is_deposit === 1 ||
+                              it.bottle_deposit_line === true ||
+                              sku === 'DEP' || sku === 'DEP-RET'
             if (!isDeposit) continue
+            const qty   = Number(it.quantity || it.qty || 1)
+            const price = Math.abs(Number(it.price || 0))
             out.push({
               date:     (t.created_at || t.date || '').slice(0, 10),
               ticket:   t.doc_number || t.docNumber || t.id,
               product:  it.name || '',
-              qty:      Number(it.quantity || it.qty || 1),
-              price:    Number(it.price || 0),
-              total:    Number(it.price || 0) * Number(it.quantity || it.qty || 1),
+              qty,
+              price,
+              total:    price * qty,
+              kind:     isRefundTicket ? 'refund' : 'collect',
             })
           }
         }
@@ -58,16 +71,22 @@ export default function BottleDepositReport() {
     return () => { cancelled = true }
   }, [api, range.from, range.to])
 
-  const { total, byDay, bottleCount } = useMemo(() => {
-    let total = 0, bottleCount = 0
+  const { collected, refunded, netLiability, byDay, bottleCount, bottleReturned } = useMemo(() => {
+    let collected = 0, refunded = 0, bottleCount = 0, bottleReturned = 0
     const by = new Map()
     for (const r of rows) {
-      total += r.total
-      bottleCount += r.qty
-      by.set(r.date, (by.get(r.date) || 0) + r.total)
+      if (r.kind === 'refund') {
+        refunded += r.total
+        bottleReturned += r.qty
+        by.set(r.date, (by.get(r.date) || 0) - r.total)
+      } else {
+        collected += r.total
+        bottleCount += r.qty
+        by.set(r.date, (by.get(r.date) || 0) + r.total)
+      }
     }
     const byDay = [...by.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-    return { total, byDay, bottleCount }
+    return { collected, refunded, netLiability: collected - refunded, byDay, bottleCount, bottleReturned }
   }, [rows])
 
   return (
@@ -84,30 +103,42 @@ export default function BottleDepositReport() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50 dark:bg-black space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10 p-4">
             <div className="flex items-center gap-2">
               <Wine size={14} className="text-[#b3001e]" />
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-white/40">
-                {lang === 'es' ? 'Depósitos cobrados' : 'Deposits collected'}
+                {lang === 'es' ? 'Cobrados' : 'Collected'}
               </p>
             </div>
-            <p className="mt-2 text-2xl font-black text-[#b3001e]">{fmtRD(total)}</p>
+            <p className="mt-2 text-2xl font-black text-[#b3001e]">{fmtRD(collected)}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">{bottleCount} {lang === 'es' ? 'envases' : 'bottles'}</p>
           </div>
           <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10 p-4">
             <div className="flex items-center gap-2">
-              <TrendingUp size={14} className="text-slate-400" />
+              <Undo2 size={14} className="text-emerald-600" />
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-white/40">
-                {lang === 'es' ? 'Botellas' : 'Bottles'}
+                {lang === 'es' ? 'Devueltos' : 'Refunded'}
               </p>
             </div>
-            <p className="mt-2 text-2xl font-black text-slate-800 dark:text-white">{bottleCount}</p>
+            <p className="mt-2 text-2xl font-black text-emerald-600">{fmtRD(refunded)}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">{bottleReturned} {lang === 'es' ? 'envases' : 'bottles'}</p>
+          </div>
+          <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10 p-4">
+            <div className="flex items-center gap-2">
+              <TrendingUp size={14} className={netLiability >= 0 ? 'text-amber-600' : 'text-slate-400'} />
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-white/40">
+                {lang === 'es' ? 'Pasivo neto' : 'Net liability'}
+              </p>
+            </div>
+            <p className={`mt-2 text-2xl font-black ${netLiability >= 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{fmtRD(netLiability)}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">{lang === 'es' ? 'a devolver' : 'owed to customers'}</p>
           </div>
           <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10 p-4">
             <div className="flex items-center gap-2">
               <Calendar size={14} className="text-slate-400" />
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-white/40">
-                {lang === 'es' ? 'Días con ventas' : 'Active days'}
+                {lang === 'es' ? 'Días activos' : 'Active days'}
               </p>
             </div>
             <p className="mt-2 text-2xl font-black text-slate-800 dark:text-white">{byDay.length}</p>
@@ -139,16 +170,24 @@ export default function BottleDepositReport() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-t border-slate-100 dark:border-white/5 text-slate-700 dark:text-white/80">
-                    <td className="px-4 py-2">{r.date}</td>
-                    <td className="px-4 py-2 font-mono text-xs">{r.ticket}</td>
-                    <td className="px-4 py-2">{r.product}</td>
-                    <td className="px-4 py-2 text-right">{r.qty}</td>
-                    <td className="px-4 py-2 text-right">{fmtRD(r.price)}</td>
-                    <td className="px-4 py-2 text-right font-semibold text-[#b3001e]">{fmtRD(r.total)}</td>
-                  </tr>
-                ))}
+                {rows.map((r, i) => {
+                  const isRef = r.kind === 'refund'
+                  return (
+                    <tr key={i} className={`border-t border-slate-100 dark:border-white/5 ${isRef ? 'bg-emerald-50/40 dark:bg-emerald-500/5' : ''} text-slate-700 dark:text-white/80`}>
+                      <td className="px-4 py-2">{r.date}</td>
+                      <td className="px-4 py-2 font-mono text-xs">
+                        {isRef && <span className="mr-1 text-emerald-600 font-bold">↩</span>}
+                        {r.ticket}
+                      </td>
+                      <td className="px-4 py-2">{r.product}</td>
+                      <td className="px-4 py-2 text-right">{r.qty}</td>
+                      <td className="px-4 py-2 text-right">{fmtRD(r.price)}</td>
+                      <td className={`px-4 py-2 text-right font-semibold ${isRef ? 'text-emerald-600' : 'text-[#b3001e]'}`}>
+                        {isRef ? '−' : ''}{fmtRD(r.total)}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

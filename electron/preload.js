@@ -554,6 +554,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     pull:   () => ipcRenderer.invoke('sync:pull'),
   },
 
+  // ── Nightly DB backup to Supabase Storage ──────────────────────────────────
+  backup: {
+    runNow:     () => call('backup:runNow'),
+    lastStatus: () => call('backup:lastStatus'),
+  },
+
   // ── Multi-POS: block allocation status + manual refill (v2.3) ────────────
   blocks: {
     status: ()   => ipcRenderer.invoke('blocks:status'),

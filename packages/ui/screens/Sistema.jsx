@@ -283,6 +283,10 @@ const SISTEMA_DEFAULTS = {
   // terminal without flushing the session (cart, route, modals all survive).
   kiosk_auto_lock_enabled: '0',
   kiosk_auto_lock_minutes: '10',
+  // v2.6.x — USB-fail retry queue for thermal prints. Buffers failed jobs,
+  // retries with backoff (1s/3s/8s), surfaces a banner after max attempts.
+  print_retry_enabled: '1',
+  print_retry_max:     '3',
 }
 
 // Shared settings hook — loads cfg from DB once, provides set/save
@@ -520,6 +524,13 @@ export function Preferencias() {
         </SettingRow>
         <SettingRow label={L('Probar Gaveta de Dinero', 'Test Cash Drawer')} hint={L('Envia pulso al cajon. Prueba si no abre al cobrar.', 'Sends pulse to drawer. Use if it does not open on cobro.')}>
           <DrawerTester printerApi={printerApi} cfg={cfg} set={set} persistKey={async (k, v) => { set(k, v); try { await api.settings.update({ [k]: v }) } catch {} }} show={show} L={L} />
+        </SettingRow>
+        <SettingRow settingKey="print_retry_enabled" label={L('Reintentar si falla', 'Retry on failure')} hint={L('Si la impresora no responde, reintenta 3x con espera (1s/3s/8s) antes de avisar.', 'If printer does not respond, retry 3x with backoff (1s/3s/8s) before surfacing.')}>
+          <Toggle enabled={on('print_retry_enabled')} onChange={v => set('print_retry_enabled', v ? '1' : '0')} />
+        </SettingRow>
+        <SettingRow settingKey="print_retry_max" label={L('Intentos maximos', 'Max attempts')} hint={L('1 a 5 — mas intentos = mas tiempo antes de mostrar el aviso.', '1 to 5 — more attempts = longer before banner shows.')}>
+          <input type="number" min="1" max="5" value={cfg.print_retry_max || '3'} onChange={e => set('print_retry_max', String(Math.max(1, Math.min(5, parseInt(e.target.value, 10) || 3))))}
+            className="border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 w-20" />
         </SettingRow>
       </SettingSection>
 

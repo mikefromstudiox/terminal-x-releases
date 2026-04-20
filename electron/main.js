@@ -291,6 +291,12 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
       environment: dgiiEnv,
     })
 
+    // DGII audit D-H — on accept (1 or 4), clear any stale deferred flag so a
+    // later manual resubmit of this ticket doesn't emit IndicadorEnvioDiferido=1.
+    if ((status.codigo === 1 || status.codigo === 4) && invoiceData.ticketId) {
+      try { db.ecfClearDeferredForTicket(invoiceData.ticketId) } catch {}
+    }
+
     return {
       ok: true,
       data: {
@@ -326,6 +332,15 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
         environment: getDgiiEnv(),
         ticketSupabaseId,
       })
+      // DGII audit D-H — stamp deferred flag on ticket so XML rebuild in
+      // processDgiiQueue emits IndicadorEnvioDiferido=1. Cleared by the
+      // reconciler after DGII accept (status 1 or 4).
+      if (invoiceData.ticketId) {
+        try {
+          db.rawPrepare?.('UPDATE tickets SET ecf_indicator_diferido=1, updated_at=datetime(\'now\') WHERE id=?').run?.(invoiceData.ticketId)
+          || db.prepare?.('UPDATE tickets SET ecf_indicator_diferido=1, updated_at=datetime(\'now\') WHERE id=?').run?.(invoiceData.ticketId)
+        } catch {}
+      }
       return { ok: false, error: err.message, queued: true }
     }
     return { ok: false, error: err.message }
@@ -408,7 +423,7 @@ ipcMain.handle('dgii:install-cert', async (event, { filePath, passphrase, mac_jt
       if (result.canceled || !result.filePaths[0]) return { ok: false, error: 'Cancelado' }
       certPath = result.filePaths[0]
     }
-    const info = certManager.installCert(certPath, passphrase || '')
+    const info = certManager.installCert(certPath, passphrase || '', { actor: actor || null })
     return { ok: info.ok, data: info }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -748,6 +763,11 @@ async function processDgiiQueue() {
             dgiiMessage: status.mensajes?.join('; ') || status.estado,
             securityCode, signatureDate, environment: env,
           })
+          // DGII audit D-H — clear deferred flag so a future resubmit of this
+          // ticket doesn't carry IndicadorEnvioDiferido=1.
+          if (invoiceData.ticketId) {
+            try { db.ecfClearDeferredForTicket(invoiceData.ticketId) } catch {}
+          }
         }
 
         // v2.10.5 — mark submitted instead of DELETE so the LWW status flip
@@ -796,6 +816,118 @@ async function processDgiiQueue() {
     }
   }
 }
+
+// ── EN_PROCESO reconciler (audit Tier 2) ─────────────────────────────────────
+// When a submitted e-CF stays in DGII status 3 (EN_PROCESO) because the
+// inline pollStatus() timed out, this background tick resolves it to the
+// final verdict (ACEPTADO / RECHAZADO / ACEPTADO_CONDICIONAL). Caps at 20 rows
+// per tick to avoid DGII rate-limiting. Idempotent: rows that already hit a
+// final dgii_status in ecf_submissions are filtered out at the SQL level.
+// Also clears tickets.ecf_indicator_diferido on accept so a later manual
+// resubmit of the same ticket rebuilds XML without a stale deferred flag
+// (audit D-H).
+let _reconcileRunning = false
+async function processDgiiPendingQueue() {
+  if (!db) return
+  if (_reconcileRunning) return                       // reentrancy guard — slow DGII tick
+  // Online gate: Node doesn't have navigator.onLine, but the hwid.json file
+  // must exist (license fresh/in-grace) or there's nothing to reconcile for.
+  try {
+    const hwidFile = path.join(app.getPath('userData'), 'hwid.json')
+    if (!fs.existsSync(hwidFile)) return
+  } catch { return }
+
+  _reconcileRunning = true
+  try {
+    const stale = db.ecfQueueGetStaleSubmitted(20, 5)   // max 20, 5-min min age
+    if (!stale.length) return
+
+    let certPair
+    try { certPair = certManager.loadCert() }
+    catch (e) {
+      console.warn('[dgii-reconcile] cert not loaded, deferring tick:', e.message)
+      return
+    }
+    const { privateKeyPem, certificatePem } = certPair
+
+    // Auth once per env per tick. dgii-client caches tokens internally too.
+    const tokensByEnv = {}
+    let resolved = 0, stillProcessing = 0, errored = 0
+
+    for (const row of stale) {
+      const env = row.environment || getDgiiEnv()
+      try {
+        if (!tokensByEnv[env]) {
+          tokensByEnv[env] = await dgiiClient.authenticate(env, privateKeyPem, certificatePem)
+        }
+        const token  = tokensByEnv[env]
+        const status = await dgiiClient.checkStatus(row.track_id, token, env)
+        const ticketId = (() => {
+          try { return JSON.parse(row.body_json || '{}').ticketId || null } catch { return null }
+        })()
+
+        if (status.codigo === 1 || status.codigo === 2 || status.codigo === 4) {
+          // Final verdict — upsert ecf_submissions (may not exist yet if the
+          // original submit crashed after trackId but before ecfSubmissionAdd).
+          const existing = db.ecfSubmissionGetByTrackId(row.track_id)
+          const msg = status.mensajes?.join('; ') || status.estado || ''
+          if (existing) {
+            db.ecfSubmissionUpdate(row.track_id, {
+              dgiiStatus: status.codigo,
+              dgiiMessage: msg,
+              confirmedAt: new Date().toISOString(),
+            })
+          } else {
+            db.ecfSubmissionAdd({
+              encf: row.encf, tipoEcf: row.tipo_ecf,
+              ticketId,
+              trackId: row.track_id,
+              dgiiStatus: status.codigo, dgiiMessage: msg,
+              environment: env,
+            })
+          }
+          db.ecfQueueMarkDone(row.id)
+
+          // Clear deferred flag on accept (1 or 4). Reject keeps it so a retry
+          // resubmits with IndicadorEnvioDiferido=1 still set.
+          if ((status.codigo === 1 || status.codigo === 4) && ticketId) {
+            try { db.ecfClearDeferredForTicket(ticketId) } catch {}
+          }
+          resolved++
+        } else {
+          // status 0 (no encontrado) or 3 (still processing) — leave queue row
+          // as 'submitted'. Touch updated_at so the 5-min stale window slides.
+          db.ecfQueueMarkSubmitted(row.id, row.track_id)
+          stillProcessing++
+        }
+      } catch (e) {
+        errored++
+        console.warn('[dgii-reconcile] row', row.id, 'trackId', row.track_id, 'failed:', e.message)
+        // No attempt bump — transient DGII/network fault isn't the row's fault.
+      }
+    }
+
+    // Single summary activity_log entry per tick (keeps volume sane).
+    try {
+      db.activityLogRecord?.({
+        event_type: 'dgii_reconcile',
+        severity: errored ? 'warn' : 'info',
+        target_type: 'ecf_queue',
+        metadata: {
+          scanned: stale.length, resolved, still_processing: stillProcessing, errored,
+        },
+      })
+    } catch {}
+  } finally {
+    _reconcileRunning = false
+  }
+}
+
+// Dev-only manual tick (DevTools → window.electronAPI.dgii?.reconcileNow?.())
+ipcMain.handle('dgii:reconcile-now', async () => {
+  await processDgiiPendingQueue()
+  return { ok: true }
+})
 
 // ── ANECF auto-queue processor (v2.10.4, audit E-C6) ─────────────────────────
 // Runs alongside processDgiiQueue on a 60s tick. For every pending row:
@@ -1134,8 +1266,9 @@ app.whenReady().then(async () => {
   } else {
     console.error('[main] DB module not loaded')
   }
-  // Init certificate manager for DGII direct e-CF
-  certManager.init(app)
+  // Init certificate manager for DGII direct e-CF (db handle passed so cert
+  // rotations write rows into ecf_cert_history for the sync layer to push).
+  certManager.init(app, db)
   // Init cloud sync (SQLite → Supabase backup)
   if (db) {
     // Prefer service_role if a dev has it set (bypasses RLS, useful for dev).
@@ -1172,6 +1305,13 @@ app.whenReady().then(async () => {
     processAnecfQueue().catch(() => {})
     setInterval(processAnecfQueue, 60_000)
   }, 45_000)
+  // DGII EN_PROCESO reconciler — 5-min tick, offset so it never collides with
+  // processDgiiQueue (30s) or processAnecfQueue (60s) spikes. First run 90s
+  // after boot (license + cert + network should all be settled).
+  setTimeout(() => {
+    processDgiiPendingQueue().catch(() => {})
+    setInterval(() => { processDgiiPendingQueue().catch(() => {}) }, 5 * 60_000)
+  }, 90_000)
 
   // Nightly SQLite → Supabase Storage backup (3:00 AM local, 24h cadence).
   scheduleNightlyBackup()

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, Component } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { LayoutDashboard, KeyRound, Building2, Users, LogOut, Loader2, Sun, Moon, Monitor, ShieldCheck, MessageCircle } from 'lucide-react'
+import { LayoutDashboard, KeyRound, Building2, Users, LogOut, Loader2, Sun, Moon, Monitor, ShieldCheck, MessageCircle, ShieldAlert } from 'lucide-react'
 import { withRetry, isSupabaseRetryable } from '@terminal-x/services/retry.js'
 import { humanizeNetworkError } from '@terminal-x/services/networkError.js'
 
@@ -27,6 +27,7 @@ import xMark from '../assets/x-mark.webp'
 import { useLang } from '../i18n'
 import Dashboard from './pages/Dashboard'
 import Licenses from './pages/Licenses'
+import LicenseRebinds from './pages/LicenseRebinds'
 import Clients from './pages/Clients'
 import ClientDetail from './pages/ClientDetail'
 import Team from './pages/Team'
@@ -289,6 +290,7 @@ export default function AdminApp({ supabase }) {
     { path: '/admin',          icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/admin/clients',  icon: Building2,       label: L('Clientes', 'Clients') },
     { path: '/admin/licenses', icon: KeyRound,        label: L('Licencias', 'Licenses') },
+    { path: '/admin/license-rebinds', icon: ShieldAlert, label: L('Rebinds', 'Rebinds') },
     { path: '/admin/certifications', icon: ShieldCheck, label: L('Certificaciones', 'Certifications') },
     { path: '/admin/support',  icon: MessageCircle,   label: L('Soporte', 'Support') },
     { path: '/admin/team',     icon: Users,           label: L('Equipo', 'Team') },
@@ -438,6 +440,7 @@ export default function AdminApp({ supabase }) {
                 <Route path="/certifications" element={<Certifications getToken={getToken} refreshToken={refreshToken} isDark={theme.isDark} lang={lang} />} />
                 <Route path="/certifications/:id" element={<CertificationDetail getToken={getToken} refreshToken={refreshToken} isDark={theme.isDark} lang={lang} />} />
                 <Route path="/licenses" element={<Licenses getToken={getToken} refreshToken={refreshToken} isDark={theme.isDark} lang={lang} />} />
+                <Route path="/license-rebinds" element={<LicenseRebinds getToken={getToken} refreshToken={refreshToken} isDark={theme.isDark} lang={lang} />} />
                 <Route path="/support" element={<Support getToken={getToken} refreshToken={refreshToken} isDark={theme.isDark} lang={lang} />} />
                 <Route path="/team" element={<Team getToken={getToken} refreshToken={refreshToken} isDark={theme.isDark} lang={lang} />} />
                 <Route path="*" element={<Navigate to="/admin" replace />} />

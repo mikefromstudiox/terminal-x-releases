@@ -117,6 +117,7 @@ export default async function handler(req, res) {
 
   // 4. Parse .p12 in memory
   let privateKeyPem, certificatePem, subject, expiryISO, expired
+  let certSerial, issuedISO, sha256Fp
   try {
     const p12Der = forge.util.createBuffer(fileBuf.toString('binary'))
     const p12Asn1 = forge.asn1.fromDer(p12Der)
@@ -133,9 +134,17 @@ export default async function handler(req, res) {
     certificatePem = forge.pki.certificateToPem(cert)
     privateKeyPem = forge.pki.privateKeyToPem(privateKey)
     subject = cert.subject.getField('CN')?.value || ''
+    certSerial = cert.serialNumber || null
+    issuedISO = cert.validity.notBefore ? cert.validity.notBefore.toISOString() : null
     const validTo = cert.validity.notAfter
     expiryISO = validTo.toISOString()
     expired = validTo.getTime() < Date.now()
+    // SHA-256 fingerprint of the DER certificate (RFC 5280).
+    try {
+      const crypto = await import('node:crypto')
+      const certDer = Buffer.from(forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes(), 'binary')
+      sha256Fp = crypto.createHash('sha256').update(certDer).digest('hex')
+    } catch { sha256Fp = null }
   } catch (err) {
     // node-forge throws a generic error for both wrong passphrase and corrupt files
     return json(res, 400, { ok: false, error: 'Contraseña incorrecta o archivo .p12 inválido' })
@@ -178,6 +187,57 @@ export default async function handler(req, res) {
     .update({ settings: merged })
     .eq('id', businessId)
   if (updErr) return json(res, 500, { ok: false, error: 'No se pudo guardar el certificado: ' + updErr.message })
+
+  // 6. Append an audit row to ecf_cert_history. Never fatal — settings already
+  // saved, the history log is best-effort. rotation_reason inferred from the
+  // prior settings snapshot so we get 'initial' on first install, 'renewal'
+  // when the serial changes (same subject), and 'replacement' when the
+  // subject changes (different cert authority or legal entity).
+  try {
+    const prevSerial = currentSettings.ecf_cert_serial || null
+    const prevSubject = currentSettings.ecf_cert_subject || null
+    const prevExpiry = currentSettings.ecf_cert_expiry || null
+    let rotationReason = 'initial'
+    if (prevSerial && certSerial && prevSerial !== certSerial) {
+      rotationReason = prevSubject && subject && prevSubject !== subject ? 'replacement' : 'renewal'
+    } else if (prevSerial && certSerial && prevSerial === certSerial) {
+      // Re-uploading the same cert (e.g., clearing the env) — still a renewal event.
+      rotationReason = 'renewal'
+    }
+
+    const { data: actorRow } = await supabase
+      .from('staff')
+      .select('name')
+      .eq('auth_user_id', user.id)
+      .eq('business_id', businessId)
+      .maybeSingle()
+
+    await supabase.from('ecf_cert_history').insert({
+      business_id: businessId,
+      cert_serial: certSerial,
+      subject_cn: subject,
+      subject_rnc: null, // subject CN often *contains* the RNC; left null to avoid bad parsing
+      issued_at: issuedISO,
+      expires_at: expiryISO,
+      installed_by_user_id: user.id,
+      installed_by_name: actorRow?.name || null,
+      installed_from: 'web',
+      rotation_reason: rotationReason,
+      sha256_fingerprint: sha256Fp,
+      prev_serial: prevSerial,
+      prev_expires_at: prevExpiry,
+    })
+  } catch (histErr) {
+    // Swallow — history audit is non-blocking.
+    console.error('[dgii-cert-upload] history append failed:', histErr?.message)
+  }
+
+  // Persist serial into settings so the next upload can diff against it.
+  try {
+    await supabase.from('businesses').update({
+      settings: { ...merged, ecf_cert_serial: certSerial }
+    }).eq('id', businessId)
+  } catch {}
 
   return json(res, 200, { ok: true, subject, expiry: expiryISO, expired })
 }

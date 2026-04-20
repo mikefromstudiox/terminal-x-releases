@@ -18,11 +18,49 @@ const { safeStorage } = require('electron')
 
 let _app = null
 let _certDir = null
+let _db = null
 
-function init(app) {
+function init(app, db) {
   _app = app
+  _db = db || null
   _certDir = path.join(app.getPath('userData'), 'certs')
   if (!fs.existsSync(_certDir)) fs.mkdirSync(_certDir, { recursive: true })
+}
+
+/** Allow main.js to attach the DB handle after DB is ready (init may run earlier). */
+function attachDb(db) { _db = db }
+
+/**
+ * Snapshot the currently installed cert (if any) + the just-installed cert
+ * into local ecf_cert_history so sync.js pushes the audit row to Supabase.
+ * Best-effort — never throws. No-op if DB not attached yet.
+ */
+function _appendHistoryLocal({ cert, rotationReason, prevInfo, actor }) {
+  try {
+    if (!_db || typeof _db.rawPrepare !== 'function') return
+    const certDer = Buffer.from(forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes(), 'binary')
+    const sha256Fp = crypto.createHash('sha256').update(certDer).digest('hex')
+    const row = {
+      supabase_id:          crypto.randomUUID(),
+      business_id:          null, // sync layer stamps business_id at push time
+      cert_serial:          cert.serialNumber || null,
+      subject_cn:           cert.subject.getField('CN')?.value || null,
+      subject_rnc:          null,
+      issued_at:            cert.validity.notBefore ? cert.validity.notBefore.toISOString() : null,
+      expires_at:           cert.validity.notAfter  ? cert.validity.notAfter.toISOString()  : null,
+      installed_at:         new Date().toISOString(),
+      installed_by_user_id: actor?.supabase_id || null,
+      installed_by_name:    actor?.name || null,
+      installed_from:       'desktop',
+      rotation_reason:      rotationReason,
+      sha256_fingerprint:   sha256Fp,
+      prev_serial:          prevInfo?.serialNumber || null,
+      prev_expires_at:      prevInfo?.expiry || null,
+    }
+    _db.ecfCertHistoryInsert?.(row)
+  } catch (e) {
+    console.error('[cert-manager] history append failed:', e.message)
+  }
 }
 
 /**
@@ -31,7 +69,7 @@ function init(app) {
  * @param {string} passphrase — certificate passphrase
  * @returns {{ ok: boolean, serialNumber?: string, subject?: string, expiry?: string, error?: string }}
  */
-function installCert(sourcePath, passphrase) {
+function installCert(sourcePath, passphrase, opts = {}) {
   if (!_app) throw new Error('cert-manager not initialised — call init(app) first')
 
   const raw = fs.readFileSync(sourcePath)
@@ -63,6 +101,23 @@ function installCert(sourcePath, passphrase) {
   const subject = cert.subject.getField('CN')?.value || ''
   const expiry = cert.validity.notAfter.toISOString()
 
+  // Snapshot the OUTGOING cert's final state BEFORE we overwrite the .p12 on
+  // disk. This is the whole point of the audit trail — we must record the
+  // rotation event while we still have both old and new cert in hand.
+  let prevInfo = null
+  try { prevInfo = getCertInfo() } catch {}
+  const hadPrev = prevInfo && prevInfo.installed && prevInfo.serialNumber
+  let rotationReason = 'initial'
+  if (hadPrev) {
+    if (prevInfo.serialNumber !== serialNumber) {
+      // Different serial → compare subject CN to separate renewal vs replacement.
+      const prevSubject = prevInfo.subject || ''
+      rotationReason = (prevSubject && subject && prevSubject !== subject) ? 'replacement' : 'renewal'
+    } else {
+      rotationReason = 'renewal'
+    }
+  }
+
   // Copy .p12 to userData/certs/
   const destPath = path.join(_certDir, 'dgii-cert.p12')
   fs.copyFileSync(sourcePath, destPath)
@@ -78,7 +133,10 @@ function installCert(sourcePath, passphrase) {
   }
   fs.writeFileSync(storePath, JSON.stringify(store))
 
-  return { ok: true, serialNumber, subject, expiry }
+  // Append audit row for the rotation (desktop-originated).
+  _appendHistoryLocal({ cert, rotationReason, prevInfo, actor: opts.actor || null })
+
+  return { ok: true, serialNumber, subject, expiry, rotationReason }
 }
 
 /**
@@ -168,4 +226,4 @@ function validateForRNC(rnc) {
   return { valid: snMatch || subMatch, serialNumber: info.serialNumber, subject: info.subject }
 }
 
-module.exports = { init, installCert, loadCert, getCertInfo, validateForRNC }
+module.exports = { init, attachDb, installCert, loadCert, getCertInfo, validateForRNC }

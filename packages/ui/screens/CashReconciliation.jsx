@@ -623,6 +623,22 @@ export default function CashReconciliation() {
                 <ResumeRow label={L('Cheque', 'Check')}                  value={fmt(daySummary.cheque)} />
                 <ResumeRow divider />
                 <ResumeRow label={L('Créditos', 'Credits')}              value={fmt(daySummary.credito)} muted />
+                {/* v2.6 — Licoreria: bottle/envase deposit reconciliation.
+                    `depositos_cobrados` is *already* part of totalVendido (a
+                    deposit line is a regular paid ticket line) — we surface
+                    the breakdown here so cuadre shows what portion of cash
+                    is a deferred liability rather than revenue. */}
+                {(Number(daySummary.depositos_cobrados) > 0 || Number(daySummary.depositos_devueltos) > 0) && (
+                  <>
+                    <ResumeRow divider />
+                    <ResumeRow label={L('Depósitos cobrados', 'Deposits collected')}
+                               value={fmt(daySummary.depositos_cobrados || 0)} indent />
+                    <ResumeRow label={L('Depósitos devueltos', 'Deposits refunded')}
+                               value={fmt(daySummary.depositos_devueltos || 0)} indent />
+                    <ResumeRow label={L('Depósitos neto (pasivo)', 'Deposits net (liability)')}
+                               value={fmt((daySummary.depositos_cobrados || 0) - (daySummary.depositos_devueltos || 0))} bold />
+                  </>
+                )}
                 <ResumeRow divider />
                 <ResumeRow label={L('Total Vendido', 'Total Sold')}      value={fmt(daySummary.totalVendido)} bold />
                 <ResumeRow label={L('Total Cobrado', 'Total Collected')} value={fmt(daySummary.totalCobrado)} bold />

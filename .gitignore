@@ -14,3 +14,14 @@ release/
 test-dgii-auth*.js
 demo-cards.txt
 demo-cards-*.txt
+tmp/
+test-results/
+test-results-salon/
+tests/test-results/
+tests/e2e/results/
+tests/e2e/results-audit/
+tests/e2e/report.json
+tests/e2e/verdict.json
+tests/e2e/audit-*.json
+tests/smoke/results/
+tests/hibrido/
