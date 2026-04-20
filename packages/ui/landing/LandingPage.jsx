@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
-import { Monitor, Shield, Zap, BarChart3, Receipt, Users, ArrowRight, Check, X, Wifi, WifiOff, Printer, MessageSquare, ChevronDown, ChevronUp, Clock, CreditCard, FileText, Lock, Smartphone, Star, TrendingUp, Headphones, Menu, ExternalLink, Globe, Banknote, Calculator, Crown, Award, BadgeCheck, Package } from 'lucide-react'
+import { Monitor, Shield, Zap, BarChart3, Receipt, Users, ArrowRight, Check, X, Wifi, WifiOff, Printer, MessageSquare, ChevronDown, ChevronUp, Clock, CreditCard, FileText, Lock, Smartphone, Star, TrendingUp, Headphones, Menu, ExternalLink, Globe, Banknote, Calculator, Crown, Award, BadgeCheck, Package, Gift, ClipboardList, Mail, IdCard } from 'lucide-react'
 import logoImg from '../assets/logo.webp'
 
 function useBrowserLang() {
@@ -555,6 +555,74 @@ export default function LandingPage({ section }) {
                 </a>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 3.4: Nuevo en Terminal X — v2.11.0 hero features — BLACK */}
+      <section id="nuevo" className="bg-black px-4 py-24 sm:px-6 lg:px-8 border-t border-white/5">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#b3001e]/15 border border-[#b3001e]/40 mb-4">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#b3001e] animate-pulse" />
+              <span className="text-[10px] font-bold uppercase tracking-[2px] text-[#b3001e]">v2.11.0 · {L('Abril 2026', 'April 2026')}</span>
+            </div>
+            <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Nuevo en Terminal X', 'New in Terminal X')}</p>
+            <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-white">{L('Lo ultimo que cambiamos por ti.', 'The latest upgrades we shipped for you.')}</h2>
+            <p className="mt-4 text-lg text-white/60 max-w-2xl mx-auto">{L('Seis funciones nuevas que te ahorran tiempo, previenen perdidas y te dan el control real del negocio — incluidas en tu plan actual, sin costo extra.', 'Six new features that save you time, prevent losses, and give you real control of the business — included in your current plan at no extra cost.')}</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-16">
+            {[
+              {
+                Icon: IdCard,
+                title: L('Tarjeta de Autorizacion de Gerente', 'Manager Authorization Card'),
+                body: L('Tus cajeras no memorizan PINs. Los gerentes llevan una tarjeta fisica con codigo de barras — se escanea, se autoriza, se registra.', 'Cashiers don\'t memorize PINs. Managers carry a physical card with barcode — scan, authorize, log.'),
+              },
+              {
+                Icon: Gift,
+                title: L('Programa de Lealtad', 'Loyalty Program'),
+                body: L('Tus clientes acumulan puntos y regresan mas. Automatico, por niveles, con canje en el POS.', 'Customers earn points and come back more. Automatic, tiered, redeemable at checkout.'),
+              },
+              {
+                Icon: ClipboardList,
+                title: L('Conteo Fisico Semanal', 'Weekly Physical Count'),
+                body: L('Imprime la hoja, cuenta, entra los numeros. Recibes un reporte de merma en RD$ por SKU.', 'Print the sheet, count, enter the numbers. Get a shrinkage report in RD$ by SKU.'),
+              },
+              {
+                Icon: Users,
+                title: L('Multi-dispositivo Sin Conflicto', 'Multi-device without Conflicts'),
+                body: L('Dos cajeras vendiendo al mismo tiempo sin vender la misma botella dos veces. Bloqueo de ticket en tiempo real.', 'Two cashiers selling at the same time without double-selling the same bottle. Real-time ticket locks.'),
+              },
+              {
+                Icon: WifiOff,
+                title: L('Modo Offline', 'Offline Mode'),
+                body: L('El internet se cae, tu sigues vendiendo. Se sincroniza solo cuando vuelve la senal. 100% PWA.', 'Internet drops, you keep selling. Syncs automatically when it comes back. 100% PWA.'),
+              },
+              {
+                Icon: Mail,
+                title: L('Resumen Diario Automatico', 'Automatic Daily Digest'),
+                body: L('Cada manana a las 9:00 AM te llega el WhatsApp con las ventas de ayer — sin abrir el sistema.', 'Every morning at 9:00 AM the WhatsApp arrives with yesterday\'s sales — without opening the system.'),
+              },
+            ].map(({ Icon, title, body }, i) => (
+              <div key={i} className="group rounded-2xl border border-white/10 bg-white/5 p-8 transition-all hover:-translate-y-2 hover:border-[#b3001e] hover:bg-[#b3001e]/5 hover:shadow-2xl hover:shadow-[#b3001e]/20">
+                <div className="w-12 h-12 bg-[#b3001e]/15 border border-[#b3001e]/40 rounded-xl flex items-center justify-center mb-5 group-hover:bg-[#b3001e] transition-colors">
+                  <Icon size={22} className="text-[#b3001e] group-hover:text-white transition-colors" />
+                </div>
+                <h3 className="text-base font-bold text-white mb-2">{title}</h3>
+                <p className="text-sm text-white/60 leading-relaxed">{body}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-center gap-4 flex-wrap mt-14">
+            <a href="#pricing" className="bg-[#b3001e] hover:bg-[#d4002a] px-6 py-3 text-sm font-bold text-white rounded-lg transition-colors shadow-lg shadow-red-500/25">
+              {L('Ver plan completo', 'See full plan')} <ArrowRight size={16} className="inline ml-1" />
+            </a>
+            <a href="https://wa.me/18098282971?text=Quiero%20ver%20lo%20nuevo%20de%20Terminal%20X%20v2.11" target="_blank" rel="noopener noreferrer"
+              className="border border-white/20 text-white/80 hover:border-white/40 hover:bg-white/5 px-6 py-3 text-sm font-bold rounded-lg transition-all">
+              {L('Pedir demo en vivo', 'Request live demo')}
+            </a>
           </div>
         </div>
       </section>
