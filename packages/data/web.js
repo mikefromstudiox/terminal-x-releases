@@ -783,6 +783,65 @@ export function createWebAPI(supabase, businessId) {
             .order('name').limit(20)
         )
       }, []),
+
+      // v2.11.2 — Shortage ledger. Mirrors desktop inventoryOversellsList with
+      // the same return shape. Tickets / inventory_items are joined client-side
+      // because PostgREST embedded joins require FK declarations we don't keep
+      // on inventory_oversells (its keys are supabase_id text, not id FKs).
+      oversells: {
+        list: ({ from, to, itemId, itemSupabaseId } = {}) => tryOr(async () => {
+          let q = supabase.from('inventory_oversells').select('*').eq('business_id', bid)
+          if (from) q = q.gte('detected_at', from)
+          if (to)   q = q.lte('detected_at', to)
+          if (itemSupabaseId) q = q.eq('item_supabase_id', itemSupabaseId)
+          q = q.order('detected_at', { ascending: false }).limit(2000)
+          const rows = throwSupaError(await q) || []
+          if (!rows.length) return []
+          const itemSids   = [...new Set(rows.map(r => r.item_supabase_id).filter(Boolean))]
+          const ticketSids = [...new Set(rows.map(r => r.ticket_supabase_id).filter(Boolean))]
+          const itemMap = {}, ticketMap = {}
+          if (itemSids.length) {
+            const items = throwSupaError(await supabase.from('inventory_items')
+              .select('id, supabase_id, name, sku').eq('business_id', bid).in('supabase_id', itemSids)) || []
+            for (const it of items) itemMap[it.supabase_id] = it
+          }
+          if (ticketSids.length) {
+            const tks = throwSupaError(await supabase.from('tickets')
+              .select('id, supabase_id, ncf, comprobante_type, total, created_at')
+              .eq('business_id', bid).in('supabase_id', ticketSids)) || []
+            for (const t of tks) ticketMap[t.supabase_id] = t
+          }
+          // itemId (numeric id) filter applied client-side so web matches
+          // desktop semantics even though web rows address by supabase_id.
+          let out = rows.map(r => {
+            const it = itemMap[r.item_supabase_id] || null
+            const tk = ticketMap[r.ticket_supabase_id] || null
+            return {
+              id:                 r.id,
+              supabase_id:        r.supabase_id,
+              ticket_supabase_id: r.ticket_supabase_id,
+              item_supabase_id:   r.item_supabase_id,
+              item_name:          it?.name || r.item_name || null,
+              sku:                it?.sku || null,
+              inventory_item_id:  it?.id || null,
+              requested_qty:      Number(r.requested_qty) || 0,
+              actual_qty:         Number(r.actual_qty) || 0,
+              shortage_qty:       (Number(r.requested_qty) || 0) - (Number(r.actual_qty) || 0),
+              detected_at:        r.detected_at,
+              resolved_at:        r.resolved_at,
+              resolution_type:    r.resolution_type,
+              resolution_notes:   r.resolution_notes,
+              ticket_id:          tk?.id || null,
+              doc_number:         tk?.ncf || null,
+              comprobante_type:   tk?.comprobante_type || null,
+              ticket_total:       tk?.total || null,
+              ticket_created_at:  tk?.created_at || null,
+            }
+          })
+          if (itemId != null && !itemSupabaseId) out = out.filter(r => r.inventory_item_id === Number(itemId))
+          return out
+        }, []),
+      },
     },
 
     // ── Conteo Fisico (v2.5) ────────────────────────────────────────────────

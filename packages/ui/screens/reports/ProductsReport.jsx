@@ -23,6 +23,7 @@ export default function ProductsReport() {
   const [to, setTo] = useState(todayStr())
   const [loading, setLoading] = useState(true)
   const [tickets, setTickets] = useState([])
+  const [shortages, setShortages] = useState([])
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState('revenue')
   const [sortDir, setSortDir] = useState('desc')
@@ -32,14 +33,42 @@ export default function ProductsReport() {
     async function load() {
       setLoading(true)
       try {
-        const data = await api.tickets.byDateRange({ dateFrom: from + 'T00:00:00', dateTo: to + 'T23:59:59' })
-        if (!cancelled) setTickets(data || [])
+        const [tData, sData] = await Promise.all([
+          api.tickets.byDateRange({ dateFrom: from + 'T00:00:00', dateTo: to + 'T23:59:59' }),
+          api.inventory?.oversells?.list?.({ from: from + 'T00:00:00', to: to + 'T23:59:59' }) || Promise.resolve([]),
+        ])
+        if (!cancelled) {
+          setTickets(tData || [])
+          setShortages(Array.isArray(sData) ? sData : [])
+        }
       } catch {}
       if (!cancelled) setLoading(false)
     }
     load()
     return () => { cancelled = true }
   }, [from, to, api])
+
+  // v2.11.2 — Shortage index. Keyed by every identifier we might match against
+  // the product aggregation (item_supabase_id, inventory_item_id, sku, name).
+  const shortageIndex = useMemo(() => {
+    const idx = {}
+    for (const r of shortages) {
+      const short = Math.max(0, (Number(r.requested_qty) || 0) - (Number(r.actual_qty) || 0))
+      const events = 1
+      const keys = [
+        r.item_supabase_id,
+        r.inventory_item_id != null ? String(r.inventory_item_id) : null,
+        r.sku,
+        r.item_name,
+      ].filter(Boolean)
+      for (const k of keys) {
+        if (!idx[k]) idx[k] = { short: 0, events: 0 }
+        idx[k].short  += short
+        idx[k].events += events
+      }
+    }
+    return idx
+  }, [shortages])
 
   // Aggregate by product
   // DR convention: when a line aplica_itbis, the 18% belongs to DGII — not the
@@ -92,9 +121,19 @@ export default function ProductsReport() {
     return Object.values(map)
   }, [tickets])
 
+  // Attach shortage counts to each product after aggregation so the column
+  // reflects true quiebres even when the product was sold from stock fine
+  // on some tickets and short on others.
+  const productsWithShortages = useMemo(() => {
+    return products.map(p => {
+      const hit = shortageIndex[p.sku] || shortageIndex[p.name] || null
+      return { ...p, shortageQty: hit?.short || 0, shortageEvents: hit?.events || 0 }
+    })
+  }, [products, shortageIndex])
+
   // Filter + sort
   const filtered = useMemo(() => {
-    let list = products
+    let list = productsWithShortages
     if (search) {
       const q = search.toLowerCase()
       list = list.filter(p => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
@@ -199,6 +238,10 @@ export default function ProductsReport() {
                   <span className="inline-flex items-center gap-1">{L('Margen %', 'Margin %')} <SortIcon col="marginPct" /></span>
                 </th>
                 <th className="text-right px-3 py-2 font-semibold text-slate-500 dark:text-white/40">{L('Ventas', 'Sales')}</th>
+                <th className="text-right px-3 py-2 font-semibold text-red-500 dark:text-red-400 cursor-pointer select-none" onClick={() => toggleSort('shortageQty')}
+                  title={L('Unidades vendidas sin stock suficiente (quiebres de inventario)', 'Units sold exceeding available stock (inventory shortages)')}>
+                  <span className="inline-flex items-center gap-1">{L('Quiebres', 'Short')} <SortIcon col="shortageQty" /></span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -217,6 +260,13 @@ export default function ProductsReport() {
                     {p.revenueNet > 0 ? `${Math.round(p.marginPct)}%` : '—'}
                   </td>
                   <td className="px-3 py-2 text-right text-slate-500 dark:text-white/60">{p.transactions}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {p.shortageQty > 0 ? (
+                      <span className="font-semibold text-red-500 dark:text-red-400" title={`${p.shortageEvents} ${L('eventos', 'events')}`}>
+                        {Number.isInteger(p.shortageQty) ? p.shortageQty : p.shortageQty.toFixed(2)}
+                      </span>
+                    ) : <span className="text-slate-300 dark:text-white/20">—</span>}
+                  </td>
                 </tr>
               ))}
               {/* Totals row */}
@@ -231,6 +281,12 @@ export default function ProductsReport() {
                   {totals.revenueNet > 0 ? `${Math.round(totals.marginPct)}%` : '—'}
                 </td>
                 <td className="px-3 py-2"></td>
+                <td className="px-3 py-2 text-right tabular-nums text-red-500 dark:text-red-400">
+                  {(() => {
+                    const t = filtered.reduce((s, p) => s + (p.shortageQty || 0), 0)
+                    return t > 0 ? (Number.isInteger(t) ? t : t.toFixed(2)) : '—'
+                  })()}
+                </td>
               </tr>
             </tbody>
           </table>

@@ -3,7 +3,7 @@ import {
   Package, Plus, Search, AlertTriangle, X,
   ChevronUp, ChevronDown, Pencil, Trash2,
   History, RefreshCw, Loader2, Upload, FileSpreadsheet,
-  Check, Wine, Tags, Bike,
+  Check, Wine, Tags, Bike, TrendingDown, Calendar,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useAPI } from '../context/DataContext'
@@ -938,6 +938,217 @@ function InlinePYPrice({ item, onSave }) {
   )
 }
 
+// ── Shortages ("Quiebres de stock") tab ────────────────────────────────────────
+// Reads from inventory_oversells via api.inventory.oversells.list. Every row
+// is a moment where a sale was completed for MORE units than we had in stock
+// (requested > actual). Displayed descending by detection time so owners see
+// the freshest drift first. Totals + top-5 ranking help diagnose WHICH items
+// keep breaking — usually a cue to fix miscounted min_quantity, supplier
+// delays, or silent theft.
+function ShortagesTab({ items }) {
+  const api = useAPI()
+  const { lang } = useLang()
+  const L = (es, en) => lang === 'en' ? en : es
+
+  const today    = new Date()
+  const monthAgo = new Date(); monthAgo.setDate(today.getDate() - 30)
+  const toIso = (d) => d.toISOString().slice(0, 10)
+
+  const [from, setFrom] = useState(toIso(monthAgo))
+  const [to,   setTo]   = useState(toIso(today))
+  const [itemId, setItemId] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [rows, setRows] = useState([])
+
+  async function load() {
+    setLoading(true)
+    try {
+      const data = await api?.inventory?.oversells?.list?.({
+        from: from ? from + 'T00:00:00' : null,
+        to:   to   ? to   + 'T23:59:59' : null,
+        itemId: itemId ? Number(itemId) : null,
+      })
+      setRows(Array.isArray(data) ? data : [])
+    } catch {
+      setRows([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() /* eslint-disable-next-line */ }, [from, to, itemId])
+
+  const totals = useMemo(() => {
+    const count = rows.length
+    const totalMissing = rows.reduce((s, r) => s + Math.max(0, Number(r.shortage_qty) || 0), 0)
+    const perItem = {}
+    for (const r of rows) {
+      const key = r.item_supabase_id || r.item_name || 'unknown'
+      if (!perItem[key]) perItem[key] = { name: r.item_name || '—', sku: r.sku || '', missing: 0, events: 0 }
+      perItem[key].missing += Math.max(0, Number(r.shortage_qty) || 0)
+      perItem[key].events  += 1
+    }
+    const top5 = Object.values(perItem)
+      .sort((a, b) => b.missing - a.missing || b.events - a.events)
+      .slice(0, 5)
+    const uniqueItems = Object.keys(perItem).length
+    return { count, totalMissing, top5, uniqueItems }
+  }, [rows])
+
+  const fmtDT = (s) => {
+    if (!s) return '—'
+    try { return new Date(s).toLocaleString('es-DO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) }
+    catch { return s }
+  }
+  const fmtQty = (n) => {
+    const v = Number(n) || 0
+    return Number.isInteger(v) ? String(v) : v.toFixed(2)
+  }
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      {/* Filters */}
+      <div className="px-4 md:px-6 py-3 flex flex-wrap items-center gap-3 border-b border-slate-200 dark:border-white/10 shrink-0">
+        <div className="flex items-center gap-2">
+          <Calendar size={14} className="text-slate-400" />
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+            className="text-xs border border-slate-200 dark:border-white/10 rounded-lg px-2 py-1.5 bg-white dark:bg-white/5 text-slate-700 dark:text-white" />
+          <span className="text-xs text-slate-400">—</span>
+          <input type="date" value={to} onChange={e => setTo(e.target.value)}
+            className="text-xs border border-slate-200 dark:border-white/10 rounded-lg px-2 py-1.5 bg-white dark:bg-white/5 text-slate-700 dark:text-white" />
+        </div>
+        <select value={itemId} onChange={e => setItemId(e.target.value)}
+          className="text-xs border border-slate-200 dark:border-white/10 rounded-lg px-2 py-1.5 bg-white dark:bg-white/5 text-slate-700 dark:text-white max-w-[220px]">
+          <option value="">{L('Todos los productos', 'All products')}</option>
+          {(items || []).slice().sort((a,b) => a.name.localeCompare(b.name)).map(it => (
+            <option key={it.id} value={it.id}>{it.name}{it.sku ? ` (${it.sku})` : ''}</option>
+          ))}
+        </select>
+        <button onClick={load} className="p-1.5 text-slate-400 dark:text-white/40 hover:text-slate-600 dark:hover:text-white" title={L('Actualizar', 'Refresh')}>
+          <RefreshCw size={14} />
+        </button>
+      </div>
+
+      {/* Stats + top-5 */}
+      <div className="px-4 md:px-6 py-3 grid grid-cols-1 md:grid-cols-3 gap-3 shrink-0">
+        <div className="bg-white dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10 px-4 py-3">
+          <p className="text-[10px] text-slate-400 dark:text-white/40 uppercase tracking-wider">{L('Eventos de quiebre', 'Shortage events')}</p>
+          <p className={`text-[20px] font-bold ${totals.count > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-700 dark:text-white'}`}>{totals.count}</p>
+          <p className="text-[11px] text-slate-400 dark:text-white/40 mt-0.5">{totals.uniqueItems} {L('productos afectados', 'items affected')}</p>
+        </div>
+        <div className="bg-white dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10 px-4 py-3">
+          <p className="text-[10px] text-slate-400 dark:text-white/40 uppercase tracking-wider">{L('Unidades faltantes', 'Units short')}</p>
+          <p className={`text-[20px] font-bold ${totals.totalMissing > 0 ? 'text-red-500 dark:text-red-400' : 'text-slate-700 dark:text-white'}`}>{fmtQty(totals.totalMissing)}</p>
+          <p className="text-[11px] text-slate-400 dark:text-white/40 mt-0.5">{L('Total vendido sin stock', 'Sold without stock')}</p>
+        </div>
+        <div className="bg-white dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10 px-4 py-3">
+          <p className="text-[10px] text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1">{L('Top 5 productos', 'Top 5 items')}</p>
+          {totals.top5.length === 0 ? (
+            <p className="text-xs text-slate-400 dark:text-white/40">—</p>
+          ) : (
+            <ol className="text-[11px] text-slate-600 dark:text-white/70 space-y-0.5">
+              {totals.top5.map((t, i) => (
+                <li key={i} className="flex items-center justify-between gap-2">
+                  <span className="truncate"><span className="text-slate-400 dark:text-white/40 mr-1">{i + 1}.</span>{t.name}</span>
+                  <span className="text-red-500 dark:text-red-400 font-semibold shrink-0">{fmtQty(t.missing)}<span className="text-slate-400 dark:text-white/30 font-normal"> / {t.events}x</span></span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="flex-1 overflow-auto px-4 md:px-6 pb-6">
+        {loading ? (
+          <div className="flex items-center justify-center py-16 text-slate-400 dark:text-white/40 text-sm gap-2">
+            <Loader2 size={16} className="animate-spin" /> {L('Cargando…', 'Loading…')}
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-slate-400 dark:text-white/40 gap-3">
+            <Check size={36} strokeWidth={1.2} className="text-emerald-500" />
+            <p className="text-sm text-center max-w-md">
+              {L('No se han detectado quiebres de stock — todo bien!', 'No stock shortages detected — all good!')}
+            </p>
+          </div>
+        ) : (
+          <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10 overflow-hidden">
+            <table className="hidden md:table w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 dark:border-white/10 text-left">
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide">{L('Fecha', 'Date')}</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide">{L('Producto', 'Item')}</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide">{L('Ticket', 'Ticket')}</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">{L('Pedido', 'Requested')}</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">{L('Entregado', 'Fulfilled')}</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-red-500 uppercase tracking-wide text-right">{L('Faltante', 'Short')}</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide">{L('Estado', 'Status')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r => {
+                  const resolved = !!r.resolved_at
+                  const short = Math.max(0, Number(r.shortage_qty) || 0)
+                  return (
+                    <tr key={r.id || r.supabase_id} className="border-b border-slate-50 dark:border-white/5 last:border-0 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors">
+                      <td className="px-4 py-3 text-xs text-slate-500 dark:text-white/60 whitespace-nowrap">{fmtDT(r.detected_at)}</td>
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-slate-800 dark:text-white">{r.item_name || '—'}</p>
+                        {r.sku && <p className="text-[11px] text-slate-400 dark:text-white/40 mt-0.5 font-mono">{r.sku}</p>}
+                      </td>
+                      <td className="px-4 py-3 text-xs font-mono text-slate-500 dark:text-white/60">
+                        {r.doc_number || (r.ticket_id ? `#${r.ticket_id}` : '—')}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700 dark:text-white tabular-nums">{fmtQty(r.requested_qty)}</td>
+                      <td className="px-4 py-3 text-right text-slate-500 dark:text-white/60 tabular-nums">{fmtQty(r.actual_qty)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums font-bold text-red-500 dark:text-red-400">{fmtQty(short)}</td>
+                      <td className="px-4 py-3">
+                        {resolved ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[11px] font-medium">
+                            <Check size={11} /> {L('Resuelto', 'Resolved')}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[11px] font-medium">
+                            <AlertTriangle size={11} /> {L('Pendiente', 'Open')}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+
+            {/* Mobile cards */}
+            <div className="md:hidden divide-y divide-slate-100 dark:divide-white/10">
+              {rows.map(r => {
+                const short = Math.max(0, Number(r.shortage_qty) || 0)
+                const resolved = !!r.resolved_at
+                return (
+                  <div key={r.id || r.supabase_id} className="px-4 py-3 space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">{r.item_name || '—'}</p>
+                      <span className="text-[13px] font-bold text-red-500 dark:text-red-400 tabular-nums shrink-0">−{fmtQty(short)}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 dark:text-white/40">{fmtDT(r.detected_at)} · {r.doc_number || (r.ticket_id ? `#${r.ticket_id}` : '—')}</p>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-white/60">
+                      <span>{L('Pedido', 'Requested')}: <span className="font-semibold text-slate-700 dark:text-white">{fmtQty(r.requested_qty)}</span></span>
+                      <span>{L('Entregado', 'Fulfilled')}: <span className="font-semibold text-slate-700 dark:text-white">{fmtQty(r.actual_qty)}</span></span>
+                      <span className={resolved ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
+                        {resolved ? L('Resuelto', 'Resolved') : L('Pendiente', 'Open')}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main screen ───────────────────────────────────────────────────────────────
 export default function Inventory() {
   const api = useAPI()
@@ -948,6 +1159,7 @@ export default function Inventory() {
   const [loading,  setLoading]  = useState(true)
   const [search,   setSearch]   = useState('')
   const [filter,   setFilter]   = useState('all')   // 'all' | 'low'
+  const [tab,      setTab]      = useState('items') // 'items' | 'shortages'
   const [modal,    setModal]    = useState(null)     // null | { type: 'item'|'adjust'|'history'|'import', item }
   const [showImport, setShowImport] = useState(false)
   const [showOrganize, setShowOrganize] = useState(false)
@@ -1052,6 +1264,22 @@ export default function Inventory() {
         </div>
       </div>
 
+      {/* Tabs — v2.11.2: Items vs Quiebres (shortage ledger) */}
+      <div className="px-3 md:px-6 pt-3 flex items-center gap-1 shrink-0">
+        <button onClick={() => setTab('items')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'items' ? 'bg-black text-white' : 'text-slate-500 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/10'}`}>
+          <Package size={14} /> {lang === 'en' ? 'Items' : 'Productos'}
+        </button>
+        <button onClick={() => setTab('shortages')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'shortages' ? 'bg-black text-white' : 'text-slate-500 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/10'}`}>
+          <TrendingDown size={14} /> {lang === 'en' ? 'Stock shortages' : 'Quiebres de stock'}
+        </button>
+      </div>
+
+      {tab === 'shortages' ? (
+        <ShortagesTab items={items} />
+      ) : (
+      <>
       {/* Stats */}
       <div className="px-6 py-4 grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0">
         {[
@@ -1238,6 +1466,8 @@ export default function Inventory() {
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* Modals */}
       {modal?.type === 'item' && (
