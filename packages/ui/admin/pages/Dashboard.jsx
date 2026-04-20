@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Building2, KeyRound, AlertTriangle, TrendingUp, Clock, Ban, CheckCircle2, ShoppingCart, UserX, Activity, WifiOff, Zap, Megaphone, Loader2 } from 'lucide-react'
+import { Building2, KeyRound, AlertTriangle, TrendingUp, Clock, Ban, CheckCircle2, ShoppingCart, UserX, Activity, WifiOff, Zap, Megaphone, Loader2, Gift, Mail, MailX } from 'lucide-react'
 import { useLang } from '../../i18n'
 import { listContainer, listItem, cardHover, AnimatedNumber } from '../motion'
 
@@ -49,6 +49,8 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
   const L = (es, en) => lang === 'es' ? es : en
   const [stats, setStats] = useState(null)
   const [feed, setFeed] = useState([])
+  const [loyalty, setLoyalty] = useState(null)
+  const [digest, setDigest] = useState(null)
   const [loading, setLoading] = useState(true)
   const [bulkLoading, setBulkLoading] = useState(false)
   const [bulkResult, setBulkResult] = useState(null)
@@ -61,12 +63,16 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       let token = await refreshToken()
       if (!token) token = getToken()
       const headers = { 'Authorization': `Bearer ${token}` }
-      const [statsResp, feedResp] = await Promise.all([
+      const [statsResp, feedResp, loyaltyResp, digestResp] = await Promise.all([
         fetch('/api/panel?action=stats', { headers }),
         fetch('/api/panel?action=activity_feed', { headers }),
+        fetch('/api/panel?action=loyalty-overview', { headers }),
+        fetch('/api/panel?action=digest-health', { headers }),
       ])
       if (statsResp.ok) setStats(await statsResp.json())
       if (feedResp.ok) { const f = await feedResp.json(); setFeed(f.data || []) }
+      if (loyaltyResp.ok) setLoyalty(await loyaltyResp.json())
+      if (digestResp.ok) setDigest(await digestResp.json())
     } catch (e) { console.error('Dashboard load:', e) }
     setLoading(false)
   }
@@ -276,6 +282,130 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
             {bulkResult.ok ? `${L('Completado', 'Done')}: ${bulkResult.affected} ${L('afectados', 'affected')}` : bulkResult.error}
           </p>
         )}
+      </motion.div>
+
+      {/* Loyalty + Digest Health — two-column */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.28, duration: 0.4 }}
+        className="grid md:grid-cols-2 gap-5"
+      >
+        {/* Loyalty overview */}
+        <div className={`rounded-2xl p-6 transition-colors ${cardBase}`}>
+          <div className="flex items-center justify-between mb-4">
+            <p className={`text-[15px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+              <Gift size={14} className="inline mr-1.5 text-[#b3001e]" />
+              {L('Lealtad', 'Loyalty')}
+            </p>
+            <span className="text-[10px] font-bold text-[#b3001e] uppercase tracking-[1.2px]">
+              {L('Pro PLUS+', 'Pro PLUS+')}
+            </span>
+          </div>
+          {!loyalty ? (
+            <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin datos.', 'No data.')}</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <p className="text-[10px] font-bold text-[#b3001e] uppercase tracking-[1.2px]">{L('Puntos vivos', 'Outstanding')}</p>
+                  <p className={`text-[22px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>
+                    <AnimatedNumber value={Math.round(loyalty.totalPoints || 0)} />
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-[#b3001e] uppercase tracking-[1.2px]">{L('Negocios', 'Businesses')}</p>
+                  <p className={`text-[22px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>
+                    <AnimatedNumber value={loyalty.businessCount || 0} />
+                  </p>
+                </div>
+              </div>
+              {(loyalty.topClients || []).length === 0 ? (
+                <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin clientes con puntos.', 'No clients with points.')}</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {loyalty.topClients.map((c, i) => (
+                    <button
+                      key={i}
+                      onClick={() => c.business_id && navigate(`/admin/clients/${c.business_id}`)}
+                      className={`w-full flex items-center gap-2 text-left py-1.5 border-b last:border-0 transition-colors hover:text-[#b3001e] ${isDark ? 'border-white/5 text-white/80' : 'border-black/5 text-black/80'}`}
+                    >
+                      <span className={`text-[10px] font-bold w-5 shrink-0 ${isDark ? 'text-white/30' : 'text-black/30'}`}>{i + 1}.</span>
+                      <span className="text-[12px] font-semibold truncate flex-1">{c.business_name}</span>
+                      <span className={`text-[11px] truncate max-w-[120px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>{c.client_name}</span>
+                      <span className="text-[11px] font-bold text-[#b3001e] shrink-0">{Math.round(c.points).toLocaleString()}</span>
+                      <span className={`text-[9px] font-bold uppercase tracking-[1px] shrink-0 px-1.5 py-0.5 rounded ${isDark ? 'bg-white/5 text-white/50' : 'bg-black/5 text-black/50'}`}>{c.tier}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Digest health */}
+        <div className={`rounded-2xl p-6 transition-colors ${cardBase}`}>
+          <div className="flex items-center justify-between mb-4">
+            <p className={`text-[15px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+              <Mail size={14} className="inline mr-1.5 text-[#b3001e]" />
+              {L('Digests', 'Digests')}
+            </p>
+            <span className="text-[10px] font-bold text-[#b3001e] uppercase tracking-[1.2px]">
+              {L('Pro MAX', 'Pro MAX')}
+            </span>
+          </div>
+          {!digest ? (
+            <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin datos.', 'No data.')}</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div>
+                  <p className="text-[10px] font-bold text-[#b3001e] uppercase tracking-[1.2px]">{L('Activos', 'Enabled')}</p>
+                  <p className={`text-[22px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>
+                    <AnimatedNumber value={digest.enabled || 0} />
+                    <span className={`text-[13px] font-medium ml-1 ${isDark ? 'text-white/30' : 'text-black/30'}`}>/ {digest.proMaxTotal || 0}</span>
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-[#b3001e] uppercase tracking-[1.2px]">{L('Enviados 7d', 'Sent 7d')}</p>
+                  <p className={`text-[22px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>
+                    <AnimatedNumber value={digest.sent7d || 0} />
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-[#b3001e] uppercase tracking-[1.2px]">{L('Fallaron', 'Failing')}</p>
+                  <p className={`text-[22px] font-black mt-0.5 ${(digest.missingYesterday || []).length ? 'text-[#b3001e]' : (isDark ? 'text-white' : 'text-black')}`}>
+                    <AnimatedNumber value={(digest.missingYesterday || []).length} />
+                  </p>
+                </div>
+              </div>
+              {(digest.missingYesterday || []).length === 0 ? (
+                <div className={`flex items-center gap-2 text-[12px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                  <CheckCircle2 size={13} className="text-emerald-500" />
+                  {L('Todos enviaron ayer', 'All delivered yesterday')}
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {digest.missingYesterday.slice(0, 5).map((b, i) => (
+                    <button
+                      key={i}
+                      onClick={() => navigate(`/admin/clients/${b.business_id}`)}
+                      className={`w-full flex items-center gap-2 text-left py-1.5 border-b last:border-0 transition-colors hover:text-[#b3001e] ${isDark ? 'border-white/5 text-white/80' : 'border-black/5 text-black/80'}`}
+                    >
+                      <MailX size={13} className="text-[#b3001e] shrink-0" />
+                      <span className="text-[12px] font-semibold truncate flex-1">{b.business_name}</span>
+                      <span className={`text-[11px] shrink-0 ${isDark ? 'text-white/30' : 'text-black/30'}`}>
+                        {b.last_digest_sent
+                          ? timeAgo(b.last_digest_sent, lang)
+                          : L('Nunca', 'Never')}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </motion.div>
 
       {/* Activity Feed */}

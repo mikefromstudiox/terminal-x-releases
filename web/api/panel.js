@@ -117,6 +117,7 @@ export default async function handler(req, res) {
   if (action === 'business-loyalty') return handleBusinessLoyalty(req, res)
   if (action === 'digest-health') return handleDigestHealth(req, res)
   if (action === 'digest-send-now') return handleDigestSendNow(req, res)
+  if (action === 'business-digest') return handleBusinessDigest(req, res)
   return res.status(400).json({ error: 'Unknown action' })
 }
 
@@ -1287,5 +1288,237 @@ async function handleRejectRebind(req, res) {
       metadata: { request_id: id, requested_hwid: reqRow.requested_hwid, admin_id: auth.admin.id, admin_name: auth.admin.name, reason: reason || null },
     })
     return res.json({ ok: true })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// ── Loyalty + Digest visibility (service-role queries, RLS bypassed) ────────
+
+const LOYALTY_PLAN_NAMES = ['pro_plus', 'pro_max']
+
+async function handleLoyaltyOverview(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase } = auth
+  try {
+    const { data: plans } = await supabase.from('plans')
+      .select('id,name').in('name', LOYALTY_PLAN_NAMES)
+    const planIds = (plans || []).map(p => p.id)
+    if (!planIds.length) return res.json({ totalPoints: 0, businessCount: 0, topClients: [] })
+
+    const { data: licRows } = await supabase.from('licenses')
+      .select('business_id,plan_id,status').in('plan_id', planIds).eq('status', 'active')
+    const bizIds = [...new Set((licRows || []).map(r => r.business_id).filter(Boolean))]
+    if (!bizIds.length) return res.json({ totalPoints: 0, businessCount: 0, topClients: [] })
+
+    const { data: clientRows } = await supabase.from('clients')
+      .select('id,business_id,name,loyalty_points,loyalty_tier')
+      .in('business_id', bizIds)
+      .gt('loyalty_points', 0)
+      .order('loyalty_points', { ascending: false })
+      .limit(500)
+    const clients = clientRows || []
+
+    const { data: bizRows } = await supabase.from('businesses')
+      .select('id,name').in('id', bizIds)
+    const bizMap = Object.fromEntries((bizRows || []).map(b => [b.id, b.name]))
+
+    const totalPoints = clients.reduce((s, c) => s + Number(c.loyalty_points || 0), 0)
+    const topClients = clients.slice(0, 10).map(c => ({
+      business_id:   c.business_id,
+      business_name: bizMap[c.business_id] || '—',
+      client_name:   c.name || '—',
+      points:        Number(c.loyalty_points || 0),
+      tier:          c.loyalty_tier || 'bronze',
+    }))
+
+    return res.json({
+      totalPoints,
+      businessCount: bizIds.length,
+      clientsWithPoints: clients.length,
+      topClients,
+    })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleBusinessLoyalty(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase } = auth
+  const bid = req.query.business_id
+  if (!bid) return res.status(400).json({ error: 'business_id required' })
+
+  try {
+    const { data: flagRow } = await supabase.from('app_settings')
+      .select('value').eq('business_id', bid).eq('key', 'loyalty_enabled').maybeSingle()
+    const enabled = ['1', 'true', 'TRUE'].includes(String(flagRow?.value || '').trim())
+
+    const [{ data: earnRows }, { data: redeemRows }] = await Promise.all([
+      supabase.from('loyalty_transactions').select('points').eq('business_id', bid).eq('event_type', 'earn'),
+      supabase.from('loyalty_transactions').select('points').eq('business_id', bid).eq('event_type', 'redeem'),
+    ])
+    const lifetimeEarned = (earnRows || []).reduce((s, r) => s + Number(r.points || 0), 0)
+    const lifetimeRedeemed = Math.abs((redeemRows || []).reduce((s, r) => s + Number(r.points || 0), 0))
+
+    const { data: clients } = await supabase.from('clients')
+      .select('id,supabase_id,name,loyalty_points,loyalty_tier')
+      .eq('business_id', bid)
+      .eq('active', true)
+      .order('loyalty_points', { ascending: false, nullsFirst: false })
+      .limit(500)
+    const clientList = clients || []
+    const outstanding = clientList.reduce((s, c) => s + Number(c.loyalty_points || 0), 0)
+    const topClients = clientList.slice(0, 5).map(c => ({
+      name:   c.name || '—',
+      points: Number(c.loyalty_points || 0),
+      tier:   c.loyalty_tier || 'bronze',
+    }))
+
+    const { data: txRows } = await supabase.from('loyalty_transactions')
+      .select('id,event_type,points,balance_after,notes,created_at,client_supabase_id,ticket_supabase_id')
+      .eq('business_id', bid)
+      .order('created_at', { ascending: false })
+      .limit(20)
+    const clientNameBySid = Object.fromEntries(
+      clientList.filter(c => c.supabase_id).map(c => [c.supabase_id, c.name || '—'])
+    )
+    const transactions = (txRows || []).map(t => ({
+      id:             t.id,
+      event_type:     t.event_type,
+      points:         Number(t.points || 0),
+      balance_after:  Number(t.balance_after || 0),
+      notes:          t.notes || null,
+      created_at:     t.created_at,
+      client_name:    clientNameBySid[t.client_supabase_id] || null,
+      ticket_supabase_id: t.ticket_supabase_id || null,
+    }))
+
+    return res.json({
+      loyalty_enabled:   enabled,
+      lifetime_earned:   lifetimeEarned,
+      lifetime_redeemed: lifetimeRedeemed,
+      outstanding,
+      top_clients:       topClients,
+      transactions,
+    })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleDigestHealth(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase } = auth
+  try {
+    const { data: plans } = await supabase.from('plans').select('id,name').eq('name', 'pro_max')
+    const planIds = (plans || []).map(p => p.id)
+    if (!planIds.length) {
+      return res.json({ enabled: 0, proMaxTotal: 0, missingYesterday: [], sent7d: 0 })
+    }
+    const { data: licRows } = await supabase.from('licenses')
+      .select('business_id').in('plan_id', planIds).eq('status', 'active')
+    const proMaxIds = [...new Set((licRows || []).map(r => r.business_id).filter(Boolean))]
+
+    const { data: enabledRows } = await supabase
+      .from('app_settings')
+      .select('business_id,value')
+      .eq('key', 'daily_digest_enabled')
+      .in('value', ['1', 'true', 'TRUE'])
+    const enabledIds = (enabledRows || [])
+      .map(r => r.business_id)
+      .filter(id => proMaxIds.includes(id))
+
+    const safeIds = enabledIds.length ? enabledIds : ['00000000-0000-0000-0000-000000000000']
+    const { data: lastSentRows } = await supabase
+      .from('app_settings')
+      .select('business_id,value,updated_at')
+      .eq('key', 'last_digest_sent')
+      .in('business_id', safeIds)
+    const lastSentMap = Object.fromEntries((lastSentRows || []).map(r => [r.business_id, r.value]))
+
+    const { data: bizRows } = await supabase.from('businesses')
+      .select('id,name').in('id', safeIds)
+    const bizMap = Object.fromEntries((bizRows || []).map(b => [b.id, b.name]))
+
+    const cutoff = Date.now() - 36 * 60 * 60 * 1000
+    const missingYesterday = enabledIds
+      .filter(id => {
+        const v = lastSentMap[id]
+        if (!v) return true
+        const t = new Date(v).getTime()
+        return !Number.isFinite(t) || t < cutoff
+      })
+      .map(id => ({
+        business_id:      id,
+        business_name:    bizMap[id] || '—',
+        last_digest_sent: lastSentMap[id] || null,
+      }))
+
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const { count: sent7d } = await supabase
+      .from('activity_log')
+      .select('id', { count: 'exact', head: true })
+      .eq('event_type', 'daily_digest_sent')
+      .gte('created_at', sevenDaysAgo)
+
+    return res.json({
+      proMaxTotal:       proMaxIds.length,
+      enabled:           enabledIds.length,
+      missingYesterday,
+      sent7d:            sent7d || 0,
+    })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleBusinessDigest(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase } = auth
+  const bid = req.query.business_id
+  if (!bid) return res.status(400).json({ error: 'business_id required' })
+  try {
+    const { data: kvRows } = await supabase.from('app_settings')
+      .select('key,value,updated_at').eq('business_id', bid)
+      .in('key', ['daily_digest_enabled', 'last_digest_sent'])
+    const kv = Object.fromEntries((kvRows || []).map(r => [r.key, r]))
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const { data: events, count } = await supabase.from('activity_log')
+      .select('id,event_type,severity,created_at,metadata', { count: 'exact' })
+      .eq('business_id', bid)
+      .eq('event_type', 'daily_digest_sent')
+      .gte('created_at', thirtyDaysAgo)
+      .order('created_at', { ascending: false })
+      .limit(10)
+
+    return res.json({
+      enabled:   ['1', 'true', 'TRUE'].includes(String(kv.daily_digest_enabled?.value || '').trim()),
+      last_sent: kv.last_digest_sent?.value || null,
+      sent_30d:  count || 0,
+      recent:    events || [],
+    })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleDigestSendNow(req, res) {
+  if (req.method !== 'POST' && req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req, 'admin')
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const bid = req.query.business_id || req.body?.business_id
+  if (!bid) return res.status(400).json({ error: 'business_id required' })
+  try {
+    const host = process.env.VERCEL_URL || req.headers.host
+    const proto = (req.headers['x-forwarded-proto'] || 'https').split(',')[0]
+    const base = host ? `${proto}://${host}` : ''
+    const url = `${base}/api/digest/daily?business_id=${encodeURIComponent(bid)}&force=true`
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: req.headers.authorization || '' },
+    })
+    const body = await r.json().catch(() => ({}))
+    if (!r.ok) return res.status(r.status).json(body?.error ? body : { error: 'digest_failed' })
+    return res.json({ ok: true, result: body })
   } catch (err) { return res.status(500).json({ error: err.message }) }
 }

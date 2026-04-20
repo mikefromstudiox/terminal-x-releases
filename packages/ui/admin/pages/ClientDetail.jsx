@@ -93,36 +93,16 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
   async function loadDigestStatus() {
     try {
       let token = await refreshToken?.(); if (!token) token = getToken()
-      // Re-use client_detail; we also pull last_digest_sent + 30d count via a
-      // tiny direct panel shape. To stay inside the 12-function cap we encode
-      // this inside business-loyalty? No — keep separate read here using
-      // client_config (app_settings snapshot) + activity_feed filter? Simplest
-      // accurate path: query client_detail which already exposes settings, and
-      // filter activity_feed downstream. We hit both existing endpoints.
-      const [cfgResp, actResp] = await Promise.all([
-        fetch(`/api/panel?action=client_config&business_id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(`/api/panel?action=activity_feed&business_id=${id}&limit=100`, { headers: { 'Authorization': `Bearer ${token}` } }),
-      ])
-      const cfg = cfgResp.ok ? await cfgResp.json() : {}
-      const act = actResp.ok ? await actResp.json() : { data: [] }
-      const settings = Array.isArray(cfg?.settings) ? cfg.settings : (cfg?.data || cfg?.settings || [])
-      // settings is either array of {key,value} or object; normalise
-      const kv = Array.isArray(settings)
-        ? Object.fromEntries(settings.map(s => [s.key, s.value]))
-        : (settings && typeof settings === 'object' ? settings : {})
-      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000
-      const digestEvents = (act?.data || [])
-        .filter(e => (e.type === 'daily_digest_sent' || e.event_type === 'daily_digest_sent'))
-        .filter(e => {
-          const t = new Date(e.date || e.created_at).getTime()
-          return Number.isFinite(t) && t >= thirtyDaysAgo
+      const resp = await fetch(`/api/panel?action=business-digest&business_id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } })
+      if (resp.ok) {
+        const d = await resp.json()
+        setDigestStatus({
+          enabled:  !!d.enabled,
+          lastSent: d.last_sent || null,
+          sent30d:  d.sent_30d || 0,
+          recent:   d.recent || [],
         })
-      setDigestStatus({
-        enabled: ['1', 'true', 'TRUE'].includes(String(kv.daily_digest_enabled || '').trim()),
-        lastSent: kv.last_digest_sent || null,
-        sent30d: digestEvents.length,
-        recent: digestEvents.slice(0, 5),
-      })
+      }
     } catch (e) { console.error('loadDigestStatus:', e) }
   }
 
@@ -318,7 +298,12 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
 
       {/* Tabs */}
       <div className="flex gap-1 relative">
-        {['overview', 'config'].map(k => (
+        {[
+          { k: 'overview', es: 'Resumen',       en: 'Overview' },
+          { k: 'config',   es: 'Configuracion', en: 'Configuration' },
+          { k: 'loyalty',  es: 'Lealtad',       en: 'Loyalty' },
+          { k: 'digests',  es: 'Digests',       en: 'Digests' },
+        ].map(({ k, es, en }) => (
           <motion.button
             key={k}
             whileTap={{ scale: 0.96 }}
@@ -336,7 +321,7 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                 transition={{ type: 'spring', stiffness: 420, damping: 30 }}
               />
             )}
-            <span className="relative">{k === 'overview' ? L('Resumen', 'Overview') : L('Configuracion', 'Configuration')}</span>
+            <span className="relative">{L(es, en)}</span>
           </motion.button>
         ))}
       </div>
@@ -351,6 +336,216 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
             transition={{ duration: 0.25 }}
           >
             <ConfigEditor businessId={id} getToken={getToken} onRefresh={load} isDark={isDark} plan={license?.plans?.name || biz?.plan || 'pro'} />
+          </motion.div>
+        )}
+
+        {tab === 'loyalty' && (
+          <motion.div
+            key="loyalty"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.25 }}
+            className="space-y-5"
+          >
+            {loyaltyLoading && !loyalty ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 size={18} className="animate-spin text-[#b3001e]" />
+              </div>
+            ) : !loyalty ? (
+              <p className={`text-center text-[13px] py-8 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                {L('Sin datos de lealtad.', 'No loyalty data.')}
+              </p>
+            ) : (
+              <>
+                {/* KPI strip */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className={card}>
+                    <p className={lbl}>{L('Estado', 'State')}</p>
+                    <p className={`mt-1 inline-flex items-center gap-1.5 text-[13px] font-bold ${loyalty.loyalty_enabled ? 'text-emerald-500' : 'text-[#b3001e]'}`}>
+                      {loyalty.loyalty_enabled
+                        ? <><CheckCircle2 size={14} /> {L('Activo', 'Enabled')}</>
+                        : <><XCircle size={14} /> {L('Inactivo', 'Disabled')}</>}
+                    </p>
+                  </div>
+                  <div className={card}>
+                    <p className={lbl}>{L('Otorgados', 'Lifetime Earned')}</p>
+                    <p className={`text-[20px] font-black mt-1 ${isDark ? 'text-white' : 'text-black'}`}>
+                      {Math.round(loyalty.lifetime_earned || 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className={card}>
+                    <p className={lbl}>{L('Canjeados', 'Lifetime Redeemed')}</p>
+                    <p className={`text-[20px] font-black mt-1 ${isDark ? 'text-white' : 'text-black'}`}>
+                      {Math.round(loyalty.lifetime_redeemed || 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className={card}>
+                    <p className={lbl}>{L('Saldo vivo', 'Outstanding')}</p>
+                    <p className="text-[20px] font-black mt-1 text-[#b3001e]">
+                      {Math.round(loyalty.outstanding || 0).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Top clients + recent transactions */}
+                <div className="grid md:grid-cols-2 gap-5">
+                  <div className={card}>
+                    <p className={`text-[14px] font-bold mb-3 ${isDark ? 'text-white' : 'text-black'}`}>
+                      <Gift size={14} className="inline mr-1.5 text-[#b3001e]" />
+                      {L('Top 5 clientes', 'Top 5 Customers')}
+                    </p>
+                    {(loyalty.top_clients || []).length === 0 ? (
+                      <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin clientes con puntos.', 'None yet.')}</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {loyalty.top_clients.map((c, i) => (
+                          <div key={i} className={`flex items-center gap-2 py-1.5 border-b last:border-0 ${isDark ? 'border-white/5' : 'border-black/5'}`}>
+                            <span className={`text-[10px] font-bold w-5 shrink-0 ${isDark ? 'text-white/30' : 'text-black/30'}`}>{i + 1}.</span>
+                            <span className={`text-[12px] font-semibold truncate flex-1 ${isDark ? 'text-white/85' : 'text-black/85'}`}>{c.name}</span>
+                            <span className="text-[11px] font-bold text-[#b3001e] shrink-0">{Math.round(c.points).toLocaleString()}</span>
+                            <span className={`text-[9px] font-bold uppercase tracking-[1px] shrink-0 px-1.5 py-0.5 rounded ${isDark ? 'bg-white/5 text-white/50' : 'bg-black/5 text-black/50'}`}>{c.tier}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className={card}>
+                    <p className={`text-[14px] font-bold mb-3 ${isDark ? 'text-white' : 'text-black'}`}>
+                      {L('Ultimas 20 transacciones', 'Last 20 Transactions')}
+                    </p>
+                    {(loyalty.transactions || []).length === 0 ? (
+                      <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin transacciones.', 'None yet.')}</p>
+                    ) : (
+                      <div className="space-y-1 max-h-[400px] overflow-y-auto pr-1">
+                        {loyalty.transactions.map(t => {
+                          const positive = Number(t.points) > 0
+                          const typeLabel = t.event_type === 'earn'   ? L('Acumulo', 'Earn')
+                                         : t.event_type === 'redeem' ? L('Canje',  'Redeem')
+                                         : t.event_type === 'adjust' ? L('Ajuste', 'Adjust')
+                                         : t.event_type
+                          return (
+                            <div key={t.id} className={`flex items-center gap-2 py-1.5 border-b last:border-0 ${isDark ? 'border-white/5' : 'border-black/5'}`}>
+                              <span className={`text-[9px] font-bold uppercase tracking-[1px] shrink-0 px-1.5 py-0.5 rounded ${t.event_type === 'earn' ? 'bg-emerald-500/10 text-emerald-500' : t.event_type === 'redeem' ? 'bg-[#b3001e]/10 text-[#b3001e]' : 'bg-amber-500/10 text-amber-500'}`}>{typeLabel}</span>
+                              <span className={`text-[11px] truncate flex-1 ${isDark ? 'text-white/70' : 'text-black/70'}`}>{t.client_name || '—'}</span>
+                              <span className={`text-[11px] font-bold shrink-0 ${positive ? 'text-emerald-500' : 'text-[#b3001e]'}`}>{positive ? '+' : ''}{Math.round(t.points).toLocaleString()}</span>
+                              <span className={`text-[10px] shrink-0 ${isDark ? 'text-white/25' : 'text-black/25'}`}>
+                                {t.created_at ? new Date(t.created_at).toLocaleDateString(lang === 'es' ? 'es-DO' : 'en-US', { month: 'short', day: '2-digit' }) : ''}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </motion.div>
+        )}
+
+        {tab === 'digests' && (
+          <motion.div
+            key="digests"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.25 }}
+            className="space-y-5"
+          >
+            {!digestStatus ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 size={18} className="animate-spin text-[#b3001e]" />
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <div className={card}>
+                    <p className={lbl}>{L('Digest diario', 'Daily Digest')}</p>
+                    <p className={`mt-1 inline-flex items-center gap-1.5 text-[13px] font-bold ${digestStatus.enabled ? 'text-emerald-500' : 'text-[#b3001e]'}`}>
+                      {digestStatus.enabled
+                        ? <><CheckCircle2 size={14} /> {L('Activo', 'Enabled')}</>
+                        : <><XCircle size={14} /> {L('Inactivo', 'Disabled')}</>}
+                    </p>
+                  </div>
+                  <div className={card}>
+                    <p className={lbl}>{L('Ultimo envio', 'Last Sent')}</p>
+                    <p className={`text-[13px] font-bold mt-1 ${isDark ? 'text-white/85' : 'text-black/85'}`}>
+                      {digestStatus.lastSent
+                        ? new Date(digestStatus.lastSent).toLocaleString(lang === 'es' ? 'es-DO' : 'en-US')
+                        : L('Nunca', 'Never')}
+                    </p>
+                  </div>
+                  <div className={card}>
+                    <p className={lbl}>{L('Enviados 30d', 'Sent in 30d')}</p>
+                    <p className={`text-[20px] font-black mt-1 ${isDark ? 'text-white' : 'text-black'}`}>
+                      {digestStatus.sent30d}
+                    </p>
+                  </div>
+                </div>
+
+                <div className={card}>
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
+                    <p className={`text-[14px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+                      <Mail size={14} className="inline mr-1.5 text-[#b3001e]" />
+                      {L('Envio manual', 'Manual Send')}
+                    </p>
+                    <motion.button
+                      whileTap={{ scale: 0.96 }}
+                      onClick={sendDigestNow}
+                      disabled={digestSending}
+                      className="px-4 py-2 bg-[#b3001e] hover:bg-[#c8002a] disabled:opacity-50 text-white text-[11px] font-bold rounded-lg flex items-center gap-1.5 shadow-md shadow-[#b3001e]/20"
+                    >
+                      {digestSending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+                      {L('Enviar digest ahora', 'Send digest now')}
+                    </motion.button>
+                  </div>
+                  {digestMsg && (
+                    <p className={`text-[12px] ${digestMsg.ok ? 'text-emerald-500' : 'text-[#b3001e]'}`}>
+                      {digestMsg.text}
+                    </p>
+                  )}
+                  <p className={`text-[11px] mt-2 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                    {L('Forza un envio inmediato del resumen diario para este negocio (ignora el cron).', 'Force immediate daily digest for this business (bypasses cron schedule).')}
+                  </p>
+                </div>
+
+                <div className={card}>
+                  <p className={`text-[14px] font-bold mb-3 ${isDark ? 'text-white' : 'text-black'}`}>
+                    {L('Eventos recientes (30d)', 'Recent Events (30d)')}
+                  </p>
+                  {(digestStatus.recent || []).length === 0 ? (
+                    <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin envios registrados.', 'No deliveries logged.')}</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {digestStatus.recent.map(e => {
+                        const ch = e.metadata?.channels || {}
+                        const stats = e.metadata?.stats || {}
+                        const sev = e.severity || 'info'
+                        return (
+                          <div key={e.id} className={`py-2 border-b last:border-0 ${isDark ? 'border-white/5' : 'border-black/5'}`}>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-[9px] font-bold uppercase tracking-[1px] px-1.5 py-0.5 rounded shrink-0 ${sev === 'critical' ? 'bg-[#b3001e]/10 text-[#b3001e]' : sev === 'warn' ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>{sev}</span>
+                              <span className={`text-[11px] font-semibold ${isDark ? 'text-white/80' : 'text-black/80'}`}>
+                                {e.created_at ? new Date(e.created_at).toLocaleString(lang === 'es' ? 'es-DO' : 'en-US') : ''}
+                              </span>
+                              {ch.email && <span className={`text-[10px] shrink-0 ${String(ch.email).startsWith('error') ? 'text-[#b3001e]' : ch.email === 'sent' ? 'text-emerald-500' : (isDark ? 'text-white/40' : 'text-black/40')}`}>email:{ch.email}</span>}
+                              {ch.whatsapp && <span className={`text-[10px] shrink-0 ${String(ch.whatsapp).startsWith('error') ? 'text-[#b3001e]' : ch.whatsapp === 'sent' ? 'text-emerald-500' : (isDark ? 'text-white/40' : 'text-black/40')}`}>wa:{ch.whatsapp}</span>}
+                            </div>
+                            {stats && (stats.tickets !== undefined) && (
+                              <p className={`text-[10px] mt-1 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                                {L('Tickets', 'Tickets')}: {stats.tickets || 0} · {L('Ventas', 'Revenue')}: RD$ {Number(stats.revenue || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                              </p>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </motion.div>
         )}
 
