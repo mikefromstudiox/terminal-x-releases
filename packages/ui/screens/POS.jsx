@@ -2857,13 +2857,12 @@ function HybridPOS() {
 }
 
 // v2.6.2 — Apertura de Turno gate.
-// Before routing to the vertical-specific POS screen we check that the logged-in
-// cashier has declared their opening cash for today. If not, we render the
-// Apertura modal and block the POS underneath. Skipped for:
+// v2.13.2 — Restricted to cashier role only. Owner/manager/cfo/accountant
+// open shifts for their staff via the Cuadre screen instead of being prompted
+// at POS load. Lavadores/vendedores never touch the register.
+// Skipped for:
 //   - kiosk/demo contexts (business setting kiosk_mode=1 or owner opt-out)
-//   - facturación-only plans (never touch cash)
-//   - users whose empleado.tipo has no cash responsibility (lavador/vendedor)
-//   - owner/manager in first-time-setup before any empleados exist
+//   - any role except 'cashier'
 function AperturaTurnoGate({ children }) {
   const api = useAPI()
   const { user } = useAuth()
@@ -2877,6 +2876,12 @@ function AperturaTurnoGate({ children }) {
       try {
         // No user / web-setup owner: skip
         if (!user?.id || user.id === 'web') { if (!cancelled) setReady(true); return }
+        // Cashier-only gate: every other role (owner/manager/cfo/accountant/none)
+        // is exempt. Owners/managers handle apertura for cashiers from Cuadre.
+        if (String(user.role || '').toLowerCase() !== 'cashier') {
+          if (!cancelled) setReady(true)
+          return
+        }
         // Settings: owner escape + kiosk/demo skip
         let skip = false
         try {
@@ -2884,18 +2889,6 @@ function AperturaTurnoGate({ children }) {
           if (s && (String(s.skip_apertura_prompt) === '1' || String(s.kiosk_mode) === '1')) skip = true
         } catch {}
         if (skip) { if (!cancelled) setReady(true); return }
-        // Role filter: only cashier / owner / manager / hybrid need apertura.
-        // Lavador/vendedor-only staff who never touch the register are exempt.
-        let cashFacing = true
-        try {
-          const emps = await api?.empleados?.all?.()
-          if (Array.isArray(emps) && user.employee_id) {
-            const emp = emps.find(e => e.id === user.employee_id)
-            const tipo = String(emp?.tipo || '').toLowerCase()
-            if (tipo && ['lavador', 'vendedor'].includes(tipo)) cashFacing = false
-          }
-        } catch {}
-        if (!cashFacing) { if (!cancelled) setReady(true); return }
         // Look for open shift
         try {
           const open = await api?.cuadre?.getOpen?.({ user_id: user.id, cajero_id: user.id })

@@ -48,7 +48,7 @@ export default function AperturaTurnoModal({ userName, onConfirm, submitting = f
             {L('Fondo inicial', 'Starting cash')}
           </label>
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 text-[13px] font-semibold">RD$</span>
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 text-[13px] font-semibold z-10">RD$</span>
             <input
               ref={inputRef}
               type="text"
@@ -56,7 +56,15 @@ export default function AperturaTurnoModal({ userName, onConfirm, submitting = f
               value={amount}
               onChange={e => setAmount(e.target.value.replace(/[^\d.]/g, ''))}
               placeholder="0.00"
-              className="w-full pl-12 pr-3 py-3 border border-slate-200 dark:border-white/10 rounded-xl text-[20px] font-bold text-slate-800 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-[#b3001e] focus:ring-2 focus:ring-[#b3001e]/20"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              name="apertura-cash-amount"
+              data-1p-ignore="true"
+              data-lpignore="true"
+              data-form-type="other"
+              className="w-full pl-14 pr-3 py-3 border border-slate-200 dark:border-white/10 rounded-xl text-[20px] font-bold text-slate-800 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-[#b3001e] focus:ring-2 focus:ring-[#b3001e]/20"
             />
           </div>
           {err && (
