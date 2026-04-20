@@ -2526,8 +2526,51 @@ function userCreate(data) {
   })
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
+// Inline role hierarchy — mirror of electron/auth-guard.js ROLE_LEVEL.
+// Duplicated here to avoid a circular require (auth-guard.js loads this
+// module via the `db` param it receives). Keep in sync.
+const _USER_ROLE_LEVEL = Object.freeze({
+  owner: 100, cfo: 70, accountant: 60, manager: 50, cashier: 10, none: 0,
+})
+function _roleRank(r) { return _USER_ROLE_LEVEL[r] ?? 0 }
+
 function userUpdate(id, data) {
   if (!db) return
+  // v2.11.2 — DEFENSE IN DEPTH: role-hierarchy enforcement at the DB layer.
+  // Primary gate is electron/auth-guard.js guardUserUpdate (IPC), but any
+  // direct call into this fn must also be safe. actorId is injected by the
+  // IPC handlers in main.js (save-usuario, users:update) from the trusted
+  // server-side session — renderer cannot override it.
+  //
+  // Closes project_security_queue.md: manager cannot reset owner's PIN /
+  // promote anyone / deactivate a superior.
+  if (data.actorId != null && String(data.actorId) !== String(id)) {
+    try {
+      const actorRow = db.prepare('SELECT id, role FROM users WHERE id=?').get(data.actorId)
+      const targetRow = db.prepare('SELECT id, role FROM users WHERE id=?').get(id)
+      if (actorRow && targetRow) {
+        const actorRank  = _roleRank(actorRow.role)
+        const targetRank = _roleRank(targetRow.role)
+        // Any mutation of a peer-or-superior (rank >= actor) is forbidden.
+        // That blocks PIN reset, active toggle, role change, rename, etc.
+        if (targetRank >= actorRank) {
+          throw new Error('No tienes permiso para modificar este usuario')
+        }
+        // Role escalation: cannot set a role rank >= actor's own unless owner.
+        if (data.role && _roleRank(data.role) >= actorRank && actorRow.role !== 'owner') {
+          throw new Error('Solo el propietario puede asignar este rol')
+        }
+        // Deactivation of superior already caught by targetRank >= actorRank
+        // check above. Self-deactivate is handled by the IPC guard + the
+        // same-id short-circuit means we never enter this block for self.
+      }
+    } catch (e) {
+      if (e && /permiso|propietario/.test(String(e.message))) throw e
+      // Any other lookup error: fail-closed only if actorId was set.
+      // (If DB shape differs in a test harness, don't silently bypass.)
+      throw e
+    }
+  }
   // Sprint 10 (S-H6) — self-PIN changes MUST prove knowledge of the old PIN.
   // Manager/owner-driven resets for OTHER users are already gated by the IPC
   // auth-guard; they don't have to re-enter that user's old PIN. We
@@ -6870,6 +6913,48 @@ function oversellList({ unresolvedOnly = false } = {}) {
     ORDER BY detected_at DESC LIMIT 500`).all()
 }
 
+// v2.11.2 — Owner-facing shortage ledger for the Inventory "Quiebres" tab.
+// Joins the oversell row to its source ticket (for doc_number / ncf) and
+// falls back to the stored item_name when the inventory_items row was
+// deleted. Bounded to 2000 rows so the UI stays responsive.
+function inventoryOversellsList({ from, to, itemId, itemSupabaseId } = {}) {
+  if (!db) return []
+  const where = ['1=1']
+  const args  = []
+  if (from) { where.push('o.detected_at >= ?'); args.push(String(from)) }
+  if (to)   { where.push('o.detected_at <= ?'); args.push(String(to)) }
+  if (itemSupabaseId) { where.push('o.item_supabase_id = ?'); args.push(String(itemSupabaseId)) }
+  else if (itemId)    { where.push('i.id = ?'); args.push(Number(itemId)) }
+  const sql = `
+    SELECT
+      o.id,
+      o.supabase_id,
+      o.ticket_supabase_id,
+      o.item_supabase_id,
+      COALESCE(i.name, o.item_name) AS item_name,
+      COALESCE(i.sku, NULL)         AS sku,
+      i.id                          AS inventory_item_id,
+      o.requested_qty,
+      o.actual_qty,
+      (o.requested_qty - o.actual_qty) AS shortage_qty,
+      o.detected_at,
+      o.resolved_at,
+      o.resolution_type,
+      o.resolution_notes,
+      t.id                 AS ticket_id,
+      t.ncf                AS doc_number,
+      t.comprobante_type   AS comprobante_type,
+      t.total              AS ticket_total,
+      t.created_at         AS ticket_created_at
+    FROM inventory_oversells o
+    LEFT JOIN inventory_items i ON i.supabase_id = o.item_supabase_id
+    LEFT JOIN tickets         t ON t.supabase_id = o.ticket_supabase_id
+    WHERE ${where.join(' AND ')}
+    ORDER BY o.detected_at DESC
+    LIMIT 2000`
+  try { return db.prepare(sql).all(...args) } catch { return [] }
+}
+
 function oversellResolveLocal({ supabase_id, resolution_type, notes, resolved_by }) {
   if (!db || !supabase_id) return false
   db.prepare(`UPDATE inventory_oversells
@@ -7225,4 +7310,5 @@ module.exports = {
   docNumberBlockInsert, docNumberBlockActive, docNumberBlockAvailableCount, docNumberBlockConsumeNext, docNumberBlocksListLocal,
   pendingDeductEnqueue, pendingDeductList, pendingDeductMarkPushed, pendingDeductMarkFailed,
   oversellRecord, oversellList, oversellResolveLocal, oversellUnresolvedCount,
+  inventoryOversellsList,
 }

@@ -67,7 +67,17 @@ function logDenied(db, { actor, attempted_op, target_type, target_id, target_nam
 // ── Guard predicates — each returns either null (allow) or a string reason (deny) ──
 // Every predicate also takes the db module so it can look up the target row.
 
-/** users:update — self-edit of pin/name/username ok; role/active self-change blocked. */
+/** users:update — self-edit of pin/name/username ok; role/active self-change blocked.
+ *
+ * v2.11.2 — closes project_security_queue.md. Manager cannot:
+ *   - Reset PIN / rename / reassign any user whose role rank >= their own
+ *     (owner, cfo still protected from manager; manager-vs-manager blocked).
+ *   - Promote anyone (including themselves) to a role rank >= their own.
+ *   - Deactivate a superior (covered by the same rank-gte check).
+ *
+ * Defense in depth: database.js userUpdate re-verifies via the trusted
+ * actorId so a direct call (non-IPC) still enforces hierarchy.
+ */
 function guardUserUpdate(db, actor, patch) {
   if (!actor) return 'No hay usuario activo'
   const targetId = patch?.id
@@ -75,14 +85,20 @@ function guardUserUpdate(db, actor, patch) {
   if (!target) return 'Usuario no encontrado'
   const self = actor.id === target.id
   const changingRole   = 'role'   in patch && patch.role   !== target.role
-  const changingActive = 'active' in patch && Number(patch.active) !== 1 // deactivating self
+  const changingActive = 'active' in patch && Number(patch.active) !== 1 // deactivating
   if (self) {
     if (changingRole)   return 'No puedes cambiar tu propio rol'
     if (changingActive) return 'No puedes desactivar tu propia cuenta'
+    // Self can freely rotate own PIN / rename — but escalation to higher role
+    // was blocked above, so there is no self-privilege-escalation path.
     return null
   }
-  if (!canActOn(actor.role, target.role)) return 'No tienes permiso para editar este usuario'
-  // Promoting to a role >= actor's own level requires owner
+  // Strict hierarchy: actor must outrank the target for ANY mutation
+  // (PIN reset, role change, deactivation, rename, etc.).
+  if (!canActOn(actor.role, target.role)) {
+    return 'No tienes permiso para modificar este usuario'
+  }
+  // Promoting to a role >= actor's own level requires owner.
   if (patch.role && (ROLE_LEVEL[patch.role] ?? 0) >= (ROLE_LEVEL[actor.role] ?? 0) && actor.role !== 'owner') {
     return 'Solo el propietario puede asignar este rol'
   }

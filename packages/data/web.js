@@ -395,7 +395,7 @@ export function createWebAPI(supabase, businessId) {
       if (changingActive) return denyAndLog(op, 'No puedes desactivar tu propia cuenta', ctx)
       return
     }
-    if (!canActOn(actor.role, target.role)) return denyAndLog(op, 'No tienes permiso para editar este usuario', ctx)
+    if (!canActOn(actor.role, target.role)) return denyAndLog(op, 'No tienes permiso para modificar este usuario', ctx)
     if (patch.role && (ROLE_LEVEL[patch.role] ?? 0) >= (ROLE_LEVEL[actor.role] ?? 0) && actor.role !== 'owner') {
       return denyAndLog(op, 'Solo el propietario puede asignar este rol', ctx)
     }
