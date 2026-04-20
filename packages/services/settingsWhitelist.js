@@ -1,8 +1,13 @@
-// settingsWhitelist.js — classifies app_settings keys as business-level (cloud-synced)
-// vs device-local (never synced). ESM mirror of electron/settingsWhitelist.js.
-// Keep both files IDENTICAL.
+// settingsWhitelist.js — classifies app_settings keys by scope.
+// ESM mirror of electron/settingsWhitelist.js — keep IDENTICAL.
+//
+// Three categories:
+//   1. BUSINESS_SETTING_KEYS  — cloud-synced, business-wide.
+//   2. DEVICE_LOCAL_CLOUD_MIRROR_KEYS — v2.10.5: device-local but cloud-mirrored
+//      tagged with HWID. Recovery-safe on same hardware; rows from a different
+//      HWID are ignored so device A's printer never lands on device B.
+//   3. DEVICE_SETTING_KEYS — device-only, never leaves this machine.
 
-// Business-level settings — cloud-synced. Same value on desktop, web, and every device in the business.
 export const BUSINESS_SETTING_KEYS = new Set([
   'itbis_pct', 'usd_rate', 'rnc_verify', 'sucursales',
   'whatsapp_instance', 'whatsapp_token',
@@ -11,32 +16,38 @@ export const BUSINESS_SETTING_KEYS = new Set([
   'business_type', 'biz_business_type',
   'ley_enabled',
   'go_live_date',
-  // v2.7.1 — daily owner digest (Pro MAX). Business-level so the 9am cron
-  // reads the same flag regardless of which device set it.
   'daily_digest_enabled', 'last_digest_sent',
-  // POS tab customization — cloud-synced so all devices at the same business
-  // share the same category order + hidden-tab preferences.
   'pos_tab_order', 'pos_tab_hidden',
-  // v2.7.1 — Loyalty program (business-wide)
   'loyalty_enabled', 'loyalty_points_ratio', 'loyalty_redemption_ratio',
   'loyalty_tier_silver', 'loyalty_tier_gold', 'loyalty_tier_platinum',
-  // Add any future business-wide key here. If unsure, keep it device-local.
 ])
 
-// Device-local settings — NEVER synced. Each POS/device has its own.
-export const DEVICE_SETTING_KEYS = new Set([
+export const DEVICE_LOCAL_CLOUD_MIRROR_KEYS = new Set([
   'printer',
-  'print_factura_auto', 'print_conduce_auto', 'print_preticket',
-  'hwid',
+  'drawer_pulse_hex',
+  'print_factura_auto',
+  'print_conduce_auto',
+  'print_preticket',
+  'kiosk_mode',
+  'kiosk_exit_pin',
+  'default_form_pago',
+  'ncf_block_size',
+  'doc_block_size',
   'multi_pos_enabled',
-  'ncf_block_size', 'doc_block_size',
-  // sync internal state
+])
+
+export const DEVICE_SETTING_KEYS = new Set([
+  'hwid',
   'supabase_business_id', 'last_pulled_business_id', 'business_id_changed_at',
   'sync_v3_supabase_id', 'sync_v4_ticket_resync', 'pull_reset_version',
+  'updated_at_triggers_v2_done', 'updated_at_iso_migration_done',
+  'salary_changes_nullable_empleado_id', 'schema_version', 'v2_1_orphans',
   'logo_synced_hash', 'logo_synced_url',
   'tx_lang', 'tx_last_valid', 'tx_license_cache', 'tx_license_cache_ts',
 ])
 
-export function isBusinessSetting(key) { return BUSINESS_SETTING_KEYS.has(key) }
-export function isDeviceSetting(key)   { return DEVICE_SETTING_KEYS.has(key) }
-// Unknown keys default to device-local (safe — won't leak to cloud accidentally)
+export function isBusinessSetting(key)        { return BUSINESS_SETTING_KEYS.has(key) }
+export function isDeviceLocalCloudMirror(key) { return DEVICE_LOCAL_CLOUD_MIRROR_KEYS.has(key) }
+export function isDeviceOnlySetting(key)      { return DEVICE_SETTING_KEYS.has(key) }
+export function isDeviceSetting(key)          { return DEVICE_LOCAL_CLOUD_MIRROR_KEYS.has(key) || DEVICE_SETTING_KEYS.has(key) }
+// Unknown keys default to device-local (safe — won't leak to cloud accidentally).

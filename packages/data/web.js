@@ -115,10 +115,50 @@ async function recalcWorkOrderTotalsWeb(supabase, businessId, workOrderId) {
   return { labor, parts, itbis, total }
 }
 
-async function hashPin(pin) {
+// Sprint 10 (v2.10.5) — PIN hashing hardened (S-H4/H5/H6).
+//   - New PINs: bcryptjs @ cost 10 with per-row 24-byte salt appended to the
+//     PIN before hashing. Rainbow tables stay useless across installs.
+//   - Legacy rows (pin_hash_algo='sha256'): accepted via the old unsalted
+//     SHA-256 path, then atomically rehashed to bcrypt on success.
+//   - Lockout: 5 consecutive wrong attempts → 5-minute lock on that row
+//     (pin_failed_attempts / pin_locked_until).
+import bcryptjs from 'bcryptjs'
+const BCRYPT_COST = 10
+const PIN_MAX_FAILED_ATTEMPTS = 5
+const PIN_LOCKOUT_MS = 5 * 60 * 1000
+
+async function legacySha256Hex(pin) {
   const enc = new TextEncoder().encode(String(pin))
   const buf = await crypto.subtle.digest('SHA-256', enc)
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+function generatePinSaltWeb() {
+  const bytes = new Uint8Array(24)
+  crypto.getRandomValues(bytes)
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin)
+}
+function bcryptHashPinWeb(pin, salt) {
+  return bcryptjs.hashSync(String(pin) + (salt || ''), BCRYPT_COST)
+}
+function bcryptComparePinWeb(pin, salt, hash) {
+  try { return bcryptjs.compareSync(String(pin) + (salt || ''), String(hash || '')) }
+  catch { return false }
+}
+
+// hashPin is now a credentials factory: returns { pin_hash, pin_hash_algo,
+// pin_salt }. Every write site expands the triple onto the staff row so a
+// freshly-created web user is immediately bcrypt-protected — no rehash-on-
+// login round-trip required for new rows. Reads on legacy rows still go
+// through the authByPin fallback.
+async function hashPin(pin) {
+  const salt = generatePinSaltWeb()
+  return {
+    pin_hash: bcryptHashPinWeb(pin, salt),
+    pin_hash_algo: 'bcrypt',
+    pin_salt: salt,
+  }
 }
 
 // ── Payroll helpers (shared by payrollRuns.create + bulkCreate) ────────────────
@@ -560,19 +600,29 @@ export function createWebAPI(supabase, businessId) {
 
     settings: {
       // get() merges:
-      //   1) BUSINESS-level keys from Supabase app_settings (cloud-synced)
-      //   2) DEVICE-local keys from localStorage (per-browser, never leaves this device)
+      //   1) BUSINESS-level keys from Supabase app_settings (cloud-synced,
+      //      `is_device_local=false` only — device-local cash register rows
+      //      are for desktop recovery, never for a browser).
+      //   2) DEVICE-local keys from localStorage (per-browser).
       // Desktop defaults fill any gaps so the UI always sees defined strings.
       get: () => tryOr(async () => {
-        const rows = throwSupaError(await supabase.from('app_settings').select('key,value').eq('business_id', bid))
+        const rows = throwSupaError(
+          await supabase.from('app_settings')
+            .select('key,value')
+            .eq('business_id', bid)
+            .eq('is_device_local', false)
+        )
         const business = Object.fromEntries((rows || []).map(r => [r.key, r.value]))
         return { ...webDeviceAll(), ...business }
       }, webDeviceAll()),
 
       // update() splits writes by whitelist:
-      //   - business keys -> Supabase (synced to all devices)
-      //   - device keys   -> localStorage (this browser only)
-      //   - unknown keys  -> treated as device-local (safe default; never leak to cloud)
+      //   - business keys               -> Supabase (synced to all devices)
+      //   - device-local cloud-mirror   -> localStorage (web has no stable HWID;
+      //                                    cash registers handle their own cloud
+      //                                    mirroring via desktop sync)
+      //   - device-only keys            -> localStorage
+      //   - unknown keys                -> localStorage (safe default)
       update: (obj) => tryOr(async () => {
         const cloudUpserts = []
         for (const [key, value] of Object.entries(obj)) {
@@ -581,23 +631,42 @@ export function createWebAPI(supabase, businessId) {
               business_id: bid,
               key,
               value: String(value),
+              is_device_local: false,
+              device_hwid: null,
               supabase_id: (crypto?.randomUUID?.() || undefined),
             })
           } else if (isDeviceSetting(key)) {
             webDeviceSet(key, value)
           } else {
-            // Unknown key — default to device-local. Log a warning so devs notice.
             try { console.warn('[web settings] unknown key treated as device-local:', key) } catch {}
             webDeviceSet(key, value)
           }
         }
         if (cloudUpserts.length) {
-          // Batch upsert — onConflict on (business_id,key) so existing rows
-          // get their supabase_id preserved (the trigger bumps updated_at).
-          throwSupaError(await supabase.from('app_settings').upsert(
-            cloudUpserts,
-            { onConflict: 'business_id,key', ignoreDuplicates: false }
-          ))
+          // v2.10.5: on_conflict targets the supabase_id unique constraint —
+          // safest option now that (business_id,key) is a PARTIAL index
+          // (WHERE device_hwid IS NULL). We generate fresh UUIDs above; to
+          // avoid duplicating a row on a re-save, prefer an update-if-exists
+          // fallback by key first.
+          for (const row of cloudUpserts) {
+            const existing = throwSupaError(
+              await supabase.from('app_settings')
+                .select('id,supabase_id')
+                .eq('business_id', bid)
+                .eq('key', row.key)
+                .is('device_hwid', null)
+                .maybeSingle()
+            )
+            if (existing?.id) {
+              throwSupaError(
+                await supabase.from('app_settings')
+                  .update({ value: row.value, is_device_local: false, device_hwid: null })
+                  .eq('id', existing.id)
+              )
+            } else {
+              throwSupaError(await supabase.from('app_settings').insert(row))
+            }
+          }
         }
       }),
     },

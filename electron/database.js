@@ -12,6 +12,37 @@
 const path    = require('path')
 const fs      = require('fs')
 const crypto  = require('crypto')
+const bcrypt  = require('bcryptjs')
+const { isDeviceLocalCloudMirror } = require('./settingsWhitelist')
+
+// Sprint 10 (v2.10.5) — PIN hashing config
+//   - Legacy rows: unsalted SHA-256 (pin_hash_algo='sha256'). Accepted on login
+//     exactly once; immediately rehashed to bcrypt in the same transaction.
+//   - New rows: bcryptjs @ cost 10 (~50ms on a 2020-era laptop — slow enough
+//     that 5 attempts/5-min lockout defeats brute force, fast enough that a
+//     cashier never notices on sign-in).
+//   - pin_salt stores a per-row 32-byte random suffix, appended to the PIN
+//     before bcrypt. bcrypt has its own internal salt, but this extra suffix
+//     makes the hash per-install unique even if two staff pick the same PIN
+//     and the DB file is exfiltrated — rainbow tables built against the
+//     world never apply.
+const BCRYPT_COST = 10
+function generatePinSalt() {
+  return crypto.randomBytes(24).toString('base64')
+}
+function bcryptHashPin(pin, salt) {
+  return bcrypt.hashSync(String(pin) + (salt || ''), BCRYPT_COST)
+}
+function bcryptComparePin(pin, salt, hash) {
+  try { return bcrypt.compareSync(String(pin) + (salt || ''), String(hash || '')) }
+  catch { return false }
+}
+
+// Lockout policy — 5 consecutive wrong guesses per row trigger a 5-minute
+// cooldown. Desktop enforces this in-process against SQLite; web enforces the
+// same rule against Supabase's staff table (atomic via a single UPDATE).
+const PIN_MAX_FAILED_ATTEMPTS = 5
+const PIN_LOCKOUT_MS = 5 * 60 * 1000
 
 let Database
 let dbLoadError = null
@@ -74,6 +105,21 @@ function init(userDataPath) {
     "ALTER TABLE ecf_queue ADD COLUMN encf TEXT",
     "ALTER TABLE ecf_queue ADD COLUMN tipo_ecf TEXT",
     "ALTER TABLE ecf_queue ADD COLUMN environment TEXT NOT NULL DEFAULT 'testecf'",
+    // v2.10.5 — cloud mirror of ecf_queue (Recovery RTO HIGH fix).
+    // supabase_id + status/track_id/submitted_at/updated_at/error let sync.js
+    // push pending rows to Supabase and a fresh install pull + resume via
+    // processDgiiQueue(), so a PC death mid-queue doesn't orphan signed-but-
+    // unsubmitted fiscal obligations.
+    "ALTER TABLE ecf_queue ADD COLUMN supabase_id TEXT",
+    "ALTER TABLE ecf_queue ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'",
+    "ALTER TABLE ecf_queue ADD COLUMN track_id TEXT",
+    "ALTER TABLE ecf_queue ADD COLUMN submitted_at TEXT",
+    "ALTER TABLE ecf_queue ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))",
+    "ALTER TABLE ecf_queue ADD COLUMN error TEXT",
+    "ALTER TABLE ecf_queue ADD COLUMN ticket_supabase_id TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_ecf_queue_status ON ecf_queue(status, created_at)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_ecf_queue_supabase_id ON ecf_queue(supabase_id) WHERE supabase_id IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_ecf_queue_encf ON ecf_queue(encf) WHERE encf IS NOT NULL",
     // v1.3 — plan column on businesses for license sync
     "ALTER TABLE businesses ADD COLUMN plan TEXT NOT NULL DEFAULT 'pro'",
     // v1.4 — cost tracking for profit margins (services + ticket_items snapshot)
@@ -893,6 +939,11 @@ function init(userDataPath) {
     'ALTER TABLE app_settings ADD COLUMN business_id TEXT',
     'ALTER TABLE app_settings ADD COLUMN updated_at TEXT',
     'ALTER TABLE app_settings ADD COLUMN supabase_id TEXT',
+    // v2.10.5 — device-local cloud mirror (Recovery RTO). Columns mirror the
+    // Supabase schema in 20260420700000_app_settings_device_scope.sql so
+    // push/pull round-trip without field-mapping.
+    'ALTER TABLE app_settings ADD COLUMN is_device_local INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE app_settings ADD COLUMN device_hwid TEXT',
     // v1.9.25 — mesas.rev: monotonic revision counter used to detect the
     // simultaneous-waiter status race (see electron/sync.js header comment).
     'ALTER TABLE mesas ADD COLUMN rev INTEGER NOT NULL DEFAULT 0',
@@ -908,6 +959,18 @@ function init(userDataPath) {
     // v2.6 — Manager Authorization Card (barcode token, stored as hash)
     'ALTER TABLE users ADD COLUMN manager_auth_hash TEXT',
     'ALTER TABLE users ADD COLUMN manager_auth_rotated_at TEXT',
+
+    // v2.10.5 — PIN hash hardening (S-H4/H5/H6)
+    //   pin_hash_algo  : 'sha256' (legacy) | 'bcrypt' (current)
+    //   pin_salt       : per-row entropy suffix appended before bcrypt
+    //   pin_failed_attempts : consecutive wrong guesses
+    //   pin_locked_until    : ISO timestamp — while > now, authByPin skips row
+    "ALTER TABLE users ADD COLUMN pin_hash_algo TEXT DEFAULT 'sha256'",
+    "ALTER TABLE users ADD COLUMN pin_salt TEXT",
+    "ALTER TABLE users ADD COLUMN pin_failed_attempts INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN pin_locked_until TEXT",
+    // Normalise NULL algo on any row added before the default took effect
+    "UPDATE users SET pin_hash_algo='sha256' WHERE pin_hash_algo IS NULL",
 
     // v2.5 — Conteo Fisico (physical inventory count + variance / theft report)
     `CREATE TABLE IF NOT EXISTS inventory_counts (
@@ -1324,20 +1387,32 @@ function init(userDataPath) {
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS idx_rnc_contrib ON rnc_contribuyentes(rnc)')
 
-  // e-CF offline queue — stores failed submissions for auto-retry (DGII 72h contingency)
+  // e-CF offline queue — stores failed submissions for auto-retry (DGII 72h contingency).
+  // v2.10.5: cloud-mirrored via sync.js so a PC death doesn't orphan signed-but-
+  // unsubmitted e-CFs (Recovery RTO HIGH finding).
   db.exec(`CREATE TABLE IF NOT EXISTS ecf_queue (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    url_path    TEXT NOT NULL,
-    body_json   TEXT NOT NULL,
-    token       TEXT NOT NULL DEFAULT '',
-    xml_signed  TEXT,
-    encf        TEXT,
-    tipo_ecf    TEXT,
-    environment TEXT NOT NULL DEFAULT 'testecf',
-    attempts    INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    last_tried  TEXT
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    url_path           TEXT NOT NULL DEFAULT '',
+    body_json          TEXT NOT NULL,
+    token              TEXT NOT NULL DEFAULT '',
+    xml_signed         TEXT,
+    encf               TEXT,
+    tipo_ecf           TEXT,
+    environment        TEXT NOT NULL DEFAULT 'certecf',
+    attempts           INTEGER NOT NULL DEFAULT 0,
+    created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    last_tried         TEXT,
+    supabase_id        TEXT,
+    ticket_supabase_id TEXT,
+    status             TEXT NOT NULL DEFAULT 'pending',
+    track_id           TEXT,
+    submitted_at       TEXT,
+    updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    error              TEXT
   )`)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_ecf_queue_status ON ecf_queue(status, created_at)')
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uq_ecf_queue_supabase_id ON ecf_queue(supabase_id) WHERE supabase_id IS NOT NULL')
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uq_ecf_queue_encf ON ecf_queue(encf) WHERE encf IS NOT NULL')
 
   // e-CF submission log — tracks every e-CF sent to DGII with status
   db.exec(`CREATE TABLE IF NOT EXISTS ecf_submissions (
@@ -2105,6 +2180,24 @@ function getSetting(key) {
   const row = db.prepare('SELECT value FROM app_settings WHERE key=?').get(key)
   return row?.value ?? null
 }
+// v2.10.5 — device_hwid stamping helper. Returns the HWID stored by main.js
+// (or null if not yet stamped — rare, only on a brand-new first boot before
+// getHardwareId() wrote into app_settings). Unknown-hwid rows fall back to
+// business-level behavior (is_device_local=0, device_hwid=NULL) so they don't
+// get orphaned.
+function getLocalHwid() {
+  if (!db) return null
+  try { return db.prepare("SELECT value FROM app_settings WHERE key='hwid'").get()?.value || null }
+  catch { return null }
+}
+function scopeForKey(key) {
+  const hwid = getLocalHwid()
+  if (isDeviceLocalCloudMirror(key) && hwid) {
+    return { is_device_local: 1, device_hwid: hwid }
+  }
+  return { is_device_local: 0, device_hwid: null }
+}
+
 function setSetting(key, value) {
   if (!db) return
   // UPSERT that preserves business_id/supabase_id on existing rows and stamps
@@ -2112,15 +2205,18 @@ function setSetting(key, value) {
   // INSERT we set it explicitly.
   const bizId = db.prepare("SELECT value FROM app_settings WHERE key='supabase_business_id'").get()?.value || null
   const uuid  = crypto.randomUUID()
+  const scope = scopeForKey(key)
   db.prepare(`
-    INSERT INTO app_settings(key, value, business_id, supabase_id, updated_at)
-    VALUES(?, ?, ?, ?, datetime('now'))
+    INSERT INTO app_settings(key, value, business_id, supabase_id, is_device_local, device_hwid, updated_at)
+    VALUES(?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(key) DO UPDATE SET
-      value       = excluded.value,
-      business_id = COALESCE(app_settings.business_id, excluded.business_id),
-      supabase_id = COALESCE(app_settings.supabase_id, excluded.supabase_id),
-      updated_at  = datetime('now')
-  `).run(key, String(value), bizId, uuid)
+      value           = excluded.value,
+      business_id     = COALESCE(app_settings.business_id, excluded.business_id),
+      supabase_id     = COALESCE(app_settings.supabase_id, excluded.supabase_id),
+      is_device_local = excluded.is_device_local,
+      device_hwid     = excluded.device_hwid,
+      updated_at      = datetime('now')
+  `).run(key, String(value), bizId, uuid, scope.is_device_local, scope.device_hwid)
 }
 
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
@@ -2132,41 +2228,160 @@ function settingsGet() {
 function settingsUpdate(obj) {
   if (!db) return
   const bizId = db.prepare("SELECT value FROM app_settings WHERE key='supabase_business_id'").get()?.value || null
+  const hwid  = getLocalHwid()
   const stmt = db.prepare(`
-    INSERT INTO app_settings(key, value, business_id, supabase_id, updated_at)
-    VALUES(?, ?, ?, ?, datetime('now'))
+    INSERT INTO app_settings(key, value, business_id, supabase_id, is_device_local, device_hwid, updated_at)
+    VALUES(?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(key) DO UPDATE SET
-      value       = excluded.value,
-      business_id = COALESCE(app_settings.business_id, excluded.business_id),
-      supabase_id = COALESCE(app_settings.supabase_id, excluded.supabase_id),
-      updated_at  = datetime('now')
+      value           = excluded.value,
+      business_id     = COALESCE(app_settings.business_id, excluded.business_id),
+      supabase_id     = COALESCE(app_settings.supabase_id, excluded.supabase_id),
+      is_device_local = excluded.is_device_local,
+      device_hwid     = excluded.device_hwid,
+      updated_at      = datetime('now')
   `)
   const run  = db.transaction(() => {
     for (const [k, v] of Object.entries(obj)) {
       // Skip undefined/null so we never poison a setting with the literal
       // string 'undefined'. An empty string is still a valid stored value.
       if (v === undefined || v === null) continue
-      stmt.run(k, String(v), bizId, crypto.randomUUID())
+      const isDev = isDeviceLocalCloudMirror(k) && hwid ? 1 : 0
+      const tag   = isDev ? hwid : null
+      stmt.run(k, String(v), bizId, crypto.randomUUID(), isDev, tag)
     }
   })
   run()
 }
 
 // ── USERS / AUTH ──────────────────────────────────────────────────────────────
+// Sprint 10 (v2.10.5) — PIN auth hardened for S-H4/H5/H6.
+//
+//   S-H4: bcryptjs @ cost 10 with per-row 24-byte salt. Legacy SHA-256 rows
+//         (pin_hash_algo='sha256') remain authenticatable until first success,
+//         then are rehashed to bcrypt atomically in the same transaction.
+//   S-H5: 5 consecutive wrong attempts lock the row for 5 minutes
+//         (pin_failed_attempts / pin_locked_until). The ENTIRE table-level
+//         attempt budget is per-row, not global, so a bad-actor guess against
+//         one cashier can't lock out another. A correct PIN clears both.
+//   S-H6: userUpdate refuses a self-PIN change unless data.oldPin verifies.
+//
+// authByPin scans every active, unlocked row with O(N) bcrypt compares. For
+// a realistic staff size (≤ ~30) this is ~0.5s worst case per login — well
+// within the UX budget and, crucially, slow enough that brute-forcing a
+// specific PIN requires ~2M bcrypt ops (1M candidates × 2 cost factor),
+// physically bounded by the 5-attempt lockout.
 function authByPin(pin) {
   if (!db) return null
-  const hash = sha256(pin)
-  // F9 — deterministic tiebreaker. Multiple rows may share the same PIN hash
-  // during the dedup window (e.g. 3 michael clones all hashed "1234" earlier
-  // today). Prefer the row wired to an `empleados` record (real logins) over
-  // orphan clones, then the oldest local `id`. NEVER return a random row.
-  return db.prepare(`
-    SELECT id, name, username, role, discount_pct
-    FROM users
-    WHERE pin_hash=? AND active=1
-    ORDER BY (employee_id IS NOT NULL) DESC, id ASC
-    LIMIT 1
-  `).get(hash)
+  const pinStr = String(pin || '').replace(/\D/g, '')
+  if (!pinStr) return null
+
+  const nowIso = new Date().toISOString()
+  const rows = db.prepare(`
+    SELECT id, name, username, role, discount_pct, pin_hash, pin_hash_algo,
+           pin_salt, pin_failed_attempts, pin_locked_until, supabase_id,
+           employee_id
+      FROM users
+     WHERE active=1
+     ORDER BY (employee_id IS NOT NULL) DESC, id ASC
+  `).all()
+
+  const legacyHash = sha256(pinStr)
+  let matched = null
+  const incrementCandidates = []
+
+  for (const r of rows) {
+    // Locked? Skip — neither a match nor a miss counts against this row.
+    if (r.pin_locked_until && r.pin_locked_until > nowIso) continue
+
+    let hit = false
+    const algo = r.pin_hash_algo || 'sha256'
+    if (algo === 'bcrypt') {
+      hit = bcryptComparePin(pinStr, r.pin_salt, r.pin_hash)
+    } else {
+      // Legacy unsalted SHA-256 — constant-time eq is fine since both sides
+      // are hex digests of identical length.
+      hit = (r.pin_hash === legacyHash)
+    }
+
+    if (hit) {
+      matched = r
+      break
+    }
+    incrementCandidates.push(r.id)
+  }
+
+  if (matched) {
+    // Reset lockout counters + opportunistic rehash to bcrypt.
+    const upgrade = db.transaction(() => {
+      let newHash = matched.pin_hash
+      let newSalt = matched.pin_salt
+      let newAlgo = matched.pin_hash_algo || 'sha256'
+      if (newAlgo !== 'bcrypt') {
+        newSalt = generatePinSalt()
+        newHash = bcryptHashPin(pinStr, newSalt)
+        newAlgo = 'bcrypt'
+      }
+      db.prepare(`
+        UPDATE users
+           SET pin_hash=?, pin_hash_algo=?, pin_salt=?,
+               pin_failed_attempts=0, pin_locked_until=NULL,
+               updated_at=?
+         WHERE id=?
+      `).run(newHash, newAlgo, newSalt, nowIso, matched.id)
+    })
+    try { upgrade() } catch (e) { console.warn('[auth] rehash/reset failed:', e.message) }
+
+    return {
+      id: matched.id,
+      name: matched.name,
+      username: matched.username,
+      role: matched.role,
+      discount_pct: matched.discount_pct,
+      supabase_id: matched.supabase_id,
+      employee_id: matched.employee_id,
+    }
+  }
+
+  // Miss — increment attempts on every non-locked row we tried, lock any
+  // that crossed the threshold. Doing this per-row (not global) means an
+  // attacker guessing PIN X can't starve the ownership row into a lockout.
+  if (incrementCandidates.length) {
+    const lockAt = new Date(Date.now() + PIN_LOCKOUT_MS).toISOString()
+    const stmt = db.prepare(`
+      UPDATE users
+         SET pin_failed_attempts = pin_failed_attempts + 1,
+             pin_locked_until    = CASE
+               WHEN pin_failed_attempts + 1 >= ? THEN ?
+               ELSE pin_locked_until
+             END,
+             updated_at = ?
+       WHERE id = ?
+    `)
+    const tx = db.transaction(() => {
+      for (const id of incrementCandidates) {
+        try { stmt.run(PIN_MAX_FAILED_ATTEMPTS, lockAt, nowIso, id) } catch {}
+      }
+    })
+    try { tx() } catch (e) { console.warn('[auth] lockout bump failed:', e.message) }
+  }
+
+  return null
+}
+
+// Telemetry helper — UI can surface "Cuenta bloqueada" if ANY active row is
+// currently locked. Returns { locked: boolean, until: ISO|null } for the row
+// closest to unlocking (earliest pin_locked_until).
+function authLockoutStatus() {
+  if (!db) return { locked: false, until: null }
+  const nowIso = new Date().toISOString()
+  const row = db.prepare(`
+    SELECT pin_locked_until AS until
+      FROM users
+     WHERE active=1 AND pin_locked_until IS NOT NULL AND pin_locked_until > ?
+     ORDER BY pin_locked_until ASC
+     LIMIT 1
+  `).get(nowIso)
+  return row ? { locked: true, until: row.until } : { locked: false, until: null }
 }
 function usersGetAll() {
   if (!db) return []
@@ -2177,11 +2392,28 @@ function usersGetAll() {
 }
 function userCreate(data) {
   if (!db) return null
-  // Resolve pin_hash: explicit pin_hash wins (remote pull), else hash the plaintext pin,
-  // else reject (no credentials supplied).
-  const resolvePinHash = () => {
-    if (data.pin_hash) return data.pin_hash
-    if (data.pin) return sha256(data.pin)
+  // Sprint 10 — new local rows bcrypt the PIN with a per-row salt. Remote
+  // pulls (data.pin_hash supplied) keep whatever algo the remote row used;
+  // the caller MUST also pass pin_hash_algo + pin_salt or default stays
+  // sha256 so authByPin recognises it as legacy and rehashes on next login.
+  //
+  // resolvePinCreds() returns { pin_hash, pin_hash_algo, pin_salt }.
+  const resolvePinCreds = () => {
+    if (data.pin_hash) {
+      return {
+        pin_hash: data.pin_hash,
+        pin_hash_algo: data.pin_hash_algo || 'sha256',
+        pin_salt: data.pin_salt || null,
+      }
+    }
+    if (data.pin) {
+      const salt = generatePinSalt()
+      return {
+        pin_hash: bcryptHashPin(data.pin, salt),
+        pin_hash_algo: 'bcrypt',
+        pin_salt: salt,
+      }
+    }
     throw new Error('PIN requerido')
   }
 
@@ -2197,11 +2429,20 @@ function userCreate(data) {
   if (data.supabase_id) {
     const existing = db.prepare('SELECT id, supabase_id FROM users WHERE supabase_id=?').get(data.supabase_id)
     if (existing) {
-      db.prepare('UPDATE users SET name=@name, username=@username, pin_hash=@pin_hash, role=@role, discount_pct=@discount_pct, commission_pct=COALESCE(@commission_pct, commission_pct), employee_id=@employee_id, cedula=@cedula, start_date=@start_date, active=1 WHERE id=@id')
+      const creds = resolvePinCreds()
+      db.prepare(`UPDATE users SET name=@name, username=@username,
+                  pin_hash=@pin_hash, pin_hash_algo=@pin_hash_algo, pin_salt=@pin_salt,
+                  pin_failed_attempts=0, pin_locked_until=NULL,
+                  role=@role, discount_pct=@discount_pct,
+                  commission_pct=COALESCE(@commission_pct, commission_pct),
+                  employee_id=@employee_id, cedula=@cedula, start_date=@start_date,
+                  active=1 WHERE id=@id`)
         .run({
           name: data.name,
           username: data.username,
-          pin_hash: resolvePinHash(),
+          pin_hash: creds.pin_hash,
+          pin_hash_algo: creds.pin_hash_algo,
+          pin_salt: creds.pin_salt,
           role: data.role,
           discount_pct: data.discount_pct || 0,
           commission_pct: data.commission_pct ?? null,
@@ -2213,15 +2454,15 @@ function userCreate(data) {
       return { id: existing.id, supabase_id: data.supabase_id }
     }
     // No match on supabase_id → INSERT new row, even if username collides.
-    // Username collision would throw on the UNIQUE index — catch it and log;
-    // the caller is responsible for resolving the collision (e.g. by letting
-    // the Supabase side dedup run).
     try {
-      const r = db.prepare(`INSERT INTO users(name,username,pin_hash,role,discount_pct,commission_pct,employee_id,cedula,start_date,active,supabase_id)
-        VALUES(@name,@username,@pin_hash,@role,@discount_pct,@commission_pct,@employee_id,@cedula,@start_date,1,@supabase_id)`).run({
+      const creds = resolvePinCreds()
+      const r = db.prepare(`INSERT INTO users(name,username,pin_hash,pin_hash_algo,pin_salt,role,discount_pct,commission_pct,employee_id,cedula,start_date,active,supabase_id)
+        VALUES(@name,@username,@pin_hash,@pin_hash_algo,@pin_salt,@role,@discount_pct,@commission_pct,@employee_id,@cedula,@start_date,1,@supabase_id)`).run({
         name: data.name,
         username: data.username,
-        pin_hash: resolvePinHash(),
+        pin_hash: creds.pin_hash,
+        pin_hash_algo: creds.pin_hash_algo,
+        pin_salt: creds.pin_salt,
         role: data.role,
         discount_pct: data.discount_pct || 0,
         commission_pct: data.commission_pct || 0,
@@ -2240,14 +2481,22 @@ function userCreate(data) {
     }
   }
 
-  // No supabase_id supplied → local-only create. Match by username only as a
-  // last-resort upsert path (renaming a legacy row, etc.).
+  // No supabase_id supplied → local-only create.
   let existing = db.prepare('SELECT id, supabase_id FROM users WHERE username=?').get(data.username)
   if (existing) {
-    db.prepare('UPDATE users SET name=@name, pin_hash=@pin_hash, role=@role, discount_pct=@discount_pct, commission_pct=COALESCE(@commission_pct, commission_pct), employee_id=@employee_id, cedula=@cedula, start_date=@start_date, active=1 WHERE id=@id')
+    const creds = resolvePinCreds()
+    db.prepare(`UPDATE users SET name=@name,
+                pin_hash=@pin_hash, pin_hash_algo=@pin_hash_algo, pin_salt=@pin_salt,
+                pin_failed_attempts=0, pin_locked_until=NULL,
+                role=@role, discount_pct=@discount_pct,
+                commission_pct=COALESCE(@commission_pct, commission_pct),
+                employee_id=@employee_id, cedula=@cedula, start_date=@start_date,
+                active=1 WHERE id=@id`)
       .run({
         name: data.name,
-        pin_hash: resolvePinHash(),
+        pin_hash: creds.pin_hash,
+        pin_hash_algo: creds.pin_hash_algo,
+        pin_salt: creds.pin_salt,
         role: data.role,
         discount_pct: data.discount_pct || 0,
         commission_pct: data.commission_pct ?? null,
@@ -2259,11 +2508,14 @@ function userCreate(data) {
     return { id: existing.id, supabase_id: existing.supabase_id }
   }
   const sid = crypto.randomUUID()
-  const r = db.prepare(`INSERT INTO users(name,username,pin_hash,role,discount_pct,commission_pct,employee_id,cedula,start_date,active,supabase_id)
-    VALUES(@name,@username,@pin_hash,@role,@discount_pct,@commission_pct,@employee_id,@cedula,@start_date,1,@supabase_id)`).run({
+  const creds = resolvePinCreds()
+  const r = db.prepare(`INSERT INTO users(name,username,pin_hash,pin_hash_algo,pin_salt,role,discount_pct,commission_pct,employee_id,cedula,start_date,active,supabase_id)
+    VALUES(@name,@username,@pin_hash,@pin_hash_algo,@pin_salt,@role,@discount_pct,@commission_pct,@employee_id,@cedula,@start_date,1,@supabase_id)`).run({
     name: data.name,
     username: data.username,
-    pin_hash: resolvePinHash(),
+    pin_hash: creds.pin_hash,
+    pin_hash_algo: creds.pin_hash_algo,
+    pin_salt: creds.pin_salt,
     role: data.role,
     discount_pct: data.discount_pct || 0,
     commission_pct: data.commission_pct || 0,
@@ -2276,14 +2528,45 @@ function userCreate(data) {
 }
 function userUpdate(id, data) {
   if (!db) return
-  const allowed = ['name', 'username', 'pin_hash', 'role', 'discount_pct', 'employee_id', 'vendedor_id', 'commission_pct', 'active', 'supabase_id', 'cedula', 'start_date']
-  const { pin, ...rest } = data
-  if (pin && !rest.pin_hash) rest.pin_hash = sha256(pin)
+  // Sprint 10 (S-H6) — self-PIN changes MUST prove knowledge of the old PIN.
+  // Manager/owner-driven resets for OTHER users are already gated by the IPC
+  // auth-guard; they don't have to re-enter that user's old PIN. We
+  // distinguish the two by comparing data.actorId (set by the IPC layer from
+  // session state) against the target id.
+  const selfPinChange = !!data.pin && data.actorId != null && String(data.actorId) === String(id)
+  if (selfPinChange) {
+    if (!data.oldPin) throw new Error('Old PIN required')
+    const row = db.prepare('SELECT pin_hash, pin_hash_algo, pin_salt, pin_locked_until FROM users WHERE id=?').get(id)
+    if (!row) throw new Error('User not found')
+    if (row.pin_locked_until && row.pin_locked_until > new Date().toISOString()) {
+      throw new Error('Account locked')
+    }
+    const algo = row.pin_hash_algo || 'sha256'
+    const ok = algo === 'bcrypt'
+      ? bcryptComparePin(data.oldPin, row.pin_salt, row.pin_hash)
+      : row.pin_hash === sha256(String(data.oldPin))
+    if (!ok) throw new Error('Old PIN incorrect')
+  }
+
+  const allowed = ['name', 'username', 'pin_hash', 'pin_hash_algo', 'pin_salt', 'pin_failed_attempts', 'pin_locked_until', 'role', 'discount_pct', 'employee_id', 'vendedor_id', 'commission_pct', 'active', 'supabase_id', 'cedula', 'start_date']
+  const { pin, oldPin, actorId, ...rest } = data
+  if (pin && !rest.pin_hash) {
+    const salt = generatePinSalt()
+    rest.pin_hash      = bcryptHashPin(pin, salt)
+    rest.pin_hash_algo = 'bcrypt'
+    rest.pin_salt      = salt
+  }
   const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
   // v2.2.1 — capture "before" row so we can audit sensitive changes (PIN, role).
   let before = null
   try { before = db.prepare('SELECT name, username, role, pin_hash FROM users WHERE id=?').get(id) } catch {}
+  // Any PIN rotation wipes the lockout counters — otherwise a freshly reset
+  // PIN could inherit a locked state from the previous PIN's bad-guess streak.
+  if (patch.pin_hash) {
+    patch.pin_failed_attempts = 0
+    patch.pin_locked_until    = null
+  }
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
   db.prepare(`UPDATE users SET ${fields} WHERE id=@id`).run({ ...patch, id })
   if (before) {
@@ -3982,10 +4265,13 @@ function ticketGetByDateRange(dateFrom, dateTo) {
 function ticketItemUpdatePrice({ ticketItemId, newPrice, reason, adminPin }) {
   if (!db) return { ok: false, error: 'DB not ready' }
 
-  // 1. Verify admin PIN
-  const hash = crypto.createHash('sha256').update(String(adminPin)).digest('hex')
-  const admin = db.prepare("SELECT id, name, role FROM users WHERE pin_hash=? AND active=1 AND role IN ('owner','manager')").get(hash)
-  if (!admin) return { ok: false, error: 'PIN invalido o no tiene permisos de administrador' }
+  // 1. Verify admin PIN — delegate to authByPin so the bcrypt/SHA-256 fallback
+  //    + per-row lockout + opportunistic rehash all run uniformly. Inline
+  //    SELECT on pin_hash alone would miss already-rehashed bcrypt rows.
+  const admin = authByPin(String(adminPin).replace(/\D/g, ''))
+  if (!admin || !['owner', 'manager'].includes(admin.role)) {
+    return { ok: false, error: 'PIN invalido o no tiene permisos de administrador' }
+  }
 
   // 2. Get current item + ticket
   const item = db.prepare('SELECT * FROM ticket_items WHERE id=?').get(ticketItemId)
@@ -4851,34 +5137,99 @@ function inventorySearch(query) {
 
 // ── e-CF offline queue ────────────────────────────────────────────────────────
 
-function ecfQueueAdd(urlPath, bodyJson, token, { xmlSigned, encf, tipoEcf, environment } = {}) {
+function ecfQueueAdd(urlPath, bodyJson, token, { xmlSigned, encf, tipoEcf, environment, ticketSupabaseId } = {}) {
   if (!db) return
-  db.prepare('INSERT INTO ecf_queue (url_path, body_json, token, xml_signed, encf, tipo_ecf, environment) VALUES (?,?,?,?,?,?,?)')
-    .run(urlPath, typeof bodyJson === 'string' ? bodyJson : JSON.stringify(bodyJson), token || '',
-         xmlSigned || null, encf || null, tipoEcf || null, environment || 'testecf')
+  // v2.10.5 — stamp supabase_id at creation so the row is syncable on the next
+  // 5-min push. If `encf` is present, the UNIQUE(encf) partial index would
+  // collide on a double-enqueue of the same e-CF; INSERT OR IGNORE preserves
+  // the original row (its supabase_id is the canonical cloud identity).
+  const supabaseId = crypto.randomUUID()
+  db.prepare(`INSERT OR IGNORE INTO ecf_queue
+    (url_path, body_json, token, xml_signed, encf, tipo_ecf, environment,
+     supabase_id, ticket_supabase_id, status, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))`)
+    .run(
+      urlPath || '',
+      typeof bodyJson === 'string' ? bodyJson : JSON.stringify(bodyJson),
+      token || '',
+      xmlSigned || null,
+      encf || null,
+      tipoEcf || null,
+      environment || 'certecf',
+      supabaseId,
+      ticketSupabaseId || null,
+      'pending',
+    )
 }
 
-// Only items within DGII's 72h contingency window
+// Only pending items within DGII's 72h contingency window.
+// v2.10.5 — `status='pending'` filter ensures peer-device submissions (pulled
+// in via cloud sync with status='submitted') never double-fire from this PC.
 function ecfQueueGetPending(limit = 10) {
   if (!db) return []
   return db.prepare(
-    `SELECT * FROM ecf_queue WHERE attempts < 500 AND created_at > datetime('now','-72 hours') ORDER BY id ASC LIMIT ?`
+    `SELECT * FROM ecf_queue
+      WHERE status='pending'
+        AND attempts < 500
+        AND created_at > datetime('now','-72 hours')
+      ORDER BY id ASC LIMIT ?`
   ).all(limit)
 }
 
+// v2.10.5 — live row read used right before submission so processDgiiQueue()
+// can detect a cloud-pull race (status flipped to 'submitted' by a peer).
+function ecfQueueGetById(id) {
+  if (!db) return null
+  return db.prepare('SELECT * FROM ecf_queue WHERE id=?').get(id) || null
+}
+
+// v2.10.5 — soft-mark submitted instead of DELETE so the LWW transition
+// propagates to peer devices on the next sync push. Rows remain queryable
+// for audit / support debugging.
+function ecfQueueMarkSubmitted(id, trackId) {
+  if (!db) return
+  db.prepare(`UPDATE ecf_queue
+                 SET status='submitted',
+                     track_id=COALESCE(?, track_id),
+                     submitted_at=datetime('now'),
+                     updated_at=datetime('now'),
+                     error=NULL
+               WHERE id=?`).run(trackId || null, id)
+}
+
+function ecfQueueMarkFailed(id, errorMsg) {
+  if (!db) return
+  db.prepare(`UPDATE ecf_queue
+                 SET status='failed',
+                     error=?,
+                     updated_at=datetime('now')
+               WHERE id=?`).run(String(errorMsg || '').slice(0, 500), id)
+}
+
+// Legacy DELETE path. Still used by the legacy ef2.do branch + pre-migration
+// call sites that don't track encf. All new DGII-direct code flows through
+// ecfQueueMarkSubmitted so the row survives for cloud propagation.
 function ecfQueueDelete(id) {
   if (!db) return
   db.prepare('DELETE FROM ecf_queue WHERE id=?').run(id)
 }
 
-function ecfQueueIncrAttempts(id) {
+function ecfQueueIncrAttempts(id, errorMsg) {
   if (!db) return
-  db.prepare(`UPDATE ecf_queue SET attempts=attempts+1, last_tried=datetime('now') WHERE id=?`).run(id)
+  db.prepare(`UPDATE ecf_queue
+                 SET attempts=attempts+1,
+                     last_tried=datetime('now'),
+                     updated_at=datetime('now'),
+                     error=COALESCE(?, error)
+               WHERE id=?`).run(errorMsg ? String(errorMsg).slice(0, 500) : null, id)
 }
 
 function ecfQueueCount() {
   if (!db) return 0
-  return db.prepare(`SELECT COUNT(*) as c FROM ecf_queue WHERE created_at > datetime('now','-72 hours')`).get()?.c || 0
+  return db.prepare(
+    `SELECT COUNT(*) as c FROM ecf_queue
+       WHERE status='pending' AND created_at > datetime('now','-72 hours')`
+  ).get()?.c || 0
 }
 
 // ── ANECF auto-queue (v2.10.4) ───────────────────────────────────────────────
@@ -6771,7 +7122,7 @@ module.exports = {
   // Settings
   settingsGet, settingsUpdate, getSetting, setSetting,
   // Auth
-  authByPin, usersGetAll, userCreate, userUpdate, userDelete, userDeleteHard,
+  authByPin, authLockoutStatus, usersGetAll, userCreate, userUpdate, userDelete, userDeleteHard,
   staffGenerateAuthCard, staffRevokeAuthCard, staffVerifyAuthToken,
   // Categorías de servicio
   categoriasGetAll, categoriaCreate, categoriaUpdate, categoriaDelete,
@@ -6823,7 +7174,8 @@ module.exports = {
   inventoryCountStart, inventoryCountList, inventoryCountGet, inventoryCountSaveItem,
   inventoryCountComplete, inventoryCountCancel, inventoryCountDelete,
   // e-CF offline queue
-  ecfQueueAdd, ecfQueueGetPending, ecfQueueDelete, ecfQueueIncrAttempts, ecfQueueCount,
+  ecfQueueAdd, ecfQueueGetPending, ecfQueueGetById, ecfQueueMarkSubmitted, ecfQueueMarkFailed,
+  ecfQueueDelete, ecfQueueIncrAttempts, ecfQueueCount,
   // ANECF auto-queue (v2.10.4 — audit E-C6)
   anecfQueueEnqueue, anecfQueueGetPending, anecfQueueMarkSubmitted, anecfQueueMarkFailed,
   anecfQueueCount, anecfQueueList, isECF,

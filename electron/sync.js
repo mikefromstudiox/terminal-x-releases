@@ -34,7 +34,7 @@
 
 const https = require('https')
 const crypto = require('crypto')
-const { isBusinessSetting } = require('./settingsWhitelist')
+const { isBusinessSetting, isDeviceLocalCloudMirror } = require('./settingsWhitelist')
 
 // Route all sync log output through electron-log so it lands in
 // %APPDATA%/terminal-x/logs/main.log where support can actually see it.
@@ -1063,18 +1063,22 @@ const SYNC_TABLES = [
     }),
   },
 
-  // v2.3 — app_settings (business-level keys only — whitelist-driven).
-  // Device-only keys (printer, print_*, hwid, sync internals) are filtered
-  // out via rowFilter so they never leak to the cloud. See
-  // electron/settingsWhitelist.js for the full key classification.
+  // v2.3 — app_settings (business-level keys — whitelist-driven).
+  // v2.10.5 — device-local cloud-mirror keys (printer, kiosk, drawer pulse,
+  //   print_*, etc.) also push, tagged with device_hwid. Recovery on the same
+  //   HWID pulls the row back; different HWIDs are ignored by pullAppSettings.
+  // Pure device-only keys (hwid, sync internals, caches) are filtered out.
+  // See electron/settingsWhitelist.js for the full classification.
   {
     name: 'app_settings',
     naturalKey: 'key',
-    rowFilter: (r) => isBusinessSetting(r.key),
+    rowFilter: (r) => isBusinessSetting(r.key) || isDeviceLocalCloudMirror(r.key),
     cols: r => ({
       supabase_id: r.supabase_id,
       key: r.key,
       value: r.value,
+      is_device_local: !!r.is_device_local,
+      device_hwid: r.device_hwid || null,
       updated_at: r.updated_at || new Date().toISOString(),
     }),
   },
@@ -1838,10 +1842,17 @@ async function pullTable(tableConfig) {
 }
 
 // -- app_settings pull (whitelist-guarded, keyed by TEXT) --------------------
-// Pulls business-level keys from Supabase into local SQLite. Device-local keys
-// are defended at TWO layers: (1) the whitelist check here drops any rogue
-// cloud row whose key is classified device-only, and (2) the web writer in
-// packages/data/web.js refuses to upsert device keys in the first place.
+// Pulls:
+//   1. Business-level rows (device_hwid IS NULL)                → always.
+//   2. Device-local-mirror rows whose device_hwid = MY hwid       → recovery.
+// Ignores device-local rows written by OTHER devices so device A's printer
+// never lands on device B. This is the safe half of the RTO recovery design.
+//
+// Defense in depth: (1) whitelist check drops any rogue cloud row whose key
+// isn't classified as business or device-mirror. (2) device-hwid filter
+// ensures cross-device isolation. (3) web writer in packages/data/web.js
+// refuses device-local cloud-mirror writes entirely (browsers have no stable
+// HWID; they fall back to localStorage).
 async function pullAppSettings(bizId) {
   const lastPull = getLastPullAt('app_settings')
   const FETCH_SIZE = 500
@@ -1849,14 +1860,21 @@ async function pullAppSettings(bizId) {
   let latestUpdatedAt = lastPull
   let offset = 0
 
+  // Resolve my HWID once — rows tagged with other HWIDs are skipped.
+  let myHwid = null
+  try { myHwid = _db.rawPrepare("SELECT value FROM app_settings WHERE key='hwid'").get()?.value || null }
+  catch { myHwid = null }
+
   const upsert = _db.rawPrepare(`
-    INSERT INTO app_settings(key, value, business_id, supabase_id, updated_at)
-    VALUES(?, ?, ?, ?, ?)
+    INSERT INTO app_settings(key, value, business_id, supabase_id, is_device_local, device_hwid, updated_at)
+    VALUES(?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(key) DO UPDATE SET
-      value       = excluded.value,
-      business_id = excluded.business_id,
-      supabase_id = COALESCE(app_settings.supabase_id, excluded.supabase_id),
-      updated_at  = excluded.updated_at
+      value           = excluded.value,
+      business_id     = excluded.business_id,
+      supabase_id     = COALESCE(app_settings.supabase_id, excluded.supabase_id),
+      is_device_local = excluded.is_device_local,
+      device_hwid     = excluded.device_hwid,
+      updated_at      = excluded.updated_at
     WHERE excluded.updated_at >= COALESCE(app_settings.updated_at, '')
   `)
 
@@ -1875,11 +1893,32 @@ async function pullAppSettings(bizId) {
     catch (e) { log.error('[sync-pull] app_settings: fetch failed:', e.message); break }
     if (!rows.length) break
 
+    let skippedForeignDevice = 0
     for (const row of rows) {
       if (!row.supabase_id || !row.key) continue
-      if (!isBusinessSetting(row.key)) continue // device keys rejected defensively
+
+      const rowIsDeviceLocal = row.is_device_local === true || row.is_device_local === 1
+      const rowHwid = row.device_hwid || null
+
+      // Classification gate
+      if (rowIsDeviceLocal) {
+        if (!isDeviceLocalCloudMirror(row.key)) continue // unknown device key — skip
+        // Cross-device isolation: only apply rows tagged with MY hwid.
+        if (!myHwid || rowHwid !== myHwid) { skippedForeignDevice++; continue }
+      } else {
+        if (!isBusinessSetting(row.key)) continue // rogue device key in a business slot — skip
+      }
+
       try {
-        upsert.run(row.key, row.value ?? '', row.business_id || bizId, row.supabase_id, row.updated_at || new Date().toISOString())
+        upsert.run(
+          row.key,
+          row.value ?? '',
+          row.business_id || bizId,
+          row.supabase_id,
+          rowIsDeviceLocal ? 1 : 0,
+          rowIsDeviceLocal ? rowHwid : null,
+          row.updated_at || new Date().toISOString()
+        )
       } catch (e) {
         log.error('[sync-pull] app_settings: upsert failed for', row.key, ':', e.message)
       }
@@ -1887,12 +1926,15 @@ async function pullAppSettings(bizId) {
     }
 
     totalPulled += rows.length
+    if (skippedForeignDevice > 0) {
+      log.info(`[sync-pull] app_settings: skipped ${skippedForeignDevice} rows from other devices`)
+    }
     offset += FETCH_SIZE
     if (rows.length < FETCH_SIZE) break
   }
 
   if (latestUpdatedAt) updatePullLog('app_settings', latestUpdatedAt)
-  if (totalPulled > 0) log.info(`[sync-pull] app_settings: pulled ${totalPulled} business-level rows`)
+  if (totalPulled > 0) log.info(`[sync-pull] app_settings: pulled ${totalPulled} rows (myHwid=${myHwid ? 'set' : 'unset'})`)
   return totalPulled
 }
 

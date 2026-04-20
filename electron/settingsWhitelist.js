@@ -1,9 +1,17 @@
-// settingsWhitelist.js — classifies app_settings keys as business-level (cloud-synced)
-// vs device-local (never synced). CommonJS mirror of packages/services/settingsWhitelist.js.
-// Keep the two files IDENTICAL — they are trivial data duplication on purpose
-// because electron/ is CJS and packages/ is ESM.
+// settingsWhitelist.js — classifies app_settings keys by scope.
+// CommonJS mirror of packages/services/settingsWhitelist.js — keep IDENTICAL.
+//
+// Three categories:
+//   1. BUSINESS_SETTING_KEYS  — cloud-synced, business-wide. Same on every device.
+//   2. DEVICE_LOCAL_CLOUD_MIRROR_KEYS — v2.10.5: device-local BUT mirrored to
+//      Supabase tagged with the writing device's HWID. Recovery-safe:
+//      a fresh install on the SAME hwid can pull its previous config.
+//      Different hwid -> rows are ignored (so device A's printer settings
+//      never overwrite device B's).
+//   3. DEVICE_ONLY_KEYS — device-local and NEVER leave this machine
+//      (sync internals, caches, transient markers).
 
-// Business-level settings — cloud-synced. Same value on desktop, web, and every device.
+// ── 1. BUSINESS-level (cloud-synced, no hwid) ────────────────────────────────
 const BUSINESS_SETTING_KEYS = new Set([
   'itbis_pct', 'usd_rate', 'rnc_verify', 'sucursales',
   'whatsapp_instance', 'whatsapp_token',
@@ -12,33 +20,57 @@ const BUSINESS_SETTING_KEYS = new Set([
   'business_type', 'biz_business_type',
   'ley_enabled',
   'go_live_date',
-  // POS tab customization — cloud-synced so all devices at the same business
-  // share the same category order + hidden-tab preferences.
+  'daily_digest_enabled', 'last_digest_sent',
   'pos_tab_order', 'pos_tab_hidden',
-  // v2.7.1 — Loyalty program (business-wide)
   'loyalty_enabled', 'loyalty_points_ratio', 'loyalty_redemption_ratio',
   'loyalty_tier_silver', 'loyalty_tier_gold', 'loyalty_tier_platinum',
 ])
 
-// Device-local settings — NEVER synced. Each POS/device has its own.
-const DEVICE_SETTING_KEYS = new Set([
-  'printer',
-  'print_factura_auto', 'print_conduce_auto', 'print_preticket',
-  'hwid',
+// ── 2. DEVICE-LOCAL, CLOUD-MIRRORED (recovery-safe, tagged with HWID) ────────
+// These are per-device settings (printer config, kiosk state, etc.) that were
+// previously lost forever when a cash register PC died. v2.10.5 mirrors them
+// to Supabase tagged with device_hwid so a reinstall on the SAME hardware
+// recovers them automatically. Cross-device writes cannot race: each HWID
+// is a sole-writer partition, so LWW is safe within each partition.
+const DEVICE_LOCAL_CLOUD_MIRROR_KEYS = new Set([
+  'printer',              // ESC/POS printer JSON config (vendor, port, width)
+  'drawer_pulse_hex',     // cash drawer kick pulse bytes
+  'print_factura_auto',
+  'print_conduce_auto',
+  'print_preticket',
+  'kiosk_mode',
+  'kiosk_exit_pin',
+  'default_form_pago',    // cashier's preferred default payment method
+  'ncf_block_size',       // multi-POS block sizes (per-device config)
+  'doc_block_size',
   'multi_pos_enabled',
-  'ncf_block_size', 'doc_block_size',
+])
+
+// ── 3. DEVICE-ONLY (never leaves this machine) ───────────────────────────────
+// Sync internals, caches, one-shot migration markers. Mirroring these to cloud
+// would either be nonsense (sync_v3_supabase_id) or leak private state
+// (license cache). Keep them local-only.
+const DEVICE_SETTING_KEYS = new Set([
+  'hwid',
   'supabase_business_id', 'last_pulled_business_id', 'business_id_changed_at',
   'sync_v3_supabase_id', 'sync_v4_ticket_resync', 'pull_reset_version',
+  'updated_at_triggers_v2_done', 'updated_at_iso_migration_done',
+  'salary_changes_nullable_empleado_id', 'schema_version', 'v2_1_orphans',
   'logo_synced_hash', 'logo_synced_url',
   'tx_lang', 'tx_last_valid', 'tx_license_cache', 'tx_license_cache_ts',
 ])
 
-function isBusinessSetting(key) { return BUSINESS_SETTING_KEYS.has(key) }
-function isDeviceSetting(key)   { return DEVICE_SETTING_KEYS.has(key) }
+function isBusinessSetting(key)           { return BUSINESS_SETTING_KEYS.has(key) }
+function isDeviceLocalCloudMirror(key)    { return DEVICE_LOCAL_CLOUD_MIRROR_KEYS.has(key) }
+function isDeviceOnlySetting(key)         { return DEVICE_SETTING_KEYS.has(key) }
+function isDeviceSetting(key)             { return DEVICE_LOCAL_CLOUD_MIRROR_KEYS.has(key) || DEVICE_SETTING_KEYS.has(key) }
 
 module.exports = {
   BUSINESS_SETTING_KEYS,
+  DEVICE_LOCAL_CLOUD_MIRROR_KEYS,
   DEVICE_SETTING_KEYS,
   isBusinessSetting,
+  isDeviceLocalCloudMirror,
+  isDeviceOnlySetting,
   isDeviceSetting,
 }
