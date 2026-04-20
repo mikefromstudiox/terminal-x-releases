@@ -876,6 +876,11 @@ function init(userDataPath) {
     // v1.9.25 — mesas.rev: monotonic revision counter used to detect the
     // simultaneous-waiter status race (see electron/sync.js header comment).
     'ALTER TABLE mesas ADD COLUMN rev INTEGER NOT NULL DEFAULT 0',
+    // v2.10.3 — tickets.rev: same optimistic concurrency guard for tickets.
+    // Supabase trigger trg_tickets_rev_guard rejects status changes unless
+    // NEW.rev > OLD.rev. Every status-changing UPDATE in this file must bump
+    // rev = COALESCE(rev,0)+1 in the same statement.
+    'ALTER TABLE tickets ADD COLUMN rev INTEGER NOT NULL DEFAULT 0',
     // v2.3.32 — Pedidos Ya per-channel pricing + ticket order source
     'ALTER TABLE inventory_items ADD COLUMN price_pedidos_ya REAL',
     "ALTER TABLE tickets ADD COLUMN order_source TEXT DEFAULT 'pos'",
@@ -3228,7 +3233,8 @@ function clientGetOpenTickets(clientId) {
 function collectCredit({ clientId, ticketIds, amount, paymentMethod, ncf, notes, cajeroId }) {
   if (!db) return null
   return db.transaction(() => {
-    const updTicket = db.prepare("UPDATE tickets SET status='cobrado', payment_method=? WHERE id=?")
+    // v2.10.3 — bump rev alongside status so Supabase trg_tickets_rev_guard accepts.
+    const updTicket = db.prepare("UPDATE tickets SET status='cobrado', payment_method=?, rev=COALESCE(rev,0)+1 WHERE id=?")
     for (const tid of ticketIds) updTicket.run(paymentMethod, tid)
     db.prepare('UPDATE clients SET balance=MAX(0,balance-?) WHERE id=?').run(amount, clientId)
     const sid = crypto.randomUUID()
@@ -3650,13 +3656,15 @@ function ticketMarkPaid(id, { paymentMethod, ncf, ecfResult, cajeroId, tipoVenta
     const newStatus = tipoVenta === 'credito' ? 'pendiente' : 'cobrado'
     const noteVal = (comentario ?? notes ?? null) || null
 
+    // v2.10.3 — bump rev alongside status so Supabase trg_tickets_rev_guard accepts.
     db.prepare(`UPDATE tickets SET status=?,
       payment_method=COALESCE(?,payment_method),
       ncf=COALESCE(?,ncf),
       ecf_result=COALESCE(?,ecf_result),
       cajero_id=COALESCE(?,cajero_id),
       notes=COALESCE(?,notes),
-      descuento=COALESCE(?,descuento)
+      descuento=COALESCE(?,descuento),
+      rev=COALESCE(rev,0)+1
       WHERE id=?`).run(
       newStatus,
       paymentMethod || null, ncf || null,
@@ -3707,7 +3715,8 @@ function ticketVoid(id, reason, voidById) {
     const ticket = db.prepare('SELECT * FROM tickets WHERE id=?').get(id)
     if (!ticket) return
     voidedTicket = ticket
-    db.prepare(`UPDATE tickets SET status='nula',void_reason=?,void_by=?,void_at=datetime('now') WHERE id=?`)
+    // v2.10.3 — bump rev alongside status so Supabase trg_tickets_rev_guard accepts.
+    db.prepare(`UPDATE tickets SET status='nula',void_reason=?,void_by=?,void_at=datetime('now'),rev=COALESCE(rev,0)+1 WHERE id=?`)
       .run(reason, voidById || null, id)
     // Reverse client balance if it was a credit ticket (clamped at 0, net of descuento)
     reverseClientBalanceForTicket(ticket)
@@ -3875,7 +3884,8 @@ function queueDelete(id, deletedBy) {
       db.prepare('DELETE FROM cajero_commissions WHERE ticket_id=? OR ticket_supabase_id IN (SELECT supabase_id FROM tickets WHERE id=?)').run(row.ticket_id, row.ticket_id)
     }
     db.prepare(`UPDATE queue SET status='cancelled', completed_at=? WHERE id=?`).run(now, id)
-    db.prepare(`UPDATE tickets SET status='anulado' WHERE id=?`).run(row.ticket_id)
+    // v2.10.3 — bump rev alongside status so Supabase trg_tickets_rev_guard accepts.
+    db.prepare(`UPDATE tickets SET status='anulado', rev=COALESCE(rev,0)+1 WHERE id=?`).run(row.ticket_id)
     db.prepare(`INSERT OR IGNORE INTO queue_deletions (queue_id, ticket_id, doc_number, deleted_by, deleted_at, reason) VALUES (?,?,?,?,?,?)`)
       .run(id, row.ticket_id, row.doc_number || '', deletedBy || 'unknown', now, 'manual')
   })()

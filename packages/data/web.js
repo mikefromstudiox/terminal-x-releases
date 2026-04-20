@@ -1700,9 +1700,12 @@ export function createWebAPI(supabase, businessId) {
           if (existing) return { id: existing.id, supabase_id: existing.supabase_id, idempotent: true }
         }
 
-        // 1. Mark each ticket as 'cobrado' with the payment method
+        // 1. Mark each ticket as 'cobrado' with the payment method.
+        // v2.10.3 — bump rev so Supabase trg_tickets_rev_guard accepts the status change.
         for (const tid of (ticketIds || [])) {
-          await supabase.from('tickets').update({ status: 'cobrado', payment_method: paymentMethod })
+          const { data: cur } = await supabase.from('tickets').select('rev').eq('id', tid).eq('business_id', bid).maybeSingle()
+          const nextRev = Number(cur?.rev || 0) + 1
+          await supabase.from('tickets').update({ status: 'cobrado', payment_method: paymentMethod, rev: nextRev })
             .eq('id', tid).eq('business_id', bid)
         }
 
@@ -2115,6 +2118,9 @@ export function createWebAPI(supabase, businessId) {
         if (data.descuento != null) updates.descuento = Number(data.descuento)
 
         const ticketId = data.id || data.ticket_id
+        // v2.10.3 — bump rev so Supabase trg_tickets_rev_guard accepts the status change.
+        const { data: curMp } = await supabase.from('tickets').select('rev').eq('id', ticketId).eq('business_id', bid).maybeSingle()
+        updates.rev = Number(curMp?.rev || 0) + 1
         throwSupaError(await supabase.from('tickets').update(updates).eq('id', ticketId).eq('business_id', bid))
 
         // Update queue status to done — match by ticket's supabase_id
@@ -2129,12 +2135,14 @@ export function createWebAPI(supabase, businessId) {
 
       void: (data) => tryOr(async () => {
         const { id, reason, voidBy } = typeof data === 'object' ? data : { id: data }
-        const priorRow = (await supabase.from('tickets').select('supabase_id, doc_number, total, descuento, payment_method, tipo_venta, client_supabase_id, ncf').eq('id', id).eq('business_id', bid).maybeSingle())?.data
+        const priorRow = (await supabase.from('tickets').select('supabase_id, doc_number, total, descuento, payment_method, tipo_venta, client_supabase_id, ncf, rev').eq('id', id).eq('business_id', bid).maybeSingle())?.data
+        // v2.10.3 — bump rev so Supabase trg_tickets_rev_guard accepts the status change.
         throwSupaError(await supabase.from('tickets').update({
           status: 'nula',
           void_reason: reason || '',
           void_by: voidBy || null,
           void_at: new Date().toISOString(),
+          rev: Number(priorRow?.rev || 0) + 1,
         }).eq('id', id).eq('business_id', bid))
         if (priorRow) {
           await logActivity({ event_type: 'ticket_voided', severity: 'critical',
@@ -2331,7 +2339,9 @@ export function createWebAPI(supabase, businessId) {
 
         await supabase.from('queue').update({ status: 'cancelled', completed_at: now }).eq('id', id)
         if (tSid) {
-          await supabase.from('tickets').update({ status: 'anulado' }).eq('supabase_id', tSid)
+          // v2.10.3 — bump rev so Supabase trg_tickets_rev_guard accepts the status change.
+          const { data: curQ } = await supabase.from('tickets').select('rev').eq('supabase_id', tSid).eq('business_id', bid).maybeSingle()
+          await supabase.from('tickets').update({ status: 'anulado', rev: Number(curQ?.rev || 0) + 1 }).eq('supabase_id', tSid)
         }
         await supabase.from('queue_deletions').insert({ supabase_id: crypto.randomUUID(), queue_id: id, ticket_supabase_id: tSid, deleted_by: deletedBy || 'unknown', deleted_at: now, reason: 'manual', business_id: bid })
         return { id }

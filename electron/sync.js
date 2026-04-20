@@ -418,6 +418,10 @@ const SYNC_TABLES = [
         legacy_code: r.legacy_code || null,
         commission_exclude: r.commission_exclude || 0,
         order_source: r.order_source || 'pos',
+        // v2.10.3 — optimistic concurrency counter. Supabase trg_tickets_rev_guard
+        // rejects status changes unless NEW.rev > OLD.rev. Every status-changing
+        // UPDATE in electron/database.js bumps rev=COALESCE(rev,0)+1.
+        rev: r.rev || 0,
         created_at: r.created_at || new Date().toISOString(),
         updated_at: r.updated_at || null,
       }
@@ -1423,9 +1427,10 @@ const PULL_TABLES = [
     // v2.1: washer_ids legacy INT-array column dropped → washer_empleado_supabase_ids JSON of UUIDs.
     // seller_supabase_id is still the column name on the wire, but it now points at empleados.supabase_id
     // (tipo='vendedor'/'hybrid'); explicitly resolved against empleados below.
-    cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','void_by','void_at','vehicle_plate','vehicle_color','vehicle_make','notes','washer_empleado_supabase_ids','tip_amount','fulfillment_type','mesa_supabase_id','mode','converted_from_mesa_supabase_id','converted_from_ticket_supabase_id','payment_parts','split_bill','order_source','created_at','updated_at'],
+    cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','void_by','void_at','vehicle_plate','vehicle_color','vehicle_make','notes','washer_empleado_supabase_ids','tip_amount','fulfillment_type','mesa_supabase_id','mode','converted_from_mesa_supabase_id','converted_from_ticket_supabase_id','payment_parts','split_bill','order_source','rev','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', seller_empleado_supabase_id: 'empleados', cajero_supabase_id: 'users' },
-    statusSync: ['status', 'void_reason', 'void_by', 'void_at', 'updated_at'] },
+    // v2.10.3 — `rev` rides statusSync so both sides of a status flip stay in lockstep.
+    statusSync: ['status', 'void_reason', 'void_by', 'void_at', 'rev', 'updated_at'] },
   { name: 'ticket_items', strategy: 'fww',
     cols: ['name','price','cost','itbis','is_wash','quantity','sku','weight','unit','price_per_unit','course','kds_fired_at','guest_number','created_at','updated_at'],
     fkCols: { ticket_supabase_id: 'tickets', service_supabase_id: 'services', inventory_item_supabase_id: 'inventory_items' } },
