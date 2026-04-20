@@ -404,9 +404,20 @@ ipcMain.handle('dgii:cert-info', () => {
   }
 })
 
-// dgii:cert-pem — returns PEM-encoded private key + certificate for web signing proxy sync
+// dgii:cert-pem — returns PEM-encoded private key + certificate for web signing
+// proxy sync. ONLY the owner can call this — any other role would be able to
+// exfiltrate the DGII signing key, which is catastrophic. No MAC even for
+// owner: this IPC is invoked automatically by bizSync during license
+// validation, not by user interaction.
 ipcMain.handle('dgii:cert-pem', () => {
   try {
+    const actor = db.getActiveUser?.() || null
+    if (actor?.role !== 'owner') {
+      // Verify role from DB in case actor object was spoofed (same pattern as guardMac).
+      let real = null
+      try { real = db.rawPrepare?.('SELECT role FROM users WHERE id=? AND active=1').get?.(actor?.id) } catch {}
+      if (real?.role !== 'owner') return { ok: false, error: 'Solo el propietario puede leer el certificado' }
+    }
     const { privateKeyPem, certificatePem, subject, expiry } = certManager.loadCert()
     return { ok: true, data: { privateKeyPem, certificatePem, subject, expiry } }
   } catch {
