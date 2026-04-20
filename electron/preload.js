@@ -18,6 +18,10 @@ try {
   ipcRenderer.on('sync:pull-complete', (_, payload) => {
     try { window.dispatchEvent(new CustomEvent('tx:sync-pull-complete', { detail: payload })) } catch {}
   })
+  // v2.11.2 — DGII cert expiry status (fired on boot + every 12h from main).
+  ipcRenderer.on('cert:expiry-status', (_, payload) => {
+    try { window.dispatchEvent(new CustomEvent('tx:cert-expiry-status', { detail: payload })) } catch {}
+  })
 } catch {}
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -76,6 +80,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     lookupSku:    (sku)                         => call('inventory:lookupSku', sku),
     search:       (query)                       => call('inventory:search', query),
     lowStockCount: ()                           => call('inventory:lowStockCount'),
+    oversells: {
+      list: (args)                              => call('inventory:oversells:list', args || {}),
+    },
   },
 
   // ── Conteo Fisico (v2.5) ──────────────────────────────────────────────────
@@ -585,6 +592,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     voidSequence:    (data)        => call('dgii:void-sequence', data),
     installCert:     (opts)        => call('dgii:install-cert', opts),
     certInfo:        ()            => call('dgii:cert-info'),
+    certExpiryCheck: ()            => call('cert:expiry-check'),
     certPem:         ()            => call('dgii:cert-pem'),
     restoreCertFromPEM: (payload)  => ipcRenderer.invoke('dgii:restore-from-pem', payload),
     authTest:        ()            => call('dgii:auth-test'),

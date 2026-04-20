@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Save, X, ShieldCheck, ShieldAlert, Lock, Pencil, Calendar, MapPin, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Save, X, ShieldCheck, ShieldAlert, Lock, Pencil, Calendar, MapPin, Plus, Trash2, Gift, Mail, Send, CheckCircle2, XCircle } from 'lucide-react'
 import { useLang } from '../../i18n'
 import OnboardingChecklist from '../components/OnboardingChecklist'
 import QuickActions from '../components/QuickActions'
@@ -55,6 +55,11 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
   const [visitType, setVisitType] = useState('onsite')
   const [visitNotes, setVisitNotes] = useState('')
   const [savingVisit, setSavingVisit] = useState(false)
+  const [loyalty, setLoyalty] = useState(null)
+  const [loyaltyLoading, setLoyaltyLoading] = useState(false)
+  const [digestStatus, setDigestStatus] = useState(null)
+  const [digestSending, setDigestSending] = useState(false)
+  const [digestMsg, setDigestMsg] = useState(null)
 
   async function load() {
     setLoading(true)
@@ -74,6 +79,76 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
   }
 
   useEffect(() => { load() }, [id])
+
+  async function loadLoyalty() {
+    setLoyaltyLoading(true)
+    try {
+      let token = await refreshToken?.(); if (!token) token = getToken()
+      const resp = await fetch(`/api/panel?action=business-loyalty&business_id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } })
+      if (resp.ok) setLoyalty(await resp.json())
+    } catch (e) { console.error('loadLoyalty:', e) }
+    setLoyaltyLoading(false)
+  }
+
+  async function loadDigestStatus() {
+    try {
+      let token = await refreshToken?.(); if (!token) token = getToken()
+      // Re-use client_detail; we also pull last_digest_sent + 30d count via a
+      // tiny direct panel shape. To stay inside the 12-function cap we encode
+      // this inside business-loyalty? No — keep separate read here using
+      // client_config (app_settings snapshot) + activity_feed filter? Simplest
+      // accurate path: query client_detail which already exposes settings, and
+      // filter activity_feed downstream. We hit both existing endpoints.
+      const [cfgResp, actResp] = await Promise.all([
+        fetch(`/api/panel?action=client_config&business_id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`/api/panel?action=activity_feed&business_id=${id}&limit=100`, { headers: { 'Authorization': `Bearer ${token}` } }),
+      ])
+      const cfg = cfgResp.ok ? await cfgResp.json() : {}
+      const act = actResp.ok ? await actResp.json() : { data: [] }
+      const settings = Array.isArray(cfg?.settings) ? cfg.settings : (cfg?.data || cfg?.settings || [])
+      // settings is either array of {key,value} or object; normalise
+      const kv = Array.isArray(settings)
+        ? Object.fromEntries(settings.map(s => [s.key, s.value]))
+        : (settings && typeof settings === 'object' ? settings : {})
+      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000
+      const digestEvents = (act?.data || [])
+        .filter(e => (e.type === 'daily_digest_sent' || e.event_type === 'daily_digest_sent'))
+        .filter(e => {
+          const t = new Date(e.date || e.created_at).getTime()
+          return Number.isFinite(t) && t >= thirtyDaysAgo
+        })
+      setDigestStatus({
+        enabled: ['1', 'true', 'TRUE'].includes(String(kv.daily_digest_enabled || '').trim()),
+        lastSent: kv.last_digest_sent || null,
+        sent30d: digestEvents.length,
+        recent: digestEvents.slice(0, 5),
+      })
+    } catch (e) { console.error('loadDigestStatus:', e) }
+  }
+
+  async function sendDigestNow() {
+    if (!confirm(L('¿Enviar el resumen diario ahora?', 'Send daily digest now?'))) return
+    setDigestSending(true); setDigestMsg(null)
+    try {
+      let token = await refreshToken?.(); if (!token) token = getToken()
+      const resp = await fetch(`/api/panel?action=digest-send-now&business_id=${id}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      const body = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(body?.error || 'Error')
+      setDigestMsg({ ok: true, text: L('Enviado.', 'Sent.') })
+      await loadDigestStatus()
+    } catch (e) {
+      setDigestMsg({ ok: false, text: e.message || 'Error' })
+    }
+    setDigestSending(false)
+  }
+
+  useEffect(() => {
+    if (tab === 'loyalty' && !loyalty && !loyaltyLoading) loadLoyalty()
+    if (tab === 'digests' && !digestStatus) loadDigestStatus()
+  }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function deleteStaff(s) {
     if (!confirm(L(
@@ -422,6 +497,14 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                 const ecfEnv = s.ecf_environment
                 const ecfReady = certInstalled && !certExpired && ecfEnv === 'ecf'
                 const hasAnyEcfData = certInstalled !== undefined
+                // v2.11.2 — expiring-soon window (<=60d) for admin visibility.
+                let certDaysLeft = null
+                if (certInstalled && !certExpired && s.ecf_cert_expiry) {
+                  const ms = new Date(s.ecf_cert_expiry).getTime()
+                  if (Number.isFinite(ms)) certDaysLeft = Math.ceil((ms - Date.now()) / 86_400_000)
+                }
+                const expiringSoon = certDaysLeft != null && certDaysLeft > 0 && certDaysLeft <= 60
+                const expiringCritical = certDaysLeft != null && certDaysLeft > 0 && certDaysLeft <= 30
                 return hasAnyEcfData ? (
                   <motion.div variants={listItem} className={card}>
                     <p className={`text-[14px] font-bold mb-4 ${isDark ? 'text-white' : 'text-black'}`}>
@@ -444,7 +527,23 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                         </p>
                       </div>
                       {s.ecf_cert_subject && <div><p className={lbl}>{L('Titular', 'Subject')}</p><p className={val}>{String(s.ecf_cert_subject)}</p></div>}
-                      {s.ecf_cert_expiry && <div><p className={lbl}>{L('Expira', 'Expires')}</p><p className={val}>{new Date(s.ecf_cert_expiry).toLocaleDateString('es-DO')}</p></div>}
+                      {s.ecf_cert_expiry && (
+                        <div>
+                          <p className={lbl}>{L('Expira', 'Expires')}</p>
+                          <p className={val}>
+                            {new Date(s.ecf_cert_expiry).toLocaleDateString('es-DO')}
+                            {expiringSoon && (
+                              <span className={`ml-2 inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${
+                                expiringCritical
+                                  ? 'bg-orange-500/15 text-orange-500 border-orange-500/30'
+                                  : 'bg-yellow-400/15 text-yellow-600 border-yellow-500/30'
+                              }`}>
+                                {L(`Vence en ${certDaysLeft}d`, `Expires in ${certDaysLeft}d`)}
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      )}
                       <div className="col-span-2">
                         <p className={lbl}>{L('Listo para e-CF', 'e-CF Ready')}</p>
                         <p className={`text-[13px] font-bold ${ecfReady ? 'text-emerald-500' : 'text-amber-500'}`}>

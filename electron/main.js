@@ -415,6 +415,119 @@ ipcMain.handle('dgii:cert-info', () => {
   }
 })
 
+// ── Cert expiry monitoring (v2.11.2) ──────────────────────────────────────
+// Proactive 90/60/30-day alerts so clients renew BEFORE the cert dies
+// mid-day and e-CF emission blows up. Called on app:ready (post DB init)
+// and then every 12h.
+//
+// Tier mapping (days until cert.expiry):
+//   > 90            → 'none'      (no action)
+//   61..90          → 'info'      (silent activity_log on transition)
+//   31..60          → 'warn'      (activity_log + Sidebar banner)
+//   1..30           → 'critical'  (activity_log + startup modal)
+//   <= 0            → 'expired'   (blocks new e-CFs — existing path)
+//
+// Last-notified tier is persisted to local app_settings and mirrored to
+// Supabase.cert_expiry_alerts (via sync) so transitions log exactly once.
+function computeExpiryTier(daysLeft) {
+  if (daysLeft <= 0)  return 'expired'
+  if (daysLeft <= 30) return 'critical'
+  if (daysLeft <= 60) return 'warn'
+  if (daysLeft <= 90) return 'info'
+  return 'none'
+}
+
+async function checkCertExpiry() {
+  try {
+    if (!db || !db.isReady?.()) return
+    const info = certManager.getCertInfo()
+    if (!info || !info.installed || !info.expiry) return
+    const expiryMs = new Date(info.expiry).getTime()
+    if (!Number.isFinite(expiryMs)) return
+    const daysLeft = Math.ceil((expiryMs - Date.now()) / 86_400_000)
+    const tier     = computeExpiryTier(daysLeft)
+    const serial   = info.serialNumber || ''
+
+    // Read last-notified tier + serial from local app_settings.
+    let lastTier = 'none', lastSerial = ''
+    try {
+      lastTier   = db.rawPrepare("SELECT value FROM app_settings WHERE key='cert_expiry_last_tier'").get()?.value || 'none'
+      lastSerial = db.rawPrepare("SELECT value FROM app_settings WHERE key='cert_expiry_last_serial'").get()?.value || ''
+    } catch {}
+
+    // Reset if cert serial changed (new cert installed → fresh lifecycle).
+    if (serial && lastSerial && serial !== lastSerial) lastTier = 'none'
+
+    // Broadcast latest status to every window so banner/modal can
+    // re-render on boot even when there's no transition (the banner is
+    // dismissible per session but MUST re-appear on next app start).
+    const payload = { installed: true, expiry: info.expiry, serialNumber: serial, subject: info.subject, daysLeft, tier }
+    try {
+      for (const w of BrowserWindow.getAllWindows()) {
+        try { w.webContents.send('cert:expiry-status', payload) } catch {}
+      }
+    } catch {}
+
+    // No transition → do not log, do not notify.
+    if (tier === lastTier) return
+
+    const severity = (tier === 'critical' || tier === 'expired') ? 'critical'
+                   : tier === 'warn' ? 'warn' : 'info'
+    try {
+      db.activityLogRecord?.({
+        event_type: 'cert_expiry_alert',
+        severity,
+        target_type: 'dgii_cert',
+        target_id:   serial || null,
+        target_name: info.subject || 'DGII e-CF Certificate',
+        old_value:   lastTier,
+        new_value:   tier,
+        amount:      daysLeft,
+        reason:      daysLeft <= 0
+          ? 'Certificado DGII VENCIDO — e-CF detenido'
+          : `Certificado DGII vence en ${daysLeft} dia${daysLeft===1?'':'s'}`,
+        metadata:    { expiry: info.expiry, daysLeft, tier, serial },
+      })
+    } catch (e) { console.warn('[cert-expiry] activity_log failed:', e.message) }
+
+    // Persist new tier locally.
+    try {
+      db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('cert_expiry_last_tier',?)").run(tier)
+      if (serial) db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('cert_expiry_last_serial',?)").run(serial)
+      db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('cert_expiry_last_checked_at',?)").run(new Date().toISOString())
+    } catch {}
+
+    // Best-effort cloud mirror. Sync module exposes upsertCertExpiryAlert
+    // when present; if not (older build), the local tier still suffices.
+    try {
+      const bizId = db.rawPrepare?.("SELECT value FROM app_settings WHERE key='supabase_business_id'").get()?.value
+      if (bizId && sync && typeof sync.upsertCertExpiryAlert === 'function') {
+        sync.upsertCertExpiryAlert({
+          business_id: bizId, cert_serial: serial, cert_expiry: info.expiry,
+          last_tier: tier, last_notified_at: new Date().toISOString(),
+        }).catch(() => {})
+      }
+    } catch {}
+
+    console.log(`[cert-expiry] tier transition ${lastTier} → ${tier} (${daysLeft}d left)`)
+  } catch (e) {
+    console.warn('[cert-expiry] check failed:', e.message)
+  }
+}
+
+// Renderer-initiated check (banner/modal mount → pulls fresh status).
+ipcMain.handle('cert:expiry-check', async () => {
+  try {
+    const info = certManager.getCertInfo()
+    if (!info?.installed || !info.expiry) return { ok: true, data: { installed: false } }
+    const daysLeft = Math.ceil((new Date(info.expiry).getTime() - Date.now()) / 86_400_000)
+    return { ok: true, data: {
+      installed: true, expiry: info.expiry, serialNumber: info.serialNumber,
+      subject: info.subject, daysLeft, tier: computeExpiryTier(daysLeft),
+    } }
+  } catch (e) { return { ok: false, error: e.message } }
+})
+
 // dgii:cert-pem — returns PEM-encoded private key + certificate for web signing
 // proxy sync. ONLY the owner can call this — any other role would be able to
 // exfiltrate the DGII signing key, which is catastrophic. No MAC even for
@@ -1027,6 +1140,14 @@ app.whenReady().then(async () => {
 
   // Retry any queued e-CF submissions every 30s (DGII 72h contingency compliance)
   setInterval(processDgiiQueue, 30_000)
+
+  // v2.11.2 — DGII cert expiry proactive alerts (90/60/30-day tiers).
+  // First check fires 15s after boot (gives DB + window time to settle),
+  // then every 12h. Safe no-op when no cert is installed.
+  setTimeout(() => {
+    checkCertExpiry().catch(() => {})
+    setInterval(() => { checkCertExpiry().catch(() => {}) }, 12 * 60 * 60 * 1000)
+  }, 15_000)
   // v2.10.4 — flush ANECF queue (auto-void of e-CFs) every 60s. Offset from
   // processDgiiQueue so they don't fight for the same DGII auth window.
   setTimeout(() => {
@@ -1821,6 +1942,7 @@ handle('inventory:transactions', ({id})                         => db.inventoryT
 handle('inventory:lookupSku',    (sku)                          => db.inventoryLookupBySku(sku))
 handle('inventory:search',       (query)                        => db.inventorySearch(query))
 handle('inventory:lowStockCount', ()                             => db.inventoryLowStockCount())
+handle('inventory:oversells:list', (args)                        => db.inventoryOversellsList(args || {}))
 
 // ── Conteo Fisico (v2.5) ──────────────────────────────────────────────────────
 handleMut('inventoryCount:start',     (args)                          => db.inventoryCountStart(args || {}))
