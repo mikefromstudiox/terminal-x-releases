@@ -52,7 +52,11 @@ async function tryOr(fn, fallback) {
     if (result === null && fallback !== undefined) return fallback
     return result
   } catch (err) {
-    console.error('[web.js]', err.message || err)
+    // Demote to debug — tryOr is the READ path; callers expect a fallback.
+    // Logging every read-miss as ERROR floods the console during SPA boot
+    // (session not yet attached → transient 4xx) and triggers false-positive
+    // E2E audits. Writes still use tryWrite which throws + errors loudly.
+    if (typeof console !== 'undefined') console.debug?.('[web.js.read]', err.message || err)
     if (fallback !== undefined) return fallback
     throw err
   }
@@ -1882,7 +1886,7 @@ export function createWebAPI(supabase, businessId) {
 
       update: (data) => tryOr(async () => {
         const { id, ...rest } = data
-        const allowed = ['name', 'rnc', 'phone', 'email', 'address', 'credit_limit', 'balance', 'visits', 'total_spent', 'active', 'notes', 'loyalty_points', 'allergies', 'preferred_stylist_supabase_id']
+        const allowed = ['name', 'rnc', 'phone', 'email', 'address', 'credit_limit', 'balance', 'visits', 'total_spent', 'active', 'notes', 'loyalty_points', 'birthday_treat_available', 'allergies', 'preferred_stylist_supabase_id']
         const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
         if ('active' in patch) patch.active = !!patch.active
         throwSupaError(await supabase.from('clients').update(patch).eq('id', id).eq('business_id', bid))
@@ -2417,7 +2421,7 @@ export function createWebAPI(supabase, businessId) {
                 amount: desc,
                 metadata: { subtotal: subt, total: data.total, pct: Math.round(pct * 10) / 10, payment_method: data.payment_method } })
             }
-            return { id: ticket.id, docNumber: docNum, ncf: null, queueError }
+            return { id: ticket.id, supabase_id: ticketSid, docNumber: docNum, ncf: null, queueError }
           })
         } catch (err) {
           // Supabase unreachable — save to offline queue
@@ -2519,6 +2523,14 @@ export function createWebAPI(supabase, businessId) {
               } catch { /* no shortages table access → fall back to qty */ }
               const { data: inv } = await supabase.from('inventory_items').select('quantity').eq('supabase_id', invSid).eq('business_id', bid).single()
               if (inv) await supabase.from('inventory_items').update({ quantity: (inv.quantity || 0) + fulfilled }).eq('supabase_id', invSid).eq('business_id', bid)
+              // RPT-H4: mark shortage rows as voided so Quiebres reflects resolution.
+              try {
+                await supabase.from('inventory_oversells').update({
+                  resolved_at: new Date().toISOString(),
+                  resolution_type: 'voided',
+                  resolution_notes: `Void ticket ${tSid}`
+                }).eq('ticket_supabase_id', tSid).eq('item_supabase_id', invSid).eq('business_id', bid).is('resolved_at', null)
+              } catch { /* best-effort */ }
             }
           }
         } catch (e) { console.error('[web.js] void stock reversal failed:', e.message) }
@@ -3088,8 +3100,38 @@ export function createWebAPI(supabase, businessId) {
             if (pm !== 'credito') totalCobrado += tot
           }
         }
-        return { ...result, totalVendido, totalCobrado, count: rows.length }
-      }, { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0, totalVendido: 0, totalCobrado: 0, count: 0 }),
+        // v2.6 — Licoreria bottle-deposit reconciliation. Two extra scans:
+        //   (1) ticket_items.is_deposit = TRUE on paid tickets → depositos_cobrados
+        //   (2) tickets.total < 0 with [deposit_return] marker → depositos_devueltos
+        let depositos_cobrados = 0, depositos_devueltos = 0
+        try {
+          const { data: depRows } = await supabase.from('ticket_items')
+            .select('price, quantity, tickets!inner(status, created_at, total, business_id)')
+            .eq('is_deposit', true)
+            .eq('tickets.business_id', bid)
+            .eq('tickets.status', 'cobrado')
+            .gte('tickets.created_at', `${d}T00:00:00`)
+            .lte('tickets.created_at', `${d}T23:59:59`)
+          for (const r of (depRows || [])) {
+            if (Number(r?.tickets?.total || 0) < 0) continue
+            depositos_cobrados += Number(r.price || 0) * Number(r.quantity || 1)
+          }
+          const { data: refRows } = await supabase.from('tickets')
+            .select('total, notes')
+            .eq('business_id', bid)
+            .eq('status', 'cobrado')
+            .lt('total', 0)
+            .like('notes', '%[deposit_return]%')
+            .gte('created_at', `${d}T00:00:00`)
+            .lte('created_at', `${d}T23:59:59`)
+          for (const r of (refRows || [])) depositos_devueltos += Math.abs(Number(r.total || 0))
+        } catch { /* non-fatal: licoreria-only feature */ }
+        return {
+          ...result, totalVendido, totalCobrado, count: rows.length,
+          depositos_cobrados, depositos_devueltos,
+          depositos_neto: depositos_cobrados - depositos_devueltos,
+        }
+      }, { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0, totalVendido: 0, totalCobrado: 0, count: 0, depositos_cobrados: 0, depositos_devueltos: 0, depositos_neto: 0 }),
 
       // v2.6.2 — Apertura de Turno.
       // Resolves the open shift row for a given staff/empleado id. Web uses

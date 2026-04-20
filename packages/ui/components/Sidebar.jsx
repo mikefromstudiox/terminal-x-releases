@@ -698,6 +698,7 @@ export default function Sidebar() {
   const [unreadActivity, setUnreadActivity] = useState(0)
 
   useEffect(() => {
+    if (!user?.id) return
     async function poll() {
       const count = await api?.ecf?.queueCount?.() ?? 0
       setEcfQueue(count)
@@ -705,12 +706,12 @@ export default function Sidebar() {
     poll()
     const id = setInterval(poll, 30_000)
     return () => clearInterval(id)
-  }, [api])
+  }, [api, user?.id])
 
   useEffect(() => {
     // Only stock-tracked business types have inventory to count low stock on.
     const stockTracked = ['retail', 'dealership', 'restaurant', 'hybrid', 'mechanic'].includes(businessType)
-    if (!stockTracked) return
+    if (!stockTracked || !user?.id) return
     async function poll() {
       const count = await api?.inventory?.lowStockCount?.() ?? 0
       setLowStock(count)
@@ -718,7 +719,7 @@ export default function Sidebar() {
     poll()
     const id = setInterval(poll, 60_000)
     return () => clearInterval(id)
-  }, [businessType, api])
+  }, [businessType, api, user?.id])
 
   // Unread-activity badge. Counts warn/critical rows in activity_log since the
   // last time the current user opened the Actividad tab on this business.
