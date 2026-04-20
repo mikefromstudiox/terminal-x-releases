@@ -80,63 +80,6 @@ function MotivoBadge({ motivo }) {
   )
 }
 
-// ── PIN Modal ─────────────────────────────────────────────────────────────────
-function PinModal({ onConfirm, onClose }) {
-  const api = useAPI()
-  const [pin, setPin] = useState('')
-  const [err, setErr] = useState(false)
-  const [checking, setChecking] = useState(false)
-
-  async function submit() {
-    if (!pin) return
-    setChecking(true)
-    try {
-      const user = await api.auth.byPin(pin)
-      if (user && (user.role === 'manager' || user.role === 'owner')) {
-        onConfirm()
-      } else {
-        setErr(true)
-        setPin('')
-      }
-    } catch {
-      setErr(true)
-      setPin('')
-    } finally {
-      setChecking(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white dark:bg-white/5 rounded-2xl shadow-2xl p-6 md:p-8 w-full max-w-sm mx-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Lock size={16} className="text-slate-500 dark:text-white/60" />
-          <h3 className="font-semibold text-slate-800 dark:text-white">Autorización requerida</h3>
-        </div>
-        <p className="text-sm text-slate-500 dark:text-white/60 mb-4">Ingrese PIN del gerente para emitir la nota de crédito.</p>
-        <input
-          autoFocus
-          type="password"
-          maxLength={6}
-          value={pin}
-          onChange={e => { setPin(e.target.value); setErr(false) }}
-          onKeyDown={e => e.key === 'Enter' && submit()}
-          placeholder="••••"
-          className="w-full border border-slate-300 dark:border-white/10 dark:bg-white/5 dark:text-white rounded-lg px-4 py-2.5 text-center text-xl tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        {err && <p className="text-xs text-red-500 mt-1 text-center">PIN incorrecto o sin permisos</p>}
-        <div className="flex gap-3 mt-5">
-          <button onClick={onClose}  className="flex-1 py-2 rounded-lg border border-slate-200 dark:border-white/10 text-sm text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10">Cancelar</button>
-          <button onClick={submit} disabled={checking}
-            className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
-            {checking ? 'Verificando…' : 'Confirmar'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Invoice Detail Popover ────────────────────────────────────────────────────
 function InvoicePopover({ ticket, onClose }) {
   if (!ticket) return null

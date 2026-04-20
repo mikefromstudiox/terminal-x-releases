@@ -48,6 +48,7 @@ const Config              = lazy(() => import('./screens/Config'))
 const CashReconciliation  = lazy(() => import('./screens/CashReconciliation'))
 const PettyCash           = lazy(() => import('./screens/PettyCash'))
 const CreditNotes         = lazy(() => import('./screens/CreditNotes'))
+const Returns             = lazy(() => import('./screens/Returns'))
 const RemoteDashboard     = lazy(() => import('./screens/RemoteDashboard'))
 // LicenseAdmin removed — dead code (API key auth never matched Supabase JWT backend)
 const Sistema             = lazy(() => import('./screens/Sistema'))
@@ -226,6 +227,7 @@ export default function App() {
         <Route path="/dgii"                  element={<ProtectedRoute element={<PlanGate feature="dgii"><DGII /></PlanGate>} />} />
         <Route path="/petty-cash"            element={<ProtectedRoute element={<PlanGate feature="petty_cash"><PettyCash /></PlanGate>} />} />
         <Route path="/credit-notes"          element={<ProtectedRoute element={<PlanGate feature="credit_notes"><CreditNotes /></PlanGate>} />} />
+        <Route path="/returns"               element={<ProtectedRoute element={<PlanGate feature="credit_notes"><Returns /></PlanGate>} />} />
         <Route path="/config/:section"         element={<ProtectedRoute element={<Config />} />} />
         <Route path="/config"                element={<ProtectedRoute element={<Config />} />} />
         <Route path="/admin"                 element={<ProtectedRoute element={<Admin />} />} />

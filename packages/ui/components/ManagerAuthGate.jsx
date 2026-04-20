@@ -23,17 +23,34 @@ import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 
-// In-memory failure counter — resets on successful match. 5 strikes in 5 min
-// → logged as `manager_override` severity=critical so the owner sees it.
+// Failure counter — persisted via activity_log so it survives reloads AND
+// spans devices for the same business. Each invalid scan/PIN writes a
+// `manager_override_failed` row; we query the last 5 minutes of those on
+// every new attempt. After 5 strikes we escalate with a `manager_override`
+// critical row so the owner sees it in the audit feed.
 const STRIKE_WINDOW_MS = 5 * 60 * 1000
-let _strikeBuf = []
-function recordStrike() {
-  const now = Date.now()
-  _strikeBuf = _strikeBuf.filter(t => now - t < STRIKE_WINDOW_MS)
-  _strikeBuf.push(now)
-  return _strikeBuf.length
+
+async function recordStrike(api, { action, user }) {
+  const sinceIso = new Date(Date.now() - STRIKE_WINDOW_MS).toISOString()
+  try {
+    await api.activity.record({
+      event_type: 'manager_override_failed',
+      severity: 'warn',
+      target_type: action || 'gate',
+      reason: 'Tarjeta/PIN de gerente invalido',
+      metadata: { action, by_user: user?.id || null, by_user_name: user?.name || null },
+    })
+  } catch {}
+  // Count recent failures across all devices for this business.
+  try {
+    const rows = await api.activity.list({
+      dateFrom: sinceIso,
+      eventTypes: ['manager_override_failed'],
+      limit: 20,
+    })
+    return Array.isArray(rows) ? rows.length : 0
+  } catch { return 0 }
 }
-function clearStrikes() { _strikeBuf = [] }
 
 export default function ManagerAuthGate({ action, actionLabel, context, onApprove, onCancel }) {
   const { lang } = useLang()
@@ -66,20 +83,19 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
     try {
       const match = await api.staff.verifyAuthToken(raw)
       if (!match?.id) {
-        const count = recordStrike()
+        const count = await recordStrike(api, { action, user })
         if (count >= 5) {
           try {
             await api.activity.record({
               event_type: 'manager_override', severity: 'critical',
-              target_type: action || 'gate', reason: 'Multiples tarjetas invalidas (≥5 en 5 min)',
-              metadata: { action, attempts: count, by_user: user?.id || null },
+              target_type: action || 'gate', reason: 'Multiples autorizaciones invalidas (≥5 en 5 min)',
+              metadata: { action, attempts: count, method: 'card', by_user: user?.id || null },
             })
           } catch {}
         }
         flashError(L('Tarjeta no válida', 'Invalid card'))
         return
       }
-      clearStrikes()
       // Mint a server-side one-time MAC jti bound to this action + target.
       // If mac.issue is unavailable or fails, we DO NOT proceed — better to
       // fail loudly than approve without a server-verifiable token that
@@ -114,6 +130,16 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
     try {
       const manager = await api.auth.byPin(pin)
       if (!manager || !['owner', 'manager'].includes(manager.role)) {
+        const count = await recordStrike(api, { action, user })
+        if (count >= 5) {
+          try {
+            await api.activity.record({
+              event_type: 'manager_override', severity: 'critical',
+              target_type: action || 'gate', reason: 'Multiples autorizaciones invalidas (≥5 en 5 min)',
+              metadata: { action, attempts: count, method: 'pin', by_user: user?.id || null },
+            })
+          } catch {}
+        }
         flashError(L('PIN de gerente incorrecto', 'Invalid manager PIN'))
         return
       }

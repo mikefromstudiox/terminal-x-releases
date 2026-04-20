@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
-import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck, Beer, Coffee, Cookie, Droplet, CupSoda, Candy, IceCreamCone, UtensilsCrossed, Sparkles, Cigarette, Flame, Leaf, Pizza, Smartphone, Edit2, Eye, EyeOff } from 'lucide-react'
+import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck, Beer, Coffee, Cookie, Droplet, CupSoda, Candy, IceCreamCone, UtensilsCrossed, Sparkles, Cigarette, Flame, Leaf, Pizza, Smartphone, Edit2, Eye, EyeOff, Lock } from 'lucide-react'
 import AgeVerifyModal, { requiresAgeCheck } from '../components/AgeVerifyModal'
 import WeightModal from '../components/WeightModal'
+import ManagerAuthGate from '../components/ManagerAuthGate'
+import { needsGate } from '@terminal-x/services/managerGateRules'
 import { useLang } from '../i18n'
 import { useLayout } from '../context/LayoutContext'
 import { useAuth } from '../context/AuthContext'
@@ -13,7 +15,8 @@ import CobrarModal from '../components/CobrarModal'
 import { NewClientForm } from './Clients'
 import { printClientReceipt, printWasherConduce } from '@terminal-x/services/printer'
 import RestaurantPOS from './restaurant/RestaurantPOS'
-import { syncTicket } from '@terminal-x/services/supabase'
+import { syncTicket, getBusinessId } from '@terminal-x/services/supabase'
+import { getDeviceId, acquireLock, releaseLock, releaseAll, activeLocksQty, sweepExpired, subscribeLocks } from '@terminal-x/services/inventoryLock'
 const saveReceiptPDF = (...args) => import('@terminal-x/services/pdf').then(m => m.saveReceiptPDF(...args))
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import { isServiceBased } from '@terminal-x/config/businessTypes'
@@ -1082,6 +1085,31 @@ function RetailPOS() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const { businessType, isRetail, isHybrid, isMechanic, isDealership, isLicoreria, licoreriaConfig, isCarniceria } = useBusinessType()
+  const { hasFeature } = usePlan()
+
+  // ── v2.7.1 — Multi-device ticket locks (Pro MAX) ───────────────────────────
+  // Reserve inventory on addToCart so two cashiers can't oversell the last
+  // bottle. Degrades silently when `multi_location` feature is unavailable
+  // (lower plans) or Supabase is unreachable — cashier is never blocked.
+  const lockingEnabled = hasFeature('multi_location')
+  const deviceIdRef = useRef(null)
+  if (!deviceIdRef.current) { try { deviceIdRef.current = getDeviceId() } catch { deviceIdRef.current = null } }
+  const [otherLockedByItem, setOtherLockedByItem] = useState({})  // { [item_supabase_id]: qty }
+
+  async function refreshLockForItem(itemSid) {
+    if (!lockingEnabled || !itemSid) return
+    try {
+      const bid = getBusinessId?.()
+      if (!bid) return
+      const qty = await activeLocksQty(bid, itemSid, deviceIdRef.current)
+      setOtherLockedByItem(prev => {
+        if ((prev[itemSid] || 0) === qty) return prev
+        const next = { ...prev }
+        if (qty > 0) next[itemSid] = qty; else delete next[itemSid]
+        return next
+      })
+    } catch {}
+  }
 
   // ── Carnicería-specific state ──────────────────────────────────────────────
   // Weight entry modal. When the cashier taps a sold_by_weight product we park
@@ -1181,6 +1209,41 @@ function RetailPOS() {
     api.clients?.all?.().then(r => setClients(r || [])).catch(() => {})
   }, [api])
 
+  // ── v2.7.1 — Lock housekeeping + realtime subscription ─────────────────────
+  useEffect(() => {
+    if (!lockingEnabled) return
+    const bid = getBusinessId?.()
+    const did = deviceIdRef.current
+    if (!bid || !did) return
+    sweepExpired(did).catch(() => {})
+    const unsub = subscribeLocks(bid, did, (_evt, row) => {
+      const sid = row?.inventory_item_supabase_id
+      if (!sid) return
+      activeLocksQty(bid, sid, did).then(qty => {
+        setOtherLockedByItem(prev => {
+          if ((prev[sid] || 0) === qty) return prev
+          const next = { ...prev }
+          if (qty > 0) next[sid] = qty; else delete next[sid]
+          return next
+        })
+        const inCart = cartRef.current?.find?.(i => i._clientOverrideKey === sid)
+        if (inCart) {
+          const stock = Number(inCart.stock ?? Infinity)
+          if (stock !== Infinity && (inCart.qty || 1) + qty > stock) {
+            flash(lang === 'es'
+              ? `⚠️ Otra caja también tiene "${inCart.name}" en su ticket.`
+              : `⚠️ Another register also has "${inCart.name}" on their ticket.`)
+          }
+        }
+      }).catch(() => {})
+    })
+    return () => { try { unsub?.() } catch {} }
+  }, [lockingEnabled, lang])
+
+  // Stable ref so the realtime callback can read the latest cart cheaply.
+  const cartRef = useRef(cart)
+  useEffect(() => { cartRef.current = cart }, [cart])
+
   // Hybrid cross-mode conversion — absorb items pushed from the Mesa pane so
   // converting a dine-in ticket to takeout preserves every line + keeps a
   // breadcrumb (converted_from_*) that rides along at cobro time.
@@ -1261,6 +1324,12 @@ function RetailPOS() {
     setAgeVerified(null)
     setPendingAgeItem(null)
     setHybridConvertMeta(null)
+    // v2.7.1 — release every lock this device holds (fire-and-forget).
+    if (lockingEnabled) {
+      const bid = getBusinessId?.()
+      const did = deviceIdRef.current
+      if (bid && did) releaseAll(bid, did).catch(() => {})
+    }
   }
 
   // ── Licorería quick-sells: load top-N active products ────────────────────
@@ -1425,6 +1494,31 @@ function RetailPOS() {
     if (stockCapped) flash(lang === 'es' ? `Stock maximo (${nextQty}) — ${product.name}` : `Max stock (${nextQty}) — ${product.name}`)
     else if (stackedExisting) flash(`${product.name} × ${nextQty}`)
     else flash(lang === 'es' ? `${product.name} agregado` : `${product.name} added`)
+
+    // v2.7.1 — Multi-device lock: reserve this unit on Supabase and surface
+    // other-device reservations so the cashier knows real-time availability.
+    if (lockingEnabled && product?.supabase_id && !stockCapped) {
+      const bid = getBusinessId?.()
+      const did = deviceIdRef.current
+      if (bid && did) {
+        ;(async () => {
+          try {
+            const other = await activeLocksQty(bid, product.supabase_id, did)
+            const stock = Number(product.quantity ?? Infinity)
+            const remaining = Math.max(0, stock - other)
+            if (other > 0) {
+              setOtherLockedByItem(prev => ({ ...prev, [product.supabase_id]: other }))
+            }
+            if (nextQty + other > stock && stock !== Infinity) {
+              flash(lang === 'es'
+                ? `⚠️ Otra caja está cobrando este producto. Quedan solo ${remaining} disponibles.`
+                : `⚠️ Another register is charging this item. Only ${remaining} left.`)
+            }
+            await acquireLock(bid, product.supabase_id, did, nextQty)
+          } catch {}
+        })()
+      }
+    }
   }
 
   // Expand cart → final line items, appending synthetic bottle-deposit lines
@@ -1539,7 +1633,57 @@ function RetailPOS() {
   }
 
   function removeFromCart(cartId) {
-    setCart(prev => prev.filter(i => i.id !== cartId))
+    setCart(prev => {
+      const victim = prev.find(i => i.id === cartId)
+      // v2.7.1 — release the lock for this item (best-effort, fire-and-forget).
+      if (lockingEnabled && victim?.inventory_item_id) {
+        const bid = getBusinessId?.()
+        const did = deviceIdRef.current
+        // Resolve supabase_id via the in-memory cart row (we store `_clientOverrideKey`
+        // == supabase_id for inventory lines). Fall back to looking it up on the product.
+        const itemSid = victim._clientOverrideKey || null
+        if (bid && did && itemSid) {
+          releaseLock(bid, itemSid, did).catch(() => {})
+        }
+      }
+      return prev.filter(i => i.id !== cartId)
+    })
+  }
+
+  // ── Manual price-edit on cart line (v2.7.1) ───────────────────────────────
+  // Cashier taps the pencil icon; if role needs gating we show ManagerAuthGate
+  // first. On save we stamp `_priceEdited=true` so the PY / client-override
+  // reprice effects skip this line.
+  const [editingPriceCartId, setEditingPriceCartId] = useState(null) // id being edited
+  const [editingPriceValue,  setEditingPriceValue]  = useState('')
+  const [priceGateForCartId, setPriceGateForCartId] = useState(null) // waiting for mgr auth
+
+  function requestPriceEdit(cartId) {
+    const line = cart.find(i => i.id === cartId)
+    if (!line) return
+    if (needsGate(user, 'price_edit')) {
+      setPriceGateForCartId(cartId)
+      return
+    }
+    openPriceEditor(line)
+  }
+  function openPriceEditor(line) {
+    setEditingPriceCartId(line.id)
+    setEditingPriceValue(String(Number(line.price || 0).toFixed(2)))
+  }
+  function commitPriceEdit(cartId) {
+    const raw = String(editingPriceValue).replace(',', '.').trim()
+    const n = Number.parseFloat(raw)
+    if (!Number.isFinite(n) || n < 0) { setEditingPriceCartId(null); return }
+    setCart(prev => prev.map(i => i.id === cartId
+      ? { ...i, price: Number(n.toFixed(2)), _priceEdited: true }
+      : i))
+    setEditingPriceCartId(null)
+    setEditingPriceValue('')
+  }
+  function cancelPriceEdit() {
+    setEditingPriceCartId(null)
+    setEditingPriceValue('')
   }
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
@@ -1974,9 +2118,40 @@ function RetailPOS() {
                   {/* Row 2 — unit price / detail + qty controls + line total */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      {item.weight != null
-                        ? <p className="text-[10px] text-slate-400 dark:text-white/40 tabular-nums">{item.weight.toFixed(3)} {item.unit} × {fmtRD(item.price_per_unit || 0)}/{item.unit}</p>
-                        : <p className="text-[10px] text-slate-400 dark:text-white/40 tabular-nums">{fmtRD(item.price)} c/u</p>}
+                      {item.weight != null ? (
+                        <p className="text-[10px] text-slate-400 dark:text-white/40 tabular-nums">{item.weight.toFixed(3)} {item.unit} × {fmtRD(item.price_per_unit || 0)}/{item.unit}</p>
+                      ) : editingPriceCartId === item.id ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] text-slate-400 dark:text-white/40">RD$</span>
+                          <input
+                            autoFocus
+                            type="number"
+                            inputMode="decimal"
+                            step="0.01"
+                            min="0"
+                            value={editingPriceValue}
+                            onChange={e => setEditingPriceValue(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') { e.preventDefault(); commitPriceEdit(item.id) }
+                              else if (e.key === 'Escape') { e.preventDefault(); cancelPriceEdit() }
+                            }}
+                            onBlur={() => commitPriceEdit(item.id)}
+                            className="w-20 text-[11px] tabular-nums bg-white dark:bg-black border border-[#b3001e] rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-[#b3001e] text-slate-800 dark:text-white"
+                          />
+                          <span className="text-[10px] text-slate-400 dark:text-white/40">c/u</span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => requestPriceEdit(item.id)}
+                          className="group/price flex items-center gap-1 text-[10px] text-slate-400 dark:text-white/40 tabular-nums hover:text-[#b3001e] transition-colors"
+                          title={lang === 'es' ? 'Editar precio' : 'Edit price'}
+                        >
+                          <span>{fmtRD(item.price)} c/u</span>
+                          {item._priceEdited && <Lock size={9} className="text-[#b3001e]" />}
+                          <Edit2 size={9} className="opacity-40 group-hover/price:opacity-100" />
+                        </button>
+                      )}
                       <p className="text-[14px] font-black text-[#b3001e] tabular-nums leading-none mt-0.5">{fmtRD(item.price * (item.qty || 1))}</p>
                     </div>
                     {item.weight == null && (
@@ -2135,6 +2310,29 @@ function RetailPOS() {
           onClose={() => setPendingWeightItem(null)}
         />
       )}
+
+      {/* v2.7.1 — Cart-line price edit: manager auth gate */}
+      {priceGateForCartId != null && (() => {
+        const line = cart.find(i => i.id === priceGateForCartId)
+        if (!line) return null
+        return (
+          <ManagerAuthGate
+            action="price_edit"
+            actionLabel={lang === 'es'
+              ? `Editar precio · ${line.name}`
+              : `Edit price · ${line.name}`}
+            context={{
+              target_id:    line.inventory_item_id || line.service_id || null,
+              target_name:  line.name,
+              amount:       Number(line.price || 0),
+              old_price:    Number(line.price || 0),
+              cart_line_id: line.id,
+            }}
+            onApprove={() => { setPriceGateForCartId(null); openPriceEditor(line) }}
+            onCancel={() => setPriceGateForCartId(null)}
+          />
+        )
+      })()}
     </div>
   )
 }

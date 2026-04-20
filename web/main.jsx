@@ -402,6 +402,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/cash-recon" element={<Navigate to="/pos/cash-recon" replace />} />
             <Route path="/petty-cash" element={<Navigate to="/pos/petty-cash" replace />} />
             <Route path="/credit-notes" element={<Navigate to="/pos/credit-notes" replace />} />
+            <Route path="/returns" element={<Navigate to="/pos/returns" replace />} />
             <Route path="/empleados" element={<Navigate to="/pos/empleados" replace />} />
             <Route path="/config/:section" element={<ConfigRedirect />} />
             <Route path="/config" element={<Navigate to="/pos/config" replace />} />

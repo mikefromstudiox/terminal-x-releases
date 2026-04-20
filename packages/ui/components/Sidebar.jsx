@@ -151,6 +151,7 @@ const NAV = [
       { to: '/memberships',  es: 'Membresías',       en: 'Memberships',   businessTypes: ['carwash'], roles: ['owner','manager','cashier'] },
       { to: '/credits',      es: 'Creditos',         en: 'Credits',       feature: 'credits',      roles: ['owner','manager','cfo','accountant'] },
       { to: '/credit-notes', es: 'Notas de Credito', en: 'Credit Notes',  feature: 'credit_notes', roles: ['owner','manager','cfo','accountant'] },
+      { to: '/returns',      es: 'Devoluciones',     en: 'Returns',       feature: 'credit_notes' },
     ],
   },
   {
