@@ -554,9 +554,12 @@ function init(userDataPath, options = {}) {
       deducted_from_payroll_id INTEGER REFERENCES payroll_runs(id),
       deducted_at             TEXT,
       approved_by             TEXT,
+      approved_by_supabase_id TEXT,
       created_at              TEXT    NOT NULL DEFAULT (datetime('now')),
       updated_at              TEXT    NOT NULL DEFAULT (datetime('now'))
     )`,
+    // v2.14 — Idempotent column add for older installs. Harmless on fresh DBs.
+    "ALTER TABLE adelantos ADD COLUMN approved_by_supabase_id TEXT",
     `CREATE INDEX IF NOT EXISTS idx_adelantos_empleado ON adelantos(empleado_id)`,
     `CREATE INDEX IF NOT EXISTS idx_adelantos_status   ON adelantos(status)`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_adelantos_supabase_id ON adelantos(supabase_id)`,
@@ -3465,19 +3468,27 @@ function payrollRunDelete(id) {
 }
 
 // ── ADELANTOS DE NOMINA (salary advances) ─────────────────────────────────────
-function adelantoCreate({ empleado_id, amount, notes, approved_by }) {
+function adelantoCreate({ empleado_id, amount, notes, approved_by, approved_by_user_id }) {
   if (!db) return null
   const sid = crypto.randomUUID()
   const emp = db.prepare('SELECT supabase_id FROM empleados WHERE id=?').get(empleado_id)
+  // Resolve stable approver supabase_id when caller passes their user id, so
+  // the audit trail survives renames. `approved_by` (display string) is kept
+  // for legacy readers that don't join the user row.
+  let approver_sid = null
+  if (approved_by_user_id) {
+    try { approver_sid = db.prepare('SELECT supabase_id FROM users WHERE id=?').get(approved_by_user_id)?.supabase_id || null } catch {}
+  }
   const r = db.prepare(`INSERT INTO adelantos
-    (supabase_id, empleado_id, empleado_supabase_id, amount, notes, approved_by)
-    VALUES (@supabase_id, @empleado_id, @empleado_supabase_id, @amount, @notes, @approved_by)`).run({
+    (supabase_id, empleado_id, empleado_supabase_id, amount, notes, approved_by, approved_by_supabase_id)
+    VALUES (@supabase_id, @empleado_id, @empleado_supabase_id, @amount, @notes, @approved_by, @approved_by_supabase_id)`).run({
     supabase_id: sid,
     empleado_id,
     empleado_supabase_id: emp?.supabase_id || null,
     amount: Number(amount),
     notes: notes || null,
     approved_by: approved_by || null,
+    approved_by_supabase_id: approver_sid,
   })
   activityLogRecord({ event_type: 'adelanto_created', severity: 'warn',
     target_type: 'adelanto', target_id: r.lastInsertRowid,
@@ -4708,8 +4719,8 @@ function queueDelete(id, deletedBy) {
     db.prepare(`UPDATE queue SET status='cancelled', completed_at=? WHERE id=?`).run(now, id)
     // v2.10.3 — bump rev alongside status so Supabase trg_tickets_rev_guard accepts.
     db.prepare(`UPDATE tickets SET status='anulado', rev=COALESCE(rev,0)+1 WHERE id=?`).run(row.ticket_id)
-    db.prepare(`INSERT OR IGNORE INTO queue_deletions (queue_id, ticket_id, doc_number, deleted_by, deleted_at, reason) VALUES (?,?,?,?,?,?)`)
-      .run(id, row.ticket_id, row.doc_number || '', deletedBy || 'unknown', now, 'manual')
+    db.prepare(`INSERT OR IGNORE INTO queue_deletions (queue_id, ticket_id, doc_number, deleted_by, deleted_at, reason, supabase_id, updated_at) VALUES (?,?,?,?,?,?,?,?)`)
+      .run(id, row.ticket_id, row.doc_number || '', deletedBy || 'unknown', now, 'manual', crypto.randomUUID(), now)
   })()
   // v2.10.4 — auto-enqueue ANECF for voided e-CFs (audit E-C6).
   // Outside the transaction — non-blocking. Dedup vs ticketVoid path is

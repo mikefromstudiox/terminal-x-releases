@@ -765,6 +765,7 @@ const SYNC_TABLES = [
       status: r.status,
       deducted_at: r.deducted_at,
       approved_by: r.approved_by,
+      approved_by_supabase_id: r.approved_by_supabase_id || null,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
     }),

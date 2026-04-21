@@ -47,11 +47,14 @@ Final batch (shipped 2026-04-21):
 - [x] **M4** — ecf_queue body_json push unwraps the legacy `{raw:"..."}` double-stringify shape.
 - [x] **M5** — updatePullLog switched to ISO 8601 strftime to match updateSyncLog.
 - [x] **L2** — no stale local_id usages in code; just a comment reference, leaving alone.
-- [ ] **L1** — queue_deletions N+1 in push shaper (per-row SQLite lookups): requires schema migration (add queue_supabase_id + ticket_supabase_id columns + backfill). Skipped as low-priority hygiene.
-- [ ] **L3** — adelantos approved_by_supabase_id FK: schema addition, low priority.
+- [x] **L1** — queueDelete INSERT now stamps supabase_id + updated_at, fixing the root cause (queue_deletions rows were shipping with NULL supabase_id and being filtered out of push). N+1 FK resolver stays in the cols shaper as low-priority hygiene.
+- [x] **L3** — migration `20260421800000` adds adelantos.approved_by_supabase_id; desktop schema + adelantoCreate + sync push updated.
 - [ ] Wire tombstoneAdd into less-critical hard-delete paths (modifiers, mesas, vehicles, etc.) for completeness.
+- [ ] **Desktop Installer Code Signing** (pre-existing, THIS WEEK) — needs Mike's cert.
+- [ ] **Restaurant Mode UI Testing** (pre-existing) — Mesas/KDS/RestaurantPOS files import cleanly; PlanGate feature='restaurant_mode' present. Full smoke still needs human click-through.
 
 Ranoza E2E smoke: **22/22 passing** after the batch.
+Edge Functions: **rnc-lookup** + **whatsapp-send** both ACTIVE and responding.
 Verification — needs desktop-side smoke (not scripted): (a) delete a category on desktop → verify it stays deleted after next sync cycle, (b) delete a service on web → verify desktop reflects after pull, (c) 976 Ranoza products visible on Jerry's web login.
 
 ### Sync Architecture Audit (BLOCKING — before any new features)
