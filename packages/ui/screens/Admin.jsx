@@ -643,6 +643,20 @@ function Servicios() {
     finally { setDeleting(false) }
   }
 
+  // Quick-delete from list row — skips the edit panel so the user doesn't
+  // have to scroll the form to find the "Eliminar servicio" button.
+  async function quickDeleteService(s) {
+    if (!s) return
+    const ok = window.confirm(L(`Eliminar "${s.name}"?`, `Delete "${s.name}"?`))
+    if (!ok) return
+    try {
+      const r = await api.services.delete?.({ id: s.id })
+      if (r?.softDeleted) show(L('Servicio desactivado (tiene ventas históricas)', 'Service deactivated (has historical sales)'))
+      else show(L('Servicio eliminado ✓', 'Service deleted ✓'))
+      load()
+    } catch (err) { show(err.message || L('Error al eliminar.', 'Error deleting.'), 'error') }
+  }
+
   function fmtRD(n) { return `RD$ ${Number(n).toLocaleString('en-US', { minimumFractionDigits: 0 })}` }
 
   return (
@@ -691,7 +705,7 @@ function Servicios() {
             <span className="w-24 text-center">{L('Categoría', 'Category')}</span>
             <span className="w-24 text-right">{L('Precio', 'Price')}</span>
             <span className="w-20 text-center">{L('Estado', 'Status')}</span>
-            <span className="w-16 text-right">{L('Acción', 'Action')}</span>
+            <span className="w-24 text-right">{L('Acción', 'Action')}</span>
           </div>
           {loading
             ? <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-slate-300 dark:text-white/30" size={20} /></div>
@@ -712,7 +726,8 @@ function Servicios() {
                   </div>
                   <div className="flex items-center gap-1 md:hidden">
                     <button onClick={() => openEdit(s)} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={15} /></button>
-                    <button onClick={() => toggleActive(s)} className={`p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors ${s.active ? 'text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={15} /></button>
+                    <button onClick={() => quickDeleteService(s)} title={L('Eliminar', 'Delete')} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"><Trash2 size={15} /></button>
+                    <button onClick={() => toggleActive(s)} title={s.active ? L('Desactivar', 'Deactivate') : L('Activar', 'Activate')} className={`p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors ${s.active ? 'text-slate-400 dark:text-white/40 hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={15} /></button>
                   </div>
                 </div>
                 <span className="hidden md:inline w-36 text-[12px] text-slate-400 dark:text-white/40 truncate">{s.name_en || '—'}</span>
@@ -721,9 +736,10 @@ function Servicios() {
                 </span>
                 <span className="hidden md:inline w-24 text-right text-[12px] font-semibold text-slate-700 dark:text-white">{fmtRD(s.price)}</span>
                 <span className="hidden md:flex w-20 justify-center"><ActiveBadge active={s.active} /></span>
-                <div className="hidden md:flex w-16 items-center justify-end gap-1">
-                  <button onClick={() => openEdit(s)} className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={13} /></button>
-                  <button onClick={() => toggleActive(s)} className={`p-1.5 rounded-lg transition-colors ${s.active ? 'text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={13} /></button>
+                <div className="hidden md:flex w-24 items-center justify-end gap-1">
+                  <button onClick={() => openEdit(s)} title={L('Editar', 'Edit')} className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={13} /></button>
+                  <button onClick={() => quickDeleteService(s)} title={L('Eliminar', 'Delete')} className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"><Trash2 size={13} /></button>
+                  <button onClick={() => toggleActive(s)} title={s.active ? L('Desactivar', 'Deactivate') : L('Activar', 'Activate')} className={`p-1.5 rounded-lg transition-colors ${s.active ? 'text-slate-400 dark:text-white/40 hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={13} /></button>
                 </div>
               </div>
             ))
