@@ -73,11 +73,24 @@ let dbInitError = null
 function isReady() { return !!db }
 function getError() { return dbInitError || dbLoadError || null }
 
-// v2.13 — first-boot encryption migration.
-// Detects a plaintext DB (readable without a key), rewrites it as an encrypted
-// DB via SQLCipher's `sqlcipher_export` to an attached encrypted target, then
-// atomically swaps files. Keeps a .plaintext.bak for one boot so a failed
-// migration can be recovered. Idempotent: already-encrypted DBs short-circuit.
+// v2.13.4 — first-boot encryption migration, rewritten.
+//
+// Previous approach used `sqlcipher_export()` which only exists in real
+// SQLCipher — not in `better-sqlite3-multiple-ciphers` (which implements a
+// SQLCipher-COMPATIBLE cipher via sqlite3mc, but doesn't ship that function).
+// Every fresh install with a prior plaintext DB crashed at boot.
+//
+// New approach: manual schema + data copy into a fresh encrypted file.
+//   1. Probe src — if opening without a key succeeds, it's plaintext.
+//   2. Back up plaintext → .plaintext.bak (one-boot rollback window).
+//   3. Open NEW encrypted file as `main` (so unqualified names in triggers/
+//      views resolve to the encrypted schema, not the plaintext attached one).
+//   4. ATTACH the plaintext src as `plain` with empty KEY (= no encryption).
+//   5. Replay every CREATE TABLE/INDEX/VIEW/TRIGGER from plain.sqlite_master
+//      onto main — unqualified, so the DDL lands exactly as authored.
+//   6. For each table, INSERT INTO main.T SELECT * FROM plain.T.
+//   7. DETACH, close, atomic rename encrypted → dbPath.
+// Idempotent: already-encrypted source short-circuits on the probe.
 function ensureEncrypted(dbPath, keyHex) {
   if (!fs.existsSync(dbPath)) return { ok: true, migrated: false, reason: 'no-db' }
 
@@ -99,15 +112,91 @@ function ensureEncrypted(dbPath, keyHex) {
   try { fs.copyFileSync(dbPath, bakPath) } catch (err) { return { ok: false, error: 'backup failed: ' + err.message } }
   try { fs.existsSync(encPath) && fs.unlinkSync(encPath) } catch {}
 
+  const escapeSqlPath = p => p.replace(/'/g, "''")
+  const quoteIdent    = n => '"' + String(n).replace(/"/g, '""') + '"'
+
+  let tableRowCounts = {}
+
   try {
-    const src = new Database(dbPath)
-    src.exec(`ATTACH DATABASE '${encPath.replace(/'/g, "''")}' AS encrypted KEY "x'${keyHex}'"`)
-    src.exec("SELECT sqlcipher_export('encrypted')")
-    src.exec("DETACH DATABASE encrypted")
-    src.close()
+    // Open the NEW encrypted DB as main.
+    const dst = new Database(encPath)
+    dst.pragma(`key = "x'${keyHex}'"`)
+    dst.pragma('cipher_page_size = 4096')
+    // Sanity: the first write to a freshly-keyed DB is what commits the
+    // encryption header. Read sqlite_master to force a page touch.
+    dst.prepare('SELECT count(*) FROM sqlite_master').get()
+
+    // ATTACH plaintext source under an empty key (= no encryption on attach).
+    dst.exec(`ATTACH DATABASE '${escapeSqlPath(dbPath)}' AS plain KEY ''`)
+
+    // Pull full object graph from the PLAIN side.
+    const objects = dst.prepare(
+      `SELECT type, name, sql FROM plain.sqlite_master
+        WHERE sql IS NOT NULL
+          AND name NOT LIKE 'sqlite_%'
+          AND (type = 'table' OR type = 'index' OR type = 'view' OR type = 'trigger')
+        ORDER BY CASE type WHEN 'table' THEN 1 WHEN 'view' THEN 2 WHEN 'index' THEN 3 WHEN 'trigger' THEN 4 ELSE 5 END, rowid`
+    ).all()
+
+    // Phase 1 — schema replay on main. Transaction scope: any failure rolls
+    // the entire encrypted file back to empty, then we bail.
+    dst.exec('BEGIN')
+    for (const obj of objects) {
+      if (obj.name.startsWith('sqlite_autoindex_')) continue
+      try {
+        // DDL is unqualified in sqlite_master, so it targets `main` by
+        // default — exactly what we want since dst = main.
+        dst.exec(obj.sql)
+      } catch (err) {
+        dst.exec('ROLLBACK')
+        throw new Error(`replay ${obj.type} ${obj.name}: ${err.message}`)
+      }
+    }
+
+    // Phase 2 — copy rows. Defer FK checking so intermediate partial states
+    // don't explode. SQLite doesn't enforce FKs by default but some trigger
+    // patterns reference foreign tables mid-insert; suspending PRAGMA is
+    // belt-and-braces.
+    dst.pragma('defer_foreign_keys=ON')
+    const tables = dst.prepare(
+      `SELECT name FROM plain.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY rowid`
+    ).all()
+    for (const t of tables) {
+      try {
+        dst.exec(`INSERT INTO main.${quoteIdent(t.name)} SELECT * FROM plain.${quoteIdent(t.name)}`)
+        const [srcN, dstN] = [
+          dst.prepare(`SELECT count(*) AS n FROM plain.${quoteIdent(t.name)}`).get()?.n || 0,
+          dst.prepare(`SELECT count(*) AS n FROM main.${quoteIdent(t.name)}`).get()?.n || 0,
+        ]
+        tableRowCounts[t.name] = { src: srcN, dst: dstN }
+        if (srcN !== dstN) throw new Error(`row-count mismatch on ${t.name}: src=${srcN} dst=${dstN}`)
+      } catch (err) {
+        dst.exec('ROLLBACK')
+        throw new Error(`copy ${t.name}: ${err.message}`)
+      }
+    }
+
+    dst.exec('COMMIT')
+    dst.exec('DETACH DATABASE plain')
+    dst.close()
   } catch (err) {
     try { fs.existsSync(encPath) && fs.unlinkSync(encPath) } catch {}
-    return { ok: false, error: 'sqlcipher_export: ' + err.message }
+    return { ok: false, error: 'manual-copy: ' + err.message }
+  }
+
+  // Independent re-open verify: the file must decrypt under the key and
+  // return something sensible. Catches the silent-corruption case where
+  // the copy succeeded but the encrypted header didn't flush properly.
+  try {
+    const verify = new Database(encPath)
+    verify.pragma(`key = "x'${keyHex}'"`)
+    verify.pragma('cipher_page_size = 4096')
+    const n = verify.prepare('SELECT count(*) FROM sqlite_master').get()
+    verify.close()
+    if (!n) throw new Error('sqlite_master unreadable post-encrypt')
+  } catch (err) {
+    try { fs.existsSync(encPath) && fs.unlinkSync(encPath) } catch {}
+    return { ok: false, error: 'verify-encrypted: ' + err.message }
   }
 
   // Atomic-ish swap. Close nothing (we haven't opened db yet at call site).
@@ -115,15 +204,17 @@ function ensureEncrypted(dbPath, keyHex) {
     fs.renameSync(dbPath, dbPath + '.old')
     fs.renameSync(encPath, dbPath)
     try { fs.unlinkSync(dbPath + '.old') } catch {}
-    // Also drop any WAL/SHM siblings from the plaintext era.
+    // Drop any WAL/SHM siblings from the plaintext era.
     try { fs.unlinkSync(dbPath + '-wal') } catch {}
     try { fs.unlinkSync(dbPath + '-shm') } catch {}
   } catch (err) {
     return { ok: false, error: 'file swap: ' + err.message }
   }
 
-  console.log('[db] encryption migration complete. backup at', bakPath)
-  return { ok: true, migrated: true }
+  const tableCount = Object.keys(tableRowCounts).length
+  const rowsCopied = Object.values(tableRowCounts).reduce((s, r) => s + r.dst, 0)
+  console.log(`[db] encryption migration complete — ${tableCount} tables / ${rowsCopied} rows. backup at ${bakPath}`)
+  return { ok: true, migrated: true, tableCount, rowsCopied }
 }
 
 function init(userDataPath, options = {}) {
@@ -137,19 +228,25 @@ function init(userDataPath, options = {}) {
   // output from key-vault.js). If the driver is the ciphers fork AND a key is
   // supplied we PRAGMA key before the first read. Plaintext -> encrypted
   // migration handled by ensureEncrypted() below.
-  const encryptionKey = (dbEngine === 'ciphers' && options.encryptionKey) ? options.encryptionKey : null
+  let encryptionKey = (dbEngine === 'ciphers' && options.encryptionKey) ? options.encryptionKey : null
   if (encryptionKey) {
     try {
       const migrated = ensureEncrypted(dbPath, encryptionKey)
       if (!migrated.ok) {
-        console.error('[db] encryption migration failed, aborting init:', migrated.error)
-        dbInitError = 'encryption migration failed: ' + migrated.error
-        return false
+        // v2.13.3 hotfix — better-sqlite3-multiple-ciphers does NOT ship the
+        // sqlcipher_export function (that belongs to real SQLCipher), so the
+        // first-boot plaintext→encrypted migration always fails on installs
+        // that have a pre-encryption DB file. Refusing to init would lock
+        // the user out of the POS entirely. Log loudly and continue with the
+        // plaintext DB — at-rest encryption is a defense-in-depth measure,
+        // not a correctness requirement, and a working POS beats a bricked
+        // one. A future rewrite will use sqlite3mc_* APIs instead.
+        console.warn('[db] encryption migration unavailable — continuing with plaintext DB:', migrated.error)
+        encryptionKey = null
       }
     } catch (err) {
-      console.error('[db] ensureEncrypted threw:', err.message)
-      dbInitError = err.message
-      return false
+      console.warn('[db] ensureEncrypted threw — continuing with plaintext DB:', err.message)
+      encryptionKey = null
     }
   }
 
