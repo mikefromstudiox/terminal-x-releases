@@ -39,15 +39,20 @@ Shipped in commits 4dcf888 / d260425 / 41cb816:
 - [x] **M3** — BEFORE UPDATE triggers added on loyalty_transactions, inventory_oversells, work_order_items, anecf_queue (migration `20260421600000` applied live).
 - [x] **M1** — memory + CLAUDE.md users VIEW note corrected.
 
-Still open (lower priority):
-- [ ] **H1** — pass-2 push can re-push pulled rows under timing edge cases (sync.js:2208-2213).
-- [ ] **H4** — `app_settings` upsert uses wrong `on_conflict`; classification flips can revert to older values. Current code has update-if-exists fallback which mostly masks it.
-- [ ] **H5** — low-severity: `pullUpsertRow` active-guard trap if future LWW tables lack `active` column.
-- [ ] **Mediums**: categorias_servicio needs Supabase UNIQUE, ecf_queue body_json round-trip can double-wrap, sync_log time format inconsistency.
-- [ ] **Lows**: queue_deletions N+1 in push shaper, local_id legacy column cleanup, adelantos approved_by_supabase_id FK.
-- [ ] Wire tombstoneAdd into the remaining soft-delete fallback paths (service_modificadores, appointments, stylist_schedules, etc.) for completeness — most already LWW-safe via active flag but would be good hygiene.
+Final batch (shipped 2026-04-21):
+- [x] **H1** — pass-2 cursor now uses max(last_synced_at, last_pull_at) so pulled rows don't re-push.
+- [x] **H4** — moot: Supabase has both UNIQUE(business_id,supabase_id) AND UNIQUE(business_id,key) on app_settings; web path has update-if-exists lookup; desktop reuses supabase_id per key. No action needed.
+- [x] **H5** — moot: `active === 0` strict check safely no-ops when column missing.
+- [x] **M2** — migration `20260421700000` adds UNIQUE index on categorias_servicio (business_id, LOWER(nombre)) with dedup pass.
+- [x] **M4** — ecf_queue body_json push unwraps the legacy `{raw:"..."}` double-stringify shape.
+- [x] **M5** — updatePullLog switched to ISO 8601 strftime to match updateSyncLog.
+- [x] **L2** — no stale local_id usages in code; just a comment reference, leaving alone.
+- [ ] **L1** — queue_deletions N+1 in push shaper (per-row SQLite lookups): requires schema migration (add queue_supabase_id + ticket_supabase_id columns + backfill). Skipped as low-priority hygiene.
+- [ ] **L3** — adelantos approved_by_supabase_id FK: schema addition, low priority.
+- [ ] Wire tombstoneAdd into less-critical hard-delete paths (modifiers, mesas, vehicles, etc.) for completeness.
 
-Verification — needs desktop smoke test: (a) delete a category on desktop → verify it stays deleted after next sync cycle, (b) delete a service on web → verify desktop reflects after pull, (c) 976 Ranoza products visible on Jerry's web login.
+Ranoza E2E smoke: **22/22 passing** after the batch.
+Verification — needs desktop-side smoke (not scripted): (a) delete a category on desktop → verify it stays deleted after next sync cycle, (b) delete a service on web → verify desktop reflects after pull, (c) 976 Ranoza products visible on Jerry's web login.
 
 ### Sync Architecture Audit (BLOCKING — before any new features)
 Natural key healing shipped (pullUpsertRow matches by name when supabase_id misses, heals identity). But empleados still not pulling reliably after reconnect. Full dataLEAKS audit pending — covers every push/pull path, cursor logic, SYNC_TABLES vs PULL_TABLES parity, staff-vs-users view, race conditions.

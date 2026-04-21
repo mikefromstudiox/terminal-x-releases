@@ -844,7 +844,16 @@ const SYNC_TABLES = [
       body_json: (() => {
         if (!r.body_json) return {}
         if (typeof r.body_json === 'object') return r.body_json
-        try { return JSON.parse(r.body_json) } catch { return { raw: r.body_json } }
+        try {
+          const parsed = JSON.parse(r.body_json)
+          // Unwrap prior double-stringify: an earlier pull→push cycle wrapped
+          // failed parses as `{ raw: "{...}" }`. Next parse will succeed but
+          // reveal that shape, and we want the ORIGINAL structure back.
+          if (parsed && typeof parsed === 'object' && 'raw' in parsed && Object.keys(parsed).length === 1) {
+            try { return JSON.parse(parsed.raw) } catch { return parsed }
+          }
+          return parsed
+        } catch { return { raw: r.body_json } }
       })(),
       url_path: r.url_path || '',
       token: r.token || '',
@@ -1449,9 +1458,12 @@ function getLastPullAt(tableName) {
 
 function updatePullLog(tableName, lastPullAt) {
   try {
+    // Match updateSyncLog's ISO 8601 format so sync_log.updated_at stays
+    // lexicographically comparable across push and pull paths. datetime('now')
+    // would write SQL space format and re-introduce the v2.0.2 comparison bug.
     _db.rawPrepare(`INSERT INTO sync_log (table_name, last_synced_id, row_count, error, updated_at, last_pull_at)
-      VALUES (?, 0, 0, NULL, datetime('now'), ?)
-      ON CONFLICT(table_name) DO UPDATE SET last_pull_at = excluded.last_pull_at, updated_at = datetime('now')
+      VALUES (?, 0, 0, NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?)
+      ON CONFLICT(table_name) DO UPDATE SET last_pull_at = excluded.last_pull_at, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
     `).run(tableName, lastPullAt)
   } catch (e) { log.error('[sync] updatePullLog failed:', e.message) }
 }
@@ -2212,13 +2224,19 @@ async function syncTable(tableConfig) {
 
   // Pass 2 — re-sync rows that were UPDATED since last sync
   // This catches balance changes, status updates, stock adjustments, etc.
+  // Guard against re-pushing rows we just PULLED: `pullUpsertRow` stamps
+  // remote updated_at locally, so those rows qualify for pass-2 until the
+  // next push cursor advances. Comparing to max(last_synced_at, last_pull_at)
+  // filters them out. Only locally-edited rows have updated_at > both cursors.
   const lastSyncedAt = getLastSyncedAt(name)
-  if (lastSyncedAt) {
+  const lastPullAt = getLastPullAt(name)
+  const passTwoCursor = [lastSyncedAt, lastPullAt].filter(Boolean).sort().pop()
+  if (passTwoCursor) {
     try {
       const orderCol = isKeyedTable ? 'rowid' : 'id'
       const updatedRows = _db.rawPrepare(
         `SELECT * FROM ${name} WHERE updated_at > ? AND supabase_id IS NOT NULL ORDER BY ${orderCol} LIMIT 2000`
-      ).all(lastSyncedAt)
+      ).all(passTwoCursor)
       const passTwoFiltered = rowFilter ? updatedRows.filter(rowFilter) : updatedRows
       if (passTwoFiltered.length) {
         const mapped = passTwoFiltered.map(r => ({ business_id: bizId, ...cols(r) })).filter(r => r.supabase_id)

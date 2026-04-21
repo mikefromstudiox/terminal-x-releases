@@ -40,9 +40,16 @@ async function run() {
   // for this business and bcrypt-compare in Node, mirroring the AuthContext flow.
   const bcrypt = (await import('bcryptjs')).default
   const { data: staffRows, error: e2 } = await anon.from('staff')
-    .select('id,name,role,active,pin_hash,business_id')
+    .select('id,name,role,active,pin_hash,pin_salt,business_id')
     .eq('business_id', BID).eq('active', true)
-  const jerryRow = staffRows?.find(r => r.name === 'Jerry Felix' && r.pin_hash && bcrypt.compareSync('434233', r.pin_hash))
+  // Jerry's PIN is 434233 (set via admin panel 2026-04-21; stored bcrypt).
+  // bcrypt hash is computed over `pin + pin_salt` (see packages/data/web.js
+  // hashPin + web/api/panel.js handleSetStaffPin). sha256 fallback kept for
+  // any legacy rows that pre-date bcrypt rollout.
+  const jerryRow = staffRows?.find(r => r.name === 'Jerry Felix' && r.pin_hash && (
+    (r.pin_hash.startsWith('$2') && bcrypt.compareSync('434233' + (r.pin_salt || ''), r.pin_hash)) ||
+    r.pin_hash === sha('434233')
+  ))
   log('pin byPin: Jerry 434233', !e2 && !!jerryRow, e2?.message || (staffRows ? `${staffRows.length} active staff scanned` : 'no rows'))
 
   // 3. License validation (direct API call)
