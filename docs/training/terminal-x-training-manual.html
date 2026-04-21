@@ -120,6 +120,9 @@
     <li><a href="#s31">Reporte de Quiebres de Stock (v2.12)</a></li>
     <li><a href="#s32">Subtipos de Tienda (v2.12)</a></li>
     <li><a href="#s33">Pagos Mixtos — multi-método (v2.12)</a></li>
+    <li><a href="#s34">Apertura de Turno (v2.12 · restringido a cajero en v2.13.2)</a></li>
+    <li><a href="#s35">Bloqueo por Inactividad — Kiosco (v2.12)</a></li>
+    <li><a href="#s36">Licorería — Consolidación y CRITs fiscales (v2.13)</a></li>
   </ol>
 </section>
 
@@ -1716,6 +1719,121 @@ Cualquier duda, estoy a un WhatsApp.</pre>
   </table>
 
   <div class="ok"><strong>Caso típico:</strong> cliente quiere pagar RD$2,000 con tarjeta (tiene un límite) pero el total es RD$2,500. Agrega <em>Tarjeta RD$2,000</em> + <em>Efectivo RD$500</em>. Un solo ticket, un solo e-CF, dos partes de pago limpias.</div>
+</section>
+
+<!-- 34 -->
+<section class="page pagebreak" id="s34">
+  <h2>34. Apertura de Turno</h2>
+  <span class="pill">Nuevo en v2.12 · Restringido a cajero en v2.13.2</span>
+  <p>La <strong>primera vez del día</strong> que un cajero entra al POS, el sistema le pide declarar el <strong>efectivo de apertura</strong> (la base de caja con la que arranca). Sin declarar apertura, el POS no permite cobrar — así se elimina la excusa de <em>"no sé con cuánto empecé"</em> al momento del cuadre.</p>
+
+  <h3>34.1 Flujo del cajero</h3>
+  <ol>
+    <li>El cajero inicia sesión en el POS al abrir la tienda.</li>
+    <li>Aparece el modal <strong>"Apertura de Turno"</strong> — fondo bloqueado, no se puede cerrar sin declarar.</li>
+    <li>Cuenta el efectivo físico de la gaveta e ingresa el monto (ej: <code>RD$1,500</code>).</li>
+    <li>Toca <strong>Abrir turno</strong>. El POS queda listo para cobrar.</li>
+    <li>Al cerrar caja en la noche, el Cuadre compara: <em>apertura + ventas en efectivo − retiros = cierre esperado</em>. Diferencia visible al instante.</li>
+  </ol>
+
+  <h3>34.2 Quién ve el modal</h3>
+  <table>
+    <tr><th>Rol</th><th>¿Ve el modal?</th><th>Por qué</th></tr>
+    <tr><td><strong>Cajero</strong></td><td>Sí</td><td>Responsable de efectivo — tiene que declarar.</td></tr>
+    <tr><td><strong>Dueño / Gerente / CFO / Contador</strong></td><td>No</td><td>Ellos abren turnos <em>para</em> los cajeros desde <strong>Cuadre</strong>. No manejan caja directa.</td></tr>
+    <tr><td><strong>Lavador / Vendedor-only</strong></td><td>No</td><td>No toca efectivo. Solo registra servicios / órdenes.</td></tr>
+    <tr><td><strong>Modo kiosco / demo</strong></td><td>No</td><td>Flujos especiales — el gate se omite.</td></tr>
+  </table>
+
+  <div class="note"><strong>Cambio de v2.13.2:</strong> antes el modal salía a cualquiera que tuviera rol con acceso a POS. Ahora <strong>solo al cajero</strong>. Si el dueño entra al POS a cubrir, no lo molesta el modal — pero tampoco queda apertura declarada. Si ese turno lo va a cerrar un cajero, el dueño debe abrirlo desde <strong>Cuadre → Abrir turno para cajero</strong>.</div>
+
+  <h3>34.3 Dónde queda auditado</h3>
+  <ul>
+    <li>Tabla <code>cuadre_caja</code> — columnas <code>opening_cash</code>, <code>opened_at</code>, <code>status</code>.</li>
+    <li>Evento <code>shift_opened</code> en Registro de Actividad (timestamp + usuario + monto).</li>
+    <li>Visible en el <strong>Dashboard Remoto → Actividad</strong> — el dueño ve desde el celular que la caja abrió con RD$X a las 8:15am.</li>
+  </ul>
+
+  <h3>34.4 Escape para el dueño</h3>
+  <p>El dueño puede desactivar el gate en <strong>Sistema → Preferencias → Turno</strong> si prefiere el flujo viejo (ej: negocio muy pequeño, el dueño es el mismo cajero siempre). Recomendación de soporte: <em>déjalo activo</em> — el reporte de cuadre se vuelve 10× más útil cuando hay apertura real.</p>
+
+  <h3>34.5 Cómo explicarlo al cliente (pitch)</h3>
+  <div class="tip">"Imagínate esto: tu cajero te dice al final del día que faltan RD$800. Tú le preguntas con cuánto empezó, y te dice 'no sé, creo que había RD$2,000'. No puedes saber si faltan RD$800 o si realmente faltan RD$300. Con la Apertura de Turno, cada mañana queda declarado y firmado. Al cierre, el faltante es exacto — y el cajero lo sabe."</div>
+</section>
+
+<!-- 35 -->
+<section class="page pagebreak" id="s35">
+  <h2>35. Bloqueo por Inactividad — Kiosco</h2>
+  <span class="pill">Nuevo en v2.12</span>
+  <p>Si el cajero se aleja del POS sin cerrar sesión (va al baño, a atender al cliente en la mesa, a almorzar), después de <strong>N minutos sin actividad</strong> el sistema <strong>bloquea la pantalla</strong> con un PIN. Nadie puede cobrar ni ver reportes hasta desbloquear — pero cuando el cajero vuelve, <strong>sigue exactamente donde estaba</strong>: mismo carrito, mismo ticket a medio armar, mismo modal abierto.</p>
+
+  <h3>35.1 Cómo funciona</h3>
+  <ol>
+    <li>El temporizador arranca con la sesión. Cualquier <em>movimiento del mouse, tecla presionada o toque en pantalla</em> lo reinicia.</li>
+    <li>Tras <strong>N minutos sin tocar nada</strong> (default 10), aparece un overlay negro con el PIN-pad.</li>
+    <li>El cajero teclea su PIN (el mismo de siempre, no uno nuevo). El overlay se disuelve y el POS vuelve a estar activo.</li>
+    <li>Si otro empleado intenta desbloquear con su PIN, <strong>no abre</strong> — solo el PIN del usuario que tenía la sesión activa. Esto impide el <em>session-hijack</em> entre cajeros.</li>
+  </ol>
+
+  <h3>35.2 Qué NO rompe</h3>
+  <ul>
+    <li>El ticket en armado — todos los ítems siguen en el carrito.</li>
+    <li>La ruta activa — si estaba en Reportes, vuelve a Reportes.</li>
+    <li>Los modales abiertos — modal de cobro, de cliente, de descuento, todos siguen ahí.</li>
+    <li>La sesión de Supabase — no hay logout, no hay pérdida de sync.</li>
+  </ul>
+
+  <h3>35.3 Configuración (dueño / gerente)</h3>
+  <p><strong>Sistema → Preferencias → Kiosco</strong></p>
+  <table>
+    <tr><th>Opción</th><th>Default</th><th>Para qué</th></tr>
+    <tr><td><strong>Activar bloqueo automático</strong></td><td>ON</td><td>Maestro del feature. OFF lo apaga en todo el dispositivo.</td></tr>
+    <tr><td><strong>Minutos de inactividad</strong></td><td>10</td><td>Cuánto tiempo sin toques antes de bloquear. Rango recomendado: 5–15 min.</td></tr>
+  </table>
+
+  <h3>35.4 Cuándo bajarlo a 5 min</h3>
+  <ul>
+    <li>POS en <strong>barra / bar</strong> — mucha gente pasa cerca de la pantalla.</li>
+    <li>Local con <strong>clientes en el mostrador</strong> sin barrera física.</li>
+    <li>Si ya pasó algún <em>susto</em> (alguien metió mano al POS ajeno).</li>
+  </ul>
+
+  <h3>35.5 Cuándo subirlo a 15+ min</h3>
+  <ul>
+    <li>Gym / lavadero / taller donde el cajero se aleja seguido a atender servicio.</li>
+    <li>POS en oficina cerrada con acceso restringido.</li>
+  </ul>
+
+  <div class="note"><strong>Dónde se guarda:</strong> <code>app_settings</code> device-local con espejo a Supabase (claves <code>kiosk_auto_lock_enabled</code> y <code>kiosk_auto_lock_minutes</code>). Si se daña la PC, la preferencia se recupera al re-instalar.</div>
+
+  <div class="ok"><strong>Pitch al cliente:</strong> "Si tu cajero se va al baño y deja la pantalla abierta, cualquiera puede hacer ventas fantasma, anular tickets o ver los reportes. Con el bloqueo por inactividad eso se acaba — a los 10 minutos se bloquea, y cuando el cajero regresa, todo sigue donde lo dejó."</div>
+</section>
+
+<!-- 36 -->
+<section class="page pagebreak" id="s36">
+  <h2>36. Licorería — Consolidación y CRITs fiscales</h2>
+  <span class="pill">Nuevo en v2.13</span>
+  <p>El subtipo <strong>licorería</strong> (ver sección 32) recibió un paquete de endurecimiento fiscal y consolidación de configuración. No son cambios de flujo — son <strong>controles críticos</strong> (CRITs) que evitan errores comunes en la emisión de comprobantes para el rubro.</p>
+
+  <h3>36.1 CRITs fiscales activados por defecto</h3>
+  <table>
+    <tr><th>CRIT</th><th>Qué valida</th><th>Por qué importa</th></tr>
+    <tr><td><strong>ITBIS en cervezas / licores</strong></td><td>Que cada producto del rubro tenga tasa de ITBIS correcta antes de cobrar.</td><td>Cervezas y licores en DR pagan ITBIS + <em>Impuesto Selectivo al Consumo</em>. Si el producto está mal clasificado, el e-CF sale incorrecto y DGII puede objetar.</td></tr>
+    <tr><td><strong>RNC del comprador en venta &gt; RD$250,000</strong></td><td>Exige RNC del cliente si el ticket supera el umbral.</td><td>Ley 32-23 — ventas grandes a consumidor final sin RNC son señal de evasión y activan auditoría.</td></tr>
+    <tr><td><strong>Anulación con motivo</strong></td><td>No permite anular un e-CF de licorería sin escribir razón visible.</td><td>Patrón típico de fraude: anular e-CF al cierre para ocultar ventas. Motivo obligatorio queda en el Registro de Actividad.</td></tr>
+  </table>
+
+  <h3>36.2 Consolidación de configuración</h3>
+  <p>Antes: al onboarding de una licorería había que tocar 4 pantallas distintas (categorías, impuestos, horarios, mínimo de venta). Ahora hay <strong>una sola pantalla</strong> — <strong>Sistema → Tipo de Negocio → Licorería → Configuración rápida</strong> — que:</p>
+  <ul>
+    <li>Pre-carga categorías típicas (Ron · Whisky · Cerveza · Vino · Energéticas · Cigarros · Hielo).</li>
+    <li>Activa verificación de edad 18+ en el POS.</li>
+    <li>Aplica tasas ITBIS + Selectivo al Consumo correctas según el producto.</li>
+    <li>Sugiere horario de operación (el POS bloquea venta de alcohol fuera del horario legal — domingos después de medianoche, etc.).</li>
+  </ul>
+
+  <h3>36.3 Verificación rápida para soporte</h3>
+  <div class="tip">Cuando llega una licorería a onboarding: en <strong>Sistema → Tipo de Negocio → Licorería</strong> toca <strong>Aplicar plantilla fiscal</strong>. En 10 segundos queda configurada con CRITs activos. Si el cliente vende también comida (colmado-licorería), activa el <strong>subtipo Híbrido</strong> — conserva los CRITs del alcohol pero permite otros productos sin las restricciones de rubro.</div>
 </section>
 
 </body>

@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
-import { useState } from 'react'
-import { Monitor, Shield, Zap, BarChart3, Receipt, Users, ArrowRight, Check, X, Wifi, WifiOff, Printer, MessageSquare, ChevronDown, ChevronUp, Clock, CreditCard, FileText, Lock, Smartphone, Star, TrendingUp, Headphones, Menu, ExternalLink, Globe, Banknote, Calculator, Crown, Award, BadgeCheck, Package, Gift, ClipboardList, Mail, IdCard } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Monitor, Shield, Zap, BarChart3, Receipt, Users, ArrowRight, ArrowUp, Check, X, Wifi, WifiOff, Printer, MessageSquare, ChevronDown, ChevronUp, Clock, CreditCard, FileText, Lock, Smartphone, Star, TrendingUp, Headphones, Menu, ExternalLink, Globe, Banknote, Calculator, Crown, Award, BadgeCheck, Package, Gift, ClipboardList, Mail, IdCard } from 'lucide-react'
 import logoImg from '../assets/logo.webp'
 
 function useBrowserLang() {
@@ -314,8 +314,17 @@ function FaqItem({ q, a }) {
 export default function LandingPage({ section }) {
   const navigate = useNavigate()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [showScrollTop, setShowScrollTop] = useState(false)
   const { lang, toggle: toggleLang } = useBrowserLang()
   const L = (es, en) => lang === 'es' ? es : en
+
+  useEffect(() => {
+    const onScroll = () => setShowScrollTop(window.scrollY > 400)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+  const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' })
 
   const navLinks = [
     { label: L('Funciones', 'Features'), href: '#features' },
@@ -386,11 +395,6 @@ export default function LandingPage({ section }) {
             <a href="https://wa.me/18098282971?text=Hola%2C%20quiero%20informacion%20sobre%20Terminal%20X" target="_blank" rel="noopener noreferrer"
               className="border border-black/20 text-black/80 hover:border-black/40 hover:shadow-lg px-6 py-3 text-sm font-bold rounded-lg transition-all">
               {L('Hablar con ventas', 'Talk to sales')}
-            </a>
-            <a href="https://wa.me/18098282971?text=Hola%2C%20quiero%20ver%20un%20demo%20de%20Terminal%20X" target="_blank" rel="noopener noreferrer"
-              className="border border-black/20 text-black/80 hover:border-black/40 hover:shadow-lg px-6 py-3 text-sm font-bold rounded-lg transition-all flex items-center gap-2">
-              <Smartphone size={16} />
-              {L('Ver demo', 'See demo')}
             </a>
           </div>
           {/* Certification badge */}
@@ -618,10 +622,6 @@ export default function LandingPage({ section }) {
           <div className="flex items-center justify-center gap-4 flex-wrap mt-14">
             <a href="#pricing" className="bg-[#b3001e] hover:bg-[#d4002a] px-6 py-3 text-sm font-bold text-white rounded-lg transition-colors shadow-lg shadow-red-500/25">
               {L('Ver plan completo', 'See full plan')} <ArrowRight size={16} className="inline ml-1" />
-            </a>
-            <a href="https://wa.me/18098282971?text=Quiero%20ver%20lo%20nuevo%20de%20Terminal%20X%20v2.11" target="_blank" rel="noopener noreferrer"
-              className="border border-white/20 text-white/80 hover:border-white/40 hover:bg-white/5 px-6 py-3 text-sm font-bold rounded-lg transition-all">
-              {L('Pedir demo en vivo', 'Request live demo')}
             </a>
           </div>
         </div>
@@ -1282,6 +1282,15 @@ export default function LandingPage({ section }) {
           </div>
         </div>
       </footer>
+
+      <button
+        type="button"
+        onClick={scrollToTop}
+        aria-label={L('Subir al inicio', 'Scroll to top')}
+        className={`fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full bg-[#b3001e] hover:bg-[#d4002a] text-white shadow-lg shadow-red-500/30 flex items-center justify-center transition-all duration-300 ${showScrollTop ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-4 pointer-events-none'}`}
+      >
+        <ArrowUp size={20} strokeWidth={2.5} />
+      </button>
     </div>
   )
 }
