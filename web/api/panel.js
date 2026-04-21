@@ -1,4 +1,5 @@
 import crypto from 'crypto'
+import bcryptjs from 'bcryptjs'
 import { createClient } from '@supabase/supabase-js'
 import { checkRateLimit, callerIp } from '../lib/rate-limit.js'
 
@@ -688,11 +689,15 @@ async function handleSetStaffPin(req, res) {
   if (pin.length < 4 || pin.length > 6) return res.status(400).json({ error: 'PIN must be 4-6 digits' })
   if (!/^\d+$/.test(pin)) return res.status(400).json({ error: 'PIN must be digits only' })
   try {
-    const encoder = new TextEncoder()
-    const data = encoder.encode(pin)
-    const hashBuf = await crypto.subtle.digest('SHA-256', data)
-    const pin_hash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('')
-    const { error } = await auth.supabase.from('staff').update({ pin_hash }).eq('id', staff_id)
+    const pin_salt = crypto.randomBytes(24).toString('base64')
+    const pin_hash = bcryptjs.hashSync(String(pin) + pin_salt, 10)
+    const { error } = await auth.supabase.from('staff').update({
+      pin_hash,
+      pin_hash_algo: 'bcrypt',
+      pin_salt,
+      pin_failed_attempts: 0,
+      pin_locked_until: null,
+    }).eq('id', staff_id)
     if (error) throw error
     return res.json({ ok: true })
   } catch (err) { return res.status(500).json({ error: err.message }) }

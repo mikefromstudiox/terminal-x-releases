@@ -142,7 +142,7 @@ npm run dist:mac     # macOS DMG
 ```bash
 cd "A:\Studio X HUB\Terminal X"
 npm run build:web
-echo '{"private":true,"type":"module","dependencies":{"@supabase/supabase-js":"^2.49.4","xml-crypto":"^2.1.5","@xmldom/xmldom":"^0.8.6","jsonwebtoken":"^9.0.2","dgii-ecf":"^1.6.8","node-forge":"^1.3.3","busboy":"^1.6.0"}}' > dist-web/package.json
+echo '{"private":true,"type":"module","dependencies":{"@supabase/supabase-js":"^2.49.4","xml-crypto":"^2.1.5","@xmldom/xmldom":"^0.8.6","jsonwebtoken":"^9.0.2","dgii-ecf":"^1.6.8","node-forge":"^1.3.3","busboy":"^1.6.0","bcryptjs":"^2.4.3"}}' > dist-web/package.json
 cp web/vercel.json dist-web/
 mkdir -p dist-web/api/signup dist-web/api/fe dist-web/api/digest dist-web/lib dist-web/.vercel
 cp web/api/panel.js web/api/validate.js web/api/rnc.js web/api/ecf-sign.js web/api/dgii-cert-upload.js web/api/staff-verify-auth.js dist-web/api/
