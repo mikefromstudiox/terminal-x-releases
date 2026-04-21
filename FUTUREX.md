@@ -22,6 +22,27 @@ Remaining (lower priority):
 - [ ] Measure real admin load times now that demos are excluded; if still slow, look at 6-way fan-out joins in `handleClients` (the `in(bids)` queries).
 - [ ] Optional: toggle in UI to include demos in activity feed + dashboard stats.
 
+### Sync C1 hotfix shipped 2026-04-21 — anon RLS policies restored
+- [x] migration `20260421500000_restore_anon_sync_policies.sql` re-adds anon SELECT/INSERT/UPDATE/DELETE on all sync tables with `business_id IS NOT NULL` guard
+- [x] verified live: Ranoza 976 inventory rows visible to anon, activity_log INSERT works
+- **Proper fix (STILL OPEN)**: replace the anon key in desktop installers with a per-license JWT that populates `auth.uid()` so we can tighten policies back to `business_id IN (my_business_ids())`. Multi-hour sprint.
+
+### Sync Architecture Audit — remaining findings from 2026-04-21 dataLEAKS report
+C1 hotfixed (above). Remaining from the 4/6/5/3 report:
+- [ ] **C2** — desktop hard-deletes don't propagate (users, empleados, services, categorias_servicio, etc.) → row resurrects on next pull. Fix: extend `RECONCILE_TABLES` or switch to soft-delete.
+- [ ] **C3** — web hard-deletes never reach desktop (no tombstone, no reconcile). Fix: flip web `.delete()` calls to `.update({active:false})`.
+- [ ] **C4** — web dashboard `ticketsByClient` joins ticket_items on `ticket_id` only; web tickets have no ticket_id so items blank. web.js:4949 needs dual-key `or()` clause.
+- [ ] **H1** — pass-2 push re-pushes pulled rows under timing edge cases (sync.js:2208-2213).
+- [ ] **H2** — `users` natural-key healing by username can adopt dead-row supabase_id after delete+recreate → security regression (old PIN resurrects). Add `active=1` guard.
+- [ ] **H3** — `activity_log` pull missing `fkCols: { actor_supabase_id: 'users' }` so owner feed drops rows whose actor hasn't synced yet.
+- [ ] **H4** — `app_settings` upsert uses wrong `on_conflict`; classification flips can revert to older values.
+- [ ] **H5** — low-severity: `pullUpsertRow` active-guard trap if future LWW tables lack `active` column.
+- [ ] **H6** — audit every `.insert(`/`.upsert(` in web.js and stamp `supabase_id: crypto.randomUUID()` (ncf_sequences, app_settings, payroll_runs likely offenders). Add a lint rule.
+- [ ] **Mediums**: users VIEW status is LIVE (update stale CLAUDE.md note), categorias_servicio needs Supabase UNIQUE, sync_update_triggers list misses loyalty_transactions/inventory_oversells/work_order_items/anecf_queue, ecf_queue body_json round-trip can double-wrap, sync_log time format inconsistency.
+- [ ] **Lows**: queue_deletions N+1 in push shaper, local_id legacy column cleanup, adelantos approved_by_supabase_id FK.
+
+Verification gaps still outstanding from the audit — see dataLEAKS report for reproducers + fix sketches on each.
+
 ### Sync Architecture Audit (BLOCKING — before any new features)
 Natural key healing shipped (pullUpsertRow matches by name when supabase_id misses, heals identity). But empleados still not pulling reliably after reconnect. Full dataLEAKS audit pending — covers every push/pull path, cursor logic, SYNC_TABLES vs PULL_TABLES parity, staff-vs-users view, race conditions.
 - [ ] Run dataLEAKS full audit (prompt saved in conversation 2026-04-15)
