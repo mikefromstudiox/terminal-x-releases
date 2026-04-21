@@ -7,7 +7,7 @@ import { listContainer, listItem, modalBackdrop, modalPanel, buttonTap } from '.
 
 const EMPTY_FORM = { business_name: '', rnc: '', phone: '', email: '', password: '', plan: 'pro', platform: 'both' }
 
-export default function Clients({ getToken, refreshToken, isDark, lang }) {
+export default function Clients({ getToken, refreshToken, isDark, lang, demoMode = false }) {
   const navigate = useNavigate()
   const L = (es, en) => lang === 'es' ? es : en
   const [list, setList] = useState([])
@@ -21,12 +21,13 @@ export default function Clients({ getToken, refreshToken, isDark, lang }) {
   const [createdKey, setCreatedKey] = useState('')
   const [copied, setCopied] = useState(false)
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [demoMode])
 
   async function load() {
     setLoading(true); setLoadErr('')
     try {
-      const resp = await fetch('/api/panel?action=clients', { headers: { 'Authorization': `Bearer ${getToken()}` } })
+      const url = demoMode ? '/api/panel?action=clients&demo=1' : '/api/panel?action=clients'
+      const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${getToken()}` } })
       if (resp.ok) setList((await resp.json()).data || [])
       else setLoadErr(L('Error al cargar clientes', 'Error loading clients'))
     } catch { setLoadErr(L('Error al cargar clientes', 'Error loading clients')) }
@@ -93,19 +94,21 @@ export default function Clients({ getToken, refreshToken, isDark, lang }) {
         className="flex items-center justify-between flex-wrap gap-3"
       >
         <div>
-          <h1 className={`text-[24px] font-black tracking-tight ${isDark ? 'text-white' : 'text-black'}`}>{L('Clientes', 'Clients')}</h1>
+          <h1 className={`text-[24px] font-black tracking-tight ${isDark ? 'text-white' : 'text-black'}`}>{demoMode ? L('Demos', 'Demos') : L('Clientes', 'Clients')}</h1>
           <p className={`text-[12px] mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-            {list.length} {L('negocios registrados', 'registered businesses')}
+            {list.length} {demoMode ? L('cuentas demo', 'demo accounts') : L('negocios registrados', 'registered businesses')}
           </p>
         </div>
-        <motion.button
-          whileTap={{ scale: 0.96 }}
-          whileHover={{ scale: 1.02 }}
-          onClick={() => { setForm(EMPTY_FORM); setAddErr(''); setShowAdd(true) }}
-          className="flex items-center gap-1.5 px-4 py-2.5 bg-[#b3001e] text-white text-[12px] font-bold rounded-xl hover:bg-[#c8002a] transition-colors shadow-lg shadow-[#b3001e]/20"
-        >
-          <Plus size={14} /> {L('Nuevo Cliente', 'New Client')}
-        </motion.button>
+        {!demoMode && (
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            whileHover={{ scale: 1.02 }}
+            onClick={() => { setForm(EMPTY_FORM); setAddErr(''); setShowAdd(true) }}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-[#b3001e] text-white text-[12px] font-bold rounded-xl hover:bg-[#c8002a] transition-colors shadow-lg shadow-[#b3001e]/20"
+          >
+            <Plus size={14} /> {L('Nuevo Cliente', 'New Client')}
+          </motion.button>
+        )}
       </motion.div>
 
       {/* Search */}

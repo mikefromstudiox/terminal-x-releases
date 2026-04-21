@@ -128,25 +128,28 @@ async function handleStats(req, res) {
   const auth = await requireAdmin(req)
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
   const { supabase } = auth
+  const includeDemos = req.query?.demo === '1' || req.query?.demo === 'true'
   try {
     const now = new Date()
     const oneDayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString()
-    const [r1, r2, r3, r4, r5, r6, r7, r8, r9] = await Promise.all([
-      supabase.from('businesses').select('id', { count: 'exact', head: true }),
-      supabase.from('licenses').select('id', { count: 'exact', head: true }).eq('status', 'active'),
-      supabase.from('licenses').select('id', { count: 'exact', head: true }).eq('status', 'suspended'),
-      supabase.from('licenses').select('id', { count: 'exact', head: true }).eq('status', 'expired'),
-      supabase.from('businesses').select('id, name, created_at').order('created_at', { ascending: false }).limit(10),
-      supabase.from('licenses').select('plan_id, plans(name)'),
-      supabase.from('license_events').select('license_id', { count: 'exact', head: true }).gt('created_at', oneDayAgo),
-      supabase.from('tickets').select('business_id').gt('created_at', oneDayAgo),
-      supabase.from('businesses').select('id, name, updated_at, settings'),
+    // Resolve real-business id scope once so every downstream count stays consistent.
+    const { data: scopedBiz } = await supabase.from('businesses')
+      .select('id, name, created_at, updated_at, settings').eq('is_demo', includeDemos ? true : false)
+    const scopedIds = (scopedBiz || []).map(b => b.id)
+    const [r2, r3, r4, r6, r7, r8] = await Promise.all([
+      scopedIds.length ? supabase.from('licenses').select('id', { count: 'exact', head: true }).eq('status', 'active').in('business_id', scopedIds) : Promise.resolve({ count: 0 }),
+      scopedIds.length ? supabase.from('licenses').select('id', { count: 'exact', head: true }).eq('status', 'suspended').in('business_id', scopedIds) : Promise.resolve({ count: 0 }),
+      scopedIds.length ? supabase.from('licenses').select('id', { count: 'exact', head: true }).eq('status', 'expired').in('business_id', scopedIds) : Promise.resolve({ count: 0 }),
+      scopedIds.length ? supabase.from('licenses').select('plan_id, plans(name)').in('business_id', scopedIds) : Promise.resolve({ data: [] }),
+      scopedIds.length ? supabase.from('license_events').select('id, licenses!inner(business_id)', { count: 'exact', head: true }).gt('created_at', oneDayAgo).in('licenses.business_id', scopedIds) : Promise.resolve({ count: 0 }),
+      scopedIds.length ? supabase.from('tickets').select('business_id').gt('created_at', oneDayAgo).in('business_id', scopedIds) : Promise.resolve({ data: [] }),
     ])
     const byPlan = {}
     for (const l of (r6.data || [])) { const p = l.plans?.name || 'free'; byPlan[p] = (byPlan[p] || 0) + 1 }
     const activeToday = new Set((r8.data || []).map(t => t.business_id)).size
-    const offlineCount = (r9.data || []).filter(b => { const lastSeen = b.updated_at; if (!lastSeen) return true; return (now - new Date(lastSeen)) > 7 * 24 * 60 * 60 * 1000 }).length
-    return res.json({ totalClients: r1.count || 0, activeLicenses: r2.count || 0, suspendedLicenses: r3.count || 0, expiredLicenses: r4.count || 0, recentSignups: r5.data || [], byPlan, activeToday, offlineCount, validationsToday: r7.count || 0 })
+    const offlineCount = (scopedBiz || []).filter(b => { const lastSeen = b.updated_at; if (!lastSeen) return true; return (now - new Date(lastSeen)) > 7 * 24 * 60 * 60 * 1000 }).length
+    const recentSignups = [...(scopedBiz || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 10).map(({ id, name, created_at }) => ({ id, name, created_at }))
+    return res.json({ totalClients: scopedIds.length, activeLicenses: r2.count || 0, suspendedLicenses: r3.count || 0, expiredLicenses: r4.count || 0, recentSignups, byPlan, activeToday, offlineCount, validationsToday: r7.count || 0 })
   } catch (err) { return res.status(500).json({ error: err.message }) }
 }
 
@@ -199,9 +202,11 @@ async function handleClients(req, res) {
   if (req.method === 'GET') {
     const auth = await requireAdmin(req)
     if (auth.error) return res.status(auth.status).json({ error: auth.error })
+    const showDemos = req.query?.demo === '1' || req.query?.demo === 'true'
     try {
       const { data: businesses, error } = await auth.supabase.from('businesses')
-        .select('id, name, rnc, phone, email, plan, logo_url, settings, created_at').order('created_at', { ascending: false }).limit(500)
+        .select('id, name, rnc, phone, email, plan, logo_url, settings, created_at, is_demo')
+        .eq('is_demo', showDemos).order('created_at', { ascending: false }).limit(500)
       if (error) throw error
       const bids = (businesses || []).map(b => b.id)
       if (!bids.length) return res.json({ data: [] })
@@ -600,15 +605,16 @@ async function handleActivityFeed(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
   const auth = await requireAdmin(req)
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const includeDemos = req.query?.demo === '1' || req.query?.demo === 'true'
   try {
     const now = new Date()
     const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString()
     const sevenDaysFromNow = new Date(now.getTime() + 7 * 86400000).toISOString()
     const [signupsRes, expiringRes, eventsRes, bizTicketsRes] = await Promise.all([
-      auth.supabase.from('businesses').select('id, name, created_at').order('created_at', { ascending: false }).limit(10),
-      auth.supabase.from('licenses').select('id, business_id, expires_at, businesses!business_id(name)').eq('status', 'active').lte('expires_at', sevenDaysFromNow).gte('expires_at', now.toISOString()),
-      auth.supabase.from('license_events').select('action, status, created_at, licenses!license_id(business_id, businesses!business_id(name))').order('created_at', { ascending: false }).limit(30),
-      auth.supabase.from('businesses').select('id, name, created_at').order('created_at'),
+      auth.supabase.from('businesses').select('id, name, created_at').eq('is_demo', includeDemos).order('created_at', { ascending: false }).limit(10),
+      auth.supabase.from('licenses').select('id, business_id, expires_at, businesses!business_id!inner(name, is_demo)').eq('status', 'active').eq('businesses.is_demo', includeDemos).lte('expires_at', sevenDaysFromNow).gte('expires_at', now.toISOString()),
+      auth.supabase.from('license_events').select('action, status, created_at, licenses!license_id(business_id, businesses!business_id!inner(name, is_demo))').eq('licenses.businesses.is_demo', includeDemos).order('created_at', { ascending: false }).limit(30),
+      auth.supabase.from('businesses').select('id, name, created_at').eq('is_demo', includeDemos).order('created_at'),
     ])
     // Also get ticket counts and latest ticket per business for first-sale and inactive detection
     const allBids = (bizTicketsRes.data || []).map(b => b.id)
