@@ -8,15 +8,19 @@ Shipped features live in CLAUDE.md §Architecture Notes. This file is forward-lo
 
 ## Active / In Progress
 
-### Admin Panel — Demo Isolation + Perf (TOUCH BACK 2026-04-21 LATER TODAY)
-Admin panel feels slow + demo accounts pollute the client list and activity monitor. Plan (pre-approved by Mike):
-- [ ] Add `is_demo BOOLEAN DEFAULT false` on `businesses` table (Supabase migration).
-- [ ] Backfill `is_demo=true` for rows where `email LIKE 'admin@%.demo.terminalxpos.com'` (catches all 11 current demo accounts; Ranoza stays real).
-- [ ] Default every admin query (`Clients.jsx`, `ClientDetail.jsx`, Activity monitor, Stats) to `.eq('is_demo', false)`.
-- [ ] Add **Demos** sidebar link in AdminApp → routes to existing Clients.jsx with `?demo=1` filter (reuses the same component, flips the filter).
-- [ ] Activity monitor: filter demo by default, add toggle "Incluir demos".
-- [ ] Perf pass while we're in there: diagnose slow screen (likely initial `/admin` stats query or Clients list) — measure first, then optimize.
-- Decision notes: Mike approved `is_demo` column approach over email-pattern-only filtering, approved the sidebar route reusing Clients.jsx.
+### Admin Panel — Demo Isolation + Perf (shipped v2.14 2026-04-21)
+Shipped:
+- [x] `businesses.is_demo` column + partial index on `WHERE is_demo = false`.
+- [x] Backfilled 11 demo rows from `email LIKE 'admin@%.demo.terminalxpos.com'` (Ranoza stays real).
+- [x] `handleClients`, `handleStats`, `handleActivityFeed` all accept `?demo=1`, default to real.
+- [x] Stats rebuilt to scope every counter through the filtered biz-id list (not separate global counts).
+- [x] New **Demos** sidebar entry + `/admin/demos` route reusing `Clients.jsx` via `demoMode` prop.
+- [x] New-client button hidden in demo view.
+
+Remaining (lower priority):
+- [ ] `business-loyalty` / `digest-health` / `loyalty-overview` endpoints still include demos — audit if they matter for perf.
+- [ ] Measure real admin load times now that demos are excluded; if still slow, look at 6-way fan-out joins in `handleClients` (the `in(bids)` queries).
+- [ ] Optional: toggle in UI to include demos in activity feed + dashboard stats.
 
 ### Sync Architecture Audit (BLOCKING — before any new features)
 Natural key healing shipped (pullUpsertRow matches by name when supabase_id misses, heals identity). But empleados still not pulling reliably after reconnect. Full dataLEAKS audit pending — covers every push/pull path, cursor logic, SYNC_TABLES vs PULL_TABLES parity, staff-vs-users view, race conditions.
