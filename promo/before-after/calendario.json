@@ -1,0 +1,44 @@
+{
+  "meta": {
+    "whatsapp": "+1 809-828-2971",
+    "whatsapp_url": "wa.me/18098282971",
+    "domain": "terminalxpos.com",
+    "footer": "CERTIFICADO DGII  ·  wa.me/18098282971  ·  terminalxpos.com",
+    "publish_time_ast": "19:00"
+  },
+  "transformations": [
+    {
+      "slug": "cuadrar-caja",
+      "date": "2026-04-24",
+      "pain": "Cuadrar caja a mano toda la noche",
+      "pain_sub": "Sumando tirillas, rezando que cuadre.",
+      "fix": "Caja cuadrada automática al cerrar",
+      "fix_sub": "Un click y listo. Sin quedarte tarde.",
+      "metric": "4 MIN",
+      "metric_label": "ANTES ERAN 4 HORAS",
+      "cta_label": "DISPONIBLE HOY"
+    },
+    {
+      "slug": "inventario-papel",
+      "date": "2026-04-25",
+      "pain": "Inventario en libretas y Excel",
+      "pain_sub": "Nadie sabe qué hay en stock hoy.",
+      "fix": "Stock en tiempo real en cada venta",
+      "fix_sub": "El POS sabe qué queda antes que tú.",
+      "metric": "0 ERRORES",
+      "metric_label": "DE CONTEO AL CIERRE",
+      "cta_label": "DISPONIBLE HOY"
+    },
+    {
+      "slug": "multas-dgii",
+      "date": "2026-04-26",
+      "pain": "NCFs vencidos y multas DGII",
+      "pain_sub": "Una sola multa paga el POS por un año.",
+      "fix": "e-CF automático certificado DGII",
+      "fix_sub": "Cada factura llega legal a la primera.",
+      "metric": "100%",
+      "metric_label": "CUMPLIMIENTO FISCAL",
+      "cta_label": "DISPONIBLE HOY"
+    }
+  ]
+}

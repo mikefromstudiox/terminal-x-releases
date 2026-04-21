@@ -1619,7 +1619,8 @@ const PULL_TABLES = [
 
   // Activity log — FWW (append-only audit feed)
   { name: 'activity_log', strategy: 'fww',
-    cols: ['event_type','severity','actor_supabase_id','actor_name','actor_role','target_type','target_id','target_name','amount','old_value','new_value','reason','metadata','created_at','updated_at'] },
+    cols: ['event_type','severity','actor_supabase_id','actor_name','actor_role','target_type','target_id','target_name','amount','old_value','new_value','reason','metadata','created_at','updated_at'],
+    fkCols: { actor_supabase_id: 'users' } },
 
   // e-CF certificate rotation history — FWW (append-only audit trail).
   // Pushed to Supabase.ecf_cert_history. business_id stamped at push time.
@@ -1724,14 +1725,20 @@ function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, natur
           `SELECT id, updated_at, supabase_id FROM ${tableName} WHERE ${naturalKey} = ?`
         ).all(row[naturalKey])
       }
-      if (matches.length === 1) {
-        const byName = matches[0]
+      // Security: never heal onto an INACTIVE local row (e.g. deleted user whose
+      // username got reused — healing would adopt the dead row's supabase_id and
+      // then subsequent pulls would clobber the new row's credentials with the
+      // old user's data). Active rows only. Remote must also be active.
+      const remoteActive = row.active == null ? true : !!row.active
+      const activeMatches = matches.filter(m => m.active == null || m.active === 1)
+      if (remoteActive && activeMatches.length === 1) {
+        const byName = activeMatches[0]
         _db.rawPrepare(`UPDATE ${tableName} SET supabase_id = ? WHERE id = ?`).run(row.supabase_id, byName.id)
         log.info(`[sync-pull] ${tableName}: healed supabase_id for "${row[naturalKey]}" (${byName.supabase_id} → ${row.supabase_id})`)
         existing = byName
         existing.supabase_id = row.supabase_id
       } else if (matches.length > 1) {
-        log.warn(`[sync-pull] ${tableName}: skipped naturalKey heal for "${row[naturalKey]}" — ${matches.length} local matches (ambiguous)`)
+        log.warn(`[sync-pull] ${tableName}: skipped naturalKey heal for "${row[naturalKey]}" — ${matches.length} local matches (${activeMatches.length} active, remote active=${remoteActive})`)
       }
     } catch {} // naturalKey column may not exist — skip gracefully
   }
@@ -2508,6 +2515,10 @@ async function syncNow() {
     // Phase 0 — push business meta (name, logo, etc.) before anything else
     try { await pushBusinessMeta(bizId) } catch (e) { log.error('[sync] pushBusinessMeta:', e.message) }
 
+    // Phase 0.5 — flush tombstones (local hard-deletes → Supabase DELETE).
+    // Without this, a desktop-side delete gets resurrected on the next pull.
+    try { await flushTombstones(bizId) } catch (e) { log.error('[sync] flushTombstones:', e.message) }
+
     for (const table of SYNC_TABLES) {
       try {
         const count = await syncTable(table)
@@ -2707,12 +2718,56 @@ async function supabaseDelete(table, supabaseId, businessId) {
 // from Supabase and hard-delete any local rows whose supabase_id is not in the
 // remote set. Ensures a delete performed in web or another desktop propagates
 // to this desktop on next pull.
-const RECONCILE_TABLES = ['salary_changes', 'adelantos', 'caja_chica', 'notas_credito']
+// Tables where we accept that remote absence means "deleted" and we should
+// mirror that deletion locally. Append-only / FWW tables stay out (tickets,
+// ticket_items, activity_log — remote absence might just mean "not pulled yet
+// because no update"). Core entity tables (services, empleados, clients,
+// inventory) are included so a web-side or other-device delete actually
+// lands on this desktop instead of getting pulled back in on the next cycle.
+const RECONCILE_TABLES = [
+  'salary_changes', 'adelantos', 'caja_chica', 'notas_credito',
+  'services', 'empleados', 'categorias_servicio', 'client_item_prices',
+  'client_service_rates', 'service_modificadores', 'payroll_runs',
+  'inventory_counts', 'inventory_count_items',
+  'compras_607', 'ecf_queue', 'work_order_items',
+]
+
+// Flush locally-recorded deletes to Supabase. Called at the top of each sync
+// cycle so a delete reaches the cloud before anything else tries to re-sync
+// the deleted row. Rows are removed from the tombstone table on success; on
+// error we bump an attempts counter and try again next cycle.
+async function flushTombstones(businessId) {
+  if (!_db || !_url || !_key) return
+  if (typeof _db.tombstonesPending !== 'function') return
+  const rows = _db.tombstonesPending(200) || []
+  if (!rows.length) return
+  let ok = 0, failed = 0
+  for (const r of rows) {
+    try {
+      const resp = await supabaseDelete(r.table_name, r.supabase_id, r.business_id || businessId)
+      if (resp?.ok || resp?.status === 404) {
+        _db.tombstoneMarkSent(r.id)
+        ok++
+      } else {
+        _db.tombstoneMarkFailed(r.id, `HTTP ${resp?.status || '?'}`)
+        failed++
+      }
+    } catch (e) {
+      _db.tombstoneMarkFailed(r.id, e.message)
+      failed++
+    }
+  }
+  if (ok || failed) log.info(`[sync] flushTombstones: ${ok} sent, ${failed} failed`)
+}
 
 async function reconcileDeletes() {
   if (!_db || !_url || !_key) return
   const bizId = await resolveBusinessId().catch(() => null)
   if (!bizId) return
+  // Safety: only delete rows created >10 min ago so we don't wipe
+  // freshly-created local rows whose push hasn't landed yet. Sync runs every
+  // 5 min; anything older than 10 min has had at least one push attempt.
+  const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString()
   for (const table of RECONCILE_TABLES) {
     try {
       // Skip if table doesn't exist locally (older DBs)
@@ -2721,7 +2776,13 @@ async function reconcileDeletes() {
       const remote = await supabaseFetch(table, `select=supabase_id&business_id=eq.${bizId}&limit=20000`)
       if (!Array.isArray(remote)) continue
       const remoteSet = new Set(remote.map(r => r.supabase_id).filter(Boolean))
-      const localRows = _db.rawPrepare(`SELECT id, supabase_id FROM ${table} WHERE business_id = ? AND supabase_id IS NOT NULL`).all(bizId)
+      // Prefer created_at; fall back to id filter if the column is missing.
+      let localRows
+      try {
+        localRows = _db.rawPrepare(`SELECT id, supabase_id FROM ${table} WHERE business_id = ? AND supabase_id IS NOT NULL AND (created_at IS NULL OR created_at < ?)`).all(bizId, cutoff)
+      } catch {
+        localRows = _db.rawPrepare(`SELECT id, supabase_id FROM ${table} WHERE business_id = ? AND supabase_id IS NOT NULL`).all(bizId)
+      }
       const toDelete = localRows.filter(r => !remoteSet.has(r.supabase_id))
       if (toDelete.length === 0) continue
       const stmt = _db.rawPrepare(`DELETE FROM ${table} WHERE id = ?`)

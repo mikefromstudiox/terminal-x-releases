@@ -1,0 +1,83 @@
+{
+  "meta": {
+    "archetype": "milestone",
+    "description": "Anniversary / achievement / certification milestones. Medallion-style giant glyph, humble grateful tone, named community, no exclamation points.",
+    "whatsapp": "+1 809-828-2971",
+    "whatsapp_url": "wa.me/18098282971",
+    "domain": "terminalxpos.com",
+    "footer": "CERTIFICADO DGII  ·  wa.me/18098282971  ·  terminalxpos.com",
+    "publish_time": "7:00 PM AST"
+  },
+  "pieces": [
+    {
+      "id": "ms-01",
+      "date": "2026-05-02",
+      "kind": "anniversary",
+      "medallion_kicker": "ANIVERSARIO",
+      "medallion_number": "3",
+      "medallion_label": "AÑOS",
+      "story_kicker": "POR QUÉ IMPORTA",
+      "story_zinger": "Tres años construyendo el POS que nosotros mismos queríamos usar.",
+      "gratitude_headline": "GRACIAS",
+      "gratitude_subline": "A cada dueño de colmado, ferretería y restaurante que apostó por nosotros cuando éramos recién llegados.",
+      "cta_kicker": "CELEBRA CON NOSOTROS",
+      "teaser_band": "DESPUÉS DE 3 AÑOS…"
+    },
+    {
+      "id": "ms-02",
+      "date": "2026-05-04",
+      "kind": "regulatory",
+      "medallion_kicker": "CERTIFICADO",
+      "medallion_number": "DGII",
+      "medallion_label": "EMISOR ELECTRÓNICO",
+      "story_kicker": "QUÉ SIGNIFICA",
+      "story_zinger": "El sello que protege a cada negocio que factura con nosotros.",
+      "gratitude_headline": "GRACIAS DGII",
+      "gratitude_subline": "Por darle a la Pyme dominicana un camino claro hacia la facturación electrónica. Aquí estamos para recorrerlo contigo.",
+      "cta_kicker": "FACTURA TRANQUILO",
+      "teaser_band": "CERTIFICADO POR LA DGII."
+    },
+    {
+      "id": "ms-03",
+      "date": "2026-05-06",
+      "kind": "client-count",
+      "medallion_kicker": "NEGOCIOS ACTIVOS",
+      "medallion_number": "500",
+      "medallion_label": "NEGOCIOS",
+      "story_kicker": "POR QUÉ IMPORTA",
+      "story_zinger": "Quinientas familias eligieron Terminal X para facturar tranquilas cada día.",
+      "gratitude_headline": "LO LOGRAMOS JUNTOS",
+      "gratitude_subline": "A los quinientos dueños que nos abrieron la puerta de su negocio. Seguimos construyendo para ustedes.",
+      "cta_kicker": "SÉ EL 501",
+      "teaser_band": "500 NEGOCIOS DESPUÉS…"
+    },
+    {
+      "id": "ms-04",
+      "date": "2026-05-08",
+      "kind": "reliability",
+      "medallion_kicker": "UPTIME REAL",
+      "medallion_number": "12",
+      "medallion_label": "MESES SIN CAÍDAS",
+      "story_kicker": "POR QUÉ IMPORTA",
+      "story_zinger": "Un año entero sin una sola interrupción. Así se cuida un negocio.",
+      "gratitude_headline": "GRACIAS",
+      "gratitude_subline": "Al equipo que trabaja de madrugada para que tu caja nunca se detenga. Y a ti, por confiarnos la facturación diaria.",
+      "cta_kicker": "INSTALA Y OLVÍDATE",
+      "teaser_band": "UN AÑO SIN CAÍDAS…"
+    },
+    {
+      "id": "ms-05",
+      "date": "2026-05-10",
+      "kind": "geographic",
+      "medallion_kicker": "ALCANCE NACIONAL",
+      "medallion_number": "18",
+      "medallion_label": "PROVINCIAS",
+      "story_kicker": "DE DÓNDE VIENEN",
+      "story_zinger": "De Pedernales a Montecristi. Donde hay negocio, hay Terminal X.",
+      "gratitude_headline": "GRACIAS RD",
+      "gratitude_subline": "A cada negocio desde la frontera hasta la capital que nos dejó ser parte de su día. Vamos por las 32.",
+      "cta_kicker": "LLEGAMOS A TU PROVINCIA",
+      "teaser_band": "18 PROVINCIAS DESPUÉS…"
+    }
+  ]
+}

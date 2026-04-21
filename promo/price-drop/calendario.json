@@ -1,0 +1,108 @@
+{
+  "meta": {
+    "archetype": "price-drop",
+    "description": "Limited-offer / promo / discount. The drop is the protagonist — old price exists only to make the new one hit. Real DOP prices, concrete end-dates, no exclamation slop.",
+    "whatsapp": "+1 809-828-2971",
+    "whatsapp_url": "wa.me/18098282971",
+    "domain": "terminalxpos.com",
+    "footer": "CERTIFICADO DGII  ·  wa.me/18098282971  ·  terminalxpos.com",
+    "publish_time": "7:00 PM AST"
+  },
+  "pieces": [
+    {
+      "id": "pd-01",
+      "date": "2026-04-22",
+      "vence_date": "2026-04-30",
+      "vence_label": "30 ABRIL 2026",
+      "badge": "-50%",
+      "antes_price": "RD$2,998",
+      "ahora_price": "RD$1,499",
+      "ahora_sub": "/MES  ·  PRIMER MES",
+      "kicker_top": "OFERTA LIMITADA",
+      "inclusions_kicker": "INCLUYE",
+      "inclusions": [
+        "Setup completo en 48 horas",
+        "Migración de catálogo sin costo",
+        "Entrenamiento uno a uno en tu local"
+      ],
+      "zinger": "Después, precio regular. Sin letra chica.",
+      "cta_kicker": "LUNES ESTÁS FACTURANDO"
+    },
+    {
+      "id": "pd-02",
+      "date": "2026-04-24",
+      "vence_date": "2026-05-15",
+      "vence_label": "15 MAYO 2026",
+      "badge": "-RD$1,500",
+      "antes_price": "RD$2,999",
+      "ahora_price": "RD$1,499",
+      "ahora_sub": "/MES  ·  PRECIO FIJO",
+      "kicker_top": "OFERTA LIMITADA",
+      "inclusions_kicker": "INCLUYE",
+      "inclusions": [
+        "e-CF ilimitados, todos los planes",
+        "Multi-local sin cargo extra por sucursal",
+        "Soporte en WhatsApp en horario laboral"
+      ],
+      "zinger": "La mitad del precio. Todo el Terminal X.",
+      "cta_kicker": "BLOQUEA TU TARIFA HOY"
+    },
+    {
+      "id": "pd-03",
+      "date": "2026-04-25",
+      "vence_date": "2026-04-26",
+      "vence_label": "26 ABRIL 2026",
+      "badge": "GRATIS",
+      "antes_price": "RD$4,500",
+      "ahora_price": "RD$0",
+      "ahora_sub": "INSTALACIÓN  ·  ESTA SEMANA",
+      "kicker_top": "SEMANA DE INSTALACIÓN",
+      "inclusions_kicker": "INCLUYE",
+      "inclusions": [
+        "Configuración DGII completa y certificada",
+        "Impresora térmica enlazada y probada",
+        "Primer día al lado tuyo en tu negocio"
+      ],
+      "zinger": "Arrancas sin pagar el setup.",
+      "cta_kicker": "INSTALA ANTES DEL DOMINGO"
+    },
+    {
+      "id": "pd-04",
+      "date": "2026-04-27",
+      "vence_date": "2026-05-31",
+      "vence_label": "31 MAYO 2026",
+      "badge": "2 MESES GRATIS",
+      "antes_price": "RD$35,988",
+      "ahora_price": "RD$29,990",
+      "ahora_sub": "/AÑO  ·  AHORRAS RD$5,998",
+      "kicker_top": "PLAN ANUAL",
+      "inclusions_kicker": "INCLUYE",
+      "inclusions": [
+        "12 meses de servicio, pagas solo 10",
+        "Renovación automática al mismo precio",
+        "Cancela cuando quieras, sin penalidad"
+      ],
+      "zinger": "Un año completo por el precio de diez meses.",
+      "cta_kicker": "BLOQUEA TU PRECIO"
+    },
+    {
+      "id": "pd-05",
+      "date": "2026-04-29",
+      "vence_date": "2026-04-30",
+      "vence_label": "30 ABRIL 2026",
+      "badge": "GRATIS",
+      "antes_price": "RD$3,500",
+      "ahora_price": "RD$0",
+      "ahora_sub": "MIGRACIÓN COMPLETA  ·  HASTA 30 ABRIL",
+      "kicker_top": "MIGRACIÓN SIN COSTO",
+      "inclusions_kicker": "INCLUYE",
+      "inclusions": [
+        "Catálogo completo desde Excel o CSV",
+        "Clientes y proveedores portados",
+        "Inventario con stock y costo real"
+      ],
+      "zinger": "Mudarte de POS no cuesta nada esta semana.",
+      "cta_kicker": "MIGRA ANTES DEL JUEVES"
+    }
+  ]
+}

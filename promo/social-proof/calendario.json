@@ -1,0 +1,63 @@
+{
+  "meta": {
+    "archetype": "social-proof",
+    "description": "Numbers/stats brag. Real Terminal X customer metrics, crimson plate energy, giant number protagonist.",
+    "whatsapp": "+1 809-828-2971",
+    "whatsapp_url": "wa.me/18098282971",
+    "domain": "terminalxpos.com",
+    "footer": "CERTIFICADO DGII  ·  wa.me/18098282971  ·  terminalxpos.com",
+    "publish_time": "7:00 PM AST"
+  },
+  "pieces": [
+    {
+      "id": "sp-01",
+      "date": "2026-04-22",
+      "stat_number": "976",
+      "stat_unit": "PRODUCTOS",
+      "stat_timeframe": "EN 4 MINUTOS",
+      "context_headline": "Ranoza importó su catálogo completo antes del café.",
+      "proof_line": "Tu POS actual cuánto tarda?",
+      "cta_kicker": "EMPIEZA EL LUNES"
+    },
+    {
+      "id": "sp-02",
+      "date": "2026-04-24",
+      "stat_number": "14",
+      "stat_unit": "LOCALES",
+      "stat_timeframe": "UNA SOLA CONSOLA",
+      "context_headline": "Multi-tienda sin suscripción extra. Sin límites de usuarios.",
+      "proof_line": "Precios por local los paga tu competencia.",
+      "cta_kicker": "ESCALA SIN MIEDO"
+    },
+    {
+      "id": "sp-03",
+      "date": "2026-04-26",
+      "stat_number": "48h",
+      "stat_unit": "DE CERO",
+      "stat_timeframe": "A FACTURANDO E-CF",
+      "context_headline": "Instalación, migración de data y entrenamiento. Dos días.",
+      "proof_line": "Tu proveedor actual todavía te pide reuniones.",
+      "cta_kicker": "AGENDA HOY"
+    },
+    {
+      "id": "sp-04",
+      "date": "2026-04-28",
+      "stat_number": "RD$0",
+      "stat_unit": "POR E-CF",
+      "stat_timeframe": "EMITIDO",
+      "context_headline": "Ilimitados. En todos los planes. Para siempre.",
+      "proof_line": "Otros POS cobran RD$3 por cada e-CF. Haz el cálculo.",
+      "cta_kicker": "AHORRA DESDE HOY"
+    },
+    {
+      "id": "sp-05",
+      "date": "2026-04-30",
+      "stat_number": "8",
+      "stat_unit": "MESES",
+      "stat_timeframe": "SIN LLAMAR SOPORTE",
+      "context_headline": "Ranoza abrió Terminal X en agosto. No hemos vuelto a hablar.",
+      "proof_line": "Eso es un POS que funciona.",
+      "cta_kicker": "INSTALA Y OLVÍDATE"
+    }
+  ]
+}

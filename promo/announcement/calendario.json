@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "whatsapp": "+1 809-828-2971",
+    "whatsapp_url": "wa.me/18098282971",
+    "domain": "terminalxpos.com",
+    "footer": "CERTIFICADO DGII  ·  wa.me/18098282971  ·  terminalxpos.com",
+    "publish_time_ast": "19:00"
+  },
+  "announcements": [
+    {
+      "slug": "pedidos-ya",
+      "date": "2026-04-21",
+      "kicker": "NUEVO",
+      "headline": "Pedidos Ya ahora se integra con Terminal X",
+      "subhead": "Recibe, cobra y despacha desde un solo POS.",
+      "bullets": [
+        "Pedidos entran automáticos a la caja",
+        "Impresión en cocina sin copiar a mano",
+        "Reporte único: salón + delivery"
+      ],
+      "cta_label": "Disponible hoy",
+      "cta_date": "V2.4"
+    },
+    {
+      "slug": "conteo-fisico",
+      "date": "2026-04-22",
+      "kicker": "NUEVO",
+      "headline": "Conteo físico de inventario en 3 clicks",
+      "subhead": "Del Excel al conteo guiado por el POS.",
+      "bullets": [
+        "Escanea, cuenta, ajusta",
+        "Reporta faltantes al instante",
+        "Cierra mes sin quedarte hasta tarde"
+      ],
+      "cta_label": "Disponible hoy",
+      "cta_date": "V2.5"
+    },
+    {
+      "slug": "precios-por-cliente",
+      "date": "2026-04-23",
+      "kicker": "NUEVO",
+      "headline": "Precios por cliente sin Excel aparte",
+      "subhead": "Cada cliente ve su precio al momento de facturar.",
+      "bullets": [
+        "Listas de precios ilimitadas",
+        "Descuentos por volumen automáticos",
+        "Histórico por cliente en un click"
+      ],
+      "cta_label": "Disponible hoy",
+      "cta_date": "V2.6"
+    }
+  ]
+}

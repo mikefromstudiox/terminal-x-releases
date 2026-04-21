@@ -460,6 +460,21 @@ function init(userDataPath, options = {}) {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON activity_log(created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_activity_log_event_type ON activity_log(event_type)`,
+    // v2.14 — Tombstone log for cloud-delete propagation. Any time desktop
+    // deletes a synced row locally we record its (table, supabase_id) here so
+    // the next sync cycle can issue DELETE against Supabase. Without this,
+    // remote rows persist forever and resurrect local rows on pull.
+    `CREATE TABLE IF NOT EXISTS sync_tombstones (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      table_name   TEXT NOT NULL,
+      supabase_id  TEXT NOT NULL,
+      business_id  TEXT,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      attempts     INTEGER DEFAULT 0,
+      last_error   TEXT,
+      UNIQUE(table_name, supabase_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_sync_tombstones_pending ON sync_tombstones(attempts, created_at)`,
     // v2.6.2 — ecf_cert_history (DGII cert rotation audit trail, synced to Supabase)
     `CREATE TABLE IF NOT EXISTS ecf_cert_history (
       id                   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2913,7 +2928,9 @@ function categoriaDelete(id) {
   // Only delete if no services reference it
   const count = db.prepare('SELECT COUNT(*) as n FROM services WHERE categoria_id=?').get(id)
   if (count?.n > 0) throw new Error('Categoría tiene servicios asociados')
+  const row = db.prepare('SELECT supabase_id, business_id FROM categorias_servicio WHERE id=?').get(id)
   db.prepare('DELETE FROM categorias_servicio WHERE id=?').run(id)
+  if (row?.supabase_id) tombstoneAdd('categorias_servicio', row.supabase_id, row.business_id)
 }
 
 // ── SERVICES ──────────────────────────────────────────────────────────────────
@@ -3442,7 +3459,9 @@ function payrollRunsByPeriod(from, to) {
 }
 function payrollRunDelete(id) {
   if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM payroll_runs WHERE id=?').get(id)
   db.prepare('DELETE FROM payroll_runs WHERE id=?').run(id)
+  if (row?.supabase_id) tombstoneAdd('payroll_runs', row.supabase_id, row.business_id)
 }
 
 // ── ADELANTOS DE NOMINA (salary advances) ─────────────────────────────────────
@@ -3590,9 +3609,10 @@ function salaryChangeCreate({ empleado_id, new_salary, effective_date, reason, c
 }
 function salaryChangeDelete(id) {
   if (!db) return null
-  const row = db.prepare('SELECT empleado_id, supabase_id FROM salary_changes WHERE id=?').get(id)
+  const row = db.prepare('SELECT empleado_id, supabase_id, business_id FROM salary_changes WHERE id=?').get(id)
   if (!row) return null
   db.prepare('DELETE FROM salary_changes WHERE id=?').run(id)
+  if (row.supabase_id) tombstoneAdd('salary_changes', row.supabase_id, row.business_id)
   // Re-sync empleados.salary to whatever the new latest change is (or 0 if none)
   const latest = db.prepare(`
     SELECT new_salary FROM salary_changes
@@ -5293,7 +5313,10 @@ function addCompra607(data) {
 
 function deleteCompra607(id) {
   if (!db) return null
-  return db.prepare('DELETE FROM compras_607 WHERE id=?').run(id)
+  const row = db.prepare('SELECT supabase_id, business_id FROM compras_607 WHERE id=?').get(id)
+  const res = db.prepare('DELETE FROM compras_607 WHERE id=?').run(id)
+  if (row?.supabase_id) tombstoneAdd('compras_607', row.supabase_id, row.business_id)
+  return res
 }
 
 // ── DGII data ─────────────────────────────────────────────────────────────────
@@ -6173,8 +6196,9 @@ function workOrderItemUpdate(id, data) {
 }
 function workOrderItemDelete(id) {
   if (!db) return
-  const item = db.prepare('SELECT work_order_id FROM work_order_items WHERE id=?').get(id)
+  const item = db.prepare('SELECT work_order_id, supabase_id, business_id FROM work_order_items WHERE id=?').get(id)
   db.prepare('DELETE FROM work_order_items WHERE id=?').run(id)
+  if (item?.supabase_id) tombstoneAdd('work_order_items', item.supabase_id, item.business_id)
   if (item) recalcWorkOrderTotals(item.work_order_id)
 }
 function workOrderItemsByOrder(work_order_id) {
@@ -7062,7 +7086,9 @@ function clientItemPriceGet({ clientId, itemId }) {
 }
 function clientItemPriceDelete(id) {
   if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM client_item_prices WHERE id=?').get(id)
   db.prepare('DELETE FROM client_item_prices WHERE id=?').run(id)
+  if (row?.supabase_id) tombstoneAdd('client_item_prices', row.supabase_id, row.business_id)
 }
 // CSV bulk import — { client: <rnc|id>, sku: <sku|barcode>, custom_price, notes }
 function clientItemPriceBulkImport(rows) {
@@ -7635,11 +7661,14 @@ function inventoryCountDelete(id) {
     ? db.prepare('SELECT * FROM inventory_counts WHERE supabase_id = ?').get(id)
     : db.prepare('SELECT * FROM inventory_counts WHERE id = ?').get(Number(id))
   if (!header) return false
+  const itemSids = db.prepare('SELECT supabase_id FROM inventory_count_items WHERE count_supabase_id = ?').all(header.supabase_id).map(r => r.supabase_id).filter(Boolean)
   const run = db.transaction(() => {
     db.prepare('DELETE FROM inventory_count_items WHERE count_supabase_id = ?').run(header.supabase_id)
     db.prepare('DELETE FROM inventory_counts WHERE id = ?').run(header.id)
   })
   run()
+  for (const sid of itemSids) tombstoneAdd('inventory_count_items', sid, header.business_id)
+  if (header.supabase_id) tombstoneAdd('inventory_counts', header.supabase_id, header.business_id)
   return true
 }
 
@@ -7659,8 +7688,31 @@ function closeDb() {
   db = null
 }
 
+// ── Tombstone helpers ─────────────────────────────────────────────────────────
+// Record a local delete so the sync loop can mirror it to Supabase. Safe to
+// call with a falsy supabaseId (no-op — row was never synced, nothing to do).
+function tombstoneAdd(tableName, supabaseId, businessId) {
+  if (!tableName || !supabaseId) return
+  try {
+    db.prepare(`INSERT OR IGNORE INTO sync_tombstones (table_name, supabase_id, business_id) VALUES (?, ?, ?)`)
+      .run(tableName, supabaseId, businessId || null)
+  } catch (e) { log?.warn?.(`[db] tombstoneAdd ${tableName}/${supabaseId}: ${e.message}`) }
+}
+function tombstonesPending(limit = 200) {
+  try {
+    return db.prepare(`SELECT id, table_name, supabase_id, business_id, attempts FROM sync_tombstones ORDER BY created_at ASC LIMIT ?`).all(limit)
+  } catch { return [] }
+}
+function tombstoneMarkSent(id) {
+  try { db.prepare(`DELETE FROM sync_tombstones WHERE id = ?`).run(id) } catch {}
+}
+function tombstoneMarkFailed(id, err) {
+  try { db.prepare(`UPDATE sync_tombstones SET attempts = attempts + 1, last_error = ? WHERE id = ?`).run(String(err || '').slice(0, 500), id) } catch {}
+}
+
 module.exports = {
   init, isReady, getError, rawPrepare, rawExec, closeDb, dbBackupTo,
+  tombstoneAdd, tombstonesPending, tombstoneMarkSent, tombstoneMarkFailed,
   // Empresa
   configGet, configSet,
   empresaGet, empresaSave,

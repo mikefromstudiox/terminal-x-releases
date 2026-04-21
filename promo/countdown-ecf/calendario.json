@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "start_date": "2026-04-20",
+    "end_date": "2026-05-15",
+    "whatsapp": "+1 809-828-2971",
+    "whatsapp_url": "wa.me/18098282971",
+    "domain": "terminalxpos.com",
+    "deadline_label": "15 DE MAYO 2026 · DGII LEY 32-23",
+    "footer": "CERTIFICADO DGII  ·  wa.me/18098282971  ·  terminalxpos.com"
+  },
+  "days": [
+    { "t": 25, "date": "2026-04-20", "hook": "Tu POS emite e-CF hoy?",                                  "answer": "No 'pronto'. No 'en proceso'. HOY." },
+    { "t": 24, "date": "2026-04-21", "hook": "Sabes cuánto es la multa DGII por no emitir e-CF?",       "answer": "Hasta 2,000 salarios mínimos. Ley 32-23, Art. 50." },
+    { "t": 23, "date": "2026-04-22", "hook": "Tu proveedor de POS te contesta el WhatsApp?",            "answer": "El nuestro sí. Pruébalo ahora mismo." },
+    { "t": 22, "date": "2026-04-23", "hook": "Certificación e-CF cuesta RD$50,000+ con otros.",         "answer": "Con Terminal X viene incluida en Pro PLUS." },
+    { "t": 21, "date": "2026-04-24", "hook": "Cuántos clientes corporativos pierdes sin e-CF?",         "answer": "Todos. Ellos exigen e-CF para deducir ITBIS." },
+    { "t": 20, "date": "2026-04-25", "hook": "Se va la luz. Tu POS sigue facturando?",                  "answer": "Terminal X sí. Offline-first. Sincroniza solo." },
+    { "t": 19, "date": "2026-04-26", "hook": "Cuántos POS dominicanos están REALMENTE certificados?",   "answer": "Menos de 15. Terminal X es uno de ellos." },
+    { "t": 18, "date": "2026-04-27", "hook": "Tu contador puede ver tus ventas en tiempo real?",        "answer": "Con Terminal X sí. Dashboard remoto incluido." },
+    { "t": 17, "date": "2026-04-28", "hook": "Cuántas horas pierdes cuadrando caja a mano?",            "answer": "Cero. Cuadre automático y arqueo con una foto." },
+    { "t": 16, "date": "2026-04-29", "hook": "El 16 de mayo tus facturas sin e-CF = papel.",            "answer": "Literalmente. DGII no las reconoce." },
+    { "t": 15, "date": "2026-04-30", "hook": "Tu POS tiene modo kiosko para el cajero?",                "answer": "Terminal X sí. Bloqueado, sin Windows visible." },
+    { "t": 14, "date": "2026-05-01", "hook": "Faltan 2 semanas. Cuánto demora migrar un POS?",          "answer": "Con nosotros: 48 horas. Instalación, data y entrenamiento." },
+    { "t": 13, "date": "2026-05-02", "hook": "Tu scanner, gaveta e impresora térmica funcionan?",       "answer": "En Terminal X sí. ESC/POS nativo y QZ Tray." },
+    { "t": 12, "date": "2026-05-03", "hook": "Puedes vender desde el celular cuando la caja está llena?","answer": "Terminal X Web PWA. Desde cualquier dispositivo." },
+    { "t": 11, "date": "2026-05-04", "hook": "Tu inventario se deduce solo al vender?",                 "answer": "En Terminal X sí. Y se reversa si anulas el ticket." },
+    { "t": 10, "date": "2026-05-05", "hook": "10 días. Todavía esperando que tu POS 'actualice'?",      "answer": "Nosotros ya lo hicimos hace 8 meses." },
+    { "t": 9,  "date": "2026-05-06", "hook": "Cuánto cobra tu POS por cada e-CF emitido?",              "answer": "Terminal X: RD$0. Ilimitados en todos los planes." },
+    { "t": 8,  "date": "2026-05-07", "hook": "Tienes notas de crédito automáticas?",                    "answer": "E32 y E34 con un click en Terminal X." },
+    { "t": 7,  "date": "2026-05-08", "hook": "Una semana. Siete días.",                                 "answer": "El que instala hoy, factura el lunes." },
+    { "t": 6,  "date": "2026-05-09", "hook": "Licorería? Farmacia? Colmado? Ferretería?",               "answer": "Terminal X tiene plantilla para cada vertical." },
+    { "t": 5,  "date": "2026-05-10", "hook": "Tu POS te deja importar 1,000 productos por CSV?",        "answer": "Ranoza importó 976 en minutos. El tuyo?" },
+    { "t": 4,  "date": "2026-05-11", "hook": "4 días. Las instalaciones de último minuto fallan.",      "answer": "El lunes cerramos cupos de instalación pre-ley." },
+    { "t": 3,  "date": "2026-05-12", "hook": "72 horas.",                                               "answer": "Última ventana para estar listo sin estrés el viernes." },
+    { "t": 2,  "date": "2026-05-13", "hook": "Pasado mañana es obligatorio.",                           "answer": "Y todavía nos llegan WhatsApps todos los días." },
+    { "t": 1,  "date": "2026-05-14", "hook": "MAÑANA.",                                                 "answer": "Si no facturas e-CF mañana, no facturas." },
+    { "t": 0,  "date": "2026-05-15", "hook": "HOY.",                                                    "answer": "Terminal X listo. Si aún no tienes, escríbenos ya." }
+  ]
+}

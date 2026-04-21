@@ -587,7 +587,9 @@ export function createWebAPI(supabase, businessId) {
 
       saveSecuenciaNcf: (data) => tryOr(async () => {
         if (data.type) {
-          throwSupaError(await supabase.from('ncf_sequences').upsert({ ...data, business_id: bid }, { onConflict: 'business_id,type' }))
+          const row = { ...data, business_id: bid }
+          if (!row.supabase_id) row.supabase_id = crypto.randomUUID()
+          throwSupaError(await supabase.from('ncf_sequences').upsert(row, { onConflict: 'business_id,type' }))
         }
       }),
 
@@ -600,7 +602,7 @@ export function createWebAPI(supabase, businessId) {
         const entries = Object.entries(data)
         for (const [clave, valor] of entries) {
           throwSupaError(await supabase.from('configuracion').upsert(
-            { business_id: bid, clave, valor: String(valor) },
+            { business_id: bid, clave, valor: String(valor), supabase_id: crypto.randomUUID() },
             { onConflict: 'business_id,clave' }
           ))
         }
@@ -4937,22 +4939,29 @@ export function createWebAPI(supabase, businessId) {
       ticketsByClient: (clientId, limit = 10) => tryOr(async () => {
         // clientId may be numeric bigint id or supabase_id UUID — dual-key.
         const rows = throwSupaError(await supabase.from('tickets')
-          .select('id, doc_number, total, status, created_at, vehicle_plate, client_id, client_supabase_id')
+          .select('id, supabase_id, doc_number, total, status, created_at, vehicle_plate, client_id, client_supabase_id')
           .eq('business_id', bid)
           .or(`client_id.eq.${clientId},client_supabase_id.eq.${clientId}`)
           .order('created_at', { ascending: false })
           .limit(Math.min(Number(limit) || 10, 50)))
         if (!rows?.length) return []
-        const tSids = [...new Set(rows.map(r => r.id).filter(Boolean))]
+        const tIds = [...new Set(rows.map(r => r.id).filter(Boolean))]
+        const tSupIds = [...new Set(rows.map(r => r.supabase_id || r.id).filter(Boolean))]
         const itemsMap = {}
-        if (tSids.length) {
-          const { data: items } = await supabase.from('ticket_items').select('ticket_id,name').in('ticket_id', tSids)
-          for (const i of (items || [])) { (itemsMap[i.ticket_id] ||= []).push(i.name) }
+        if (tIds.length || tSupIds.length) {
+          const orParts = []
+          if (tIds.length) orParts.push(`ticket_id.in.(${tIds.join(',')})`)
+          if (tSupIds.length) orParts.push(`ticket_supabase_id.in.(${tSupIds.map(v => `"${v}"`).join(',')})`)
+          const { data: items } = await supabase.from('ticket_items').select('ticket_id,ticket_supabase_id,name').or(orParts.join(','))
+          for (const i of (items || [])) {
+            const key = i.ticket_id || i.ticket_supabase_id
+            ;(itemsMap[key] ||= []).push(i.name)
+          }
         }
         return rows.map(r => ({
           ...r,
-          services: (itemsMap[r.id] || []).join(' + '),
-          washer_name: null, // washer info omitted for web (expensive join); desktop populates it
+          services: ((itemsMap[r.id] || itemsMap[r.supabase_id] || [])).join(' + '),
+          washer_name: null,
         }))
       }, []),
     },
