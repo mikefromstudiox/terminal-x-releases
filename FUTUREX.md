@@ -27,21 +27,27 @@ Remaining (lower priority):
 - [x] verified live: Ranoza 976 inventory rows visible to anon, activity_log INSERT works
 - **Proper fix (STILL OPEN)**: replace the anon key in desktop installers with a per-license JWT that populates `auth.uid()` so we can tighten policies back to `business_id IN (my_business_ids())`. Multi-hour sprint.
 
-### Sync Architecture Audit — remaining findings from 2026-04-21 dataLEAKS report
-C1 hotfixed (above). Remaining from the 4/6/5/3 report:
-- [ ] **C2** — desktop hard-deletes don't propagate (users, empleados, services, categorias_servicio, etc.) → row resurrects on next pull. Fix: extend `RECONCILE_TABLES` or switch to soft-delete.
-- [ ] **C3** — web hard-deletes never reach desktop (no tombstone, no reconcile). Fix: flip web `.delete()` calls to `.update({active:false})`.
-- [ ] **C4** — web dashboard `ticketsByClient` joins ticket_items on `ticket_id` only; web tickets have no ticket_id so items blank. web.js:4949 needs dual-key `or()` clause.
-- [ ] **H1** — pass-2 push re-pushes pulled rows under timing edge cases (sync.js:2208-2213).
-- [ ] **H2** — `users` natural-key healing by username can adopt dead-row supabase_id after delete+recreate → security regression (old PIN resurrects). Add `active=1` guard.
-- [ ] **H3** — `activity_log` pull missing `fkCols: { actor_supabase_id: 'users' }` so owner feed drops rows whose actor hasn't synced yet.
-- [ ] **H4** — `app_settings` upsert uses wrong `on_conflict`; classification flips can revert to older values.
-- [ ] **H5** — low-severity: `pullUpsertRow` active-guard trap if future LWW tables lack `active` column.
-- [ ] **H6** — audit every `.insert(`/`.upsert(` in web.js and stamp `supabase_id: crypto.randomUUID()` (ncf_sequences, app_settings, payroll_runs likely offenders). Add a lint rule.
-- [ ] **Mediums**: users VIEW status is LIVE (update stale CLAUDE.md note), categorias_servicio needs Supabase UNIQUE, sync_update_triggers list misses loyalty_transactions/inventory_oversells/work_order_items/anecf_queue, ecf_queue body_json round-trip can double-wrap, sync_log time format inconsistency.
-- [ ] **Lows**: queue_deletions N+1 in push shaper, local_id legacy column cleanup, adelantos approved_by_supabase_id FK.
+### Sync Architecture Audit — remediation batch (2026-04-21)
+Shipped in commits 4dcf888 / d260425 / 41cb816:
+- [x] **C1** — anon RLS policies restored via migration `20260421500000`.
+- [x] **C2** — desktop tombstone log + flushTombstones in sync cycle; wired into categoriaDelete / clientItemPriceDelete / workOrderItemDelete / inventoryCountDelete / deleteCompra607 / payrollRunDelete / salaryChangeDelete.
+- [x] **C3** — RECONCILE_TABLES extended to core entity tables + 10-min age guard.
+- [x] **C4** — dashboard.ticketsByClient dual-key join fixed in web.js.
+- [x] **H2** — users natural-key healing gated on `active=1`.
+- [x] **H3** — activity_log pull gains `fkCols: { actor_supabase_id: 'users' }`.
+- [x] **H6** — `saveSecuenciaNcf` + `saveConfiguracion` stamp `supabase_id` on every upsert.
+- [x] **M3** — BEFORE UPDATE triggers added on loyalty_transactions, inventory_oversells, work_order_items, anecf_queue (migration `20260421600000` applied live).
+- [x] **M1** — memory + CLAUDE.md users VIEW note corrected.
 
-Verification gaps still outstanding from the audit — see dataLEAKS report for reproducers + fix sketches on each.
+Still open (lower priority):
+- [ ] **H1** — pass-2 push can re-push pulled rows under timing edge cases (sync.js:2208-2213).
+- [ ] **H4** — `app_settings` upsert uses wrong `on_conflict`; classification flips can revert to older values. Current code has update-if-exists fallback which mostly masks it.
+- [ ] **H5** — low-severity: `pullUpsertRow` active-guard trap if future LWW tables lack `active` column.
+- [ ] **Mediums**: categorias_servicio needs Supabase UNIQUE, ecf_queue body_json round-trip can double-wrap, sync_log time format inconsistency.
+- [ ] **Lows**: queue_deletions N+1 in push shaper, local_id legacy column cleanup, adelantos approved_by_supabase_id FK.
+- [ ] Wire tombstoneAdd into the remaining soft-delete fallback paths (service_modificadores, appointments, stylist_schedules, etc.) for completeness — most already LWW-safe via active flag but would be good hygiene.
+
+Verification — needs desktop smoke test: (a) delete a category on desktop → verify it stays deleted after next sync cycle, (b) delete a service on web → verify desktop reflects after pull, (c) 976 Ranoza products visible on Jerry's web login.
 
 ### Sync Architecture Audit (BLOCKING — before any new features)
 Natural key healing shipped (pullUpsertRow matches by name when supabase_id misses, heals identity). But empleados still not pulling reliably after reconnect. Full dataLEAKS audit pending — covers every push/pull path, cursor logic, SYNC_TABLES vs PULL_TABLES parity, staff-vs-users view, race conditions.
