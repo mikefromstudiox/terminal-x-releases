@@ -14,6 +14,7 @@ import { normalizeWaPhone } from '@terminal-x/services/phone'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import { usePlan } from '../hooks/usePlan'
 import { Scissors, Gift, Heart } from 'lucide-react'
+import { formatRncCedula, RNC_CEDULA_MAX_LENGTH } from '../lib/formatters'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -925,8 +926,10 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
                 <input
                   type="text"
                   value={rnc}
-                  onChange={e => setRnc(e.target.value)}
-                  placeholder="101-XXXXX-X"
+                  onChange={e => setRnc(formatRncCedula(e.target.value))}
+                  placeholder="101-12345-6"
+                  inputMode="numeric"
+                  maxLength={RNC_CEDULA_MAX_LENGTH}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[13px] text-slate-700 dark:text-white focus:outline-none focus:border-sky-400"
                 />
               </div>
@@ -1476,8 +1479,10 @@ export function NewClientForm({ onClose, onSave, lang }) {
               <input
                 type="text"
                 value={form.rnc}
-                onChange={e => set('rnc', e.target.value)}
-                placeholder="101-XXXXX-X"
+                onChange={e => set('rnc', formatRncCedula(e.target.value))}
+                placeholder="101-12345-6"
+                inputMode="numeric"
+                maxLength={RNC_CEDULA_MAX_LENGTH}
                 className="flex-1 px-3 py-2 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[13px] text-slate-700 dark:text-white focus:outline-none focus:border-sky-400"
               />
               <button

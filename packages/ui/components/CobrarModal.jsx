@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import LoyaltyTierBadge, { tierMultiplier } from './LoyaltyTierBadge'
-import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, Loader2, QrCode, User, MessageSquare } from 'lucide-react'
+import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, AlertCircle, Loader2, QrCode, User, MessageSquare } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -12,7 +12,7 @@ import { useRNC } from '../hooks/useRNC'
 import { usePlan } from '../hooks/usePlan'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import { Gift } from 'lucide-react'
-import { RNC_CEDULA_MAX_LENGTH } from '../lib/formatters'
+import { RNC_CEDULA_MAX_LENGTH, formatRncCedula } from '../lib/formatters'
 
 // Salon cross-sell heuristic — if the cart contains a haircut or color service
 // the stylist is taught to upsell a matching retail product (shampoo after a
@@ -596,6 +596,10 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
 
   // Form state
   const [ncfType,    setNcfType]    = useState('B02') // updated once bizSettings loads
+  // Per-sale fiscal-mode override — null means "follow business default".
+  // Set by the segmented toggle above the comprobante picker so the cashier
+  // can emit a one-off e-CF on a legacy-configured biz (or vice versa).
+  const [fiscalOverride, setFiscalOverride] = useState(null) // null | 'legacy' | 'ecf'
   const [rnc,        setRnc]        = useState('')
   const [rncName,    setRncName]    = useState('')
   const [tipo,       setTipo]       = useState('contado')
@@ -696,23 +700,31 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
 
   useEffect(() => {
     api?.clients?.all?.().then(list => setAllClients(list || [])).catch(() => setAllClients([]))
-    api.settings.get().then(s => {
+    const loadBizSettings = () => api.settings.get().then(s => {
       const cfg = s || {}
       setBizSettings(cfg)
-      // Pick up the business's ITBIS rate (string in app_settings).
       const pct = Number(cfg.itbis_pct)
       if (Number.isFinite(pct) && pct >= 0) setItbisRate(pct)
-      // Set sensible ncfType default based on fiscal mode
-      const mode = cfg.fiscal_mode || 'ecf'
-      // forceNcfType (e.g. dealership E31 on ≥RD$250K) overrides the default.
-      setNcfType(forceNcfType || (mode === 'legacy' ? 'B02' : 'E32'))
-      // v2.7.1 — loyalty program config
+      // Historic naming drift — app_settings KV uses `fiscal_mode`, while
+      // businesses.settings JSONB used `facturacion_mode`. Accept either and
+      // treat any non-'ecf' value (legacy / ncf / b_series / paper) as the
+      // legacy B-series path. Default 'ecf' only when nothing is set.
+      const rawMode = (cfg.fiscal_mode || cfg.facturacion_mode || 'ecf').toLowerCase()
+      const isLegacyMode = rawMode !== 'ecf'
+      setNcfType(forceNcfType || (isLegacyMode ? 'B02' : 'E32'))
       setLoyaltyCfg({
         enabled:         String(cfg.loyalty_enabled || '0') === '1',
         pointsRatio:     Math.max(1, Number(cfg.loyalty_points_ratio) || 100),
         redemptionRatio: Math.max(0.1, Number(cfg.loyalty_redemption_ratio) || 2),
       })
     }).catch(() => setBizSettings({}))
+    loadBizSettings()
+    // v2.14.7 — if the initial sync pull lands AFTER this modal mounts, the
+    // fiscal_mode read above is stale and we'd default to E-series on a biz
+    // configured for B01/B02. Listen for the pull-complete event and refresh.
+    const onPull = () => loadBizSettings()
+    window.addEventListener('tx:sync-pull-complete', onPull)
+    return () => window.removeEventListener('tx:sync-pull-complete', onPull)
   }, [])
 
   useEffect(() => {
@@ -775,7 +787,11 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
     setRnc(''); setRncName('')
   }
 
-  const isLegacy     = (bizSettings?.fiscal_mode || 'ecf') === 'legacy'
+  // Accept both historic keys + treat any non-'ecf' value as legacy to match
+  // what the provisioning / FirstTimeSetup paths may have written.
+  const rawFiscalMode = (bizSettings?.fiscal_mode || bizSettings?.facturacion_mode || 'ecf').toLowerCase()
+  const defaultIsLegacy = rawFiscalMode !== 'ecf'
+  const isLegacy     = fiscalOverride ? fiscalOverride === 'legacy' : defaultIsLegacy
   const currentType  = isLegacy
     ? LEGACY_TYPES.find(t => t.code === ncfType)
     : ECF_TYPES[ncfType]
@@ -784,12 +800,23 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
   const devuelta     = recibidoNum - total
   const showEfectivo = tipo === 'contado' && formaPago === 'efectivo'
 
-  const canSubmit =
-    !offlineBlock &&
-    (tipo === 'credito' || formaPago !== null) &&
-    (tipo !== 'contado' || formaPago !== 'efectivo' || recibidoNum >= total) &&
-    (!currentType?.requiresRnc || validateRNC(rnc)) &&
-    (!currentType?.requiresReferencia || (refNCF.trim().length >= 11 && refRazon.trim().length > 0))
+  // Build a single human-readable reason explaining why the charge button
+  // is disabled. Empty string = nothing blocks, button is enabled.
+  const lockReason = (() => {
+    if (offlineBlock) return lang === 'es' ? 'Red desconectada — esperando conexión' : 'Offline — waiting for connection'
+    if (tipo === 'contado' && formaPago === null) return lang === 'es' ? 'Selecciona método de pago' : 'Pick a payment method'
+    if (tipo === 'contado' && formaPago === 'efectivo' && recibidoNum < total) return lang === 'es' ? 'Recibido menor que total' : 'Received amount less than total'
+    if (currentType?.requiresRnc && !validateRNC(rnc)) {
+      return lang === 'es'
+        ? `${currentType.code} requiere RNC/Cédula (9 o 11 dígitos). Escribe el RNC o cambia a B02 / E32 (Consumidor Final).`
+        : `${currentType.code} requires a 9 or 11 digit RNC/Cédula. Type the RNC or switch to B02 / E32 (Final Consumer).`
+    }
+    if (currentType?.requiresReferencia && (refNCF.trim().length < 11 || refRazon.trim().length === 0)) {
+      return lang === 'es' ? 'Este tipo requiere NCF de referencia y razón' : 'This type requires a reference NCF and reason'
+    }
+    return ''
+  })()
+  const canSubmit = !lockReason && !offlineBlock
 
   async function lookupRnc() {
     const clean = rnc.replace(/[-\s]/g, '')
@@ -1294,6 +1321,28 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
                       : tl('comp', lang)}
                   </SectionLabel>
 
+                  {/* Mode toggle — flip between legacy NCF (B-series) and
+                      e-CF (E-series) per-sale. Locked when caller forces a
+                      specific type (dealership E31, work-order bridges). */}
+                  {!forceNcfType && (
+                    <div className="inline-flex items-center gap-1 mb-2 p-0.5 bg-slate-100 dark:bg-white/5 rounded-lg text-[11px] font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => { setFiscalOverride('legacy'); setNcfType('B02') }}
+                        className={`px-2.5 py-1 rounded-md transition-all ${isLegacy ? 'bg-white dark:bg-white/10 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 dark:text-white/50 hover:text-slate-700 dark:hover:text-white/80'}`}
+                      >
+                        NCF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setFiscalOverride('ecf'); setNcfType((enabledEcfTypes && enabledEcfTypes[0]?.code) || 'E32') }}
+                        className={`px-2.5 py-1 rounded-md transition-all ${!isLegacy ? 'bg-white dark:bg-white/10 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 dark:text-white/50 hover:text-slate-700 dark:hover:text-white/80'}`}
+                      >
+                        e-CF
+                      </button>
+                    </div>
+                  )}
+
                   {/* Legacy B01/B02/SIN buttons */}
                   {isLegacy ? (
                     <div className="flex flex-wrap gap-2">
@@ -1333,9 +1382,10 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
                         <input
                           type="text"
                           value={rnc}
-                          onChange={e => { setRnc(e.target.value); setRncName('') }}
+                          onChange={e => { setRnc(formatRncCedula(e.target.value)); setRncName('') }}
                           onKeyDown={e => e.key === 'Enter' && lookupRnc()}
                           placeholder={tl('rnc', lang)}
+                          inputMode="numeric"
                           maxLength={RNC_CEDULA_MAX_LENGTH}
                           className="flex-1 min-w-0 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] dark:text-white focus:outline-none focus:border-sky-400 placeholder:text-slate-400 dark:placeholder:text-white/40"
                         />
@@ -1662,6 +1712,14 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
             </div>
 
             {/* ── Footer ────────────────────────────────────────────────── */}
+            {lockReason && !isSubmitting && (
+              <div className="px-4 md:px-6 pt-2 pb-1 shrink-0">
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+                  <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                  <span>{lockReason}</span>
+                </p>
+              </div>
+            )}
             <div className="flex gap-2 md:gap-3 px-4 py-3 md:px-6 md:py-4 border-t border-slate-100 dark:border-white/10 shrink-0">
               <button
                 onClick={onClose}
@@ -1673,6 +1731,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
               <button
                 onClick={handleConfirm}
                 disabled={!canSubmit || isSubmitting}
+                title={lockReason || ''}
                 className="flex-[2] py-3 bg-green-500 hover:bg-green-400 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-[13px] font-bold transition-all active:scale-[0.98] shadow-md shadow-green-500/20"
               >
                 {isSubmitting ? (

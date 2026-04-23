@@ -47,8 +47,14 @@ export default function AperturaTurnoModal({ userName, onConfirm, submitting = f
           <label className="block text-[11px] font-semibold text-slate-500 dark:text-white/60 mb-1.5">
             {L('Fondo inicial', 'Starting cash')}
           </label>
-          <div className="relative">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 text-[13px] font-semibold z-10">RD$</span>
+          {/* Side-by-side flex instead of absolute-positioned prefix.
+              1Password/LastPass/Chrome autofill icons CANNOT overlap the
+              RD$ label because they're drawn inside the input bounding box,
+              which now starts after the prefix badge. */}
+          <div className="flex items-stretch rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 focus-within:border-[#b3001e] focus-within:ring-2 focus-within:ring-[#b3001e]/20 overflow-hidden">
+            <span className="flex items-center px-3 py-3 bg-slate-50 dark:bg-white/5 text-slate-500 dark:text-white/60 text-[13px] font-semibold border-r border-slate-200 dark:border-white/10 select-none">
+              RD$
+            </span>
             <input
               ref={inputRef}
               type="text"
@@ -60,11 +66,11 @@ export default function AperturaTurnoModal({ userName, onConfirm, submitting = f
               autoCorrect="off"
               autoCapitalize="off"
               spellCheck={false}
-              name="apertura-cash-amount"
+              name="apertura-monto"
               data-1p-ignore="true"
               data-lpignore="true"
               data-form-type="other"
-              className="w-full pl-14 pr-3 py-3 border border-slate-200 dark:border-white/10 rounded-xl text-[20px] font-bold text-slate-800 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-[#b3001e] focus:ring-2 focus:ring-[#b3001e]/20"
+              className="flex-1 min-w-0 px-3 py-3 text-[20px] font-bold text-slate-800 dark:text-white bg-transparent focus:outline-none"
             />
           </div>
           {err && (
