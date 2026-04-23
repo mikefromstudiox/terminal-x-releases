@@ -947,8 +947,27 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         fechaVencimiento = `${d}-${m}-${y}`
       }
 
+      // Reserve the next eNCF from the local ncf_sequences BEFORE sending
+      // to DGII. Same pattern as the legacy path (line ~865). Without this
+      // invoiceData.eNCF is undefined, main.js dgii:submit eventually tries
+      // ecfSubmissionAdd({ encf: undefined, ... }) and SQLite rejects with
+      // 'NOT NULL constraint failed: ecf_submissions.encf'.
+      let eNCF = null
+      try {
+        eNCF = await api?.ncf?.next?.(ncfType) || null
+      } catch (err) {
+        throw new Error(`No se pudo reservar el NCF ${ncfType}: ${err?.message || err}`)
+      }
+      if (!eNCF) {
+        // Last-ditch fallback: synthesise from the in-memory sequence.
+        const next = (seq?.current_number || 0) + 1
+        const prefix = seq?.prefix || ncfType
+        eNCF = `${prefix}${String(next).padStart(8, '0')}`
+      }
+
       const invoiceData = {
         // ef2.do format
+        eNCF,
         tipoECF: tipoNum,
         emisor: {
           rnc:       bizSettings?.biz_rnc     || '',
