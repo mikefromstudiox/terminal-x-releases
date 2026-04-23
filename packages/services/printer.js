@@ -220,9 +220,12 @@ function buildHeader(biz, logoBytes = '') {
 
 // ── Footer ────────────────────────────────────────────────────────────────────
 function buildFooter() {
+  // ALIGN_CENTER must come BEFORE any LF/printable — some Epson-spec
+  // thermals ignore alignment changes that arrive mid-line, which left
+  // the GRACIAS block flush-left on certain models.
   return [
-    LF,
     ALIGN_CENTER,
+    LF,
     BOLD_ON,
     'GRACIAS POR SU PREFERENCIA',
     LF,
@@ -271,11 +274,15 @@ export function buildClientReceipt(data, logoBytes = '') {
   // Header (business brand block)
   lines.push(buildHeader(data.biz || {}, logoBytes))
 
-  // Invoice-type caption — inverted pill, centered. Premium signature moment.
+  // Invoice-type caption — centered bold, no inverse (user preferred
+  // no black shaded background). Keeps hierarchy via BOLD + an underline
+  // rule so it still reads as a signature moment.
   lines.push(ALIGN_CENTER)
-  lines.push(INVERT_ON)
-  lines.push(' ' + factType + ' ')
-  lines.push(INVERT_OFF)
+  lines.push(BOLD_ON)
+  lines.push(factType)
+  lines.push(LF)
+  lines.push(BOLD_OFF)
+  lines.push('-'.repeat(Math.min(COL_WIDTH, factType.length + 4)))
   lines.push(LF)
   lines.push(LF)
 
