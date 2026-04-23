@@ -259,20 +259,37 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
     if (!isE32Under250K && trackId) {
       status = await dgiiClient.pollStatus(trackId, token, dgiiEnv, { maxRetries: 5, delayMs: 1000 })
     } else if (isE32Under250K) {
-      // RFCE returns status directly. Preserve mensajes so rejections land
-      // with the actual DGII reason instead of an opaque 'Rechazado' label.
+      // RFCE returns the verdict synchronously. DGII mensajes are usually
+      // an array of OBJECTS (e.g. { codigo, valor }), not strings. Joining
+      // them raw yields '[object Object]'. Normalize each entry to a
+      // human-readable string before we store them so dgii_message holds
+      // the actual reason instead of the object.toString default.
+      const normalizeMsg = (m) => {
+        if (typeof m === 'string') return m
+        if (m && typeof m === 'object') {
+          const txt = m.valor || m.mensaje || m.descripcion || m.message || ''
+          if (m.codigo && txt) return `[${m.codigo}] ${txt}`
+          if (txt) return txt
+          return JSON.stringify(m)
+        }
+        return String(m)
+      }
+      const rawMsgs = Array.isArray(submitResult.mensajes) ? submitResult.mensajes
+                    : submitResult.mensaje ? [submitResult.mensaje]
+                    : []
       status = {
         codigo: submitResult.codigo === 0 ? 1 : submitResult.codigo,
         estado: submitResult.estado || 'ACEPTADO',
-        mensajes: Array.isArray(submitResult.mensajes) ? submitResult.mensajes
-                : submitResult.mensaje ? [submitResult.mensaje]
-                : [],
+        mensajes: rawMsgs.map(normalizeMsg),
       }
-      // Dump the full DGII response to main-process logs on any non-accept
-      // so post-mortem debugging doesn't require DevTools open at submit time.
-      if (status.codigo !== 1 && status.codigo !== 4) {
-        try { console.log('[dgii:submit] RFCE non-accept:', JSON.stringify(submitResult)) } catch {}
-      }
+      // electron-log is the only route to %APPDATA%\Terminal X\logs\main.log.
+      // console.log in the main process gets swallowed unless log.initialize()
+      // hooks it — which isn't done in main.js.
+      try {
+        const log = require('electron-log')
+        log.info('[dgii:submit] RFCE raw submitResult:', JSON.stringify(submitResult))
+        log.info('[dgii:submit] RFCE normalized status:', JSON.stringify(status))
+      } catch {}
     }
 
     // 7. Build QR URL
