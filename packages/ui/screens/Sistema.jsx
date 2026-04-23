@@ -303,13 +303,21 @@ function useSettings() {
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    api.settings.get().then(s => {
+    const loadSettings = () => api.settings.get().then(s => {
       if (!s) return
       setCfg(prev => ({ ...prev, ...Object.fromEntries(Object.keys(SISTEMA_DEFAULTS).filter(k => s[k] != null).map(k => [k, s[k]])) }))
     }).catch(() => {})
+    loadSettings()
     printerApi?.listPrinters().then(res => {
       if (res?.ok && Array.isArray(res.data)) setPrinters(res.data)
     }).catch(() => {})
+    // Re-fetch after cloud sync pull completes so a freshly-launched app
+    // picks up the latest printer/drawer/POS config without requiring a
+    // manual page reload. preload.js re-emits sync:pull-complete from main
+    // as a CustomEvent on window.
+    const onPull = () => loadSettings()
+    window.addEventListener('tx:sync-pull-complete', onPull)
+    return () => window.removeEventListener('tx:sync-pull-complete', onPull)
   }, [])
 
   function set(k, v) { setCfg(c => ({ ...c, [k]: v })) }

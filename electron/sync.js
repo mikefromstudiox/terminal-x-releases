@@ -2780,8 +2780,10 @@ async function syncNow() {
 // -- Auto sync interval -------------------------------------------------------
 function startAutoSync(intervalMs = 30 * 60 * 1000) {
   if (_intervalId) clearInterval(_intervalId)
-  // First sync after 60 seconds (let app boot fully)
-  setTimeout(() => syncNow().catch(() => {}), 60 * 1000)
+  // First sync after 5 seconds (let DB + window settle, then pull cloud
+  // settings so Preferencias/Sistema/Admin screens see the current printer,
+  // staff, etc. on first render instead of the 60s-old local snapshot).
+  setTimeout(() => syncNow().catch(() => {}), 5 * 1000)
   _intervalId = setInterval(() => syncNow().catch(() => {}), intervalMs)
   log.info(`[sync] Auto-sync every ${Math.round(intervalMs / 60000)} min`)
   // Kick off realtime listener so web writes land on desktop within seconds
