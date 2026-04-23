@@ -9,7 +9,7 @@
  *   - Cambios de salario (audit log from salary_changes)
  */
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import {
   Plus, Edit2, Power, Search, AlertCircle, Banknote, History, TrendingUp,
   Calculator, ClipboardList, Mail, Phone, CreditCard, IdCard, Calendar,
@@ -54,6 +54,7 @@ export default function NominaEmpleados() {
   const [liqTipo,         setLiqTipo]         = useState('desahucio')
   const [toast,           setToast]           = useState(null)
   const [showSalaryModal, setShowSalaryModal] = useState(false)
+  const [showCommModal,   setShowCommModal]   = useState(false)
   const canHardDelete = user?.role === 'owner' || user?.role === 'manager'
 
   function showToast(msg, variant = 'ok') {
@@ -504,7 +505,12 @@ export default function NominaEmpleados() {
                 />
               )}
               {innerTab === 'comisiones' && (
-                <CommissionsTab emp={selected} commTotal={getCommissionTotal(selected)} lang={lang} />
+                <CommissionsTab
+                  emp={selected}
+                  commTotal={getCommissionTotal(selected)}
+                  lang={lang}
+                  onAddManual={() => setShowCommModal(true)}
+                />
               )}
               {innerTab === 'liquidacion' && (
                 <LiquidacionTab emp={selected} liq={liq} tipo={liqTipo} onTipoChange={setLiqTipo} lang={lang} />
@@ -540,6 +546,23 @@ export default function NominaEmpleados() {
           emp={selected}
           onSave={handleSaveSalaryChange}
           onClose={() => setShowSalaryModal(false)}
+          lang={lang}
+        />
+      )}
+
+      {/* Manual commission modal */}
+      {showCommModal && selected && (
+        <AddCommissionModal
+          emp={selected}
+          api={api}
+          onSaved={(ok) => {
+            setShowCommModal(false)
+            if (ok) {
+              showToast(L('Comisión agregada', 'Commission added'))
+              loadAll()
+            }
+          }}
+          onClose={() => setShowCommModal(false)}
           lang={lang}
         />
       )}
@@ -580,27 +603,163 @@ function MiniStat({ label, value, sub }) {
 }
 
 // ── Commissions tab ────────────────────────────────────────────────────────────
-function CommissionsTab({ emp, commTotal, lang }) {
+function CommissionsTab({ emp, commTotal, lang, onAddManual }) {
   const L = (es, en) => lang === 'es' ? es : en
-  // Simplified view: show total + note. A full chart would require querying by month.
   return (
     <div className="flex-1 overflow-y-auto p-5">
       <div className="max-w-md">
-        <p className="text-[11px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-2">{L('Resumen de comisiones', 'Commissions summary')}</p>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[11px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">{L('Resumen de comisiones', 'Commissions summary')}</p>
+          {onAddManual && (
+            <button onClick={onAddManual}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-[#0C447C] text-white text-[11px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors">
+              <Plus size={12} /> {L('Agregar manual', 'Add manual')}
+            </button>
+          )}
+        </div>
         <div className="bg-sky-50 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/20 rounded-xl px-5 py-4">
           <p className="text-[12px] text-slate-500 dark:text-white/60">{L('Total acumulado (todos los tiempos)', 'All-time total')}</p>
           <p className="text-[24px] font-bold text-sky-700 dark:text-sky-400">{fmtRD(commTotal)}</p>
         </div>
         {commTotal === 0 && (
           <p className="text-[11px] text-slate-400 dark:text-white/40 mt-3 italic">
-            {L('Este empleado aún no tiene comisiones registradas. Las comisiones se acumulan automáticamente al facturar tickets.',
-               'This employee has no commissions yet. Commissions accrue automatically on ticket sales.')}
+            {L('Este empleado aún no tiene comisiones registradas. Las comisiones se acumulan automáticamente al facturar tickets, o pulse "Agregar manual" para registrarlas a mano.',
+               'This employee has no commissions yet. Commissions accrue automatically on ticket sales, or press "Add manual" to record one by hand.')}
           </p>
         )}
         <p className="text-[10px] text-slate-400 dark:text-white/40 mt-4">
-          {L('Nota: el gráfico de tendencias mensuales se añadirá en el Dashboard.',
-             'Note: monthly trend chart will be added to the Dashboard view.')}
+          {L('Las comisiones manuales se usan para liquidación histórica o ajustes, sin necesidad de un ticket.',
+             'Manual commissions are used for historical liquidación or adjustments, with no ticket required.')}
         </p>
+      </div>
+    </div>
+  )
+}
+
+// ── Manual commission modal ────────────────────────────────────────────────────
+function AddCommissionModal({ emp, api, onSaved, onClose, lang }) {
+  const L = (es, en) => lang === 'es' ? es : en
+  const defaultPct = Number(emp?.comision_pct || 0)
+  const today = new Date().toISOString().slice(0, 10)
+  // v2.14.1: "Auto (base × %)" now defaults OFF — most manual entries are flat
+  // numbers typed in by the owner (liquidación de un mes, ajuste retroactivo).
+  const [base,   setBase]   = useState('')
+  const [pct,    setPct]    = useState(defaultPct ? String(defaultPct) : '')
+  const [amount, setAmount] = useState('')
+  const [autoCalc, setAutoCalc] = useState(false)
+  const [date,   setDate]   = useState(today)
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err,    setErr]    = useState(null)
+  const savingRef = useRef(false)  // hard guard against double-click → double-insert
+
+  useEffect(() => {
+    if (!autoCalc) return
+    const b = Number(base) || 0
+    const p = Number(pct)  || 0
+    const a = Math.round(b * p) / 100
+    setAmount(a ? String(a) : '')
+  }, [base, pct, autoCalc])
+
+  async function handleSave() {
+    if (savingRef.current) return      // belt-and-suspenders against re-entry
+    setErr(null)
+    const b = Number(base)   || 0
+    const p = Number(pct)    || 0
+    const a = Number(amount) || 0
+    if (!reason.trim())           return setErr(L('Ingrese una razón', 'Enter a reason'))
+    if (a <= 0)                   return setErr(L('Monto de comisión debe ser mayor a 0', 'Commission amount must be > 0'))
+    if (!date)                    return setErr(L('Seleccione una fecha', 'Pick a date'))
+    if (!emp?.supabase_id)        return setErr(L('Empleado sin supabase_id — no se puede guardar', 'Employee is missing supabase_id'))
+
+    const tipo = emp.tipo === 'hybrid' ? 'lavador' : emp.tipo
+    const endpoint = tipo === 'vendedor' ? api?.sellerCommissions?.create
+                   : tipo === 'cajero'   ? api?.cajeroCommissions?.create
+                   : api?.commissions?.create
+    if (!endpoint) return setErr(L('Tipo de empleado no soporta comisión manual', 'Employee type does not support manual commission'))
+
+    savingRef.current = true
+    setSaving(true)
+    try {
+      const createdIso = new Date(date + 'T12:00:00-04:00').toISOString()
+      const res = await endpoint({
+        empleado_supabase_id: emp.supabase_id,
+        base_amount:        b,
+        commission_pct:     p,
+        commission_amount:  a,
+        created_at:         createdIso,
+        manual_reason:      reason.trim(),
+      })
+      if (!res || res?.ok === false) throw new Error(res?.error || 'create failed')
+      onSaved?.(true)
+    } catch (e) {
+      console.error('[AddCommissionModal] save error', e)
+      setErr(e?.message || String(e))
+      savingRef.current = false
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-slate-200 dark:border-white/10 flex items-center justify-between">
+          <p className="text-sm font-bold text-slate-700 dark:text-white">{L('Agregar comisión manual', 'Add manual commission')}</p>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-white"><X size={18} /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div className="bg-slate-50 dark:bg-white/5 rounded-lg px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase text-slate-400 dark:text-white/40 tracking-wider">{L('Empleado', 'Employee')}</p>
+            <p className="text-[13px] text-slate-800 dark:text-white">{emp?.nombre}</p>
+            <p className="text-[10px] text-slate-400 dark:text-white/40">{emp?.tipo} {defaultPct ? `• ${defaultPct}%` : ''}</p>
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-slate-500 dark:text-white/60">{L('Fecha (período)', 'Date (period)')}</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg bg-white dark:bg-white/5 text-sm text-slate-800 dark:text-white mt-1" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] font-bold text-slate-500 dark:text-white/60">{L('Monto base (RD$)', 'Base amount (RD$)')}</label>
+              <input type="number" step="0.01" min="0" value={base} onChange={e => setBase(e.target.value)} placeholder="0.00"
+                className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg bg-white dark:bg-white/5 text-sm text-slate-800 dark:text-white mt-1 tabular-nums" />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-slate-500 dark:text-white/60">{L('% Comisión', 'Commission %')}</label>
+              <input type="number" step="0.01" min="0" value={pct} onChange={e => setPct(e.target.value)} placeholder="0"
+                className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg bg-white dark:bg-white/5 text-sm text-slate-800 dark:text-white mt-1 tabular-nums" />
+            </div>
+          </div>
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-bold text-slate-500 dark:text-white/60">{L('Monto de comisión (RD$)', 'Commission amount (RD$)')}</label>
+              <label className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-white/40 cursor-pointer">
+                <input type="checkbox" checked={autoCalc} onChange={e => setAutoCalc(e.target.checked)} />
+                {L('Auto (base × %)', 'Auto (base × %)')}
+              </label>
+            </div>
+            <input type="number" step="0.01" min="0" value={amount} disabled={autoCalc}
+              onChange={e => setAmount(e.target.value)} placeholder="0.00"
+              className={`w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-sm mt-1 tabular-nums ${autoCalc ? 'bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-white/60' : 'bg-white dark:bg-white/5 text-slate-800 dark:text-white'}`} />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-slate-500 dark:text-white/60">{L('Razón / nota', 'Reason / note')}</label>
+            <input type="text" value={reason} onChange={e => setReason(e.target.value)}
+              placeholder={L('Ej: liquidación mes de agosto', 'Ex: August liquidación')}
+              className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg bg-white dark:bg-white/5 text-sm text-slate-800 dark:text-white mt-1" />
+          </div>
+          {err && <p className="text-[12px] text-red-600 dark:text-red-400">{err}</p>}
+        </div>
+        <div className="px-5 py-3 border-t border-slate-200 dark:border-white/10 flex justify-end gap-2">
+          <button onClick={onClose} disabled={saving}
+            className="px-3 py-1.5 text-[12px] font-bold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 rounded-lg">
+            {L('Cancelar', 'Cancel')}
+          </button>
+          <button onClick={handleSave} disabled={saving}
+            className="px-4 py-1.5 text-[12px] font-bold text-white bg-[#0C447C] hover:bg-[#0a3a6a] rounded-lg disabled:opacity-50">
+            {saving ? L('Guardando…', 'Saving…') : L('Guardar', 'Save')}
+          </button>
+        </div>
       </div>
     </div>
   )

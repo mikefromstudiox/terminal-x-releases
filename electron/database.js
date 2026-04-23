@@ -1236,9 +1236,11 @@ function init(userDataPath, options = {}) {
       total_expected_value  REAL    NOT NULL DEFAULT 0,
       total_counted_value   REAL    NOT NULL DEFAULT 0,
       total_variance_value  REAL    NOT NULL DEFAULT 0,
+      signature_dataurl     TEXT,
       created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
       updated_at            TEXT    NOT NULL DEFAULT (datetime('now'))
     )`,
+    'ALTER TABLE inventory_counts ADD COLUMN signature_dataurl TEXT',
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_counts_supabase_id ON inventory_counts(supabase_id)`,
     `CREATE INDEX        IF NOT EXISTS idx_inv_counts_status      ON inventory_counts(status, started_at DESC)`,
     `CREATE TRIGGER IF NOT EXISTS trg_inventory_counts_updated_at
@@ -1283,6 +1285,13 @@ function init(userDataPath, options = {}) {
     "ALTER TABLE ticket_items ADD COLUMN is_deposit INTEGER NOT NULL DEFAULT 0",
     "UPDATE ticket_items SET is_deposit = 1 WHERE is_deposit = 0 AND UPPER(COALESCE(sku,'')) = 'DEP'",
     "CREATE INDEX IF NOT EXISTS idx_ticket_items_is_deposit ON ticket_items(ticket_supabase_id) WHERE is_deposit = 1",
+
+    // v2.14 — manual commission entry. Owners can add a commission row without
+    // a backing ticket (e.g. historical liquidación, adjustments). Presence of
+    // manual_reason distinguishes manual rows from auto-generated ones.
+    "ALTER TABLE washer_commissions ADD COLUMN manual_reason TEXT",
+    "ALTER TABLE seller_commissions ADD COLUMN manual_reason TEXT",
+    "ALTER TABLE cajero_commissions ADD COLUMN manual_reason TEXT",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -4868,6 +4877,13 @@ function commissionsGetByWasher(washerId, dateFrom, dateTo) {
 function commissionsGetByPeriod(dateFrom, dateTo) {
   if (!db) return []
   try {
+    // v2.13.9 — the old LEFT JOIN on tickets used `ON (t.id = wc.ticket_id OR
+    // t.supabase_id = wc.ticket_supabase_id)`. When a StarSISA import (or any
+    // scenario) produces more than one ticket matching both halves of the OR,
+    // the LEFT JOIN fanout makes each commission row appear N times and
+    // SUM(wc.commission_amount) returns N× the real value. Resolve the
+    // ticket scalar-style instead: at most one ticket per commission, no
+    // fanout regardless of how dirty the ticket table gets.
     return db.prepare(
       `SELECT wc.empleado_supabase_id, e.id as washer_id,
               e.nombre as washer_name, e.comision_pct as commission_pct,
@@ -4875,12 +4891,18 @@ function commissionsGetByPeriod(dateFrom, dateTo) {
               SUM(wc.base_amount) as total_base,
               SUM(wc.commission_amount) as total_commission
        FROM washer_commissions wc
-       LEFT JOIN tickets t ON (t.id = wc.ticket_id OR t.supabase_id = wc.ticket_supabase_id)
        JOIN empleados e ON e.supabase_id = wc.empleado_supabase_id
-       WHERE (t.id IS NULL OR t.status='cobrado')
-         AND COALESCE(wc.paid, 0) = 0
-         AND COALESCE(t.created_at, wc.created_at) >= ?
-         AND COALESCE(t.created_at, wc.created_at) <= ?
+       WHERE COALESCE(wc.paid, 0) = 0
+         AND COALESCE(
+               (SELECT t.status FROM tickets t WHERE t.id = wc.ticket_id LIMIT 1),
+               (SELECT t.status FROM tickets t WHERE t.supabase_id = wc.ticket_supabase_id LIMIT 1),
+               'cobrado'
+             ) = 'cobrado'
+         AND COALESCE(
+               (SELECT t.created_at FROM tickets t WHERE t.id = wc.ticket_id LIMIT 1),
+               (SELECT t.created_at FROM tickets t WHERE t.supabase_id = wc.ticket_supabase_id LIMIT 1),
+               wc.created_at
+             ) BETWEEN ? AND ?
        GROUP BY wc.empleado_supabase_id ORDER BY total_commission DESC`
     ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
   } catch (e) { console.error('[commissionsGetByPeriod]', e.message); return [] }
@@ -4934,6 +4956,7 @@ function sellerCommissionsBySeller(sellerId, dateFrom, dateTo) {
 function sellerCommissionsByPeriod(dateFrom, dateTo) {
   if (!db) return []
   try {
+    // v2.13.9 — see commissionsGetByPeriod for the OR-join fanout rationale.
     return db.prepare(
       `SELECT sc.empleado_supabase_id, e.id as seller_id,
               e.nombre as seller_name, e.comision_pct as commission_pct,
@@ -4941,12 +4964,18 @@ function sellerCommissionsByPeriod(dateFrom, dateTo) {
               SUM(sc.base_amount) as total_base,
               SUM(sc.commission_amount) as total_commission
        FROM seller_commissions sc
-       LEFT JOIN tickets t ON (t.id = sc.ticket_id OR t.supabase_id = sc.ticket_supabase_id)
        JOIN empleados e ON e.supabase_id = sc.empleado_supabase_id
-       WHERE (t.id IS NULL OR t.status='cobrado')
-         AND COALESCE(sc.paid, 0) = 0
-         AND COALESCE(t.created_at, sc.created_at) >= ?
-         AND COALESCE(t.created_at, sc.created_at) <= ?
+       WHERE COALESCE(sc.paid, 0) = 0
+         AND COALESCE(
+               (SELECT t.status FROM tickets t WHERE t.id = sc.ticket_id LIMIT 1),
+               (SELECT t.status FROM tickets t WHERE t.supabase_id = sc.ticket_supabase_id LIMIT 1),
+               'cobrado'
+             ) = 'cobrado'
+         AND COALESCE(
+               (SELECT t.created_at FROM tickets t WHERE t.id = sc.ticket_id LIMIT 1),
+               (SELECT t.created_at FROM tickets t WHERE t.supabase_id = sc.ticket_supabase_id LIMIT 1),
+               sc.created_at
+             ) BETWEEN ? AND ?
        GROUP BY sc.empleado_supabase_id ORDER BY total_commission DESC`
     ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
   } catch (e) { console.error('[sellerCommissionsByPeriod]', e.message); return [] }
@@ -4971,25 +5000,91 @@ function sellerCommissionsMarkPaidByPeriod({ empleado_supabase_ids, from, to }) 
 // flat `invoiceTotal * pct / 100` model replaces ticketCreate's per-item gating.
 // v2.1: accepts `seller_id` (legacy INT — resolved to empleados.supabase_id)
 // OR `empleado_supabase_id` (preferred) OR `seller_supabase_id` (back-compat alias).
-function sellerCommissionCreate({ seller_id, empleado_supabase_id, seller_supabase_id, ticket_id, ticket_supabase_id, base_amount, commission_pct, commission_amount }) {
+// v2.14: ticket_id is now optional — manual entries from the Nómina UI pass
+// `manual_reason` + `created_at` and no ticket FK.
+// v2.14.1: rewritten with NAMED placeholders to remove any positional-binding
+// ambiguity (desktop saw empleado_supabase_id land as NULL on v2.14.0).
+function sellerCommissionCreate({ seller_id, empleado_supabase_id, seller_supabase_id, ticket_id, ticket_supabase_id, base_amount, commission_pct, commission_amount, created_at, manual_reason }) {
   if (!db) return null
-  // Resolve empleado_supabase_id
   let empSid = empleado_supabase_id || seller_supabase_id || null
   if (!empSid && seller_id) {
     const row = db.prepare(`SELECT supabase_id FROM empleados WHERE id=? AND tipo IN ('vendedor','hybrid') LIMIT 1`).get(seller_id)
     empSid = row?.supabase_id || null
   }
-  if (!empSid || !ticket_id) return null
-  const tSid = ticket_supabase_id || db.prepare('SELECT supabase_id FROM tickets WHERE id=?').get(ticket_id)?.supabase_id || null
+  if (!empSid) return null
+  if (!ticket_id && !manual_reason) return null
+  const tSid = ticket_supabase_id || (ticket_id ? db.prepare('SELECT supabase_id FROM tickets WHERE id=?').get(ticket_id)?.supabase_id || null : null)
   const sid = crypto.randomUUID()
+  const nowIso = new Date().toISOString()
+  const payload = {
+    empleado_supabase_id: empSid,
+    ticket_id:            ticket_id || null,
+    base_amount:          Number(base_amount || 0),
+    commission_pct:       Number(commission_pct || 0),
+    commission_amount:    Number(commission_amount || 0),
+    supabase_id:          sid,
+    ticket_supabase_id:   tSid,
+    created_at:           created_at || nowIso,
+    updated_at:           nowIso,
+    manual_reason:        manual_reason || null,
+  }
   const r = db.prepare(`INSERT INTO seller_commissions
-    (empleado_supabase_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,ticket_supabase_id)
-    VALUES(?,?,?,?,?,0,?,?)`).run(
-    empSid, ticket_id,
-    Number(base_amount || 0), Number(commission_pct || 0), Number(commission_amount || 0),
-    sid, tSid)
+    (empleado_supabase_id, ticket_id, base_amount, commission_pct, commission_amount, paid,
+     supabase_id, ticket_supabase_id, created_at, updated_at, manual_reason)
+    VALUES (@empleado_supabase_id, @ticket_id, @base_amount, @commission_pct, @commission_amount, 0,
+            @supabase_id, @ticket_supabase_id, @created_at, @updated_at, @manual_reason)`).run(payload)
+  if (manual_reason) {
+    try {
+      activityLogRecord({
+        event_type: 'commission_manual_add',
+        severity: 'info',
+        target_type: 'seller_commissions',
+        target_id: r.lastInsertRowid,
+        target_name: empSid,
+        amount: Number(commission_amount || 0),
+        reason: manual_reason,
+      })
+    } catch {}
+  }
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
+
+// v2.14 — manual washer commission insert (mirrors seller; ticket refs nullable).
+// v2.14.1: named placeholders — see sellerCommissionCreate note.
+function washerCommissionCreate({ empleado_supabase_id, base_amount, commission_pct, commission_amount, created_at, manual_reason }) {
+  if (!db) return null
+  if (!empleado_supabase_id || !manual_reason) return null
+  const sid = crypto.randomUUID()
+  const nowIso = new Date().toISOString()
+  const payload = {
+    empleado_supabase_id,
+    base_amount:       Number(base_amount || 0),
+    commission_pct:    Number(commission_pct || 0),
+    commission_amount: Number(commission_amount || 0),
+    supabase_id:       sid,
+    created_at:        created_at || nowIso,
+    updated_at:        nowIso,
+    manual_reason,
+  }
+  const r = db.prepare(`INSERT INTO washer_commissions
+    (empleado_supabase_id, ticket_id, base_amount, commission_pct, commission_amount, paid,
+     supabase_id, ticket_supabase_id, created_at, updated_at, manual_reason)
+    VALUES (@empleado_supabase_id, NULL, @base_amount, @commission_pct, @commission_amount, 0,
+            @supabase_id, NULL, @created_at, @updated_at, @manual_reason)`).run(payload)
+  try {
+    activityLogRecord({
+      event_type: 'commission_manual_add',
+      severity: 'info',
+      target_type: 'washer_commissions',
+      target_id: r.lastInsertRowid,
+      target_name: empleado_supabase_id,
+      amount: Number(commission_amount || 0),
+      reason: manual_reason,
+    })
+  } catch {}
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+
 
 // ── CAJERO COMMISSIONS ───────────────────────────────────────────────────────
 function cajeroCommissionsByCajero(cajeroId, dateFrom, dateTo) {
@@ -5023,6 +5118,7 @@ function cajeroCommissionsByCajero(cajeroId, dateFrom, dateTo) {
 function cajeroCommissionsByPeriod(dateFrom, dateTo) {
   if (!db) return []
   try {
+    // v2.13.9 — see commissionsGetByPeriod for the OR-join fanout rationale.
     return db.prepare(
       `SELECT cc.empleado_supabase_id, cc.cajero_id,
               e.id as cajero_emp_id, e.nombre as cajero_name, e.comision_pct as commission_pct,
@@ -5030,12 +5126,18 @@ function cajeroCommissionsByPeriod(dateFrom, dateTo) {
               SUM(cc.base_amount) as total_base,
               SUM(cc.commission_amount) as total_commission
        FROM cajero_commissions cc
-       LEFT JOIN tickets t ON (t.id = cc.ticket_id OR t.supabase_id = cc.ticket_supabase_id)
        JOIN empleados e ON e.supabase_id = cc.empleado_supabase_id
-       WHERE (t.id IS NULL OR t.status='cobrado')
-         AND COALESCE(cc.paid, 0) = 0
-         AND COALESCE(t.created_at, cc.created_at) >= ?
-         AND COALESCE(t.created_at, cc.created_at) <= ?
+       WHERE COALESCE(cc.paid, 0) = 0
+         AND COALESCE(
+               (SELECT t.status FROM tickets t WHERE t.id = cc.ticket_id LIMIT 1),
+               (SELECT t.status FROM tickets t WHERE t.supabase_id = cc.ticket_supabase_id LIMIT 1),
+               'cobrado'
+             ) = 'cobrado'
+         AND COALESCE(
+               (SELECT t.created_at FROM tickets t WHERE t.id = cc.ticket_id LIMIT 1),
+               (SELECT t.created_at FROM tickets t WHERE t.supabase_id = cc.ticket_supabase_id LIMIT 1),
+               cc.created_at
+             ) BETWEEN ? AND ?
        GROUP BY cc.empleado_supabase_id ORDER BY total_commission DESC`
     ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
   } catch (e) { console.error('[cajeroCommissionsByPeriod]', e.message); return [] }
@@ -5056,8 +5158,46 @@ function cajeroCommissionsMarkPaidByPeriod({ empleado_supabase_ids, from, to }) 
   ).run(...empleado_supabase_ids, from, to + ' 23:59:59')
   return { updated: res.changes }
 }
-function cajeroCommissionCreate({ cajero_id, ticket_id, ticket_supabase_id, base_amount, commission_pct, commission_amount }) {
-  if (!db || !cajero_id || !ticket_id) return null
+// v2.14 — supports both auto (cajero_id + ticket_id) and manual
+// (empleado_supabase_id + manual_reason, no ticket) entries.
+// v2.14.1: manual branch rewritten with NAMED placeholders.
+function cajeroCommissionCreate({ cajero_id, empleado_supabase_id, ticket_id, ticket_supabase_id, base_amount, commission_pct, commission_amount, created_at, manual_reason }) {
+  if (!db) return null
+  const isManual = !!manual_reason
+  if (isManual) {
+    if (!empleado_supabase_id) return null
+    const sid = crypto.randomUUID()
+    const nowIso = new Date().toISOString()
+    const payload = {
+      empleado_supabase_id,
+      base_amount:       Number(base_amount || 0),
+      commission_pct:    Number(commission_pct || 0),
+      commission_amount: Number(commission_amount || 0),
+      supabase_id:       sid,
+      created_at:        created_at || nowIso,
+      updated_at:        nowIso,
+      manual_reason,
+    }
+    const r = db.prepare(`INSERT INTO cajero_commissions
+      (empleado_supabase_id, ticket_id, base_amount, commission_pct, commission_amount, paid,
+       supabase_id, ticket_supabase_id, created_at, updated_at, manual_reason)
+      VALUES (@empleado_supabase_id, NULL, @base_amount, @commission_pct, @commission_amount, 0,
+              @supabase_id, NULL, @created_at, @updated_at, @manual_reason)`).run(payload)
+    try {
+      activityLogRecord({
+        event_type: 'commission_manual_add',
+        severity: 'info',
+        target_type: 'cajero_commissions',
+        target_id: r.lastInsertRowid,
+        target_name: empleado_supabase_id,
+        amount: Number(commission_amount || 0),
+        reason: manual_reason,
+      })
+    } catch {}
+    return { id: r.lastInsertRowid, supabase_id: sid }
+  }
+  // Legacy ticket-bound path
+  if (!cajero_id || !ticket_id) return null
   const cajero = db.prepare('SELECT supabase_id FROM users WHERE id=?').get(cajero_id)
   if (!cajero) return null
   const tSid = ticket_supabase_id || db.prepare('SELECT supabase_id FROM tickets WHERE id=?').get(ticket_id)?.supabase_id || null
@@ -7565,24 +7705,47 @@ function oversellUnresolvedCount() {
 // has GENERATED columns but portability wins. Supabase mirror uses GENERATED.
 
 function _countRollup(countSid) {
-  // Totals use unit_cost for "value" (cost basis = what the loss actually costs
-  // the business). unit_price is carried for the report so the owner sees both
-  // cost and price variance. counted_qty is NULL until the cashier enters it —
-  // treat NULL as "not counted yet" (contributes to counted side as expected, so
-  // the running variance reflects only items actually counted). On completion
-  // that's no different because completeCount() only touches counted rows.
-  const row = db.prepare(`
-    SELECT
-      COALESCE(SUM(expected_qty * unit_cost), 0)                           AS total_expected_value,
-      COALESCE(SUM(COALESCE(counted_qty, expected_qty) * unit_cost), 0)    AS total_counted_value,
-      COALESCE(SUM((COALESCE(counted_qty, expected_qty) - expected_qty) * unit_cost), 0) AS total_variance_value
-    FROM inventory_count_items
-    WHERE count_supabase_id = ?
-  `).get(countSid) || {}
+  // v2.14 — Totals subtract sales-during-count from expected so variance
+  // reflects TRUE shrinkage. counted_qty still NULL = "not counted yet" →
+  // treated as adjusted-expected so the running total only moves when the
+  // cashier enters a real number.
+  const header = db.prepare('SELECT started_at, completed_at FROM inventory_counts WHERE supabase_id = ?').get(countSid)
+  const items = db.prepare(`
+    SELECT inventory_item_supabase_id, expected_qty, counted_qty, unit_cost
+    FROM inventory_count_items WHERE count_supabase_id = ?
+  `).all(countSid)
+
+  const soldMap = new Map()
+  if (header) {
+    const windowEnd = header.completed_at || new Date().toISOString()
+    const soldRows = db.prepare(`
+      SELECT ii.supabase_id AS sid, SUM(COALESCE(ti.quantity, 1)) AS sold
+      FROM ticket_items ti
+      JOIN tickets t ON t.id = ti.ticket_id
+      JOIN inventory_items ii ON ii.id = ti.inventory_item_id
+      WHERE ti.inventory_item_id IS NOT NULL
+        AND t.created_at >= ? AND t.created_at <= ?
+        AND COALESCE(t.status, '') != 'anulado'
+      GROUP BY ii.supabase_id
+    `).all(header.started_at, windowEnd)
+    for (const r of soldRows) soldMap.set(r.sid, Number(r.sold) || 0)
+  }
+
+  let totExp = 0, totCnt = 0, totVar = 0
+  for (const r of items) {
+    const exp = Number(r.expected_qty) || 0
+    const sold = soldMap.get(r.inventory_item_supabase_id) || 0
+    const adj = exp - sold
+    const cnt = (r.counted_qty === null || r.counted_qty === undefined) ? adj : Number(r.counted_qty)
+    const cost = Number(r.unit_cost) || 0
+    totExp += exp * cost
+    totCnt += cnt * cost
+    totVar += (cnt - adj) * cost
+  }
   return {
-    total_expected_value: Number(row.total_expected_value) || 0,
-    total_counted_value:  Number(row.total_counted_value)  || 0,
-    total_variance_value: Number(row.total_variance_value) || 0,
+    total_expected_value: totExp,
+    total_counted_value:  totCnt,
+    total_variance_value: totVar,
   }
 }
 
@@ -7596,17 +7759,35 @@ function _applyRollup(countSid) {
   return t
 }
 
-function inventoryCountStart({ title, counted_by_name, notes } = {}) {
+function inventoryCountStart({ title, counted_by_name, notes, categories } = {}) {
   if (!db) return null
   const sid = crypto.randomUUID()
   const nowIso = new Date().toISOString()
   const headerTitle = (title && String(title).trim()) || `Conteo Fisico ${new Date().toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })}`
+  // v2.14 — optional category pre-scope. Passing null/undefined/[] = all
+  // active items (legacy behavior). Passing an array of names filters the
+  // snapshot so the count only contains those categories. Also supports the
+  // special token '(sin categoria)' for items with NULL/empty category.
+  const catList = Array.isArray(categories) ? categories.filter(c => c != null).map(String) : null
+  let whereCat = ''
+  const params = []
+  if (catList && catList.length) {
+    const includesBlank = catList.some(c => c === '(sin categoria)' || c === 'Sin categoria')
+    const named = catList.filter(c => c !== '(sin categoria)' && c !== 'Sin categoria')
+    const clauses = []
+    if (named.length) {
+      clauses.push(`category IN (${named.map(() => '?').join(',')})`)
+      params.push(...named)
+    }
+    if (includesBlank) clauses.push(`(category IS NULL OR TRIM(category) = '')`)
+    if (clauses.length) whereCat = ' AND (' + clauses.join(' OR ') + ')'
+  }
   const items = db.prepare(`
     SELECT id, supabase_id, sku, name, category, quantity, cost, price
     FROM inventory_items
-    WHERE active = 1 AND supabase_id IS NOT NULL
+    WHERE active = 1 AND supabase_id IS NOT NULL${whereCat}
     ORDER BY category COLLATE NOCASE, name COLLATE NOCASE
-  `).all()
+  `).all(...params)
 
   const run = db.transaction(() => {
     const r = db.prepare(`INSERT INTO inventory_counts
@@ -7663,6 +7844,27 @@ function inventoryCountGet(idOrSid) {
     WHERE count_supabase_id = ?
     ORDER BY category COLLATE NOCASE, name COLLATE NOCASE
   `).all(header.supabase_id)
+
+  // v2.14 — Sales during the count window (started_at → completed_at, or now
+  // if still abierto). Subtracted from expected_qty so the variance report
+  // shows TRUE shrinkage, not sales-masquerading-as-shrinkage. Excludes voids.
+  const windowEnd = header.completed_at || new Date().toISOString()
+  const soldRows = db.prepare(`
+    SELECT ii.supabase_id AS inventory_item_supabase_id,
+           SUM(COALESCE(ti.quantity, 1)) AS sold
+    FROM ticket_items ti
+    JOIN tickets      t  ON t.id = ti.ticket_id
+    JOIN inventory_items ii ON ii.id = ti.inventory_item_id
+    WHERE ti.inventory_item_id IS NOT NULL
+      AND t.created_at >= ?
+      AND t.created_at <= ?
+      AND COALESCE(t.status,'') != 'anulado'
+    GROUP BY ii.supabase_id
+  `).all(header.started_at, windowEnd)
+  const soldMap = new Map(soldRows.map(r => [r.inventory_item_supabase_id, Number(r.sold) || 0]))
+  for (const it of items) {
+    it.sold_during_count = soldMap.get(it.inventory_item_supabase_id) || 0
+  }
   return { ...header, items }
 }
 
@@ -7681,7 +7883,7 @@ function inventoryCountSaveItem({ count_supabase_id, inventory_item_supabase_id,
   return true
 }
 
-function inventoryCountComplete({ id, apply_to_inventory = true } = {}) {
+function inventoryCountComplete({ id, apply_to_inventory = true, signature_dataurl = null } = {}) {
   if (!db || !id) return { ok: false, error: 'missing_id' }
   const header = (typeof id === 'string' && id.includes('-'))
     ? db.prepare('SELECT * FROM inventory_counts WHERE supabase_id = ?').get(id)
@@ -7693,13 +7895,38 @@ function inventoryCountComplete({ id, apply_to_inventory = true } = {}) {
   const nowIso = new Date().toISOString()
 
   // Row-level variance snapshot for activity_log metadata (top 10 losses).
+  // v2.14 — variance subtracts sales-during-count from expected so activity
+  // feed + top losses show TRUE shrinkage, not sales masquerading as loss.
+  const windowEndIso = nowIso
+  const soldRows = db.prepare(`
+    SELECT ii.supabase_id AS sid, SUM(COALESCE(ti.quantity, 1)) AS sold
+    FROM ticket_items ti
+    JOIN tickets t ON t.id = ti.ticket_id
+    JOIN inventory_items ii ON ii.id = ti.inventory_item_id
+    WHERE ti.inventory_item_id IS NOT NULL
+      AND t.created_at >= ? AND t.created_at <= ?
+      AND COALESCE(t.status, '') != 'anulado'
+    GROUP BY ii.supabase_id
+  `).all(header.started_at, windowEndIso)
+  const soldMap = new Map(soldRows.map(r => [r.sid, Number(r.sold) || 0]))
   const counted = db.prepare(`
-    SELECT sku, name, category, expected_qty, counted_qty, unit_cost, unit_price,
-      (counted_qty - expected_qty)              AS variance_qty,
-      (counted_qty - expected_qty) * unit_cost  AS variance_cost
+    SELECT inventory_item_supabase_id, sku, name, category, expected_qty, counted_qty, unit_cost, unit_price
     FROM inventory_count_items
     WHERE count_supabase_id = ? AND counted_qty IS NOT NULL
-  `).all(countSid)
+  `).all(countSid).map(r => {
+    const exp = Number(r.expected_qty) || 0
+    const sold = soldMap.get(r.inventory_item_supabase_id) || 0
+    const adj = exp - sold
+    const cnt = Number(r.counted_qty) || 0
+    const varQty = cnt - adj
+    return {
+      ...r,
+      sold_during_count: sold,
+      adj_expected_qty: adj,
+      variance_qty: varQty,
+      variance_cost: varQty * (Number(r.unit_cost) || 0),
+    }
+  })
 
   const run = db.transaction(() => {
     if (apply_to_inventory) {
@@ -7713,8 +7940,8 @@ function inventoryCountComplete({ id, apply_to_inventory = true } = {}) {
         if (sid) upd.run(Number(r.counted_qty) || 0, sid)
       }
     }
-    db.prepare(`UPDATE inventory_counts SET status='completado', completed_at=?, updated_at=? WHERE supabase_id=?`)
-      .run(nowIso, nowIso, countSid)
+    db.prepare(`UPDATE inventory_counts SET status='completado', completed_at=?, signature_dataurl=COALESCE(?, signature_dataurl), updated_at=? WHERE supabase_id=?`)
+      .run(nowIso, signature_dataurl || null, nowIso, countSid)
   })
   run()
 
@@ -7857,6 +8084,7 @@ module.exports = {
   commissionsGetByWasher, commissionsGetByPeriod, commissionsMarkPaid, commissionsMarkPaidByPeriod,
   sellerCommissionsBySeller, sellerCommissionsByPeriod, sellerCommissionsMarkPaid, sellerCommissionsMarkPaidByPeriod, sellerCommissionCreate,
   cajeroCommissionsByCajero, cajeroCommissionsByPeriod, cajeroCommissionsMarkPaid, cajeroCommissionsMarkPaidByPeriod, cajeroCommissionCreate,
+  washerCommissionCreate,
   // Cuadre
   cuadreCreate, cuadreGetHistory, cuadreList, cuadreDailySummary,
   cuadreGetOpen, cuadreOpenShift,

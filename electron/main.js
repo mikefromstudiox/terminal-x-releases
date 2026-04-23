@@ -1639,7 +1639,36 @@ handleMut('oversells:resolve', async ({ id, supabase_id, resolution_type, notes,
 })
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
-handle('auth:pin',         (pin)  => db.authByPin(pin))
+// Fresh install / local-wipe safety: if PIN lookup misses the local staff cache,
+// force a blocking pull from Supabase and retry ONCE. Without this, a user who
+// wiped their DB (or whose PIN was changed server-side) sees "PIN incorrecto"
+// even though the correct hash exists in the cloud. Throttled so a wrong-PIN
+// spam can't trigger pull storms.
+let _lastPinRescuePullAt = 0
+const PIN_RESCUE_COOLDOWN_MS = 30_000
+handle('auth:pin', async (pin) => {
+  let u = db.authByPin(pin)
+  if (u) return u
+
+  const staffCount = (db.usersGetAll?.() || []).length
+  const now = Date.now()
+  const stale = (now - _lastPinRescuePullAt) > PIN_RESCUE_COOLDOWN_MS
+  const shouldRescue = staffCount === 0 || stale
+  if (!shouldRescue) return u
+
+  _lastPinRescuePullAt = now
+  try {
+    console.log(`[auth:pin] miss — staffCount=${staffCount} stale=${stale}, forcing sync pull`)
+    await Promise.race([
+      sync.pullNow?.() || Promise.resolve(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('rescue-pull timeout')), 10_000)),
+    ])
+  } catch (err) {
+    console.warn('[auth:pin] rescue pull failed:', err?.message || err)
+    return u
+  }
+  return db.authByPin(pin)
+})
 handle('auth:lockout-status', ()  => db.authLockoutStatus?.() || { locked: false, until: null })
 handle('users:all',        ()     => db.usersGetAll())
 handleMut('users:create',     (data)          => db.userCreate(data), {
@@ -1663,12 +1692,14 @@ handleMut('users:delete',     ({id})          => db.userDelete(id), {
 // is intentionally NOT mutation-guarded — any logged-in user (including
 // cashiers) must be able to invoke it to pass the gate. The hash comparison
 // itself is the security boundary.
+// Owner-only: a manager with card-gen rights could mint themselves an
+// override token and bypass cashier gates. Keep this strictly owner-tier.
 handleMut('staff:generateAuthCard', ({ id }) => db.staffGenerateAuthCard(id), {
-  requires: ({ actor }) => guard.guardOwnerOrManager(null, actor, null, 'staff:generateAuthCard'),
+  requires: ({ actor }) => guard.guardOwnerOnly(null, actor, null, 'staff:generateAuthCard'),
   targetCtx: ({ args }) => guard.userTargetCtx(db, args[0]?.id),
 })
 handleMut('staff:revokeAuthCard',   ({ id }) => db.staffRevokeAuthCard(id), {
-  requires: ({ actor }) => guard.guardOwnerOrManager(null, actor, null, 'staff:revokeAuthCard'),
+  requires: ({ actor }) => guard.guardOwnerOnly(null, actor, null, 'staff:revokeAuthCard'),
   targetCtx: ({ args }) => guard.userTargetCtx(db, args[0]?.id),
 })
 handle('staff:verifyAuthToken',     (token)  => db.staffVerifyAuthToken(token))
@@ -2020,6 +2051,7 @@ handle('commissions:byWasher', ({washerId,from,to}) => db.commissionsGetByWasher
 handle('commissions:byPeriod', ({from,to})          => db.commissionsGetByPeriod(from, to))
 handleMut('commissions:markPaid', (ids)                => db.commissionsMarkPaid(ids))
 handleMut('commissions:markPaidByPeriod', (args)       => db.commissionsMarkPaidByPeriod(args))
+handleMut('commissions:create',       (data)           => db.washerCommissionCreate(data))
 handleMut('sellerCommissions:create', (data)           => db.sellerCommissionCreate(data))
 handleMut('cajeroCommissions:create', (data)           => db.cajeroCommissionCreate(data))
 handle('sellerCommissions:bySeller', ({sellerId,from,to}) => db.sellerCommissionsBySeller(sellerId, from, to))

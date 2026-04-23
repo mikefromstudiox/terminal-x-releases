@@ -230,27 +230,93 @@ async function fetchCount(supabase, bid, idOrSid) {
   const { data: header } = await supabase.from('inventory_counts')
     .select('*').eq('business_id', bid).eq(key, val).maybeSingle()
   if (!header) return null
-  const { data: items = [] } = await supabase.from('inventory_count_items')
+  const { data: itemsRaw = [] } = await supabase.from('inventory_count_items')
     .select('*').eq('business_id', bid).eq('count_supabase_id', header.supabase_id)
     .order('category').order('name')
-  return { ...header, items: items || [] }
+  const items = itemsRaw || []
+
+  // v2.14 — Sales during the count window. Matches the desktop calc in
+  // inventoryCountGet so variance shows true shrinkage, not sales. Small
+  // datasets (≤ few K ticket_items typical per count) keep this cheap.
+  try {
+    const windowEnd = header.completed_at || new Date().toISOString()
+    const { data: tix = [] } = await supabase.from('tickets')
+      .select('supabase_id, status, created_at')
+      .eq('business_id', bid)
+      .gte('created_at', header.started_at)
+      .lte('created_at', windowEnd)
+      .neq('status', 'anulado')
+    const liveSids = (tix || []).map(t => t.supabase_id).filter(Boolean)
+    const soldMap = new Map()
+    if (liveSids.length) {
+      // Batch 500 at a time to stay under URL size limits on Supabase IN filter.
+      for (let i = 0; i < liveSids.length; i += 500) {
+        const chunk = liveSids.slice(i, i + 500)
+        const { data: rows = [] } = await supabase.from('ticket_items')
+          .select('inventory_item_supabase_id, quantity')
+          .eq('business_id', bid)
+          .in('ticket_supabase_id', chunk)
+          .not('inventory_item_supabase_id', 'is', null)
+        for (const r of (rows || [])) {
+          const k = r.inventory_item_supabase_id
+          if (!k) continue
+          soldMap.set(k, (soldMap.get(k) || 0) + (Number(r.quantity) || 1))
+        }
+      }
+    }
+    for (const it of items) {
+      it.sold_during_count = soldMap.get(it.inventory_item_supabase_id) || 0
+    }
+  } catch {
+    for (const it of items) it.sold_during_count = 0
+  }
+
+  return { ...header, items }
 }
 
 async function refreshCountTotals(supabase, bid, countSid) {
-  // Fetch raw row values and compute rollups in JS so the same math runs on web
-  // and desktop. Supabase has generated cols but they're per-row — we still
-  // need the SUM here to feed the header totals. Small dataset (≤ thousands of
-  // items) keeps this fast.
+  // v2.14 — Totals subtract sales-during-count so running variance is TRUE
+  // shrinkage, not sales. Small datasets (≤ few K items) keep this fast.
+  const { data: header } = await supabase.from('inventory_counts')
+    .select('started_at, completed_at')
+    .eq('business_id', bid).eq('supabase_id', countSid).maybeSingle()
   const { data = [] } = await supabase.from('inventory_count_items')
-    .select('expected_qty, counted_qty, unit_cost')
+    .select('inventory_item_supabase_id, expected_qty, counted_qty, unit_cost')
     .eq('business_id', bid).eq('count_supabase_id', countSid)
+
+  const soldMap = new Map()
+  if (header) {
+    try {
+      const windowEnd = header.completed_at || new Date().toISOString()
+      const { data: tix = [] } = await supabase.from('tickets')
+        .select('supabase_id').eq('business_id', bid)
+        .gte('created_at', header.started_at).lte('created_at', windowEnd)
+        .neq('status', 'anulado')
+      const sids = (tix || []).map(t => t.supabase_id).filter(Boolean)
+      for (let i = 0; i < sids.length; i += 500) {
+        const chunk = sids.slice(i, i + 500)
+        const { data: rows = [] } = await supabase.from('ticket_items')
+          .select('inventory_item_supabase_id, quantity')
+          .eq('business_id', bid).in('ticket_supabase_id', chunk)
+          .not('inventory_item_supabase_id', 'is', null)
+        for (const r of (rows || [])) {
+          const k = r.inventory_item_supabase_id
+          if (!k) continue
+          soldMap.set(k, (soldMap.get(k) || 0) + (Number(r.quantity) || 1))
+        }
+      }
+    } catch {}
+  }
+
   const totals = (data || []).reduce((acc, r) => {
     const exp = Number(r.expected_qty) || 0
-    const cnt = (r.counted_qty === null || r.counted_qty === undefined) ? exp : Number(r.counted_qty)
+    const sold = soldMap.get(r.inventory_item_supabase_id) || 0
+    const adj = exp - sold
+    const cnt = (r.counted_qty === null || r.counted_qty === undefined) ? adj : Number(r.counted_qty)
     const cost = Number(r.unit_cost) || 0
     acc.total_expected_value += exp * cost
     acc.total_counted_value  += cnt * cost
-    acc.total_variance_value += (cnt - exp) * cost
+    acc.total_variance_value += (cnt - adj) * cost
     return acc
   }, { total_expected_value: 0, total_counted_value: 0, total_variance_value: 0 })
   await supabase.from('inventory_counts').update({
@@ -855,18 +921,31 @@ export function createWebAPI(supabase, businessId) {
     // variance_* columns — never send them in inserts/updates; always read them
     // back from SELECT so the UI renders the same numbers on web and desktop.
     inventoryCount: {
-      start: ({ title, counted_by_name, notes } = {}) => tryOr(async () => {
+      start: ({ title, counted_by_name, notes, categories } = {}) => tryOr(async () => {
         const sid = crypto.randomUUID()
         const nowIso = new Date().toISOString()
         const headerTitle = (title && String(title).trim()) ||
           `Conteo Fisico ${new Date().toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })}`
-        // Snapshot active inventory once — atomically stamps expected_qty,
-        // unit_cost and unit_price so sales during the count don't poison the
-        // baseline. Variance gets computed against this snapshot on Supabase.
-        const items = throwSupaError(await supabase.from('inventory_items')
+        // v2.14 — category pre-scope (optional). Null/empty = all active items.
+        // Supabase client-side filter: fetch full list then narrow in JS so
+        // "(sin categoria)" (null/blank) can be handled alongside named cats
+        // without writing two queries.
+        const catList = Array.isArray(categories) ? categories.filter(c => c != null).map(String) : null
+        let itemsQ = supabase.from('inventory_items')
           .select('supabase_id, sku, name, category, quantity, cost, price')
           .eq('business_id', bid).eq('active', true)
-          .order('category').order('name')) || []
+          .order('category').order('name')
+        const rawItems = throwSupaError(await itemsQ) || []
+        let items = rawItems
+        if (catList && catList.length) {
+          const wantBlank = catList.some(c => c === '(sin categoria)' || c === 'Sin categoria')
+          const named = new Set(catList.filter(c => c !== '(sin categoria)' && c !== 'Sin categoria'))
+          items = rawItems.filter(it => {
+            const k = (it.category || '').trim()
+            if (!k) return wantBlank
+            return named.has(it.category)
+          })
+        }
         const header = throwSupaError(await supabase.from('inventory_counts').insert({
           supabase_id: sid, business_id: bid,
           title: headerTitle, started_at: nowIso,
@@ -938,7 +1017,7 @@ export function createWebAPI(supabase, businessId) {
         return true
       }),
 
-      complete: ({ id, apply_to_inventory = true } = {}) => tryOr(async () => {
+      complete: ({ id, apply_to_inventory = true, signature_dataurl = null } = {}) => tryOr(async () => {
         if (!id) throw new Error('missing_id')
         const header = throwSupaError(await supabase.from('inventory_counts').select('*').eq('business_id', bid)
           .eq(typeof id === 'string' && id.includes('-') ? 'supabase_id' : 'id', typeof id === 'string' && id.includes('-') ? id : Number(id))
@@ -949,10 +1028,40 @@ export function createWebAPI(supabase, businessId) {
         const nowIso = new Date().toISOString()
 
         // Fetch counted rows to apply + build metadata snapshot in one pass.
-        const counted = throwSupaError(await supabase.from('inventory_count_items')
+        const countedRaw = throwSupaError(await supabase.from('inventory_count_items')
           .select('inventory_item_supabase_id, sku, name, category, expected_qty, counted_qty, unit_cost, unit_price, variance_qty, variance_cost')
           .eq('business_id', bid).eq('count_supabase_id', countSid)
           .not('counted_qty', 'is', null)) || []
+
+        // v2.14 — Subtract sales-during-count so variance is TRUE shrinkage.
+        const soldMap = new Map()
+        try {
+          const { data: tix = [] } = await supabase.from('tickets')
+            .select('supabase_id').eq('business_id', bid)
+            .gte('created_at', header.started_at).lte('created_at', nowIso)
+            .neq('status', 'anulado')
+          const tixSids = (tix || []).map(t => t.supabase_id).filter(Boolean)
+          for (let i = 0; i < tixSids.length; i += 500) {
+            const chunk = tixSids.slice(i, i + 500)
+            const { data: rows = [] } = await supabase.from('ticket_items')
+              .select('inventory_item_supabase_id, quantity')
+              .eq('business_id', bid).in('ticket_supabase_id', chunk)
+              .not('inventory_item_supabase_id', 'is', null)
+            for (const r of (rows || [])) {
+              const k = r.inventory_item_supabase_id
+              if (!k) continue
+              soldMap.set(k, (soldMap.get(k) || 0) + (Number(r.quantity) || 1))
+            }
+          }
+        } catch {}
+        const counted = countedRaw.map(r => {
+          const exp = Number(r.expected_qty) || 0
+          const sold = soldMap.get(r.inventory_item_supabase_id) || 0
+          const adj = exp - sold
+          const cnt = Number(r.counted_qty) || 0
+          const varQty = cnt - adj
+          return { ...r, sold_during_count: sold, adj_expected_qty: adj, variance_qty: varQty, variance_cost: varQty * (Number(r.unit_cost) || 0) }
+        })
 
         if (apply_to_inventory) {
           // Individual UPDATEs — Supabase has no atomic bulk-set-by-value.
@@ -967,6 +1076,7 @@ export function createWebAPI(supabase, businessId) {
         }
         throwSupaError(await supabase.from('inventory_counts').update({
           status: 'completado', completed_at: nowIso, updated_at: nowIso,
+          ...(signature_dataurl ? { signature_dataurl } : {}),
         }).eq('business_id', bid).eq('supabase_id', countSid))
 
         const totals = await refreshCountTotals(supabase, bid, countSid)
@@ -2844,6 +2954,26 @@ export function createWebAPI(supabase, businessId) {
           .select('id')
         return { updated: (data || []).length }
       }, { updated: 0 }),
+
+      // v2.14 — manual commission entry (no ticket FK).
+      create: (data) => tryOr(async () => {
+        if (!data.empleado_supabase_id || !data.manual_reason) throw new Error('empleado_supabase_id + manual_reason required')
+        const sid = crypto.randomUUID()
+        const payload = {
+          supabase_id: sid,
+          business_id: bid,
+          empleado_supabase_id: data.empleado_supabase_id,
+          ticket_supabase_id: null,
+          base_amount: Number(data.base_amount || 0),
+          commission_pct: Number(data.commission_pct || 0),
+          commission_amount: Number(data.commission_amount || 0),
+          paid: false,
+          manual_reason: data.manual_reason,
+        }
+        if (data.created_at) payload.created_at = data.created_at
+        const row = throwSupaError(await supabase.from('washer_commissions').insert(payload).select('id').single())
+        return { id: row.id, supabase_id: sid }
+      }),
     },
 
     // ── Seller Commissions ──────────────────────────────────────────────────
@@ -2922,13 +3052,12 @@ export function createWebAPI(supabase, businessId) {
 
       create: (data) => tryOr(async () => {
         const sid = crypto.randomUUID()
-        // Resolve empleado_supabase_id: prefer caller-provided, else look up by seller_supabase_id
         let empSid = data.empleado_supabase_id || null
         if (!empSid && data.seller_supabase_id) {
           const { data: emp } = await supabase.from('empleados').select('supabase_id').eq('supabase_id', data.seller_supabase_id).eq('business_id', bid).maybeSingle()
           empSid = emp?.supabase_id || data.seller_supabase_id
         }
-        const row = throwSupaError(await supabase.from('seller_commissions').insert({
+        const payload = {
           supabase_id: sid,
           business_id: bid,
           empleado_supabase_id: empSid,
@@ -2937,7 +3066,10 @@ export function createWebAPI(supabase, businessId) {
           commission_pct: Number(data.commission_pct || 0),
           commission_amount: Number(data.commission_amount || 0),
           paid: false,
-        }).select('id').single())
+        }
+        if (data.manual_reason) payload.manual_reason = data.manual_reason
+        if (data.created_at)    payload.created_at    = data.created_at
+        const row = throwSupaError(await supabase.from('seller_commissions').insert(payload).select('id').single())
         return { id: row.id, supabase_id: sid }
       }),
     },
@@ -3018,9 +3150,8 @@ export function createWebAPI(supabase, businessId) {
 
       create: (data) => tryOr(async () => {
         const sid = crypto.randomUUID()
-        // Resolve empleado_supabase_id: prefer caller-provided, else fall back to cajero_supabase_id
         const empSid = data.empleado_supabase_id || data.cajero_supabase_id || null
-        const row = throwSupaError(await supabase.from('cajero_commissions').insert({
+        const payload = {
           supabase_id: sid,
           business_id: bid,
           empleado_supabase_id: empSid,
@@ -3029,7 +3160,10 @@ export function createWebAPI(supabase, businessId) {
           commission_pct: Number(data.commission_pct || 0),
           commission_amount: Number(data.commission_amount || 0),
           paid: false,
-        }).select('id').single())
+        }
+        if (data.manual_reason) payload.manual_reason = data.manual_reason
+        if (data.created_at)    payload.created_at    = data.created_at
+        const row = throwSupaError(await supabase.from('cajero_commissions').insert(payload).select('id').single())
         return { id: row.id, supabase_id: sid }
       }),
     },

@@ -388,7 +388,8 @@ function Usuarios() {
                       {(() => {
                         const role = emp?.role || u.role
                         const eligible = role === 'owner' || role === 'manager'
-                        return eligible ? (
+                        const callerIsOwner = user?.role === 'owner'
+                        return (eligible && callerIsOwner) ? (
                           <button onClick={() => setCardUser({ ...u, role })}
                             title={L('Tarjeta', 'Card')}
                             className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 dark:text-white/40 hover:text-[#b3001e] hover:bg-[#b3001e]/10 transition-colors">
@@ -420,7 +421,12 @@ function Usuarios() {
                     {(() => {
                       const role = emp?.role || u.role
                       const eligible = role === 'owner' || role === 'manager'
-                      return eligible ? (
+                      // Only the OWNER can manage authorization cards. Managers
+                      // can HOLD a card (eligible targets include them) but
+                      // cannot mint or revoke one — otherwise they could
+                      // bootstrap their own override capability.
+                      const callerIsOwner = user?.role === 'owner'
+                      return (eligible && callerIsOwner) ? (
                         <button onClick={() => setCardUser({ ...u, role })}
                           title={L('Gestionar tarjeta de autorización', 'Manage authorization card')}
                           className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-[#b3001e] hover:bg-[#b3001e]/10 transition-colors">
@@ -551,6 +557,8 @@ function Servicios() {
   const [error,      setError]      = useState('')
   const [activeTab,  setActiveTab]  = useState('all')
   const [catOrder,   setCatOrder]   = useState({}) // { categoryName: orden }
+  // v2.14.1: Electron blocks window.prompt() — use a small inline modal instead.
+  const [promptModal, setPromptModal] = useState(null) // { title, initial, onSave }
   const { toast, show }             = useToast()
 
   useEffect(() => { load() }, [])
@@ -588,6 +596,72 @@ function Servicios() {
       else await api.categorias.create({ nombre: other, orden: catOrderA })
       setCatOrder(prev => ({ ...prev, [cat]: catOrderB, [other]: catOrderA }))
     } catch { show(L('Error al reordenar', 'Error reordering'), 'error') }
+  }
+
+  function renameCat(oldName) {
+    setPromptModal({
+      title: L(`Nuevo nombre para "${oldName}"`, `New name for "${oldName}"`),
+      initial: oldName,
+      onSave: async (newName) => {
+        newName = (newName || '').trim()
+        if (!newName || newName === oldName) return
+        if (categories.includes(newName)) { show(L('Ya existe esa categoría', 'Category already exists'), 'error'); return }
+        try {
+          const cats = (await api?.categorias?.all?.()) || []
+          const catRec = cats.find(c => c.nombre === oldName)
+          if (catRec) await api.categorias.update({ id: catRec.id, nombre: newName })
+          else        await api.categorias.create({ nombre: newName, orden: catOrder[oldName] ?? 999 })
+          const affected = list.filter(s => s.category === oldName)
+          for (const s of affected) {
+            await api.services.update({ id: s.id, category: newName })
+          }
+          show(L(`Categoría renombrada (${affected.length} servicios)`, `Category renamed (${affected.length} services)`))
+          if (activeTab === oldName) setActiveTab(newName)
+          load()
+        } catch (e) {
+          show(e?.message || L('Error al renombrar', 'Rename error'), 'error')
+        }
+      },
+    })
+  }
+
+  async function deleteCat(catName) {
+    const count = list.filter(s => s.category === catName).length
+    if (count > 0) {
+      show(L(`"${catName}" tiene ${count} servicio(s). Mueva o elimine primero.`, `"${catName}" has ${count} service(s). Move or delete them first.`), 'error')
+      return
+    }
+    // window.confirm is supported in Electron — keep it.
+    const ok = window.confirm(L(`Eliminar la categoría "${catName}"?`, `Delete category "${catName}"?`))
+    if (!ok) return
+    try {
+      const cats = (await api?.categorias?.all?.()) || []
+      const catRec = cats.find(c => c.nombre === catName)
+      if (catRec) await api.categorias.delete(catRec.id)
+      show(L('Categoría eliminada ✓', 'Category deleted ✓'))
+      if (activeTab === catName) setActiveTab('all')
+      load()
+    } catch (e) {
+      show(e?.message || L('Error al eliminar', 'Delete error'), 'error')
+    }
+  }
+
+  function openCreateCatPrompt() {
+    setPromptModal({
+      title: L('Nombre de la nueva categoría', 'Name of the new category'),
+      initial: '',
+      onSave: async (nombre) => {
+        nombre = (nombre || '').trim()
+        if (!nombre) return
+        if (categories.includes(nombre)) { show(L('Ya existe esa categoría', 'Category already exists'), 'error'); return }
+        try {
+          await api.categorias.create({ nombre, orden: categories.length })
+          show(L('Categoría creada ✓', 'Category created ✓'))
+          setActiveTab(nombre)
+          load()
+        } catch (e) { show(e?.message || L('Error', 'Error'), 'error') }
+      },
+    })
   }
   const visible    = activeTab === 'all' ? list : list.filter(s => s.category === activeTab)
 
@@ -690,8 +764,23 @@ function Servicios() {
                     <ChevronDown size={12} className="rotate-[-90deg]" />
                   </button>
                 )}
+                {activeTab === c && canDelete && (
+                  <>
+                    <button onClick={() => renameCat(c)} className="p-1 ml-0.5 text-slate-400 hover:text-sky-600 dark:text-white/40 dark:hover:text-sky-400" title={L('Renombrar categoría', 'Rename category')}>
+                      <Edit2 size={11} />
+                    </button>
+                    <button onClick={() => deleteCat(c)} className="p-1 text-slate-400 hover:text-red-600 dark:text-white/40 dark:hover:text-red-400" title={L('Eliminar categoría', 'Delete category')}>
+                      <Trash2 size={11} />
+                    </button>
+                  </>
+                )}
               </div>
             ))}
+            {canDelete && (
+              <button type="button" onClick={openCreateCatPrompt} className="shrink-0 flex items-center gap-1 px-2 py-1 ml-1 text-[11px] text-slate-500 dark:text-white/60 hover:text-[#0C447C] dark:hover:text-blue-400 border border-dashed border-slate-300 dark:border-white/20 rounded-md" title={L('Nueva categoría', 'New category')}>
+                <Plus size={10} /> {L('Categoría', 'Category')}
+              </button>
+            )}
           </div>
           <button onClick={openAdd} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 mb-2 min-h-[44px] md:min-h-0 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors w-full md:w-auto justify-center md:justify-start md:ml-auto">
             <Plus size={13} /> {L('Agregar Servicio', 'Add Service')}
@@ -854,6 +943,46 @@ function Servicios() {
           )}
         </Panel>
       )}
+
+      {promptModal && (
+        <PromptModal
+          title={promptModal.title}
+          initial={promptModal.initial}
+          onSave={async (v) => {
+            const cb = promptModal.onSave
+            setPromptModal(null)
+            try { await cb?.(v) } catch {}
+          }}
+          onClose={() => setPromptModal(null)}
+          lang={lang}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Prompt modal (Electron blocks window.prompt → use this instead) ──────────
+function PromptModal({ title, initial, onSave, onClose, lang }) {
+  const L = (es, en) => lang === 'es' ? es : en
+  const [val, setVal] = useState(initial || '')
+  const ref = useRef(null)
+  useEffect(() => { ref.current?.focus(); ref.current?.select?.() }, [])
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-slate-200 dark:border-white/10">
+          <p className="text-sm font-bold text-slate-700 dark:text-white">{title}</p>
+        </div>
+        <div className="p-5">
+          <input ref={ref} type="text" value={val} onChange={e => setVal(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') onSave(val); if (e.key === 'Escape') onClose() }}
+            className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg bg-white dark:bg-white/5 text-sm text-slate-800 dark:text-white" />
+        </div>
+        <div className="px-5 py-3 border-t border-slate-200 dark:border-white/10 flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-1.5 text-[12px] font-bold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 rounded-lg">{L('Cancelar', 'Cancel')}</button>
+          <button onClick={() => onSave(val)} className="px-4 py-1.5 text-[12px] font-bold text-white bg-[#0C447C] hover:bg-[#0a3a6a] rounded-lg">{L('Guardar', 'Save')}</button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -449,6 +449,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     byPeriod: (params) => call('commissions:byPeriod', params),
     markPaid: (ids)    => call('commissions:markPaid', ids),
     markPaidByPeriod: (args) => call('commissions:markPaidByPeriod', args),
+    create:   (data)   => call('commissions:create', data),
   },
   sellerCommissions: {
     bySeller: (params) => call('sellerCommissions:bySeller', params),
@@ -548,10 +549,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // ── Cloud Sync ─────────────────────────────────────────────────────────────
+  // Use call() so the `{ok, data}` IPC wrapper gets unwrapped automatically.
+  // Without this, the sidebar ManualSyncButton reads r?.totalRows on the
+  // wrapper and always sees undefined → "0 uploaded, 0 downloaded".
   sync: {
-    status: () => ipcRenderer.invoke('sync:status'),
-    now:    () => ipcRenderer.invoke('sync:now'),
-    pull:   () => ipcRenderer.invoke('sync:pull'),
+    status: () => call('sync:status'),
+    now:    () => call('sync:now'),
+    pull:   () => call('sync:pull'),
   },
 
   // ── Nightly DB backup to Supabase Storage ──────────────────────────────────

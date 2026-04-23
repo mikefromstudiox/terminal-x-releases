@@ -591,6 +591,7 @@ const SYNC_TABLES = [
       paid_at: r.paid_at,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
+      manual_reason: r.manual_reason || null,  // v2.14
     }),
   },
   {
@@ -607,6 +608,7 @@ const SYNC_TABLES = [
       paid_at: r.paid_at,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
+      manual_reason: r.manual_reason || null,  // v2.14
     }),
   },
   {
@@ -623,6 +625,7 @@ const SYNC_TABLES = [
       paid_at: r.paid_at,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
+      manual_reason: r.manual_reason || null,  // v2.14
     }),
   },
   {
@@ -1115,6 +1118,7 @@ const SYNC_TABLES = [
       total_expected_value: Number(r.total_expected_value) || 0,
       total_counted_value:  Number(r.total_counted_value)  || 0,
       total_variance_value: Number(r.total_variance_value) || 0,
+      signature_dataurl: r.signature_dataurl || null,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
     }),
@@ -1229,6 +1233,110 @@ function init(db, { supabaseUrl, supabaseKey }) {
     }
   } catch (e) { log.error('[sync] v4 ticket resync marker:', e.message) }
 
+  // v2.13.9 — one-time local dedupe of commission tables. StarSISA imports
+  // created duplicate (empleado, amount, month) rows with distinct
+  // supabase_ids. Cloud-side dedupe was applied separately; this mirrors
+  // the dedupe locally on first boot after upgrade so Liquidaciones shows
+  // the correct (non-doubled) totals immediately, without waiting for a
+  // reconcile cycle.
+  try {
+    const marker = _db.rawPrepare("SELECT value FROM app_settings WHERE key = 'dedupe_commissions_v1'")?.get()
+    if (!marker) {
+      let totalDeleted = 0
+      for (const table of ['washer_commissions', 'seller_commissions', 'cajero_commissions']) {
+        try {
+          // Keep the oldest (lowest id) row per logical tuple. Aggregate
+          // rollups have ticket_supabase_id=null and ticket_id=null, so the
+          // PARTITION key uses (empleado_supabase_id, base_amount,
+          // commission_pct, commission_amount, created_at).
+          const res = _db.rawPrepare(
+            `DELETE FROM ${table}
+              WHERE id IN (
+                SELECT id FROM (
+                  SELECT id,
+                         ROW_NUMBER() OVER (
+                           PARTITION BY empleado_supabase_id, base_amount, commission_pct, commission_amount, created_at
+                           ORDER BY id
+                         ) AS rn
+                    FROM ${table}
+                ) WHERE rn > 1
+              )`
+          ).run()
+          if (res?.changes) totalDeleted += res.changes
+        } catch (e) { log.warn(`[sync] dedupe ${table}:`, e.message) }
+      }
+      _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('dedupe_commissions_v1','1')").run()
+      log.info(`[sync] v2.13.9 commission dedupe: deleted ${totalDeleted} duplicate row(s)`)
+    }
+  } catch (e) { log.error('[sync] dedupe commissions marker:', e.message) }
+
+  // v2.13.12 — nuclear option for commission aggregate rollups. Two previous
+  // dedupe attempts (v1 by exact timestamp, v2 by month+amount) both left
+  // stragglers because SQLite timestamps from different import passes don't
+  // match byte-for-byte. Just delete ALL aggregate rollups locally and reset
+  // the pull cursor so the next sync cycle re-hydrates from cloud (which
+  // we've already verified is correct at 12 rows per empleado). Non-aggregate
+  // per-ticket commissions (ticket_supabase_id IS NOT NULL) stay untouched.
+  try {
+    const marker = _db.rawPrepare("SELECT value FROM app_settings WHERE key = 'reset_rollup_commissions_v1'")?.get()
+    if (!marker) {
+      let totalDeleted = 0
+      for (const table of ['washer_commissions', 'seller_commissions', 'cajero_commissions']) {
+        try {
+          let hasTicketId = false
+          try { hasTicketId = _db.rawPrepare(`PRAGMA table_info(${table})`).all().some(r => r.name === 'ticket_id') } catch {}
+          const where = hasTicketId
+            ? 'ticket_supabase_id IS NULL AND ticket_id IS NULL'
+            : 'ticket_supabase_id IS NULL'
+          const res = _db.rawPrepare(`DELETE FROM ${table} WHERE ${where}`).run()
+          if (res?.changes) totalDeleted += res.changes
+          // Reset pull cursor so the next sync re-pulls the canonical cloud rows.
+          _db.rawPrepare("DELETE FROM sync_log WHERE table_name = ?").run(table)
+        } catch (e) { log.warn(`[sync] reset-rollups ${table}:`, e.message) }
+      }
+      _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('reset_rollup_commissions_v1','1')").run()
+      log.info(`[sync] v2.13.12 commission rollup reset: deleted ${totalDeleted} row(s) + reset cursors`)
+    }
+  } catch (e) { log.error('[sync] reset rollup commissions marker:', e.message) }
+
+  // v2.13.11 — stricter one-month-per-row commission dedupe + reconcile with
+  // cloud. v2.13.9's dedupe keyed on exact created_at which missed rows
+  // whose timestamps differed by even a millisecond. Reconcile's age guard
+  // also skipped future-stamped StarSISA aggregates. This pass:
+  //   1. collapses all aggregate-rollup commissions (ticket_supabase_id
+  //      IS NULL AND ticket_id IS NULL) to one row per (empleado, month,
+  //      commission_amount) — the natural granularity of the import.
+  //   2. re-runs on every install bump until the marker ticks to v2, so
+  //      earlier failures self-heal.
+  try {
+    const marker = _db.rawPrepare("SELECT value FROM app_settings WHERE key = 'dedupe_commissions_v2'")?.get()
+    if (!marker) {
+      let totalDeleted = 0
+      for (const table of ['washer_commissions', 'seller_commissions', 'cajero_commissions']) {
+        try {
+          // Has a `ticket_id` column? Some legacy tables drop it.
+          let hasTicketId = false
+          try { hasTicketId = _db.rawPrepare(`PRAGMA table_info(${table})`).all().some(r => r.name === 'ticket_id') } catch {}
+          const nullTicketClause = hasTicketId
+            ? 'ticket_supabase_id IS NULL AND ticket_id IS NULL'
+            : 'ticket_supabase_id IS NULL'
+          const res = _db.rawPrepare(
+            `DELETE FROM ${table}
+              WHERE ${nullTicketClause}
+                AND id NOT IN (
+                  SELECT MIN(id) FROM ${table}
+                   WHERE ${nullTicketClause}
+                   GROUP BY empleado_supabase_id, commission_amount, substr(created_at, 1, 7)
+                )`
+          ).run()
+          if (res?.changes) totalDeleted += res.changes
+        } catch (e) { log.warn(`[sync] dedupe-v2 ${table}:`, e.message) }
+      }
+      _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('dedupe_commissions_v2','1')").run()
+      log.info(`[sync] v2.13.11 commission dedupe-v2: deleted ${totalDeleted} duplicate row(s)`)
+    }
+  } catch (e) { log.error('[sync] dedupe commissions v2 marker:', e.message) }
+
   // Write diagnostic file
   try {
     const fs = require('fs')
@@ -1280,6 +1388,14 @@ async function supabaseUpsert(table, rows) {
   // Supabase has real UNIQUE (business_id, supabase_id) constraints on every
   // sync table (created 2026-04-11 — previously these were partial indexes
   // which PostgREST can't use as on_conflict targets). Clean upsert works.
+  //
+  // activity_log has a trigger that rejects UPDATE/DELETE ("append-only").
+  // If we send resolution=merge-duplicates and a row's supabase_id already
+  // exists in Supabase, PostgREST issues an UPDATE → 400. Swap to
+  // ignore-duplicates for the append-only tables so conflicts become no-ops
+  // instead of aborts.
+  const APPEND_ONLY_TABLES = new Set(['activity_log'])
+  const resolution = APPEND_ONLY_TABLES.has(table) ? 'ignore-duplicates' : 'merge-duplicates'
   const doPost = (payload) => new Promise((resolve, reject) => {
     const reqUrl = new URL(`${_url}/rest/v1/${table}?on_conflict=business_id,supabase_id`)
     const body = JSON.stringify(payload)
@@ -1291,7 +1407,7 @@ async function supabaseUpsert(table, rows) {
         'apikey': _key,
         'Authorization': `Bearer ${_key}`,
         'Content-Type': 'application/json',
-        'Prefer': 'resolution=merge-duplicates,return=minimal',
+        'Prefer': `resolution=${resolution},return=minimal`,
         'Content-Length': Buffer.byteLength(body),
       },
     }, (response) => {
@@ -1567,15 +1683,21 @@ const PULL_TABLES = [
     cols: ['principal','term_months','interest_rate','monthly_payment','status','disbursed_at','next_due_date','total_paid','total_interest','method','mora_rate_daily','days_late','mora_amount','notes','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients' } },
 
-  // Phase 3 — financial (FWW)
-  { name: 'washer_commissions', strategy: 'fww',
+  // Phase 3 — financial (LWW on paid flag)
+  // v2.13.13: commissions were previously FWW (first-write-wins) to freeze
+  // historical amounts. But that blocked propagation of the `paid` flag
+  // when owners mark commissions paid on one device — the other devices
+  // never saw the update. Switched to LWW so `paid`/`paid_at` changes flow.
+  // Amounts are write-once in practice (set at ticket cobrar + never edited),
+  // so LWW doesn't open a real race window on those columns.
+  { name: 'washer_commissions', strategy: 'lww',
     cols: ['base_amount','commission_pct','commission_amount','paid','paid_at','created_at','updated_at'],
     // v2.1: washer_supabase_id (→ washers) replaced by empleado_supabase_id (→ empleados, tipo='lavador').
     fkCols: { empleado_supabase_id: 'empleados', ticket_supabase_id: 'tickets' } },
-  { name: 'seller_commissions', strategy: 'fww',
+  { name: 'seller_commissions', strategy: 'lww',
     cols: ['base_amount','commission_pct','commission_amount','paid','paid_at','created_at','updated_at'],
     fkCols: { empleado_supabase_id: 'empleados', ticket_supabase_id: 'tickets' } },
-  { name: 'cajero_commissions', strategy: 'fww',
+  { name: 'cajero_commissions', strategy: 'lww',
     cols: ['base_amount','commission_pct','commission_amount','paid','paid_at','created_at','updated_at'],
     fkCols: { cajero_supabase_id: 'users', ticket_supabase_id: 'tickets' } },
   { name: 'credit_payments', strategy: 'fww',
@@ -1707,6 +1829,20 @@ const PULL_TABLES = [
 ]
 
 // -- Pull upsert: Supabase row -> SQLite row ----------------------------------
+// Cache pragma_table_info lookups so we don't hit SQLite on every row.
+const _tableColCache = new Map()
+function _tableHasColumn(tableName, colName) {
+  const key = `${tableName}.${colName}`
+  if (_tableColCache.has(key)) return _tableColCache.get(key)
+  let has = false
+  try {
+    const rows = _db.rawPrepare(`PRAGMA table_info(${tableName})`).all()
+    has = rows.some(r => r.name === colName)
+  } catch {}
+  _tableColCache.set(key, has)
+  return has
+}
+
 function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, naturalKey) {
   if (!row.supabase_id) return
 
@@ -1814,15 +1950,21 @@ function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, natur
         if (row[fkCol]) {
           setClauses.push(`${fkCol} = ?`)
           setVals.push(row[fkCol])
-          // Also resolve to local integer ID
+          // Also resolve to local integer ID — but only if the local table
+          // actually has a *_id column. v2.1 commission tables dropped the
+          // INT FK in favour of *_supabase_id only, so blindly adding e.g.
+          // `empleado_id = ?` here used to throw `no such column: empleado_id`
+          // and silently abort the whole pull for every commission row.
           const localCol = fkCol.replace('_supabase_id', '_id')
-          try {
-            const refRow = _db.rawPrepare(`SELECT id FROM ${refTable} WHERE supabase_id = ?`).get(row[fkCol])
-            if (refRow) {
-              setClauses.push(`${localCol} = ?`)
-              setVals.push(refRow.id)
-            }
-          } catch { /* ref table may not have the row yet */ }
+          if (_tableHasColumn(tableName, localCol)) {
+            try {
+              const refRow = _db.rawPrepare(`SELECT id FROM ${refTable} WHERE supabase_id = ?`).get(row[fkCol])
+              if (refRow) {
+                setClauses.push(`${localCol} = ?`)
+                setVals.push(refRow.id)
+              }
+            } catch { /* ref table may not have the row yet */ }
+          }
         }
       }
     }
@@ -1848,13 +1990,15 @@ function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, natur
           insertCols.push(fkCol)
           insertVals.push(row[fkCol])
           const localCol = fkCol.replace('_supabase_id', '_id')
-          try {
-            const refRow = _db.rawPrepare(`SELECT id FROM ${refTable} WHERE supabase_id = ?`).get(row[fkCol])
-            if (refRow) {
-              insertCols.push(localCol)
-              insertVals.push(refRow.id)
-            }
-          } catch { /* ref table may not have the row yet */ }
+          if (_tableHasColumn(tableName, localCol)) {
+            try {
+              const refRow = _db.rawPrepare(`SELECT id FROM ${refTable} WHERE supabase_id = ?`).get(row[fkCol])
+              if (refRow) {
+                insertCols.push(localCol)
+                insertVals.push(refRow.id)
+              }
+            } catch { /* ref table may not have the row yet */ }
+          }
         }
       }
     }
@@ -1871,7 +2015,7 @@ function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, natur
 
 // -- Pull a single table from Supabase ----------------------------------------
 async function pullTable(tableConfig) {
-  const { name, strategy, cols, fkCols, statusSync } = tableConfig
+  const { name, supabaseTable, strategy, cols, fkCols, statusSync } = tableConfig
   const bizId = await resolveBusinessId()
   if (!bizId) throw new Error('No business_id')
 
@@ -1905,7 +2049,13 @@ async function pullTable(tableConfig) {
 
     let rows
     try {
-      rows = await supabaseFetch(name, params)
+      // CRITICAL v2.13.17: respect supabaseTable override. Push path already did
+      // this (line 2309) but pull did not — meant pulls for `users` hit the
+      // `users` VIEW instead of the `staff` base table. If the VIEW omitted
+      // columns (e.g. pin_hash_algo), updates to those columns never reached
+      // desktops. Root cause of the 2026-04-22 PIN lockout incident.
+      const fetchTable = supabaseTable || name
+      rows = await supabaseFetch(fetchTable, params)
     } catch (e) {
       log.error(`[sync-pull] ${name}: fetch failed:`, e.message)
       break
@@ -2562,6 +2712,13 @@ async function syncNow() {
     try { await pullBusinessMeta(bizId) } catch (e) { log.error('[sync-pull] businesses:', e.message) }
     if (totalPulled > 0) log.info(`[sync] Pull complete — ${totalPulled} rows pulled`)
 
+    // Mirror cloud-side deletes to local. Without this, rows removed on the
+    // server (e.g. a dedupe of StarSISA import duplicates) stay resident on
+    // every desktop forever because LWW pull only touches rows with matching
+    // supabase_ids. Only runs for tables in RECONCILE_TABLES and respects
+    // the 10-min age guard so freshly-created local rows aren't wiped.
+    try { await reconcileDeletes() } catch (e) { log.warn('[sync] reconcileDeletes failed:', e.message) }
+
     // ── Anti-resurrection: advance last_synced_at to NOW (post-pull) ───
     // Without this, last_synced_at is set during the push phase (BEFORE
     // pull). Pulled rows get their Supabase updated_at written locally.
@@ -2749,6 +2906,11 @@ const RECONCILE_TABLES = [
   'client_service_rates', 'service_modificadores', 'payroll_runs',
   'inventory_counts', 'inventory_count_items',
   'compras_607', 'ecf_queue', 'work_order_items',
+  // Commission tables: reconcile so a cloud-side dedupe (e.g. wiping
+  // duplicate StarSISA import aggregates) propagates to desktop. The
+  // 10-min age guard in reconcileDeletes protects commissions created
+  // mid-cycle that haven't pushed yet.
+  'washer_commissions', 'seller_commissions', 'cajero_commissions',
 ]
 
 // Flush locally-recorded deletes to Supabase. Called at the top of each sync
@@ -2795,13 +2957,28 @@ async function reconcileDeletes() {
       const remote = await supabaseFetch(table, `select=supabase_id&business_id=eq.${bizId}&limit=20000`)
       if (!Array.isArray(remote)) continue
       const remoteSet = new Set(remote.map(r => r.supabase_id).filter(Boolean))
-      // Prefer created_at; fall back to id filter if the column is missing.
-      let localRows
-      try {
-        localRows = _db.rawPrepare(`SELECT id, supabase_id FROM ${table} WHERE business_id = ? AND supabase_id IS NOT NULL AND (created_at IS NULL OR created_at < ?)`).all(bizId, cutoff)
-      } catch {
-        localRows = _db.rawPrepare(`SELECT id, supabase_id FROM ${table} WHERE business_id = ? AND supabase_id IS NOT NULL`).all(bizId)
+      // Some pre-v2.1 tables (commission tables) don't have a `business_id`
+      // column locally — legacy schema was single-tenant. Build the WHERE
+      // clause from whichever columns actually exist so the query succeeds.
+      const hasBizCol  = _tableHasColumn(table, 'business_id')
+      const hasCreated = _tableHasColumn(table, 'created_at')
+      const whereParts = ['supabase_id IS NOT NULL']
+      const whereVals  = []
+      if (hasBizCol)  { whereParts.push('business_id = ?'); whereVals.push(bizId) }
+      if (hasCreated) {
+        // v2.13.10: age guard protects rows created in the last 10 min from
+        // being wiped before their push lands. BUT legacy imports can stamp
+        // created_at with future dates (StarSISA end-of-month aggregates
+        // dated 2026-04-30 while today is 2026-04-21). Those would otherwise
+        // be excluded as "too new" and reconcile would skip them forever.
+        // Accept a row as reconcilable if it's NULL, > 10 min old, OR > 1 day
+        // in the future (any future stamp that's clearly an import artifact).
+        const future = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        whereParts.push('(created_at IS NULL OR created_at < ? OR created_at > ?)')
+        whereVals.push(cutoff)
+        whereVals.push(future)
       }
+      const localRows = _db.rawPrepare(`SELECT id, supabase_id FROM ${table} WHERE ${whereParts.join(' AND ')}`).all(...whereVals)
       const toDelete = localRows.filter(r => !remoteSet.has(r.supabase_id))
       if (toDelete.length === 0) continue
       const stmt = _db.rawPrepare(`DELETE FROM ${table} WHERE id = ?`)
