@@ -2692,10 +2692,12 @@ export function createWebAPI(supabase, businessId) {
       byDateRange: (params) => tryOr(async () => {
         const dateFrom = params?.dateFrom ?? params?.from
         const dateTo   = params?.dateTo   ?? params?.to
+        // Filter by real sale date (paid_at) when available, else insert time.
+        // Guards against imported historical rows whose created_at = import time.
         let q = supabase.from('tickets').select('*').eq('business_id', bid)
-        if (dateFrom) q = q.gte('created_at', dateFrom)
-        if (dateTo)   q = q.lte('created_at', dateTo)
-        q = q.order('created_at', { ascending: false }).limit(500)
+        if (dateFrom) q = q.or(`paid_at.gte.${dateFrom},and(paid_at.is.null,created_at.gte.${dateFrom})`)
+        if (dateTo)   q = q.or(`paid_at.lte.${dateTo},and(paid_at.is.null,created_at.lte.${dateTo})`)
+        q = q.order('paid_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false }).limit(500)
         const rows = throwSupaError(await q)
         if (!rows?.length) return []
 

@@ -244,3 +244,28 @@ html.dark ::-webkit-scrollbar-thumb:hover { background: #52525b; }
 /* Hide scrollbar but keep scroll functionality */
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 .scrollbar-hide::-webkit-scrollbar { display: none; }
+
+/* ─── Kill Chromium autofill overlay icons on inputs that opt out ──────────
+   Chrome/Edge inject a credit-card / contacts / key icon inside numeric or
+   "amount" inputs even when autocomplete=off. We're in Electron so it's
+   always Chromium — we know these pseudo-elements will be honored.
+   Only applies to inputs that explicitly opt out (autocomplete=off or
+   data-1p-ignore), so normal login forms still get their icons. */
+input[autocomplete="off"]::-webkit-credentials-auto-fill-button,
+input[autocomplete="off"]::-webkit-contacts-auto-fill-button,
+input[autocomplete="off"]::-webkit-caps-lock-indicator,
+input[autocomplete="off"]::-webkit-credit-card-auto-fill-button,
+input[data-1p-ignore]::-webkit-credentials-auto-fill-button,
+input[data-1p-ignore]::-webkit-contacts-auto-fill-button,
+input[data-1p-ignore]::-webkit-credit-card-auto-fill-button,
+input[data-lpignore]::-webkit-credentials-auto-fill-button,
+input[data-lpignore]::-webkit-contacts-auto-fill-button,
+input[data-lpignore]::-webkit-credit-card-auto-fill-button {
+  visibility: hidden !important;
+  display: none !important;
+  pointer-events: none !important;
+  position: absolute !important;
+  right: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+}

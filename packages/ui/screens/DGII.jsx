@@ -8,6 +8,7 @@ import {
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
+import { isTech } from '../lib/roles'
 import {
   generateFormato606Txt, generateFormato607Txt,
   downloadTxt, filename606, filename607,
@@ -1272,6 +1273,8 @@ function ScreenANECF() {
 function ScreenCert() {
   const api = useAPI()
   const { lang } = useLang()
+  const { user } = useAuth()
+  const tech = isTech(user)
   const L = (es, en) => lang === 'es' ? es : en
 
   const [info, setInfo]           = useState(null)
@@ -1433,7 +1436,9 @@ function ScreenCert() {
               </div>
             </div>
 
-            {/* Environment toggle */}
+            {/* Environment toggle — tech only. Flipping ecf↔certecf changes
+                fiscal validity; owners should never self-serve this. */}
+            {tech && (
             <div className="p-4 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10">
               <div className="flex items-center justify-between mb-3">
                 <div>
@@ -1471,6 +1476,7 @@ function ScreenCert() {
                 </button>
               </div>
             </div>
+            )}
           </div>
         )}
       </div>

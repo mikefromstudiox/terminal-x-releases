@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="es-DO">
+<head>
+<meta charset="utf-8" />
+<title>Terminal X — Cheat Sheet Gerente</title>
+<style>
+  :root { --red:#b3001e; --ink:#0a0a0a; --muted:#555; --line:#e5e5e5; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; color:var(--ink); font-size:10.5pt; line-height:1.45; background:#fff; }
+  .page { padding:36pt 44pt; max-width:820pt; margin:0 auto; }
+  h1 { font-size:24pt; margin:0 0 4pt 0; letter-spacing:-0.5pt; }
+  h2 { font-size:14pt; margin:14pt 0 6pt 0; border-bottom:2.5pt solid var(--red); padding-bottom:3pt; letter-spacing:-0.2pt; }
+  h3 { font-size:11.5pt; margin:10pt 0 3pt 0; color:var(--red); }
+  p { margin:3pt 0; }
+  ul, ol { margin:3pt 0 5pt 16pt; padding:0; }
+  li { margin:1.5pt 0; }
+  code { font-family:"Consolas",monospace; background:#f4f4f4; padding:1pt 3pt; border-radius:2pt; font-size:9.5pt; }
+  table { width:100%; border-collapse:collapse; margin:5pt 0; font-size:9.5pt; }
+  th, td { border:1pt solid var(--line); padding:4pt 6pt; text-align:left; vertical-align:top; }
+  th { background:#0a0a0a; color:#fff; font-weight:600; }
+  tr:nth-child(even) td { background:#fafafa; }
+  .cover { text-align:left; padding:70pt 44pt 40pt 44pt; background:#0a0a0a; color:#fff; min-height:190pt; page-break-after:always; }
+  .cover .x { color:var(--red); font-weight:900; font-size:80pt; line-height:1; letter-spacing:-5pt; margin-bottom:10pt; }
+  .cover h1 { color:#fff; font-size:32pt; margin-bottom:4pt; }
+  .cover .sub { color:#d0d0d0; font-size:13pt; max-width:520pt; line-height:1.3; }
+  .cover .meta { margin-top:30pt; color:#aaa; font-size:10pt; border-top:1pt solid #333; padding-top:10pt; }
+  .cover .meta strong { color:#fff; }
+  .pill { display:inline-block; background:var(--red); color:#fff; font-size:9pt; font-weight:700; padding:2pt 10pt; border-radius:999pt; letter-spacing:0.3pt; text-transform:uppercase; margin-bottom:10pt; }
+  .note { background:#fff8f8; border-left:3pt solid var(--red); padding:7pt 11pt; margin:6pt 0; border-radius:3pt; }
+  .ok   { background:#f4faf5; border-left:3pt solid #1a8a3c; padding:7pt 11pt; margin:6pt 0; border-radius:3pt; }
+  .warn { background:#fff9ec; border-left:3pt solid #c58a00; padding:7pt 11pt; margin:6pt 0; border-radius:3pt; }
+  .danger { background:#fff0f0; border-left:3pt solid var(--red); padding:7pt 11pt; margin:6pt 0; border-radius:3pt; }
+  h2, h3 { page-break-after:avoid; }
+  table, .note, .ok, .warn, .danger { page-break-inside:avoid; }
+  @page { size: Letter; margin:0; }
+  @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="x">X</div>
+  <span class="pill">Guía rápida</span>
+  <h1>Gerente<br/>Cheat Sheet</h1>
+  <p class="sub">Autorizaciones, cuadres, actividad y control diario — todo lo que tienes que saber para manejar el turno.</p>
+  <div class="meta">
+    <strong>Terminal X POS</strong> · Studio X SRL · Santo Domingo, DR<br/>
+    Soporte: +1 (809) 828-2971 · terminalxpos.com<br/>
+    Versión 2026-04-22 · v2.13.2
+  </div>
+</section>
+
+<div class="page">
+
+<h2>1. Tarjeta de Autorización de Gerente</h2>
+<p>Tu tarjeta tiene un código <strong>Code128</strong> impreso. La cajera la pasa por el scanner cuando el sistema bloquea una operación sensible.</p>
+<h3>¿Qué autoriza tu tarjeta?</h3>
+<ul>
+  <li>Anular (void) un ticket</li>
+  <li>Emitir nota de crédito / devolución</li>
+  <li>Descuentos &gt; RD$500 o &gt; 15%</li>
+  <li>Cambios de precio en línea del carrito</li>
+  <li>Ajustes manuales de inventario</li>
+  <li>Retiros de caja chica</li>
+</ul>
+
+<h3>PIN de respaldo</h3>
+<p>Si pierdes la tarjeta o no la tienes a mano, usa tu <strong>PIN de gerente</strong>. Cada autorización queda registrada con tu nombre en el log de actividad.</p>
+
+<div class="danger"><strong>Responsabilidad:</strong> cada autorización queda amarrada a tu usuario. Si autorizas descuentos falsos o voids injustificados, el dueño lo ve todo en el dashboard.</div>
+
+<h2>2. Aperturar turno POR el cajero</h2>
+<p>Desde v2.13.2 <strong>solo la cajera puede abrir su propio turno</strong>. Pero si eres owner / manager / CFO / contador, tú <em>puedes</em> abrirlo por ella:</p>
+<ol>
+  <li>Entra a <strong>Cuadre</strong>.</li>
+  <li>Elige la cajera en el selector.</li>
+  <li>Escribe el monto inicial RD$ de la gaveta.</li>
+  <li>Confirma — la cajera ya puede empezar a vender con su PIN.</li>
+</ol>
+
+<h2>3. Cerrar turno / Hacer cuadre</h2>
+<ol>
+  <li>Entra a <strong>Cuadre</strong> → selecciona el turno abierto.</li>
+  <li>Cuenta el efectivo físico con la cajera presente.</li>
+  <li>Entra el monto contado — el sistema muestra la diferencia.</li>
+  <li>Si hay discrepancia &gt; RD$50, el sistema lo registra automáticamente en el log de actividad con severidad alta.</li>
+  <li>Imprime el cuadre, firmen ambos, archiva.</li>
+</ol>
+
+<h2>4. Registro de Actividad (Pro MAX)</h2>
+<p>Si el negocio tiene plan Pro MAX, hay una pestaña <strong>Actividad</strong> en el Dashboard Remoto. Úsala todos los días.</p>
+<table>
+  <tr><th>Evento</th><th>Severidad</th><th>Qué revisar</th></tr>
+  <tr><td>Void / anulación de ticket</td><td>Crítico</td><td>Motivo + quién autorizó</td></tr>
+  <tr><td>Nota de crédito</td><td>Crítico</td><td>Producto devuelto, monto, cliente</td></tr>
+  <tr><td>Descuento grande</td><td>Advertencia</td><td>Motivo + porcentaje</td></tr>
+  <tr><td>Ajuste de inventario</td><td>Advertencia</td><td>Variación entre conteo y sistema</td></tr>
+  <tr><td>Retiro de caja chica</td><td>Advertencia</td><td>Concepto + monto</td></tr>
+  <tr><td>Discrepancia de cuadre &gt; RD$50</td><td>Crítico</td><td>Efectivo faltante/sobrante</td></tr>
+  <tr><td>Cambio de precio en venta</td><td>Advertencia</td><td>Quién aprobó</td></tr>
+</table>
+
+<h2>5. Caja Chica</h2>
+<ul>
+  <li>Todo retiro requiere tu autorización (tarjeta o PIN).</li>
+  <li>Cada retiro debe tener <strong>concepto</strong> y, si es posible, comprobante físico grapado.</li>
+  <li>Reintegros al final del mes o cuando se agote el fondo.</li>
+  <li>Todo queda en el log de actividad.</li>
+</ul>
+
+<h2>6. Inventario — Conteo y Ajustes</h2>
+<h3>Conteo físico</h3>
+<ol>
+  <li>Inventario → <strong>Conteo Físico</strong> → iniciar sesión.</li>
+  <li>Imprime hoja en blanco, entrega al equipo para contar.</li>
+  <li>Entra los conteos → sistema genera reporte de varianza con pérdidas en RD$.</li>
+  <li>Exporta PDF y CSV para el dueño.</li>
+</ol>
+<h3>Ajustes manuales</h3>
+<p>Requieren autorización tuya <strong>y un motivo</strong> (rotura, vencimiento, ajuste administrativo). Sin motivo, el sistema rechaza.</p>
+
+<h2>7. Reportes de Productos (Pro PLUS+)</h2>
+<ul>
+  <li><strong>Unidades vendidas</strong>, <strong>ingreso</strong>, <strong>costo</strong>, <strong>utilidad</strong> por SKU.</li>
+  <li>El <strong>margen se muestra ex-ITBIS</strong> — el sistema divide el precio por 1.18 cuando el producto aplica ITBIS. No te asustes si el margen se ve más bajo que antes, es el correcto.</li>
+  <li>Filtra por categoría, subtipo, rango de fechas.</li>
+  <li>Exporta a PDF o CSV para el dueño / contador.</li>
+</ul>
+
+<h2>8. Escalamiento al dueño</h2>
+<div class="note">
+  Escala al dueño (o a soporte Terminal X vía WhatsApp) si:
+  <ul>
+    <li>Discrepancia de cuadre repetida con la misma cajera</li>
+    <li>Sospecha de fraude o robo</li>
+    <li>Error del sistema que no puedes resolver (rechazos e-CF persistentes, impresora muerta, sync caído)</li>
+    <li>Empleado pide cambio de PIN / tarjeta</li>
+    <li>Certificado e-CF próximo a expirar (el sistema avisa en el dashboard)</li>
+  </ul>
+</div>
+
+<p style="margin-top:18pt; text-align:center; font-size:9pt; color:#555;">
+  Studio X SRL · RNC 133410321 · Santo Domingo, DR · WhatsApp +1 (809) 828-2971 · terminalxpos.com
+</p>
+
+</div>
+</body>
+</html>

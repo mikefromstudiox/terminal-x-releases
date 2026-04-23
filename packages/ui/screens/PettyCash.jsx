@@ -673,12 +673,12 @@ export default function PettyCash() {
                 {L('Recibo #', 'Receipt #')}
               </label>
               <div className="relative">
-                <Receipt size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 pointer-events-none" />
+                <Receipt size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 pointer-events-none" />
                 <input
                   value={recibo}
                   onChange={e => setRecibo(e.target.value)}
                   placeholder={L('Opcional', 'Optional')}
-                  className="w-full h-11 pl-10 pr-3 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white rounded-lg text-sm text-slate-700 placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-full h-11 pl-12 pr-3 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white rounded-lg text-sm text-slate-700 placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
               </div>
             </div>

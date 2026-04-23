@@ -30,7 +30,10 @@ const daysAgo = (d) => { const dt = new Date(); dt.setDate(dt.getDate()-d); dt.s
 const phone = () => `809${rand(2,9)}${String(rand(0,9999999)).padStart(7,'0')}`
 const ncfStr = (prefix, n) => `${prefix}${String(n).padStart(8,'0')}`
 
-const PIN_HASH = crypto.createHash('sha256').update('1234').digest('hex')
+const bcryptjs = require('bcryptjs')
+const PIN_SALT = crypto.randomBytes(24).toString('base64url').slice(0, 32)
+const PIN_HASH = bcryptjs.hashSync('1234' + PIN_SALT, 10)
+const PIN_ALGO = 'bcrypt'
 const PASSWORD = 'Demo2026!'
 const CITY = 'Santo Domingo'
 
@@ -194,7 +197,8 @@ async function seedTenant(t, planId) {
   const { error: staffErr } = await sb.from('staff').insert({
     business_id: businessId, supabase_id: uuid(),
     auth_user_id: authUserId, name: 'Mike Owner', username: 'admin',
-    pin_hash: PIN_HASH, role: 'owner', cedula: '001-0000001-1',
+    pin_hash: PIN_HASH, pin_hash_algo: PIN_ALGO, pin_salt: PIN_SALT,
+    role: 'owner', cedula: '001-0000001-1',
     start_date: new Date(Date.now() - 365*864e5).toISOString().slice(0,10),
     discount_pct: 0, commission_pct: 0, active: true,
   })

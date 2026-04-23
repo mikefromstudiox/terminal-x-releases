@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="es-DO">
+<head>
+<meta charset="utf-8" />
+<title>Terminal X — Cheat Sheet Dueño</title>
+<style>
+  :root { --red:#b3001e; --ink:#0a0a0a; --muted:#555; --line:#e5e5e5; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; color:var(--ink); font-size:10.5pt; line-height:1.45; background:#fff; }
+  .page { padding:36pt 44pt; max-width:820pt; margin:0 auto; }
+  h1 { font-size:24pt; margin:0 0 4pt 0; letter-spacing:-0.5pt; }
+  h2 { font-size:14pt; margin:14pt 0 6pt 0; border-bottom:2.5pt solid var(--red); padding-bottom:3pt; letter-spacing:-0.2pt; }
+  h3 { font-size:11.5pt; margin:10pt 0 3pt 0; color:var(--red); }
+  p { margin:3pt 0; }
+  ul, ol { margin:3pt 0 5pt 16pt; padding:0; }
+  li { margin:1.5pt 0; }
+  code { font-family:"Consolas",monospace; background:#f4f4f4; padding:1pt 3pt; border-radius:2pt; font-size:9.5pt; }
+  table { width:100%; border-collapse:collapse; margin:5pt 0; font-size:9.5pt; }
+  th, td { border:1pt solid var(--line); padding:4pt 6pt; text-align:left; vertical-align:top; }
+  th { background:#0a0a0a; color:#fff; font-weight:600; }
+  tr:nth-child(even) td { background:#fafafa; }
+  .cover { text-align:left; padding:70pt 44pt 40pt 44pt; background:#0a0a0a; color:#fff; min-height:190pt; page-break-after:always; }
+  .cover .x { color:var(--red); font-weight:900; font-size:80pt; line-height:1; letter-spacing:-5pt; margin-bottom:10pt; }
+  .cover h1 { color:#fff; font-size:32pt; margin-bottom:4pt; }
+  .cover .sub { color:#d0d0d0; font-size:13pt; max-width:520pt; line-height:1.3; }
+  .cover .meta { margin-top:30pt; color:#aaa; font-size:10pt; border-top:1pt solid #333; padding-top:10pt; }
+  .cover .meta strong { color:#fff; }
+  .pill { display:inline-block; background:var(--red); color:#fff; font-size:9pt; font-weight:700; padding:2pt 10pt; border-radius:999pt; letter-spacing:0.3pt; text-transform:uppercase; margin-bottom:10pt; }
+  .note { background:#fff8f8; border-left:3pt solid var(--red); padding:7pt 11pt; margin:6pt 0; border-radius:3pt; }
+  .ok   { background:#f4faf5; border-left:3pt solid #1a8a3c; padding:7pt 11pt; margin:6pt 0; border-radius:3pt; }
+  .warn { background:#fff9ec; border-left:3pt solid #c58a00; padding:7pt 11pt; margin:6pt 0; border-radius:3pt; }
+  h2, h3 { page-break-after:avoid; }
+  table, .note, .ok, .warn { page-break-inside:avoid; }
+  @page { size: Letter; margin:0; }
+  @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="x">X</div>
+  <span class="pill">Guía rápida</span>
+  <h1>Dueño<br/>Cheat Sheet</h1>
+  <p class="sub">Tu negocio en el bolsillo — control total desde el celular. Aquí está todo lo que manejas sin pisar la caja.</p>
+  <div class="meta">
+    <strong>Terminal X POS</strong> · Studio X SRL · Santo Domingo, DR<br/>
+    Soporte: +1 (809) 828-2971 · terminalxpos.com<br/>
+    Versión 2026-04-22 · v2.13.2
+  </div>
+</section>
+
+<div class="page">
+
+<h2>1. Dashboard Remoto (Pro MAX)</h2>
+<ul>
+  <li>Abre <strong>terminalxpos.com/pos</strong> en tu celular → login con tu email → entra al Dashboard.</li>
+  <li>Ves <strong>ventas en vivo</strong>, ticket por ticket, mientras tus cajeras cobran.</li>
+  <li>Pestañas: Ventas del día · Cuadre actual · Inventario · <strong>Actividad</strong> (log auditable) · Empleados conectados.</li>
+  <li>Funciona desde cualquier parte del mundo con internet.</li>
+</ul>
+
+<h2>2. Daily Digest (Pro MAX)</h2>
+<p>Cada mañana recibes un email con el resumen del día anterior:</p>
+<ul>
+  <li>Total vendido, cantidad de tickets, ticket promedio</li>
+  <li>Top 5 productos más vendidos</li>
+  <li>Descuentos aplicados y quién los autorizó</li>
+  <li>Cuadre: diferencia por cajera</li>
+  <li>Eventos críticos (voids, notas de crédito, discrepancias)</li>
+</ul>
+<div class="note">Si no te llega, revisa spam y agrega <code>digest@terminalxpos.com</code> a tus contactos.</div>
+
+<h2>3. Programa de Lealtad (Pro PLUS+)</h2>
+<p>Tus clientes acumulan puntos por cada compra. Suben de tier según puntos <em>de por vida</em> ganados:</p>
+<table>
+  <tr><th>Tier</th><th>Multiplicador</th><th>Cómo sube</th></tr>
+  <tr><td><strong>Bronce</strong></td><td>x1.0</td><td>Todos arrancan aquí</td></tr>
+  <tr><td><strong>Plata</strong></td><td>x1.25</td><td>Al pasar el umbral de puntos acumulados</td></tr>
+  <tr><td><strong>Oro</strong></td><td>x1.5</td><td>Cliente VIP — gana 50% más puntos por compra</td></tr>
+</table>
+<p>Configura los umbrales y la tasa de puntos en <strong>Configuración → Lealtad</strong>.</p>
+
+<h2>4. Subtipo de Tienda</h2>
+<p>Tu negocio tiene un <strong>tipo base</strong> (carwash, tienda, otro) y si es tienda, un <strong>subtipo</strong> que desbloquea features específicas:</p>
+<ul>
+  <li><strong>Licorería</strong> — verificación de edad + depósito de envase</li>
+  <li><strong>Farmacia</strong> — tracking de recetas</li>
+  <li><strong>Colmado</strong> — venta al crédito (fiado)</li>
+  <li><strong>Supermercado</strong> — pricing por peso</li>
+  <li><strong>Ferretería</strong> — SKU largo, unidades por paquete</li>
+  <li><strong>Papelería</strong> — productos escolares</li>
+  <li><strong>Boutique</strong> — variantes (talla / color)</li>
+  <li><strong>Otro</strong> — base, sin features</li>
+</ul>
+<p>Cambiarlo: <strong>Configuración → Tipo de Negocio → Subtipo</strong>. Los features se activan automáticamente. Puedes anular cualquier feature individualmente.</p>
+
+<h2>5. e-CF — Certificado Fiscal</h2>
+<ul>
+  <li>Estado del certificado en <strong>Configuración → e-CF / DGII</strong>: subject, expiración, ambiente (cert vs producción).</li>
+  <li>El sistema te alerta <strong>90, 30 y 7 días</strong> antes de expirar.</li>
+  <li>Si expira: contacta soporte Terminal X inmediatamente — sin certificado vigente, tus e-CF se rechazan y pierdes capacidad de facturar formal.</li>
+  <li>Renovación Viafirma: coordinamos nosotros, tú solo pagas y firmas.</li>
+</ul>
+
+<h2>6. Empleados — Roles vs Tipos</h2>
+<p>Son dos cosas diferentes. Domínalo:</p>
+<table>
+  <tr><th>Campo</th><th>Para qué</th><th>Valores</th></tr>
+  <tr><td><code>empleados.role</code></td><td>Control de acceso — qué puede tocar en el sistema</td><td>owner / manager / cfo / accountant / cashier</td></tr>
+  <tr><td><code>empleados.tipo</code></td><td>Nómina / comisiones — cómo se le paga</td><td>lavador / vendedor / cajero / hybrid</td></tr>
+</table>
+<p>Un empleado puede ser <strong>role=cashier + tipo=hybrid</strong> (cobra comisión por venta además de salario).</p>
+
+<h2>7. Licencia Terminal X</h2>
+<ul>
+  <li>Tu licencia vive en <strong>Configuración → Licencias TX</strong>. Formato: <code>TXL-XXXX-XXXX-XXXX</code>.</li>
+  <li><strong>Gracia offline:</strong> si pierdes internet, el sistema sigue funcionando hasta <strong>72 horas</strong> antes de bloquear.</li>
+  <li>Renovar: nos contactas por WhatsApp antes del vencimiento.</li>
+</ul>
+
+<h2>8. Planes — Upgrade / Downgrade</h2>
+<p>Cambios de plan se hacen por WhatsApp <strong>+1 (809) 828-2971</strong>. Cambios se aplican en tu próximo ciclo.</p>
+<table>
+  <tr><th>Plan</th><th>Precio</th><th>Resumen</th></tr>
+  <tr><td>Pro</td><td>RD$2,490/mes</td><td>POS + inventario + clientes + créditos</td></tr>
+  <tr><td>Pro PLUS</td><td>RD$4,490/mes</td><td>+ e-CF + reportes + lealtad + notas de crédito</td></tr>
+  <tr><td>Pro MAX</td><td>RD$6,990/mes</td><td>+ dashboard remoto + WhatsApp + multi-sucursal + offline + digest</td></tr>
+</table>
+<p><strong>Anual:</strong> 15% de descuento en cualquier plan.</p>
+
+<h2>9. Respaldos automáticos</h2>
+<div class="ok">
+  Tu sistema sube un respaldo encriptado a la nube <strong>cada noche a las 3:00 AM</strong>. Se conservan los últimos <strong>14 días</strong>. Si el equipo se daña, restauras desde cualquier otra computadora en minutos.
+</div>
+
+<h2>10. Soporte</h2>
+<p><strong>WhatsApp:</strong> +1 (809) 828-2971 · Lun a Sáb, 8:00 AM – 8:00 PM · Respuesta &lt; 30 minutos.<br/>
+<strong>Web:</strong> terminalxpos.com · <strong>Cert e-CF:</strong> studioxrdtech.com</p>
+
+<p style="margin-top:18pt; text-align:center; font-size:9pt; color:#555;">
+  Studio X SRL · RNC 133410321 · Santo Domingo, DR · WhatsApp +1 (809) 828-2971 · terminalxpos.com
+</p>
+
+</div>
+</body>
+</html>

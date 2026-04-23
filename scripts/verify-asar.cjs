@@ -6,12 +6,11 @@
  * causing a hard boot crash. electron-builder's `files` glob silently
  * dropped it. This script is the tripwire so that can never happen again.
  */
-const { execFileSync } = require('child_process')
+const asar = require('@electron/asar')
 const path = require('path')
 const fs = require('fs')
 
 const ASAR = path.resolve(__dirname, '..', 'dist', 'win-unpacked', 'resources', 'app.asar')
-const ASAR_BIN = path.resolve(__dirname, '..', 'node_modules', '.bin', process.platform === 'win32' ? 'asar.cmd' : 'asar')
 
 const REQUIRED = [
   'electron/main.js',
@@ -34,8 +33,8 @@ if (!fs.existsSync(ASAR)) {
   process.exit(1)
 }
 
-const listing = execFileSync(ASAR_BIN, ['list', ASAR], { encoding: 'utf8' })
-const present = new Set(listing.split(/\r?\n/).map(l => l.replace(/^\/+/, '').trim()))
+const listing = asar.listPackage(ASAR, { isPack: false })
+const present = new Set(listing.map(l => l.replace(/^[\/\\]+/, '').replace(/\\/g, '/').trim()))
 
 const missing = REQUIRED.filter(f => !present.has(f))
 

@@ -557,7 +557,8 @@ export default function InvoiceCreate() {
                     value={clientSearch}
                     onChange={e => { setClientSearch(e.target.value); setSelectedClient(null) }}
                     placeholder={L('Buscar por nombre, RNC o telefono...', 'Search by name, RNC or phone...')}
-                    className="w-full pl-9 pr-4 py-2.5 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-white/30 outline-none focus:ring-2 focus:ring-[#b3001e]/30"
+                    style={{ paddingLeft: 40 }}
+                    className="w-full pr-4 py-2.5 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-white/30 outline-none focus:ring-2 focus:ring-[#b3001e]/30"
                   />
                 </div>
                 {selectedClient && (

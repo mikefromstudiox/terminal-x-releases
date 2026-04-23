@@ -1,5 +1,8 @@
 const crypto = require('crypto')
-const sha256 = s => crypto.createHash('sha256').update(String(s)).digest('hex')
+const bcrypt = require('bcryptjs')
+const BCRYPT_COST = 10
+const genSalt = () => crypto.randomBytes(24).toString('base64url').slice(0, 32)
+const bcryptHash = (pin, salt) => bcrypt.hashSync(String(pin) + salt, BCRYPT_COST)
 
 module.exports = function seed(db) {
   const NOW = new Date()
@@ -32,7 +35,7 @@ module.exports = function seed(db) {
   })
   db.prepare(`INSERT OR REPLACE INTO configuracion(clave,valor) VALUES('setup_complete','1')`).run()
 
-  const insUser = db.prepare(`INSERT OR IGNORE INTO users(name,username,pin_hash,role,discount_pct,active) VALUES(@name,@username,@pin_hash,@role,@discount_pct,1)`)
+  const insUser = db.prepare(`INSERT OR IGNORE INTO users(name,username,pin_hash,pin_hash_algo,pin_salt,role,discount_pct,active) VALUES(@name,@username,@pin_hash,'bcrypt',@pin_salt,@role,@discount_pct,1)`)
   const users = [
     { name: 'Miguel Mejia', username: 'miguel', pin: '1234', role: 'owner', discount_pct: 10 },
     { name: 'Carlos Rosario', username: 'carlos', pin: '2222', role: 'manager', discount_pct: 5 },
@@ -41,7 +44,10 @@ module.exports = function seed(db) {
     { name: 'Luisa Batista', username: 'luisa', pin: '5555', role: 'cashier', discount_pct: 0 },
     { name: 'Roberto Marte', username: 'roberto', pin: '6666', role: 'cfo', discount_pct: 0 },
   ]
-  users.forEach(u => insUser.run({ ...u, pin_hash: sha256(u.pin) }))
+  users.forEach(u => {
+    const salt = genSalt()
+    insUser.run({ ...u, pin_hash: bcryptHash(u.pin, salt), pin_salt: salt })
+  })
 
   // v2.1: washers + sellers are gone — seed empleados directly.
   // UUIDs generated inline so commission inserts below can reference

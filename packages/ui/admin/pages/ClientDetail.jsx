@@ -14,6 +14,7 @@ const ROLE_LABELS = {
   cfo:        { es: 'CFO',      en: 'CFO' },
   accountant: { es: 'Contador', en: 'Accountant' },
   cashier:    { es: 'Cajero',   en: 'Cashier' },
+  tech:       { es: 'Técnico',  en: 'Tech' },
   none:       { es: '—',        en: '—' },
 }
 const roleLbl = (r, lang) => (ROLE_LABELS[r]?.[lang] || r || '—')

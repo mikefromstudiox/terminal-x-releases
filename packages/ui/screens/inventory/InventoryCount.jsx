@@ -17,7 +17,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   ClipboardList, Plus, Printer, FileSpreadsheet, Search, ArrowLeft,
   CheckCircle2, XCircle, Loader2, Trash2, AlertTriangle, Package,
-  TrendingDown, TrendingUp, Minus,
+  TrendingDown, TrendingUp, Minus, PenLine, RotateCcw,
 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { useAuth } from '../../context/AuthContext'
@@ -58,20 +58,42 @@ function CategoryBlock({ children }) { return <>{children}</> }
 
 // ── Start-count modal ────────────────────────────────────────────────────────
 
-function StartModal({ onStart, onClose, empleados }) {
+function StartModal({ onStart, onClose, empleados, availableCategories }) {
   const [title, setTitle]       = useState(`Conteo ${new Date().toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })}`)
   const [countedBy, setCountedBy] = useState('')
   const [notes, setNotes]       = useState('')
+  const [scope, setScope]       = useState('all') // 'all' | 'some'
+  const [selectedCats, setSelectedCats] = useState(new Set())
   const [busy, setBusy]         = useState(false)
   const [err, setErr]           = useState('')
+
+  const toggleCat = (c) => {
+    setSelectedCats(prev => {
+      const next = new Set(prev)
+      if (next.has(c)) next.delete(c); else next.add(c)
+      return next
+    })
+  }
 
   async function handleStart() {
     setErr(''); setBusy(true)
     try {
+      const cats = scope === 'some' ? [...selectedCats] : null
+      if (scope === 'some' && cats.length === 0) {
+        setErr('Seleccione al menos una categoría')
+        setBusy(false)
+        return
+      }
+      // Auto-title when scoped to categories (so the list view is self-explanatory)
+      let effectiveTitle = title.trim()
+      if (scope === 'some' && cats.length && cats.length <= 3) {
+        effectiveTitle = `${effectiveTitle} — ${cats.join(', ')}`
+      }
       await onStart({
-        title: title.trim() || null,
+        title: effectiveTitle || null,
         counted_by_name: countedBy.trim() || null,
         notes: notes.trim() || null,
+        categories: cats,
       })
     } catch (e) {
       setErr(e?.message || 'Error al iniciar el conteo')
@@ -111,6 +133,58 @@ function StartModal({ onStart, onClose, empleados }) {
             )}
           </div>
           <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-black/60 dark:text-white/60 mb-1">Alcance</label>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <button type="button" onClick={() => setScope('all')}
+                className={`py-2 rounded-lg text-sm font-semibold border transition ${
+                  scope === 'all'
+                    ? 'bg-[#b3001e] border-[#b3001e] text-white'
+                    : 'bg-white dark:bg-white/5 border-black/15 dark:border-white/15 text-black dark:text-white hover:border-[#b3001e]'
+                }`}>
+                Todas las categorías
+              </button>
+              <button type="button" onClick={() => setScope('some')}
+                className={`py-2 rounded-lg text-sm font-semibold border transition ${
+                  scope === 'some'
+                    ? 'bg-[#b3001e] border-[#b3001e] text-white'
+                    : 'bg-white dark:bg-white/5 border-black/15 dark:border-white/15 text-black dark:text-white hover:border-[#b3001e]'
+                }`}>
+                Categorías específicas
+              </button>
+            </div>
+            {scope === 'some' && (
+              <div className="rounded-lg border border-black/15 dark:border-white/15 bg-white dark:bg-white/5 p-2 max-h-56 overflow-y-auto">
+                {(!availableCategories || availableCategories.length === 0) ? (
+                  <div className="text-xs text-black/50 dark:text-white/50 p-2">Cargando categorías…</div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-1">
+                    {availableCategories.map(c => {
+                      const active = selectedCats.has(c.name)
+                      return (
+                        <button key={c.name} type="button" onClick={() => toggleCat(c.name)}
+                          className={`text-left text-xs px-2.5 py-1.5 rounded flex items-center justify-between gap-2 border ${
+                            active
+                              ? 'bg-[#b3001e]/10 border-[#b3001e] text-[#b3001e] dark:text-[#ff6b7e]'
+                              : 'border-transparent hover:border-black/15 dark:hover:border-white/15 text-black/80 dark:text-white/80'
+                          }`}>
+                          <span className="truncate">{c.name}</span>
+                          <span className="text-[10px] opacity-60 shrink-0">{c.count}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                <div className="mt-2 pt-2 border-t border-black/10 dark:border-white/10 flex items-center justify-between text-[11px] text-black/60 dark:text-white/60">
+                  <span>{selectedCats.size} seleccionada(s) · {availableCategories.filter(c => selectedCats.has(c.name)).reduce((s, c) => s + c.count, 0)} productos</span>
+                  <button type="button" onClick={() => setSelectedCats(new Set())}
+                    className="text-[#b3001e] hover:underline disabled:opacity-40" disabled={selectedCats.size === 0}>
+                    Limpiar
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          <div>
             <label className="block text-xs font-semibold uppercase tracking-wide text-black/60 dark:text-white/60 mb-1">Notas (opcional)</label>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
               className="w-full px-3 py-2 rounded-lg border border-black/15 dark:border-white/15 bg-white dark:bg-white/5 text-black dark:text-white focus:outline-none focus:border-[#b3001e] resize-none" />
@@ -133,10 +207,105 @@ function StartModal({ onStart, onClose, empleados }) {
   )
 }
 
+// ── Signature pad ───────────────────────────────────────────────────────────
+// Lightweight canvas signature capture (no deps). Exposes current dataURL via
+// `onChange(dataUrl|null)` so the parent can gate its confirm button on a
+// non-empty signature. Supports mouse + touch; resets on clear.
+
+function SignaturePad({ onChange, height = 140 }) {
+  const canvasRef = useRef(null)
+  const drawingRef = useRef(false)
+  const dirtyRef = useRef(false)
+  const lastPtRef = useRef(null)
+
+  const getCtx = () => {
+    const c = canvasRef.current
+    if (!c) return null
+    const ctx = c.getContext('2d')
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.lineWidth = 2
+    ctx.strokeStyle = '#000'
+    return ctx
+  }
+
+  const pointFromEvent = (e) => {
+    const c = canvasRef.current
+    const rect = c.getBoundingClientRect()
+    const t = e.touches?.[0]
+    const x = ((t ? t.clientX : e.clientX) - rect.left) * (c.width / rect.width)
+    const y = ((t ? t.clientY : e.clientY) - rect.top)  * (c.height / rect.height)
+    return { x, y }
+  }
+
+  const start = (e) => {
+    e.preventDefault()
+    drawingRef.current = true
+    lastPtRef.current = pointFromEvent(e)
+  }
+  const move = (e) => {
+    if (!drawingRef.current) return
+    e.preventDefault()
+    const ctx = getCtx(); if (!ctx) return
+    const p = pointFromEvent(e)
+    const last = lastPtRef.current || p
+    ctx.beginPath()
+    ctx.moveTo(last.x, last.y)
+    ctx.lineTo(p.x, p.y)
+    ctx.stroke()
+    lastPtRef.current = p
+    dirtyRef.current = true
+  }
+  const end = () => {
+    if (!drawingRef.current) return
+    drawingRef.current = false
+    lastPtRef.current = null
+    if (dirtyRef.current && onChange) {
+      try { onChange(canvasRef.current.toDataURL('image/png')) } catch {}
+    }
+  }
+
+  const clear = () => {
+    const c = canvasRef.current; if (!c) return
+    const ctx = getCtx(); if (!ctx) return
+    ctx.clearRect(0, 0, c.width, c.height)
+    dirtyRef.current = false
+    if (onChange) onChange(null)
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <label className="block text-xs font-semibold uppercase tracking-wide text-black/60 dark:text-white/60">
+          Firma
+        </label>
+        <button type="button" onClick={clear}
+          className="inline-flex items-center gap-1 text-xs text-black/60 dark:text-white/60 hover:text-[#b3001e]">
+          <RotateCcw size={12} /> Limpiar
+        </button>
+      </div>
+      <div className="rounded-lg border border-black/15 dark:border-white/15 bg-white overflow-hidden">
+        <canvas
+          ref={canvasRef}
+          width={560}
+          height={height * 2}
+          style={{ width: '100%', height, touchAction: 'none', cursor: 'crosshair', display: 'block' }}
+          onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
+          onTouchStart={start} onTouchMove={move} onTouchEnd={end}
+        />
+      </div>
+      <div className="text-[11px] text-black/50 dark:text-white/50">
+        Firme con el dedo o el mouse — requerido para finalizar.
+      </div>
+    </div>
+  )
+}
+
 // ── Confirm-complete modal ──────────────────────────────────────────────────
 
 function CompleteConfirm({ count, onConfirm, onClose }) {
   const [apply, setApply] = useState(true)
+  const [signature, setSignature] = useState(null)
   const [busy, setBusy]   = useState(false)
   const counted = count?.items?.filter(i => i.counted_qty !== null && i.counted_qty !== undefined && i.counted_qty !== '').length || 0
   const total   = count?.items?.length || 0
@@ -172,6 +341,7 @@ function CompleteConfirm({ count, onConfirm, onClose }) {
               </span>
             </span>
           </label>
+          <SignaturePad onChange={setSignature} />
         </div>
         <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-black/10 dark:border-white/10">
           <button onClick={onClose} disabled={busy}
@@ -179,9 +349,10 @@ function CompleteConfirm({ count, onConfirm, onClose }) {
             Cancelar
           </button>
           <button
-            onClick={async () => { setBusy(true); try { await onConfirm({ apply_to_inventory: apply }) } finally { setBusy(false) } }}
-            disabled={busy}
-            className="px-4 py-2 rounded-lg text-sm font-bold bg-[#b3001e] text-white hover:bg-[#95001a] disabled:opacity-60 inline-flex items-center gap-2">
+            onClick={async () => { setBusy(true); try { await onConfirm({ apply_to_inventory: apply, signature_dataurl: signature }) } finally { setBusy(false) } }}
+            disabled={busy || !signature}
+            title={!signature ? 'Firme para finalizar' : ''}
+            className="px-4 py-2 rounded-lg text-sm font-bold bg-[#b3001e] text-white hover:bg-[#95001a] disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2">
             {busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
             Finalizar conteo
           </button>
@@ -196,11 +367,24 @@ function CompleteConfirm({ count, onConfirm, onClose }) {
 function DetailView({ count, onBack, onReload, biz }) {
   const api = useAPI()
   const [q, setQ]         = useState('')
+  const [catFilter, setCatFilter] = useState('')  // '' = todas
   const [saving, setSaving] = useState(null) // supabase_id of row being saved
   const [confirm, setConfirm] = useState(false)
   const [error, setError]   = useState('')
   const inputRefs = useRef({})
   const isOpen = count.status === 'abierto'
+
+  // Unique categories (sorted) for the dropdown filter. Uses the same
+  // "Sin categoria" fallback as the grouping logic so users recognize the
+  // bucket by name when the item has null/empty category.
+  const categories = useMemo(() => {
+    const set = new Set()
+    for (const it of count.items || []) {
+      const k = (it.category && String(it.category).trim()) || 'Sin categoria'
+      set.add(k)
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, 'es'))
+  }, [count.items])
 
   // Row order needs to be stable so "Enter → next row" advances predictably.
   const orderedItems = useMemo(() => {
@@ -220,11 +404,11 @@ function DetailView({ count, onBack, onReload, biz }) {
   }, [count.items])
 
   const filtered = useMemo(() => {
-    if (!q.trim()) return orderedItems
     const needle = q.trim().toLowerCase()
     const filtGroups = new Map()
     for (const [cat, arr] of orderedItems.ordered) {
-      const hits = arr.filter(i =>
+      if (catFilter && cat !== catFilter) continue
+      const hits = !needle ? arr : arr.filter(i =>
         (i.name || '').toLowerCase().includes(needle) ||
         (i.sku || '').toLowerCase().includes(needle) ||
         (cat || '').toLowerCase().includes(needle))
@@ -234,7 +418,7 @@ function DetailView({ count, onBack, onReload, biz }) {
     const flat = []
     for (const [cat, arr] of ordered) for (const it of arr) flat.push({ category: cat, item: it })
     return { ordered, flat }
-  }, [q, orderedItems])
+  }, [q, catFilter, orderedItems])
 
   const progress = useMemo(() => {
     const items = count.items || []
@@ -242,19 +426,25 @@ function DetailView({ count, onBack, onReload, biz }) {
     return { counted, total: items.length }
   }, [count.items])
 
+  // v2.14 — Variance math subtracts sales-during-count from expected so the
+  // shrinkage number reflects TRUE loss, not sales that happened while the
+  // cashier was walking the aisles with the paper sheet.
   const totals = useMemo(() => {
     const items = count.items || []
     return items.reduce((acc, it) => {
       const exp = Number(it.expected_qty) || 0
-      const cnt = (it.counted_qty === null || it.counted_qty === undefined || it.counted_qty === '') ? exp : Number(it.counted_qty)
+      const sold = Number(it.sold_during_count) || 0
+      const adj = exp - sold
+      const cnt = (it.counted_qty === null || it.counted_qty === undefined || it.counted_qty === '') ? adj : Number(it.counted_qty)
       const cost  = Number(it.unit_cost)  || 0
       const price = Number(it.unit_price) || 0
       acc.expCost  += exp * cost
       acc.cntCost  += cnt * cost
-      acc.varCost  += (cnt - exp) * cost
-      acc.varPrice += (cnt - exp) * price
+      acc.varCost  += (cnt - adj) * cost
+      acc.varPrice += (cnt - adj) * price
+      acc.soldQty  += sold
       return acc
-    }, { expCost: 0, cntCost: 0, varCost: 0, varPrice: 0 })
+    }, { expCost: 0, cntCost: 0, varCost: 0, varPrice: 0, soldQty: 0 })
   }, [count.items])
 
   // Top 10 biggest cost losses for the summary card on completed counts.
@@ -263,9 +453,11 @@ function DetailView({ count, onBack, onReload, biz }) {
     return (count.items || [])
       .map(it => {
         const exp = Number(it.expected_qty) || 0
-        const cnt = (it.counted_qty === null || it.counted_qty === undefined) ? exp : Number(it.counted_qty)
-        const dq  = cnt - exp
-        return { ...it, _varQty: dq, _varCost: dq * (Number(it.unit_cost) || 0) }
+        const sold = Number(it.sold_during_count) || 0
+        const adj = exp - sold
+        const cnt = (it.counted_qty === null || it.counted_qty === undefined) ? adj : Number(it.counted_qty)
+        const dq  = cnt - adj
+        return { ...it, _adjExp: adj, _varQty: dq, _varCost: dq * (Number(it.unit_cost) || 0) }
       })
       .filter(r => r._varCost < 0)
       .sort((a, b) => a._varCost - b._varCost)
@@ -308,10 +500,10 @@ function DetailView({ count, onBack, onReload, biz }) {
     }
   }
 
-  async function complete({ apply_to_inventory }) {
+  async function complete({ apply_to_inventory, signature_dataurl }) {
     setError('')
     try {
-      await api.inventoryCount.complete({ id: count.id, apply_to_inventory })
+      await api.inventoryCount.complete({ id: count.id, apply_to_inventory, signature_dataurl })
       setConfirm(false)
       await onReload()
     } catch (e) {
@@ -319,6 +511,7 @@ function DetailView({ count, onBack, onReload, biz }) {
       setConfirm(false)
     }
   }
+
 
   async function cancelCount() {
     if (!confirm && !window.confirm('Cancelar este conteo? Los datos ingresados se mantendran visibles pero el conteo no modificara el inventario.')) return
@@ -336,18 +529,30 @@ function DetailView({ count, onBack, onReload, biz }) {
     } catch (e) { setError(e?.message || 'Error al eliminar') }
   }
 
+  // v2.14 — If a category filter is active, exports scope to that subset only
+  // (Ranoza use case: "count just the wines, export just the wines"). Title
+  // is annotated so the PDF / CSV make the scope obvious in the header.
+  const scopedCount = useMemo(() => {
+    if (!catFilter) return count
+    const items = (count.items || []).filter(it => {
+      const k = (it.category && String(it.category).trim()) || 'Sin categoria'
+      return k === catFilter
+    })
+    return { ...count, items, title: `${count.title || 'Conteo'} — ${catFilter}` }
+  }, [count, catFilter])
+
   async function printSheet() {
     setError('')
-    const res = await saveCountSheetPDF({ count, biz }, api)
+    const res = await saveCountSheetPDF({ count: scopedCount, biz }, api)
     if (!res?.ok) setError(res?.error || 'Error al generar PDF')
   }
   async function printReport() {
     setError('')
-    const res = await saveVarianceReportPDF({ count, biz }, api)
+    const res = await saveVarianceReportPDF({ count: scopedCount, biz }, api)
     if (!res?.ok) setError(res?.error || 'Error al generar PDF')
   }
   function exportCsv() {
-    exportInventoryCount(biz, count)
+    exportInventoryCount(biz, scopedCount)
   }
 
   const statusBadge = {
@@ -461,13 +666,36 @@ function DetailView({ count, onBack, onReload, biz }) {
 
       {error && <div className="rounded-lg bg-[#b3001e]/10 border border-[#b3001e]/30 text-[#b3001e] text-sm px-3 py-2">{error}</div>}
 
-      {/* Search */}
-      <div className="relative max-w-md">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-black/40 dark:text-white/40" />
-        <input value={q} onChange={e => setQ(e.target.value)}
-          placeholder="Buscar por nombre, SKU o categoria…"
-          className="w-full pl-9 pr-3 py-2 rounded-lg border border-black/15 dark:border-white/15 bg-white dark:bg-white/5 text-sm text-black dark:text-white focus:outline-none focus:border-[#b3001e]" />
+      {/* Toolbar — search + category filter + scan mode */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-black/40 dark:text-white/40 pointer-events-none" />
+          <input value={q} onChange={e => setQ(e.target.value)}
+            placeholder="Buscar por nombre, SKU o categoria…"
+            className="w-full pl-9 pr-3 py-2 rounded-lg border border-black/15 dark:border-white/15 bg-white dark:bg-white/5 text-sm text-black dark:text-white focus:outline-none focus:border-[#b3001e]" />
+        </div>
+        {categories.length > 1 && (
+          <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-black/15 dark:border-white/15 bg-white dark:bg-white/5 text-sm text-black dark:text-white focus:outline-none focus:border-[#b3001e]">
+            <option value="">Todas las categorias</option>
+            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        )}
       </div>
+
+      {/* Signature display — shown on completed counts that were signed. */}
+      {count.status === 'completado' && count.signature_dataurl && (
+        <div className="rounded-xl bg-white dark:bg-white/5 border border-black/10 dark:border-white/10 p-4 flex items-start gap-4">
+          <PenLine size={16} className="text-[#b3001e] shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <div className="text-xs font-semibold uppercase tracking-wide text-black/60 dark:text-white/60 mb-2">
+              Firma de {count.counted_by_name || 'responsable'}
+            </div>
+            <img src={count.signature_dataurl} alt="Firma"
+              className="max-h-32 bg-white rounded border border-black/10" />
+          </div>
+        </div>
+      )}
 
       {/* Table grouped by category */}
       <div className="rounded-xl bg-white dark:bg-white/5 border border-black/10 dark:border-white/10 overflow-hidden">
@@ -489,9 +717,11 @@ function DetailView({ count, onBack, onReload, biz }) {
             {filtered.ordered.map(([cat, arr]) => {
               const sub = arr.reduce((acc, it) => {
                 const exp = Number(it.expected_qty) || 0
-                const cnt = (it.counted_qty === null || it.counted_qty === undefined || it.counted_qty === '') ? exp : Number(it.counted_qty)
+                const sold = Number(it.sold_during_count) || 0
+                const adj = exp - sold
+                const cnt = (it.counted_qty === null || it.counted_qty === undefined || it.counted_qty === '') ? adj : Number(it.counted_qty)
                 const cost = Number(it.unit_cost) || 0
-                acc.exp += exp * cost; acc.cnt += cnt * cost; acc.var += (cnt - exp) * cost
+                acc.exp += exp * cost; acc.cnt += cnt * cost; acc.var += (cnt - adj) * cost
                 return acc
               }, { exp: 0, cnt: 0, var: 0 })
               return (
@@ -506,15 +736,24 @@ function DetailView({ count, onBack, onReload, biz }) {
                   {arr.map(it => {
                     const myIdx = flatIndex++
                     const exp = Number(it.expected_qty) || 0
+                    const sold = Number(it.sold_during_count) || 0
+                    const adj = exp - sold
                     const countedVal = (it.counted_qty === null || it.counted_qty === undefined) ? '' : String(it.counted_qty)
                     const cnt = countedVal === '' ? null : Number(countedVal)
-                    const dq = cnt === null ? null : (cnt - exp)
+                    const dq = cnt === null ? null : (cnt - adj)
                     const varCost = cnt === null ? null : dq * (Number(it.unit_cost) || 0)
                     return (
                       <tr key={it.supabase_id} className="border-t border-black/5 dark:border-white/5 hover:bg-black/[0.02] dark:hover:bg-white/[0.02]">
                         <td className="px-3 py-2 text-xs font-mono text-black/60 dark:text-white/60">{it.sku || '—'}</td>
                         <td className="px-3 py-2 text-black dark:text-white">{it.name}</td>
-                        <td className="px-3 py-2 text-right text-black/80 dark:text-white/80">{fmtQty(it.expected_qty)}</td>
+                        <td className="px-3 py-2 text-right text-black/80 dark:text-white/80">
+                          {fmtQty(adj)}
+                          {sold > 0 && (
+                            <div className="text-[10px] text-black/40 dark:text-white/40 font-normal">
+                              {fmtQty(exp)} − {fmtQty(sold)} vend.
+                            </div>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-right">
                           {isOpen ? (
                             <input
@@ -640,6 +879,7 @@ export default function InventoryCount() {
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState('')
   const [empleados, setEmpleados] = useState([])
+  const [availableCategories, setAvailableCategories] = useState([])
   const [biz, setBiz] = useState({ name: '', rnc: '' })
 
   const allowed = user && ALLOWED.includes(user.role)
@@ -671,6 +911,24 @@ export default function InventoryCount() {
           name: s.biz_name || s.business_name || 'Empresa',
           rnc:  s.biz_rnc  || s.rnc           || '',
         })
+      } catch {}
+      // v2.14 — category list for the StartModal pre-scope selector. Uses
+      // inventory.all() which every mode exposes. Grouping + "(sin
+      // categoria)" bucket matches the filter logic in countStart.
+      try {
+        const all = await api.inventory?.all?.()
+        if (Array.isArray(all)) {
+          const counts = new Map()
+          for (const it of all) {
+            if (it.active === 0 || it.active === false) continue
+            const k = (it.category && String(it.category).trim()) || '(sin categoria)'
+            counts.set(k, (counts.get(k) || 0) + 1)
+          }
+          const list = [...counts.entries()]
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+          setAvailableCategories(list)
+        }
       } catch {}
     })()
   }, [allowed, loadList, api])
@@ -717,6 +975,7 @@ export default function InventoryCount() {
       {showStart && (
         <StartModal
           empleados={empleados}
+          availableCategories={availableCategories}
           onStart={handleStart}
           onClose={() => setShowStart(false)}
         />

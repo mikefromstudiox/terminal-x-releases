@@ -1,13 +1,15 @@
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'node:crypto'
+import bcrypt from 'bcryptjs'
 import dotenv from 'dotenv'
 dotenv.config({ path: 'A:/Studio X HUB/Terminal X/.env' })
 
 const SB = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 })
-const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex')
 const uid = () => crypto.randomUUID()
+const genSalt = () => crypto.randomBytes(24).toString('base64url').slice(0, 32)
+const bcryptHash = (pin, salt) => bcrypt.hashSync(String(pin) + salt, 10)
 
 const OLD_BIZ = 'bdbd4efd-8dce-4dca-bfc0-a89846d96754'   // retail demo slot currently holding Ranoza
 const DEMO_EMAIL = 'admin@retail.demo.terminalxpos.com'   // stays with the demo — will be re-seeded
@@ -58,15 +60,20 @@ async function main() {
   console.log('   new business_id:', newBizId)
 
   console.log('3/6  Creating staff (owner + cajera) for new biz…')
+  const ownerSalt = genSalt()
+  const cajSalt = genSalt()
   await SB.from('staff').insert([
     {
       business_id: newBizId, auth_user_id: newAuthId, name: 'Dueño Ranoza',
-      username: 'owner', pin_hash: sha256(OWNER_PIN), role: 'owner', active: true,
-      supabase_id: uid(),
+      username: 'owner', pin_hash: bcryptHash(OWNER_PIN, ownerSalt),
+      pin_hash_algo: 'bcrypt', pin_salt: ownerSalt,
+      role: 'owner', active: true, supabase_id: uid(),
     },
     {
       business_id: newBizId, name: 'Cajera Demo', username: 'cajera1',
-      pin_hash: sha256(CAJERA_PIN), role: 'cashier', active: true, supabase_id: uid(),
+      pin_hash: bcryptHash(CAJERA_PIN, cajSalt),
+      pin_hash_algo: 'bcrypt', pin_salt: cajSalt,
+      role: 'cashier', active: true, supabase_id: uid(),
     },
   ])
 

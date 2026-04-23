@@ -175,13 +175,19 @@ export async function buildVarianceReportPDF({ count, biz }) {
   const font     = await pdf.embedFont(StandardFonts.Helvetica)
   const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold)
 
-  // Compute variance per row (client-side — same math as SQL / Supabase gen cols).
+  // v2.14 — Variance math subtracts sales-during-count so shrinkage reflects
+  // true loss, not sales. `_adj_expected` = expected_qty - sold_during_count
+  // and drives every downstream number on the report.
   const items = (count?.items || []).map(it => {
     const exp = Number(it.expected_qty) || 0
-    const cnt = (it.counted_qty === null || it.counted_qty === undefined) ? exp : Number(it.counted_qty)
-    const dq  = cnt - exp
+    const sold = Number(it.sold_during_count) || 0
+    const adj = exp - sold
+    const cnt = (it.counted_qty === null || it.counted_qty === undefined) ? adj : Number(it.counted_qty)
+    const dq  = cnt - adj
     return {
       ...it,
+      _adj_expected: adj,
+      _sold_during: sold,
       _counted_qty_effective: cnt,
       _variance_qty:   dq,
       _variance_cost:  dq * (Number(it.unit_cost)  || 0),
@@ -193,17 +199,20 @@ export async function buildVarianceReportPDF({ count, biz }) {
 
   const totals = (count?.items || []).reduce((acc, it) => {
     const exp = Number(it.expected_qty) || 0
-    const cnt = (it.counted_qty === null || it.counted_qty === undefined) ? exp : Number(it.counted_qty)
+    const sold = Number(it.sold_during_count) || 0
+    const adj = exp - sold
+    const cnt = (it.counted_qty === null || it.counted_qty === undefined) ? adj : Number(it.counted_qty)
     const cost  = Number(it.unit_cost)  || 0
     const price = Number(it.unit_price) || 0
     acc.expCost   += exp * cost
     acc.cntCost   += cnt * cost
-    acc.varCost   += (cnt - exp) * cost
+    acc.varCost   += (cnt - adj) * cost
     acc.expPrice  += exp * price
     acc.cntPrice  += cnt * price
-    acc.varPrice  += (cnt - exp) * price
+    acc.varPrice  += (cnt - adj) * price
+    acc.soldQty   += sold
     return acc
-  }, { expCost: 0, cntCost: 0, varCost: 0, expPrice: 0, cntPrice: 0, varPrice: 0 })
+  }, { expCost: 0, cntCost: 0, varCost: 0, expPrice: 0, cntPrice: 0, varPrice: 0, soldQty: 0 })
 
   let page = pdf.addPage([PAGE_W, PAGE_H])
   let y = PAGE_H - MARGIN
@@ -264,12 +273,14 @@ export async function buildVarianceReportPDF({ count, biz }) {
     page.drawRectangle({ x: MARGIN, y: y - 16, width: PAGE_W - MARGIN * 2, height: 16, color: CRIMSON })
     const labels = [
       { x: MARGIN + 6,   label: 'SKU' },
-      { x: MARGIN + 82,  label: 'PRODUCTO' },
-      { x: MARGIN + 300, label: 'ESPERADO' },
-      { x: MARGIN + 360, label: 'CONTADO' },
-      { x: MARGIN + 418, label: 'DIF. UND.' },
-      { x: MARGIN + 470, label: 'PERDIDA COSTO' },
-      { x: MARGIN + 540, label: 'PRECIO' },
+      { x: MARGIN + 78,  label: 'PRODUCTO' },
+      { x: MARGIN + 278, label: 'INICIO' },
+      { x: MARGIN + 318, label: 'VENDIDOS' },
+      { x: MARGIN + 370, label: 'ESPERADO' },
+      { x: MARGIN + 418, label: 'CONTADO' },
+      { x: MARGIN + 466, label: 'DIF.' },
+      { x: MARGIN + 500, label: 'COSTO' },
+      { x: MARGIN + 548, label: 'PRECIO' },
     ]
     for (const l of labels) page.drawText(l.label, { x: l.x, y: y - 12, size: 7, font: fontBold, color: PAPER })
     y -= 18
@@ -292,17 +303,56 @@ export async function buildVarianceReportPDF({ count, biz }) {
       }
       const lossColor = it._variance_cost < 0 ? CRIMSON : INK
 
-      page.drawText(clip(font, it.sku || '', 8, 74),            { x: MARGIN + 6,   y: y - 10, size: 8, font, color: INK })
-      page.drawText(clip(font, it.name, 9, 214),                { x: MARGIN + 82,  y: y - 10, size: 9, font, color: INK })
-      page.drawText(fmtQty(it.expected_qty),                    { x: MARGIN + 300, y: y - 10, size: 9, font, color: INK })
-      page.drawText(fmtQty(it._counted_qty_effective),          { x: MARGIN + 360, y: y - 10, size: 9, font, color: INK })
+      page.drawText(clip(font, it.sku || '', 8, 68),            { x: MARGIN + 6,   y: y - 10, size: 8, font, color: INK })
+      page.drawText(clip(font, it.name, 9, 196),                { x: MARGIN + 78,  y: y - 10, size: 9, font, color: INK })
+      page.drawText(fmtQty(it.expected_qty),                    { x: MARGIN + 278, y: y - 10, size: 9, font, color: INK })
+      page.drawText(fmtQty(it._sold_during),                    { x: MARGIN + 318, y: y - 10, size: 9, font, color: INK })
+      page.drawText(fmtQty(it._adj_expected),                   { x: MARGIN + 370, y: y - 10, size: 9, font, color: INK })
+      page.drawText(fmtQty(it._counted_qty_effective),          { x: MARGIN + 418, y: y - 10, size: 9, font, color: INK })
       page.drawText((it._variance_qty > 0 ? '+' : '') + fmtQty(it._variance_qty),
-                                                                { x: MARGIN + 418, y: y - 10, size: 9, font: fontBold, color: lossColor })
-      page.drawText(fmtRD(it._variance_cost),                   { x: MARGIN + 470, y: y - 10, size: 9, font: fontBold, color: lossColor })
-      page.drawText(fmtRD(it._variance_price),                  { x: MARGIN + 540, y: y - 10, size: 8, font, color: lossColor })
+                                                                { x: MARGIN + 466, y: y - 10, size: 9, font: fontBold, color: lossColor })
+      page.drawText(fmtRD(it._variance_cost),                   { x: MARGIN + 500, y: y - 10, size: 8, font: fontBold, color: lossColor })
+      page.drawText(fmtRD(it._variance_price),                  { x: MARGIN + 548, y: y - 10, size: 7, font, color: lossColor })
       // hairline
       page.drawLine({ start: { x: MARGIN, y: y - 13 }, end: { x: PAGE_W - MARGIN, y: y - 13 }, thickness: 0.2, color: HAIRLINE })
       y -= ROW_H
+    }
+  }
+
+  // v2.14 — Signature block. If the count was signed (Ranoza requirement), we
+  // embed the PNG dataURL on the last page above the footer. Falls back to a
+  // plain line-and-label if no signature is on file (legacy counts).
+  if (y < MARGIN + 120) {
+    page = pdf.addPage([PAGE_W, PAGE_H])
+    y = PAGE_H - MARGIN
+  }
+  y -= 24
+  const sigBoxW = 260
+  const sigBoxH = 80
+  if (count?.signature_dataurl && typeof count.signature_dataurl === 'string' && count.signature_dataurl.startsWith('data:image/')) {
+    try {
+      const base64 = count.signature_dataurl.split(',')[1] || ''
+      const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
+      const isPng = count.signature_dataurl.includes('image/png')
+      const img = isPng ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes)
+      const scale = Math.min(sigBoxW / img.width, sigBoxH / img.height)
+      const w = img.width * scale
+      const h = img.height * scale
+      page.drawImage(img, { x: MARGIN, y: y - h, width: w, height: h })
+      page.drawLine({ start: { x: MARGIN, y: y - h - 4 }, end: { x: MARGIN + sigBoxW, y: y - h - 4 }, thickness: 0.6, color: INK })
+      page.drawText('Firma del responsable', { x: MARGIN, y: y - h - 16, size: 8, font, color: INK })
+      if (count?.counted_by_name) {
+        page.drawText(count.counted_by_name, { x: MARGIN, y: y - h - 28, size: 9, font: fontBold, color: INK })
+      }
+    } catch {
+      page.drawLine({ start: { x: MARGIN, y: y - 48 }, end: { x: MARGIN + sigBoxW, y: y - 48 }, thickness: 0.6, color: INK })
+      page.drawText('Firma del responsable', { x: MARGIN, y: y - 60, size: 8, font, color: INK })
+    }
+  } else {
+    page.drawLine({ start: { x: MARGIN, y: y - 48 }, end: { x: MARGIN + sigBoxW, y: y - 48 }, thickness: 0.6, color: INK })
+    page.drawText('Firma del responsable', { x: MARGIN, y: y - 60, size: 8, font, color: INK })
+    if (count?.counted_by_name) {
+      page.drawText(count.counted_by_name, { x: MARGIN, y: y - 72, size: 9, font: fontBold, color: INK })
     }
   }
 

@@ -12,8 +12,8 @@ import { useAuth } from '../context/AuthContext'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import { hasVehicles } from '@terminal-x/config/businessTypes'
 import { usePlan } from '../hooks/usePlan.jsx'
-// LicenseAdmin removed — was dead code (API key auth incompatible with Supabase JWT backend).
-// Real admin panel: terminalxpos.com/admin
+import { isTech } from '../lib/roles'
+import { runDrawerAutoDetect } from '../lib/drawerAutoDetect'
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
 
@@ -122,16 +122,18 @@ function SaveBtn({ saving, saved, label, onClick }) {
   )
 }
 
-// ── Drawer tester (numbered variant picker) ──────────────────────────────────
-// Five numbered buttons fire each ESC/POS drawer-kick variant. The one that
-// actually opens the drawer stays highlighted + updates the pending settings;
-// the page-wide Guardar at the bottom of Preferencias persists it.
-function DrawerTester({ printerApi, cfg, set, persistKey, show, L }) {
-  const [selected, setSelected] = useState(null)   // 0..N-1 — highlighted variant
-  const [total,    setTotal]    = useState(8)      // confirmed on first fire via IPC response
-  const [autoIdx,  setAutoIdx]  = useState(null)   // null | 0..total-1 — current probe position
-  const [autoHex,  setAutoHex]  = useState(null)   // hex of the variant firing RIGHT NOW (for Se Abrio callback)
-  const autoRef = useRef({ cancelled: false, timer: null })
+// ── Drawer tester ────────────────────────────────────────────────────────────
+// Default view: "Abrir Caja" (single pulse) + "Detección Automática" (cycles
+// variants until cashier confirms). Auto-detect persists immediately, so the
+// owner never has to touch numbered variant buttons or Guardar.
+// `showAdvanced` (tech role only) reveals the raw variant grid for installers
+// who need to manually pick a pulse.
+function DrawerTester({ printerApi, cfg, set, persistKey, show, L, showAdvanced }) {
+  const [selected, setSelected] = useState(null)   // highlighted variant (advanced only)
+  const [total,    setTotal]    = useState(8)
+  const [autoIdx,  setAutoIdx]  = useState(null)
+  const [autoHex,  setAutoHex]  = useState(null)
+  const ctlRef = useRef(null)
 
   async function abrirCaja() {
     try {
@@ -152,39 +154,33 @@ function DrawerTester({ printerApi, cfg, set, persistKey, show, L }) {
     } catch (e) { show(L('Error: ', 'Error: ') + (e?.message || ''), 'error'); return null }
   }
 
-  async function startAutoDetect() {
-    autoRef.current = { cancelled: false, timer: null }
-    for (let i = 0; i < total; i++) {
-      if (autoRef.current.cancelled) return
-      setAutoIdx(i)
-      try {
-        const r = await printerApi?.fireDrawerVariant?.(i, cfg.printer || undefined)
-        if (r?.total) setTotal(r.total)
-        setAutoHex(r?.hex || null)
-        // During this 1.6s window, if the cashier clicks "Se abrió" the current
-        // autoHex is captured and saved.
-      } catch {}
-      await new Promise(res => { autoRef.current.timer = setTimeout(res, 1600) })
-    }
-    if (!autoRef.current.cancelled) {
-      setAutoIdx(null); setAutoHex(null)
-      show(L('Ninguna variante abrió. Revisa cable RJ11 + posición de la llave de la gaveta.', 'No variant opened. Check RJ11 cable + drawer key position.'), 'error')
-    }
+  function startAutoDetect() {
+    ctlRef.current = runDrawerAutoDetect({
+      printerApi,
+      printer: cfg.printer,
+      onProgress: ({ idx, total: t, hex }) => {
+        if (t) setTotal(t)
+        setAutoIdx(idx)
+        setAutoHex(hex)
+      },
+      onExhausted: () => {
+        setAutoIdx(null); setAutoHex(null)
+        show(L('Ninguna variante abrió. Revisa cable RJ11 + posición de la llave de la gaveta.', 'No variant opened. Check RJ11 cable + drawer key position.'), 'error')
+      },
+    })
   }
 
   async function confirmAutoOpened() {
     if (autoHex) {
       setSelected(autoIdx)
-      // Auto-detect persists immediately — no second Guardar click needed.
       await persistKey('drawer_pulse_hex', autoHex)
-      show(L(`Variante ${autoIdx + 1} guardada ✓`, `Variant ${autoIdx + 1} saved ✓`))
+      show(L('Gaveta configurada ✓ Guardado', 'Drawer configured ✓ Saved'))
     }
     stopAutoDetect()
   }
 
   function stopAutoDetect() {
-    autoRef.current.cancelled = true
-    if (autoRef.current.timer) clearTimeout(autoRef.current.timer)
+    ctlRef.current?.cancel()
     setAutoIdx(null); setAutoHex(null)
   }
 
@@ -215,36 +211,42 @@ function DrawerTester({ printerApi, cfg, set, persistKey, show, L }) {
           </>
         )}
       </div>
-      <div className="flex flex-col gap-1.5">
-        <span className="text-[10px] text-slate-400 dark:text-white/40">{L('Variantes:', 'Variants:')}</span>
-        {[[0, 5], [5, total]].map(([start, end], rowIdx) => (
-          end > start && (
-            <div key={rowIdx} className="flex items-center gap-1.5">
-              {Array.from({ length: end - start }, (_, j) => {
-                const i = start + j
-                return (
-                  <button key={i} onClick={() => fireVariant(i)} disabled={autoIdx !== null}
-                    className={`w-8 h-8 rounded-lg text-[12px] font-bold transition-all disabled:opacity-40 ${
-                      (autoIdx === i)
-                        ? 'bg-amber-500 text-white border-2 border-amber-500 animate-pulse'
-                        : selected === i
-                          ? 'bg-[#b3001e] text-white border-2 border-[#b3001e] shadow-sm'
-                          : 'bg-white dark:bg-white/5 text-slate-600 dark:text-white/60 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/10'
-                    }`}>
-                    {i + 1}
-                  </button>
-                )
-              })}
-            </div>
-          )
-        ))}
-      </div>
+      {showAdvanced && (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] text-slate-400 dark:text-white/40">{L('Variantes (técnico):', 'Variants (tech):')}</span>
+          {[[0, 5], [5, total]].map(([start, end], rowIdx) => (
+            end > start && (
+              <div key={rowIdx} className="flex items-center gap-1.5">
+                {Array.from({ length: end - start }, (_, j) => {
+                  const i = start + j
+                  return (
+                    <button key={i} onClick={() => fireVariant(i)} disabled={autoIdx !== null}
+                      className={`w-8 h-8 rounded-lg text-[12px] font-bold transition-all disabled:opacity-40 ${
+                        (autoIdx === i)
+                          ? 'bg-amber-500 text-white border-2 border-amber-500 animate-pulse'
+                          : selected === i
+                            ? 'bg-[#b3001e] text-white border-2 border-[#b3001e] shadow-sm'
+                            : 'bg-white dark:bg-white/5 text-slate-600 dark:text-white/60 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/10'
+                      }`}>
+                      {i + 1}
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          ))}
+        </div>
+      )}
       {autoIdx !== null && (
         <p className="text-[11px] text-amber-700 dark:text-amber-300">
           {L(`Probando variante ${autoIdx + 1} de ${total}… haz clic en "¡Se abrió!" cuando la caja abra.`, `Testing variant ${autoIdx + 1} of ${total}… click "It opened!" the moment the drawer pops.`)}
         </p>
       )}
-      {savedHex && autoIdx === null && <p className="text-[10px] text-slate-400 dark:text-white/40">{L('Variante activa:', 'Active variant:')} <span className="font-mono">{savedHex}</span> — {L('recuerda Guardar abajo', 'remember to Save below')}</p>}
+      {savedHex && autoIdx === null && showAdvanced && (
+        <p className="text-[10px] text-slate-400 dark:text-white/40">
+          {L('Variante activa:', 'Active variant:')} <span className="font-mono">{savedHex}</span>
+        </p>
+      )}
     </div>
   )
 }
@@ -339,6 +341,7 @@ export function Preferencias() {
   const { plan, hasFeature } = usePlan()
   const { user } = useAuth()
   const isOwner = user?.role === 'owner'
+  const tech = isTech(user)
   const showPreTicket = hasVehicles(businessType)
   const multiPosAllowed = plan === 'pro_max' || hasFeature?.('multi_pos')
   const L = (es, en) => lang === 'es' ? es : en
@@ -517,21 +520,27 @@ export function Preferencias() {
               <option value="">{L('Predeterminada', 'Default')}</option>
               {printers.map(p => <option key={p.name} value={p.name}>{p.displayName || p.name}{p.isDefault ? ' *' : ''}</option>)}
             </select>
-            <button onClick={testPrint} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold border border-slate-200 dark:border-white/10 rounded-lg text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 whitespace-nowrap">
-              <Printer size={12} />{L('Prueba', 'Test')}
-            </button>
+            {tech && (
+              <button onClick={testPrint} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold border border-slate-200 dark:border-white/10 rounded-lg text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 whitespace-nowrap">
+                <Printer size={12} />{L('Prueba', 'Test')}
+              </button>
+            )}
           </div>
         </SettingRow>
         <SettingRow label={L('Probar Gaveta de Dinero', 'Test Cash Drawer')} hint={L('Envia pulso al cajon. Prueba si no abre al cobrar.', 'Sends pulse to drawer. Use if it does not open on cobro.')}>
-          <DrawerTester printerApi={printerApi} cfg={cfg} set={set} persistKey={async (k, v) => { set(k, v); try { await api.settings.update({ [k]: v }) } catch {} }} show={show} L={L} />
+          <DrawerTester printerApi={printerApi} cfg={cfg} set={set} persistKey={async (k, v) => { set(k, v); try { await api.settings.update({ [k]: v }) } catch {} }} show={show} L={L} showAdvanced={tech} />
         </SettingRow>
-        <SettingRow settingKey="print_retry_enabled" label={L('Reintentar si falla', 'Retry on failure')} hint={L('Si la impresora no responde, reintenta 3x con espera (1s/3s/8s) antes de avisar.', 'If printer does not respond, retry 3x with backoff (1s/3s/8s) before surfacing.')}>
-          <Toggle enabled={on('print_retry_enabled')} onChange={v => set('print_retry_enabled', v ? '1' : '0')} />
-        </SettingRow>
-        <SettingRow settingKey="print_retry_max" label={L('Intentos maximos', 'Max attempts')} hint={L('1 a 5 — mas intentos = mas tiempo antes de mostrar el aviso.', '1 to 5 — more attempts = longer before banner shows.')}>
-          <input type="number" min="1" max="5" value={cfg.print_retry_max || '3'} onChange={e => set('print_retry_max', String(Math.max(1, Math.min(5, parseInt(e.target.value, 10) || 3))))}
-            className="border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 w-20" />
-        </SettingRow>
+        {tech && (
+          <>
+            <SettingRow settingKey="print_retry_enabled" label={L('Reintentar si falla', 'Retry on failure')} hint={L('Si la impresora no responde, reintenta 3x con espera (1s/3s/8s) antes de avisar.', 'If printer does not respond, retry 3x with backoff (1s/3s/8s) before surfacing.')}>
+              <Toggle enabled={on('print_retry_enabled')} onChange={v => set('print_retry_enabled', v ? '1' : '0')} />
+            </SettingRow>
+            <SettingRow settingKey="print_retry_max" label={L('Intentos maximos', 'Max attempts')} hint={L('1 a 5 — mas intentos = mas tiempo antes de mostrar el aviso.', '1 to 5 — more attempts = longer before banner shows.')}>
+              <input type="number" min="1" max="5" value={cfg.print_retry_max || '3'} onChange={e => set('print_retry_max', String(Math.max(1, Math.min(5, parseInt(e.target.value, 10) || 3))))}
+                className="border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 w-20" />
+            </SettingRow>
+          </>
+        )}
       </SettingSection>
 
       <SettingSection title={L('Impresion Automatica', 'Auto Print')}>
@@ -1397,7 +1406,6 @@ export default function Sistema({ initialTab, hideHeader }) {
           <NetworkDiagnostics />
         </div>
       )}
-      {/* LicenseAdmin tab removed — dead code. Admin panel is at terminalxpos.com/admin */}
     </div>
   )
 }

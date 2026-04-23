@@ -51,7 +51,6 @@ const PettyCash           = lazy(() => import('./screens/PettyCash'))
 const CreditNotes         = lazy(() => import('./screens/CreditNotes'))
 const Returns             = lazy(() => import('./screens/Returns'))
 const RemoteDashboard     = lazy(() => import('./screens/RemoteDashboard'))
-// LicenseAdmin removed — dead code (API key auth never matched Supabase JWT backend)
 const Sistema             = lazy(() => import('./screens/Sistema'))
 const Inventory           = lazy(() => import('./screens/Inventory'))
 const InventoryCount      = lazy(() => import('./screens/inventory/InventoryCount'))
@@ -80,7 +79,7 @@ const InvoiceCreate       = lazy(() => import('./screens/invoicing/InvoiceCreate
 const InvoiceList         = lazy(() => import('./screens/invoicing/InvoiceList'))
 
 // Routes accessible only to non-cashier roles
-const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/license-admin','/sistema','/inventory','/conteo-fisico','/config']
+const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/sistema','/inventory','/conteo-fisico','/config']
 
 function ProtectedRoute({ element }) {
   const { user } = useAuth()
@@ -233,7 +232,6 @@ export default function App() {
         <Route path="/config"                element={<ProtectedRoute element={<Config />} />} />
         <Route path="/admin"                 element={<ProtectedRoute element={<Admin />} />} />
         <Route path="/remote"                element={<ProtectedRoute element={<PlanGate feature="remote_dashboard"><RemoteDashboard /></PlanGate>} />} />
-        {/* LicenseAdmin route removed — dead code */}
         <Route path="/sistema"               element={<ProtectedRoute element={<Sistema />} />} />
         <Route path="/work-orders" element={<ProtectedRoute element={<PlanGate feature="work_orders"><WorkOrders /></PlanGate>} />} />
         <Route path="/vehicles" element={<ProtectedRoute element={<PlanGate feature="vehicles"><Vehicles /></PlanGate>} />} />

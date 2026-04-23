@@ -12,6 +12,7 @@ import { useRNC } from '../hooks/useRNC'
 import { usePlan } from '../hooks/usePlan'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import { Gift } from 'lucide-react'
+import { RNC_CEDULA_MAX_LENGTH } from '../lib/formatters'
 
 // Salon cross-sell heuristic — if the cart contains a haircut or color service
 // the stylist is taught to upsell a matching retail product (shampoo after a
@@ -1335,7 +1336,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
                           onChange={e => { setRnc(e.target.value); setRncName('') }}
                           onKeyDown={e => e.key === 'Enter' && lookupRnc()}
                           placeholder={tl('rnc', lang)}
-                          maxLength={11}
+                          maxLength={RNC_CEDULA_MAX_LENGTH}
                           className="flex-1 min-w-0 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] dark:text-white focus:outline-none focus:border-sky-400 placeholder:text-slate-400 dark:placeholder:text-white/40"
                         />
                         <button

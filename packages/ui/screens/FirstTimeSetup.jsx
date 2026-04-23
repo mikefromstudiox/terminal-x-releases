@@ -9,13 +9,15 @@ import {
   Wine, Beef, Wrench, Scissors, Banknote,
 } from 'lucide-react'
 import { isValidKeyFormat } from '@terminal-x/services/license'
-import { useAPI } from '../context/DataContext'
+import { useAPI, usePrinterAPI } from '../context/DataContext'
+import { runDrawerAutoDetect } from '../lib/drawerAutoDetect'
 import { useLicense } from '../context/LicenseContext'
 import { getSupabaseClient, setStoredSetting, getStoredSetting, ensureBusinessRegistered } from '@terminal-x/services/supabase'
 import { withRetry, isSupabaseRetryable } from '@terminal-x/services/retry.js'
 import { humanizeNetworkError } from '@terminal-x/services/networkError.js'
 import { BUSINESS_TYPES, BUSINESS_TYPE_KEYS, isBusinessTypeEnabled } from '@terminal-x/config/businessTypes'
 import { TIENDA_SUBTYPES, TIENDA_SUBTYPE_KEYS } from '@terminal-x/config/tiendaSubtypes'
+import { formatRnc, formatPhone, RNC_MAX_LENGTH, PHONE_MAX_LENGTH } from '../lib/formatters'
 
 // ── Bilingual copy ─────────────────────────────────────────────────────────────
 const COPY = {
@@ -910,20 +912,12 @@ function StepEmpresa({ t, lang, onNext, onBack }) {
 
           <div className="grid grid-cols-2 gap-4">
             <Field label={t('s1_rnc')} id="emp-rnc">
-              <TextInput id="emp-rnc" value={rnc} onChange={v => {
-                const digits = v.replace(/\D/g, '').slice(0, 9)
-                if (digits.length <= 3) setRnc(digits)
-                else if (digits.length <= 8) setRnc(digits.slice(0,3) + '-' + digits.slice(3))
-                else setRnc(digits.slice(0,3) + '-' + digits.slice(3,8) + '-' + digits.slice(8))
-              }} placeholder="XXX-XXXXX-X" inputMode="numeric" maxLength={11} />
+              <TextInput id="emp-rnc" value={rnc} onChange={v => setRnc(formatRnc(v))}
+                placeholder="XXX-XXXXX-X" inputMode="numeric" maxLength={RNC_MAX_LENGTH} />
             </Field>
             <Field label={t('s1_tel')} id="emp-tel">
-              <TextInput id="emp-tel" value={tel} onChange={v => {
-                const digits = v.replace(/\D/g, '').slice(0, 10)
-                if (digits.length <= 3) setTel(digits)
-                else if (digits.length <= 6) setTel(digits.slice(0,3) + '-' + digits.slice(3))
-                else setTel(digits.slice(0,3) + '-' + digits.slice(3,6) + '-' + digits.slice(6))
-              }} placeholder="809-555-0123" inputMode="tel" maxLength={12} />
+              <TextInput id="emp-tel" value={tel} onChange={v => setTel(formatPhone(v))}
+                placeholder="809-555-0123" inputMode="tel" maxLength={PHONE_MAX_LENGTH} />
             </Field>
           </div>
 
@@ -1636,8 +1630,110 @@ function StepFiscal({ t, onNext, onBack }) {
   )
 }
 
+// ── Optional drawer auto-detect panel (desktop only) ──────────────────────────
+// Shown at the top of StepDone. Gives the owner a one-shot "connect my drawer"
+// flow so they never have to open Settings → Impresora on day one. Skippable.
+function StepDoneDrawerPanel({ lang }) {
+  const api = useAPI()
+  const printerApi = usePrinterAPI()
+  const [phase, setPhase] = useState('idle') // idle | running | saved | skipped
+  const [currentIdx, setCurrentIdx] = useState(null)
+  const ctlRef = useRef(null)
+
+  if (!printerApi?.fireDrawerVariant) return null // web / no printer IPC
+
+  const L = (es, en) => lang === 'es' ? es : en
+
+  function start() {
+    setPhase('running')
+    ctlRef.current = runDrawerAutoDetect({
+      printerApi,
+      onProgress: ({ idx }) => setCurrentIdx(idx),
+      onExhausted: () => { setPhase('idle'); setCurrentIdx(null) },
+    })
+  }
+
+  async function confirm() {
+    const { hex } = ctlRef.current?.getCurrent?.() || {}
+    ctlRef.current?.cancel()
+    if (hex) {
+      try { await api?.settings?.update?.({ drawer_pulse_hex: hex }) } catch {}
+      setPhase('saved')
+    } else {
+      setPhase('idle')
+    }
+    setCurrentIdx(null)
+  }
+
+  function cancel() {
+    ctlRef.current?.cancel()
+    setPhase('skipped')
+    setCurrentIdx(null)
+  }
+
+  return (
+    <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-xl p-4 mb-4 text-left">
+      <div className="flex items-center gap-2 mb-2">
+        <Printer size={13} className="text-zinc-400" />
+        <p className="text-[11px] font-bold text-zinc-300 uppercase tracking-wider">
+          {L('Gaveta de dinero', 'Cash drawer')}
+        </p>
+      </div>
+      {phase === 'idle' && (
+        <>
+          <p className="text-[12px] text-zinc-400 mb-3">
+            {L('¿Tienes gaveta conectada? Toca para que abra automáticamente al cobrar.',
+               'Have a drawer connected? Tap to auto-configure it for cobro.')}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={start}
+              className="flex-1 py-2 bg-sky-600 hover:bg-sky-500 text-white text-[12px] font-bold rounded-lg transition-colors">
+              {L('Detectar ahora', 'Detect now')}
+            </button>
+            <button onClick={() => setPhase('skipped')}
+              className="px-3 py-2 border border-zinc-700 text-zinc-400 hover:text-zinc-200 text-[12px] rounded-lg">
+              {L('Saltar', 'Skip')}
+            </button>
+          </div>
+        </>
+      )}
+      {phase === 'running' && (
+        <>
+          <p className="text-[12px] text-amber-300 mb-3">
+            {L(`Probando… cuando la gaveta abra, toca "¡Se abrió!"`,
+               `Testing… when the drawer pops, tap "It opened!"`)}
+            {currentIdx !== null && <span className="ml-1 text-zinc-500">({currentIdx + 1})</span>}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={confirm}
+              className="flex-1 py-2 bg-green-500 hover:bg-green-400 text-white text-[13px] font-bold rounded-lg animate-pulse">
+              {L('¡Se abrió!', 'It opened!')}
+            </button>
+            <button onClick={cancel}
+              className="px-3 py-2 border border-zinc-700 text-zinc-400 hover:text-zinc-200 text-[12px] rounded-lg">
+              {L('Parar', 'Stop')}
+            </button>
+          </div>
+        </>
+      )}
+      {phase === 'saved' && (
+        <p className="text-[12px] text-green-400 flex items-center gap-1.5">
+          <CheckCircle2 size={13} />
+          {L('Gaveta configurada y guardada ✓', 'Drawer configured and saved ✓')}
+        </p>
+      )}
+      {phase === 'skipped' && (
+        <p className="text-[11px] text-zinc-500">
+          {L('Puedes configurarla luego en Configuración → Impresora.',
+             'You can configure it later in Settings → Printer.')}
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Step 5 — Done ─────────────────────────────────────────────────────────────
-function StepDone({ t, empresaNombre, onComplete }) {
+function StepDone({ t, empresaNombre, onComplete, lang }) {
   const nextSteps = [
     { icon: ReceiptText, text: t('s5_step_services') },
     { icon: Printer,     text: t('s5_step_printer')  },
@@ -1659,6 +1755,8 @@ function StepDone({ t, empresaNombre, onComplete }) {
             <span className="text-zinc-400 font-semibold">{empresaNombre}</span>
           </p>
         )}
+
+        <StepDoneDrawerPanel lang={lang} />
 
         {/* Next steps */}
         <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-xl p-4 mb-7 text-left">
@@ -1784,6 +1882,7 @@ export default function FirstTimeSetup({ onComplete }) {
         {step === 6 && (
           <StepDone
             t={t}
+            lang={lang}
             empresaNombre={empresaNombre}
             onComplete={markSetupComplete}
           />

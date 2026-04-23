@@ -351,13 +351,17 @@ export function exportNominaPeriod(biz, rows, period) {
 export function exportInventoryCount(biz, count) {
   const items = (count?.items || []).map(it => {
     const exp = Number(it.expected_qty) || 0
-    const cnt = (it.counted_qty === null || it.counted_qty === undefined) ? exp : Number(it.counted_qty)
-    const dq  = cnt - exp
+    const sold = Number(it.sold_during_count) || 0
+    const adj = exp - sold
+    const cnt = (it.counted_qty === null || it.counted_qty === undefined) ? adj : Number(it.counted_qty)
+    const dq  = cnt - adj
     return {
       sku: it.sku || '',
       name: it.name || '',
       category: it.category || '',
-      expected: exp,
+      expected_start: exp,
+      sold_during: sold,
+      expected_adj: adj,
       counted: (it.counted_qty === null || it.counted_qty === undefined) ? '' : cnt,
       variance_qty: dq,
       unit_cost: Number(it.unit_cost) || 0,
@@ -367,8 +371,8 @@ export function exportInventoryCount(biz, count) {
     }
   }).sort((a, b) => Math.abs(b.variance_cost) - Math.abs(a.variance_cost))
 
-  const totalExpCost = items.reduce((s, r) => s + r.expected * r.unit_cost, 0)
-  const totalCntCost = items.reduce((s, r) => s + (Number(r.counted) || r.expected) * r.unit_cost, 0)
+  const totalExpCost = items.reduce((s, r) => s + r.expected_adj * r.unit_cost, 0)
+  const totalCntCost = items.reduce((s, r) => s + (Number(r.counted) || r.expected_adj) * r.unit_cost, 0)
   const totalVarCost = totalCntCost - totalExpCost
 
   const rows = [
@@ -378,10 +382,11 @@ export function exportInventoryCount(biz, count) {
     [`Completado: ${count?.completed_at || '—'}`],
     [`Contado por: ${count?.counted_by_name || '—'}`],
     [],
-    ['SKU', 'Producto', 'Categoria', 'Esperado', 'Contado', 'Dif. unidades', 'Costo unit.', 'Precio unit.', 'Perdida RD$ (costo)', 'Perdida RD$ (precio)'],
+    ['SKU', 'Producto', 'Categoria', 'Inicio conteo', 'Vendidos en conteo', 'Esperado (ajustado)', 'Contado', 'Dif. unidades', 'Costo unit.', 'Precio unit.', 'Perdida RD$ (costo)', 'Perdida RD$ (precio)'],
     ...items.map(r => [
       r.sku, r.name, r.category,
-      fmtMoney(r.expected), r.counted === '' ? '' : fmtMoney(r.counted),
+      fmtMoney(r.expected_start), fmtMoney(r.sold_during), fmtMoney(r.expected_adj),
+      r.counted === '' ? '' : fmtMoney(r.counted),
       fmtMoney(r.variance_qty),
       fmtMoney(r.unit_cost), fmtMoney(r.unit_price),
       fmtMoney(r.variance_cost), fmtMoney(r.variance_price),

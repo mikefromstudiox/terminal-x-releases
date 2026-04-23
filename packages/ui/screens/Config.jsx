@@ -6,7 +6,6 @@ import { useParams, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Admin from './Admin'
 import Sistema, { Preferencias } from './Sistema'
-import LicenseAdmin from './LicenseAdmin'
 
 const ADMIN_SECTIONS = ['empresa', 'usuarios', 'servicios']
 
@@ -17,7 +16,7 @@ export default function Config() {
   if (!section) return <Navigate to="/config/empresa" replace />
 
   // Owner-only sections
-  const ownerOnly = ['updates', 'licencia', 'preferencias']
+  const ownerOnly = ['updates', 'preferencias']
   if (ownerOnly.includes(section) && user?.role !== 'owner') {
     return <Navigate to="/config/empresa" replace />
   }
@@ -38,10 +37,6 @@ export default function Config() {
 
   if (section === 'updates') {
     return <Sistema initialTab="actualizaciones" hideHeader />
-  }
-
-  if (section === 'licencia') {
-    return <LicenseAdmin />
   }
 
   return <Navigate to="/config/empresa" replace />

@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 80" fill="none">
-  <!-- "TERMINAL" text -->
-  <text x="0" y="58" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="42" font-weight="900" letter-spacing="3" fill="#1e293b">TERMINAL</text>
-  <!-- Red X mark — traced from logo.png -->
-  <svg x="290" y="2" width="76" height="76" viewBox="0 0 100 100">
-    <path d="M0 8 L38 42 L20 42 L0 62 L18 62 L38 46 L42 42 L38 38 L18 8 Z" fill="#BE123C"/>
-    <path d="M100 0 L50 42 L70 42 L100 78 L80 78 L58 46 L54 42 L58 38 L80 0 Z" fill="#BE123C"/>
-  </svg>
-</svg>

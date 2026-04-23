@@ -48,8 +48,14 @@ const daysAgo = (d, hourJitter = true) => {
 const phone = () => `809${rand(2, 9)}${String(rand(0, 9999999)).padStart(7, '0')}`
 const ncfStr = (prefix, n) => `${prefix}${String(n).padStart(8, '0')}`
 
-// SHA-256 of PIN '1234' — matches desktop's hashing convention
-const PIN_HASH = crypto.createHash('sha256').update('1234').digest('hex')
+// Bcrypt of PIN '1234' (same hash reused across every demo row — fine because
+// demo business_ids don't overlap). Matches desktop's bcrypt convention so
+// every freshly-seeded demo logs in without the sha256→bcrypt auto-upgrade
+// dance. Cost 10 matches electron/database.js BCRYPT_COST.
+const bcryptjs = require('bcryptjs')
+const PIN_SALT = crypto.randomBytes(24).toString('base64url').slice(0, 32)
+const PIN_HASH = bcryptjs.hashSync('1234' + PIN_SALT, 10)
+const PIN_ALGO = 'bcrypt'
 
 const PASSWORD = 'Demo2026!'
 const RNC = '133410321'
@@ -342,6 +348,8 @@ async function seedVertical(v, planId) {
     name: 'Mike Owner',
     username: 'admin',
     pin_hash: PIN_HASH,
+    pin_hash_algo: PIN_ALGO,
+    pin_salt: PIN_SALT,
     role: 'owner',
     // employee_id is INTEGER (legacy SQLite local id) — leave null on cloud
     cedula: '001-0000001-1',

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
-import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck, Beer, Coffee, Cookie, Droplet, CupSoda, Candy, IceCreamCone, UtensilsCrossed, Sparkles, Cigarette, Flame, Leaf, Pizza, Smartphone, Edit2, Eye, EyeOff, Lock } from 'lucide-react'
+import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck, Beer, Coffee, Cookie, Droplet, CupSoda, Candy, IceCreamCone, UtensilsCrossed, Sparkles, Cigarette, Flame, Leaf, Pizza, Smartphone, Edit2, Eye, EyeOff, Lock, Split } from 'lucide-react'
+import SplitBillModal from './restaurant/SplitBillModal'
 import AgeVerifyModal, { requiresAgeCheck } from '../components/AgeVerifyModal'
 import WeightModal from '../components/WeightModal'
 import DepositReturnModal from '../components/DepositReturnModal'
@@ -299,6 +300,7 @@ function CarWashPOS() {
   const [queue,     setQueue]     = useState([])
   const [toast,     setToast]     = useState(null)
   const [cobrarModal, setCobrarModal] = useState(null)
+  const [splitModal,  setSplitModal]  = useState(null)  // { total }
 
   // Client state
   const [clients,        setClients]        = useState([])
@@ -520,6 +522,8 @@ function CarWashPOS() {
         cajero_id:        (user?.id && user.id !== 'web') ? user.id : null,
         comprobante_type: paymentData.ncfType || 'E32',
         payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
+        payment_parts:    paymentData.payment_parts || null,
+        split:            (paymentData.payment_parts?.length || 0) > 1,
         tipo_venta:       paymentData.tipo || 'contado',
         status:           paymentData.tipo === 'credito' ? 'pendiente' : 'cobrado',
         subtotal:         sub,
@@ -616,6 +620,28 @@ function CarWashPOS() {
       flash(`Error: ${err.message}`)
     }
   }, [cobrarModal, queue.length, lang])
+
+  // v2.14 — Pago Dividido (split payment across methods). Mirrors RestaurantPOS
+  // pattern: floating Dividir button over CobrarModal → SplitBillModal → pipes
+  // payment_parts through handlePaymentConfirm so all print/ECF/sync paths run
+  // unchanged. parts[0].method becomes the primary payment_method for legacy
+  // cuadre readers; full parts[] persists as JSONB for 606 / cuadre breakdown.
+  const openSplit = useCallback(() => {
+    if (!cobrarModal) return
+    const total = (cobrarModal.items || []).reduce((s, it) => s + (Number(it.price) || 0) * (it.qty || 1), 0)
+    setSplitModal({ total })
+  }, [cobrarModal])
+
+  const handleSplitPay = useCallback(async (parts) => {
+    setSplitModal(null)
+    await handlePaymentConfirm({
+      formaPago: parts[0].method,
+      tipo: 'contado',
+      payment_parts: parts,
+      descuento: 0,
+      ncfType: 'B02',
+    })
+  }, [handlePaymentConfirm])
 
   return (
     <div className="h-full flex flex-col md:flex-row">
@@ -1063,6 +1089,26 @@ function CarWashPOS() {
           onClose={() => setCobrarModal(null)}
         />
       )}
+
+      {cobrarModal && !splitModal && (
+        <div className="fixed bottom-6 left-6 z-[65]">
+          <button
+            onClick={openSplit}
+            className="px-4 py-2.5 rounded-full bg-zinc-900 border border-white/20 hover:border-white/40 text-white text-sm font-semibold shadow-2xl flex items-center gap-2"
+          >
+            <Split size={14} /> {lang === 'es' ? 'Pago Dividido' : 'Split Payment'}
+          </button>
+        </div>
+      )}
+
+      {splitModal && (
+        <SplitBillModal
+          open={true}
+          totalAmount={splitModal.total}
+          onClose={() => setSplitModal(null)}
+          onPay={handleSplitPay}
+        />
+      )}
     </div>
   )
 }
@@ -1155,6 +1201,7 @@ function RetailPOS() {
   const [cart, setCart] = useState([])        // { id, inventory_item_id, service_id, sku, name, price, cost, qty, aplica_itbis }
   const [toast, setToast] = useState(null)
   const [cobrarModal, setCobrarModal] = useState(null)
+  const [splitModal,  setSplitModal]  = useState(null)  // { total }
   const [tab, setTab] = useState('products')  // 'products' | 'services'
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
@@ -1745,6 +1792,8 @@ function RetailPOS() {
         cajero_id:        (user?.id && user.id !== 'web') ? user.id : null,
         comprobante_type: paymentData.ncfType || 'E32',
         payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
+        payment_parts:    paymentData.payment_parts || null,
+        split:            (paymentData.payment_parts?.length || 0) > 1,
         tipo_venta:       paymentData.tipo || 'contado',
         subtotal:         sub,
         itbis:            itp,
@@ -1837,6 +1886,24 @@ function RetailPOS() {
       flash(`Error: ${err.message}`)
     }
   }, [cobrarModal, lang])
+
+  // v2.14 — Pago Dividido (split payment). See CarWashPOS block for the rationale.
+  const openSplit = useCallback(() => {
+    if (!cobrarModal) return
+    const total = (cobrarModal.items || []).reduce((s, it) => s + (Number(it.price) || 0) * (it.qty || 1), 0)
+    setSplitModal({ total })
+  }, [cobrarModal])
+
+  const handleSplitPay = useCallback(async (parts) => {
+    setSplitModal(null)
+    await handlePaymentConfirm({
+      formaPago: parts[0].method,
+      tipo: 'contado',
+      payment_parts: parts,
+      descuento: 0,
+      ncfType: 'B02',
+    })
+  }, [handlePaymentConfirm])
 
   // ── Render ─────────────────────────────────────────────────────────────────
   const gridCols = collapsed ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid-cols-2 md:grid-cols-3 xl:grid-cols-4'
@@ -2282,10 +2349,10 @@ function RetailPOS() {
           <div className="bg-white dark:bg-zinc-900 rounded-2xl w-full max-w-sm max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-slate-200 dark:border-white/10">
               <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                 <input value={clientSearch} onChange={e => setClientSearch(e.target.value)} autoFocus
                   placeholder={lang === 'es' ? 'Buscar cliente...' : 'Search client...'}
-                  className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
+                  className="w-full pl-11 pr-3 py-2 text-sm bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
               </div>
             </div>
             <div className="flex-1 overflow-y-auto">
@@ -2339,6 +2406,26 @@ function RetailPOS() {
           }}
           onConfirm={handlePaymentConfirm}
           onClose={() => setCobrarModal(null)}
+        />
+      )}
+
+      {cobrarModal && !splitModal && (
+        <div className="fixed bottom-6 left-6 z-[65]">
+          <button
+            onClick={openSplit}
+            className="px-4 py-2.5 rounded-full bg-zinc-900 border border-white/20 hover:border-white/40 text-white text-sm font-semibold shadow-2xl flex items-center gap-2"
+          >
+            <Split size={14} /> {lang === 'es' ? 'Pago Dividido' : 'Split Payment'}
+          </button>
+        </div>
+      )}
+
+      {splitModal && (
+        <SplitBillModal
+          open={true}
+          totalAmount={splitModal.total}
+          onClose={() => setSplitModal(null)}
+          onPay={handleSplitPay}
         />
       )}
 

@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es-DO">
+<head>
+<meta charset="utf-8" />
+<title>Terminal X — Cheat Sheet Cajera</title>
+<style>
+  :root { --red:#b3001e; --ink:#0a0a0a; --muted:#555; --line:#e5e5e5; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; color:var(--ink); font-size:10.5pt; line-height:1.45; background:#fff; }
+  .page { padding:36pt 44pt; max-width:820pt; margin:0 auto; }
+  h1 { font-size:24pt; margin:0 0 4pt 0; letter-spacing:-0.5pt; }
+  h2 { font-size:14pt; margin:14pt 0 6pt 0; border-bottom:2.5pt solid var(--red); padding-bottom:3pt; letter-spacing:-0.2pt; }
+  h3 { font-size:11.5pt; margin:10pt 0 3pt 0; color:var(--red); }
+  p { margin:3pt 0; }
+  ul, ol { margin:3pt 0 5pt 16pt; padding:0; }
+  li { margin:1.5pt 0; }
+  code { font-family:"Consolas",monospace; background:#f4f4f4; padding:1pt 3pt; border-radius:2pt; font-size:9.5pt; }
+  table { width:100%; border-collapse:collapse; margin:5pt 0; font-size:9.5pt; }
+  th, td { border:1pt solid var(--line); padding:4pt 6pt; text-align:left; vertical-align:top; }
+  th { background:#0a0a0a; color:#fff; font-weight:600; }
+  tr:nth-child(even) td { background:#fafafa; }
+  .cover { text-align:left; padding:70pt 44pt 40pt 44pt; background:#0a0a0a; color:#fff; min-height:190pt; page-break-after:always; }
+  .cover .x { color:var(--red); font-weight:900; font-size:80pt; line-height:1; letter-spacing:-5pt; margin-bottom:10pt; }
+  .cover h1 { color:#fff; font-size:32pt; margin-bottom:4pt; }
+  .cover .sub { color:#d0d0d0; font-size:13pt; max-width:520pt; line-height:1.3; }
+  .cover .meta { margin-top:30pt; color:#aaa; font-size:10pt; border-top:1pt solid #333; padding-top:10pt; }
+  .cover .meta strong { color:#fff; }
+  .pill { display:inline-block; background:var(--red); color:#fff; font-size:9pt; font-weight:700; padding:2pt 10pt; border-radius:999pt; letter-spacing:0.3pt; text-transform:uppercase; margin-bottom:10pt; }
+  .note { background:#fff8f8; border-left:3pt solid var(--red); padding:7pt 11pt; margin:6pt 0; border-radius:3pt; }
+  .ok   { background:#f4faf5; border-left:3pt solid #1a8a3c; padding:7pt 11pt; margin:6pt 0; border-radius:3pt; }
+  .warn { background:#fff9ec; border-left:3pt solid #c58a00; padding:7pt 11pt; margin:6pt 0; border-radius:3pt; }
+  .danger { background:#fff0f0; border-left:3pt solid var(--red); padding:7pt 11pt; margin:6pt 0; border-radius:3pt; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:12pt; }
+  h2, h3 { page-break-after:avoid; }
+  table, .note, .ok, .warn, .danger { page-break-inside:avoid; }
+  @page { size: Letter; margin:0; }
+  @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="x">X</div>
+  <span class="pill">Guía rápida</span>
+  <h1>Cajera<br/>Cheat Sheet</h1>
+  <p class="sub">Todo lo que necesitas para tu turno — en una sola hoja. Imprime, lamina, guarda en la caja.</p>
+  <div class="meta">
+    <strong>Terminal X POS</strong> · Studio X SRL · Santo Domingo, DR<br/>
+    Soporte: +1 (809) 828-2971 · terminalxpos.com<br/>
+    Versión 2026-04-22 · v2.13.2
+  </div>
+</section>
+
+<div class="page">
+
+<h2>1. Apertura de Turno</h2>
+<ul>
+  <li><strong>Solo la cajera abre su propio turno.</strong> El dueño, gerente, CFO o contador <em>no</em> abre turno — ellos lo abren <em>por</em> la cajera desde Cuadre.</li>
+  <li>Al entrar al POS, el sistema pide <strong>monto inicial en RD$</strong> (el efectivo con que arrancas el día).</li>
+  <li>Si el navegador sugiere contraseñas (ícono de llave 1Password/LastPass), ignóralo — el campo está bloqueado para autofill.</li>
+  <li>Confirma y ya estás lista para vender.</li>
+</ul>
+
+<h2>2. Cobrar — Métodos de pago</h2>
+<table>
+  <tr><th>Método</th><th>Qué hacer</th></tr>
+  <tr><td><strong>Efectivo</strong></td><td>Escribe monto recibido → sistema muestra el vuelto → gaveta se abre sola.</td></tr>
+  <tr><td><strong>Tarjeta</strong></td><td>Pasa tarjeta en POS externo → anota últimos 4 dígitos si el sistema los pide.</td></tr>
+  <tr><td><strong>Transferencia</strong></td><td>Muestra número/QR al cliente → confirma llegada antes de imprimir.</td></tr>
+  <tr><td><strong>Mixto</strong></td><td>Dividir total entre varios métodos. El botón <em>Agregar pago</em> permite combinar.</td></tr>
+  <tr><td><strong>Crédito (fiado)</strong></td><td>Solo si el cliente está registrado y tiene cupo. Nunca a cliente nuevo sin aprobación.</td></tr>
+</table>
+
+<h2>3. e-CF con RNC — Cliente pide factura</h2>
+<ul>
+  <li>Cuando el cliente pida factura, presiona el botón <strong>RNC</strong> en el modal de cobro.</li>
+  <li>Escribe el RNC (9 dígitos) o la cédula (11 dígitos) — el sistema busca automáticamente el nombre en la base DGII.</li>
+  <li>Si no aparece, pídele al cliente el nombre exacto y dirección; sistema lo guarda para próximas compras.</li>
+  <li>Sistema emite el tipo de e-CF correcto (E31, E32, E34, etc.) automáticamente — tú no eliges.</li>
+</ul>
+<div class="note"><strong>Si DGII no responde</strong> (internet caído), el sistema guarda el e-CF en cola y lo envía después. Sigues vendiendo normal.</div>
+
+<h2>4. Devoluciones y Notas de Crédito</h2>
+<div class="warn">
+  <strong>Requiere autorización de gerente.</strong> El sistema pedirá la <em>Tarjeta de Autorización</em> o PIN del manager. Nunca proceses una devolución tú sola.
+</div>
+<ol>
+  <li>Busca el ticket original (por número o fecha).</li>
+  <li>Marca los ítems que se devuelven.</li>
+  <li>Llama al gerente → pasa su tarjeta o digita PIN.</li>
+  <li>Devuelve el efectivo o genera crédito a cuenta.</li>
+</ol>
+
+<h2>5. Descuentos</h2>
+<ul>
+  <li>Descuentos &lt; RD$500 <strong>y</strong> &lt; 15%: los haces tú.</li>
+  <li>Descuentos <strong>&gt; RD$500</strong> <strong>o</strong> <strong>&gt; 15%</strong>: el sistema bloquea y pide autorización de gerente.</li>
+  <li>Siempre pon un motivo claro (ej: "cliente frecuente", "producto con golpe").</li>
+</ul>
+
+<h2>6. Kiosco bloqueado — Desbloquear</h2>
+<ul>
+  <li>Si dejas la caja sin actividad por varios minutos, el sistema se bloquea automáticamente (modo kiosco).</li>
+  <li>Entra tu <strong>PIN</strong> para desbloquear — tu sesión se preserva, no pierdes la venta en curso.</li>
+  <li>Si otra cajera quiere usar la caja, debe cerrar tu sesión primero.</li>
+</ul>
+
+<h2>7. Cierre de Turno — Cuadre</h2>
+<ol>
+  <li>Cuenta el efectivo físico en la gaveta.</li>
+  <li>Entra a <strong>Cuadre</strong> → escribe el monto contado.</li>
+  <li>Sistema compara con el esperado y muestra diferencia.</li>
+  <li>Si la discrepancia es <strong>&gt; RD$50</strong>, reporta al gerente antes de cerrar.</li>
+  <li>Imprime el cuadre y entrégalo al encargado del cierre.</li>
+</ol>
+
+<h2>8. Problemas de impresora</h2>
+<ul>
+  <li>Si no imprime: revisa el cable USB, el papel y que esté encendida.</li>
+  <li>Presiona <strong>Reintentar</strong> en el banner rojo — casi siempre funciona.</li>
+  <li>Si el banner rojo persiste, llama al gerente o a soporte: <strong>+1 (809) 828-2971</strong>.</li>
+</ul>
+
+<h2>9. Lo que NUNCA debes hacer</h2>
+<div class="danger">
+  <ul>
+    <li>Nunca <strong>anules un ticket</strong> sin aprobación del gerente (es fraude contra el negocio y DGII).</li>
+    <li>Nunca <strong>cierres sesión sin hacer cuadre</strong>.</li>
+    <li>Nunca <strong>compartas tu PIN</strong> con otra cajera ni con el cliente.</li>
+    <li>Nunca <strong>regales producto</strong> ni apliques precios distintos sin registrarlos en el sistema.</li>
+    <li>Nunca <strong>borres una venta</strong> del sistema — aunque haya error, emite nota de crédito.</li>
+  </ul>
+</div>
+
+<p style="margin-top:18pt; text-align:center; font-size:9pt; color:#555;">
+  Studio X SRL · RNC 133410321 · Santo Domingo, DR · WhatsApp +1 (809) 828-2971 · terminalxpos.com
+</p>
+
+</div>
+</body>
+</html>

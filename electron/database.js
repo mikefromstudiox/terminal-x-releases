@@ -1216,12 +1216,16 @@ function init(userDataPath, options = {}) {
     //   pin_salt       : per-row entropy suffix appended before bcrypt
     //   pin_failed_attempts : consecutive wrong guesses
     //   pin_locked_until    : ISO timestamp — while > now, authByPin skips row
-    "ALTER TABLE users ADD COLUMN pin_hash_algo TEXT DEFAULT 'sha256'",
+    "ALTER TABLE users ADD COLUMN pin_hash_algo TEXT DEFAULT 'bcrypt'",
     "ALTER TABLE users ADD COLUMN pin_salt TEXT",
     "ALTER TABLE users ADD COLUMN pin_failed_attempts INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE users ADD COLUMN pin_locked_until TEXT",
     // Normalise NULL algo on any row added before the default took effect
-    "UPDATE users SET pin_hash_algo='sha256' WHERE pin_hash_algo IS NULL",
+    // Legacy rows kept their existing (unsalted) SHA-256 hash; tag them as
+    // 'sha256' so authByPin knows to rehash to bcrypt on the next successful
+    // login. Only writes where no prior algo was recorded.
+    "UPDATE users SET pin_hash_algo='sha256' WHERE pin_hash_algo IS NULL AND length(pin_hash)=64 AND pin_hash GLOB '*[0-9a-f]*'",
+    "UPDATE users SET pin_hash_algo='bcrypt' WHERE pin_hash_algo IS NULL AND pin_hash LIKE '$2%' AND length(pin_hash)=60",
 
     // v2.5 — Conteo Fisico (physical inventory count + variance / theft report)
     `CREATE TABLE IF NOT EXISTS inventory_counts (
@@ -2668,9 +2672,14 @@ function userCreate(data) {
   // resolvePinCreds() returns { pin_hash, pin_hash_algo, pin_salt }.
   const resolvePinCreds = () => {
     if (data.pin_hash) {
+      // Auto-detect algo from hash format so an upstream forgetting to pass
+      // pin_hash_algo doesn't silently re-introduce legacy drift.
+      const h = String(data.pin_hash)
+      const detected = (h.startsWith('$2') && h.length === 60) ? 'bcrypt'
+                      : (/^[0-9a-f]{64}$/.test(h) ? 'sha256' : 'bcrypt')
       return {
         pin_hash: data.pin_hash,
-        pin_hash_algo: data.pin_hash_algo || 'sha256',
+        pin_hash_algo: data.pin_hash_algo || detected,
         pin_salt: data.pin_salt || null,
       }
     }

@@ -304,7 +304,14 @@ const SYNC_TABLES = [
       // other. Lockout state also syncs — a brute-force attempt on the web
       // PWA will propagate the same lock to desktop, closing the cross-
       // device bypass vector.
-      pin_hash_algo: r.pin_hash_algo || 'sha256',
+      // Auto-detect from hash format when the column is NULL — prevents
+      // pushing a bcrypt hash tagged as 'sha256' (which would poison the
+      // cloud row and block login cross-device). sha256 hashes are 64-char
+      // lowercase hex; bcrypt is 60-char starting with '$2'.
+      pin_hash_algo: r.pin_hash_algo
+        || (typeof r.pin_hash === 'string' && r.pin_hash.startsWith('$2') && r.pin_hash.length === 60 ? 'bcrypt'
+            : typeof r.pin_hash === 'string' && /^[0-9a-f]{64}$/.test(r.pin_hash) ? 'sha256'
+            : 'bcrypt'),
       pin_salt: r.pin_salt || null,
       pin_failed_attempts: r.pin_failed_attempts ?? 0,
       pin_locked_until: r.pin_locked_until || null,

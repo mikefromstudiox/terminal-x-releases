@@ -317,11 +317,18 @@ function Usuarios() {
       // desktop. Number(uuid) → NaN, which wiped the employee name on save.
       const empId = form.employee_id
       const emp = empleados.find(e => String(e.id) === String(empId)) || (panel !== 'add' ? empleados.find(e => String(e.id) === String(panel.employee_id)) : null)
+      // staff.role CHECK allows only {owner,manager,cfo,accountant,cashier}.
+      // empleados.role can legitimately be 'none' — filter it out so we don't
+      // push 'none' into staff and trip the CHECK constraint.
+      const STAFF_ROLES = new Set(['owner', 'manager', 'cfo', 'accountant', 'cashier'])
+      const pick = (v) => (STAFF_ROLES.has(v) ? v : null)
+      const resolvedRole = pick(emp?.role) || pick(panel?.role) || 'cashier'
+
       const payload = {
         name:        emp?.nombre || panel?.name || '',
         username:    form.username.trim().toLowerCase(),
         employee_id: empId,
-        role:        emp?.role || panel?.role || 'cashier',
+        role:        resolvedRole,
         ...(form.pin.trim() && { pin: form.pin.trim() }),
       }
       if (panel === 'add') await api.users.create({ ...payload, pin: form.pin.trim() })

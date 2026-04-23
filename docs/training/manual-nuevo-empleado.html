@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="es-DO">
+<head>
+<meta charset="utf-8" />
+<title>Studio X — Manual del Nuevo Empleado</title>
+<style>
+  :root { --red:#b3001e; --ink:#0a0a0a; --muted:#555; --line:#e5e5e5; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    color: var(--ink);
+    font-size: 11.5pt;
+    line-height: 1.55;
+    background: #fff;
+  }
+  .page { padding: 48pt 54pt; max-width: 820pt; margin: 0 auto; }
+  h1, h2, h3, h4 { font-family: "Segoe UI", -apple-system, Roboto, Arial, sans-serif; color: var(--ink); }
+  h1 { font-size: 30pt; line-height:1.15; margin: 0 0 6pt 0; letter-spacing:-0.5pt; }
+  h2 { font-size: 20pt; margin: 28pt 0 10pt 0; border-bottom: 3pt solid var(--red); padding-bottom:6pt; letter-spacing:-0.3pt; }
+  h3 { font-size: 14pt; margin: 18pt 0 6pt 0; color: var(--red); }
+  h4 { font-size: 12pt; margin: 12pt 0 4pt 0; }
+  p { margin: 6pt 0; }
+  ul, ol { margin: 6pt 0 6pt 18pt; padding: 0; }
+  li { margin: 3pt 0; }
+  code { font-family: "Consolas", "Courier New", monospace; background:#f4f4f4; padding:1pt 4pt; border-radius:3pt; font-size:10pt; }
+  pre { background:#0a0a0a; color:#fff; padding:10pt 12pt; border-radius:4pt; font-family: "Consolas", monospace; font-size:9.5pt; line-height:1.45; overflow:hidden; white-space:pre-wrap; }
+  table { width:100%; border-collapse: collapse; margin: 10pt 0; font-size: 10.5pt; }
+  th, td { border:1pt solid var(--line); padding:6pt 8pt; text-align:left; vertical-align: top; }
+  th { background:#0a0a0a; color:#fff; font-weight:600; }
+  tr:nth-child(even) td { background:#fafafa; }
+  .cover { text-align:left; padding: 110pt 54pt 60pt 54pt; background: #0a0a0a; color:#fff; min-height: 860pt; page-break-after: always; }
+  .cover .x { color: var(--red); font-weight: 900; font-size: 120pt; line-height:1; letter-spacing:-6pt; margin-bottom: 20pt; }
+  .cover h1 { color:#fff; font-size: 44pt; margin-bottom: 8pt; }
+  .cover .sub { color:#d0d0d0; font-size: 16pt; max-width: 520pt; }
+  .cover .meta { margin-top: 60pt; color:#999; font-size: 11pt; border-top:1pt solid #333; padding-top:16pt; }
+  .cover .meta strong { color:#fff; }
+  .pill { display:inline-block; background:var(--red); color:#fff; font-size:10pt; font-weight:600; padding:2pt 10pt; border-radius:999pt; letter-spacing:0.3pt; text-transform:uppercase; }
+  .note { background:#fff8f8; border-left:3pt solid var(--red); padding:10pt 14pt; margin:10pt 0; border-radius:3pt; }
+  .ok   { background:#f4faf5; border-left:3pt solid #1a8a3c; padding:10pt 14pt; margin:10pt 0; border-radius:3pt; }
+  .warn { background:#fff9ec; border-left:3pt solid #c58a00; padding:10pt 14pt; margin:10pt 0; border-radius:3pt; }
+  .kv { display:grid; grid-template-columns: 180pt 1fr; gap:4pt 12pt; margin:6pt 0; font-size:10.5pt; }
+  .kv div:nth-child(odd) { color: var(--muted); }
+  h2 { page-break-after: avoid; }
+  h3, h4 { page-break-after: avoid; }
+  table, pre, .note, .ok, .warn { page-break-inside: avoid; }
+  .pagebreak { page-break-before: always; }
+  @page { size: Letter; margin: 0; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<section class="cover">
+  <div class="x">X</div>
+  <span class="pill">Uso Interno · RRHH</span>
+  <h1>Manual del<br/>Nuevo Empleado</h1>
+  <p class="sub">Tu guía de los primeros 30 días en Studio X — qué somos, qué vendemos, qué se espera de ti y cómo llegar a resultados rápido.</p>
+  <div class="meta">
+    <strong>Studio X Group Holdings SRL</strong> · RNC 133410321 · Santo Domingo, DR<br/>
+    Soporte interno: +1 (809) 828-2971 · terminalxpos.com · studioxrd.com<br/><br/>
+    Versión: 2026-04-22 · Basado en Terminal X v2.13.2
+  </div>
+</section>
+
+<!-- BIENVENIDA -->
+<section class="page">
+  <h2>1. Bienvenido a Studio X</h2>
+  <p>Bienvenido al equipo. Si estás leyendo esto, ya firmaste. Ahora vamos a lo importante: <strong>entender el producto, la misión, y cómo se gana aquí.</strong></p>
+
+  <h3>Quiénes somos</h3>
+  <p><strong>Studio X Group Holdings SRL</strong> es una empresa dominicana con oficinas en Santo Domingo. Operamos varias líneas de negocio bajo una marca común:</p>
+  <table>
+    <tr><th>Marca</th><th>Qué hace</th><th>Dominio</th></tr>
+    <tr><td>Studio X HUB</td><td>Landing corporativa — paraguas de todas las marcas</td><td>studioxrd.com</td></tr>
+    <tr><td>Terminal X</td><td>POS con e-CF certificado (producto bandera)</td><td>terminalxpos.com</td></tr>
+    <tr><td>Content X</td><td>Plataforma de generación de contenido con IA</td><td>studioxmedia.io</td></tr>
+    <tr><td>Tech X</td><td>Servicios técnicos y certificación e-CF</td><td>studioxrdtech.com</td></tr>
+    <tr><td>Studio X Detailing</td><td>Detailing automotriz premium</td><td>studioxdetailing.com</td></tr>
+  </table>
+
+  <h3>Qué es Terminal X (tu producto principal)</h3>
+  <p>Terminal X es un <strong>punto de venta (POS) para el mercado dominicano</strong> con emisión de <strong>Comprobantes Fiscales Electrónicos (e-CF)</strong> certificada por DGII. Es nuestro producto bandera y la mayor parte de tu trabajo girará alrededor de él.</p>
+  <ul>
+    <li>Versión <strong>escritorio</strong> (Windows) para el negocio</li>
+    <li>Versión <strong>web / PWA</strong> (terminalxpos.com/pos) para dueños en movimiento</li>
+    <li>Panel de <strong>administración</strong> (interno) para licencias y clientes</li>
+  </ul>
+
+  <h3>La misión — y por qué corre el reloj</h3>
+  <div class="note">
+    <strong>Deadline regulatorio:</strong> La Ley 32-23 obliga a los contribuyentes dominicanos a emitir e-CF a partir del <strong>15 de mayo de 2026</strong>. Nuestro trabajo es llevar la mayor cantidad de negocios posibles al día antes de esa fecha.
+  </div>
+  <p>Cada semana que pasa sin que un cliente esté certificado es una semana de riesgo para él. Tu rol — sin importar el departamento — contribuye a esa meta: <strong>certificar rápido, operar limpio, renovar sin fricción.</strong></p>
+</section>
+
+<!-- DIA 1 -->
+<section class="page pagebreak">
+  <h2>2. Día 1 — Checklist</h2>
+  <p>Todo esto debe estar listo antes de cerrar tu primer día. Si falta algo a las 5 PM, envía un mensaje al canal interno.</p>
+  <ul>
+    <li><strong>WhatsApp Business</strong> configurado en tu teléfono con el número corporativo que te entreguen.</li>
+    <li><strong>Acceso al panel admin</strong> — solicita a tu supervisor creación de cuenta en terminalxpos.com/admin.</li>
+    <li><strong>Acceso a Supabase</strong> (solo ciertos roles) — solicitar por WhatsApp directo a Mike.</li>
+    <li><strong>Credenciales de correo</strong> studioxrd.com activas y probadas.</li>
+    <li><strong>Acceso al repositorio</strong> GitHub <code>mikefromstudiox</code> — si tu rol lo amerita (devs, QA).</li>
+    <li><strong>Lectura obligatoria:</strong> <code>docs/training/terminal-x-training-manual.html</code> completo. Sin excepciones.</li>
+    <li><strong>Demo cuentas</strong> — pedir las credenciales demo de los 8 subtipos (licorería, farmacia, colmado, etc.).</li>
+    <li><strong>Confirmar este manual leído</strong> — responder por WhatsApp al supervisor: "Manual del Nuevo Empleado leído."</li>
+  </ul>
+
+  <div class="warn">
+    <strong>Confidencialidad:</strong> Todo dato de cliente, precios internos, claves, RNC, e-CF son confidenciales. Nunca se comparten fuera de la empresa. Se firma acuerdo el Día 1.
+  </div>
+</section>
+
+<!-- SEMANA 1 -->
+<section class="page pagebreak">
+  <h2>3. Semana 1 — Objetivos</h2>
+  <p>Al final de la primera semana debes poder responder "sí" a todas estas:</p>
+
+  <h3>Conocer las 3 caras del producto</h3>
+  <ul>
+    <li><strong>App de escritorio</strong> — instalador Windows, Electron. Es la que usa la mayoría de los clientes en caja.</li>
+    <li><strong>Web PWA</strong> — terminalxpos.com/pos. Funciona offline, instala como app.</li>
+    <li><strong>Panel de administración</strong> — terminalxpos.com/admin. Desde aquí activamos licencias, vemos estado e-CF, aprobamos signups.</li>
+  </ul>
+
+  <h3>Demo de los 8 subtipos de tienda</h3>
+  <p>Terminal X soporta verticales de <code>tienda</code> vía el sistema de <strong>subtipos</strong>. Cada uno activa un set de features distinto:</p>
+  <table>
+    <tr><th>Subtipo</th><th>Feature clave</th></tr>
+    <tr><td>Licorería</td><td>Verificación de edad + depósito de envase</td></tr>
+    <tr><td>Farmacia</td><td>Tracking de recetas</td></tr>
+    <tr><td>Colmado</td><td>Ventas al crédito (fiado)</td></tr>
+    <tr><td>Supermercado</td><td>Pricing por peso + scanner</td></tr>
+    <tr><td>Ferretería</td><td>SKU largo + unidades por paquete</td></tr>
+    <tr><td>Papelería</td><td>Productos escolares estacionales</td></tr>
+    <tr><td>Boutique</td><td>Tallas / colores / variantes</td></tr>
+    <tr><td>Otro</td><td>Base sin features activados</td></tr>
+  </table>
+  <p>Entra a la cuenta demo de cada uno (<code>Demo2026!</code>, PIN <code>1234</code>) y haz al menos una venta.</p>
+
+  <h3>Entender los planes y precios</h3>
+  <table>
+    <tr><th>Plan</th><th>Precio mensual</th><th>Para quién</th></tr>
+    <tr><td><strong>Pro</strong></td><td>RD$2,490</td><td>Negocio chico — POS + inventario + clientes + créditos</td></tr>
+    <tr><td><strong>Pro PLUS</strong></td><td>RD$4,490</td><td>Mediano — agrega e-CF, reportes, notas de crédito, lealtad, caja chica</td></tr>
+    <tr><td><strong>Pro MAX</strong></td><td>RD$6,990</td><td>Grande — agrega dashboard remoto, comisiones, WhatsApp, multi-sucursal, offline</td></tr>
+  </table>
+  <p><strong>Anual:</strong> 15% OFF en cualquier plan. <strong>Trial:</strong> todos los signups obtienen 7 días Pro MAX gratis.</p>
+</section>
+
+<!-- 30 DIAS -->
+<section class="page pagebreak">
+  <h2>4. Primeros 30 días — Metas medibles</h2>
+  <p>Estas no son sugerencias. Son las metas contra las que te evaluaremos al cierre del primer mes.</p>
+  <ul>
+    <li><strong>Ejecutar tu primer onboarding PAT-5</strong> con supervisión. El Protocolo de Arranque Terminal X tiene 5 fases (Preparación, Montaje, Categorización, Entrenamiento, Lanzamiento). Lo harás junto a un agente senior.</li>
+    <li><strong>Cerrar tu primera venta</strong> — un cliente nuevo firmado y activado por ti.</li>
+    <li><strong>Resolver tu primer ticket de soporte</strong> — tomar un caso de WhatsApp y cerrarlo (con escalamiento si aplica).</li>
+    <li><strong>Completar la certificación interna</strong> — cuestionario de 30 preguntas sobre e-CF, NCF, planes, subtipos.</li>
+  </ul>
+</section>
+
+<!-- HERRAMIENTAS -->
+<section class="page pagebreak">
+  <h2>5. Herramientas que usarás</h2>
+  <table>
+    <tr><th>Herramienta</th><th>Para qué</th><th>Acceso</th></tr>
+    <tr><td>WhatsApp Business</td><td>Toda comunicación con cliente. Número primario: +1 (809) 828-2971</td><td>Día 1</td></tr>
+    <tr><td>Admin Panel</td><td>Licencias, clientes, aprobación de signups, estado e-CF</td><td>terminalxpos.com/admin</td></tr>
+    <tr><td>Supabase</td><td>Base de datos en la nube, logs, RLS policies</td><td>Solo Mike o rol técnico</td></tr>
+    <tr><td>VS Code</td><td>Edición de scripts de seed, import CSV, plantillas</td><td>Solo roles técnicos</td></tr>
+    <tr><td>GitHub (mikefromstudiox)</td><td>Código, releases, issues</td><td>Solo roles técnicos</td></tr>
+    <tr><td>Sitio web</td><td>Leer docs, landing, sitemap</td><td>terminalxpos.com</td></tr>
+  </table>
+
+  <h3>Canales internos</h3>
+  <ul>
+    <li><strong>WhatsApp grupo Studio X</strong> — avisos generales, releases, incidentes.</li>
+    <li><strong>Chat directo con Mike</strong> — solo para bloqueos reales o temas fiscales/legales.</li>
+  </ul>
+</section>
+
+<!-- CODIGO DE CONDUCTA -->
+<section class="page pagebreak">
+  <h2>6. Código de Conducta</h2>
+
+  <h3>No negociables</h3>
+  <ul>
+    <li><strong>Español siempre</strong> — con todos los clientes. Nada de "hi", "thanks", "cool". Somos una marca dominicana seria.</li>
+    <li><strong>Respuesta &lt; 2 horas</strong> en horario laboral (Lun–Sáb, 8 AM – 8 PM). Si no puedes resolver en 2 horas, al menos acusar recibo.</li>
+    <li><strong>Nunca prometer lo que no existe.</strong> Si el cliente pide una feature que no tenemos, la respuesta es: <em>"No la tenemos hoy, déjame verificar con el equipo de producto."</em> Nunca <em>"para la semana que viene lo tienes."</em></li>
+    <li><strong>Escalar a Mike</strong> si hay cualquier duda fiscal, legal, o contractual. No improvises con DGII, RNC, contratos de licencia o temas laborales.</li>
+    <li><strong>Cero atribuciones a IA</strong> en commits o comunicaciones. No mencionamos Claude, ChatGPT ni proveedores externos frente al cliente.</li>
+    <li><strong>Tono:</strong> profesional, cálido, directo. Nunca condescendiente. Nunca informal.</li>
+  </ul>
+
+  <h3>Errores que cuestan un cliente</h3>
+  <div class="warn">
+    <ul>
+      <li>Dejar una e-CF en estado <code>EN_PROCESO</code> sin dar seguimiento — el cliente pierde confianza.</li>
+      <li>Prometer una instalación el mismo día sin haber validado la Fase 1 del PAT-5.</li>
+      <li>Compartir credenciales demo con personas fuera de la organización.</li>
+      <li>Hacer cambios en producción sin respaldo.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- SALARIOS -->
+<section class="page pagebreak">
+  <h2>7. Salarios, horarios y días de pago</h2>
+  <div class="note">
+    Los detalles específicos de tu compensación (salario base, comisión, bonos) se acuerdan directamente con Mike al firmar el contrato. No se discuten abiertamente con compañeros.
+  </div>
+  <div class="kv">
+    <div>Horario base</div><div>A definir con Mike</div>
+    <div>Días de pago</div><div>A definir con Mike (quincenal o mensual según rol)</div>
+    <div>Comisiones</div><div>A definir con Mike (aplica solo a roles de venta)</div>
+    <div>Vacaciones</div><div>Conforme al Código de Trabajo RD (Ley 16-92)</div>
+    <div>TSS / AFP / SFS</div><div>Deducciones estándar, reportadas a DGT y tesorería</div>
+  </div>
+  <p class="small">Si tienes dudas sobre tu nómina específica, hablar directamente con Mike.</p>
+</section>
+
+<!-- ESCALAMIENTO -->
+<section class="page pagebreak">
+  <h2>8. Escalamiento</h2>
+  <p>Cuándo llamar a quién:</p>
+  <table>
+    <tr><th>Situación</th><th>Escalar a</th><th>Canal</th></tr>
+    <tr><td>Duda fiscal / legal / contractual</td><td>Mike (owner)</td><td>WhatsApp directo</td></tr>
+    <tr><td>Bug reproducible en producción</td><td>Soporte técnico</td><td>WhatsApp +1 (809) 828-2971</td></tr>
+    <tr><td>Cliente amenaza con cancelar</td><td>Mike</td><td>WhatsApp directo</td></tr>
+    <tr><td>Caso de producción con DGII (rechazo e-CF persistente)</td><td>Equipo DGII / Mike</td><td>WhatsApp directo</td></tr>
+    <tr><td>Instalación bloqueada por hardware / red</td><td>Soporte técnico</td><td>WhatsApp soporte</td></tr>
+    <tr><td>Cualquier tema laboral / RRHH</td><td>Mike</td><td>WhatsApp directo</td></tr>
+  </table>
+
+  <h2>9. Confidencialidad</h2>
+  <p>Al firmar el contrato aceptas:</p>
+  <ol>
+    <li>No compartir código, credenciales, listas de clientes, ni datos fiscales con terceros.</li>
+    <li>No usar información obtenida en Studio X para beneficio personal o de terceros.</li>
+    <li>Devolver equipo, tarjetas de acceso y material entregado al terminar la relación.</li>
+    <li>La obligación de confidencialidad sobrevive al término del contrato.</li>
+  </ol>
+
+  <div class="ok">
+    <strong>Firma de recibido:</strong><br/><br/>
+    Nombre: ____________________________________________<br/><br/>
+    Cédula: ____________________________________________<br/><br/>
+    Fecha: __________________ Firma: ___________________<br/>
+  </div>
+
+  <p class="small" style="margin-top:40pt; text-align:center;">
+    Studio X Group Holdings SRL · RNC 133410321 · Santo Domingo, DR · Soporte +1 (809) 828-2971 · terminalxpos.com
+  </p>
+</section>
+
+</body>
+</html>

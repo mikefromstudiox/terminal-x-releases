@@ -4,6 +4,7 @@ import logoImg from '../assets/logo.webp'
 import { useAPI } from '../context/DataContext'
 import { useLicense } from '../context/LicenseContext'
 import { isValidKeyFormat } from '@terminal-x/services/license'
+import { formatLicenseKey, formatRncCedula, LICENSE_KEY_MAX_LENGTH, RNC_CEDULA_MAX_LENGTH } from '../lib/formatters'
 
 // ─── Change this to your WhatsApp number (include country code, no +) ─────────
 const WHATSAPP_NUMBER = '18098282971'
@@ -11,38 +12,6 @@ const WHATSAPP_MSG    = encodeURIComponent('Hola, necesito activar/renovar mi li
 const WHATSAPP_URL    = `https://wa.me/${WHATSAPP_NUMBER}?text=${WHATSAPP_MSG}`
 
 const fmtDate = d => d ? new Date(d).toLocaleDateString('es-DO', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'
-
-// ─── Auto-formatters for license + RNC/Cédula inputs ──────────────────────────
-// License format: TXL-XXXX-XXXX-XXXX (TXL prefix locked + 3 groups of 4 alnum)
-function formatLicenseKey(raw) {
-  // Strip everything that isn't alphanumeric, uppercase
-  let clean = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
-  // Don't auto-prepend TXL if user is mid-typing — only on paste of 12+ chars
-  // that don't start with T
-  if (clean.length >= 12 && !clean.startsWith('TXL')) clean = 'TXL' + clean
-  // Cap at 3 prefix + 12 chars = 15 alnum
-  clean = clean.slice(0, 15)
-  // Apply dashes: TXL-XXXX-XXXX-XXXX
-  const parts = []
-  if (clean.length > 0) parts.push(clean.slice(0, 3))
-  if (clean.length > 3) parts.push(clean.slice(3, 7))
-  if (clean.length > 7) parts.push(clean.slice(7, 11))
-  if (clean.length > 11) parts.push(clean.slice(11, 15))
-  return parts.join('-')
-}
-
-// RNC (9 digits) = XXX-XXXXX-X  |  Cédula (11 digits) = XXX-XXXXXXX-X
-function formatRncCedula(raw) {
-  const digits = String(raw || '').replace(/\D/g, '').slice(0, 11)
-  if (digits.length <= 3) return digits
-  if (digits.length <= 9) {
-    // Assume RNC layout until 9 digits: XXX-XXXXX-X
-    if (digits.length <= 8) return `${digits.slice(0, 3)}-${digits.slice(3)}`
-    return `${digits.slice(0, 3)}-${digits.slice(3, 8)}-${digits.slice(8)}`
-  }
-  // 10–11 digits → cédula: XXX-XXXXXXX-X
-  return `${digits.slice(0, 3)}-${digits.slice(3, 10)}-${digits.slice(10)}`
-}
 
 const STATUS_INFO = {
   not_found:        { icon: ShieldX,       color: 'red',   msg: 'Clave de licencia no encontrada.' },
@@ -112,12 +81,12 @@ export default function LicenseGate() {
               <input type="text" value={key} onChange={e => { setKey(formatLicenseKey(e.target.value)); setError('') }}
                 onKeyDown={e => e.key === 'Enter' && handleActivate()}
                 placeholder="TXL-XXXX-XXXX-XXXX"
-                maxLength={16}
+                maxLength={LICENSE_KEY_MAX_LENGTH}
                 inputMode="text"
                 className="w-full px-4 py-3 border border-slate-200 dark:border-white/10 rounded-xl text-[14px] font-mono tracking-widest focus:outline-none focus:border-amber-400 bg-slate-50 dark:bg-white/5 dark:text-white text-center uppercase" />
               <input type="text" value={rnc} onChange={e => { setRnc(formatRncCedula(e.target.value)); setError('') }}
                 placeholder="RNC / Cédula del negocio"
-                maxLength={13}
+                maxLength={RNC_CEDULA_MAX_LENGTH}
                 inputMode="numeric"
                 className="w-full px-4 py-3 border border-slate-200 dark:border-white/10 rounded-xl text-[14px] focus:outline-none focus:border-amber-400 bg-slate-50 dark:bg-white/5 dark:text-white text-center" />
               {error && <p className="text-[11px] text-red-500 text-center">{error}</p>}
@@ -185,7 +154,7 @@ export default function LicenseGate() {
               onChange={e => { setKey(formatLicenseKey(e.target.value)); setError('') }}
               onKeyDown={e => e.key === 'Enter' && handleActivate()}
               placeholder="TXL-XXXX-XXXX-XXXX"
-              maxLength={16}
+              maxLength={LICENSE_KEY_MAX_LENGTH}
               autoFocus
               className="w-full px-4 py-3.5 border border-slate-200 dark:border-white/10 rounded-xl text-[15px] font-mono tracking-widest focus:outline-none focus:border-[#b3001e] focus:ring-2 focus:ring-[#b3001e]/20 bg-slate-50 dark:bg-white/5 dark:text-white text-center uppercase" />
           </div>
@@ -199,7 +168,7 @@ export default function LicenseGate() {
               onChange={e => { setRnc(formatRncCedula(e.target.value)); setError('') }}
               onKeyDown={e => e.key === 'Enter' && handleActivate()}
               placeholder="130-12345-6 / 001-1234567-8"
-              maxLength={13}
+              maxLength={RNC_CEDULA_MAX_LENGTH}
               inputMode="numeric"
               className="w-full px-4 py-3 border border-slate-200 dark:border-white/10 rounded-xl text-[14px] focus:outline-none focus:border-[#b3001e] focus:ring-2 focus:ring-[#b3001e]/20 bg-slate-50 dark:bg-white/5 dark:text-white text-center" />
           </div>
