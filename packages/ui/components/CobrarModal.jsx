@@ -965,15 +965,26 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         eNCF = `${prefix}${String(next).padStart(8, '0')}`
       }
 
+      // DGII requires a valid 9-digit emisor RNC that matches the installed
+      // cert. Read from the KV first, fall back to the top-level businesses
+      // column (empresa.rnc). Strip dashes/spaces either way so the XML
+      // emits digits only.
+      const emisorRncRaw = (bizSettings?.biz_rnc || bizSettings?.rnc || '').toString().replace(/[-\s]/g, '')
+      if (!/^\d{9}$/.test(emisorRncRaw)) {
+        throw new Error(lang === 'es'
+          ? 'RNC del emisor no configurado. Ve a Admin → Mi Empresa y guarda el RNC antes de emitir e-CF.'
+          : 'Emisor RNC not configured. Go to Admin → My Company and save the RNC before emitting e-CF.')
+      }
+
       const invoiceData = {
         // ef2.do format
         eNCF,
         tipoECF: tipoNum,
         emisor: {
-          rnc:       bizSettings?.biz_rnc     || '',
-          nombre:    bizSettings?.biz_name    || 'Terminal X',
-          direccion: bizSettings?.biz_address || 'Santo Domingo',
-          email:     bizSettings?.biz_email   || '',
+          rnc:       emisorRncRaw,
+          nombre:    bizSettings?.biz_name    || bizSettings?.name    || 'Terminal X',
+          direccion: bizSettings?.biz_address || bizSettings?.address || 'Santo Domingo',
+          email:     bizSettings?.biz_email   || bizSettings?.email   || '',
         },
         comprador: ECF_TYPES[ncfType]?.requiresRnc && validateRNC(rnc) ? {
           rnc:       rnc.replace(/[-\s]/g, ''),

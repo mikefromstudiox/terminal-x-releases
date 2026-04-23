@@ -581,6 +581,7 @@ function CarWashPOS() {
           phone:   empresa?.telefono  || empresa?.phone   || '',
           rnc:     empresa?.rnc       || '',
           logo:    empresa?.logo      || '',
+          commercial_name: (cfg?.biz_commercial_name || '').trim(),
           settings: empresa?.settings || {},
         }
         const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(pending.items, itbisRate)
@@ -1866,6 +1867,7 @@ function RetailPOS() {
           phone: empresa?.telefono || empresa?.phone || '',
           rnc: empresa?.rnc || '',
           logo: empresa?.logo || '',
+          commercial_name: (cfg?.biz_commercial_name || '').trim(),
           settings: empresa?.settings || {},
         }
         const ticketData = {

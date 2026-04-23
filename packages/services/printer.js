@@ -189,7 +189,14 @@ async function buildLogoEscPos(logoInput) {
 // ── Business header ───────────────────────────────────────────────────────────
 // logoBytes: optional pre-computed ESC/POS bitmap string (from buildLogoEscPos)
 function buildHeader(biz, logoBytes = '') {
-  const nameLines = wrapText((biz.name || '').toUpperCase(), COL_WIDTH / 2)
+  // Receipt header prefers the commercial/trade name (biz_commercial_name)
+  // when present, falling back to the legal name (biz.name) otherwise.
+  // DGII legal name still goes into the e-CF XML as RazonSocialEmisor, but
+  // the paper header shows the brand the customer actually recognises.
+  const commercial = (biz.commercial_name || biz.biz_commercial_name || '').trim()
+  const legal = (biz.name || '').trim()
+  const displayName = commercial || legal
+  const nameLines = wrapText(displayName.toUpperCase(), COL_WIDTH / 2)
   const parts = [
     INIT,
     CHARSET_858,
@@ -199,10 +206,16 @@ function buildHeader(biz, logoBytes = '') {
     parts.push(logoBytes)
     parts.push(LF)
   }
-  // Business name — large, tight, airy spacing above
+  // Primary name — large, tight, airy spacing above
   parts.push(BOLD_ON, DOUBLE_ON)
   nameLines.forEach(l => { parts.push(l); parts.push(LF) })
   parts.push(DOUBLE_OFF, BOLD_OFF)
+  // If we have BOTH a commercial and a legal name and they differ, print
+  // the legal name one line below in smaller muted type — customer sees the
+  // brand prominently, auditor sees the legal entity.
+  if (commercial && legal && commercial.toUpperCase() !== legal.toUpperCase()) {
+    parts.push(legal, LF)
+  }
   // Thin breathing space, then muted contact info
   parts.push(LF)
   if (biz.address) {

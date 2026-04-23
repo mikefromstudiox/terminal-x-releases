@@ -1296,6 +1296,20 @@ function init(userDataPath, options = {}) {
     "ALTER TABLE washer_commissions ADD COLUMN manual_reason TEXT",
     "ALTER TABLE seller_commissions ADD COLUMN manual_reason TEXT",
     "ALTER TABLE cajero_commissions ADD COLUMN manual_reason TEXT",
+    // v2.14.11 — Auto-heal emisor fields into app_settings KV when the
+    // businesses row has them as top-level columns but app_settings doesn't.
+    // Root cause of the SXAD e-CF rejection (codigo=2, empty rncemisor):
+    // CobrarModal reads bizSettings.biz_rnc from app_settings, but
+    // FirstTimeSetup / Admin → Mi Empresa only wrote to businesses.rnc.
+    // Without this migration a client whose biz row has the RNC but never
+    // touched the KV would silently emit e-CFs with empty emisor RNC,
+    // every DGII submit would fail. INSERT OR IGNORE only fills empty
+    // slots — never overwrites a user-set value.
+    "INSERT OR IGNORE INTO app_settings(key, value, updated_at) SELECT 'biz_rnc',     REPLACE(REPLACE(rnc,'-',''),' ','') , datetime('now') FROM businesses WHERE id=1 AND rnc     IS NOT NULL AND rnc     <> ''",
+    "INSERT OR IGNORE INTO app_settings(key, value, updated_at) SELECT 'biz_name',    name,    datetime('now') FROM businesses WHERE id=1 AND name    IS NOT NULL AND name    <> ''",
+    "INSERT OR IGNORE INTO app_settings(key, value, updated_at) SELECT 'biz_phone',   phone,   datetime('now') FROM businesses WHERE id=1 AND phone   IS NOT NULL AND phone   <> ''",
+    "INSERT OR IGNORE INTO app_settings(key, value, updated_at) SELECT 'biz_address', address, datetime('now') FROM businesses WHERE id=1 AND address IS NOT NULL AND address <> ''",
+    "INSERT OR IGNORE INTO app_settings(key, value, updated_at) SELECT 'biz_email',   email,   datetime('now') FROM businesses WHERE id=1 AND email   IS NOT NULL AND email   <> ''",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
