@@ -139,7 +139,10 @@ async function buildLogoEscPos(logoInput) {
   if (!logoUrl) return ''
   return new Promise(resolve => {
     try {
-      const TARGET_WIDTH = 200
+      // 80mm thermal printers have ~512 printable dots (64mm × 8 dots/mm).
+      // 384px gives a bold hero presence with ~32px margin each side and
+      // matches the visual weight of the double-height DOUBLE_ON text.
+      const TARGET_WIDTH = 384
       const img = new Image()
       img.onload = () => {
         try {
@@ -189,14 +192,15 @@ async function buildLogoEscPos(logoInput) {
 // ── Business header ───────────────────────────────────────────────────────────
 // logoBytes: optional pre-computed ESC/POS bitmap string (from buildLogoEscPos)
 function buildHeader(biz, logoBytes = '') {
-  // Receipt header prefers the commercial/trade name (biz_commercial_name)
-  // when present, falling back to the legal name (biz.name) otherwise.
-  // DGII legal name still goes into the e-CF XML as RazonSocialEmisor, but
-  // the paper header shows the brand the customer actually recognises.
+  // Receipt header:
+  //   • If we have a logo, print ONLY the logo — no redundant business
+  //     name text. The logo IS the brand. DGII XML still carries the
+  //     legal RazonSocial independently.
+  //   • If no logo, fall back to big bold text (commercial name if
+  //     available, else legal name). Legal name repeats in smaller type
+  //     underneath when a separate commercial name is set.
   const commercial = (biz.commercial_name || biz.biz_commercial_name || '').trim()
   const legal = (biz.name || '').trim()
-  const displayName = commercial || legal
-  const nameLines = wrapText(displayName.toUpperCase(), COL_WIDTH / 2)
   const parts = [
     INIT,
     CHARSET_858,
@@ -205,16 +209,15 @@ function buildHeader(biz, logoBytes = '') {
   if (logoBytes) {
     parts.push(logoBytes)
     parts.push(LF)
-  }
-  // Primary name — large, tight, airy spacing above
-  parts.push(BOLD_ON, DOUBLE_ON)
-  nameLines.forEach(l => { parts.push(l); parts.push(LF) })
-  parts.push(DOUBLE_OFF, BOLD_OFF)
-  // If we have BOTH a commercial and a legal name and they differ, print
-  // the legal name one line below in smaller muted type — customer sees the
-  // brand prominently, auditor sees the legal entity.
-  if (commercial && legal && commercial.toUpperCase() !== legal.toUpperCase()) {
-    parts.push(legal, LF)
+  } else {
+    const displayName = commercial || legal
+    const nameLines = wrapText(displayName.toUpperCase(), COL_WIDTH / 2)
+    parts.push(BOLD_ON, DOUBLE_ON)
+    nameLines.forEach(l => { parts.push(l); parts.push(LF) })
+    parts.push(DOUBLE_OFF, BOLD_OFF)
+    if (commercial && legal && commercial.toUpperCase() !== legal.toUpperCase()) {
+      parts.push(legal, LF)
+    }
   }
   // Thin breathing space, then muted contact info
   parts.push(LF)

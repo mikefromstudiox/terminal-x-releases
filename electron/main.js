@@ -259,8 +259,20 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
     if (!isE32Under250K && trackId) {
       status = await dgiiClient.pollStatus(trackId, token, dgiiEnv, { maxRetries: 5, delayMs: 1000 })
     } else if (isE32Under250K) {
-      // RFCE returns status directly
-      status = { codigo: submitResult.codigo === 0 ? 1 : submitResult.codigo, estado: submitResult.estado || 'ACEPTADO' }
+      // RFCE returns status directly. Preserve mensajes so rejections land
+      // with the actual DGII reason instead of an opaque 'Rechazado' label.
+      status = {
+        codigo: submitResult.codigo === 0 ? 1 : submitResult.codigo,
+        estado: submitResult.estado || 'ACEPTADO',
+        mensajes: Array.isArray(submitResult.mensajes) ? submitResult.mensajes
+                : submitResult.mensaje ? [submitResult.mensaje]
+                : [],
+      }
+      // Dump the full DGII response to main-process logs on any non-accept
+      // so post-mortem debugging doesn't require DevTools open at submit time.
+      if (status.codigo !== 1 && status.codigo !== 4) {
+        try { console.log('[dgii:submit] RFCE non-accept:', JSON.stringify(submitResult)) } catch {}
+      }
     }
 
     // 7. Build QR URL
