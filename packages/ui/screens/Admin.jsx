@@ -185,7 +185,7 @@ function RoleBadge({ role }) {
   return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${r.color}`}>{r.label}</span>
 }
 
-const EMPTY_USER = { employee_id: '', username: '', pin: '' }
+const EMPTY_USER = { employee_id: '', username: '', pin: '', oldPin: '' }
 
 // Privilege hierarchy. A user can only edit/delete another user whose role
 // is STRICTLY LOWER in this list than theirs. This prevents a manager from
@@ -294,7 +294,7 @@ function Usuarios() {
       show(L('No tienes permiso para editar este usuario.', "You don't have permission to edit this user."), 'error')
       return
     }
-    setForm({ employee_id: u.employee_id || '', username: u.username, pin: '' })
+    setForm({ employee_id: u.employee_id || '', username: u.username, pin: '', oldPin: '' })
     setShowPin(false); setError(''); setSaved(false); setConfirmDelete(false); setPanel(u)
   }
   function closePanel(){ setPanel(null); setConfirmDelete(false) }
@@ -324,12 +324,23 @@ function Usuarios() {
       const pick = (v) => (STAFF_ROLES.has(v) ? v : null)
       const resolvedRole = pick(emp?.role) || pick(panel?.role) || 'cashier'
 
+      // Self-PIN change (S-H6 guard in main process): when the actor is
+      // editing THEIR OWN row AND rotating the PIN, the IPC layer injects
+      // actorId and userUpdate requires data.oldPin to verify the current
+      // PIN server-side. UI must collect it here.
+      const isSelfPinChange = panel !== 'add' && !!form.pin.trim() && user?.id === panel.id
+      if (isSelfPinChange && !form.oldPin.trim()) {
+        setError(L('Ingresa tu PIN actual para cambiarlo.', 'Enter your current PIN to change it.'))
+        setSaving(false); return
+      }
+
       const payload = {
         name:        emp?.nombre || panel?.name || '',
         username:    form.username.trim().toLowerCase(),
         employee_id: empId,
         role:        resolvedRole,
         ...(form.pin.trim() && { pin: form.pin.trim() }),
+        ...(isSelfPinChange && { oldPin: form.oldPin.trim() }),
       }
       if (panel === 'add') await api.users.create({ ...payload, pin: form.pin.trim() })
       else                 await api.users.update({ id: panel.id, ...payload })
@@ -474,6 +485,23 @@ function Usuarios() {
               </div>
             )}
             <div><Label>{L('Usuario *', 'Username *')}</Label><Input value={form.username} onChange={e => set('username', e.target.value)} placeholder="mlopez" /></div>
+            {panel !== 'add' && user?.id === panel.id && form.pin.trim() && (
+              <div>
+                <Label>{L('PIN actual *', 'Current PIN *')}</Label>
+                <Input
+                  type="password"
+                  value={form.oldPin ?? ''}
+                  onChange={e => set('oldPin', e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder={L('PIN actual', 'Current PIN')}
+                  maxLength={6}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="off"
+                  name="current-pin"
+                />
+                <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1">{L('Requerido para cambiar tu propio PIN.', 'Required to change your own PIN.')}</p>
+              </div>
+            )}
             <div>
               <Label>{panel === 'add' ? 'PIN *' : L('PIN (vacio = sin cambio)', 'PIN (blank = no change)')}</Label>
               <div className="relative">
