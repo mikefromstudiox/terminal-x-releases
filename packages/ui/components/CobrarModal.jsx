@@ -600,8 +600,12 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
   // Set by the segmented toggle above the comprobante picker so the cashier
   // can emit a one-off e-CF on a legacy-configured biz (or vice versa).
   const [fiscalOverride, setFiscalOverride] = useState(null) // null | 'legacy' | 'ecf'
-  const [rnc,        setRnc]        = useState('')
-  const [rncName,    setRncName]    = useState('')
+  // If POS passed a pre-selected client with a saved RNC, inherit it so the
+  // cashier doesn't have to re-type it when flipping to B01 / E31. Walk-ins
+  // (no client) still get an empty, editable input. selectClient() + the
+  // effect below keep rnc in sync if the cashier swaps client mid-flow.
+  const [rnc,        setRnc]        = useState(ticket?.client?.rnc || '')
+  const [rncName,    setRncName]    = useState(ticket?.client?.rnc ? (ticket?.client?.name || '') : '')
   const [tipo,       setTipo]       = useState('contado')
   const [formaPago,  setFormaPago]  = useState(null)
   const [recibido,   setRecibido]   = useState('')

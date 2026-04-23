@@ -406,13 +406,13 @@ export default function NominaEmpleados() {
                 className="md:hidden flex items-center gap-1 text-[12px] text-sky-600 dark:text-sky-400 font-semibold mb-3 -ml-1">
                 <ChevronLeft size={16} /> {L('Volver a la lista', 'Back to list')}
               </button>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3 min-w-0">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-[15px] font-bold shrink-0 ${TYPE_COLORS[selected.tipo]?.bg} ${TYPE_COLORS[selected.tipo]?.text}`}>
+              <div className="flex items-start gap-2 flex-wrap">
+                <div className="flex items-start gap-2 min-w-0 flex-1">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-[13px] font-bold shrink-0 ${TYPE_COLORS[selected.tipo]?.bg} ${TYPE_COLORS[selected.tipo]?.text}`}>
                     {selected.nombre.slice(0, 2).toUpperCase()}
                   </div>
                   <div className="min-w-0">
-                    <h3 className="text-[16px] font-bold text-slate-800 dark:text-white truncate">{selected.nombre}</h3>
+                    <h3 className="text-[15px] font-bold text-slate-800 dark:text-white truncate">{selected.nombre}</h3>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       <TypeBadge tipo={selected.tipo} />
                       {selected.puesto && (
@@ -421,7 +421,7 @@ export default function NominaEmpleados() {
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-3 mt-1 flex-wrap text-[11px] text-slate-400 dark:text-white/40">
+                    <div className="flex items-center gap-2 mt-1 flex-wrap text-[11px] text-slate-400 dark:text-white/40">
                       {selected.cedula && <span className="flex items-center gap-1"><IdCard size={10} />{selected.cedula}</span>}
                       {selected.phone && <span className="flex items-center gap-1"><Phone size={10} />{selected.phone}</span>}
                       {selected.email && <span className="flex items-center gap-1 truncate"><Mail size={10} />{selected.email}</span>}
@@ -429,24 +429,25 @@ export default function NominaEmpleados() {
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1 shrink-0">
                   <button onClick={() => setShowPayModal(true)}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-bold rounded-lg transition-colors">
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-bold rounded-lg transition-colors">
                     <Banknote size={13} /> {L('Pagar', 'Pay')}
                   </button>
                   <button onClick={() => setShowPanel(selected)}
-                    className="p-2 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors">
+                    title={L('Editar', 'Edit')}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors">
                     <Edit2 size={14} />
                   </button>
                   <button onClick={() => handleDeactivate(selected)}
                     title={L('Desactivar', 'Deactivate')}
-                    className="p-2 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors">
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors">
                     <Power size={14} />
                   </button>
                   {canHardDelete && (
                     <button onClick={() => handleHardDelete(selected)}
                       title={L('Eliminar permanentemente', 'Permanently delete')}
-                      className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors">
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors">
                       <Trash2 size={14} />
                     </button>
                   )}

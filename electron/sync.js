@@ -2575,6 +2575,46 @@ async function pullBusinessMeta(bizId) {
     const biz = Array.isArray(rows) && rows[0] ? rows[0] : null
     if (!biz) return 0
 
+    // Logo pull runs BEFORE the LWW gate because it has its own idempotency
+    // marker (logo_synced_url in app_settings). If local biz.updated_at is
+    // newer than cloud — which is the common case after any local save —
+    // the LWW block below returns early, and if we left the logo download
+    // inside that gate it would never fire. A fresh install or biz that
+    // uploaded its logo via the web panel would never get a printable logo.
+    if (biz.logo_url && typeof biz.logo_url === 'string' && /^https?:\/\//.test(biz.logo_url)) {
+      try {
+        const marker = _db.rawPrepare("SELECT value FROM app_settings WHERE key='logo_synced_url'").get()?.value
+        if (marker !== biz.logo_url) {
+          const buf = await new Promise((resolve, reject) => {
+            const reqUrl = new URL(biz.logo_url)
+            const doGet = (url) => https.get({ hostname: url.hostname, path: url.pathname + url.search }, (r) => {
+              if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location) {
+                return doGet(new URL(r.headers.location, url))
+              }
+              if (r.statusCode < 200 || r.statusCode >= 300) return reject(new Error(`logo fetch ${r.statusCode}`))
+              const chunks = []
+              r.on('data', c => chunks.push(c))
+              r.on('end', () => resolve(Buffer.concat(chunks)))
+              r.on('error', reject)
+            }).on('error', reject).setTimeout?.(SYNC_TIMEOUT_MS, function () { try { this.destroy() } catch {} })
+            doGet(reqUrl)
+          }).catch(e => { log.warn('[sync] logo fetch:', e.message); return null })
+          if (buf && buf.length > 0 && buf.length < 5 * 1024 * 1024) {
+            try {
+              const dbMod = require('./database')
+              if (dbMod && typeof dbMod.empresaSave === 'function') {
+                dbMod.empresaSave({ logo: buf })
+                _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value,updated_at) VALUES('logo_synced_url',?,datetime('now'))").run(biz.logo_url)
+                log.info(`[sync-pull] logo downloaded (${buf.length} bytes) and saved to local BLOB`)
+              }
+            } catch (e) { log.warn('[sync] logo save:', e.message) }
+          }
+        }
+      } catch (e) {
+        log.warn('[sync] logo sync failed:', e.message)
+      }
+    }
+
     // LWW check against local businesses.updated_at — only apply if remote is newer.
     try {
       const local = _db.rawPrepare('SELECT updated_at FROM businesses WHERE id=1').get()
@@ -2617,56 +2657,6 @@ async function pullBusinessMeta(bizId) {
         } catch {
           payload.settings = JSON.stringify(settingsObj)
         }
-      }
-    }
-
-    // v2.14.8 — logo sync pull. Cloud stores the logo as a Supabase Storage
-    // URL (businesses.logo_url). Local needs the BLOB so buildLogoEscPos can
-    // rasterise it for thermal print. Download the image iff the URL differs
-    // from the last-synced marker (logo_synced_url, app_settings). Idempotent
-    // across restarts, skips identical URLs.
-    if (biz.logo_url && typeof biz.logo_url === 'string' && /^https?:\/\//.test(biz.logo_url)) {
-      try {
-        const marker = _db.rawPrepare("SELECT value FROM app_settings WHERE key='logo_synced_url'").get()?.value
-        if (marker !== biz.logo_url) {
-          const buf = await new Promise((resolve, reject) => {
-            const reqUrl = new URL(biz.logo_url)
-            https.get({
-              hostname: reqUrl.hostname, path: reqUrl.pathname + reqUrl.search,
-            }, (r) => {
-              if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location) {
-                // follow one redirect
-                const red = new URL(r.headers.location, reqUrl)
-                https.get({ hostname: red.hostname, path: red.pathname + red.search }, (r2) => {
-                  const chunks = []
-                  r2.on('data', c => chunks.push(c))
-                  r2.on('end', () => resolve(Buffer.concat(chunks)))
-                  r2.on('error', reject)
-                }).on('error', reject)
-                return
-              }
-              if (r.statusCode < 200 || r.statusCode >= 300) return reject(new Error(`logo fetch ${r.statusCode}`))
-              const chunks = []
-              r.on('data', c => chunks.push(c))
-              r.on('end', () => resolve(Buffer.concat(chunks)))
-              r.on('error', reject)
-            }).on('error', reject).setTimeout?.(SYNC_TIMEOUT_MS, function () { try { this.destroy() } catch {} })
-          }).catch(e => { log.warn('[sync] logo fetch:', e.message); return null })
-          if (buf && buf.length > 0 && buf.length < 5 * 1024 * 1024) {
-            // Pass raw image bytes — empresaSave accepts Buffer directly and
-            // stores RAW bytes in businesses.logo. empresaGet sniffs the mime
-            // on read and wraps to a data URL for the renderer. Keeps the
-            // cloud round-trip (pushBusinessMeta) consistent with a real PNG
-            // rather than the UTF-8 of a base64 string.
-            payload.logo = buf
-            try {
-              _db.rawPrepare("INSERT OR REPLACE INTO app_settings(key,value,updated_at) VALUES('logo_synced_url',?,datetime('now'))").run(biz.logo_url)
-            } catch {}
-            log.info(`[sync-pull] logo downloaded (${buf.length} bytes)`)
-          }
-        }
-      } catch (e) {
-        log.warn('[sync] logo download failed:', e.message)
       }
     }
 

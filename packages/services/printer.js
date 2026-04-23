@@ -300,13 +300,18 @@ export function buildClientReceipt(data, logoBytes = '') {
     lines.push(LF)
   })
 
-  // ── Client + vehicle + payment (only if any present)
-  const hasClientBlock = !!(data.client?.name || data.client?.rnc || data.client?.phone || data.vehiclePlate)
+  // ── Client + vehicle + payment (only if any present).
+  // Prefer data.client.name; fall back to client_name or rncName (B01/E31
+  // receipts where the cashier typed the RNC without saving the client).
+  const clientName = data.client?.name || data.client_name || data.rncName || ''
+  const clientRnc  = data.client?.rnc  || data.client_rnc  || data.rnc     || ''
+  const clientPhone= data.client?.phone|| data.client_phone|| ''
+  const hasClientBlock = !!(clientName || clientRnc || clientPhone || data.vehiclePlate)
   if (hasClientBlock || data.formaPago || data.tipo) {
     lines.push(LF)
-    if (data.client?.name) { lines.push(cols('CLIENTE', data.client.name, COL_WIDTH)); lines.push(LF) }
-    if (data.client?.rnc)  { lines.push(cols('RNC',     data.client.rnc,  COL_WIDTH)); lines.push(LF) }
-    if (data.client?.phone){ lines.push(cols('TEL',     formatPhoneForReceipt(data.client.phone), COL_WIDTH)); lines.push(LF) }
+    if (clientName)  { lines.push(cols('CLIENTE', clientName, COL_WIDTH)); lines.push(LF) }
+    if (clientRnc)   { lines.push(cols('RNC',     clientRnc,  COL_WIDTH)); lines.push(LF) }
+    if (clientPhone) { lines.push(cols('TEL',     formatPhoneForReceipt(clientPhone), COL_WIDTH)); lines.push(LF) }
     if (data.vehiclePlate) { lines.push(cols('VEHICULO', data.vehiclePlate, COL_WIDTH)); lines.push(LF) }
     lines.push(cols('TIPO VENTA', data.tipo === 'credito' ? 'Credito' : 'Contado', COL_WIDTH))
     lines.push(LF)
@@ -370,7 +375,7 @@ export function buildClientReceipt(data, logoBytes = '') {
   if (isFiscal) {
     lines.push(cols('Subtotal',   fmt(data.subtotal), COL_WIDTH))
     lines.push(LF)
-    lines.push(cols('ITBIS 18%',  fmt(data.itbis),    COL_WIDTH))
+    lines.push(cols('ITBIS',      fmt(data.itbis),    COL_WIDTH))
     lines.push(LF)
   }
   if (data.ley > 0) {
@@ -378,15 +383,15 @@ export function buildClientReceipt(data, logoBytes = '') {
     lines.push(LF)
   }
 
-  // ── TOTAL — premium: breathing space + inverted block + double-height
-  lines.push(LF)
-  lines.push(INVERT_ON)
-  lines.push(LARGE_ON)
+  // ── TOTAL — bold double-height, no inverse (user preferred no black bar).
   // 21-char interior (42 / 2) because LARGE doubles width.
-  const totalInner = ' TOTAL'.padEnd(11) + fmt(data.total).padStart(10)
+  lines.push(LF)
+  lines.push(BOLD_ON)
+  lines.push(LARGE_ON)
+  const totalInner = 'TOTAL'.padEnd(11) + fmt(data.total).padStart(10)
   lines.push(totalInner)
   lines.push(LARGE_OFF)
-  lines.push(INVERT_OFF)
+  lines.push(BOLD_OFF)
   lines.push(LF)
   lines.push(LF)
 
@@ -954,12 +959,15 @@ export function buildCreditPaymentReceipt(data) {
   lines.push(SEP)
   lines.push(LF)
 
+  // Fallback chain — prefer the full client object, then flat copies.
+  const _cName = data.client?.name || data.client_name || data.rncName || 'Consumidor Final'
+  const _cRnc  = data.client?.rnc  || data.client_rnc  || data.rnc     || ''
   lines.push(BOLD_ON)
-  lines.push(cols('Cliente:', data.client?.name || 'Consumidor Final'))
+  lines.push(cols('Cliente:', _cName))
   lines.push(LF)
   lines.push(BOLD_OFF)
-  if (data.client?.rnc) {
-    lines.push(cols('RNC:', data.client.rnc))
+  if (_cRnc) {
+    lines.push(cols('RNC:', _cRnc))
     lines.push(LF)
   }
   lines.push(cols('Forma pago:', formatFormaPago(data.formaPago)))

@@ -592,6 +592,17 @@ function CarWashPOS() {
           docNo:        result?.docNumber  || '',
           paidAt:       new Date(),
           client:       pending.client     || null,
+          // Client-name resolution chain (receipt + conduce de despacho):
+          //   1. pending.client.name  — saved client picked from directory
+          //   2. pending.clientName   — inline name typed at the POS screen
+          //      (setCobrarModal passes this when selectedClient is null but
+          //      the cashier entered a name via the quick-client input).
+          //   3. paymentData.rncName  — DGII RNC lookup result from CobrarModal
+          //   Printer treats 'Consumidor Final' as the true walk-in case only.
+          client_name:  pending.client?.name || pending.clientName || paymentData.rncName || '',
+          client_rnc:   pending.client?.rnc  || paymentData.rnc    || '',
+          rncName:      paymentData.rncName  || pending.clientName || '',
+          rnc:          paymentData.rnc      || '',
           vehiclePlate: pending.vehicle    || '',
           tipo:         paymentData.tipo   || 'contado',
           formaPago:    paymentData.formaPago || 'cash',
@@ -1865,6 +1876,10 @@ function RetailPOS() {
           docNo: result?.docNumber || '',
           paidAt: new Date(),
           client: pending.client || null,
+          client_name: pending.client?.name || pending.clientName || paymentData.rncName || '',
+          client_rnc:  pending.client?.rnc  || paymentData.rnc    || '',
+          rncName:     paymentData.rncName  || pending.clientName || '',
+          rnc:         paymentData.rnc      || '',
           vehiclePlate: '',
           tipo: paymentData.tipo || 'contado',
           formaPago: paymentData.formaPago || 'cash',
