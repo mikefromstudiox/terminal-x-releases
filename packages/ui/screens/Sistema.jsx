@@ -513,9 +513,14 @@ export function Preferencias() {
       )}
 
       <SettingSection title={L('Impresora', 'Printer')}>
-        <SettingRow settingKey="printer" label={L('Impresora del sistema', 'System Printer')} hint={L('Impresora configurada en el OS', 'OS-configured printer')}>
+        <SettingRow settingKey="printer" label={L('Impresora del sistema', 'System Printer')} hint={L('Se guarda al seleccionar', 'Saves on selection')}>
           <div className="flex items-center gap-2">
-            <select value={cfg.printer} onChange={e => set('printer', e.target.value)}
+            <select value={cfg.printer} onChange={async (e) => {
+                const v = e.target.value
+                set('printer', v)
+                try { await api.settings.update({ printer: v }); show(L('Impresora guardada ✓', 'Printer saved ✓')) }
+                catch { show(L('Error al guardar impresora', 'Error saving printer'), 'error') }
+              }}
               className="border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 max-w-[220px]">
               <option value="">{L('Predeterminada', 'Default')}</option>
               {printers.map(p => <option key={p.name} value={p.name}>{p.displayName || p.name}{p.isDefault ? ' *' : ''}</option>)}
@@ -648,7 +653,7 @@ export function Preferencias() {
 // ── Impresion (Printing settings only) ────────────────────────────────────
 
 export function ImpresionSettings() {
-  const { cfg, set, on, handleSave, saving, saved, printers, toast, show, printerApi } = useSettings()
+  const { cfg, set, on, handleSave, saving, saved, printers, toast, show, printerApi, api } = useSettings()
   const { lang } = useLang()
   const { businessType } = useBusinessType()
   const showPreTicket = hasVehicles(businessType)
@@ -689,9 +694,14 @@ export function ImpresionSettings() {
     <div className="max-w-2xl">
       <Toast toast={toast} />
       <SettingSection title={L('Impresora', 'Printer')}>
-        <SettingRow settingKey="printer" label={L('Impresora del sistema', 'System Printer')} hint={L('Impresora configurada en el OS', 'OS-configured printer')}>
+        <SettingRow settingKey="printer" label={L('Impresora del sistema', 'System Printer')} hint={L('Se guarda al seleccionar', 'Saves on selection')}>
           <div className="flex items-center gap-2">
-            <select value={cfg.printer} onChange={e => set('printer', e.target.value)}
+            <select value={cfg.printer} onChange={async (e) => {
+                const v = e.target.value
+                set('printer', v)
+                try { await api.settings.update({ printer: v }); show(L('Impresora guardada ✓', 'Printer saved ✓')) }
+                catch { show(L('Error al guardar impresora', 'Error saving printer'), 'error') }
+              }}
               className="border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 max-w-[220px]">
               <option value="">{L('Predeterminada', 'Default')}</option>
               {printers.map(p => <option key={p.name} value={p.name}>{p.displayName || p.name}{p.isDefault ? ' *' : ''}</option>)}
