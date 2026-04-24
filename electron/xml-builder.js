@@ -215,61 +215,52 @@ function buildACECFXml(data) {
 /**
  * buildANECFXml — builds Anulación de Rangos XML.
  *
- * DGII schema structure (from rejection 2026-04-24: "ANECF has invalid
- * child element DetalleAnulacion, expected Encabezado"):
+ * Schema (confirmed via DGII rejection errors 2026-04-24):
  *   ANECF
- *     Encabezado (required, first)
- *       Version, RncEmisor, FechaHoraAnulacion, CantidadAnuladoseNCF
+ *     Encabezado
+ *       Version, RncEmisor, CantidadNCFAnulados        ← no FechaHoraAnulacion
  *     DetalleAnulacion
  *       Anulacion (1..N)
- *         NoLinea, TipoAnulacion, NCFDesde, NCFHasta
+ *         NoLinea, TipoECF, NCFDesde, NCFHasta         ← TipoECF, not TipoAnulacion
  *
- * TipoAnulacion codes (DGII):
- *   1 deterioro factura pre-impresa
- *   2 errores de impresión (factura pre-impresa)
- *   3 impresión defectuosa
- *   4 duplicidad de factura
- *   5 corrección de la información
- *   6 cambio de productos
- *   7 devolución de productos
- *   8 omisión de productos
- *   9 errores en secuencia de NCF     ← default for unused/erroneous NCFs
+ * TipoECF is the e-CF type being voided: 31, 32, 33, etc. (numeric — the
+ * 'E' prefix stripped). A single ANECF can void one or multiple ranges;
+ * if the ranges span different tipos, pass rangos[] with per-line tipoECF.
  *
  * @param {object} data — {
- *   rncEmisor,                              // 9-digit RNC no dashes
- *   cantidadNCF,                            // total count of NCFs being voided
- *   tipoAnulacion?,                         // default 9
- *   rangos?: [{ ncfDesde, ncfHasta }],      // one or more ranges
- *   rangoDesde, rangoHasta                  // legacy single-range shorthand
+ *   rncEmisor,                                                    // 9-digit RNC
+ *   cantidadNCF,                                                  // total count
+ *   tipoECF,                                                      // '31' | '32' | ...
+ *   rangos?: [{ tipoECF?, ncfDesde, ncfHasta }],                  // multi-range
+ *   rangoDesde, rangoHasta                                        // legacy single-range
  * }
  * @returns {string} ANECF XML string (unsigned)
  */
 function buildANECFXml(data) {
-  // FechaHoraAnulacion — DGII format dd-MM-yyyy HH:mm:ss (local)
-  const d = new Date()
-  const pad = n => String(n).padStart(2, '0')
-  const fecha = `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-
   const rncClean = String(data.rncEmisor || '').replace(/[-\s]/g, '')
-  const tipoAnulacion = String(data.tipoAnulacion || 9)
 
   // Accept either rangos[] or legacy single-range shape.
   const rangos = Array.isArray(data.rangos) && data.rangos.length
     ? data.rangos
-    : [{ ncfDesde: data.rangoDesde, ncfHasta: data.rangoHasta }]
+    : [{ tipoECF: data.tipoECF, ncfDesde: data.rangoDesde, ncfHasta: data.rangoHasta }]
+
+  // Normalize tipoECF: strip leading 'E', ensure 2-digit string.
+  const normTipoECF = (t) => {
+    const s = String(t || '').replace(/^E/i, '').padStart(2, '0')
+    return s.slice(0, 2)
+  }
 
   let encabezado = '<Encabezado>'
   encabezado += jsonToXml('Version', '1.0')
   encabezado += jsonToXml('RncEmisor', rncClean)
-  encabezado += jsonToXml('FechaHoraAnulacion', fecha)
-  encabezado += jsonToXml('CantidadAnuladoseNCF', String(data.cantidadNCF))
+  encabezado += jsonToXml('CantidadNCFAnulados', String(data.cantidadNCF))
   encabezado += '</Encabezado>'
 
   let detalle = '<DetalleAnulacion>'
   rangos.forEach((r, i) => {
     detalle += '<Anulacion>'
     detalle += jsonToXml('NoLinea', String(i + 1))
-    detalle += jsonToXml('TipoAnulacion', tipoAnulacion)
+    detalle += jsonToXml('TipoECF', normTipoECF(r.tipoECF || data.tipoECF))
     detalle += jsonToXml('NCFDesde', r.ncfDesde)
     detalle += jsonToXml('NCFHasta', r.ncfHasta)
     detalle += '</Anulacion>'
