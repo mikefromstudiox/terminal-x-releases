@@ -146,19 +146,24 @@ function buildRFCEXml(data) {
     body += `<Comprador>${comprador}</Comprador>`
   }
 
-  // Totales
+  // Totales. DGII wants fixed 2-decimal format (e.g. '1800.00' not '1800').
+  // cert-step4-gen.js passes pre-formatted strings; here we normalize numbers.
+  const fmt = (n) => {
+    const x = Number(n)
+    return Number.isFinite(x) ? x.toFixed(2) : null
+  }
   const t = data.totales
   let totales = ''
-  if (t.montoGravadoTotal) totales += jsonToXml('MontoGravadoTotal', t.montoGravadoTotal)
-  if (t.montoGravadoI1) totales += jsonToXml('MontoGravadoI1', t.montoGravadoI1)
-  if (t.montoGravadoI2) totales += jsonToXml('MontoGravadoI2', t.montoGravadoI2)
-  if (t.montoGravadoI3) totales += jsonToXml('MontoGravadoI3', t.montoGravadoI3)
-  if (t.montoExento) totales += jsonToXml('MontoExento', t.montoExento)
-  if (t.totalITBIS) totales += jsonToXml('TotalITBIS', t.totalITBIS)
-  if (t.totalITBIS1) totales += jsonToXml('TotalITBIS1', t.totalITBIS1)
-  if (t.totalITBIS2) totales += jsonToXml('TotalITBIS2', t.totalITBIS2)
-  if (t.totalITBIS3) totales += jsonToXml('TotalITBIS3', t.totalITBIS3)
-  totales += jsonToXml('MontoTotal', t.montoTotal || t.total)
+  const mgt = fmt(t.montoGravadoTotal); if (mgt != null && Number(mgt) > 0) totales += jsonToXml('MontoGravadoTotal', mgt)
+  const mg1 = fmt(t.montoGravadoI1);    if (mg1 != null && Number(mg1) > 0) totales += jsonToXml('MontoGravadoI1', mg1)
+  const mg2 = fmt(t.montoGravadoI2);    if (mg2 != null && Number(mg2) > 0) totales += jsonToXml('MontoGravadoI2', mg2)
+  const mg3 = fmt(t.montoGravadoI3);    if (mg3 != null && Number(mg3) > 0) totales += jsonToXml('MontoGravadoI3', mg3)
+  const mex = fmt(t.montoExento);       if (mex != null && Number(mex) > 0) totales += jsonToXml('MontoExento', mex)
+  const ti  = fmt(t.totalITBIS);        if (ti  != null && Number(ti)  > 0) totales += jsonToXml('TotalITBIS', ti)
+  const ti1 = fmt(t.totalITBIS1);       if (ti1 != null && Number(ti1) > 0) totales += jsonToXml('TotalITBIS1', ti1)
+  const ti2 = fmt(t.totalITBIS2);       if (ti2 != null && Number(ti2) > 0) totales += jsonToXml('TotalITBIS2', ti2)
+  const ti3 = fmt(t.totalITBIS3);       if (ti3 != null && Number(ti3) > 0) totales += jsonToXml('TotalITBIS3', ti3)
+  totales += jsonToXml('MontoTotal', fmt(t.montoTotal || t.total))
   body += `<Totales>${totales}</Totales>`
 
   // CodigoSeguridadeCF lives at the Encabezado level, AFTER Totales

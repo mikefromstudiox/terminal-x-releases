@@ -230,7 +230,10 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
     let submitResult
 
     if (isE32Under250K) {
-      // Build and sign RFCE for consumer < 250K
+      // Build and sign RFCE for consumer < 250K using the dgii-ecf Signature
+      // class (same path tools/cert-step4-gen.js used to pass certification).
+      // xml-crypto's enveloped signature produces DGII-incompatible output
+      // for RFCE — 'Archivo no válido' rejection on every submission.
       const rfceXml = xmlBuilder.buildRFCEXml({
         emisor: invoiceData.emisor,
         totales: {
@@ -247,10 +250,27 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
         fechaEmision: invoiceData.fechaEmision,
         securityCode,
       })
-      const signedRFCE = xmlSigner.signXML(rfceXml, privateKeyPem, certificatePem)
+      const signedRFCE = xmlSigner.signRFCE(rfceXml, privateKeyPem, certificatePem)
+      // Persist signed XML to disk so post-mortem diffing against the
+      // cert-step4 reference output is possible without re-submitting.
+      try {
+        const xmlDir = path.join(app.getPath('userData'), 'ecf-xml')
+        require('fs').mkdirSync(xmlDir, { recursive: true })
+        require('fs').writeFileSync(path.join(xmlDir, `RFCE_${invoiceData.emisor?.rnc || ''}${eNCF}.xml`), signedRFCE.signedXml, 'utf8')
+      } catch (e) {
+        try { require('electron-log').warn('[dgii:submit] failed to persist signed RFCE:', e.message) } catch {}
+      }
       submitResult = await dgiiClient.submitRFCE(signedRFCE.signedXml, token, dgiiEnv)
     } else {
       submitResult = await dgiiClient.submitECF(signedXml, token, dgiiEnv)
+      // Persist signed ECF XML too — same reasoning.
+      try {
+        const xmlDir = path.join(app.getPath('userData'), 'ecf-xml')
+        require('fs').mkdirSync(xmlDir, { recursive: true })
+        require('fs').writeFileSync(path.join(xmlDir, `ECF_${invoiceData.emisor?.rnc || ''}${eNCF}.xml`), signedXml, 'utf8')
+      } catch (e) {
+        try { require('electron-log').warn('[dgii:submit] failed to persist signed ECF:', e.message) } catch {}
+      }
     }
 
     // 6. Poll for status

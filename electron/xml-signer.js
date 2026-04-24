@@ -89,4 +89,20 @@ function signSeed(seedXml, privateKeyPem, certificatePem) {
   return signer.signXml(seedXml, 'SemillaModel')
 }
 
-module.exports = { signXML, getSecurityCode, signSeed }
+/**
+ * signRFCE — signs an RFCE XML using the dgii-ecf Signature class which
+ * handles DGII's namespace-attribute sorting and canonicalization quirks
+ * correctly. This matches what tools/cert-step4-gen.js used to pass DGII
+ * certification (Steps 1–15). The xml-crypto path above is kept for the
+ * full e-CF flow that was already validated against DGII in prod.
+ */
+function signRFCE(rfceXml, privateKeyPem, certificatePem) {
+  const { Signature } = require('dgii-ecf')
+  const signer = new Signature(privateKeyPem, certificatePem)
+  const signedXml = signer.signXml(rfceXml, 'RFCE')
+  const signatureDate = new Date().toISOString()
+  const securityCode = getSecurityCode(signedXml)
+  return { signedXml, securityCode, signatureDate }
+}
+
+module.exports = { signXML, signRFCE, getSecurityCode, signSeed }
