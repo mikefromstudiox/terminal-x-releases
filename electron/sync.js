@@ -414,7 +414,15 @@ const SYNC_TABLES = [
         tipo_venta: r.tipo_venta,
         status: r.status,
         void_reason: r.void_reason,
-        void_by: r.void_by || null,
+        // v2.14.23 — resolve void_by INT → users.supabase_id UUID. Supabase's
+        // tickets.void_by column is typed UUID; pushing a raw INT like '4'
+        // gets rejected with PGRST 22P02 "invalid input syntax for type uuid".
+        // That rejection silently nuked the entire tickets update-pass — every
+        // post-void desktop change stayed local forever. Discovered in audit
+        // 2026-04-24 (D-i).
+        void_by: r.void_by
+          ? (_db.rawPrepare('SELECT supabase_id FROM users WHERE id=?').get(r.void_by)?.supabase_id || null)
+          : null,
         void_at: r.void_at || null,
         vehicle_plate: r.vehicle_plate,
         vehicle_color: r.vehicle_color,

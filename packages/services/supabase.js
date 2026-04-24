@@ -176,32 +176,23 @@ export async function testConnection() {
 }
 
 // ── Ticket sync ───────────────────────────────────────────────────────────────
-/**
- * Pushes a single cobrado ticket to Supabase.
- * Fire-and-forget — never throws, never blocks the POS flow.
- *
- * ticketData: the data object passed to tickets.create()
- * result:     the return value from tickets.create() { docNumber, ncf, ... }
- */
-export async function syncTicket(ticketData, result) {
-  const sb         = getSupabaseClient()
-  const businessId = getBusinessId()
-  if (!sb || !businessId) return
-
-  try {
-    await sb.from('tickets').insert({
-      business_id:    businessId,
-      doc_number:     result?.docNumber  || null,
-      client_name:    ticketData.client_name || null,
-      total:          ticketData.total,
-      payment_method: ticketData.payment_method || null,
-      status:         'cobrado',
-      paid_at:        new Date().toISOString(),
-    })
-  } catch {
-    // fire-and-forget — never blocks POS flow
-  }
-}
+// v2.14.23 — syncTicket() DELETED. This was a pre-sync.js legacy helper that
+// POSTed a stripped ticket row straight to Supabase alongside the real IPC
+// ticketCreate / markPaid mutations. Every call produced a PHANTOM row on
+// Supabase: no NCF, no supabase_id, no commissions, hardcoded status='cobrado'
+// (even when the real ticket was pendiente — which LIED to Dashboard/606).
+// Identified in desktop-Claude audit 2026-04-24 as the root cause of "old
+// tickets that shouldn't be there keep showing up". sync.js already handles
+// the full ticket push via SQLite → push mapper → upsert-on-conflict. This
+// helper was redundant and actively harmful.
+//
+// Call sites removed:
+//   - packages/ui/screens/POS.jsx:646  (post-cobrar in carwash POS)
+//   - packages/ui/screens/POS.jsx:2034 (post-cobrar in retail POS)
+//   - packages/ui/screens/Queue.jsx:704 (post-cobrar in queue flow)
+//
+// Left as a no-op stub so any stale import compiles — scheduled removal in v2.15.
+export async function syncTicket() { return }
 
 // ── Dashboard queries ─────────────────────────────────────────────────────────
 

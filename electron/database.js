@@ -4111,7 +4111,9 @@ function collectCredit({ clientId, ticketIds, amount, paymentMethod, ncf, notes,
   if (!db) return null
   return db.transaction(() => {
     // v2.10.3 — bump rev alongside status so Supabase trg_tickets_rev_guard accepts.
-    const updTicket = db.prepare("UPDATE tickets SET status='cobrado', payment_method=?, rev=COALESCE(rev,0)+1 WHERE id=?")
+    // v2.14.23 — bump updated_at so sync push cursor picks this up
+    // (audit: without it, pull's statusSync reverts the status within seconds)
+    const updTicket = db.prepare("UPDATE tickets SET status='cobrado', payment_method=?, rev=COALESCE(rev,0)+1, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?")
     for (const tid of ticketIds) updTicket.run(paymentMethod, tid)
     db.prepare('UPDATE clients SET balance=MAX(0,balance-?) WHERE id=?').run(amount, clientId)
     const sid = crypto.randomUUID()
@@ -4315,7 +4317,7 @@ function ticketCreate(data) {
         const ncfPrefix = String(ncfType).toUpperCase()
         const pad = /^E/.test(ncfPrefix) ? 10 : 8
         ncf = `${ncfPrefix}${String(nextNCF).padStart(pad, '0')}`
-        db.prepare('UPDATE ncf_sequences SET current_number=? WHERE type=?').run(nextNCF, ncfRow.type)
+        db.prepare("UPDATE ncf_sequences SET current_number=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE type=?").run(nextNCF, ncfRow.type)
         if (multiPos) usedLegacyCounter = 1
       }
     }
@@ -4641,6 +4643,12 @@ function ticketMarkPaid(id, { paymentMethod, ncf, ecfResult, cajeroId, tipoVenta
     const noteVal = (comentario ?? notes ?? null) || null
 
     // v2.10.3 — bump rev alongside status so Supabase trg_tickets_rev_guard accepts.
+    // v2.14.23 — CRITICAL FIX: bump updated_at. Sync push cursor is
+    // `WHERE updated_at > lastSyncedAt`; without this bump the row's
+    // new state (cobrado + new NCF) never pushes to Supabase, and the
+    // next pull tick overwrites it back to pendiente via statusSync
+    // columns. Cobrar-from-Cola silently reverts within seconds — real
+    // money goes untracked. Identified by desktop-Claude audit 2026-04-24.
     db.prepare(`UPDATE tickets SET status=?,
       payment_method=COALESCE(?,payment_method),
       ncf=COALESCE(?,ncf),
@@ -4648,7 +4656,8 @@ function ticketMarkPaid(id, { paymentMethod, ncf, ecfResult, cajeroId, tipoVenta
       cajero_id=COALESCE(?,cajero_id),
       notes=COALESCE(?,notes),
       descuento=COALESCE(?,descuento),
-      rev=COALESCE(rev,0)+1
+      rev=COALESCE(rev,0)+1,
+      updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
       WHERE id=?`).run(
       newStatus,
       paymentMethod || null, ncf || null,
@@ -4666,7 +4675,8 @@ function ticketMarkPaid(id, { paymentMethod, ncf, ecfResult, cajeroId, tipoVenta
         // is honored on the client's balance. The gross total stays on the ticket.
         const netOwed = Number(row.total || 0) - Number(row.descuento || 0)
         const amount = Math.max(0, netOwed)
-        db.prepare('UPDATE tickets SET tipo_venta=?,client_id=? WHERE id=?')
+        db.prepare(`UPDATE tickets SET tipo_venta=?,client_id=?,
+          updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`)
           .run('credito', clientId, id)
         db.prepare('UPDATE clients SET balance=balance+?,visits=visits+1,total_spent=total_spent+? WHERE id=?')
           .run(amount, amount, clientId)
@@ -4700,15 +4710,24 @@ function ticketVoid(id, reason, voidById) {
     if (!ticket) return
     voidedTicket = ticket
     // v2.10.3 — bump rev alongside status so Supabase trg_tickets_rev_guard accepts.
-    db.prepare(`UPDATE tickets SET status='nula',void_reason=?,void_by=?,void_at=datetime('now'),rev=COALESCE(rev,0)+1 WHERE id=?`)
+    // v2.14.23 — bump updated_at or the void gets reverted by next pull.
+    db.prepare(`UPDATE tickets SET status='nula',void_reason=?,void_by=?,void_at=datetime('now'),
+      rev=COALESCE(rev,0)+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`)
       .run(reason, voidById || null, id)
     // Reverse client balance if it was a credit ticket (clamped at 0, net of descuento)
     reverseClientBalanceForTicket(ticket)
     // Reverse commissions — any washer/seller/cajero commission rows tied to
     // this ticket are now unearned, delete them so liquidación stays honest.
-    db.prepare('DELETE FROM washer_commissions WHERE ticket_id=? OR (ticket_supabase_id IS NOT NULL AND ticket_supabase_id=?)').run(id, ticket.supabase_id || null)
-    db.prepare('DELETE FROM seller_commissions WHERE ticket_id=? OR (ticket_supabase_id IS NOT NULL AND ticket_supabase_id=?)').run(id, ticket.supabase_id || null)
-    db.prepare('DELETE FROM cajero_commissions WHERE ticket_id=? OR (ticket_supabase_id IS NOT NULL AND ticket_supabase_id=?)').run(id, ticket.supabase_id || null)
+    // v2.14.23 — also tombstone each row so the delete propagates to Supabase.
+    // Prior behavior was local-only DELETE; remote rows survived forever
+    // (audit D-i 2026-04-24: voided ticket's commissions kept showing on
+    // Supabase + remote payroll).
+    const bizIdForT = ticket.business_id || _bizId() || null
+    for (const tbl of ['washer_commissions','seller_commissions','cajero_commissions']) {
+      const rows = db.prepare(`SELECT supabase_id FROM ${tbl} WHERE ticket_id=? OR (ticket_supabase_id IS NOT NULL AND ticket_supabase_id=?)`).all(id, ticket.supabase_id || null)
+      for (const r of rows) { if (r.supabase_id) { try { tombstoneAdd(tbl, r.supabase_id, bizIdForT) } catch {} } }
+      db.prepare(`DELETE FROM ${tbl} WHERE ticket_id=? OR (ticket_supabase_id IS NOT NULL AND ticket_supabase_id=?)`).run(id, ticket.supabase_id || null)
+    }
     // Reverse inventory stock for product items.
     // RPT-H4: if a shortage was recorded at sale-time (requested > available),
     // restore ONLY the fulfilled amount (actual_qty) — what was actually
@@ -4813,7 +4832,9 @@ function ticketItemUpdatePrice({ ticketItemId, newPrice, reason, adminPin }) {
     const subtotal = total - itbis
     const beverageSub = items.filter(i => !i.is_wash).reduce((s, i) => s + (i.id === ticketItemId ? newPrice : i.price), 0)
 
-    db.prepare('UPDATE tickets SET subtotal=?, itbis=?, total=?, beverage_subtotal=? WHERE id=?')
+    // v2.14.23 — bump updated_at so the recalc survives next pull
+    db.prepare(`UPDATE tickets SET subtotal=?, itbis=?, total=?, beverage_subtotal=?,
+      updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`)
       .run(subtotal, itbis, total, beverageSub, item.ticket_id)
 
     // 4. Log to audit table
@@ -4907,9 +4928,13 @@ function queueDelete(id, deletedBy) {
       reverseClientBalanceForTicket(ticket)
       // Also reverse any commissions tied to this ticket — they were written
       // at create time; if the ticket is cancelled, they're unearned.
-      db.prepare('DELETE FROM washer_commissions WHERE ticket_id=? OR ticket_supabase_id IN (SELECT supabase_id FROM tickets WHERE id=?)').run(row.ticket_id, row.ticket_id)
-      db.prepare('DELETE FROM seller_commissions WHERE ticket_id=? OR ticket_supabase_id IN (SELECT supabase_id FROM tickets WHERE id=?)').run(row.ticket_id, row.ticket_id)
-      db.prepare('DELETE FROM cajero_commissions WHERE ticket_id=? OR ticket_supabase_id IN (SELECT supabase_id FROM tickets WHERE id=?)').run(row.ticket_id, row.ticket_id)
+      // v2.14.23 — tombstone before DELETE so the removal propagates to Supabase.
+      const bizIdQD = ticket?.business_id || _bizId() || null
+      for (const tbl of ['washer_commissions','seller_commissions','cajero_commissions']) {
+        const rows = db.prepare(`SELECT supabase_id FROM ${tbl} WHERE ticket_id=? OR ticket_supabase_id IN (SELECT supabase_id FROM tickets WHERE id=?)`).all(row.ticket_id, row.ticket_id)
+        for (const r of rows) { if (r.supabase_id) { try { tombstoneAdd(tbl, r.supabase_id, bizIdQD) } catch {} } }
+        db.prepare(`DELETE FROM ${tbl} WHERE ticket_id=? OR ticket_supabase_id IN (SELECT supabase_id FROM tickets WHERE id=?)`).run(row.ticket_id, row.ticket_id)
+      }
       // RPT-H4: reverse inventory stock for product items on cancelled pendiente
       // ticket (sale deducted stock; cancel never returned it before this).
       // Shortage-aware: restore fulfilled amount only, never phantom stock.
@@ -4945,7 +4970,9 @@ function queueDelete(id, deletedBy) {
     }
     db.prepare(`UPDATE queue SET status='cancelled', completed_at=? WHERE id=?`).run(now, id)
     // v2.10.3 — bump rev alongside status so Supabase trg_tickets_rev_guard accepts.
-    db.prepare(`UPDATE tickets SET status='anulado', rev=COALESCE(rev,0)+1 WHERE id=?`).run(row.ticket_id)
+    // v2.14.23 — bump updated_at so void survives next pull.
+    db.prepare(`UPDATE tickets SET status='anulado', rev=COALESCE(rev,0)+1,
+      updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).run(row.ticket_id)
     db.prepare(`INSERT OR IGNORE INTO queue_deletions (queue_id, ticket_id, doc_number, deleted_by, deleted_at, reason, supabase_id, updated_at) VALUES (?,?,?,?,?,?,?,?)`)
       .run(id, row.ticket_id, row.doc_number || '', deletedBy || 'unknown', now, 'manual', crypto.randomUUID(), now)
   })()
@@ -5524,7 +5551,7 @@ function ncfGetNext(type) {
   const row = db.prepare('SELECT * FROM ncf_sequences WHERE type=? AND active=1 AND enabled=1').get(type)
   if (!row) return null
   const next = row.current_number + 1
-  db.prepare('UPDATE ncf_sequences SET current_number=? WHERE type=?').run(next, type)
+  db.prepare("UPDATE ncf_sequences SET current_number=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE type=?").run(next, type)
   // DGII NCF spec is absolute: 3-char prefix + 8-digit seq for legacy
   // (B01/B02/B14/B15) = 11 char total; 3-char prefix + 10-digit seq for
   // electronic (E31/E32/…) = 13 char total. The `type` column is the
@@ -6071,7 +6098,7 @@ function ncfSequenceDecrementIfLast(ncf) {
     // Not the last issue — gap remains; ANECF handles.
     return { decremented: false, reason: 'not-last', prefix, number: num, current: Number(row.current_number) }
   }
-  db.prepare('UPDATE ncf_sequences SET current_number=? WHERE type=?').run(num - 1, row.type)
+  db.prepare("UPDATE ncf_sequences SET current_number=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE type=?").run(num - 1, row.type)
   return { decremented: true, prefix, number: num }
 }
 

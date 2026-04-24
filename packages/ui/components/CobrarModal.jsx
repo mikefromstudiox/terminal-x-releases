@@ -752,16 +752,23 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
   }, [])
 
   // Set ncfType to first enabled type once sequences load
+  // v2.14.23 — SKIP this override when the business is in legacy (B-series)
+  // mode. enabledEcfTypes is populated from ncf_sequences.enabled=1, which
+  // includes any E-series rows left over from certification. Previously the
+  // B02 default set by loadBizSettings() was silently reverted to E31/E32
+  // by this effect → legacy-mode businesses were issuing e-CFs by mistake.
+  // Identified by desktop-Claude audit 2026-04-24 D-b.
   useEffect(() => {
     if (forceNcfType) return // locked by caller (dealership / WO bridge)
+    const rawMode = (bizSettings?.fiscal_mode || bizSettings?.facturacion_mode || 'ecf').toLowerCase()
+    if (rawMode !== 'ecf' && !fiscalOverride) return // legacy mode — B-series stays put
     if (enabledEcfTypes && enabledEcfTypes.length > 0) {
       setNcfType(prev => {
-        // Only update if current type is not in enabled list
         const isCurrentEnabled = enabledEcfTypes.some(e => e.code === prev)
         return isCurrentEnabled ? prev : enabledEcfTypes[0].code
       })
     }
-  }, [enabledEcfTypes, forceNcfType])
+  }, [enabledEcfTypes, forceNcfType, bizSettings, fiscalOverride])
 
   useEffect(() => {
     const handler = e => { if (clientRef.current && !clientRef.current.contains(e.target)) setShowClientDrop(false) }
