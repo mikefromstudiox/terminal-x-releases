@@ -5701,12 +5701,15 @@ function deleteCompra607(id) {
 function get606Data(dateFrom, dateTo) {
   if (!db) return []
   // Exclude anulado/nula so voided tickets don't over-report to DGII.
+  // v2.14.22 — also join on client_supabase_id so web-created or not-yet-pulled
+  // client rows still resolve the name/RNC instead of showing NULL (Audit D4).
   return db.prepare(
     `SELECT t.id, t.ncf, t.comprobante_type as tipo, t.created_at as fecha,
             t.subtotal, t.itbis, t.ley, t.total, t.status as estado,
             c.name as client_name, c.rnc as client_rnc
      FROM tickets t
-     LEFT JOIN clients c ON c.id=t.client_id
+     LEFT JOIN clients c
+            ON (c.id = t.client_id OR c.supabase_id = t.client_supabase_id)
      WHERE t.created_at BETWEEN ? AND ?
        AND t.status NOT IN ('anulado','nula')
      ORDER BY t.created_at DESC`
@@ -7177,19 +7180,29 @@ function topWashersThisMonth(limit = 3) {
 // ── TICKETS BY CLIENT (vehicle history — last N paid tickets) ────────────────
 function ticketsByClient(client_id, limit = 10) {
   if (!db || !client_id) return []
+  // v2.14.22 — fall back to client_supabase_id so cross-device / post-pull
+  // rows still attach to the history. Web-created tickets on another POS
+  // may have client_id=NULL locally until the clients pull lands but
+  // ticket.client_supabase_id is always set. Audit D3 + D4 root-cause.
+  // washer_commissions join tolerates NULL ticket_id (post-wipe state)
+  // by also trying ticket_supabase_id.
+  const clientSid = db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(client_id)?.supabase_id || null
   return db.prepare(`
     SELECT t.id, t.doc_number, t.total, t.status, t.created_at, t.vehicle_plate,
            e.nombre AS washer_name,
            (SELECT GROUP_CONCAT(ti.name, ' + ')
-              FROM ticket_items ti WHERE ti.ticket_id = t.id) AS services
+              FROM ticket_items ti WHERE ti.ticket_id = t.id OR ti.ticket_supabase_id = t.supabase_id) AS services
       FROM tickets t
-      LEFT JOIN washer_commissions w ON w.ticket_id = t.id
-      LEFT JOIN empleados e ON e.id = w.empleado_id
-     WHERE t.client_id = ?
+      LEFT JOIN washer_commissions w
+             ON (w.ticket_id = t.id OR w.ticket_supabase_id = t.supabase_id)
+      LEFT JOIN empleados e
+             ON (e.id = w.empleado_id OR e.supabase_id = w.empleado_supabase_id)
+     WHERE (t.client_id = ? OR (? IS NOT NULL AND t.client_supabase_id = ?))
+       AND COALESCE(t.status, '') != 'nula'
      GROUP BY t.id
      ORDER BY t.created_at DESC
      LIMIT ?
-  `).all(client_id, Math.min(Number(limit) || 10, 50))
+  `).all(client_id, clientSid, clientSid, Math.min(Number(limit) || 10, 50))
 }
 
 // ── SERVICE VERTICAL ─────────────────────────────────────────────────────────

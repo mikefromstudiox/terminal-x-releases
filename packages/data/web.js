@@ -2703,7 +2703,11 @@ export function createWebAPI(supabase, businessId) {
         const dateTo   = params?.dateTo   ?? params?.to
         // Filter by real sale date (paid_at) when available, else insert time.
         // Guards against imported historical rows whose created_at = import time.
-        let q = supabase.from('tickets').select('*').eq('business_id', bid)
+        // v2.14.22 — exclude voided tickets. Previously byDateRange returned
+        // status='nula' rows which counted in DailyReport + RemoteDashboard
+        // totals (Audit D9). DailyReport filters estado separately for its
+        // UI but the summary cards + CSV exports leaked void rows through.
+        let q = supabase.from('tickets').select('*').eq('business_id', bid).neq('status', 'nula')
         if (dateFrom) q = q.or(`paid_at.gte.${dateFrom},and(paid_at.is.null,created_at.gte.${dateFrom})`)
         if (dateTo)   q = q.or(`paid_at.lte.${dateTo},and(paid_at.is.null,created_at.lte.${dateTo})`)
         q = q.order('paid_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false }).limit(500)

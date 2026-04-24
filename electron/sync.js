@@ -2989,18 +2989,26 @@ async function supabaseDelete(table, supabaseId, businessId) {
 // from Supabase and hard-delete any local rows whose supabase_id is not in the
 // remote set. Ensures a delete performed in web or another desktop propagates
 // to this desktop on next pull.
-// Tables where we accept that remote absence means "deleted" and we should
-// mirror that deletion locally. Append-only / FWW tables stay out (tickets,
-// ticket_items, activity_log — remote absence might just mean "not pulled yet
-// because no update"). Core entity tables (services, empleados, clients,
-// inventory) are included so a web-side or other-device delete actually
-// lands on this desktop instead of getting pulled back in on the next cycle.
+// v2.14.22 — Added tickets, clients, queue, queue_deletions. Prior audit
+// (2026-04-24) found the comment below was stale: `clients` was referenced
+// as included but never actually listed, and the entire "append-only" dodge
+// on tickets was wrong — owner-initiated ticket deletes (wipes, admin purges)
+// were being re-pushed by desktop on every sync tick. ticket_items rides
+// on ON DELETE CASCADE from tickets(id), so deleting the ticket locally
+// takes ticket_items with it — no need to reconcile ticket_items directly.
+// queue also cascades from tickets but we reconcile it for web-only purges.
 const RECONCILE_TABLES = [
   'salary_changes', 'adelantos', 'caja_chica', 'notas_credito',
   'services', 'empleados', 'categorias_servicio', 'client_item_prices',
   'client_service_rates', 'service_modificadores', 'payroll_runs',
   'inventory_counts', 'inventory_count_items',
   'compras_607', 'ecf_queue', 'work_order_items',
+  // v2.14.22 — the bucket that was silently out. When Supabase loses a
+  // ticket/client/queue row (owner wipe, void hard-delete, web-side purge),
+  // the next pull's reconcile is what takes the local row out. Without this
+  // the desktop's stale row gets re-pushed on the following tick and the
+  // "wiped" rows reappear in 606/607 + Remote Dashboard + Clients.
+  'tickets', 'clients', 'queue', 'queue_deletions',
   // Commission tables: reconcile so a cloud-side dedupe (e.g. wiping
   // duplicate StarSISA import aggregates) propagates to desktop. The
   // 10-min age guard in reconcileDeletes protects commissions created
@@ -3049,7 +3057,17 @@ async function reconcileDeletes() {
       // Skip if table doesn't exist locally (older DBs)
       const has = _db.rawPrepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)
       if (!has) continue
-      const remote = await supabaseFetch(table, `select=supabase_id&business_id=eq.${bizId}&limit=20000`)
+      // v2.14.22 — supabaseFetch expects an object. Previously a template
+      // string was passed; Object.entries on a string yields [index, char]
+      // pairs, producing ?0=s&1=e&... → PGRST100 on every reconcile call
+      // → cloud-side deletes never propagated. Verified against main.log:
+      // every RECONCILE_TABLES entry failed "unexpected s expecting
+      // operator". That's why wiped tickets/clients kept reappearing.
+      const remote = await supabaseFetch(table, {
+        select: 'supabase_id',
+        business_id: `eq.${bizId}`,
+        limit: '20000',
+      })
       if (!Array.isArray(remote)) continue
       const remoteSet = new Set(remote.map(r => r.supabase_id).filter(Boolean))
       // Some pre-v2.1 tables (commission tables) don't have a `business_id`
