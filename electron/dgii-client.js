@@ -451,7 +451,16 @@ async function submitANECF(signedXml, token, env) {
     throw new Error(`DGII ANECF respuesta inesperada (${res.status}): ${res.body.substring(0, 300)}`)
   }
 
-  if (parsed.codigo && parsed.codigo !== '1' && parsed.codigo !== 1) {
+  // v2.14.32 — DGII's ANECF endpoint returns success with codigo != 1 when
+  // the anulación was accepted (e.g. codigo=2 "Aceptada" or codigo=3
+  // "Conditionally Accepted"), and surfaces the success message via the
+  // mensajes array: "Las secuencias fueron anuladas correctamente."
+  // Previous code treated codigo != 1 as a hard rejection, which misread
+  // every successful void as failed. Now: check the message text for the
+  // success phrase before throwing.
+  const msgsJoined = (parsed.mensajes?.join('; ') || parsed.nombre || parsed.mensaje || '').toLowerCase()
+  const isSuccess = /anuladas?\s+correctamente|aceptad[oa]/i.test(msgsJoined)
+  if (!isSuccess && parsed.codigo && parsed.codigo !== '1' && parsed.codigo !== 1) {
     const msgs = parsed.mensajes?.join('; ') || parsed.nombre || 'Error desconocido'
     throw new Error(`DGII rechazó anulación: ${msgs}`)
   }
