@@ -4266,9 +4266,11 @@ function ticketCreate(data) {
       const ncfRow = db.prepare('SELECT * FROM ncf_sequences WHERE type=? AND active=1').get(ncfType)
       if (ncfRow) {
         const nextNCF = ncfRow.current_number + 1
-        // E-series eNCFs use 10-digit sequence; legacy NCFs use 8.
-        const pad = /^E/i.test(ncfRow.prefix || ncfType) ? 10 : 8
-        ncf = `${ncfRow.prefix}${String(nextNCF).padStart(pad, '0')}`
+        // Use canonical 3-char type prefix — guards against a corrupted
+        // ncf_sequences.prefix column (we saw 'E320' in the wild).
+        const ncfPrefix = String(ncfType).toUpperCase()
+        const pad = /^E/.test(ncfPrefix) ? 10 : 8
+        ncf = `${ncfPrefix}${String(nextNCF).padStart(pad, '0')}`
         db.prepare('UPDATE ncf_sequences SET current_number=? WHERE type=?').run(nextNCF, ncfRow.type)
         if (multiPos) usedLegacyCounter = 1
       }
@@ -5429,12 +5431,15 @@ function ncfGetNext(type) {
   if (!row) return null
   const next = row.current_number + 1
   db.prepare('UPDATE ncf_sequences SET current_number=? WHERE type=?').run(next, type)
-  // DGII spec: legacy NCFs (B01/B02/B14/B15) use 8-digit sequence (11 char
-  // total), electronic NCFs (E31/E32/…) use 10-digit sequence (13 char total).
-  // Zero-padding an E-series to 8 digits yields an invalid eNCF that DGII
-  // rejects with 'Archivo no válido' before field-level validation.
-  const prefix = row.prefix || type
-  const pad = /^E/i.test(prefix) ? 10 : 8
+  // DGII NCF spec is absolute: 3-char prefix + 8-digit seq for legacy
+  // (B01/B02/B14/B15) = 11 char total; 3-char prefix + 10-digit seq for
+  // electronic (E31/E32/…) = 13 char total. The `type` column is the
+  // canonical 3-char prefix by definition — use it directly. Ignore
+  // whatever row.prefix stored, since a stray sync once wrote 'E320'
+  // (4 chars) there, producing 14-char eNCFs DGII rejected with
+  // 'Archivo no válido'.
+  const prefix = String(type).toUpperCase()
+  const pad = /^E/.test(prefix) ? 10 : 8
   return `${prefix}${String(next).padStart(pad, '0')}`
 }
 function ncfUpdateSequence(type, data) {

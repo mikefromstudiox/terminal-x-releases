@@ -15,6 +15,22 @@ export default function AperturaTurnoModal({ userName, onConfirm, submitting = f
 
   useEffect(() => { inputRef.current?.focus() }, [])
 
+  // Hard dismissal guards — apertura is mandatory for the cashier role.
+  // Block ESC, the F5 refresh (which would re-render POS without running
+  // the shift-open IPC), and any text-selection shortcut the user might
+  // stumble onto. Parent AperturaTurnoGate already covers the POS tree;
+  // this catches stray keydowns that skip past into the body.
+  useEffect(() => {
+    const onKey = (ev) => {
+      if (ev.key === 'Escape' || ev.key === 'F5') {
+        ev.preventDefault()
+        ev.stopPropagation()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+
   function submit(e) {
     e?.preventDefault()
     const n = Number(String(amount).replace(/,/g, ''))
@@ -24,7 +40,14 @@ export default function AperturaTurnoModal({ userName, onConfirm, submitting = f
   }
 
   return (
-    <div className="fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div
+      // z-[2147483647] = max z-index. Sits above sidebar, kiosk overlays,
+      // toasts, anything else the renderer might stack on top. onClick
+      // swallower prevents backdrop click from reaching parent and
+      // triggering anything that could dismiss the shell behind us.
+      className="fixed inset-0 z-[2147483647] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); e.stopPropagation() } }}
+    >
       <form
         onSubmit={submit}
         className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden"
