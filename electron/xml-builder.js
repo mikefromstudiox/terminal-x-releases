@@ -276,8 +276,8 @@ function buildANECFXml(data) {
     detalle += jsonToXml('TipoeCF', normTipoeCF(r.tipoECF || data.tipoECF))
     detalle += '<TablaRangoSecuenciasAnuladaseNCF>'
     detalle += '<Secuencias>'
-    detalle += jsonToXml('NCFDesde', r.ncfDesde)
-    detalle += jsonToXml('NCFHasta', r.ncfHasta)
+    detalle += jsonToXml('SecuenciaeNCFDesde', r.ncfDesde)
+    detalle += jsonToXml('SecuenciaeNCFHasta', r.ncfHasta)
     detalle += '</Secuencias>'
     detalle += '</TablaRangoSecuenciasAnuladaseNCF>'
     detalle += jsonToXml('CantidadeNCFAnulados', String(rangeCount(r) || data.cantidadNCF))
