@@ -218,12 +218,12 @@ function buildACECFXml(data) {
  * Schema (confirmed via DGII rejection errors 2026-04-24):
  *   ANECF
  *     Encabezado
- *       Version, RncEmisor, CantidadNCFAnulados        ← no FechaHoraAnulacion
+ *       Version, RncEmisor, CantidaddeNCFAnulados        ← no FechaHoraAnulacion
  *     DetalleAnulacion
  *       Anulacion (1..N)
- *         NoLinea, TipoECF, NCFDesde, NCFHasta         ← TipoECF, not TipoAnulacion
+ *         NoLinea, TipoeCF, NCFDesde, NCFHasta         ← TipoeCF, not TipoAnulacion
  *
- * TipoECF is the e-CF type being voided: 31, 32, 33, etc. (numeric — the
+ * TipoeCF is the e-CF type being voided: 31, 32, 33, etc. (numeric — the
  * 'E' prefix stripped). A single ANECF can void one or multiple ranges;
  * if the ranges span different tipos, pass rangos[] with per-line tipoECF.
  *
@@ -245,7 +245,7 @@ function buildANECFXml(data) {
     : [{ tipoECF: data.tipoECF, ncfDesde: data.rangoDesde, ncfHasta: data.rangoHasta }]
 
   // Normalize tipoECF: strip leading 'E', ensure 2-digit string.
-  const normTipoECF = (t) => {
+  const normTipoeCF = (t) => {
     const s = String(t || '').replace(/^E/i, '').padStart(2, '0')
     return s.slice(0, 2)
   }
@@ -253,14 +253,14 @@ function buildANECFXml(data) {
   let encabezado = '<Encabezado>'
   encabezado += jsonToXml('Version', '1.0')
   encabezado += jsonToXml('RncEmisor', rncClean)
-  encabezado += jsonToXml('CantidadNCFAnulados', String(data.cantidadNCF))
+  encabezado += jsonToXml('CantidaddeNCFAnulados', String(data.cantidadNCF))
   encabezado += '</Encabezado>'
 
   let detalle = '<DetalleAnulacion>'
   rangos.forEach((r, i) => {
     detalle += '<Anulacion>'
     detalle += jsonToXml('NoLinea', String(i + 1))
-    detalle += jsonToXml('TipoECF', normTipoECF(r.tipoECF || data.tipoECF))
+    detalle += jsonToXml('TipoeCF', normTipoeCF(r.tipoECF || data.tipoECF))
     detalle += jsonToXml('NCFDesde', r.ncfDesde)
     detalle += jsonToXml('NCFHasta', r.ncfHasta)
     detalle += '</Anulacion>'
