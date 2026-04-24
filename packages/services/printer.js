@@ -629,6 +629,117 @@ export function buildPreTicket(data) {
   return lines.join('')
 }
 
+// ── ANECF COMPROBANTE ─────────────────────────────────────────────────────────
+/**
+ * Build ESC/POS string for an ANECF (Anulación de eNCF) comprobante.
+ * Printed after a successful DGII anulación submission so the owner has
+ * paper proof of which ranges were voided + DGII's acceptance response.
+ *
+ * data: {
+ *   biz,
+ *   rncEmisor,
+ *   tipoECF,                    // 'E31' | 'E32' | ...
+ *   rangoDesde, rangoHasta,     // e.g. 'E320000000001'
+ *   cantidadNCF,
+ *   submittedAt,                // ISO or Date
+ *   environment,                // 'ecf' | 'certecf' | 'testecf'
+ *   dgiiResponse: {             // raw DGII response
+ *     codigo, nombre, mensajes,
+ *   },
+ *   cajero,                     // name of whoever submitted
+ * }
+ */
+export function buildANECFComprobante(data) {
+  const lines = []
+  lines.push(buildHeader(data.biz || {}))
+
+  lines.push(ALIGN_CENTER)
+  lines.push(BOLD_ON)
+  lines.push(DOUBLE_ON)
+  lines.push('ANULACION DE eNCF')
+  lines.push(LF)
+  lines.push(DOUBLE_OFF)
+  lines.push('ANECF')
+  lines.push(LF)
+  lines.push(BOLD_OFF)
+  lines.push(SEP)
+  lines.push(LF)
+
+  lines.push(ALIGN_LEFT)
+  const when = data.submittedAt instanceof Date ? data.submittedAt : new Date(data.submittedAt || Date.now())
+  lines.push(cols('Fecha:',      fmtDate(when)))
+  lines.push(LF)
+  lines.push(cols('Hora:',       when.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })))
+  lines.push(LF)
+  lines.push(cols('RNC Emisor:', data.rncEmisor || '-'))
+  lines.push(LF)
+  lines.push(cols('Ambiente:',   String(data.environment || 'ecf').toUpperCase()))
+  lines.push(LF)
+  if (data.cajero) {
+    lines.push(cols('Autorizado:', data.cajero))
+    lines.push(LF)
+  }
+  lines.push(SEP)
+  lines.push(LF)
+
+  // Range block
+  lines.push(ALIGN_CENTER)
+  lines.push(BOLD_ON)
+  lines.push('RANGO ANULADO')
+  lines.push(LF)
+  lines.push(BOLD_OFF)
+  lines.push(ALIGN_LEFT)
+  lines.push(cols('Tipo e-CF:',  String(data.tipoECF || '').toUpperCase()))
+  lines.push(LF)
+  lines.push(cols('Desde:',      data.rangoDesde || '-'))
+  lines.push(LF)
+  lines.push(cols('Hasta:',      data.rangoHasta || '-'))
+  lines.push(LF)
+  lines.push(BOLD_ON)
+  lines.push(cols('Cantidad:',   String(data.cantidadNCF || 0) + ' NCFs'))
+  lines.push(LF)
+  lines.push(BOLD_OFF)
+  lines.push(SEP)
+  lines.push(LF)
+
+  // DGII response block
+  lines.push(ALIGN_CENTER)
+  lines.push(BOLD_ON)
+  lines.push('RESPUESTA DGII')
+  lines.push(LF)
+  lines.push(BOLD_OFF)
+  lines.push(ALIGN_LEFT)
+  const resp = data.dgiiResponse || {}
+  if (resp.codigo != null) { lines.push(cols('Codigo:', String(resp.codigo))); lines.push(LF) }
+  if (resp.nombre)        { lines.push(cols('Estado:', String(resp.nombre))); lines.push(LF) }
+  const msgs = Array.isArray(resp.mensajes) ? resp.mensajes : (resp.mensaje ? [resp.mensaje] : [])
+  if (msgs.length) {
+    lines.push(LF)
+    lines.push('Mensajes:')
+    lines.push(LF)
+    msgs.forEach(m => {
+      wrapText(String(m), COL_WIDTH).forEach(l => { lines.push('  ' + l); lines.push(LF) })
+    })
+  }
+  lines.push(SEP)
+  lines.push(LF)
+
+  lines.push(ALIGN_CENTER)
+  lines.push(BOLD_ON)
+  lines.push('COMPROBANTE DE ANULACION')
+  lines.push(LF)
+  lines.push(BOLD_OFF)
+  lines.push('Conserve este comprobante')
+  lines.push(LF)
+  lines.push(LF)
+  lines.push('Powered by Terminal X')
+  lines.push(LF)
+  lines.push(LF)
+  lines.push(LF)
+  lines.push(CUT)
+  return lines.join('')
+}
+
 // ── CUADRE DE CAJA ────────────────────────────────────────────────────────────
 /**
  * Build ESC/POS string for the end-of-day cash reconciliation report.
@@ -1000,6 +1111,18 @@ export async function openCashDrawer(printerApi) {
 export async function printCuadreCaja(cuadreData, api, printerApi) {
   const escpos = buildCuadreCaja(cuadreData)
   return sendToPrinter('cuadre-caja', escpos, cuadreData.biz, api)
+}
+
+/** Print an ANECF comprobante (void-of-eNCF proof slip) */
+export async function printANECFComprobante(anecfData, api, printerApi) {
+  const logoBytes = await buildLogoEscPos(anecfData.biz?.logo || '').catch(() => '')
+  // buildHeader is invoked inside buildANECFComprobante via data.biz, but we
+  // don't currently pass logoBytes through. Pre-warm the cache so when
+  // buildHeader's fallback text path would run, nothing changes — if the
+  // builder later accepts logoBytes, this is ready.
+  void logoBytes
+  const escpos = buildANECFComprobante(anecfData)
+  return sendToPrinter('anecf-comprobante', escpos, anecfData.biz, api)
 }
 
 // ── CREDIT PAYMENT RECEIPT ─────────────────────────────────────────────────────

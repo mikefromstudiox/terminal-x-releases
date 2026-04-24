@@ -9,6 +9,7 @@ import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import { isTech } from '../lib/roles'
+import { printANECFComprobante } from '@terminal-x/services/printer'
 import {
   generateFormato606Txt, generateFormato607Txt,
   downloadTxt, filename606, filename607,
@@ -1023,6 +1024,7 @@ const ECF_TYPES = [
 function ScreenANECF() {
   const api = useAPI()
   const { lang } = useLang()
+  const { user } = useAuth()
   const L = (es, en) => lang === 'es' ? es : en
 
   const [tipoECF, setTipoECF] = useState('E31')
@@ -1093,6 +1095,33 @@ function ScreenANECF() {
         rangoHasta: hasta,
       })
       setResult(res)
+      // v2.14.33 — auto-print the ANECF comprobante on successful void.
+      // Runs fire-and-forget so a print failure never shadows the success.
+      try {
+        const numDesde = parseInt(desde.replace(/\D/g, ''), 10)
+        const numHasta = parseInt(hasta.replace(/\D/g, ''), 10)
+        const cantidadNCF = Number.isFinite(numDesde) && Number.isFinite(numHasta)
+          ? numHasta - numDesde + 1 : 0
+        printANECFComprobante({
+          biz: {
+            name: empresa?.nombre || empresa?.name || '',
+            address: empresa?.direccion || empresa?.address || '',
+            phone: empresa?.telefono || empresa?.phone || '',
+            rnc: empresa?.rnc || '',
+            logo: empresa?.logo || '',
+            settings: empresa?.settings || {},
+          },
+          rncEmisor: empresa.rnc.replace(/[-\s]/g, ''),
+          tipoECF,
+          rangoDesde: desde,
+          rangoHasta: hasta,
+          cantidadNCF,
+          submittedAt: res?.submittedAt || new Date(),
+          environment: res?.environment || 'ecf',
+          cajero: user?.name || '',
+          dgiiResponse: res || {},
+        }).catch(() => {})
+      } catch {}
     } catch (err) {
       setError(err.message || L('Error desconocido', 'Unknown error'))
     } finally {
