@@ -447,6 +447,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   commissions: {
     byWasher: (params) => call('commissions:byWasher', params),
     byPeriod: (params) => call('commissions:byPeriod', params),
+    byTicket: (params) => call('commissions:byTicket', params),
     markPaid: (ids)    => call('commissions:markPaid', ids),
     markPaidByPeriod: (args) => call('commissions:markPaidByPeriod', args),
     create:   (data)   => call('commissions:create', data),

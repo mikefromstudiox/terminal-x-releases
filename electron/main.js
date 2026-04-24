@@ -2120,6 +2120,9 @@ handleMut('queue:delete',       ({id,deletedBy})         => db.queueDelete(id, d
 // ── Commissions ───────────────────────────────────────────────────────────────
 handle('commissions:byWasher', ({washerId,from,to}) => db.commissionsGetByWasher(washerId, from, to))
 handle('commissions:byPeriod', ({from,to})          => db.commissionsGetByPeriod(from, to))
+// v2.14.24 — per-ticket lookup used by Queue.jsx Cobrar-from-Cola to print
+// one conduce per washer with the right per-worker commission amount.
+handle('commissions:byTicket', ({ticketId})          => db.washerCommissionsByTicket(ticketId))
 handleMut('commissions:markPaid', (ids)                => db.commissionsMarkPaid(ids))
 handleMut('commissions:markPaidByPeriod', (args)       => db.commissionsMarkPaidByPeriod(args))
 handleMut('commissions:create',       (data)           => db.washerCommissionCreate(data))

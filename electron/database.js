@@ -5022,6 +5022,27 @@ function commissionsGetByWasher(washerId, dateFrom, dateTo) {
     return db.prepare(sql).all(...params)
   } catch (e) { console.error('[commissionsGetByWasher]', e.message); return [] }
 }
+
+// v2.14.24 — used by Queue.jsx Cobrar-from-Cola to print one conduce per
+// washer. queue rows store only the first empleado_supabase_id (schema
+// limit), so we read the authoritative list from washer_commissions where
+// one row was inserted per washer at ticketCreate time.
+function washerCommissionsByTicket(ticketId) {
+  if (!db || !ticketId) return []
+  try {
+    const ticket = db.prepare('SELECT supabase_id FROM tickets WHERE id=?').get(ticketId)
+    const tsid = ticket?.supabase_id || null
+    return db.prepare(
+      `SELECT wc.empleado_supabase_id, e.nombre,
+              wc.base_amount, wc.commission_pct, wc.commission_amount
+         FROM washer_commissions wc
+         JOIN empleados e ON e.supabase_id = wc.empleado_supabase_id
+        WHERE wc.ticket_id = ? OR (wc.ticket_supabase_id IS NOT NULL AND wc.ticket_supabase_id = ?)
+        ORDER BY wc.id ASC`
+    ).all(ticketId, tsid)
+  } catch (e) { console.error('[washerCommissionsByTicket]', e.message); return [] }
+}
+
 function commissionsGetByPeriod(dateFrom, dateTo) {
   if (!db) return []
   try {
@@ -8254,7 +8275,7 @@ module.exports = {
   // Queue
   queueGetActive, queueUpdateStatus, queueDelete,
   // Commissions
-  commissionsGetByWasher, commissionsGetByPeriod, commissionsMarkPaid, commissionsMarkPaidByPeriod,
+  commissionsGetByWasher, commissionsGetByPeriod, commissionsMarkPaid, commissionsMarkPaidByPeriod, washerCommissionsByTicket,
   sellerCommissionsBySeller, sellerCommissionsByPeriod, sellerCommissionsMarkPaid, sellerCommissionsMarkPaidByPeriod, sellerCommissionCreate,
   cajeroCommissionsByCajero, cajeroCommissionsByPeriod, cajeroCommissionsMarkPaid, cajeroCommissionsMarkPaidByPeriod, cajeroCommissionCreate,
   washerCommissionCreate,

@@ -147,7 +147,14 @@ async function buildLogoEscPos(logoInput) {
   const cached = _logoEscPosCache.get(logoUrl)
   if (cached !== undefined) return cached
   return new Promise(resolve => {
-    const finish = (val) => { _logoEscPosCache.set(logoUrl, val); resolve(val) }
+    // v2.14.24 — only cache SUCCESS. Prior version cached empty-string on
+    // failure, which sticky-poisoned the session: if the first print had a
+    // slow/flaky logo fetch it returned '' and every subsequent print used
+    // that cached '' and fell back to the giant text header. Now a miss
+    // just doesn't cache, so the next print retries. Identified in print
+    // audit 2026-04-24 ("logo prints on E31 but not B02" — order-of-prints
+    // artifact, not comprobante-type-specific).
+    const finish = (val) => { if (val) _logoEscPosCache.set(logoUrl, val); resolve(val) }
     try {
       // 80mm thermal printers have ~512 printable dots (64mm × 8 dots/mm).
       // 384px gives a bold hero presence with ~32px margin each side and
@@ -231,21 +238,21 @@ function buildHeader(biz, logoBytes = '') {
   }
   // Thin breathing space, then muted contact info
   parts.push(LF)
-  if (biz.address) {
-    let addr = String(biz.address).trim()
-    try {
-      const s = typeof biz.settings === 'string' ? JSON.parse(biz.settings) : (biz.settings || {})
-      const city = (s.ciudad || s.biz_city || '').trim()
-      // v2.14.20 — only append the city if it isn't already contained in the
-      // address. Previously `addr += ', ' + city` duplicated whenever the
-      // owner typed the city into biz.direccion — receipt printed
-      // "Santo Domingo, Santo Domingo".
-      if (city && !addr.toLowerCase().includes(city.toLowerCase())) {
-        addr += ', ' + city
-      }
-    } catch {}
-    wrapText(addr, COL_WIDTH).forEach(l => { parts.push(l); parts.push(LF) })
-  }
+  // v2.14.24 — print whatever address info we have. Previous version
+  // ONLY printed if biz.address existed; a business with just a city in
+  // settings got no line at all. And when biz.address === city, the
+  // dedup check suppressed appending the city but nothing else surfaced.
+  // New behavior: print address on one line, city on a second line if
+  // it adds value (not identical + not already a suffix).
+  try {
+    const addr = String(biz.address || '').trim()
+    const s = typeof biz.settings === 'string' ? JSON.parse(biz.settings) : (biz.settings || {})
+    const city = (s.ciudad || s.biz_city || '').trim()
+    if (addr) wrapText(addr, COL_WIDTH).forEach(l => { parts.push(l); parts.push(LF) })
+    if (city && city.toLowerCase() !== addr.toLowerCase() && !addr.toLowerCase().endsWith(city.toLowerCase())) {
+      wrapText(city, COL_WIDTH).forEach(l => { parts.push(l); parts.push(LF) })
+    }
+  } catch {}
   const contact = []
   if (biz.phone) contact.push(formatPhoneForReceipt(biz.phone))
   if (biz.rnc) contact.push('RNC ' + biz.rnc)
@@ -403,7 +410,13 @@ export function buildClientReceipt(data, logoBytes = '') {
   lines.push(LF)
 
   const ncfStr = String(data.ncf || '').toUpperCase()
-  const isFiscal = /^B01/.test(ncfStr) || /^B14/.test(ncfStr) || /^B15/.test(ncfStr) || /^E\d/.test(ncfStr)
+  // v2.14.24 — B02 (Consumidor Final) is fiscal too. Missing B02 here meant
+  // the Subtotal + ITBIS block was SILENTLY SKIPPED on every B02 receipt —
+  // the most common receipt type for walk-ins. Identified in print audit
+  // 2026-04-24.
+  const isFiscal = /^B01/.test(ncfStr) || /^B02/.test(ncfStr) ||
+                   /^B14/.test(ncfStr) || /^B15/.test(ncfStr) ||
+                   /^E\d/.test(ncfStr)
   if (data.descuento > 0) {
     lines.push(cols('Descuento', '- ' + fmt(data.descuento), COL_WIDTH))
     lines.push(LF)

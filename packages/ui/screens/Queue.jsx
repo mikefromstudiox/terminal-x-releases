@@ -688,7 +688,30 @@ export default function Queue() {
         biz,
       }
       if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice'))
-      if (cfg.print_conduce_auto === '1') printWasherConduce(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce'))
+      // v2.14.24 — Cobrar-from-Cola must print one conduce per washer, same
+      // as POS direct-Cobrar. queue.empleado_supabase_id stores ONLY the
+      // first washer (schema limitation), so pull all washers from the
+      // ticket's washer_commissions rows (most authoritative). Falls back
+      // to the single queue worker if that lookup fails.
+      // Identified in print audit 2026-04-24.
+      if (cfg.print_conduce_auto === '1') {
+        let washerList = []
+        try {
+          if (ticketId) {
+            const commRows = await api.commissions?.byTicket?.({ ticketId })
+            if (Array.isArray(commRows) && commRows.length) {
+              washerList = commRows.map(r => ({ name: r.nombre || r.name || '-', commAmount: Number(r.commission_amount) || 0 }))
+            }
+          }
+        } catch {}
+        if (!washerList.length) {
+          washerList = [{ name: snapshot.worker?.name || snapshot.washerName || '-', commAmount: 0 }]
+        }
+        for (const w of washerList) {
+          await printWasherConduce({ ...ticketData, lavador: w.name, commAmount: w.commAmount })
+            .catch(() => flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce'))
+        }
+      }
       // Kick drawer for cash/check payments
       const fm = data.formaPago || ''
       if (data.tipo !== 'credito' && !['tarjeta', 'transferencia'].includes(fm)) {

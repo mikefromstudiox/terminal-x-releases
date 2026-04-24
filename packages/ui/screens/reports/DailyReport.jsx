@@ -567,9 +567,21 @@ export default function DailyReport() {
   // per washer so each worker gets their own slip.
   async function reprintTicket(t, kind) {
     try {
-      const services = (t.items && t.items.length)
-        ? t.items.map(i => ({ name: i.name, price: Number(i.price) || 0, qty: Number(i.quantity || 1), itbis: Number(i.itbis) || 0, c: (i.is_wash ?? 1) !== 0 }))
-        : (t.services || []).map(s => ({ name: s.name, price: Number(s.price) || 0, qty: 1, itbis: 0, c: true }))
+      // v2.14.24 — byDateRange returns service_names (GROUP_CONCAT), not
+      // an items[] array with prices. Reprint used to fall back to those
+      // name-only entries with price=0 → every reprint printed "Carro
+      // Basico RD$0.00". Fetch the full ticket by id so we get real line
+      // items with real prices. Identified in print audit 2026-04-24.
+      let fullItems = null
+      try {
+        const full = await api.tickets.byId(t.id)
+        if (full?.items?.length) fullItems = full.items
+      } catch {}
+      const services = fullItems
+        ? fullItems.map(i => ({ name: i.name, price: Number(i.price) || 0, qty: Number(i.quantity || 1), itbis: Number(i.itbis) || 0, c: (i.is_wash ?? 1) !== 0 }))
+        : (t.items && t.items.length)
+          ? t.items.map(i => ({ name: i.name, price: Number(i.price) || 0, qty: Number(i.quantity || 1), itbis: Number(i.itbis) || 0, c: (i.is_wash ?? 1) !== 0 }))
+          : (t.services || []).map(s => ({ name: s.name, price: Number(s.price) || 0, qty: 1, itbis: 0, c: true }))
       const ticketData = {
         ncf:          t.ncf || '',
         ncfType:      t.ncfType || 'B02',
