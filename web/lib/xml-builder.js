@@ -52,33 +52,48 @@ export function buildECFXml(payload, eNCF) {
 }
 
 export function buildRFCEXml(data) {
+  // NESTED IdDoc/Emisor/Totales groupings per DGII XSD — flat layout gets
+  // rejected 'Archivo no válido' (codigo 001). Mirrors electron builder.
   let body = '<Encabezado>'
   body += jsonToXml('Version', '1.0')
-  body += jsonToXml('TipoeCF', '32')
-  body += jsonToXml('eNCF', data.eNCF)
-  body += jsonToXml('TipoIngresos', data.tipoIngresos || '01')
-  body += jsonToXml('TipoPago', data.tipoPago || '1')
-  if (data.formasPago) body += jsonToXml('TablaFormasPago', data.formasPago)
-  body += jsonToXml('RNCEmisor', data.emisor.rnc)
-  body += jsonToXml('RazonSocialEmisor', data.emisor.nombre)
-  body += jsonToXml('FechaEmision', data.fechaEmision)
+
+  let idDoc = ''
+  idDoc += jsonToXml('TipoeCF', '32')
+  idDoc += jsonToXml('eNCF', data.eNCF)
+  idDoc += jsonToXml('TipoIngresos', data.tipoIngresos || '01')
+  idDoc += jsonToXml('TipoPago', data.tipoPago || '1')
+  if (data.formasPago) idDoc += jsonToXml('TablaFormasPago', data.formasPago)
+  if (data.indicadorEnvioDiferido) idDoc += jsonToXml('IndicadorEnvioDiferido', '1')
+  body += `<IdDoc>${idDoc}</IdDoc>`
+
+  let emisor = ''
+  emisor += jsonToXml('RNCEmisor', data.emisor.rnc)
+  emisor += jsonToXml('RazonSocialEmisor', data.emisor.nombre)
+  emisor += jsonToXml('FechaEmision', data.fechaEmision)
+  body += `<Emisor>${emisor}</Emisor>`
+
   if (data.comprador?.rnc) {
-    body += jsonToXml('RNCComprador', data.comprador.rnc)
-    body += jsonToXml('RazonSocialComprador', data.comprador.nombre)
+    let comprador = ''
+    comprador += jsonToXml('RNCComprador', data.comprador.rnc)
+    comprador += jsonToXml('RazonSocialComprador', data.comprador.nombre)
+    body += `<Comprador>${comprador}</Comprador>`
   }
+
   const t = data.totales
-  if (t.montoGravadoTotal) body += jsonToXml('MontoGravadoTotal', t.montoGravadoTotal)
-  if (t.montoGravadoI1) body += jsonToXml('MontoGravadoI1', t.montoGravadoI1)
-  if (t.montoGravadoI2) body += jsonToXml('MontoGravadoI2', t.montoGravadoI2)
-  if (t.montoGravadoI3) body += jsonToXml('MontoGravadoI3', t.montoGravadoI3)
-  if (t.montoExento) body += jsonToXml('MontoExento', t.montoExento)
-  if (t.totalITBIS) body += jsonToXml('TotalITBIS', t.totalITBIS)
-  if (t.totalITBIS1) body += jsonToXml('TotalITBIS1', t.totalITBIS1)
-  if (t.totalITBIS2) body += jsonToXml('TotalITBIS2', t.totalITBIS2)
-  if (t.totalITBIS3) body += jsonToXml('TotalITBIS3', t.totalITBIS3)
-  body += jsonToXml('MontoTotal', t.montoTotal || t.total)
+  let totales = ''
+  if (t.montoGravadoTotal) totales += jsonToXml('MontoGravadoTotal', t.montoGravadoTotal)
+  if (t.montoGravadoI1) totales += jsonToXml('MontoGravadoI1', t.montoGravadoI1)
+  if (t.montoGravadoI2) totales += jsonToXml('MontoGravadoI2', t.montoGravadoI2)
+  if (t.montoGravadoI3) totales += jsonToXml('MontoGravadoI3', t.montoGravadoI3)
+  if (t.montoExento) totales += jsonToXml('MontoExento', t.montoExento)
+  if (t.totalITBIS) totales += jsonToXml('TotalITBIS', t.totalITBIS)
+  if (t.totalITBIS1) totales += jsonToXml('TotalITBIS1', t.totalITBIS1)
+  if (t.totalITBIS2) totales += jsonToXml('TotalITBIS2', t.totalITBIS2)
+  if (t.totalITBIS3) totales += jsonToXml('TotalITBIS3', t.totalITBIS3)
+  totales += jsonToXml('MontoTotal', t.montoTotal || t.total)
+  body += `<Totales>${totales}</Totales>`
+
   if (data.securityCode) body += jsonToXml('CodigoSeguridadeCF', data.securityCode)
-  if (data.indicadorEnvioDiferido) body += jsonToXml('IndicadorEnvioDiferido', '1')
   body += '</Encabezado>'
 
   return `<?xml version="1.0" encoding="UTF-8"?><RFCE>${body}</RFCE>`
