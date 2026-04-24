@@ -817,6 +817,15 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
     if (offlineBlock) return lang === 'es' ? 'Red desconectada — esperando conexión' : 'Offline — waiting for connection'
     if (tipo === 'contado' && formaPago === null) return lang === 'es' ? 'Selecciona método de pago' : 'Pick a payment method'
     if (tipo === 'contado' && formaPago === 'efectivo' && recibidoNum < total) return lang === 'es' ? 'Recibido menor que total' : 'Received amount less than total'
+    // v2.14.26 — credit sale REQUIRES a client. Without one the balance
+    // has nowhere to attach (ticketMarkPaid only runs its balance UPDATE
+    // inside `if (tipoVenta === 'credito' && clientId)`), so the money
+    // was walking away unaccounted. Audit D-a 2026-04-24.
+    if (tipo === 'credito' && !selectedClient) {
+      return lang === 'es'
+        ? 'Venta a crédito requiere seleccionar un cliente'
+        : 'Credit sale requires a client'
+    }
     if (currentType?.requiresRnc && !validateRNC(rnc)) {
       return lang === 'es'
         ? `${currentType.code} requiere RNC/Cédula (9 o 11 dígitos). Escribe el RNC o cambia a B02 / E32 (Consumidor Final).`

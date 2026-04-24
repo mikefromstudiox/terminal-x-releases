@@ -215,19 +215,68 @@ function buildACECFXml(data) {
 /**
  * buildANECFXml — builds Anulación de Rangos XML.
  *
- * @param {object} data — { rncEmisor, cantidadNCF, rangoDesde, rangoHasta }
+ * DGII schema structure (from rejection 2026-04-24: "ANECF has invalid
+ * child element DetalleAnulacion, expected Encabezado"):
+ *   ANECF
+ *     Encabezado (required, first)
+ *       Version, RncEmisor, FechaHoraAnulacion, CantidadAnuladoseNCF
+ *     DetalleAnulacion
+ *       Anulacion (1..N)
+ *         NoLinea, TipoAnulacion, NCFDesde, NCFHasta
+ *
+ * TipoAnulacion codes (DGII):
+ *   1 deterioro factura pre-impresa
+ *   2 errores de impresión (factura pre-impresa)
+ *   3 impresión defectuosa
+ *   4 duplicidad de factura
+ *   5 corrección de la información
+ *   6 cambio de productos
+ *   7 devolución de productos
+ *   8 omisión de productos
+ *   9 errores en secuencia de NCF     ← default for unused/erroneous NCFs
+ *
+ * @param {object} data — {
+ *   rncEmisor,                              // 9-digit RNC no dashes
+ *   cantidadNCF,                            // total count of NCFs being voided
+ *   tipoAnulacion?,                         // default 9
+ *   rangos?: [{ ncfDesde, ncfHasta }],      // one or more ranges
+ *   rangoDesde, rangoHasta                  // legacy single-range shorthand
+ * }
  * @returns {string} ANECF XML string (unsigned)
  */
 function buildANECFXml(data) {
-  let body = '<DetalleAnulacion>'
-  body += jsonToXml('Version', '1.0')
-  body += jsonToXml('RNCEmisor', data.rncEmisor)
-  body += jsonToXml('CantidadNCFAnulados', String(data.cantidadNCF))
-  body += jsonToXml('RangoDesde', data.rangoDesde)
-  body += jsonToXml('RangoHasta', data.rangoHasta)
-  body += '</DetalleAnulacion>'
+  // FechaHoraAnulacion — DGII format dd-MM-yyyy HH:mm:ss (local)
+  const d = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  const fecha = `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 
-  return `<?xml version="1.0" encoding="UTF-8"?><ANECF>${body}</ANECF>`
+  const rncClean = String(data.rncEmisor || '').replace(/[-\s]/g, '')
+  const tipoAnulacion = String(data.tipoAnulacion || 9)
+
+  // Accept either rangos[] or legacy single-range shape.
+  const rangos = Array.isArray(data.rangos) && data.rangos.length
+    ? data.rangos
+    : [{ ncfDesde: data.rangoDesde, ncfHasta: data.rangoHasta }]
+
+  let encabezado = '<Encabezado>'
+  encabezado += jsonToXml('Version', '1.0')
+  encabezado += jsonToXml('RncEmisor', rncClean)
+  encabezado += jsonToXml('FechaHoraAnulacion', fecha)
+  encabezado += jsonToXml('CantidadAnuladoseNCF', String(data.cantidadNCF))
+  encabezado += '</Encabezado>'
+
+  let detalle = '<DetalleAnulacion>'
+  rangos.forEach((r, i) => {
+    detalle += '<Anulacion>'
+    detalle += jsonToXml('NoLinea', String(i + 1))
+    detalle += jsonToXml('TipoAnulacion', tipoAnulacion)
+    detalle += jsonToXml('NCFDesde', r.ncfDesde)
+    detalle += jsonToXml('NCFHasta', r.ncfHasta)
+    detalle += '</Anulacion>'
+  })
+  detalle += '</DetalleAnulacion>'
+
+  return `<?xml version="1.0" encoding="UTF-8"?><ANECF>${encabezado}${detalle}</ANECF>`
 }
 
 /**
