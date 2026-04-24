@@ -781,32 +781,35 @@ function CarWashPOS() {
           <span className="text-xs text-slate-400 dark:text-white/40">{new Date().toLocaleDateString('es-DO')}</span>
         </div>
 
-        {/* Category tabs — horizontal scroll on mobile */}
-        <div className="flex items-center border-b border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 shrink-0 overflow-x-auto scrollbar-hide">
-          {svcLoading ? (
-            <div className="flex gap-1 px-4 py-2">
-              {[1,2,3,4].map(i => (
-                <div key={i} className="h-8 w-20 bg-slate-100 dark:bg-white/10 rounded-lg animate-pulse" />
-              ))}
-            </div>
-          ) : categories.map(cat => (
-            <button
-              key={cat.id}
-              onClick={() => { if (!reorderMode) setCategory(cat.id) }}
-              disabled={reorderMode && category !== cat.id}
-              className={`px-4 md:px-5 py-3 md:py-3.5 text-xs md:text-sm font-semibold transition-colors border-b-2 -mb-px shrink-0 min-h-[44px] ${
-                category === cat.id
-                  ? 'border-[#b3001e] text-[#b3001e] dark:text-white'
-                  : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white hover:border-slate-300 dark:hover:border-white/30 disabled:opacity-40'
-              }`}
-            >
-              {categories.length === 1 ? (lang === 'es' ? 'Todos' : 'All') : catLabel(cat.label, lang)}
-            </button>
-          ))}
-          {/* Reorder controls — owner/manager only. Drag tiles to reorder
-              within the active category; Save persists sort_order. */}
+        {/* Category tabs — horizontal scroll on mobile. v2.14.20: reorder
+            pencil lives in a PINNED right-rail so it never gets lost in the
+            horizontal overflow when there are many categories. */}
+        <div className="flex items-center border-b border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 shrink-0">
+          <div className="flex-1 min-w-0 flex items-center overflow-x-auto scrollbar-hide">
+            {svcLoading ? (
+              <div className="flex gap-1 px-4 py-2">
+                {[1,2,3,4].map(i => (
+                  <div key={i} className="h-8 w-20 bg-slate-100 dark:bg-white/10 rounded-lg animate-pulse" />
+                ))}
+              </div>
+            ) : categories.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => { if (!reorderMode) setCategory(cat.id) }}
+                disabled={reorderMode && category !== cat.id}
+                className={`px-4 md:px-5 py-3 md:py-3.5 text-xs md:text-sm font-semibold transition-colors border-b-2 -mb-px shrink-0 min-h-[44px] ${
+                  category === cat.id
+                    ? 'border-[#b3001e] text-[#b3001e] dark:text-white'
+                    : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white hover:border-slate-300 dark:hover:border-white/30 disabled:opacity-40'
+                }`}
+              >
+                {categories.length === 1 ? (lang === 'es' ? 'Todos' : 'All') : catLabel(cat.label, lang)}
+              </button>
+            ))}
+          </div>
+          {/* Pinned right rail — visible regardless of category overflow. */}
           {canReorderTiles && !svcLoading && category && (
-            <div className="ml-auto flex items-center gap-1 pr-2 shrink-0">
+            <div className="shrink-0 flex items-center gap-1 pl-2 pr-2 border-l border-slate-200 dark:border-white/10">
               {!reorderMode ? (
                 <button
                   onClick={() => {
@@ -814,9 +817,10 @@ function CarWashPOS() {
                     setReorderMode(true)
                   }}
                   title={lang === 'es' ? 'Reordenar servicios' : 'Reorder services'}
-                  className="p-2 rounded-md text-slate-400 dark:text-white/40 hover:text-[#b3001e] hover:bg-[#b3001e]/10 transition-colors"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold text-slate-500 dark:text-white/60 hover:text-[#b3001e] hover:bg-[#b3001e]/10 transition-colors"
                 >
-                  <Edit2 size={14} />
+                  <Edit2 size={13} />
+                  <span className="hidden md:inline">{lang === 'es' ? 'Reordenar' : 'Reorder'}</span>
                 </button>
               ) : (
                 <>
@@ -825,7 +829,6 @@ function CarWashPOS() {
                     onClick={async () => {
                       setSavingOrder(true)
                       try {
-                        // Only persist draft services (not inventory items).
                         const svcOnly = reorderDraft.filter(x => !x._isInventory)
                         await Promise.all(svcOnly.map((s, i) =>
                           api?.services?.update?.({ id: s.id, sort_order: i + 1 }).catch(() => null)

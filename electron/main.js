@@ -142,7 +142,15 @@ ipcMain.handle('whatsapp:send', (_, { to, body }) => {
       let raw = ''
       res.on('data', chunk => { raw += chunk })
       res.on('end',  ()    => {
-        try { resolve(JSON.parse(raw)) } catch { resolve({ sent: true }) }
+        // v2.14.20 — normalize UltraMsg's quirky response shape. It returns
+        // {sent:"true", message:"ok", id:"..."} on success (note: "true" is a
+        // STRING) and {error:"..."} on failure. Previously the renderer
+        // checked r?.success / r?.ok — both undefined on success — so every
+        // successful send surfaced "No se pudo enviar WhatsApp".
+        let body = {}
+        try { body = JSON.parse(raw) || {} } catch {}
+        const ok = !body.error && (body.sent === 'true' || body.sent === true || !!body.id || body.message === 'ok')
+        resolve({ ok, error: body.error || null, raw: body })
       })
     })
     req.on('error', reject)
@@ -178,7 +186,10 @@ ipcMain.handle('whatsapp:sendDocument', (_, { to, base64, filename, caption }) =
       let raw = ''
       res.on('data', chunk => { raw += chunk })
       res.on('end',  ()    => {
-        try { resolve(JSON.parse(raw)) } catch { resolve({ sent: true }) }
+        let body = {}
+        try { body = JSON.parse(raw) || {} } catch {}
+        const ok = !body.error && (body.sent === 'true' || body.sent === true || !!body.id || body.message === 'ok')
+        resolve({ ok, error: body.error || null, raw: body })
       })
     })
     req.on('error', reject)
