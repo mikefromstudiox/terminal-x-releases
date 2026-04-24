@@ -250,10 +250,23 @@ function buildANECFXml(data) {
     return s.slice(0, 2)
   }
 
+  // FechaHoraAnulacioneNCF — DGII format dd-MM-yyyy HH:mm:ss
+  const d = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  const fecha = `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+
+  // Per-range count — sum from NCFDesde/NCFHasta numeric diff.
+  const rangeCount = (r) => {
+    const a = parseInt(String(r.ncfDesde || '').replace(/[^\d]/g, ''), 10)
+    const b = parseInt(String(r.ncfHasta || '').replace(/[^\d]/g, ''), 10)
+    return (Number.isFinite(a) && Number.isFinite(b) && b >= a) ? (b - a + 1) : 0
+  }
+
   let encabezado = '<Encabezado>'
   encabezado += jsonToXml('Version', '1.0')
   encabezado += jsonToXml('RncEmisor', rncClean)
   encabezado += jsonToXml('CantidadeNCFAnulados', String(data.cantidadNCF))
+  encabezado += jsonToXml('FechaHoraAnulacioneNCF', fecha)
   encabezado += '</Encabezado>'
 
   let detalle = '<DetalleAnulacion>'
@@ -261,11 +274,13 @@ function buildANECFXml(data) {
     detalle += '<Anulacion>'
     detalle += jsonToXml('NoLinea', String(i + 1))
     detalle += jsonToXml('TipoeCF', normTipoeCF(r.tipoECF || data.tipoECF))
-    // NCF ranges wrap in TablaRangoSecuenciasAnuladaseNCF per DGII XSD.
     detalle += '<TablaRangoSecuenciasAnuladaseNCF>'
+    detalle += '<Secuencias>'
     detalle += jsonToXml('NCFDesde', r.ncfDesde)
     detalle += jsonToXml('NCFHasta', r.ncfHasta)
+    detalle += '</Secuencias>'
     detalle += '</TablaRangoSecuenciasAnuladaseNCF>'
+    detalle += jsonToXml('CantidadeNCFAnulados', String(rangeCount(r) || data.cantidadNCF))
     detalle += '</Anulacion>'
   })
   detalle += '</DetalleAnulacion>'

@@ -76,6 +76,7 @@ function dbToTxn(t) {
     total:      t.total || 0,
     payMethod:  t.payment_method || 'cash',
     paymentParts: normalizeParts(t.payment_parts),
+    orderSource: t.order_source || 'pos',
     estado:     t.status === 'nula' ? 'nula' : 'normal',
     ncfType:    t.comprobante_type || 'B02',
     ncf:        t.ncf || null,
@@ -678,13 +679,33 @@ export default function DailyReport() {
         if (cost > 0) hasAnyCost = true
       }
     }
+    // Channel/processor fees
+    let pyFee = 0, cardFee = 0, pyRevenue = 0, cardRevenue = 0
+    for (const t of active) {
+      const total = Number(t.total) || 0
+      if (t.orderSource === 'pedidos_ya') { pyRevenue += total; pyFee += total * 0.15 }
+      let cardPortion = 0
+      if (Array.isArray(t.paymentParts) && t.paymentParts.length) {
+        for (const p of t.paymentParts) {
+          if (p.method.includes('card') || p.method.includes('tarjeta')) cardPortion += p.amount
+        }
+      } else {
+        const pm = String(t.payMethod || '').toLowerCase()
+        if (pm.includes('card') || pm.includes('tarjeta')) cardPortion = total
+      }
+      cardRevenue += cardPortion
+      cardFee     += cardPortion * 0.05
+    }
+    const grossProfit = hasAnyCost ? itemRevenueTotal - itemCostTotal : null
     return {
       count:    active.length,
       total:    active.reduce((s, t) => s + t.total,  0),
       itbis:    active.reduce((s, t) => s + t.itbis,  0),
       cxc:      baseFiltered.filter(t => t.payMethod === 'credit' && t.estado !== 'nula').reduce((s, t) => s + t.total, 0),
       nulas:    baseFiltered.filter(t => t.estado === 'nula').length,
-      profit:   hasAnyCost ? itemRevenueTotal - itemCostTotal : null,
+      profit:   grossProfit,
+      profitNet: grossProfit != null ? grossProfit - pyFee - cardFee : null,
+      pyFee, cardFee, pyRevenue, cardRevenue,
       hasAnyCost,
     }
   }, [baseFiltered])
@@ -862,7 +883,7 @@ export default function DailyReport() {
         <MetricCard icon={ReceiptText}      label={lang === 'es' ? 'Total Facturas'      : 'Total Invoices'}   value={summary.count}            accent="sky"    />
         <MetricCard icon={TrendingUp}       label={lang === 'es' ? 'Total Facturado'     : 'Total Billed'}     value={fmtRD(summary.total)}     accent="green"  />
         {summary.hasAnyCost && (
-          <MetricCard icon={CircleDollarSign} label={lang === 'es' ? 'Ganancia Neta' : 'Net Profit'} value={fmtRD(summary.profit || 0)} sub={summary.total > 0 ? `${Math.round(((summary.profit || 0) / summary.total) * 100)}% margen` : null} accent="green" />
+          <MetricCard icon={CircleDollarSign} label={lang === 'es' ? 'Ganancia Neta' : 'Net Profit'} value={fmtRD(summary.profitNet || 0)} sub={(summary.pyFee > 0 || summary.cardFee > 0) ? `−${fmtRD(summary.pyFee + summary.cardFee)} comisiones` : (summary.total > 0 ? `${Math.round(((summary.profitNet || 0) / summary.total) * 100)}% margen` : null)} accent="green" />
         )}
         <MetricCard icon={CircleDollarSign} label="ITBIS Generado"                                             value={fmtRD(summary.itbis)}     accent="violet" />
         <MetricCard icon={Clock}            label={lang === 'es' ? 'CxC Pendiente'       : 'Pending A/R'}      value={fmtRD(summary.cxc)}       accent="amber"  />
