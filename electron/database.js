@@ -4252,7 +4252,16 @@ function ticketCreate(data) {
     const ncfType = data.comprobante_type || 'B02'
     let ncf = null
     let ncfFromBlock = false
-    if (multiPos && bizId && hwid) {
+
+    // v2.14.19 — honor a caller-provided NCF. The e-CF flow (CobrarModal)
+    // already reserved an eNCF via api.ncf.next() and built+signed the XML
+    // against it. If we generate a fresh one here we double-increment the
+    // sequence: the ticket stores ncf=N+1 while the eNCF actually sent to
+    // DGII was N, causing the receipt/DB mismatch seen on the first real
+    // E320000000018 sale.
+    if (data.ncf && typeof data.ncf === 'string' && data.ncf.trim()) {
+      ncf = data.ncf.trim().toUpperCase()
+    } else if (multiPos && bizId && hwid) {
       const blk = ncfBlockConsumeNext({ businessId: bizId, hwid, ncfType })
       if (blk?.ncf) {
         ncf = blk.ncf
@@ -4262,7 +4271,7 @@ function ticketCreate(data) {
       // legacy. Caller UI (CobrarModal) is responsible for prompting a refill
       // when offline+exhausted; here we keep the ticket atomic.
     }
-    if (!ncfFromBlock) {
+    if (!ncf && !ncfFromBlock) {
       const ncfRow = db.prepare('SELECT * FROM ncf_sequences WHERE type=? AND active=1').get(ncfType)
       if (ncfRow) {
         const nextNCF = ncfRow.current_number + 1

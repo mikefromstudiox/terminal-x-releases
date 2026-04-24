@@ -521,6 +521,12 @@ function CarWashPOS() {
         seller_id:        pending.salesperson || null,
         cajero_id:        (user?.id && user.id !== 'web') ? user.id : null,
         comprobante_type: paymentData.ncfType || 'E32',
+        // v2.14.19 — pass the eNCF already reserved by CobrarModal so the
+        // ticket row stores exactly what DGII received. Without this the
+        // ticket's ncf column shows the NEXT sequence value (N+1) while
+        // the actual eNCF sent to DGII was N — caused the off-by-one
+        // seen on the first real E320000000018 sale.
+        ncf:              paymentData.ecf?.eNCF || null,
         payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
         payment_parts:    paymentData.payment_parts || null,
         split:            (paymentData.payment_parts?.length || 0) > 1,
