@@ -4266,7 +4266,9 @@ function ticketCreate(data) {
       const ncfRow = db.prepare('SELECT * FROM ncf_sequences WHERE type=? AND active=1').get(ncfType)
       if (ncfRow) {
         const nextNCF = ncfRow.current_number + 1
-        ncf = `${ncfRow.prefix}${String(nextNCF).padStart(8, '0')}`
+        // E-series eNCFs use 10-digit sequence; legacy NCFs use 8.
+        const pad = /^E/i.test(ncfRow.prefix || ncfType) ? 10 : 8
+        ncf = `${ncfRow.prefix}${String(nextNCF).padStart(pad, '0')}`
         db.prepare('UPDATE ncf_sequences SET current_number=? WHERE type=?').run(nextNCF, ncfRow.type)
         if (multiPos) usedLegacyCounter = 1
       }
@@ -5427,7 +5429,13 @@ function ncfGetNext(type) {
   if (!row) return null
   const next = row.current_number + 1
   db.prepare('UPDATE ncf_sequences SET current_number=? WHERE type=?').run(next, type)
-  return `${row.prefix}${String(next).padStart(8, '0')}`
+  // DGII spec: legacy NCFs (B01/B02/B14/B15) use 8-digit sequence (11 char
+  // total), electronic NCFs (E31/E32/…) use 10-digit sequence (13 char total).
+  // Zero-padding an E-series to 8 digits yields an invalid eNCF that DGII
+  // rejects with 'Archivo no válido' before field-level validation.
+  const prefix = row.prefix || type
+  const pad = /^E/i.test(prefix) ? 10 : 8
+  return `${prefix}${String(next).padStart(pad, '0')}`
 }
 function ncfUpdateSequence(type, data) {
   if (!db) return
@@ -7489,7 +7497,10 @@ function ncfBlockConsumeNext({ businessId, hwid, ncfType }) {
           exhausted_at = CASE WHEN ? = 1 THEN ? ELSE exhausted_at END,
           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       WHERE id=?`).run(nextVal, nowIso, willExhaust ? 1 : 0, nowIso, row.id)
-    const ncf = `${row.prefix || row.ncf_type}${String(consumed).padStart(8, '0')}`
+    // E-series eNCF = 13-char (E + 2 digits + 10-digit sequence).
+    // Legacy NCF    = 11-char (B + 2 digits + 8-digit sequence).
+    const blockPad = /^E/i.test(row.prefix || row.ncf_type) ? 10 : 8
+    const ncf = `${row.prefix || row.ncf_type}${String(consumed).padStart(blockPad, '0')}`
     return {
       ncf,
       value: consumed,
