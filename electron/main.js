@@ -260,7 +260,10 @@ ipcMain.handle('dgii:submit', async (_, invoiceData) => {
       } catch (e) {
         try { require('electron-log').warn('[dgii:submit] failed to persist signed RFCE:', e.message) } catch {}
       }
-      submitResult = await dgiiClient.submitRFCE(signedRFCE.signedXml, token, dgiiEnv)
+      submitResult = await dgiiClient.submitRFCE(signedRFCE.signedXml, token, dgiiEnv, {
+        rncEmisor: invoiceData.emisor?.rnc,
+        eNCF,
+      })
     } else {
       submitResult = await dgiiClient.submitECF(signedXml, token, dgiiEnv)
       // Persist signed ECF XML too — same reasoning.

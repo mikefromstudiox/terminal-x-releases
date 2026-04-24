@@ -217,19 +217,35 @@ async function submitECF(signedXml, token, env) {
  * @param {string} env
  * @returns {{ codigo, estado, mensajes?, encf, secuenciaUtilizada }}
  */
-async function submitRFCE(signedXml, token, env) {
+async function submitRFCE(signedXml, token, env, { rncEmisor, eNCF } = {}) {
   const e = ENVIRONMENTS[env]
+
+  // DGII's RFCE endpoint REQUIRES multipart/form-data with the XML as a
+  // named file field. Sending raw 'application/xml' bytes returns
+  // 'Archivo no válido' (codigo=001) because DGII's ingest layer can't
+  // locate the file in the body. The file field MUST be named 'xml' and
+  // the filename MUST be `{RNCEmisor}{eNCF}.xml` per DGII spec.
+  // Reference: node_modules/dgii-ecf/src/networking/RestApi.ts:sendSummaryApi
+  const FormData = require('form-data')
+  const form = new FormData()
+  const filename = (rncEmisor && eNCF) ? `${rncEmisor}${eNCF}.xml` : `RFCE_${Date.now()}.xml`
+  form.append('xml', Buffer.from(signedXml, 'utf8'), {
+    filename,
+    contentType: 'application/xml',
+  })
+  const bodyBuf = form.getBuffer()
+  const headers = {
+    ...form.getHeaders(),
+    'Authorization': `Bearer ${token}`,
+    'Content-Length': String(bodyBuf.length),
+  }
 
   const res = await httpsRequest({
     hostname: e.fc,
     path: `${e.prefix}/recepcionfc/api/recepcion/ecf`,
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/xml',
-      'Authorization': `Bearer ${token}`,
-      'Content-Length': String(Buffer.byteLength(signedXml, 'utf8')),
-    },
-    body: signedXml,
+    headers,
+    body: bodyBuf,
   })
 
   if (res.status === 401) {
