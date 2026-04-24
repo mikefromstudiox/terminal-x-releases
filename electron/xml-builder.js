@@ -218,7 +218,7 @@ function buildACECFXml(data) {
  * Schema (confirmed via DGII rejection errors 2026-04-24):
  *   ANECF
  *     Encabezado
- *       Version, RncEmisor, CantidaddeNCFAnulados        ← no FechaHoraAnulacion
+ *       Version, RncEmisor, CantidadeNCFAnulados        ← no FechaHoraAnulacion
  *     DetalleAnulacion
  *       Anulacion (1..N)
  *         NoLinea, TipoeCF, NCFDesde, NCFHasta         ← TipoeCF, not TipoAnulacion
@@ -253,7 +253,7 @@ function buildANECFXml(data) {
   let encabezado = '<Encabezado>'
   encabezado += jsonToXml('Version', '1.0')
   encabezado += jsonToXml('RncEmisor', rncClean)
-  encabezado += jsonToXml('CantidaddeNCFAnulados', String(data.cantidadNCF))
+  encabezado += jsonToXml('CantidadeNCFAnulados', String(data.cantidadNCF))
   encabezado += '</Encabezado>'
 
   let detalle = '<DetalleAnulacion>'
@@ -261,8 +261,11 @@ function buildANECFXml(data) {
     detalle += '<Anulacion>'
     detalle += jsonToXml('NoLinea', String(i + 1))
     detalle += jsonToXml('TipoeCF', normTipoeCF(r.tipoECF || data.tipoECF))
+    // NCF ranges wrap in TablaRangoSecuenciasAnuladaseNCF per DGII XSD.
+    detalle += '<TablaRangoSecuenciasAnuladaseNCF>'
     detalle += jsonToXml('NCFDesde', r.ncfDesde)
     detalle += jsonToXml('NCFHasta', r.ncfHasta)
+    detalle += '</TablaRangoSecuenciasAnuladaseNCF>'
     detalle += '</Anulacion>'
   })
   detalle += '</DetalleAnulacion>'

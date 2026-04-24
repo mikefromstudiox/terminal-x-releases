@@ -434,9 +434,13 @@ ipcMain.handle('dgii:void-sequence', async (_, data) => {
     if (cantidadNCF < 1) throw new Error('Rango inválido: desde debe ser menor o igual a hasta')
 
     // 1. Build ANECF XML
+    // v2.14.29 — forward tipoECF. DGII rejects TipoeCF='00' with
+    // "Enumeration constraint failed" when tipoECF isn't passed; the
+    // builder's default produces '00' from an empty input.
     const xml = xmlBuilder.buildANECFXml({
       rncEmisor: data.rncEmisor,
       cantidadNCF,
+      tipoECF: data.tipoECF,
       rangoDesde,
       rangoHasta,
     })
