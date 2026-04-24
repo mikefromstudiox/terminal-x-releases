@@ -1833,7 +1833,15 @@ handleMut('services:update',    ({id,...data})  => db.serviceUpdate(id, data), {
   requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'services:update'),
   targetCtx: ({ args }) => guard.serviceTargetCtx(db, args[0]?.id),
 })
-handleMut('services:delete',    ({id})          => db.serviceDelete(id), {
+handleMut('services:delete',    async ({id})    => {
+  const r = db.serviceDelete(id)
+  // Propagate hard-delete to Supabase so pullUpsertRow doesn't resurrect it.
+  // Soft-deleted rows keep their cloud row (active=0 will sync normally).
+  if (r?.deleted && r?.supabase_id) {
+    try { await sync.supabaseDelete?.('services', r.supabase_id) } catch {}
+  }
+  return r
+}, {
   requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'services:delete'),
   targetCtx: ({ args }) => guard.serviceTargetCtx(db, args[0]?.id),
 })

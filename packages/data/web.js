@@ -1170,12 +1170,17 @@ export function createWebAPI(supabase, businessId) {
         let matched = null
         const tried = []
 
+        // v2.14.20 — trust the hash FORMAT, not the algo column. Sync drift
+        // has repeatedly mis-tagged rows; shape-detect and try both.
         for (const r of rows) {
           if (r.pin_locked_until && r.pin_locked_until > nowIso) continue
-          const algo = r.pin_hash_algo || 'sha256'
-          const hit = algo === 'bcrypt'
-            ? bcryptComparePinWeb(pinStr, r.pin_salt, r.pin_hash)
-            : r.pin_hash === legacyHash
+          const h = String(r.pin_hash || '')
+          const looksBcrypt = h.startsWith('$2') && h.length === 60
+          const looksSha256 = /^[0-9a-f]{64}$/.test(h)
+          let hit
+          if (looksBcrypt)        hit = bcryptComparePinWeb(pinStr, r.pin_salt, r.pin_hash)
+          else if (looksSha256)   hit = (r.pin_hash === legacyHash)
+          else                    hit = bcryptComparePinWeb(pinStr, r.pin_salt, r.pin_hash) || r.pin_hash === legacyHash
           if (hit) { matched = r; break }
           tried.push(r.id)
         }
@@ -1186,10 +1191,14 @@ export function createWebAPI(supabase, businessId) {
             pin_locked_until: null,
             updated_at: nowIso,
           }
-          if ((matched.pin_hash_algo || 'sha256') !== 'bcrypt') {
+          const mh = String(matched.pin_hash || '')
+          const isBcrypt = mh.startsWith('$2') && mh.length === 60
+          if (!isBcrypt) {
             const newSalt = generatePinSaltWeb()
             patch.pin_hash      = bcryptHashPinWeb(pinStr, newSalt)
             patch.pin_salt      = newSalt
+            patch.pin_hash_algo = 'bcrypt'
+          } else if (matched.pin_hash_algo !== 'bcrypt') {
             patch.pin_hash_algo = 'bcrypt'
           }
           try {

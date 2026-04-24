@@ -275,7 +275,17 @@
       "Bash(npm audit *)",
       "Bash(git commit -m 'fix\\(v2.13.1\\): nested minimatch override for brace-expansion@5 *)",
       "Bash(git commit *)",
-      "Bash(tar -czf /tmp/countdown_images.tar.gz images/)"
+      "Bash(tar -czf /tmp/countdown_images.tar.gz images/)",
+      "Bash(rm -rf release-staging/*)",
+      "Bash(cp dist/Terminal.X-Setup-2.13.4.exe dist/Terminal.X-Setup-2.13.4.exe.blockmap dist/latest.yml release-staging/)",
+      "Bash(cp dist/Terminal.X-Setup-2.14.14.exe dist/latest.yml dist/Terminal.X-Setup-2.14.14.exe.blockmap \"A:/TerminalX-Share/\")",
+      "Bash(rm -f \"A:/TerminalX-Share/Terminal.X-Setup-2.14.13.exe\" \"A:/TerminalX-Share/Terminal.X-Setup-2.14.13.exe.blockmap\")",
+      "Bash(cp dist/Terminal.X-Setup-2.14.15.exe dist/latest.yml dist/Terminal.X-Setup-2.14.15.exe.blockmap \"A:/TerminalX-Share/\")",
+      "Bash(rm -f \"A:/TerminalX-Share/Terminal.X-Setup-2.14.14.exe\" \"A:/TerminalX-Share/Terminal.X-Setup-2.14.14.exe.blockmap\")",
+      "Bash(cp dist/Terminal.X-Setup-2.14.17.exe dist/latest.yml dist/Terminal.X-Setup-2.14.17.exe.blockmap \"A:/TerminalX-Share/\")",
+      "Bash(rm -f \"A:/TerminalX-Share/Terminal.X-Setup-2.14.16.exe\" \"A:/TerminalX-Share/Terminal.X-Setup-2.14.16.exe.blockmap\")",
+      "Bash(cp dist/Terminal.X-Setup-2.14.18.exe dist/latest.yml dist/Terminal.X-Setup-2.14.18.exe.blockmap \"A:/TerminalX-Share/\")",
+      "Bash(rm -f \"A:/TerminalX-Share/Terminal.X-Setup-2.14.17.exe\" \"A:/TerminalX-Share/Terminal.X-Setup-2.14.17.exe.blockmap\")"
     ]
   },
   "spinnerTipsEnabled": false,

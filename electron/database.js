@@ -1296,6 +1296,13 @@ function init(userDataPath, options = {}) {
     "ALTER TABLE washer_commissions ADD COLUMN manual_reason TEXT",
     "ALTER TABLE seller_commissions ADD COLUMN manual_reason TEXT",
     "ALTER TABLE cajero_commissions ADD COLUMN manual_reason TEXT",
+
+    // v2.14.20 — price-change recalc needs the per-row ITBIS flag. priceChange()
+    // SELECTs aplica_itbis from ticket_items; legacy installs never had the
+    // column ("no such column: aplica_itbis"). Backfill from services snapshot
+    // where we still have the service_id — otherwise default to 1 (ITBIS-inclusive).
+    "ALTER TABLE ticket_items ADD COLUMN aplica_itbis INTEGER NOT NULL DEFAULT 1",
+    "UPDATE ticket_items SET aplica_itbis = COALESCE((SELECT s.aplica_itbis FROM services s WHERE s.id = ticket_items.service_id), 1) WHERE service_id IS NOT NULL",
     // v2.14.11 — Auto-heal emisor fields into app_settings KV when the
     // businesses row has them as top-level columns but app_settings doesn't.
     // Root cause of the SXAD e-CF rejection (codigo=2, empty rncemisor):
@@ -2579,14 +2586,22 @@ function authByPin(pin) {
     // Locked? Skip — neither a match nor a miss counts against this row.
     if (r.pin_locked_until && r.pin_locked_until > nowIso) continue
 
+    // v2.14.20 — trust the hash FORMAT, not the algo column. Cloud pulls have
+    // repeatedly delivered bcrypt hashes tagged sha256 (and vice versa); the
+    // algo column is unreliable. Shape-detect and try both as a belt:
+    //   bcrypt:  starts with '$2', length 60
+    //   sha256:  64-char lowercase hex
     let hit = false
-    const algo = r.pin_hash_algo || 'sha256'
-    if (algo === 'bcrypt') {
+    const h = String(r.pin_hash || '')
+    const looksBcrypt = h.startsWith('$2') && h.length === 60
+    const looksSha256 = /^[0-9a-f]{64}$/.test(h)
+    if (looksBcrypt) {
       hit = bcryptComparePin(pinStr, r.pin_salt, r.pin_hash)
-    } else {
-      // Legacy unsalted SHA-256 — constant-time eq is fine since both sides
-      // are hex digests of identical length.
+    } else if (looksSha256) {
       hit = (r.pin_hash === legacyHash)
+    } else {
+      // Unknown shape — try both, last resort.
+      hit = bcryptComparePin(pinStr, r.pin_salt, r.pin_hash) || (r.pin_hash === legacyHash)
     }
 
     if (hit) {
@@ -2601,8 +2616,12 @@ function authByPin(pin) {
     const upgrade = db.transaction(() => {
       let newHash = matched.pin_hash
       let newSalt = matched.pin_salt
-      let newAlgo = matched.pin_hash_algo || 'sha256'
-      if (newAlgo !== 'bcrypt') {
+      const h = String(matched.pin_hash || '')
+      const isBcrypt = h.startsWith('$2') && h.length === 60
+      let newAlgo = isBcrypt ? 'bcrypt' : 'sha256'
+      // Rehash to bcrypt whenever the stored hash isn't already bcrypt — this
+      // also self-heals rows whose algo tag drifted out of sync with the hash.
+      if (!isBcrypt) {
         newSalt = generatePinSalt()
         newHash = bcryptHashPin(pinStr, newSalt)
         newAlgo = 'bcrypt'
@@ -3126,14 +3145,30 @@ function serviceUpdate(id, data) {
 }
 function serviceDelete(id) {
   if (!db) return { deleted: false }
-  // Soft-delete — hard-delete resurrects on the next pull (Supabase still
-  // has the row and pullUpsertRow reinserts it locally). Historical reports
-  // are already safe: ticket_items snapshot name/price/cost/itbis at sale.
-  const svc = db.prepare('SELECT name, price FROM services WHERE id=?').get(id)
-  db.prepare('UPDATE services SET active=0, updated_at=? WHERE id=?').run(new Date().toISOString(), id)
-  activityLogRecord({ event_type: 'service_deleted', severity: 'warn',
-    target_type: 'service', target_id: id, target_name: svc?.name || `#${id}`, amount: svc?.price })
-  return { deleted: true }
+  // v2.14.20 — try hard DELETE first so the row actually disappears (owner
+  // expectation: "delete = gone"). If the service has historical ticket_items
+  // referencing it (FK), fall back to soft-delete. The cloud deletion is
+  // handled by main.js after we return: it calls sync.supabaseDelete so the
+  // row doesn't resurrect on the next pull.
+  const svc = db.prepare('SELECT name, price, supabase_id FROM services WHERE id=?').get(id)
+  if (!svc) return { deleted: false, error: 'Servicio no encontrado' }
+  try {
+    db.prepare('DELETE FROM services WHERE id=?').run(id)
+    activityLogRecord({ event_type: 'service_deleted', severity: 'warn',
+      target_type: 'service', target_id: id, target_name: svc?.name || `#${id}`,
+      amount: svc?.price, metadata: { hard: true } })
+    return { deleted: true, supabase_id: svc.supabase_id }
+  } catch (e) {
+    // 19 = SQLITE_CONSTRAINT — usually an FK from ticket_items. Soft-delete so
+    // historical sales stay queryable and the row is hidden from POS.
+    const fkBlocked = /FOREIGN KEY|constraint/i.test(e.message || '')
+    if (!fkBlocked) throw e
+    db.prepare('UPDATE services SET active=0, updated_at=? WHERE id=?').run(new Date().toISOString(), id)
+    activityLogRecord({ event_type: 'service_deleted', severity: 'warn',
+      target_type: 'service', target_id: id, target_name: svc?.name || `#${id}`,
+      amount: svc?.price, metadata: { soft: true, reason: 'has_history' } })
+    return { softDeleted: true, supabase_id: svc.supabase_id }
+  }
 }
 
 // ── WASHERS (v2.1 shims → empleados tipo='lavador'/'hybrid') ─────────────────
@@ -4286,7 +4321,28 @@ function ticketCreate(data) {
     }
 
     const ticketSid = crypto.randomUUID()
-    const clientSid = data.client_id ? (db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id)?.supabase_id || null) : null
+    // v2.14.20 — pre-validate client_id + cajero_id against the local tables
+    // so a stale / freshly-pulled / cloud-only row doesn't blow up the INSERT
+    // with "FOREIGN KEY constraint failed". Missing FK is better than a
+    // blocked ticket — we null it out and let the cashier finish the sale.
+    // The supabase_id lookups below still capture the UUID link so the row
+    // can be rejoined by sync once the FK target lands locally.
+    const _clientRow = data.client_id
+      ? db.prepare('SELECT id, supabase_id FROM clients WHERE id=?').get(data.client_id)
+      : null
+    if (data.client_id && !_clientRow) {
+      console.warn(`[ticketCreate] client_id=${data.client_id} not found — nulling FK`)
+      data.client_id = null
+    }
+    const clientSid = _clientRow?.supabase_id || null
+
+    const _cajeroRow = data.cajero_id
+      ? db.prepare('SELECT id, supabase_id FROM users WHERE id=?').get(data.cajero_id)
+      : null
+    if (data.cajero_id && !_cajeroRow) {
+      console.warn(`[ticketCreate] cajero_id=${data.cajero_id} not found — nulling FK`)
+      data.cajero_id = null
+    }
     // v2.1: resolve seller to empleados.supabase_id. Accept either:
     //   - data.seller_empleado_supabase_id (preferred — already a UUID)
     //   - data.seller_id (legacy INT, resolved via empleados.id → supabase_id)
@@ -4464,16 +4520,39 @@ function ticketCreate(data) {
     const cashierBase = parseFloat((cashierBaseGross / gross2base).toFixed(2))
 
     if (washerBase > 0 && washerEmpSids.length) {
+      // v2.14.20 — optional per-washer commission override. When the cashier
+      // enters a specific RD$ amount for a given lavador on a 2+ washer
+      // ticket, that amount wins over the auto-calc (empleado.comision_pct
+      // × washerBase). Shape: [{ empleado_supabase_id, amount }]. Any washer
+      // without an override row falls back to the auto-calc.
+      const overrideMap = new Map()
+      if (Array.isArray(data.washer_commission_overrides)) {
+        for (const o of data.washer_commission_overrides) {
+          if (o?.empleado_supabase_id && Number(o.amount) > 0) {
+            overrideMap.set(o.empleado_supabase_id, Number(o.amount))
+          }
+        }
+      }
       // v2.1: walk the UUID array, JOIN empleados for commission_pct.
       for (const empSid of washerEmpSids) {
         const emp = db.prepare(`SELECT comision_pct FROM empleados WHERE supabase_id=? AND tipo IN ('lavador','hybrid') LIMIT 1`).get(empSid)
+        if (!emp) continue
+        const override = overrideMap.get(empSid)
         const pct = Number(emp?.comision_pct || 0)
-        if (!emp || pct <= 0) continue
-        const commAmount = parseFloat((washerBase * pct / 100).toFixed(2))
+        let commAmount, storedPct
+        if (override != null) {
+          commAmount = parseFloat(override.toFixed(2))
+          // Back-solve a display pct from the override so reports stay coherent.
+          storedPct = washerBase > 0 ? parseFloat(((commAmount / washerBase) * 100).toFixed(2)) : 0
+        } else {
+          if (pct <= 0) continue
+          commAmount = parseFloat((washerBase * pct / 100).toFixed(2))
+          storedPct = pct
+        }
         const wcSid = crypto.randomUUID()
         db.prepare(`INSERT INTO washer_commissions
           (empleado_supabase_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,ticket_supabase_id)
-          VALUES(?,?,?,?,?,0,?,?)`).run(empSid, ticketId, washerBase, pct, commAmount, wcSid, ticketSid)
+          VALUES(?,?,?,?,?,0,?,?)`).run(empSid, ticketId, washerBase, storedPct, commAmount, wcSid, ticketSid)
       }
     }
 
@@ -4760,18 +4839,24 @@ function priceChangesGetAll(dateFrom, dateTo) {
 function queueGetActive() {
   if (!db) return []
   try {
+    // v2.14.20 — also pull ALL washer names via washer_commissions (one row
+     // per washer-on-ticket). queue itself only stores the first empleado_supabase_id,
+     // so tickets with 2+ washers lost the rest. washer_names is a " + "-joined
+     // string of every worker on the ticket — Queue.jsx maps it for display.
     return db.prepare(
       `SELECT q.*, t.doc_number, t.total, t.vehicle_plate, t.created_at as ticket_created,
               c.name as client_name, c.phone as client_phone,
-              GROUP_CONCAT(ti.name, ' + ') as services,
-              e.nombre as washer_name
+              (SELECT GROUP_CONCAT(ti.name, ' + ') FROM ticket_items ti WHERE ti.ticket_id = t.id) as services,
+              e.nombre as washer_name,
+              (SELECT GROUP_CONCAT(e2.nombre, ' + ')
+                 FROM washer_commissions wc
+                 JOIN empleados e2 ON e2.supabase_id = wc.empleado_supabase_id
+                WHERE wc.ticket_id = t.id OR wc.ticket_supabase_id = t.supabase_id) AS washer_names
        FROM queue q
        JOIN tickets t ON (t.id = q.ticket_id OR t.supabase_id = q.ticket_supabase_id)
        LEFT JOIN clients c ON (c.id = t.client_id OR c.supabase_id = t.client_supabase_id)
-       LEFT JOIN ticket_items ti ON ti.ticket_id = t.id
        LEFT JOIN empleados e ON e.supabase_id = q.empleado_supabase_id
        WHERE q.status NOT IN ('done', 'cancelled')
-       GROUP BY q.id
        ORDER BY q.created_at ASC`
     ).all()
   } catch (e) { console.error('[queueGetActive]', e.message); return [] }

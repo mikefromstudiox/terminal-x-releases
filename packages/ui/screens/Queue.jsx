@@ -51,8 +51,13 @@ function mapRow(row) {
   const plate  = (row.vehicle_plate || '').trim()
   const client = (row.client_name   || '').trim()
   const vehicle = plate || client || 'Al Portador'
-  const fullWasher = (row.washer_name || '').trim()
-  const firstNameWasher = fullWasher.split(/\s+/)[0] || '—'
+  // v2.14.20 — when a ticket has multiple washers, washer_names is the
+  // " + "-joined list from washer_commissions. Fall back to single washer_name.
+  const allWashers = (row.washer_names || row.washer_name || '').trim()
+  const fullWasher = allWashers
+  const firstNameWasher = allWashers
+    ? allWashers.split(' + ').map(n => n.trim().split(/\s+/)[0]).filter(Boolean).join(' + ')
+    : '—'
   return {
     id:          row.id,
     ticketId:    row.ticket_id,

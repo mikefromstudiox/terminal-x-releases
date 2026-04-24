@@ -134,10 +134,20 @@ function logoInputToUrl(logo) {
   return `data:${mime};base64,${btoa(bin)}`
 }
 
+// v2.14.20 — session cache keyed by logo URL/data-URL. Image decode + dither
+// is identical across prints as long as the source logo is unchanged, and
+// re-fetching from Supabase Storage on every print has been racy (first
+// print succeeds, second comes out without the logo). Cache hit skips the
+// network + canvas work entirely. Cleared automatically on page reload.
+const _logoEscPosCache = new Map()
+
 async function buildLogoEscPos(logoInput) {
   const logoUrl = logoInputToUrl(logoInput)
   if (!logoUrl) return ''
+  const cached = _logoEscPosCache.get(logoUrl)
+  if (cached !== undefined) return cached
   return new Promise(resolve => {
+    const finish = (val) => { _logoEscPosCache.set(logoUrl, val); resolve(val) }
     try {
       // 80mm thermal printers have ~512 printable dots (64mm × 8 dots/mm).
       // 384px gives a bold hero presence with ~32px margin each side and
@@ -180,12 +190,12 @@ async function buildLogoEscPos(logoInput) {
           let cmd = '\x1D\x76\x30\x00'  // GS v 0, normal (1x)
           cmd += String.fromCharCode(xL, xH, yL, yH)
           for (let i = 0; i < bitmap.length; i++) cmd += String.fromCharCode(bitmap[i])
-          resolve(cmd)
-        } catch { resolve('') }
+          finish(cmd)
+        } catch { finish('') }
       }
-      img.onerror = () => resolve('')
+      img.onerror = () => finish('')
       img.src = logoUrl
-    } catch { resolve('') }
+    } catch { finish('') }
   })
 }
 
@@ -222,8 +232,18 @@ function buildHeader(biz, logoBytes = '') {
   // Thin breathing space, then muted contact info
   parts.push(LF)
   if (biz.address) {
-    let addr = biz.address
-    try { const s = typeof biz.settings === 'string' ? JSON.parse(biz.settings) : (biz.settings || {}); if (s.ciudad || s.biz_city) addr += ', ' + (s.ciudad || s.biz_city) } catch {}
+    let addr = String(biz.address).trim()
+    try {
+      const s = typeof biz.settings === 'string' ? JSON.parse(biz.settings) : (biz.settings || {})
+      const city = (s.ciudad || s.biz_city || '').trim()
+      // v2.14.20 — only append the city if it isn't already contained in the
+      // address. Previously `addr += ', ' + city` duplicated whenever the
+      // owner typed the city into biz.direccion — receipt printed
+      // "Santo Domingo, Santo Domingo".
+      if (city && !addr.toLowerCase().includes(city.toLowerCase())) {
+        addr += ', ' + city
+      }
+    } catch {}
     wrapText(addr, COL_WIDTH).forEach(l => { parts.push(l); parts.push(LF) })
   }
   const contact = []
@@ -507,6 +527,37 @@ export function buildWasherConduce(data, logoBytes = '') {
   if (washServices.length === 0) {
     lines.push('  (Sin servicios de lavado)')
     lines.push(LF)
+  }
+
+  // v2.14.20 — show the discount on the conduce so the washer sees what
+  // the client actually paid. Matches the client receipt format.
+  const dscto = Number(data.descuento || 0)
+  if (dscto > 0) {
+    lines.push(SEP)
+    lines.push(LF)
+    const gross = washServices.reduce((s, x) => s + (Number(x.price) || 0), 0)
+    lines.push(cols('Subtotal',  fmt(gross)))
+    lines.push(LF)
+    lines.push(cols('Descuento', '- ' + fmt(dscto)))
+    lines.push(LF)
+    lines.push(BOLD_ON)
+    lines.push(cols('TOTAL',     fmt(Math.max(0, gross - dscto))))
+    lines.push(LF)
+    lines.push(BOLD_OFF)
+  }
+
+  // v2.14.20 — show the commission earned by THIS specific lavador on THIS
+  // ticket. Caller passes `commAmount` (RD$) — either the per-washer override
+  // amount or the auto-calc (base × pct). Omitted when 0 so the conduce stays
+  // clean on fully exempt services.
+  const commAmountVal = Number(data.commAmount || 0)
+  if (commAmountVal > 0) {
+    lines.push(SEP)
+    lines.push(LF)
+    lines.push(BOLD_ON)
+    lines.push(cols('Comision:', fmt(commAmountVal)))
+    lines.push(LF)
+    lines.push(BOLD_OFF)
   }
 
   lines.push(LF)

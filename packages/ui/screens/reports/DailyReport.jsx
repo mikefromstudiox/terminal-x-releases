@@ -12,6 +12,7 @@ import { useBusinessType } from '../../hooks/useBusinessType.jsx'
 import { hasVehicles, isServiceBased } from '@terminal-x/config/businessTypes'
 import { exportDailyReport } from '@terminal-x/services/csv'
 import { printDailyReport } from '@terminal-x/services/report-html'
+import { printClientReceipt, printWasherConduce } from '@terminal-x/services/printer'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtRD(n) {
@@ -394,13 +395,22 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
         {/* Footer */}
         <div className="shrink-0 px-6 py-4 border-t border-slate-200 dark:border-white/10 flex justify-end gap-3">
           {t.estado !== 'nula' && (
-            <button
-              onClick={() => onReprint?.()}
-              className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-white/10 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors"
-            >
-              <Printer size={14} />
-              {lang === 'es' ? 'Reimprimir' : 'Reprint'}
-            </button>
+            <>
+              <button
+                onClick={() => onReprint?.('factura')}
+                className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-white/10 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors"
+              >
+                <Printer size={14} />
+                {lang === 'es' ? 'Reimprimir Factura' : 'Reprint Invoice'}
+              </button>
+              <button
+                onClick={() => onReprint?.('conduce')}
+                className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-white/10 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors"
+              >
+                <Printer size={14} />
+                {lang === 'es' ? 'Reimprimir Conduce' : 'Reprint Conduce'}
+              </button>
+            </>
           )}
           <button onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-[12px] font-semibold transition-colors">
             {lang === 'es' ? 'Cerrar' : 'Close'}
@@ -546,8 +556,54 @@ export default function DailyReport() {
   const [anularModal,  setAnularModal]  = useState(null)
   const [toast,        setToast]        = useState(null)
   const [biz,          setBiz]          = useState({})
+  const [reprintMenu,  setReprintMenu]  = useState(false)
 
   function flash(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
+
+  // v2.14.20 — reprint factura or conduce from Ventas. Builds a ticketData
+  // shape compatible with services/printer.js; items are already on the
+  // row (dbToTxn hydrates t.items from the tickets.byDateRange query).
+  // kind: 'factura' | 'conduce'. For conduce with 2+ washers, prints one
+  // per washer so each worker gets their own slip.
+  async function reprintTicket(t, kind) {
+    try {
+      const services = (t.items && t.items.length)
+        ? t.items.map(i => ({ name: i.name, price: Number(i.price) || 0, qty: Number(i.quantity || 1), itbis: Number(i.itbis) || 0, c: (i.is_wash ?? 1) !== 0 }))
+        : (t.services || []).map(s => ({ name: s.name, price: Number(s.price) || 0, qty: 1, itbis: 0, c: true }))
+      const ticketData = {
+        ncf:          t.ncf || '',
+        ncfType:      t.ncfType || 'B02',
+        cajero:       t.cashier || '',
+        lavador:      (t.washerNames && t.washerNames.length ? t.washerNames.join(', ') : '') || '-',
+        docNo:        t.ticketNo || '',
+        paidAt:       t.date || new Date(),
+        client:       t.client && t.client !== 'Walk-in' ? { name: t.client } : null,
+        client_name:  t.client === 'Walk-in' ? '' : (t.client || ''),
+        vehiclePlate: t.vehicle === '—' ? '' : (t.vehicle || ''),
+        tipo:         t.payMethod === 'credit' ? 'credito' : 'contado',
+        formaPago:    t.payMethod || 'cash',
+        services,
+        subtotal:     Number(t.subtotal) || 0,
+        descuento:    Number(t.descuento) || 0,
+        itbis:        Number(t.itbis) || 0,
+        ley:          Number(t.ley) || 0,
+        total:        Number(t.total) || 0,
+        biz,
+      }
+      if (kind === 'conduce') {
+        const washers = (t.washerNames && t.washerNames.length) ? t.washerNames : [ticketData.lavador || '-']
+        for (const name of washers) {
+          await printWasherConduce({ ...ticketData, lavador: name || '-' })
+        }
+        flash(lang === 'es' ? 'Conduce reimpreso ✓' : 'Conduce reprinted ✓')
+      } else {
+        await printClientReceipt(ticketData)
+        flash(lang === 'es' ? 'Factura reimpresa ✓' : 'Invoice reprinted ✓')
+      }
+    } catch (e) {
+      flash(lang === 'es' ? 'Error al reimprimir' : 'Reprint error')
+    }
+  }
 
   useEffect(() => {
     api.admin?.getEmpresa?.().then(e => {
@@ -960,13 +1016,35 @@ export default function DailyReport() {
               <Eye size={13} />
               {lang === 'es' ? 'Ver Detalle' : 'View Detail'}
             </button>
-            <button
-              onClick={() => {}}
-              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors"
-            >
-              <Printer size={13} />
-              {lang === 'es' ? 'Reimprimir' : 'Reprint'}
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setReprintMenu(v => !v)}
+                className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors"
+              >
+                <Printer size={13} />
+                {lang === 'es' ? 'Reimprimir' : 'Reprint'}
+                <ChevronDown size={12} className={`transition-transform ${reprintMenu ? 'rotate-180' : ''}`} />
+              </button>
+              {reprintMenu && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setReprintMenu(false)} />
+                  <div className="absolute bottom-full right-0 mb-1 bg-white dark:bg-black border border-slate-200 dark:border-white/10 rounded-xl shadow-lg z-40 overflow-hidden min-w-[180px]">
+                    <button
+                      onClick={() => { setReprintMenu(false); reprintTicket(selectedTicket, 'factura') }}
+                      className="w-full text-left px-4 py-2.5 text-[12px] font-semibold text-slate-700 dark:text-white hover:bg-slate-50 dark:hover:bg-white/10 transition-colors"
+                    >
+                      {lang === 'es' ? 'Reimprimir Factura' : 'Reprint Invoice'}
+                    </button>
+                    <button
+                      onClick={() => { setReprintMenu(false); reprintTicket(selectedTicket, 'conduce') }}
+                      className="w-full text-left px-4 py-2.5 text-[12px] font-semibold text-slate-700 dark:text-white hover:bg-slate-50 dark:hover:bg-white/10 transition-colors border-t border-slate-100 dark:border-white/10"
+                    >
+                      {lang === 'es' ? 'Reimprimir Conduce' : 'Reprint Conduce'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
             <button
               onClick={() => selectedTicket.estado !== 'nula' && setAnularModal(selectedTicket)}
               disabled={selectedTicket.estado === 'nula'}
@@ -996,6 +1074,7 @@ export default function DailyReport() {
         <DetailModal
           ticket={detailModal}
           onClose={() => setDetailModal(null)}
+          onReprint={(kind) => reprintTicket(detailModal, kind)}
           lang={lang}
         />
       )}

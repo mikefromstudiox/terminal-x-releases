@@ -435,7 +435,7 @@ function buildLines(data) {
   if (data.descuento > 0) cols('Descuento', '-' + fmtRD(data.descuento), { size: SMALL })
   if (isFiscal) {
     cols('Subtotal',    fmtRD(data.subtotal), { size: SMALL })
-    cols('ITBIS 18%',   fmtRD(data.itbis),    { size: SMALL })
+    cols('ITBIS',       fmtRD(data.itbis),    { size: SMALL })
   }
   if (data.ley > 0) cols('Ley 10%', fmtRD(data.ley), { size: SMALL })
 

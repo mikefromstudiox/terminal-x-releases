@@ -1344,6 +1344,52 @@ function init(db, { supabaseUrl, supabaseKey }) {
     }
   } catch (e) { log.error('[sync] dedupe commissions v2 marker:', e.message) }
 
+  // v2.14.20 — continuous (every-boot) dedupe. Marker-gated passes above fixed
+  // one-time historical drift but did not stop NEW duplicates from creeping
+  // back via the sync push/pull cycle (owner reported re-doubling after
+  // v2.13.12). Runs cheap on every boot:
+  //   • Per-ticket commissions (ticket_supabase_id NOT NULL): collapse by
+  //     (empleado, ticket_supabase_id) — there can only ever be ONE row per
+  //     (worker, ticket). If two exist, keep the oldest id.
+  //   • Aggregate rollups (ticket_supabase_id NULL): collapse by
+  //     (empleado, base_amount, commission_amount, yyyy-mm).
+  try {
+    let totalDeleted = 0
+    for (const table of ['washer_commissions', 'seller_commissions', 'cajero_commissions']) {
+      try {
+        // Per-ticket dedupe
+        const r1 = _db.rawPrepare(
+          `DELETE FROM ${table}
+            WHERE ticket_supabase_id IS NOT NULL
+              AND id NOT IN (
+                SELECT MIN(id) FROM ${table}
+                 WHERE ticket_supabase_id IS NOT NULL
+                 GROUP BY empleado_supabase_id, ticket_supabase_id
+              )`
+        ).run()
+        if (r1?.changes) totalDeleted += r1.changes
+
+        // Aggregate-rollup dedupe (no ticket FK)
+        let hasTicketId = false
+        try { hasTicketId = _db.rawPrepare(`PRAGMA table_info(${table})`).all().some(r => r.name === 'ticket_id') } catch {}
+        const nullTicketClause = hasTicketId
+          ? 'ticket_supabase_id IS NULL AND ticket_id IS NULL'
+          : 'ticket_supabase_id IS NULL'
+        const r2 = _db.rawPrepare(
+          `DELETE FROM ${table}
+            WHERE ${nullTicketClause}
+              AND id NOT IN (
+                SELECT MIN(id) FROM ${table}
+                 WHERE ${nullTicketClause}
+                 GROUP BY empleado_supabase_id, base_amount, commission_amount, substr(created_at, 1, 7)
+              )`
+        ).run()
+        if (r2?.changes) totalDeleted += r2.changes
+      } catch (e) { log.warn(`[sync] continuous-dedupe ${table}:`, e.message) }
+    }
+    if (totalDeleted) log.info(`[sync] v2.14.20 continuous commission dedupe: deleted ${totalDeleted} row(s)`)
+  } catch (e) { log.error('[sync] continuous commission dedupe:', e.message) }
+
   // Write diagnostic file
   try {
     const fs = require('fs')

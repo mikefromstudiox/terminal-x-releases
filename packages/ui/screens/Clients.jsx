@@ -1438,9 +1438,19 @@ export function NewClientForm({ onClose, onSave, lang }) {
 
     try {
       const result = await api?.clients?.create?.(newClientData)
-      const newId  = result?.lastInsertRowid || Date.now()
+      // v2.14.20 — desktop returns { id, supabase_id }; web returns a full row.
+      // Previously fell through to Date.now() when neither was present, which
+      // produced a garbage numeric id → FK fail on the very next tickets.create
+      // ("FOREIGN KEY constraint failed" on Encolar). If we truly got nothing
+      // back, refuse the save instead of poisoning the cart.
+      const newId   = result?.id ?? result?.lastInsertRowid ?? null
+      const newSid  = result?.supabase_id || null
+      if (!newId) {
+        console.error('[clientCreate] no id returned', result)
+        return
+      }
       onSave({
-        ...mapClient({ ...newClientData, id: newId, visits: 0, total_spent: 0, balance: 0, last_service_date: null }),
+        ...mapClient({ ...newClientData, id: newId, supabase_id: newSid, visits: 0, total_spent: 0, balance: 0, last_service_date: null }),
       })
     } catch (err) {
       console.error('[clientCreate]', err)

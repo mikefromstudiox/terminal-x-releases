@@ -86,7 +86,7 @@ function GridSkeleton({ cols }) {
 
 // ── Worker Multi-Select ───────────────────────────────────────────────────────
 
-function WorkerSelect({ selected, onChange, washers, t, businessType, lang }) {
+function WorkerSelect({ selected, onChange, overrides = {}, onOverrideChange, washers, t, businessType, lang }) {
   const washCtx = isServiceBased(businessType) && businessType === 'carwash'
   const emptyLabel = washCtx
     ? (lang === 'es' ? 'Sin lavadores disponibles' : 'No washers available')
@@ -128,6 +128,36 @@ function WorkerSelect({ selected, onChange, washers, t, businessType, lang }) {
               </button>
             </span>
           ))}
+        </div>
+      )}
+      {/* v2.14.20 — per-washer commission override. Shown when 2+ washers
+          are on the ticket so the owner can split the commission unevenly
+          (e.g. one washer did the hard part). Blank = auto-calc from
+          empleado.comision_pct. Hidden when only 1 washer is selected. */}
+      {selected.length >= 2 && onOverrideChange && (
+        <div className="mb-2 space-y-1.5 p-2 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10">
+          <p className="text-[10px] font-semibold text-slate-500 dark:text-white/50 uppercase tracking-wider">
+            {lang === 'es' ? 'Comisión por lavador (RD$)' : 'Commission per worker (RD$)'}
+          </p>
+          {selected.map(w => (
+            <div key={w.id} className="flex items-center gap-2">
+              <span className="flex-1 text-[12px] text-slate-700 dark:text-white truncate">{w.name}</span>
+              <div className="flex items-center bg-white dark:bg-black border border-slate-200 dark:border-white/10 rounded-md overflow-hidden focus-within:border-[#b3001e]">
+                <span className="px-1.5 text-[10px] text-slate-400 select-none">RD$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={overrides[w.id] ?? ''}
+                  onChange={e => onOverrideChange(w.id, e.target.value.replace(/[^\d.]/g, ''))}
+                  placeholder={lang === 'es' ? 'auto' : 'auto'}
+                  className="w-20 px-1 py-1 text-[12px] font-semibold text-right text-slate-800 dark:text-white bg-transparent focus:outline-none"
+                />
+              </div>
+            </div>
+          ))}
+          <p className="text-[9px] text-slate-400 dark:text-white/40 italic">
+            {lang === 'es' ? 'Deja en blanco para usar el % del empleado.' : 'Leave blank to use employee %.'}
+          </p>
         </div>
       )}
 
@@ -291,6 +321,19 @@ function CarWashPOS() {
       if (!groups[cat]) groups[cat] = []
       groups[cat].push({ ...inv, _isInventory: true, is_wash: 0 })
     }
+    // v2.14.20 — sort each category by sort_order ASC (nulls last), then id,
+    // so owner-set reorder persists. Inventory items fall to the end.
+    for (const cat of Object.keys(groups)) {
+      groups[cat].sort((a, b) => {
+        const ai = a._isInventory ? 1 : 0
+        const bi = b._isInventory ? 1 : 0
+        if (ai !== bi) return ai - bi
+        const ao = Number.isFinite(Number(a.sort_order)) ? Number(a.sort_order) : 9999
+        const bo = Number.isFinite(Number(b.sort_order)) ? Number(b.sort_order) : 9999
+        if (ao !== bo) return ao - bo
+        return (a.id || 0) - (b.id || 0)
+      })
+    }
     return groups
   }, [rawServices, invItems])
 
@@ -301,6 +344,15 @@ function CarWashPOS() {
   const [toast,     setToast]     = useState(null)
   const [cobrarModal, setCobrarModal] = useState(null)
   const [splitModal,  setSplitModal]  = useState(null)  // { total }
+
+  // v2.14.20 — tile reorder mode on the main service grid. Owner/manager only.
+  // In reorder mode, tiles become draggable and the add-to-cart tap is disabled.
+  // Save persists sort_order per service via api.services.update.
+  const canReorderTiles = ['owner', 'manager'].includes(String(user?.role || '').toLowerCase())
+  const [reorderMode, setReorderMode] = useState(false)
+  const [reorderDraft, setReorderDraft] = useState([])   // array of current-category svc objects in draft order
+  const [dragTileIdx, setDragTileIdx] = useState(null)
+  const [savingOrder, setSavingOrder] = useState(false)
 
   // Client state
   const [clients,        setClients]        = useState([])
@@ -330,6 +382,9 @@ function CarWashPOS() {
   const [rncName,     setRncName]     = useState('')
   const [vehicle,     setVehicle]     = useState('')
   const [workers,     setWorkers]     = useState([])
+  // v2.14.20 — per-washer commission override (RD$). Map keyed by worker id.
+  // Blank/zero = use auto-calc (empleado.comision_pct × base).
+  const [workerOverrides, setWorkerOverrides] = useState({})
   const [salesperson, setSalesperson] = useState('')
 
   // Keep selected category in sync with DB categories
@@ -357,6 +412,7 @@ function CarWashPOS() {
     setRncName('')
     setSelectedClient(null)
     setWorkers([])
+    setWorkerOverrides({})
     setSalesperson('')
   }
 
@@ -376,7 +432,7 @@ function CarWashPOS() {
       } else if (e.key === 'F2') {
         e.preventDefault()
         if (allOrderItems.length > 0) {
-          setCobrarModal({ vehicle, items: allOrderItems, workers, salesperson, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null })
+          setCobrarModal({ vehicle, items: allOrderItems, workers, workerOverrides, salesperson, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null })
         }
       } else if (e.key === 'F3') {
         e.preventDefault()
@@ -459,10 +515,24 @@ function CarWashPOS() {
         .filter(s => s.is_wash === 0)
         .reduce((s, i) => s + i.price, 0)
 
+      // v2.14.20 — translate per-washer override amounts (keyed by id) into
+      // the shape ticketCreate wants: [{ empleado_supabase_id, amount }].
+      // Only sent when 2+ washers are on the ticket; single-washer tickets
+      // use the auto-calc path unchanged.
+      const washerOverrides = (workers.length >= 2)
+        ? workers
+            .map(w => ({
+              empleado_supabase_id: w.supabase_id || null,
+              amount: Number(workerOverrides[w.id] || 0),
+            }))
+            .filter(o => o.empleado_supabase_id && o.amount > 0)
+        : []
+
       const result = await api.tickets.create({
         vehicle_plate:     vehicle.trim() || null,
         client_id:         selectedClient?.id || null,
         washer_ids:        workers.map(w => w.id),
+        washer_commission_overrides: washerOverrides,
         seller_id:         salesperson || null,
         cajero_id:         (user?.id && user.id !== 'web') ? user.id : null,
         comprobante_type:  'B02',
@@ -514,10 +584,20 @@ function CarWashPOS() {
         .filter(s => s.is_wash === 0)
         .reduce((s, i) => s + i.price, 0)
 
+      // v2.14.20 — per-washer commission override on cobrar (same shape as encolar)
+      const washerOverridesCb = (pending.workers?.length >= 2 && pending.workerOverrides)
+        ? pending.workers
+            .map(w => ({
+              empleado_supabase_id: w.supabase_id || null,
+              amount: Number(pending.workerOverrides[w.id] || 0),
+            }))
+            .filter(o => o.empleado_supabase_id && o.amount > 0)
+        : []
       const result = await api.tickets.create({
         vehicle_plate:    pending.vehicle,
         client_id:        pending.clientId || null,
         washer_ids:       pending.workers.map(w => w.id),
+        washer_commission_overrides: washerOverridesCb,
         seller_id:        pending.salesperson || null,
         cajero_id:        (user?.id && user.id !== 'web') ? user.id : null,
         comprobante_type: paymentData.ncfType || 'E32',
@@ -591,6 +671,10 @@ function CarWashPOS() {
           settings: empresa?.settings || {},
         }
         const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(pending.items, itbisRate)
+        // v2.14.20 — thread the applied discount into the printed receipt.
+        // Was hardcoded to 0, so the printout always showed the full gross
+        // total with no Descuento line even when the cashier applied one.
+        const dscto = Number(paymentData.descuento || 0)
         const ticketData = {
           ncf:          result?.ncf       || '',
           ncfType:      paymentData.ncfType || 'E32',
@@ -615,17 +699,38 @@ function CarWashPOS() {
           formaPago:    paymentData.formaPago || 'cash',
           services:     pending.items,
           subtotal:     sub,
-          descuento:    0,
+          descuento:    dscto,
           itbis:        itp,
           ley:          ly,
-          total:        tot,
+          total:        parseFloat((tot - dscto).toFixed(2)),
           biz,
           signatureDate: paymentData.ecf?.signatureDate || null,
           securityCode:  paymentData.ecf?.securityCode || null,
           qrLink:        paymentData.ecf?.qrLink || null,
         }
         if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice'))
-        if (cfg.print_conduce_auto === '1') printWasherConduce(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce'))
+        // v2.14.20 — when a ticket has 2+ washers, print one conduce per
+        // washer so each worker walks away with their own dispatch slip.
+        // Sequential so the printer queues them in order.
+        if (cfg.print_conduce_auto === '1') {
+          const workers = (pending.workers?.length ? pending.workers : [{ name: ticketData.lavador || '-' }])
+          // v2.14.20 — each conduce shows the commission THIS lavador earned.
+          // Priority: cashier's per-washer override > empleado.comision_pct
+          // × washerBase (gross-of-ITBIS stripped out at 1 + itbisFactor).
+          const itbisFrac = (Number(itbisRate) || 18) / 100
+          const washerBase = pending.items
+            .filter(s => (s.is_wash ?? 1) !== 0)
+            .reduce((s, i) => s + Number(i.price || 0) * Number(i.qty || 1), 0) / (1 + itbisFrac)
+          for (const w of workers) {
+            const overrideAmt = Number(pending.workerOverrides?.[w.id] || 0)
+            const pct = Number(w.commission_pct ?? w.comision_pct ?? 0)
+            const commAmount = overrideAmt > 0
+              ? overrideAmt
+              : parseFloat((washerBase * pct / 100).toFixed(2))
+            await printWasherConduce({ ...ticketData, lavador: w.name || '-', commAmount })
+              .catch(() => flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce'))
+          }
+        }
         // Save PDF copy to userData/receipts/
         saveReceiptPDF(ticketData).catch(() => flash(lang === 'es' ? 'Error al guardar PDF' : 'PDF save error'))
         // Kick drawer for cash/check payments
@@ -677,7 +782,7 @@ function CarWashPOS() {
         </div>
 
         {/* Category tabs — horizontal scroll on mobile */}
-        <div className="flex border-b border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 shrink-0 overflow-x-auto scrollbar-hide">
+        <div className="flex items-center border-b border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 shrink-0 overflow-x-auto scrollbar-hide">
           {svcLoading ? (
             <div className="flex gap-1 px-4 py-2">
               {[1,2,3,4].map(i => (
@@ -687,16 +792,65 @@ function CarWashPOS() {
           ) : categories.map(cat => (
             <button
               key={cat.id}
-              onClick={() => setCategory(cat.id)}
+              onClick={() => { if (!reorderMode) setCategory(cat.id) }}
+              disabled={reorderMode && category !== cat.id}
               className={`px-4 md:px-5 py-3 md:py-3.5 text-xs md:text-sm font-semibold transition-colors border-b-2 -mb-px shrink-0 min-h-[44px] ${
                 category === cat.id
                   ? 'border-[#b3001e] text-[#b3001e] dark:text-white'
-                  : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white hover:border-slate-300 dark:hover:border-white/30'
+                  : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white hover:border-slate-300 dark:hover:border-white/30 disabled:opacity-40'
               }`}
             >
               {categories.length === 1 ? (lang === 'es' ? 'Todos' : 'All') : catLabel(cat.label, lang)}
             </button>
           ))}
+          {/* Reorder controls — owner/manager only. Drag tiles to reorder
+              within the active category; Save persists sort_order. */}
+          {canReorderTiles && !svcLoading && category && (
+            <div className="ml-auto flex items-center gap-1 pr-2 shrink-0">
+              {!reorderMode ? (
+                <button
+                  onClick={() => {
+                    setReorderDraft([...(servicesByCategory[category] ?? [])])
+                    setReorderMode(true)
+                  }}
+                  title={lang === 'es' ? 'Reordenar servicios' : 'Reorder services'}
+                  className="p-2 rounded-md text-slate-400 dark:text-white/40 hover:text-[#b3001e] hover:bg-[#b3001e]/10 transition-colors"
+                >
+                  <Edit2 size={14} />
+                </button>
+              ) : (
+                <>
+                  <button
+                    disabled={savingOrder}
+                    onClick={async () => {
+                      setSavingOrder(true)
+                      try {
+                        // Only persist draft services (not inventory items).
+                        const svcOnly = reorderDraft.filter(x => !x._isInventory)
+                        await Promise.all(svcOnly.map((s, i) =>
+                          api?.services?.update?.({ id: s.id, sort_order: i + 1 }).catch(() => null)
+                        ))
+                        flash(lang === 'es' ? 'Orden guardado ✓' : 'Order saved ✓')
+                      } catch { flash(lang === 'es' ? 'Error al guardar orden' : 'Error saving order') }
+                      setSavingOrder(false)
+                      setReorderMode(false)
+                      setDragTileIdx(null)
+                    }}
+                    className="px-2.5 py-1.5 rounded-md text-[11px] font-bold text-white bg-[#b3001e] hover:bg-[#b3001e]/90 disabled:opacity-50 transition-colors"
+                  >
+                    {savingOrder ? (lang === 'es' ? 'Guardando…' : 'Saving…') : (lang === 'es' ? 'Guardar' : 'Save')}
+                  </button>
+                  <button
+                    disabled={savingOrder}
+                    onClick={() => { setReorderMode(false); setDragTileIdx(null) }}
+                    className="px-2.5 py-1.5 rounded-md text-[11px] font-semibold text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white transition-colors"
+                  >
+                    {lang === 'es' ? 'Cancelar' : 'Cancel'}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Service grid */}
@@ -710,18 +864,35 @@ function CarWashPOS() {
             </div>
           ) : (
             <div className={`grid gap-2 md:gap-2.5 ${gridCols}`}>
-              {(servicesByCategory[category] ?? []).map(svc => {
+              {(reorderMode ? reorderDraft : (servicesByCategory[category] ?? [])).map((svc, idx) => {
                 const key = svc._isInventory ? 'inv:' + svc.id : svc.id
-                const selected = selectedIds.has(key)
-                const cartItem = svc._isInventory ? items.find(i => i._cartKey === key) : null
+                const selected = !reorderMode && selectedIds.has(key)
+                const cartItem = !reorderMode && svc._isInventory ? items.find(i => i._cartKey === key) : null
+                const dragging = reorderMode && dragTileIdx === idx
                 return (
                   <button
                     key={key}
-                    onClick={() => toggleService(svc)}
+                    onClick={() => { if (!reorderMode) toggleService(svc) }}
+                    draggable={reorderMode && !svc._isInventory}
+                    onDragStart={reorderMode ? () => setDragTileIdx(idx) : undefined}
+                    onDragOver={reorderMode ? (e) => { e.preventDefault() } : undefined}
+                    onDrop={reorderMode ? (e) => {
+                      e.preventDefault()
+                      if (dragTileIdx === null || dragTileIdx === idx) { setDragTileIdx(null); return }
+                      setReorderDraft(prev => {
+                        const next = [...prev]
+                        const [m] = next.splice(dragTileIdx, 1)
+                        next.splice(idx, 0, m)
+                        return next
+                      })
+                      setDragTileIdx(null)
+                    } : undefined}
                     className={`group relative overflow-hidden flex flex-col justify-between p-4 md:p-5 rounded-2xl border text-left transition-all duration-200 ease-out min-h-[124px] md:min-h-[132px] will-change-transform ${
-                      selected
-                        ? 'border-[#b3001e] bg-gradient-to-br from-[#b3001e]/[0.09] via-white to-white dark:from-[#b3001e]/25 dark:via-white/[0.04] dark:to-white/[0.03] shadow-[0_12px_30px_-12px_rgba(179,0,30,0.55),inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:shadow-[0_12px_30px_-12px_rgba(179,0,30,0.55),inset_0_1px_0_0_rgba(255,255,255,0.06)]'
-                        : 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] hover:border-[#b3001e] hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-12px_rgba(179,0,30,0.45),inset_0_1px_0_0_rgba(255,255,255,0.6)] active:translate-y-0 active:scale-[0.99]'
+                      reorderMode
+                        ? `${svc._isInventory ? 'opacity-40 cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'} ${dragging ? 'opacity-40' : ''} border-dashed border-[#b3001e]/40 bg-white dark:bg-white/[0.03] hover:border-[#b3001e]`
+                        : selected
+                          ? 'border-[#b3001e] bg-gradient-to-br from-[#b3001e]/[0.09] via-white to-white dark:from-[#b3001e]/25 dark:via-white/[0.04] dark:to-white/[0.03] shadow-[0_12px_30px_-12px_rgba(179,0,30,0.55),inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:shadow-[0_12px_30px_-12px_rgba(179,0,30,0.55),inset_0_1px_0_0_rgba(255,255,255,0.06)]'
+                          : 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] hover:border-[#b3001e] hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-12px_rgba(179,0,30,0.45),inset_0_1px_0_0_rgba(255,255,255,0.6)] active:translate-y-0 active:scale-[0.99]'
                     }`}
                   >
                     <span className={`absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#b3001e] to-transparent transition-opacity duration-300 ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} />
@@ -949,7 +1120,14 @@ function CarWashPOS() {
               {wsrLoading ? (
                 <div className="h-9 bg-slate-100 dark:bg-white/10 rounded-lg animate-pulse" />
               ) : (
-                <WorkerSelect selected={workers} onChange={setWorkers} washers={rawWashers} t={t} businessType={businessType} lang={lang} />
+                <WorkerSelect
+                  selected={workers}
+                  onChange={setWorkers}
+                  overrides={workerOverrides}
+                  onOverrideChange={(id, val) => setWorkerOverrides(prev => ({ ...prev, [id]: val }))}
+                  washers={rawWashers}
+                  t={t} businessType={businessType} lang={lang}
+                />
               )}
             </div>
 
@@ -1072,7 +1250,7 @@ function CarWashPOS() {
               onClick={() => {
                 if (allOrderItems.length > 0) {
                   setMobileCartOpen(false)
-                  setCobrarModal({ vehicle, items: allOrderItems, workers, salesperson, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null })
+                  setCobrarModal({ vehicle, items: allOrderItems, workers, workerOverrides, salesperson, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null })
                 }
               }}
               disabled={allOrderItems.length === 0}
@@ -2975,7 +3153,7 @@ function HybridPOS() {
 //   - any role except 'cashier'
 function AperturaTurnoGate({ children }) {
   const api = useAPI()
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const [ready, setReady] = useState(false)
   const [needsOpen, setNeedsOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -3038,6 +3216,7 @@ function AperturaTurnoGate({ children }) {
         <AperturaTurnoModal
           userName={user?.name || ''}
           onConfirm={handleOpen}
+          onLogout={logout}
           submitting={submitting}
         />
       )}

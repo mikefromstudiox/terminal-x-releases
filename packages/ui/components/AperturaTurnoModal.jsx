@@ -3,10 +3,10 @@
 // known baseline. No close button: apertura is a workflow, not a suggestion.
 // Owner escape hatch: business setting `skip_apertura_prompt=1` bypasses.
 import { useState, useEffect, useRef } from 'react'
-import { Wallet, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Wallet, Loader2, CheckCircle2, AlertCircle, LogOut } from 'lucide-react'
 import { useLang } from '../i18n'
 
-export default function AperturaTurnoModal({ userName, onConfirm, submitting = false }) {
+export default function AperturaTurnoModal({ userName, onConfirm, onLogout, submitting = false }) {
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
   const [amount, setAmount] = useState('')
@@ -93,7 +93,7 @@ export default function AperturaTurnoModal({ userName, onConfirm, submitting = f
               data-1p-ignore="true"
               data-lpignore="true"
               data-form-type="other"
-              className="flex-1 min-w-0 px-3 py-3 text-[20px] font-bold text-slate-800 dark:text-white bg-transparent focus:outline-none"
+              className="flex-1 min-w-0 pl-3 pr-10 py-3 text-[20px] font-bold text-slate-800 dark:text-white bg-transparent focus:outline-none"
             />
           </div>
           {err && (
@@ -113,6 +113,20 @@ export default function AperturaTurnoModal({ userName, onConfirm, submitting = f
               ? <><Loader2 size={14} className="animate-spin" /> {L('Abriendo…', 'Opening…')}</>
               : <><CheckCircle2 size={14} /> {L('Abrir Turno', 'Open Shift')}</>}
           </button>
+          {/* Escape hatch: if the cashier doesn't know the opening amount,
+              she can log out and ask her manager. Apertura is still
+              mandatory to enter POS — she just gets back to the login
+              screen instead of being trapped in a modal. */}
+          {onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              disabled={submitting}
+              className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-transparent hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 dark:text-white/60 hover:text-slate-700 dark:hover:text-white text-[12px] font-semibold rounded-xl transition-colors"
+            >
+              <LogOut size={13} /> {L('Cerrar sesión', 'Log out')}
+            </button>
+          )}
           <p className="mt-3 text-center text-[10px] text-slate-400 dark:text-white/40">
             {L(
               'Esto queda registrado en el historial de actividad.',

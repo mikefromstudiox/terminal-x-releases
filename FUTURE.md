@@ -1,5 +1,26 @@
 # FUTURE — Terminal X (backlog, attack after core is stable)
 
+## Post-SXAD-launch (2026-04-24 — added after go-live)
+
+**DGII e-CF quality-of-life:**
+- **RFCE golden-diff test** — add `scripts/rfce-golden-diff.mjs` to `verify:build` that calls `electron/xml-builder.js::buildRFCEXml()` with canonical inputs and diffs the output byte-for-byte against `tools/cert-step4-gen.js` reference. Fails release on drift. Root cause of the 9-build RFCE rejection chase was two parallel XML generators that silently diverged; this test prevents recurrence.
+- **Delegate to `dgii-ecf` package builder** — replace our hand-written `buildRFCEXml` + `buildECFXml` with `dgii-ecf`'s own builders. One source of truth. Will also get DGII-spec updates for free when the package updates.
+- **Save signed XML to `userData/ecf-xml/` on every submission** — shipped v2.14.15 for debugging, keep permanently for audit trail / re-submission support.
+- **File `certecf` postulación for SXAD** — Oficina Virtual → Facturación Electrónica → Postulación, CerteCF env. Enables live test-env submissions without touching prod sequences. Not blocking — prod works today.
+- **Receipt auto-submit / offline queue integration** — if DGII is unreachable at sale time, queue the e-CF locally with `IndicadorEnvioDiferido=1` and resubmit automatically on the 30s/60s tick. Infrastructure exists (`dgii_queue`, `anecf_queue`) but needs wiring for the RFCE path.
+- **Investigate the "two tickets written for one sale" pattern** seen intermittently — second row is empty stub, looks like a sync-push race. Low priority since first row has all the real data.
+- **Seed scripts should NOT pre-create ncf_sequences.prefix** with anything but the canonical 3-char type. We saw `E320` (4 chars) cause 14-char eNCFs on runtime. v2.14.17 defends against it in the generator but the root sync write path should be audited.
+
+**Pre-submit UX:**
+- **Surface DGII rejection reason in CobrarModal Success view** — right now we capture the `mensajes` array in v2.14.13+ and store in `ecf_submissions.dgii_message`, but the Success screen only shows "Rechazado" without the reason. Add a collapsible "¿Por qué?" panel below the badge.
+- **Retry button on Rechazado** — currently the cashier has to cancel + redo the sale. Keep the cart/form and let them retry once DGII-side fixes apply (common for transient issues).
+
+**Post-launch cleanup:**
+- **Drop ~20 dead Supabase tables** flagged by the migration audit (mesas, modificadores, kds_events, vehicles, service_bays, appointments, stylist_schedules, loans, loan_payments, pawn_items, ncf_sequences_master, ncf_blocks, doc_number_master, doc_number_blocks, license_rebind_requests, api_rate_limits, dgii_seed_nonces, cert_expiry_alerts, ecf_queue). Never queried. 0 rows each. Drop in a single migration after 30-day grace to confirm nothing surfaces.
+- **27 dead exports in electron/database.js** — 80 LOC of `module.exports` cruft. Delete after verifying no dynamic references.
+- **Sync column-list audit** — comment at `sync.js:2055` references a prior regression where `pin_hash_algo` dropped out of the push column list. Re-audit every sync spec's `cols:` against current column schemas.
+- **Apertura modal parent gate** — currently wraps only POS component. If sidebar is rendered at a HIGHER stacking context, the v2.14.17 max z-index fix may not actually cover it on some renders. Move the Gate to wrap the WHOLE authed layout.
+
 ## Onboarding (defer)
 
 - **Training manual update** — nueva sección "Primer día del cliente licorería" (setup real, no demo). Incluir flujo de inventario import, configuración de NCF real, test de impresora, enrolar cajeros, set PIN, e-CF walkthrough.
@@ -16,6 +37,37 @@
 - **Templates de WhatsApp/email** — bienvenida al cliente, recordatorio de pago mensual, alerta de stock bajo, recibo de e-CF con QR.
 - **Seed demo "30 días de actividad"** — script que inserta historial ficticio al crear un tenant nuevo para que el admin vea el sistema "vivo" desde día 1 de uso real (no el demo compartido).
 - ~~**Backup automático diario**~~ — ✅ SHIPPED v2.12.1: nightly SQLite→Supabase Storage at 3 AM, 14d retention, SQLCipher-aware, manual trigger UI in Sistema → Mi Empresa.
+
+## Done in v2.14.x (2026-04-23 / 2026-04-24) — moved out of FUTURE
+
+- ✅ PIN sha256→bcrypt drift killer (v2.14.3) — all write paths force bcrypt, auto-detect from hash format
+- ✅ Admin role CHECK constraint fix (v2.14.3) — filters empleado.role='none'
+- ✅ Self-PIN oldPin input (v2.14.4) — S-H6 guard reachable from UI
+- ✅ Printer picker auto-save (v2.14.5) — no more Guardar button scroll
+- ✅ Boot sync pull 60s → 5s (v2.14.6) — Preferencias shows live data on open
+- ✅ Sistema/CobrarModal refresh on sync-pull-complete (v2.14.6/7)
+- ✅ CobrarModal NCF ↔ e-CF in-modal toggle (v2.14.7)
+- ✅ RNC/Cédula auto-format via `formatRncCedula()` (v2.14.7) — Clients + CobrarModal
+- ✅ Apertura modal RD$ flex badge (v2.14.7) — 1Password icon can't overlap
+- ✅ Nomina empleados header collapse (v2.14.7) — no horizontal scrollbar
+- ✅ Logo pull from Supabase Storage (v2.14.8/9) — LWW gate bypass
+- ✅ Receipt: ITBIS (no % label), TOTAL bold+large (no black bar), client-name 3-way fallback (v2.14.8)
+- ✅ Dispatch slip honors typed client name (v2.14.9)
+- ✅ eNCF reservation before DGII submit — fixes ecf_submissions.encf NOT NULL crash (v2.14.10)
+- ✅ Emisor auto-heal migration (v2.14.11) — businesses.rnc → app_settings.biz_rnc
+- ✅ Legal vs commercial name split (v2.14.11) — biz_name legal (DGII) / biz_commercial_name brand (receipt)
+- ✅ Pre-submit RNC guard (v2.14.11) — blocks cobrar with clear error before NCF burn
+- ✅ Logo-only receipt header at 384px (v2.14.12) — brand front, no redundant text
+- ✅ DGII rejection reason captured to main.log + dgii_message column (v2.14.13) — electron-log + mensajes normalization
+- ✅ RFCE XML nested IdDoc/Emisor/Totales groupings (v2.14.14)
+- ✅ RFCE signing via `dgii-ecf.Signature('RFCE')` (v2.14.15) — not xml-crypto
+- ✅ Signed XML persisted to userData/ecf-xml/ (v2.14.15) — audit + post-mortem diff
+- ✅ E-series eNCF padding 10 digits (v2.14.16/17) — canonical 3-char type prefix
+- ✅ RFCE multipart/form-data submission (v2.14.18) — **THE fix that got DGII accepting**
+- ✅ Emisor RazonSocial uppercase match DGII registry (v2.14.18) — "STUDIO X SRL"
+- ✅ NCF off-by-one: ticketCreate honors caller-provided ncf (v2.14.19)
+
+**First accepted production e-CF:** `E320000000018` at 2026-04-24T01:27 UTC, Studio X Auto Detailing RNC 133410321.
 
 ## Done in v2.12.1 (2026-04-20) — moved out of FUTURE
 
