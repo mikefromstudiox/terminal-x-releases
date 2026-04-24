@@ -5046,23 +5046,25 @@ function washerCommissionsByTicket(ticketId) {
 function commissionsGetByPeriod(dateFrom, dateTo) {
   if (!db) return []
   try {
-    // v2.13.9 — the old LEFT JOIN on tickets used `ON (t.id = wc.ticket_id OR
-    // t.supabase_id = wc.ticket_supabase_id)`. When a StarSISA import (or any
-    // scenario) produces more than one ticket matching both halves of the OR,
-    // the LEFT JOIN fanout makes each commission row appear N times and
-    // SUM(wc.commission_amount) returns N× the real value. Resolve the
-    // ticket scalar-style instead: at most one ticket per commission, no
-    // fanout regardless of how dirty the ticket table gets.
+    // v2.13.9 — scalar ticket lookup instead of LEFT JOIN to avoid fanout.
+    // v2.14.24 — also return total_paid + total_acumulado so liquidación
+    // screens can show the full accrual, not just the unpaid balance.
+    // `total_commission` stays as unpaid-only for callers that rely on
+    // "pagar ahora" view. New fields: total_paid, total_acumulado,
+    // ticket_count_total, ticket_count_paid.
     return db.prepare(
       `SELECT wc.empleado_supabase_id, e.id as washer_id,
               e.nombre as washer_name, e.comision_pct as commission_pct,
-              COUNT(wc.id) as ticket_count,
-              SUM(wc.base_amount) as total_base,
-              SUM(wc.commission_amount) as total_commission
+              SUM(CASE WHEN COALESCE(wc.paid,0)=0 THEN 1 ELSE 0 END)   as ticket_count,
+              SUM(CASE WHEN COALESCE(wc.paid,0)=1 THEN 1 ELSE 0 END)   as ticket_count_paid,
+              COUNT(wc.id)                                             as ticket_count_total,
+              SUM(CASE WHEN COALESCE(wc.paid,0)=0 THEN wc.base_amount ELSE 0 END) as total_base,
+              SUM(CASE WHEN COALESCE(wc.paid,0)=0 THEN wc.commission_amount ELSE 0 END) as total_commission,
+              SUM(CASE WHEN COALESCE(wc.paid,0)=1 THEN wc.commission_amount ELSE 0 END) as total_paid,
+              SUM(wc.commission_amount)                                as total_acumulado
        FROM washer_commissions wc
        JOIN empleados e ON e.supabase_id = wc.empleado_supabase_id
-       WHERE COALESCE(wc.paid, 0) = 0
-         AND COALESCE(
+       WHERE COALESCE(
                (SELECT t.status FROM tickets t WHERE t.id = wc.ticket_id LIMIT 1),
                (SELECT t.status FROM tickets t WHERE t.supabase_id = wc.ticket_supabase_id LIMIT 1),
                'cobrado'
@@ -5072,7 +5074,7 @@ function commissionsGetByPeriod(dateFrom, dateTo) {
                (SELECT t.created_at FROM tickets t WHERE t.supabase_id = wc.ticket_supabase_id LIMIT 1),
                wc.created_at
              ) BETWEEN ? AND ?
-       GROUP BY wc.empleado_supabase_id ORDER BY total_commission DESC`
+       GROUP BY wc.empleado_supabase_id ORDER BY total_acumulado DESC`
     ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
   } catch (e) { console.error('[commissionsGetByPeriod]', e.message); return [] }
 }
@@ -5125,17 +5127,21 @@ function sellerCommissionsBySeller(sellerId, dateFrom, dateTo) {
 function sellerCommissionsByPeriod(dateFrom, dateTo) {
   if (!db) return []
   try {
-    // v2.13.9 — see commissionsGetByPeriod for the OR-join fanout rationale.
+    // v2.14.24 — parallel to commissionsGetByPeriod: return total_paid +
+    // total_acumulado for liquidación. See that function for rationale.
     return db.prepare(
       `SELECT sc.empleado_supabase_id, e.id as seller_id,
               e.nombre as seller_name, e.comision_pct as commission_pct,
-              COUNT(sc.id) as ticket_count,
-              SUM(sc.base_amount) as total_base,
-              SUM(sc.commission_amount) as total_commission
+              SUM(CASE WHEN COALESCE(sc.paid,0)=0 THEN 1 ELSE 0 END)   as ticket_count,
+              SUM(CASE WHEN COALESCE(sc.paid,0)=1 THEN 1 ELSE 0 END)   as ticket_count_paid,
+              COUNT(sc.id)                                             as ticket_count_total,
+              SUM(CASE WHEN COALESCE(sc.paid,0)=0 THEN sc.base_amount ELSE 0 END) as total_base,
+              SUM(CASE WHEN COALESCE(sc.paid,0)=0 THEN sc.commission_amount ELSE 0 END) as total_commission,
+              SUM(CASE WHEN COALESCE(sc.paid,0)=1 THEN sc.commission_amount ELSE 0 END) as total_paid,
+              SUM(sc.commission_amount)                                as total_acumulado
        FROM seller_commissions sc
        JOIN empleados e ON e.supabase_id = sc.empleado_supabase_id
-       WHERE COALESCE(sc.paid, 0) = 0
-         AND COALESCE(
+       WHERE COALESCE(
                (SELECT t.status FROM tickets t WHERE t.id = sc.ticket_id LIMIT 1),
                (SELECT t.status FROM tickets t WHERE t.supabase_id = sc.ticket_supabase_id LIMIT 1),
                'cobrado'
@@ -5145,7 +5151,7 @@ function sellerCommissionsByPeriod(dateFrom, dateTo) {
                (SELECT t.created_at FROM tickets t WHERE t.supabase_id = sc.ticket_supabase_id LIMIT 1),
                sc.created_at
              ) BETWEEN ? AND ?
-       GROUP BY sc.empleado_supabase_id ORDER BY total_commission DESC`
+       GROUP BY sc.empleado_supabase_id ORDER BY total_acumulado DESC`
     ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
   } catch (e) { console.error('[sellerCommissionsByPeriod]', e.message); return [] }
 }
@@ -5287,17 +5293,21 @@ function cajeroCommissionsByCajero(cajeroId, dateFrom, dateTo) {
 function cajeroCommissionsByPeriod(dateFrom, dateTo) {
   if (!db) return []
   try {
-    // v2.13.9 — see commissionsGetByPeriod for the OR-join fanout rationale.
+    // v2.14.24 — parallel to commissionsGetByPeriod: return total_paid +
+    // total_acumulado for liquidación view.
     return db.prepare(
       `SELECT cc.empleado_supabase_id, cc.cajero_id,
               e.id as cajero_emp_id, e.nombre as cajero_name, e.comision_pct as commission_pct,
-              COUNT(cc.id) as ticket_count,
-              SUM(cc.base_amount) as total_base,
-              SUM(cc.commission_amount) as total_commission
+              SUM(CASE WHEN COALESCE(cc.paid,0)=0 THEN 1 ELSE 0 END)   as ticket_count,
+              SUM(CASE WHEN COALESCE(cc.paid,0)=1 THEN 1 ELSE 0 END)   as ticket_count_paid,
+              COUNT(cc.id)                                             as ticket_count_total,
+              SUM(CASE WHEN COALESCE(cc.paid,0)=0 THEN cc.base_amount ELSE 0 END) as total_base,
+              SUM(CASE WHEN COALESCE(cc.paid,0)=0 THEN cc.commission_amount ELSE 0 END) as total_commission,
+              SUM(CASE WHEN COALESCE(cc.paid,0)=1 THEN cc.commission_amount ELSE 0 END) as total_paid,
+              SUM(cc.commission_amount)                                as total_acumulado
        FROM cajero_commissions cc
        JOIN empleados e ON e.supabase_id = cc.empleado_supabase_id
-       WHERE COALESCE(cc.paid, 0) = 0
-         AND COALESCE(
+       WHERE COALESCE(
                (SELECT t.status FROM tickets t WHERE t.id = cc.ticket_id LIMIT 1),
                (SELECT t.status FROM tickets t WHERE t.supabase_id = cc.ticket_supabase_id LIMIT 1),
                'cobrado'
@@ -5307,7 +5317,7 @@ function cajeroCommissionsByPeriod(dateFrom, dateTo) {
                (SELECT t.created_at FROM tickets t WHERE t.supabase_id = cc.ticket_supabase_id LIMIT 1),
                cc.created_at
              ) BETWEEN ? AND ?
-       GROUP BY cc.empleado_supabase_id ORDER BY total_commission DESC`
+       GROUP BY cc.empleado_supabase_id ORDER BY total_acumulado DESC`
     ).all(dateFrom || '2000-01-01', dateTo || '2099-12-31')
   } catch (e) { console.error('[cajeroCommissionsByPeriod]', e.message); return [] }
 }

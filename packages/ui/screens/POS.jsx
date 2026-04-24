@@ -86,7 +86,7 @@ function GridSkeleton({ cols }) {
 
 // ── Worker Multi-Select ───────────────────────────────────────────────────────
 
-function WorkerSelect({ selected, onChange, overrides = {}, onOverrideChange, washers, t, businessType, lang }) {
+function WorkerSelect({ selected, onChange, overrides = {}, onOverrideChange, shareTotalTarget = 0, itbisFrac = 0.18, washers, t, businessType, lang }) {
   const washCtx = isServiceBased(businessType) && businessType === 'carwash'
   const emptyLabel = washCtx
     ? (lang === 'es' ? 'Sin lavadores disponibles' : 'No washers available')
@@ -134,32 +134,84 @@ function WorkerSelect({ selected, onChange, overrides = {}, onOverrideChange, wa
           are on the ticket so the owner can split the commission unevenly
           (e.g. one washer did the hard part). Blank = auto-calc from
           empleado.comision_pct. Hidden when only 1 washer is selected. */}
-      {selected.length >= 2 && onOverrideChange && (
-        <div className="mb-2 space-y-1.5 p-2 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10">
-          <p className="text-[10px] font-semibold text-slate-500 dark:text-white/50 uppercase tracking-wider">
-            {lang === 'es' ? 'Comisión por lavador (RD$)' : 'Commission per worker (RD$)'}
-          </p>
-          {selected.map(w => (
-            <div key={w.id} className="flex items-center gap-2">
-              <span className="flex-1 text-[12px] text-slate-700 dark:text-white truncate">{w.name}</span>
-              <div className="flex items-center bg-white dark:bg-black border border-slate-200 dark:border-white/10 rounded-md overflow-hidden focus-within:border-[#b3001e]">
-                <span className="px-1.5 text-[10px] text-slate-400 select-none">RD$</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={overrides[w.id] ?? ''}
-                  onChange={e => onOverrideChange(w.id, e.target.value.replace(/[^\d.]/g, ''))}
-                  placeholder={lang === 'es' ? 'auto' : 'auto'}
-                  className="w-20 px-1 py-1 text-[12px] font-semibold text-right text-slate-800 dark:text-white bg-transparent focus:outline-none"
-                />
-              </div>
+      {selected.length >= 2 && onOverrideChange && (() => {
+        // v2.14.25 — the override is each washer's SHARE of the ticket (the
+        // portion of the service value that worker is responsible for), NOT
+        // a raw commission amount. Sum of shares must equal the ticket's
+        // commission-eligible total (shareTotalTarget, ITBIS-inclusive).
+        // Per-washer commission is derived: share / (1+itbisFrac) × pct.
+        // Cobrar is blocked when the divider is incomplete.
+        const sum = selected.reduce((s, w) => s + (Number(overrides[w.id]) || 0), 0)
+        const delta = sum - shareTotalTarget
+        const allBlank = selected.every(w => !overrides[w.id])
+        const incomplete = !allBlank && Math.abs(delta) > 0.01 && shareTotalTarget > 0
+        return (
+          <div className={`mb-2 space-y-1.5 p-2 rounded-lg bg-slate-50 dark:bg-white/5 border ${incomplete ? 'border-red-400 dark:border-red-500/40' : 'border-slate-200 dark:border-white/10'}`}>
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-semibold text-slate-500 dark:text-white/50 uppercase tracking-wider">
+                {lang === 'es' ? 'Dividir ticket entre lavadores' : 'Split ticket between washers'}
+              </p>
+              {shareTotalTarget > 0 && (
+                <p className="text-[10px] font-semibold text-slate-400 dark:text-white/40">
+                  {lang === 'es' ? 'Meta' : 'Target'}: RD${shareTotalTarget.toFixed(2)}
+                </p>
+              )}
             </div>
-          ))}
-          <p className="text-[9px] text-slate-400 dark:text-white/40 italic">
-            {lang === 'es' ? 'Deja en blanco para usar el % del empleado.' : 'Leave blank to use employee %.'}
-          </p>
-        </div>
-      )}
+            {selected.map(w => {
+              const share = Number(overrides[w.id]) || 0
+              const pct = Number(w.commission_pct ?? w.comision_pct ?? 0)
+              // Per-washer commission = share ÷ (1+itbis) × pct/100
+              const comm = share > 0 && pct > 0
+                ? (share / (1 + itbisFrac)) * (pct / 100)
+                : 0
+              return (
+                <div key={w.id} className="flex items-center gap-2">
+                  <span className="flex-1 text-[12px] text-slate-700 dark:text-white truncate">
+                    {w.name}
+                    <span className="text-[10px] text-slate-400 dark:text-white/40 ml-1">({pct}%)</span>
+                  </span>
+                  <div className="flex items-center bg-white dark:bg-black border border-slate-200 dark:border-white/10 rounded-md overflow-hidden focus-within:border-[#b3001e]">
+                    <span className="px-1.5 text-[10px] text-slate-400 select-none">RD$</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={overrides[w.id] ?? ''}
+                      onChange={e => onOverrideChange(w.id, e.target.value.replace(/[^\d.]/g, ''))}
+                      placeholder={lang === 'es' ? 'parte' : 'share'}
+                      className="w-20 px-1 py-1 text-[12px] font-semibold text-right text-slate-800 dark:text-white bg-transparent focus:outline-none"
+                    />
+                  </div>
+                  <span className="w-20 text-right text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                    = RD${comm.toFixed(2)}
+                  </span>
+                </div>
+              )
+            })}
+            {!allBlank && (
+              <div className={`flex items-center justify-between pt-1.5 mt-1 border-t text-[11px] font-bold ${incomplete ? 'border-red-400 text-red-600 dark:text-red-400' : 'border-emerald-400 text-emerald-600 dark:text-emerald-400'}`}>
+                <span>{lang === 'es' ? 'Suma de partes' : 'Share sum'}</span>
+                <span>RD${sum.toFixed(2)} / {shareTotalTarget.toFixed(2)}</span>
+              </div>
+            )}
+            {incomplete && (
+              <p className="text-[11px] text-red-600 dark:text-red-400 font-bold">
+                {lang === 'es'
+                  ? (delta > 0
+                      ? `⚠ Divider incompleto — sobran RD$${delta.toFixed(2)}. Ajusta las partes para sumar RD$${shareTotalTarget.toFixed(2)}.`
+                      : `⚠ Divider incompleto — faltan RD$${Math.abs(delta).toFixed(2)}. Completa el total.`)
+                  : `⚠ Divider incomplete — sum must equal RD$${shareTotalTarget.toFixed(2)}.`}
+              </p>
+            )}
+            {allBlank && (
+              <p className="text-[9px] text-slate-400 dark:text-white/40 italic">
+                {lang === 'es'
+                  ? 'Deja en blanco para dividir el total uniformemente y usar el % de cada empleado.'
+                  : 'Leave blank to split evenly using each worker\'s %.'}
+              </p>
+            )}
+          </div>
+        )
+      })()}
 
       <button
         onClick={() => setOpen(o => !o)}
@@ -515,16 +567,25 @@ function CarWashPOS() {
         .filter(s => s.is_wash === 0)
         .reduce((s, i) => s + i.price, 0)
 
-      // v2.14.20 — translate per-washer override amounts (keyed by id) into
-      // the shape ticketCreate wants: [{ empleado_supabase_id, amount }].
-      // Only sent when 2+ washers are on the ticket; single-washer tickets
-      // use the auto-calc path unchanged.
+      // v2.14.25 — override input is each washer's SHARE of the ticket
+      // (portion of service value they handled, ITBIS-inclusive). Commission
+      // amount = share ÷ (1+itbis) × empleado.comision_pct / 100.
+      // Sum of shares must equal shareTotalTarget or the UI blocks submit;
+      // here we compute commission per washer from whatever shares exist.
+      const _itbisFrac = (Number(itbisRate) || 18) / 100
       const washerOverrides = (workers.length >= 2)
         ? workers
-            .map(w => ({
-              empleado_supabase_id: w.supabase_id || null,
-              amount: Number(workerOverrides[w.id] || 0),
-            }))
+            .map(w => {
+              const share = Number(workerOverrides[w.id] || 0)
+              const pct = Number(w.commission_pct ?? w.comision_pct ?? 0)
+              const amount = share > 0 && pct > 0
+                ? parseFloat(((share / (1 + _itbisFrac)) * (pct / 100)).toFixed(2))
+                : 0
+              return {
+                empleado_supabase_id: w.supabase_id || null,
+                amount,
+              }
+            })
             .filter(o => o.empleado_supabase_id && o.amount > 0)
         : []
 
@@ -584,13 +645,19 @@ function CarWashPOS() {
         .filter(s => s.is_wash === 0)
         .reduce((s, i) => s + i.price, 0)
 
-      // v2.14.20 — per-washer commission override on cobrar (same shape as encolar)
+      // v2.14.25 — override is share of ticket, not commission amount. See
+      // handleEncolar for the math. Convert here too.
+      const _itbisFracCb = (Number(itbisRate) || 18) / 100
       const washerOverridesCb = (pending.workers?.length >= 2 && pending.workerOverrides)
         ? pending.workers
-            .map(w => ({
-              empleado_supabase_id: w.supabase_id || null,
-              amount: Number(pending.workerOverrides[w.id] || 0),
-            }))
+            .map(w => {
+              const share = Number(pending.workerOverrides[w.id] || 0)
+              const pct = Number(w.commission_pct ?? w.comision_pct ?? 0)
+              const amount = share > 0 && pct > 0
+                ? parseFloat(((share / (1 + _itbisFracCb)) * (pct / 100)).toFixed(2))
+                : 0
+              return { empleado_supabase_id: w.supabase_id || null, amount }
+            })
             .filter(o => o.empleado_supabase_id && o.amount > 0)
         : []
       const result = await api.tickets.create({
@@ -722,8 +789,14 @@ function CarWashPOS() {
             .filter(s => (s.is_wash ?? 1) !== 0)
             .reduce((s, i) => s + Number(i.price || 0) * Number(i.qty || 1), 0) / (1 + itbisFrac)
           for (const w of workers) {
-            const overrideAmt = Number(pending.workerOverrides?.[w.id] || 0)
+            // v2.14.25 — override is a SHARE (gross, ITBIS-incl). Convert
+            // to commission: share / (1+itbis) × pct / 100. Falls back to
+            // whole washerBase × pct when no per-worker share is set.
+            const shareOverride = Number(pending.workerOverrides?.[w.id] || 0)
             const pct = Number(w.commission_pct ?? w.comision_pct ?? 0)
+            const overrideAmt = shareOverride > 0 && pct > 0
+              ? parseFloat(((shareOverride / (1 + itbisFrac)) * (pct / 100)).toFixed(2))
+              : 0
             const commAmount = overrideAmt > 0
               ? overrideAmt
               : parseFloat((washerBase * pct / 100).toFixed(2))
@@ -1128,6 +1201,10 @@ function CarWashPOS() {
                   onChange={setWorkers}
                   overrides={workerOverrides}
                   onOverrideChange={(id, val) => setWorkerOverrides(prev => ({ ...prev, [id]: val }))}
+                  shareTotalTarget={allOrderItems
+                    .filter(s => (s.is_wash ?? 1) !== 0)
+                    .reduce((s, i) => s + Number(i.price || 0) * Number(i.qty || 1), 0)}
+                  itbisFrac={(Number(itbisRate) || 18) / 100}
                   washers={rawWashers}
                   t={t} businessType={businessType} lang={lang}
                 />

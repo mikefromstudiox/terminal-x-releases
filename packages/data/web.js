@@ -2920,13 +2920,14 @@ export function createWebAPI(supabase, businessId) {
         if (error) throw new Error(error.message)
         if (!rows?.length) return []
 
-        // Filter by date range + only unpaid (so re-running payroll doesn't double-pay).
+        // v2.14.24 — include BOTH paid and unpaid in the result so
+        // liquidación views can show total_acumulado. total_commission
+        // stays as unpaid-only for "pagar ahora" flows.
         const from = dateFrom || '2000-01-01'
         const to   = dateTo   || '2099-12-31'
-        const filtered = rows.filter(r => !r.paid && r.created_at >= from && r.created_at <= to)
+        const filtered = rows.filter(r => r.created_at >= from && r.created_at <= to)
         if (!filtered.length) return []
 
-        // Fetch empleado names via empleado_supabase_id
         const empSids = [...new Set(filtered.map(r => r.empleado_supabase_id).filter(Boolean))]
         const empMap = {}
         if (empSids.length) {
@@ -2934,17 +2935,28 @@ export function createWebAPI(supabase, businessId) {
           for (const e of (er || [])) empMap[e.supabase_id] = e
         }
 
-        // Group by empleado
         const map = {}
         for (const r of filtered) {
           const wid = r.empleado_supabase_id
           const e = empMap[wid] || {}
-          if (!map[wid]) map[wid] = { washer_id: wid, washer_name: e.nombre || '—', commission_pct: e.comision_pct || r.commission_pct || 0, ticket_count: 0, total_base: 0, total_commission: 0 }
-          map[wid].ticket_count++
-          map[wid].total_base       += r.base_amount || 0
-          map[wid].total_commission += r.commission_amount || 0
+          if (!map[wid]) map[wid] = {
+            washer_id: wid, washer_name: e.nombre || '—',
+            commission_pct: e.comision_pct || r.commission_pct || 0,
+            ticket_count: 0, ticket_count_paid: 0, ticket_count_total: 0,
+            total_base: 0, total_commission: 0, total_paid: 0, total_acumulado: 0,
+          }
+          map[wid].ticket_count_total++
+          map[wid].total_acumulado += r.commission_amount || 0
+          if (r.paid) {
+            map[wid].ticket_count_paid++
+            map[wid].total_paid += r.commission_amount || 0
+          } else {
+            map[wid].ticket_count++
+            map[wid].total_base       += r.base_amount || 0
+            map[wid].total_commission += r.commission_amount || 0
+          }
         }
-        return Object.values(map).sort((a, b) => b.total_commission - a.total_commission)
+        return Object.values(map).sort((a, b) => b.total_acumulado - a.total_acumulado)
       }, []),
 
       markPaid: (ids) => tryOr(async () => {
@@ -3024,7 +3036,7 @@ export function createWebAPI(supabase, businessId) {
         const dateFrom = params.from || params.dateFrom
         const dateTo   = params.to   || params.dateTo
         const { data: rows, error } = await supabase.from('seller_commissions')
-          .select('empleado_supabase_id, base_amount, commission_pct, commission_amount, created_at')
+          .select('empleado_supabase_id, base_amount, commission_pct, commission_amount, created_at, paid')
           .eq('business_id', bid)
         if (error) throw new Error(error.message)
         if (!rows?.length) return []
@@ -3037,14 +3049,23 @@ export function createWebAPI(supabase, businessId) {
           const { data: er } = await supabase.from('empleados').select('supabase_id, nombre, comision_pct').in('supabase_id', empSids)
           for (const e of (er || [])) sMap[e.supabase_id] = e
         }
+        // v2.14.24 — total_acumulado (paid + unpaid) for liquidación
         const map = {}
         for (const r of filtered) {
           const sid = r.empleado_supabase_id
           const s = sMap[sid] || {}
-          if (!map[sid]) map[sid] = { seller_id: sid, seller_name: s.nombre || '—', commission_pct: s.comision_pct || r.commission_pct || 0, ticket_count: 0, total_base: 0, total_commission: 0 }
-          map[sid].ticket_count++; map[sid].total_base += r.base_amount || 0; map[sid].total_commission += r.commission_amount || 0
+          if (!map[sid]) map[sid] = {
+            seller_id: sid, seller_name: s.nombre || '—',
+            commission_pct: s.comision_pct || r.commission_pct || 0,
+            ticket_count: 0, ticket_count_paid: 0, ticket_count_total: 0,
+            total_base: 0, total_commission: 0, total_paid: 0, total_acumulado: 0,
+          }
+          map[sid].ticket_count_total++
+          map[sid].total_acumulado += r.commission_amount || 0
+          if (r.paid) { map[sid].ticket_count_paid++; map[sid].total_paid += r.commission_amount || 0 }
+          else { map[sid].ticket_count++; map[sid].total_base += r.base_amount || 0; map[sid].total_commission += r.commission_amount || 0 }
         }
-        return Object.values(map).sort((a, b) => b.total_commission - a.total_commission)
+        return Object.values(map).sort((a, b) => b.total_acumulado - a.total_acumulado)
       }, []),
 
       markPaid: (ids) => tryOr(async () => {

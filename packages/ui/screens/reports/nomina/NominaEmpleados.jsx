@@ -85,7 +85,9 @@ export default function NominaEmpleados() {
       const build = (rows, legacySupaKey, legacyIdKey) => {
         const bySid = {}, byLegacySid = {}, byLegacyId = {}
         for (const r of (rows || [])) {
-          const amt = Number(r.total_commission || r.commission_amount || 0)
+          // v2.14.24 — prefer total_acumulado (paid + unpaid) so liquidación
+          // shows full accrual per worker, not just the unpaid balance.
+          const amt = Number(r.total_acumulado ?? r.total_commission ?? r.commission_amount ?? 0)
           if (r.empleado_supabase_id) {
             const k = String(r.empleado_supabase_id)
             bySid[k] = (bySid[k] || 0) + amt

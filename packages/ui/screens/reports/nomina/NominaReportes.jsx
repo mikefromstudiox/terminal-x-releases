@@ -61,7 +61,7 @@ export default function NominaReportes() {
       const build = (rows, legacySupaKey, legacyIdKey) => {
         const bySid = {}, byLegacySid = {}, byLegacyId = {}
         for (const r of (rows || [])) {
-          const amt = Number(r.total_commission || r.commission_amount || 0)
+          const amt = Number(r.total_acumulado ?? r.total_commission ?? r.commission_amount ?? 0)
           if (r.empleado_supabase_id) {
             const k = String(r.empleado_supabase_id)
             bySid[k] = (bySid[k] || 0) + amt

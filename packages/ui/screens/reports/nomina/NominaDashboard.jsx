@@ -103,7 +103,7 @@ export default function NominaDashboard({ onNavigate }) {
       if (!d) return
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
       if (!monthMap[key]) monthMap[key] = { lavador: 0, vendedor: 0, cajero: 0 }
-      monthMap[key][tipo] += Number(row.total_commission || row.commission_amount || 0)
+      monthMap[key][tipo] += Number(row.total_acumulado ?? row.total_commission ?? row.commission_amount ?? 0)
     }
     for (const r of commTrends.washers) addRow(r, 'lavador')
     for (const r of commTrends.sellers) addRow(r, 'vendedor')

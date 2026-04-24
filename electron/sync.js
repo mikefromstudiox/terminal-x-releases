@@ -2154,9 +2154,29 @@ async function pullTable(tableConfig) {
     if (rows.length < FETCH_SIZE) break
   }
 
-  // Update pull cursor
+  // Update pull cursor.
+  // v2.14.25 — CRITICAL cursor-trap fix: previously we stored the raw
+  // max(updated_at) of fetched rows, combined with `gte` in the next pull's
+  // WHERE clause. That re-fetches the boundary row on every tick, and since
+  // tickets run statusSync (overwriting local status/rev/updated_at on
+  // every pull), any local mutation on that exact row gets silently
+  // clobbered within 5 min. This is the bug behind "Cobrar-from-Cola runs,
+  // factura prints, but local reverts to pendiente." Fix: advance the
+  // cursor by 1ms past the newest row so `gte` still catches same-instant
+  // ties but doesn't re-fetch the same boundary row forever.
   if (latestUpdatedAt) {
-    updatePullLog(name, latestUpdatedAt)
+    try {
+      const iso = String(latestUpdatedAt).includes('T')
+        ? latestUpdatedAt
+        : String(latestUpdatedAt).replace(' ', 'T') + 'Z'
+      const ms = Date.parse(iso)
+      const advanced = Number.isFinite(ms)
+        ? new Date(ms + 1).toISOString()
+        : latestUpdatedAt
+      updatePullLog(name, advanced)
+    } catch {
+      updatePullLog(name, latestUpdatedAt)
+    }
   }
 
   if (totalPulled > 0) log.info(`[sync-pull] ${name}: pulled ${totalPulled} rows`)
@@ -2255,7 +2275,19 @@ async function pullAppSettings(bizId) {
     if (rows.length < FETCH_SIZE) break
   }
 
-  if (latestUpdatedAt) updatePullLog('app_settings', latestUpdatedAt)
+  // v2.14.25 — advance cursor by 1ms past max(updated_at) to prevent the
+  // boundary-row re-fetch loop (see tickets cursor fix above for rationale).
+  if (latestUpdatedAt) {
+    try {
+      const iso = String(latestUpdatedAt).includes('T')
+        ? latestUpdatedAt
+        : String(latestUpdatedAt).replace(' ', 'T') + 'Z'
+      const ms = Date.parse(iso)
+      updatePullLog('app_settings', Number.isFinite(ms) ? new Date(ms + 1).toISOString() : latestUpdatedAt)
+    } catch {
+      updatePullLog('app_settings', latestUpdatedAt)
+    }
+  }
   if (totalPulled > 0) log.info(`[sync-pull] app_settings: pulled ${totalPulled} rows (myHwid=${myHwid ? 'set' : 'unset'})`)
   return totalPulled
 }
