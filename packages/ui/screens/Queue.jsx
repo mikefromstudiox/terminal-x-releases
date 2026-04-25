@@ -664,6 +664,7 @@ export default function Queue() {
         address: empresa?.direccion || empresa?.address || '',
         phone:   empresa?.telefono  || empresa?.phone   || '',
         rnc:     empresa?.rnc       || '',
+        logo:    empresa?.logo      || '',
         settings: empresa?.settings || {},
       }
       const services = snapshot.services || []
@@ -686,8 +687,27 @@ export default function Queue() {
         ley:          0,
         total:        subtotal,
         biz,
+        cfg,
       }
-      if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice'))
+      // v2.14.34 — fetch washer commissions ONCE up front so we can both
+      // (a) thread total commission into the factura for the optional
+      // "Comisión" line and (b) reuse the rows in the conduce loop below.
+      let washerListEarly = []
+      try {
+        if (ticketId) {
+          const commRows = await api.commissions?.byTicket?.({ ticketId })
+          if (Array.isArray(commRows) && commRows.length) {
+            washerListEarly = commRows.map(r => ({ name: r.nombre || r.name || '-', commAmount: Number(r.commission_amount) || 0 }))
+          }
+        }
+      } catch {}
+      ticketData.commTotal = parseFloat(washerListEarly.reduce((s, w) => s + (Number(w.commAmount) || 0), 0).toFixed(2))
+      // v2.14.34 — await factura BEFORE conduce loop so the printer queues
+      // FACTURA first then CONDUCE. Previously fire-and-forget reversed the
+      // order on physical paper.
+      if (cfg.print_factura_auto === '1') {
+        await printClientReceipt(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice'))
+      }
       // v2.14.24 — Cobrar-from-Cola must print one conduce per washer, same
       // as POS direct-Cobrar. queue.empleado_supabase_id stores ONLY the
       // first washer (schema limitation), so pull all washers from the
@@ -695,20 +715,31 @@ export default function Queue() {
       // to the single queue worker if that lookup fails.
       // Identified in print audit 2026-04-24.
       if (cfg.print_conduce_auto === '1') {
-        let washerList = []
-        try {
-          if (ticketId) {
-            const commRows = await api.commissions?.byTicket?.({ ticketId })
-            if (Array.isArray(commRows) && commRows.length) {
-              washerList = commRows.map(r => ({ name: r.nombre || r.name || '-', commAmount: Number(r.commission_amount) || 0 }))
-            }
-          }
-        } catch {}
+        // v2.14.34 — reuse washerListEarly fetched above (avoids second
+        // commissions API call). Falls back to single queue worker on miss.
+        let washerList = washerListEarly
         if (!washerList.length) {
           washerList = [{ name: snapshot.worker?.name || snapshot.washerName || '-', commAmount: 0 }]
         }
+        // v2.14.34 — derive each washer's SHARE of the wash work from their
+        // commission_amount proportion. Even split fallback when commissions
+        // aren't recorded. Scale wash services so each conduce shows that
+        // washer's portion only (RD$300 each on 50/50 split, not RD$600).
+        const totalComm = washerList.reduce((s, w) => s + (Number(w.commAmount) || 0), 0)
         for (const w of washerList) {
-          await printWasherConduce({ ...ticketData, lavador: w.name, commAmount: w.commAmount })
+          const myShare = totalComm > 0
+            ? ((Number(w.commAmount) || 0) / totalComm)
+            : (1 / washerList.length)
+          const scaledServices = services.map(s => {
+            const isWash = (s.is_wash ?? (s.c !== false ? 1 : 0)) !== 0
+            if (!isWash) return s
+            return {
+              ...s,
+              price: parseFloat((Number(s.price || 0) * myShare).toFixed(2)),
+              itbis: s.itbis != null ? parseFloat((Number(s.itbis || 0) * myShare).toFixed(2)) : s.itbis,
+            }
+          })
+          await printWasherConduce({ ...ticketData, services: scaledServices, lavador: w.name, commAmount: w.commAmount })
             .catch(() => flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce'))
         }
       }
@@ -720,7 +751,9 @@ export default function Queue() {
     } catch { /* print errors never block the queue flow */ }
 
     // ── Update UI + sync ────────────────────────────────────────────────
-    setCobrarModal(null)
+    // v2.14.34 — keep the modal mounted so CobrarModal's SuccessView (WhatsApp
+    // send + receipt actions) stays interactive. Modal closes itself via the
+    // user clicking the close button → onClose prop wired to setCobrarModal(null).
     if (ticketId) {
       setQueue(q => q.filter(t => t.id !== queueId))
       flash(`${data.ticketNo} · ${lang === 'es' ? 'Cobrado' : 'Collected'} ✓`)

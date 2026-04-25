@@ -473,6 +473,7 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
           phone:   empresa?.telefono  || empresa?.phone   || '',
           rnc:     empresa?.rnc       || '',
           logo:    empresa?.logo      || '',
+          settings: empresa?.settings || {},
         }
         for (const ticket of paidTickets) {
           const items = ticket.items || []

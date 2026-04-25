@@ -105,6 +105,35 @@ function aggregateTickets(tickets, period) {
     })
   })
 
+  // Channel/processor fees deducted from the operator's take:
+  //   - Pedidos Ya platform fee: 15% of ticket total on order_source='pedidos_ya'
+  //   - Credit-card processor fee: 5% of the card-paid portion (split-aware)
+  let pyFee = 0, cardFee = 0, pyRevenue = 0, cardRevenue = 0
+  tickets.forEach(t => {
+    if (t.status === 'void') return
+    const total = Number(t.total || 0)
+    if (t.order_source === 'pedidos_ya') {
+      pyRevenue += total
+      pyFee     += total * 0.15
+    }
+    let cardPortion = 0
+    let parts = t.payment_parts
+    if (typeof parts === 'string') { try { parts = JSON.parse(parts) } catch { parts = null } }
+    if (Array.isArray(parts) && parts.length) {
+      parts.forEach(p => {
+        const m = String(p?.method ?? p?.type ?? p?.payment_method ?? '').toLowerCase()
+        const a = Number(p?.amount ?? p?.monto ?? p?.value ?? 0) || 0
+        if (m.includes('card') || m.includes('tarjeta')) cardPortion += a
+      })
+    } else {
+      const pm = String(t.payment_method || '').toLowerCase()
+      if (pm.includes('card') || pm.includes('tarjeta')) cardPortion = total
+    }
+    cardRevenue += cardPortion
+    cardFee     += cardPortion * 0.05
+  })
+  const profitNet = profit - pyFee - cardFee
+
   // ── Weekly breakdown (for single-month view) ────────────────────────────
   const weeks = [
     { label: 'S1', facturado: 0, cobrado: 0 },
@@ -193,7 +222,7 @@ function aggregateTickets(tickets, period) {
   const cxc = Object.values(cxcMap).map(c => ({ ...c, pendiente: c.facturado - c.cobrado })).sort((a, b) => b.pendiente - a.pendiente)
 
   return {
-    metrics: { facturado, cobrado, pendiente, carros, profit, hasAnyCost },
+    metrics: { facturado, cobrado, pendiente, carros, profit, profitNet, pyFee, cardFee, pyRevenue, cardRevenue, hasAnyCost },
     weeks,
     bars,
     payMethods,
@@ -358,7 +387,7 @@ export default function MonthlyReport() {
   const [loading,     setLoading]     = useState(false)
   const [biz,         setBiz]         = useState({})
 
-  useEffect(() => { api.admin?.getEmpresa?.().then(e => e && setBiz({ name: e.name || e.nombre, rnc: e.rnc, address: e.address || e.direccion, phone: e.phone || e.telefono, email: e.email, logo: e.logo })).catch(() => {}) }, [])
+  useEffect(() => { api.admin?.getEmpresa?.().then(e => e && setBiz({ name: e.name || e.nombre, rnc: e.rnc, address: e.address || e.direccion, phone: e.phone || e.telefono, email: e.email, logo: e.logo, settings: e.settings })).catch(() => {}) }, [])
 
   // ── Fetch tickets for current period and previous period ──────────────────
   const loadTickets = useCallback(async () => {
@@ -578,15 +607,53 @@ export default function MonthlyReport() {
           <>
 
             {/* ── Metric cards ─────────────────────────────────────────── */}
-            <div className={`grid grid-cols-2 ${data.metrics.hasAnyCost ? 'md:grid-cols-5' : 'md:grid-cols-4'} gap-2 md:gap-3`}>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
               <MetricCard icon={ReceiptText}      label={lang === 'es' ? 'Total Facturado' : 'Total Billed'}       value={fmtRD(data.metrics.facturado)} change={chg('facturado')} accent="sky"   />
               <MetricCard icon={CircleDollarSign} label={lang === 'es' ? 'Total Cobrado'   : 'Total Collected'}    value={fmtRD(data.metrics.cobrado)}   change={chg('cobrado')}   accent="green" />
-              {data.metrics.hasAnyCost && (
-                <MetricCard icon={PiggyBank}      label={lang === 'es' ? 'Ganancia Neta'   : 'Net Profit'}         value={fmtRD(data.metrics.profit || 0)} accent="green" />
-              )}
               <MetricCard icon={Clock}            label={lang === 'es' ? 'Pendiente Cobrar': 'Pending Collection'} value={fmtRD(data.metrics.pendiente)} change={chg('pendiente')} accent="amber" />
               <MetricCard icon={Car}              label={lang === 'es' ? 'Tickets / Carros'  : 'Tickets / Cars'}    value={data.metrics.carros}           change={chg('carros')}    accent="slate" />
             </div>
+
+            {/* ── Profit & Loss row (channel/processor fees) ─────────────────── */}
+            {(data.metrics.hasAnyCost || data.metrics.pyFee > 0 || data.metrics.cardFee > 0) && (
+              <div className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-5">
+                <p className="text-[12px] font-bold text-slate-700 dark:text-white mb-4">
+                  {lang === 'es' ? 'Ganancias y Gastos' : 'Profit & Loss'}
+                </p>
+                <div className="space-y-2.5">
+                  {data.metrics.hasAnyCost && (
+                    <div className="flex items-center justify-between text-[13px]">
+                      <span className="text-slate-600 dark:text-white/60">{lang === 'es' ? 'Ganancia bruta (precio − costo)' : 'Gross profit (price − cost)'}</span>
+                      <span className="font-semibold text-slate-800 dark:text-white">{fmtRD(data.metrics.profit || 0)}</span>
+                    </div>
+                  )}
+                  {data.metrics.pyFee > 0 && (
+                    <div className="flex items-center justify-between text-[13px]">
+                      <span className="text-slate-600 dark:text-white/60">
+                        {lang === 'es' ? 'Comisión Pedidos Ya (15% de ' : 'Pedidos Ya fee (15% of '}
+                        <span className="text-slate-400 dark:text-white/40">{fmtRD(data.metrics.pyRevenue)}</span>)
+                      </span>
+                      <span className="font-semibold text-rose-600">−{fmtRD(data.metrics.pyFee)}</span>
+                    </div>
+                  )}
+                  {data.metrics.cardFee > 0 && (
+                    <div className="flex items-center justify-between text-[13px]">
+                      <span className="text-slate-600 dark:text-white/60">
+                        {lang === 'es' ? 'Comisión Tarjeta (5% de ' : 'Card processor fee (5% of '}
+                        <span className="text-slate-400 dark:text-white/40">{fmtRD(data.metrics.cardRevenue)}</span>)
+                      </span>
+                      <span className="font-semibold text-rose-600">−{fmtRD(data.metrics.cardFee)}</span>
+                    </div>
+                  )}
+                  {data.metrics.hasAnyCost && (
+                    <div className="flex items-center justify-between pt-2.5 border-t border-slate-200 dark:border-white/10">
+                      <span className="text-[13px] font-bold text-slate-800 dark:text-white">{lang === 'es' ? 'Ganancia Neta' : 'Net Profit'}</span>
+                      <span className="text-[15px] font-bold text-emerald-600">{fmtRD(data.metrics.profitNet || 0)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* ── Charts row ───────────────────────────────────────────── */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

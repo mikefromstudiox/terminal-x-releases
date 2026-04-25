@@ -149,6 +149,14 @@ export async function printDailyReport(biz, transactions, summary, period) {
         <div class="summary-card"><div class="label">Cuentas por Cobrar</div><div class="value">${fmtMoney(summary.cxc)}</div></div>
         <div class="summary-card"><div class="label">Anuladas</div><div class="value">${summary.nulas}</div></div>
       </div>
+      ${(summary.hasAnyCost || summary.pyFee > 0 || summary.cardFee > 0) ? `<div class="section">
+        <div class="section-title">Ganancias y Gastos</div>
+        <table><thead><tr><th>Concepto</th><th class="right">Monto</th></tr></thead><tbody>
+          ${summary.hasAnyCost ? `<tr><td>Ganancia Bruta</td><td class="right money">${fmtMoney(summary.profit || 0)}</td></tr>` : ''}
+          ${summary.pyFee > 0 ? `<tr><td>Comision Pedidos Ya (15% de ${fmtMoney(summary.pyRevenue)})</td><td class="right money" style="color:#dc2626">-${fmtMoney(summary.pyFee)}</td></tr>` : ''}
+          ${summary.cardFee > 0 ? `<tr><td>Comision Tarjeta (5% de ${fmtMoney(summary.cardRevenue)})</td><td class="right money" style="color:#dc2626">-${fmtMoney(summary.cardFee)}</td></tr>` : ''}
+        </tbody>${summary.hasAnyCost ? `<tfoot><tr><td class="bold">Ganancia Neta</td><td class="right money bold">${fmtMoney(summary.profitNet || 0)}</td></tr></tfoot>` : ''}</table>
+      </div>` : ''}
       <div class="section">
         <div class="section-title">Desglose por Forma de Pago</div>
         <table><thead><tr><th>Metodo</th><th class="right">Monto</th></tr></thead><tbody>
@@ -299,6 +307,14 @@ export async function printMonthlyReport(biz, data, label) {
         <div class="summary-card"><div class="label">Pendiente</div><div class="value">${fmtMoney(metrics.pendiente)}</div></div>
         <div class="summary-card"><div class="label">Tickets</div><div class="value">${metrics.carros}</div></div>
       </div>
+      ${(metrics.hasAnyCost || metrics.pyFee > 0 || metrics.cardFee > 0) ? `<div class="section">
+        <div class="section-title">Ganancias y Gastos</div>
+        <table><thead><tr><th>Concepto</th><th class="right">Monto</th></tr></thead><tbody>
+          ${metrics.hasAnyCost ? `<tr><td>Ganancia Bruta (precio - costo)</td><td class="right money">${fmtMoney(metrics.profit || 0)}</td></tr>` : ''}
+          ${metrics.pyFee > 0 ? `<tr><td>Comision Pedidos Ya (15% de ${fmtMoney(metrics.pyRevenue)})</td><td class="right money" style="color:#dc2626">-${fmtMoney(metrics.pyFee)}</td></tr>` : ''}
+          ${metrics.cardFee > 0 ? `<tr><td>Comision Tarjeta (5% de ${fmtMoney(metrics.cardRevenue)})</td><td class="right money" style="color:#dc2626">-${fmtMoney(metrics.cardFee)}</td></tr>` : ''}
+        </tbody>${metrics.hasAnyCost ? `<tfoot><tr><td class="bold">Ganancia Neta</td><td class="right money bold">${fmtMoney(metrics.profitNet || 0)}</td></tr></tfoot>` : ''}</table>
+      </div>` : ''}
       <div class="section">
         <div class="section-title">Top 5 Clientes</div>
         <table><thead><tr><th>#</th><th>Cliente</th><th class="right">Tickets</th><th class="right">Total</th></tr></thead><tbody>

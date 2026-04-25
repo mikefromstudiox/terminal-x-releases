@@ -161,6 +161,11 @@ async function buildLogoEscPos(logoInput) {
       // matches the visual weight of the double-height DOUBLE_ON text.
       const TARGET_WIDTH = 384
       const img = new Image()
+      // v2.14.34 — request CORS for HTTPS logos (Supabase Storage). Without
+      // crossOrigin set, the canvas becomes tainted on cross-origin loads and
+      // ctx.getImageData throws → finish('') → no logo. Data URLs ignore this
+      // attribute. Public Supabase buckets respond with Access-Control-Allow-Origin.
+      if (/^https?:\/\//i.test(logoUrl)) img.crossOrigin = 'anonymous'
       img.onload = () => {
         try {
           const scale = Math.min(1, TARGET_WIDTH / img.naturalWidth)
@@ -245,9 +250,13 @@ function buildHeader(biz, logoBytes = '') {
   // New behavior: print address on one line, city on a second line if
   // it adds value (not identical + not already a suffix).
   try {
-    const addr = String(biz.address || '').trim()
     const s = typeof biz.settings === 'string' ? JSON.parse(biz.settings) : (biz.settings || {})
-    const city = (s.ciudad || s.biz_city || '').trim()
+    // v2.14.34 — read address from settings first (dual-keyed: biz_address + direccion),
+    // fall back to DB column. Mi Empresa now mirrors address into settings JSON the
+    // same way it dual-keys ciudad. Reading settings-first insulates us from any
+    // sync gap on the enterprises.address column.
+    const addr = String(s.biz_address || s.direccion || biz.address || '').trim()
+    const city = String(s.ciudad || s.biz_city || '').trim()
     if (addr) wrapText(addr, COL_WIDTH).forEach(l => { parts.push(l); parts.push(LF) })
     if (city && city.toLowerCase() !== addr.toLowerCase() && !addr.toLowerCase().endsWith(city.toLowerCase())) {
       wrapText(city, COL_WIDTH).forEach(l => { parts.push(l); parts.push(LF) })
@@ -358,8 +367,19 @@ export function buildClientReceipt(data, logoBytes = '') {
     if (data.vehiclePlate) { lines.push(cols('VEHICULO', data.vehiclePlate, COL_WIDTH)); lines.push(LF) }
     lines.push(cols('TIPO VENTA', data.tipo === 'credito' ? 'Credito' : 'Contado', COL_WIDTH))
     lines.push(LF)
-    lines.push(cols('FORMA PAGO', formatFormaPago(data.formaPago), COL_WIDTH))
-    lines.push(LF)
+    if (Array.isArray(data.payment_parts) && data.payment_parts.length > 1) {
+      lines.push(cols('FORMA PAGO', 'Mixto', COL_WIDTH))
+      lines.push(LF)
+      data.payment_parts.forEach(p => {
+        const amt = Number(p?.amount) || 0
+        const label = '  ' + formatFormaPago(p?.method).toUpperCase()
+        lines.push(cols(label, `RD$ ${amt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, COL_WIDTH))
+        lines.push(LF)
+      })
+    } else {
+      lines.push(cols('FORMA PAGO', formatFormaPago(data.formaPago), COL_WIDTH))
+      lines.push(LF)
+    }
   }
 
   // ── First separator: header → body. Column header baseline.
@@ -395,12 +415,12 @@ export function buildClientReceipt(data, logoBytes = '') {
       lines.push(cols(name, totalAmt, COL_WIDTH))
       lines.push(LF)
     }
-    // Per-item secondary info (weight pricing, ITBIS share) — indented, muted
+    // Per-item secondary info (weight pricing only) — indented, muted.
+    // v2.14.34 — per-item "incl. ITBIS" line removed: ITBIS is shown ONCE in
+    // the totals block. Per-line ITBIS confused customers and rounding made
+    // the per-line sum diverge from the bottom-line ITBIS on reprints.
     if (weight != null && unit && ppu != null) {
       lines.push(`  ${weight.toFixed(3)} ${unit} x ${fmt(ppu)}/${unit}`)
-      lines.push(LF)
-    } else if (s.itbis != null && s.itbis > 0) {
-      lines.push(`  incl. ITBIS ${fmt(s.itbis * qty)}`)
       lines.push(LF)
     }
   })
@@ -424,7 +444,21 @@ export function buildClientReceipt(data, logoBytes = '') {
   if (isFiscal) {
     lines.push(cols('Subtotal',   fmt(data.subtotal), COL_WIDTH))
     lines.push(LF)
-    lines.push(cols('ITBIS',      fmt(data.itbis),    COL_WIDTH))
+    // v2.14.34 — optional ITBIS percentage label ("ITBIS 18%"). Owner toggles
+    // via Sistema → Preferencias → Personalización de Recibo. Reads cfg from
+    // data.cfg (threaded by printClientReceipt). Falls back to plain "ITBIS".
+    const showItbisPct = data.cfg?.receipt_show_itbis_pct === '1' || data.cfg?.receipt_show_itbis_pct === true
+    const itbisPct = String(data.cfg?.itbis_pct || '18').replace(/[^0-9.]/g, '') || '18'
+    const itbisLabel = showItbisPct ? `ITBIS ${itbisPct}%` : 'ITBIS'
+    lines.push(cols(itbisLabel, fmt(data.itbis), COL_WIDTH))
+    lines.push(LF)
+  }
+  // v2.14.34 — optional Comisión line on the customer-facing factura (toggle
+  // in Sistema → Personalización de Recibo). Conduce always shows commission;
+  // this flag only controls the factura.
+  const showCommission = data.cfg?.receipt_show_commission === '1' || data.cfg?.receipt_show_commission === true
+  if (showCommission && Number(data.commTotal) > 0) {
+    lines.push(cols('Comisión', fmt(Number(data.commTotal)), COL_WIDTH))
     lines.push(LF)
   }
   if (data.ley > 0) {
@@ -1080,8 +1114,19 @@ export function splitPayloadByRoute(ticket, settings = {}) {
 /** Print the full client invoice receipt (kicks drawer only for cash/check) */
 export async function printClientReceipt(ticketData, api, printerApi) {
   const logoBytes = await buildLogoEscPos(ticketData.biz?.logo || '').catch(() => '')
+  // v2.14.34 — load receipt-customization settings (cfg) at print time so the
+  // builder can read receipt_show_itbis_pct / receipt_show_commission. Caller
+  // can also pre-thread cfg in ticketData.cfg to skip the IPC roundtrip.
+  let cfg = ticketData.cfg
+  if (!cfg) {
+    try {
+      const settingsApi = api?.settings || (typeof window !== 'undefined' ? window.electronAPI?.settings : null)
+      cfg = await settingsApi?.get?.().catch?.(() => ({})) || {}
+    } catch { cfg = {} }
+  }
+  const dataWithCfg = { ...ticketData, cfg }
   const isCash = ['cash', 'efectivo', 'cheque'].includes((ticketData.formaPago || '').toLowerCase())
-  const escpos = (isCash ? DRAWER_KICK : '') + buildClientReceipt(ticketData, logoBytes)
+  const escpos = (isCash ? DRAWER_KICK : '') + buildClientReceipt(dataWithCfg, logoBytes)
   return sendToPrinter('client-receipt', escpos, ticketData.biz, api)
 }
 

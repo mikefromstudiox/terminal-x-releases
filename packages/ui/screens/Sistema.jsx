@@ -289,6 +289,11 @@ const SISTEMA_DEFAULTS = {
   // retries with backoff (1s/3s/8s), surfaces a banner after max attempts.
   print_retry_enabled: '1',
   print_retry_max:     '3',
+  // v2.14.34 — Per-business receipt customization. Cloud-synced (BUSINESS_SETTING_KEYS)
+  // so all registers in a business inherit the same look. Toggles affect the
+  // customer-facing factura only (buildClientReceipt in services/printer.js).
+  receipt_show_itbis_pct:  '0',
+  receipt_show_commission: '0',
 }
 
 // Shared settings hook — loads cfg from DB once, provides set/save
@@ -759,6 +764,18 @@ export function ImpresionSettings() {
         </SettingRow>
         <SettingRow settingKey="print_conduce_auto" label={L('Conduce', 'Delivery Note')} hint={showPreTicket ? L('Al confirmar cobro', 'On payment') : L('Copia para control de inventario', 'Copy for inventory check')}>
           <Toggle enabled={on('print_conduce_auto')} onChange={v => set('print_conduce_auto', v ? '1' : '0')} />
+        </SettingRow>
+      </SettingSection>
+
+      {/* v2.14.34 — Per-business receipt customization. Toggles affect the
+          customer-facing factura only. Stored in BUSINESS_SETTING_KEYS so all
+          registers in the business inherit the same look after sync. */}
+      <SettingSection title={L('Personalización de Recibo', 'Receipt Customization')}>
+        <SettingRow settingKey="receipt_show_itbis_pct" label={L('Mostrar % de ITBIS', 'Show ITBIS %')} hint={L('Muestra "ITBIS 18%" en los totales del recibo', 'Shows "ITBIS 18%" on the totals line')}>
+          <Toggle enabled={on('receipt_show_itbis_pct')} onChange={v => set('receipt_show_itbis_pct', v ? '1' : '0')} />
+        </SettingRow>
+        <SettingRow settingKey="receipt_show_commission" label={L('Mostrar comisión en factura', 'Show commission on invoice')} hint={L('Imprime una línea de Comisión en los totales (solo factura, no afecta el conduce)', 'Prints a Commission line in totals (invoice only, not the conduce)')}>
+          <Toggle enabled={on('receipt_show_commission')} onChange={v => set('receipt_show_commission', v ? '1' : '0')} />
         </SettingRow>
       </SettingSection>
 

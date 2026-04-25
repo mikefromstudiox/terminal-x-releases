@@ -411,7 +411,16 @@ function buildLines(data) {
     if (data.client?.phone) cols('TEL',    formatPhoneForReceipt(data.client.phone), { upper: true, size: SMALL })
   }
 
-  cols('FORMA PAGO', formatFormaPagoPDF(data.formaPago), { upper: true, size: SMALL })
+  if (Array.isArray(data.payment_parts) && data.payment_parts.length > 1) {
+    cols('FORMA PAGO', 'MIXTO', { upper: true, size: SMALL })
+    data.payment_parts.forEach(p => {
+      const amt = Number(p?.amount) || 0
+      const label = '  ' + (formatFormaPagoPDF(p?.method) || '').toString()
+      cols(label, `RD$ ${amt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, { upper: true, size: SMALL })
+    })
+  } else {
+    cols('FORMA PAGO', formatFormaPagoPDF(data.formaPago), { upper: true, size: SMALL })
+  }
   if (data.tipo === 'credito') cols('TIPO VENTA', 'Credito', { upper: true, size: SMALL })
 
   rule()

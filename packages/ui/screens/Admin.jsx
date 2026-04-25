@@ -1494,7 +1494,7 @@ function MiEmpresa() {
         setForm({
           biz_name:    row.name    || '',
           biz_rnc:     row.rnc     || '',
-          biz_address: row.address || '',
+          biz_address: extra.biz_address || extra.direccion || row.address || '',
           biz_phone:   row.phone   || '',
           biz_city:    extra.biz_city  || extra.ciudad || '',
           biz_type:    extra.biz_type  || '',
@@ -1525,7 +1525,8 @@ function MiEmpresa() {
       let existing = {}
       try { existing = current?.settings ? (typeof current.settings === 'string' ? JSON.parse(current.settings) : current.settings) : {} } catch {}
       const city = form.biz_city.trim()
-      const mergedSettings = { ...existing, biz_city: city, ciudad: city, biz_type: form.biz_type }
+      const addr = form.biz_address.trim()
+      const mergedSettings = { ...existing, biz_city: city, ciudad: city, biz_address: addr, direccion: addr, biz_type: form.biz_type }
       await api.admin.saveEmpresa({
         name:     form.biz_name.trim(),
         rnc:      form.biz_rnc.trim(),

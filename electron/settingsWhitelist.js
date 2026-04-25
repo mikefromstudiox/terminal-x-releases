@@ -17,6 +17,10 @@ const BUSINESS_SETTING_KEYS = new Set([
   'whatsapp_instance', 'whatsapp_token',
   'biz_name', 'biz_rnc', 'biz_address', 'biz_phone', 'biz_city', 'biz_type',
   'biz_email', 'biz_logo', 'biz_website',
+  'direccion',
+  // Per-business receipt customization (v1)
+  'receipt_show_itbis_pct',
+  'receipt_show_commission',
   'business_type', 'biz_business_type',
   'ley_enabled',
   'go_live_date',

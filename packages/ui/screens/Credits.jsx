@@ -282,6 +282,7 @@ function ClientDetail({ client, onReload }) {
           phone:   empresa?.telefono  || empresa?.phone   || '',
           rnc:     empresa?.rnc       || '',
           logo:    empresa?.logo      || '',
+          settings: empresa?.settings || {},
         }
         for (const ticket of selectedTickets) {
           const items = ticket.items || []

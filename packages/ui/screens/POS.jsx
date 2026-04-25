@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
-import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck, Beer, Coffee, Cookie, Droplet, CupSoda, Candy, IceCreamCone, UtensilsCrossed, Sparkles, Cigarette, Flame, Leaf, Pizza, Smartphone, Edit2, Eye, EyeOff, Lock, Split } from 'lucide-react'
-import SplitBillModal from './restaurant/SplitBillModal'
+import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck, Beer, Coffee, Cookie, Droplet, CupSoda, Candy, IceCreamCone, UtensilsCrossed, Sparkles, Cigarette, Flame, Leaf, Pizza, Smartphone, Edit2, Eye, EyeOff, Lock } from 'lucide-react'
 import AgeVerifyModal, { requiresAgeCheck } from '../components/AgeVerifyModal'
 import WeightModal from '../components/WeightModal'
 import DepositReturnModal from '../components/DepositReturnModal'
@@ -395,7 +394,6 @@ function CarWashPOS() {
   const [queue,     setQueue]     = useState([])
   const [toast,     setToast]     = useState(null)
   const [cobrarModal, setCobrarModal] = useState(null)
-  const [splitModal,  setSplitModal]  = useState(null)  // { total }
 
   // v2.14.20 — tile reorder mode on the main service grid. Owner/manager only.
   // In reorder mode, tiles become draggable and the add-to-cart tap is disabled.
@@ -764,6 +762,7 @@ function CarWashPOS() {
           vehiclePlate: pending.vehicle    || '',
           tipo:         paymentData.tipo   || 'contado',
           formaPago:    paymentData.formaPago || 'cash',
+          payment_parts: paymentData.payment_parts || null,
           services:     pending.items,
           subtotal:     sub,
           descuento:    dscto,
@@ -774,8 +773,32 @@ function CarWashPOS() {
           signatureDate: paymentData.ecf?.signatureDate || null,
           securityCode:  paymentData.ecf?.securityCode || null,
           qrLink:        paymentData.ecf?.qrLink || null,
+          // v2.14.34 — pre-compute total commission so the factura's optional
+          // "Comisión" line (Personalización de Recibo toggle) shows the right
+          // amount. Same math as the per-washer conduce loop below.
+          commTotal: (() => {
+            const itbisFracPre = (Number(itbisRate) || 18) / 100
+            const washerBasePre = pending.items
+              .filter(s => (s.is_wash ?? 1) !== 0)
+              .reduce((s, i) => s + Number(i.price || 0) * Number(i.qty || 1), 0) / (1 + itbisFracPre)
+            const workersPre = (pending.workers?.length ? pending.workers : [])
+            return parseFloat(workersPre.reduce((acc, w) => {
+              const share = Number(pending.workerOverrides?.[w.id] || 0)
+              const pct = Number(w.commission_pct ?? w.comision_pct ?? 0)
+              const amt = share > 0 && pct > 0
+                ? (share / (1 + itbisFracPre)) * (pct / 100)
+                : (washerBasePre * pct / 100)
+              return acc + amt
+            }, 0).toFixed(2))
+          })(),
+          cfg,
         }
-        if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice'))
+        // v2.14.34 — await factura BEFORE conduce loop so the printer queues
+        // FACTURA first then CONDUCE. Previously fire-and-forget meant the
+        // sequential conduce awaits hit the queue first.
+        if (cfg.print_factura_auto === '1') {
+          await printClientReceipt(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice'))
+        }
         // v2.14.20 — when a ticket has 2+ washers, print one conduce per
         // washer so each worker walks away with their own dispatch slip.
         // Sequential so the printer queues them in order.
@@ -788,11 +811,21 @@ function CarWashPOS() {
           const washerBase = pending.items
             .filter(s => (s.is_wash ?? 1) !== 0)
             .reduce((s, i) => s + Number(i.price || 0) * Number(i.qty || 1), 0) / (1 + itbisFrac)
-          for (const w of workers) {
+          // v2.14.34 — derive each washer's SHARE of the wash work (0..1).
+          // If per-worker share overrides exist (gross RD$ amount typed by
+          // cashier), use those as proportions. Else even split across N
+          // workers. Used to scale per-washer service line prices on the
+          // conduce so each slip shows that washer's portion only (RD$300
+          // each on a 50/50 RD$600 service, not RD$600 on every conduce).
+          const overrides = workers.map(w => Number(pending.workerOverrides?.[w.id] || 0))
+          const overrideSum = overrides.reduce((a, b) => a + b, 0)
+          const useOverrideShares = overrideSum > 0
+          for (let i = 0; i < workers.length; i++) {
+            const w = workers[i]
             // v2.14.25 — override is a SHARE (gross, ITBIS-incl). Convert
             // to commission: share / (1+itbis) × pct / 100. Falls back to
             // whole washerBase × pct when no per-worker share is set.
-            const shareOverride = Number(pending.workerOverrides?.[w.id] || 0)
+            const shareOverride = overrides[i]
             const pct = Number(w.commission_pct ?? w.comision_pct ?? 0)
             const overrideAmt = shareOverride > 0 && pct > 0
               ? parseFloat(((shareOverride / (1 + itbisFrac)) * (pct / 100)).toFixed(2))
@@ -800,15 +833,30 @@ function CarWashPOS() {
             const commAmount = overrideAmt > 0
               ? overrideAmt
               : parseFloat((washerBase * pct / 100).toFixed(2))
-            await printWasherConduce({ ...ticketData, lavador: w.name || '-', commAmount })
+            const myShare = useOverrideShares
+              ? (shareOverride / overrideSum)
+              : (1 / workers.length)
+            const scaledServices = (ticketData.services || []).map(s => {
+              const isWash = (s.is_wash ?? (s.c !== false ? 1 : 0)) !== 0
+              if (!isWash) return s
+              return {
+                ...s,
+                price: parseFloat((Number(s.price || 0) * myShare).toFixed(2)),
+                itbis: s.itbis != null ? parseFloat((Number(s.itbis || 0) * myShare).toFixed(2)) : s.itbis,
+              }
+            })
+            await printWasherConduce({ ...ticketData, services: scaledServices, lavador: w.name || '-', commAmount })
               .catch(() => flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce'))
           }
         }
         // Save PDF copy to userData/receipts/
         saveReceiptPDF(ticketData).catch(() => flash(lang === 'es' ? 'Error al guardar PDF' : 'PDF save error'))
-        // Kick drawer for cash/check payments
+        // Kick drawer for cash/check payments — also fires when a Mixto split
+        // contains a cash or cheque part (cashier still receives bills).
         const fm = paymentData.formaPago || ''
-        if (paymentData.tipo !== 'credito' && !['tarjeta', 'transferencia'].includes(fm)) {
+        const partMethods = (paymentData.payment_parts || []).map(p => p?.method || '')
+        const hasCashLike = ['efectivo', 'cash', 'cheque'].includes(fm) || partMethods.some(m => ['efectivo', 'cash', 'cheque'].includes(m))
+        if (paymentData.tipo !== 'credito' && hasCashLike) {
           printerApi?.openDrawer?.().catch?.(() => {})
         }
       } catch { /* print errors never block the POS flow */ }
@@ -816,28 +864,6 @@ function CarWashPOS() {
       flash(`Error: ${err.message}`)
     }
   }, [cobrarModal, queue.length, lang])
-
-  // v2.14 — Pago Dividido (split payment across methods). Mirrors RestaurantPOS
-  // pattern: floating Dividir button over CobrarModal → SplitBillModal → pipes
-  // payment_parts through handlePaymentConfirm so all print/ECF/sync paths run
-  // unchanged. parts[0].method becomes the primary payment_method for legacy
-  // cuadre readers; full parts[] persists as JSONB for 606 / cuadre breakdown.
-  const openSplit = useCallback(() => {
-    if (!cobrarModal) return
-    const total = (cobrarModal.items || []).reduce((s, it) => s + (Number(it.price) || 0) * (it.qty || 1), 0)
-    setSplitModal({ total })
-  }, [cobrarModal])
-
-  const handleSplitPay = useCallback(async (parts) => {
-    setSplitModal(null)
-    await handlePaymentConfirm({
-      formaPago: parts[0].method,
-      tipo: 'contado',
-      payment_parts: parts,
-      descuento: 0,
-      ncfType: 'B02',
-    })
-  }, [handlePaymentConfirm])
 
   return (
     <div className="h-full flex flex-col md:flex-row">
@@ -1366,25 +1392,6 @@ function CarWashPOS() {
         />
       )}
 
-      {cobrarModal && !splitModal && (
-        <div className="fixed bottom-6 left-6 z-[65]">
-          <button
-            onClick={openSplit}
-            className="px-4 py-2.5 rounded-full bg-zinc-900 border border-white/20 hover:border-white/40 text-white text-sm font-semibold shadow-2xl flex items-center gap-2"
-          >
-            <Split size={14} /> {lang === 'es' ? 'Pago Dividido' : 'Split Payment'}
-          </button>
-        </div>
-      )}
-
-      {splitModal && (
-        <SplitBillModal
-          open={true}
-          totalAmount={splitModal.total}
-          onClose={() => setSplitModal(null)}
-          onPay={handleSplitPay}
-        />
-      )}
     </div>
   )
 }
@@ -1477,7 +1484,6 @@ function RetailPOS() {
   const [cart, setCart] = useState([])        // { id, inventory_item_id, service_id, sku, name, price, cost, qty, aplica_itbis }
   const [toast, setToast] = useState(null)
   const [cobrarModal, setCobrarModal] = useState(null)
-  const [splitModal,  setSplitModal]  = useState(null)  // { total }
   const [tab, setTab] = useState('products')  // 'products' | 'services'
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
@@ -2053,7 +2059,11 @@ function RetailPOS() {
   // ── Payment confirm ────────────────────────────────────────────────────────
   const handlePaymentConfirm = useCallback(async (paymentData) => {
     const pending = cobrarModal
-    setCobrarModal(null)
+    // v2.14.34 — DO NOT close the modal here. CobrarModal renders its
+    // SuccessView (with WhatsApp send button + receipt actions) once ecfState
+    // hits 'success'; closing the parent state unmounts the modal before the
+    // user can interact with that view. Modal closes itself via
+    // handleSuccessClose() (user dismissal) → CobrarModal's onClose prop.
 
     try {
       const { subtotal: sub, itbis: itp, total: tot } = calcTotals(pending.items, itbisRate)
@@ -2149,6 +2159,7 @@ function RetailPOS() {
           vehiclePlate: '',
           tipo: paymentData.tipo || 'contado',
           formaPago: paymentData.formaPago || 'cash',
+          payment_parts: paymentData.payment_parts || null,
           services: pending.items,
           subtotal: sub, descuento: 0, itbis: itp, ley: 0, total: tot,
           biz,
@@ -2159,7 +2170,9 @@ function RetailPOS() {
         if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => {})
         saveReceiptPDF(ticketData).catch(() => {})
         const fm = paymentData.formaPago || ''
-        if (paymentData.tipo !== 'credito' && !['tarjeta', 'transferencia'].includes(fm)) {
+        const partMethods = (paymentData.payment_parts || []).map(p => p?.method || '')
+        const hasCashLike = ['efectivo', 'cash', 'cheque'].includes(fm) || partMethods.some(m => ['efectivo', 'cash', 'cheque'].includes(m))
+        if (paymentData.tipo !== 'credito' && hasCashLike) {
           printerApi?.openDrawer?.().catch?.(() => {})
         }
       } catch (e) { console.error('post-sale side-effect failed', e) }
@@ -2167,24 +2180,6 @@ function RetailPOS() {
       flash(`Error: ${err.message}`)
     }
   }, [cobrarModal, lang])
-
-  // v2.14 — Pago Dividido (split payment). See CarWashPOS block for the rationale.
-  const openSplit = useCallback(() => {
-    if (!cobrarModal) return
-    const total = (cobrarModal.items || []).reduce((s, it) => s + (Number(it.price) || 0) * (it.qty || 1), 0)
-    setSplitModal({ total })
-  }, [cobrarModal])
-
-  const handleSplitPay = useCallback(async (parts) => {
-    setSplitModal(null)
-    await handlePaymentConfirm({
-      formaPago: parts[0].method,
-      tipo: 'contado',
-      payment_parts: parts,
-      descuento: 0,
-      ncfType: 'B02',
-    })
-  }, [handlePaymentConfirm])
 
   // ── Render ─────────────────────────────────────────────────────────────────
   const gridCols = collapsed ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid-cols-2 md:grid-cols-3 xl:grid-cols-4'
@@ -2687,26 +2682,6 @@ function RetailPOS() {
           }}
           onConfirm={handlePaymentConfirm}
           onClose={() => setCobrarModal(null)}
-        />
-      )}
-
-      {cobrarModal && !splitModal && (
-        <div className="fixed bottom-6 left-6 z-[65]">
-          <button
-            onClick={openSplit}
-            className="px-4 py-2.5 rounded-full bg-zinc-900 border border-white/20 hover:border-white/40 text-white text-sm font-semibold shadow-2xl flex items-center gap-2"
-          >
-            <Split size={14} /> {lang === 'es' ? 'Pago Dividido' : 'Split Payment'}
-          </button>
-        </div>
-      )}
-
-      {splitModal && (
-        <SplitBillModal
-          open={true}
-          totalAmount={splitModal.total}
-          onClose={() => setSplitModal(null)}
-          onPay={handleSplitPay}
         />
       )}
 

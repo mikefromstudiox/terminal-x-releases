@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import LoyaltyTierBadge, { tierMultiplier } from './LoyaltyTierBadge'
-import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, AlertCircle, Loader2, QrCode, User, MessageSquare } from 'lucide-react'
+import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, AlertCircle, Loader2, QrCode, User, MessageSquare, Split, Plus, Minus } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -60,7 +60,16 @@ const PAYMENT_METHODS = [
   { id: 'tarjeta',       icon: CreditCard,     es: 'Tarjeta',       en: 'Card'     },
   { id: 'transferencia', icon: ArrowRightLeft, es: 'Transferencia', en: 'Transfer' },
   { id: 'cheque',        icon: Landmark,       es: 'Cheque',        en: 'Check'    },
+  { id: 'mixto',         icon: Split,          es: 'Mixto',         en: 'Mixed'    },
 ]
+
+const MIXTO_METHODS = [
+  { id: 'efectivo',      icon: Banknote,       es: 'Efectivo',      en: 'Cash'     },
+  { id: 'tarjeta',       icon: CreditCard,     es: 'Tarjeta',       en: 'Card'     },
+  { id: 'transferencia', icon: ArrowRightLeft, es: 'Transferencia', en: 'Transfer' },
+  { id: 'cheque',        icon: Landmark,       es: 'Cheque',        en: 'Check'    },
+]
+const MIXTO_MAX_PARTS = 5
 
 const QUICK = [200, 500, 1000, 2000]
 
@@ -606,8 +615,19 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
   // effect below keep rnc in sync if the cashier swaps client mid-flow.
   const [rnc,        setRnc]        = useState(ticket?.client?.rnc || '')
   const [rncName,    setRncName]    = useState(ticket?.client?.rnc ? (ticket?.client?.name || '') : '')
-  const [tipo,       setTipo]       = useState('contado')
+  // v2.14.34 — auto-default to Crédito when POS passed a pre-selected client.
+  // Cashiers picking a known client almost always intend a credit sale; the
+  // Contado default forced an extra click on every saved-client transaction.
+  // Cashier can still flip back to Contado manually before confirming.
+  const [tipo,       setTipo]       = useState(ticket?.client?.id ? 'credito' : 'contado')
   const [formaPago,  setFormaPago]  = useState(null)
+  // v2.14.34 — Mixto (split payment inline). When formaPago === 'mixto' the
+  // cashier defines per-method amounts. Built INSIDE CobrarModal to kill the
+  // floating-button race that hid Pago Dividido behind a closed modal.
+  const [mixtoParts, setMixtoParts] = useState([
+    { method: 'efectivo', amount: '' },
+    { method: 'tarjeta',  amount: '' },
+  ])
   const [recibido,   setRecibido]   = useState('')
   const [comentario, setComentario] = useState('')
   const [descuentoReason, setDescuentoReason] = useState('')
@@ -810,6 +830,14 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
   const recibidoNum  = parseFloat(recibido.replace(/,/g, '')) || 0
   const devuelta     = recibidoNum - total
   const showEfectivo = tipo === 'contado' && formaPago === 'efectivo'
+  const showMixto    = tipo === 'contado' && formaPago === 'mixto'
+
+  // Mixto totals — sum per-row amounts in cents to avoid float drift.
+  const mixtoAssignedCents = mixtoParts.reduce((s, p) => s + Math.round((Number(p.amount) || 0) * 100), 0)
+  const totalCents         = Math.round((Number(total) || 0) * 100)
+  const mixtoDiffCents     = totalCents - mixtoAssignedCents   // >0 falta, <0 sobrante, =0 exacto
+  const mixtoExact         = mixtoDiffCents === 0 && mixtoAssignedCents > 0
+  const hasMixtoEmptyRow   = mixtoParts.some(p => !p.amount || Number(p.amount) <= 0)
 
   // Build a single human-readable reason explaining why the charge button
   // is disabled. Empty string = nothing blocks, button is enabled.
@@ -817,6 +845,13 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
     if (offlineBlock) return lang === 'es' ? 'Red desconectada — esperando conexión' : 'Offline — waiting for connection'
     if (tipo === 'contado' && formaPago === null) return lang === 'es' ? 'Selecciona método de pago' : 'Pick a payment method'
     if (tipo === 'contado' && formaPago === 'efectivo' && recibidoNum < total) return lang === 'es' ? 'Recibido menor que total' : 'Received amount less than total'
+    if (tipo === 'contado' && formaPago === 'mixto') {
+      if (mixtoParts.length < 2) return lang === 'es' ? 'Mixto requiere al menos 2 métodos' : 'Mixto requires at least 2 methods'
+      if (hasMixtoEmptyRow)      return lang === 'es' ? 'Completa el monto de cada parte'  : 'Fill every part amount'
+      if (!mixtoExact)           return lang === 'es'
+        ? `Las partes no suman el total (faltan ${fmtRD(mixtoDiffCents / 100)})`
+        : `Parts must sum to total (missing ${fmtRD(mixtoDiffCents / 100)})`
+    }
     // v2.14.26 — credit sale REQUIRES a client. Without one the balance
     // has nowhere to attach (ticketMarkPaid only runs its balance UPDATE
     // inside `if (tipoVenta === 'credito' && clientId)`), so the money
@@ -901,12 +936,19 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
       setEcfState('success')
       if (!confirmedRef.current) {
         confirmedRef.current = true
+        const mixtoPayload = (formaPago === 'mixto')
+          ? mixtoParts.map(p => ({ method: p.method, amount: Math.round(Number(p.amount) * 100) / 100 }))
+          : null
+        const dominantMethod = mixtoPayload
+          ? mixtoPayload.slice().sort((a, b) => b.amount - a.amount)[0].method
+          : formaPago
         onConfirm({
           ticketId:  ticket.id,
           ticketNo:  ticket.ticketNo,
           clientId:  selectedClient?.id || null,
           ncfType, rnc, rncName, tipo,
-          formaPago: tipo === 'credito' ? 'credit' : formaPago,
+          formaPago: tipo === 'credito' ? 'credit' : dominantMethod,
+          payment_parts: mixtoPayload,
           recibido:  recibidoNum,
           devuelta:  showEfectivo ? devuelta : null,
           comentario, total, descuento, descuentoReason: descuentoReason.trim() || null, subtotal, itbis,
@@ -951,6 +993,13 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
 
     const t1 = setTimeout(() => setSubmitStep(1), 400)
     const t2 = setTimeout(() => setSubmitStep(2), 850)
+
+    // For e-CF XML, collapse 'mixto' to the dominant method — DGII doesn't
+    // model split tender. The full parts[] still persists locally on the ticket
+    // (payment_parts JSONB) for cuadre / 606 breakdown.
+    const ecfFormaPago = (formaPago === 'mixto' && mixtoParts.length)
+      ? mixtoParts.slice().sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0))[0].method
+      : formaPago
 
     try {
       const tipoNum = ncfType.replace('E', '') // 'E31' → '31'
@@ -1025,7 +1074,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         } : undefined,
         // Legacy fields (used by stub fallback)
         ncfType, rnc, rncName, tipo,
-        formaPago:  tipo === 'credito' ? 'credit' : formaPago,
+        formaPago:  tipo === 'credito' ? 'credit' : ecfFormaPago,
         ticket:     { id: ticket.id, ticketNo: ticket.ticketNo, vehicle: ticket.vehicle, services: ticket.services },
         comentario,
         paidAt:     new Date(),
@@ -1040,12 +1089,19 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
       setEcfState('success')
       if (!confirmedRef.current) {
         confirmedRef.current = true
+        const mixtoPayload = (formaPago === 'mixto')
+          ? mixtoParts.map(p => ({ method: p.method, amount: Math.round(Number(p.amount) * 100) / 100 }))
+          : null
+        const dominantMethod = mixtoPayload
+          ? mixtoPayload.slice().sort((a, b) => b.amount - a.amount)[0].method
+          : formaPago
         onConfirm({
           ticketId:  ticket.id,
           ticketNo:  ticket.ticketNo,
           clientId:  selectedClient?.id || null,
           ncfType, rnc, rncName, tipo,
-          formaPago: tipo === 'credito' ? 'credit' : formaPago,
+          formaPago: tipo === 'credito' ? 'credit' : dominantMethod,
+          payment_parts: mixtoPayload,
           recibido:  recibidoNum,
           devuelta:  showEfectivo ? devuelta : null,
           comentario, total, descuento, descuentoReason: descuentoReason.trim() || null, subtotal, itbis,
@@ -1623,7 +1679,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
               ) : (
                 <div>
                   <SectionLabel>{tl('formaPago', lang)}</SectionLabel>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                     {PAYMENT_METHODS.map(({ id, icon: Icon, es, en }) => (
                       <button
                         key={id}
@@ -1639,6 +1695,91 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
                       </button>
                     ))}
                   </div>
+
+                  {/* Mixto — inline split editor (v2.14.34) */}
+                  {showMixto && (
+                    <div className="mt-3 bg-slate-50 dark:bg-white/5 rounded-xl p-4 space-y-3 border border-slate-200 dark:border-white/10">
+                      <div className="flex items-center justify-between">
+                        <SectionLabel>{lang === 'es' ? 'Partes del pago' : 'Payment parts'}</SectionLabel>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const remainingCents = Math.max(0, totalCents - mixtoAssignedCents)
+                            setMixtoParts(arr => arr.length >= MIXTO_MAX_PARTS ? arr : [
+                              ...arr,
+                              { method: 'efectivo', amount: remainingCents > 0 ? (remainingCents / 100).toFixed(2) : '' },
+                            ])
+                          }}
+                          disabled={mixtoParts.length >= MIXTO_MAX_PARTS}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-600 dark:text-sky-400 hover:text-sky-800 dark:hover:text-sky-300 disabled:opacity-40"
+                        >
+                          <Plus size={12} strokeWidth={2.5} /> {lang === 'es' ? 'Agregar parte' : 'Add part'}
+                        </button>
+                      </div>
+
+                      <div className="space-y-2">
+                        {mixtoParts.map((part, idx) => (
+                          <div key={idx} className="flex items-center gap-2">
+                            <select
+                              value={part.method}
+                              onChange={e => {
+                                const m = e.target.value
+                                setMixtoParts(arr => arr.map((p, i) => i === idx ? { ...p, method: m } : p))
+                              }}
+                              className="flex-[1.2] bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-2 py-2 text-[12px] font-semibold text-slate-700 dark:text-white focus:outline-none focus:border-sky-400"
+                            >
+                              {MIXTO_METHODS.map(m => (
+                                <option key={m.id} value={m.id}>{lang === 'es' ? m.es : m.en}</option>
+                              ))}
+                            </select>
+                            <div className="flex-1 flex items-center bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-2 py-2 focus-within:border-sky-400">
+                              <span className="text-slate-400 dark:text-white/40 text-[11px] mr-1.5">RD$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={part.amount}
+                                onChange={e => {
+                                  const v = e.target.value
+                                  setMixtoParts(arr => arr.map((p, i) => i === idx ? { ...p, amount: v } : p))
+                                }}
+                                placeholder="0.00"
+                                className="flex-1 bg-transparent text-[13px] font-semibold text-slate-800 dark:text-white focus:outline-none min-w-0"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setMixtoParts(arr => arr.length <= 2 ? arr : arr.filter((_, i) => i !== idx))}
+                              disabled={mixtoParts.length <= 2}
+                              title={lang === 'es' ? 'Eliminar parte' : 'Remove part'}
+                              className="shrink-0 w-8 h-8 inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-white/10 text-slate-500 dark:text-white/60 hover:border-red-300 hover:text-red-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              <Minus size={14} strokeWidth={2.5} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-white/10">
+                        <span className="text-[11px] font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wider">
+                          {lang === 'es' ? 'Asignado' : 'Assigned'} · <span className="text-slate-800 dark:text-white">{fmtRD(mixtoAssignedCents / 100)}</span>
+                          <span className="mx-1.5 text-slate-300 dark:text-white/20">/</span>
+                          <span className="text-slate-800 dark:text-white">{fmtRD(total)}</span>
+                        </span>
+                        <span className={`text-[12px] font-bold ${
+                          mixtoExact ? 'text-emerald-600 dark:text-emerald-400'
+                          : mixtoDiffCents > 0 ? 'text-red-500'
+                          : 'text-amber-500'
+                        }`}>
+                          {mixtoExact
+                            ? (lang === 'es' ? 'Exacto ✓' : 'Exact ✓')
+                            : mixtoDiffCents > 0
+                              ? `${lang === 'es' ? 'Falta' : 'Missing'} ${fmtRD(mixtoDiffCents / 100)}`
+                              : `${lang === 'es' ? 'Sobrante' : 'Excess'} ${fmtRD(-mixtoDiffCents / 100)}`}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

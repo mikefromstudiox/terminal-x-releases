@@ -578,11 +578,18 @@ export default function DailyReport() {
         const full = await api.tickets.byId(t.id)
         if (full?.items?.length) fullItems = full.items
       } catch {}
+      // v2.14.34 — preserve `is_wash` and DO NOT map to a hard `c: false` on
+      // reprint. Live print path leaves `c` undefined on pending.items so
+      // buildWasherConduce's `s.c !== false` filter includes everything.
+      // Prior reprint mapping set c=false whenever is_wash was 0 OR NULL on
+      // legacy rows → entire conduce printed "(Sin servicios de lavado)".
+      // Now we propagate is_wash so the per-washer scaling can still tell
+      // wash from non-wash, but leave c undefined to match live behavior.
       const services = fullItems
-        ? fullItems.map(i => ({ name: i.name, price: Number(i.price) || 0, qty: Number(i.quantity || 1), itbis: Number(i.itbis) || 0, c: (i.is_wash ?? 1) !== 0 }))
+        ? fullItems.map(i => ({ name: i.name, price: Number(i.price) || 0, qty: Number(i.quantity || 1), itbis: Number(i.itbis) || 0, is_wash: i.is_wash }))
         : (t.items && t.items.length)
-          ? t.items.map(i => ({ name: i.name, price: Number(i.price) || 0, qty: Number(i.quantity || 1), itbis: Number(i.itbis) || 0, c: (i.is_wash ?? 1) !== 0 }))
-          : (t.services || []).map(s => ({ name: s.name, price: Number(s.price) || 0, qty: 1, itbis: 0, c: true }))
+          ? t.items.map(i => ({ name: i.name, price: Number(i.price) || 0, qty: Number(i.quantity || 1), itbis: Number(i.itbis) || 0, is_wash: i.is_wash }))
+          : (t.services || []).map(s => ({ name: s.name, price: Number(s.price) || 0, qty: 1, itbis: 0 }))
       const ticketData = {
         ncf:          t.ncf || '',
         ncfType:      t.ncfType || 'B02',
@@ -604,9 +611,38 @@ export default function DailyReport() {
         biz,
       }
       if (kind === 'conduce') {
-        const washers = (t.washerNames && t.washerNames.length) ? t.washerNames : [ticketData.lavador || '-']
-        for (const name of washers) {
-          await printWasherConduce({ ...ticketData, lavador: name || '-' })
+        // v2.14.34 — fetch washer_commissions for this ticket to derive each
+        // washer's SHARE of the wash work. Scale wash service prices on the
+        // reprinted conduce so each washer's slip shows only their portion
+        // (RD$300 each on a 50/50 RD$600 service, not RD$600 on every conduce).
+        // Falls back to even split when commissions aren't recorded.
+        let commWashers = []
+        try {
+          const commRows = await api.commissions?.byTicket?.({ ticketId: t.id })
+          if (Array.isArray(commRows) && commRows.length) {
+            commWashers = commRows.map(r => ({ name: r.nombre || r.name || '-', commAmount: Number(r.commission_amount) || 0 }))
+          }
+        } catch {}
+        const washers = commWashers.length
+          ? commWashers
+          : ((t.washerNames && t.washerNames.length)
+              ? t.washerNames.map(n => ({ name: n, commAmount: 0 }))
+              : [{ name: ticketData.lavador || '-', commAmount: 0 }])
+        const totalComm = washers.reduce((s, w) => s + (Number(w.commAmount) || 0), 0)
+        for (const w of washers) {
+          const myShare = totalComm > 0
+            ? ((Number(w.commAmount) || 0) / totalComm)
+            : (1 / washers.length)
+          const scaledServices = (ticketData.services || []).map(s => {
+            const isWash = (s.is_wash ?? (s.c !== false ? 1 : 0)) !== 0
+            if (!isWash) return s
+            return {
+              ...s,
+              price: parseFloat((Number(s.price || 0) * myShare).toFixed(2)),
+              itbis: s.itbis != null ? parseFloat((Number(s.itbis || 0) * myShare).toFixed(2)) : s.itbis,
+            }
+          })
+          await printWasherConduce({ ...ticketData, services: scaledServices, lavador: w.name || '-', commAmount: w.commAmount })
         }
         flash(lang === 'es' ? 'Conduce reimpreso ✓' : 'Conduce reprinted ✓')
       } else {
@@ -620,7 +656,17 @@ export default function DailyReport() {
 
   useEffect(() => {
     api.admin?.getEmpresa?.().then(e => {
-      if (e) setBiz({ name: e.name || e.nombre, rnc: e.rnc, address: e.address || e.direccion, phone: e.phone || e.telefono, email: e.email, logo: e.logo })
+      if (e) setBiz({
+        name: e.name || e.nombre,
+        rnc: e.rnc,
+        address: e.address || e.direccion,
+        phone: e.phone || e.telefono,
+        email: e.email,
+        logo: e.logo,
+        // v2.14.34 — pass full settings JSON so receipt header can read
+        // dual-keyed address (s.biz_address || s.direccion) and ciudad on reprint.
+        settings: e.settings,
+      })
     }).catch(() => {})
   }, [])
 
