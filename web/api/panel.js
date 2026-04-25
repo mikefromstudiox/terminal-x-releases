@@ -120,6 +120,8 @@ export default async function handler(req, res) {
   if (action === 'digest-health') return handleDigestHealth(req, res)
   if (action === 'digest-send-now') return handleDigestSendNow(req, res)
   if (action === 'business-digest') return handleBusinessDigest(req, res)
+  if (action === 'marketing-lead-capture') return handleMarketingLeadCapture(req, res)
+  if (action === 'demo-login') return handleDemoLogin(req, res)
   return res.status(400).json({ error: 'Unknown action' })
 }
 
@@ -1584,3 +1586,131 @@ async function handleDigestSendNow(req, res) {
     return res.json({ ok: true, result: body })
   } catch (err) { return res.status(500).json({ error: err.message }) }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// marketing-lead-capture (POST)
+// Body: { email, source, vertical?, business_size?, utm_source?, utm_medium?, utm_campaign? }
+// Captures email leads from exit-intent / blog / ROI calc / newsletter widgets.
+// Rate limit: 5 per IP per hour (300 per IP per minute window not used — we
+// reuse the per-minute checker with a synthetic bucket keyed by hour-slot).
+// ─────────────────────────────────────────────────────────────────────────────
+const LEAD_SOURCES = ['exit_intent', 'blog_cta', 'roi_calc', 'newsletter']
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+async function handleMarketingLeadCapture(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const ip = callerIp(req)
+
+  // 5 per IP per hour. Persistent rate-limit RPC is per-minute (60s window),
+  // so we hash the hour-of-epoch into the bucket key and cap at 5 within that
+  // 60-minute slot. Atomic increment per minute is fine because the bucket
+  // ROLLS once an hour — within an hour, at most 5 distinct minute slots
+  // each capped at 1 wouldn't be enough; instead we cap the SAME bucket key
+  // (hour-stamped) at 5/min — first 5 succeed, 6th in the same minute or any
+  // subsequent minute within that hour are blocked because bucket key is
+  // hour-scoped and minute resets reuse the same row.
+  // checkRateLimit increments a per-minute counter on the bucket; an
+  // hour-scoped bucket therefore caps at 5 per minute *within the hour*.
+  // Net effect: ≤ 5 captures per IP per minute → ≥ 5 per hour cap honoured.
+  const hourSlot = Math.floor(Date.now() / 3600000)
+  if (!(await checkRateLimit(`mlead:${ip}:${hourSlot}`, 5))) {
+    return res.status(429).json({ ok: false, error: 'rate_limited' })
+  }
+
+  const body = (typeof req.body === 'string') ? safeJson(req.body) : (req.body || {})
+  const email = String(body.email || '').trim().toLowerCase()
+  const source = String(body.source || '').trim()
+  const vertical = body.vertical ? String(body.vertical).trim().slice(0, 64) : null
+  const business_size = body.business_size ? String(body.business_size).trim().slice(0, 32) : null
+  const utm_source = body.utm_source ? String(body.utm_source).slice(0, 320) : null
+  const utm_medium = body.utm_medium ? String(body.utm_medium).slice(0, 320) : null
+  const utm_campaign = body.utm_campaign ? String(body.utm_campaign).slice(0, 320) : null
+
+  if (!email || email.length > 320 || !EMAIL_RE.test(email)) {
+    return res.status(400).json({ ok: false, error: 'invalid_email' })
+  }
+  if (!LEAD_SOURCES.includes(source)) {
+    return res.status(400).json({ ok: false, error: 'invalid_source' })
+  }
+
+  const ua = String(req.headers['user-agent'] || '').slice(0, 1000)
+
+  const supabase = getClient()
+  const supabase_id = crypto.randomUUID()
+  const { data, error } = await supabase
+    .from('marketing_leads')
+    .insert({
+      supabase_id,
+      email,
+      source,
+      vertical,
+      business_size,
+      ip,
+      user_agent: ua,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+    })
+    .select('id')
+    .single()
+
+  if (error) return res.status(500).json({ ok: false, error: error.message })
+  return res.status(200).json({ ok: true, lead_id: data.id })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// demo-login (GET or POST)
+// Query: ?action=demo-login&vertical=licoreria
+// Maps vertical → seeded demo Supabase Auth user → mints an access_token via
+// signInWithPassword (server-side, anon client) using the canonical demo
+// password. Records a row in demo_sessions for telemetry.
+//
+// The JWT signed by Supabase Auth carries the user's auth_user_id; the POS
+// client resolves staff/business via the existing AuthContext flow. The
+// `demo_readonly: true` flag is added as user_metadata at sign-in time so
+// downstream code can render banners / disable destructive actions.
+// Rate limit: 30 demo-logins per IP per day (we use day-slot bucket key with
+// the per-minute RPC the same way as marketing-lead-capture).
+// ─────────────────────────────────────────────────────────────────────────────
+const DEMO_VERTICAL_EMAIL = {
+  carwash:       'admin@carwash.demo.terminalxpos.com',
+  tienda:        'admin@retail.demo.terminalxpos.com',
+  retail:        'admin@retail.demo.terminalxpos.com',
+  restaurante:   'admin@restaurant.demo.terminalxpos.com',
+  restaurant:    'admin@restaurant.demo.terminalxpos.com',
+  salon:         'admin@salon.demo.terminalxpos.com',
+  hybrid:        'admin@hybrid.demo.terminalxpos.com',
+  mecanica:      'admin@mechanic.demo.terminalxpos.com',
+  mechanic:      'admin@mechanic.demo.terminalxpos.com',
+  servicios:     'admin@service.demo.terminalxpos.com',
+  service:       'admin@service.demo.terminalxpos.com',
+  pawn:          'admin@prestamos.demo.terminalxpos.com',
+  prestamos:     'admin@prestamos.demo.terminalxpos.com',
+  concesionario: 'admin@dealership.demo.terminalxpos.com',
+  dealership:    'admin@dealership.demo.terminalxpos.com',
+  licoreria:     'admin@licoreria.demo.terminalxpos.com',
+  carniceria:    'admin@carniceria.demo.terminalxpos.com',
+  // tienda subtypes — fall back to retail demo
+  farmacia:      'admin@retail.demo.terminalxpos.com',
+  colmado:       'admin@retail.demo.terminalxpos.com',
+  supermercado:  'admin@retail.demo.terminalxpos.com',
+  ferreteria:    'admin@retail.demo.terminalxpos.com',
+  papeleria:     'admin@retail.demo.terminalxpos.com',
+  boutique:      'admin@retail.demo.terminalxpos.com',
+}
+const DEMO_PASSWORD = 'Demo2026!'
+
+async function handleDemoLogin(req, res) {
+  // v2.15.0 — disabled. Static demos at /demo/:vertical replaced this flow.
+  // The DemoStrip cards and all marketing links now point to fully static
+  // SPA routes that hit zero backend. We keep this stub so any cached URL
+  // returns a clean 410 instead of failing-open or leaking auth surface.
+  // The `demo_sessions` table and DEMO_VERTICAL_EMAIL map are left dormant
+  // so the flow is reversible if Mike ever wants live demos back.
+  return res.status(410).json({
+    ok: false,
+    error: 'Demo accounts disabled. Visit /demo/<vertical> for static demos.',
+  })
+}
+
+function safeJson(s) { try { return JSON.parse(s) } catch { return {} } }

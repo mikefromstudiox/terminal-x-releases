@@ -1,0 +1,88 @@
+---
+title: "Cómo migrar del Facturador Gratuito de DGII en 7 días"
+slug: "migrar-facturador-gratuito-dgii"
+excerpt: "Plan día por día para mover tu RNC del Facturador Gratuito a Terminal X sin perder secuencias ni romper el cierre mensual."
+published_date: "2026-04-25"
+reading_time: "8 min"
+author: "Equipo Terminal X"
+category: "guías"
+og_image: "/blog/og/migrar-facturador-gratuito.png"
+---
+
+El Facturador Gratuito de la DGII es una buena puerta de entrada a la factura electrónica. Cumple con lo mínimo, valida con el certificado y reporta. Pero según la propia DGII, el cap mensual ronda las 150 facturas y puede ajustarse por aviso informativo. Si tu negocio creció, opera en USD, vende por WhatsApp o necesita una app móvil, llegaste al techo.
+
+Esta guía es el plan día por día que usamos cuando migramos un RNC al Facturación tier de Terminal X. Cero downtime, cero secuencias perdidas, cero sustos en el cierre mensual.
+
+<img src="/blog/migrar/timeline.png" alt="Línea de tiempo de la migración en 7 días" />
+
+## Día 1 · Inventario de lo que tienes hoy
+
+Antes de tocar nada, documenta:
+
+- RNC y razón social exacta como aparece en el registro de Emisor Electrónico de DGII
+- Último e-CF emitido por cada tipo (E31, E32, E33, E34, E43) y su secuencia DGII
+- Certificado Viafirma activo: fecha de expiración, ruta del archivo `.p12` y contraseña
+- Listado de clientes frecuentes con su RNC y régimen
+- Productos o servicios con precios actuales
+
+En Oficina Virtual, descarga el reporte de e-CFs emitidos del mes en curso. Lo necesitarás el día 6 para conciliar.
+
+## Día 2 · Crear cuenta y subir certificado
+
+En `terminalxpos.com/signup` selecciona el plan Facturación. Recibirás 7 días gratis sin tarjeta de crédito. Nuestro equipo programa una sesión remota de 30 minutos para:
+
+1. Subir tu archivo `.p12` al panel (cifrado con SQLCipher en el dispositivo)
+2. Validar contra DGII con la operación de semilla y nonce
+3. Confirmar que la razón social coincide letra por letra con el registro de Emisor Electrónico
+
+Si no coincide, DGII rechaza con un error de "RazonSocial no encontrada en registro de emisores". Lo arreglamos en la sesión.
+
+## Día 3 · Importar clientes y productos
+
+Sube tu lista de clientes (CSV con RNC, nombre, correo, teléfono). Terminal X cruza cada RNC contra los 900,000 contribuyentes locales y completa razón social y régimen automáticamente. Para los que no aparecen, hace fallback a megaplus.com.do.
+
+Para productos, importa el CSV con SKU, nombre, precio, ITBIS aplica y stock. Las cabeceras en español o inglés se auto-mapean.
+
+<img src="/blog/migrar/import-csv.png" alt="Pantalla de importación CSV con preview" />
+
+## Día 4 · Configurar secuencias e-CF
+
+Aquí está el detalle que la mayoría se brinca: las secuencias e-CF son por RNC y por ambiente, no por proveedor. Es decir, si tu último E31 emitido fue el `E310000000147`, el siguiente que emitas en Terminal X debe ser `E310000000148`. Punto.
+
+En el panel, ingresa el último e-CF emitido por cada tipo. El sistema arranca desde el siguiente número. No se duplica, no se salta.
+
+Si emitiste un comprobante en el Gratuito el mismo día que vas a emitir el primero en Terminal X, espera a que DGII confirme el del Gratuito antes de emitir en Terminal X. Solo por seguridad.
+
+## Día 5 · Emitir el primer comprobante real
+
+Con un cliente frecuente en línea, emite un E32 real (consumidor final). Verifica que:
+
+- DGII responde con `Aceptado` en menos de 10 segundos
+- El QR en el comprobante apunta a `ecf.dgii.gov.do/ecf/ConsultaTimbre`
+- El comprobante llega al cliente por WhatsApp si activaste el envío automático
+- En Oficina Virtual, el e-CF aparece como recibido
+
+Si algo falla, revisa la bitácora de actividad: cada error de DGII queda registrado con código y mensaje literal.
+
+## Día 6 · Conciliar el mes en curso
+
+Importa tu reporte de e-CFs del Facturador Gratuito (el del día 1) a Terminal X. La pantalla de Reportes los suma a los emitidos en Terminal X y produce un único Formato 606 y 607 listo para subir a Oficina Virtual.
+
+No vas a tener "el reporte del Gratuito" y "el reporte de Terminal X" por separado. Es un solo reporte por RNC.
+
+## Día 7 · Apagar el Gratuito
+
+Cuando el primer cierre mensual cuadre sin diferencias, deja de usar el Facturador Gratuito. No hace falta darse de baja en DGII; el RNC sigue habilitado como Emisor Electrónico (esa habilitación es del RNC, no de la herramienta).
+
+Si en algún momento Terminal X se cae (no ha pasado, pero hipótesis), el Gratuito sigue disponible como contingencia. La cola offline de 72 horas de Terminal X cubre la mayoría de los casos sin que tengas que tocar Oficina Virtual.
+
+## Errores comunes a evitar
+
+- **Doble emisión el mismo día**: emitir en el Gratuito y en Terminal X en paralelo el día del corte. Genera secuencias salteadas que DGII rechaza al siguiente envío.
+- **RazonSocial con tildes diferentes**: el registro de Emisor Electrónico distingue mayúsculas y tildes. Cópialo literal.
+- **Certificado con menos de 30 días por vencer**: renueva con Viafirma antes de migrar. Después de migrar es un dolor de cabeza extra.
+- **No importar clientes con RNC**: si emites E31 a un RNC que no está en tu base, el cliente entra como nuevo cada vez. Importar de una vez ahorra horas.
+
+## Empezar con Terminal X · 7 días gratis →
+
+Si quieres que el equipo te haga la migración completa, agenda por WhatsApp al **+1 (809) 828-2971** o entra a [terminalxpos.com/signup](https://terminalxpos.com/signup?plan=facturacion). La sesión de configuración remota está incluida en el plan Facturación desde RD$995/mes.

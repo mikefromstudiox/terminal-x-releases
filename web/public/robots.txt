@@ -1,8 +1,9 @@
 User-agent: *
 Allow: /
+Disallow: /pos
+Disallow: /admin
 Disallow: /api/
-Disallow: /pos/
-Disallow: /admin/
+Disallow: /demo-login
 Disallow: /fe/
 
 Sitemap: https://terminalxpos.com/sitemap.xml

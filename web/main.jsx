@@ -18,6 +18,29 @@ import LandingPage from '@/landing/LandingPage'
 const SignupPage  = React.lazy(() => import('@/landing/SignupPage'))
 const AdminApp    = React.lazy(() => import('@/admin/AdminApp'))
 const CertPortal  = React.lazy(() => import('@/portal/CertPortal'))
+const BlogIndex   = React.lazy(() => import('@/landing/components/BlogIndex'))
+const BlogPost    = React.lazy(() => import('@/landing/components/BlogPost'))
+const DemoPage    = React.lazy(() => import('@/landing/demo/DemoPage'))
+
+// Blog lang resolver — same precedence as the landing-page hook
+// (`tx_landing_lang` localStorage > navigator.language > 'es') but without
+// importing the hook so /blog routes don't pay for the whole landing bundle.
+function resolveBlogLang() {
+  try {
+    const stored = localStorage.getItem('tx_landing_lang')
+    if (stored === 'en' || stored === 'es') return stored
+  } catch {}
+  try {
+    return typeof navigator !== 'undefined' && navigator.language?.startsWith('en') ? 'en' : 'es'
+  } catch { return 'es' }
+}
+
+function BlogIndexRoute() {
+  return <BlogIndex lang={resolveBlogLang()} />
+}
+function BlogPostRoute() {
+  return <BlogPost lang={resolveBlogLang()} />
+}
 
 // Lazy load Supabase — only resolves when needed (saves 172KB on landing page)
 let _supabase = null
@@ -402,6 +425,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
             {/* Signup — lazy loads Supabase */}
             <Route path="/signup" element={<SignupRoute />} />
+
+            {/* Blog — public, no Supabase needed */}
+            <Route path="/blog" element={<BlogIndexRoute />} />
+            <Route path="/blog/:slug" element={<BlogPostRoute />} />
+
+            {/* Static, self-contained demos — zero backend, zero auth, zero API. */}
+            <Route path="/demo/:vertical" element={<DemoPage />} />
 
             {/* e-CF Certification Portal — public, token-based */}
             <Route path="/cert/:token" element={

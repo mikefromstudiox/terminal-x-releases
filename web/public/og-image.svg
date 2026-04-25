@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <!-- Brand: crimson #b3001e + white only. No gray. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#b3001e"/>
+      <stop offset="100%" stop-color="#7a0015"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="40"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Decorative giant X -->
+  <g opacity="0.07" transform="translate(900,80)" filter="url(#soft)">
+    <text x="0" y="500" font-family="Inter, Arial Black, sans-serif" font-weight="900" font-size="700" fill="#ffffff">X</text>
+  </g>
+
+  <!-- Top-left wordmark + X-logo -->
+  <g transform="translate(60,70)">
+    <rect x="0" y="0" width="64" height="64" rx="12" fill="#ffffff"/>
+    <text x="32" y="50" text-anchor="middle" font-family="Inter, Arial Black, sans-serif" font-weight="900" font-size="44" fill="#b3001e">X</text>
+    <text x="84" y="48" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="800" font-size="34" fill="#ffffff" letter-spacing="3">TERMINAL X</text>
+  </g>
+
+  <!-- Headline -->
+  <g transform="translate(60,260)">
+    <text font-family="Inter, Helvetica, Arial, sans-serif" font-weight="900" font-size="72" fill="#ffffff">
+      <tspan x="0" y="0">Cuando el Facturador</tspan>
+      <tspan x="0" y="86">Gratuito de DGII</tspan>
+      <tspan x="0" y="172" fill="#ffffff" opacity="0.85">no alcanza.</tspan>
+    </text>
+  </g>
+
+  <!-- Bottom-left subtle CTA -->
+  <g transform="translate(60,560)">
+    <text font-family="Inter, Helvetica, Arial, sans-serif" font-weight="700" font-size="22" fill="#ffffff" opacity="0.85">terminalxpos.com</text>
+  </g>
+
+  <!-- Bottom-right subtle credentials -->
+  <g transform="translate(1140,560)" text-anchor="end">
+    <text font-family="Inter, Helvetica, Arial, sans-serif" font-weight="700" font-size="22" fill="#ffffff" opacity="0.85">DGII Cert #42483 · Desde RD$995/mes</text>
+  </g>
+
+  <!-- Thin white frame accent -->
+  <rect x="40" y="40" width="1120" height="550" rx="20" fill="none" stroke="#ffffff" stroke-opacity="0.15" stroke-width="2"/>
+</svg>

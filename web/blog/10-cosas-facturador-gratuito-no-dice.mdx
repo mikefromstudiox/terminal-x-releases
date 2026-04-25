@@ -1,0 +1,76 @@
+---
+title: "Las 10 cosas que el Facturador Gratuito de DGII NO te dice"
+slug: "10-cosas-facturador-gratuito-no-dice"
+excerpt: "El cap puede cambiar por aviso, no hay API, no hay app móvil y los formatos 606 y 607 se llenan a mano. La lista completa, sin filtros."
+published_date: "2026-04-25"
+reading_time: "12 min"
+author: "Equipo Terminal X"
+category: "comparación"
+og_image: "/blog/og/10-cosas-gratuito.png"
+---
+
+El Facturador Gratuito de DGII es una herramienta legítima y gratuita. Para muchos negocios pequeños, es suficiente. No es nuestra intención atacarla; la DGII tiene que ofrecer un camino sin costo para que ningún contribuyente se quede sin cumplir Ley 32-23, y eso es exactamente lo que hace.
+
+Lo que sí pasa es que la documentación pública del Gratuito describe lo que **sí** hace. Lo que **no** hace queda como letra pequeña que descubres después de tres meses de uso. Esta lista junta esas diez cosas, basadas en la propia documentación de DGII y en sesiones de migración de clientes reales.
+
+## 1. El cap mensual puede cambiar por simple aviso
+
+Según la propia DGII, el Facturador Gratuito permite emitir aproximadamente 150 facturas mensuales. La palabra "aproximadamente" no es accidental: el cap puede ajustarse mediante aviso informativo, sin reforma legal ni periodo de transición. Si planificas tu operación contando con 150, conviene tener presente que mañana podrían ser 120 o 100 sin previo aviso largo. Un negocio que crece debería tener un plan B antes de chocar con el techo en pleno cierre mensual.
+
+## 2. No hay API ni webhooks
+
+El Gratuito se opera vía Oficina Virtual: entras al portal, llenas el formulario, descargas el comprobante. No hay endpoint REST que tu sistema de inventario, tu e-commerce o tu app móvil puedan llamar. Si vendes por Shopify, WooCommerce, MercadoLibre o un CRM, cada venta se factura a mano. Para cinco facturas al día, suma una hora de trabajo administrativo. Para cincuenta, suma una persona dedicada solo a eso. La integración programática es la línea divisoria entre una herramienta de cumplimiento y una herramienta de operación.
+
+## 3. Las contingencias se manejan a mano
+
+DGII permite hasta 72 horas de envío diferido cuando hay caída de red o falla del receptor. La regla está documentada y aplica a todos los emisores. Lo que el Gratuito no hace es **encolar automáticamente** los comprobantes mientras dura la contingencia. Si hoy no hay internet, hoy no facturas; cuando vuelva la red, te toca entrar a Oficina Virtual y emitir uno por uno los comprobantes pendientes con el indicador de envío diferido en `1`. Multiplica eso por un fin de semana sin red en una sucursal y entiendes por qué los emisores serios automatizan esa cola.
+
+## 4. Solo opera en pesos dominicanos
+
+El Gratuito emite comprobantes en DOP exclusivamente. Si vendes en USD (frecuente en zonas turísticas, hoteles, exportación de servicios o e-commerce internacional), tienes que convertir manualmente cada factura a la tasa del día y emitirla en pesos. Para auditoría, además, debes mantener un registro paralelo de la moneda original. Es una contabilidad doble que escala mal.
+
+## 5. No hay aplicación móvil
+
+Oficina Virtual responde en navegador móvil, pero está diseñada para escritorio. Crear un comprobante desde un iPhone o un Android es posible pero engorroso: campos pequeños, scroll horizontal, sin lectura de RNC por cámara, sin firma táctil. Si tu vendedor está en la calle visitando clientes y necesita emitir factura en el momento, el Gratuito no es su amigo. Una app móvil nativa o una PWA bien hecha cambia el flujo de trabajo por completo.
+
+## 6. No se integra con software de contabilidad
+
+ContaPlus, Apisa, Visual Pyme, QuickBooks, Xero: ninguno tiene un conector oficial al Facturador Gratuito. La razón es la del punto 2 (no hay API). Eso significa que tu contador, después de cada cierre mensual, descarga manualmente los reportes de e-CFs emitidos y recibidos, los limpia en Excel y los carga en su sistema. Esa fricción es invisible en los primeros meses y se vuelve insoportable cuando el negocio pasa de 50 a 200 facturas mensuales.
+
+## 7. Manejo de errores es manual
+
+Cuando DGII rechaza un comprobante (RNC inválido, ITBIS mal calculado, secuencia fuera de rango, certificado expirado), el Gratuito te muestra el error en pantalla y se queda ahí. No reintenta automáticamente. No notifica por correo. No genera un ticket interno. Te toca a ti volver, corregir, reenviar, anotar. Si el error pasa fuera de horario, el comprobante se queda colgado hasta que alguien lo vea. Para un negocio con turnos, esa es una de las primeras razones para migrar.
+
+## 8. Cero automatización de tareas repetitivas
+
+Mismo cliente, mismo producto, mismo precio, todos los meses. En el Gratuito, lo emites desde cero cada vez. No hay plantillas, no hay facturación recurrente, no hay duplicar y editar. Si tienes 30 clientes con cuota mensual fija (gimnasios, mantenimiento, suscripciones, alquileres), son 30 emisiones manuales el primer día del mes. Una herramienta con facturación recurrente lo deja en cero clics.
+
+## 9. Todo lo administrativo pasa por Oficina Virtual
+
+Generar Formato 606 (compras) y Formato 607 (ventas), consultar el estado de un comprobante, anular un rango de secuencias, validar el certificado: todo se hace en Oficina Virtual con clicks separados. No hay un dashboard que junte la operación. Para un contador externo, eso es media jornada perdida cada mes solo en navegación. Las herramientas profesionales exportan los formatos en un clic y muestran el estado de los comprobantes en una sola pantalla.
+
+## 10. Lock-in de flujo de trabajo
+
+Este es el más sutil y el que más duele al migrar. El Gratuito no te ata legalmente (puedes irte cuando quieras), pero te ata operativamente: tu personal aprende ese flujo, tus plantillas (mentales) se construyen alrededor de Oficina Virtual, tu contador se acostumbra a pedirte capturas de pantalla específicas. Cuando intentas migrar después de dos años, no es un problema técnico (Terminal X importa todo en una sesión); es un problema de cambio de hábitos. Por eso recomendamos a los negocios que **anticipan** que crecerán por encima de 150 facturas no esperar al techo: migrar antes es siempre más barato que migrar bajo presión.
+
+## En resumen
+
+El Gratuito hace lo que dice: emite e-CFs hasta el cap. Lo que no dice es que esa lista de 10 limitaciones convierte cada mes en un ejercicio de paciencia para cualquier negocio con más de un empleado, ventas en moneda extranjera, operación móvil o aspiraciones de integración con su software contable.
+
+Terminal X resuelve los 10 puntos. Mismo cumplimiento Ley 32-23, mismo certificado Viafirma, misma DGII al otro lado. Lo diferente es:
+
+- API REST y webhooks para tu e-commerce y CRM
+- App móvil PWA en iOS y Android
+- Cola offline de 72 horas con `IndicadorEnvioDiferido` automático
+- Multi-moneda DOP y USD con tasa configurable
+- Manejo de errores con notificaciones y reintento automático
+- Plantillas y facturación recurrente
+- Formatos 606 y 607 exportados en un clic
+- Dashboard único que junta operación y administración
+- Configuración remota incluida (no aprendes solo, te acompañamos)
+
+Y todo desde **RD$995/mes** con plan Facturación.
+
+## Empezar con Terminal X · 7 días gratis →
+
+Sin tarjeta de crédito, con configuración remota incluida y soporte directo por WhatsApp al **+1 (809) 828-2971**. Entra a [terminalxpos.com/signup](https://terminalxpos.com/signup?plan=facturacion) y empieza hoy.

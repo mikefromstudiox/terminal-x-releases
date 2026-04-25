@@ -1,6 +1,6 @@
 {
   "name": "terminal-x",
-  "version": "2.14.34",
+  "version": "2.15.0",
   "private": true,
   "description": "Terminal X - POS System for Car Wash, Retail & Services",
   "author": "Studio X",
@@ -62,6 +62,7 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.14.0",
+    "sharp": "^0.34.5",
     "tailwindcss": "^4.2.2",
     "terser": "^5.46.1",
     "vite": "^5.4.21",

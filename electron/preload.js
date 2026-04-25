@@ -81,7 +81,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     search:       (query)                       => call('inventory:search', query),
     lowStockCount: ()                           => call('inventory:lowStockCount'),
     oversells: {
-      list: (args)                              => call('inventory:oversells:list', args || {}),
+      list:    (args)                           => call('inventory:oversells:list', args || {}),
+      resolve: (payload)                        => call('oversells:resolve', payload || {}),
     },
   },
 
@@ -327,6 +328,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     queueWaitMetrics: ()              => call('queue:waitMetrics'),
     topWashers:       (limit = 3)     => call('reports:topWashers', { limit }),
     ticketsByClient:  (clientId, limit = 10) => call('tickets:byClient', { clientId, limit }),
+  },
+
+  // ── Reports namespace (date-range tickets with items) ─────────────────────
+  // v2.14.36 — BottleDepositReport / future deposit-style reports call this.
+  // Routes to tickets.byDateRange under the hood since the data shape is
+  // identical (rows with items[] populated). Both {from,to} and {dateFrom,dateTo}
+  // are accepted so legacy callers don't need to change.
+  reports: {
+    tickets: ({ from, to, dateFrom, dateTo } = {}) =>
+      call('reports:ticketsWithItems', { from: dateFrom || from, to: dateTo || to }),
   },
 
   // ── Service vertical ──────────────────────────────────────────────────────

@@ -1,7 +1,24 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { Monitor, Shield, Zap, BarChart3, Receipt, Users, ArrowRight, ArrowUp, Check, X, Wifi, WifiOff, Printer, MessageSquare, ChevronDown, ChevronUp, Clock, CreditCard, FileText, Lock, Smartphone, Star, TrendingUp, Headphones, Menu, ExternalLink, Globe, Banknote, Calculator, Crown, Award, BadgeCheck, Package, Gift, ClipboardList, Mail, IdCard } from 'lucide-react'
+import { Monitor, Shield, Zap, BarChart3, Receipt, Users, ArrowRight, ArrowUp, Check, X, Wifi, WifiOff, Printer, MessageSquare, ChevronDown, ChevronUp, Clock, CreditCard, FileText, Lock, Smartphone, Star, TrendingUp, Headphones, Menu, ExternalLink, Globe, Banknote, Calculator, Crown, Award, BadgeCheck, Package, Gift, ClipboardList, Mail, IdCard, BookOpen } from 'lucide-react'
 import logoImg from '../assets/logo.webp'
+
+// New section components — see brief "Plan reference: steady-mixing-charm.md"
+import HeroAnimated from './components/HeroAnimated'
+import DgiiComparison from './components/DgiiComparison'
+import VerticalFeatures from './components/VerticalFeatures'
+import FeatureMatrix from './components/FeatureMatrix'
+import RoiCalculator from './components/RoiCalculator'
+import DemoStrip from './components/DemoStrip'
+import DeadlineCta from './components/DeadlineCta'
+import StickyMobileCta from './components/StickyMobileCta'
+import ExitIntentModal from './components/ExitIntentModal'
+
+// Marketing copy lives in copy.json so future edits don't touch code.
+import copy from './data/copy.json'
+
+// Analytics helpers
+import { trackCtaClick } from './lib/analytics'
 
 function useBrowserLang() {
   const [lang, setLang] = useState(() => {
@@ -331,6 +348,7 @@ export default function LandingPage({ section }) {
     { label: L('Facturacion', 'Invoicing'), href: '#facturacion' },
     { label: L('Planes', 'Plans'), href: '#pricing' },
     { label: L('Certificacion', 'Certification'), href: '#certificacion' },
+    { label: 'Blog', href: '/blog', isRoute: true },
     { label: 'FAQ', href: '#faq' },
   ]
 
@@ -345,7 +363,9 @@ export default function LandingPage({ section }) {
           </div>
           <div className="hidden md:flex items-center gap-8">
             {navLinks.map(link => (
-              <a key={link.href} href={link.href} className="text-sm font-medium text-white/70 hover:text-[#b3001e] transition-colors">{link.label}</a>
+              link.isRoute
+                ? <Link key={link.href} to={link.href} className="text-sm font-medium text-white/70 hover:text-[#b3001e] transition-colors">{link.label}</Link>
+                : <a key={link.href} href={link.href} className="text-sm font-medium text-white/70 hover:text-[#b3001e] transition-colors">{link.label}</a>
             ))}
             <button onClick={toggleLang} className="flex items-center gap-1.5 text-sm font-medium text-white/50 hover:text-white transition-colors">
               <Globe size={14} /> {lang === 'es' ? 'EN' : 'ES'}
@@ -365,7 +385,9 @@ export default function LandingPage({ section }) {
         {mobileMenuOpen && (
           <div className="md:hidden bg-black border-t border-white/10 px-4 pb-4">
             {navLinks.map(link => (
-              <a key={link.href} href={link.href} onClick={() => setMobileMenuOpen(false)} className="block py-3 text-sm font-medium text-white/70 hover:text-[#b3001e] transition-colors">{link.label}</a>
+              link.isRoute
+                ? <Link key={link.href} to={link.href} onClick={() => setMobileMenuOpen(false)} className="block py-3 text-sm font-medium text-white/70 hover:text-[#b3001e] transition-colors">{link.label}</Link>
+                : <a key={link.href} href={link.href} onClick={() => setMobileMenuOpen(false)} className="block py-3 text-sm font-medium text-white/70 hover:text-[#b3001e] transition-colors">{link.label}</a>
             ))}
             <button onClick={() => { setMobileMenuOpen(false); navigate('/pos') }} className="mt-2 w-full bg-[#b3001e] hover:bg-[#d4002a] rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors">
               {L('Iniciar Sesion', 'Log In')}
@@ -374,7 +396,14 @@ export default function LandingPage({ section }) {
         )}
       </nav>
 
-      {/* SECTION 1: Hero — WHITE */}
+      {/* SECTION 1: Hero — WHITE — HeroAnimated (3-col SVG mockup grid) */}
+      <HeroAnimated lang={lang} />
+
+      {/* SECTION 1.5: DGII vs Terminal X — BLACK — head-to-head capability table */}
+      <DgiiComparison lang={lang} />
+
+      {/* (legacy hero block retained but never rendered — kept for reference until copy migration ships) */}
+      {false && (
       <section className="bg-white px-4 py-24 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto text-center">
           <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Emisor Electronico Certificado DGII', 'Certified DGII Electronic Issuer')}</p>
@@ -422,6 +451,7 @@ export default function LandingPage({ section }) {
           </p>
         </div>
       </section>
+      )}
 
       {/* SECTION 2: How it works — BLACK */}
       <section className="bg-black px-4 py-24 sm:px-6 lg:px-8">
@@ -627,7 +657,16 @@ export default function LandingPage({ section }) {
         </div>
       </section>
 
-      {/* SECTION 3.5: Multi-Business Type — WHITE */}
+      {/* SECTION 3.5: Verticals (WHITE) — replaces flat Multi-Business-Type grid with the
+          tabbed mega-section that drives copy from copy.json */}
+      <VerticalFeatures lang={lang} />
+
+      {/* SECTION 3.55: Demo strip + cert callout (WHITE) — replaces the single
+          Studio X Car Wash live-client block with the 13-vertical demo grid */}
+      <DemoStrip lang={lang} ecfsIssued="10K+" />
+
+      {/* (legacy 3.5 + 3.6 retained but never rendered for diff readability) */}
+      {false && (<>
       <section className="bg-white px-4 py-24 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <div className="text-center">
@@ -715,6 +754,7 @@ export default function LandingPage({ section }) {
           </div>
         </div>
       </section>
+      </>)}
 
       {/* SECTION 3.7: Facturacion Plan — WHITE */}
       <section id="facturacion" className="bg-white px-4 py-24 sm:px-6 lg:px-8 scroll-mt-32">
@@ -751,7 +791,7 @@ export default function LandingPage({ section }) {
                     </li>
                   ))}
                 </ul>
-                <button onClick={() => navigate(`/signup?plan=${fp.key}`)}
+                <button onClick={() => { try { trackCtaClick('pricing_card', fp.key) } catch {}; navigate(`/signup?plan=${fp.key}`) }}
                   className={`w-full py-3 rounded-lg text-sm font-bold transition-colors ${fp.highlight ? 'bg-[#b3001e] hover:bg-[#d4002a] text-white shadow-lg shadow-red-500/25' : 'bg-black hover:bg-black/80 text-white'}`}>
                   {fp.cta} <ArrowRight size={14} className="inline ml-1" />
                 </button>
@@ -816,7 +856,7 @@ export default function LandingPage({ section }) {
                   <Headphones size={12} className="inline mr-1.5" />
                   {plan.support}
                 </div>
-                <button onClick={() => navigate(`/signup?plan=${plan.key}`)}
+                <button onClick={() => { try { trackCtaClick('pricing_card', plan.key) } catch {}; navigate(`/signup?plan=${plan.key}`) }}
                   className={`w-full py-3 rounded-lg text-sm font-bold transition-colors ${
                     plan.highlight
                       ? 'bg-[#b3001e] hover:bg-[#d4002a] text-white shadow-lg shadow-red-500/25'
@@ -829,6 +869,12 @@ export default function LandingPage({ section }) {
           </div>
         </div>
       </section>
+
+      {/* SECTION 4.5: Feature Matrix — WHITE — full 60-row × 6-tier table */}
+      <FeatureMatrix lang={lang} />
+
+      {/* SECTION 4.6: ROI Calculator — BLACK — Grok-spec inputs (facturas, minutos, empleados) */}
+      <RoiCalculator lang={lang} />
 
       {/* SECTION 5: Support tiers — WHITE */}
       <section className="bg-white px-4 py-24 sm:px-6 lg:px-8">
@@ -1202,26 +1248,8 @@ export default function LandingPage({ section }) {
         </div>
       </section>
 
-      {/* SECTION 9: Final CTA — WHITE */}
-      <section className="bg-white px-4 py-24 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto text-center">
-          <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Empieza hoy', 'Start today')}</p>
-          <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">{L('Listo para modernizar tu negocio?', 'Ready to modernize your business?')}</h2>
-          <p className="mt-4 text-lg text-black/60 max-w-lg mx-auto">{L('Facturacion electronica directa con DGII, sin intermediarios. El unico POS en RD con e-CF directo, modo offline y configuracion remota.', 'Direct electronic invoicing with DGII, no middlemen. The only POS in DR with direct e-CF, offline mode and remote configuration.')}</p>
-          <p className="mt-3 text-[#b3001e] font-bold text-lg">{L('Desde RD$995/mes. Sin contrato. Sin sorpresas.', 'From RD$995/mo. No contract. No surprises.')}</p>
-          <p className="mt-2 text-sm text-black/60 font-medium">{L('La Ley 32-23 es obligatoria desde mayo 2026. No esperes a que tu PSFE te resuelva — resuelve tu mismo.', 'Ley 32-23 is mandatory from May 2026. Don\'t wait for your PSFE to figure it out — take control.')}</p>
-          <div className="flex items-center justify-center gap-4 flex-wrap mt-10">
-            <button onClick={() => navigate('/signup?plan=pro_plus')}
-              className="bg-[#b3001e] hover:bg-[#d4002a] px-6 py-3 text-sm font-bold text-white rounded-lg transition-colors shadow-lg shadow-red-500/25">
-              {L('Empezar ahora', 'Start now')} <ArrowRight size={16} className="inline ml-1" />
-            </button>
-            <a href="https://wa.me/18098282971?text=Hola%2C%20quiero%20informacion%20sobre%20Terminal%20X" target="_blank" rel="noopener noreferrer"
-              className="border border-black/20 text-black/80 hover:border-black/40 hover:shadow-lg px-6 py-3 text-sm font-bold rounded-lg transition-all">
-              {L('Hablar por WhatsApp', 'Chat on WhatsApp')}
-            </a>
-          </div>
-        </div>
-      </section>
+      {/* SECTION 9: Final CTA — BLACK — DeadlineCta with live countdown to May 15, 2026 */}
+      <DeadlineCta lang={lang} />
 
       {/* Footer — BLACK */}
       <footer className="bg-black border-t border-white/10 px-4 py-16 sm:px-6 lg:px-8">
@@ -1254,6 +1282,7 @@ export default function LandingPage({ section }) {
                 <a href="#facturacion" className="block text-sm text-white/60 hover:text-white transition-colors">{L('Facturacion', 'Invoicing')}</a>
                 <a href="#pricing" className="block text-sm text-white/60 hover:text-white transition-colors">{L('Planes', 'Plans')}</a>
                 <a href="#certificacion" className="block text-sm text-white/60 hover:text-white transition-colors">{L('Certificacion', 'Certification')}</a>
+                <Link to="/blog" className="block text-sm text-white/60 hover:text-white transition-colors">Blog</Link>
                 <a href="#faq" className="block text-sm text-white/60 hover:text-white transition-colors">FAQ</a>
               </div>
             </div>
@@ -1291,6 +1320,12 @@ export default function LandingPage({ section }) {
       >
         <ArrowUp size={20} strokeWidth={2.5} />
       </button>
+
+      {/* Sticky mobile CTA — bottom-fixed bar (md:hidden) appears at scroll>800px */}
+      <StickyMobileCta lang={lang} />
+
+      {/* Exit-intent modal — fires once per session on desktop mouseleave */}
+      <ExitIntentModal lang={lang} />
     </div>
   )
 }

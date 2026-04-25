@@ -4787,6 +4787,26 @@ function ticketGetByDateRange(dateFrom, dateTo) {
   return ticketsGetAll({ dateFrom, dateTo })
 }
 
+// v2.14.36 — variant that hydrates each ticket with its items[] array. Used by
+// BottleDepositReport (needs to scan ticket_items for is_deposit / SKU='DEP').
+// One extra query per range, batched by ticket id list. Cheap enough for the
+// 30-day windows BottleDepositReport uses.
+function ticketGetByDateRangeWithItems(dateFrom, dateTo) {
+  if (!db) return []
+  const rows = ticketsGetAll({ dateFrom, dateTo })
+  if (!rows.length) return rows
+  const ids = rows.map(r => r.id)
+  const placeholders = ids.map(() => '?').join(',')
+  const itemRows = db.prepare(`SELECT * FROM ticket_items WHERE ticket_id IN (${placeholders})`).all(...ids)
+  const byTicket = new Map()
+  for (const it of itemRows) {
+    if (!byTicket.has(it.ticket_id)) byTicket.set(it.ticket_id, [])
+    byTicket.get(it.ticket_id).push(it)
+  }
+  for (const r of rows) r.items = byTicket.get(r.id) || []
+  return rows
+}
+
 // ── PRICE CHANGES (queued ticket item price modification) ────────────────────
 function ticketItemUpdatePrice({ ticketItemId, newPrice, reason, adminPin }) {
   if (!db) return { ok: false, error: 'DB not ready' }
@@ -5841,10 +5861,11 @@ function inventoryGetAll() {
 function inventoryCreate(data) {
   if (!db) return null
   const sid = crypto.randomUUID()
+  const initialQty = Number(data.quantity) || 0
   const r = db.prepare(`INSERT INTO inventory_items(sku,name,category,quantity,min_quantity,price,price_pedidos_ya,cost,barcode,aplica_itbis,sold_by_weight,unit,price_per_unit,bottle_deposit,tare_default,supabase_id)
     VALUES(@sku,@name,@category,@quantity,@min_quantity,@price,@price_pedidos_ya,@cost,@barcode,@aplica_itbis,@sold_by_weight,@unit,@price_per_unit,@bottle_deposit,@tare_default,@supabase_id)`).run({
     sku: data.sku || null, name: data.name, category: data.category || '',
-    quantity: data.quantity || 0, min_quantity: data.min_quantity ?? 5,
+    quantity: initialQty, min_quantity: data.min_quantity ?? 5,
     price: data.price || 0,
     price_pedidos_ya: data.price_pedidos_ya != null && data.price_pedidos_ya !== '' ? Number(data.price_pedidos_ya) : null,
     cost: data.cost || 0,
@@ -5856,14 +5877,38 @@ function inventoryCreate(data) {
     tare_default: data.tare_default != null ? Number(data.tare_default) : null,
     supabase_id: sid,
   })
-  return { id: r.lastInsertRowid, supabase_id: sid }
+  const newId = r.lastInsertRowid
+  // v2.14.35 — emit opening-balance ledger row + activity_log entry so a brand-new
+  // product's stock has the same audit footprint as any later adjustment. Skip
+  // the ledger insert when initialQty is 0 (no movement to log).
+  try {
+    if (initialQty > 0) {
+      db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id) VALUES(?,?,?,?,?,?,?)')
+        .run(newId, 'opening', initialQty, 'Cantidad inicial al crear el producto', data.user_id || null, crypto.randomUUID(), sid)
+    }
+    activityLogRecord({
+      event_type: 'inventory_created', severity: 'info',
+      actor_user_id: data.user_id || null,
+      target_type: 'inventory_item', target_id: newId, target_name: data.name || `#${newId}`,
+      amount: initialQty,
+      new_value: String(initialQty),
+      reason: data.sku ? `SKU: ${data.sku}` : null,
+      metadata: { sku: data.sku || null, category: data.category || null, price: data.price || 0, cost: data.cost || 0 },
+    })
+  } catch {}
+  return { id: newId, supabase_id: sid }
 }
 function inventoryUpdate(id, data) {
   if (!db) return
   // Build a dynamic SET clause so bulk-edit patches (e.g. { category } or
   // { price_pedidos_ya }) only touch the fields provided and never blank out
   // the rest of the row.
-  const ALLOWED = ['sku','name','category','min_quantity','price','price_pedidos_ya','cost','barcode','aplica_itbis','sold_by_weight','unit','price_per_unit','bottle_deposit','tare_default','quantity']
+  // v2.14.35 — `quantity` REMOVED from ALLOWED list. Stock changes must flow
+  // through inventoryAdjust() so every change writes an inventory_transactions
+  // row + activity_log entry. Silent qty edits during a price/category bulk
+  // update are now impossible. (Sales, voids, and conteo apply still update
+  // qty directly via their own audited paths.)
+  const ALLOWED = ['sku','name','category','min_quantity','price','price_pedidos_ya','cost','barcode','aplica_itbis','sold_by_weight','unit','price_per_unit','bottle_deposit','tare_default']
   const sets = []
   const params = { id }
   for (const k of ALLOWED) {
@@ -5877,8 +5922,6 @@ function inventoryUpdate(id, data) {
       v = v === '' || v == null ? 0 : Number(v)
     } else if (k === 'min_quantity') {
       v = v ?? 5
-    } else if (k === 'quantity') {
-      v = Number(v) || 0
     } else if (['sku','barcode','unit'].includes(k)) {
       v = v || null
     } else if (k === 'category') {
@@ -8137,11 +8180,31 @@ function inventoryCountComplete({ id, apply_to_inventory = true, signature_datau
       const upd = db.prepare(`UPDATE inventory_items
         SET quantity = ?, updated_at = datetime('now')
         WHERE supabase_id = ?`)
+      // v2.14.35 — emit a per-item inventory_transactions row for every variance
+      // so "qty went 50→40 because of conteo X" is fully traceable. Type is
+      // 'count_in' / 'count_out' to distinguish from manual ajustes.
+      const ledgerInsert = db.prepare(`INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id)
+        VALUES(?,?,?,?,?,?,?)`)
+      const itemIdLookup = db.prepare('SELECT id FROM inventory_items WHERE supabase_id=?')
       for (const r of counted) {
-        // Look up supabase_id from the item rows in this count.
         const sid = db.prepare('SELECT inventory_item_supabase_id FROM inventory_count_items WHERE count_supabase_id=? AND sku IS ? AND name=?')
           .get(countSid, r.sku, r.name)?.inventory_item_supabase_id
-        if (sid) upd.run(Number(r.counted_qty) || 0, sid)
+        if (!sid) continue
+        const newQty = Number(r.counted_qty) || 0
+        upd.run(newQty, sid)
+        const variance = Number(r.variance_qty) || 0
+        if (variance !== 0) {
+          const itemId = itemIdLookup.get(sid)?.id || null
+          ledgerInsert.run(
+            itemId,
+            variance >= 0 ? 'count_in' : 'count_out',
+            variance,
+            `Conteo Fisico — ${header.title || countSid.slice(0, 8)}${header.counted_by_name ? ` (${header.counted_by_name})` : ''}`,
+            null,
+            crypto.randomUUID(),
+            sid,
+          )
+        }
       }
     }
     db.prepare(`UPDATE inventory_counts SET status='completado', completed_at=?, signature_dataurl=COALESCE(?, signature_dataurl), updated_at=? WHERE supabase_id=?`)
@@ -8279,7 +8342,7 @@ module.exports = {
   // v2.7.1 — Loyalty program (ledger)
   loyaltyAward, loyaltyRedeem, loyaltyAdjust, loyaltyHistory,
   // Tickets
-  ticketsGetAll, ticketGetById, ticketCreate, ticketMarkPaid, ticketVoid, ticketGetByDateRange,
+  ticketsGetAll, ticketGetById, ticketCreate, ticketMarkPaid, ticketVoid, ticketGetByDateRange, ticketGetByDateRangeWithItems,
   // Price changes
   ticketItemUpdatePrice, priceChangesGetByTicket, priceChangesGetAll,
   // Queue

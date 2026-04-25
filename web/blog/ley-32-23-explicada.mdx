@@ -1,0 +1,90 @@
+---
+title: "Ley 32-23 explicada para pequeños contribuyentes"
+slug: "ley-32-23-explicada"
+excerpt: "Qué es el e-CF, qué pasa el 15 de mayo de 2026 y los 10 tipos de comprobante electrónico que tu negocio debe conocer."
+published_date: "2026-04-25"
+reading_time: "10 min"
+author: "Equipo Terminal X"
+category: "compliance"
+og_image: "/blog/og/ley-32-23-explicada.png"
+---
+
+La Ley 32-23 sobre Facturación Electrónica cambia, en términos prácticos, cómo todo negocio en República Dominicana emite comprobantes fiscales. Si llevas años imprimiendo NCFs en papel con secuencias B01 o B02, esto te aplica. Esta guía explica qué cambia, cuándo y cómo cumplir sin sobresaltos.
+
+## Qué es un e-CF
+
+Un e-CF (Comprobante Fiscal Electrónico) es un archivo XML firmado digitalmente con tu certificado Viafirma y enviado a DGII en línea. Reemplaza al NCF impreso. La factura física que entregas al cliente sigue existiendo (en papel térmico o en PDF), pero el comprobante fiscal real es el XML que DGII recibe y acepta.
+
+Cada e-CF lleva:
+
+- Un número con prefijo de letra E y 10 dígitos (por ejemplo `E310000000147`)
+- Una firma digital RSA-SHA256 hecha con tu certificado
+- Un código de seguridad que identifica el comprobante en consultas
+- Un QR que el cliente puede escanear para validar contra DGII
+
+Una vez aceptado por DGII, el e-CF queda en sus sistemas. No depende de tu computadora ni de la nuestra.
+
+## La fecha que importa: 15 de mayo de 2026
+
+Ley 32-23 estableció un calendario gradual. Grandes contribuyentes ya cumplen desde 2024. Medianos cumplen desde 2025. **Pequeños, micro y no clasificados deben cumplir a partir del 15 de mayo de 2026.**
+
+Si tu negocio entra en alguna de esas categorías, después de esa fecha cada factura que emitas debe ser un e-CF. Los NCFs en papel B01 y B02 dejan de aceptarse para nuevas emisiones (las secuencias ya emitidas siguen válidas hasta que se agoten o expiren).
+
+## Quién debe cumplir
+
+En la práctica, todo contribuyente con RNC activo. Si emites factura, eres contribuyente. Si eres contribuyente, después del 15 de mayo de 2026 emites e-CF. No hay excepción por tamaño, sector ni volumen.
+
+Lo que sí varía es la herramienta:
+
+- **Facturador Gratuito de DGII**: gratis, cap aproximado de 150 facturas al mes según la propia DGII, sin API, sin app móvil, manual en la mayoría de los casos.
+- **PSFE (Proveedor de Servicios de Facturación Electrónica)**: empresa intermediaria autorizada, cobra por comprobante.
+- **Emisor Electrónico Directo**: tú emites con tu propio certificado, sin intermediario. Terminal X tiene esta certificación (DGII Cert #42483).
+
+## Los 10 tipos de e-CF que existen
+
+| Tipo | Nombre | Cuándo se usa |
+|---|---|---|
+| **E31** | Crédito Fiscal | Factura B2B donde el cliente reclama crédito fiscal de ITBIS (siempre lleva RNC del comprador) |
+| **E32** | Consumo (RFCE) | Factura al consumidor final por monto menor a RD$250,000; envío vía multipart/form-data |
+| **E33** | Nota de Débito | Cargo adicional sobre un comprobante previamente emitido |
+| **E34** | Nota de Crédito | Devolución total o parcial sobre un comprobante previamente emitido |
+| **E41** | Compras | Comprobante de compra a un no-contribuyente formal |
+| **E43** | Gastos Menores | Compras pequeñas a proveedores no fiscales (pertinente para restaurantes y servicios) |
+| **E44** | Regímenes Especiales | Operaciones bajo regímenes especiales como Zona Franca |
+| **E45** | Gubernamental | Ventas al sector público |
+| **E47** | Pagos al Exterior | Pagos al extranjero por servicios o regalías |
+| **ANECF** | Anulación de e-CF | Anula un rango de secuencias no usadas (no anula uno ya emitido) |
+
+Adicional a estos, existe el **RFCE** (Resumen de Factura de Consumo Electrónico) que es el formato del envío E32 con su particularidad técnica de multipart/form-data.
+
+## El costo de no cumplir
+
+DGII define multas por emisión sin comprobante autorizado bajo el Código Tributario y normas complementarias. Las sanciones pueden incluir multas en pesos sobre el monto facturado, intereses y, en casos reincidentes, retención de RNC. La cifra exacta cambia según la norma vigente al momento de la fiscalización, así que la consulta puntual con tu contador es lo más prudente.
+
+Lo más práctico de tener claro: **emitir una factura sin e-CF después del 15 de mayo de 2026 deja un agujero en tu Formato 607 que la DGII verá en el cruce contra los 606 de tus clientes**. Ahí empiezan los problemas.
+
+## Cómo elegir un proveedor de facturación electrónica
+
+Tres preguntas que separan lo bueno de lo regular:
+
+### 1. ¿Es Emisor Electrónico Directo o intermediario?
+
+Si es intermediario (PSFE), añade un eslabón a la cadena. Cada comprobante depende de su disponibilidad además de la de DGII. Un Emisor Electrónico Directo (como Terminal X) firma con su propio certificado y envía a DGII sin pasar por nadie más.
+
+### 2. ¿Qué hace cuando se cae internet?
+
+DGII permite hasta 72 horas de envío diferido (`IndicadorEnvioDiferido=1`) cuando hay contingencia. Una buena herramienta encola los comprobantes localmente, los firma cuando se restablece la red y los reenvía con ese indicador. Una herramienta básica te obliga a entrar a Oficina Virtual y hacerlo a mano, factura por factura.
+
+### 3. ¿Qué hace con tu certificado Viafirma?
+
+Tu certificado es la pieza más sensible. Una herramienta seria lo cifra en el dispositivo (idealmente con SQLCipher o equivalente) y nunca lo guarda en texto plano en su servidor. Pregunta cómo lo manejan; si la respuesta es vaga, corre.
+
+## El camino más corto
+
+Si emites menos de 100 facturas al mes y solo necesitas e-CF (sin POS, sin inventario), el **Facturador Gratuito de DGII** te resuelve. Es gratis, cumple lo mínimo y vas con calma.
+
+Si emites más, vendes por WhatsApp, operas en USD o necesitas que tu personal facture desde el celular, necesitas algo más. Ahí es donde Terminal X arranca, desde **RD$995/mes** con plan Facturación.
+
+## Empezar con Terminal X · 7 días gratis →
+
+Configuración remota incluida, certificado Viafirma gestionado por nuestro equipo y soporte directo por WhatsApp al **+1 (809) 828-2971**. Entra a [terminalxpos.com/signup](https://terminalxpos.com/signup?plan=facturacion) y empieza tu prueba sin tarjeta de crédito.

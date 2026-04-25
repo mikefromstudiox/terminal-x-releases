@@ -1,0 +1,624 @@
+{
+  "hero": {
+    "primary": {
+      "headline_es": "Cuando el Facturador Gratuito de DGII no alcanza",
+      "headline_en": "When DGII's Free Invoicer Falls Short",
+      "subhead_es": "Misma compliance Ley 32-23. API, móvil, WhatsApp y modo offline. Desde RD$995/mes.",
+      "subhead_en": "Same Ley 32-23 compliance. API, mobile, WhatsApp and offline mode. From RD$995/mo.",
+      "cta_primary_es": "Empezar gratis 7 días",
+      "cta_primary_en": "Start 7-day free trial",
+      "cta_secondary_es": "Ver comparación con Gratuito",
+      "cta_secondary_en": "Compare with Free Invoicer"
+    },
+    "alt_1": {
+      "headline_es": "Listo para Ley 32-23 antes del 15 de mayo",
+      "headline_en": "Ley 32-23 ready before May 15",
+      "subhead_es": "POS y e-CF certificado por DGII (Cert #42483). Sin PSFE intermediario, sin costo por comprobante.",
+      "subhead_en": "POS and e-CF certified by DGII (Cert #42483). No PSFE middleman, no per-invoice fee.",
+      "cta_primary_es": "Activar mi cuenta",
+      "cta_primary_en": "Activate my account",
+      "cta_secondary_es": "Hablar por WhatsApp",
+      "cta_secondary_en": "Chat on WhatsApp"
+    },
+    "alt_2": {
+      "headline_es": "Factura electrónica sin límites artificiales",
+      "headline_en": "Electronic invoicing without artificial limits",
+      "subhead_es": "150 facturas/mes en el Gratuito vs ilimitadas con Terminal X. API, app móvil y soporte humano incluidos.",
+      "subhead_en": "150 invoices/mo on the Free tool vs unlimited with Terminal X. API, mobile app and human support included.",
+      "cta_primary_es": "Probar 7 días gratis",
+      "cta_primary_en": "Try 7 days free",
+      "cta_secondary_es": "Ver planes y precios",
+      "cta_secondary_en": "See plans and pricing"
+    },
+    "trust_strip_es": "DGII Cert #42483 · RNC 133410321 · Viafirma · 7 días gratis · Sin tarjeta de crédito",
+    "trust_strip_en": "DGII Cert #42483 · RNC 133410321 · Viafirma · 7 days free · No credit card"
+  },
+  "comparison": {
+    "section_header_es": "DGII Gratuito vs Terminal X Facturación",
+    "section_header_en": "DGII Free Invoicer vs Terminal X Facturación",
+    "section_intro_es": "El Facturador Gratuito de la DGII cumple con lo mínimo: emite e-CFs, valida con el certificado y reporta. Pero según la propia DGII, el cap mensual ronda las 150 facturas y puede ajustarse por aviso informativo. Si tu negocio factura más, opera en USD, vende por WhatsApp o necesita una app móvil, llegaste al techo. Terminal X parte desde ahí.",
+    "section_intro_en": "DGII's Free Invoicer covers the basics: issues e-CFs, validates the certificate, files reports. But per DGII itself, the monthly cap is around 150 invoices and may shift by simple notice. If you bill more than that, take USD, sell via WhatsApp or need a mobile app, you've hit the ceiling. Terminal X starts where it ends.",
+    "column_labels_es": ["Capacidad", "DGII Gratuito", "Terminal X Facturación"],
+    "column_labels_en": ["Capability", "DGII Free", "Terminal X Facturación"],
+    "rows": [
+      {
+        "label_es": "e-CFs por mes",
+        "label_en": "e-CFs per month",
+        "free_es": "≈150 (cap puede cambiar por aviso)",
+        "free_en": "≈150 (cap may change by notice)",
+        "tx_es": "50 incluidos + RD$15 cada extra (sin tope)",
+        "tx_en": "50 included + RD$15 each extra (no cap)"
+      },
+      {
+        "label_es": "Tipos de e-CF soportados",
+        "label_en": "Supported e-CF types",
+        "free_es": "Limitado",
+        "free_en": "Limited",
+        "tx_es": "E31 · E32 · E33 · E34 · E43 · E44 · E45 · E47 · ANECF",
+        "tx_en": "E31 · E32 · E33 · E34 · E43 · E44 · E45 · E47 · ANECF"
+      },
+      {
+        "label_es": "API y webhooks",
+        "label_en": "API and webhooks",
+        "free_es": "No disponible",
+        "free_en": "Not available",
+        "tx_es": "REST + webhooks incluidos",
+        "tx_en": "REST + webhooks included"
+      },
+      {
+        "label_es": "App móvil iOS y Android",
+        "label_en": "Mobile app iOS and Android",
+        "free_es": "Solo Oficina Virtual web",
+        "free_en": "Web Oficina Virtual only",
+        "tx_es": "PWA instalable en iOS y Android",
+        "tx_en": "Installable PWA on iOS and Android"
+      },
+      {
+        "label_es": "Envío automático por WhatsApp",
+        "label_en": "Automatic WhatsApp delivery",
+        "free_es": "No",
+        "free_en": "No",
+        "tx_es": "Comprobante enviado al cliente al cobrar",
+        "tx_en": "Receipt sent to client at checkout"
+      },
+      {
+        "label_es": "Modo offline 72 horas",
+        "label_en": "72-hour offline mode",
+        "free_es": "Manual en Oficina Virtual",
+        "free_en": "Manual in Oficina Virtual",
+        "tx_es": "Cola automática con IndicadorEnvioDiferido",
+        "tx_en": "Automatic queue with IndicadorEnvioDiferido"
+      },
+      {
+        "label_es": "Multi-moneda (USD)",
+        "label_en": "Multi-currency (USD)",
+        "free_es": "Solo DOP",
+        "free_en": "DOP only",
+        "tx_es": "DOP + USD con tasa configurable",
+        "tx_en": "DOP + USD with configurable rate"
+      },
+      {
+        "label_es": "Multi-usuario y roles",
+        "label_en": "Multi-user and roles",
+        "free_es": "Un usuario por RNC",
+        "free_en": "One user per RNC",
+        "tx_es": "5 roles: owner / manager / CFO / accountant / cashier",
+        "tx_en": "5 roles: owner / manager / CFO / accountant / cashier"
+      },
+      {
+        "label_es": "Formato 606 (compras)",
+        "label_en": "Formato 606 (purchases)",
+        "free_es": "Llenado manual",
+        "free_en": "Manual entry",
+        "tx_es": "Exporta TXT en 1 clic",
+        "tx_en": "Exports TXT in 1 click"
+      },
+      {
+        "label_es": "Formato 607 (ventas)",
+        "label_en": "Formato 607 (sales)",
+        "free_es": "Llenado manual",
+        "free_en": "Manual entry",
+        "tx_es": "Exporta TXT en 1 clic",
+        "tx_en": "Exports TXT in 1 click"
+      },
+      {
+        "label_es": "Búsqueda de RNC (900K registros)",
+        "label_en": "RNC lookup (900K records)",
+        "free_es": "Manual",
+        "free_en": "Manual",
+        "tx_es": "Local instantáneo + fallback en línea",
+        "tx_en": "Instant local + online fallback"
+      },
+      {
+        "label_es": "Validar Certificado (semilla y nonce)",
+        "label_en": "Certificate validation (seed and nonce)",
+        "free_es": "No expuesto",
+        "free_en": "Not exposed",
+        "tx_es": "Automático en cada envío",
+        "tx_en": "Automatic on every submission"
+      },
+      {
+        "label_es": "Soporte técnico",
+        "label_en": "Technical support",
+        "free_es": "Tickets DGII",
+        "free_en": "DGII tickets",
+        "tx_es": "WhatsApp directo +1 (809) 828-2971 + sesión remota",
+        "tx_en": "Direct WhatsApp +1 (809) 828-2971 + remote session"
+      },
+      {
+        "label_es": "Configuración inicial",
+        "label_en": "Initial setup",
+        "free_es": "Cliente lo hace solo",
+        "free_en": "Self-service",
+        "tx_es": "Configuración remota por nuestro equipo (PAT-5)",
+        "tx_en": "Remote setup by our team (PAT-5)"
+      }
+    ]
+  },
+  "verticals": {
+    "facturacion": {
+      "tab_label_es": "Facturación",
+      "tab_label_en": "Invoicing",
+      "tier_es": "Plan Facturación · desde RD$995/mes",
+      "tier_en": "Facturación plan · from RD$995/mo",
+      "headline_es": "Para quien solo necesita emitir e-CF",
+      "headline_en": "For those who only need to issue e-CFs",
+      "bullets_es": [
+        "e-CF directo a DGII sin PSFE intermediario (Cert #42483 propio)",
+        "Búsqueda de RNC con 900,000 contribuyentes locales más fallback en línea",
+        "Exportación Formato 606 y 607 en TXT, listos para subir a Oficina Virtual",
+        "Crear y enviar facturas desde el celular o la tablet, sin instalar nada",
+        "Envío automático del comprobante por WhatsApp al cliente",
+        "Cola offline de 72 horas con IndicadorEnvioDiferido cuando se cae la red",
+        "Certificado Viafirma instalado y renovado por nuestro equipo",
+        "Multi-moneda DOP y USD con tasa de cambio configurable"
+      ],
+      "bullets_en": [
+        "e-CFs sent directly to DGII with no PSFE middleman (own Cert #42483)",
+        "RNC lookup across 900,000 local taxpayers with online fallback",
+        "Formato 606 and 607 TXT export, ready to upload to Oficina Virtual",
+        "Create and send invoices from phone or tablet, no install required",
+        "Automatic WhatsApp delivery of the receipt to the client",
+        "72-hour offline queue with IndicadorEnvioDiferido when the network drops",
+        "Viafirma certificate installed and renewed by our team",
+        "Multi-currency DOP and USD with configurable exchange rate"
+      ]
+    },
+    "carwash": {
+      "tab_label_es": "Carwash",
+      "tab_label_en": "Carwash",
+      "tier_es": "Plan Pro · RD$2,490/mes",
+      "tier_en": "Pro plan · RD$2,490/mo",
+      "headline_es": "Operación completa para lavaderos",
+      "headline_en": "Full operations for carwashes",
+      "bullets_es": [
+        "Cola de servicios con asignación de lavadores y tiempos en pantalla",
+        "Conduces multi-lavador con división automática de comisiones",
+        "Membresías recurrentes con cobro mensual y control de visitas",
+        "Conteo físico con reporte de varianza en PDF y CSV",
+        "Búsqueda por placa con historial completo del vehículo",
+        "Modo kiosko con auto-bloqueo por inactividad y PIN de cajera",
+        "Tarjetas de autorización del manager con código Code128 físico",
+        "Resumen diario al dueño por correo a las 7 PM hora local"
+      ],
+      "bullets_en": [
+        "Service queue with washer assignment and on-screen timers",
+        "Multi-washer tickets with automatic commission split",
+        "Recurring memberships with monthly billing and visit tracking",
+        "Physical inventory count with variance report in PDF and CSV",
+        "License-plate lookup with full vehicle history",
+        "Kiosk mode with idle auto-lock and cashier PIN",
+        "Manager authorization cards with physical Code128 barcode",
+        "Daily owner digest emailed at 7 PM local time"
+      ]
+    },
+    "tiendas": {
+      "tab_label_es": "Tiendas",
+      "tab_label_en": "Retail",
+      "tier_es": "Plan Pro PLUS · RD$4,490/mes",
+      "tier_en": "Pro PLUS plan · RD$4,490/mo",
+      "headline_es": "Ocho subtipos, una sola plataforma",
+      "headline_en": "Eight subtypes, one platform",
+      "bullets_es": [
+        "Búsqueda por código de barras o SKU con escáner USB o cámara",
+        "Catálogo con categorías, importación CSV y stock mínimo",
+        "Reporte de productos con margen ex-ITBIS y unidades vendidas",
+        "Notas de crédito y devoluciones con reversa automática de inventario",
+        "Lealtad con niveles Bronce, Plata y Oro (multiplicadores x1, x1.25 y x1.5)",
+        "Canal Pedidos Ya con precio alterno y stamp de origen en el ticket",
+        "Precios por cliente que prevalecen sobre lista base y Pedidos Ya",
+        "Sub-plantillas listas para licorería, farmacia, colmado y 5 más"
+      ],
+      "bullets_en": [
+        "Barcode or SKU search with USB scanner or camera",
+        "Catalog with categories, CSV import and minimum stock alerts",
+        "Products report with ex-ITBIS margin and units sold",
+        "Credit notes and returns with automatic inventory reversal",
+        "Loyalty with Bronze, Silver and Gold tiers (x1, x1.25, x1.5 multipliers)",
+        "Pedidos Ya channel with alternate price and source-stamped tickets",
+        "Per-client pricing that overrides base list and Pedidos Ya",
+        "Ready-to-go sub-templates for liquor store, pharmacy, colmado and 5 more"
+      ],
+      "subtypes": {
+        "licoreria": {
+          "label_es": "Licorería",
+          "label_en": "Liquor store",
+          "bullet_es": "Verificación de edad obligatoria, depósito de envases retornables y sugerencias por marca",
+          "bullet_en": "Age verification gate, returnable bottle deposit and brand suggestions"
+        },
+        "farmacia": {
+          "label_es": "Farmacia",
+          "label_en": "Pharmacy",
+          "bullet_es": "Seguimiento de recetas, registro de lotes y vencimientos por SKU",
+          "bullet_en": "Prescription tracking, lot numbers and expiration dates per SKU"
+        },
+        "colmado": {
+          "label_es": "Colmado",
+          "label_en": "Colmado",
+          "bullet_es": "Fiado por cliente con balance corriente y recordatorios automáticos por WhatsApp",
+          "bullet_en": "Client credit (fiado) with running balance and automatic WhatsApp reminders"
+        },
+        "supermercado": {
+          "label_es": "Supermercado",
+          "label_en": "Supermarket",
+          "bullet_es": "Mostrador de deli con precio por peso y báscula compatible",
+          "bullet_en": "Deli counter with price-by-weight and compatible scale"
+        },
+        "ferreteria": {
+          "label_es": "Ferretería",
+          "label_en": "Hardware store",
+          "bullet_es": "Cotizaciones formales y conversión a factura cuando el cliente acepta",
+          "bullet_en": "Formal estimates that convert to invoice when the client accepts"
+        },
+        "papeleria": {
+          "label_es": "Papelería",
+          "label_en": "Stationery",
+          "bullet_es": "Combos escolares con precios por temporada y descuentos por volumen",
+          "bullet_en": "School-supply bundles with seasonal pricing and volume discounts"
+        },
+        "boutique": {
+          "label_es": "Boutique",
+          "label_en": "Boutique",
+          "bullet_es": "Variantes por talla y color con stock independiente por SKU hijo",
+          "bullet_en": "Size and color variants with independent stock per child SKU"
+        },
+        "otro": {
+          "label_es": "Otro",
+          "label_en": "Other",
+          "bullet_es": "Configuración personalizada de features y categorías por defecto",
+          "bullet_en": "Custom feature flags and default categories"
+        }
+      }
+    },
+    "restaurantes": {
+      "tab_label_es": "Restaurantes",
+      "tab_label_en": "Restaurants",
+      "tier_es": "Plan Pro PLUS · RD$4,490/mes",
+      "tier_en": "Pro PLUS plan · RD$4,490/mo",
+      "headline_es": "De la mesa a la cocina sin papel",
+      "headline_en": "From table to kitchen, paperless",
+      "bullets_es": [
+        "Pantalla de cocina (KDS) con tiempos por ticket y prioridad",
+        "Mapa de mesas con estados ocupada, cobrando, lista y libre",
+        "División de cuenta por persona, por producto o por monto fijo",
+        "Constructor de menú con modificadores, combos y opciones obligatorias",
+        "Propinas configurables con sugerencias 10/15/20% y reparto por turno",
+        "Comprobantes de gasto E43 para compras a proveedores no fiscales",
+        "Ruteo a múltiples impresoras: caja, cocina caliente, fría y barra",
+        "Reportes específicos: rotación de mesas, platos top y mermas"
+      ],
+      "bullets_en": [
+        "Kitchen display (KDS) with per-ticket timers and priority",
+        "Table map with states: occupied, paying, ready and free",
+        "Bill split by person, by item or by fixed amount",
+        "Menu builder with modifiers, combos and required options",
+        "Configurable tips with 10/15/20% suggestions and per-shift distribution",
+        "E43 expense receipts for purchases from non-fiscal suppliers",
+        "Multi-printer routing: cashier, hot kitchen, cold kitchen and bar",
+        "Restaurant-specific reports: table turnover, top dishes and waste"
+      ]
+    },
+    "servicios": {
+      "tab_label_es": "Servicios",
+      "tab_label_en": "Services",
+      "tier_es": "Plan Pro PLUS · RD$4,490/mes",
+      "tier_en": "Pro PLUS plan · RD$4,490/mo",
+      "headline_es": "Cuatro verticales de servicios en una plataforma",
+      "headline_en": "Four service verticals in one platform",
+      "subtabs": {
+        "mecanica": {
+          "label_es": "Mecánica",
+          "label_en": "Auto shop",
+          "bullets_es": [
+            "Órdenes de trabajo (Work Orders) con diagnóstico, repuestos y mano de obra",
+            "Bahías de servicio (Service Bays) con asignación de mecánico y estado",
+            "Historial completo del vehículo por placa con fotos y notas",
+            "Conversión Work Order a ticket fiscal en un clic"
+          ],
+          "bullets_en": [
+            "Work Orders with diagnostic, parts and labor",
+            "Service Bays with mechanic assignment and status",
+            "Complete vehicle history by plate with photos and notes",
+            "Work Order to fiscal ticket conversion in one click"
+          ]
+        },
+        "salon": {
+          "label_es": "Salón de belleza",
+          "label_en": "Beauty salon",
+          "bullets_es": [
+            "Citas (Appointments) con calendario semanal y recordatorios por WhatsApp",
+            "Estilistas con horario propio y comisión por servicio",
+            "Cola de espera con tiempo estimado para clientes sin cita",
+            "Historial de servicios y preferencias por cliente"
+          ],
+          "bullets_en": [
+            "Appointments with weekly calendar and WhatsApp reminders",
+            "Stylists with individual schedule and per-service commission",
+            "Walk-in queue with estimated wait time",
+            "Service history and preferences per client"
+          ]
+        },
+        "concesionario": {
+          "label_es": "Concesionario",
+          "label_en": "Dealership",
+          "bullets_es": [
+            "Deal Builder con cálculo de inicial, financiamiento y trade-in",
+            "Inventario de vehículos con VIN, fotos y kilometraje",
+            "Calculadora de financiamiento con tasa, plazo y cuota mensual",
+            "Ventas mayores o iguales a RD$250,000 ruteadas a e-CF E31 automático"
+          ],
+          "bullets_en": [
+            "Deal Builder with down-payment, financing and trade-in calculation",
+            "Vehicle inventory with VIN, photos and mileage",
+            "Financing calculator with rate, term and monthly payment",
+            "Sales ≥ RD$250,000 auto-routed to E31 e-CF"
+          ]
+        },
+        "pawn": {
+          "label_es": "Empeño",
+          "label_en": "Pawn shop",
+          "bullets_es": [
+            "Préstamos (Loans) con tasa, plazo y plan de pagos generado",
+            "Cobros (Collections) con estado al día, mora y vencido",
+            "Inventario de prendas (Pawn Items) con foto, valoración y avalúo",
+            "Analíticas de cartera: morosidad, rotación y rendimiento"
+          ],
+          "bullets_en": [
+            "Loans with rate, term and generated payment plan",
+            "Collections with current, late and defaulted statuses",
+            "Pawn Items inventory with photo, appraisal and valuation",
+            "Portfolio analytics: delinquency, turnover and yield"
+          ]
+        }
+      }
+    },
+    "empresas": {
+      "tab_label_es": "Empresas con empleados",
+      "tab_label_en": "Companies with employees",
+      "tier_es": "Plan Pro MAX · RD$6,990/mes",
+      "tier_en": "Pro MAX plan · RD$6,990/mo",
+      "headline_es": "Nómina dominicana 100% en regla",
+      "headline_en": "Fully compliant Dominican payroll",
+      "bullets_es": [
+        "Nómina con TSS (SFS, AFP), INFOTEP e ISR según escalas DR-2026",
+        "Corridas quincenales o mensuales con generación de volantes formales",
+        "Volantes de pago en PDF con desglose y firma del empleado",
+        "Liquidaciones Ley 16-92 con preaviso, cesantía y vacaciones",
+        "Bitácora de cambios salariales con histórico completo",
+        "Dashboard remoto en tiempo real desde cualquier dispositivo",
+        "Resumen diario al dueño por correo con ventas, e-CFs y alertas",
+        "Bloqueo de tickets multi-sucursal para evitar ediciones cruzadas"
+      ],
+      "bullets_en": [
+        "Payroll with TSS (SFS, AFP), INFOTEP and ISR per DR-2026 brackets",
+        "Biweekly or monthly runs with formal pay-stub generation",
+        "PDF pay stubs with breakdown and employee signature",
+        "Ley 16-92 severance with notice, indemnity and vacation",
+        "Salary-change log with full history",
+        "Real-time remote dashboard from any device",
+        "Daily owner digest emailed with sales, e-CFs and alerts",
+        "Multi-location ticket locks to prevent cross-edits"
+      ]
+    }
+  },
+  "feature_matrix": {
+    "section_header_es": "Qué incluye cada plan",
+    "section_header_en": "What each plan includes",
+    "categories_es": {
+      "POS": "POS",
+      "Fiscal": "Fiscal",
+      "Inventario": "Inventario",
+      "Nomina": "Nómina",
+      "Cloud": "Nube",
+      "Premium": "Premium"
+    },
+    "categories_en": {
+      "POS": "POS",
+      "Fiscal": "Fiscal",
+      "Inventario": "Inventory",
+      "Nomina": "Payroll",
+      "Cloud": "Cloud",
+      "Premium": "Premium"
+    },
+    "rows": [
+      { "key": "pos_basic", "feature_es": "Punto de venta básico", "feature_en": "Basic point of sale", "category": "POS" },
+      { "key": "queue", "feature_es": "Cola de servicios y conduces", "feature_en": "Service queue and tickets", "category": "POS" },
+      { "key": "barcode_scan", "feature_es": "Lectura de código de barras y SKU", "feature_en": "Barcode and SKU scanning", "category": "POS" },
+      { "key": "categories_tabs", "feature_es": "Pestañas de categorías reordenables", "feature_en": "Reorderable category tabs", "category": "POS" },
+      { "key": "split_payment", "feature_es": "Pago dividido en múltiples métodos", "feature_en": "Split payment across methods", "category": "POS" },
+      { "key": "returns_credit_notes", "feature_es": "Devoluciones con nota de crédito", "feature_en": "Returns with credit note", "category": "POS" },
+      { "key": "kiosk_mode", "feature_es": "Modo kiosko con auto-bloqueo", "feature_en": "Kiosk mode with auto-lock", "category": "POS" },
+      { "key": "manager_cards", "feature_es": "Tarjetas de autorización del manager", "feature_en": "Manager authorization cards", "category": "POS" },
+      { "key": "pedidos_ya", "feature_es": "Canal Pedidos Ya con precio alterno", "feature_en": "Pedidos Ya channel with alternate pricing", "category": "POS" },
+      { "key": "client_pricing", "feature_es": "Precios por cliente", "feature_en": "Per-client pricing", "category": "POS" },
+      { "key": "memberships", "feature_es": "Membresías recurrentes", "feature_en": "Recurring memberships", "category": "POS" },
+      { "key": "loyalty_tiers", "feature_es": "Lealtad Bronce, Plata, Oro", "feature_en": "Bronze, Silver, Gold loyalty tiers", "category": "POS" },
+      { "key": "restaurant_mode", "feature_es": "Modo restaurante (KDS, mesas, split bill)", "feature_en": "Restaurant mode (KDS, tables, split bill)", "category": "POS" },
+      { "key": "work_orders", "feature_es": "Órdenes de trabajo (mecánica)", "feature_en": "Work orders (auto shop)", "category": "POS" },
+      { "key": "appointments", "feature_es": "Citas (salón de belleza)", "feature_en": "Appointments (salon)", "category": "POS" },
+      { "key": "deal_builder", "feature_es": "Deal Builder (concesionario)", "feature_en": "Deal Builder (dealership)", "category": "POS" },
+      { "key": "loans", "feature_es": "Préstamos y empeños", "feature_en": "Loans and pawn", "category": "POS" },
+      { "key": "ecf_direct", "feature_es": "e-CF directo a DGII (Cert propio)", "feature_en": "e-CF direct to DGII (own cert)", "category": "Fiscal" },
+      { "key": "ecf_types", "feature_es": "10 tipos de e-CF (E31-E47, ANECF, RFCE)", "feature_en": "10 e-CF types (E31-E47, ANECF, RFCE)", "category": "Fiscal" },
+      { "key": "ncf_paper", "feature_es": "Secuencias NCF en papel (B01, B02)", "feature_en": "Paper NCF sequences (B01, B02)", "category": "Fiscal" },
+      { "key": "rnc_lookup", "feature_es": "Búsqueda RNC 900K local", "feature_en": "RNC lookup 900K local", "category": "Fiscal" },
+      { "key": "offline_72h", "feature_es": "Cola offline 72h con IndicadorEnvioDiferido", "feature_en": "72h offline queue with IndicadorEnvioDiferido", "category": "Fiscal" },
+      { "key": "anecf_void", "feature_es": "Anulación ANECF de rangos", "feature_en": "ANECF range void", "category": "Fiscal" },
+      { "key": "validar_certificado", "feature_es": "Validar Certificado nonce automático", "feature_en": "Automatic certificate nonce validation", "category": "Fiscal" },
+      { "key": "viafirma_cert", "feature_es": "Certificado Viafirma gestionado", "feature_en": "Managed Viafirma certificate", "category": "Fiscal" },
+      { "key": "formato_606", "feature_es": "Exportación Formato 606", "feature_en": "Formato 606 export", "category": "Fiscal" },
+      { "key": "formato_607", "feature_es": "Exportación Formato 607", "feature_en": "Formato 607 export", "category": "Fiscal" },
+      { "key": "multi_currency", "feature_es": "Multi-moneda DOP y USD", "feature_en": "Multi-currency DOP and USD", "category": "Fiscal" },
+      { "key": "qr_dgii", "feature_es": "QR de validación DGII en comprobantes", "feature_en": "DGII validation QR on receipts", "category": "Fiscal" },
+      { "key": "inventory_basic", "feature_es": "Inventario con stock mínimo", "feature_en": "Inventory with minimum stock", "category": "Inventario" },
+      { "key": "inventory_csv", "feature_es": "Importación CSV de productos", "feature_en": "CSV product import", "category": "Inventario" },
+      { "key": "conteo_fisico", "feature_es": "Conteo físico con varianza PDF/CSV", "feature_en": "Physical count with PDF/CSV variance", "category": "Inventario" },
+      { "key": "products_report", "feature_es": "Reporte de productos con margen ex-ITBIS", "feature_en": "Products report with ex-ITBIS margin", "category": "Inventario" },
+      { "key": "auto_stock", "feature_es": "Deducción y reversa automática de stock", "feature_en": "Automatic stock deduction and reversal", "category": "Inventario" },
+      { "key": "variants", "feature_es": "Variantes por talla y color (boutique)", "feature_en": "Size and color variants (boutique)", "category": "Inventario" },
+      { "key": "deposit_return", "feature_es": "Depósito de envases retornables (licorería)", "feature_en": "Bottle deposit (liquor store)", "category": "Inventario" },
+      { "key": "nomina_basic", "feature_es": "Nómina básica (1 empleado a la vez)", "feature_en": "Basic payroll (one employee at a time)", "category": "Nomina" },
+      { "key": "nomina_batch", "feature_es": "Corridas de nómina por lote", "feature_en": "Batch payroll runs", "category": "Nomina" },
+      { "key": "tss_infotep_isr", "feature_es": "TSS, INFOTEP e ISR DR-2026", "feature_en": "TSS, INFOTEP and ISR DR-2026", "category": "Nomina" },
+      { "key": "ley_16_92", "feature_es": "Liquidación Ley 16-92", "feature_en": "Ley 16-92 severance", "category": "Nomina" },
+      { "key": "pay_stubs", "feature_es": "Volantes de pago formales en PDF", "feature_en": "Formal PDF pay stubs", "category": "Nomina" },
+      { "key": "salary_log", "feature_es": "Bitácora de cambios salariales", "feature_en": "Salary-change log", "category": "Nomina" },
+      { "key": "commissions", "feature_es": "Comisiones por servicio y vendedor", "feature_en": "Per-service and per-seller commissions", "category": "Nomina" },
+      { "key": "cloud_sync", "feature_es": "Sincronización en la nube", "feature_en": "Cloud sync", "category": "Cloud" },
+      { "key": "remote_dashboard", "feature_es": "Dashboard remoto en tiempo real", "feature_en": "Real-time remote dashboard", "category": "Cloud" },
+      { "key": "daily_digest", "feature_es": "Resumen diario al dueño por correo", "feature_en": "Daily owner digest by email", "category": "Cloud" },
+      { "key": "activity_log", "feature_es": "Bitácora de actividad con severidad", "feature_en": "Activity log with severity", "category": "Cloud" },
+      { "key": "multi_location", "feature_es": "Multi-sucursal con bloqueo de tickets", "feature_en": "Multi-location with ticket locks", "category": "Cloud" },
+      { "key": "nightly_backup", "feature_es": "Backup nocturno SQLCipher", "feature_en": "Nightly SQLCipher backup", "category": "Cloud" },
+      { "key": "whatsapp_receipts", "feature_es": "Envío de comprobante por WhatsApp", "feature_en": "WhatsApp receipt delivery", "category": "Premium" },
+      { "key": "whatsapp_automation", "feature_es": "Automatización Cola Listo y recordatorios", "feature_en": "Queue Ready and reminder automation", "category": "Premium" },
+      { "key": "custom_receipt_design", "feature_es": "Comprobante personalizado con logo y colores", "feature_en": "Custom receipt with logo and colors", "category": "Premium" },
+      { "key": "api_webhooks", "feature_es": "API REST y webhooks", "feature_en": "REST API and webhooks", "category": "Premium" },
+      { "key": "offline_mode_full", "feature_es": "Modo offline PWA completo", "feature_en": "Full offline PWA mode", "category": "Premium" },
+      { "key": "remote_setup", "feature_es": "Configuración remota PAT-5 incluida", "feature_en": "Remote PAT-5 onboarding included", "category": "Premium" },
+      { "key": "support_whatsapp", "feature_es": "Soporte directo por WhatsApp", "feature_en": "Direct WhatsApp support", "category": "Premium" }
+    ]
+  },
+  "roi_calculator": {
+    "section_header_es": "Calculadora: ¿cuánto te ahorras al mes?",
+    "section_header_en": "Calculator: how much do you save monthly?",
+    "intro_es": "Compara tu gasto actual en POS, PSFE y contador con el plan equivalente de Terminal X. Los precios de competidores son referenciales públicos.",
+    "intro_en": "Compare your current spend on POS, PSFE and accountant with the equivalent Terminal X plan. Competitor prices are public reference values.",
+    "inputs": {
+      "invoices_label_es": "Facturas e-CF al mes",
+      "invoices_label_en": "e-CF invoices per month",
+      "invoices_help_es": "Cuántos comprobantes electrónicos emites cada mes",
+      "invoices_help_en": "How many electronic receipts you issue each month",
+      "current_cost_label_es": "Gasto mensual actual (POS + PSFE + contador)",
+      "current_cost_label_en": "Current monthly spend (POS + PSFE + accountant)",
+      "current_cost_help_es": "Suma todo lo que pagas hoy por facturar y operar",
+      "current_cost_help_en": "Add up everything you pay today to invoice and operate",
+      "employees_label_es": "Empleados en nómina",
+      "employees_label_en": "Employees on payroll",
+      "employees_help_es": "Si es 0, recomendamos plan sin nómina",
+      "employees_help_en": "If 0, we recommend a plan without payroll"
+    },
+    "outputs": {
+      "savings_template_es": "Ahorras RD${savings} al mes con Terminal X {tier}",
+      "savings_template_en": "You save RD${savings} per month with Terminal X {tier}",
+      "annual_template_es": "Eso son RD${annual} al año, antes del 15% de descuento anual",
+      "annual_template_en": "That's RD${annual} per year, before the 15% annual discount",
+      "no_savings_es": "Tu gasto actual ya es bajo. Aún así ganas API, móvil y soporte humano.",
+      "no_savings_en": "Your current spend is already low. You still gain API, mobile and human support.",
+      "recommendation_facturacion_es": "Recomendado: Plan Facturación. Si solo emites e-CFs y no necesitas POS, este es tu punto de entrada.",
+      "recommendation_facturacion_en": "Recommended: Facturación plan. If you only issue e-CFs and don't need POS, this is your entry point.",
+      "recommendation_pro_es": "Recomendado: Plan Pro. Tienes punto de venta, cola e inventario, sin necesidad de e-CF todavía.",
+      "recommendation_pro_en": "Recommended: Pro plan. You have point of sale, queue and inventory, without needing e-CF yet.",
+      "recommendation_pro_plus_es": "Recomendado: Plan Pro PLUS. Combinas e-CF ilimitado con POS completo y verticales avanzadas.",
+      "recommendation_pro_plus_en": "Recommended: Pro PLUS plan. You combine unlimited e-CF with full POS and advanced verticals.",
+      "recommendation_pro_max_es": "Recomendado: Plan Pro MAX. Con empleados en nómina y operación multi-sucursal, este plan paga por sí solo.",
+      "recommendation_pro_max_en": "Recommended: Pro MAX plan. With employees on payroll and multi-location operations, this plan pays for itself."
+    }
+  },
+  "final_cta": {
+    "primary": {
+      "headline_es": "Faltan semanas para el 15 de mayo de 2026",
+      "headline_en": "Weeks to go before May 15, 2026",
+      "subhead_es": "Después de esa fecha, todo contribuyente en RD debe emitir e-CF. Configura tu certificado, importa tus clientes y empieza a facturar antes de que la fila se llene.",
+      "subhead_en": "After that date, every taxpayer in DR must issue e-CFs. Set up your certificate, import your clients and start invoicing before the queue fills up.",
+      "cta_es": "Empezar 7 días gratis",
+      "cta_en": "Start 7 days free"
+    },
+    "alt_1": {
+      "headline_es": "El Facturador Gratuito ya no te alcanza este mes",
+      "headline_en": "The Free Invoicer ran out this month",
+      "subhead_es": "Si ya pasaste el cap de 150 facturas o estás cerca, Terminal X arranca en menos de 24 horas con tu certificado actual.",
+      "subhead_en": "If you've already hit or are nearing the 150-invoice cap, Terminal X is live in under 24 hours with your existing certificate.",
+      "cta_es": "Migrar mi RNC ahora",
+      "cta_en": "Migrate my RNC now"
+    },
+    "alt_2": {
+      "headline_es": "Hablemos antes de que cierre el mes fiscal",
+      "headline_en": "Let's talk before the fiscal month closes",
+      "subhead_es": "Configuración remota incluida, certificado Viafirma gestionado y soporte en español por WhatsApp al +1 (809) 828-2971.",
+      "subhead_en": "Remote setup included, managed Viafirma certificate and Spanish WhatsApp support at +1 (809) 828-2971.",
+      "cta_es": "Hablar por WhatsApp",
+      "cta_en": "Chat on WhatsApp"
+    },
+    "recommended": "primary"
+  },
+  "seo": {
+    "title_es": "Terminal X · POS y Facturación Electrónica certificada DGII en RD",
+    "title_en": "Terminal X · POS and Electronic Invoicing certified by DGII",
+    "meta_description_es": "POS y e-CF certificado por DGII (Cert #42483). Sin PSFE, sin costo por comprobante. Carwash, tiendas, restaurantes. Desde RD$995/mes. 7 días gratis.",
+    "meta_description_en": "POS and e-CF certified by DGII (Cert #42483). No PSFE, no per-invoice fee. Carwash, retail, restaurants. From RD$995/mo. 7 days free.",
+    "og_title_es": "Cuando el Facturador Gratuito de DGII no alcanza · Terminal X",
+    "og_title_en": "When DGII's Free Invoicer falls short · Terminal X",
+    "og_description_es": "Misma compliance Ley 32-23. API, móvil, WhatsApp y modo offline. Desde RD$995/mes. Certificado DGII #42483.",
+    "og_description_en": "Same Ley 32-23 compliance. API, mobile, WhatsApp and offline mode. From RD$995/mo. DGII Cert #42483.",
+    "keywords_es": [
+      "facturación electrónica República Dominicana",
+      "e-CF DGII Ley 32-23",
+      "POS certificado Emisor Electrónico",
+      "alternativa Facturador Gratuito DGII",
+      "factura electrónica RD$995"
+    ],
+    "keywords_en": [
+      "electronic invoicing Dominican Republic",
+      "e-CF DGII Ley 32-23",
+      "certified Electronic Issuer POS",
+      "DGII Free Invoicer alternative",
+      "electronic invoice RD$995"
+    ]
+  },
+  "sticky_mobile_cta": {
+    "primary": {
+      "label_es": "Desde RD$995/mes · 7 días gratis",
+      "label_en": "From RD$995/mo · 7 days free",
+      "cta_es": "Empezar →",
+      "cta_en": "Start →"
+    },
+    "alt_1": {
+      "label_es": "Listo para Ley 32-23",
+      "label_en": "Ley 32-23 ready",
+      "cta_es": "Activar mi cuenta →",
+      "cta_en": "Activate my account →"
+    },
+    "alt_2": {
+      "label_es": "Certificado DGII #42483",
+      "label_en": "DGII Cert #42483",
+      "cta_es": "Ver planes →",
+      "cta_en": "See plans →"
+    },
+    "recommended": "primary"
+  },
+  "exit_intent": {
+    "headline_es": "Antes de irte: guía gratis",
+    "headline_en": "Before you go: free guide",
+    "subhead_es": "Cómo migrar del Facturador Gratuito de DGII en 7 días. PDF con checklist, capturas y los errores más comunes.",
+    "subhead_en": "How to migrate from DGII's Free Invoicer in 7 days. PDF with checklist, screenshots and the most common mistakes.",
+    "input_placeholder_es": "tu@correo.com",
+    "input_placeholder_en": "you@email.com",
+    "button_es": "Enviarme la guía",
+    "button_en": "Send me the guide",
+    "success_es": "Listo. Revisa tu correo en los próximos 2 minutos.",
+    "success_en": "Done. Check your inbox in the next 2 minutes.",
+    "error_es": "No pudimos enviar la guía. Intenta de nuevo o escríbenos por WhatsApp.",
+    "error_en": "We couldn't send the guide. Try again or message us on WhatsApp."
+  }
+}

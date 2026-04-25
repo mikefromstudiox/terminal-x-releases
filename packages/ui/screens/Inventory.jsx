@@ -259,9 +259,10 @@ function ItemModal({ item, onSave, onClose }) {
 }
 
 // ── Adjust qty modal ───────────────────────────────────────────────────────────
-function AdjustModal({ item, onSave, onClose }) {
+function AdjustModal({ item, onSave, onClose, mode = 'ajustar' }) {
   const api = useAPI()
   const { user } = useAuth()
+  const isRestock = mode === 'reabastecer'
   const [delta,  setDelta]  = useState(0)
   const [notes,  setNotes]  = useState('')
   const [saving, setSaving] = useState(false)
@@ -296,7 +297,7 @@ function AdjustModal({ item, onSave, onClose }) {
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-white/5 rounded-2xl w-full max-w-sm shadow-2xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-white/10">
-          <h3 className="font-bold text-slate-800 dark:text-white">Ajustar cantidad</h3>
+          <h3 className="font-bold text-slate-800 dark:text-white">{isRestock ? 'Recibir mercancía' : 'Ajustar cantidad'}</h3>
           <button onClick={onClose} className="text-slate-400 dark:text-white/40 hover:text-slate-600 dark:hover:text-white"><X size={18} /></button>
         </div>
         <div className="px-6 py-5 space-y-4">
@@ -306,7 +307,7 @@ function AdjustModal({ item, onSave, onClose }) {
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">
-              Cantidad (+ para entrada, - para salida)
+              {isRestock ? 'Cantidad recibida' : 'Cantidad (+ para entrada, - para salida)'}
             </label>
             <div className="flex items-center gap-2">
               <button onClick={() => setDelta(d => Number(d) - 1)}
@@ -329,7 +330,7 @@ function AdjustModal({ item, onSave, onClose }) {
           <div>
             <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">Notas (opcional)</label>
             <input value={notes} onChange={e => setNotes(e.target.value)}
-              placeholder="Ej: Recepción factura #123"
+              placeholder={isRestock ? 'Ej: Proveedor X — Factura #123' : 'Ej: Merma / Daño / Conteo manual'}
               className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
           </div>
           {err && <p className="text-xs text-red-500 flex items-center gap-1"><AlertTriangle size={12} />{err}</p>}
@@ -339,7 +340,7 @@ function AdjustModal({ item, onSave, onClose }) {
           <button onClick={handleSave} disabled={saving}
             className="flex-1 py-2 bg-black text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50 flex items-center justify-center gap-1.5">
             {saving && <Loader2 size={13} className="animate-spin" />}
-            Confirmar
+            {isRestock ? 'Recibir' : 'Confirmar'}
           </button>
         </div>
       </div>
@@ -509,28 +510,63 @@ function ImportModal({ onDone, onClose }) {
 
   async function handleImport() {
     setStep('importing')
-    let ok = 0, fail = 0
+    let ok = 0, fail = 0, updated = 0, skipped = 0
+    // v2.14.35 — pre-check existing SKUs/barcodes so re-imports don't double-count.
+    // For matches: update price/cost/category/min_quantity (NOT quantity — that
+    // must flow through Ajustar so the ledger captures it). New rows: create.
+    let existing = []
+    try {
+      existing = await api.inventory.all()
+    } catch { existing = [] }
+    const skuMap = new Map()
+    const barMap = new Map()
+    for (const e of (existing || [])) {
+      if (e?.sku) skuMap.set(String(e.sku).trim().toLowerCase(), e)
+      if (e?.barcode) barMap.set(String(e.barcode).trim().toLowerCase(), e)
+    }
+
     for (let i = 0; i < rows.length; i++) {
       const raw = getMapped(rows[i])
       if (!raw.name) { fail++; continue }
+      const skuKey = (raw.sku || '').trim().toLowerCase()
+      const barKey = (raw.barcode || '').trim().toLowerCase()
+      const match = (skuKey && skuMap.get(skuKey)) || (barKey && barMap.get(barKey)) || null
+
       try {
-        await api.inventory.create({
-          name:           raw.name,
-          sku:            raw.sku || null,
-          barcode:        raw.barcode || null,
-          category:       raw.category || 'Otro',
-          price:          parseFloat(raw.price) || 0,
-          price_pedidos_ya: (raw.price_pedidos_ya === '' || raw.price_pedidos_ya == null) ? null : (parseFloat(raw.price_pedidos_ya) || null),
-          cost:           parseFloat(raw.cost) || 0,
-          quantity:       parseInt(raw.quantity, 10) || 0,
-          min_quantity:   parseInt(raw.min_quantity, 10) || 5,
-          bottle_deposit: parseFloat(raw.bottle_deposit) || 0,
-        })
-        ok++
+        if (match) {
+          // Existing product — patch metadata only. Skip qty (Ajustar owns that).
+          const patch = {
+            name:     raw.name,
+            category: raw.category || match.category || 'Otro',
+            price:    parseFloat(raw.price) || match.price || 0,
+            cost:     parseFloat(raw.cost)  || match.cost  || 0,
+            min_quantity:   raw.min_quantity != null && raw.min_quantity !== '' ? parseInt(raw.min_quantity, 10) : (match.min_quantity ?? 5),
+            bottle_deposit: raw.bottle_deposit != null && raw.bottle_deposit !== '' ? parseFloat(raw.bottle_deposit) : (match.bottle_deposit || 0),
+          }
+          if (raw.price_pedidos_ya !== '' && raw.price_pedidos_ya != null) patch.price_pedidos_ya = parseFloat(raw.price_pedidos_ya) || null
+          if (raw.barcode && !match.barcode) patch.barcode = raw.barcode
+          if (raw.sku && !match.sku)         patch.sku     = raw.sku
+          await api.inventory.update({ id: match.id, ...patch })
+          updated++
+        } else {
+          await api.inventory.create({
+            name:           raw.name,
+            sku:            raw.sku || null,
+            barcode:        raw.barcode || null,
+            category:       raw.category || 'Otro',
+            price:          parseFloat(raw.price) || 0,
+            price_pedidos_ya: (raw.price_pedidos_ya === '' || raw.price_pedidos_ya == null) ? null : (parseFloat(raw.price_pedidos_ya) || null),
+            cost:           parseFloat(raw.cost) || 0,
+            quantity:       parseInt(raw.quantity, 10) || 0,
+            min_quantity:   parseInt(raw.min_quantity, 10) || 5,
+            bottle_deposit: parseFloat(raw.bottle_deposit) || 0,
+          })
+          ok++
+        }
       } catch { fail++ }
       setProgress(Math.round(((i + 1) / rows.length) * 100))
     }
-    setResults({ ok, fail })
+    setResults({ ok, fail, updated, skipped })
     setStep('done')
   }
 
@@ -621,7 +657,10 @@ function ImportModal({ onDone, onClose }) {
               <div className="w-16 h-16 bg-green-100 dark:bg-green-500/10 rounded-full flex items-center justify-center">
                 <Check size={32} className="text-green-500" />
               </div>
-              <p className="text-lg font-bold text-slate-800 dark:text-white">{results.ok} productos importados</p>
+              <p className="text-lg font-bold text-slate-800 dark:text-white">{results.ok} productos creados</p>
+              {results.updated > 0 && (
+                <p className="text-sm text-sky-600 dark:text-sky-400">{results.updated} productos existentes actualizados (precio/categoria) — la cantidad NO cambió, usa Ajustar para mover stock</p>
+              )}
               {results.fail > 0 && <p className="text-sm text-red-500">{results.fail} fallaron (sin nombre o error)</p>}
             </div>
           )}
@@ -947,8 +986,33 @@ function InlinePYPrice({ item, onSave }) {
 // delays, or silent theft.
 function ShortagesTab({ items }) {
   const api = useAPI()
+  const { user } = useAuth()
   const { lang } = useLang()
   const L = (es, en) => lang === 'en' ? en : es
+
+  // v2.14.35 — Marcar resuelto. Calls api.inventory.oversells.resolve()
+  // (desktop: oversells:resolve IPC; web: direct Supabase update). Resolution
+  // is a manual ack — no stock change. The void path already records its
+  // own resolved_at='voided' automatically.
+  async function onResolve(r) {
+    const ok = window.confirm(L(
+      `Marcar "${r.item_name || 'este quiebre'}" como resuelto?`,
+      `Mark "${r.item_name || 'this shortage'}" as resolved?`,
+    ))
+    if (!ok) return
+    try {
+      await api?.inventory?.oversells?.resolve?.({
+        id: r.id,
+        supabase_id: r.supabase_id,
+        resolution_type: 'manual',
+        resolved_by: user?.id || null,
+        resolved_by_name: user?.name || null,
+      })
+      load()
+    } catch (e) {
+      window.alert((e?.message || 'Error') + '')
+    }
+  }
 
   const today    = new Date()
   const monthAgo = new Date(); monthAgo.setDate(today.getDate() - 30)
@@ -1083,6 +1147,7 @@ function ShortagesTab({ items }) {
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">{L('Entregado', 'Fulfilled')}</th>
                   <th className="px-4 py-3 text-xs font-semibold text-red-500 uppercase tracking-wide text-right">{L('Faltante', 'Short')}</th>
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide">{L('Estado', 'Status')}</th>
+                  <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody>
@@ -1104,13 +1169,23 @@ function ShortagesTab({ items }) {
                       <td className="px-4 py-3 text-right tabular-nums font-bold text-red-500 dark:text-red-400">{fmtQty(short)}</td>
                       <td className="px-4 py-3">
                         {resolved ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[11px] font-medium">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[11px] font-medium" title={r.resolution_type || ''}>
                             <Check size={11} /> {L('Resuelto', 'Resolved')}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[11px] font-medium">
                             <AlertTriangle size={11} /> {L('Pendiente', 'Open')}
                           </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {!resolved && (
+                          <button
+                            onClick={() => onResolve?.(r)}
+                            className="px-2 py-1 text-[11px] font-medium border border-emerald-200 dark:border-emerald-500/30 rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
+                          >
+                            {L('Marcar resuelto', 'Mark resolved')}
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -1138,6 +1213,14 @@ function ShortagesTab({ items }) {
                         {resolved ? L('Resuelto', 'Resolved') : L('Pendiente', 'Open')}
                       </span>
                     </div>
+                    {!resolved && (
+                      <button
+                        onClick={() => onResolve?.(r)}
+                        className="w-full py-2 text-[11px] font-medium border border-emerald-200 dark:border-emerald-500/30 rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
+                      >
+                        {L('Marcar resuelto', 'Mark resolved')}
+                      </button>
+                    )}
                   </div>
                 )
               })}
@@ -1408,6 +1491,10 @@ export default function Inventory() {
                       <td className="px-4 py-3 text-right text-slate-500 dark:text-white/60 text-xs">{fmtRD(item.quantity * item.price)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => setModal({ type: 'restock', item })}
+                            className="px-2 py-1 text-xs border border-emerald-200 dark:border-emerald-500/30 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">
+                            Reabastecer
+                          </button>
                           <button onClick={() => setModal({ type: 'adjust', item })}
                             className="px-2 py-1 text-xs border border-slate-200 dark:border-white/10 rounded-lg hover:bg-slate-50 dark:hover:bg-white/10 text-slate-600 dark:text-white/60 font-medium">
                             Ajustar
@@ -1458,6 +1545,10 @@ export default function Inventory() {
                       </div>
                     )}
                     <div className="flex gap-2">
+                      <button onClick={() => setModal({ type: 'restock', item })}
+                        className="flex-1 py-2 text-[11px] font-medium border border-emerald-200 dark:border-emerald-500/30 rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10">
+                        Reabastecer
+                      </button>
                       <button onClick={() => setModal({ type: 'adjust', item })}
                         className="flex-1 py-2 text-[11px] font-medium border border-slate-200 dark:border-white/10 rounded-lg text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10">
                         Ajustar
@@ -1487,6 +1578,9 @@ export default function Inventory() {
       )}
       {modal?.type === 'adjust' && (
         <AdjustModal item={modal.item} onClose={() => setModal(null)} onSave={() => { setModal(null); load() }} />
+      )}
+      {modal?.type === 'restock' && (
+        <AdjustModal item={modal.item} mode="reabastecer" onClose={() => setModal(null)} onSave={() => { setModal(null); load() }} />
       )}
       {modal?.type === 'history' && (
         <HistoryPanel item={modal.item} onClose={() => setModal(null)} />
