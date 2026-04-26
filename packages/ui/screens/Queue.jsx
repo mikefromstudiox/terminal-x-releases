@@ -8,7 +8,6 @@ import CobrarModal from '../components/CobrarModal'
 import PaymentErrorBoundary from '../components/PaymentErrorBoundary'
 import ManagerAuthGate from '../components/ManagerAuthGate'
 import { printClientReceipt, printWasherConduce } from '@terminal-x/services/printer'
-import { syncTicket } from '@terminal-x/services/supabase'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import { hasModule } from '@terminal-x/config/businessTypes'
 import { Navigate } from 'react-router-dom'
@@ -771,12 +770,6 @@ export default function Queue() {
     if (ticketId) {
       setQueue(q => q.filter(t => t.id !== queueId))
       flash(`${data.ticketNo} · ${lang === 'es' ? 'Cobrado' : 'Collected'} ✓`)
-      syncTicket({
-        client_name:    data.clientId ? String(data.clientId) : null,
-        payment_method: data.tipo === 'credito' ? 'credit' : (data.formaPago || 'cash'),
-        total:          data.total || 0,
-        status:         'cobrado',
-      }, { docNumber: data.ticketNo || snapshot?.ticketNo }).catch(() => {})
     }
   }
 

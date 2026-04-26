@@ -52,6 +52,9 @@ if (!URL_ || !KEY) {
 }
 
 // SQL — list every public table with RLS enabled, count policies per table.
+// We include partitioned parents (relkind='p') and exclude partition children
+// (c.relispartition=true) — children inherit RLS from their partitioned parent
+// in PG10+, so a child showing 0 policies is correct, not a violation.
 const SQL = `
   SELECT
     c.relname              AS table_name,
@@ -65,7 +68,8 @@ const SQL = `
     GROUP BY schemaname, tablename
   ) p ON p.schemaname = n.nspname AND p.tablename = c.relname
   WHERE n.nspname = 'public'
-    AND c.relkind = 'r'
+    AND c.relkind IN ('r','p')
+    AND c.relispartition = false
     AND c.relrowsecurity = true
   ORDER BY c.relname;
 `.trim()

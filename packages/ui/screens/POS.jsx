@@ -27,7 +27,7 @@ import LoyaltyTierBadge from '../components/LoyaltyTierBadge'
 import { NewClientForm } from './Clients'
 import { printClientReceipt, printWasherConduce, printKitchenPrepSlip } from '@terminal-x/services/printer'
 import RestaurantPOS from './restaurant/RestaurantPOS'
-import { syncTicket, getBusinessId } from '@terminal-x/services/supabase'
+import { getBusinessId } from '@terminal-x/services/supabase'
 import { getDeviceId, acquireLock, releaseLock, releaseAll, activeLocksQty, sweepExpired, subscribeLocks } from '@terminal-x/services/inventoryLock'
 const saveReceiptPDF = (...args) => import('@terminal-x/services/pdf').then(m => m.saveReceiptPDF(...args))
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
@@ -446,9 +446,12 @@ function CarWashPOS() {
   const { data: rawServicesDB, loading: svcLoading, error: svcError, reload: reloadServices } = useServices()
   const rawServices = rawServicesDB || []
   const { data: rawWashersDB, loading: wsrLoading }                  = useWashers()
-  const rawWashers = rawWashersDB || []
+  const rawWashers = (rawWashersDB || []).filter(w => w.role !== 'owner')
   const { data: rawSellersDB }                                       = useSellers()
-  const rawSellers = rawSellersDB || []
+  // v2.16.12 — exclude owners (admin hybrid users) from POS pickers. Owners
+  // hold empleado rows for login/payroll but shouldn't be selectable as the
+  // physical seller/washer on a ticket. Same filter applied to washers above.
+  const rawSellers = (rawSellersDB || []).filter(s => s.role !== 'owner')
   const { lookup: rncLookup }                                        = useRNC()
 
   // ── Inventory items (products: drinks, snacks, etc.) ───────────────────
@@ -976,19 +979,6 @@ function CarWashPOS() {
       // Queue entries are only created by handleEncolar (pendiente → queue workflow).
       clearForm()
       flash(`${result?.docNumber || 'Ticket'} · ${lang === 'es' ? 'Cobrado ✓' : 'Charged ✓'}`)
-
-      // Sync to Supabase for RemoteDashboard — fire and forget
-      syncTicket({
-        client_name:      pending.clientName || null,
-        comprobante_type: paymentData.ncfType || 'E32',
-        payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
-        tipo_venta:       paymentData.tipo || 'contado',
-        subtotal: sub, itbis: itp, ley: ly, total: tot,
-        status:           'cobrado',
-        cajero_name:      user?.name || null,
-        items:            pending.items,
-        ecf_result:       paymentData.ecf || {},
-      }, result).catch(() => {})
 
       // ── Auto-print receipt + conduce ────────────────────────────────────────
       try {
@@ -2536,18 +2526,6 @@ function RetailPOS() {
 
       clearForm()
       flash(`${result?.docNumber || 'Ticket'} · ${lang === 'es' ? 'Creado ✓' : 'Created ✓'}`)
-
-      syncTicket({
-        client_name:      pending.clientName || null,
-        comprobante_type: paymentData.ncfType || 'E32',
-        payment_method:   paymentData.tipo === 'credito' ? 'credit' : (paymentData.formaPago || 'efectivo'),
-        tipo_venta:       paymentData.tipo || 'contado',
-        subtotal: sub, itbis: itp, ley: 0, total: tot,
-        status:           'cobrado',
-        cajero_name:      user?.name || null,
-        items:            pending.items,
-        ecf_result:       paymentData.ecf || {},
-      }, result).catch(() => {})
 
       try {
         const [cfg, empresa] = await Promise.all([

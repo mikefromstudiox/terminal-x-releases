@@ -51,7 +51,11 @@ class PaymentErrorBoundaryInner extends React.Component {
     }
     try {
       const api = this.props._api
-      const stack = (err?.stack || '').slice(0, 500)
+      // v2.16.12 — was 500 chars which truncated the trace at frame 4 of
+      // the 'Cannot access Ht before initialization' bug, hiding the file
+      // path that would have pinpointed the TDZ source. 4000 chars covers
+      // ~25 frames with sourcemaps resolved.
+      const stack = (err?.stack || '').slice(0, 4000)
       api?.activity?.record?.({
         event_type: 'cobrar_modal_crashed',
         severity: 'critical',

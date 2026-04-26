@@ -28,7 +28,12 @@ export default defineConfig(({ mode }) => ({
   },
   build: {
     outDir: 'dist',
-    sourcemap: false,
+    // v2.16.12 — sourcemaps on for the diagnostic cycle. Adds ~25-30%
+    // to dist size but lets the activity_log captureSentryException
+    // resolve minified identifiers (the 'Ht' TDZ trace lost its file:line
+    // without these). Hidden so they ship inside app.asar but aren't
+    // exposed to the browser DevTools by default.
+    sourcemap: 'hidden',
     minify: 'terser',
     terserOptions: {
       compress: {

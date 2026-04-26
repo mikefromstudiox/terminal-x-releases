@@ -1974,6 +1974,20 @@ function init(db, { supabaseUrl, supabaseKey }) {
     let totalDeleted = 0
     for (const table of ['washer_commissions', 'seller_commissions', 'cajero_commissions']) {
       try {
+        // v2.16.12 — guard the dedupe queries against a legacy schema where
+        // empleado_supabase_id was never ALTERed in (e.g. cajero_commissions
+        // on Studio X's pre-v2.1 install). Without this gate the dedupe
+        // throws "no such column: empleado_supabase_id" on every sync tick
+        // and clutters the log. Skipping the table is safe — push/pull
+        // continue normally.
+        if (!_tableHasColumn(table, 'empleado_supabase_id')) {
+          if (!_skipColLogged.has(`${table}.empleado_supabase_id_dedupe`)) {
+            _skipColLogged.add(`${table}.empleado_supabase_id_dedupe`)
+            log.warn(`[sync] continuous-dedupe ${table}: column empleado_supabase_id missing — skipping (legacy schema)`)
+          }
+          continue
+        }
+
         // Per-ticket dedupe
         const r1 = _db.rawPrepare(
           `DELETE FROM ${table}
@@ -2751,6 +2765,9 @@ const PULL_TABLES = [
 // -- Pull upsert: Supabase row -> SQLite row ----------------------------------
 // Cache pragma_table_info lookups so we don't hit SQLite on every row.
 const _tableColCache = new Map()
+// v2.16.12 — once-per-process tracker for missing-column log lines so we
+// don't spam the log with the same warning on every pull tick.
+const _skipColLogged = new Set()
 function _tableHasColumn(tableName, colName) {
   const key = `${tableName}.${colName}`
   if (_tableColCache.has(key)) return _tableColCache.get(key)
@@ -2858,11 +2875,29 @@ function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, natur
     // Build UPDATE
     const setClauses = []
     const setVals = []
+    // v2.16.12 — guard against silent NULL drops on synced columns. Skip cols
+    // whose local schema doesn't have the column (drop quietly), but include
+    // null/undefined cloud values when the column DOES exist locally — this
+    // keeps the row consistent (e.g. cleared notes propagate). The exception
+    // is `undefined`, which means PostgREST didn't return the field at all
+    // (column added cloud-side but not in select=*); we leave local untouched
+    // in that case to avoid clobbering with NULL.
     for (const col of cols) {
-      if (row[col] !== undefined) {
-        setClauses.push(`${col} = ?`)
-        setVals.push(sqliteValue(col, row[col]))
+      if (row[col] === undefined) continue
+      if (!_tableHasColumn(tableName, col)) {
+        // Local schema lacks this column — log once and skip. Caller can add
+        // an ALTER TABLE migration. Without this guard the entire UPDATE
+        // throws "no such column" and the whole row fails to update,
+        // leaving every other column stale (this was the v2.16.8 silent-
+        // skip pattern that surfaced as the pin_salt bug).
+        if (!_skipColLogged.has(`${tableName}.${col}`)) {
+          _skipColLogged.add(`${tableName}.${col}`)
+          log.warn(`[sync-pull] ${tableName}: column "${col}" missing in local SQLite — skipped (add ALTER TABLE migration)`)
+        }
+        continue
       }
+      setClauses.push(`${col} = ?`)
+      setVals.push(sqliteValue(col, row[col]))
     }
     // Resolve FK columns
     if (fkCols) {
@@ -2898,10 +2933,16 @@ function pullUpsertRow(tableName, row, strategy, cols, fkCols, statusSync, natur
     const insertVals = [row.supabase_id]
 
     for (const col of cols) {
-      if (row[col] !== undefined) {
-        insertCols.push(col)
-        insertVals.push(sqliteValue(col, row[col]))
+      if (row[col] === undefined) continue
+      if (!_tableHasColumn(tableName, col)) {
+        if (!_skipColLogged.has(`${tableName}.${col}`)) {
+          _skipColLogged.add(`${tableName}.${col}`)
+          log.warn(`[sync-pull] ${tableName}: column "${col}" missing in local SQLite — skipped on INSERT`)
+        }
+        continue
       }
+      insertCols.push(col)
+      insertVals.push(sqliteValue(col, row[col]))
     }
     // Resolve FK columns
     if (fkCols) {
@@ -3038,7 +3079,12 @@ async function pullTable(tableConfig) {
     }
   }
 
-  if (totalPulled > 0) log.info(`[sync-pull] ${name}: pulled ${totalPulled} rows`)
+  // v2.16.12 — log every pull attempt, including 0-row pulls. Previously
+  // we logged only on totalPulled > 0, which made "pulled 0 silently" and
+  // "skipped table entirely" indistinguishable in main.log — that's the
+  // observability gap that hid the v2.16.8 anon-RLS-empty-result bug for
+  // hours during the Studio X validation session.
+  log.info(`[sync-pull] ${name}: pulled ${totalPulled} rows`)
   return totalPulled
 }
 
@@ -3147,7 +3193,7 @@ async function pullAppSettings(bizId) {
       updatePullLog('app_settings', latestUpdatedAt)
     }
   }
-  if (totalPulled > 0) log.info(`[sync-pull] app_settings: pulled ${totalPulled} rows (myHwid=${myHwid ? 'set' : 'unset'})`)
+  log.info(`[sync-pull] app_settings: pulled ${totalPulled} rows (myHwid=${myHwid ? 'set' : 'unset'})`)
   return totalPulled
 }
 

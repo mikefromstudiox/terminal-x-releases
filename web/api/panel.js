@@ -366,6 +366,7 @@ async function handleClients(req, res) {
         settings: { itbis_pct: 18, ley_pct: 10, language: 'es', facturacion_mode: ['pro_plus', 'pro_max'].includes(planName) ? 'ecf' : 'b_series' },
       }).select('id').single()
       if (bizErr) throw bizErr
+      await auth.supabase.auth.admin.updateUserById(userId, { app_metadata: { business_id: biz.id } })
       await auth.supabase.from('staff').insert({
         business_id: biz.id, auth_user_id: userId, name: business_name.trim(),
         username: 'owner', role: 'owner', active: true,
@@ -672,6 +673,7 @@ async function handleLinkWebAccount(req, res) {
       email: email.trim(),
       password,
       email_confirm: true,
+      app_metadata: { business_id },
     })
     if (authErr) throw authErr
     const userId = authData.user?.id

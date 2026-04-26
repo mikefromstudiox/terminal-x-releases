@@ -1430,6 +1430,29 @@ function createWindow() {
     initUpdater(win)
   })
 
+  // v2.16.12 — forward renderer console + uncaught errors to main.log so
+  // diagnostics are persistent. Up to v2.16.11 the renderer's
+  // window.onerror only went to console.error which lives in DevTools
+  // (kiosk mode never opens DevTools so the trace was lost). This is the
+  // gap that hid the original 'Cannot access Ht before initialization'
+  // source location during the v2.16.10/11 cobro investigation.
+  try {
+    const levels = ['debug','info','warn','error']
+    win.webContents.on('console-message', (event, level, message, line, sourceId) => {
+      try {
+        const tag = `[renderer:${levels[level] || level}]`
+        const where = sourceId ? ` ${sourceId}:${line}` : ''
+        log.info(`${tag}${where} ${String(message).slice(0, 4000)}`)
+      } catch {}
+    })
+    win.webContents.on('render-process-gone', (event, details) => {
+      log.error(`[renderer] render-process-gone reason=${details?.reason} exit=${details?.exitCode}`)
+    })
+    win.webContents.on('preload-error', (event, preloadPath, error) => {
+      log.error(`[renderer] preload-error ${preloadPath}: ${error?.message || error}`)
+    })
+  } catch (e) { try { log.warn('[main] renderer console forward setup failed:', e.message) } catch {} }
+
   // Block window close — only ESC confirmation can quit
   win.on('close', (e) => {
     if (!app.isQuiting) {
