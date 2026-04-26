@@ -692,6 +692,7 @@ function ContractSigner({ loan, schedule, onClose, onSaved }) {
         rnc:        business.rnc,
         address:    business?.address || '',
         phone:      business?.phone || '',
+        mora_rate_daily: business?.mora_rate_daily ?? null, // C7 — drives CUARTO clause when loan rate is null
       }
       let client = {}
       try {
@@ -787,7 +788,9 @@ function ContractSigner({ loan, schedule, onClose, onSaved }) {
 
   const principal      = Number(loan.principal) || 0
   const monthlyPayment = Number(loan.monthly_payment) || 0
-  const moraRate       = loan.mora_rate_daily != null ? Number(loan.mora_rate_daily) : 0.5
+  // C7 — loan stores decimal (0.005 = 0.5%/día); display as percent in preview.
+  const moraRateDecimal = loan.mora_rate_daily != null ? Number(loan.mora_rate_daily) : 0.005
+  const moraRate        = (moraRateDecimal * 100).toFixed(2)
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -1498,6 +1501,25 @@ export default function Loans() {
 
   useEffect(() => { loadLoans() }, [loadLoans])
 
+  // C7 — One-shot warning if the business has no configured mora rate.
+  // Guarded by sessionStorage so we don't spam owners every render.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('prestamos_mora_warned') === '1') return
+        const biz = await api?.admin?.getEmpresa?.()
+        if (cancelled) return
+        if (biz && (biz.mora_rate_daily == null || Number(biz.mora_rate_daily) <= 0)) {
+          setToast('Configura tasa de mora en Ajustes → Negocio → Mora diaria')
+          setTimeout(() => setToast(null), 6000)
+          try { sessionStorage.setItem('prestamos_mora_warned', '1') } catch {}
+        }
+      } catch {}
+    })()
+    return () => { cancelled = true }
+  }, [api])
+
   // ── Metrics ──────────────────────────────────────────────────────────────
   const metrics = useMemo(() => {
     const active = loans.filter(l => l.status === 'active')
@@ -1730,10 +1752,14 @@ export default function Loans() {
         />
       )}
 
-      {/* Toast */}
+      {/* Toast — crimson for warnings (mora rate config), emerald for confirmations. */}
       {toast && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white text-sm px-5 py-3 rounded-full shadow-lg flex items-center gap-2">
-          <Check size={15} /> {toast}
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 text-white text-sm px-5 py-3 rounded-full shadow-lg flex items-center gap-2 ${
+          /Configura|Falta|Error/i.test(toast) ? 'bg-[#b3001e]' : 'bg-emerald-600'
+        }`}>
+          {/Configura|Falta|Error/i.test(toast)
+            ? <AlertTriangle size={15} />
+            : <Check size={15} />} {toast}
         </div>
       )}
     </div>

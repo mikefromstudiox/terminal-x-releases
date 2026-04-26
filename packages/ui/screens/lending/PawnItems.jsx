@@ -887,22 +887,85 @@ function DocumentsModal({ item, onClose, showToast }) {
 
 // ── Publicar para Venta Modal ─────────────────────────────────────────────────
 
+/**
+ * C8 — Avalúo de remate auto 70% con override admin.
+ *
+ * DR empeño legal practice: avalúo de remate = 70% del valor estimado. Real
+ * prestamistas defend remate prices in court if the cliente disputes them; 70%
+ * is the safe-harbor default. Overrides require a conscious unlock (typing the
+ * word OVERRIDE — visible by design; this is a soft gate, not a security wall)
+ * and emit a `pawn_remate_override` activity_log row capturing both prices.
+ */
 function PublishModal({ item, onClose, onPublished, showToast }) {
   const api = useAPI()
-  const suggested = useMemo(() => Math.round((Number(item?.estimated_value) || 0) * 1.2 * 100) / 100, [item])
-  const [price, setPrice] = useState(String(suggested))
-  const [saving, setSaving] = useState(false)
+  const estimated = Number(item?.estimated_value) || 0
+  const REMATE_PCT = 0.7
+  const remateLegal = useMemo(() => Math.round(estimated * REMATE_PCT * 100) / 100, [estimated])
+
+  const [price, setPrice]               = useState(String(remateLegal))
+  const [unlocked, setUnlocked]         = useState(false)
+  const [showUnlock, setShowUnlock]     = useState(false)
+  const [unlockTok, setUnlockTok]       = useState('')
+  const [unlockErr, setUnlockErr]       = useState('')
+  const [overrideReason, setOverrideReason] = useState('')
+  const [saving, setSaving]             = useState(false)
+
+  // Re-sync the default if the parent swaps `item` while modal is open
+  useEffect(() => { setPrice(String(remateLegal)) }, [remateLegal])
+
+  function attemptUnlock() {
+    // Soft gate. We accept the literal token "OVERRIDE" (case-insensitive)
+    // as a conscious-decision wall. The screen below it states the legal
+    // implication, so anyone typing this is acknowledging it.
+    if (String(unlockTok).trim().toUpperCase() === 'OVERRIDE') {
+      setUnlocked(true)
+      setShowUnlock(false)
+      setUnlockErr('')
+    } else {
+      setUnlockErr('Token incorrecto. Escribe la palabra OVERRIDE en mayúsculas.')
+    }
+  }
 
   async function handlePublish() {
     if (!item?.supabase_id) { showToast?.('Falta supabase_id', 'error'); return }
+    const finalPrice = parseFloat(price) || 0
+    if (finalPrice <= 0) { showToast?.('Precio inválido', 'error'); return }
+    const isOverride = unlocked && Math.abs(finalPrice - remateLegal) > 0.01
+
     const slug = `${String(item.supabase_id).slice(0, 8)}-${slugify(item.description || 'prenda')}`
     setSaving(true)
     try {
       const row = await api.pawnListings.publish({
         pawnSupabaseId: item.supabase_id,
-        list_price: parseFloat(price) || 0,
+        list_price: finalPrice,
         slug,
+        list_price_override: isOverride,
+        override_reason: isOverride ? (overrideReason.trim() || null) : null,
       })
+
+      // Audit trail — only on actual override. Best-effort: never block publish on log failure.
+      if (isOverride) {
+        try {
+          await api?.activity?.record?.({
+            event_type: 'pawn_remate_override',
+            severity:   'warn',
+            target_type: 'pawn_listing',
+            target_id:   row?.supabase_id || item.supabase_id,
+            target_name: item.description || `Empeño #${item.id}`,
+            amount:      finalPrice,
+            old_value:   String(remateLegal),
+            new_value:   String(finalPrice),
+            reason:      overrideReason.trim() || null,
+            metadata:    {
+              pawn_supabase_id: item.supabase_id,
+              estimated_value:  estimated,
+              legal_70pct:      remateLegal,
+              override_price:   finalPrice,
+            },
+          })
+        } catch (e) { console.warn('[PublishModal] activity_log failed:', e?.message) }
+      }
+
       onPublished({ slug: row?.slug || slug })
     } catch (e) {
       showToast?.(e?.message || 'Error al publicar', 'error')
@@ -913,7 +976,7 @@ function PublishModal({ item, onClose, onPublished, showToast }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden">
+      <div className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-white/10">
           <h2 className="text-[15px] font-bold text-slate-800 dark:text-white flex items-center gap-2">
             <Tag size={16} className="text-[#b3001e]" /> Publicar para Venta
@@ -926,17 +989,53 @@ function PublishModal({ item, onClose, onPublished, showToast }) {
           <div className="text-[12px] text-slate-600 dark:text-white/70">
             <p className="font-semibold text-slate-800 dark:text-white">{item?.description}</p>
             <p className="text-[11px] text-slate-400 dark:text-white/40 mt-1">
-              Valor estimado: {fmtRD(item?.estimated_value)}
+              Valor estimado: {fmtRD(estimated)}
             </p>
           </div>
+
+          {unlocked && (
+            <div className="flex items-start gap-2 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-2">
+              <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+              <span>Estás sobrescribiendo el avalúo legal de remate. Esta decisión queda registrada.</span>
+            </div>
+          )}
+
           <div>
-            <label className="block text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1">
+            <label className="block text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1 flex items-center gap-1.5">
               Precio de Venta (RD$)
+              {!unlocked && <Archive size={10} className="text-slate-400" aria-label="Bloqueado" />}
             </label>
-            <input type="number" min="0" step="0.01" value={price} onChange={e => setPrice(e.target.value)}
-              className="w-full px-3 py-2.5 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] bg-white dark:bg-white/5 text-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]" />
-            <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1">Sugerido (valor × 1.2): {fmtRD(suggested)}</p>
+            <div className="flex items-center gap-2">
+              <input type="number" min="0" step="0.01" value={price}
+                readOnly={!unlocked}
+                onChange={e => setPrice(e.target.value)}
+                className={`flex-1 px-3 py-2.5 border rounded-lg text-[13px] focus:outline-none focus:ring-2 ${
+                  unlocked
+                    ? 'border-amber-300 dark:border-amber-500/40 bg-white dark:bg-white/5 text-slate-700 dark:text-white focus:ring-amber-400'
+                    : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-slate-700 dark:text-white/80 cursor-not-allowed'
+                }`} />
+              {!unlocked && (
+                <button type="button" onClick={() => { setShowUnlock(true); setUnlockTok(''); setUnlockErr('') }}
+                  className="px-3 py-2.5 text-[11px] font-bold text-[#b3001e] border border-[#b3001e]/40 hover:bg-[#b3001e]/10 rounded-lg whitespace-nowrap">
+                  Sobrescribir avalúo
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] text-[#b3001e] dark:text-[#ff6b7e] mt-1 font-medium">
+              Avalúo de remate sugerido: 70% del valor estimado ({fmtRD(remateLegal)})
+            </p>
           </div>
+
+          {unlocked && (
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1">
+                Motivo del override (opcional)
+              </label>
+              <input type="text" value={overrideReason} onChange={e => setOverrideReason(e.target.value)}
+                placeholder="Ej.: precio de mercado más alto, condición premium…"
+                className="w-full px-3 py-2.5 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] bg-white dark:bg-white/5 text-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-400" />
+            </div>
+          )}
         </div>
         <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5">
           <button onClick={onClose}
@@ -949,6 +1048,45 @@ function PublishModal({ item, onClose, onPublished, showToast }) {
             Publicar
           </button>
         </div>
+
+        {/* Override unlock dialog */}
+        {showUnlock && (
+          <div className="absolute inset-0 z-10 bg-slate-900/70 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-amber-300 dark:border-amber-500/30 overflow-hidden">
+              <div className="px-4 py-3 bg-amber-50 dark:bg-amber-500/10 border-b border-amber-200 dark:border-amber-500/30 flex items-center gap-2">
+                <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400" />
+                <h3 className="text-[12px] font-bold text-amber-800 dark:text-amber-200">Sobrescribir avalúo legal</h3>
+              </div>
+              <div className="p-4 space-y-3">
+                <p className="text-[11px] text-slate-600 dark:text-white/70 leading-relaxed">
+                  El avalúo de remate del 70% es la práctica legal estándar en RD.
+                  Sobrescribirlo te expone a disputas en tribunales si el cliente
+                  reclama el precio de venta.
+                </p>
+                <p className="text-[11px] text-slate-600 dark:text-white/70">
+                  Para confirmar, escribe <span className="font-mono font-bold text-[#b3001e]">OVERRIDE</span> abajo:
+                </p>
+                <input
+                  autoFocus type="text" value={unlockTok}
+                  onChange={e => { setUnlockTok(e.target.value); setUnlockErr('') }}
+                  onKeyDown={e => { if (e.key === 'Enter') attemptUnlock() }}
+                  placeholder="OVERRIDE"
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] font-mono bg-white dark:bg-white/5 text-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                {unlockErr && <p className="text-[11px] text-red-500">{unlockErr}</p>}
+              </div>
+              <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5">
+                <button onClick={() => setShowUnlock(false)}
+                  className="px-3 py-1.5 text-[11px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/10 rounded-lg">
+                  Cancelar
+                </button>
+                <button onClick={attemptUnlock}
+                  className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold rounded-lg">
+                  Desbloquear
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
