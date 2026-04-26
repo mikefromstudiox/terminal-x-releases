@@ -564,6 +564,7 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
           {[
             { key: 'name',        label: lang === 'es' ? 'Nombre' : 'Name',          type: 'text' },
             { key: 'phone',       label: lang === 'es' ? 'Telefono' : 'Phone',       type: 'tel' },
+            ...(isSalon ? [{ key: '__preferred_stylist__', label: lang === 'es' ? 'Estilista preferido' : 'Preferred stylist', type: 'select' }] : []),
             { key: 'email',       label: 'Email',                                     type: 'email' },
             { key: 'address',     label: lang === 'es' ? 'Direccion' : 'Address',    type: 'text' },
             { key: 'rnc',         label: 'RNC',                                       type: 'text' },
@@ -572,12 +573,25 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
           ].map(f => (
             <div key={f.key}>
               <label className="block text-[10px] text-slate-500 dark:text-white/60 mb-0.5">{f.label}</label>
-              <input
-                type={f.type}
-                value={editForm[f.key] || ''}
-                onChange={e => setEditForm(p => ({ ...p, [f.key]: e.target.value }))}
-                className="w-full px-3 py-1.5 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg text-[12px] text-slate-700 dark:text-white focus:outline-none focus:border-sky-400"
-              />
+              {f.type === 'select' && f.key === '__preferred_stylist__' ? (
+                <select
+                  value={preferredInput || ''}
+                  onChange={e => { const v = e.target.value ? Number(e.target.value) : null; setPreferredInput(v); saveSalonPrefs({ preferred_stylist_id: v }) }}
+                  disabled={savingSalon}
+                  className="w-full px-3 py-1.5 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg text-[12px] text-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30">
+                  <option value="">{lang === 'es' ? 'Sin preferencia' : 'No preference'}</option>
+                  {empleadosCache.map(e => (
+                    <option key={e.id} value={e.id}>{e.nombre}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type={f.type}
+                  value={editForm[f.key] || ''}
+                  onChange={e => setEditForm(p => ({ ...p, [f.key]: e.target.value }))}
+                  className="w-full px-3 py-1.5 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg text-[12px] text-slate-700 dark:text-white focus:outline-none focus:border-sky-400"
+                />
+              )}
             </div>
           ))}
           <div className="flex gap-2 pt-1">

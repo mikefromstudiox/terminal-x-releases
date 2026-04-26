@@ -4,8 +4,9 @@ import {
   Users, UserCheck, KeyRound, LayoutGrid, Plus, Edit2, Power,
   Eye, EyeOff, AlertCircle, FileText, Wifi, WifiOff, ExternalLink,
   Check, Coffee, Lock, ChevronUp, ChevronDown, Trash2, CreditCard,
-  CloudUpload, ToggleLeft, Scissors, Copy,
+  CloudUpload, ToggleLeft, Scissors, Copy, QrCode, Download,
 } from 'lucide-react'
+import QRCode from 'qrcode'
 import ManagerCardModal from '../components/ManagerCardModal'
 import { useLang } from '../i18n'
 import { useAPI, usePrinterAPI } from '../context/DataContext'
@@ -1542,6 +1543,24 @@ function SalonSettings() {
   }
 
   const previewUrl = slug ? `https://terminalxpos.com/agendar/${slugify(slug)}` : ''
+  const qrShown    = !!previewUrl && bookingEnabled
+  const [qrDataUrl, setQrDataUrl] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    if (!qrShown) { setQrDataUrl(''); return }
+    QRCode.toDataURL(previewUrl, { width: 480, margin: 2, color: { dark: '#000000', light: '#FFFFFF' } })
+      .then(url => { if (!cancelled) setQrDataUrl(url) })
+      .catch(() => { if (!cancelled) setQrDataUrl('') })
+    return () => { cancelled = true }
+  }, [previewUrl, qrShown])
+
+  function downloadQr() {
+    if (!qrDataUrl) return
+    const a = document.createElement('a')
+    a.href = qrDataUrl
+    a.download = `agendar-${slugify(slug) || 'qr'}.png`
+    document.body.appendChild(a); a.click(); a.remove()
+  }
 
   function copyUrl() {
     if (!previewUrl) return
@@ -1654,6 +1673,32 @@ function SalonSettings() {
             </button>
           </div>
         )}
+
+        {qrShown && (
+          <div className="flex items-center gap-4 p-4 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl">
+            <div className="shrink-0 w-32 h-32 rounded-lg bg-white border border-slate-200 dark:border-white/10 flex items-center justify-center overflow-hidden">
+              {qrDataUrl ? (
+                <img src={qrDataUrl} alt="QR" className="w-full h-full object-contain" />
+              ) : (
+                <Loader2 size={18} className="animate-spin text-slate-300 dark:text-white/30" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[12px] font-bold text-slate-700 dark:text-white flex items-center gap-1.5">
+                <QrCode size={13} className="text-[#b3001e]" />
+                {L('Código QR de reservas', 'Booking QR code')}
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-white/50 mt-1">
+                {L('Imprime y pega en la pared. Tus clientes escanean y reservan.',
+                   'Print and pin on the wall. Clients scan and book.')}
+              </p>
+              <button onClick={downloadQr} disabled={!qrDataUrl}
+                className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#b3001e] hover:bg-[#8c0017] disabled:opacity-50 text-white text-[11px] font-bold rounded-lg transition-colors">
+                <Download size={12} /> {L('Descargar PNG', 'Download PNG')}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="pt-2">
@@ -1670,7 +1715,7 @@ function MiEmpresa() {
   const api                   = useAPI()
   const { lang }              = useLang()
   const L                     = (es, en) => lang === 'es' ? es : en
-  const [form,    setForm]    = useState({ biz_name: '', biz_rnc: '', biz_address: '', biz_phone: '', biz_city: '', biz_type: '' })
+  const [form,    setForm]    = useState({ biz_name: '', biz_rnc: '', biz_address: '', biz_phone: '', biz_city: '', biz_type: '', mora_pct: '' })
   const [logo,    setLogo]    = useState('')
   const [loading, setLoading] = useState(false)
   const [loadErr, setLoadErr] = useState('')
@@ -1695,6 +1740,10 @@ function MiEmpresa() {
           biz_phone:   row.phone   || '',
           biz_city:    extra.biz_city  || extra.ciudad || '',
           biz_type:    extra.biz_type  || '',
+          // C7 — mora_rate_daily is decimal in DB (0.005 = 0.5%/día); UI shows percent.
+          mora_pct:    row.mora_rate_daily != null
+                         ? String(Math.round(Number(row.mora_rate_daily) * 100 * 1000) / 1000)
+                         : '',
         })
         setLogo(row.logo || '')
       })
@@ -1716,6 +1765,15 @@ function MiEmpresa() {
 
   async function handleSave() {
     if (!form.biz_name.trim()) { setError(L('El nombre del negocio es requerido.', 'Business name is required.')); return }
+    // C7 — Validate mora rate. Stored as decimal (0–0.05); UI is percent (0–5).
+    let moraDecimal = null
+    if (String(form.mora_pct).trim() !== '') {
+      const pct = Number(form.mora_pct)
+      if (!Number.isFinite(pct) || pct < 0 || pct > 5) {
+        setError(L('La tasa de mora diaria debe estar entre 0% y 5%.', 'Daily mora rate must be 0–5%.')); return
+      }
+      moraDecimal = Math.round((pct / 100) * 10000) / 10000  // 4-decimal precision (matches NUMERIC(5,4))
+    }
     setSaving(true); setError('')
     try {
       const current = await api?.admin?.getEmpresa?.()
@@ -1724,14 +1782,18 @@ function MiEmpresa() {
       const city = form.biz_city.trim()
       const addr = form.biz_address.trim()
       const mergedSettings = { ...existing, biz_city: city, ciudad: city, biz_address: addr, direccion: addr, biz_type: form.biz_type }
-      await api.admin.saveEmpresa({
+      const payload = {
         name:     form.biz_name.trim(),
         rnc:      form.biz_rnc.trim(),
         address:  form.biz_address.trim(),
         phone:    form.biz_phone.trim(),
         logo:     logo || null,
         settings: JSON.stringify(mergedSettings),
-      })
+      }
+      if (moraDecimal != null) payload.mora_rate_daily = moraDecimal
+      await api.admin.saveEmpresa(payload)
+      // Clear the warning gate so the loans screen stops nagging.
+      try { sessionStorage.removeItem('prestamos_mora_warned') } catch {}
       show(L('Empresa guardada ✓', 'Business saved ✓'))
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -1796,6 +1858,24 @@ function MiEmpresa() {
               className="w-full px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[13px] text-slate-700 dark:text-white focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/20" />
           </div>
         ))}
+
+        {/* C7 — Mora diaria default for prestamos contracts. Stored as decimal; UI is percent. */}
+        <div>
+          <label className="block text-[11px] font-semibold text-slate-500 dark:text-white/60 mb-1">
+            {L('Tasa de mora diaria (%) — Préstamos', 'Daily mora rate (%) — Loans')}
+          </label>
+          <input
+            type="number" inputMode="decimal" min="0" max="5" step="0.01"
+            value={form.mora_pct}
+            onChange={e => set('mora_pct', e.target.value)}
+            placeholder="0.50"
+            className="w-full px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[13px] text-slate-700 dark:text-white focus:outline-none focus:border-[#b3001e] focus:ring-1 focus:ring-[#b3001e]/30"
+          />
+          <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1">
+            {L('Aplica al saldo vencido. Recomendado 0.5%. Máximo 5% (anti-usura).',
+               'Applied to overdue balance. Recommended 0.5%. Max 5% (anti-usury).')}
+          </p>
+        </div>
       </div>
 
       {error && <p className="text-[12px] text-red-500 dark:text-red-400 font-medium">{error}</p>}

@@ -69,8 +69,10 @@ const Cotizaciones        = lazy(() => import('./screens/mechanic/Cotizaciones')
 const Suministros         = lazy(() => import('./screens/mechanic/Suministros'))
 const Aseguradoras        = lazy(() => import('./screens/mechanic/Aseguradoras'))
 const InsuranceBatch      = lazy(() => import('./screens/mechanic/InsuranceBatch'))
+const MechanicProductivity = lazy(() => import('./screens/reports/nomina/MechanicProductivity'))
 const Appointments        = lazy(() => import('./screens/salon/Appointments'))
 const StylistSchedules    = lazy(() => import('./screens/salon/StylistSchedules'))
+const WhatsAppLog         = lazy(() => import('./screens/salon/WhatsAppLog'))
 const VehicleInventory    = lazy(() => import('./screens/dealership/VehicleInventory'))
 const SalesPipeline       = lazy(() => import('./screens/dealership/SalesPipeline'))
 const TestDrives          = lazy(() => import('./screens/dealership/TestDrives'))
@@ -274,8 +276,10 @@ export default function App() {
         <Route path="/suministros" element={<ProtectedRoute element={<PlanGate feature="parts_ordering"><Suministros /></PlanGate>} />} />
         <Route path="/aseguradoras" element={<ProtectedRoute element={<PlanGate feature="insurance_batching"><Aseguradoras /></PlanGate>} />} />
         <Route path="/aseguradoras/lote/:aseguradoraId" element={<ProtectedRoute element={<PlanGate feature="insurance_batching"><InsuranceBatch /></PlanGate>} />} />
+        <Route path="/mecanica/productividad" element={<ProtectedRoute element={<PlanGate feature="mechanic_productivity"><MechanicProductivity /></PlanGate>} />} />
         <Route path="/appointments" element={<ProtectedRoute element={<PlanGate feature="appointments"><Appointments /></PlanGate>} />} />
         <Route path="/stylist-schedules" element={<ProtectedRoute element={<PlanGate feature="appointments"><StylistSchedules /></PlanGate>} />} />
+        <Route path="/whatsapp-log" element={<ProtectedRoute element={<PlanGate feature="salon_whatsapp_reminders"><WhatsAppLog /></PlanGate>} />} />
         <Route path="/loans" element={<ProtectedRoute element={<PlanGate feature="loans"><Loans /></PlanGate>} />} />
         <Route path="/pawn-items" element={<ProtectedRoute element={<PlanGate feature="pawn_items"><PawnItems /></PlanGate>} />} />
         <Route path="/collections" element={<ProtectedRoute element={<PlanGate feature="loans"><Collections /></PlanGate>} />} />
@@ -300,10 +304,10 @@ export default function App() {
         <Route path="/invoicing/create" element={<ProtectedRoute element={<PlanGate feature="invoicing"><InvoiceCreate /></PlanGate>} />} />
         <Route path="/invoicing/history" element={<ProtectedRoute element={<PlanGate feature="invoicing"><InvoiceList /></PlanGate>} />} />
         <Route path="/invoicing/quotes" element={<ProtectedRoute element={<PlanGate feature="invoicing"><InvoiceQuotes /></PlanGate>} />} />
-        <Route path="/carniceria/cortes"    element={<ProtectedRoute element={<CarniceriaCorteCatalog />} />} />
-        <Route path="/carniceria/frescura"  element={<ProtectedRoute element={<CarniceriaFreshnessAlerts />} />} />
-        <Route path="/carniceria/mayoreo"   element={<ProtectedRoute element={<CarniceriaMayoreoOrders />} />} />
-        <Route path="/carniceria/resumen"   element={<ProtectedRoute element={<CarniceriaResumen />} />} />
+        <Route path="/carniceria/cortes"    element={<ProtectedRoute element={<PlanGate feature="carniceria_corte_catalog"><CarniceriaCorteCatalog /></PlanGate>} />} />
+        <Route path="/carniceria/frescura"  element={<ProtectedRoute element={<PlanGate feature="carniceria_freshness_alerts"><CarniceriaFreshnessAlerts /></PlanGate>} />} />
+        <Route path="/carniceria/mayoreo"   element={<ProtectedRoute element={<PlanGate feature="carniceria_mayoreo"><CarniceriaMayoreoOrders /></PlanGate>} />} />
+        <Route path="/carniceria/resumen"   element={<ProtectedRoute element={<PlanGate feature="carniceria_resumen"><CarniceriaResumen /></PlanGate>} />} />
         {/* Legacy routes — redirect to canonical destinations */}
         <Route path="/workers"               element={<Navigate to="/reports/workers" replace />} />
         <Route path="/services"              element={<Navigate to="/admin" replace />} />

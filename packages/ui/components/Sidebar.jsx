@@ -23,6 +23,8 @@ import { useLayout } from '../context/LayoutContext'
 import { useBackup } from '../context/BackupContext'
 import { useLicense } from '../context/LicenseContext'
 import LanguageToggle from './LanguageToggle'
+// v2.16.2 (item #13) — surface dead-letter WhatsApp reminders in the sidebar.
+import { getQueueCounts, getFailedWhatsappReminders, retryAllFailedWhatsappReminders } from '../../services/offline-queue.js'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
 
 // ── Navigation structure ────────────────────────────────────────────────────
@@ -179,6 +181,13 @@ const NAV = [
     roles: ['owner','manager'],
   },
   {
+    id: 'mechanic_productivity', to: '/mecanica/productividad', icon: BarChart3,
+    es: 'Productividad', en: 'Productivity',
+    feature: 'mechanic_productivity',
+    businessTypes: ['mechanic'],
+    roles: ['owner','manager','cfo','accountant'],
+  },
+  {
     // Salon-only dashboard. Sits at the top of the salon nav so it's the first
     // thing the cashier-stylist sees on login. Pro PLUS+.
     id: 'salon_resumen', to: '/resumen', icon: BarChart3,
@@ -207,6 +216,13 @@ const NAV = [
     id: 'stylist_schedules', to: '/stylist-schedules', icon: Clock,
     es: 'Horarios', en: 'Schedules',
     feature: 'appointments',
+    businessTypes: ['salon'],
+    roles: ['owner','manager'],
+  },
+  {
+    id: 'salon_whatsapp_log', to: '/whatsapp-log', icon: MessageSquare,
+    es: 'Recordatorios', en: 'Reminders',
+    feature: 'salon_whatsapp_reminders',
     businessTypes: ['salon'],
     roles: ['owner','manager'],
   },
@@ -813,6 +829,11 @@ export default function Sidebar() {
   const [ecfQueue, setEcfQueue] = useState(0)
   const [lowStock, setLowStock] = useState(0)
   const [unreadActivity, setUnreadActivity] = useState(0)
+  // v2.16.2 (item #13) — dead-letter WhatsApp reminders surface
+  const [waFailed, setWaFailed] = useState(0)
+  const [waFailedOpen, setWaFailedOpen] = useState(false)
+  const [waFailedRows, setWaFailedRows] = useState([])
+  const [waRetrying, setWaRetrying] = useState(false)
 
   useEffect(() => {
     if (!user?.id) return
@@ -886,6 +907,37 @@ export default function Sidebar() {
     return () => { cancelled = true; clearInterval(id); window.removeEventListener('tx:actividad-seen', onSeen) }
   }, [allowedRole, canRemote, bidForActivity, api])
 
+  // v2.16.2 (item #13) — poll dead-letter count (web only — desktop has its
+  // own retry path). Cheap (single IDB read), 60s cadence.
+  useEffect(() => {
+    if (!user?.id) return
+    let cancelled = false
+    async function poll() {
+      try {
+        const c = await getQueueCounts()
+        if (!cancelled) setWaFailed(Number(c?.whatsapp_failed) || 0)
+      } catch { /* IDB not available — desktop, ignore */ }
+    }
+    poll()
+    const id = setInterval(poll, 60_000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [user?.id])
+
+  async function openWaFailed() {
+    try { setWaFailedRows(await getFailedWhatsappReminders()) } catch { setWaFailedRows([]) }
+    setWaFailedOpen(true)
+  }
+  async function retryWaFailed() {
+    setWaRetrying(true)
+    try {
+      await retryAllFailedWhatsappReminders()
+      setWaFailedRows([])
+      setWaFailed(0)
+      setWaFailedOpen(false)
+    } catch { /* swallow — count refreshes on next poll */ }
+    setWaRetrying(false)
+  }
+
   // Filter nav items by role, business type and required features.
   // `featureAny` hides the item entirely unless the plan unlocks at least one
   // of the listed features (distinct from `feature`, which only greys it out).
@@ -936,6 +988,22 @@ export default function Sidebar() {
 
         {/* Footer */}
         <div className="border-t border-white/10 shrink-0 p-2 space-y-1">
+          {/* v2.16.2 (item #13) — dead-letter WhatsApp reminders */}
+          {waFailed > 0 && (
+            <button onClick={openWaFailed}
+              title={lang === 'es' ? `${waFailed} recordatorios fallidos` : `${waFailed} failed reminders`}
+              className={`flex items-center rounded-lg text-[#b3001e] hover:bg-[#b3001e]/10 transition-colors ${
+                collapsed ? 'w-8 h-8 justify-center mx-auto' : 'w-full gap-2 px-3 py-2'
+              }`}>
+              <MessageSquare size={14} className="shrink-0" />
+              {!collapsed && (
+                <span className="text-[12px] font-semibold flex-1 text-left truncate">
+                  {lang === 'es' ? `Recordatorios fallidos: ${waFailed}` : `Failed reminders: ${waFailed}`}
+                </span>
+              )}
+              {collapsed && <span className="absolute -mt-4 ml-3 bg-[#b3001e] text-white text-[9px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">{waFailed}</span>}
+            </button>
+          )}
           <ConnectionDot collapsed={collapsed} />
           <LicenseDot collapsed={collapsed} />
           {!collapsed && (
@@ -991,6 +1059,62 @@ export default function Sidebar() {
 
       {/* ── Mobile bottom nav ────────────────────────────────────────────── */}
       <MobileBottomNav visibleNav={visibleNav} ecfQueue={ecfQueue} businessType={businessType} />
+
+      {/* v2.16.2 (item #13) — dead-letter WhatsApp reminders panel */}
+      {waFailedOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4" onClick={() => setWaFailedOpen(false)}>
+          <div onClick={e => e.stopPropagation()}
+            className="w-full max-w-lg bg-white dark:bg-black rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-white/10 shrink-0">
+              <div className="min-w-0">
+                <h2 className="text-[15px] font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                  <MessageSquare size={16} className="text-[#b3001e]" />
+                  {lang === 'es' ? 'Recordatorios fallidos' : 'Failed reminders'}
+                </h2>
+                <p className="text-[12px] text-slate-500 dark:text-white/50 mt-0.5">
+                  {lang === 'es'
+                    ? `${waFailedRows.length} recordatorios agotaron sus reintentos.`
+                    : `${waFailedRows.length} reminders exhausted their retries.`}
+                </p>
+              </div>
+              <button onClick={() => setWaFailedOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10">
+                <X size={16} className="text-slate-400" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto px-5 py-3">
+              {waFailedRows.length === 0 ? (
+                <p className="py-12 text-center text-[12px] text-slate-400 dark:text-white/40">
+                  {lang === 'es' ? 'Sin recordatorios fallidos.' : 'No failed reminders.'}
+                </p>
+              ) : (
+                <ul className="divide-y divide-slate-100 dark:divide-white/10">
+                  {waFailedRows.map(r => (
+                    <li key={r.id} className="py-2.5">
+                      <p className="text-[12px] font-semibold text-slate-700 dark:text-white truncate">
+                        {r.kind} · {r.appointment_supabase_id?.slice(0, 8) || '—'}
+                      </p>
+                      <p className="text-[11px] text-slate-400 dark:text-white/40 truncate">
+                        {r.last_error || (lang === 'es' ? 'sin detalle' : 'no detail')}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="px-5 py-3 border-t border-slate-200 dark:border-white/10 shrink-0 flex gap-2">
+              <button onClick={() => setWaFailedOpen(false)}
+                className="flex-1 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[12px] text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10">
+                {lang === 'es' ? 'Cerrar' : 'Close'}
+              </button>
+              <button onClick={retryWaFailed} disabled={waRetrying || waFailedRows.length === 0}
+                className="flex-1 py-2 bg-[#b3001e] hover:bg-black text-white rounded-lg text-[12px] font-bold disabled:opacity-50 flex items-center justify-center gap-1.5">
+                {waRetrying && <Loader2 size={12} className="animate-spin" />}
+                {lang === 'es' ? 'Reintentar todos' : 'Retry all'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

@@ -50,6 +50,32 @@ const FEATURE_PLAN_MIN = {
   concesionario_reports:   'pro_plus',
   intrant_api:             'pro_max',
   whatsapp_auto:           'pro_max',
+  // FIX-HIGH-6 — carnicería vertical
+  carniceria_resumen:         'pro',
+  carniceria_corte_catalog:   'pro_plus',
+  carniceria_mayoreo:         'pro_plus',
+  carniceria_freshness_alerts:'pro_plus',
+}
+
+// Optional per-feature custom upgrade copy. When present, overrides the generic
+// "Esta funcion requiere..." description on the paywall card.
+const FEATURE_DESCRIPTIONS = {
+  carniceria_resumen: {
+    es: 'Disponible en Pro PLUS — Catalogo de cortes, ventas al mayoreo, alertas de frescura.',
+    en: 'Available on Pro PLUS — Cuts catalog, wholesale orders, freshness alerts.',
+  },
+  carniceria_corte_catalog: {
+    es: 'Disponible en Pro PLUS — Catalogo de cortes, ventas al mayoreo, alertas de frescura.',
+    en: 'Available on Pro PLUS — Cuts catalog, wholesale orders, freshness alerts.',
+  },
+  carniceria_mayoreo: {
+    es: 'Disponible en Pro PLUS — Catalogo de cortes, ventas al mayoreo, alertas de frescura.',
+    en: 'Available on Pro PLUS — Cuts catalog, wholesale orders, freshness alerts.',
+  },
+  carniceria_freshness_alerts: {
+    es: 'Disponible en Pro PLUS — Catalogo de cortes, ventas al mayoreo, alertas de frescura.',
+    en: 'Available on Pro PLUS — Cuts catalog, wholesale orders, freshness alerts.',
+  },
 }
 
 export default function PlanGate({ feature, children }) {
@@ -61,6 +87,13 @@ export default function PlanGate({ feature, children }) {
 
   const minPlan = FEATURE_PLAN_MIN[feature] || 'pro'
   const planName = PLAN_DISPLAY[minPlan] || 'Pro'
+  const customDesc = FEATURE_DESCRIPTIONS[feature]
+  const ctaLabel = customDesc
+    ? (lang === 'es' ? 'Actualizar plan' : 'Upgrade plan')
+    : (lang === 'es' ? 'Ver Planes' : 'View Plans')
+  const ctaClass = customDesc
+    ? 'flex items-center gap-2 px-5 py-2.5 bg-[#b3001e] text-white text-[13px] font-bold rounded-xl hover:bg-[#8f0018] transition-colors'
+    : 'flex items-center gap-2 px-5 py-2.5 bg-[#0C447C] text-white text-[13px] font-bold rounded-xl hover:bg-[#0a3a6a] transition-colors'
 
   return (
     <div className="h-full flex flex-col items-center justify-center gap-5 bg-slate-50 px-6">
@@ -72,15 +105,17 @@ export default function PlanGate({ feature, children }) {
           {lang === 'es' ? `Disponible en ${planName}` : `Available on ${planName}`}
         </p>
         <p className="text-[13px] text-slate-400 leading-relaxed">
-          {lang === 'es'
-            ? `Esta funcion requiere el plan ${planName} o superior. Actualiza tu plan para desbloquear todas las herramientas que necesitas.`
-            : `This feature requires ${planName} or higher. Upgrade your plan to unlock all the tools you need.`}
+          {customDesc
+            ? (lang === 'es' ? customDesc.es : customDesc.en)
+            : (lang === 'es'
+                ? `Esta funcion requiere el plan ${planName} o superior. Actualiza tu plan para desbloquear todas las herramientas que necesitas.`
+                : `This feature requires ${planName} or higher. Upgrade your plan to unlock all the tools you need.`)}
         </p>
       </div>
       <a href="https://terminalxpos.com" target="_blank" rel="noopener noreferrer"
-        className="flex items-center gap-2 px-5 py-2.5 bg-[#0C447C] text-white text-[13px] font-bold rounded-xl hover:bg-[#0a3a6a] transition-colors">
+        className={ctaClass}>
         <ArrowUpCircle size={16} />
-        {lang === 'es' ? 'Ver Planes' : 'View Plans'}
+        {ctaLabel}
       </a>
       <a href="https://wa.me/18098282971" target="_blank" rel="noopener noreferrer"
         className="text-[12px] text-slate-400 hover:text-sky-600 transition-colors">

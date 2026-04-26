@@ -33,7 +33,7 @@ const DEFAULT_CATEGORIES = ['Bebidas', 'Insumos', 'Repuestos', 'Herramientas', '
 // ── Item form modal ────────────────────────────────────────────────────────────
 function ItemModal({ item, onSave, onClose }) {
   const api = useAPI()
-  const { isLicoreria, licoreriaConfig, isCarniceria } = useBusinessType()
+  const { isLicoreria, licoreriaConfig, isCarniceria, isSalon } = useBusinessType()
   const CATEGORIES = isCarniceria ? CARNICERIA_CATEGORIES_LIST
                    : isLicoreria  ? LICORERIA_CATEGORIES
                    : DEFAULT_CATEGORIES
@@ -60,6 +60,9 @@ function ItemModal({ item, onSave, onClose }) {
     prepacked:      !!(item?.prepacked),
     received_at:    item?.received_at || '',
     expires_at:     item?.expires_at  || '',
+    // v2.16.2 (item #16) — salon upsell tile flags.
+    salon_upsell:       !!(item?.salon_upsell),
+    salon_upsell_order: item?.salon_upsell_order ?? '',
   })
   const cutSuggestions = isCarniceria ? getCutSuggestions(form.category) : []
   const [saving, setSaving] = useState(false)
@@ -92,6 +95,14 @@ function ItemModal({ item, onSave, onClose }) {
         prepacked:      !!form.prepacked,
         received_at:    form.received_at || null,
         expires_at:     form.expires_at  || null,
+        // v2.16.2 (item #16) — only persist the upsell flag for salones; for
+        // every other vertical it stays at its prior DB value (we omit the
+        // keys when the form didn't render them).
+        ...(isSalon ? {
+          salon_upsell:       !!form.salon_upsell,
+          salon_upsell_order: form.salon_upsell_order === '' || form.salon_upsell_order == null
+            ? null : (parseInt(form.salon_upsell_order, 10) || null),
+        } : {}),
       }
       if (item?.id) await api.inventory.update({ id: item.id, ...data })
       else          await api.inventory.create(data)
@@ -271,6 +282,31 @@ function ItemModal({ item, onSave, onClose }) {
               <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">Mínimo (alerta)</label>
               <input type="number" min="0" value={form.min_quantity} onChange={e => set('min_quantity', e.target.value)}
                 className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            </div>
+          )}
+          {/* v2.16.2 (item #16) — Salon upsell tile flag. Crimson accent matches
+              the rest of the salon vertical. Column already exists in both DBs. */}
+          {isSalon && (
+            <div className="border border-[#b3001e]/20 bg-[#b3001e]/5 rounded-lg p-3 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={!!form.salon_upsell}
+                  onChange={e => set('salon_upsell', e.target.checked)}
+                  className="w-4 h-4 accent-[#b3001e]" />
+                <span className="text-[12px] font-semibold text-slate-700 dark:text-white/80">
+                  Mostrar en upsell del salón
+                </span>
+              </label>
+              {form.salon_upsell && (
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">
+                    Orden upsell (opcional)
+                  </label>
+                  <input type="number" min="0" step="1" value={form.salon_upsell_order}
+                    onChange={e => set('salon_upsell_order', e.target.value)}
+                    placeholder="1, 2, 3…"
+                    className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
+                </div>
+              )}
             </div>
           )}
           {err && <p className="text-xs text-red-500 flex items-center gap-1"><AlertTriangle size={12} />{err}</p>}

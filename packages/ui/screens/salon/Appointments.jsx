@@ -102,6 +102,7 @@ function isInsideSchedule(timeStr, schedRow) {
 function AppointmentModal({
   appointment, clients, empleados, services, date, lang, onSave, onClose,
   prefill, onMarkNoShow, onSendReminder, hasFeature, currentClient,
+  onVoidNoShowFee,
 }) {
   const L = (es, en) => lang === 'es' ? es : en
 
@@ -374,6 +375,12 @@ function AppointmentModal({
                 No Show
               </button>
             )}
+            {appointment && appointment.no_show_fee_charged === true && onVoidNoShowFee && (
+              <button type="button" onClick={() => onVoidNoShowFee(appointment)}
+                className="px-3 py-2 text-[11px] font-semibold text-[#b3001e] border border-[#b3001e] rounded-lg hover:bg-[#b3001e] hover:text-white transition-colors">
+                {L('Anular cargo no-show', 'Void no-show fee')}
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <button type="button" onClick={onClose}
@@ -511,6 +518,59 @@ export default function Appointments() {
     setSelectedDate(toDateStr(d))
   }
 
+  async function handleVoidNoShowFee(appt) {
+    // v2.16.3 — anular cargo no-show. Emite Nota de Crédito Electrónica (E34)
+    // referenciando la E32 original (consumidor final). El botón está gateado
+    // por no_show_fee_charged === true, así que solo corre cuando hay un cargo
+    // activo. La orquestación vive en packages/services/voidNoShowFee.js.
+    if (!appt?.supabase_id) return
+    const fee = Number(appt?.deposit_dop || 0)
+    const feeStr = fee > 0 ? `RD$${fee.toFixed(2)}` : ''
+    const confirmMsg = L(
+      `¿Anular el cargo de no-show ${feeStr}? Se emitirá una Nota de Crédito (E34) que va a la DGII.`,
+      `Void the ${feeStr} no-show fee? A Credit Note (E34) will be issued and submitted to DGII.`
+    )
+    if (!confirm(confirmMsg)) return
+    try {
+      if (!api?.tickets?.voidNoShowFee) {
+        flash(L('Funcionalidad no disponible en este build', 'Helper not available in this build'))
+        return
+      }
+      const res = await api.tickets.voidNoShowFee({ appointment_supabase_id: appt.supabase_id })
+      if (!res?.ok) {
+        const code = res?.error || 'unknown'
+        if (code === 'original_ticket_not_found') {
+          flash(L('No se encontró el ticket original. Anula manualmente.',
+                  'Original ticket not found. Void manually.'))
+        } else if (code === 'fee_not_charged') {
+          flash(L('Este cargo ya no está activo.', 'This fee is no longer active.'))
+        } else if (code === 'ncf_reserve_failed') {
+          flash(L('No se pudo reservar el NCF E34. Verifica las secuencias en DGII.',
+                  'Could not reserve E34 NCF. Check DGII sequences.'))
+        } else {
+          flash(L(`Error al anular: ${code}`, `Void error: ${code}`))
+        }
+        return
+      }
+      await loadAll()
+      const ncfStr = res.ncf || ''
+      // v2.16.3 followup #2 — distinguish DGII-accepted vs queued-for-retry.
+      // When DGII is unreachable, processDgiiQueue retries within 72h with
+      // IndicadorEnvioDiferido=1; tell the operator instead of falsely
+      // implying the credit note is already on file.
+      if (res.deferred) {
+        flash(L(`Cargo anulado · Nota de Crédito ${ncfStr} en cola DGII (reintenta automático)`,
+                `Fee voided · Credit Note ${ncfStr} queued for DGII (auto-retry)`))
+      } else {
+        flash(L(`Cargo anulado · Nota de Crédito ${ncfStr}`,
+                `Fee voided · Credit Note ${ncfStr}`))
+      }
+      setEditAppt(null)
+    } catch (e) {
+      flash(e?.message || L('Error al anular', 'Void error'))
+    }
+  }
+
   async function handleSendReminder(supabase_id) {
     try {
       // Prefer a typed wrapper if shipped; fall back to a raw POST against panel.js.
@@ -600,11 +660,14 @@ export default function Appointments() {
         ecf_result: payload?.ecf || {},
       })
       // 2. Mark the appointment so the row can never be charged twice.
+      // v2.16.3 — stamp `no_show_fee_ticket_supabase_id` so voidNoShowFee can
+      // resolve the original E32 in O(1) without scanning ticket history.
       if (apptSid) {
         try {
           await api?.appointments?.update?.(apptSid, {
             no_show_fee_charged: true,
             deposit_status: 'forfeited',
+            no_show_fee_ticket_supabase_id: ticketRes?.supabase_id || null,
           })
         } catch (e) { console.warn('[no-show] appointment.update failed', e?.message || e) }
       }
@@ -856,21 +919,33 @@ export default function Appointments() {
                       }
 
                       // Empty + within schedule — white with crimson hint border.
+                      // v2.16.2 (item #10) — accessible button with keyboard
+                      // activation (Enter/Space) and a descriptive aria-label.
+                      const openSlot = () => {
+                        setCreatePrefill({
+                          empleado_id: String(emp.id),
+                          start_time: slot.label,
+                          duration: 60,
+                          is_walk_in: false,
+                        })
+                        setShowCreate(true)
+                      }
                       return (
-                        <div key={emp.id}
-                          className="flex-1 min-w-[140px] border-l border-slate-50 dark:border-white/5 hover:bg-[#b3001e]/5 cursor-pointer transition-colors group"
-                          onClick={() => {
-                            setCreatePrefill({
-                              empleado_id: String(emp.id),
-                              start_time: slot.label,
-                              duration: 60,
-                              is_walk_in: false,
-                            })
-                            setShowCreate(true)
+                        <button
+                          key={emp.id}
+                          type="button"
+                          aria-label={L(`Reservar ${slot.label} con ${emp.nombre}`, `Book ${slot.label} with ${emp.nombre}`)}
+                          onClick={openSlot}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              openSlot()
+                            }
                           }}
+                          className="flex-1 min-w-[140px] border-l border-slate-50 dark:border-white/5 hover:bg-[#b3001e]/5 cursor-pointer transition-colors group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b3001e] focus-visible:ring-inset relative bg-transparent text-left"
                         >
                           <div className="absolute inset-1 border border-dashed border-[#b3001e]/0 group-hover:border-[#b3001e]/30 rounded pointer-events-none" />
-                        </div>
+                        </button>
                       )
                     })}
                   </div>
@@ -961,6 +1036,7 @@ export default function Appointments() {
           hasFeature={hasFeature}
           onSendReminder={handleSendReminder}
           onMarkNoShow={(a) => setNoShowTarget(a)}
+          onVoidNoShowFee={handleVoidNoShowFee}
         />
       )}
       {noShowTarget && (

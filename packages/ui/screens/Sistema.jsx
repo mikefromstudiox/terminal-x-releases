@@ -3,7 +3,7 @@ import {
   Settings, KeyRound, CheckCircle2, Loader2, AlertCircle, Printer,
   RefreshCw, Download, ArrowDownToLine, FileText, HardDrive,
   Activity, XCircle, AlertTriangle, ChevronDown, Clock, Wifi, Shield, Globe2, Cloud,
-  Laptop,
+  Laptop, Send, X as IconX,
 } from 'lucide-react'
 import { isDeviceSetting } from '@terminal-x/services/settingsWhitelist'
 import { useLang } from '../i18n'
@@ -794,9 +794,43 @@ export function ImpresionSettings() {
 // ── WhatsApp settings only ────────────────────────────────────────────────
 
 export function WhatsAppSettings() {
-  const { cfg, set, handleSave, saving, saved, toast } = useSettings()
+  const { cfg, set, handleSave, saving, saved, toast, show } = useSettings()
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
+  const [testOpen, setTestOpen] = useState(false)
+  const [testPhone, setTestPhone] = useState('')
+  const [testSending, setTestSending] = useState(false)
+
+  async function sendTestWa() {
+    const phone = String(testPhone || '').trim()
+    if (!phone) return
+    setTestSending(true)
+    try {
+      const r = await fetch('/api/panel?action=salon-whatsapp-send-now', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ test_message: true, test_phone: phone }),
+      })
+      if (r.status === 429) {
+        show(L('Espera 1 minuto e intenta de nuevo', 'Wait 1 minute and try again'), 'error')
+      } else if (!r.ok) {
+        const j = await r.json().catch(() => ({}))
+        if (j?.error === 'invalid_phone') {
+          show(L('Teléfono inválido', 'Invalid phone'), 'error')
+        } else {
+          show(L('No se pudo enviar', 'Could not send'), 'error')
+        }
+      } else {
+        show(L(`Mensaje enviado a ${phone}`, `Message sent to ${phone}`))
+        setTestOpen(false)
+        setTestPhone('')
+      }
+    } catch {
+      show(L('Error de red', 'Network error'), 'error')
+    }
+    setTestSending(false)
+  }
 
   return (
     <div className="max-w-2xl">
@@ -807,6 +841,15 @@ export function WhatsAppSettings() {
         </SettingRow>
         <SettingRow label="Token" hint={L('Token de autenticacion', 'Auth token')}>
           <Input type="text" value={cfg.whatsapp_token} onChange={e => set('whatsapp_token', e.target.value)} placeholder="token..." className="w-44" />
+        </SettingRow>
+        <SettingRow label={L('Probar conexión', 'Test connection')} hint={L('Envía un mensaje de prueba a un número.', 'Sends a test message to a phone.')}>
+          <button
+            type="button"
+            onClick={() => setTestOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#b3001e] text-[#b3001e] hover:bg-[#b3001e] hover:text-white rounded-lg text-[12px] font-bold transition-colors"
+          >
+            <Send size={12}/> {L('Enviar prueba WhatsApp', 'Send WhatsApp test')}
+          </button>
         </SettingRow>
         <SettingRow label={L('Mensaje "Vehículo Listo"', 'Vehicle Ready Message')} hint={L('Placeholders: {cliente} {vehiculo} {ticket} {biz}', 'Placeholders: {cliente} {vehiculo} {ticket} {biz}')}>
           <textarea
@@ -839,6 +882,50 @@ export function WhatsAppSettings() {
       <div className="flex justify-end mt-2">
         <SaveBtn saving={saving} saved={saved} label={L('Guardar', 'Save')} onClick={handleSave} />
       </div>
+
+      {testOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="bg-white dark:bg-neutral-900 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl max-w-sm w-full p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[14px] font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                <Send size={14} className="text-[#b3001e]" />
+                {L('Enviar prueba WhatsApp', 'Send WhatsApp test')}
+              </h3>
+              <button onClick={() => setTestOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10">
+                <IconX size={14} className="text-slate-500 dark:text-white/50"/>
+              </button>
+            </div>
+            <p className="text-[12px] text-slate-500 dark:text-white/60 mb-3">
+              {L('Ingresa un número de teléfono para enviar un mensaje de prueba.', 'Enter a phone number to send a test message.')}
+            </p>
+            <input
+              type="tel"
+              autoFocus
+              value={testPhone}
+              onChange={e => setTestPhone(e.target.value)}
+              placeholder="809-555-0123"
+              className="w-full px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[13px] text-slate-700 dark:text-white focus:outline-none focus:border-[#b3001e] focus:ring-1 focus:ring-[#b3001e]/30"
+            />
+            <div className="flex gap-2 justify-end mt-4">
+              <button
+                onClick={() => setTestOpen(false)}
+                disabled={testSending}
+                className="px-3 py-1.5 text-[12px] rounded-lg border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/70 hover:bg-slate-100 dark:hover:bg-white/10"
+              >
+                {L('Cancelar', 'Cancel')}
+              </button>
+              <button
+                onClick={sendTestWa}
+                disabled={testSending || !testPhone.trim()}
+                className="px-3 py-1.5 text-[12px] rounded-lg bg-[#b3001e] hover:bg-[#8c0017] text-white font-bold flex items-center gap-1.5 disabled:opacity-60"
+              >
+                {testSending && <Loader2 size={11} className="animate-spin" />}
+                {L('Enviar', 'Send')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

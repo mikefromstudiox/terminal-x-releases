@@ -588,6 +588,9 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
   }
 
   function addUpsellItem(item) {
+    // v2.16.2 (item #11) — copy `cost`, `aplica_itbis`, `unit` so the resulting
+    // ticket_item carries the same tax / cost-of-goods / unit metadata as a
+    // POS-added line. Defaults: ITBIS-applicable, cost 0, unit null.
     const newLine = {
       id: `upsell-${item.id}-${Date.now()}`,
       name: item.name || item.nombre,
@@ -597,6 +600,9 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
       sku: item.sku || item.codigo || null,
       supabase_id: item.supabase_id || null,
       commission_pct: item.commission_pct ?? 10,
+      cost:           Number(item.cost ?? item.costo ?? 0) || 0,
+      aplica_itbis:   item.aplica_itbis != null ? (Number(item.aplica_itbis) ? 1 : 0) : 1,
+      unit:           item.unit || item.unidad || null,
     }
     setExtraLines(arr => [...arr, newLine])
     setExtraMeta(arr => [...arr, { stylistEmpId: '', redeemed: false, redemptionId: null, isService: false, commissionPct: newLine.commission_pct }])

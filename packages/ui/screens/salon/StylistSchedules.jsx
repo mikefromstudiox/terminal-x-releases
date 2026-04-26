@@ -13,7 +13,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
   Clock, Plus, Trash2, Loader2, CheckCircle2, AlertCircle,
-  Scissors, Calendar as CalendarIcon,
+  Scissors, Calendar as CalendarIcon, Wand2,
 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
@@ -42,6 +42,8 @@ export default function StylistSchedules() {
   const [loading,   setLoading]   = useState(true)
   const [saving,    setSaving]    = useState(null) // `${empId}-${dow}`
   const [toast,     setToast]     = useState(null)
+  const [confirmDefault, setConfirmDefault] = useState(null) // empleado_id
+  const [applying,  setApplying]  = useState(false)
 
   function flash(msg, ok = true) {
     setToast({ msg, ok }); setTimeout(() => setToast(null), 2500)
@@ -147,6 +149,32 @@ export default function StylistSchedules() {
     setSaving(null)
   }
 
+  async function applyDefaultSchedule(empleado_id) {
+    setApplying(true)
+    try {
+      // Mon=1..Sat=6 → 09:00-19:00. Sun=0 stays libre.
+      for (let dow = 1; dow <= 6; dow++) {
+        const existing = byKey.get(`${empleado_id}-${dow}`)
+        if (existing) {
+          await api.stylistSchedules.update({ id: existing.id, start_time: '09:00', end_time: '19:00' })
+        } else {
+          await api.stylistSchedules.create({
+            empleado_id,
+            day_of_week: dow,
+            start_time: '09:00',
+            end_time:   '19:00',
+          })
+        }
+      }
+      await load()
+      flash(L('Horario por defecto aplicado', 'Default schedule applied'))
+    } catch (e) {
+      flash(e?.message || L('Error al aplicar', 'Apply error'), false)
+    }
+    setApplying(false)
+    setConfirmDefault(null)
+  }
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-slate-50 dark:bg-black">
       {/* Header */}
@@ -184,8 +212,19 @@ export default function StylistSchedules() {
                   <div className="w-9 h-9 rounded-full bg-[#b3001e]/10 flex items-center justify-center text-[#b3001e] font-bold text-[12px]">
                     {(emp.nombre || '?').split(/\s+/).slice(0,2).map(w=>w[0]).join('').toUpperCase()}
                   </div>
-                  <div className="flex-1">
-                    <p className="text-[13px] font-bold text-slate-800 dark:text-white">{emp.nombre}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-[13px] font-bold text-slate-800 dark:text-white truncate">{emp.nombre}</p>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDefault(emp.id)}
+                        disabled={applying}
+                        title={L('Aplicar horario por defecto Lun-Sáb 9-7', 'Apply default Mon-Sat 9-7')}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded-md border border-[#b3001e] text-[#b3001e] hover:bg-[#b3001e] hover:text-white transition-colors disabled:opacity-50"
+                      >
+                        <Wand2 size={10}/>{L('Aplicar horario por defecto', 'Apply default schedule')}
+                      </button>
+                    </div>
                     <p className="text-[10px] text-slate-400 dark:text-white/40 uppercase tracking-wider">{emp.tipo || 'estilista'}</p>
                   </div>
                   <div className="flex items-center gap-3 text-right">
@@ -258,6 +297,41 @@ export default function StylistSchedules() {
           </div>
         )}
       </div>
+
+      {/* Confirm default-schedule dialog */}
+      {confirmDefault !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="bg-white dark:bg-neutral-900 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl max-w-sm w-full p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Wand2 size={16} className="text-[#b3001e]" />
+              <h3 className="text-[14px] font-bold text-slate-800 dark:text-white">
+                {L('Aplicar horario por defecto', 'Apply default schedule')}
+              </h3>
+            </div>
+            <p className="text-[12px] text-slate-600 dark:text-white/60 mb-4">
+              {L('Se creará el horario Lunes a Sábado de 9:00 a 19:00. Domingo queda libre. Sobrescribe horarios existentes de esos días.',
+                 'Will set Monday-Saturday 9:00-19:00. Sunday stays off. Overwrites existing days.')}
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setConfirmDefault(null)}
+                disabled={applying}
+                className="px-3 py-1.5 text-[12px] rounded-lg border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/70 hover:bg-slate-100 dark:hover:bg-white/10"
+              >
+                {L('Cancelar', 'Cancel')}
+              </button>
+              <button
+                onClick={() => applyDefaultSchedule(confirmDefault)}
+                disabled={applying}
+                className="px-3 py-1.5 text-[12px] rounded-lg bg-[#b3001e] hover:bg-[#8f0018] text-white font-bold flex items-center gap-1.5 disabled:opacity-60"
+              >
+                {applying && <Loader2 size={11} className="animate-spin" />}
+                {L('Aplicar', 'Apply')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (

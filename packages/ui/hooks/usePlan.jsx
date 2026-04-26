@@ -34,6 +34,9 @@ const PLAN_FEATURES = {
     // v2.16.2 Sprint 2E — concesionario_resumen tile lives at every tier so an
     // owner trialing the dealership vertical sees the dashboard immediately.
     'concesionario_resumen',
+    // FIX-HIGH-6 — carniceria_resumen mirrors the concesionario pattern: visible
+    // at every tier as upgrade hook for the carnicería vertical.
+    'carniceria_resumen',
   ],
   pro_plus: [
     'pos', 'queue', 'clients', 'credits', 'reports',
@@ -57,6 +60,9 @@ const PLAN_FEATURES = {
     'vehicle_inventory', 'sales_pipeline', 'test_drives', 'deal_builder',
     'matriculas', 'reservations', 'warranties', 'preapprovals',
     'concesionario_resumen', 'concesionario_reports',
+    // FIX-HIGH-6 — carnicería vertical (Pro PLUS+)
+    'carniceria_resumen', 'carniceria_corte_catalog',
+    'carniceria_mayoreo', 'carniceria_freshness_alerts',
   ],
   pro_max: [
     'pos', 'queue', 'clients', 'credits', 'reports',
@@ -85,6 +91,9 @@ const PLAN_FEATURES = {
     'matriculas', 'reservations', 'warranties', 'preapprovals',
     'concesionario_resumen', 'concesionario_reports',
     'intrant_api', 'whatsapp_auto',
+    // FIX-HIGH-6 — carnicería vertical (inherited from Pro PLUS)
+    'carniceria_resumen', 'carniceria_corte_catalog',
+    'carniceria_mayoreo', 'carniceria_freshness_alerts',
   ],
 }
 

@@ -52,6 +52,7 @@ export default function Resumen() {
   const [services, setServices] = useState([])
   const [reminders, setReminders] = useState([])
   const [upcoming, setUpcoming] = useState([])
+  const [schedules, setSchedules] = useState([])
 
   useEffect(() => { (async () => {
     setLoading(true)
@@ -60,14 +61,16 @@ export default function Resumen() {
       const monthStart = startOfMonthISO()
       const monthEnd = endOfMonthISO()
       const next24 = next24hISO()
-      const [todayAppts, monthTix, emps, svcs, pendRems, upAppts] = await Promise.all([
+      const [todayAppts, monthTix, emps, svcs, pendRems, upAppts, stylSchs] = await Promise.all([
         api?.appointments?.byDate?.(today).catch(() => []) || api?.appointments?.list?.({ date: today }).catch(() => []) || [],
         api?.tickets?.byDateRange?.({ from: monthStart, to: monthEnd }).catch(() => []) || [],
         api?.empleados?.all?.() || [],
         api?.services?.getAll?.() || [],
         api?.appointmentReminders?.pendingDue?.(next24).catch(() => []) || [],
         api?.appointments?.upcomingBetween?.(new Date().toISOString(), next24).catch(() => null),
+        api?.stylistSchedules?.list?.().catch(() => []) || [],
       ])
+      setSchedules(stylSchs || [])
       setAppts(todayAppts || [])
       setTickets(monthTix || [])
       setEmps(emps || [])
@@ -96,21 +99,41 @@ export default function Resumen() {
     // Citas hoy
     const apptCount = appts.length
 
-    // % Ocupación por estilista — booked slots / scheduled slots (top 5)
+    // % Ocupación por estilista — booked vs scheduled minutes (today's DOW).
+    // v2.16.2 (item #7) — replaces fixed 720-min denominator with the real
+    // schedule. Stylists who only work 4h/day no longer look "underbooked".
+    const dow = new Date().getDay()
+    const minsFromHHMM = (a, b) => {
+      const [ah, am] = String(a || '00:00').split(':').map(Number)
+      const [bh, bm] = String(b || '00:00').split(':').map(Number)
+      const aM = (Number.isFinite(ah) ? ah : 0) * 60 + (Number.isFinite(am) ? am : 0)
+      const bM = (Number.isFinite(bh) ? bh : 0) * 60 + (Number.isFinite(bm) ? bm : 0)
+      return Math.max(0, bM - aM)
+    }
+    const schedMin = {}
+    for (const s of (schedules || [])) {
+      if (Number(s.day_of_week) !== dow) continue
+      const eid = s.empleado_id || s.empleado_supabase_id
+      if (!eid) continue
+      schedMin[eid] = (schedMin[eid] || 0) + minsFromHHMM(s.start_time, s.end_time)
+    }
     const byEmp = {}
     for (const a of appts) {
       const eid = a.empleado_id || a.empleado_supabase_id
       if (!eid) continue
-      const dur = Number(a.duration) || 60
+      // Prefer end_time - start_time when both present, else duration field.
+      let dur = Number(a.duration) || 0
+      if (!dur && a.start_time && a.end_time) dur = minsFromHHMM(a.start_time, a.end_time)
+      if (!dur) dur = 60
       const nm = a.empleados?.nombre || a.empleado_name || empName(eid)
       byEmp[eid] = byEmp[eid] || { eid, name: nm, bookedMin: 0 }
       byEmp[eid].bookedMin += dur
     }
-    // Approximate scheduled mins at 12h (8:00 - 20:00 = 720)
-    const SCHEDULE_MIN = 720
-    const occupancy = Object.values(byEmp).map(e => ({
-      ...e, pct: Math.min(100, Math.round((e.bookedMin / SCHEDULE_MIN) * 100)),
-    })).sort((a, b) => b.pct - a.pct).slice(0, 5)
+    const FALLBACK_MIN = 720 // empleado without schedule rows → assume 12h
+    const occupancy = Object.values(byEmp).map(e => {
+      const denom = schedMin[e.eid] || FALLBACK_MIN
+      return { ...e, scheduledMin: denom, pct: Math.min(100, Math.round((e.bookedMin / denom) * 100)) }
+    }).sort((a, b) => b.pct - a.pct).slice(0, 5)
 
     // Ingresos del mes
     const ingresos = (tickets || [])
@@ -128,11 +151,19 @@ export default function Resumen() {
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count).slice(0, 5)
 
-    // Productos vendidos — sum of retail line quantities (best-effort)
-    const productosVendidos = (tickets || []).reduce((s, t) => s + (Number(t.retail_qty) || 0), 0)
+    // Productos vendidos — sum of retail line quantities (best-effort).
+    // v2.16.2 (item #8) — `t.retail_qty` doesn't exist on the web tickets
+    // shape; derive from items[] instead. Counts only inventory-backed lines.
+    const productosVendidos = (tickets || []).reduce((s, t) => {
+      const items = Array.isArray(t.items) ? t.items : []
+      const qty = items
+        .filter(i => i.inventory_item_id || i.inventory_item_supabase_id)
+        .reduce((n, i) => n + (Number(i.quantity ?? i.qty) || 1), 0)
+      return s + qty
+    }, 0)
 
     return { apptCount, occupancy, ingresos, topServicios, productosVendidos }
-  }, [appts, tickets, empleados]) // eslint-disable-line
+  }, [appts, tickets, empleados, schedules]) // eslint-disable-line
 
   if (loading) return (
     <div className="flex-1 flex items-center justify-center bg-slate-50 dark:bg-black">

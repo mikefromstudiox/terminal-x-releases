@@ -250,6 +250,7 @@ export default function Memberships() {
 
   const [toast, setToast] = useState(null)
   const [loadError, setLoadError] = useState('')
+  const [balancesError, setBalancesError] = useState('')
   function flash(msg, type = 'ok') { setToast({ msg, type }); setTimeout(() => setToast(null), 2500) }
 
   async function loadAll() {
@@ -278,12 +279,21 @@ export default function Memberships() {
   useEffect(() => { loadAll() }, [])
 
   async function loadBalances(client) {
-    if (!client?.supabase_id) { setClientBalances([]); return }
+    if (!client?.supabase_id) { setClientBalances([]); setBalancesError(''); return }
     setBalancesLoading(true)
+    setBalancesError('')
     try {
+      // v2.16.2 (item #9) — surface RLS / network errors. Previously a silent
+      // catch rendered an empty balances list, prompting the receptionist to
+      // charge full price for a client who actually had remaining sessions.
       const rows = await api.clientMemberships.byClient(client.supabase_id) || []
       setClientBalances(rows)
-    } catch { setClientBalances([]) }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[Memberships.loadBalances]', e)
+      setClientBalances([])
+      setBalancesError(e?.message || L('Error cargando saldos', 'Error loading balances'))
+    }
     setBalancesLoading(false)
   }
 
@@ -338,10 +348,14 @@ export default function Memberships() {
   const filteredClients = useMemo(() => {
     const q = clientQuery.trim().toLowerCase()
     if (!q) return clients.slice(0, 20)
-    return clients.filter(c =>
-      String(c.name || c.nombre || '').toLowerCase().includes(q) ||
-      String(c.phone || '').includes(q),
-    ).slice(0, 30)
+    // v2.16.2 (item #10) — normalise digits both sides so "8091234567" matches
+    // a stored "+1 (809) 123-4567".
+    const qDigits = q.replace(/\D/g, '')
+    return clients.filter(c => {
+      const name = String(c.name || c.nombre || '').toLowerCase()
+      const phoneDigits = String(c.phone || '').replace(/\D/g, '')
+      return name.includes(q) || (qDigits && phoneDigits.includes(qDigits))
+    }).slice(0, 30)
   }, [clientQuery, clients])
 
   return (
@@ -490,6 +504,20 @@ export default function Memberships() {
                 </div>
 
                 <div className="flex-1 overflow-y-auto">
+                  {balancesError ? (
+                    <div className="m-4 px-4 py-3 bg-[#b3001e]/5 border border-[#b3001e]/20 rounded-xl flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-bold text-[#b3001e] uppercase tracking-wider">
+                          {L('Error al cargar saldos', 'Error loading balances')}
+                        </p>
+                        <p className="text-[12px] text-[#b3001e] mt-1 truncate">{balancesError}</p>
+                      </div>
+                      <button onClick={() => loadBalances(selectedClient)}
+                        className="px-3 py-1.5 text-[12px] font-bold bg-[#b3001e] hover:bg-black text-white rounded-lg whitespace-nowrap transition-colors">
+                        {L('Reintentar', 'Retry')}
+                      </button>
+                    </div>
+                  ) : null}
                   {balancesLoading ? (
                     <div className="px-4 py-8 text-center text-slate-400 dark:text-white/40 text-sm flex items-center justify-center gap-2">
                       <Loader2 size={14} className="animate-spin" /> {L('Cargando...', 'Loading...')}

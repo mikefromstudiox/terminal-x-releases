@@ -64,6 +64,12 @@ const supabaseReady = (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE
         // already revoked its internal fetch wrapper.
         window.__txResetSupabase = () => { _supabase = null }
       }
+      // Per-license JWT boot — fire-and-forget. No-ops for demo accounts
+      // (no `tx_license_key` in localStorage), so signInWithPassword keeps
+      // owning auth on that path.
+      import('@terminal-x/data/web').then(({ bootLicenseJwt }) => {
+        bootLicenseJwt(_supabase, import.meta.env.VITE_SUPABASE_URL).catch(() => {})
+      }).catch(() => {})
       return _supabase
     })
   : Promise.resolve(null)
