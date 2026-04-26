@@ -25,3 +25,14 @@ tests/e2e/verdict.json
 tests/e2e/audit-*.json
 tests/smoke/results/
 tests/hibrido/
+
+# Build artefacts that should never land in git.
+# release-staging — per CLAUDE.md, where Mike copies the .exe + latest.yml +
+# .blockmap before publishing the GitHub Release. Hundreds of MB of binaries
+# regenerated from `npm run dist:win`. "Delete staging after" is the rule.
+release-staging/
+# posts-pendientes-ecf — runtime data dump from the ANECF tooling.
+posts-pendientes-ecf/
+# web/public/preview — auto-generated landing-page screenshots used by the
+# build-social-assets script. Regenerated on demand; not source.
+web/public/preview/
