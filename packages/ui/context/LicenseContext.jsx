@@ -164,7 +164,16 @@ export function LicenseProvider({ children }) {
       try {
         const s = await api?.settings?.get?.()
         if (s && (s.biz_name || s.biz_rnc)) {
-          bizSync = { name: s.biz_name, rnc: s.biz_rnc, address: s.biz_address, phone: s.biz_phone, email: s.biz_email }
+          // v2.16.10 — prefer the unambiguous `direccion` slot for the street
+          // address; only fall back to `biz_address` if direccion is empty.
+          // Defense-in-depth: drop the address entirely if it equals the city
+          // (case-insensitive) — the dual-key flow used to let user errors
+          // pollute biz_address with the city value, then re-stamp cloud on
+          // every validate. Better to send no address than the city as both.
+          const direccion = String(s.direccion || s.biz_address || '').trim()
+          const city = String(s.ciudad || s.biz_city || '').trim()
+          const addrToSync = (direccion && direccion.toLowerCase() !== city.toLowerCase()) ? direccion : null
+          bizSync = { name: s.biz_name, rnc: s.biz_rnc, address: addrToSync, phone: s.biz_phone, email: s.biz_email }
         }
         const certInfo = await window.electronAPI?.dgii_ecf?.certInfo?.()
         if (certInfo && bizSync) {

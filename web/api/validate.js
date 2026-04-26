@@ -163,7 +163,20 @@ export default async function handler(req, res) {
     if (valid && license.business_id && bizSync) {
       const updates = {}
       if (bizSync.name)    updates.name    = bizSync.name
-      if (bizSync.address) updates.address = bizSync.address
+      // v2.16.10 — defense-in-depth against the address/city dual-key pollution.
+      // If the incoming address equals the existing biz_city in settings,
+      // the desktop's settings.biz_address is stale (city accidentally written
+      // into the address slot). Drop the address from this update so we don't
+      // re-stamp a bad value over a good one.
+      if (bizSync.address) {
+        try {
+          const existing = parseSettingsIfString(license.businesses?.settings)
+          const cityHere = String(existing?.biz_city || existing?.ciudad || '').trim().toLowerCase()
+          if (!cityHere || String(bizSync.address).trim().toLowerCase() !== cityHere) {
+            updates.address = bizSync.address
+          }
+        } catch { updates.address = bizSync.address }
+      }
       if (bizSync.phone)   updates.phone   = bizSync.phone
       if (bizSync.email)   updates.email   = bizSync.email
       if (bizSync.rnc)     updates.rnc     = bizSync.rnc

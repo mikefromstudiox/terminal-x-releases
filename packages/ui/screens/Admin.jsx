@@ -1911,7 +1911,23 @@ function MiEmpresa() {
           <div className="bg-white dark:bg-white/5 px-6 py-4 flex flex-col items-center gap-2 font-mono text-[12px] text-slate-700 dark:text-white">
             {logo ? <img src={logo} alt="logo" className="max-h-[60px] object-contain" />
                   : <p className="font-bold text-[14px] text-center">{form.biz_name}</p>}
-            {form.biz_address && <p className="text-center text-[11px]">{form.biz_address}{form.biz_city ? `, ${form.biz_city}` : ''}</p>}
+            {(() => {
+              // v2.16.10 — receipt preview dedup, mirrors printer.js:261.
+              // Show street; skip city if it equals the street (case-insensitive)
+              // or if the street already ends with the city as a suffix.
+              const addr = String(form.biz_address || '').trim()
+              const city = String(form.biz_city || '').trim()
+              if (!addr && !city) return null
+              const showCity = city && city.toLowerCase() !== addr.toLowerCase() &&
+                !addr.toLowerCase().endsWith(city.toLowerCase())
+              return (
+                <>
+                  {addr && <p className="text-center text-[11px]">{addr}</p>}
+                  {showCity && <p className="text-center text-[11px]">{city}</p>}
+                  {!addr && city && <p className="text-center text-[11px]">{city}</p>}
+                </>
+              )
+            })()}
             {form.biz_phone   && <p className="text-center text-[11px]">Tel: {form.biz_phone}</p>}
             {form.biz_rnc     && <p className="text-center text-[11px]">RNC: {form.biz_rnc}</p>}
           </div>

@@ -4040,6 +4040,17 @@ async function reconcileDeletes() {
   if (!_db || !_url || !_key) return
   const bizId = await resolveBusinessId().catch(() => null)
   if (!bizId) return
+  // v2.16.10 — RLS data-loss guard. The 2026-04-26 RLS migration made anon
+  // GETs return [] silently for every public table. Reconcile interpreted
+  // empty cloud as "all local rows must be deleted" and wiped empleados,
+  // services, etc. across the install base. v2.16.9 minted a license-scoped
+  // JWT into _userJwt; if for any reason that JWT isn't present (validate
+  // hasn't run yet, expired, network failure) sync would fall back to anon
+  // → reconcile would wipe again. Skip reconcile entirely without a JWT.
+  if (!_userJwt) {
+    log.warn('[sync] reconcileDeletes skipped — no _userJwt (anon GETs would return [] under RLS, would wipe local)')
+    return
+  }
   // Safety: only delete rows created >10 min ago so we don't wipe
   // freshly-created local rows whose push hasn't landed yet. Sync runs every
   // 5 min; anything older than 10 min has had at least one push attempt.
