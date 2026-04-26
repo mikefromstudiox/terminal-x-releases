@@ -1359,7 +1359,19 @@ ipcMain.handle('remote:validate', async (_, body) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return resp.json()
+  const data = await resp.json()
+  // v2.16.9 — feed the license-scoped sync JWT into the sync engine so RLS
+  // policies that require auth.jwt()->'app_metadata'->>'business_id' accept
+  // us. Without this, every anon read since the 2026-04-26 RLS migration
+  // returns 0 rows. sync.js uses (_userJwt || _key) in _authHeaders(); we
+  // populate _userJwt and the existing path takes over.
+  try {
+    if (data?.valid && data?.syncJwt) {
+      const sync = require('./sync')
+      if (typeof sync.setUserJwt === 'function') sync.setUserJwt(data.syncJwt)
+    }
+  } catch (e) { console.warn('[main] setUserJwt after validate failed:', e.message) }
+  return data
 })
 
 // ── Database ──────────────────────────────────────────────────────────────────

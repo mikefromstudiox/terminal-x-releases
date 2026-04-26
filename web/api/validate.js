@@ -191,7 +191,43 @@ export default async function handler(req, res) {
     // corner case of a double-encoded string.
     const bizSettingsJson = parseSettingsIfString(biz.settings)
     const bizSettings = { name: biz.name, rnc: biz.rnc, phone: biz.phone, address: biz.address, logo: biz.logo_url, plan: license.plans?.name || 'pro', ...bizSettingsJson }
-    const resp = { valid, readOnly, status, warning, warningMsg, daysUntilExpiry, plan: license.plans?.name || 'free', planDisplay: license.plans?.display_name || 'Free', features: license.plans?.features || [], expiresAt: license.expires_at, activatedAt: license.activated_at, maxUsers: license.plans?.max_users || license.max_users || 3, businessId: license.business_id, remoteConfig, bizSettings }
+
+    // v2.16.9 — RLS-compatible sync JWT.
+    //
+    // Why: 2026-04-26 RLS migration swapped every public.* policy to use
+    // `auth.jwt() -> 'app_metadata' ->> 'business_id'`. Desktop sync uses the
+    // anon key which carries no business_id claim, so anon GETs returned 0
+    // rows on every table — silently — and reconcile then deleted local rows
+    // it thought weren't on cloud. Whole-system regression.
+    //
+    // Fix: mint a license-scoped HS256 JWT with role=authenticated and
+    // app_metadata.business_id = <licensed biz>. Desktop stores it as
+    // _userJwt; sync.js's existing _authHeaders() prefers it over _key.
+    // 24h expiry so a daily license re-validation refreshes it. Stale tokens
+    // either fail soft (sync degrades, user prompted) or get re-fetched on
+    // the next /api/validate call (LicenseContext re-validates every 6h).
+    let syncJwt = null
+    let syncJwtExpiresAt = null
+    if (valid && license.business_id && process.env.SUPABASE_JWT_SECRET) {
+      try {
+        const jwt = (await import('jsonwebtoken')).default
+        const exp = Math.floor(Date.now() / 1000) + (24 * 60 * 60)
+        syncJwt = jwt.sign({
+          aud: 'authenticated',
+          role: 'authenticated',
+          sub: license.id,
+          iat: Math.floor(Date.now() / 1000),
+          exp,
+          app_metadata: { business_id: license.business_id, license_id: license.id },
+          user_metadata: {},
+        }, process.env.SUPABASE_JWT_SECRET, { algorithm: 'HS256' })
+        syncJwtExpiresAt = new Date(exp * 1000).toISOString()
+      } catch (e) {
+        console.error('[validate] sync JWT mint failed:', e.message)
+      }
+    }
+
+    const resp = { valid, readOnly, status, warning, warningMsg, daysUntilExpiry, plan: license.plans?.name || 'free', planDisplay: license.plans?.display_name || 'Free', features: license.plans?.features || [], expiresAt: license.expires_at, activatedAt: license.activated_at, maxUsers: license.plans?.max_users || license.max_users || 3, businessId: license.business_id, remoteConfig, bizSettings, syncJwt, syncJwtExpiresAt }
     if (valid) { resp.businessName = bizName; resp.businessRnc = bizRnc }
     if (status === 'expired' && daysUntilExpiry !== null) resp.daysExpired = -daysUntilExpiry
     return res.json(resp)
