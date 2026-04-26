@@ -122,10 +122,14 @@ export async function markECFFailed(id, error) {
 // listeners, polling) can short-circuit without a context.
 // ---------------------------------------------------------------------------
 
-let _planHasFeature = () => true  // default permissive (desktop / non-gated callers)
+// v2.16.2 (item #12) — default deny-all. PlanProvider opts in by calling
+// setOfflineQueuePlanGate(fn) on mount. Previously the permissive default
+// allowed pre-React enqueues (online/offline listeners firing before React
+// mounts) to bypass the plan gate during the boot window.
+let _planHasFeature = () => false
 
 export function setOfflineQueuePlanGate(fn) {
-  _planHasFeature = typeof fn === 'function' ? fn : (() => true)
+  _planHasFeature = typeof fn === 'function' ? fn : (() => false)
 }
 
 function waGateOpen() {
@@ -162,7 +166,11 @@ export async function enqueueWhatsappReminder(payload) {
 export async function getPendingWhatsappReminders() {
   const db = await getDB()
   const all = await db.getAll('pending_whatsapp_reminders')
-  return all.filter(r => (r.attempts || 0) < 5)
+  // v2.16.2 (item #14) — exponential backoff. Skip rows whose nextAttemptAt
+  // is still in the future so a 5xx storm doesn't burn all 5 retries in one
+  // drain cycle. Cap is enforced at write time (markWhatsappReminderFailed).
+  const t = Date.now()
+  return all.filter(r => (r.attempts || 0) < 5 && (Number(r.nextAttemptAt) || 0) <= t)
 }
 
 export async function markWhatsappReminderSent(id) {
@@ -177,6 +185,10 @@ export async function markWhatsappReminderFailed(id, error) {
   item.attempts = (item.attempts || 0) + 1
   item.last_attempt_at = now()
   item.last_error = typeof error === 'string' ? error : (error?.message || String(error))
+  // v2.16.2 (item #14) — exponential backoff capped at 30 minutes. The drain
+  // helper skips rows whose nextAttemptAt is still in the future.
+  const backoffMs = Math.min(30 * 60 * 1000, 30_000 * Math.pow(2, item.attempts))
+  item.nextAttemptAt = Date.now() + backoffMs
   if (item.attempts >= 5) {
     // Dead-letter: move to the failed store and drop from the live queue.
     try {

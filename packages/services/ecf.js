@@ -657,6 +657,13 @@ export async function signAndSubmitECF(invoiceData, api) {
     ticketId: invoiceData.ticket?.id,
   })
 
+  // v2.16.3 — preserve queued/ok/error from the IPC layer. The desktop
+  // dgii:submit handler returns `{ ok:false, queued:true, error }` on network
+  // failure (after enqueuing into ecf_queue with IndicadorEnvioDiferido=1).
+  // Without this passthrough, downstream callers (voidNoShowFee, future
+  // deferred-aware UIs) couldn't distinguish "DGII accepted" from "DGII
+  // unreachable, queued for retry" — they'd see undefined fields and treat
+  // success.
   return {
     eNCF:          result.eNCF,
     status:        result.status,
@@ -667,6 +674,9 @@ export async function signAndSubmitECF(invoiceData, api) {
     qrLink:        result.qrLink,
     dgiiCodigo:    result.dgiiCodigo,
     pdfUrl:        null,
+    ok:            result.ok !== false,           // true unless explicitly false
+    queued:        result.queued === true,
+    error:         result.error || null,
   }
 }
 

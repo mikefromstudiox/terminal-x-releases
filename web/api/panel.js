@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import bcryptjs from 'bcryptjs'
 import { createClient } from '@supabase/supabase-js'
 import { checkRateLimit, callerIp } from '../lib/rate-limit.js'
+import { SALON_WA_TEMPLATES, fillTemplate } from '../lib/salon-wa-templates.js'
 
 const ALLOWED_ORIGINS = ['https://terminalxpos.com', 'http://localhost:5173']
 
@@ -1812,16 +1813,9 @@ function safeJson(s) { try { return JSON.parse(s) } catch { return {} } }
 // SALON v2.16.1 — public booking, WhatsApp reminders, memberships
 // =========================================================================
 
-// WhatsApp template copy (LOCKED — verbatim from the v2.16.1 plan).
-const SALON_WA_TEMPLATES = {
-  '24h':     'Hola {name}, te recordamos tu cita mañana {time} con {stylist} en {biz_name}. Confirma con SI.',
-  '2h':      'Hola {name}, tu cita es en 2 horas con {stylist}. ¡Te esperamos!',
-  'confirm': '{biz_name}: cita confirmada para {date} {time} con {stylist}. Servicio: {service}. Para cancelar, responde NO.',
-  'manual':  'Hola {name}, te recordamos tu cita {date} {time} con {stylist} en {biz_name}.',
-}
-function fillTemplate(tpl, vars) {
-  return String(tpl || '').replace(/\{(\w+)\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ''))
-}
+// WhatsApp template copy + fillTemplate moved to ../lib/salon-wa-templates.js
+// so the v2.16.2 spec can import them for the {stylist} fallback contract test
+// without booting Vercel. Imported above. DO NOT redeclare here.
 
 // Phone normaliser → DR-friendly E.164 with country code 1 fallback. Mirrors
 // the renderer's packages/services/phone.js logic but kept inline so this
@@ -1999,10 +1993,16 @@ async function handleSalonPublicBookingCreate(req, res) {
       .select('value').eq('business_id', businessId).eq('key', 'salon_public_booking_enabled').maybeSingle()
     if (enabledRow?.value !== 'true') return res.status(404).json({ error: 'not_enabled' })
 
-    // Find or create client
+    // Find or create client.
+    // v2.16.2 (item #6) — match all common DR phone variants so a client who
+    // booked previously with a different format doesn't get a duplicate row.
+    // phoneNorm is `1{10digits}`; also try the raw 10-digit form and the
+    // explicit +1 prefix form.
     let client = null
+    const digits = phoneNorm.replace(/^\+?1?/, '')
+    const phoneOr = `phone.eq.${phoneNorm},phone.eq.${digits},phone.eq.+${phoneNorm}`
     const { data: existingClient } = await supabase.from('clients')
-      .select('id,supabase_id,name,phone').eq('business_id', businessId).eq('phone', phoneNorm).maybeSingle()
+      .select('id,supabase_id,name,phone').eq('business_id', businessId).or(phoneOr).limit(1).maybeSingle()
     if (existingClient) {
       client = existingClient
     } else {
@@ -2049,6 +2049,23 @@ async function handleSalonPublicBookingCreate(req, res) {
       if (overlap) return res.status(409).json({ ok: false, error: 'slot_taken' })
     }
 
+    // v2.16.2 (item #1) — honour salon_require_deposit. Read both keys; if
+    // require=true, stamp deposit_dop + deposit_status='pending' so the UI can
+    // route the user to "depósito por confirmar". Stripe/Azul wiring is OOS.
+    let depositRequired = false
+    let depositAmount = 0
+    try {
+      const { data: depRows } = await supabase.from('app_settings')
+        .select('key,value').eq('business_id', businessId)
+        .in('key', ['salon_require_deposit', 'salon_deposit_amount_dop'])
+      const map = {}
+      for (const r of (depRows || [])) map[r.key] = r.value
+      if (String(map.salon_require_deposit || '').toLowerCase() === 'true') {
+        depositRequired = true
+        depositAmount = Number(map.salon_deposit_amount_dop) || 0
+      }
+    } catch (e) { console.warn('[salon-public-booking-create] deposit lookup', e?.message || e) }
+
     // Insert appointment.
     // v2.16.1 patch (#7) — partial unique index
     // appointments_no_double_book_idx blocks racing concurrent inserts. Catch
@@ -2064,8 +2081,8 @@ async function handleSalonPublicBookingCreate(req, res) {
       services: JSON.stringify([{ supabase_id: svc.supabase_id, name: svc.name }]),
       status: 'scheduled',
       is_walk_in: false,
-      deposit_dop: 0,
-      deposit_status: 'none',
+      deposit_dop: depositRequired ? depositAmount : 0,
+      deposit_status: depositRequired ? 'pending' : 'none',
       public_booking_token: token,
     })
     if (aErr) {
@@ -2100,7 +2117,12 @@ async function handleSalonPublicBookingCreate(req, res) {
       await ultraMsgSend(supabase, businessId, { to: phoneNorm, body: msg })
     } catch (e) { console.warn('[salon-public-booking-create] confirm WA failed', e?.message || e) }
 
-    return res.json({ ok: true, token, appointment_supabase_id: apptSid })
+    return res.json({
+      ok: true,
+      token,
+      appointment_supabase_id: apptSid,
+      ...(depositRequired ? { deposit_required: true, deposit_amount_dop: depositAmount } : {}),
+    })
   } catch (err) {
     console.error('[salon-public-booking-create]', err?.message || err)
     return res.status(500).json({ error: err.message || 'internal_error' })
@@ -2192,7 +2214,10 @@ async function handleSalonReminderTick(req, res) {
   if (cronSecret) {
     if (provided !== cronSecret) return res.status(401).json({ error: 'invalid_cron_secret' })
   } else {
-    console.warn('[salon-whatsapp-reminder-tick] CRON_SECRET unset — accepting all callers (dev only)')
+    // v2.16.2 (item #2) — fail-closed when CRON_SECRET is unset. The
+    // manual_batch path above is license-JWT authed and unaffected.
+    console.error('[salon-whatsapp-reminder-tick] CRON_SECRET unset — refusing cron path')
+    return res.status(503).json({ error: 'cron_disabled' })
   }
   try {
     const supabase = getClient()
@@ -2200,7 +2225,7 @@ async function handleSalonReminderTick(req, res) {
     const { data: due } = await supabase.from('appointment_reminders')
       .select('id,supabase_id,business_id,appointment_supabase_id,kind,status')
       .eq('status', 'pending').lte('fire_at', nowIso)
-      .order('fire_at', { ascending: true }).limit(25)
+      .order('fire_at', { ascending: true }).limit(50) // v2.16.2 (item #8) — morning rush headroom
     const result = { processed: 0, sent: 0, failed: 0, skipped: 0 }
     for (const r of (due || [])) {
       result.processed++
@@ -2252,8 +2277,17 @@ async function processReminder(supabase, reminder) {
     supabase.from('businesses').select('name').eq('id', business_id).maybeSingle(),
   ])
   if (!client?.phone) {
+    // v2.16.2 (item #7) — keep the reminder pending and retry tomorrow when
+    // the receptionist may have completed the client's profile. Marking it
+    // 'skipped' permanently lost the reminder forever.
+    const retryAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    const { data: cur } = await supabase.from('appointment_reminders').select('attempts').eq('id', id).maybeSingle()
     await supabase.from('appointment_reminders').update({
-      status: 'skipped', error: 'no_client_phone', updated_at: new Date().toISOString(),
+      status: 'pending',
+      attempts: (Number(cur?.attempts) || 0) + 1,
+      error: 'no_client_phone',
+      fire_at: retryAt,
+      updated_at: new Date().toISOString(),
     }).eq('id', id)
     return false
   }
@@ -2267,7 +2301,10 @@ async function processReminder(supabase, reminder) {
     name: client.name || '',
     time: appt.start_time || '',
     date: appt.date || '',
-    stylist: emp?.nombre || '',
+    // v2.16.2 (item #5) — `{stylist}` fallback. Any-stylist bookings have
+    // empleado_supabase_id=null; before this fallback the 2h template rendered
+    // "tu cita es en 2 horas con . ¡Te esperamos!" — visible breakage.
+    stylist: emp?.nombre || 'tu equipo',
     biz_name: biz?.name || '',
     service: serviceName,
   })
@@ -2296,7 +2333,22 @@ async function handleSalonWhatsappSendNow(req, res) {
     return res.status(429).json({ error: 'rate_limited' })
   }
   const body = typeof req.body === 'string' ? safeJson(req.body) : (req.body || {})
-  const { appointment_supabase_id } = body
+  const { appointment_supabase_id, test_message, test_phone } = body
+  // v2.16.2 — test mode: send a synthetic "Mensaje de prueba desde {biz}"
+  // to a phone number provided by the owner. No appointment lookup, no
+  // reminders row written. Same rate-limit applies.
+  if (test_message) {
+    const phone = normalisePhoneDR(String(test_phone || ''))
+    if (!phone) return res.status(400).json({ error: 'invalid_phone' })
+    try {
+      const { data: biz } = await supabase.from('businesses').select('name').eq('id', businessId).maybeSingle()
+      const text = `Mensaje de prueba desde ${biz?.name || 'Terminal X'}`
+      const r = await ultraMsgSend(supabase, businessId, { to: phone, body: text })
+      return res.json({ ok: true, sent: true, id: r?.id || null })
+    } catch (e) {
+      return res.status(502).json({ ok: false, error: e?.message || 'send_failed' })
+    }
+  }
   if (!appointment_supabase_id) return res.status(400).json({ error: 'appointment_supabase_id required' })
   try {
     // Insert manual reminder + immediately process it
