@@ -672,6 +672,155 @@ export function buildPreTicket(data) {
   return lines.join('')
 }
 
+// ── PRE-CUENTA (Restaurante) ─────────────────────────────────────────────────
+/**
+ * Build ESC/POS string for the restaurant pre-bill (printed when the
+ * customer asks for the check, BEFORE payment). Non-fiscal — explicitly
+ * marked as "*** NO ES COMPROBANTE FISCAL ***" so it cannot be confused
+ * with a factura. Cash drawer is NOT opened.
+ *
+ * data: {
+ *   biz, mesa, waiter, guests, openedAt,
+ *   items: [{ name, qty, price, modifiers:[{name, price_delta}] }],
+ *   subtotal,
+ *   itbisPct (default 18),
+ *   servicioPct (default 0 — pre-loaded by caller from settings),
+ * }
+ */
+export function buildPreCuenta(data) {
+  const lines = []
+  lines.push(buildHeader(data.biz || {}))
+
+  lines.push(ALIGN_CENTER)
+  lines.push(BOLD_ON)
+  lines.push(DOUBLE_ON)
+  lines.push('PRE-CUENTA')
+  lines.push(LF)
+  lines.push(DOUBLE_OFF)
+  lines.push(BOLD_OFF)
+  lines.push(SEP)
+  lines.push(LF)
+
+  lines.push(ALIGN_LEFT)
+  if (data.mesa)     { lines.push(cols('Mesa:',  String(data.mesa)));    lines.push(LF) }
+  if (data.guests)   { lines.push(cols('Personas:', String(data.guests))); lines.push(LF) }
+  if (data.waiter)   { lines.push(cols('Mesero:', String(data.waiter))); lines.push(LF) }
+  lines.push(cols('Fecha:', fmtDate(new Date())))
+  lines.push(LF)
+  lines.push(SEP)
+  lines.push(LF)
+
+  // Line items
+  const items = Array.isArray(data.items) ? data.items : []
+  let subtotal = 0
+  items.forEach(it => {
+    const qty = Number(it.qty || 1)
+    const modSum = (it.modifiers || []).reduce((s, m) => s + Number(m.price_delta || 0), 0)
+    const unit = Number(it.price || 0) + modSum
+    const lineTotal = unit * qty
+    subtotal += lineTotal
+    const name = qty > 1 ? `${qty}x ${it.name}` : String(it.name)
+    const totalAmt = fmt(lineTotal)
+    if (name.length + totalAmt.length + 2 > COL_WIDTH) {
+      wrapText(name, COL_WIDTH - totalAmt.length - 2).forEach((l, i, arr) => {
+        if (i === arr.length - 1) lines.push(cols(l, totalAmt, COL_WIDTH))
+        else                       lines.push(l)
+        lines.push(LF)
+      })
+    } else {
+      lines.push(cols(name, totalAmt, COL_WIDTH))
+      lines.push(LF)
+    }
+    ;(it.modifiers || []).forEach(m => {
+      const lbl = '  · ' + String(m.name)
+      const delta = Number(m.price_delta || 0)
+      if (delta !== 0) {
+        const ds = (delta > 0 ? '+' : '') + fmt(delta)
+        lines.push(cols(lbl, ds, COL_WIDTH))
+      } else {
+        lines.push(lbl)
+      }
+      lines.push(LF)
+    })
+  })
+
+  if (Number.isFinite(Number(data.subtotal))) subtotal = Number(data.subtotal)
+
+  lines.push(SEP)
+  lines.push(LF)
+
+  // Totals
+  const itbisPct  = Number.isFinite(Number(data.itbisPct))    ? Number(data.itbisPct)    : 18
+  const servPct   = Number.isFinite(Number(data.servicioPct)) ? Number(data.servicioPct) : 0
+  // Many DR restaurants list prices ITBIS-included. We surface the implicit
+  // ITBIS portion so the diner sees the breakdown without changing totals.
+  const itbisIncluded = subtotal - (subtotal / (1 + itbisPct / 100))
+  const servicio  = subtotal * (servPct / 100)
+  const total     = subtotal + servicio
+
+  lines.push(cols('Subtotal', fmt(subtotal), COL_WIDTH))
+  lines.push(LF)
+  lines.push(cols(`ITBIS ${itbisPct}% (incluido)`, fmt(itbisIncluded), COL_WIDTH))
+  lines.push(LF)
+  if (servPct > 0) {
+    lines.push(cols(`Servicio ${servPct}%`, fmt(servicio), COL_WIDTH))
+    lines.push(LF)
+  }
+
+  lines.push(LF)
+  lines.push(BOLD_ON)
+  lines.push(LARGE_ON)
+  const totalInner = 'TOTAL'.padEnd(11) + fmt(total).padStart(10)
+  lines.push(totalInner)
+  lines.push(LARGE_OFF)
+  lines.push(BOLD_OFF)
+  lines.push(LF)
+  lines.push(LF)
+
+  // Tip suggestions
+  lines.push(ALIGN_CENTER)
+  lines.push(BOLD_ON)
+  lines.push('Sugerencia de propina')
+  lines.push(LF)
+  lines.push(BOLD_OFF)
+  ;[10, 15, 18].forEach(p => {
+    const amt = total * (p / 100)
+    lines.push(`${p}%: ${fmt(amt)}`)
+    lines.push(LF)
+  })
+  lines.push(LF)
+
+  // Non-fiscal disclaimer — ESC/POS thermals don't render color, but
+  // INVERT_ON gives us the loud white-on-black bar that reads as "red"
+  // visually. Keeps users from confusing this with a factura.
+  lines.push(INVERT_ON)
+  lines.push(BOLD_ON)
+  lines.push(' *** NO ES COMPROBANTE FISCAL *** ')
+  lines.push(BOLD_OFF)
+  lines.push(INVERT_OFF)
+  lines.push(LF)
+  lines.push(LF)
+  lines.push('Gracias por su preferencia')
+  lines.push(LF)
+  lines.push(LF)
+  lines.push(LF)
+  lines.push(CUT)
+  return lines.join('')
+}
+
+/**
+ * Print the pre-cuenta. NEVER opens the cash drawer. Falls back to
+ * the HTML preview window in dev / no-printer environments. Returns
+ * { success, queued, fallback, error } from sendToPrinter.
+ */
+export async function printPreCuenta(data, api, printerApi) {
+  const escpos = buildPreCuenta(data)
+  // Reuse the standard send-to-printer path so we get queue + retry +
+  // HTML preview fallback for free. The DRAWER_KICK byte is never
+  // appended in buildPreCuenta, so the drawer stays closed.
+  return sendToPrinter('pre-cuenta', escpos, data.biz || {}, api || (typeof window !== 'undefined' ? window.electronAPI : null))
+}
+
 // ── ANECF COMPROBANTE ─────────────────────────────────────────────────────────
 /**
  * Build ESC/POS string for an ANECF (Anulación de eNCF) comprobante.

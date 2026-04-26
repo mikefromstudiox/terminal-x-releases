@@ -1783,7 +1783,7 @@ export function createWebAPI(supabase, businessId) {
       update: (data) => tryOr(async () => {
         await requireOwnerOrManager('services:update')
         const { id, ...rest } = data
-        const allowed = ['name', 'name_en', 'category', 'categoria_id', 'price', 'cost', 'aplica_itbis', 'is_wash', 'no_commission', 'commission_washer', 'commission_seller', 'commission_cashier', 'active', 'sort_order', 'is_menu_item', 'course', 'station', 'printer_route', 'happy_hour_price', 'happy_hour_start', 'happy_hour_end']
+        const allowed = ['name', 'name_en', 'category', 'categoria_id', 'price', 'cost', 'aplica_itbis', 'is_wash', 'no_commission', 'commission_washer', 'commission_seller', 'commission_cashier', 'active', 'sort_order', 'is_menu_item', 'course', 'station', 'printer_route', 'happy_hour_price', 'happy_hour_start', 'happy_hour_end', 'in_stock']
         const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
         // Coerce booleans for Supabase bool columns
         for (const k of ['no_commission', 'commission_washer', 'commission_seller', 'commission_cashier', 'active', 'is_wash', 'aplica_itbis']) {
@@ -1803,6 +1803,34 @@ export function createWebAPI(supabase, businessId) {
             old_value: priorRow.price, new_value: patch.price,
             amount: Number(patch.price) - Number(priorRow.price) })
         }
+      }),
+
+      // v2.16.3 — 86-list (sold-out plates). Polymorphic key (numeric id OR
+      // supabase_id UUID). Logs activity under service_set_oos /
+      // service_back_in_stock so the owner sees it in the Actividad feed.
+      setInStock: (key, inStock) => tryWrite(async () => {
+        await requireOwnerOrManager('services:set-in-stock')
+        const next = inStock ? true : false
+        const isUuid = typeof key === 'string' && /^[0-9a-f]{8}-/i.test(key)
+        const sel = supabase.from('services').select('id, supabase_id, name, in_stock')
+          .eq('business_id', bid)
+        const { data: row, error: selErr } = isUuid
+          ? await sel.eq('supabase_id', key).maybeSingle()
+          : await sel.eq('id', Number(key)).maybeSingle()
+        if (selErr) throw selErr
+        if (!row) return { ok: false, error: 'not_found' }
+        const prev = row.in_stock === false ? false : true
+        if (prev === next) return { ok: true, unchanged: true, id: row.id, supabase_id: row.supabase_id, in_stock: next }
+        throwSupaError(await supabase.from('services')
+          .update({ in_stock: next, updated_at: new Date().toISOString() })
+          .eq('id', row.id).eq('business_id', bid))
+        await logActivity({
+          event_type: next ? 'service_back_in_stock' : 'service_set_oos',
+          severity: 'info',
+          target_type: 'service', target_id: row.id, target_name: row.name,
+          old_value: prev ? 1 : 0, new_value: next ? 1 : 0,
+        })
+        return { ok: true, id: row.id, supabase_id: row.supabase_id, in_stock: next }
       }),
 
       delete: ({ id }) => tryWrite(async () => {
@@ -3360,6 +3388,64 @@ export function createWebAPI(supabase, businessId) {
 
             throwSupaError(await supabase.from('tickets').update(updates)
               .eq('id', row.id).eq('business_id', bid))
+
+            // v2.16.3 — Restaurante recetas: decrement ingredient inventory.
+            // Wrapped — failures emit `recipe_inventory_skip` audit row but
+            // never fail the close (cashier already swiped the card).
+            try {
+              const { data: tItems } = await supabase.from('ticket_items')
+                .select('service_supabase_id,quantity,name')
+                .eq('ticket_supabase_id', row.supabase_id)
+                .eq('business_id', bid)
+              const lines = (tItems || []).filter(x => x.service_supabase_id)
+              if (lines.length) {
+                const svcSids = [...new Set(lines.map(l => l.service_supabase_id))]
+                const { data: rcps } = await supabase.from('service_recipe_items')
+                  .select('service_supabase_id,inventory_item_supabase_id,qty_per_unit')
+                  .eq('business_id', bid).in('service_supabase_id', svcSids)
+                const rcpBySvc = {}
+                for (const r of (rcps || [])) {
+                  if (!rcpBySvc[r.service_supabase_id]) rcpBySvc[r.service_supabase_id] = []
+                  rcpBySvc[r.service_supabase_id].push(r)
+                }
+                const invSids = [...new Set((rcps || []).map(r => r.inventory_item_supabase_id).filter(Boolean))]
+                if (invSids.length) {
+                  const { data: invs } = await supabase.from('inventory_items')
+                    .select('id,supabase_id,name,quantity').eq('business_id', bid).in('supabase_id', invSids)
+                  const invBySid = Object.fromEntries((invs || []).map(i => [i.supabase_id, i]))
+                  for (const line of lines) {
+                    const lineQty = Number(line.quantity || 1)
+                    for (const r of (rcpBySvc[line.service_supabase_id] || [])) {
+                      const inv = invBySid[r.inventory_item_supabase_id]
+                      if (!inv) continue
+                      const delta = -(Number(r.qty_per_unit || 0) * lineQty)
+                      if (!delta) continue
+                      try {
+                        await supabase.from('inventory_items')
+                          .update({ quantity: Math.max(0, Number(inv.quantity || 0) + delta) })
+                          .eq('supabase_id', r.inventory_item_supabase_id).eq('business_id', bid)
+                        invBySid[r.inventory_item_supabase_id] = { ...inv, quantity: Math.max(0, Number(inv.quantity || 0) + delta) }
+                      } catch (e) {
+                        await logActivity({ event_type: 'recipe_inventory_skip', severity: 'warn',
+                          target_type: 'inventory_item', target_id: inv?.id || null,
+                          target_name: inv?.name || `Receta ${line.service_supabase_id.substring(0, 8)}`,
+                          reason: e?.message || 'recipe deduction failed',
+                          metadata: { ticket_id: row.id, ticket_supabase_id: row.supabase_id,
+                                      service_supabase_id: line.service_supabase_id,
+                                      line_qty: lineQty, qty_per_unit: r.qty_per_unit } })
+                      }
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              try {
+                await logActivity({ event_type: 'recipe_inventory_skip', severity: 'warn',
+                  target_type: 'ticket', target_id: row.id, target_name: row.doc_number || `#${row.id}`,
+                  reason: e?.message || 'recipe deduction batch failed',
+                  metadata: { ticket_supabase_id: row.supabase_id } })
+              } catch {}
+            }
 
             const desc = Number(data.descuento || 0)
             const subt = Number(data.subtotal || 0)
@@ -5086,6 +5172,74 @@ export function createWebAPI(supabase, businessId) {
           .eq('business_id', bid)
           .eq('service_supabase_id', serviceSupabaseId)
           .eq('modificador_supabase_id', modificadorSupabaseId))
+      }),
+    },
+
+    // ── Restaurant Mode — Service recipes (Bill-of-Materials, v2.16.3) ─────
+    // Polymorphic listForService: accepts either a numeric id (services.id)
+    // or a UUID supabase_id. service_recipe_items only stores supabase_id, so
+    // numeric path resolves via a quick services lookup. Returns rows joined
+    // with inventory_items (name + unit + sku) for the MenuBuilder UI.
+    recipeItems: {
+      listForService: (serviceKey) => tryOr(async () => {
+        if (serviceKey == null || serviceKey === '') return []
+        const _UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        let svcSid = null
+        if (typeof serviceKey === 'string' && _UUID_RX.test(serviceKey)) {
+          svcSid = serviceKey
+        } else {
+          const { data: svcRow } = await supabase.from('services')
+            .select('supabase_id').eq('id', Number(serviceKey)).eq('business_id', bid).maybeSingle()
+          svcSid = svcRow?.supabase_id || null
+        }
+        if (!svcSid) return []
+        const { data: rows } = await supabase.from('service_recipe_items')
+          .select('id,supabase_id,business_id,service_supabase_id,inventory_item_supabase_id,qty_per_unit,created_at,updated_at')
+          .eq('business_id', bid).eq('service_supabase_id', svcSid)
+        const list = rows || []
+        if (!list.length) return []
+        const invSids = [...new Set(list.map(r => r.inventory_item_supabase_id).filter(Boolean))]
+        const { data: invs } = await supabase.from('inventory_items')
+          .select('id,supabase_id,name,sku,unit,quantity').eq('business_id', bid).in('supabase_id', invSids)
+        const invBySid = Object.fromEntries((invs || []).map(i => [i.supabase_id, i]))
+        return list.map(r => {
+          const inv = invBySid[r.inventory_item_supabase_id] || null
+          return {
+            ...r,
+            inventory_item_id:        inv?.id || null,
+            inventory_item_name:      inv?.name || null,
+            inventory_item_sku:       inv?.sku || null,
+            inventory_item_unit:      inv?.unit || null,
+            inventory_item_quantity:  inv?.quantity || 0,
+          }
+        }).sort((a, b) => (a.inventory_item_name || '').localeCompare(b.inventory_item_name || ''))
+      }, []),
+
+      add: ({ service_supabase_id, inventory_item_supabase_id, qty_per_unit } = {}) => tryOr(async () => {
+        if (!service_supabase_id || !inventory_item_supabase_id) {
+          throw new Error('recipeItems.add: service_supabase_id + inventory_item_supabase_id required')
+        }
+        const sid = crypto.randomUUID()
+        const row = throwSupaError(await supabase.from('service_recipe_items').insert({
+          supabase_id: sid,
+          business_id: bid,
+          service_supabase_id,
+          inventory_item_supabase_id,
+          qty_per_unit: Number(qty_per_unit) || 0,
+        }).select('id,supabase_id').single())
+        return { id: row.id, supabase_id: row.supabase_id }
+      }),
+
+      update: (id, qty_per_unit) => tryOr(async () => {
+        throwSupaError(await supabase.from('service_recipe_items')
+          .update({ qty_per_unit: Number(qty_per_unit) || 0 })
+          .eq('id', id).eq('business_id', bid))
+      }),
+
+      remove: (id) => tryOr(async () => {
+        throwSupaError(await supabase.from('service_recipe_items')
+          .delete().eq('id', id).eq('business_id', bid))
+        return { deleted: true }
       }),
     },
 

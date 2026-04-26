@@ -148,6 +148,8 @@ const SYNC_TABLES = [
       happy_hour_price: r.happy_hour_price != null ? r.happy_hour_price : null,
       happy_hour_start: r.happy_hour_start || null,
       happy_hour_end:   r.happy_hour_end   || null,
+      // v2.16.3 — 86-list (sold-out plates). 1=available, 0=agotado.
+      in_stock: r.in_stock == null ? 1 : (r.in_stock ? 1 : 0),
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
     }),
@@ -634,6 +636,18 @@ const SYNC_TABLES = [
       updated_at: r.updated_at || null,
     }),
   },
+  // v2.16.3 — Restaurante: recetas (Bill-of-Materials per service)
+  {
+    name: 'service_recipe_items',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      service_supabase_id: r.service_supabase_id,
+      inventory_item_supabase_id: r.inventory_item_supabase_id,
+      qty_per_unit: Number(r.qty_per_unit) || 0,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
   {
     name: 'tickets',
     cols: r => {
@@ -869,6 +883,27 @@ const SYNC_TABLES = [
       started_at: r.started_at,
       ready_at: r.ready_at,
       bumped_at: r.bumped_at,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  // v2.16.3 H4 — Restaurant front-of-house reservations.
+  {
+    name: 'restaurant_reservations',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      mesa_supabase_id: r.mesa_supabase_id || null,
+      fecha: r.fecha,
+      hora: r.hora,
+      duration_min: r.duration_min,
+      nombre: r.nombre,
+      telefono: r.telefono,
+      guests: r.guests,
+      notas: r.notas,
+      status: r.status,
+      whatsapp_sent_at: r.whatsapp_sent_at,
+      cancelled_reason: r.cancelled_reason,
+      seated_ticket_supabase_id: r.seated_ticket_supabase_id,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
     }),
@@ -2246,6 +2281,9 @@ const PULL_TABLES = [
   { name: 'modificadores', strategy: 'lww', naturalKey: 'name', cols: ['name','group_name','price_delta','min_select','max_select','default_selected','sort_order','active','created_at','updated_at'] },
   { name: 'service_modificadores', strategy: 'lww', cols: ['is_required','created_at','updated_at'],
     fkCols: { service_supabase_id: 'services', modificador_supabase_id: 'modificadores' } },
+  // v2.16.3 — Restaurante recetas (Bill-of-Materials per service)
+  { name: 'service_recipe_items', strategy: 'lww', cols: ['qty_per_unit','created_at','updated_at'],
+    fkCols: { service_supabase_id: 'services', inventory_item_supabase_id: 'inventory_items' } },
   { name: 'ncf_sequences', strategy: 'lww', cols: ['type','prefix','current_number','limit_number','valid_until','active','enabled','updated_at'] },
   { name: 'empleados', strategy: 'lww', naturalKey: 'nombre', cols: ['nombre','cedula','phone','tipo','salary','start_date','active','ref_id','puesto','email','bank_account','tss_id','role','comision_pct','updated_at'] },
   { name: 'categorias_servicio', strategy: 'lww', naturalKey: 'nombre', cols: ['nombre','orden','updated_at'] },
@@ -2326,6 +2364,14 @@ const PULL_TABLES = [
   { name: 'kds_events', strategy: 'lww',
     cols: ['station','status','fired_at','started_at','ready_at','bumped_at','created_at','updated_at'],
     fkCols: { ticket_item_supabase_id: 'ticket_items', mesa_supabase_id: 'mesas' } },
+  // v2.16.3 H4 — Restaurant front-of-house reservations. LWW so a hostess
+  // tablet edit (e.g. confirmada → sentada) cleanly overwrites a
+  // background-synced peer that happens to push first. mesa_supabase_id is
+  // the only FK we resolve locally — mesa_id is a denorm convenience that
+  // gets back-filled by the FK resolver.
+  { name: 'restaurant_reservations', strategy: 'lww',
+    cols: ['fecha','hora','duration_min','nombre','telefono','guests','notas','status','whatsapp_sent_at','cancelled_reason','seated_ticket_supabase_id','created_at','updated_at'],
+    fkCols: { mesa_supabase_id: 'mesas' } },
 
   // Phase 2 (cont.) — multi-vertical dependent entities
   { name: 'work_orders', strategy: 'lww',
@@ -3779,7 +3825,7 @@ async function supabaseDelete(table, supabaseId, businessId) {
 const RECONCILE_TABLES = [
   'salary_changes', 'adelantos', 'caja_chica', 'notas_credito',
   'services', 'empleados', 'categorias_servicio', 'client_item_prices',
-  'client_service_rates', 'service_modificadores', 'payroll_runs',
+  'client_service_rates', 'service_modificadores', 'service_recipe_items', 'payroll_runs',
   'inventory_counts', 'inventory_count_items',
   'compras_607', 'ecf_queue', 'work_order_items',
   // v2.14.22 — the bucket that was silently out. When Supabase loses a

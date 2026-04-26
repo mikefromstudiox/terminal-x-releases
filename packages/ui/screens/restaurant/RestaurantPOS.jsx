@@ -380,16 +380,28 @@ const MesaCard = React.memo(MesaCardImpl, (prev, next) => {
 })
 
 // ── MENU ITEM CARD ────────────────────────────────────────────────────────────
-function MenuItemCard({ svc, happyHourEnabled, onClick }) {
+function MenuItemCard({ svc, happyHourEnabled, onClick, onOutOfStock }) {
   const hh = isHappyHourActive(svc, { enabled: happyHourEnabled })
   const base = Number(svc.price || 0)
   const eff  = effectivePrice(svc, { enabled: happyHourEnabled })
   const cat = String(svc.categoria || courseForService(svc) || '').toUpperCase()
+  // v2.16.3 — 86-list: in_stock=0 (or false) => plate agotado. Card dims to 50%,
+  // crimson AGOTADO badge sits top-right, click is intercepted and shows a toast.
+  const oos = svc.in_stock === 0 || svc.in_stock === false
   return (
     <button
-      onClick={onClick}
-      className="bg-white dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10 p-4 text-left transition-all hover:-translate-y-0.5 hover:border-[#b3001e] hover:shadow-md"
+      onClick={oos ? () => onOutOfStock?.(svc) : onClick}
+      aria-disabled={oos}
+      className={`relative bg-white dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10 p-4 text-left transition-all
+        ${oos
+          ? 'opacity-50 cursor-not-allowed'
+          : 'hover:-translate-y-0.5 hover:border-[#b3001e] hover:shadow-md'}`}
     >
+      {oos && (
+        <div className="absolute top-2 right-2 text-[9px] font-extrabold tracking-[1.5px] px-1.5 py-0.5 rounded bg-[#b3001e] text-white uppercase">
+          Agotado
+        </div>
+      )}
       {cat && (
         <div className="text-[10px] font-extrabold tracking-[1.5px] text-[#b3001e] uppercase mb-2">
           {cat}
@@ -417,6 +429,7 @@ function MenuItemCard({ svc, happyHourEnabled, onClick }) {
 function CartSidebar({
   activeTicket, ticketSubtotal, hasUnfiredItems, unfiredCoursesInTicket,
   waiterName, elapsedTicketMin, isHybrid, services,
+  pacing, onCancelPacing,
   onClose, onIncQty, onRemoveItem, onFireToKDS, onCobrar, onSplit, onSplitByItem, onHybridConvert,
   onRequestBill, onMoveMesa, onJoinMesa,
 }) {
@@ -498,6 +511,22 @@ function CartSidebar({
             <span className="inline-flex items-center gap-1"><User size={11} /> {waiterName}</span>
             <span className="inline-flex items-center gap-1"><Clock size={11} /> {fmtElapsed(elapsedTicketMin)}</span>
           </div>
+
+          {/* v2.16.3 — Course pacing banner */}
+          {pacing && (
+            <div className="mx-4 mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 flex items-center gap-2 text-[12px] text-amber-700 dark:text-amber-300">
+              <Clock size={14} className="shrink-0" />
+              <span className="flex-1 font-semibold">
+                ⏱ Disparando {pacing.label} en {pacing.mins}m {String(pacing.secs).padStart(2, '0')}s
+              </span>
+              <button
+                onClick={onCancelPacing}
+                className="text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-amber-500/40 hover:bg-amber-500/20"
+              >
+                Cancelar
+              </button>
+            </div>
+          )}
 
           {/* Items */}
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -699,6 +728,70 @@ function CartSidebar({
   )
 }
 
+// ── COURSE PACING (v2.16.3) ────────────────────────────────────────────────
+// localStorage key: `tx_pacing_${ticket_supabase_id}` → { next_course, fire_at_iso }
+// Restored on mount. Cleared on cobro / mesa-free / manual cancel / empty next-course.
+const PACING_KEY_PREFIX = 'tx_pacing_'
+
+function pacingKey(ticketSid) {
+  return `${PACING_KEY_PREFIX}${ticketSid}`
+}
+
+function readPacing(ticketSid) {
+  if (!ticketSid) return null
+  try {
+    const raw = window.localStorage.getItem(pacingKey(ticketSid))
+    if (!raw) return null
+    const obj = JSON.parse(raw)
+    if (!obj || !obj.next_course || !obj.fire_at_iso) return null
+    return obj
+  } catch { return null }
+}
+
+function writePacing(ticketSid, nextCourse, fireAtIso) {
+  if (!ticketSid) return
+  try {
+    window.localStorage.setItem(pacingKey(ticketSid), JSON.stringify({
+      next_course: nextCourse,
+      fire_at_iso: fireAtIso,
+    }))
+  } catch {}
+}
+
+function clearPacing(ticketSid) {
+  if (!ticketSid) return
+  try { window.localStorage.removeItem(pacingKey(ticketSid)) } catch {}
+}
+
+function listAllPacingKeys() {
+  const out = []
+  try {
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i)
+      if (k && k.startsWith(PACING_KEY_PREFIX)) out.push(k)
+    }
+  } catch {}
+  return out
+}
+
+// Returns the next course id with at least one unfired item, in COURSES order,
+// AFTER the firedCourseId in the array. Returns null if none.
+function nextCourseAfter(firedCourseId, items, services) {
+  const firedIdx = COURSES.findIndex(c => c.id === firedCourseId)
+  if (firedIdx < 0) return null
+  for (let i = firedIdx + 1; i < COURSES.length; i++) {
+    const cid = COURSES[i].id
+    const hasUnfired = items.some(it => !it.kds_fired_at && itemCourseTag(it, services) === cid)
+    if (hasUnfired) return cid
+  }
+  return null
+}
+
+function courseLabel(courseId) {
+  const c = COURSES.find(x => x.id === courseId)
+  return c ? c.label : courseId
+}
+
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 export default function RestaurantPOS() {
   const api = useAPI()
@@ -729,16 +822,25 @@ export default function RestaurantPOS() {
   const [joinModal, setJoinModal] = useState(false)
   const [busy, setBusy]             = useState(null)     // label while async
   const [happyHourEnabled, setHappyHourEnabled] = useState(true)
+  // v2.16.3 — 86-list toast for taps on out-of-stock plates
+  const [oosToast, setOosToast] = useState(null)
   // H1/H2 — restaurant prefs loaded from app_settings
   const [restoSettings, setRestoSettings] = useState({
     print_precuenta_enabled: true,
     servicio_pct: 10,
     servicio_auto_apply: true,
     itbis_pct: 18,
+    pacing_minutes: 0,
     biz: {},
   })
   // H7 — manager auth gate state for void-of-fired-items
   const [managerGate, setManagerGate] = useState(null) // { localId, item, op:'remove'|'zero' }
+
+  // v2.16.3 — Course pacing: { next_course, fire_at_iso } for current ticket only.
+  const [pacingState, setPacingState] = useState(null)
+  const [pacingTick, setPacingTick] = useState(Date.now())
+  const pacingTimerRef = useRef(null)
+  const fireToKDSRef = useRef(null) // populated below to break circular ref
 
   // Tick for elapsed times
   useEffect(() => {
@@ -772,6 +874,8 @@ export default function RestaurantPOS() {
         servicio_pct:            numOr(settings?.restaurant_servicio_pct, 10),
         servicio_auto_apply:     truthy(settings?.restaurant_servicio_auto_apply, true),
         itbis_pct:               numOr(settings?.itbis_pct, 18),
+        // v2.16.3 — Course pacing minutes (0 = disabled).
+        pacing_minutes:          Math.max(0, Math.min(120, Math.floor(numOr(settings?.restaurant_course_pacing_minutes, 0)))),
         biz: settings || {},
       })
       const bt = settings?.business_type || settings?.businessType || null
@@ -789,6 +893,75 @@ export default function RestaurantPOS() {
   }, [api])
 
   useEffect(() => { reload() }, [reload])
+
+  // v2.16.3 — Countdown UI tick (every 10s). Cheap; only re-renders banner.
+  useEffect(() => {
+    if (!pacingState) return
+    const t = setInterval(() => setPacingTick(Date.now()), 10_000)
+    return () => clearInterval(t)
+  }, [pacingState])
+
+  // v2.16.3 — On unmount, clear any in-flight setTimeout.
+  useEffect(() => {
+    return () => {
+      if (pacingTimerRef.current) {
+        clearTimeout(pacingTimerRef.current)
+        pacingTimerRef.current = null
+      }
+    }
+  }, [])
+
+  // v2.16.3 — Sweep stale pacing keys on mount: any key whose ISO is hours past
+  // and whose ticket isn't currently active gets dropped to keep localStorage tidy.
+  useEffect(() => {
+    const keys = listAllPacingKeys()
+    const now = Date.now()
+    for (const k of keys) {
+      try {
+        const obj = JSON.parse(window.localStorage.getItem(k) || 'null')
+        if (!obj) { window.localStorage.removeItem(k); continue }
+        const fireAt = new Date(obj.fire_at_iso).getTime()
+        // Drop entries older than 6h past their fire time — orphaned tickets.
+        if (Number.isFinite(fireAt) && now - fireAt > 6 * 3600_000) {
+          window.localStorage.removeItem(k)
+        }
+      } catch { try { window.localStorage.removeItem(k) } catch {} }
+    }
+  }, [])
+
+  // v2.16.3 — When the active ticket changes, hydrate pacing from localStorage.
+  // If fire_at is in the past, fire immediately; otherwise arm the timer.
+  useEffect(() => {
+    // Tear down any prior timer when the ticket switches.
+    if (pacingTimerRef.current) {
+      clearTimeout(pacingTimerRef.current)
+      pacingTimerRef.current = null
+    }
+    const sid = activeTicket?.supabase_id
+    if (!sid) { setPacingState(null); return }
+    const persisted = readPacing(sid)
+    if (!persisted) { setPacingState(null); return }
+    // Validate that there's still an unfired item in the persisted course.
+    const stillNeeded = (activeTicket.items || []).some(
+      it => !it.kds_fired_at && itemCourseTag(it, services) === persisted.next_course
+    )
+    if (!stillNeeded) { clearPacing(sid); setPacingState(null); return }
+    setPacingState(persisted)
+    armPacingTimer(persisted)
+    // Intentionally only re-run when the ticket *identity* changes, not on every item edit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTicket?.supabase_id])
+
+  // v2.16.3 — If the pending course's unfired set empties (e.g. waiter removed
+  // all upcoming-course items, or fired manually), cancel the timer.
+  useEffect(() => {
+    if (!pacingState || !activeTicket) return
+    const sid = activeTicket.supabase_id
+    const stillNeeded = (activeTicket.items || []).some(
+      it => !it.kds_fired_at && itemCourseTag(it, services) === pacingState.next_course
+    )
+    if (!stillNeeded) cancelPacing(sid)
+  }, [activeTicket, pacingState, services, cancelPacing])
 
   // Derived
   const courseGroups = useMemo(() => {
@@ -1185,10 +1358,38 @@ export default function RestaurantPOS() {
     else                       _incQtyApply(gate.localId, -1)
   }
 
+  // v2.16.3 — Cancel/clear scheduled pacing for the current ticket.
+  const cancelPacing = useCallback((ticketSid) => {
+    if (pacingTimerRef.current) {
+      clearTimeout(pacingTimerRef.current)
+      pacingTimerRef.current = null
+    }
+    setPacingState(null)
+    if (ticketSid) clearPacing(ticketSid)
+  }, [])
+
+  // v2.16.3 — Schedule/refresh the auto-fire timer based on persisted state.
+  // `state` = { next_course, fire_at_iso }. If fire_at_iso is in the past,
+  // we fire immediately; otherwise a setTimeout fires the remainder.
+  const armPacingTimer = useCallback((state) => {
+    if (pacingTimerRef.current) {
+      clearTimeout(pacingTimerRef.current)
+      pacingTimerRef.current = null
+    }
+    if (!state) return
+    const fireAt = new Date(state.fire_at_iso).getTime()
+    const remainMs = Math.max(0, fireAt - Date.now())
+    pacingTimerRef.current = setTimeout(() => {
+      pacingTimerRef.current = null
+      const fn = fireToKDSRef.current
+      if (fn) fn(state.next_course, { auto: true })
+    }, remainMs)
+  }, [])
+
   // When courseId is null/undefined → fire ALL unfired. Otherwise only fire
   // the items whose course tag matches — classic "coursing" workflow (appetizers
   // first, entrees when the table is ready, dessert at the end).
-  const fireToKDS = async (courseId = null) => {
+  const fireToKDS = async (courseId = null, opts = {}) => {
     if (!activeTicket) return
     let unfired = activeTicket.items.filter(it => !it.kds_fired_at)
     if (courseId) unfired = unfired.filter(it => itemCourseTag(it, services) === courseId)
@@ -1220,10 +1421,37 @@ export default function RestaurantPOS() {
       }
       const firedAt = new Date().toISOString()
       const firedIds = new Set(unfired.map(u => u.local_id))
-      setActiveTicket(t => ({
-        ...t,
-        items: t.items.map(it => (it.kds_fired_at || !firedIds.has(it.local_id)) ? it : { ...it, kds_fired_at: firedAt }),
-      }))
+      // Compute next state synchronously so we can schedule pacing using the
+      // already-marked-fired items (avoid race on the async setActiveTicket).
+      let nextItemsSnapshot = null
+      setActiveTicket(t => {
+        if (!t) return t
+        const nextItems = t.items.map(it => (it.kds_fired_at || !firedIds.has(it.local_id)) ? it : { ...it, kds_fired_at: firedAt })
+        nextItemsSnapshot = nextItems
+        return { ...t, items: nextItems }
+      })
+
+      // v2.16.3 — Schedule pacing if enabled, a discrete course was fired,
+      // and there are unfired items remaining in a later course. Auto-fires
+      // chain naturally because each auto fireToKDS run re-enters this block.
+      const pacingMin = Number(restoSettings.pacing_minutes || 0)
+      const ticketSid = activeTicket.supabase_id
+      if (pacingMin > 0 && courseId && ticketSid && nextItemsSnapshot) {
+        const next = nextCourseAfter(courseId, nextItemsSnapshot, services)
+        if (next) {
+          const fireAtIso = new Date(Date.now() + pacingMin * 60_000).toISOString()
+          writePacing(ticketSid, next, fireAtIso)
+          const newState = { next_course: next, fire_at_iso: fireAtIso }
+          setPacingState(newState)
+          armPacingTimer(newState)
+        } else {
+          cancelPacing(ticketSid)
+        }
+      } else if (courseId && ticketSid) {
+        // Pacing disabled or no next course → ensure no stale timer survives.
+        const next = nextItemsSnapshot ? nextCourseAfter(courseId, nextItemsSnapshot, services) : null
+        if (!next) cancelPacing(ticketSid)
+      }
     } catch (e) {
       console.error(e)
       setError(e.message || 'Error enviando a cocina')
@@ -1231,6 +1459,9 @@ export default function RestaurantPOS() {
       setBusy(null)
     }
   }
+  // Expose the latest fireToKDS to the timer ref so armPacingTimer's setTimeout
+  // closure always invokes the freshest closure (state-of-the-art items, etc).
+  fireToKDSRef.current = fireToKDS
 
   // Mark mesa as "a cuenta" — server sets status='acuenta' + bill_requested_at=now().
   // We mirror locally so the mesa card flips amber + the cart button hides immediately.
@@ -1431,6 +1662,8 @@ export default function RestaurantPOS() {
     } catch (e) {
       console.error('[RestaurantPOS] post-cobro cleanup failed', e)
     } finally {
+      // v2.16.3 — Cobro success → kill any pending pacing for this ticket.
+      cancelPacing(activeTicket?.supabase_id)
       setCobrarModal(null)
       setActiveTicket(null)
       setBusy(null)
@@ -1537,6 +1770,8 @@ export default function RestaurantPOS() {
         seated_at: null,
         bill_requested_at: null,
       })
+      // v2.16.3 — Split-cobro success → kill pacing for this ticket.
+      cancelPacing(activeTicket?.supabase_id)
       setActiveTicket(null)
       await reload()
     } catch (e) {
@@ -1587,6 +1822,18 @@ export default function RestaurantPOS() {
       window.dispatchEvent(new CustomEvent('tx_hybrid_mode_change', { detail: 'directa' }))
     } catch {}
   }
+
+  // v2.16.3 — Pacing banner data (label + countdown). Refreshes on pacingTick.
+  const pacingForBanner = useMemo(() => {
+    if (!pacingState) return null
+    const fireAt = new Date(pacingState.fire_at_iso).getTime()
+    const remainSec = Math.max(0, Math.floor((fireAt - pacingTick) / 1000))
+    return {
+      label: courseLabel(pacingState.next_course),
+      mins: Math.floor(remainSec / 60),
+      secs: remainSec % 60,
+    }
+  }, [pacingState, pacingTick])
 
   // Total per mesa for the grid card. Live ticket total wins for the active mesa.
   const totalForMesa = (m) => {
@@ -1696,6 +1943,10 @@ export default function RestaurantPOS() {
                 svc={svc}
                 happyHourEnabled={happyHourEnabled}
                 onClick={() => addServiceToTicketWithFlow(svc)}
+                onOutOfStock={(s) => {
+                  setOosToast(`Plato agotado: ${s.name}`)
+                  setTimeout(() => setOosToast(null), 2500)
+                }}
               />
             ))}
           </div>
@@ -1712,6 +1963,8 @@ export default function RestaurantPOS() {
         elapsedTicketMin={elapsedTicketMin}
         isHybrid={isHybrid}
         services={services}
+        pacing={pacingForBanner}
+        onCancelPacing={() => cancelPacing(activeTicket?.supabase_id)}
         onClose={() => setActiveTicket(null)}
         onIncQty={incQty}
         onRemoveItem={removeItem}
@@ -1853,6 +2106,13 @@ export default function RestaurantPOS() {
           await reload()
         }}
       />
+
+      {/* v2.16.3 — 86-list toast (out-of-stock tap) */}
+      {oosToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl bg-[#b3001e] text-white text-sm font-bold shadow-2xl">
+          {oosToast}
+        </div>
+      )}
     </div>
   )
 }

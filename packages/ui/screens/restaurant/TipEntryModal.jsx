@@ -7,31 +7,49 @@ function fmtRD(n) {
   return `RD$ ${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-const PERCENT_CHIPS = [0, 10, 15, 20]
+const BASE_PERCENT_CHIPS = [0, 10, 15, 20]
 
 /**
  * TipEntryModal — prompts the waiter for a tip before cobro.
  *
  * Props:
- *   open        : boolean
- *   onClose()   : fn
- *   subtotal    : number (pre-tip total, in pesos)
- *   onConfirm(tipAmountInPesos)  : fn
+ *   open               : boolean
+ *   onClose()          : fn
+ *   subtotal           : number (pre-tip total, in pesos)
+ *   onConfirm(tipAmt)  : fn
+ *   servicioPct        : number (RD restaurant convention, default 10 — H2)
+ *   servicioAutoApply  : boolean (preselect the chip matching servicioPct)
  */
-export default function TipEntryModal({ open, onClose, subtotal = 0, onConfirm }) {
+export default function TipEntryModal({
+  open, onClose, subtotal = 0, onConfirm,
+  servicioPct = 10, servicioAutoApply = true,
+}) {
+  // H2 — surface the configured servicio % as a chip even when it's not in the
+  // canonical 0/10/15/20 list. Always sorted ascending, deduped, and clamped
+  // to a sane range so a typo (e.g. "120") doesn't wreck the layout.
+  const chips = useMemo(() => {
+    const sp = Math.max(0, Math.min(100, Number(servicioPct) || 0))
+    const set = new Set([...BASE_PERCENT_CHIPS, sp])
+    return Array.from(set).sort((a, b) => a - b)
+  }, [servicioPct])
+
+  const initialPercent = servicioAutoApply
+    ? Math.max(0, Math.min(100, Number(servicioPct) || 10))
+    : 10
+
   const [mode, setMode]         = useState('percent')    // 'percent' | 'custom'
-  const [percent, setPercent]   = useState(10)
+  const [percent, setPercent]   = useState(initialPercent)
   const [customVal, setCustomVal] = useState('')
   const [customKind, setCustomKind] = useState('pesos')  // 'pesos' | 'percent'
 
   useEffect(() => {
     if (open) {
       setMode('percent')
-      setPercent(10)
+      setPercent(initialPercent)
       setCustomVal('')
       setCustomKind('pesos')
     }
-  }, [open])
+  }, [open, initialPercent])
 
   const tipAmount = useMemo(() => {
     if (mode === 'percent') {
@@ -69,9 +87,18 @@ export default function TipEntryModal({ open, onClose, subtotal = 0, onConfirm }
 
         {/* Body */}
         <div className="p-5 space-y-5">
+          {/* H2 — Servicio banner (Ley 16-92 / costumbre RD). Visible whenever
+              the operator pre-loaded a non-zero servicio %, regardless of
+              auto-apply. Operator can always change/clear the chip below. */}
+          {Number(servicioPct) > 0 && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-200">
+              Servicio {Number(servicioPct)}% incluido (Ley 16-92)
+            </div>
+          )}
+
           {/* Percent chips */}
-          <div className="grid grid-cols-4 gap-2">
-            {PERCENT_CHIPS.map(p => {
+          <div className={`grid gap-2 ${chips.length >= 5 ? 'grid-cols-5' : 'grid-cols-4'}`}>
+            {chips.map(p => {
               const active = mode === 'percent' && percent === p
               return (
                 <button

@@ -68,6 +68,22 @@ const NAV = [
     businessTypes: ['restaurant', 'hybrid'],
     roles: ['owner','manager','cashier','waiter'],
   },
+  // v2.16.3 — Restaurante H5: Resumen del Salón (manager-only).
+  {
+    id: 'restaurant_salon_dashboard', to: '/salon-dashboard', icon: BarChart3,
+    es: 'Resumen Salón', en: 'Floor Overview',
+    feature: 'restaurant_salon_dashboard',
+    businessTypes: ['restaurant'],
+    roles: ['owner','manager','cfo','accountant'],
+  },
+  // v2.16.3 — Restaurante H4: Reservas (front-of-house).
+  {
+    id: 'restaurant_reservations', to: '/reservas', icon: Calendar,
+    es: 'Reservas', en: 'Reservations',
+    feature: 'restaurant_reservations',
+    businessTypes: ['restaurant'],
+    roles: ['owner','manager','cashier','waiter'],
+  },
   {
     id: 'mechanic_resumen', to: '/mecanica/resumen', icon: BarChart3,
     es: 'Resumen', en: 'Overview',

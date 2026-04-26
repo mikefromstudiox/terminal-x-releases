@@ -2057,6 +2057,10 @@ handleMut('services:update',    ({id,...data})  => db.serviceUpdate(id, data), {
   requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'services:update'),
   targetCtx: ({ args }) => guard.serviceTargetCtx(db, args[0]?.id),
 })
+handleMut('services:set-in-stock', ({ key, inStock }) => db.serviceSetInStock(key, inStock), {
+  requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'services:set-in-stock'),
+  targetCtx: ({ args }) => guard.serviceTargetCtx(db, args[0]?.key),
+})
 handleMut('services:delete',    async ({id})    => {
   const r = db.serviceDelete(id)
   // Propagate hard-delete to Supabase so pullUpsertRow doesn't resurrect it.
@@ -2119,6 +2123,12 @@ handleMut('modificadores:delete',     ({id})                              => { d
 handle('modificadores:listForService', ({serviceId})                   => db.modificadoresListForService(serviceId))
 handleMut('modificadores:attach',     ({serviceId, modificadorId, isRequired}) => { db.modificadorAttachToService(serviceId, modificadorId, isRequired ? 1 : 0); return true })
 handleMut('modificadores:detach',     ({serviceId, modificadorId})        => { db.modificadorDetachFromService(serviceId, modificadorId); return true })
+
+// ── Restaurant Mode — Service recipes (Bill-of-Materials, v2.16.3) ──────────
+handle('recipeItems:listForService', ({ serviceKey })                  => db.recipeItemsListForService(serviceKey))
+handleMut('recipeItems:add',         (data)                             => db.recipeItemsAdd(data))
+handleMut('recipeItems:update',      ({ id, qty_per_unit })             => db.recipeItemsUpdate(id, qty_per_unit))
+handleMut('recipeItems:remove',      ({ id })                           => { db.recipeItemsRemove(id); return true })
 
 // ── Restaurant Mode — KDS events ─────────────────────────────────────────────
 handle('kds:listActive', ()                => db.kdsListActive())
@@ -2468,6 +2478,22 @@ handle('reports:ticketsWithItems', ({from,to}) => db.ticketGetByDateRangeWithIte
 handleMut('tickets:updateItemPrice', (data) => db.ticketItemUpdatePrice(data))
 handle('tickets:priceChanges',    ({ticketId}) => db.priceChangesGetByTicket(ticketId))
 handle('tickets:allPriceChanges', ({from,to}) => db.priceChangesGetAll(from, to))
+
+// v2.16.3 H3 — Restaurante Mover/Juntar (manager-gated at UI layer).
+handleMut('tickets:transferToMesa', ({ ticket_supabase_id, new_mesa_id } = {}) =>
+  db.ticketTransferToMesa({ ticket_supabase_id, new_mesa_id }))
+handleMut('tickets:merge', ({ target_ticket_supabase_id, source_ticket_supabase_id } = {}) =>
+  db.ticketMerge({ target_ticket_supabase_id, source_ticket_supabase_id }))
+
+// v2.16.3 H4 — Restaurant front-of-house reservations.
+handle('reservations:list',          (params)       => db.reservationsList(params || {}))
+handleMut('reservations:create',     (data)         => db.reservationsCreate(data || {}))
+handleMut('reservations:update',     ({ id, ...d }) => db.reservationsUpdate(id, d))
+handleMut('reservations:confirm',    ({ id })       => db.reservationsConfirm(id))
+handleMut('reservations:cancel',     ({ id, reason }) => db.reservationsCancel(id, reason))
+handleMut('reservations:markNoShow', ({ id })       => db.reservationsMarkNoShow(id))
+handleMut('reservations:seat',       ({ id, mesa_id }) => db.reservationsSeat(id, mesa_id))
+handleMut('reservations:stampWhatsapp', ({ id })    => db.reservationsStampWhatsapp(id))
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
 handle('queue:active',       ()                        => db.queueGetActive())

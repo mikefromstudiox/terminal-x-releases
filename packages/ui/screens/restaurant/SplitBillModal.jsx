@@ -64,6 +64,15 @@ export default function SplitBillModal({ open, onClose, totalAmount = 0, onPay }
 
   const handlePay = () => {
     const payload = amounts.map((amount, i) => ({ amount, method: methods[i] }))
+    // M10 (audit) — defensive sum check inside the modal too. The cents-aware
+    // distribution above is exact by construction, but a future refactor that
+    // exposes manual amount editing must still pass this gate.
+    const sum = payload.reduce((s, p) => s + Number(p.amount || 0), 0)
+    if (Math.abs(sum - Number(totalAmount || 0)) > 0.01) {
+      // Surface the mismatch by aborting — caller toast handles UI noise.
+      console.warn('[SplitBillModal] payment parts do not sum to total', { sum, totalAmount })
+      return
+    }
     onPay(payload)
   }
 

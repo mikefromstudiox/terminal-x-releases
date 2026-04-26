@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Globe, Eye, WifiOff, RefreshCw, TrendingUp, ReceiptText, Banknote, CreditCard, ArrowRightLeft, Clock,
   Activity, UserX, Tag, XCircle, Wallet, Percent, Package, PiggyBank, Scale, Lock, ChevronDown, ChevronUp, ClipboardList, Sunrise,
-  DoorOpen, Unlock, HardDrive, ShieldAlert, ShieldX, Calendar, MessageSquare } from 'lucide-react'
+  DoorOpen, Unlock, HardDrive, ShieldAlert, ShieldX, Calendar, MessageSquare, Slash } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
@@ -531,6 +531,8 @@ const EVENT_META = {
   user_deactivated:      { Icon: UserX,    color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Usuario desactivado',       en: 'User deactivated' },
   service_deleted:       { Icon: XCircle,  color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Servicio eliminado',        en: 'Service deleted' },
   service_price_changed: { Icon: Tag,      color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Precio cambiado',           en: 'Price changed' },
+  service_set_oos:       { Icon: Slash,    color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Plato agotado (86)',        en: 'Plate 86\'d (out)' },
+  service_back_in_stock: { Icon: Slash,    color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Plato disponible',          en: 'Plate back in stock' },
   ticket_voided:         { Icon: XCircle,  color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Ticket anulado',            en: 'Ticket voided' },
   nota_credito_created:  { Icon: ReceiptText, color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',     es: 'Nota de crédito',           en: 'Credit note' },
   invoice_issued:        { Icon: ReceiptText, color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',      es: 'Factura emitida',           en: 'Invoice issued' },
@@ -628,6 +630,9 @@ const EVENT_META = {
   // v2.16.7 — Lending collections daily auto-fire (24h + 2h windows). wa.me
   // deep-link only; no WABA send claim until app_settings.waba_approved=true.
   loan_reminder_sent:          { Icon: MessageSquare,  color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',                  es: 'Recordatorio de pago encolado', en: 'Loan reminder queued' },
+  // v2.16.3 — Restaurante recetas (Bill-of-Materials per service)
+  recipe_updated:              { Icon: ClipboardList, color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',                   es: 'Receta actualizada',           en: 'Recipe updated' },
+  recipe_inventory_skip:       { Icon: ShieldAlert,   color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300',           es: 'Descuento de receta omitido',  en: 'Recipe inventory skipped' },
 }
 function eventLabel(evt, lang) {
   const m = EVENT_META[evt]

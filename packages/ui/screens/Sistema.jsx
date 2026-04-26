@@ -584,6 +584,19 @@ export function Preferencias() {
               onChange={v => set('restaurant_print_precuenta_enabled', v ? '1' : '0')}
             />
           </SettingRow>
+          {/* v2.16.3 — Course pacing (auto-fire next course after N minutes). */}
+          <SettingRow
+            settingKey="restaurant_course_pacing_minutes"
+            label={L('Tiempo entre tiempos (min)', 'Course pacing (min)')}
+            hint={L('Disparo automático del siguiente tiempo. 0 = desactivado.', 'Auto-fires the next course after this delay. 0 = off.')}
+          >
+            <Input
+              type="number" min="0" max="120" step="1"
+              value={cfg.restaurant_course_pacing_minutes ?? '0'}
+              onChange={e => set('restaurant_course_pacing_minutes', String(Math.max(0, Math.min(120, parseInt(e.target.value, 10) || 0))))}
+              className="w-24 text-center"
+            />
+          </SettingRow>
           {/* M3 (audit) — KDS thresholds. Defaults: 300s amber / 600s red. */}
           <SettingRow
             settingKey="kds_warn_seconds"

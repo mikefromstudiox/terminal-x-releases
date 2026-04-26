@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { Slash, X, Loader2 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 
 /**
@@ -78,9 +79,13 @@ function playBell() {
     osc.type = 'sine'
     osc.frequency.setValueAtTime(880, now)
     osc.frequency.exponentialRampToValueAtTime(1320, now + 0.08)
-    gain.gain.setValueAtTime(0.0001, now)
+    // M4 (audit) — exponentialRampToValueAtTime requires target > 0. The
+    // prior 0.0001 endpoints flirted with the boundary; bump to 0.001 on
+    // both ends so any browser that strictly enforces "must be positive"
+    // never throws and silently kills the bell. Imperceptible audibly.
+    gain.gain.setValueAtTime(0.001, now)
     gain.gain.exponentialRampToValueAtTime(0.35, now + 0.02)
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55)
     osc.connect(gain)
     gain.connect(ctx.destination)
     osc.start(now)
@@ -101,16 +106,18 @@ function useNow(intervalMs = 1000) {
 }
 
 // ---------- card ----------
-function OrderCard({ evt, now, staleSeconds, onStart, onReady, onBump, busy }) {
+function OrderCard({ evt, now, staleSeconds, warnSeconds, onStart, onReady, onBump, busy }) {
   const firedAt = evt.fired_at ? new Date(evt.fired_at).getTime() : now
   const elapsedMs = Math.max(0, now - firedAt)
   const elapsedSec = Math.floor(elapsedMs / 1000)
 
+  // M3 (audit) — thresholds come from app_settings (kds_warn_seconds,
+  // kds_stale_seconds). Defaults preserve historical 300 / 600 values.
   let borderClass = 'border-zinc-800'
   let bgClass = 'bg-zinc-900'
-  if (elapsedSec >= staleSeconds || elapsedSec >= 600) {
+  if (elapsedSec >= (staleSeconds || 600)) {
     borderClass = 'border-red-600 animate-pulse'
-  } else if (elapsedSec >= 300) {
+  } else if (elapsedSec >= (warnSeconds || 300)) {
     borderClass = 'border-amber-500'
   }
 
@@ -225,9 +232,29 @@ export default function KDS() {
   })
 
   const [settings, setSettings] = useState({
+    // M3 (audit) — read both warn + stale thresholds. Legacy
+    // kds_stale_order_seconds is kept for backward compat with installs
+    // that already set it; new key kds_stale_seconds wins when present.
     kds_stale_order_seconds: 600,
+    kds_warn_seconds: 300,
     kds_sound_enabled: true,
   })
+
+  // M5 (audit) — Audio context starts in 'suspended' state until a user
+  // gesture. Show a banner inviting the user to tap to activate sound.
+  // Persist dismissed state so we don't nag on every refresh.
+  const [audioBlocked, setAudioBlocked] = useState(() => {
+    try { return localStorage.getItem('kds_audio_unlocked') !== '1' } catch { return true }
+  })
+
+  // H8 (audit) — Realtime reconnect banner. Sample channel.state every 2s;
+  // when not in {joined,joining} for >5s, show amber "Reconectando…". On
+  // recovery, flash green for 2s.
+  const [rtState, setRtState] = useState({ healthy: true, retries: 0, justRecovered: false })
+  const channelRef = useRef(null)
+
+  // v2.16.3 — 86 list (sold-out plates) modal
+  const [show86, setShow86] = useState(false)
 
   const now = useNow(1000)
   const clockNow = useMemo(() => new Date(now), [now])
@@ -244,7 +271,10 @@ export default function KDS() {
         const s = (await api.settings?.get?.()) || {}
         if (!alive) return
         setSettings({
-          kds_stale_order_seconds: Number(s.kds_stale_order_seconds) > 0 ? Number(s.kds_stale_order_seconds) : 600,
+          kds_stale_order_seconds: Number(s.kds_stale_seconds) > 0
+            ? Number(s.kds_stale_seconds)
+            : (Number(s.kds_stale_order_seconds) > 0 ? Number(s.kds_stale_order_seconds) : 600),
+          kds_warn_seconds: Number(s.kds_warn_seconds) > 0 ? Number(s.kds_warn_seconds) : 300,
           kds_sound_enabled: s.kds_sound_enabled === false ? false : true,
         })
       } catch {
@@ -337,6 +367,8 @@ export default function KDS() {
         const rows = (await api.kds?.listActive?.()) || []
         if (!alive) return
         await ingest(rows)
+        // H8 — stamp success time for the health probe.
+        lastRefreshRef.current = Date.now()
         setError(null)
       } catch (e) {
         if (!alive) return
@@ -433,6 +465,49 @@ export default function KDS() {
     })
   }
 
+  // M5 (audit) — Click anywhere unlocks the audio context.
+  const unlockAudio = useCallback(() => {
+    try {
+      const ctx = getAudioCtx()
+      if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {})
+    } catch { /* noop */ }
+    try { localStorage.setItem('kds_audio_unlocked', '1') } catch {}
+    setAudioBlocked(false)
+  }, [])
+
+  useEffect(() => {
+    if (!audioBlocked) return
+    const handler = () => unlockAudio()
+    window.addEventListener('click', handler, { once: true, capture: true })
+    window.addEventListener('keydown', handler, { once: true, capture: true })
+    return () => {
+      window.removeEventListener('click', handler, { capture: true })
+      window.removeEventListener('keydown', handler, { capture: true })
+    }
+  }, [audioBlocked, unlockAudio])
+
+  // H8 (audit) — connection health probe. We don't have a direct hook into
+  // Supabase channel state from the api wrapper, so we infer health from
+  // ingest cadence: if the polling refresh hasn't completed in >15s the
+  // realtime + safety-net poll have both stalled — show "Reconectando".
+  // On the next successful refresh, show the green flash.
+  const lastRefreshRef = useRef(Date.now())
+  useEffect(() => {
+    const id = setInterval(() => {
+      const stale = (Date.now() - lastRefreshRef.current) > 15000
+      setRtState(prev => {
+        if (stale && prev.healthy) return { healthy: false, retries: prev.retries + 1, justRecovered: false }
+        if (!stale && !prev.healthy) {
+          // Mark recovered + auto-clear after 2s.
+          setTimeout(() => setRtState(p => ({ ...p, justRecovered: false })), 2000)
+          return { healthy: true, retries: prev.retries, justRecovered: true }
+        }
+        return prev
+      })
+    }, 2000)
+    return () => clearInterval(id)
+  }, [])
+
   // ---- filtered & sorted
   const visible = useMemo(() => {
     let list = events.filter((e) => e.status !== 'bumped')
@@ -448,6 +523,26 @@ export default function KDS() {
 
   return (
     <div className="fixed inset-0 bg-black text-white overflow-auto">
+      {/* M5 — audio gesture banner */}
+      {audioBlocked && (
+        <div
+          onClick={unlockAudio}
+          className="sticky top-0 z-20 bg-amber-500 text-black text-center py-2 px-4 font-bold text-sm cursor-pointer hover:bg-amber-400"
+        >
+          Toca para activar sonido (las alertas de cocina sonarán cuando lleguen nuevas órdenes)
+        </div>
+      )}
+      {/* H8 — realtime reconnect banner */}
+      {!rtState.healthy && (
+        <div className="sticky top-0 z-20 bg-amber-500 text-black text-center py-2 px-4 font-bold text-sm">
+          ⚠ Reconectando... (intento {rtState.retries})
+        </div>
+      )}
+      {rtState.healthy && rtState.justRecovered && (
+        <div className="sticky top-0 z-20 bg-emerald-500 text-black text-center py-2 px-4 font-bold text-sm">
+          ✓ Conectado
+        </div>
+      )}
       {/* top bar */}
       <div className="sticky top-0 z-10 h-12 bg-black/95 backdrop-blur border-b border-zinc-800 flex items-center gap-4 px-4">
         <div className="text-xl font-black tracking-widest text-white">KDS</div>
@@ -506,6 +601,7 @@ export default function KDS() {
                 evt={evt}
                 now={now}
                 staleSeconds={settings.kds_stale_order_seconds}
+                warnSeconds={settings.kds_warn_seconds}
                 busy={busyIds.has(evt.id)}
                 onStart={() => transition(evt, 'in_progress')}
                 onReady={() => transition(evt, 'ready')}
@@ -514,6 +610,163 @@ export default function KDS() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* v2.16.3 — 86 list floating button + modal */}
+      <button
+        onClick={() => setShow86(true)}
+        className="fixed bottom-6 right-6 z-40 px-5 py-3 rounded-2xl bg-[#b3001e] hover:bg-[#8c0017] text-white text-sm font-bold shadow-2xl flex items-center gap-2"
+        title="Ver y marcar platos agotados (86)"
+      >
+        <Slash size={16} />
+        86 list
+      </button>
+      {show86 && <EightySixModal onClose={() => setShow86(false)} />}
+    </div>
+  )
+}
+
+// ─── v2.16.3 — 86 list modal ────────────────────────────────────────────────
+// Lists every menu item with a quick-toggle. Cocina-friendly (large hit areas,
+// dark theme to match the KDS board, instant optimistic UI).
+function EightySixModal({ onClose }) {
+  const api = useAPI()
+  const [services, setServices] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(null) // service id in flight
+  const [q, setQ] = useState('')
+  const [err, setErr] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setErr('')
+    try {
+      // Prefer admin list so inactive flips don't disappear after toggle.
+      const fn = api.services?.allAdmin || api.services?.all
+      const list = (await fn?.()) || []
+      // Restaurant-relevant only — menu items, ordered by category then name.
+      const filtered = list
+        .filter(s => s.is_menu_item === 1 || s.is_menu_item === true)
+        .sort((a, b) =>
+          (a.category || '').localeCompare(b.category || '') ||
+          (a.name || '').localeCompare(b.name || '')
+        )
+      setServices(filtered)
+    } catch (e) {
+      setErr(e?.message || 'Error cargando platos.')
+    } finally {
+      setLoading(false)
+    }
+  }, [api])
+
+  useEffect(() => { load() }, [load])
+
+  async function toggle(svc) {
+    const next = (svc.in_stock === 0 || svc.in_stock === false) ? 1 : 0
+    const key = svc.id ?? svc.supabase_id
+    setBusy(svc.id)
+    // Optimistic flip
+    setServices(prev => prev.map(r => r.id === svc.id ? { ...r, in_stock: next } : r))
+    try {
+      if (api.services?.setInStock) {
+        await api.services.setInStock(key, next)
+      } else {
+        await api.services.update(svc.id, { in_stock: next })
+      }
+    } catch (e) {
+      // Revert on failure
+      setServices(prev => prev.map(r => r.id === svc.id ? { ...r, in_stock: svc.in_stock } : r))
+      alert(e?.message || 'Error al actualizar.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const filtered = useMemo(() => {
+    if (!q.trim()) return services
+    const n = q.trim().toLowerCase()
+    return services.filter(s =>
+      (s.name || '').toLowerCase().includes(n) ||
+      (s.category || '').toLowerCase().includes(n)
+    )
+  }, [services, q])
+
+  const oosCount = useMemo(
+    () => services.filter(s => s.in_stock === 0 || s.in_stock === false).length,
+    [services]
+  )
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#b3001e]/15 border border-[#b3001e]/40 flex items-center justify-center">
+              <Slash size={18} className="text-[#b3001e]" />
+            </div>
+            <div>
+              <h3 className="font-bold text-white text-lg">86 list</h3>
+              <p className="text-xs text-white/50">
+                {oosCount > 0 ? `${oosCount} plato(s) agotado(s)` : 'Todos disponibles'}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-white/40 hover:text-white p-2"><X size={20} /></button>
+        </div>
+
+        <div className="px-6 py-3 border-b border-zinc-800 shrink-0">
+          <input
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="Buscar plato o categoría…"
+            className="w-full bg-black border border-zinc-800 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-[#b3001e]"
+          />
+        </div>
+
+        <div className="overflow-y-auto flex-1">
+          {err && <div className="m-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-xs">{err}</div>}
+          {loading ? (
+            <div className="p-12 flex justify-center"><Loader2 size={24} className="animate-spin text-white/40" /></div>
+          ) : filtered.length === 0 ? (
+            <div className="p-12 text-center text-white/40 text-sm">Sin resultados.</div>
+          ) : (
+            <div className="divide-y divide-zinc-800">
+              {filtered.map(s => {
+                const oos = s.in_stock === 0 || s.in_stock === false
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => toggle(s)}
+                    disabled={busy === s.id}
+                    className="w-full flex items-center justify-between gap-3 px-6 py-4 hover:bg-white/5 disabled:opacity-50 text-left transition"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className={`text-base font-semibold truncate ${oos ? 'text-white/40 line-through' : 'text-white'}`}>
+                        {s.name}
+                      </div>
+                      <div className="text-xs text-white/40 mt-0.5">{s.category || 'Sin categoría'}</div>
+                    </div>
+                    <div className={`text-xs font-extrabold tracking-wide uppercase px-3 py-2 rounded-lg border min-w-[110px] text-center
+                      ${oos
+                        ? 'bg-[#b3001e] border-[#b3001e] text-white'
+                        : 'bg-white/5 border-white/15 text-white/70'}`}>
+                      {busy === s.id ? '...' : (oos ? 'Agotado' : 'Disponible')}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t border-zinc-800 shrink-0 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-5 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white text-sm font-semibold"
+          >
+            Cerrar
+          </button>
+        </div>
       </div>
     </div>
   )

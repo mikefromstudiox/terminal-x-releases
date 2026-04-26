@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import {
   UtensilsCrossed, Plus, Pencil, Trash2, X, Loader2, AlertTriangle,
   Tag, ListOrdered, Settings2, Check, ChevronUp, ChevronDown,
-  Search, Link2, Link2Off,
+  Search, Link2, Link2Off, Slash, ChefHat, Package,
 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 
@@ -271,6 +271,7 @@ function ItemsTab() {
   const [showNonMenu, setShowNonMenu] = useState(false)
   const [q, setQ] = useState('')
   const [modal, setModal] = useState(null) // { editing? }
+  const [recipeFor, setRecipeFor] = useState(null) // service row whose recipe is being edited
   const [err, setErr] = useState('')
 
   async function load() {
@@ -313,6 +314,24 @@ function ItemsTab() {
       load()
     } catch (e) {
       alert(e?.message || 'Error al eliminar.')
+    }
+  }
+
+  // v2.16.3 — 86 toggle. Polymorphic key: prefer numeric local id (desktop),
+  // fall back to supabase_id UUID (web rows freshly inserted before pull).
+  async function handleToggle86(row) {
+    const next = (row.in_stock === 0 || row.in_stock === false) ? 1 : 0
+    const key = row.id ?? row.supabase_id
+    try {
+      if (api.services.setInStock) {
+        await api.services.setInStock(key, next)
+      } else {
+        // Fallback: older shells without the dedicated endpoint — write through update.
+        await api.services.update(row.id, { in_stock: next })
+      }
+      load()
+    } catch (e) {
+      alert(e?.message || 'Error al actualizar disponibilidad.')
     }
   }
 
@@ -391,6 +410,7 @@ function ItemsTab() {
                   <th className="text-left px-4 py-3 font-semibold">Ruta</th>
                   <th className="text-left px-4 py-3 font-semibold">Estación</th>
                   <th className="text-center px-4 py-3 font-semibold">Mods</th>
+                  <th className="text-center px-4 py-3 font-semibold">86</th>
                   <th className="text-center px-4 py-3 font-semibold">Activo</th>
                   <th className="text-right px-4 py-3 font-semibold w-28">Acciones</th>
                 </tr>
@@ -410,11 +430,34 @@ function ItemsTab() {
                     <td className="px-4 py-3 text-white/60">{r.station || '—'}</td>
                     <td className="px-4 py-3 text-center text-white/60">{r.modifiers_count ?? '—'}</td>
                     <td className="px-4 py-3 text-center">
+                      {(() => {
+                        const oos = r.in_stock === 0 || r.in_stock === false
+                        return (
+                          <button
+                            onClick={() => handleToggle86(r)}
+                            className={`inline-flex items-center gap-1 text-[10px] font-bold tracking-wide uppercase px-2 py-1 rounded-lg border transition
+                              ${oos
+                                ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
+                                : 'bg-white/5 border-white/10 text-white/60 hover:border-amber-500/40 hover:text-amber-300'}`}
+                            title={oos ? 'Marcar disponible' : 'Marcar agotado (86)'}
+                          >
+                            <Slash size={11} />
+                            {oos ? 'Agotado' : '86'}
+                          </button>
+                        )
+                      })()}
+                    </td>
+                    <td className="px-4 py-3 text-center">
                       {(r.active === 1 || r.active === true)
                         ? <span className="inline-flex items-center gap-1 text-green-400 text-xs"><Check size={12} /></span>
                         : <span className="text-white/30 text-xs">Off</span>}
                     </td>
                     <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => setRecipeFor(r)}
+                        className="p-1.5 rounded hover:bg-white/10 text-white/60 hover:text-white"
+                        title="Receta (descontar inventario)"
+                      ><ChefHat size={14} /></button>
                       <button
                         onClick={() => setModal({ editing: r })}
                         className="p-1.5 rounded hover:bg-white/10 text-white/60 hover:text-white"
@@ -442,7 +485,218 @@ function ItemsTab() {
           onSave={() => { setModal(null); load() }}
         />
       )}
+
+      {recipeFor && (
+        <RecipeModal
+          service={recipeFor}
+          onClose={() => setRecipeFor(null)}
+        />
+      )}
     </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Recipe Modal — Bill-of-Materials per service (v2.16.3)
+//  Lists ingredients (inventory_items) with qty_per_unit. At ticket close the
+//  close path multiplies qty_per_unit × line qty and decrements inventory.
+// ═══════════════════════════════════════════════════════════════════════════════
+function RecipeModal({ service, onClose }) {
+  const api = useAPI()
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [search, setSearch] = useState('')
+  const [results, setResults] = useState([])
+  const [searching, setSearching] = useState(false)
+
+  async function load() {
+    setLoading(true); setErr('')
+    try {
+      const key = service.supabase_id || service.id
+      const list = await api.recipeItems.listForService(key)
+      setRows(Array.isArray(list) ? list : [])
+    } catch (e) {
+      setErr(e?.message || 'Error cargando la receta.')
+    } finally {
+      setLoading(false)
+    }
+  }
+  useEffect(() => { load() /* eslint-disable-next-line */ }, [service?.id, service?.supabase_id])
+
+  // Live ingredient search via api.inventory.search.
+  useEffect(() => {
+    let alive = true
+    const term = search.trim()
+    if (!term) { setResults([]); return }
+    setSearching(true)
+    ;(async () => {
+      try {
+        const list = await (api.inventory.search ? api.inventory.search(term) : Promise.resolve([]))
+        if (!alive) return
+        const existing = new Set(rows.map(r => r.inventory_item_supabase_id))
+        setResults((list || []).filter(i => i.supabase_id && !existing.has(i.supabase_id)).slice(0, 8))
+      } catch {
+        if (alive) setResults([])
+      } finally {
+        if (alive) setSearching(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [search, rows, api])
+
+  async function addIngredient(invItem) {
+    if (!service.supabase_id) {
+      setErr('Este item del menú aún no se ha sincronizado. Guarda el menú e intenta otra vez.')
+      return
+    }
+    setSaving(true); setErr('')
+    try {
+      await api.recipeItems.add({
+        service_supabase_id:        service.supabase_id,
+        inventory_item_supabase_id: invItem.supabase_id,
+        qty_per_unit:               1,
+      })
+      setSearch(''); setResults([])
+      await load()
+    } catch (e) {
+      setErr(e?.message || 'Error agregando ingrediente.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function changeQty(row, qty) {
+    const next = Math.max(0, Number(qty) || 0)
+    setRows(rows.map(r => r.id === row.id ? { ...r, qty_per_unit: next } : r))
+    try { await api.recipeItems.update(row.id, next) }
+    catch (e) { setErr(e?.message || 'Error actualizando cantidad.'); load() }
+  }
+
+  async function removeRow(row) {
+    if (!confirm(`¿Eliminar "${row.inventory_item_name}" de la receta?`)) return
+    try {
+      await api.recipeItems.remove(row.id)
+      load()
+    } catch (e) {
+      setErr(e?.message || 'Error eliminando.')
+    }
+  }
+
+  return (
+    <ModalShell title={`Receta — ${service.name}`} onClose={onClose} width="max-w-2xl">
+      <div className="space-y-4">
+        <p className="text-xs text-white/50">
+          Ingredientes que se descuentan del inventario cada vez que se vende este plato.
+          La cantidad es <strong>por unidad vendida</strong>.
+        </p>
+
+        {err && <div className="p-3 rounded-lg bg-[#b3001e]/10 border border-[#b3001e]/30 text-red-300 text-xs">{err}</div>}
+
+        {/* Add ingredient */}
+        <div className="rounded-lg border border-zinc-800 bg-black/40 p-3">
+          <label className="block text-xs font-semibold text-white/70 mb-2">Agregar ingrediente</label>
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Buscar producto del inventario…"
+              className="w-full pl-9 pr-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-[#b3001e]"
+            />
+          </div>
+          {searching && <div className="mt-2 text-xs text-white/40">Buscando…</div>}
+          {results.length > 0 && (
+            <div className="mt-2 border border-zinc-800 rounded-lg overflow-hidden divide-y divide-zinc-800 bg-zinc-900">
+              {results.map(inv => (
+                <button
+                  key={inv.id}
+                  type="button"
+                  onClick={() => addIngredient(inv)}
+                  disabled={saving}
+                  className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-white/5 disabled:opacity-50"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Package size={14} className="text-white/40 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-white truncate">{inv.name}</div>
+                      <div className="text-xs text-white/40">
+                        {inv.sku ? `SKU: ${inv.sku} · ` : ''}{inv.unit || 'und'} · stock {inv.quantity ?? 0}
+                      </div>
+                    </div>
+                  </div>
+                  <Plus size={14} className="text-[#b3001e]" />
+                </button>
+              ))}
+            </div>
+          )}
+          {search.trim() && !searching && results.length === 0 && (
+            <div className="mt-2 text-xs text-white/40">Sin coincidencias.</div>
+          )}
+        </div>
+
+        {/* Recipe rows */}
+        <div className="rounded-lg border border-zinc-800 bg-black/40 overflow-hidden">
+          {loading ? (
+            <div className="p-6 flex justify-center"><Loader2 size={18} className="animate-spin text-white/40" /></div>
+          ) : rows.length === 0 ? (
+            <div className="p-6 text-center text-white/40 text-sm">
+              Sin ingredientes. Agrega productos del inventario arriba para
+              descontarlos automáticamente al vender este plato.
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-black/40 text-white/50 text-xs uppercase tracking-wide">
+                <tr>
+                  <th className="text-left  px-3 py-2 font-semibold">Ingrediente</th>
+                  <th className="text-right px-3 py-2 font-semibold w-32">Cantidad / unidad</th>
+                  <th className="text-left  px-3 py-2 font-semibold w-20">Unidad</th>
+                  <th className="text-right px-3 py-2 font-semibold w-12"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={r.id} className="border-t border-zinc-800">
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-white">{r.inventory_item_name || '—'}</div>
+                      {r.inventory_item_sku && <div className="text-xs text-white/40">SKU: {r.inventory_item_sku}</div>}
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        value={r.qty_per_unit}
+                        onChange={e => changeQty(r, e.target.value)}
+                        className="w-full px-2 py-1.5 text-right rounded bg-zinc-900 border border-zinc-800 text-white text-sm focus:outline-none focus:border-[#b3001e]"
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-white/60 text-xs">{r.inventory_item_unit || 'und'}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        onClick={() => removeRow(r)}
+                        className="p-1.5 rounded hover:bg-[#b3001e]/10 text-white/60 hover:text-red-400"
+                        title="Eliminar"
+                      ><Trash2 size={14} /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="flex justify-end pt-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white text-sm"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </ModalShell>
   )
 }
 

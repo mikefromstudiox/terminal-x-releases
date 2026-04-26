@@ -191,6 +191,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     create:     (data) => call('services:create', data),
     update:     (data) => call('services:update', data),
     delete:     (data) => call('services:delete', data),
+    setInStock: (key, inStock) => call('services:set-in-stock', { key, inStock }),
   },
 
   // ── Washers ────────────────────────────────────────────────────────────────
@@ -574,6 +575,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     detachFromService: (serviceId, modificadorId)                 => call('modificadores:detach', { serviceId, modificadorId }),
   },
 
+  // ── Restaurant Mode — Service recipes (Bill-of-Materials, v2.16.3) ────────
+  recipeItems: {
+    listForService: (serviceKey)             => call('recipeItems:listForService', { serviceKey }),
+    add:            (data)                   => call('recipeItems:add', data),
+    update:         (id, qty_per_unit)       => call('recipeItems:update', { id, qty_per_unit }),
+    remove:         (id)                     => call('recipeItems:remove', { id }),
+  },
+
   // ── Restaurant Mode — KDS (kitchen display) ────────────────────────────────
   kds: {
     listActive: ()                 => call('kds:listActive'),
@@ -622,6 +631,36 @@ contextBridge.exposeInMainWorld('electronAPI', {
     updateItemPrice: (data) => call('tickets:updateItemPrice', data),
     priceChanges:    (data) => call('tickets:priceChanges', data),
     allPriceChanges: (data) => call('tickets:allPriceChanges', data),
+    // v2.16.4 — Restaurant open-ticket lifecycle. Persist a ticket at mesa-seat
+    // time so a power loss mid-dinner doesn't drop in-flight items.
+    openForMesa:       (data) => call('tickets:openForMesa', data),
+    addItem:           (data) => call('tickets:addItem', data),
+    updateItemQty:     (data) => call('tickets:updateItemQty', data),
+    removeItem:        (data) => call('tickets:removeItem', data),
+    getActiveByMesa:   (mesaId) => call('tickets:getActiveByMesa', { mesa_id: mesaId }),
+    closeWithPayment:  (ticketId, payload) =>
+      call('tickets:closeWithPayment', {
+        ticket_id: typeof ticketId === 'object' ? ticketId?.ticket_id : ticketId,
+        ticket_supabase_id: typeof ticketId === 'object' ? ticketId?.ticket_supabase_id : null,
+        payload: typeof ticketId === 'object' && payload === undefined ? ticketId.payload : payload,
+      }),
+    // v2.16.3 H3 — Restaurante Mover/Juntar (desktop port of web.js).
+    transferToMesa: (ticket_supabase_id, new_mesa_id) =>
+      call('tickets:transferToMesa', { ticket_supabase_id, new_mesa_id }),
+    merge: (target_ticket_supabase_id, source_ticket_supabase_id) =>
+      call('tickets:merge', { target_ticket_supabase_id, source_ticket_supabase_id }),
+  },
+
+  // ── v2.16.3 H4 — Restaurant front-of-house reservations ─────────────────
+  restaurantReservations: {
+    list:          (params)        => call('reservations:list', params),
+    create:        (data)          => call('reservations:create', data),
+    update:        (id, data)      => call('reservations:update', { id, ...(data || {}) }),
+    confirm:       (id)            => call('reservations:confirm', { id }),
+    cancel:        (id, reason)    => call('reservations:cancel', { id, reason }),
+    markNoShow:    (id)            => call('reservations:markNoShow', { id }),
+    seat:          (id, mesaId)    => call('reservations:seat', { id, mesa_id: mesaId }),
+    stampWhatsapp: (id)            => call('reservations:stampWhatsapp', { id }),
   },
 
   // ── Queue ──────────────────────────────────────────────────────────────────

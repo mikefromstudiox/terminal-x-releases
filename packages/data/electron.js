@@ -85,11 +85,11 @@ export function createElectronAPI() {
       : Promise.reject(new Error('Juntar mesas requiere actualización (IPC no expuesto)')),
   } : raw.tickets
 
-  // v2.16.3 — Restaurante H4 Reservas. Desktop ships an IPC namespace under
-  // raw.restaurantReservations once the matching ipcMain handlers land. Until
-  // then we expose the stub surface so the screen mounts without crashing on
-  // older desktop builds — list returns []; mutations reject with a helpful
-  // upgrade message that the UI translates to a Spanish toast.
+  // v2.16.3 — Restaurante H4 Reservas. Desktop now ships the real IPC surface
+  // under raw.restaurantReservations (preload.js + main.js + database.js
+  // landed in v2.16.3). The stub fallback below stays as a safety net for
+  // renderer instances loaded against an older preload (e.g. mid-update
+  // window): list returns []; mutations reject with a Spanish toast.
   const restReservationsAugmented = raw.restaurantReservations || {
     list:         async () => [],
     create:       async () => { throw new Error('Reservas requiere actualización del Terminal X') },

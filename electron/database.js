@@ -647,6 +647,9 @@ function init(userDataPath, options = {}) {
     'ALTER TABLE services ADD COLUMN happy_hour_price REAL',
     'ALTER TABLE services ADD COLUMN happy_hour_start TEXT',
     'ALTER TABLE services ADD COLUMN happy_hour_end   TEXT',
+    // v2.16.3 — Restaurant: 86-list (sold-out plates). 1=available, 0=agotado.
+    // Idempotent ALTER swallowed by the migration loop's "duplicate column" filter.
+    'ALTER TABLE services ADD COLUMN in_stock INTEGER NOT NULL DEFAULT 1',
     // v2.2 — Restaurant: per-item course tag, KDS fire timestamp, guest-split tag
     'ALTER TABLE ticket_items ADD COLUMN course TEXT',
     'ALTER TABLE ticket_items ADD COLUMN kds_fired_at TEXT',
@@ -1937,6 +1940,31 @@ function init(userDataPath, options = {}) {
     `CREATE TRIGGER IF NOT EXISTS trg_mech_comm_updated_at
        AFTER UPDATE ON mechanic_commissions FOR EACH ROW
        BEGIN UPDATE mechanic_commissions SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    // v2.16.3 — Restaurante: recetas (Bill-of-Materials per service). At
+    // ticket close the close path multiplies qty_per_unit × line qty and
+    // decrements the linked inventory item via inventoryAdjust(). Failures
+    // are logged as `recipe_inventory_skip` and never block the sale.
+    `CREATE TABLE IF NOT EXISTS service_recipe_items (
+      id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                 TEXT,
+      business_id                 TEXT,
+      service_id                  INTEGER,
+      service_supabase_id         TEXT,
+      inventory_item_id           INTEGER,
+      inventory_item_supabase_id  TEXT,
+      qty_per_unit                REAL NOT NULL DEFAULT 0,
+      created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_service_recipe_items_supabase_id ON service_recipe_items(supabase_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_service_recipe_items_biz_svc_inv
+       ON service_recipe_items(business_id, service_supabase_id, inventory_item_supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_service_recipe_items_svc ON service_recipe_items(service_supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_service_recipe_items_inv ON service_recipe_items(inventory_item_supabase_id)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_service_recipe_items_updated_at
+       AFTER UPDATE ON service_recipe_items FOR EACH ROW
+       BEGIN UPDATE service_recipe_items SET updated_at = datetime('now') WHERE id = NEW.id; END`,
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -2134,6 +2162,34 @@ function init(userDataPath, options = {}) {
     updated_at               TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
 
+  // v2.16.3 H4 — Restaurant front-of-house reservations. Mirrors the
+  // Supabase migration in migrations/2026_04_26_restaurant_reservations.sql.
+  // Idempotent — safe to run on every boot.
+  db.exec(`CREATE TABLE IF NOT EXISTS restaurant_reservations (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                 TEXT,
+    business_id                 TEXT,
+    mesa_id                     INTEGER,
+    mesa_supabase_id            TEXT,
+    fecha                       TEXT NOT NULL,
+    hora                        TEXT NOT NULL,
+    duration_min                INTEGER NOT NULL DEFAULT 90,
+    nombre                      TEXT NOT NULL,
+    telefono                    TEXT,
+    guests                      INTEGER NOT NULL DEFAULT 2 CHECK (guests > 0),
+    notas                       TEXT,
+    status                      TEXT NOT NULL DEFAULT 'pendiente'
+                                CHECK (status IN ('pendiente','confirmada','sentada','cancelada','no_show')),
+    whatsapp_sent_at            TEXT,
+    cancelled_reason            TEXT,
+    seated_ticket_supabase_id   TEXT,
+    created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_restaurant_reservations_supabase_id ON restaurant_reservations(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_restaurant_reservations_fecha ON restaurant_reservations(fecha, hora)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_restaurant_reservations_status ON restaurant_reservations(status)') } catch {}
+
   // H2 — Restaurant: Servicio (10%) distribution among empleados. v2.16.3
   // ships ONE row per ticket where the entire amount routes to the waiter.
   // TODO v2.17: multi-empleado tip split by points (a points-weighted
@@ -2205,7 +2261,7 @@ function init(userDataPath, options = {}) {
   // old `datetime('now')` shape produced "YYYY-MM-DD HH:MM:SS" (space), which
   // sorted lower than Supabase's "YYYY-MM-DDTHH:MM:SS.µµµ+00:00" (T). That was
   // the root cause of the LWW inversion that clobbered every local edit.
-  const triggerTables = ['businesses', 'services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions', 'activity_log', 'mesas', 'modificadores', 'service_modificadores', 'ticket_item_modificadores', 'kds_events', 'vehicles', 'service_bays', 'work_orders', 'work_order_items', 'appointments', 'stylist_schedules', 'loans', 'loan_payments', 'pawn_items', 'subscriptions', 'service_packages', 'projects', 'client_service_rates']
+  const triggerTables = ['businesses', 'services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions', 'activity_log', 'mesas', 'modificadores', 'service_modificadores', 'ticket_item_modificadores', 'kds_events', 'restaurant_reservations', 'vehicles', 'service_bays', 'work_orders', 'work_order_items', 'appointments', 'stylist_schedules', 'loans', 'loan_payments', 'pawn_items', 'subscriptions', 'service_packages', 'projects', 'client_service_rates']
 
   // v2.0 — one-shot: drop the legacy SQL-space triggers so the ISO-8601
   // replacements below are the only ones that fire. Gated so we don't drop
@@ -4101,6 +4157,31 @@ function serviceDelete(id) {
     return { softDeleted: true, supabase_id: svc.supabase_id }
   }
 }
+// v2.16.3 — 86-list toggle. Polymorphic key (numeric local id OR supabase_id
+// UUID), so callers from web-synced rows (no local id yet) work too. Records
+// to the activity log under service_set_oos / service_back_in_stock.
+function serviceSetInStock(serviceKey, inStock) {
+  if (!db) return { ok: false, error: 'db_unavailable' }
+  const next = inStock ? 1 : 0
+  const isUuid = typeof serviceKey === 'string' && /^[0-9a-f]{8}-/i.test(serviceKey)
+  const row = isUuid
+    ? db.prepare('SELECT id, supabase_id, name, in_stock FROM services WHERE supabase_id=?').get(serviceKey)
+    : db.prepare('SELECT id, supabase_id, name, in_stock FROM services WHERE id=?').get(Number(serviceKey))
+  if (!row) return { ok: false, error: 'not_found' }
+  if ((row.in_stock ?? 1) === next) return { ok: true, unchanged: true, id: row.id, supabase_id: row.supabase_id, in_stock: next }
+  db.prepare('UPDATE services SET in_stock=?, updated_at=? WHERE id=?')
+    .run(next, new Date().toISOString(), row.id)
+  activityLogRecord({
+    event_type: next === 0 ? 'service_set_oos' : 'service_back_in_stock',
+    severity: 'info',
+    target_type: 'service',
+    target_id: row.id,
+    target_name: row.name,
+    old_value: row.in_stock ?? 1,
+    new_value: next,
+  })
+  return { ok: true, id: row.id, supabase_id: row.supabase_id, in_stock: next }
+}
 
 // ── WASHERS (v2.1 shims → empleados tipo='lavador'/'hybrid') ─────────────────
 // Preserves the pre-v2.1 function signatures + return shape so existing IPC
@@ -5371,6 +5452,291 @@ function ticketGetActiveByMesa(mesaId) {
   return ticket
 }
 
+// ─── v2.16.3 H3 — Restaurante "Mover" (transfer to mesa) ──────────────────
+function ticketTransferToMesa({ ticket_supabase_id, new_mesa_id } = {}) {
+  if (!db) throw new Error('DB no inicializada')
+  if (!ticket_supabase_id || !new_mesa_id) throw new Error('Faltan parámetros')
+  const tx = db.transaction(() => {
+    const ticket = db.prepare(
+      `SELECT id, supabase_id, mesa_id, mesa_supabase_id, guests, waiter_empleado_supabase_id,
+              doc_number, status, created_at, rev
+         FROM tickets WHERE supabase_id=?`
+    ).get(ticket_supabase_id)
+    if (!ticket) throw new Error('Ticket no encontrado')
+    if (['cobrado','nula','anulado','voided'].includes(ticket.status)) throw new Error('Ticket ya cerrado')
+    if (ticket.mesa_id === new_mesa_id) throw new Error('La mesa destino es la misma')
+
+    const newMesa = db.prepare('SELECT id, supabase_id, name, status FROM mesas WHERE id=?').get(new_mesa_id)
+    if (!newMesa) throw new Error('Mesa destino no existe')
+    if (!['libre','sucia','reservada'].includes(newMesa.status)) {
+      throw new Error('Mesa destino no está disponible')
+    }
+
+    const oldMesa = ticket.mesa_id
+      ? db.prepare('SELECT id, supabase_id, name, guests_count, waiter_empleado_supabase_id, seated_at FROM mesas WHERE id=?').get(ticket.mesa_id)
+      : null
+
+    const nextRev = Number(ticket.rev || 0) + 1
+    db.prepare(`UPDATE tickets SET mesa_id=?, mesa_supabase_id=?, rev=?,
+                updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`)
+      .run(newMesa.id, newMesa.supabase_id, nextRev, ticket.id)
+
+    if (oldMesa?.id) {
+      db.prepare(`UPDATE mesas SET status='sucia', guests_count=NULL,
+                  waiter_empleado_supabase_id=NULL, seated_at=NULL, bill_requested_at=NULL,
+                  updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).run(oldMesa.id)
+    }
+
+    const seatedAt = oldMesa?.seated_at || ticket.created_at || new Date().toISOString()
+    db.prepare(`UPDATE mesas SET status='ocupada', guests_count=?,
+                waiter_empleado_supabase_id=?, seated_at=?, bill_requested_at=NULL,
+                updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).run(
+      oldMesa?.guests_count ?? ticket.guests ?? null,
+      oldMesa?.waiter_empleado_supabase_id ?? ticket.waiter_empleado_supabase_id ?? null,
+      seatedAt,
+      newMesa.id,
+    )
+
+    activityLogRecord({
+      event_type: 'restaurant_mesa_transfer', severity: 'info',
+      target_type: 'ticket', target_id: ticket.id,
+      target_name: ticket.doc_number || `#${ticket.id}`,
+      metadata: {
+        from_mesa_id: oldMesa?.id ?? null,
+        from_mesa_name: oldMesa?.name ?? null,
+        to_mesa_id: newMesa.id,
+        to_mesa_name: newMesa.name,
+      },
+    })
+    return { ok: true, ticket_id: ticket.id, new_mesa_id: newMesa.id }
+  })
+  return tx()
+}
+
+// ─── v2.16.3 H3 — Restaurante "Juntar" (merge tickets) ─────────────────────
+function ticketMerge({ target_ticket_supabase_id, source_ticket_supabase_id } = {}) {
+  if (!db) throw new Error('DB no inicializada')
+  if (!target_ticket_supabase_id || !source_ticket_supabase_id) throw new Error('Faltan parámetros')
+  if (target_ticket_supabase_id === source_ticket_supabase_id) throw new Error('No se puede juntar consigo mismo')
+  const tx = db.transaction(() => {
+    const target = db.prepare(
+      `SELECT id, supabase_id, mesa_id, mesa_supabase_id, guests, doc_number, status, rev
+         FROM tickets WHERE supabase_id=?`
+    ).get(target_ticket_supabase_id)
+    if (!target) throw new Error('Ticket destino no encontrado')
+    if (['cobrado','nula','anulado','voided','merged'].includes(target.status)) throw new Error('Ticket destino ya cerrado')
+
+    const source = db.prepare(
+      `SELECT id, supabase_id, mesa_id, mesa_supabase_id, guests, doc_number, status, rev
+         FROM tickets WHERE supabase_id=?`
+    ).get(source_ticket_supabase_id)
+    if (!source) throw new Error('Ticket origen no encontrado')
+    if (['cobrado','nula','anulado','voided','merged'].includes(source.status)) throw new Error('Ticket origen ya cerrado')
+
+    db.prepare(`UPDATE ticket_items SET ticket_supabase_id=?, ticket_id=?
+                WHERE ticket_supabase_id=? OR ticket_id=?`).run(
+      target.supabase_id, target.id, source.supabase_id, source.id,
+    )
+
+    const totalGuests = Number(target.guests || 0) + Number(source.guests || 0)
+    const tNextRev = Number(target.rev || 0) + 1
+    db.prepare(`UPDATE tickets SET guests=?, rev=?,
+                updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`)
+      .run(totalGuests || null, tNextRev, target.id)
+
+    const sNextRev = Number(source.rev || 0) + 1
+    db.prepare(`UPDATE tickets SET status='merged', notes=?, rev=?,
+                updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).run(
+      `Combinado con ${target.doc_number || target.id}`, sNextRev, source.id,
+    )
+
+    if (source.mesa_id) {
+      db.prepare(`UPDATE mesas SET status='sucia', guests_count=NULL,
+                  waiter_empleado_supabase_id=NULL, seated_at=NULL, bill_requested_at=NULL,
+                  updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).run(source.mesa_id)
+    }
+    if (target.mesa_id && totalGuests) {
+      try {
+        db.prepare(`UPDATE mesas SET guests_count=?,
+                    updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).run(totalGuests, target.mesa_id)
+      } catch {}
+    }
+
+    activityLogRecord({
+      event_type: 'restaurant_mesa_merge', severity: 'info',
+      target_type: 'ticket', target_id: target.id,
+      target_name: target.doc_number || `#${target.id}`,
+      metadata: {
+        target_ticket_id: target.id,
+        source_ticket_id: source.id,
+        source_doc_number: source.doc_number,
+        target_mesa_id: target.mesa_id,
+        source_mesa_id: source.mesa_id,
+        total_guests: totalGuests,
+      },
+    })
+    return { ok: true, target_ticket_id: target.id, source_ticket_id: source.id }
+  })
+  return tx()
+}
+
+// ─── v2.16.3 H4 — Restaurant front-of-house reservations ──────────────────
+function reservationsList({ date, status, dateFrom, dateTo } = {}) {
+  if (!db) return []
+  const conds = []
+  const params = []
+  if (date)     { conds.push('fecha = ?');  params.push(date) }
+  if (dateFrom) { conds.push('fecha >= ?'); params.push(dateFrom) }
+  if (dateTo)   { conds.push('fecha <= ?'); params.push(dateTo) }
+  if (status && status !== 'all') { conds.push('status = ?'); params.push(status) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  try {
+    return db.prepare(
+      `SELECT * FROM restaurant_reservations ${where}
+        ORDER BY fecha ASC, hora ASC`
+    ).all(...params)
+  } catch { return [] }
+}
+
+function reservationsCreate(data = {}) {
+  if (!db) throw new Error('DB no inicializada')
+  if (!data.fecha || !data.hora || !data.nombre) throw new Error('Faltan datos requeridos (fecha/hora/nombre)')
+  const sid = crypto.randomUUID()
+  const guests = Math.max(1, Number(data.guests || 2))
+  const result = db.prepare(`INSERT INTO restaurant_reservations
+    (supabase_id, mesa_id, mesa_supabase_id, fecha, hora, duration_min,
+     nombre, telefono, guests, notas, status)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+    sid,
+    data.mesa_id || null,
+    data.mesa_supabase_id || null,
+    String(data.fecha),
+    String(data.hora),
+    Number(data.duration_min || 90),
+    String(data.nombre).trim(),
+    data.telefono ? String(data.telefono).trim() : null,
+    guests,
+    data.notas || null,
+    data.status || 'pendiente',
+  )
+  const row = db.prepare('SELECT * FROM restaurant_reservations WHERE id=?').get(result.lastInsertRowid)
+  activityLogRecord({
+    event_type: 'reservation_created', severity: 'info',
+    target_type: 'reservation', target_id: row.id, target_name: row.nombre,
+    metadata: { fecha: row.fecha, hora: row.hora, guests: row.guests, mesa_id: row.mesa_id },
+  })
+  return row
+}
+
+function reservationsUpdate(id, data = {}) {
+  if (!db || !id) return null
+  const allowed = ['mesa_id','mesa_supabase_id','fecha','hora','duration_min','nombre','telefono','guests','notas','status','whatsapp_sent_at','cancelled_reason','seated_ticket_supabase_id']
+  const sets = []
+  const params = []
+  for (const k of allowed) {
+    if (k in (data || {})) {
+      sets.push(`${k} = ?`)
+      params.push(data[k])
+    }
+  }
+  if (!sets.length) {
+    return db.prepare('SELECT * FROM restaurant_reservations WHERE id=?').get(id) || null
+  }
+  params.push(id)
+  db.prepare(`UPDATE restaurant_reservations SET ${sets.join(', ')},
+              updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).run(...params)
+  return db.prepare('SELECT * FROM restaurant_reservations WHERE id=?').get(id) || null
+}
+
+function reservationsConfirm(id) {
+  if (!db || !id) return null
+  db.prepare(`UPDATE restaurant_reservations SET status='confirmada',
+              updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).run(id)
+  const row = db.prepare('SELECT * FROM restaurant_reservations WHERE id=?').get(id)
+  if (!row) return null
+  activityLogRecord({
+    event_type: 'reservation_confirmed', severity: 'info',
+    target_type: 'reservation', target_id: row.id, target_name: row.nombre,
+    metadata: { fecha: row.fecha, hora: row.hora, guests: row.guests },
+  })
+  return row
+}
+
+function reservationsCancel(id, reason) {
+  if (!db || !id) return null
+  db.prepare(`UPDATE restaurant_reservations SET status='cancelada', cancelled_reason=?,
+              updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).run(reason || null, id)
+  const row = db.prepare('SELECT * FROM restaurant_reservations WHERE id=?').get(id)
+  if (!row) return null
+  activityLogRecord({
+    event_type: 'reservation_cancelled', severity: 'warn',
+    target_type: 'reservation', target_id: row.id, target_name: row.nombre,
+    reason: reason || null,
+    metadata: { fecha: row.fecha, hora: row.hora },
+  })
+  return row
+}
+
+function reservationsMarkNoShow(id) {
+  if (!db || !id) return null
+  db.prepare(`UPDATE restaurant_reservations SET status='no_show',
+              updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).run(id)
+  const row = db.prepare('SELECT * FROM restaurant_reservations WHERE id=?').get(id)
+  if (!row) return null
+  activityLogRecord({
+    event_type: 'reservation_no_show', severity: 'warn',
+    target_type: 'reservation', target_id: row.id, target_name: row.nombre,
+    metadata: { fecha: row.fecha, hora: row.hora, guests: row.guests },
+  })
+  return row
+}
+
+function reservationsSeat(id, mesaId) {
+  if (!db || !id) return null
+  const tx = db.transaction(() => {
+    let mesaSid = null
+    if (mesaId) {
+      const m = db.prepare('SELECT id, supabase_id, name FROM mesas WHERE id=?').get(mesaId)
+      if (!m) throw new Error('Mesa no encontrada')
+      mesaSid = m.supabase_id
+      const res = db.prepare('SELECT guests, nombre FROM restaurant_reservations WHERE id=?').get(id)
+      try {
+        db.prepare(`UPDATE mesas SET status='ocupada', guests_count=?,
+                    seated_at=?, bill_requested_at=NULL,
+                    updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).run(
+          res?.guests || null,
+          new Date().toISOString(),
+          mesaId,
+        )
+      } catch {}
+    }
+    const sets = ["status='sentada'"]
+    const params = []
+    if (mesaId)  { sets.push('mesa_id=?');          params.push(mesaId) }
+    if (mesaSid) { sets.push('mesa_supabase_id=?'); params.push(mesaSid) }
+    sets.push("updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')")
+    params.push(id)
+    db.prepare(`UPDATE restaurant_reservations SET ${sets.join(', ')} WHERE id=?`).run(...params)
+    const row = db.prepare('SELECT * FROM restaurant_reservations WHERE id=?').get(id)
+    if (row) {
+      activityLogRecord({
+        event_type: 'reservation_seated', severity: 'info',
+        target_type: 'reservation', target_id: row.id, target_name: row.nombre,
+        metadata: { fecha: row.fecha, hora: row.hora, mesa_id: mesaId },
+      })
+    }
+    return row
+  })
+  return tx()
+}
+
+function reservationsStampWhatsapp(id) {
+  if (!db || !id) return null
+  db.prepare(`UPDATE restaurant_reservations SET whatsapp_sent_at=?,
+              updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).run(new Date().toISOString(), id)
+  return db.prepare('SELECT * FROM restaurant_reservations WHERE id=?').get(id) || null
+}
+
 function ticketCloseWithPayment({ ticket_id, ticket_supabase_id, payload } = {}) {
   if (!db) return null
   if (!ticket_id && !ticket_supabase_id) return null
@@ -5526,6 +5892,10 @@ function ticketCloseWithPayment({ ticket_id, ticket_supabase_id, payload } = {})
       db.prepare('UPDATE clients SET visits=visits+1,total_spent=total_spent+? WHERE id=?')
         .run(Number(data.total || 0), data.client_id)
     }
+
+    // v2.16.3 — Restaurante recetas: deduct ingredient inventory per ticket line.
+    // Wrapped in try/catch — recipe deduction failures must NEVER block a sale.
+    try { _applyRecipeDeduction(row, items, data.cajero_id || null) } catch {}
 
     return { ticketId: row.id, supabase_id: row.supabase_id, doc_number: row.doc_number, ncf }
   })
@@ -6017,6 +6387,22 @@ function ticketCreate(data) {
           .run(pdSid, ticketSid, JSON.stringify(invItems))
       }
     }
+
+    // v2.16.3 — Restaurante recetas: legacy non-restaurant fallback also
+    // honors recipes (mesa-mode goes through ticketCloseWithPayment instead).
+    // Build the items shape the recipe helper expects (service_supabase_id +
+    // quantity), then deduct. Wrapped — must never break a sale.
+    try {
+      const recipeItems = (data.items || []).map(it => ({
+        service_supabase_id: it.service_supabase_id
+          || (it.service_id ? db.prepare('SELECT supabase_id FROM services WHERE id=?').get(it.service_id)?.supabase_id : null),
+        quantity: Number(it.quantity || 1),
+      })).filter(x => x.service_supabase_id)
+      if (recipeItems.length) {
+        const ticketRow = { id: ticketId, supabase_id: ticketSid, doc_number: docNumber }
+        _applyRecipeDeduction(ticketRow, recipeItems, data.cajero_id || null)
+      }
+    } catch {}
 
     return { ticketId, docNumber, ncf, supabase_id: ticketSid }
   })
@@ -7402,6 +7788,119 @@ function inventoryTransactions(itemId) {
   return db.prepare(`SELECT t.*, u.name as user_name FROM inventory_transactions t
     LEFT JOIN users u ON u.id = t.user_id
     WHERE t.item_id=? ORDER BY t.created_at DESC LIMIT 50`).all(itemId)
+}
+
+// ── v2.16.3 — Service recipes (Bill-of-Materials) ───────────────────────────
+// Polymorphic id|supabase_id detection: UUID (8-4-4-4-12 hex) → supabase_id
+// lookup; everything else → numeric id. Mirrors modificadoresListForService.
+const _UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function recipeItemsListForService(serviceKey) {
+  if (!db || serviceKey == null || serviceKey === '') return []
+  let svcSid = null
+  if (typeof serviceKey === 'string' && _UUID_RX.test(serviceKey)) {
+    svcSid = serviceKey
+  } else {
+    const row = db.prepare('SELECT supabase_id FROM services WHERE id=?').get(Number(serviceKey))
+    svcSid = row?.supabase_id || null
+  }
+  if (!svcSid) return []
+  return db.prepare(`
+    SELECT
+      r.id, r.supabase_id, r.business_id,
+      r.service_supabase_id, r.inventory_item_supabase_id,
+      r.qty_per_unit, r.created_at, r.updated_at,
+      i.id              AS inventory_item_id,
+      i.name            AS inventory_item_name,
+      i.sku             AS inventory_item_sku,
+      i.unit            AS inventory_item_unit,
+      i.quantity        AS inventory_item_quantity
+    FROM service_recipe_items r
+    LEFT JOIN inventory_items i ON i.supabase_id = r.inventory_item_supabase_id
+    WHERE r.service_supabase_id = ?
+    ORDER BY i.name COLLATE NOCASE
+  `).all(svcSid)
+}
+
+function recipeItemsAdd({ service_supabase_id, inventory_item_supabase_id, qty_per_unit, business_id } = {}) {
+  if (!db) return null
+  if (!service_supabase_id || !inventory_item_supabase_id) {
+    throw new Error('recipeItemsAdd: service_supabase_id + inventory_item_supabase_id required')
+  }
+  const sid = crypto.randomUUID()
+  const biz = business_id || _bizId() || null
+  // Resolve local FK ids for the integer-id columns (best-effort; sync uses sid).
+  const svc = db.prepare('SELECT id FROM services WHERE supabase_id=?').get(service_supabase_id)
+  const inv = db.prepare('SELECT id FROM inventory_items WHERE supabase_id=?').get(inventory_item_supabase_id)
+  const qpu = Number(qty_per_unit) || 0
+  const r = db.prepare(`INSERT INTO service_recipe_items
+    (supabase_id, business_id, service_id, service_supabase_id,
+     inventory_item_id, inventory_item_supabase_id, qty_per_unit)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(sid, biz, svc?.id || null, service_supabase_id, inv?.id || null, inventory_item_supabase_id, qpu)
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+
+function recipeItemsUpdate(id, qty_per_unit) {
+  if (!db || !id) return null
+  const qpu = Number(qty_per_unit) || 0
+  db.prepare(`UPDATE service_recipe_items
+              SET qty_per_unit = ?, updated_at = datetime('now')
+              WHERE id = ?`).run(qpu, id)
+  return db.prepare('SELECT * FROM service_recipe_items WHERE id=?').get(id)
+}
+
+function recipeItemsRemove(id) {
+  if (!db || !id) return null
+  const row = db.prepare('SELECT supabase_id, business_id FROM service_recipe_items WHERE id=?').get(id)
+  db.prepare('DELETE FROM service_recipe_items WHERE id=?').run(id)
+  if (row?.supabase_id) {
+    try { tombstoneAdd('service_recipe_items', row.supabase_id, row.business_id) } catch {}
+  }
+  return { deleted: true }
+}
+
+// Internal — applies recipe-driven inventory deduction for a single ticket.
+// Wrapped in try/catch by the caller; emits `recipe_inventory_skip` on failure.
+function _applyRecipeDeduction(ticketRow, items, userId) {
+  if (!db || !Array.isArray(items) || !items.length) return
+  const lookup = db.prepare(`SELECT inventory_item_id, qty_per_unit
+                             FROM service_recipe_items
+                             WHERE service_supabase_id = ?`)
+  for (const it of items) {
+    const svcSid = it.service_supabase_id
+    if (!svcSid) continue
+    const recipeRows = lookup.all(svcSid)
+    if (!recipeRows.length) continue
+    const lineQty = Number(it.quantity || 1)
+    for (const rr of recipeRows) {
+      try {
+        if (!rr.inventory_item_id) continue
+        const delta = -(Number(rr.qty_per_unit || 0) * lineQty)
+        if (!delta) continue
+        inventoryAdjust(rr.inventory_item_id, delta,
+          `Receta — ticket ${ticketRow?.doc_number || ticketRow?.id || ''}`.trim(),
+          userId || null)
+      } catch (e) {
+        try {
+          activityLogRecord({
+            event_type: 'recipe_inventory_skip', severity: 'warn',
+            actor_user_id: userId || null,
+            target_type: 'inventory_item', target_id: rr.inventory_item_id || null,
+            target_name: `Receta servicio ${svcSid.substring(0, 8)}`,
+            reason: e?.message || 'recipe deduction failed',
+            metadata: {
+              ticket_id: ticketRow?.id || null,
+              ticket_supabase_id: ticketRow?.supabase_id || null,
+              service_supabase_id: svcSid,
+              line_qty: lineQty,
+              qty_per_unit: rr.qty_per_unit,
+            },
+          })
+        } catch {}
+      }
+    }
+  }
 }
 
 function inventoryLowStockCount() {
@@ -11164,7 +11663,7 @@ module.exports = {
   // Categorías de servicio
   categoriasGetAll, categoriaCreate, categoriaUpdate, categoriaDelete,
   // Services
-  servicesGetAll, servicesGetAllAdmin, servicesTopSellers, serviceCreate, serviceUpdate, serviceDelete,
+  servicesGetAll, servicesGetAllAdmin, servicesTopSellers, serviceCreate, serviceUpdate, serviceDelete, serviceSetInStock,
   // Washers
   washersGetAll, washersGetAllAdmin, washerCreate, washerUpdate, washerDelete,
   // Sellers
@@ -11182,6 +11681,12 @@ module.exports = {
   // Tickets
   ticketsGetAll, ticketGetById, ticketCreate, ticketMarkPaid, ticketVoid, ticketGetByDateRange, ticketGetByDateRangeWithItems,
   ticketOpenForMesa, ticketAddItem, ticketUpdateItemQty, ticketRemoveItem, ticketGetActiveByMesa, ticketCloseWithPayment,
+  // v2.16.3 H3 — Restaurante Mover/Juntar
+  ticketTransferToMesa, ticketMerge,
+  // v2.16.3 H4 — Restaurant front-of-house reservations
+  reservationsList, reservationsCreate, reservationsUpdate,
+  reservationsConfirm, reservationsCancel, reservationsMarkNoShow,
+  reservationsSeat, reservationsStampWhatsapp,
   // Price changes
   ticketItemUpdatePrice, priceChangesGetByTicket, priceChangesGetAll,
   // Queue
@@ -11233,6 +11738,8 @@ module.exports = {
   mesasGetAll, mesaCreate, mesaUpdate, mesaSetStatus, mesaRequestBill, mesaDelete,
   modificadoresGetAll, modificadoresGetAllAdmin, modificadorCreate, modificadorUpdate, modificadorDelete,
   modificadoresListForService, modificadorAttachToService, modificadorDetachFromService,
+  // v2.16.3 — Restaurante: recetas (Bill-of-Materials per service)
+  recipeItemsListForService, recipeItemsAdd, recipeItemsUpdate, recipeItemsRemove,
   kdsListActive, kdsFire, kdsSetStatus,
   ticketItemModificadoresList, ticketItemModificadoresSnapshot,
   // Multi-vertical expansion — vehicles, service_bays, work_orders, appointments, schedules, loans, pawn
