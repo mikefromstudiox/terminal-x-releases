@@ -1,8 +1,43 @@
 # FUTUREX — Terminal X Roadmap
 
-Updated: 2026-04-15
+Updated: 2026-04-26
 
 Shipped features live in CLAUDE.md §Architecture Notes. This file is forward-looking work only.
+
+---
+
+## Verticals Scoreboard (11 total — 8 production-ready, 2 pending, 1 minimal)
+
+| Vertical | Status | Version | Demo e2e | Notes |
+|---|---|---|---|---|
+| Licorería | ✅ Live | Ranoza prod | — | First paying client |
+| Carwash | ✅ Live | Studio X prod | 23/23 | First paying client |
+| Concesionario | ✅ Done | v2 | 20/20 | Vehicle inventory + deals + commissions |
+| Taller Mecánico | ✅ Done | v2.16.0 | 20/20 | Aseguradoras + cotizaciones + parts orders + photos |
+| Barbería / Salón | ✅ Done | v2.16.1 | 21/21 | Memberships + appointments + reminders + walk-ins |
+| Préstamos / Empeño | ✅ Done | v2.16.2 | 47/47 | 3 amortization modes + contract PDF + papeleta legal + tienda pública |
+| Restaurante / Bar | ✅ Done | v2.16.2 | 20/20 | Mesas grid + acuenta + top sellers + KDS + happy hour |
+| Carnicería | ✅ Done | v2.16.3 | 33/33 | Cortes + freshness + mayoreo + multi-báscula |
+| Híbrido | ❌ Pending | — | 20/20 (smoke only) | Needs: dual-mode POS UX, unified vs separate inventory, smart multi-printer |
+| Tienda / Retail | ❌ Pending | — | 19/19 (smoke only) | Needs: etiquetas, albaranes, devoluciones, multi-proveedor, 2x1, combos, expiry, B2B |
+| Servicios / Otro | ⚠️ Minimal | service_projects table only (2026-04-26) | 22/22 | Needs full build: por horas/proyecto/visita, cotización, suscripciones, GPS+foto+firma |
+
+**All-vertical e2e:** 245 / 245 pass · 0 fail · `npm run e2e:demo:all`
+**RLS / Security:** 6/6 gates green (cross-tenant blocked, anon-no-login blocked) · `node scripts/verify-rls-prestamos.mjs`
+**Per-license JWT:** live, edge function `mint-license-jwt` ACTIVE, 92 sync tables JWT-isolated
+
+### What's left to ship across the codebase
+
+1. **Híbrido vertical** — Grok+plan-mode workflow (FUTUREX:206)
+2. **Retail vertical** — Grok+plan-mode workflow (FUTUREX:207)
+3. **Servicios full build** — table is ready; UI/API/sync still queued (FUTUREX:208)
+4. **e-CF on web POS** — Path X (Deno edge function) vs Path Y (Node sign-server on VPS) — decision pending
+5. **Restaurant Mode UI clickthrough** — code shipped v1.9.25, never manually validated
+6. **DGII production switch** — flip env from `certecf` to `ecf` when ready for live e-CFs
+7. **Desktop installer code-signing cert** — eliminates SmartScreen warning (~$200-400/yr)
+8. **UAT manual run with real prestamista** — 90-min session, checklist at `docs/prestamos-uat-checklist.md`
+9. **SB official PDF template** — Mike provides, then PDF SB report wires to template
+10. **Marketing site real screenshots refresh** — triggers AFTER 8 verticals ship (FUTUREX:215)
 
 ---
 
@@ -25,7 +60,18 @@ Remaining (lower priority):
 ### Sync C1 hotfix shipped 2026-04-21 — anon RLS policies restored
 - [x] migration `20260421500000_restore_anon_sync_policies.sql` re-adds anon SELECT/INSERT/UPDATE/DELETE on all sync tables with `business_id IS NOT NULL` guard
 - [x] verified live: Ranoza 976 inventory rows visible to anon, activity_log INSERT works
-- **Proper fix (STILL OPEN)**: replace the anon key in desktop installers with a per-license JWT that populates `auth.uid()` so we can tighten policies back to `business_id IN (my_business_ids())`. Multi-hour sprint.
+- [x] **Per-license JWT migration shipped 2026-04-25** (closes the anon-no-login leak repo-wide):
+  - Edge function `supabase/functions/mint-license-jwt/index.ts` — validates `licenses.license_key`, mints HS256 JWT signed with `SUPABASE_JWT_SECRET`, payload `user_metadata = { business_id, license_key, machine_id }`, 24h TTL
+  - Helper `packages/services/perLicenseJwt.js` (web, localStorage cache) + `electron/licenseJwt.js` (Electron, safeStorage encrypted cache)
+  - Wired into `packages/data/web.js` (`bootLicenseJwt` on `tx_license_key` presence) and `electron/sync.js` (8 callsites → `_authHeaders()` swapping in JWT when present, 30-min refresh)
+  - IPC `license:set-key` in `electron/main.js` — renderer pushes license key after validation, main mints JWT and feeds sync
+  - Migration `20260427000000_per_license_jwt_lockdown.sql`: dropped `rls_anon_sync_*` from 91 sync tables, replaced with `<tbl>_jwt_select`/`<tbl>_jwt_modify` bound to `((auth.jwt() -> 'user_metadata') ->> 'business_id')::uuid`. Public Tienda carve-outs preserved (`pawn_listings_public_published`, `pawn_items_public_published`, `pawn_documents_public_foto`).
+  - Migration `20260427100000_staff_jwt_lockdown.sql`: same treatment for `staff`. Final count: zero `rls_anon_sync_*` policies repo-wide.
+  - Demo `signInWithPassword` JWT path unchanged — already carries `user_metadata.business_id`.
+  - Verification: e2e:demo prestamos 47/47 + RLS verifier 6/6 (gate3 anon-no-login now blocked).
+  - Audit: `license_jwt_audit` table (service-role only) records every mint.
+  - Edge function `mint-license-jwt` deployed live via Management API (no CLI needed) at version 6 ACTIVE. Hand-rolled HS256 (no djwt/std-http imports — eliminated edge-runtime boot fragility). Function secret `TX_JWT_SECRET` set via `/v1/projects/{ref}/secrets`. Verified: invalid license → 401, valid license → 200 with business_id-as-sub JWT, JWT→loans/pawn_items/loan_contracts/collections_attempts all return own-tenant rows, JWT cross-tenant query returns 0 rows.
+  - Note: `sub` claim in minted JWT is `business_id` UUID (not `license:<key>`) so existing `auth.uid()`-based RLS functions like `my_business_ids()` keep working without modification.
 
 ### Sync Architecture Audit — remediation batch (2026-04-21)
 Shipped in commits 4dcf888 / d260425 / 41cb816:

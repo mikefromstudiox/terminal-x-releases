@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="es-DO">
+<head>
+<meta charset="utf-8">
+<title>Cómo vender Terminal X a Restaurantes Dominicanos — v1.0</title>
+<style>
+  :root { --crimson:#b3001e; }
+  * { box-sizing: border-box; margin:0; padding:0; }
+  body { font-family: 'Inter', system-ui, -apple-system, Segoe UI, sans-serif; color:#000; background:#fff; line-height:1.45; }
+  .page { width: 8.5in; min-height: 11in; padding: 0.75in; page-break-after: always; position:relative; }
+  .page.crimson { background: var(--crimson); color:#fff; }
+  .page.crimson h1, .page.crimson h2, .page.crimson h3 { color:#fff; }
+  header.top { display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 24px; }
+  .page.crimson header.top { border-bottom-color:#fff; }
+  .wordmark { font-weight:900; letter-spacing:-0.02em; font-size: 18px; }
+  .wordmark .x { color: var(--crimson); }
+  .page.crimson .wordmark .x { color:#fff; background:#000; padding: 0 6px; }
+  h1 { font-size: 36px; font-weight: 900; letter-spacing:-0.02em; line-height:1.1; margin-bottom: 12px; }
+  h2 { font-size: 26px; font-weight: 900; letter-spacing:-0.02em; margin-bottom: 14px; color: var(--crimson); }
+  h3 { font-size: 18px; font-weight: 800; margin: 14px 0 6px; }
+  p  { font-size: 13px; margin-bottom: 8px; }
+  .lead { font-size: 16px; font-weight: 600; }
+  ul { margin: 6px 0 12px 18px; }
+  li { font-size: 13px; margin-bottom: 5px; }
+  .pill { display:inline-block; background: var(--crimson); color:#fff; font-weight:800; font-size: 11px; padding: 3px 8px; letter-spacing:0.05em; }
+  .box { border: 2px solid #000; padding: 14px; margin: 10px 0; }
+  .box.red { border-color: var(--crimson); }
+  .row { display:flex; gap: 16px; }
+  .col { flex:1; }
+  table { width:100%; border-collapse: collapse; font-size: 12px; margin: 10px 0; }
+  th, td { border: 1px solid #000; padding: 6px 8px; text-align:left; vertical-align: top; }
+  th { background:#000; color:#fff; font-weight:800; }
+  .check { color: var(--crimson); font-weight:900; }
+  .x-mark { color:#000; font-weight:900; }
+  .qa { border-left: 4px solid var(--crimson); padding: 8px 12px; margin: 10px 0; background: #fff; }
+  .qa .q { font-weight: 800; font-size: 14px; margin-bottom: 4px; }
+  .qa .a { font-size: 13px; }
+  footer.bot { position:absolute; bottom: 0.4in; left: 0.75in; right: 0.75in; border-top:1px solid #000; padding-top:6px; font-size:10px; display:flex; justify-content:space-between; }
+  .page.crimson footer.bot { border-top-color:#fff; }
+  .cover { display:flex; flex-direction:column; justify-content:space-between; height: 9.5in; }
+  .cover .hero { font-size: 64px; font-weight: 900; letter-spacing:-0.03em; line-height:0.95; }
+  .cover .sub { font-size: 22px; font-weight:600; }
+  .meta { font-size: 12px; opacity:0.85; }
+  ol.steps { counter-reset: step; list-style:none; margin-left:0; }
+  ol.steps li { counter-increment: step; margin: 10px 0; padding-left: 42px; position:relative; font-size:13px; }
+  ol.steps li::before { content: counter(step); position:absolute; left:0; top:-2px; width:30px; height:30px; background: var(--crimson); color:#fff; font-weight:900; display:flex; align-items:center; justify-content:center; font-size:14px; }
+  .stat { font-size: 28px; font-weight: 900; color: var(--crimson); }
+  .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .case { border:2px solid #000; padding: 12px; margin: 10px 0; }
+  .case h3 { color: var(--crimson); margin-top:0; }
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<section class="page crimson">
+  <header class="top"><div class="wordmark" style="color:#fff">TERMINAL <span class="x">X</span></div><div style="font-size:11px;font-weight:700">DGII Cert #42483</div></header>
+  <div class="cover">
+    <div>
+      <div class="pill" style="background:#000">PLAYBOOK DE VENTAS</div>
+      <h1 class="hero" style="margin-top:24px">Cómo vender<br/>Terminal X a<br/>Restaurantes<br/>Dominicanos.</h1>
+      <p class="sub" style="margin-top:18px">Guía completa para cerrar tu primer cliente restaurante — sin guion robótico, con datos reales del mercado RD.</p>
+    </div>
+    <div class="meta">
+      <div>Fecha: 25 de abril, 2026 &nbsp;·&nbsp; Versión: v1.0</div>
+      <div>Mercado: República Dominicana &nbsp;·&nbsp; Audiencia: Vendedores y referidos</div>
+      <div>X Group Holdings SRL — Santo Domingo, DR</div>
+    </div>
+  </div>
+</section>
+
+<!-- 1. POR QUE GANA -->
+<section class="page">
+  <header class="top"><div class="wordmark">TERMINAL <span class="x">X</span></div><div style="font-size:11px">01 · Por qué ganamos</div></header>
+  <h2>1. Por qué Terminal X gana en restaurantes</h2>
+  <p class="lead">Cinco razones, una sola conclusión: ningún POS en RD ofrece esta combinación al precio de Alegra.</p>
+
+  <div class="box red">
+    <h3>1. Único POS certificado directo por DGII (Cert #42483)</h3>
+    <p>Terminal X es Emisor Electrónico autorizado <strong>directo</strong>. Esto significa cero PSFE intermediario, cero costo por comprobante emitido. Alegra y WilPOS dependen de un PSFE — pagas por cada e-CF que sale. Con nosotros, emites 50 o 5,000 al mes y el precio del plan no se mueve.</p>
+  </div>
+
+  <div class="box">
+    <h3>2. Modo offline 72 horas — apagón no para el cobro</h3>
+    <p>Esto es RD: la luz se va, el internet se cae, y tu restaurante no puede dejar de cobrar. Terminal X funciona offline 72 horas seguidas, sigue imprimiendo recibos, encolando e-CFs y sincroniza solo cuando vuelve la red. Alegra es 100% web — sin internet, sin cobro.</p>
+  </div>
+
+  <div class="box">
+    <h3>3. KDS profesional incluido — cocina y bar coordinados</h3>
+    <p>Pantalla fullscreen para cocina + bar con ruteo automático por categoría. Lo que Square cobra aparte por USD$30/mes adicional, viene incluido en Pro PLUS.</p>
+  </div>
+
+  <div class="box">
+    <h3>4. Mesas, división de cuenta, propinas Ley 10% — completo</h3>
+    <p>Grid 5×2 con estados LIBRE / OCUPADA / A CUENTA (amber). División por item o por silla. Propina libre + 10% Ley reglamentaria con reparto al staff. Más vendidos auto-rankeado por ventas de los últimos 30 días.</p>
+  </div>
+
+  <div class="box">
+    <h3>5. Certificado Viafirma incluido — ahorro RD$2,360/año</h3>
+    <p>El certificado digital que necesitas para emitir e-CF (Viafirma .p12) cuesta RD$2,360/año por separado. Aquí viene incluido en el plan. STARSISA cobra el setup. Alegra te lo factura aparte. Nosotros lo regalamos.</p>
+  </div>
+
+  <footer class="bot"><div>Terminal X · Playbook Restaurantes v1.0</div><div>Pág. 2</div></footer>
+</section>
+
+<!-- 2. CLIENTE IDEAL -->
+<section class="page">
+  <header class="top"><div class="wordmark">TERMINAL <span class="x">X</span></div><div style="font-size:11px">02 · Cliente ideal</div></header>
+  <h2>2. El cliente ideal</h2>
+  <p class="lead">No vas a venderle a todos. Concéntrate en este perfil y cerrarás más rápido.</p>
+
+  <div class="row">
+    <div class="col box">
+      <h3>Perfil del prospecto</h3>
+      <ul>
+        <li><strong>Tamaño:</strong> 8 a 30 mesas</li>
+        <li><strong>Equipo:</strong> 2 a 10 empleados (cajero, meseros, cocina)</li>
+        <li><strong>Facturación:</strong> RD$200,000 a RD$2,000,000 al mes</li>
+        <li><strong>Sistema actual:</strong> Excel + libreta + WhatsApp, o un POS viejo (StarSISA, WilPOS, o "el que dejó el primo")</li>
+        <li><strong>Estado mental:</strong> nervioso por Ley 32-23, sabe que el 15 de mayo de 2026 viene encima</li>
+        <li><strong>Cobra:</strong> efectivo + tarjeta + transferencia + a veces fía</li>
+      </ul>
+    </div>
+    <div class="col box red">
+      <h3>Señales de compra</h3>
+      <ul>
+        <li>"Ya me llegó la carta de DGII"</li>
+        <li>"Mi contador me dijo que tengo que facturar electrónico"</li>
+        <li>"Estoy buscando algo más serio que WilPOS"</li>
+        <li>"El sistema actual no me da reportes claros"</li>
+        <li>"Mis meseros pelean con la cuenta"</li>
+        <li>"Anoche se fue la luz y no pude cobrar"</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 style="margin-top:18px">Dónde encontrarlo</h3>
+  <div class="row">
+    <div class="col box">
+      <strong>Online</strong>
+      <ul>
+        <li>Grupos de WhatsApp de dueños de restaurantes RD</li>
+        <li>Instagram con hashtags #RestaurantesRD #SantoDomingoEats #RDFoodies</li>
+        <li>Grupos de Facebook "Emprendedores Gastronómicos RD"</li>
+        <li>LinkedIn — directos a managers de restaurantes mid-tier</li>
+      </ul>
+    </div>
+    <div class="col box">
+      <strong>Offline</strong>
+      <ul>
+        <li>Eventos gastronómicos: Santo Domingo, Punta Cana, Santiago</li>
+        <li>Ferias de proveedores HORECA</li>
+        <li>Referidos del primer cliente (siempre dale 1 mes gratis por cada referido cerrado)</li>
+        <li>Caminata directa: Zona Colonial, Piantini, Naco, Bávaro</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer class="bot"><div>Terminal X · Playbook Restaurantes v1.0</div><div>Pág. 3</div></footer>
+</section>
+
+<!-- 3. OBJECIONES (page 1 of 2) -->
+<section class="page">
+  <header class="top"><div class="wordmark">TERMINAL <span class="x">X</span></div><div style="font-size:11px">03 · Objeciones · 1 de 2</div></header>
+  <h2>3. Las 5 objeciones más comunes</h2>
+  <p class="lead">Memoriza estas respuestas. Si las dices con seguridad, el 80% de las objeciones mueren ahí.</p>
+
+  <div class="qa">
+    <div class="q">"Alegra es más barato."</div>
+    <div class="a">Alegra arranca en RD$1,800, sí. Pero Alegra <strong>no</strong> está certificada directa con DGII — usa un PSFE intermediario, y el PSFE te cobra por cada e-CF que emites. Si haces 200 comprobantes al mes a RD$8 cada uno, son <strong>RD$1,600 extra mensuales</strong> — más el certificado Viafirma que pagas aparte (RD$2,360/año). Terminal X es <strong>plano</strong>: RD$4,490, sin comprobantes pagados, certificado incluido. A 200 comprobantes/mes ya somos más baratos. A 500 te ahorramos RD$30,000 al año.</div>
+  </div>
+
+  <div class="qa">
+    <div class="q">"Ya tengo un sistema, no quiero cambiar."</div>
+    <div class="a">Te entiendo, cambiar de POS es un dolor. Por eso ofrecemos <strong>configuración remota incluida</strong> — tú no tocas nada. Yo importo tu menú, tus mesas, tus empleados. En 48 horas estás operando. Y si en 7 días no te convence, no pagas. ¿Cuál es tu sistema actual? (escucha — si dice WilPOS / Alegra / StarSISA / Excel, ataca el punto débil específico). Una pregunta: ¿tu sistema actual está listo para el 15 de mayo de 2026?</div>
+  </div>
+
+  <div class="qa">
+    <div class="q">"Mi cocina es chica, no necesito KDS."</div>
+    <div class="a">Perfecto, no lo uses. Pero tenlo. El día que abres una segunda sucursal, o agregas barra, o tu cocinero nuevo no entiende la letra del mesero — ahí lo prendes. No pagas extra por tenerlo. Alegra te cobraría RD$1,500 más al mes solo por el módulo de cocina. Aquí ya viene.</div>
+  </div>
+
+  <div class="qa">
+    <div class="q">"¿Y si se me va la luz?"</div>
+    <div class="a">Esa es una de las razones por la que construimos Terminal X aquí, en RD, no en Colombia ni en México. Funcionamos <strong>72 horas offline completas</strong>. Sigues cobrando, sigues imprimiendo recibos, los e-CF se encolan y se envían solos cuando vuelve el internet. La cola se procesa con el indicador de envío diferido que la propia DGII permite por la regla de las 72 horas. Alegra se cae con la luz. Nosotros no.</div>
+  </div>
+
+  <footer class="bot"><div>Terminal X · Playbook Restaurantes v1.0</div><div>Pág. 4</div></footer>
+</section>
+
+<!-- 3. OBJECIONES page 2 -->
+<section class="page">
+  <header class="top"><div class="wordmark">TERMINAL <span class="x">X</span></div><div style="font-size:11px">03 · Objeciones · 2 de 2</div></header>
+  <h2>3. Objeciones (continuación)</h2>
+
+  <div class="qa">
+    <div class="q">"¿Qué pasa con DGII después del 15 de mayo?"</div>
+    <div class="a">A partir del 15 de mayo de 2026, el cumplimiento de Ley 32-23 se vuelve obligatorio en escala. Si tu facturación supera el umbral y no estás emitiendo electrónicamente, son multas y bloqueos en la Oficina Virtual. Terminal X tiene <strong>Certificado #42483 directo</strong> con DGII desde producción real — no es promesa, ya estamos emitiendo e-CF aceptados (E31, E32, E33, E34, hasta E47). El día que la ley aprieta, tú no haces nada — sigues cobrando. Tus competidores que no se prepararon van a perder ventas mientras corren a contratar un PSFE.</div>
+  </div>
+
+  <div class="box red">
+    <h3>Bonus: respuestas rápidas a objeciones menores</h3>
+    <table>
+      <tr><th style="width:40%">Objeción</th><th>Respuesta de bolsillo</th></tr>
+      <tr><td>"No tengo internet bueno"</td><td>Offline 72h. Solo necesitas internet 1 vez cada 3 días.</td></tr>
+      <tr><td>"Mis meseros son medio analfabetos digitales"</td><td>Búsqueda por nombre + grid visual. Si sabe tocar WhatsApp, sabe usar Terminal X.</td></tr>
+      <tr><td>"¿Y si quiebro?"</td><td>7 días gratis sin tarjeta. Cancelas cuando quieras, sin penalidad.</td></tr>
+      <tr><td>"¿Y mi data?"</td><td>Es tuya. Exportas en CSV cuando quieras. Sin candado.</td></tr>
+      <tr><td>"El facturador gratuito de DGII me sirve"</td><td>Es un formulario web. No tiene mesas, ni cocina, ni offline, ni reportes, ni propinas, ni móvil. Es para freelancers, no para restaurantes.</td></tr>
+      <tr><td>"Necesito hablarlo con mi contador"</td><td>Perfecto — invítalo a la demo. Le encanta el reporte ITBIS-net y los E31 a corporativos.</td></tr>
+    </table>
+  </div>
+
+  <footer class="bot"><div>Terminal X · Playbook Restaurantes v1.0</div><div>Pág. 5</div></footer>
+</section>
+
+<!-- 4. DEMO 7 MIN -->
+<section class="page">
+  <header class="top"><div class="wordmark">TERMINAL <span class="x">X</span></div><div style="font-size:11px">04 · Demo en 7 minutos · 1 de 2</div></header>
+  <h2>4. La demo en 7 minutos</h2>
+  <p class="lead">Esta es la demo que cierra. Ni más ni menos. No improvises — sigue el script.</p>
+
+  <ol class="steps">
+    <li>
+      <strong>Abre el demo en vivo</strong> (0:00–0:30)<br/>
+      Ve a <strong>terminalxpos.com/demo/restaurante</strong>. Sin login, sin trampa, datos reales pre-cargados. Mientras carga, di: "Esto que vas a ver es el sistema completo, no un video, no una maqueta — datos reales corriendo ahora mismo."
+    </li>
+    <li>
+      <strong>Muestra el grid de mesas</strong> (0:30–1:30)<br/>
+      "Aquí están tus 10 mesas. Verde = libre, rojo = ocupada, ámbar = pidiendo cuenta. Tu cajero ve el restaurante completo de un vistazo." Señala una mesa LIBRE y otra OCUPADA. Di el nombre del restaurante del prospecto si lo sabes — "imagínate aquí mesa 5 de [Nombre del lugar]".
+    </li>
+    <li>
+      <strong>Click en una mesa, agrega 3 items</strong> (1:30–3:00)<br/>
+      Click "Mesa 4". Tipea "moro" en la búsqueda — aparece "Moro de habichuelas" al instante. Agrega. Tipea "cerve" — aparece "Cerveza Presidente". Agrega 2. "Tu mesero busca por nombre, no se aprende códigos. Plato nuevo en el menú? Lo agrega y al toque aparece."
+    </li>
+    <li>
+      <strong>Muestra ⭐ Más vendidos</strong> (3:00–3:45)<br/>
+      Click en el tab "⭐ Más vendidos". "Esto se auto-genera con los últimos 30 días de venta. El mesero nuevo no tiene que aprenderse el menú — los más pedidos están en la primera pantalla. Vendes lo que vende."
+    </li>
+    <li>
+      <strong>Demuestra dividir cuenta</strong> (3:45–4:45)<br/>
+      Click "Dividir cuenta". Asigna items a sillas. "Acá viene el dolor real: 4 amigos, cada uno paga lo suyo. Tu mesero no agarra calculadora — el sistema lo divide." Si el cliente reacciona positivo, este es el momento de oro — sigue.
+    </li>
+    <li>
+      <strong>Click "Pedir cuenta" → mesa flips ámbar</strong> (4:45–5:30)<br/>
+      "El cliente pide la cuenta — la mesa ahora es ámbar. La cocina sabe que ya no entra nada más, el cajero sabe que viene el cobro. Cero confusión."
+    </li>
+    <li>
+      <strong>Cobrar → e-CF → QR DGII → impresión</strong> (5:30–7:00)<br/>
+      Click "Cobrar". Pago mixto: RD$1,500 efectivo + RD$2,000 tarjeta. Click "Confirmar". <strong>Espera 2 segundos</strong> y muestra el e-CF generado con QR de DGII real. "Esto que ves aquí — este QR — DGII lo registró en este momento. No es una imagen, es un comprobante fiscal aceptado. Y el recibo se imprimió antes de que el mesero camine de vuelta a la mesa."
+    </li>
+  </ol>
+
+  <footer class="bot"><div>Terminal X · Playbook Restaurantes v1.0</div><div>Pág. 6</div></footer>
+</section>
+
+<!-- 4. DEMO close -->
+<section class="page crimson">
+  <header class="top"><div class="wordmark" style="color:#fff">TERMINAL <span class="x">X</span></div><div style="font-size:11px;color:#fff">04 · Cierre de demo</div></header>
+  <h2 style="color:#fff">El cierre después de la demo</h2>
+  <p class="lead" style="color:#fff">Termina la demo. Cállate. Deja que el cliente hable primero.</p>
+
+  <div class="box" style="background:#fff;color:#000;border-color:#000">
+    <h3 style="color:#000">El cierre exacto, palabra por palabra:</h3>
+    <p>"Bueno, eso es Terminal X en 7 minutos. Yo te activo la cuenta hoy mismo, configuro tu menú esta semana, y el lunes estás cobrando con e-CF. <strong>Tienes 7 días gratis para probarlo con tus mesas reales</strong> — sin tarjeta, sin compromiso. ¿Empezamos?"</p>
+  </div>
+
+  <h3 style="color:#fff;margin-top:24px">Si dice "déjame pensarlo":</h3>
+  <p style="color:#fff">"Claro. Una cosa: el 15 de mayo se vence el plazo de DGII. Te dejo activado el trial de 7 días gratis ahora — si no te gusta, no pagas, no pasa nada. Pero al menos quedas listo. ¿Te parece?"</p>
+
+  <h3 style="color:#fff;margin-top:18px">Si dice "el precio está alto":</h3>
+  <p style="color:#fff">"Te entiendo. ¿Cuánto facturas al mes? (escucha). RD$X. Pro PLUS te cuesta el 0.7% de eso. Tu PSFE actual con Alegra te cuesta más solo en comprobantes. Vamos al anual con 15% OFF — bajas a RD$3,817/mes y te ahorras RD$8,000 al año."</p>
+
+  <footer class="bot"><div style="color:#fff">Terminal X · Playbook Restaurantes v1.0</div><div style="color:#fff">Pág. 7</div></footer>
+</section>
+
+<!-- 5. PLAN -->
+<section class="page">
+  <header class="top"><div class="wordmark">TERMINAL <span class="x">X</span></div><div style="font-size:11px">05 · Plan + comparativa</div></header>
+  <h2>5. El plan + qué incluye</h2>
+  <p class="lead">Pro PLUS — RD$4,490/mes. Anual con 15% OFF baja a RD$3,817/mes (ahorras ~RD$8,000/año).</p>
+
+  <table>
+    <tr>
+      <th style="width:50%">Función</th>
+      <th style="width:16%;text-align:center">Terminal X<br/>Pro PLUS</th>
+      <th style="width:17%;text-align:center">Alegra</th>
+      <th style="width:17%;text-align:center">WilPOS</th>
+    </tr>
+    <tr><td>Certificado DGII directo (sin PSFE)</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="x-mark">NO</span></td><td style="text-align:center"><span class="x-mark">NO</span></td></tr>
+    <tr><td>Costo plano por e-CF emitido</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="x-mark">PAGA c/u</span></td><td style="text-align:center"><span class="x-mark">PAGA c/u</span></td></tr>
+    <tr><td>Certificado Viafirma incluido (ahorro RD$2,360/año)</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="x-mark">NO</span></td><td style="text-align:center"><span class="x-mark">NO</span></td></tr>
+    <tr><td>Modo offline 72 horas</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="x-mark">NO</span></td><td style="text-align:center">Parcial</td></tr>
+    <tr><td>Mesas con grid + estados (LIBRE / OCUPADA / A CUENTA)</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="x-mark">NO</span></td><td style="text-align:center">Básico</td></tr>
+    <tr><td>KDS profesional fullscreen (cocina + bar)</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="x-mark">NO</span></td><td style="text-align:center"><span class="x-mark">NO</span></td></tr>
+    <tr><td>MenuBuilder con modificadores + multi-printer</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center">Limitado</td><td style="text-align:center">Limitado</td></tr>
+    <tr><td>Mas vendidos auto-rankeado (30 dias)</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="x-mark">NO</span></td><td style="text-align:center"><span class="x-mark">NO</span></td></tr>
+    <tr><td>Division de cuenta por item o por silla</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="x-mark">NO</span></td><td style="text-align:center">Solo por item</td></tr>
+    <tr><td>Propina Ley 10% + libre + reparto al staff</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center">Manual</td><td style="text-align:center">Manual</td></tr>
+    <tr><td>Comisiones por mesero / cajero</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="x-mark">NO</span></td><td style="text-align:center"><span class="x-mark">NO</span></td></tr>
+    <tr><td>Reportes por turno (almuerzo vs cena)</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="x-mark">NO</span></td><td style="text-align:center"><span class="x-mark">NO</span></td></tr>
+    <tr><td>Pago mixto (efectivo + tarjeta + transferencia + credito)</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="check">SI</span></td></tr>
+    <tr><td>e-CF E31 (factura credito fiscal corporativo)</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center">Via PSFE</td><td style="text-align:center"><span class="x-mark">NO</span></td></tr>
+    <tr><td>WhatsApp envio de recibos (Pro MAX)</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="x-mark">NO</span></td><td style="text-align:center"><span class="x-mark">NO</span></td></tr>
+    <tr><td>Conteo fisico de inventario + reporte de varianza</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center">Basico</td><td style="text-align:center">Basico</td></tr>
+    <tr><td>Modo hibrido (restaurante + tienda)</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="x-mark">NO</span></td><td style="text-align:center"><span class="x-mark">NO</span></td></tr>
+    <tr><td>Modo Kiosk con auto-lock</td><td style="text-align:center"><span class="check">SI</span></td><td style="text-align:center"><span class="x-mark">NO</span></td><td style="text-align:center"><span class="x-mark">NO</span></td></tr>
+    <tr style="background:#000;color:#fff"><td><strong>Precio mensual</strong></td><td style="text-align:center"><strong>RD$4,490</strong></td><td style="text-align:center">RD$1,800–3,500<br/>+ por e-CF</td><td style="text-align:center">RD$2,000–4,000</td></tr>
+  </table>
+
+  <p style="margin-top:8px;font-size:11px"><em>Pro PLUS incluye 5 usuarios. Pro MAX (RD$6,990/mes) agrega WhatsApp recibos, dashboard remoto, ticket-locks multi-sucursal, modo offline PWA web, daily digest. Trial 7 días gratis Pro MAX para todos los signups.</em></p>
+
+  <footer class="bot"><div>Terminal X · Playbook Restaurantes v1.0</div><div>Pág. 8</div></footer>
+</section>
+
+<!-- 6. CIERRE 3 PASOS -->
+<section class="page">
+  <header class="top"><div class="wordmark">TERMINAL <span class="x">X</span></div><div style="font-size:11px">06 · Activacion en 3 pasos</div></header>
+  <h2>6. Cierre + activación en 3 pasos</h2>
+  <p class="lead">No es self-serve. Pro PLUS incluye configuración remota — el cliente no tiene que hacer nada técnico.</p>
+
+  <ol class="steps">
+    <li>
+      <strong>Cliente firma el compromiso por WhatsApp</strong><br/>
+      Mándale al WhatsApp <strong>+1 (809) 828-2971</strong> el siguiente mensaje (plantilla):<br/>
+      <em style="font-size:12px;display:block;margin-top:6px;border-left:3px solid var(--crimson);padding-left:10px">
+      "Hola Mike, soy [nombre], dueño de [nombre del restaurante] en [ubicación]. Quiero arrancar Terminal X Pro PLUS. Mi RNC es [RNC]. ¿Me puedes mandar el link de activación y la lista de lo que necesitas para configurar mi menú?"
+      </em>
+    </li>
+    <li>
+      <strong>Mike configura la cuenta de forma remota</strong><br/>
+      Pro PLUS <strong>incluye configuración remota</strong>. Mike crea el negocio, importa el menú (CSV o foto del menú actual), configura mesas, agrega empleados, instala el certificado Viafirma, conecta DGII. Todo en 24–48 horas. El cliente solo manda: foto del menú, lista de mesas, lista de empleados con cédula, y el .p12 de Viafirma si ya lo tiene (si no, nosotros lo emitimos).
+    </li>
+    <li>
+      <strong>Cliente recibe credenciales + capacitación de 30 minutos</strong><br/>
+      Le mandas: usuario, PIN, license key TXL-XXXX, y agendan video llamada de 30 min para entrenar al cajero principal. La capacitación cubre: abrir turno, abrir mesa, agregar items, dividir cuenta, cobrar, cerrar turno, ver reporte. El resto se aprende solo en 2 días de operación.
+    </li>
+  </ol>
+
+  <div class="box red" style="margin-top:20px">
+    <h3>Garantía de cierre</h3>
+    <p><strong>7 días gratis Pro MAX</strong> para que pruebe en producción real. Sin tarjeta, sin compromiso, cancelable en cualquier momento. Si al día 7 no le funciona, cero cobro y le exportamos su data en CSV gratis.</p>
+  </div>
+
+  <footer class="bot"><div>Terminal X · Playbook Restaurantes v1.0</div><div>Pág. 9</div></footer>
+</section>
+
+<!-- 7. CASOS DE USO -->
+<section class="page">
+  <header class="top"><div class="wordmark">TERMINAL <span class="x">X</span></div><div style="font-size:11px">07 · Casos ganadores</div></header>
+  <h2>7. Tres casos de uso ganadores</h2>
+  <p class="lead">Tres escenarios reales del mercado RD con ROI calculado. Memorízalos.</p>
+
+  <div class="case">
+    <h3>Caso A — Restaurante familiar, 12 mesas, RD$600,000/mes</h3>
+    <p><strong>Situación:</strong> Comedor de barrio en Naco, dueño + esposa + 4 empleados. Hoy usa Alegra básico + libreta para mesas + WhatsApp para pedidos.</p>
+    <p><strong>Volumen e-CF estimado:</strong> ~250 comprobantes/mes. Con Alegra paga RD$2,500 plan + RD$2,000 PSFE = RD$4,500 efectivo. Sin mesas reales, sin KDS, sin propinas Ley 10%.</p>
+    <p><strong>Con Terminal X Pro PLUS:</strong> RD$4,490 plano. Mesas + KDS + comisiones a meseros + propinas Ley + e-CF directo + Viafirma incluido. <strong>ROI: paridad de costo + 4 features que Alegra no tiene.</strong> Si va al plan anual con 15% OFF, baja a RD$3,817 — ahorra <strong>RD$8,000/año</strong> contra Alegra y se queda con el sistema más serio.</p>
+  </div>
+
+  <div class="case">
+    <h3>Caso B — Bar de fin de semana, 6 mesas + delivery, RD$400,000/mes</h3>
+    <p><strong>Situación:</strong> Bar en Bávaro abre jueves a domingo. Apagones frecuentes en temporada alta. Hoy cobra todo en efectivo + Yappy, sin sistema, libreta para crédito.</p>
+    <p><strong>Dolor real:</strong> sábado pasado se fue la luz 4 horas en pleno servicio — perdió ~RD$30,000 en ventas porque no podía facturar.</p>
+    <p><strong>Con Terminal X Pro PLUS:</strong> Modo offline 72 horas — la luz se va, la operación NO se cae. Recibos siguen imprimiendo (UPS de RD$3,000 alcanza), e-CF se encolan, todo se sincroniza solo cuando vuelve. <strong>ROI directo: 1 apagón evitado al mes ya pagó el plan completo del año.</strong> Más comisiones automáticas para los bartenders + propina libre con reparto.</p>
+  </div>
+
+  <div class="case">
+    <h3>Caso C — Cafetería con retail (hybrid), 5 mesas + venta de granos/postres</h3>
+    <p><strong>Situación:</strong> Cafetería en la Zona Colonial — 5 mesas para café + venta al detal de bolsas de café, postres empaquetados, tazas de marca. Hoy usa dos sistemas: uno para mesas (libreta) y otro para retail (Excel).</p>
+    <p><strong>Con Terminal X Pro PLUS modo hybrid:</strong> una sola instalación cubre <strong>mesas + retail</strong>. El cajero alterna entre Restaurant POS y Retail POS desde el mismo dispositivo. Inventario unificado: la bolsa de café que vendes al detal y la que usas para servir el espresso descuentan del mismo stock. Reporte ITBIS-net unificado para el contador. <strong>ROI: 1 sistema en vez de 2, 0 doble entrada de datos, 1 reporte fiscal mensual en vez de cuadrar Excel a mano.</strong></p>
+  </div>
+
+  <footer class="bot"><div>Terminal X · Playbook Restaurantes v1.0</div><div>Pág. 10</div></footer>
+</section>
+
+<!-- CIERRE / CONTACTO -->
+<section class="page crimson">
+  <header class="top"><div class="wordmark" style="color:#fff">TERMINAL <span class="x">X</span></div><div style="font-size:11px;color:#fff">Cierre · Contacto</div></header>
+  <h1 style="color:#fff;margin-top:30px">Listo. Ahora a vender.</h1>
+  <p class="lead" style="color:#fff;margin-top:14px">Tienes el producto, los datos, las objeciones, la demo, el precio y los casos. Lo único que falta es el WhatsApp del próximo cliente.</p>
+
+  <div class="box" style="background:#fff;color:#000;border-color:#000;margin-top:30px">
+    <h3 style="color:#000">Datos de contacto</h3>
+    <p><strong>WhatsApp directo (cierre y activación):</strong> +1 (809) 828-2971</p>
+    <p><strong>Sitio web del producto:</strong> terminalxpos.com</p>
+    <p><strong>Demo en vivo (sin login):</strong> terminalxpos.com/demo/restaurante</p>
+    <p><strong>Empresa:</strong> X Group Holdings SRL — Santo Domingo, RD</p>
+    <p><strong>Certificación DGII:</strong> Cert #42483 — Emisor Electrónico directo</p>
+  </div>
+
+  <div class="box" style="background:#000;color:#fff;border-color:#fff;margin-top:18px">
+    <h3 style="color:#fff">Referencia operacional verificable</h3>
+    <p style="color:#fff">Studio X Carwash (Santo Domingo) — opera Terminal X en producción real desde v1.0 hasta hoy v2.14. Volumen diario: 80–120 tickets. Uptime offline probado en apagones reales de hasta 8 horas. No es testimonio inventado, es el laboratorio donde cada release pasa antes de llegar al cliente.</p>
+  </div>
+
+  <div class="box" style="background:#fff;color:#000;border-color:#000;margin-top:18px">
+    <h3 style="color:#000">Garantía final</h3>
+    <p><strong>7 días gratis Pro MAX, sin tarjeta de crédito, cancelable en cualquier momento.</strong> Si al día 7 no convierte, cero cobro y exportación de data sin costo.</p>
+  </div>
+
+  <footer class="bot"><div style="color:#fff">Terminal X · Playbook Restaurantes v1.0</div><div style="color:#fff">Pág. 11 · FIN</div></footer>
+</section>
+
+</body>
+</html>

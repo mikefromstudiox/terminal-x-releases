@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="es-DO">
+<head>
+<meta charset="utf-8"/>
+<title>Terminal X · Concesionario</title>
+<style>
+  @page { size: Letter; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; color: #000; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { width: 8.5in; }
+  .page { width: 8.5in; min-height: 11in; padding: 0.75in 0.85in; page-break-after: always; position: relative; }
+  .page:last-child { page-break-after: auto; }
+  h1 { font-size: 42pt; font-weight: 900; line-height: 1; letter-spacing: -0.02em; }
+  h2 { font-size: 22pt; font-weight: 800; line-height: 1.1; letter-spacing: -0.01em; margin-bottom: 0.18in; }
+  h3 { font-size: 13pt; font-weight: 700; margin-bottom: 0.06in; }
+  p, li { font-size: 11pt; line-height: 1.5; }
+  small { font-size: 9pt; color: #666; }
+  .crimson { color: #b3001e; }
+  .bg-crimson { background: #b3001e; color: #fff; }
+  .bg-black { background: #000; color: #fff; }
+  .border-black { border: 1pt solid #000; }
+  .center { text-align: center; }
+  .right { text-align: right; }
+  .uppercase { text-transform: uppercase; letter-spacing: 0.06em; }
+  .small-caps { font-size: 8pt; letter-spacing: 0.18em; text-transform: uppercase; }
+  ul { padding-left: 16pt; }
+  ul li { margin-bottom: 5pt; }
+  .grid { display: grid; gap: 0.18in; }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+  /* COVER */
+  .cover { background: #000; color: #fff; padding: 1in 0.85in; }
+  .cover .logo-row { display: flex; align-items: center; gap: 12pt; margin-bottom: 0.6in; }
+  .cover .logo-x { width: 44pt; height: 44pt; background: #b3001e; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 26pt; }
+  .cover h1 { color: #fff; font-size: 56pt; margin: 0.4in 0 0.2in; }
+  .cover .accent { color: #b3001e; }
+  .cover .lede { font-size: 14pt; color: #ccc; max-width: 5.5in; line-height: 1.4; margin-top: 0.3in; }
+  .cover .footer { position: absolute; bottom: 0.6in; left: 0.85in; right: 0.85in; display: flex; justify-content: space-between; color: #999; font-size: 9pt; }
+
+  /* TILE */
+  .tile { border: 1pt solid #000; padding: 0.18in; }
+  .tile .num { font-size: 28pt; font-weight: 900; line-height: 1; }
+  .tile .label { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.08em; color: #444; margin-top: 6pt; }
+  .tile.dark { background: #000; color: #fff; }
+  .tile.dark .label { color: #ccc; }
+  .tile.crimson { background: #b3001e; color: #fff; }
+  .tile.crimson .label { color: #ffd0d8; }
+
+  /* SECTION */
+  .section { margin-bottom: 0.35in; }
+  .rule { height: 2pt; background: #000; margin: 0.18in 0; }
+  .rule.crimson { background: #b3001e; }
+
+  /* COMPARE TABLE */
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #000; color: #fff; padding: 8pt 10pt; text-align: left; font-size: 10pt; text-transform: uppercase; letter-spacing: 0.06em; }
+  td { padding: 8pt 10pt; border-bottom: 0.5pt solid #ccc; font-size: 10pt; vertical-align: top; }
+  td.check { color: #b3001e; font-weight: 700; }
+  tr:last-child td { border-bottom: 0; }
+
+  /* QUOTE */
+  .quote { padding: 0.3in; border-left: 4pt solid #b3001e; background: #f7f7f7; font-style: italic; }
+  .quote .who { font-style: normal; font-weight: 700; margin-top: 8pt; }
+
+  /* CTA */
+  .cta { background: #000; color: #fff; padding: 0.4in; text-align: center; }
+  .cta h2 { color: #fff; }
+  .cta .price { font-size: 38pt; font-weight: 900; color: #b3001e; line-height: 1; margin: 0.2in 0 0.1in; }
+  .cta .price small { color: #999; font-size: 10pt; font-weight: 400; }
+  .cta .button { display: inline-block; margin-top: 0.2in; padding: 12pt 28pt; background: #b3001e; color: #fff; font-weight: 800; text-decoration: none; }
+
+  /* STEP */
+  .step { display: flex; gap: 14pt; align-items: flex-start; margin-bottom: 0.18in; }
+  .step .n { flex: 0 0 32pt; height: 32pt; background: #b3001e; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14pt; }
+  .step .body { flex: 1; padding-top: 4pt; }
+  .step .body h3 { margin-bottom: 3pt; }
+  .step .body p { font-size: 10pt; }
+</style>
+</head>
+<body>
+
+<!-- ====================================================================== -->
+<!-- COVER                                                                  -->
+<!-- ====================================================================== -->
+<div class="page cover">
+  <div class="logo-row">
+    <div class="logo-x">X</div>
+    <div>
+      <div style="font-size: 11pt; font-weight: 700;">TERMINAL X</div>
+      <div style="font-size: 9pt; color: #999; letter-spacing: 0.1em;">PARA CONCESIONARIOS</div>
+    </div>
+  </div>
+
+  <h1>Vende más<br/>autos con<br/><span class="accent">menos papel.</span></h1>
+
+  <p class="lede">El sistema POS especializado para concesionarios dominicanos.<br/>
+    Inventario con fotos, financiamiento al instante, comprobantes E31 fiscales,<br/>
+    y comisiones automatizadas — todo en una sola pantalla.</p>
+
+  <div class="footer">
+    <span>Studio X · Santo Domingo, RD</span>
+    <span>WhatsApp +1 (809) 828-2971 · terminalxpos.com</span>
+  </div>
+</div>
+
+<!-- ====================================================================== -->
+<!-- PROBLEM PAGE                                                           -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="small-caps crimson">El problema</div>
+  <h2>Lo que pasa hoy en su concesionario</h2>
+  <div class="rule crimson"></div>
+
+  <div class="grid grid-2" style="margin-top: 0.3in;">
+    <div>
+      <h3>Inventario en una hoja de Excel</h3>
+      <p>Las fotos viven en WhatsApp. El VIN está en una libreta. Cuando un cliente pregunta por una unidad, alguien tiene que correr al patio a verificar.</p>
+    </div>
+    <div>
+      <h3>Cálculos de financiamiento a mano</h3>
+      <p>Cada vez que un cliente pregunta "¿y a 60 meses cuánto me sale?", el vendedor saca la calculadora del celular. Tres clientes después, el negocio cierra.</p>
+    </div>
+    <div>
+      <h3>Sin trazabilidad del prospecto</h3>
+      <p>El cliente vino el martes. Dijo que volvería el viernes. ¿Quién lo atendió? ¿Qué unidad le interesó? ¿Alguien le dio seguimiento? Nadie sabe.</p>
+    </div>
+    <div>
+      <h3>E-CF / E31 manual o ausente</h3>
+      <p>A partir de mayo 2026 la DGII exige comprobantes electrónicos. Las ventas ≥ RD$250,000 piden E31 (Crédito Fiscal). Su concesionario está en la mira.</p>
+    </div>
+    <div>
+      <h3>Comisiones que no cuadran</h3>
+      <p>El vendedor jura que vendió 4 unidades este mes. Contabilidad dice 3. Nadie tiene un registro auditable. Pierde tiempo y confianza.</p>
+    </div>
+    <div>
+      <h3>Documentos vencidos sin avisar</h3>
+      <p>Una matrícula vencida es una venta perdida. El seguro vencido es un riesgo legal. Hoy nadie le avisa hasta que es tarde.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ====================================================================== -->
+<!-- SOLUTION HEADER PAGE                                                   -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="small-caps">La solución</div>
+  <h2>Terminal X — Concesionario</h2>
+  <div class="rule"></div>
+
+  <p style="font-size: 13pt; line-height: 1.5; max-width: 6.5in; margin: 0.25in 0 0.4in;">
+    Un sistema completo construido específicamente para concesionarios en República Dominicana.
+    Certificados como Emisor Electrónico ante la DGII (RNC 133410321). Funciona en computadora,
+    web y celular. Resuelve los seis problemas anteriores — y además le ahorra horas cada semana.
+  </p>
+
+  <div class="grid grid-3">
+    <div class="tile dark">
+      <div class="num">5</div>
+      <div class="label">Pantallas dedicadas</div>
+      <p style="margin-top: 8pt; font-size: 9pt; color: #ccc;">Resumen, Inventario de Vehículos, Prospectos, Pruebas de Manejo, Cierre de Venta.</p>
+    </div>
+    <div class="tile crimson">
+      <div class="num">100%</div>
+      <div class="label">DGII Certificado</div>
+      <p style="margin-top: 8pt; font-size: 9pt; color: #ffd0d8;">E31 / E32 firmados con su certificado .p12. Aprobado por DGII Direct.</p>
+    </div>
+    <div class="tile">
+      <div class="num">RD$0</div>
+      <div class="label">De papel desperdiciado</div>
+      <p style="margin-top: 8pt; font-size: 9pt; color: #444;">Comprobantes electrónicos. Documentos en la nube. Fotos de cada unidad.</p>
+    </div>
+  </div>
+
+  <div class="section" style="margin-top: 0.5in;">
+    <h3>Por qué es diferente</h3>
+    <p>La mayoría de los POS son cajas registradoras adaptadas. Terminal X Concesionario fue diseñado
+    desde cero pensando en cómo realmente funciona la venta de vehículos en RD: con intercambios,
+    inicial, financiamiento a 60 meses, y E31 obligatorio sobre los RD$250K. Nada que adaptar — todo ya está hecho.</p>
+  </div>
+</div>
+
+<!-- ====================================================================== -->
+<!-- FEATURES — VEHICLE INVENTORY                                           -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="small-caps crimson">Característica 1 de 6</div>
+  <h2>Inventario con fotos y documentos</h2>
+  <div class="rule crimson"></div>
+
+  <div class="grid grid-2" style="margin-top: 0.25in;">
+    <div>
+      <h3>Cada unidad, completa</h3>
+      <p>Marca · Modelo · Año · Color · VIN · Stock # · Kilometraje · Costo · Precio de venta · Estado del título · Condición (nueva / usada / certificada).</p>
+
+      <h3 style="margin-top: 0.2in;">Fotos profesionales</h3>
+      <p>Suba múltiples fotos por unidad directamente al sistema. Aparecen en el catálogo, en el listado de inventario, y en el cierre de venta cuando el cliente está decidiendo.</p>
+
+      <h3 style="margin-top: 0.2in;">Importar desde Excel</h3>
+      <p>¿Tiene 80 unidades en una hoja de cálculo? Suba el CSV. El sistema reconoce los encabezados en español o inglés automáticamente — VIN, marca, modelo, kilometraje, precio. Le muestra una vista previa antes de importar.</p>
+    </div>
+
+    <div>
+      <h3>Documentos por unidad</h3>
+      <p>Título · Matrícula · Seguro · Inspección · Otros. Cada documento con fecha de vencimiento. El sistema le avisa 30 días antes de que algo se venza.</p>
+
+      <h3 style="margin-top: 0.2in;">Estados del vehículo</h3>
+      <ul>
+        <li><strong>Disponible</strong> — visible en el cierre de venta</li>
+        <li><strong>Reservado</strong> — apartado por un cliente</li>
+        <li><strong>Vendido</strong> — fecha automática al cerrar</li>
+        <li><strong>En Servicio</strong> — fuera de venta temporalmente</li>
+      </ul>
+
+      <h3 style="margin-top: 0.2in;">Búsqueda instantánea</h3>
+      <p>Escriba VIN, stock #, marca, modelo o color. Resultados en tiempo real. Filtre por estado.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ====================================================================== -->
+<!-- FEATURES — DEAL BUILDER                                                -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="small-caps crimson">Característica 2 de 6</div>
+  <h2>Cierre de venta en 4 pasos</h2>
+  <div class="rule crimson"></div>
+
+  <div class="step" style="margin-top: 0.3in;">
+    <div class="n">1</div>
+    <div class="body">
+      <h3>Seleccione vehículo y cliente</h3>
+      <p>Foto en pantalla. Vendedor + comisión % automática. Precio de venta sugerido del listing — editable si negocia.</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="n">2</div>
+    <div class="body">
+      <h3>Intercambio (Trade-in) opcional</h3>
+      <p>Marca, modelo, año, VIN, kilometraje, valor de tasación. Al cerrar, la unidad de intercambio entra automáticamente al inventario con su costo de adquisición = valor tasado.</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="n">3</div>
+    <div class="body">
+      <h3>Financiamiento</h3>
+      <p>Inicial (Down Payment) · Plazo en meses · APR. La cuota mensual se calcula <strong>en vivo</strong> mientras el cliente decide. Sin calculadora. Sin esperar al gerente.</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="n">4</div>
+    <div class="body">
+      <h3>Cerrar venta</h3>
+      <p>El sistema detecta automáticamente: si la operación es ≥ RD$250,000, exige <strong>E31 (Crédito Fiscal)</strong>. Si es menor, emite E32 (Consumo Final). El cobro se hace en el módulo de pago habitual — efectivo, tarjeta, transferencia, financiamiento — y la unidad se marca como vendida.</p>
+    </div>
+  </div>
+
+  <div style="margin-top: 0.3in; padding: 0.18in; border: 1pt solid #b3001e; background: #fff5f7;">
+    <strong style="color: #b3001e;">Resultado:</strong>
+    <span style="font-size: 10pt;">Una venta cerrada en menos de 3 minutos. Comprobante DGII firmado. Comisión calculada. Inventario actualizado. Ticket impreso. Un solo flujo, cero papeles sueltos.</span>
+  </div>
+</div>
+
+<!-- ====================================================================== -->
+<!-- FEATURES — PIPELINE + TEST DRIVES                                      -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="small-caps crimson">Características 3 y 4 de 6</div>
+  <h2>Prospectos y Pruebas de Manejo</h2>
+  <div class="rule crimson"></div>
+
+  <div class="grid grid-2" style="margin-top: 0.25in;">
+    <div>
+      <h3>Pipeline de Ventas (Prospectos)</h3>
+      <p>Tablero estilo kanban con 5 etapas:</p>
+      <ul>
+        <li><strong>Prospecto</strong> — entró por la puerta</li>
+        <li><strong>Prueba de Manejo</strong> — agendado o realizado</li>
+        <li><strong>Negociación</strong> — discutiendo precio</li>
+        <li><strong>Financiamiento</strong> — esperando aprobación</li>
+        <li><strong>Cerrado</strong> — venta hecha</li>
+      </ul>
+
+      <h3 style="margin-top: 0.2in;">Seguimiento que no se le olvida</h3>
+      <p>Cada prospecto tiene fecha de próximo contacto. Si pasa la fecha y no hubo seguimiento, la tarjeta se pone <span style="color:#b3001e; font-weight: 700;">roja</span> con un aviso "Vencido". El número total de seguimientos vencidos aparece arriba de la pantalla — y en el panel del dueño.</p>
+
+      <p style="margin-top: 0.1in;">Origen del prospecto: Visita en local · WhatsApp · Web · Referido · Otro. Útil para saber qué canal le trae más ventas.</p>
+    </div>
+
+    <div>
+      <h3>Pruebas de Manejo</h3>
+      <p>Registro de cada prueba con:</p>
+      <ul>
+        <li>Cliente + Vehículo + Vendedor</li>
+        <li>Fecha y hora programada</li>
+        <li>Licencia de conducir</li>
+        <li>URL del descargo firmado</li>
+        <li>Notas del recorrido</li>
+      </ul>
+
+      <h3 style="margin-top: 0.2in;">Resultado de la prueba</h3>
+      <p>Después del recorrido, marque el resultado con un click:</p>
+      <ul>
+        <li><strong style="color:#000;">Vendido</strong> — se vincula al deal cerrado</li>
+        <li><strong>Seguimiento</strong> — crea automáticamente un prospecto en etapa "Negociación" con seguimiento programado a 3 días</li>
+        <li><strong style="color:#b3001e;">Perdido</strong> — registrado para análisis</li>
+      </ul>
+
+      <p style="margin-top: 0.1in;">Al final del mes, sabe exactamente qué porcentaje de pruebas terminan en venta — el indicador más importante de un concesionario.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ====================================================================== -->
+<!-- FEATURES — DASHBOARD + COMMISSIONS                                     -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="small-caps crimson">Características 5 y 6 de 6</div>
+  <h2>Resumen + Comisiones automáticas</h2>
+  <div class="rule crimson"></div>
+
+  <div style="margin-top: 0.25in;">
+    <h3>Pantalla de Resumen — su radar diario</h3>
+    <p>Al abrir el sistema, el dueño ve de un vistazo:</p>
+
+    <div class="grid grid-4" style="margin: 0.18in 0;">
+      <div class="tile" style="padding: 12pt;"><div style="font-size: 22pt; font-weight: 900;">12</div><div style="font-size: 7pt; text-transform: uppercase; color: #444;">Disponibles</div><small style="font-size: 7pt; color: #888;">37d en lote prom</small></div>
+      <div class="tile" style="padding: 12pt;"><div style="font-size: 22pt; font-weight: 900;">4</div><div style="font-size: 7pt; text-transform: uppercase; color: #444;">Ventas (mes)</div><small style="font-size: 7pt; color: #888;">RD$5,840,000</small></div>
+      <div class="tile" style="padding: 12pt;"><div style="font-size: 18pt; font-weight: 900;">RD$3.2M</div><div style="font-size: 7pt; text-transform: uppercase; color: #444;">Financiado mes</div></div>
+      <div class="tile" style="padding: 12pt;"><div style="font-size: 18pt; font-weight: 900;">RD$146K</div><div style="font-size: 7pt; text-transform: uppercase; color: #444;">Comisiones mes</div></div>
+    </div>
+
+    <p>Y debajo, alertas accionables: cuántos seguimientos están vencidos, cuántos documentos vencen en los próximos 30 días, las últimas 5 ventas con su comisión, y los seguimientos pendientes con un botón de "abrir" directo al pipeline.</p>
+  </div>
+
+  <div class="rule" style="margin-top: 0.3in;"></div>
+
+  <div style="margin-top: 0.25in;">
+    <h3>Comisiones que sí cuadran</h3>
+    <p>Cada venta tiene un % de comisión que se calcula sobre (precio − valor de intercambio). El monto se guarda en el deal. Aparece automáticamente en la <strong>nómina del vendedor</strong> al final de la quincena, junto con sus comisiones de tickets normales.</p>
+    <p style="margin-top: 0.1in;">Cuando se le paga la comisión, queda registrado quién la pagó, cuándo, y por cuál venta. Auditable. Cero discusiones.</p>
+  </div>
+</div>
+
+<!-- ====================================================================== -->
+<!-- COMPARISON TABLE                                                       -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="small-caps">Comparación</div>
+  <h2>Terminal X Concesionario vs. la alternativa</h2>
+  <div class="rule"></div>
+
+  <table style="margin-top: 0.25in;">
+    <thead><tr>
+      <th style="width: 38%;">Característica</th>
+      <th style="width: 21%;" class="center">Excel + WhatsApp</th>
+      <th style="width: 21%;" class="center">POS genérico</th>
+      <th style="width: 20%;" class="center" style="background: #b3001e;">Terminal X</th>
+    </tr></thead>
+    <tbody>
+      <tr><td>Inventario con fotos múltiples por unidad</td>          <td class="center">—</td><td class="center">parcial</td><td class="center check">✓</td></tr>
+      <tr><td>Búsqueda VIN / Stock # instantánea</td>                  <td class="center">—</td><td class="center">✓</td><td class="center check">✓</td></tr>
+      <tr><td>Importación CSV de inventario</td>                       <td class="center">—</td><td class="center">a veces</td><td class="center check">✓</td></tr>
+      <tr><td>Documentos (matrícula, seguro) con vencimiento</td>      <td class="center">—</td><td class="center">—</td><td class="center check">✓</td></tr>
+      <tr><td>Calculadora de financiamiento en vivo</td>               <td class="center">—</td><td class="center">—</td><td class="center check">✓</td></tr>
+      <tr><td>Trade-in que entra al inventario automático</td>         <td class="center">—</td><td class="center">—</td><td class="center check">✓</td></tr>
+      <tr><td>Pipeline de prospectos con seguimiento</td>              <td class="center">—</td><td class="center">—</td><td class="center check">✓</td></tr>
+      <tr><td>Pruebas de manejo con resultado</td>                     <td class="center">—</td><td class="center">—</td><td class="center check">✓</td></tr>
+      <tr><td>E31 automático ≥ RD$250K (DGII Direct)</td>              <td class="center">—</td><td class="center">manual</td><td class="center check">✓</td></tr>
+      <tr><td>Comisiones que pasan a nómina</td>                       <td class="center">—</td><td class="center">parcial</td><td class="center check">✓</td></tr>
+      <tr><td>Panel del dueño con KPIs en tiempo real</td>             <td class="center">—</td><td class="center">—</td><td class="center check">✓</td></tr>
+      <tr><td>Funciona en computadora + web + celular</td>             <td class="center">—</td><td class="center">solo PC</td><td class="center check">✓</td></tr>
+      <tr><td>Soporte en español por WhatsApp</td>                     <td class="center">—</td><td class="center">a veces</td><td class="center check">✓</td></tr>
+      <tr><td>Capacitación incluida</td>                                <td class="center">—</td><td class="center">extra</td><td class="center check">✓</td></tr>
+    </tbody>
+  </table>
+
+  <div class="quote" style="margin-top: 0.3in;">
+    "Pasamos de tres calculadoras y un Excel a una pantalla. Ahora cuando el cliente pregunta por la cuota, le tengo el número antes de que termine la pregunta — y el comprobante DGII listo en menos de un minuto."
+    <div class="who">— Concesionario en Santiago, RD <small>(piloto v2)</small></div>
+  </div>
+</div>
+
+<!-- ====================================================================== -->
+<!-- DGII / E-CF PAGE                                                       -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="small-caps">Cumplimiento Fiscal</div>
+  <h2>E-CF y la Ley 32-23 — listo, no después</h2>
+  <div class="rule"></div>
+
+  <div class="grid grid-2" style="margin-top: 0.25in;">
+    <div>
+      <h3>Lo que dice la ley</h3>
+      <p>A partir del <strong>15 de mayo de 2026</strong>, todos los emisores con ingresos por encima del umbral fijado por DGII deben emitir comprobantes fiscales <strong>electrónicos</strong> (e-CF), no en papel.</p>
+      <p style="margin-top: 0.1in;">Para concesionarios, esto aplica casi siempre — porque la mayoría de las ventas pasan los RD$250,000 que disparan el E31 (Crédito Fiscal).</p>
+
+      <h3 style="margin-top: 0.2in;">Las consecuencias</h3>
+      <ul>
+        <li>Multas por no emitir e-CF: hasta RD$200,000+ por incidencia</li>
+        <li>El cliente empresa no puede deducir ITBIS sin E31</li>
+        <li>Riesgo reputacional si los comprobantes son rechazados por DGII</li>
+      </ul>
+    </div>
+
+    <div style="background: #000; color: #fff; padding: 0.25in;">
+      <div class="small-caps" style="color: #b3001e;">Terminal X ya está certificado</div>
+      <h3 style="color: #fff; margin-top: 6pt;">Emisor Electrónico DGII Direct</h3>
+      <p style="color: #ccc; font-size: 10pt; margin-top: 0.1in;">RNC 133410321. Certificado .p12 instalado y firmando en producción. Pasamos los 15 pasos del proceso DGII desde abril 2026.</p>
+
+      <p style="color: #fff; font-size: 11pt; margin-top: 0.2in;"><strong>Lo que esto significa para usted:</strong></p>
+      <ul style="margin-top: 8pt; color: #fff;">
+        <li>El sistema firma sus E31 / E32 con su certificado .p12</li>
+        <li>Los envía directamente a DGII en segundos</li>
+        <li>QR code en el ticket impreso para el cliente</li>
+        <li>Si DGII rechaza, le avisamos — no se pierde la venta</li>
+        <li>ANECF automático al anular un comprobante</li>
+      </ul>
+
+      <p style="color: #b3001e; font-size: 12pt; font-weight: 700; margin-top: 0.2in;">Le incluimos su certificación DGII en el plan.</p>
+      <p style="color: #ccc; font-size: 9pt;">Otros venden la certificación aparte por RD$30,000+. Con Terminal X viene incluida.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ====================================================================== -->
+<!-- PRICING + CTA                                                          -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="small-caps">Inversión</div>
+  <h2>Precio claro, sin sorpresas</h2>
+  <div class="rule"></div>
+
+  <div class="grid grid-3" style="margin-top: 0.3in;">
+    <div class="tile" style="padding: 0.25in;">
+      <div class="small-caps">Pro PLUS</div>
+      <div style="font-size: 32pt; font-weight: 900; margin: 6pt 0;">RD$4,490<small style="font-size: 11pt; color: #666;">/mes</small></div>
+      <p style="font-size: 9pt; color: #666;">Plan recomendado para concesionarios</p>
+      <ul style="margin-top: 0.15in; font-size: 9pt;">
+        <li>Concesionario completo</li>
+        <li>e-CF E31 / E32 ilimitados</li>
+        <li>Pipeline + Pruebas + Inventario</li>
+        <li>Comisiones a nómina</li>
+        <li>Reportes</li>
+        <li>Hasta 3 dispositivos</li>
+      </ul>
+    </div>
+
+    <div class="tile dark" style="padding: 0.25in; position: relative;">
+      <div style="position: absolute; top: -10pt; right: 12pt; background: #b3001e; color: #fff; padding: 4pt 12pt; font-size: 8pt; font-weight: 800; letter-spacing: 0.1em;">RECOMENDADO</div>
+      <div class="small-caps" style="color: #b3001e;">Pro MAX</div>
+      <div style="font-size: 32pt; font-weight: 900; margin: 6pt 0; color: #fff;">RD$6,990<small style="font-size: 11pt; color: #999;">/mes</small></div>
+      <p style="font-size: 9pt; color: #ccc;">Para concesionarios con varios vendedores</p>
+      <ul style="margin-top: 0.15in; font-size: 9pt; color: #fff;">
+        <li>Todo lo de Pro PLUS</li>
+        <li>CRM con seguimientos automáticos</li>
+        <li>Alertas de docs por vencer</li>
+        <li>Panel del dueño remoto</li>
+        <li>Multi-sucursal</li>
+        <li>Modo offline</li>
+        <li>WhatsApp recibos automático</li>
+        <li>Diseño de recibo personalizado</li>
+        <li>Dispositivos ilimitados</li>
+      </ul>
+    </div>
+
+    <div class="tile" style="padding: 0.25in; background: #f7f7f7;">
+      <div class="small-caps">Anual</div>
+      <div style="font-size: 28pt; font-weight: 900; margin: 6pt 0; color: #b3001e;">−15%</div>
+      <p style="font-size: 9pt; color: #666;">Descuento al pagar el año completo por adelantado</p>
+      <p style="font-size: 9pt; margin-top: 0.15in;"><strong>Pro MAX anual:</strong> RD$71,298/año (ahorra RD$12,582)</p>
+      <p style="font-size: 9pt; margin-top: 6pt;"><strong>Pro PLUS anual:</strong> RD$45,798/año (ahorra RD$8,082)</p>
+      <p style="font-size: 9pt; margin-top: 0.18in; color: #b3001e; font-weight: 700;">Y los primeros 7 días: prueba gratis Pro MAX. Sin tarjeta.</p>
+    </div>
+  </div>
+
+  <div class="cta" style="margin-top: 0.4in;">
+    <div class="small-caps" style="color: #b3001e;">Empiece hoy</div>
+    <h2>Hablemos de su concesionario</h2>
+    <p style="color: #ccc; font-size: 11pt; margin-top: 0.1in;">15 minutos. Por WhatsApp. Sin compromiso.<br/>Le mostramos el sistema con sus propios datos.</p>
+    <div style="font-size: 22pt; font-weight: 900; margin-top: 0.25in;">+1 (809) 828-2971</div>
+    <div style="font-size: 11pt; color: #ccc;">terminalxpos.com</div>
+    <a class="button" href="https://wa.me/18098282971">Escribir por WhatsApp</a>
+  </div>
+</div>
+
+</body>
+</html>

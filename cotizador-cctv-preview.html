@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cotizador CCTV Tech X</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .neon-green { color: #00ff9d; text-shadow: 0 0 10px #00ff9d; }
+  </style>
+</head>
+<body class="bg-zinc-950 text-white">
+
+  <!-- HEADER -->
+  <div class="bg-black border-b border-zinc-800 sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-emerald-500 rounded-2xl flex items-center justify-center text-2xl">&#128248;</div>
+        <div>
+          <span class="text-3xl font-bold tracking-tight">Tech X</span>
+          <span class="text-emerald-400 text-xl font-medium ml-1">CCTV</span>
+        </div>
+        <div class="text-xl font-semibold text-zinc-400">Cotizador</div>
+      </div>
+      <a href="https://studioxrdtech.com" target="_blank"
+         class="flex items-center gap-2 bg-white text-black px-6 py-3 rounded-2xl font-semibold hover:bg-emerald-400 hover:text-black transition">
+        <i class="fa-solid fa-globe"></i>
+        Ir a studioxrdtech.com
+      </a>
+    </div>
+  </div>
+
+  <div class="max-w-7xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+
+    <!-- FORMULARIO IZQUIERDO -->
+    <div class="lg:col-span-7 space-y-8">
+
+      <!-- DATOS DEL CLIENTE -->
+      <div class="bg-zinc-900 rounded-3xl p-8">
+        <h2 class="text-2xl font-semibold mb-6 flex items-center gap-3">
+          <i class="fa-solid fa-user"></i> Datos del Cliente
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label class="block text-zinc-400 text-sm mb-2">Nombre del cliente</label>
+            <input id="cliente" type="text" value="Juan P&eacute;rez"
+                   class="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+          </div>
+          <div>
+            <label class="block text-zinc-400 text-sm mb-2">Tel&eacute;fono / WhatsApp</label>
+            <input id="telefono" type="tel" value="829-555-1234"
+                   class="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+          </div>
+          <div>
+            <label class="block text-zinc-400 text-sm mb-2">Correo electr&oacute;nico</label>
+            <input id="email" type="email" value="juan@email.com"
+                   class="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+          </div>
+          <div>
+            <label class="block text-zinc-400 text-sm mb-2">Direcci&oacute;n del proyecto</label>
+            <input id="direccion" type="text" value="Santo Domingo Este, Rep. Dom."
+                   class="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500">
+          </div>
+        </div>
+      </div>
+
+      <!-- PAQUETES RAPIDOS -->
+      <div class="bg-zinc-900 rounded-3xl p-8">
+        <h2 class="text-2xl font-semibold mb-6">Paquetes R&aacute;pidos</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <button onclick="cargarPaquete(4)" class="bg-zinc-800 hover:bg-emerald-500 hover:text-black border border-zinc-700 rounded-3xl p-6 text-center transition">
+            <div class="text-4xl mb-2">&#128248;</div>
+            <div class="font-semibold">B&Aacute;SICO</div>
+            <div class="text-sm text-zinc-400">4 c&aacute;maras</div>
+            <div class="text-emerald-400 text-xl font-bold mt-2">RD$ 28,500</div>
+          </button>
+          <button onclick="cargarPaquete(8)" class="bg-zinc-800 hover:bg-emerald-500 hover:text-black border border-zinc-700 rounded-3xl p-6 text-center transition">
+            <div class="text-4xl mb-2">&#128248;</div>
+            <div class="font-semibold">EST&Aacute;NDAR</div>
+            <div class="text-sm text-zinc-400">8 c&aacute;maras</div>
+            <div class="text-emerald-400 text-xl font-bold mt-2">RD$ 49,900</div>
+          </button>
+          <button onclick="cargarPaquete(16)" class="bg-zinc-800 hover:bg-emerald-500 hover:text-black border border-zinc-700 rounded-3xl p-6 text-center transition">
+            <div class="text-4xl mb-2">&#128248;</div>
+            <div class="font-semibold">PROFESIONAL</div>
+            <div class="text-sm text-zinc-400">16 c&aacute;maras</div>
+            <div class="text-emerald-400 text-xl font-bold mt-2">RD$ 89,500</div>
+          </button>
+          <button onclick="cargarPaquete(32)" class="bg-zinc-800 hover:bg-emerald-500 hover:text-black border border-zinc-700 rounded-3xl p-6 text-center transition">
+            <div class="text-4xl mb-2">&#128248;</div>
+            <div class="font-semibold">EMPRESARIAL</div>
+            <div class="text-sm text-zinc-400">32 c&aacute;maras</div>
+            <div class="text-emerald-400 text-xl font-bold mt-2">RD$ 159,000</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- CONFIGURACION PERSONALIZADA -->
+      <div class="bg-zinc-900 rounded-3xl p-8">
+        <h2 class="text-2xl font-semibold mb-6 flex items-center gap-3">
+          <i class="fa-solid fa-sliders"></i> Configuraci&oacute;n Personalizada
+        </h2>
+
+        <div class="space-y-8">
+          <!-- Camaras -->
+          <div>
+            <label class="block text-sm text-zinc-400 mb-3">Cantidad de c&aacute;maras</label>
+            <div class="flex gap-6 items-center">
+              <div class="flex-1">
+                <input id="camInterior" type="number" value="6" min="0"
+                       oninput="calcular()" class="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-4 text-3xl font-semibold text-center">
+                <div class="text-center text-xs text-zinc-500 mt-1">Interiores</div>
+              </div>
+              <div class="flex-1">
+                <input id="camExterior" type="number" value="4" min="0"
+                       oninput="calcular()" class="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-4 text-3xl font-semibold text-center">
+                <div class="text-center text-xs text-zinc-500 mt-1">Exteriores</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Resolucion -->
+          <div>
+            <label class="block text-sm text-zinc-400 mb-3">Resoluci&oacute;n</label>
+            <select id="resolucion" onchange="calcular()" class="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-4 text-lg">
+              <option value="2">2MP (Full HD) - RD$1,450 c/u</option>
+              <option value="4" selected>4MP (2K) - RD$2,150 c/u</option>
+              <option value="8">8MP (4K) - RD$3,450 c/u</option>
+            </select>
+          </div>
+
+          <!-- NVR -->
+          <div class="grid grid-cols-2 gap-6">
+            <div>
+              <label class="block text-sm text-zinc-400 mb-3">Grabador NVR</label>
+              <select id="nvr" onchange="calcular()" class="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-4">
+                <option value="8">8 canales - RD$9,800</option>
+                <option value="16" selected>16 canales POE - RD$18,500</option>
+                <option value="32">32 canales POE - RD$29,900</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm text-zinc-400 mb-3">Disco Duro</label>
+              <select id="disco" onchange="calcular()" class="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-4">
+                <option value="1">1TB - RD$3,200</option>
+                <option value="2" selected>2TB - RD$4,800</option>
+                <option value="4">4TB - RD$7,500</option>
+                <option value="6">6TB - RD$11,900</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Instalacion -->
+          <div class="flex items-center justify-between bg-zinc-800 rounded-2xl p-6">
+            <div>
+              <div class="font-medium">Instalaci&oacute;n profesional</div>
+              <div class="text-xs text-zinc-400">RD$1,200 por c&aacute;mara + RD$4,500 fijo</div>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="instalacion" checked onchange="calcular()" class="sr-only peer">
+              <div class="w-11 h-6 bg-zinc-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+            </label>
+          </div>
+
+          <!-- Monitoreo -->
+          <div class="flex items-center justify-between bg-zinc-800 rounded-2xl p-6">
+            <div>
+              <div class="font-medium">Monitoreo remoto 24/7 (Vigil X)</div>
+              <div class="text-xs text-zinc-400">RD$1,999 / mes &bull; RD$19,900 / a&ntilde;o (ahorro 17%)</div>
+            </div>
+            <select id="monitoreo" onchange="calcular()" class="bg-zinc-700 border-0 rounded-2xl px-4 py-2">
+              <option value="0">Ninguno</option>
+              <option value="1999">Mensual</option>
+              <option value="19900" selected>Anual</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RESUMEN DERECHO (STICKY) -->
+    <div class="lg:col-span-5">
+      <div class="bg-gradient-to-br from-zinc-900 to-black border border-emerald-500/30 rounded-3xl p-8 sticky top-8">
+        <h2 class="text-xl font-semibold mb-6 text-emerald-400 flex items-center gap-2">
+          <i class="fa-solid fa-receipt"></i> Resumen de Cotizaci&oacute;n
+        </h2>
+
+        <div id="resumen" class="space-y-6 text-sm">
+        </div>
+
+        <div class="border-t border-zinc-700 my-8"></div>
+
+        <!-- TOTALES -->
+        <div class="space-y-3 text-lg">
+          <div class="flex justify-between">
+            <span class="text-zinc-400">Subtotal</span>
+            <span id="subtotal" class="font-mono font-semibold">RD$ 0</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-zinc-400">ITBIS (18%)</span>
+            <span id="itbis" class="font-mono font-semibold">RD$ 0</span>
+          </div>
+          <div class="flex justify-between text-3xl font-bold pt-4 border-t border-emerald-500">
+            <span>Total</span>
+            <span id="total" class="neon-green">RD$ 0</span>
+          </div>
+          <div class="text-xs text-center text-emerald-400 font-medium">
+            Precio promedio por c&aacute;mara: <span id="precioPorCamara" class="font-bold">RD$ 0</span>
+          </div>
+        </div>
+
+        <!-- BOTONES -->
+        <div class="mt-10 grid grid-cols-2 gap-4">
+          <button onclick="generarPDF()"
+                  class="bg-white text-black py-5 rounded-3xl font-semibold flex items-center justify-center gap-3 hover:scale-105 transition">
+            <i class="fa-solid fa-file-pdf"></i>
+            Generar PDF
+          </button>
+          <button onclick="enviarWhatsApp()"
+                  class="bg-emerald-500 text-black py-5 rounded-3xl font-semibold flex items-center justify-center gap-3 hover:scale-105 transition">
+            <i class="fa-brands fa-whatsapp"></i>
+            Enviar WhatsApp
+          </button>
+        </div>
+
+        <button onclick="nuevaCotizacion()"
+                class="w-full mt-4 text-zinc-400 hover:text-white py-3 text-sm flex items-center justify-center gap-2">
+          <i class="fa-solid fa-rotate"></i> Nueva cotizaci&oacute;n
+        </button>
+
+        <div class="text-[10px] text-center text-zinc-500 mt-8">
+          Precios v&aacute;lidos por 15 d&iacute;as &bull; Garant&iacute;a 2 a&ntilde;os &bull; Instalaci&oacute;n en Santo Domingo y alrededores<br>
+          <span class="text-emerald-400">studioxrdtech.com</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const precios = {
+      camInterior: 2150,
+      camExterior: 2450,
+      nvr8: 9800,
+      nvr16: 18500,
+      nvr32: 29900,
+      disco1: 3200,
+      disco2: 4800,
+      disco4: 7500,
+      disco6: 11900,
+      instalacionPorCamara: 1200,
+      instalacionFija: 4500,
+      monitoreoMensual: 1999,
+      monitoreoAnual: 19900
+    };
+
+    function calcular() {
+      const interior = parseInt(document.getElementById('camInterior').value, 10) || 0;
+      const exterior = parseInt(document.getElementById('camExterior').value, 10) || 0;
+      const totalCamaras = interior + exterior;
+
+      let precioCam = document.getElementById('resolucion').value === "2" ? 1450 :
+                     (document.getElementById('resolucion').value === "4" ? 2150 : 3450);
+      const costoCamaras = (interior * precios.camInterior) + (exterior * precios.camExterior) + (totalCamaras * (precioCam - 2150));
+
+      let nvrPrecio = precios.nvr16;
+      const nvrSelect = document.getElementById('nvr').value;
+      if (nvrSelect === "8") nvrPrecio = precios.nvr8;
+      else if (nvrSelect === "32") nvrPrecio = precios.nvr32;
+
+      let discoPrecio = precios.disco2;
+      const discoSelect = document.getElementById('disco').value;
+      if (discoSelect === "1") discoPrecio = precios.disco1;
+      else if (discoSelect === "4") discoPrecio = precios.disco4;
+      else if (discoSelect === "6") discoPrecio = precios.disco6;
+
+      let costoInstalacion = 0;
+      if (document.getElementById('instalacion').checked) {
+        costoInstalacion = (totalCamaras * precios.instalacionPorCamara) + precios.instalacionFija;
+      }
+
+      const monSelect = parseFloat(document.getElementById('monitoreo').value) || 0;
+
+      const subtotal = costoCamaras + nvrPrecio + discoPrecio + costoInstalacion + monSelect;
+      const itbis = subtotal * 0.18;
+      const total = subtotal + itbis;
+
+      let html = `
+        <div class="flex justify-between"><span>${totalCamaras} c&aacute;maras</span><span class="font-medium">RD$${(costoCamaras).toLocaleString('es-DO')}</span></div>
+        <div class="flex justify-between"><span>NVR + Disco</span><span class="font-medium">RD$${(nvrPrecio + discoPrecio).toLocaleString('es-DO')}</span></div>
+        ${costoInstalacion ? `<div class="flex justify-between"><span>Instalaci&oacute;n</span><span class="font-medium">RD$${(costoInstalacion).toLocaleString('es-DO')}</span></div>` : ''}
+        ${monSelect ? `<div class="flex justify-between"><span>Monitoreo</span><span class="font-medium">RD$${(monSelect).toLocaleString('es-DO')}</span></div>` : ''}
+      `;
+      document.getElementById('resumen').innerHTML = html;
+
+      document.getElementById('subtotal').textContent = `RD$${(subtotal).toLocaleString('es-DO')}`;
+      document.getElementById('itbis').textContent = `RD$${(itbis).toLocaleString('es-DO')}`;
+      document.getElementById('total').textContent = `RD$${(total).toLocaleString('es-DO')}`;
+      document.getElementById('precioPorCamara').textContent = totalCamaras > 0 ?
+        `RD$${(total / totalCamaras).toFixed(0)}` : '—';
+    }
+
+    function cargarPaquete(cantidad) {
+      if (cantidad === 4) {
+        document.getElementById('camInterior').value = 3;
+        document.getElementById('camExterior').value = 1;
+      } else if (cantidad === 8) {
+        document.getElementById('camInterior').value = 5;
+        document.getElementById('camExterior').value = 3;
+      } else if (cantidad === 16) {
+        document.getElementById('camInterior').value = 10;
+        document.getElementById('camExterior').value = 6;
+      } else if (cantidad === 32) {
+        document.getElementById('camInterior').value = 20;
+        document.getElementById('camExterior').value = 12;
+      }
+      calcular();
+    }
+
+    function generarPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      const nombre = document.getElementById('cliente').value;
+      const total = document.getElementById('total').textContent;
+
+      doc.setFontSize(22);
+      doc.text("Cotizacion CCTV Tech X", 20, 30);
+      doc.setFontSize(12);
+      doc.text(`Cliente: ${nombre}`, 20, 50);
+      doc.text(`Fecha: ${new Date().toLocaleDateString('es-DO')}`, 20, 60);
+      doc.text(`Total: ${total}`, 20, 80);
+      doc.text("Gracias por confiar en Tech X - studioxrdtech.com", 20, 110);
+      doc.save(`cotizacion_${nombre}.pdf`);
+      alert("PDF generado y descargado");
+    }
+
+    function enviarWhatsApp() {
+      const telefono = document.getElementById('telefono').value.replace(/\D/g, '');
+      const total = document.getElementById('total').textContent;
+      const mensaje = encodeURIComponent(
+        `Hola, aqui tienes tu cotizacion de CCTV:\n` +
+        `Total: ${total}\n` +
+        `Cliente: ${document.getElementById('cliente').value}\n\n` +
+        `Quieres que te envie el PDF completo?`
+      );
+      window.open(`https://wa.me/1${telefono}?text=${mensaje}`, '_blank');
+    }
+
+    function nuevaCotizacion() {
+      if (confirm("Empezar una nueva cotizacion?")) {
+        location.reload();
+      }
+    }
+
+    window.onload = calcular;
+  </script>
+</body>
+</html>

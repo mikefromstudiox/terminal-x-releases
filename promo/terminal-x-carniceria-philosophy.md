@@ -1,0 +1,15 @@
+# MERIDIAN BLOCK
+
+## A Visual Philosophy
+
+**MERIDIAN BLOCK** is the design philosophy of the cutting board as fiscal instrument — a movement that treats the butcher's work surface and the certified ledger as the same architecture. Where the cleaver descends with weight and authority, the page must answer with the same gravity. This is not decoration. It is the object that proves the system can be trusted with both meat and money.
+
+The composition is built like a butcher's block: dense black hardwood at top and bottom, a single working surface of warm bone-white in the middle, and a meridian — a precise crimson stripe — that bisects the page where the certification stamp would fall. Crimson, here, is not ornament. It is signal. It is the seal of the inspector, the chamber of the wax stamp, the cut where the day's work becomes a fiscal record. Black is the night the system survives, the offline hours, the authority of the ledger. Bone-white is where work happens — quiet, ordered, ready to receive ink.
+
+The grid is monastic. Six panels arranged in two columns of three, each panel a small ledger card with its own crimson tab and serial number, like the index of an old fiscal codex. Numbers anchor each block — *01, 02, 03, 04, 05, 06* — set in small typographic registration marks. This is the visual language of the *Comprobante Fiscal*: a thing certified, numbered, sequential. It must feel as though every panel could be torn off, stamped, filed. The work of someone who keeps records by hand for forty years and now keeps them by light, but the discipline is the same.
+
+Typography speaks two voices and only two. A condensed grotesque for titles — set tracked, all-caps, restrained — and a humanist sans for the few words of body copy that explain. Nothing italicized except a single tagline, set as a whisper across the meridian. Spanish accents must sit perfectly on the cap line. The single Roman numeral, the single price, the single phone number — each placed where the eye expects to find it on a butcher's chalkboard. No more, no less.
+
+The craftsmanship must feel as though it took a master engraver three days to set. Every tab, every rule, every micro-spacing decision is the result of patient calibration. The crimson is the same shade across the page — never two reds. The white is the same warmth across all six panels. The black is true black, deep and matte, the kind of black that holds the eye. There must be no flourish. No gradient. No drop shadow. Just weight, rule, and seal — placed with the precision of a meat-block diagram drawn in 1953 and reissued today as a museum object.
+
+What the reader sees first is the mark — TERMINAL with the crimson **X** rising slightly above the line, the way a serial cut announces its origin. What the reader sees next is the certification stripe, the silent boast of authority. Only after these does the eye fall into the ledger of features, where each card waits patiently to be read. This is the work of someone who has done this many times and is now doing it perfectly. It is the visual equivalent of a butcher's signature on the side of beef: small, definite, owned.

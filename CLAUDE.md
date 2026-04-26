@@ -3,7 +3,8 @@
 ## What This App Is
 Full-featured desktop POS for the Dominican Republic market, resold to multiple clients. Flagship differentiator: 100% working e-CF (electronic fiscal receipts) per Ley 32-23.
 
-## Current Release — v2.16.1 (2026-04-25 — Barbería/Salón hardening: appointments + stylist_schedules promoted to Pro PLUS, salon_* feature gates added, salon modules expanded with memberships/retail_upsell/public_booking/walk_in/dashboard, showInventory enabled for retail upsell tile picker.)
+## Current Release — v2.16.2 (2026-04-25 — Concesionario hardening sprint 2E: matriculas + INTRANT stub, reservations w/ deposit, warranties + claims, bank pre-approvals, UAF Ley 155-17 modal, RNC guard for E31, dynamic ITBIS, lead scoring + hot-lead filter, conversion funnel report, inventory aging report, WhatsApp triggers, QuotePdfModal pre-sale PDF, AppraisalChecklist with photo upload, full plan-gating sweep across 12 dealership feature keys, EVENT_META completed for 4 new events, training manual section 34.)
+- **v2.16.1** — Barbería/Salón hardening: appointments + stylist_schedules promoted to Pro PLUS, salon_* feature gates added, salon modules expanded with memberships/retail_upsell/public_booking/walk_in/dashboard.
 - **v2.13.2** — Apertura cashier-only + input hardening
 - **v2.4.0** — Retail POS categorization (tabs + count badges) + Pedidos Ya channel pricing (one-click toggle, `order_source` stamped on tickets).
 - **v2.4.1** — 1024px cash-register grid fix.
@@ -49,7 +50,17 @@ Owner overrides a feature per business via `app_settings.feature_<name>_enabled 
 | multi_location | — | — | ✓ | gates ticket locks |
 | offline_mode | — | — | ✓ | gates service worker registration |
 | salon_* (preferred_stylist=free, walk_in/memberships/public_booking/dashboard/whatsapp_reminders=Pro PLUS+, no_show_deposit/offline_whatsapp_queue=Pro MAX) | partial | ✓ | ✓ | v2.16.1 — see `packages/ui/hooks/usePlan.jsx` |
+| concesionario_resumen | ✓ | ✓ | ✓ | v2.16.2 — visible at every tier as upgrade hook |
+| vehicle_inventory / sales_pipeline / test_drives / deal_builder | — | ✓ | ✓ | v2.16.2 dealership core |
+| matriculas / reservations / warranties / preapprovals | — | ✓ | ✓ | v2.16.2 dealership ops |
+| concesionario_reports (commissions / aging / funnel) | — | ✓ | ✓ | v2.16.2 dealership reports |
+| intrant_api / whatsapp_auto | — | — | ✓ | v2.16.2 — Pro MAX exclusives, stubs in v2.16.2 |
+| carniceria_resumen | ✓ | ✓ | ✓ | FIX-HIGH-6 — visible at every tier as upgrade hook (mirrors concesionario_resumen) |
+| carniceria_corte_catalog / carniceria_mayoreo / carniceria_freshness_alerts | — | ✓ | ✓ | FIX-HIGH-6 carnicería core (Pro PLUS+) |
 Gating lives in `packages/ui/hooks/usePlan.jsx` — add new keys there.
+
+## Concesionario Vertical
+v2.16.2 hardening sprint shipped 2026-04-25. Screens: `VehicleInventory`, `SalesPipeline` (kanban + lead scoring), `TestDrives`, `DealBuilder` (UAF + E31 RNC guard + dynamic ITBIS + QuotePdfModal + AppraisalChecklist), `Matriculas` (INTRANT stub for Pro MAX), `Reservations`, `Warranties`, `Preapprovals`, `Resumen` (dashboard tile). Reports: `ConcesionarioCommissionsReport`, `InventoryAgingReport`, `TestDriveFunnelReport`. Tables: `vehicle_inventory`, `vehicle_documents`, `leads`, `test_drives`, `sales_deals`, `vehicle_titulos`, `vehicle_reservations`, `vehicle_warranties`, `bank_preapprovals`. WhatsApp triggers in `packages/services/whatsapp-dealership.js` — wa.me deep links by default, `sendAutomatic` from `whatsapp-business-stub.js` (Pro MAX) once WABA is approved. INTRANT integration is a website lookup stub in `packages/services/intrant-stub.js`. Activity events: `deal_closed`, `deal_close_failed`, `deal_commission_paid`, `pipeline_stage_change`, `pipeline_followup_logged`, `vehicle_reservation_expired`, `reservation_override`, `vehicle_warranty_expired`, `vehicle_warranty_claim_added`, `warranty_create_failed`, `bank_preapproval_expired`, `preapproval_used`, `appraisal_recorded`.
 
 ## Tech Stack
 - **Electron 41** — desktop shell, IPC bridge
@@ -153,6 +164,7 @@ cp web/api/signup/provision.js dist-web/api/signup/
 cp web/api/fe/semilla.js web/api/fe/validarcertificado.js web/api/fe/recepcion.js web/api/fe/aprobacion.js dist-web/api/fe/
 cp web/api/digest/daily.js dist-web/api/digest/
 cp web/lib/xml-builder.js web/lib/xml-signer.js web/lib/dgii-client.js web/lib/rate-limit.js dist-web/lib/
+cp web/middleware.js dist-web/middleware.js
 echo '{"projectId":"prj_AjhpUcrbNGuSWZrs9CLxQmKkGXnL","orgId":"team_J0ZQKmOPRiXDLC7I1RA00PM9"}' > dist-web/.vercel/project.json
 cd dist-web && npm install --silent && npx vercel --prod --yes
 ```

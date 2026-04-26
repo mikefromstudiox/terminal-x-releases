@@ -1836,5 +1836,74 @@ Cualquier duda, estoy a un WhatsApp.</pre>
   <div class="tip">Cuando llega una licorería a onboarding: en <strong>Sistema → Tipo de Negocio → Licorería</strong> toca <strong>Aplicar plantilla fiscal</strong>. En 10 segundos queda configurada con CRITs activos. Si el cliente vende también comida (colmado-licorería), activa el <strong>subtipo Híbrido</strong> — conserva los CRITs del alcohol pero permite otros productos sin las restricciones de rubro.</div>
 </section>
 
+<!-- 34 — Concesionario v2.16.2 -->
+<section class="page pagebreak" id="s34_concesionario">
+  <h2>34. Concesionario v2.16.2</h2>
+  <span class="pill">Nuevo en v2.16.2</span>
+  <p>El vertical <strong>Concesionario</strong> recibió un sprint completo de endurecimiento end-to-end: matrículas + traspaso INTRANT, reservas con depósito, garantías post-venta + reclamos, pre-aprobaciones bancarias, modal UAF Ley 155-17, guardia de RNC para E31, ITBIS dinámico, lead scoring + funnel report, aging de inventario y triggers de WhatsApp.</p>
+
+  <h3>34.1 Inventario de vehículos</h3>
+  <p>Pantalla central con todos los autos en stock — foto, VIN, kilometraje, costo de adquisición, precio de listado, status (disponible / reservado / vendido). Importador CSV para 50+ unidades + gestor de documentos por unidad.</p>
+  <ul>
+    <li>Filtra por status, marca, modelo, año.</li>
+    <li>Foto principal + galería en Supabase Storage.</li>
+    <li>Marcado automático <em>vendido</em> al cerrar trato.</li>
+  </ul>
+
+  <h3>34.2 Pipeline de ventas (kanban + lead scoring)</h3>
+  <p>Kanban de cinco etapas: Prospecto → Prueba de Manejo → Negociación → Financiamiento → Cerrado. El sistema calcula score 0-100 por lead y muestra chip de calor: <em>Frio</em> (slate), <em>Tibio</em> (ámbar), <em>Caliente</em> (crimson #b3001e).</p>
+  <ul>
+    <li>+20 con presupuesto definido.</li>
+    <li>+20 en negociación / financiamiento.</li>
+    <li>+30 si ya hizo prueba de manejo completada.</li>
+    <li>+10 con teléfono.</li>
+    <li>+20 si NO está vencido (-30 si está vencido).</li>
+  </ul>
+  <p>Header muestra contador <strong>Leads calientes</strong> en crimson — clic filtra solo hot leads. Sort: Score / Próximo seguimiento / Fecha creación.</p>
+
+  <h3>34.3 Pruebas de manejo</h3>
+  <p>Agendar prueba con vehículo + cliente + vendedor + fecha/hora. Status: agendada / completada / cancelada / no asistió. Resultado al completar (vendió / interesado / no interesado) alimenta el lead scoring y el funnel report.</p>
+
+  <h3>34.4 Pre-aprobaciones bancarias</h3>
+  <p>Registra pre-aprobaciones por banco / monto / tasa / plazo / cuota. En el constructor de trato, botón <strong>Cargar pre-aprobación bancaria</strong> auto-rellena APR + plazo. Al cerrar trato, la pre-aprobación se marca <em>utilizada</em> y emite evento <code>preapproval_used</code> al feed.</p>
+
+  <h3>34.5 Constructor de trato + UAF + E31/E32</h3>
+  <p>Pantalla central de cierre. Combina vehículo + cliente + vendedor + intercambio + financiamiento + garantía. Reglas críticas:</p>
+  <ul>
+    <li><strong>RNC obligatorio</strong> si total ≥ RD$250,000 (E31 Crédito Fiscal).</li>
+    <li><strong>Modal UAF Ley 155-17</strong> si efectivo ≥ RD$880,000 (~USD 15K).</li>
+    <li><strong>ITBIS dinámico</strong> — feature flag por subtipo (concesionario_nuevo: ON, usado: OFF).</li>
+    <li><strong>Cotización pre-venta PDF</strong> — botón <em>Generar cotización</em> abre preview + descarga PDF (validez 7 días, branding crimson).</li>
+    <li><strong>Tasación detallada</strong> — checklist por categoría (motor / transmisión / carrocería / interior / llantas / eléctrico / papeles) con calificación Excelente / Bueno / Regular / Malo / N/A. Cada Regular -2%, cada Malo -5%. Fotos opcionales.</li>
+  </ul>
+
+  <h3>34.6 Reservas con depósito</h3>
+  <p>Cliente paga depósito para reservar unidad por X días. Pantalla <strong>Reservas</strong> lista todas las activas. En el constructor: si la unidad está reservada por OTRO cliente, banner crimson + checkbox <em>Continuar de todos modos</em> (audita <code>reservation_override</code>). Si es el mismo cliente, conversión automática.</p>
+
+  <h3>34.7 Garantías y reclamos</h3>
+  <p>Garantía post-venta opcional al cerrar trato (default ON, +90 días). Tipos: general / motor / transmisión / eléctrico / extendida. Pantalla <strong>Garantías</strong> permite registrar reclamos con descripción + costo + status. Cada reclamo emite <code>vehicle_warranty_claim_added</code>.</p>
+
+  <h3>34.8 Matrículas y traspaso INTRANT</h3>
+  <p>Pantalla <strong>Matrículas</strong> lista tratos cerrados + status del traspaso INTRANT (Pendiente / En trámite / Entregada / Rechazada). Botón <strong>Verificar en INTRANT</strong> (Pro MAX) abre el portal público con la placa pre-cargada — la integración API real requiere alianza con INTRANT.</p>
+
+  <h3>34.9 Reportes (comisiones, aging, funnel)</h3>
+  <ul>
+    <li><strong>Comisiones Vendedores</strong> — # tratos / total ventas / comisión bruta / pagada / pendiente. CSV + PDF.</li>
+    <li><strong>Antigüedad Inventario</strong> — buckets 0-30 / 31-60 / 61-90 / 90+ días.</li>
+    <li><strong>Funnel de Conversión</strong> — leads → pruebas agendadas → completadas → convertidos. % conversión por etapa, tabla por vendedor, top 5 marcas.</li>
+  </ul>
+
+  <h3>34.10 WhatsApp triggers</h3>
+  <p>Deep links wa.me one-tap (manuales — el vendedor decide cuándo enviar):</p>
+  <ul>
+    <li>Recordatorio de prueba de manejo (1h antes).</li>
+    <li>Lead vencido — al vendedor.</li>
+    <li>Matrícula lista — al cliente.</li>
+    <li>Garantía por vencer.</li>
+    <li>Reserva por vencer.</li>
+  </ul>
+  <p>El envío automático vía WhatsApp Business API (WABA) es <strong>Pro MAX</strong> — requiere aprobación Meta + setup. Hasta entonces, el botón abre wa.me y el vendedor confirma con un clic.</p>
+</section>
+
 </body>
 </html>
