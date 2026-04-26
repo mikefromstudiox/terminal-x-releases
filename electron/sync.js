@@ -3592,6 +3592,20 @@ async function syncNow() {
     try { await processPendingDeducts() } catch (e) { log.warn('[multipos] processPendingDeducts:', e.message) }
     try { await ensureBlocks()          } catch (e) { log.warn('[multipos] ensureBlocks:', e.message) }
 
+    // FIX-HIGH-8 — drain activity_log fallback queue (audit rows whose
+    // canonical INSERT failed). Runs every cycle so transient SQLite
+    // failures heal silently; rows that can't be saved after 5 attempts
+    // are marked 'dead' and emit a critical `activity_log_dropped` row so
+    // the owner sees the compliance gap in the audit feed.
+    try {
+      if (typeof _db.activityLogDrainFallback === 'function') {
+        const r = _db.activityLogDrainFallback()
+        if (r && (r.drained || r.dead)) {
+          log.info(`[sync] activity_log fallback: drained=${r.drained} dead=${r.dead} remaining=${r.remaining}`)
+        }
+      }
+    } catch (e) { log.warn('[sync] activityLogDrainFallback:', e.message) }
+
     _status.state = 'idle'
     _status.lastSync = new Date().toISOString()
     _status.totalRows = totalRows

@@ -22,6 +22,7 @@ import { Lock, X, AlertTriangle, Loader2, KeyRound, ScanLine } from 'lucide-reac
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
+import { enqueueActivity } from '@terminal-x/services/activity-log-queue.js'
 
 // Failure counter — persisted via activity_log so it survives reloads AND
 // spans devices for the same business. Each invalid scan/PIN writes a
@@ -32,15 +33,20 @@ const STRIKE_WINDOW_MS = 5 * 60 * 1000
 
 async function recordStrike(api, { action, user }) {
   const sinceIso = new Date(Date.now() - STRIKE_WINDOW_MS).toISOString()
+  const strikePayload = {
+    event_type: 'manager_override_failed',
+    severity: 'warn',
+    target_type: action || 'gate',
+    reason: 'Tarjeta/PIN de gerente invalido',
+    metadata: { action, by_user: user?.id || null, by_user_name: user?.name || null },
+  }
+  // FIX-HIGH-8 — never silent-drop manager override audit. Fall back to the
+  // IndexedDB queue if the live write fails so the row gets retried.
   try {
-    await api.activity.record({
-      event_type: 'manager_override_failed',
-      severity: 'warn',
-      target_type: action || 'gate',
-      reason: 'Tarjeta/PIN de gerente invalido',
-      metadata: { action, by_user: user?.id || null, by_user_name: user?.name || null },
-    })
-  } catch {}
+    await api.activity.record(strikePayload)
+  } catch (e) {
+    try { await enqueueActivity(strikePayload) } catch {}
+  }
   // Count recent failures across all devices for this business.
   try {
     const rows = await api.activity.list({
@@ -85,13 +91,13 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
       if (!match?.id) {
         const count = await recordStrike(api, { action, user })
         if (count >= 5) {
-          try {
-            await api.activity.record({
-              event_type: 'manager_override', severity: 'critical',
-              target_type: action || 'gate', reason: 'Multiples autorizaciones invalidas (≥5 en 5 min)',
-              metadata: { action, attempts: count, method: 'card', by_user: user?.id || null },
-            })
-          } catch {}
+          const escalation = {
+            event_type: 'manager_override', severity: 'critical',
+            target_type: action || 'gate', reason: 'Multiples autorizaciones invalidas (≥5 en 5 min)',
+            metadata: { action, attempts: count, method: 'card', by_user: user?.id || null },
+          }
+          try { await api.activity.record(escalation) }
+          catch { try { await enqueueActivity(escalation) } catch {} }
         }
         flashError(L('Tarjeta no válida', 'Invalid card'))
         return
@@ -108,15 +114,15 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
         } catch {}
         if (!mac_jti) { flashError(L('No se pudo autorizar en el servidor', 'Server authorization failed')); return }
       }
-      try {
-        await api.activity.record({
-          event_type: 'manager_override', severity: 'info',
-          target_type: action || 'gate', target_id: context?.target_id || null, target_name: context?.target_name || null,
-          amount: context?.amount ?? null,
-          reason: actionLabel || action || null,
-          metadata: { method: 'card', action, approved_by: match.name, approved_by_role: match.role, ...(context || {}) },
-        })
-      } catch {}
+      const approval = {
+        event_type: 'manager_override', severity: 'info',
+        target_type: action || 'gate', target_id: context?.target_id || null, target_name: context?.target_name || null,
+        amount: context?.amount ?? null,
+        reason: actionLabel || action || null,
+        metadata: { method: 'card', action, approved_by: match.name, approved_by_role: match.role, ...(context || {}) },
+      }
+      try { await api.activity.record(approval) }
+      catch { try { await enqueueActivity(approval) } catch {} }
       onApprove?.({ staff_id: match.id, staff_name: match.name, role: match.role, method: 'card', mac_jti })
     } catch (e) {
       flashError(e?.message || L('Error al verificar', 'Verify error'))
@@ -132,13 +138,13 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
       if (!manager || !['owner', 'manager'].includes(manager.role)) {
         const count = await recordStrike(api, { action, user })
         if (count >= 5) {
-          try {
-            await api.activity.record({
-              event_type: 'manager_override', severity: 'critical',
-              target_type: action || 'gate', reason: 'Multiples autorizaciones invalidas (≥5 en 5 min)',
-              metadata: { action, attempts: count, method: 'pin', by_user: user?.id || null },
-            })
-          } catch {}
+          const escalation = {
+            event_type: 'manager_override', severity: 'critical',
+            target_type: action || 'gate', reason: 'Multiples autorizaciones invalidas (≥5 en 5 min)',
+            metadata: { action, attempts: count, method: 'pin', by_user: user?.id || null },
+          }
+          try { await api.activity.record(escalation) }
+          catch { try { await enqueueActivity(escalation) } catch {} }
         }
         flashError(L('PIN de gerente incorrecto', 'Invalid manager PIN'))
         return
@@ -151,15 +157,15 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
         } catch {}
         if (!mac_jti) { flashError(L('No se pudo autorizar en el servidor', 'Server authorization failed')); return }
       }
-      try {
-        await api.activity.record({
-          event_type: 'manager_override', severity: 'warn',
-          target_type: action || 'gate', target_id: context?.target_id || null, target_name: context?.target_name || null,
-          amount: context?.amount ?? null,
-          reason: actionLabel || action || null,
-          metadata: { method: 'pin_fallback', action, approved_by: manager.name, approved_by_role: manager.role, ...(context || {}) },
-        })
-      } catch {}
+      const approval = {
+        event_type: 'manager_override', severity: 'warn',
+        target_type: action || 'gate', target_id: context?.target_id || null, target_name: context?.target_name || null,
+        amount: context?.amount ?? null,
+        reason: actionLabel || action || null,
+        metadata: { method: 'pin_fallback', action, approved_by: manager.name, approved_by_role: manager.role, ...(context || {}) },
+      }
+      try { await api.activity.record(approval) }
+      catch { try { await enqueueActivity(approval) } catch {} }
       onApprove?.({ staff_id: manager.id, staff_name: manager.name, role: manager.role, method: 'pin', mac_jti })
     } catch (e) {
       flashError(e?.message || L('Error al verificar PIN', 'PIN verify error'))

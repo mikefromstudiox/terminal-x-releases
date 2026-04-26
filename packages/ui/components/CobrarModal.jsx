@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import ManagerAuthGate from './ManagerAuthGate'
 import { needsGate, isBigDiscount } from '@terminal-x/services/managerGateRules'
 import { signAndSubmitECF, getQRCode, ECF_TYPES, validateRNC } from '@terminal-x/services/ecf'
+import { enqueueActivity } from '@terminal-x/services/activity-log-queue.js'
 const buildReceiptPDFBase64 = (...args) => import('@terminal-x/services/pdf').then(m => m.buildReceiptPDFBase64(...args))
 import { useRNC } from '../hooks/useRNC'
 import { usePlan } from '../hooks/usePlan'
@@ -1275,14 +1276,20 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
               notes: `redeem_ticket:${ticket?.id ?? ''}`,
             })).catch(err => {
               console.error('[loyalty] redeem failed after sale (legacy path)', err)
-              try { api?.activity?.record?.({
+              const redeemFailEvt = {
                 event_type: 'loyalty_redeem_failed', severity: 'critical',
                 target_type: 'client', target_id: String(selectedClient.id),
                 target_name: selectedClient?.name || null,
                 amount: loyaltyRedemption.discount,
                 reason: 'Redención falló post-venta — ajustar puntos manualmente',
                 metadata: { points: loyaltyRedemption.points, ticket_id: ticket?.id ?? null, error: err?.message || String(err) },
-              }) } catch {}
+              }
+              // FIX-HIGH-8 — fall back to IDB queue so the critical audit row
+              // gets retried even if the live record() write fails.
+              ;(async () => {
+                try { await api?.activity?.record?.(redeemFailEvt) }
+                catch { try { await enqueueActivity(redeemFailEvt) } catch {} }
+              })()
               try { window.alert(`URGENTE: No se pudieron canjear ${loyaltyRedemption.points} puntos del cliente ${selectedClient?.name || ''}. El descuento se aplicó. Ajusta los puntos manualmente.`) } catch {}
             })
           }
@@ -1439,14 +1446,19 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
               notes: `redeem_ticket:${ticket?.id ?? ''}`,
             })).catch(err => {
               console.error('[loyalty] redeem failed after sale (e-CF path)', err)
-              try { api?.activity?.record?.({
+              const redeemFailEvt = {
                 event_type: 'loyalty_redeem_failed', severity: 'critical',
                 target_type: 'client', target_id: String(selectedClient.id),
                 target_name: selectedClient?.name || null,
                 amount: loyaltyRedemption.discount,
                 reason: 'Redención falló post-venta — ajustar puntos manualmente',
                 metadata: { points: loyaltyRedemption.points, ticket_id: ticket?.id ?? null, ecf: result?.eNCF || null, error: err?.message || String(err) },
-              }) } catch {}
+              }
+              // FIX-HIGH-8 — fall back to IDB queue on live-write failure.
+              ;(async () => {
+                try { await api?.activity?.record?.(redeemFailEvt) }
+                catch { try { await enqueueActivity(redeemFailEvt) } catch {} }
+              })()
               try { window.alert(`URGENTE: No se pudieron canjear ${loyaltyRedemption.points} puntos del cliente ${selectedClient?.name || ''}. El descuento se aplicó. Ajusta los puntos manualmente.`) } catch {}
             })
           }
