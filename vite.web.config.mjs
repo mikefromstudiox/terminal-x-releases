@@ -6,7 +6,36 @@ import path from 'path'
 export default defineConfig(({ mode }) => ({
   root: 'web',
   envDir: path.resolve(__dirname),
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    // CSP nonce injector — adds nonce="__CSP_NONCE__" to every <script> and
+    // <link rel="modulepreload"|"stylesheet"> tag in the built HTML so the
+    // Edge middleware can swap them per-request. Required because Vite's
+    // built-in HTML emitter strips custom attributes from the entry script.
+    {
+      name: 'csp-nonce-inject',
+      enforce: 'post',
+      transformIndexHtml: {
+        order: 'post',
+        handler(html) {
+          // <script ...> without an existing nonce attribute. Skip
+          // application/ld+json data blocks — they're not executable and CSP
+          // script-src doesn't apply to them.
+          html = html.replace(
+            /<script(?![^>]*\bnonce=)(?![^>]*type=("|')application\/ld\+json\1)([^>]*)>/g,
+            '<script$2 nonce="__CSP_NONCE__">'
+          );
+          // <link rel="modulepreload" ...> and <link rel="stylesheet" ...>
+          html = html.replace(
+            /<link(?![^>]*\bnonce=)([^>]*\brel=("|')(?:modulepreload|stylesheet)\2[^>]*)>/g,
+            '<link$1 nonce="__CSP_NONCE__">'
+          );
+          return html;
+        },
+      },
+    },
+  ],
   publicDir: 'public',
   resolve: {
     alias: {

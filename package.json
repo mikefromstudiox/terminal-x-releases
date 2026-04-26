@@ -59,6 +59,7 @@
     "concurrently": "^8.2.2",
     "electron": "^41.1.0",
     "electron-builder": "^26.8.1",
+    "fake-indexeddb": "^6.2.5",
     "lucide-react": "^1.7.0",
     "png-to-ico": "^3.0.1",
     "postcss": "^8.4.38",
