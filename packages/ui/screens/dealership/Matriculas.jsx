@@ -14,6 +14,8 @@ import { Loader2, X, Edit3, FileText, ExternalLink, MessageCircle } from 'lucide
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
 import { sendMatriculaReady } from '../../../services/whatsapp-dealership.js'
+import { lookupPlaca } from '../../../services/intrant-stub.js'
+import { usePlan } from '../../hooks/usePlan'
 
 const INTRANT_STATUS = [
   { v: 'pendiente',   es: 'Pendiente',   en: 'Pending',     cls: 'bg-white text-black border border-black' },
@@ -117,6 +119,7 @@ function EditModal({ lang, deal, units, current, onSave, onClose }) {
 }
 
 export default function Matriculas() {
+  const plan = usePlan()
   const api = useAPI()
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
@@ -204,7 +207,27 @@ export default function Matriculas() {
                   <tr key={d.id} className="border-t border-black/10 hover:bg-black/5">
                     <td className="px-3 py-2 font-semibold">{d.clients?.name || '—'}</td>
                     <td className="px-3 py-2">{unit ? `${unit.year || ''} ${unit.make || ''} ${unit.model || ''}`.trim() : '—'}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{tt?.placa || '—'}</td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {tt?.placa || '—'}
+                      {tt?.placa && (
+                        plan.hasFeature('intrant_api') ? (
+                          <button
+                            onClick={() => lookupPlaca(tt.placa)}
+                            title={L('Verificar en INTRANT', 'Check in INTRANT')}
+                            className="ml-1 inline-flex items-center px-1.5 py-0.5 text-[9px] border border-black hover:bg-black hover:text-white"
+                          >
+                            INTRANT
+                          </button>
+                        ) : (
+                          <span
+                            title={L('Disponible en Pro MAX', 'Available on Pro MAX')}
+                            className="ml-1 inline-flex items-center px-1.5 py-0.5 text-[9px] border border-black/30 text-black/40 cursor-not-allowed"
+                          >
+                            INTRANT
+                          </span>
+                        )
+                      )}
+                    </td>
                     <td className="px-3 py-2">{statusChip(tt?.intrant_status || 'pendiente', lang)}</td>
                     <td className="px-3 py-2">{fmtDT(d.closed_at)}</td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">

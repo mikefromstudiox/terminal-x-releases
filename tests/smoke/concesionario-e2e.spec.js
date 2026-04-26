@@ -35,11 +35,16 @@ const ROUTES = [
   '/pos/admin',
   '/pos/sistema',
   // dealership-specific
-  '/pos/vehicles',
   '/pos/vehicle-inventory',
   '/pos/sales-pipeline',
   '/pos/test-drives',
   '/pos/deal-builder',
+  '/pos/matriculas',
+  '/pos/reservations',
+  '/pos/warranties',
+  '/pos/preapprovals',
+  '/pos/reports/concesionario-comisiones',
+  '/pos/reports/concesionario-aging',
 ];
 
 const OUT_DIR = path.join(__dirname, 'results', 'concesionario');

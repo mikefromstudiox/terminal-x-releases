@@ -290,10 +290,18 @@ export default function SalesPipeline() {
                 <div className="p-2 space-y-2 min-h-[300px]">
                   {items.map(lead => {
                     const overdue = isOverdue(lead)
+                    const heat = leadHeat(lead._score)
+                    const showHeat = !TERMINAL_STAGES.includes(lead.stage)
                     return (
                     <div key={lead.id} className={`border p-2 bg-white ${overdue ? 'border-[#b3001e] border-l-4' : 'border-black'}`}>
-                      <div className="flex items-center justify-between">
-                        <div className="font-semibold text-sm truncate">{lead.name}</div>
+                      <div className="flex items-center justify-between gap-1">
+                        <div className="font-semibold text-sm truncate flex-1">{lead.name}</div>
+                        {showHeat && (
+                          <span title={L(`Score ${lead._score}`, `Score ${lead._score}`)}
+                            className={`text-[9px] px-1.5 py-0.5 font-bold ${heat.color}`}>
+                            {lang === 'es' ? heat.es : heat.en}
+                          </span>
+                        )}
                         <button onClick={() => remove(lead)} className="p-0.5 hover:bg-[#b3001e] hover:text-white"><Trash2 size={12} /></button>
                       </div>
                       {lead.phone && <div className="text-xs flex items-center gap-1 mt-1"><Phone size={10} />{lead.phone}</div>}

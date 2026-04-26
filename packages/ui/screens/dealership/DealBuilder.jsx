@@ -30,6 +30,7 @@ import { useLang } from '../../i18n'
 import { useBusinessType } from '../../hooks/useBusinessType.jsx'
 import { computeDeal } from './lib/financing.js'
 import CobrarModal from '../../components/CobrarModal'
+import PaymentErrorBoundary from '../../components/PaymentErrorBoundary'
 import UafComplianceModal from '../../components/UafComplianceModal'
 import DateTimeModal from '../../components/DateTimeModal'
 import QuotePdfModal from './components/QuotePdfModal'
@@ -533,12 +534,14 @@ export default function DealBuilder() {
   }
 
   const cobrarModal = cobrarCtx ? (
-    <CobrarModal
-      ticket={cobrarCtx.ticket}
-      forceNcfType={cobrarCtx.forceType}
-      onConfirm={handleDealCobrarConfirm}
-      onClose={() => setCobrarCtx(null)}
-    />
+    <PaymentErrorBoundary onClose={() => setCobrarCtx(null)}>
+      <CobrarModal
+        ticket={cobrarCtx.ticket}
+        forceNcfType={cobrarCtx.forceType}
+        onConfirm={handleDealCobrarConfirm}
+        onClose={() => setCobrarCtx(null)}
+      />
+    </PaymentErrorBoundary>
   ) : null
 
   const preapprovalModal = showPreapprovalModal ? (
