@@ -447,9 +447,15 @@ export default function WorkerReport() {
     api.empleados?.allAdmin?.()
       .then(rows => {
         const list = rows || []
-        setWashers(list.filter(e => e.tipo === 'lavador' || e.tipo === 'hybrid').map(toPerson))
-        setSellers(list.filter(e => e.tipo === 'vendedor' || e.tipo === 'hybrid').map(toPerson))
-        setCajeros(list.filter(e => e.tipo === 'cajero'   || e.tipo === 'hybrid').map(toPerson))
+        // v2.16.11 — exclude owners from operational worker lists. Hybrid+owner
+        // means admin (e.g. Michael, Enrique) — they hold an empleado row so
+        // they can log in / appear on payroll, but they don't physically wash,
+        // sell, or cashier on the floor. Filtering at the list-builder level
+        // keeps Reportes / pickers / commission tabs free of admin clutter.
+        const isOperational = e => e.role !== 'owner'
+        setWashers(list.filter(e => (e.tipo === 'lavador'  || e.tipo === 'hybrid') && isOperational(e)).map(toPerson))
+        setSellers(list.filter(e => (e.tipo === 'vendedor' || e.tipo === 'hybrid') && isOperational(e)).map(toPerson))
+        setCajeros(list.filter(e => (e.tipo === 'cajero'   || e.tipo === 'hybrid') && isOperational(e)).map(toPerson))
       })
       .catch(() => {
         setWashers([]); setSellers([]); setCajeros([])

@@ -244,7 +244,8 @@ export default function SalespersonReport() {
     api.empleados?.allAdmin?.()
       .then(rows => {
         const filtered = (rows || [])
-          .filter(e => e.tipo === 'vendedor' || e.tipo === 'hybrid')
+          // v2.16.11 — exclude owners (admin hybrid users) from the seller report
+          .filter(e => (e.tipo === 'vendedor' || e.tipo === 'hybrid') && e.role !== 'owner')
           .map(e => ({
             id: e.id,
             supabase_id: e.supabase_id,

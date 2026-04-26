@@ -209,18 +209,21 @@ export function LicenseProvider({ children }) {
           if (pullFn) {
             setFirstPullProgress({ stage: 'starting', done: 0, total: 1, table: null })
             setPullError(null)
-            // v2.16.3 — 8s hard timeout via AbortController. Previously this
-            // await could hang indefinitely on a flaky link, blocking the
-            // login screen forever. On timeout we drop into the catch below
-            // and let the user proceed with cached license (offline grace).
+            // v2.16.11 — bumped from 8s to 45s. v2.16.9 wired a license-scoped
+            // JWT that lets RLS-protected tables actually return data; pulls
+            // now fetch real rows instead of returning [] in milliseconds, so
+            // 70+ serial table pulls easily exceeded 8s on the first run after
+            // a wipe. 45s comfortably covers the ~14-21s typical cold-start
+            // pull window. The hard timeout is still here so a truly dead link
+            // doesn't block login forever.
             const ac = new AbortController()
-            const timeoutId = setTimeout(() => ac.abort(), 8000)
+            const timeoutId = setTimeout(() => ac.abort(), 45000)
             try {
               await Promise.race([
                 pullFn(),
                 new Promise((_, reject) => {
                   ac.signal.addEventListener('abort', () => {
-                    reject(new Error('initial_pull_timeout_8s'))
+                    reject(new Error('initial_pull_timeout_45s'))
                   }, { once: true })
                 }),
               ])
@@ -229,7 +232,7 @@ export function LicenseProvider({ children }) {
             }
           }
         } catch (pullErr) {
-          const isTimeout = pullErr?.message === 'initial_pull_timeout_8s'
+          const isTimeout = pullErr?.message === 'initial_pull_timeout_45s' || pullErr?.message === 'initial_pull_timeout_8s'
           if (isTimeout) {
             console.warn('[LicenseContext] initial pull timed out after 8s — using cached license (offline grace path)')
           } else {

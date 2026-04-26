@@ -37,7 +37,13 @@ export default defineConfig(({ mode }) => ({
         pure_funcs: mode === 'production' ? ['console.log', 'console.info', 'console.debug', 'console.warn'] : [],
       },
       mangle: {
-        toplevel: true,
+        // v2.16.11 — toplevel:true was renaming module-scoped identifiers
+        // and, combined with our circular ESM import graph (CobrarModal ↔
+        // PaymentErrorBoundary ↔ DataContext via useAPI), produced runtime
+        // TDZ explosions: "Cannot access 'Ht' before initialization" at
+        // CobrarModal mount → blocked every cobro on v2.16.10. Disabling
+        // toplevel mangling. ~2-3% bundle size cost; total still < cap.
+        toplevel: false,
       },
       format: {
         comments: false,
