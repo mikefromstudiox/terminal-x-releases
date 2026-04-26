@@ -26,6 +26,21 @@ import { useAuth } from '../context/AuthContext'
 
 const fmt = n => 'RD$' + Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+// Hard caps — deposit refunds are walk-up cash transactions, not invoices.
+// Anything above these is almost certainly a typo or fraud attempt and
+// should require a manager override path that does not exist yet.
+const MAX_QTY_PER_RETURN  = 999
+const MAX_DEPOSIT_PER_UNIT = 100      // RD$ — DR market: highest jaba ~RD$50
+const MAX_REFUND_TOTAL     = 25000    // RD$ — anything bigger = supplier credit, not cash
+
+// Round to centavo with banker-safe arithmetic (no floating-point drift).
+const round2 = n => Math.round((Number(n) || 0) * 100) / 100
+
+// Strip control chars / brackets from free text that lands in ticket notes
+// so a malicious or sloppy client.name can't break the [deposit_return]
+// audit marker or inject newlines into receipts.
+const safeNote = s => String(s || '').replace(/[\r\n\t\[\]\x00-\x1F]/g, ' ').trim().slice(0, 80)
+
 export default function DepositReturnModal({ open, onClose, onDone }) {
   const api        = useAPI()
   const printerApi = usePrinterAPI()
@@ -83,18 +98,20 @@ export default function DepositReturnModal({ open, onClose, onDone }) {
     ).slice(0, 20)
   }, [clients, clientQ])
 
-  const unitDeposit = Number(picked?.bottle_deposit || 0)
-  const totalRefund = unitDeposit * Math.max(1, Number(qty) || 0)
-  const canSubmit   = !!picked && qty > 0 && totalRefund > 0 &&
+  const unitDeposit = round2(Math.min(MAX_DEPOSIT_PER_UNIT, Number(picked?.bottle_deposit || 0)))
+  const safeQty     = Math.min(MAX_QTY_PER_RETURN, Math.max(1, Number(qty) || 0))
+  const totalRefund = round2(Math.min(MAX_REFUND_TOTAL, unitDeposit * safeQty))
+  const overCap     = unitDeposit * safeQty > MAX_REFUND_TOTAL
+  const canSubmit   = !!picked && safeQty > 0 && totalRefund > 0 && !overCap &&
                       (method === 'efectivo' || (method === 'credito' && clientId))
 
   async function submit() {
     if (!canSubmit || saving) return
     setSaving(true); setError(null)
-    const q = Math.max(1, Number(qty) || 0)
-    const amount = unitDeposit * q
+    const q = safeQty
+    const amount = round2(unitDeposit * q)
     const client = method === 'credito' ? clients.find(c => c.id === clientId) : null
-    const noteMarker = `[deposit_return] envase=${picked.sku || picked.name} qty=${q} method=${method}${client ? ` client=${client.name}` : ''}`
+    const noteMarker = `[deposit_return] envase=${safeNote(picked.sku || picked.name)} qty=${q} method=${method}${client ? ` client=${safeNote(client.name)}` : ''}`
 
     try {
       // 1) Credit payout → decrement client balance (store credit) FIRST so
@@ -262,8 +279,8 @@ export default function DepositReturnModal({ open, onClose, onDone }) {
                 <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-white/50 mb-1 block">
                   {L('Cantidad devuelta', 'Quantity returned')}
                 </label>
-                <input type="number" min="1" max="999" value={qty}
-                  onChange={e => setQty(Math.max(1, Number(e.target.value) || 1))}
+                <input type="number" min="1" max={MAX_QTY_PER_RETURN} value={qty}
+                  onChange={e => setQty(Math.min(MAX_QTY_PER_RETURN, Math.max(1, Number(e.target.value) || 1)))}
                   className="w-full border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2 text-lg font-bold tabular-nums bg-white dark:bg-white/5 dark:text-white outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
               </div>
               <div>
@@ -336,6 +353,14 @@ export default function DepositReturnModal({ open, onClose, onDone }) {
             </div>
           )}
 
+          {overCap && (
+            <div className="text-xs text-[#b3001e] bg-[#b3001e]/10 border border-[#b3001e]/20 rounded-lg px-3 py-2">
+              {L(
+                `Monto excede el tope de ${fmt(MAX_REFUND_TOTAL)}. Procese como crédito a proveedor.`,
+                `Amount exceeds ${fmt(MAX_REFUND_TOTAL)} cap. Process as supplier credit instead.`
+              )}
+            </div>
+          )}
           {error && (
             <div className="text-sm text-[#b3001e] bg-[#b3001e]/10 border border-[#b3001e]/20 rounded-lg px-3 py-2">
               {error}

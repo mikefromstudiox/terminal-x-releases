@@ -20,12 +20,18 @@ export default function AgeVerifyModal({ minAge = 18, onConfirm, onCancel, produ
 
   function handleDobConfirm() {
     if (!dob) { setError('Ingresa la fecha de nacimiento'); return }
-    const d = new Date(dob + 'T00:00:00')
-    if (Number.isNaN(d.getTime())) { setError('Fecha inválida'); return }
-    const now   = new Date()
-    let age     = now.getFullYear() - d.getFullYear()
-    const m     = now.getMonth() - d.getMonth()
-    if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--
+    // Parse YYYY-MM-DD as integer parts to avoid TZ/DST drift across the
+    // birthday boundary — `new Date('YYYY-MM-DD')` is UTC midnight which can
+    // shift a day in DR (UTC-4) and falsely fail an exact-18 cumpleaños.
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dob)
+    if (!m) { setError('Fecha inválida'); return }
+    const by = Number(m[1]), bm = Number(m[2]), bd = Number(m[3])
+    if (!by || !bm || !bd) { setError('Fecha inválida'); return }
+    const now = new Date()
+    const ny  = now.getFullYear(), nm = now.getMonth() + 1, nd = now.getDate()
+    if (by < 1900 || by > ny) { setError('Fecha inválida'); return }
+    let age = ny - by
+    if (nm < bm || (nm === bm && nd < bd)) age--
     if (age < minAge) { setError(`Cliente tiene ${age} años — no cumple ${minAge}+`); return }
     onConfirm({ method: 'dob', dob, age, minAge, verifiedAt: new Date().toISOString() })
   }
@@ -111,11 +117,7 @@ export default function AgeVerifyModal({ minAge = 18, onConfirm, onCancel, produ
   )
 }
 
-// Helper — given a licoreriaConfig and an inventory item, does it require 18+?
-export function requiresAgeCheck(config, item) {
-  if (!config?.ageVerification?.enabled) return false
-  const trigger = (config.ageVerification.triggerCategories || []).map(s => String(s).toLowerCase())
-  const cat = String(item?.category || '').toLowerCase().trim()
-  if (!cat) return false
-  return trigger.some(t => cat === t || cat.includes(t))
-}
+// Re-export the pure predicate from age-check.js so existing callers
+// (POS.jsx, CobrarModal.jsx) keep working unchanged. The .js source is
+// importable from Node smoke harnesses without a JSX loader.
+export { requiresAgeCheck } from '../screens/pos/age-check'
