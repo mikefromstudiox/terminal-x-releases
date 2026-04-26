@@ -41,7 +41,31 @@ export default function Suministros() {
       setToast({ kind: 'err', msg: L(`Código ${code} no encontrado en suministros pendientes.`, `Code ${code} not found in pending orders.`) })
     } else {
       await api.partsOrders?.markReceived?.(found.id, code)
-      setToast({ kind: 'ok', msg: L(`Recibido: ${found.part_name}. Notifique al cliente.`, `Received: ${found.part_name}. Notify client.`) })
+      // FIX-WA — auto-send WhatsApp to the client when the WO is linked. Falls
+      // back silently if WhatsApp not configured (the wa.me link in the row
+      // remains as a manual fallback). Activity log emit is non-blocking.
+      let waMsg = ''
+      try {
+        if (found.work_order_supabase_id) {
+          const orders = (await api.workOrders?.list?.()) || []
+          const wo = orders.find(o => o.supabase_id === found.work_order_supabase_id)
+          const phone = wo?.client_phone || ''
+          if (wo && phone) {
+            const body = `Su vehículo ${wo.plate || wo.vehicle_plate || ''} ya tiene las piezas. Lo contactaremos cuando esté listo. — ${wo.business_name || 'Taller'}`
+            try { await api.whatsapp?.send?.({ to: phone.replace(/\D/g, ''), body }); waMsg = ' ✓ WhatsApp enviado.' }
+            catch { waMsg = ' (WhatsApp no enviado)' }
+          }
+          try {
+            await api.activity?.log?.({
+              event_type: 'wo_parts_received', severity: 'info',
+              target_type: 'parts_order', target_id: found.id,
+              target_name: found.part_name,
+              metadata: { work_order_supabase_id: found.work_order_supabase_id, barcode: code },
+            })
+          } catch {}
+        }
+      } catch {}
+      setToast({ kind: 'ok', msg: L(`Recibido: ${found.part_name}.${waMsg}`, `Received: ${found.part_name}.${waMsg}`) })
       await refresh()
     }
     setScanInput('')

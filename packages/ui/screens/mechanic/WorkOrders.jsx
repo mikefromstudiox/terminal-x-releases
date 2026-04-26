@@ -19,59 +19,16 @@ import { useAPI } from '../../context/DataContext'
 import { useAuth } from '../../context/AuthContext'
 import { useLang } from '../../i18n'
 import CobrarModal from '../../components/CobrarModal'
+import PaymentErrorBoundary from '../../components/PaymentErrorBoundary'
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-const STATUSES = [
-  { id: 'estimado',       label_es: 'Estimado',       label_en: 'Estimated',     bg: 'bg-slate-100 dark:bg-white/10',       text: 'text-slate-600 dark:text-white/60',    dot: 'bg-slate-400',  border: 'border-slate-200 dark:border-white/10' },
-  { id: 'aprobado',       label_es: 'Aprobado',       label_en: 'Approved',      bg: 'bg-sky-50 dark:bg-sky-500/10',        text: 'text-sky-700 dark:text-sky-400',       dot: 'bg-sky-500',    border: 'border-sky-200 dark:border-sky-500/30' },
-  { id: 'awaiting_parts', label_es: 'Esperando Repuestos', label_en: 'Awaiting Parts', bg: 'bg-amber-50 dark:bg-amber-500/10', text: 'text-amber-700 dark:text-amber-400', dot: 'bg-amber-500', border: 'border-amber-200 dark:border-amber-500/30' },
-  { id: 'en_progreso',    label_es: 'En Progreso',    label_en: 'In Progress',   bg: 'bg-amber-50 dark:bg-amber-500/10',    text: 'text-amber-700 dark:text-amber-400',   dot: 'bg-amber-500',  border: 'border-amber-200 dark:border-amber-500/30' },
-  { id: 'completado',     label_es: 'Completado',     label_en: 'Completed',     bg: 'bg-emerald-50 dark:bg-emerald-500/10', text: 'text-emerald-700 dark:text-emerald-400', dot: 'bg-emerald-500', border: 'border-emerald-200 dark:border-emerald-500/30' },
-  { id: 'listo',          label_es: 'Listo (Cliente)', label_en: 'Ready (Pickup)', bg: 'bg-rose-50 dark:bg-rose-500/10',     text: 'text-[#b3001e] dark:text-rose-400',     dot: 'bg-[#b3001e]', border: 'border-[#b3001e]/40 dark:border-rose-500/30' },
-  { id: 'facturado',      label_es: 'Facturado',      label_en: 'Invoiced',      bg: 'bg-violet-50 dark:bg-violet-500/10',  text: 'text-violet-700 dark:text-violet-400',  dot: 'bg-violet-500', border: 'border-violet-200 dark:border-violet-500/30' },
-]
-
-// DB may store legacy English values ('estimate'/'approved'/'in_progress'/'completed'/'closed')
-// or Spanish kanban ids ('estimado'/'aprobado'/'en_progreso'/'completado'/'facturado'). Normalize.
-const STATUS_ALIAS = {
-  estimate: 'estimado', approved: 'aprobado', in_progress: 'en_progreso',
-  completed: 'completado', closed: 'facturado', invoiced: 'facturado',
-}
-function normStatus(s) { return STATUS_ALIAS[s] || s || 'estimado' }
-
-const STATUS_MAP = Object.fromEntries(STATUSES.map(s => [s.id, s]))
-
-const NEXT_STATUS = {
-  estimado: 'aprobado',
-  aprobado: 'en_progreso',
-  en_progreso: 'completado',
-  completado: 'listo',
-  listo: 'facturado',
-}
-
-const ACTION_LABELS = {
-  estimado:    { es: 'Aprobar',   en: 'Approve' },
-  aprobado:    { es: 'Iniciar',   en: 'Start' },
-  en_progreso: { es: 'Completar', en: 'Complete' },
-  completado:  { es: 'Marcar Listo', en: 'Mark Ready' },
-  listo:       { es: 'Facturar',  en: 'Invoice' },
-}
-
-// v2.16.0 — stamp timing fields on status transition
-function timingPatchForStatus(nextStatus) {
-  const now = new Date().toISOString()
-  if (nextStatus === 'en_progreso') return { started_at: now }
-  if (nextStatus === 'completado')  return { finished_at: now }
-  if (nextStatus === 'listo')       return { ready_at: now }
-  return {}
-}
-
-const LINE_TYPES = [
-  { id: 'labor',    label_es: 'Mano de Obra', label_en: 'Labor' },
-  { id: 'part',     label_es: 'Repuesto',     label_en: 'Part' },
-  { id: 'service',  label_es: 'Servicio',     label_en: 'Service' },
-]
+// ── Constants ─────────────────────────────────────────────────────────────
+// v2.16.x — extracted to wo/constants.js so siblings (Cotizaciones,
+// MechanicResumen, Suministros) can import the canonical status vocabulary
+// without duplicating it.
+import {
+  STATUSES, STATUS_ALIAS, STATUS_MAP, NEXT_STATUS, ACTION_LABELS,
+  LINE_TYPES, normStatus, timingPatchForStatus, fmtWO,
+} from './wo/constants'
 
 function fmtRD(n) {
   return `RD$ ${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -80,10 +37,6 @@ function fmtRD(n) {
 function fmtDate(s) {
   if (!s) return '---'
   return new Date(s).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })
-}
-
-function fmtWO(num) {
-  return `WO-${String(num).padStart(4, '0')}`
 }
 
 // ── Create Work Order Modal ──────────────────────────────────────────────────
@@ -171,6 +124,27 @@ function CreateModal({ vehicles, clients, empleados, bays, lang, onSave, onClose
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-2">
                   <input value={form.plate} onChange={e => set('plate', e.target.value.toUpperCase())}
+                    onBlur={e => {
+                      // FIX-M1 — autosearch on blur. If the typed plate matches
+                      // an existing vehicle, prompt the cashier to load the
+                      // existing record (avoids dupes from typo'd quick-add).
+                      const typed = String(e.target.value || '').trim().toUpperCase()
+                      if (!typed) return
+                      const hit = (vehicles || []).find(v => String(v.plate || '').toUpperCase() === typed)
+                      if (hit) {
+                        const ok = window.confirm(L(
+                          `Vehículo encontrado: ${hit.make || ''} ${hit.model || ''} (${hit.plate}). ¿Cargar este vehículo en lugar de crear uno nuevo?`,
+                          `Vehicle found: ${hit.make || ''} ${hit.model || ''} (${hit.plate}). Load this existing vehicle instead of creating a new one?`,
+                        ))
+                        if (ok) {
+                          set('quickVehicle', false)
+                          set('vehicle_id', hit.id)
+                          set('plate', '')
+                          set('make', ''); set('model', ''); set('year', ''); set('color', '')
+                          if (hit.client_id) set('client_id', hit.client_id)
+                        }
+                      }
+                    }}
                     placeholder={L('Placa *', 'Plate *')}
                     className="px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] bg-white dark:bg-white/5 text-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-400" />
                   <input value={form.make} onChange={e => set('make', e.target.value)}
@@ -300,11 +274,37 @@ const STATUS_STYLES = {
   fail: { bg: 'bg-[#b3001e]',   text: 'text-white', border: 'border-[#b3001e]',   label_es: 'Falla', label_en: 'Fail' },
 }
 
-function InspectionPanel({ inspection, lang, onChange, onSave, saving }) {
+function InspectionPanel({ inspection, lang, onChange, onSave, saving, workOrderSupabaseId, vehicleSupabaseId }) {
   const L = (es, en) => lang === 'es' ? es : en
+  const apiInsp = useAPI()
   const rows = inspection?.items || {}
+  // FIX-M4 — track which inspection item has an in-flight upload so the
+  // spinner shows on the right card.
+  const [uploadingId, setUploadingId] = useState(null)
   function set(id, patch) {
     onChange({ ...inspection, items: { ...rows, [id]: { ...(rows[id] || {}), ...patch } } })
+  }
+  async function uploadInspectionPhoto(itemId, file) {
+    if (!file) return
+    setUploadingId(itemId)
+    try {
+      const r = await apiInsp.workOrderPhotos?.upload?.({
+        work_order_supabase_id: workOrderSupabaseId,
+        vehicle_supabase_id: vehicleSupabaseId,
+        // Inspection photos always count as 'antes' evidence — they document
+        // the state at the time of the diagnosis, before any work happens.
+        phase: 'antes',
+        file,
+        caption: `Inspección: ${itemId}`,
+      })
+      const path = r?.storage_path || r?.signed_url || null
+      if (path) set(itemId, { photo_url: path })
+    } catch (e) {
+      console.warn('[InspectionPanel] photo upload failed', e?.message || e)
+      try { window.alert(L('No se pudo subir la foto. Verifique conexión.', 'Photo upload failed. Check connection.')) } catch {}
+    } finally {
+      setUploadingId(null)
+    }
   }
   return (
     <div className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-4 space-y-3">
@@ -320,6 +320,7 @@ function InspectionPanel({ inspection, lang, onChange, onSave, saving }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         {INSPECTION_ITEMS.map(it => {
           const row = rows[it.id] || {}
+          const hasPhoto = !!row.photo_url
           return (
             <div key={it.id} className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg p-2.5">
               <div className="flex items-center justify-between mb-1.5">
@@ -339,9 +340,44 @@ function InspectionPanel({ inspection, lang, onChange, onSave, saving }) {
                   })}
                 </div>
               </div>
-              <input value={row.note || ''} onChange={e => set(it.id, { note: e.target.value })}
-                placeholder={L('Nota / foto URL (opcional)', 'Note / photo URL (optional)')}
-                className="w-full px-2 py-1 border border-slate-200 dark:border-white/10 rounded text-[11px] bg-white dark:bg-white/5 text-slate-700 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-sky-400" />
+              <div className="flex items-center gap-1">
+                <input value={row.note || ''} onChange={e => set(it.id, { note: e.target.value })}
+                  placeholder={L('Nota (opcional)', 'Note (optional)')}
+                  className="flex-1 px-2 py-1 border border-slate-200 dark:border-white/10 rounded text-[11px] bg-white dark:bg-white/5 text-slate-700 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-sky-400" />
+                {/* FIX-M4 — inline camera button replaces the old "photo URL" field. */}
+                <label
+                  title={hasPhoto ? L('Cambiar foto', 'Change photo') : L('Tomar foto', 'Take photo')}
+                  className={`shrink-0 px-2 py-1 rounded text-[10px] font-bold border cursor-pointer flex items-center gap-1 ${
+                    hasPhoto
+                      ? 'bg-[#b3001e] border-[#b3001e] text-white'
+                      : 'bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-500 dark:text-white/50 hover:border-[#b3001e] hover:text-[#b3001e]'
+                  } ${uploadingId === it.id ? 'opacity-60 cursor-wait' : ''}`}
+                >
+                  {uploadingId === it.id
+                    ? <Loader2 size={11} className="animate-spin" />
+                    : <Camera size={11} />}
+                  <span className="hidden md:inline">{hasPhoto ? '✓' : L('Foto', 'Photo')}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    disabled={uploadingId === it.id || !workOrderSupabaseId}
+                    onChange={e => {
+                      const f = e.target.files?.[0]
+                      if (f) uploadInspectionPhoto(it.id, f)
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                {hasPhoto && (
+                  <button type="button" onClick={() => set(it.id, { photo_url: null })}
+                    title={L('Quitar foto', 'Remove photo')}
+                    className="shrink-0 px-1.5 py-1 rounded text-[10px] text-slate-400 hover:text-[#b3001e]">
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
             </div>
           )
         })}
@@ -442,17 +478,43 @@ function DetailModal({ order, lang, onStatusChange, onAddItem, onDeleteItem, onS
 
   async function handleConfirmListo() {
     const patch = { status: 'listo', ready_at: new Date().toISOString() }
+    const REMOLQUE_NAME = 'Servicio de remolque / entrega'
     if (deliveryToggle && !order.delivery_required) {
       patch.delivery_required = true
       patch.delivery_fee = 500
       try {
         await apiRef.workOrders?.addItem?.({
           work_order_id: order.id, type: 'service',
-          name: 'Servicio de remolque / entrega', qty: 1, unit_price: 500,
+          name: REMOLQUE_NAME, qty: 1, unit_price: 500,
         })
-      } catch {}
+      } catch (e) { console.warn('[Listo] addItem remolque failed', e?.message || e) }
+    } else if (!deliveryToggle && order.delivery_required) {
+      // FIX-M3 — toggle off removes the auto-added remolque item so the
+      // customer doesn't pay double when the cashier changes their mind.
+      patch.delivery_required = false
+      patch.delivery_fee = 0
+      try {
+        const remolque = (order.items || []).find(i =>
+          i.type === 'service' && String(i.name || '').toLowerCase() === REMOLQUE_NAME.toLowerCase()
+        )
+        if (remolque?.id) {
+          await apiRef.workOrders?.deleteItem?.({ work_order_id: order.id, item_id: remolque.id })
+        }
+      } catch (e) { console.warn('[Listo] remolque cleanup failed', e?.message || e) }
     }
-    try { await apiRef.workOrders?.update?.(order.id, patch) } catch {}
+    try { await apiRef.workOrders?.update?.(order.id, patch) } catch (e) { console.warn('[Listo] update failed', e?.message || e) }
+    // FIX-WA — auto-dispatch the "vehicle ready" WhatsApp via the configured
+    // UltraMsg instance when the client has a phone. Silent fallback to the
+    // wa.me link rendered above if WhatsApp not configured or send fails.
+    try {
+      const phone = String(order.client_phone || '').replace(/\D/g, '')
+      if (phone && order.vehicle_plate) {
+        const body = deliveryToggle
+          ? `Su vehículo ${order.vehicle_plate} está LISTO. Coordinaremos la entrega a domicilio. Gracias por su confianza.`
+          : `Su vehículo ${order.vehicle_plate} está LISTO para recoger. Gracias por su confianza.`
+        await apiRef.whatsapp?.send?.({ to: phone, body })
+      }
+    } catch (e) { console.warn('[Listo] WhatsApp send skipped', e?.message || e) }
     setConfirmListo(false)
     onStatusChange(order.id, 'listo')
   }
@@ -474,6 +536,20 @@ function DetailModal({ order, lang, onStatusChange, onAddItem, onDeleteItem, onS
   function handleStatusAction() {
     const next = NEXT_STATUS[order.status]
     if (!next) return
+    // FIX-H6 — mandatory pre/post photos. Block transitions:
+    //   • estimado/aprobado → en_progreso  requires ≥1 'antes' photo
+    //   • en_progreso       → completado    requires ≥1 'despues' photo
+    // Manager override: hold Shift while clicking (escape hatch for emergencies).
+    const evt = (typeof window !== 'undefined' && window.event) ? window.event : null
+    const overrideHeld = !!evt?.shiftKey
+    if (next === 'en_progreso' && photoCount.antes === 0 && !overrideHeld) {
+      try { window.alert(L('Tome al menos una foto ANTES para iniciar (mantenga Shift al hacer clic para anular).', 'Take at least one BEFORE photo to start (hold Shift while clicking to override).')) } catch {}
+      return
+    }
+    if (next === 'completado' && photoCount.despues === 0 && !overrideHeld) {
+      try { window.alert(L('Tome al menos una foto DESPUÉS para completar (mantenga Shift al hacer clic para anular).', 'Take at least one AFTER photo to complete (hold Shift while clicking to override).')) } catch {}
+      return
+    }
     if (next === 'facturado') {
       setConfirmInvoice(true)
       return
@@ -667,6 +743,8 @@ function DetailModal({ order, lang, onStatusChange, onAddItem, onDeleteItem, onS
                 onChange={setInspection}
                 onSave={handleSaveInspection}
                 saving={savingInsp}
+                workOrderSupabaseId={order.supabase_id}
+                vehicleSupabaseId={order.vehicle_supabase_id}
               />
             )}
 
@@ -735,6 +813,56 @@ function DetailModal({ order, lang, onStatusChange, onAddItem, onDeleteItem, onS
                       <option value="rechazado">{L('Rechazado','Rejected')}</option>
                     </select>
                     <button type="button" onClick={handleSaveInsurance} className="w-full py-1.5 bg-black text-white text-[11px] font-bold rounded hover:bg-[#b3001e]">{L('Guardar','Save')}</button>
+                    {/* FIX-M5 — descargar Hoja Técnica formato aseguradora. */}
+                    {insuranceForm.aseguradora_supabase_id && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const { buildInspectionReportPdf } = await import('@terminal-x/services/pdf')
+                            const empresa = await (apiRef.admin?.getEmpresa?.() || Promise.resolve({}))
+                            const aseg = aseguradoras.find(a => a.supabase_id === insuranceForm.aseguradora_supabase_id) || {}
+                            // Pull fresh photos so the hoja técnica embeds them.
+                            let photos = []
+                            try {
+                              const list = (await apiRef.workOrderPhotos?.listByWO?.(order.supabase_id)) || []
+                              const picks = [...list.filter(p => p.phase === 'antes').slice(0, 2),
+                                             ...list.filter(p => p.phase === 'despues').slice(0, 2)]
+                              for (const p of picks) {
+                                const url = p.signed_url || (apiRef.workOrderPhotos?.signedUrl ? await apiRef.workOrderPhotos.signedUrl(p.storage_path) : null)
+                                if (!url) continue
+                                const resp = await fetch(url)
+                                if (!resp.ok) continue
+                                const blob = await resp.blob()
+                                const b64 = await new Promise((res, rej) => {
+                                  const fr = new FileReader()
+                                  fr.onerror = () => rej(fr.error); fr.onload = () => res(String(fr.result))
+                                  fr.readAsDataURL(blob)
+                                })
+                                photos.push({ phase: p.phase, base64: b64, caption: p.caption || null })
+                              }
+                            } catch {}
+                            const { pdfBytes, filename } = await buildInspectionReportPdf({
+                              wo: { ...order, items: order.items || [] },
+                              business: empresa,
+                              aseguradora: { ...aseg, ...insuranceForm },
+                              client: order.client_name ? { name: order.client_name, phone: order.client_phone } : null,
+                              photos,
+                            })
+                            const blob = new Blob([pdfBytes], { type: 'application/pdf' })
+                            const a = document.createElement('a')
+                            a.href = URL.createObjectURL(blob); a.download = filename; a.click()
+                            setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+                          } catch (e) {
+                            console.warn('[hojaTecnica] failed', e?.message || e)
+                            try { window.alert(L('No se pudo generar la hoja técnica.','Could not generate inspection report.')) } catch {}
+                          }
+                        }}
+                        className="w-full mt-2 py-1.5 bg-[#b3001e] text-white text-[11px] font-bold rounded hover:bg-black"
+                      >
+                        {L('Descargar Hoja Técnica (PDF)','Download Inspection Report (PDF)')}
+                      </button>
+                    )}
                   </div>
                 )}
                 {order.vehicle_supabase_id && (
@@ -986,6 +1114,28 @@ export default function WorkOrders() {
     } else {
       await api.workOrders.updateStatus({ id, status: newStatus })
     }
+    // v2.16.x FIX-H3 — emit activity_log events at the WO transitions that
+    // matter for the audit feed (Mecánica chip in RemoteDashboard).
+    // wo_estimate_approved is fired server-side from the public approval page
+    // (web/api/panel.js) so we don't double-emit it here.
+    try {
+      const wo = orders.find(o => o.id === id)
+      if (newStatus === 'en_progreso') {
+        await api.activity?.log?.({
+          event_type: 'wo_started', severity: 'info',
+          target_type: 'work_order', target_id: id,
+          target_name: wo?.plate || wo?.client_name || null,
+          metadata: { work_order_supabase_id: wo?.supabase_id, vehicle_plate: wo?.plate },
+        })
+      } else if (newStatus === 'listo') {
+        await api.activity?.log?.({
+          event_type: 'wo_ready_for_pickup', severity: 'info',
+          target_type: 'work_order', target_id: id,
+          target_name: wo?.plate || wo?.client_name || null,
+          metadata: { work_order_supabase_id: wo?.supabase_id, vehicle_plate: wo?.plate, delivery: !!wo?.delivery_required },
+        })
+      }
+    } catch (e) { console.warn('[WorkOrders] activity log emit failed', e?.message || e) }
     await loadAll()
     // Refresh detail if open
     if (detail?.id === id) {
@@ -1040,20 +1190,73 @@ export default function WorkOrders() {
       id:         `wo-${wo.id}`,
       ticketNo:   fmtWO(wo.order_number || wo.id),
       vehicle:    wo.plate || '',
+      vehicleVin:   wo.vehicle_vin   || null,
+      vehicleMake:  wo.vehicle_make  || wo.make  || null,
+      vehicleModel: wo.vehicle_model || wo.model || null,
+      vehicleKm:    wo.odometer_in_km != null ? wo.odometer_in_km : (wo.odometer_km != null ? wo.odometer_km : null),
       services:   items,
       client:     wo.client_supabase_id || wo.client_id
                    ? { id: wo.client_id, supabase_id: wo.client_supabase_id, name: wo.client_name }
                    : null,
+      // FIX-H4 — pre-fetched antes/después photos (data URLs) for the receipt.
+      photoEvidence: Array.isArray(wo.photoEvidence) ? wo.photoEvidence : [],
       _wo:        wo,
     }
   }
 
-  function openCobrarForWO(wo) {
+  // FIX-H4 — pre-fetch antes/después photos for the WO and convert each to a
+  // data URL so the receipt PDF can embed them in the EVIDENCIA FOTOGRAFICA
+  // grid (pdf.js already renders `data.photoEvidence`). Network failures do
+  // NOT block the cobrar flow — the receipt just ships without photos.
+  async function fetchPhotoEvidenceForWO(wo) {
+    if (!wo?.supabase_id) return []
+    try {
+      const photos = (await api.workOrderPhotos?.listByWO?.(wo.supabase_id)) || []
+      if (!photos.length) return []
+      // Up to 4 (2 antes + 2 después) — pdf.js caps the grid at 4.
+      const antes   = photos.filter(p => p.phase === 'antes').slice(0, 2)
+      const despues = photos.filter(p => p.phase === 'despues').slice(0, 2)
+      const picks   = [...antes, ...despues]
+      const out     = []
+      for (const p of picks) {
+        try {
+          let url = p.signed_url || null
+          if (!url && p.storage_path && api.workOrderPhotos?.signedUrl) {
+            url = await api.workOrderPhotos.signedUrl(p.storage_path)
+          }
+          if (!url) continue
+          const resp = await fetch(url)
+          if (!resp.ok) continue
+          const blob = await resp.blob()
+          const b64  = await new Promise((res, rej) => {
+            const fr = new FileReader()
+            fr.onerror = () => rej(fr.error)
+            fr.onload  = () => res(String(fr.result))
+            fr.readAsDataURL(blob)
+          })
+          out.push({ phase: p.phase, base64: b64, caption: p.caption || null })
+        } catch (e) {
+          console.warn('[fetchPhotoEvidenceForWO] photo skipped', e?.message || e)
+        }
+      }
+      return out
+    } catch (e) {
+      console.warn('[fetchPhotoEvidenceForWO] list failed', e?.message || e)
+      return []
+    }
+  }
+
+  async function openCobrarForWO(wo) {
     if (!wo || !(wo.items || []).length) {
       flash(L('Agregar items antes de facturar', 'Add items before invoicing'))
       return
     }
-    setCobrarWO(wo)
+    // Side-load photos in the background so CobrarModal/printReceipt sees them.
+    // We mutate wo.photoEvidence on the cobrar object so buildTicketFromWO
+    // (called inside CobrarModal) can forward it to the receipt builder.
+    let photoEvidence = []
+    try { photoEvidence = await fetchPhotoEvidenceForWO(wo) } catch {}
+    setCobrarWO({ ...wo, photoEvidence })
   }
 
   async function handleWOCobrarConfirm(paymentData) {
@@ -1259,11 +1462,13 @@ export default function WorkOrders() {
 
       {/* WO → Cobrar bridge */}
       {cobrarWO && (
-        <CobrarModal
-          ticket={buildTicketFromWO(cobrarWO)}
-          onConfirm={handleWOCobrarConfirm}
-          onClose={() => setCobrarWO(null)}
-        />
+        <PaymentErrorBoundary onClose={() => setCobrarWO(null)}>
+          <CobrarModal
+            ticket={buildTicketFromWO(cobrarWO)}
+            onConfirm={handleWOCobrarConfirm}
+            onClose={() => setCobrarWO(null)}
+          />
+        </PaymentErrorBoundary>
       )}
 
       {/* Toast */}

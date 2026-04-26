@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { FileText, Plus, Loader2, ArrowRight, Clock, AlertTriangle } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
+// v2.16.x — single source of truth for status vocabulary.
+import { normStatus } from './wo/constants'
 
 function fmtRD(n) {
   return `RD$ ${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
@@ -11,10 +13,6 @@ function daysUntil(iso) {
   if (!iso) return null
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000)
 }
-
-// Mirror of WorkOrders.jsx STATUS_ALIAS — keep in sync.
-const STATUS_ALIAS = { estimate: 'estimado', approved: 'aprobado', in_progress: 'en_progreso', completed: 'completado', closed: 'facturado', invoiced: 'facturado' }
-function normStatus(s) { return STATUS_ALIAS[s] || s || 'estimado' }
 
 export default function Cotizaciones() {
   const api = useAPI()
