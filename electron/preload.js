@@ -434,6 +434,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
                             call('mechanic:productivityForPeriod', { period_start, period_end }),
     serviceRemindersDue:   () => call('mechanic:serviceRemindersDue'),
   },
+  mechanicCommissions: {
+    byPeriod: (period_start, period_end) =>
+                  call('mechanicCommissions:byPeriod', { period_start, period_end }),
+    markPaid: (id, paid_by_supabase_id) =>
+                  call('mechanicCommissions:markPaid', { id, paid_by_supabase_id }),
+  },
 
   // ── Loans (prestamos) ─────────────────────────────────────────────────────
   loans: {
@@ -727,6 +733,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     hwid:     ()    => ipcRenderer.invoke('license:hwid'),
     isMaster: (key) => ipcRenderer.invoke('license:is-master', key),
     status:   ()    => ipcRenderer.invoke('license:status'),
+    setKey:   (key) => ipcRenderer.invoke('license:set-key', key),
+    clearJwt: ()    => ipcRenderer.invoke('license:clear-jwt'),
   },
 
   // ── Remote API (main process, no CORS) ────────────────────────────────────
@@ -780,6 +788,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     reminders: {
       schedule:               (data) => call('salon:reminders:schedule', data),
       pendingDue:             (now)  => call('salon:reminders:pending-due', now),
+      recent:                 (opts) => call('salon:reminders:recent', opts),
       markSent:               (data) => call('salon:reminders:mark-sent', data),
       markFailed:             (data) => call('salon:reminders:mark-failed', data),
       scheduleForAppointment: (appt) => call('salon:reminders:schedule-for-appointment', appt),

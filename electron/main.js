@@ -1195,6 +1195,104 @@ ipcMain.handle('license:hwid', () => {
   return getHardwareId()
 })
 
+// ── Per-license JWT (sync auth) ───────────────────────────────────────────────
+// The renderer owns the license_key (localStorage). After every successful
+// license validation it pushes the key into main via `license:set-key`, which
+// triggers a JWT mint + wires it into the sync layer. The JWT is what RLS
+// reads (`auth.jwt() ->> 'business_id'`); the project anon key is still the
+// `apikey` header but no longer the `Authorization: Bearer` value.
+//
+// Soft fallback: if the mint Edge Function is unreachable or the license has
+// not been migrated yet, we log + continue without the JWT. Sync still works
+// against the legacy permissive RLS policies until the lockdown migration
+// goes live; after that, mint failure becomes an effective hard error
+// (sync calls 401) which surfaces in the existing error log path.
+const licenseJwt = require('./licenseJwt')
+
+function getOrCreateMachineId() {
+  try {
+    const file = path.join(app.getPath('userData'), 'machine_id.txt')
+    try { const v = fs.readFileSync(file, 'utf8').trim(); if (v) return v } catch {}
+    const id = crypto.randomUUID()
+    fs.writeFileSync(file, id)
+    return id
+  } catch (e) {
+    console.warn('[main] getOrCreateMachineId fallback:', e.message)
+    return getHardwareId() || 'unknown-machine'
+  }
+}
+
+let _licenseJwtRefreshTimer = null
+let _activeLicenseKey = null
+
+async function _wireLicenseJwt(licenseKey, { force = false } = {}) {
+  if (!licenseKey || typeof licenseKey !== 'string') return
+  if (!env.supabaseUrl) return
+  const machineId = getOrCreateMachineId()
+  try {
+    const bundle = await licenseJwt.getOrMintJwt({
+      licenseKey,
+      machineId,
+      supabaseUrl: env.supabaseUrl,
+      force,
+    })
+    sync.setUserJwt(bundle.access_token)
+    _activeLicenseKey = licenseKey
+    console.log('[license-jwt] minted/loaded; expires_at=', new Date(bundle.expires_at).toISOString())
+  } catch (e) {
+    // Soft fallback during the RLS lockdown migration window.
+    console.error('[license-jwt] could not mint JWT, sync will run with bare anon (legacy fallback):', e.message)
+  }
+
+  // Install refresh hook so an active sync cycle can self-heal a near-expired
+  // JWT without waiting for the periodic interval.
+  sync.setJwtRefreshHook(async () => {
+    if (!_activeLicenseKey) return
+    const fresh = await licenseJwt.getOrMintJwt({
+      licenseKey: _activeLicenseKey,
+      machineId: getOrCreateMachineId(),
+      supabaseUrl: env.supabaseUrl,
+      force: true,
+    })
+    sync.setUserJwt(fresh.access_token)
+  })
+
+  // Periodic refresh (idempotent — safe to re-arm on every wire call).
+  if (_licenseJwtRefreshTimer) { try { clearInterval(_licenseJwtRefreshTimer) } catch {} }
+  _licenseJwtRefreshTimer = setInterval(async () => {
+    if (!_activeLicenseKey) return
+    try {
+      const fresh = await licenseJwt.getOrMintJwt({
+        licenseKey: _activeLicenseKey,
+        machineId: getOrCreateMachineId(),
+        supabaseUrl: env.supabaseUrl,
+      })
+      sync.setUserJwt(fresh.access_token)
+    } catch (e) {
+      console.warn('[license-jwt] refresh failed:', e.message)
+    }
+  }, 30 * 60_000)
+}
+
+// Renderer pushes the license key here after a successful validate cycle.
+// Idempotent: re-calling with the same key is a no-op once a fresh JWT is
+// cached, and a new key triggers a forced re-mint.
+ipcMain.handle('license:set-key', async (_evt, licenseKey) => {
+  if (!licenseKey || typeof licenseKey !== 'string') return { ok: false, error: 'no key' }
+  const force = (_activeLicenseKey && _activeLicenseKey !== licenseKey)
+  if (force) licenseJwt.clearCachedJwt()
+  await _wireLicenseJwt(licenseKey, { force })
+  return { ok: true }
+})
+
+ipcMain.handle('license:clear-jwt', () => {
+  try { licenseJwt.clearCachedJwt() } catch {}
+  sync.setUserJwt(null)
+  _activeLicenseKey = null
+  if (_licenseJwtRefreshTimer) { try { clearInterval(_licenseJwtRefreshTimer) } catch {} _licenseJwtRefreshTimer = null }
+  return { ok: true }
+})
+
 // ── License cache status (for Diagnosticar Red panel) ───────────────────────
 // Renderer owns the real license cache (localStorage). Main reports the
 // hwid.json file mtime as a proxy for "last touched by license flow" so the
@@ -2096,6 +2194,7 @@ handle('salon:client-memberships:expiring-soon',(days) => db.clientMembershipsEx
 
 handleMut('salon:reminders:schedule',           ({ appointment_supabase_id, fire_at, kind }) => db.appointmentReminderSchedule(appointment_supabase_id, fire_at, kind))
 handle('salon:reminders:pending-due',           (now) => db.appointmentRemindersPendingDue(now))
+handle('salon:reminders:recent',                (opts) => db.appointmentRemindersRecent(opts || {}))
 handleMut('salon:reminders:mark-sent',          ({ id, ultramsg_message_id }) => db.appointmentReminderMarkSent(id, ultramsg_message_id))
 handleMut('salon:reminders:mark-failed',        ({ id, error }) => db.appointmentReminderMarkFailed(id, error))
 handleMut('salon:reminders:schedule-for-appointment', (appt) => db.appointmentReminderScheduleForAppointment(appt || {}))
@@ -2213,6 +2312,8 @@ handle('insuranceBatches:workOrdersFor', ({aseguradora_supabase_id, period_month
 
 handle('mechanic:productivityForPeriod', ({period_start, period_end}) => db.mechanicProductivityForPeriod(period_start, period_end))
 handle('mechanic:serviceRemindersDue',   ()                 => db.mechanicServiceRemindersDue())
+handle('mechanicCommissions:byPeriod',   ({period_start, period_end}) => db.mechanicCommissionsByPeriod(period_start, period_end))
+handleMut('mechanicCommissions:markPaid', ({id, paid_by_supabase_id}) => db.mechanicCommissionsMarkPaid(id, paid_by_supabase_id))
 
 // ── Loans (prestamos) ────────────────────────────────────────────────────────
 handleMut('loans:create',  (data)           => db.loanCreate(data))

@@ -57,6 +57,56 @@ function safeParseJson(s) { try { return JSON.parse(s) } catch { return null } }
 let _db = null
 let _url = ''
 let _key = ''
+// Per-license user JWT (minted from license_key + machine_id by the
+// `mint-license-jwt` Edge Function). When set, every Authorization: Bearer
+// header swaps from the project anon key to this short-lived JWT so RLS can
+// scope queries by `auth.jwt() ->> 'business_id'`. The `apikey` header always
+// stays on the anon key — that's the project identifier, not user auth.
+// Wired from main.js via `setUserJwt(token)`. Cleared with `setUserJwt(null)`.
+let _userJwt = null
+// Refresh hook: main.js installs an async () => Promise<void> here that
+// re-mints + calls setUserJwt(). The push/pull cycle calls it whenever the
+// current JWT is within REFRESH_SKEW_S of `exp` so an active sync never
+// fails mid-flight from a 401.
+let _refreshUserJwt = null
+const REFRESH_SKEW_S = 300
+
+function _authHeaders(extra) {
+  const h = {
+    apikey: _key,
+    Authorization: 'Bearer ' + (_userJwt || _key),
+  }
+  return extra ? Object.assign(h, extra) : h
+}
+
+function _jwtIsExpiringSoon(jwt) {
+  if (!jwt || typeof jwt !== 'string') return false
+  const parts = jwt.split('.')
+  if (parts.length < 2) return false
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'))
+    if (!payload || typeof payload.exp !== 'number') return false
+    return payload.exp < (Date.now() / 1000) + REFRESH_SKEW_S
+  } catch {
+    return false
+  }
+}
+
+async function _maybeRefreshJwt() {
+  if (!_userJwt || typeof _refreshUserJwt !== 'function') return
+  if (!_jwtIsExpiringSoon(_userJwt)) return
+  try { await _refreshUserJwt() } catch (e) {
+    try { log.warn('[sync] JWT refresh failed:', e.message) } catch {}
+  }
+}
+
+function setUserJwt(token) {
+  _userJwt = token || null
+}
+
+function setJwtRefreshHook(fn) {
+  _refreshUserJwt = (typeof fn === 'function') ? fn : null
+}
 let _businessId = null
 let _intervalId = null
 let _syncing = false
@@ -881,6 +931,24 @@ const SYNC_TABLES = [
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
       manual_reason: r.manual_reason || null,  // v2.14
+    }),
+  },
+  {
+    name: 'mechanic_commissions',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      work_order_supabase_id: r.work_order_supabase_id,
+      technician_empleado_supabase_id: r.technician_empleado_supabase_id,
+      ticket_supabase_id: r.ticket_supabase_id || null,
+      base_amount: r.base_amount,
+      commission_pct: r.commission_pct,
+      calc_amount: r.calc_amount,
+      paid: r.paid === 1,
+      paid_at: r.paid_at || null,
+      paid_by_supabase_id: r.paid_by_supabase_id || null,
+      manual_reason: r.manual_reason || null,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
   {
@@ -1957,13 +2025,11 @@ async function supabaseUpsert(table, rows) {
       hostname: reqUrl.hostname,
       path: reqUrl.pathname + reqUrl.search,
       method: 'POST',
-      headers: {
-        'apikey': _key,
-        'Authorization': `Bearer ${_key}`,
+      headers: _authHeaders({
         'Content-Type': 'application/json',
         'Prefer': `resolution=${resolution},return=minimal`,
         'Content-Length': Buffer.byteLength(body),
-      },
+      }),
     }, (response) => {
       let data = ''
       response.on('data', chunk => { data += chunk.toString() })
@@ -2033,7 +2099,7 @@ async function resolveBusinessId() {
           https.get({
             hostname: reqUrl.hostname,
             path: reqUrl.pathname + reqUrl.search,
-            headers: { 'apikey': _key, 'Authorization': `Bearer ${_key}` },
+            headers: _authHeaders(),
           }, res => {
             let data = ''
             res.on('data', chunk => { data += chunk.toString() })
@@ -2102,7 +2168,7 @@ function supabaseFetch(table, queryParams) {
     const request = https.get({
       hostname: reqUrl.hostname,
       path: reqUrl.pathname + reqUrl.search,
-      headers: { 'apikey': _key, 'Authorization': `Bearer ${_key}` },
+      headers: _authHeaders(),
     }, (response) => {
       let data = ''
       response.on('data', chunk => { data += chunk.toString() })
@@ -2286,6 +2352,9 @@ const PULL_TABLES = [
   { name: 'cajero_commissions', strategy: 'lww',
     cols: ['base_amount','commission_pct','commission_amount','paid','paid_at','created_at','updated_at'],
     fkCols: { cajero_supabase_id: 'users', ticket_supabase_id: 'tickets' } },
+  { name: 'mechanic_commissions', strategy: 'lww',
+    cols: ['base_amount','commission_pct','calc_amount','paid','paid_at','manual_reason','created_at','updated_at'],
+    fkCols: { work_order_supabase_id: 'work_orders', technician_empleado_supabase_id: 'empleados', ticket_supabase_id: 'tickets' } },
   { name: 'credit_payments', strategy: 'fww',
     cols: ['ticket_ids','amount','payment_method','ncf','notes','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', cajero_supabase_id: 'users' } },
@@ -2335,11 +2404,16 @@ const PULL_TABLES = [
     cols: ['doc_type','file_url','mime_type','notes','created_at','updated_at'],
     fkCols: { pawn_supabase_id: 'pawn_items' } },
   { name: 'pawn_listings', strategy: 'lww',
-    cols: ['list_price','published_at','slug','status','sold_ticket_supabase_id','notes','created_at','updated_at'],
+    cols: ['list_price','published_at','slug','status','sold_ticket_supabase_id','notes','list_price_override','override_reason','created_at','updated_at'],
     fkCols: { pawn_supabase_id: 'pawn_items' } },
   { name: 'collections_attempts', strategy: 'fww',
     cols: ['attempt_at','outcome','notes','next_followup_at','whatsapp_sent','created_at','updated_at'],
     fkCols: { loan_supabase_id: 'loans' } },
+
+  // v2.16.x — Servicios vertical: project tracker (minimal)
+  { name: 'service_projects', strategy: 'lww',
+    cols: ['project_name','description','status','billing_type','estimated_hours','hourly_rate','fixed_price','total_billed','total_paid','started_at','due_date','completed_at','assigned_empleado_supabase_id','notes','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients' } },
 
   // Phase 4 — payroll audit trail + adelantos (FWW — financial records, never overwritten)
   // Note: ecf_submissions is push-only (desktop-authored per-device, no pull) — column name
@@ -2935,6 +3009,7 @@ function archiveAndResetForBizSwap(newBizId) {
 // -- Pull all tables ----------------------------------------------------------
 async function pullNow() {
   if (!_url || !_key) return { pulled: 0 }
+  await _maybeRefreshJwt()
   const bizId = await resolveBusinessId()
   if (!bizId) return { pulled: 0 }
   // v2.1: guard against pulling a different tenant's data on top of an existing
@@ -3038,7 +3113,58 @@ async function syncTable(tableConfig) {
     }
 
     // Map rows to Supabase format, skip rows without supabase_id (pre-migration)
-    const mapped = filtered.map(r => ({ business_id: bizId, ...cols(r) })).filter(r => r.supabase_id)
+    let mapped = filtered.map(r => ({ business_id: bizId, ...cols(r) })).filter(r => r.supabase_id)
+
+    // FIX-HIGH-5 (v2.16.7): app_settings push-side LWW guard. The server-side
+    // BEFORE UPDATE trigger used to unconditionally `NEW.updated_at := NOW()`,
+    // which let a stale device-B push (e.g. dgii_environment=certecf, ts=09:00)
+    // overwrite a fresh device-A flip (dgii_environment=prod, ts=10:00) because
+    // the trigger bumped updated_at to NOW() and the merge-duplicates upsert
+    // accepted the value. We fixed the trigger to enforce LWW server-side, but
+    // we ALSO drop stale rows here so we don't burn a network round-trip and
+    // don't depend on the server raising an error mid-batch (which would abort
+    // the whole batch under PostgREST). Defense in depth.
+    if (mapped.length && name === 'app_settings') {
+      try {
+        // Fetch remote updated_at for the keys we're about to push, in chunks.
+        const keys = mapped.map(r => r.key).filter(Boolean)
+        const remoteByKey = new Map()
+        const CHUNK = 100
+        for (let i = 0; i < keys.length; i += CHUNK) {
+          const slice = keys.slice(i, i + CHUNK)
+          const remote = await supabaseFetch('app_settings', {
+            'business_id': `eq.${bizId}`,
+            'key': `in.(${slice.map(k => `"${String(k).replace(/"/g, '\\"')}"`).join(',')})`,
+            'select': 'key,updated_at,device_hwid',
+            'limit': String(slice.length),
+          })
+          for (const r of remote || []) {
+            // Key by (key, device_hwid) so the device-local mirror partition
+            // doesn't collide with the business-level row (same key, distinct hwid).
+            const partitionKey = `${r.key} ${r.device_hwid || ''}`
+            remoteByKey.set(partitionKey, r.updated_at || null)
+          }
+        }
+        const before = mapped.length
+        mapped = mapped.filter(r => {
+          const partitionKey = `${r.key} ${r.device_hwid || ''}`
+          const remoteTs = remoteByKey.get(partitionKey)
+          if (!remoteTs) return true // remote has no row yet — push wins
+          // Compare ISO strings lexicographically (ISO-8601 is comparable as text).
+          // Local updated_at may be 'YYYY-MM-DD HH:MM:SS' — normalize to ISO.
+          const local = String(r.updated_at || '').includes('T')
+            ? r.updated_at
+            : String(r.updated_at || '').replace(' ', 'T') + 'Z'
+          const localMs = Date.parse(local) || 0
+          const remoteMs = Date.parse(remoteTs) || 0
+          return localMs >= remoteMs
+        })
+        const dropped = before - mapped.length
+        if (dropped > 0) log.info(`[sync] app_settings: LWW dropped ${dropped} stale rows (remote newer)`)
+      } catch (e) {
+        log.warn(`[sync] app_settings: LWW pre-check failed (${e.message}) — proceeding without`)
+      }
+    }
 
     // Batch upsert (500 at a time)
     if (mapped.length) {
@@ -3100,7 +3226,7 @@ async function syncTable(tableConfig) {
 // if its SHA-256 hash has changed since last push (idempotent, offline-safe).
 async function pushBusinessMeta(bizId) {
   try {
-    const emp = _db.rawPrepare('SELECT name, rnc, phone, address, email, logo, settings FROM businesses LIMIT 1').get()
+    const emp = _db.rawPrepare('SELECT name, rnc, phone, address, email, logo, settings, mora_rate_daily FROM businesses LIMIT 1').get()
     if (!emp) return 0
 
     // Compute logo hash (if present)
@@ -3148,6 +3274,7 @@ async function pushBusinessMeta(bizId) {
     if (emp.phone)   updates.phone   = emp.phone
     if (emp.address) updates.address = emp.address
     if (emp.email)   updates.email   = emp.email
+    if (emp.mora_rate_daily != null) updates.mora_rate_daily = Number(emp.mora_rate_daily)
     if (logoUrl)     updates.logo_url = logoUrl
     // Push the settings JSON (ciudad / biz_city / biz_type / whatsapp_* / fiscal cert
     // fields) so user edits in Mi Empresa actually survive a desktop wipe + re-pull.
@@ -3173,11 +3300,10 @@ async function pushBusinessMeta(bizId) {
           const reqUrl = new URL(`${_url}/rest/v1/rpc/merge_business_settings`)
           const req = https.request({
             hostname: reqUrl.hostname, path: reqUrl.pathname + reqUrl.search, method: 'POST',
-            headers: {
-              'apikey': _key, 'Authorization': `Bearer ${_key}`,
+            headers: _authHeaders({
               'Content-Type': 'application/json', 'Prefer': 'return=minimal',
               'Content-Length': Buffer.byteLength(rpcBody),
-            },
+            }),
           }, (r) => {
             let data = ''
             r.on('data', c => data += c.toString())
@@ -3202,7 +3328,7 @@ async function pushBusinessMeta(bizId) {
       const reqUrl = new URL(`${_url}/rest/v1/businesses?id=eq.${encodeURIComponent(bizId)}`)
       const req = https.request({
         hostname: reqUrl.hostname, path: reqUrl.pathname + reqUrl.search, method: 'PATCH',
-        headers: { 'apikey': _key, 'Authorization': `Bearer ${_key}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal', 'Content-Length': Buffer.byteLength(body) },
+        headers: _authHeaders({ 'Content-Type': 'application/json', 'Prefer': 'return=minimal', 'Content-Length': Buffer.byteLength(body) }),
       }, (r) => {
         let data = ''
         r.on('data', c => data += c.toString())
@@ -3230,13 +3356,13 @@ async function pullBusinessMeta(bizId) {
   try {
     const params = new URLSearchParams({
       'id': `eq.${bizId}`,
-      'select': 'name,rnc,phone,address,email,logo_url,settings,plan,updated_at',
+      'select': 'name,rnc,phone,address,email,logo_url,settings,plan,mora_rate_daily,updated_at',
     })
     const rows = await new Promise((resolve, reject) => {
       const reqUrl = new URL(`${_url}/rest/v1/businesses?${params.toString()}`)
       https.get({
         hostname: reqUrl.hostname, path: reqUrl.pathname + reqUrl.search,
-        headers: { 'apikey': _key, 'Authorization': `Bearer ${_key}` },
+        headers: _authHeaders(),
       }, (r) => {
         let data = ''
         r.on('data', c => data += c.toString())
@@ -3314,6 +3440,7 @@ async function pullBusinessMeta(bizId) {
     if (biz.address) payload.address = biz.address
     if (biz.email)   payload.email   = biz.email
     if (biz.plan)    payload.plan    = biz.plan
+    if (biz.mora_rate_daily != null) payload.mora_rate_daily = Number(biz.mora_rate_daily)
 
     if (biz.settings) {
       let settingsObj = biz.settings
@@ -3359,7 +3486,7 @@ function uploadToStorage(bucket, objectPath, buffer, contentType) {
     const reqUrl = new URL(`${_url}/storage/v1/object/${bucket}/${encodeURI(objectPath)}`)
     const req = https.request({
       hostname: reqUrl.hostname, path: reqUrl.pathname, method: 'POST',
-      headers: { 'apikey': _key, 'Authorization': `Bearer ${_key}`, 'Content-Type': contentType || 'application/octet-stream', 'x-upsert': 'true', 'Content-Length': buffer.length },
+      headers: _authHeaders({ 'Content-Type': contentType || 'application/octet-stream', 'x-upsert': 'true', 'Content-Length': buffer.length }),
     }, (r) => {
       let data = ''
       r.on('data', c => data += c.toString())
@@ -3388,6 +3515,7 @@ async function syncNow() {
     log.error('[sync] No URL or key — url:', !!_url, 'key:', !!_key)
     return _status
   }
+  await _maybeRefreshJwt()
   let bizId
   try { bizId = await resolveBusinessId() } catch (e) { log.error('[sync] resolveBusinessId failed:', e.message) }
   if (!bizId) {
@@ -3601,11 +3729,9 @@ async function supabaseDelete(table, supabaseId, businessId) {
       hostname: reqUrl.hostname,
       path: reqUrl.pathname + reqUrl.search,
       method: 'DELETE',
-      headers: {
-        'apikey': _key,
-        'Authorization': `Bearer ${_key}`,
+      headers: _authHeaders({
         'Prefer': 'return=minimal',
-      },
+      }),
     }, (response) => {
       response.on('data', () => {})
       response.on('end', () => {
@@ -3652,8 +3778,12 @@ const RECONCILE_TABLES = [
   'washer_commissions', 'seller_commissions', 'cajero_commissions',
   // v2.16.0 — Taller Mecánico hardening: durable entities + supplies workflow
   'aseguradoras', 'suppliers', 'parts_orders', 'insurance_batches',
+  // v2.16.x FIX-H5 — frozen mechanic comisión rows
+  'mechanic_commissions',
   // v2.16.1 — Préstamos hardening: contracts, renewals, collections, pawn docs/listings
   'collections_attempts', 'loan_contracts', 'loan_renewals', 'pawn_documents', 'pawn_listings',
+  // v2.16.x — Servicios vertical
+  'service_projects',
 ]
 
 // Flush locally-recorded deletes to Supabase. Called at the top of each sync
@@ -3812,13 +3942,11 @@ function _rpcPost(fnName, payload) {
       hostname: reqUrl.hostname,
       path: reqUrl.pathname + reqUrl.search,
       method: 'POST',
-      headers: {
-        'apikey': _key,
-        'Authorization': `Bearer ${_key}`,
+      headers: _authHeaders({
         'Content-Type': 'application/json',
         'Accept': 'application/json',
         'Content-Length': Buffer.byteLength(body),
-      },
+      }),
     }, (res) => {
       let data = ''
       res.on('data', chunk => { data += chunk.toString() })
@@ -4026,6 +4154,8 @@ function blocksStatus() {
 module.exports = {
   init, startAutoSync, stopAutoSync, syncNow, pullNow, getStatus,
   supabaseDelete, reconcileDeletes, setErrorLogSink,
+  // Per-license JWT (wired from main.js after license validation).
+  setUserJwt, setJwtRefreshHook,
   // Multi-POS
   ensureBlocks, processPendingDeducts, resolveOversellRemote,
   startMultiPosRefill, stopMultiPosRefill, blocksStatus,

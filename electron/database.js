@@ -1055,6 +1055,11 @@ function init(userDataPath, options = {}) {
     "ALTER TABLE pawn_items ADD COLUMN ticket_code TEXT",
     "ALTER TABLE pawn_items ADD COLUMN redemption_date TEXT",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_pawn_items_ticket_code ON pawn_items(ticket_code) WHERE ticket_code IS NOT NULL",
+    // v2.16.2 C7 — per-business default mora rate (centralizes the 0.5% literal)
+    "ALTER TABLE businesses ADD COLUMN mora_rate_daily REAL DEFAULT 0.005",
+    // v2.16.2 C8 — pawn_listings remate override audit trail
+    "ALTER TABLE pawn_listings ADD COLUMN list_price_override INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE pawn_listings ADD COLUMN override_reason TEXT",
 
     `CREATE TABLE IF NOT EXISTS loan_schedule (
       id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1173,6 +1178,8 @@ function init(userDataPath, options = {}) {
       status                   TEXT NOT NULL DEFAULT 'draft',
       sold_ticket_supabase_id  TEXT,
       notes                    TEXT,
+      list_price_override      INTEGER NOT NULL DEFAULT 0,
+      override_reason          TEXT,
       created_at               TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at               TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(business_id, supabase_id)
@@ -1199,6 +1206,38 @@ function init(userDataPath, options = {}) {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_collections_attempts_supabase_id ON collections_attempts(supabase_id)`,
     `CREATE INDEX IF NOT EXISTS idx_collections_attempts_loan ON collections_attempts(loan_supabase_id)`,
     `CREATE INDEX IF NOT EXISTS idx_collections_attempts_next ON collections_attempts(next_followup_at)`,
+
+    // ── v2.16.x — Servicios vertical: minimal service_projects table ──
+    // Mirrors supabase/migrations/20260426200000_service_projects.sql.
+    // SQLite does not enforce CHECK constraints on enum strings the same way,
+    // but the Supabase side is the source of truth via RLS + CHECK; sync
+    // round-trips will raise on bad enums there.
+    `CREATE TABLE IF NOT EXISTS service_projects (
+      id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                   TEXT,
+      business_id                   TEXT,
+      client_supabase_id            TEXT,
+      project_name                  TEXT NOT NULL,
+      description                   TEXT,
+      status                        TEXT NOT NULL DEFAULT 'active',
+      billing_type                  TEXT NOT NULL DEFAULT 'project',
+      estimated_hours               REAL,
+      hourly_rate                   REAL,
+      fixed_price                   REAL,
+      total_billed                  REAL NOT NULL DEFAULT 0,
+      total_paid                    REAL NOT NULL DEFAULT 0,
+      started_at                    TEXT,
+      due_date                      TEXT,
+      completed_at                  TEXT,
+      assigned_empleado_supabase_id TEXT,
+      notes                         TEXT,
+      created_at                    TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at                    TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(business_id, supabase_id)
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_service_projects_supabase_id ON service_projects(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_service_projects_client ON service_projects(client_supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_service_projects_status ON service_projects(status)`,
 
     // ── v2.3 — Multi-POS block allocation (NCF, doc_number, inventory oversell) ──
     // Mirrors Supabase ncf_blocks / doc_number_blocks / inventory_oversells.
@@ -1440,13 +1479,22 @@ function init(userDataPath, options = {}) {
     "ALTER TABLE memberships ADD COLUMN price_dop REAL",
     "ALTER TABLE memberships ADD COLUMN validity_days INTEGER DEFAULT 365",
     "ALTER TABLE memberships ADD COLUMN active_template INTEGER NOT NULL DEFAULT 1",
+    // v2.16.2 (item #15) — explicit vertical discriminator. Backfill below
+    // mirrors the supabase migration.
+    "ALTER TABLE memberships ADD COLUMN vertical TEXT",
+    "UPDATE memberships SET vertical='salon' WHERE vertical IS NULL AND total_sessions IS NOT NULL AND COALESCE(active_template,1)=1",
+    "UPDATE memberships SET vertical='carwash' WHERE vertical IS NULL AND wash_quota_per_month IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_memberships_biz_supabase ON memberships(business_id, supabase_id)",
+    "CREATE INDEX IF NOT EXISTS idx_memberships_biz_vertical ON memberships(business_id, vertical)",
 
     // appointments — salon hardening columns
     "ALTER TABLE appointments ADD COLUMN is_walk_in INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE appointments ADD COLUMN deposit_dop REAL NOT NULL DEFAULT 0",
     "ALTER TABLE appointments ADD COLUMN deposit_status TEXT NOT NULL DEFAULT 'none'",
     "ALTER TABLE appointments ADD COLUMN no_show_fee_charged INTEGER NOT NULL DEFAULT 0",
+    // v2.16.3 — direct join key for tickets.voidNoShowFee. Stamped at no-show
+    // charge time; the void helper resolves the original E32 in O(1).
+    "ALTER TABLE appointments ADD COLUMN no_show_fee_ticket_supabase_id TEXT",
     "ALTER TABLE appointments ADD COLUMN public_booking_token TEXT",
     "ALTER TABLE appointments ADD COLUMN client_membership_supabase_id TEXT",
 
@@ -1810,6 +1858,33 @@ function init(userDataPath, options = {}) {
     // owner Actividad feed can distinguish a manual void from a deal_close_failed
     // compensation. Guarded ALTER — silently no-ops if column already exists.
     "ALTER TABLE anecf_queue ADD COLUMN reason TEXT",
+
+    // v2.16.x FIX-H5 — Mecánica: freeze comisión at WO close. Mirrors the
+    // seller_commissions / cajero_commissions pattern. Stamped once at close
+    // so retroactive `commission_pct` edits don't rewrite historical payroll.
+    `CREATE TABLE IF NOT EXISTS mechanic_commissions (
+      id                                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                        TEXT,
+      business_id                        TEXT,
+      work_order_supabase_id             TEXT NOT NULL,
+      technician_empleado_supabase_id    TEXT NOT NULL,
+      ticket_supabase_id                 TEXT,
+      base_amount                        REAL NOT NULL DEFAULT 0,
+      commission_pct                     REAL NOT NULL DEFAULT 0,
+      calc_amount                        REAL NOT NULL DEFAULT 0,
+      paid                               INTEGER NOT NULL DEFAULT 0,
+      paid_at                            TEXT,
+      paid_by_supabase_id                TEXT,
+      manual_reason                      TEXT,
+      created_at                         TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at                         TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_mech_comm_supabase_id ON mechanic_commissions(supabase_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_mech_comm_wo_tech ON mechanic_commissions(business_id, work_order_supabase_id, technician_empleado_supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_mech_comm_biz_paid ON mechanic_commissions(business_id, paid, created_at DESC)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_mech_comm_updated_at
+       AFTER UPDATE ON mechanic_commissions FOR EACH ROW
+       BEGIN UPDATE mechanic_commissions SET updated_at = datetime('now') WHERE id = NEW.id; END`,
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -1849,10 +1924,17 @@ function init(userDataPath, options = {}) {
   // Trigger — auto-bump updated_at on UPDATE (matches pattern for other synced
   // tables in this file). We keep it narrow (only when value actually changes)
   // to avoid storms when the setters write the same value.
+  // FIX-HIGH-5 (v2.16.7): also skip bump when the UPDATE supplies a DIFFERENT
+  // updated_at than the existing row — that means the write came from sync's
+  // pull upsert which carries the authoritative remote timestamp. Bumping it
+  // to local now() would corrupt the LWW comparison cursor and trigger an
+  // immediate re-push of the row we just pulled.
   try {
     db.exec(`DROP TRIGGER IF EXISTS trg_app_settings_updated_at`)
     db.exec(`CREATE TRIGGER trg_app_settings_updated_at AFTER UPDATE ON app_settings
-             FOR EACH ROW WHEN NEW.value IS NOT OLD.value
+             FOR EACH ROW
+             WHEN NEW.value IS NOT OLD.value
+              AND (NEW.updated_at IS OLD.updated_at OR NEW.updated_at IS NULL)
              BEGIN
                UPDATE app_settings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
              END`)
@@ -3125,7 +3207,7 @@ function empresaGet() {
   if (!db) return null
   // Setup is complete only when configuracion.setup_complete = '1'
   if (configGet('setup_complete') !== '1') return null
-  const row = db.prepare('SELECT id,name,rnc,address,phone,email,logo,settings,plan FROM businesses WHERE id=1').get() ?? null
+  const row = db.prepare('SELECT id,name,rnc,address,phone,email,logo,settings,plan,mora_rate_daily FROM businesses WHERE id=1').get() ?? null
   if (row && row.logo) {
     // `logo` is a BLOB. Existing rows store either:
     //   - the UTF-8 bytes of a "data:image/...;base64,..." string (new saves), or
@@ -3151,7 +3233,7 @@ function empresaGet() {
 }
 function empresaSave(data) {
   if (!db) return
-  const allowed = ['name', 'rnc', 'address', 'phone', 'email', 'logo', 'settings', 'plan']
+  const allowed = ['name', 'rnc', 'address', 'phone', 'email', 'logo', 'settings', 'plan', 'mora_rate_daily']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
 
@@ -7644,7 +7726,7 @@ function workOrderSetPartsOrder(work_order_id, { expected_parts_arrival } = {}) 
 }
 function workOrderClose(work_order_id, { odometer_out_km } = {}) {
   if (!db) return null
-  const wo = db.prepare('SELECT vehicle_id FROM work_orders WHERE id=?').get(work_order_id)
+  const wo = db.prepare('SELECT vehicle_id, supabase_id, business_id, technician_empleado_supabase_id, labor_total FROM work_orders WHERE id=?').get(work_order_id)
   db.prepare(`UPDATE work_orders SET status='closed', completed_date=datetime('now'),
     odometer_out_km=COALESCE(?, odometer_out_km), updated_at=datetime('now') WHERE id=?`)
     .run(odometer_out_km != null ? Number(odometer_out_km) : null, work_order_id)
@@ -7656,7 +7738,42 @@ function workOrderClose(work_order_id, { odometer_out_km } = {}) {
       next_service_km=?, next_service_at=?, updated_at=datetime('now') WHERE id=?`)
       .run(km, km, next, nextDate, wo.vehicle_id)
   }
+  // FIX-H5 — freeze comisión for the technician at WO close. UNIQUE on
+  // (business_id, work_order_supabase_id, technician_empleado_supabase_id)
+  // protects against double-stamping if close fires twice.
+  try {
+    if (wo?.supabase_id && wo?.technician_empleado_supabase_id) {
+      const tech = db.prepare("SELECT supabase_id, commission_pct, comision_pct FROM empleados WHERE supabase_id=?").get(wo.technician_empleado_supabase_id)
+      const pct = Number(tech?.commission_pct ?? tech?.comision_pct ?? 0)
+      const base = Number(wo.labor_total) || 0
+      const calc = Math.round(base * (pct / 100) * 100) / 100
+      const sid = crypto.randomUUID()
+      db.prepare(`INSERT OR IGNORE INTO mechanic_commissions
+        (supabase_id, business_id, work_order_supabase_id, technician_empleado_supabase_id,
+         base_amount, commission_pct, calc_amount, paid)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)`).run(
+          sid, wo.business_id || null, wo.supabase_id, wo.technician_empleado_supabase_id,
+          base, pct, calc
+        )
+    }
+  } catch (e) { log?.warn?.(`[workOrderClose] mechanic_commissions stamp failed: ${e.message}`) }
   return db.prepare('SELECT * FROM work_orders WHERE id=?').get(work_order_id)
+}
+
+// FIX-H5 — list helpers + paid toggle for the productivity report.
+function mechanicCommissionsByPeriod(period_start, period_end) {
+  if (!db) return []
+  return db.prepare(`SELECT mc.*, e.nombre AS technician_name
+    FROM mechanic_commissions mc
+    LEFT JOIN empleados e ON e.supabase_id = mc.technician_empleado_supabase_id
+    WHERE date(mc.created_at) BETWEEN date(?) AND date(?)
+    ORDER BY mc.created_at DESC`).all(period_start, period_end)
+}
+function mechanicCommissionsMarkPaid(id, paid_by_supabase_id) {
+  if (!db) return null
+  db.prepare(`UPDATE mechanic_commissions SET paid=1, paid_at=datetime('now'),
+    paid_by_supabase_id=?, updated_at=datetime('now') WHERE id=?`).run(paid_by_supabase_id || null, id)
+  return db.prepare('SELECT * FROM mechanic_commissions WHERE id=?').get(id)
 }
 
 // ── APPOINTMENTS ─────────────────────────────────────────────────────────────
@@ -7693,16 +7810,31 @@ function appointmentCreate({ client_id, empleado_id, date, start_time, end_time,
 }
 function appointmentUpdate(id, data) {
   if (!db) return
+  // v2.16.3 (followup #1) — accept either local int PK or supabase_id (UUID).
+  // Renderer screens (Appointments.jsx, voidNoShowFee orchestrator) pass the
+  // UUID since that's what survives sync. Resolve to the int PK first; the
+  // UPDATE then always runs against `id=@id` as before.
+  const looksUuid = typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+  let resolvedId = id
+  if (looksUuid) {
+    const row = db.prepare('SELECT id FROM appointments WHERE supabase_id=?').get(id)
+    if (!row) return null  // unknown — caller surfaces error rather than silent no-op
+    resolvedId = row.id
+  } else if (typeof id === 'string') {
+    // Numeric-string fallback (some web callers pass int as string).
+    const n = Number(id)
+    if (Number.isFinite(n) && n > 0) resolvedId = n
+  }
   const allowed = ['client_id','client_supabase_id','empleado_id','empleado_supabase_id','date','start_time','end_time','status','services','notes',
-                   'is_walk_in','deposit_dop','deposit_status','no_show_fee_charged','public_booking_token','client_membership_supabase_id']
+                   'is_walk_in','deposit_dop','deposit_status','no_show_fee_charged','no_show_fee_ticket_supabase_id','public_booking_token','client_membership_supabase_id']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (data.client_id && !data.client_supabase_id) { const c = db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id); if (c) patch.client_supabase_id = c.supabase_id }
   if (data.empleado_id && !data.empleado_supabase_id) { const e = db.prepare('SELECT supabase_id FROM empleados WHERE id=?').get(data.empleado_id); if (e) patch.empleado_supabase_id = e.supabase_id }
   if (data.services && typeof data.services !== 'string') patch.services = JSON.stringify(data.services)
-  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM appointments WHERE id=?').get(id)
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM appointments WHERE id=?').get(resolvedId)
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
-  db.prepare(`UPDATE appointments SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
-  return db.prepare('SELECT * FROM appointments WHERE id=?').get(id)
+  db.prepare(`UPDATE appointments SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id: resolvedId })
+  return db.prepare('SELECT * FROM appointments WHERE id=?').get(resolvedId)
 }
 function appointmentList({ date, empleado_id, status, dateFrom, dateTo } = {}) {
   if (!db) return []
@@ -7757,9 +7889,12 @@ function appointmentMarkNoShow(supabase_id) {
 // ── SALON MEMBERSHIPS (templates — extends `memberships` table additively) ──
 function salonMembershipList() {
   if (!db) return []
+  // v2.16.2 (item #15) — prefer explicit vertical='salon'. Legacy rows that
+  // pre-date the column still match via the heuristic fallback.
   return db.prepare(`SELECT m.*, s.name AS service_name FROM memberships m
     LEFT JOIN services s ON s.supabase_id = m.service_supabase_id
-    WHERE COALESCE(m.active_template,0)=1 AND m.total_sessions IS NOT NULL
+    WHERE COALESCE(m.active_template,0)=1
+      AND (m.vertical='salon' OR (m.vertical IS NULL AND m.total_sessions IS NOT NULL))
     ORDER BY m.created_at DESC`).all()
 }
 function salonMembershipCreate({ nombre, service_supabase_id, total_sessions, price_dop, validity_days }) {
@@ -7767,9 +7902,9 @@ function salonMembershipCreate({ nombre, service_supabase_id, total_sessions, pr
   const sid = crypto.randomUUID()
   const r = db.prepare(`INSERT INTO memberships(
       supabase_id, nombre, plan_name, service_supabase_id, total_sessions,
-      price_dop, plan_price, validity_days, active_template, status,
+      price_dop, plan_price, validity_days, active_template, status, vertical,
       wash_quota_per_month, washes_used_this_period, period_start, period_end, start_date)
-    VALUES(@sid, @nombre, @nombre, @ssid, @total, @price, @price, @validity, 1, 'active',
+    VALUES(@sid, @nombre, @nombre, @ssid, @total, @price, @price, @validity, 1, 'active', 'salon',
            0, 0, date('now'), date('now','+1 year'), date('now'))`).run({
     sid, nombre: String(nombre || '').trim(),
     ssid: service_supabase_id || null,
@@ -7879,6 +8014,13 @@ function appointmentRemindersPendingDue(now) {
     WHERE status='pending' AND fire_at <= ?
     ORDER BY fire_at ASC LIMIT 25`).all(cutoff)
 }
+function appointmentRemindersRecent({ days = 30 } = {}) {
+  if (!db) return []
+  const since = new Date(Date.now() - Math.max(1, Number(days) || 30) * 86400000).toISOString()
+  return db.prepare(`SELECT * FROM appointment_reminders
+    WHERE fire_at >= ?
+    ORDER BY fire_at DESC LIMIT 500`).all(since)
+}
 function appointmentReminderMarkSent(id, ultramsg_message_id) {
   if (!db) return
   db.prepare(`UPDATE appointment_reminders SET status='sent', ultramsg_message_id=?, sent_at=datetime('now'), updated_at=datetime('now') WHERE id=?`)
@@ -7900,6 +8042,7 @@ function appointmentReminderScheduleForAppointment(appt) {
   if (!Number.isFinite(startMs)) return { scheduled: 0 }
   const now = Date.now()
   const out = []
+  const errors = []
   const want = [
     { kind: '24h', fireMs: startMs - 24 * 60 * 60 * 1000 },
     { kind: '2h',  fireMs: startMs -  2 * 60 * 60 * 1000 },
@@ -7909,9 +8052,13 @@ function appointmentReminderScheduleForAppointment(appt) {
     try {
       const r = appointmentReminderSchedule(appt.supabase_id, new Date(w.fireMs).toISOString(), w.kind)
       if (r) out.push(r.id)
-    } catch (e) { /* swallow */ }
+    } catch (e) {
+      // v2.16.2 (item #11) — surface per-row errors so callers can flag
+      // partial failure instead of trusting a green `scheduled: N`.
+      errors.push({ kind: w.kind, error: String(e?.message || e).slice(0, 300) })
+    }
   }
-  return { scheduled: out.length, ids: out }
+  return { scheduled: out.length, ids: out, errors }
 }
 
 // ── STYLIST SCHEDULES ────────────────────────────────────────────────────────
@@ -10168,7 +10315,65 @@ function partsOrderMarkReceived(id, { received_barcode } = {}) {
   db.prepare(`UPDATE parts_orders SET status='recibido', received_at=datetime('now'),
     received_barcode=COALESCE(?, received_barcode), updated_at=datetime('now') WHERE id=?`)
     .run(received_barcode || null, id)
-  return db.prepare('SELECT * FROM parts_orders WHERE id=?').get(id)
+  const row = db.prepare('SELECT * FROM parts_orders WHERE id=?').get(id)
+  if (!row) return null
+
+  // FIX-H2 — bump inventory_items.quantity if the part_sku matches an
+  // existing inventory item for this business. The DR shop that also sells
+  // repuestos al mostrador needs stock to stay in sync.
+  try {
+    if (row.part_sku) {
+      const inv = db.prepare(
+        "SELECT id FROM inventory_items WHERE sku=? AND (business_id IS NULL OR business_id = ?) LIMIT 1"
+      ).get(row.part_sku, row.business_id || null)
+      if (inv?.id) {
+        const delta = Number(row.quantity) || 0
+        if (delta > 0) {
+          inventoryAdjust(inv.id, delta, `Recepción suministro #${row.id} (${row.part_name})`, null)
+        }
+      }
+    }
+  } catch (e) {
+    log?.warn?.(`[partsOrderMarkReceived] inventory bump failed: ${e.message}`)
+  }
+
+  // FIX-H1 — register the supplier expense in compras_607 so the contador's
+  // monthly DGII filing includes the gasto. Skipped when supplier has no RNC
+  // (non-fiscal informal vendor — would be rejected by the 607 schema anyway).
+  try {
+    if (row.supplier_supabase_id) {
+      const sup = db.prepare("SELECT nombre, rnc FROM suppliers WHERE supabase_id=?").get(row.supplier_supabase_id)
+      const rncDigits = String(sup?.rnc || '').replace(/\D/g, '')
+      if (sup?.nombre && rncDigits.length >= 9) {
+        const monto = (Number(row.quantity) || 0) * (Number(row.unit_cost_estimate) || 0)
+        if (monto > 0) {
+          // Existing helper handles supabase_id + signed inserts. We default to
+          // tipo_ncf='B01' (factura de crédito fiscal) since suppliers in DR
+          // typically issue B01. The cashier can edit it later in 607 review.
+          const itbis = Math.round(monto / 1.18 * 0.18 * 100) / 100
+          const monto_bienes = Math.round((monto - itbis) * 100) / 100
+          addCompra607({
+            rnc_proveedor:    rncDigits,
+            nombre_proveedor: sup.nombre,
+            tipo_ncf:         'B01',
+            ncf:              '',
+            fecha_ncf:        new Date().toISOString().slice(0, 10),
+            fecha_pago:       new Date().toISOString().slice(0, 10),
+            monto_servicios:  0,
+            monto_bienes:     monto_bienes,
+            total:            monto,
+            itbis_facturado:  itbis,
+            forma_pago:       'efectivo',
+            notas:            `Recepción suministro #${row.id}: ${row.part_name}${row.part_sku ? ' (' + row.part_sku + ')' : ''}`,
+          })
+        }
+      }
+    }
+  } catch (e) {
+    log?.warn?.(`[partsOrderMarkReceived] 607 insert failed: ${e.message}`)
+  }
+
+  return row
 }
 function partsOrderListByWO(work_order_supabase_id) {
   if (!db || !work_order_supabase_id) return []
@@ -10412,7 +10617,7 @@ module.exports = {
   // Salon v2.16.1 — memberships, client balances, reminders
   salonMembershipList, salonMembershipCreate, salonMembershipUpdate, salonMembershipArchive,
   clientMembershipsByClient, clientMembershipPurchase, clientMembershipConsume, clientMembershipsExpiringSoon,
-  appointmentReminderSchedule, appointmentRemindersPendingDue,
+  appointmentReminderSchedule, appointmentRemindersPendingDue, appointmentRemindersRecent,
   appointmentReminderMarkSent, appointmentReminderMarkFailed, appointmentReminderScheduleForAppointment,
   stylistScheduleCreate, stylistScheduleUpdate, stylistScheduleList, stylistScheduleDelete,
   loanCreate, loanUpdate, loanList, loanGetById,
@@ -10450,6 +10655,7 @@ module.exports = {
   workOrderPhotoInsert, workOrderPhotoListByWO, workOrderPhotoListByVehicle, workOrderPhotoDelete,
   insuranceBatchCreate, insuranceBatchUpdate, insuranceBatchListByPeriod, insuranceBatchGet,
   workOrdersForInsuranceBatch, mechanicProductivityForPeriod, mechanicServiceRemindersDue,
+  mechanicCommissionsByPeriod, mechanicCommissionsMarkPaid,
   // v2.16.3 — Carnicería hardening
   carniceriaCorteList, carniceriaCorteCreate, carniceriaCorteUpdate, carniceriaCorteDelete,
   carniceriaFreshnessList, carniceriaFreshnessCreate, carniceriaFreshnessApplyDiscount,

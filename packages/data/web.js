@@ -13,7 +13,120 @@
  */
 
 import { enqueueTicket } from '@terminal-x/services/offline-queue'
+import { voidNoShowFeeOrchestrator } from '@terminal-x/services/voidNoShowFee'
 import { isBusinessSetting, isDeviceSetting, DEVICE_SETTING_KEYS } from '@terminal-x/services/settingsWhitelist'
+import {
+  enqueueLendingWrite,
+  enqueuePendingPhoto,
+  isNetworkError as isLendingNetworkError,
+  flushLendingQueue as _flushLendingQueue,
+  flushPendingPhotos as _flushPendingPhotos,
+  startLendingQueueAutoFlush,
+  peekLendingQueue as _peekLendingQueue,
+  peekPendingPhotos as _peekPendingPhotos,
+  getLendingQueueCounts as _getLendingQueueCounts,
+} from './lendingQueue.js'
+import {
+  getOrMintJwt as _getOrMintJwt,
+  attachJwtToSupabaseClient as _attachJwt,
+  loadCachedJwt as _loadCachedJwt,
+  isExpiringSoon as _jwtExpiringSoon,
+  clearCachedJwt as _clearCachedJwt,
+} from '@terminal-x/services/perLicenseJwt'
+
+// ── Per-license JWT boot hook ─────────────────────────────────────────────────
+// At app boot, if a license_key is in localStorage (web user has been
+// provisioned via signup or auto-fetched after first signInWithPassword), we
+// mint a per-license JWT and attach it to the supabase client so RLS sees
+// `business_id`/`plan_id` claims directly — no GoTrue session round-trip on
+// every PostgREST call.
+//
+// Demo accounts (admin@*.demo.terminalxpos.com) never set tx_license_key, so
+// this short-circuits and signInWithPassword owns the auth session as before.
+// The two paths are mutually exclusive: we never call both for the same tab.
+const LICENSE_KEY_LS    = 'tx_license_key'
+const MACHINE_ID_LS     = 'terminalx_machine_id'
+const REFRESH_INTERVAL  = 60_000
+
+function _getOrCreateMachineId() {
+  if (typeof localStorage === 'undefined') return 'web-anon'
+  let id = localStorage.getItem(MACHINE_ID_LS)
+  if (!id) {
+    try { id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `web-${Date.now()}-${Math.random().toString(36).slice(2)}` }
+    catch { id = `web-${Date.now()}-${Math.random().toString(36).slice(2)}` }
+    try { localStorage.setItem(MACHINE_ID_LS, id) } catch {}
+  }
+  return id
+}
+
+function _resolveFunctionsUrl(supabaseUrl) {
+  if (!supabaseUrl) return null
+  // Prefer the dedicated functions subdomain (xxx.functions.supabase.co) when
+  // possible, else fall back to the project URL + /functions/v1 path.
+  if (/\.supabase\.co/.test(supabaseUrl)) {
+    return supabaseUrl.replace('.supabase.co', '.functions.supabase.co')
+  }
+  return supabaseUrl.replace(/\/+$/, '') + '/functions/v1'
+}
+
+let _refresherTimer = null
+function _schedulePeriodicRefresh(supabase, supabaseUrl) {
+  if (typeof window === 'undefined') return
+  if (_refresherTimer) clearInterval(_refresherTimer)
+  _refresherTimer = setInterval(async () => {
+    if (typeof localStorage === 'undefined') return
+    const licenseKey = localStorage.getItem(LICENSE_KEY_LS)
+    if (!licenseKey) return // license cleared mid-session ⇒ stop refreshing
+    const cached = _loadCachedJwt()
+    if (!_jwtExpiringSoon(cached)) return
+    try {
+      const fresh = await _getOrMintJwt({
+        licenseKey,
+        machineId: _getOrCreateMachineId(),
+        supabaseFunctionsUrl: _resolveFunctionsUrl(supabaseUrl),
+        force: true,
+      })
+      await _attachJwt(supabase, fresh)
+    } catch (e) {
+      console.warn('[license-jwt] refresh failed:', e?.message || e)
+    }
+  }, REFRESH_INTERVAL)
+  if (typeof window !== 'undefined') window.__txJwtRefresher = _refresherTimer
+}
+
+/**
+ * Mint + attach a per-license JWT, then start the periodic refresher.
+ * Safe to call multiple times — subsequent calls reuse the cached JWT.
+ *
+ * @param {object} supabase  supabase-js v2 client
+ * @param {string} supabaseUrl  e.g. https://xxx.supabase.co (used to derive functions URL)
+ * @returns {Promise<boolean>} true if a JWT was attached, false if skipped/failed
+ */
+export async function bootLicenseJwt(supabase, supabaseUrl) {
+  if (!supabase || typeof localStorage === 'undefined') return false
+  const licenseKey = localStorage.getItem(LICENSE_KEY_LS)
+  if (!licenseKey) return false // demo / unprovisioned tab — leave session alone
+  try {
+    const bundle = await _getOrMintJwt({
+      licenseKey,
+      machineId: _getOrCreateMachineId(),
+      supabaseFunctionsUrl: _resolveFunctionsUrl(supabaseUrl),
+    })
+    const ok = await _attachJwt(supabase, bundle)
+    if (!ok) return false
+    _schedulePeriodicRefresh(supabase, supabaseUrl)
+    return true
+  } catch (e) {
+    console.warn('[license-jwt] mint failed, falling back to user signin path:', e?.message || e)
+    _clearCachedJwt()
+    return false
+  }
+}
+
+export function stopLicenseJwtRefresh() {
+  if (_refresherTimer) { clearInterval(_refresherTimer); _refresherTimer = null }
+  if (typeof window !== 'undefined') window.__txJwtRefresher = null
+}
 
 // Device-local settings on web live in localStorage (one "device" = one browser).
 // Defaults mirror the desktop SISTEMA_DEFAULTS so the UI sees valid strings.
@@ -67,6 +180,44 @@ async function tryWrite(fn) {
   try {
     return await fn()
   } catch (err) {
+    console.error('[web.js WRITE]', err.message || err)
+    throw err
+  }
+}
+
+// v2.16.5 — H10: generic offline write queue for prestamos. Wraps a lending
+// write so that:
+//   - if the browser reports offline, we enqueue immediately (no network call)
+//   - if the call fails on a network-level error (timeout, fetch, dns, abort),
+//     we enqueue and report `{ queued: true }` to the caller — UI shows toast
+//   - if the call fails on a business error (RLS, validation, FK), we
+//     re-throw so the prestamista actually sees what's wrong (e.g. cliente
+//     missing, cuota inválida). Queueing those would mask real bugs forever.
+//
+// Caller pre-generates `payload.supabase_id` so re-flush is idempotent.
+async function tryWriteOrQueue({ table, op, payload, business_id, rpc_name = null }, onlineFn) {
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+  if (offline) {
+    try {
+      await enqueueLendingWrite({ table, op, payload, business_id, rpc_name })
+      return { queued: true, supabase_id: payload?.supabase_id ?? null, id: null, offline: true }
+    } catch (qErr) {
+      console.error('[web.js QUEUE]', qErr.message || qErr)
+      throw qErr
+    }
+  }
+  try {
+    return await onlineFn()
+  } catch (err) {
+    if (isLendingNetworkError(err)) {
+      try {
+        await enqueueLendingWrite({ table, op, payload, business_id, rpc_name })
+        return { queued: true, supabase_id: payload?.supabase_id ?? null, id: null, error_was: err.message }
+      } catch (qErr) {
+        console.error('[web.js QUEUE-on-fail]', qErr.message || qErr)
+        throw err  // surface the original network error
+      }
+    }
     console.error('[web.js WRITE]', err.message || err)
     throw err
   }
@@ -351,6 +502,10 @@ async function refreshCountTotals(supabase, bid, countSid) {
 export function createWebAPI(supabase, businessId) {
   const bid = businessId
 
+  // H10 — kick the generic lending offline queue auto-flusher. Idempotent
+  // (stops any prior listener first), no-op if window is unavailable.
+  try { startLendingQueueAutoFlush(supabase) } catch (e) { console.warn('[lendingQueue] autoflush start failed', e?.message) }
+
   // Shorthand: select from a table scoped to this business
   function from(table) {
     return supabase.from(table).select('*').eq('business_id', bid)
@@ -535,7 +690,7 @@ export function createWebAPI(supabase, businessId) {
 
     admin: {
       getEmpresa: () => tryOr(async () => {
-        const { data } = await supabase.from('businesses').select('id,name,rnc,address,phone,email,logo_url,settings').eq('id', bid).single()
+        const { data } = await supabase.from('businesses').select('id,name,rnc,address,phone,email,logo_url,settings,mora_rate_daily').eq('id', bid).single()
         if (data) data.logo = data.logo_url  // map to desktop field name
         // Resolve the active license plan so usePlan() unlocks the right
         // features on web. Without this, web sessions default to 'pro' even
@@ -554,7 +709,7 @@ export function createWebAPI(supabase, businessId) {
       }, null),
 
       saveEmpresa: (data) => tryOr(async () => {
-        const allowed = ['name', 'rnc', 'address', 'phone', 'email', 'logo', 'logo_url', 'settings']
+        const allowed = ['name', 'rnc', 'address', 'phone', 'email', 'logo', 'logo_url', 'settings', 'mora_rate_daily']
         const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
         // Map `logo` → `logo_url` (Supabase column name differs from desktop)
         if ('logo' in patch) { patch.logo_url = patch.logo; delete patch.logo }
@@ -2862,6 +3017,14 @@ export function createWebAPI(supabase, businessId) {
           }
         })
       }, []),
+
+      // v2.16.3 — anular cargo no-show. Emite Nota de Crédito Electrónica E34
+      // referenciando la E32 original (consumidor final). Patrón DGII NCFModificado
+      // / CodigoModificacion=1 (anulación total). Implementación compartida en
+      // packages/services/voidNoShowFee.js — el mismo orquestador corre en desktop
+      // (data/electron.js) y web. El renderer (Appointments.jsx) llama esto desde
+      // el botón "Anular cargo no-show" del AppointmentModal.
+      voidNoShowFee: (args) => voidNoShowFeeOrchestrator(args || {}, api),
     },
 
     // ── Reports namespace (alias surface) ──────────────────────────────────
@@ -3576,10 +3739,19 @@ export function createWebAPI(supabase, businessId) {
       }, []),
 
       next: (type) => tryOr(async () => {
-        // Atomic NCF increment via RPC to prevent race conditions
+        // Atomic NCF increment via RPC to prevent race conditions.
+        // v2.16.2 — deployed signature is `atomic_next_ncf(business_uuid UUID, ncf_type TEXT)`
+        // (supabase/migrations/20260301000001_upgrade_existing.sql:469).
+        // The earlier `p_business_id`/`p_type` names matched the original
+        // 20260301000000_initial.sql definition, but the upgrade redefinition
+        // shipped to prod with `business_uuid`/`ncf_type` and never updated
+        // this caller. Latent: web NCF reservation has been failing with
+        // "function not found in schema cache" — desktop reservation via
+        // SQLite has masked it because all real e-CF emission flows through
+        // electron/database.js. Fixed to match the live signature.
         const result = throwSupaError(await supabase.rpc('atomic_next_ncf', {
-          p_business_id: bid,
-          p_type: type,
+          business_uuid: bid,
+          ncf_type: type,
         }))
         return result // returns formatted NCF string like "E3100000001"
       }, null),
@@ -4877,6 +5049,35 @@ export function createWebAPI(supabase, businessId) {
       }, []),
     },
 
+    // FIX-H5 — frozen mechanic commissions for productivity report + payout.
+    mechanicCommissions: {
+      byPeriod: ({ period_start, period_end }) => tryOr(async () => {
+        if (!period_start || !period_end) return []
+        const rows = throwSupaError(await supabase.from('mechanic_commissions').select('*')
+          .eq('business_id', bid)
+          .gte('created_at', period_start)
+          .lte('created_at', period_end + 'T23:59:59')
+          .order('created_at', { ascending: false })) || []
+        // Resolve technician names client-side (avoid embed FK assumption).
+        const techIds = [...new Set(rows.map(r => r.technician_empleado_supabase_id).filter(Boolean))]
+        if (techIds.length) {
+          const { data: emps } = await supabase.from('empleados').select('supabase_id, nombre').in('supabase_id', techIds)
+          const map = new Map((emps || []).map(e => [e.supabase_id, e.nombre]))
+          for (const r of rows) r.technician_name = map.get(r.technician_empleado_supabase_id) || null
+        }
+        return rows
+      }, []),
+      markPaid: (id, paid_by_supabase_id) => tryWrite(async () => {
+        throwSupaError(await supabase.from('mechanic_commissions').update({
+          paid: true,
+          paid_at: new Date().toISOString(),
+          paid_by_supabase_id: paid_by_supabase_id || null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', id).eq('business_id', bid))
+        return { id }
+      }),
+    },
+
     // ── Dealership: Sales Deals ─────────────────────────────────────────────
 
     salesDeals: {
@@ -5351,15 +5552,22 @@ export function createWebAPI(supabase, businessId) {
         // 2. Bump client counter
         let feeAmount = 0
         if (appt.client_supabase_id) {
-          // Read-modify-write — RPC would be safer but mirrors the rest of the layer.
-          const { data: c } = await supabase.from('clients').select('id,no_show_count')
-            .eq('supabase_id', appt.client_supabase_id).eq('business_id', bid).maybeSingle()
-          if (c) {
-            await supabase.from('clients').update({
-              no_show_count: (Number(c.no_show_count) || 0) + 1,
+          // v2.16.2 (item #4) — compare-and-swap. Two parallel no-show flips
+          // for the same client previously both read the same `no_show_count`
+          // and both wrote `+1`, losing one increment. Now we constrain on the
+          // pre-image and retry up to 3 times on miss.
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const { data: c } = await supabase.from('clients').select('id,no_show_count')
+              .eq('supabase_id', appt.client_supabase_id).eq('business_id', bid).maybeSingle()
+            if (!c) break
+            const prev = Number(c.no_show_count) || 0
+            const { data: updated } = await supabase.from('clients').update({
+              no_show_count: prev + 1,
               last_no_show_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
-            }).eq('id', c.id).eq('business_id', bid)
+            }).eq('id', c.id).eq('business_id', bid).eq('no_show_count', c.no_show_count)
+              .select('id').maybeSingle()
+            if (updated) break
           }
         }
         // 3. Decide fee payload (caller owns the e-CF flow)
@@ -5482,15 +5690,16 @@ export function createWebAPI(supabase, businessId) {
         return row
       }),
       byClient: (clientId) => tryOr(async () => throwSupaError(await supabase.from('loans').select('*').eq('business_id', bid).eq('client_id', clientId).order('created_at', { ascending: false })), []),
-      create: (data) => tryOr(async () => {
+      create: (data) => (async () => {
+        // H6 — atomic loan + schedule via create_loan_with_schedule RPC.
+        // Postgres function runs in an implicit transaction: if the schedule
+        // INSERT loop fails, the loan row rolls back too (no orphans).
+        // H10 — wraps online path in tryWriteOrQueue so a network drop
+        // queues the RPC for replay on reconnect (idempotent via supabase_id).
         const method = data.method || 'french'
         const mora_rate_daily = data.mora_rate_daily ?? 0.005
-        const loanSid = crypto.randomUUID()
-        const inserted = throwSupaError(await supabase.from('loans').insert({
-          ...data, method, mora_rate_daily,
-          supabase_id: loanSid, business_id: bid,
-        }).select('id,supabase_id').single())
-        // Build + insert amortization schedule
+        const loanSid = data.supabase_id || crypto.randomUUID()
+        // Build amortization schedule client-side
         const P = Number(data.principal) || 0
         const n = Number(data.term_months) || 0
         const r = (Number(data.interest_rate) || 0) / 100
@@ -5514,14 +5723,92 @@ export function createWebAPI(supabase, businessId) {
             rows.push({ installment_no: i, due_date: dueOf(i), principal_due: Math.round(pp * 100) / 100, interest_due: Math.round(ii * 100) / 100, total_due: Math.round((pp + ii) * 100) / 100 })
           }
         }
-        if (rows.length) {
-          const payload = rows.map(sr => ({ ...sr, supabase_id: crypto.randomUUID(), business_id: bid, loan_supabase_id: inserted.supabase_id }))
-          try { throwSupaError(await supabase.from('loan_schedule').insert(payload)) } catch (e) { console.warn('[loans] schedule insert failed:', e?.message) }
+        const scheduleArray = rows.map((sr, i) => ({
+          installment_no: sr.installment_no ?? i + 1,
+          due_date:       sr.due_date,
+          principal_due:  sr.principal_due,
+          interest_due:   sr.interest_due,
+          total_due:      sr.total_due,
+          paid_amount:    0,
+          status:         'pending',
+        }))
+        const loanPayload = {
+          supabase_id:         loanSid,
+          client_supabase_id:  data.client_supabase_id || null,
+          principal:           data.principal,
+          term_months:         data.term_months,
+          interest_rate:       data.interest_rate,
+          monthly_payment:     data.monthly_payment ?? 0,
+          status:              data.status || 'active',
+          disbursed_at:        data.disbursed_at || null,
+          next_due_date:       data.next_due_date || null,
+          total_paid:          data.total_paid ?? 0,
+          total_interest:      data.total_interest ?? 0,
+          amortization_method: data.amortization_method || method,
+          renewal_count:       data.renewal_count ?? 0,
+          notes:               data.notes || null,
         }
-        await logActivity({ event_type: 'loan_created', severity: 'warn', target_type: 'loan', target_id: inserted.id, amount: Number(data.principal), metadata: { term_months: data.term_months, interest_rate: data.interest_rate, method } })
+        // H10 — RPC payload carries supabase_id on p_loan so a queue replay
+        // is idempotent. We hand the *whole* RPC arg shape to the queue so
+        // dispatchRow can call supabase.rpc(rpc_name, payload) verbatim.
+        const rpcPayload = {
+          supabase_id:   loanSid,           // for idempotency contract
+          p_business_id: bid,
+          p_loan:        loanPayload,
+          p_schedule:    scheduleArray,
+        }
+        const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+        if (offline) {
+          await enqueueLendingWrite({
+            table: 'loans', op: 'rpc',
+            rpc_name: 'create_loan_with_schedule',
+            payload: rpcPayload, business_id: bid,
+          })
+          return { id: null, supabase_id: loanSid, queued: true, offline: true }
+        }
+        let inserted = null
+        const { data: rpcRet, error: rpcErr } = await supabase.rpc('create_loan_with_schedule', {
+          p_business_id: bid,
+          p_loan:        loanPayload,
+          p_schedule:    scheduleArray,
+        })
+        if (rpcErr && isLendingNetworkError(rpcErr)) {
+          await enqueueLendingWrite({
+            table: 'loans', op: 'rpc',
+            rpc_name: 'create_loan_with_schedule',
+            payload: rpcPayload, business_id: bid,
+          })
+          return { id: null, supabase_id: loanSid, queued: true, error_was: rpcErr.message }
+        }
+        if (rpcErr) {
+          const msg = String(rpcErr?.message || '')
+          const missing = rpcErr?.code === '42883' || /create_loan_with_schedule.*does not exist/i.test(msg) || /Could not find the function/i.test(msg)
+          if (!missing) throw rpcErr
+          // Fallback: legacy two-step insert (non-atomic). Remove once RPC migration applied everywhere.
+          console.warn('[loans] create_loan_with_schedule RPC missing, falling back to non-atomic two-step insert. Apply migration 20260426100002.')
+          inserted = throwSupaError(await supabase.from('loans').insert({
+            ...data, method, mora_rate_daily,
+            supabase_id: loanSid, business_id: bid,
+          }).select('id,supabase_id').single())
+          if (rows.length) {
+            const payload = rows.map(sr => ({ ...sr, supabase_id: crypto.randomUUID(), business_id: bid, loan_supabase_id: inserted.supabase_id }))
+            try { throwSupaError(await supabase.from('loan_schedule').insert(payload)) } catch (e) { console.warn('[loans] schedule insert failed:', e?.message) }
+          }
+        } else {
+          // Re-fetch row to preserve the caller-expected return shape ({ id, supabase_id, ... }).
+          inserted = throwSupaError(await supabase.from('loans').select('*').eq('business_id', bid).eq('supabase_id', rpcRet || loanSid).maybeSingle())
+            || { id: null, supabase_id: rpcRet || loanSid }
+        }
+        await logActivity({ event_type: 'loan_created', severity: 'warn', target_type: 'loan', target_id: inserted?.id, amount: Number(data.principal), metadata: { term_months: data.term_months, interest_rate: data.interest_rate, method } })
         return inserted
-      }),
-      update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('loans').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      })().catch(err => { console.error('[web.js loans.create]', err.message || err); throw err }),
+      update: (id, data) => {
+        const { id: _, supabase_id: __, business_id: ___, ...rest } = data
+        return tryWriteOrQueue(
+          { table: 'loans', op: 'update', payload: { id, supabase_id: data.supabase_id, ...rest }, business_id: bid },
+          async () => { throwSupaError(await supabase.from('loans').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } },
+        )
+      },
       setStatus: (id, status) => tryOr(async () => { throwSupaError(await supabase.from('loans').update({ status, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
     },
 
@@ -5529,14 +5816,22 @@ export function createWebAPI(supabase, businessId) {
 
     loanPayments: {
       byLoan: (loanId) => tryOr(async () => throwSupaError(await supabase.from('loan_payments').select('*').eq('business_id', bid).eq('loan_id', loanId).order('payment_date', { ascending: false })), []),
-      create: (data) => tryOr(async () => {
-        const row = throwSupaError(await supabase.from('loan_payments').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }).select('id').single())
-        if (data.loan_id) {
-          const { data: loan } = await supabase.from('loans').select('total_paid').eq('id', data.loan_id).eq('business_id', bid).single()
-          if (loan) await supabase.from('loans').update({ total_paid: (loan.total_paid || 0) + Number(data.amount), updated_at: new Date().toISOString() }).eq('id', data.loan_id).eq('business_id', bid)
-        }
-        return row
-      }),
+      create: (data) => {
+        // H10 — pre-generate supabase_id so re-flush is idempotent.
+        const paymentSid = data.supabase_id || crypto.randomUUID()
+        const payload = { ...data, supabase_id: paymentSid, business_id: bid }
+        return tryWriteOrQueue(
+          { table: 'loan_payments', op: 'insert', payload, business_id: bid },
+          async () => {
+            const row = throwSupaError(await supabase.from('loan_payments').insert(payload).select('id').single())
+            if (data.loan_id) {
+              const { data: loan } = await supabase.from('loans').select('total_paid').eq('id', data.loan_id).eq('business_id', bid).single()
+              if (loan) await supabase.from('loans').update({ total_paid: (loan.total_paid || 0) + Number(data.amount), updated_at: new Date().toISOString() }).eq('id', data.loan_id).eq('business_id', bid)
+            }
+            return row
+          },
+        )
+      },
       update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('loan_payments').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
     },
 
@@ -5558,17 +5853,28 @@ export function createWebAPI(supabase, businessId) {
         await attachRel(supabase, [row], { fkCol: 'loan_supabase_id', targetTable: 'loans', selectCols: 'principal,status', asKey: 'loans', businessId: bid })
         return row
       }),
-      create: (data) => tryOr(async () => {
-        // Web-side papeleta ticket code — same PYYMMDDxxxx format as desktop
+      create: (data) => {
+        // H10 — papeleta + supabase_id pre-generated so offline create still
+        // hands a real ticket_code back to the UI for printing.
         const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
         const d = new Date()
         const yymmdd = String(d.getFullYear()).slice(2) + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0')
         let tail = ''; for (let i = 0; i < 4; i++) tail += ALPHA[Math.floor(Math.random() * ALPHA.length)]
         const ticket_code = data.ticket_code || `P${yymmdd}${tail}`
-        const row = throwSupaError(await supabase.from('pawn_items').insert({ ...data, ticket_code, supabase_id: crypto.randomUUID(), business_id: bid }).select('id,ticket_code').single())
-        return row
-      }),
-      update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('pawn_items').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+        const pawnSid = data.supabase_id || crypto.randomUUID()
+        const payload = { ...data, ticket_code, supabase_id: pawnSid, business_id: bid }
+        return tryWriteOrQueue(
+          { table: 'pawn_items', op: 'insert', payload, business_id: bid },
+          async () => throwSupaError(await supabase.from('pawn_items').insert(payload).select('id,ticket_code,supabase_id').single()),
+        ).then(r => r?.queued ? { id: null, ticket_code, supabase_id: pawnSid, queued: true } : r)
+      },
+      update: (id, data) => {
+        const { id: _, supabase_id: __, business_id: ___, ...rest } = data
+        return tryWriteOrQueue(
+          { table: 'pawn_items', op: 'update', payload: { id, supabase_id: data.supabase_id, ...rest }, business_id: bid },
+          async () => { throwSupaError(await supabase.from('pawn_items').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } },
+        )
+      },
       setStatus: (id, status) => tryOr(async () => {
         const patch = { status, updated_at: new Date().toISOString() }
         if (status === 'redeemed')  patch.redemption_date = new Date().toISOString()
@@ -5589,55 +5895,93 @@ export function createWebAPI(supabase, businessId) {
         if (!pawnSupabaseId) return []
         return throwSupaError(await supabase.from('pawn_documents').select('*').eq('business_id', bid).eq('pawn_supabase_id', pawnSupabaseId).order('uploaded_at', { ascending: false }))
       }, []),
+      // H10 — Storage uploads CANNOT be batched into the JSON queue
+      // (binary blobs + signed-URL semantics + bucket policy). Instead,
+      // we keep a dedicated `photos` IDB store with the File blob and
+      // replay it via flushPendingPhotos() on reconnect. UI surfaces
+      // toast: "Subir fotos requiere conexión. La prenda se guardó,
+      // las fotos se subirán cuando vuelva el wifi."
       uploadPhoto: ({ pawnSupabaseId, file }) => tryOr(async () => {
         if (!pawnSupabaseId || !file) return null
-        const ext = (file.name?.split('.').pop() || 'jpg').toLowerCase()
-        const path = `${bid}/${pawnSupabaseId}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`
-        const { error } = await supabase.storage.from('pawn-photos').upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false })
-        if (error) throw error
-        const { data: pub } = supabase.storage.from('pawn-photos').getPublicUrl(path)
-        const file_url = pub?.publicUrl
-        if (!file_url) throw new Error('No public URL')
-        const row = throwSupaError(await supabase.from('pawn_documents').insert({
-          supabase_id: crypto.randomUUID(),
-          business_id: bid,
-          pawn_supabase_id: pawnSupabaseId,
-          doc_type: 'foto',
-          file_url,
-          mime_type: file.type || 'image/jpeg',
-        }).select('id, supabase_id, file_url').single())
-        return row
+        const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+        if (offline) {
+          await enqueuePendingPhoto({ pawnSupabaseId, file, bucket: 'pawn-photos', business_id: bid, docType: 'foto', isPrivate: false })
+          return { queued: true, queued_kind: 'photo', error: 'offline_storage' }
+        }
+        try {
+          const ext = (file.name?.split('.').pop() || 'jpg').toLowerCase()
+          const path = `${bid}/${pawnSupabaseId}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`
+          const { error } = await supabase.storage.from('pawn-photos').upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false })
+          if (error) throw error
+          const { data: pub } = supabase.storage.from('pawn-photos').getPublicUrl(path)
+          const file_url = pub?.publicUrl
+          if (!file_url) throw new Error('No public URL')
+          const row = throwSupaError(await supabase.from('pawn_documents').insert({
+            supabase_id: crypto.randomUUID(),
+            business_id: bid,
+            pawn_supabase_id: pawnSupabaseId,
+            doc_type: 'foto',
+            file_url,
+            mime_type: file.type || 'image/jpeg',
+          }).select('id, supabase_id, file_url').single())
+          return row
+        } catch (err) {
+          if (isLendingNetworkError(err)) {
+            await enqueuePendingPhoto({ pawnSupabaseId, file, bucket: 'pawn-photos', business_id: bid, docType: 'foto', isPrivate: false })
+            return { queued: true, queued_kind: 'photo', error: 'offline_storage', error_was: err.message }
+          }
+          throw err
+        }
       }),
       uploadPrivate: ({ pawnSupabaseId, file, docType }) => tryOr(async () => {
         if (!pawnSupabaseId || !file || !docType) return null
-        const ext = (file.name?.split('.').pop() || 'jpg').toLowerCase()
-        const path = `${bid}/${pawnSupabaseId}/${docType}-${Date.now()}.${ext}`
-        const { error } = await supabase.storage.from('pawn-documents').upload(path, file, { contentType: file.type, upsert: false })
-        if (error) throw error
-        const { data: signed } = await supabase.storage.from('pawn-documents').createSignedUrl(path, 60 * 60 * 24 * 365)
-        const file_url = signed?.signedUrl || path
-        const row = throwSupaError(await supabase.from('pawn_documents').insert({
-          supabase_id: crypto.randomUUID(),
-          business_id: bid,
-          pawn_supabase_id: pawnSupabaseId,
-          doc_type: docType,
-          file_url,
-          mime_type: file.type || null,
-        }).select('id, supabase_id, file_url').single())
-        return row
+        const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+        if (offline) {
+          await enqueuePendingPhoto({ pawnSupabaseId, file, bucket: 'pawn-documents', business_id: bid, docType, isPrivate: true })
+          return { queued: true, queued_kind: 'photo', error: 'offline_storage' }
+        }
+        try {
+          const ext = (file.name?.split('.').pop() || 'jpg').toLowerCase()
+          const path = `${bid}/${pawnSupabaseId}/${docType}-${Date.now()}.${ext}`
+          const { error } = await supabase.storage.from('pawn-documents').upload(path, file, { contentType: file.type, upsert: false })
+          if (error) throw error
+          const { data: signed } = await supabase.storage.from('pawn-documents').createSignedUrl(path, 60 * 60 * 24 * 365)
+          const file_url = signed?.signedUrl || path
+          const row = throwSupaError(await supabase.from('pawn_documents').insert({
+            supabase_id: crypto.randomUUID(),
+            business_id: bid,
+            pawn_supabase_id: pawnSupabaseId,
+            doc_type: docType,
+            file_url,
+            mime_type: file.type || null,
+          }).select('id, supabase_id, file_url').single())
+          return row
+        } catch (err) {
+          if (isLendingNetworkError(err)) {
+            await enqueuePendingPhoto({ pawnSupabaseId, file, bucket: 'pawn-documents', business_id: bid, docType, isPrivate: true })
+            return { queued: true, queued_kind: 'photo', error: 'offline_storage', error_was: err.message }
+          }
+          throw err
+        }
       }),
-      saveSignature: ({ pawnSupabaseId, dataUrl }) => tryOr(async () => {
-        if (!pawnSupabaseId || !dataUrl) return null
-        const row = throwSupaError(await supabase.from('pawn_documents').insert({
-          supabase_id: crypto.randomUUID(),
+      saveSignature: ({ pawnSupabaseId, dataUrl }) => {
+        if (!pawnSupabaseId || !dataUrl) return Promise.resolve(null)
+        // Signature is base64 dataURL stored as a regular pawn_documents row,
+        // no storage bucket — cleanly queueable like any other insert.
+        const sigSid = crypto.randomUUID()
+        const payload = {
+          supabase_id: sigSid,
           business_id: bid,
           pawn_supabase_id: pawnSupabaseId,
           doc_type: 'firma',
           file_url: dataUrl,
           mime_type: 'image/png',
-        }).select('id, supabase_id').single())
-        return row
-      }),
+        }
+        return tryWriteOrQueue(
+          { table: 'pawn_documents', op: 'insert', payload, business_id: bid },
+          async () => throwSupaError(await supabase.from('pawn_documents').insert(payload).select('id, supabase_id').single()),
+        )
+      },
       delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('pawn_documents').delete().eq('id', id).eq('business_id', bid)) }),
     },
 
@@ -5647,21 +5991,29 @@ export function createWebAPI(supabase, businessId) {
         if (!pawnSupabaseId) return []
         return throwSupaError(await supabase.from('pawn_listings').select('*').eq('business_id', bid).eq('pawn_supabase_id', pawnSupabaseId).order('created_at', { ascending: false }))
       }, []),
-      publish: ({ pawnSupabaseId, list_price, slug }) => tryOr(async () => {
-        const row = throwSupaError(await supabase.from('pawn_listings').insert({
-          supabase_id: crypto.randomUUID(),
+      publish: ({ pawnSupabaseId, list_price, slug, list_price_override, override_reason }) => {
+        const sid = crypto.randomUUID()
+        const payload = {
+          supabase_id: sid,
           business_id: bid,
           pawn_supabase_id: pawnSupabaseId,
           list_price: Number(list_price) || 0,
           slug,
           status: 'published',
           published_at: new Date().toISOString(),
-        }).select('id, supabase_id, slug, status').single())
-        return row
-      }),
-      unpublish: (id) => tryOr(async () => {
-        throwSupaError(await supabase.from('pawn_listings').update({ status: 'removed', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
-      }),
+          // C8 — track manual overrides of the legal 70% avalúo de remate.
+          list_price_override: !!list_price_override,
+          override_reason: override_reason || null,
+        }
+        return tryWriteOrQueue(
+          { table: 'pawn_listings', op: 'insert', payload, business_id: bid },
+          async () => throwSupaError(await supabase.from('pawn_listings').insert(payload).select('id, supabase_id, slug, status').single()),
+        )
+      },
+      unpublish: (id) => tryWriteOrQueue(
+        { table: 'pawn_listings', op: 'update', payload: { id, status: 'removed' }, business_id: bid },
+        async () => { throwSupaError(await supabase.from('pawn_listings').update({ status: 'removed', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } },
+      ),
     },
 
     // ── Loan schedule (amortization rows) ────────────────────────────────────
@@ -5713,10 +6065,14 @@ export function createWebAPI(supabase, businessId) {
         }
         return (rows || []).length
       }, 0),
-      logCreate: (data) => tryOr(async () => {
-        const row = throwSupaError(await supabase.from('collections_log').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }).select('id').single())
-        return row
-      }),
+      logCreate: (data) => {
+        const sid = data.supabase_id || crypto.randomUUID()
+        const payload = { ...data, supabase_id: sid, business_id: bid }
+        return tryWriteOrQueue(
+          { table: 'collections_log', op: 'insert', payload, business_id: bid },
+          async () => throwSupaError(await supabase.from('collections_log').insert(payload).select('id').single()),
+        )
+      },
       logList: ({ client_id, loan_id } = {}) => tryOr(async () => {
         let q = supabase.from('collections_log').select('*').eq('business_id', bid)
         if (client_id) q = q.eq('client_id', client_id)
@@ -5727,30 +6083,44 @@ export function createWebAPI(supabase, businessId) {
       }, []),
       // v2.16.2 — structured attempts (collections_attempts). Mirrors INSERT
       // into legacy collections_log for one release transition.
-      attemptCreate: ({ loan_supabase_id, loan_id, client_id, outcome, notes, next_followup_at, whatsapp_sent }) => tryOr(async () => {
-        const row = throwSupaError(await supabase.from('collections_attempts').insert({
-          supabase_id: crypto.randomUUID(),
+      attemptCreate: ({ loan_supabase_id, loan_id, client_id, outcome, notes, next_followup_at, whatsapp_sent }) => {
+        const attemptSid = crypto.randomUUID()
+        const mirrorSid  = crypto.randomUUID()
+        const attemptPayload = {
+          supabase_id: attemptSid,
           business_id: bid,
           loan_supabase_id: loan_supabase_id || null,
           outcome,
           notes: notes || null,
           next_followup_at: next_followup_at || null,
           whatsapp_sent: !!whatsapp_sent,
-        }).select('id, supabase_id').single())
-        try {
-          await supabase.from('collections_log').insert({
-            supabase_id: crypto.randomUUID(),
-            business_id: bid,
-            client_id: client_id || null,
-            loan_id: loan_id || null,
-            channel: whatsapp_sent ? 'whatsapp' : 'call',
-            outcome,
-            notes: notes || null,
-            next_contact_date: next_followup_at ? new Date(next_followup_at).toISOString().slice(0, 10) : null,
-          })
-        } catch {}
-        return row
-      }),
+        }
+        const mirrorPayload = {
+          supabase_id: mirrorSid,
+          business_id: bid,
+          client_id: client_id || null,
+          loan_id: loan_id || null,
+          channel: whatsapp_sent ? 'whatsapp' : 'call',
+          outcome,
+          notes: notes || null,
+          next_contact_date: next_followup_at ? new Date(next_followup_at).toISOString().slice(0, 10) : null,
+        }
+        return tryWriteOrQueue(
+          { table: 'collections_attempts', op: 'insert', payload: attemptPayload, business_id: bid },
+          async () => {
+            const row = throwSupaError(await supabase.from('collections_attempts').insert(attemptPayload).select('id, supabase_id').single())
+            // Best-effort legacy mirror — also queue if it network-fails.
+            try {
+              await supabase.from('collections_log').insert(mirrorPayload)
+            } catch (e) {
+              if (isLendingNetworkError(e)) {
+                try { await enqueueLendingWrite({ table: 'collections_log', op: 'insert', payload: mirrorPayload, business_id: bid }) } catch {}
+              }
+            }
+            return row
+          },
+        )
+      },
       attemptsByLoan: (loanSupabaseId) => tryOr(async () => {
         if (!loanSupabaseId) return []
         return throwSupaError(await supabase.from('collections_attempts')
@@ -5898,9 +6268,12 @@ export function createWebAPI(supabase, businessId) {
     // guarantees vertical isolation.
     salonMemberships: {
       list: () => tryOr(async () => {
+        // v2.16.2 (item #15) — prefer explicit vertical='salon'. Fallback to
+        // the legacy heuristic for rows that haven't been backfilled yet.
         const rows = throwSupaError(await supabase.from('memberships')
           .select('*').eq('business_id', bid)
-          .eq('active_template', true).not('total_sessions', 'is', null)
+          .eq('active_template', true)
+          .or('vertical.eq.salon,and(vertical.is.null,total_sessions.not.is.null)')
           .order('created_at', { ascending: false })) || []
         await attachRel(supabase, rows, { fkCol: 'service_supabase_id', targetTable: 'services', selectCols: 'name', asKey: 'services', businessId: bid })
         return rows.map(r => ({ ...r, service_name: r.services?.name || null }))
@@ -5918,6 +6291,7 @@ export function createWebAPI(supabase, businessId) {
           validity_days: Number(validity_days) || 365,
           active_template: true,
           status: 'active',
+          vertical: 'salon', // v2.16.2 (item #15)
         }).select('id,supabase_id').single())
         return row
       }),
@@ -6044,6 +6418,14 @@ export function createWebAPI(supabase, businessId) {
           .order('fire_at', { ascending: true }).limit(25)) || []
         return rows
       }, []),
+      recent: ({ days = 30 } = {}) => tryOr(async () => {
+        const since = new Date(Date.now() - Math.max(1, Number(days) || 30) * 86400000).toISOString()
+        const rows = throwSupaError(await supabase.from('appointment_reminders')
+          .select('*').eq('business_id', bid)
+          .gte('fire_at', since)
+          .order('fire_at', { ascending: false }).limit(500)) || []
+        return rows
+      }, []),
       markSent: (id, ultramsg_message_id) => tryWrite(async () => {
         throwSupaError(await supabase.from('appointment_reminders')
           .update({ status: 'sent', ultramsg_message_id: ultramsg_message_id || null, sent_at: new Date().toISOString(), updated_at: new Date().toISOString() })
@@ -6067,6 +6449,7 @@ export function createWebAPI(supabase, businessId) {
         if (!Number.isFinite(startMs)) return { scheduled: 0 }
         const now = Date.now()
         const out = []
+        const errors = []
         const want = [
           { kind: '24h', fireMs: startMs - 24 * 60 * 60 * 1000 },
           { kind: '2h',  fireMs: startMs -  2 * 60 * 60 * 1000 },
@@ -6083,10 +6466,15 @@ export function createWebAPI(supabase, businessId) {
               status: 'pending',
             }).select('id').single())
             if (r) out.push(r.id)
-          } catch (e) { console.warn('[reminders.scheduleForAppointment]', w.kind, e?.message || e) }
+          } catch (e) {
+            // v2.16.2 (item #11) — aggregate per-window errors so callers can
+            // detect partial failure. Mirrors electron/database.js shape.
+            console.warn('[reminders.scheduleForAppointment]', w.kind, e?.message || e)
+            errors.push({ kind: w.kind, error: String(e?.message || e).slice(0, 300) })
+          }
         }
-        return { scheduled: out.length, ids: out }
-      }, { scheduled: 0 }),
+        return { scheduled: out.length, ids: out, errors }
+      }, { scheduled: 0, errors: [] }),
     },
 
     // ── Carniceria vertical (v2.16.3 web parity) ────────────────────────────
@@ -6426,6 +6814,25 @@ export function createWebAPI(supabase, businessId) {
       },
     },
 
+    // ── Generic offline write queue (H10) — debug + UI badge surface ────────
+    lendingQueue: {
+      peek:        () => _peekLendingQueue(),
+      peekPhotos:  () => _peekPendingPhotos(),
+      counts:      () => _getLendingQueueCounts(),
+      flush:       () => _flushLendingQueue(supabase),
+      flushPhotos: () => _flushPendingPhotos(supabase),
+    },
+
+    // ── Loan contracts (PDF — H10 carve-out: ONLINE ONLY) ────────────────────
+    // PDF generation produces a Blob via pdf-lib; storage upload requires
+    // a live signed URL; the contract row itself references the storage
+    // path. Queueing the blob would explode IDB on real-world contract
+    // packets (multi-MB) and we have no way to "patch" the contract URL
+    // post-hoc once the upload finally succeeds. Caller MUST surface
+    // toast: "Generar contrato requiere conexión" and refuse to proceed.
+    // DO NOT add an offline path here without re-architecting the PDF
+    // pipeline to defer rendering until reconnect.
+
     // ── Loan renewals (M2 — mirrored on desktop preload as `loanRenewals.*`) ─
     loanRenewals: {
       list: ({ businessId: _bizArg } = {}) => tryOr(async () => {
@@ -6434,9 +6841,10 @@ export function createWebAPI(supabase, businessId) {
           .order('renewed_at', { ascending: false })) || []
         return rows
       }, []),
-      create: (data) => tryWrite(async () => {
-        const row = throwSupaError(await supabase.from('loan_renewals').insert({
-          supabase_id: crypto.randomUUID(),
+      create: (data) => {
+        const sid = crypto.randomUUID()
+        const payload = {
+          supabase_id: sid,
           business_id: bid,
           loan_supabase_id: data?.loan_supabase_id || null,
           renewal_count: Number(data?.renewal_count) || 0,
@@ -6445,9 +6853,12 @@ export function createWebAPI(supabase, businessId) {
           previous_due_date: data?.previous_due_date || null,
           renewed_at: data?.renewed_at || new Date().toISOString(),
           notes: data?.notes || null,
-        }).select('id,supabase_id').single())
-        return row
-      }),
+        }
+        return tryWriteOrQueue(
+          { table: 'loan_renewals', op: 'insert', payload, business_id: bid },
+          async () => throwSupaError(await supabase.from('loan_renewals').insert(payload).select('id,supabase_id').single()),
+        )
+      },
     },
 
     // ── Service vertical: recurring billing ─────────────────────────────────

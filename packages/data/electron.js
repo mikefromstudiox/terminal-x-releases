@@ -9,6 +9,8 @@
  * DataContext so screens don't reference window globals directly.
  */
 
+import { voidNoShowFeeOrchestrator } from '@terminal-x/services/voidNoShowFee'
+
 export function createElectronAPI() {
   const raw = (typeof window !== 'undefined') ? window.electronAPI : null
   if (!raw) return null
@@ -61,7 +63,16 @@ export function createElectronAPI() {
     ...raw.activity,
     log: (evt) => raw.activity.record?.(evt),
   } : raw.activity
-  return {
+  // v2.16.3 — bind tickets.voidNoShowFee renderer-side orchestrator. The
+  // helper depends on api.dgii_ecf + api.ncf.next + api.notas.create + api.appointments.update
+  // (already exposed by preload). Wrapping AFTER the augmented object is built
+  // would create a circular ref, so we forward-declare via a holder.
+  let augmentedRef = null
+  const ticketsAugmented = raw.tickets ? {
+    ...raw.tickets,
+    voidNoShowFee: (args) => voidNoShowFeeOrchestrator(args || {}, augmentedRef),
+  } : raw.tickets
+  return (augmentedRef = {
     ...raw,
     activity: activityAugmented,
     vehicleInventory: vehicleInventoryAugmented,
@@ -69,6 +80,7 @@ export function createElectronAPI() {
     salonMemberships:      salonMembershipsFlat,
     clientMemberships:     clientMembershipsFlat,
     appointmentReminders:  appointmentRemindersFlat,
+    tickets:  ticketsAugmented,
     clients: raw.clients ? { ...raw.clients, ...loyalty } : raw.clients,
     mesas: {
       list:        ()                   => raw.mesas.list(),
@@ -100,7 +112,7 @@ export function createElectronAPI() {
           raw.restaurant.itemModificadores.snapshot(ticketItemSupabaseId, ticketItemId, selections),
       },
     },
-  }
+  })
 }
 
 export function createElectronPrinterAPI() {
