@@ -80,6 +80,16 @@ export default async function handler(req, res) {
     return handlePublicCertAction(action, req, res, getClient())
   }
 
+  // ── v2.16.0 — Public WO approval (token-gated, rate-limited 30/min/IP). ───
+  // Mecánica only. Customer scans WhatsApp link → loads cotización → signs.
+  if (action === 'wo-approve-load' || action === 'wo-approve-submit') {
+    const ip = callerIp(req)
+    if (!(await checkRateLimit(`wo_approve:${ip}`, 30))) {
+      return res.status(429).json({ error: 'rate_limited' })
+    }
+    return handleWorkOrderApproval(action, req, res, getClient())
+  }
+
   if (action === 'stats') return handleStats(req, res)
   if (action === 'licenses') return handleLicenses(req, res)
   if (action === 'clients') return handleClients(req, res)
@@ -122,7 +132,90 @@ export default async function handler(req, res) {
   if (action === 'business-digest') return handleBusinessDigest(req, res)
   if (action === 'marketing-lead-capture') return handleMarketingLeadCapture(req, res)
   if (action === 'demo-login') return handleDemoLogin(req, res)
+
+  // ── Salon v2.16.1 — public booking + WhatsApp reminders + memberships ─────
+  if (action === 'salon-public-booking-info')   return handleSalonPublicBookingInfo(req, res)
+  if (action === 'salon-public-booking-create') return handleSalonPublicBookingCreate(req, res)
+  if (action === 'salon-whatsapp-reminder-tick')return handleSalonReminderTick(req, res)
+  if (action === 'salon-whatsapp-send-now')     return handleSalonWhatsappSendNow(req, res)
+  if (action === 'salon-membership-purchase')   return handleSalonMembershipPurchase(req, res)
+  if (action === 'salon-membership-consume')    return handleSalonMembershipConsume(req, res)
+
+  // FIX-H5 — Facturación tier email post-emisión.
+  if (action === 'email-invoice') return handleEmailInvoice(req, res)
+
   return res.status(400).json({ error: 'Unknown action' })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIX-H5 — Email Invoice
+// Sends a branded HTML email to the buyer with eNCF, total, security code and
+// the DGII verification QR link. Uses Resend if RESEND_API_KEY is set,
+// otherwise responds 501 so the renderer falls back to a mailto: link.
+// Auth: Supabase JWT (same pattern as ecf-sign).
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleEmailInvoice(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' })
+  const authHeader = req.headers.authorization
+  if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ ok: false, error: 'Missing auth token' })
+  const token = authHeader.slice(7)
+
+  const { createClient } = await import('@supabase/supabase-js')
+  const SUPABASE_URL = process.env.SUPABASE_URL || 'https://xbmhtrdhbnkgdliuxcha.supabase.co'
+  const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!SUPABASE_SERVICE_KEY) return res.status(500).json({ ok: false, error: 'Server config error' })
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+  const { data: { user }, error: authErr } = await supabase.auth.getUser(token)
+  if (authErr || !user) return res.status(401).json({ ok: false, error: 'Invalid token' })
+
+  const body = req.body || {}
+  const bid = body.business_id
+  if (!bid) return res.status(400).json({ ok: false, error: 'Missing business_id' })
+  const { data: staffRow } = await supabase.from('staff').select('id').eq('business_id', bid).eq('auth_user_id', user.id).single()
+  if (!staffRow) return res.status(403).json({ ok: false, error: 'No access to this business' })
+
+  const { to, subject, eNCF, total, qrLink, securityCode, bizName, clientName } = body
+  if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ ok: false, error: 'Email inválido' })
+
+  const RESEND = process.env.RESEND_API_KEY
+  if (!RESEND) {
+    return res.status(501).json({ ok: false, error: 'Email service not configured', fallback: 'mailto' })
+  }
+
+  const safe = (s) => String(s ?? '').replace(/[<>&]/g, ch => ({ '<':'&lt;','>':'&gt;','&':'&amp;' }[ch]))
+  const htmlBody = `<!doctype html><html><body style="font-family:Inter,Arial,sans-serif;background:#fff;color:#000;padding:24px">
+    <div style="max-width:520px;margin:0 auto;border:1px solid #eee;border-radius:12px;overflow:hidden">
+      <div style="background:#000;color:#fff;padding:20px 24px"><strong style="color:#b3001e;font-size:18px">Terminal X</strong> · ${safe(bizName || '')}</div>
+      <div style="padding:24px">
+        <h2 style="margin:0 0 12px;color:#000">Factura emitida</h2>
+        <p style="margin:0 0 8px">Hola ${safe(clientName || '')}, te compartimos tu comprobante fiscal electrónico.</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0">
+          <tr><td style="padding:6px 0;color:#666">e-NCF</td><td style="padding:6px 0;text-align:right;font-family:monospace"><strong>${safe(eNCF)}</strong></td></tr>
+          <tr><td style="padding:6px 0;color:#666">Total</td><td style="padding:6px 0;text-align:right"><strong style="color:#b3001e">RD$ ${Number(total||0).toLocaleString('es-DO',{minimumFractionDigits:2,maximumFractionDigits:2})}</strong></td></tr>
+          ${securityCode ? `<tr><td style="padding:6px 0;color:#666">Código Seguridad</td><td style="padding:6px 0;text-align:right;font-family:monospace">${safe(securityCode)}</td></tr>` : ''}
+        </table>
+        ${qrLink ? `<p style="margin:16px 0"><a href="${safe(qrLink)}" style="background:#b3001e;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;display:inline-block;font-weight:bold">Verificar en DGII</a></p>` : ''}
+        <p style="margin:24px 0 0;font-size:12px;color:#999">Este comprobante fue emitido vía Terminal X — Emisor Electrónico DGII certificado.</p>
+      </div>
+    </div></body></html>`
+
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${RESEND}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: process.env.RESEND_FROM || 'Terminal X <facturas@terminalxpos.com>',
+        to: [to],
+        subject: subject || `Factura ${eNCF}`,
+        html: htmlBody,
+      }),
+    })
+    const result = await r.json().catch(() => ({}))
+    if (!r.ok) return res.status(502).json({ ok: false, error: result?.message || 'Resend error' })
+    return res.status(200).json({ ok: true, id: result?.id || null })
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message || 'Email send failed' })
+  }
 }
 
 async function handleStats(req, res) {
@@ -1709,8 +1802,730 @@ async function handleDemoLogin(req, res) {
   // so the flow is reversible if Mike ever wants live demos back.
   return res.status(410).json({
     ok: false,
-    error: 'Demo accounts disabled. Visit /demo/<vertical> for static demos.',
+    error: 'Demo accounts disabled. Request a guided demo on WhatsApp +1 (809) 828-2971.',
   })
 }
 
 function safeJson(s) { try { return JSON.parse(s) } catch { return {} } }
+
+// =========================================================================
+// SALON v2.16.1 — public booking, WhatsApp reminders, memberships
+// =========================================================================
+
+// WhatsApp template copy (LOCKED — verbatim from the v2.16.1 plan).
+const SALON_WA_TEMPLATES = {
+  '24h':     'Hola {name}, te recordamos tu cita mañana {time} con {stylist} en {biz_name}. Confirma con SI.',
+  '2h':      'Hola {name}, tu cita es en 2 horas con {stylist}. ¡Te esperamos!',
+  'confirm': '{biz_name}: cita confirmada para {date} {time} con {stylist}. Servicio: {service}. Para cancelar, responde NO.',
+  'manual':  'Hola {name}, te recordamos tu cita {date} {time} con {stylist} en {biz_name}.',
+}
+function fillTemplate(tpl, vars) {
+  return String(tpl || '').replace(/\{(\w+)\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ''))
+}
+
+// Phone normaliser → DR-friendly E.164 with country code 1 fallback. Mirrors
+// the renderer's packages/services/phone.js logic but kept inline so this
+// serverless file stays Vercel-self-contained.
+function normalisePhoneDR(raw) {
+  const digits = String(raw || '').replace(/\D+/g, '')
+  if (!digits) return ''
+  if (digits.length === 10) return '1' + digits
+  if (digits.length === 11 && digits.startsWith('1')) return digits
+  return digits
+}
+
+// Resolve whatsapp config (instance + token) for a business via app_settings.
+async function loadWhatsappConfig(supabase, businessId) {
+  const { data: rows } = await supabase.from('app_settings').select('key,value')
+    .eq('business_id', businessId).in('key', ['whatsapp_instance', 'whatsapp_token'])
+  const cfg = Object.fromEntries((rows || []).map(r => [r.key, r.value]))
+  return cfg
+}
+
+// Direct UltraMsg send. Mirrors the desktop wrapper so panel.js stays free of
+// Electron deps. Returns the JSON response on success, throws on transport.
+async function ultraMsgSend(supabase, businessId, { to, body }) {
+  const cfg = await loadWhatsappConfig(supabase, businessId)
+  if (!cfg.whatsapp_instance || !cfg.whatsapp_token) throw new Error('whatsapp_not_configured')
+  const url = `https://api.ultramsg.com/${cfg.whatsapp_instance}/messages/chat`
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `token=${encodeURIComponent(cfg.whatsapp_token)}&to=${encodeURIComponent(to)}&body=${encodeURIComponent(body)}`,
+  })
+  if (!r.ok) throw new Error(`UltraMsg ${r.status}`)
+  return r.json()
+}
+
+// hCaptcha verification. Skips with a console warning when HCAPTCHA_SECRET is
+// missing (dev/local) so the public booking endpoint is still testable.
+async function verifyHcaptcha(token, ip) {
+  const secret = process.env.HCAPTCHA_SECRET
+  if (!secret) { console.warn('[salon-public-booking] HCAPTCHA_SECRET unset — skipping captcha verification'); return true }
+  if (!token) return false
+  try {
+    const r = await fetch('https://hcaptcha.com/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `response=${encodeURIComponent(token)}&secret=${encodeURIComponent(secret)}${ip ? `&remoteip=${encodeURIComponent(ip)}` : ''}`,
+    })
+    const j = await r.json().catch(() => ({}))
+    return !!j.success
+  } catch (e) {
+    console.warn('[salon-public-booking] hCaptcha verify failed', e?.message || e)
+    return false // fail closed on captcha — don't open public flood gate
+  }
+}
+
+// JWT-authed gate for license-bearing actions. Mirrors staff-verify-auth.js:
+// caller must be active staff (or owner) of the supplied businessId. Returns
+// `{ supabase, businessId }` on success, or `{ error, status }` on failure.
+async function requireBusinessMember(req) {
+  const supabase = getClient()
+  const authHeader = req.headers.authorization || req.headers.Authorization || ''
+  const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+  if (!jwt) return { error: 'Missing Bearer token', status: 401 }
+  const { data: userData, error: uerr } = await supabase.auth.getUser(jwt)
+  if (uerr || !userData?.user?.id) return { error: 'Invalid token', status: 401 }
+  const authUserId = userData.user.id
+  const businessId = req.body?.business_id || req.query?.business_id
+  if (!businessId) return { error: 'business_id required', status: 400 }
+  // Active staff?
+  const { data: staffRow } = await supabase.from('staff')
+    .select('id, role, active').eq('business_id', businessId)
+    .or(`auth_user_id.eq.${authUserId},supabase_id.eq.${authUserId}`).limit(1).maybeSingle()
+  if (staffRow && staffRow.active !== false) return { supabase, businessId, authUserId, staff: staffRow }
+  // Owner fallback
+  const { data: biz } = await supabase.from('businesses').select('id').eq('id', businessId).eq('owner_id', authUserId).maybeSingle()
+  if (biz) return { supabase, businessId, authUserId, staff: null, owner: true }
+  return { error: 'Not a member of this business', status: 403 }
+}
+
+// 1. salon-public-booking-info — GET, public, 30/min/IP
+async function handleSalonPublicBookingInfo(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  const ip = callerIp(req)
+  if (!(await checkRateLimit(`salon-public-booking-info:${ip}`, 30))) return res.status(429).json({ error: 'rate_limited' })
+  const slug = String(req.query?.slug || '').trim()
+  const date = String(req.query?.date || '').trim()
+  // v2.16.2 (Fix 3) — accept service_supabase_id so the slot grid honours the
+  // REAL service duration. Without this, slotMins=30 hardcoded → reservar
+  // masaje 60min a las 10:00 deja 10:30 abierto para otro cliente con el
+  // mismo estilista. Doble-booking silencioso.
+  const serviceSid = String(req.query?.service_supabase_id || '').trim()
+  if (!slug || !date) return res.status(400).json({ error: 'slug + date required' })
+  try {
+    const supabase = getClient()
+    // Resolve business by slug
+    const { data: slugRow } = await supabase.from('app_settings')
+      .select('business_id').eq('key', 'salon_public_booking_slug').eq('value', slug).maybeSingle()
+    if (!slugRow?.business_id) return res.status(404).json({ error: 'not_found' })
+    const businessId = slugRow.business_id
+    const { data: enabledRow } = await supabase.from('app_settings')
+      .select('value').eq('business_id', businessId).eq('key', 'salon_public_booking_enabled').maybeSingle()
+    if (enabledRow?.value !== 'true') return res.status(404).json({ error: 'not_enabled' })
+
+    const { data: biz } = await supabase.from('businesses').select('id,name,logo_url').eq('id', businessId).maybeSingle()
+    const [{ data: services }, { data: stylists }, { data: schedules }, { data: existing }] = await Promise.all([
+      supabase.from('services').select('supabase_id,name,price,duration_min').eq('business_id', businessId).eq('active', true).order('name'),
+      supabase.from('empleados').select('supabase_id,nombre,foto_url,tipo').eq('business_id', businessId).eq('active', true).in('tipo', ['estilista','barbero','servicio']),
+      supabase.from('stylist_schedules').select('empleado_supabase_id,start_time,end_time,day_of_week').eq('business_id', businessId).eq('active', true).eq('day_of_week', (new Date(date + 'T12:00:00')).getDay()),
+      supabase.from('appointments').select('empleado_supabase_id,start_time,end_time,status').eq('business_id', businessId).eq('date', date).neq('status', 'cancelled').neq('status', 'no_show'),
+    ])
+    const busyByEmp = {}
+    for (const a of (existing || [])) {
+      if (!a.empleado_supabase_id) continue
+      ;(busyByEmp[a.empleado_supabase_id] = busyByEmp[a.empleado_supabase_id] || []).push([a.start_time, a.end_time || a.start_time])
+    }
+    // Step in 15-min increments so a 60-min service still has 10:00 / 10:15 /
+    // 10:30 candidates and a 30-min service hasn't lost any granularity.
+    const stepMins = 15
+    // Required block size = picked service's duration_min, fallback 30.
+    const picked = (services || []).find(s => s.supabase_id === serviceSid)
+    const reqMins = Math.max(15, Number(picked?.duration_min) || 30)
+    const toMin = (hhmm) => { const [h, m] = String(hhmm || '00:00').split(':').map(Number); return (h | 0) * 60 + (m | 0) }
+    const fromMin = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+    const slots = []
+    for (const s of (schedules || [])) {
+      const sm = toMin(s.start_time), em = toMin(s.end_time)
+      const busy = busyByEmp[s.empleado_supabase_id] || []
+      // The candidate must fit ENTIRELY inside the schedule window: [m, m+reqMins] <= em.
+      for (let m = sm; m + reqMins <= em; m += stepMins) {
+        const blocked = busy.some(([bs, be]) => {
+          const bsm = toMin(bs), bem = toMin(be)
+          // True overlap on [m, m+reqMins] vs [bsm, bem] — open intervals.
+          return m < bem && (m + reqMins) > bsm
+        })
+        if (!blocked) slots.push({ empleado_supabase_id: s.empleado_supabase_id, time: fromMin(m) })
+      }
+    }
+    return res.json({
+      business_name: biz?.name || '',
+      business_logo: biz?.logo_url || null,
+      services: (services || []).map(s => ({ supabase_id: s.supabase_id, name: s.name, price: Number(s.price) || 0, duration_min: Number(s.duration_min) || 30 })),
+      stylists: (stylists || []).map(e => ({ supabase_id: e.supabase_id, name: e.nombre, photo: e.foto_url || null })),
+      available_slots: slots,
+    })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// 2. salon-public-booking-create — POST, public, hCaptcha, 5/min/phone
+async function handleSalonPublicBookingCreate(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const body = typeof req.body === 'string' ? safeJson(req.body) : (req.body || {})
+  const { slug, service_supabase_id, empleado_supabase_id, date, start_time, client_name, client_phone, hcaptcha_token } = body
+  if (!slug || !service_supabase_id || !empleado_supabase_id || !date || !start_time || !client_name || !client_phone) {
+    return res.status(400).json({ error: 'missing_required_fields' })
+  }
+  const phoneNorm = normalisePhoneDR(client_phone)
+  if (!phoneNorm || phoneNorm.length < 10) return res.status(400).json({ error: 'invalid_phone' })
+  // Rate-limit per-phone (not per-IP) — phones are scarcer than IPs and the
+  // captcha already pre-throttles bot-fueled IP rotation.
+  if (!(await checkRateLimit(`salon-public-booking-create:phone:${phoneNorm}`, 5))) {
+    return res.status(429).json({ error: 'rate_limited' })
+  }
+  // hCaptcha — fails closed in prod, skips in dev
+  if (!(await verifyHcaptcha(hcaptcha_token, callerIp(req)))) {
+    return res.status(400).json({ error: 'captcha_failed' })
+  }
+  try {
+    const supabase = getClient()
+    // Resolve business
+    const { data: slugRow } = await supabase.from('app_settings')
+      .select('business_id').eq('key', 'salon_public_booking_slug').eq('value', slug).maybeSingle()
+    if (!slugRow?.business_id) return res.status(404).json({ error: 'business_not_found' })
+    const businessId = slugRow.business_id
+    const { data: enabledRow } = await supabase.from('app_settings')
+      .select('value').eq('business_id', businessId).eq('key', 'salon_public_booking_enabled').maybeSingle()
+    if (enabledRow?.value !== 'true') return res.status(404).json({ error: 'not_enabled' })
+
+    // Find or create client
+    let client = null
+    const { data: existingClient } = await supabase.from('clients')
+      .select('id,supabase_id,name,phone').eq('business_id', businessId).eq('phone', phoneNorm).maybeSingle()
+    if (existingClient) {
+      client = existingClient
+    } else {
+      const csid = crypto.randomUUID()
+      const { data: newC, error: cErr } = await supabase.from('clients').insert({
+        supabase_id: csid, business_id: businessId,
+        name: String(client_name).trim().slice(0, 120), phone: phoneNorm, active: true,
+      }).select('id,supabase_id,name,phone').single()
+      if (cErr) throw cErr
+      client = newC
+    }
+
+    // Service + stylist + business for templating + duration
+    const [{ data: svc }, { data: emp }, { data: biz }] = await Promise.all([
+      supabase.from('services').select('supabase_id,name,duration_min').eq('business_id', businessId).eq('supabase_id', service_supabase_id).maybeSingle(),
+      supabase.from('empleados').select('supabase_id,nombre').eq('business_id', businessId).eq('supabase_id', empleado_supabase_id).maybeSingle(),
+      supabase.from('businesses').select('name').eq('id', businessId).maybeSingle(),
+    ])
+    if (!svc) return res.status(400).json({ error: 'service_not_found' })
+    if (!emp) return res.status(400).json({ error: 'stylist_not_found' })
+
+    // Compute end_time from duration
+    const dur = Number(svc.duration_min) || 30
+    const [h, m] = String(start_time).split(':').map(Number)
+    const startMin = (h | 0) * 60 + (m | 0)
+    const endMin = startMin + dur
+    const end_time = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`
+
+    // v2.16.2 (Fix 3) — duration-aware overlap check before insert. The
+    // partial unique index `appointments_no_double_book_idx` only catches
+    // EXACT same `start_time` collisions; without this check, a 60-min
+    // service starting 10:00 still allows another stylist booking at 10:30.
+    const { data: collide } = await supabase.from('appointments')
+      .select('start_time,end_time,status')
+      .eq('business_id', businessId).eq('date', date)
+      .eq('empleado_supabase_id', emp.supabase_id)
+      .not('status', 'in', '(cancelled,no_show)')
+    if (Array.isArray(collide)) {
+      const toMin2 = (hhmm) => { const [hh, mm] = String(hhmm || '00:00').split(':').map(Number); return (hh | 0) * 60 + (mm | 0) }
+      const overlap = collide.some(a => {
+        const bs = toMin2(a.start_time), be = toMin2(a.end_time || a.start_time)
+        return startMin < be && endMin > bs
+      })
+      if (overlap) return res.status(409).json({ ok: false, error: 'slot_taken' })
+    }
+
+    // Insert appointment.
+    // v2.16.1 patch (#7) — partial unique index
+    // appointments_no_double_book_idx blocks racing concurrent inserts. Catch
+    // 23505 (unique_violation) and surface a 409 so the UI can redraw slots.
+    const apptSid = crypto.randomUUID()
+    const token = crypto.randomUUID()
+    const { error: aErr } = await supabase.from('appointments').insert({
+      supabase_id: apptSid,
+      business_id: businessId,
+      client_supabase_id: client.supabase_id,
+      empleado_supabase_id: emp.supabase_id,
+      date, start_time, end_time,
+      services: JSON.stringify([{ supabase_id: svc.supabase_id, name: svc.name }]),
+      status: 'scheduled',
+      is_walk_in: false,
+      deposit_dop: 0,
+      deposit_status: 'none',
+      public_booking_token: token,
+    })
+    if (aErr) {
+      if (aErr.code === '23505') {
+        return res.status(409).json({ ok: false, error: 'slot_taken' })
+      }
+      throw aErr
+    }
+
+    // Schedule reminders (24h + 2h, skipping any in the past).
+    // v2.16.1 patch (#5) — DR is UTC-4 fixed; without the suffix Vercel parses
+    // as UTC and the reminder fires 4 hours early.
+    const startMs = new Date(`${date}T${start_time}:00-04:00`).getTime()
+    const now = Date.now()
+    const reminderRows = []
+    for (const w of [{ kind: '24h', fireMs: startMs - 24 * 3600 * 1000 }, { kind: '2h', fireMs: startMs - 2 * 3600 * 1000 }]) {
+      if (w.fireMs <= now) continue
+      reminderRows.push({
+        supabase_id: crypto.randomUUID(), business_id: businessId,
+        appointment_supabase_id: apptSid, fire_at: new Date(w.fireMs).toISOString(),
+        kind: w.kind, status: 'pending',
+      })
+    }
+    if (reminderRows.length) await supabase.from('appointment_reminders').insert(reminderRows)
+
+    // Send confirm WhatsApp now (best-effort, don't fail booking if it 5xxs)
+    try {
+      const msg = fillTemplate(SALON_WA_TEMPLATES.confirm, {
+        biz_name: biz?.name || 'Salón', date, time: start_time,
+        stylist: emp.nombre, service: svc.name,
+      })
+      await ultraMsgSend(supabase, businessId, { to: phoneNorm, body: msg })
+    } catch (e) { console.warn('[salon-public-booking-create] confirm WA failed', e?.message || e) }
+
+    return res.json({ ok: true, token, appointment_supabase_id: apptSid })
+  } catch (err) {
+    console.error('[salon-public-booking-create]', err?.message || err)
+    return res.status(500).json({ error: err.message || 'internal_error' })
+  }
+}
+
+// 3. salon-whatsapp-reminder-tick — cron secret authed (cron path)
+//    OR manual_batch=true with license JWT (offline-queue drain path).
+async function handleSalonReminderTick(req, res) {
+  const body = req.method === 'POST'
+    ? (typeof req.body === 'string' ? safeJson(req.body) : (req.body || {}))
+    : {}
+
+  // ---- manual_batch path (offline-queue drain) ---------------------------
+  if (body && body.manual_batch === true) {
+    const auth = await requireBusinessMember(req)
+    if (auth.error) return res.status(auth.status).json({ error: auth.error })
+    const { supabase, businessId } = auth
+    const reminders = Array.isArray(body.reminders) ? body.reminders : []
+    const results = []
+    for (const r of reminders) {
+      const appointment_supabase_id = r?.appointment_supabase_id
+      const kind = r?.kind || 'manual'
+      const vars = r?.template_vars || {}
+      try {
+        if (!appointment_supabase_id) throw new Error('appointment_supabase_id_required')
+        // Resolve phone server-side from appointment.client (trust boundary).
+        const { data: appt } = await supabase.from('appointments')
+          .select('client_supabase_id,status')
+          .eq('supabase_id', appointment_supabase_id).eq('business_id', businessId).maybeSingle()
+        if (!appt) throw new Error('appointment_not_found')
+        if (appt.status === 'cancelled' || appt.status === 'no_show') {
+          results.push({ appointment_supabase_id, ok: true, skipped: `appointment_${appt.status}` })
+          continue
+        }
+        let phone = ''
+        if (appt.client_supabase_id) {
+          const { data: c } = await supabase.from('clients').select('phone')
+            .eq('supabase_id', appt.client_supabase_id).maybeSingle()
+          phone = normalisePhoneDR(c?.phone || '')
+        }
+        if (!phone) throw new Error('no_client_phone')
+        const tpl = SALON_WA_TEMPLATES[kind] || SALON_WA_TEMPLATES.manual
+        const text = fillTemplate(tpl, vars)
+        const sendRes = await ultraMsgSend(supabase, businessId, { to: phone, body: text })
+        // Audit: write a sent reminder row so the timeline reflects the drain.
+        // v2.16.1 patch (#12) — if a pending row already exists for this
+        // (appointment, kind, business), UPDATE it to status='sent' instead
+        // of INSERTing a second row that ages into 'skipped'/'failed' on its
+        // own and pollutes the timeline with phantom duplicates.
+        try {
+          const nowIso = new Date().toISOString()
+          const umid = sendRes?.id ? String(sendRes.id) : (sendRes?.sent ? 'true' : null)
+          const { data: existing } = await supabase.from('appointment_reminders')
+            .select('id').eq('appointment_supabase_id', appointment_supabase_id)
+            .eq('kind', kind).eq('business_id', businessId)
+            .eq('status', 'pending').limit(1)
+          if (Array.isArray(existing) && existing.length > 0) {
+            await supabase.from('appointment_reminders').update({
+              status: 'sent',
+              ultramsg_message_id: umid,
+              sent_at: nowIso,
+              updated_at: nowIso,
+            }).eq('id', existing[0].id)
+          } else {
+            await supabase.from('appointment_reminders').insert({
+              supabase_id: crypto.randomUUID(),
+              business_id: businessId,
+              appointment_supabase_id,
+              kind,
+              fire_at: nowIso,
+              status: 'sent',
+              ultramsg_message_id: umid,
+              sent_at: nowIso,
+            })
+          }
+        } catch {}
+        results.push({ appointment_supabase_id, ok: true })
+      } catch (e) {
+        results.push({ appointment_supabase_id, ok: false, error: String(e?.message || e).slice(0, 300) })
+      }
+    }
+    return res.json({ ok: true, manual_batch: true, results })
+  }
+
+  // ---- cron path ---------------------------------------------------------
+  const cronSecret = process.env.CRON_SECRET
+  const provided = req.headers['x-cron-secret'] || req.query?.cron_secret
+  if (cronSecret) {
+    if (provided !== cronSecret) return res.status(401).json({ error: 'invalid_cron_secret' })
+  } else {
+    console.warn('[salon-whatsapp-reminder-tick] CRON_SECRET unset — accepting all callers (dev only)')
+  }
+  try {
+    const supabase = getClient()
+    const nowIso = new Date().toISOString()
+    const { data: due } = await supabase.from('appointment_reminders')
+      .select('id,supabase_id,business_id,appointment_supabase_id,kind,status')
+      .eq('status', 'pending').lte('fire_at', nowIso)
+      .order('fire_at', { ascending: true }).limit(25)
+    const result = { processed: 0, sent: 0, failed: 0, skipped: 0 }
+    for (const r of (due || [])) {
+      result.processed++
+      try {
+        const sent = await processReminder(supabase, r)
+        if (sent) result.sent++
+        else result.skipped++
+      } catch (e) {
+        result.failed++
+        await supabase.from('appointment_reminders').update({
+          status: 'failed', error: String(e?.message || e).slice(0, 500), updated_at: new Date().toISOString(),
+        }).eq('id', r.id)
+      }
+    }
+    return res.json({ ok: true, ...result })
+  } catch (err) {
+    console.error('[salon-whatsapp-reminder-tick]', err?.message || err)
+    return res.status(500).json({ error: err.message })
+  }
+}
+
+// Shared reminder processor — used by both the cron tick and the manual
+// send-now path. Returns true when a message was sent.
+async function processReminder(supabase, reminder) {
+  const { id, business_id, appointment_supabase_id, kind } = reminder
+  // Load appointment + relations
+  const { data: appt } = await supabase.from('appointments')
+    .select('supabase_id,date,start_time,client_supabase_id,empleado_supabase_id,services,status')
+    .eq('supabase_id', appointment_supabase_id).eq('business_id', business_id).maybeSingle()
+  if (!appt) {
+    await supabase.from('appointment_reminders').update({
+      status: 'skipped', error: 'appointment_not_found', updated_at: new Date().toISOString(),
+    }).eq('id', id)
+    return false
+  }
+  if (appt.status === 'cancelled' || appt.status === 'no_show') {
+    await supabase.from('appointment_reminders').update({
+      status: 'skipped', error: `appointment_${appt.status}`, updated_at: new Date().toISOString(),
+    }).eq('id', id)
+    return false
+  }
+  const [{ data: client }, { data: emp }, { data: biz }] = await Promise.all([
+    appt.client_supabase_id
+      ? supabase.from('clients').select('name,phone').eq('supabase_id', appt.client_supabase_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    appt.empleado_supabase_id
+      ? supabase.from('empleados').select('nombre').eq('supabase_id', appt.empleado_supabase_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    supabase.from('businesses').select('name').eq('id', business_id).maybeSingle(),
+  ])
+  if (!client?.phone) {
+    await supabase.from('appointment_reminders').update({
+      status: 'skipped', error: 'no_client_phone', updated_at: new Date().toISOString(),
+    }).eq('id', id)
+    return false
+  }
+  let serviceName = ''
+  try {
+    const arr = typeof appt.services === 'string' ? JSON.parse(appt.services || '[]') : (appt.services || [])
+    serviceName = (Array.isArray(arr) && arr[0]?.name) || ''
+  } catch {}
+  const tpl = SALON_WA_TEMPLATES[kind] || SALON_WA_TEMPLATES.manual
+  const body = fillTemplate(tpl, {
+    name: client.name || '',
+    time: appt.start_time || '',
+    date: appt.date || '',
+    stylist: emp?.nombre || '',
+    biz_name: biz?.name || '',
+    service: serviceName,
+  })
+  const phone = normalisePhoneDR(client.phone)
+  const r = await ultraMsgSend(supabase, business_id, { to: phone, body })
+  await supabase.from('appointment_reminders').update({
+    status: 'sent',
+    ultramsg_message_id: r?.id ? String(r.id) : (r?.sent ? 'true' : null),
+    sent_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }).eq('id', id)
+  return true
+}
+
+// 4. salon-whatsapp-send-now — license JWT authed (Supabase JWT + business member)
+async function handleSalonWhatsappSendNow(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireBusinessMember(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase, businessId } = auth
+  // v2.16.2 (Fix 2) — rate-limit per business. Token comprometido = quota
+  // UltraMsg drenada en 60 segundos sin esto. 10/min/business is generous
+  // for legitimate "Enviar recordatorio ahora" taps and tight enough to
+  // contain abuse. Keyed by business so one tenant's spam can't lock another.
+  if (!(await checkRateLimit(`salon-whatsapp-send-now:${businessId}`, 10))) {
+    return res.status(429).json({ error: 'rate_limited' })
+  }
+  const body = typeof req.body === 'string' ? safeJson(req.body) : (req.body || {})
+  const { appointment_supabase_id } = body
+  if (!appointment_supabase_id) return res.status(400).json({ error: 'appointment_supabase_id required' })
+  try {
+    // Insert manual reminder + immediately process it
+    const reminderSid = crypto.randomUUID()
+    const { data: row, error: insErr } = await supabase.from('appointment_reminders').insert({
+      supabase_id: reminderSid, business_id: businessId,
+      appointment_supabase_id, kind: 'manual', fire_at: new Date().toISOString(), status: 'pending',
+    }).select('id,supabase_id,business_id,appointment_supabase_id,kind,status').single()
+    if (insErr) throw insErr
+    try {
+      await processReminder(supabase, row)
+      return res.json({ ok: true, sent: true })
+    } catch (e) {
+      await supabase.from('appointment_reminders').update({
+        status: 'failed', error: String(e?.message || e).slice(0, 500), updated_at: new Date().toISOString(),
+      }).eq('id', row.id)
+      return res.status(502).json({ ok: false, error: e?.message || 'send_failed' })
+    }
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// 5. salon-membership-purchase — license JWT authed
+async function handleSalonMembershipPurchase(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireBusinessMember(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase, businessId } = auth
+  const body = typeof req.body === 'string' ? safeJson(req.body) : (req.body || {})
+  const { client_supabase_id, membership_supabase_id, ticket_supabase_id } = body
+  if (!client_supabase_id || !membership_supabase_id) return res.status(400).json({ error: 'client_supabase_id + membership_supabase_id required' })
+  try {
+    const { data: tpl, error: tplErr } = await supabase.from('memberships')
+      .select('total_sessions,validity_days,price_dop')
+      .eq('supabase_id', membership_supabase_id).eq('business_id', businessId).maybeSingle()
+    if (tplErr) throw tplErr
+    if (!tpl) return res.status(404).json({ error: 'membership_template_not_found' })
+    const validity = Number(tpl.validity_days) || 365
+    const expires_at = new Date(Date.now() + validity * 86400000).toISOString()
+    const { data: row, error: insErr } = await supabase.from('client_memberships').insert({
+      supabase_id: crypto.randomUUID(),
+      business_id: businessId,
+      client_supabase_id,
+      membership_supabase_id,
+      sessions_remaining: Number(tpl.total_sessions) || 0,
+      expires_at,
+      ticket_supabase_id: ticket_supabase_id || null,
+    }).select('*').single()
+    if (insErr) throw insErr
+    return res.json({ ok: true, data: row })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// 6. salon-membership-consume — license JWT authed
+async function handleSalonMembershipConsume(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireBusinessMember(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase, businessId } = auth
+  const body = typeof req.body === 'string' ? safeJson(req.body) : (req.body || {})
+  const { client_membership_supabase_id, ticket_supabase_id, appointment_supabase_id } = body
+  if (!client_membership_supabase_id || !ticket_supabase_id) return res.status(400).json({ error: 'client_membership_supabase_id + ticket_supabase_id required' })
+  try {
+    // v2.16.1 patch (#8) — compare-and-swap on sessions_remaining to defeat
+    // the read-modify-write race. Two concurrent consumes both saw remaining=1
+    // and both wrote 0; second redemption was free. Retry up to 3 times with
+    // a fresh fetch when the CAS predicate misses (RETURNING zero rows).
+    let cm = null
+    let updated = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { data: cmRow } = await supabase.from('client_memberships')
+        .select('id,sessions_remaining,expires_at')
+        .eq('supabase_id', client_membership_supabase_id).eq('business_id', businessId).maybeSingle()
+      if (!cmRow) return res.status(404).json({ error: 'not_found' })
+      cm = cmRow
+      if (Number(cm.sessions_remaining) <= 0) return res.status(409).json({ error: 'no_sessions_remaining' })
+      if (cm.expires_at && new Date(cm.expires_at) < new Date()) return res.status(409).json({ error: 'expired' })
+      const { data: rows, error: updErr } = await supabase.from('client_memberships')
+        .update({ sessions_remaining: cm.sessions_remaining - 1, updated_at: new Date().toISOString() })
+        .eq('id', cm.id).eq('business_id', businessId)
+        .eq('sessions_remaining', cm.sessions_remaining)
+        .select('id,sessions_remaining')
+      if (updErr) throw updErr
+      if (Array.isArray(rows) && rows.length > 0) { updated = rows[0]; break }
+      // CAS missed → another consumer raced us. Loop, re-fetch, retry.
+    }
+    if (!updated) return res.status(409).json({ ok: false, error: 'concurrent_consume' })
+    const { data: redemption, error: rErr } = await supabase.from('membership_redemptions').insert({
+      supabase_id: crypto.randomUUID(),
+      business_id: businessId,
+      client_membership_supabase_id,
+      ticket_supabase_id,
+      appointment_supabase_id: appointment_supabase_id || null,
+    }).select('*').single()
+    if (rErr) throw rErr
+    return res.json({ ok: true, remaining: updated.sessions_remaining, data: redemption })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// v2.16.0 — Taller Mecánico: public work-order approval
+//
+// `wo-approve-load`   GET  ?action=wo-approve-load&t=<token>
+//                     Returns { wo, items, vehicle, business, alreadyApproved }
+//                     Service role bypasses RLS so we can read by token only.
+//                     Token is opaque (UUID-derived 48-char hex) — no other
+//                     auth required. Treat the token as a bearer.
+//
+// `wo-approve-submit` POST ?action=wo-approve-submit&t=<token>
+//                     Body: { signature_data_url, customer_name? }
+//                     Stamps work_orders.status='aprobado',
+//                     estimate_approved_at, customer_signature_url (storage
+//                     path inside `mechanic-photos`), and rotates the
+//                     approval token so the link cannot be replayed.
+// ─────────────────────────────────────────────────────────────────────────
+async function handleWorkOrderApproval(action, req, res, supabase) {
+  const token = String(req.query?.t || req.body?.t || '').trim()
+  if (!token || token.length < 24 || token.length > 96 || /[^a-f0-9]/i.test(token)) {
+    return res.status(400).json({ error: 'invalid_token' })
+  }
+
+  // Resolve the WO by token. Service role: we trust the token is the cred.
+  const { data: wo, error: woErr } = await supabase
+    .from('work_orders')
+    .select(`
+      id, supabase_id, business_id, status, estimated_total, total, labor_total,
+      parts_total, itbis, validity_until, vehicle_supabase_id, client_supabase_id,
+      notes, customer_signature_url, estimate_approved_at, created_at, updated_at,
+      customer_approval_token
+    `)
+    .eq('customer_approval_token', token)
+    .maybeSingle()
+
+  if (woErr || !wo) {
+    return res.status(404).json({ error: 'work_order_not_found' })
+  }
+
+  // Validity guard. After approval, the cotización becomes a binding WO so the
+  // expiry only matters before approval.
+  const now = new Date()
+  const expired = wo.validity_until && new Date(wo.validity_until + 'T23:59:59') < now
+  const alreadyApproved = !!wo.estimate_approved_at
+
+  if (action === 'wo-approve-load') {
+    const [{ data: items }, { data: vehicle }, { data: business }, { data: client }] = await Promise.all([
+      supabase.from('work_order_items').select('id, type, name, description, quantity, unit_price, total, warranty_months').eq('work_order_supabase_id', wo.supabase_id),
+      wo.vehicle_supabase_id
+        ? supabase.from('vehicles').select('plate, vin, make, model, year, color, odometer_km').eq('supabase_id', wo.vehicle_supabase_id).maybeSingle()
+        : Promise.resolve({ data: null }),
+      supabase.from('businesses').select('name, rnc, phone, address').eq('id', wo.business_id).maybeSingle(),
+      wo.client_supabase_id
+        ? supabase.from('clients').select('name, phone, rnc').eq('supabase_id', wo.client_supabase_id).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ])
+    return res.json({
+      ok: true,
+      alreadyApproved,
+      expired: expired && !alreadyApproved,
+      wo: {
+        id: wo.id, supabase_id: wo.supabase_id, status: wo.status,
+        labor_total: wo.labor_total, parts_total: wo.parts_total,
+        itbis: wo.itbis, total: wo.total, estimated_total: wo.estimated_total,
+        validity_until: wo.validity_until, notes: wo.notes,
+        estimate_approved_at: wo.estimate_approved_at,
+      },
+      items: items || [],
+      vehicle: vehicle || null,
+      business: business || null,
+      client: client || null,
+    })
+  }
+
+  // wo-approve-submit
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' })
+  if (alreadyApproved) return res.status(409).json({ error: 'already_approved', estimate_approved_at: wo.estimate_approved_at })
+  if (expired)         return res.status(410).json({ error: 'cotizacion_expired', validity_until: wo.validity_until })
+
+  const sig = String(req.body?.signature_data_url || '')
+  if (!sig.startsWith('data:image/png;base64,') && !sig.startsWith('data:image/jpeg;base64,')) {
+    return res.status(400).json({ error: 'signature_required' })
+  }
+  const sigB64  = sig.replace(/^data:image\/(png|jpeg);base64,/, '')
+  const sigKind = sig.startsWith('data:image/png') ? 'png' : 'jpg'
+  let sigBytes
+  try { sigBytes = Buffer.from(sigB64, 'base64') } catch { return res.status(400).json({ error: 'signature_not_base64' }) }
+  if (sigBytes.length < 200 || sigBytes.length > 2 * 1024 * 1024) {
+    return res.status(400).json({ error: 'signature_size_out_of_range' })
+  }
+
+  const path = `${wo.business_id}/${wo.supabase_id}/signature-${Date.now()}.${sigKind}`
+  const { error: upErr } = await supabase.storage.from('mechanic-photos').upload(path, sigBytes, {
+    contentType: sigKind === 'png' ? 'image/png' : 'image/jpeg',
+    upsert: false,
+  })
+  if (upErr) return res.status(500).json({ error: 'signature_upload_failed', detail: upErr.message })
+
+  // Rotate token so the link can never be replayed.
+  const newToken = crypto.randomBytes(24).toString('hex') + crypto.randomBytes(8).toString('hex')
+
+  const customerName = String(req.body?.customer_name || '').slice(0, 120) || null
+
+  const { error: updErr } = await supabase.from('work_orders').update({
+    status: 'aprobado',
+    estimate_approved_at: new Date().toISOString(),
+    customer_signature_url: path,
+    customer_approval_token: newToken,
+    updated_at: new Date().toISOString(),
+    notes: customerName
+      ? `${wo.notes ? wo.notes + ' · ' : ''}Aprobada por ${customerName} (firma digital).`
+      : wo.notes,
+  }).eq('id', wo.id).eq('business_id', wo.business_id)
+  if (updErr) return res.status(500).json({ error: 'wo_update_failed', detail: updErr.message })
+
+  // Best-effort activity log — never blocks success.
+  try {
+    await supabase.from('activity_log').insert({
+      business_id: wo.business_id,
+      event_type: 'wo_estimate_approved',
+      severity: 'info',
+      target_type: 'work_order',
+      target_id: wo.id,
+      target_name: customerName,
+      metadata: {
+        work_order_supabase_id: wo.supabase_id,
+        amount: Number(wo.total || wo.estimated_total) || 0,
+        ip: callerIp(req),
+        ua: String(req.headers['user-agent'] || '').slice(0, 200),
+      },
+    })
+  } catch { /* non-blocking */ }
+
+  return res.json({ ok: true, status: 'aprobado', signature_path: path })
+}

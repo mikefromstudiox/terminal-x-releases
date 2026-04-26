@@ -25,6 +25,7 @@ if (window.electronAPI?.env?.get && !getStoredSetting('supabase_url')) {
   }).catch(() => {})
 }
 import { useAuth } from './context/AuthContext'
+import { useBusinessType } from './hooks/useBusinessType.jsx'
 import { useLicense } from './context/LicenseContext'
 import Layout from './components/Layout'
 import UpdateBanner from './components/UpdateBanner'
@@ -63,20 +64,42 @@ const KDS                 = lazy(() => import('./screens/restaurant/KDS'))
 const WorkOrders          = lazy(() => import('./screens/mechanic/WorkOrders'))
 const Vehicles            = lazy(() => import('./screens/mechanic/Vehicles'))
 const ServiceBays         = lazy(() => import('./screens/mechanic/ServiceBays'))
+const MechanicResumen     = lazy(() => import('./screens/mechanic/MechanicResumen'))
+const Cotizaciones        = lazy(() => import('./screens/mechanic/Cotizaciones'))
+const Suministros         = lazy(() => import('./screens/mechanic/Suministros'))
+const Aseguradoras        = lazy(() => import('./screens/mechanic/Aseguradoras'))
+const InsuranceBatch      = lazy(() => import('./screens/mechanic/InsuranceBatch'))
 const Appointments        = lazy(() => import('./screens/salon/Appointments'))
 const StylistSchedules    = lazy(() => import('./screens/salon/StylistSchedules'))
 const VehicleInventory    = lazy(() => import('./screens/dealership/VehicleInventory'))
 const SalesPipeline       = lazy(() => import('./screens/dealership/SalesPipeline'))
 const TestDrives          = lazy(() => import('./screens/dealership/TestDrives'))
 const DealBuilder         = lazy(() => import('./screens/dealership/DealBuilder'))
+const ConcesionarioResumen = lazy(() => import('./screens/dealership/Resumen'))
+const Matriculas          = lazy(() => import('./screens/dealership/Matriculas'))
+const Reservations        = lazy(() => import('./screens/dealership/Reservations'))
+const Warranties          = lazy(() => import('./screens/dealership/Warranties'))
+const Preapprovals        = lazy(() => import('./screens/dealership/Preapprovals'))
+const ConcesionarioCommissionsReport = lazy(() => import('./screens/reports/ConcesionarioCommissionsReport'))
+const InventoryAgingReport = lazy(() => import('./screens/reports/InventoryAgingReport'))
+const TestDriveFunnelReport = lazy(() => import('./screens/reports/TestDriveFunnelReport'))
 const Loans               = lazy(() => import('./screens/lending/Loans'))
 const PawnItems           = lazy(() => import('./screens/lending/PawnItems'))
 const Collections         = lazy(() => import('./screens/lending/Collections'))
+const LendingResumen      = lazy(() => import('./screens/lending/Resumen'))
+const SBReport            = lazy(() => import('./screens/lending/SBReport'))
 const Memberships         = lazy(() => import('./screens/carwash/Memberships'))
+const SalonMemberships    = lazy(() => import('./screens/salon/Memberships'))
+const SalonResumen        = lazy(() => import('./screens/salon/Resumen'))
 const ServiceHub          = lazy(() => import('./screens/service/ServiceHub'))
 const InvoiceDashboard    = lazy(() => import('./screens/invoicing/InvoiceDashboard'))
 const InvoiceCreate       = lazy(() => import('./screens/invoicing/InvoiceCreate'))
 const InvoiceList         = lazy(() => import('./screens/invoicing/InvoiceList'))
+const InvoiceQuotes       = lazy(() => import('./screens/invoicing/InvoiceQuotes'))
+const CarniceriaCorteCatalog    = lazy(() => import('./screens/carniceria/CorteCatalog'))
+const CarniceriaFreshnessAlerts = lazy(() => import('./screens/carniceria/FreshnessAlerts'))
+const CarniceriaMayoreoOrders   = lazy(() => import('./screens/carniceria/MayoreoOrders'))
+const CarniceriaResumen         = lazy(() => import('./screens/carniceria/Resumen'))
 
 // Routes accessible only to non-cashier roles
 const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/sistema','/inventory','/conteo-fisico','/config']
@@ -87,6 +110,16 @@ function ProtectedRoute({ element }) {
   const restricted = RESTRICTED.some(p => location.pathname.startsWith(p))
   if (restricted && user?.role === 'cashier') return <Navigate to="/pos" replace />
   return element
+}
+
+// /memberships routes by business type — salon gets its own CRUD screen
+// (catalog + balances), carwash gets the original wash combos screen.
+function MembershipsRouter() {
+  const { businessType } = useBusinessType()
+  if (businessType === 'salon') {
+    return <PlanGate feature="salon_memberships"><SalonMemberships /></PlanGate>
+  }
+  return <Memberships />
 }
 
 // ── Startup spinner ───────────────────────────────────────────────────────────
@@ -236,20 +269,41 @@ export default function App() {
         <Route path="/work-orders" element={<ProtectedRoute element={<PlanGate feature="work_orders"><WorkOrders /></PlanGate>} />} />
         <Route path="/vehicles" element={<ProtectedRoute element={<PlanGate feature="vehicles"><Vehicles /></PlanGate>} />} />
         <Route path="/service-bays" element={<ProtectedRoute element={<PlanGate feature="service_bays"><ServiceBays /></PlanGate>} />} />
+        <Route path="/mecanica/resumen" element={<ProtectedRoute element={<PlanGate feature="mechanic_dashboard"><MechanicResumen /></PlanGate>} />} />
+        <Route path="/cotizaciones" element={<ProtectedRoute element={<PlanGate feature="work_orders"><Cotizaciones /></PlanGate>} />} />
+        <Route path="/suministros" element={<ProtectedRoute element={<PlanGate feature="parts_ordering"><Suministros /></PlanGate>} />} />
+        <Route path="/aseguradoras" element={<ProtectedRoute element={<PlanGate feature="insurance_batching"><Aseguradoras /></PlanGate>} />} />
+        <Route path="/aseguradoras/lote/:aseguradoraId" element={<ProtectedRoute element={<PlanGate feature="insurance_batching"><InsuranceBatch /></PlanGate>} />} />
         <Route path="/appointments" element={<ProtectedRoute element={<PlanGate feature="appointments"><Appointments /></PlanGate>} />} />
         <Route path="/stylist-schedules" element={<ProtectedRoute element={<PlanGate feature="appointments"><StylistSchedules /></PlanGate>} />} />
         <Route path="/loans" element={<ProtectedRoute element={<PlanGate feature="loans"><Loans /></PlanGate>} />} />
         <Route path="/pawn-items" element={<ProtectedRoute element={<PlanGate feature="pawn_items"><PawnItems /></PlanGate>} />} />
         <Route path="/collections" element={<ProtectedRoute element={<PlanGate feature="loans"><Collections /></PlanGate>} />} />
-        <Route path="/memberships" element={<ProtectedRoute element={<Memberships />} />} />
+        <Route path="/lending/resumen" element={<ProtectedRoute element={<PlanGate feature="loans"><LendingResumen /></PlanGate>} />} />
+        <Route path="/lending/reporte-sb" element={<ProtectedRoute element={<PlanGate feature="loans"><SBReport /></PlanGate>} />} />
+        <Route path="/memberships" element={<ProtectedRoute element={<MembershipsRouter />} />} />
+        <Route path="/resumen" element={<ProtectedRoute element={<PlanGate feature="salon_dashboard"><SalonResumen /></PlanGate>} />} />
         <Route path="/servicios" element={<ProtectedRoute element={<ServiceHub />} />} />
-        <Route path="/vehicle-inventory" element={<ProtectedRoute element={<VehicleInventory />} />} />
-        <Route path="/sales-pipeline"    element={<ProtectedRoute element={<SalesPipeline />} />} />
-        <Route path="/test-drives"       element={<ProtectedRoute element={<TestDrives />} />} />
-        <Route path="/deal-builder"      element={<ProtectedRoute element={<DealBuilder />} />} />
+        <Route path="/concesionario"    element={<ProtectedRoute element={<PlanGate feature="concesionario_resumen"><ConcesionarioResumen /></PlanGate>} />} />
+        <Route path="/vehicle-inventory" element={<ProtectedRoute element={<PlanGate feature="vehicle_inventory"><VehicleInventory /></PlanGate>} />} />
+        <Route path="/sales-pipeline"    element={<ProtectedRoute element={<PlanGate feature="sales_pipeline"><SalesPipeline /></PlanGate>} />} />
+        <Route path="/test-drives"       element={<ProtectedRoute element={<PlanGate feature="test_drives"><TestDrives /></PlanGate>} />} />
+        <Route path="/deal-builder"      element={<ProtectedRoute element={<PlanGate feature="deal_builder"><DealBuilder /></PlanGate>} />} />
+        <Route path="/matriculas"        element={<ProtectedRoute element={<PlanGate feature="matriculas"><Matriculas /></PlanGate>} />} />
+        <Route path="/reservations"      element={<ProtectedRoute element={<PlanGate feature="reservations"><Reservations /></PlanGate>} />} />
+        <Route path="/warranties"        element={<ProtectedRoute element={<PlanGate feature="warranties"><Warranties /></PlanGate>} />} />
+        <Route path="/preapprovals"      element={<ProtectedRoute element={<PlanGate feature="preapprovals"><Preapprovals /></PlanGate>} />} />
+        <Route path="/reports/concesionario-comisiones" element={<ProtectedRoute element={<PlanGate feature="concesionario_reports"><ConcesionarioCommissionsReport /></PlanGate>} />} />
+        <Route path="/reports/concesionario-aging" element={<ProtectedRoute element={<PlanGate feature="concesionario_reports"><InventoryAgingReport /></PlanGate>} />} />
+        <Route path="/reports/concesionario-funnel" element={<ProtectedRoute element={<PlanGate feature="concesionario_reports"><TestDriveFunnelReport /></PlanGate>} />} />
         <Route path="/invoicing" element={<ProtectedRoute element={<PlanGate feature="invoicing"><InvoiceDashboard /></PlanGate>} />} />
         <Route path="/invoicing/create" element={<ProtectedRoute element={<PlanGate feature="invoicing"><InvoiceCreate /></PlanGate>} />} />
         <Route path="/invoicing/history" element={<ProtectedRoute element={<PlanGate feature="invoicing"><InvoiceList /></PlanGate>} />} />
+        <Route path="/invoicing/quotes" element={<ProtectedRoute element={<PlanGate feature="invoicing"><InvoiceQuotes /></PlanGate>} />} />
+        <Route path="/carniceria/cortes"    element={<ProtectedRoute element={<CarniceriaCorteCatalog />} />} />
+        <Route path="/carniceria/frescura"  element={<ProtectedRoute element={<CarniceriaFreshnessAlerts />} />} />
+        <Route path="/carniceria/mayoreo"   element={<ProtectedRoute element={<CarniceriaMayoreoOrders />} />} />
+        <Route path="/carniceria/resumen"   element={<ProtectedRoute element={<CarniceriaResumen />} />} />
         {/* Legacy routes — redirect to canonical destinations */}
         <Route path="/workers"               element={<Navigate to="/reports/workers" replace />} />
         <Route path="/services"              element={<Navigate to="/admin" replace />} />

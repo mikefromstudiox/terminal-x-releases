@@ -6,14 +6,27 @@
  * detail view with payment history + payment registration.
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   Landmark, Plus, Search, X, Loader2, Check, ChevronDown, ChevronUp,
   Calendar, DollarSign, AlertTriangle, Clock, Eye, Ban,
   Calculator, CreditCard, FileText, Users, TrendingUp,
-  ArrowLeft, Banknote,
+  ArrowLeft, Banknote, RefreshCw, FilePlus, ShieldCheck, Camera, Download, History,
 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
+import SignaturePad from '../../components/SignaturePad'
+import { formatAPR, effectiveAnnualRate } from '../../../services/apr.js'
+import { buildLoanContractPDF } from '../../../services/pdfContracts.js'
+import { getSupabaseClient, getBusinessId } from '../../../services/supabase.js'
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const CLAUSES_VERSION = 'v1-2026-04'
+
+const AMORT_METHODS = [
+  { id: 'interest_only', label: 'Solo Intereses',          desc: 'Pago mensual de intereses, capital al final' },
+  { id: 'french',        label: 'Cuota Fija (Francés)',    desc: 'Pago mensual constante' },
+  { id: 'german',        label: 'Capital Fijo (Alemán)',   desc: 'Capital igual cada mes, intereses decrecientes' },
+]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -75,6 +88,78 @@ function generateSchedule(principal, monthlyRatePct, termMonths, disbursedDate) 
     })
   }
   return schedule
+}
+
+// German / equal-principal: capital fijo, intereses decrecientes
+function generateScheduleGerman(principal, monthlyRatePct, termMonths, disbursedDate) {
+  const P = Number(principal) || 0
+  const n = Number(termMonths) || 0
+  const r = (Number(monthlyRatePct) || 0) / 100
+  if (P <= 0 || n <= 0) return []
+  const principalEach = P / n
+  const schedule = []
+  let balance = P
+  const startDate = disbursedDate || today()
+  for (let i = 1; i <= n; i++) {
+    const interest = balance * r
+    const pp = Math.min(balance, principalEach)
+    balance = Math.max(0, balance - pp)
+    schedule.push({
+      number: i,
+      due_date: addMonths(startDate, i),
+      principal_portion: Math.round(pp * 100) / 100,
+      interest_portion: Math.round(interest * 100) / 100,
+      payment: Math.round((pp + interest) * 100) / 100,
+      balance: Math.round(balance * 100) / 100,
+    })
+  }
+  return schedule
+}
+
+// Interest-only / balloon: pagos mensuales = intereses, capital al final
+function generateScheduleInterestOnly(principal, monthlyRatePct, termMonths, disbursedDate) {
+  const P = Number(principal) || 0
+  const n = Number(termMonths) || 0
+  const r = (Number(monthlyRatePct) || 0) / 100
+  if (P <= 0 || n <= 0) return []
+  const interest = P * r
+  const schedule = []
+  const startDate = disbursedDate || today()
+  for (let i = 1; i <= n; i++) {
+    const isLast = i === n
+    const pp = isLast ? P : 0
+    const pay = interest + pp
+    schedule.push({
+      number: i,
+      due_date: addMonths(startDate, i),
+      principal_portion: Math.round(pp * 100) / 100,
+      interest_portion: Math.round(interest * 100) / 100,
+      payment: Math.round(pay * 100) / 100,
+      balance: Math.round((isLast ? 0 : P) * 100) / 100,
+    })
+  }
+  return schedule
+}
+
+// Dispatcher — picks the right generator based on saved method
+function buildSchedule(method, principal, monthlyRatePct, termMonths, disbursedDate) {
+  switch (method) {
+    case 'german':         return generateScheduleGerman(principal, monthlyRatePct, termMonths, disbursedDate)
+    case 'french':         return generateSchedule(principal, monthlyRatePct, termMonths, disbursedDate)
+    case 'interest_only':
+    default:               return generateScheduleInterestOnly(principal, monthlyRatePct, termMonths, disbursedDate)
+  }
+}
+
+// First-period payment for a method (used for monthly_payment column)
+function firstPeriodPayment(method, principal, monthlyRatePct, termMonths) {
+  const P = Number(principal) || 0
+  const n = Number(termMonths) || 0
+  const r = (Number(monthlyRatePct) || 0) / 100
+  if (P <= 0 || n <= 0) return 0
+  if (method === 'german')        return P / n + P * r
+  if (method === 'interest_only') return P * r
+  return calcMonthlyPayment(P, monthlyRatePct, n)
 }
 
 // ── Status config ─────────────────────────────────────────────────────────────
@@ -146,6 +231,7 @@ function NewLoanModal({ onClose, onSave }) {
     principal: '',
     term_months: '',
     interest_rate: '',
+    amortization_method: 'interest_only',
     notes: '',
   })
 
@@ -160,10 +246,11 @@ function NewLoanModal({ onClose, onSave }) {
   const P = Number(form.principal) || 0
   const n = Number(form.term_months) || 0
   const r = Number(form.interest_rate) || 0
-  const M = calcMonthlyPayment(P, r, n)
-  const totalRepay = M * n
-  const totalInterest = totalRepay - P
-  const schedule = useMemo(() => generateSchedule(P, r, n, today()), [P, r, n])
+  const method = form.amortization_method || 'interest_only'
+  const M = firstPeriodPayment(method, P, r, n)
+  const schedule = useMemo(() => buildSchedule(method, P, r, n, today()), [method, P, r, n])
+  const totalRepay = schedule.reduce((s, row) => s + (Number(row.payment) || 0), 0)
+  const totalInterest = schedule.reduce((s, row) => s + (Number(row.interest_portion) || 0), 0)
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -184,6 +271,7 @@ function NewLoanModal({ onClose, onSave }) {
         disbursed_at: new Date().toISOString(),
         next_due_date: addMonths(today(), 1),
         status: 'active',
+        amortization_method: method,
         notes: form.notes.trim() || null,
       })
       onSave()
@@ -260,27 +348,62 @@ function NewLoanModal({ onClose, onSave }) {
             </div>
           </div>
 
+          {/* Amortization method */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-2">
+              Método de Amortización
+            </label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              {AMORT_METHODS.map(m => {
+                const active = method === m.id
+                return (
+                  <button key={m.id} type="button"
+                    onClick={() => set('amortization_method', m.id)}
+                    className={`text-left px-3 py-2.5 rounded-xl border transition-colors ${
+                      active
+                        ? 'bg-[#b3001e]/10 border-[#b3001e] ring-1 ring-[#b3001e]'
+                        : 'bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20'
+                    }`}>
+                    <div className={`text-[12px] font-bold ${active ? 'text-[#b3001e]' : 'text-slate-700 dark:text-white'}`}>
+                      {m.label}
+                    </div>
+                    <div className="text-[10.5px] text-slate-500 dark:text-white/50 mt-0.5 leading-tight">
+                      {m.desc}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           {/* Auto-calculated fields */}
           {P > 0 && n > 0 && (
-            <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Calculator size={14} className="text-emerald-600 dark:text-emerald-400" />
-                <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">
-                  Calculo Automatico
+            <div className="bg-[#b3001e]/5 border border-[#b3001e]/20 rounded-xl p-4">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <Calculator size={14} className="text-[#b3001e]" />
+                  <p className="text-[11px] font-bold text-[#b3001e] uppercase tracking-wider">
+                    Calculo Automatico
+                  </p>
+                </div>
+                <p className="text-[10.5px] font-semibold text-slate-600 dark:text-white/60 tabular-nums">
+                  {formatAPR(r / 100)}
                 </p>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <p className="text-[10px] text-emerald-600/70 dark:text-emerald-400/70 uppercase">Cuota Mensual</p>
-                  <p className="text-[16px] font-black text-emerald-700 dark:text-emerald-300">{fmtRD(M)}</p>
+                  <p className="text-[10px] text-slate-500/80 dark:text-white/50 uppercase">
+                    {method === 'german' ? 'Primera Cuota' : 'Cuota Mensual'}
+                  </p>
+                  <p className="text-[16px] font-black text-slate-900 dark:text-white">{fmtRD(M)}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-emerald-600/70 dark:text-emerald-400/70 uppercase">Total a Pagar</p>
-                  <p className="text-[16px] font-bold text-emerald-700 dark:text-emerald-300">{fmtRD(totalRepay)}</p>
+                  <p className="text-[10px] text-slate-500/80 dark:text-white/50 uppercase">Total a Pagar</p>
+                  <p className="text-[16px] font-bold text-slate-900 dark:text-white">{fmtRD(totalRepay)}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-emerald-600/70 dark:text-emerald-400/70 uppercase">Total Intereses</p>
-                  <p className="text-[16px] font-bold text-emerald-700 dark:text-emerald-300">{fmtRD(totalInterest)}</p>
+                  <p className="text-[10px] text-slate-500/80 dark:text-white/50 uppercase">Total Intereses</p>
+                  <p className="text-[16px] font-bold text-slate-900 dark:text-white">{fmtRD(totalInterest)}</p>
                 </div>
               </div>
             </div>
@@ -367,7 +490,7 @@ function PaymentModal({ loan, onClose, onSave }) {
   const [err, setErr] = useState('')
 
   const schedule = useMemo(() =>
-    generateSchedule(loan.principal, loan.interest_rate, loan.term_months, loan.disbursed_at),
+    buildSchedule(loan.amortization_method || 'interest_only', loan.principal, loan.interest_rate, loan.term_months, loan.disbursed_at),
     [loan]
   )
 
@@ -508,6 +631,483 @@ function PaymentModal({ loan, onClose, onSave }) {
   )
 }
 
+// ── Contract Signer Modal ─────────────────────────────────────────────────────
+
+function ContractSigner({ loan, schedule, onClose, onSaved }) {
+  const api = useAPI()
+  const [signature, setSignature] = useState(null)
+  const [dpiDataUrl, setDpiDataUrl] = useState(null)
+  const [garantia, setGarantia]   = useState('')
+  const [saving, setSaving]       = useState(false)
+  const [err, setErr]             = useState('')
+  const [step, setStep]           = useState('preview') // preview | sign
+
+  const monthlyRate = (Number(loan.interest_rate) || 0) / 100
+
+  const handleDpi = (e) => {
+    const f = e.target.files?.[0]
+    if (!f) return
+    const reader = new FileReader()
+    reader.onload = () => setDpiDataUrl(reader.result)
+    reader.readAsDataURL(f)
+  }
+
+  async function handleSubmit() {
+    // Pre-upload guards (no I/O performed yet → no rollback needed)
+    if (!signature)  { setErr('Firma y foto de cédula son obligatorias'); return }
+    if (!dpiDataUrl) { setErr('Firma y foto de cédula son obligatorias'); return }
+    setSaving(true)
+    setErr('')
+
+    // Storage rollback ledger — every successful upload is registered here so
+    // any downstream failure (later upload, signed-URL gen, or DB insert) can
+    // best-effort delete the orphans before surfacing the error to the cashier.
+    const uploaded = []
+    const rollbackUploads = async (sb) => {
+      if (!uploaded.length) return
+      try {
+        await Promise.allSettled(
+          uploaded.map(({ bucket, path }) => sb.storage.from(bucket).remove([path]))
+        )
+      } catch (_) { /* never throws — best-effort */ }
+    }
+
+    try {
+      const sb  = getSupabaseClient()
+      const bid = getBusinessId()
+      if (!sb || !bid) throw new Error('Supabase no configurado')
+      if (!loan.supabase_id) throw new Error('Préstamo sin supabase_id')
+
+      // Fetch business + client info BEFORE we validate, so we can read RNC/legal_name.
+      let business = {}
+      try { business = (await api?.admin?.getEmpresa?.()) || {} } catch {}
+      if (!business?.legal_name || !business?.rnc) {
+        setErr('Falta RNC o razón social del negocio. Configure en Ajustes antes de generar contratos.')
+        setSaving(false)
+        return
+      }
+      const businessForPdf = {
+        legal_name: business.legal_name,
+        name:       business?.name,
+        rnc:        business.rnc,
+        address:    business?.address || '',
+        phone:      business?.phone || '',
+      }
+      let client = {}
+      try {
+        if (loan.client_supabase_id) {
+          const { data } = await sb.from('clients')
+            .select('name,phone,rnc,address').eq('id', loan.client_id).eq('business_id', bid).maybeSingle()
+          if (data) client = data
+        }
+      } catch {}
+      const clientForPdf = {
+        full_name: client?.name || loan.client_name || `Cliente #${loan.client_id}`,
+        name:      client?.name || loan.client_name,
+        dpi:       client?.rnc || '',
+        phone:     client?.phone || '',
+        address:   client?.address || '',
+      }
+
+      // 1. Build PDF first (CPU only, no network → cannot orphan anything).
+      const pdfBytes = await buildLoanContractPDF({
+        loan, client: clientForPdf, business: businessForPdf,
+        schedule, signatureDataUrl: signature, dpiDataUrl,
+        garantiaText: garantia,
+      })
+
+      // 2. Upload assets — private bucket "loan-documents". Track each path.
+      const BUCKET   = 'loan-documents'
+      const basePath = `${bid}/${loan.supabase_id}`
+      const sigBytes = Uint8Array.from(atob(signature.split(',')[1]), c => c.charCodeAt(0))
+      const dpiIsJpg = String(dpiDataUrl).startsWith('data:image/jp')
+      const dpiBytes = Uint8Array.from(atob(dpiDataUrl.split(',')[1]), c => c.charCodeAt(0))
+
+      const sigPath = `${basePath}/signature.png`
+      const dpiPath = `${basePath}/dpi.${dpiIsJpg ? 'jpg' : 'png'}`
+      const pdfPath = `${basePath}/contract.pdf`
+
+      const sigUp = await sb.storage.from(BUCKET).upload(sigPath, sigBytes, { contentType: 'image/png', upsert: true })
+      if (sigUp.error) throw sigUp.error
+      uploaded.push({ bucket: BUCKET, path: sigPath })
+
+      const dpiUp = await sb.storage.from(BUCKET).upload(dpiPath, dpiBytes, { contentType: dpiIsJpg ? 'image/jpeg' : 'image/png', upsert: true })
+      if (dpiUp.error) throw dpiUp.error
+      uploaded.push({ bucket: BUCKET, path: dpiPath })
+
+      const pdfUp = await sb.storage.from(BUCKET).upload(pdfPath, pdfBytes, { contentType: 'application/pdf', upsert: true })
+      if (pdfUp.error) throw pdfUp.error
+      uploaded.push({ bucket: BUCKET, path: pdfPath })
+
+      // 3. Signed URLs (1 year)
+      const TTL = 60 * 60 * 24 * 365
+      const [{ data: sigSigned }, { data: dpiSigned }, { data: pdfSigned }] = await Promise.all([
+        sb.storage.from(BUCKET).createSignedUrl(sigPath, TTL),
+        sb.storage.from(BUCKET).createSignedUrl(dpiPath, TTL),
+        sb.storage.from(BUCKET).createSignedUrl(pdfPath, TTL),
+      ])
+
+      // 4. DB insert. Only this success closes the modal & marks the contract saved.
+      const row = {
+        supabase_id: crypto.randomUUID(),
+        business_id: bid,
+        loan_supabase_id: loan.supabase_id,
+        pdf_url: pdfSigned?.signedUrl || pdfPath,
+        signature_dataurl: sigSigned?.signedUrl || sigPath,
+        dpi_photo_url: dpiSigned?.signedUrl || dpiPath,
+        signed_at: new Date().toISOString(),
+        apr_monthly: monthlyRate,
+        apr_annual_equiv: effectiveAnnualRate(monthlyRate),
+        clauses_version: CLAUSES_VERSION,
+      }
+      const { data: inserted, error: insErr } = await sb.from('loan_contracts').insert(row).select('*').single()
+      if (insErr) throw insErr
+
+      // 5. Auto-download PDF locally (post-commit, non-critical).
+      try {
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `contrato-prestamo-${loan.id}.pdf`
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(url), 5000)
+      } catch {}
+
+      onSaved(inserted || row)
+    } catch (e) {
+      console.error('[ContractSigner]', e)
+      // Rollback every uploaded file before surfacing the error. Modal stays open.
+      try { await rollbackUploads(getSupabaseClient()) } catch (_) {}
+      setErr(`Error generando contrato: ${e?.message || 'desconocido'}. Archivos subidos fueron eliminados.`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const principal      = Number(loan.principal) || 0
+  const monthlyPayment = Number(loan.monthly_payment) || 0
+  const moraRate       = loan.mora_rate_daily != null ? Number(loan.mora_rate_daily) : 0.5
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-white/10 shrink-0">
+          <h2 className="text-[15px] font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <FilePlus size={16} className="text-[#b3001e]" />
+            Generar Contrato — Préstamo #{loan.id}
+          </h2>
+          <button type="button" onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10">
+            <X size={16} className="text-slate-400" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Step indicator */}
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider">
+            <span className={step === 'preview' ? 'text-[#b3001e]' : 'text-slate-400 dark:text-white/40'}>1. Vista Previa</span>
+            <span className="text-slate-300 dark:text-white/20">›</span>
+            <span className={step === 'sign' ? 'text-[#b3001e]' : 'text-slate-400 dark:text-white/40'}>2. Firma e Identificación</span>
+          </div>
+
+          {step === 'preview' && (
+            <>
+              <div className="border border-slate-200 dark:border-white/10 rounded-xl p-4 bg-slate-50 dark:bg-white/5 max-h-[55vh] overflow-y-auto whitespace-pre-line text-[12px] leading-relaxed text-slate-700 dark:text-white/80 font-mono">
+{`CONTRATO DE PRÉSTAMO PERSONAL
+
+Por el presente documento se establece un contrato de préstamo
+personal entre EL ACREEDOR y EL DEUDOR, sujeto a las siguientes
+cláusulas obligatorias:
+
+PRIMERO — MONTO. EL ACREEDOR otorga a EL DEUDOR la suma de
+${fmtRD(principal)} en calidad de préstamo personal.
+
+SEGUNDO — TASA DE INTERÉS. La tasa pactada es de
+${formatAPR(monthlyRate)}.
+
+TERCERO — PLAZO. El plazo del préstamo es de ${loan.term_months} meses,
+con cuota mensual de ${fmtRD(monthlyPayment)} y vencimiento al
+${fmtDate(loan.next_due_date)}.
+
+CUARTO — MORA. En caso de atraso, se aplicará una mora de
+${moraRate}% diaria sobre el saldo vencido.
+
+QUINTO — GARANTÍA. ${garantia.trim() || 'Sin garantía específica.'}
+
+SEXTO — JURISDICCIÓN. Las partes se someten a los tribunales
+competentes de la República Dominicana.
+
+SÉPTIMO — ACEPTACIÓN. Las partes declaran haber leído íntegramente
+este contrato, comprenderlo y aceptarlo en todos sus términos.
+
+Anexo: Tabla de amortización (segunda página)
+Anexo: Cédula del deudor y firma (última página)`}
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1">
+                  Garantía (opcional)
+                </label>
+                <textarea value={garantia} onChange={e => setGarantia(e.target.value)} rows={2}
+                  placeholder="Ej: Vehículo placa A123456, electrodoméstico, etc."
+                  className="w-full px-3 py-2.5 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] bg-white dark:bg-white/5 text-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e] resize-none" />
+              </div>
+            </>
+          )}
+
+          {step === 'sign' && (
+            <>
+              <SignaturePad value={signature} onChange={setSignature} height={160} />
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1.5">
+                  Foto de Cédula del Deudor
+                </label>
+                <div className="flex items-start gap-3">
+                  <label className="flex flex-col items-center justify-center gap-1 px-4 py-6 border-2 border-dashed border-slate-300 dark:border-white/20 rounded-xl cursor-pointer hover:border-[#b3001e] hover:bg-[#b3001e]/5 transition-colors flex-1">
+                    <Camera size={18} className="text-slate-500 dark:text-white/60" />
+                    <span className="text-[11px] font-semibold text-slate-600 dark:text-white/70">
+                      {dpiDataUrl ? 'Cambiar foto' : 'Capturar / subir cédula'}
+                    </span>
+                    <input type="file" accept="image/*" capture="environment"
+                      onChange={handleDpi} className="hidden" />
+                  </label>
+                  {dpiDataUrl && (
+                    <div className="w-32 h-24 rounded-lg overflow-hidden border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 shrink-0">
+                      <img src={dpiDataUrl} alt="Cédula" className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {err && (
+            <div className="flex items-center gap-2 text-[11px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-lg px-3 py-2">
+              <AlertTriangle size={12} /> {err}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 shrink-0">
+          <button type="button" onClick={onClose}
+            className="px-4 py-2 text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/10 rounded-lg transition-colors">
+            Cancelar
+          </button>
+          <div className="flex items-center gap-2">
+            {step === 'sign' && (
+              <button type="button" onClick={() => setStep('preview')}
+                className="px-4 py-2 text-[12px] font-semibold text-slate-600 dark:text-white/60 border border-slate-300 dark:border-white/20 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">
+                ← Volver
+              </button>
+            )}
+            {step === 'preview' ? (
+              <button type="button" onClick={() => { setErr(''); setStep('sign') }}
+                className="flex items-center gap-1.5 px-5 py-2 bg-[#b3001e] text-white text-[12px] font-bold rounded-lg hover:bg-[#8f0017] transition-colors">
+                Continuar a Firma →
+              </button>
+            ) : (
+              <button type="button" onClick={handleSubmit} disabled={saving || !signature || !dpiDataUrl}
+                className="flex items-center gap-1.5 px-5 py-2 bg-[#b3001e] text-white text-[12px] font-bold rounded-lg hover:bg-[#8f0017] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                {saving ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
+                {saving ? 'Generando...' : 'Firmar y Generar PDF'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Renewal Modal ─────────────────────────────────────────────────────────────
+
+function RenewalModal({ loan, balance, onClose, onSaved }) {
+  const api = useAPI()
+  const monthlyRate = (Number(loan.interest_rate) || 0) / 100
+  const suggestedInterest = Math.round((balance > 0 ? balance : Number(loan.principal) || 0) * monthlyRate * 100) / 100
+
+  const [form, setForm] = useState({
+    interest_paid: String(suggestedInterest),
+    extension_months: '1',
+    notes: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [err, setErr]       = useState('')
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const interestPaid     = Number(form.interest_paid) || 0
+  const extensionMonths  = Number(form.extension_months) || 0
+  const previousDueDate  = loan.next_due_date || today()
+  const newDueDate       = useMemo(() => addMonths(previousDueDate, extensionMonths), [previousDueDate, extensionMonths])
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (interestPaid <= 0) { setErr('El interés pagado debe ser mayor a 0.'); return }
+    if (extensionMonths <= 0) { setErr('La extensión debe ser de al menos 1 mes.'); return }
+    setSaving(true)
+    setErr('')
+    try {
+      const sb  = getSupabaseClient()
+      const bid = getBusinessId()
+      if (!sb || !bid) throw new Error('Supabase no configurado')
+
+      // 1. Insert interest-only payment row
+      try {
+        await api.loanPayments.create({
+          loan_id: loan.id,
+          amount: interestPaid,
+          principal_portion: 0,
+          interest_portion: interestPaid,
+          late_fee: 0,
+          payment_date: today(),
+          status: 'on_time',
+          notes: `Renovación — interés pagado`,
+        })
+      } catch (e) { console.warn('[Renewal] payment insert', e?.message) }
+
+      // 2. Update loans row — bump next_due_date and renewal_count
+      const newRenewalCount = (Number(loan.renewal_count) || 0) + 1
+      try {
+        await api.loans.update({
+          id: loan.id,
+          next_due_date: newDueDate,
+          renewal_count: newRenewalCount,
+        })
+      } catch {
+        // Fallback to direct supabase update if api.loans.update signature differs
+        if (loan.supabase_id) {
+          await sb.from('loans').update({
+            next_due_date: newDueDate,
+            renewal_count: newRenewalCount,
+            updated_at: new Date().toISOString(),
+          }).eq('supabase_id', loan.supabase_id).eq('business_id', bid)
+        }
+      }
+
+      // 3. Insert loan_renewals row
+      if (loan.supabase_id) {
+        const { error } = await sb.from('loan_renewals').insert({
+          supabase_id: crypto.randomUUID(),
+          business_id: bid,
+          loan_supabase_id: loan.supabase_id,
+          renewal_count: newRenewalCount,
+          interest_paid: interestPaid,
+          new_due_date: newDueDate,
+          previous_due_date: previousDueDate,
+          notes: form.notes.trim() || null,
+        })
+        if (error) console.warn('[Renewal] history insert', error.message)
+      }
+
+      onSaved()
+    } catch (e) {
+      console.error('[RenewalModal]', e)
+      setErr(e?.message || 'Error al renovar el préstamo.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <form onSubmit={handleSubmit}
+        className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-white/10">
+          <h2 className="text-[15px] font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <RefreshCw size={16} className="text-[#b3001e]" />
+            Renovar Préstamo #{loan.id}
+          </h2>
+          <button type="button" onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10">
+            <X size={16} className="text-slate-400" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Summary */}
+          <div className="bg-slate-50 dark:bg-white/5 rounded-xl p-3 space-y-1.5">
+            <div className="flex justify-between text-[11px]">
+              <span className="text-slate-500 dark:text-white/50">Capital original</span>
+              <span className="font-semibold text-slate-700 dark:text-white tabular-nums">{fmtRD(loan.principal)}</span>
+            </div>
+            <div className="flex justify-between text-[11px]">
+              <span className="text-slate-500 dark:text-white/50">Balance actual</span>
+              <span className="font-semibold text-slate-700 dark:text-white tabular-nums">{fmtRD(balance)}</span>
+            </div>
+            <div className="flex justify-between text-[11px]">
+              <span className="text-slate-500 dark:text-white/50">Tasa</span>
+              <span className="font-semibold text-[#b3001e] tabular-nums">{formatAPR(monthlyRate)}</span>
+            </div>
+            <div className="flex justify-between text-[11px]">
+              <span className="text-slate-500 dark:text-white/50">Próximo vencimiento actual</span>
+              <span className="font-semibold text-slate-700 dark:text-white tabular-nums">{fmtDate(previousDueDate)}</span>
+            </div>
+            <div className="flex justify-between text-[11px] border-t border-slate-200 dark:border-white/10 pt-1.5">
+              <span className="text-slate-500 dark:text-white/50">Interés sugerido</span>
+              <span className="font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">{fmtRD(suggestedInterest)}</span>
+            </div>
+          </div>
+
+          {/* Interest paid */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1">
+              Interés Pagado (RD$)
+            </label>
+            <input type="number" min="0" step="0.01" value={form.interest_paid}
+              onChange={e => { set('interest_paid', e.target.value); setErr('') }}
+              className="w-full px-3 py-2.5 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] bg-white dark:bg-white/5 text-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]" />
+          </div>
+
+          {/* Extension months */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1">
+              Extensión (meses)
+            </label>
+            <input type="number" min="1" max="36" value={form.extension_months}
+              onChange={e => { set('extension_months', e.target.value); setErr('') }}
+              className="w-full px-3 py-2.5 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] bg-white dark:bg-white/5 text-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]" />
+            <p className="text-[10.5px] text-slate-500 dark:text-white/50 mt-1">
+              Nueva fecha de vencimiento: <span className="font-bold text-slate-700 dark:text-white">{fmtDate(newDueDate)}</span>
+            </p>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1">
+              Notas (opcional)
+            </label>
+            <textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={2}
+              placeholder="Motivo de la renovación, acuerdos..."
+              className="w-full px-3 py-2.5 border border-slate-200 dark:border-white/10 rounded-lg text-[13px] bg-white dark:bg-white/5 text-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e] resize-none" />
+          </div>
+
+          {err && (
+            <div className="flex items-center gap-2 text-[11px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-lg px-3 py-2">
+              <AlertTriangle size={12} /> {err}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5">
+          <button type="button" onClick={onClose}
+            className="px-4 py-2 text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/10 rounded-lg transition-colors">
+            Cancelar
+          </button>
+          <button type="submit" disabled={saving || interestPaid <= 0 || extensionMonths <= 0}
+            className="flex items-center gap-1.5 px-5 py-2 bg-[#b3001e] text-white text-[12px] font-bold rounded-lg hover:bg-[#8f0017] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+            {saving ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+            {saving ? 'Renovando...' : 'Confirmar Renovación'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 // ── Loan Detail Modal ─────────────────────────────────────────────────────────
 
 function LoanDetail({ loan, onClose, onReload }) {
@@ -516,18 +1116,39 @@ function LoanDetail({ loan, onClose, onReload }) {
   const [loading, setLoading] = useState(true)
   const [showPayment, setShowPayment] = useState(false)
   const [showSchedule, setShowSchedule] = useState(false)
+  const [showContract, setShowContract] = useState(false)
+  const [showRenewal, setShowRenewal] = useState(!!loan.__openRenewal)
+  const [showHistory, setShowHistory] = useState(false)
+  const [contractRow, setContractRow] = useState(null)
+  const [renewals, setRenewals] = useState([])
   const [toast, setToast] = useState(null)
 
+  const method = loan.amortization_method || 'interest_only'
   const schedule = useMemo(() =>
-    generateSchedule(loan.principal, loan.interest_rate, loan.term_months, loan.disbursed_at),
-    [loan]
+    buildSchedule(method, loan.principal, loan.interest_rate, loan.term_months, loan.disbursed_at),
+    [loan, method]
   )
 
   useEffect(() => {
     api?.loanPayments?.list?.({ loan_id: loan.id })
       .then(r => { setPayments(r || []); setLoading(false) })
       .catch(() => setLoading(false))
-  }, [loan.id])
+    // Check existing contract + renewal history
+    ;(async () => {
+      try {
+        const sb = getSupabaseClient()
+        const bid = getBusinessId()
+        if (!sb || !bid || !loan.supabase_id) return
+        const { data: contract } = await sb.from('loan_contracts')
+          .select('*').eq('business_id', bid).eq('loan_supabase_id', loan.supabase_id).maybeSingle()
+        if (contract) setContractRow(contract)
+        const { data: ren } = await sb.from('loan_renewals')
+          .select('*').eq('business_id', bid).eq('loan_supabase_id', loan.supabase_id)
+          .order('renewal_count', { ascending: false })
+        setRenewals(ren || [])
+      } catch {}
+    })()
+  }, [loan.id, loan.supabase_id])
 
   const st = STATUS_CONFIG[loan.status] || STATUS_CONFIG.active
   const balance = (loan.total_repayment || 0) - (loan.total_paid || 0)
@@ -580,12 +1201,32 @@ function LoanDetail({ loan, onClose, onReload }) {
             </div>
           )}
 
+          {/* Method + renewal badges */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-bold bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-white/80">
+              <FileText size={11} /> {AMORT_METHODS.find(a => a.id === method)?.label || method}
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-bold bg-[#b3001e]/10 text-[#b3001e]">
+              {formatAPR((Number(loan.interest_rate) || 0) / 100)}
+            </span>
+            {Number(loan.renewal_count) > 0 && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-bold bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                <RefreshCw size={11} /> Renovado {loan.renewal_count} {Number(loan.renewal_count) === 1 ? 'vez' : 'veces'}
+              </span>
+            )}
+            {contractRow && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-bold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                <ShieldCheck size={11} /> Contrato firmado
+              </span>
+            )}
+          </div>
+
           {/* Loan info grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
               { label: 'Cliente', value: loan.client_name || `#${loan.client_id}` },
               { label: 'Capital', value: fmtRD(loan.principal) },
-              { label: 'Tasa', value: `${loan.interest_rate}% mensual` },
+              { label: 'Tasa Mensual', value: `${Number(loan.interest_rate || 0).toFixed(2)}%` },
               { label: 'Plazo', value: `${loan.term_months} meses` },
               { label: 'Cuota', value: fmtRD(loan.monthly_payment) },
               { label: 'Desembolsado', value: fmtDate(loan.disbursed_at) },
@@ -711,9 +1352,60 @@ function LoanDetail({ loan, onClose, onReload }) {
             )}
           </div>
 
+          {/* Renewal history */}
+          {renewals.length > 0 && (
+            <div>
+              <button type="button" onClick={() => setShowHistory(!showHistory)}
+                className="flex items-center gap-2 text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:text-slate-800 dark:hover:text-white transition-colors">
+                {showHistory ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                <History size={12} /> Historial de Renovaciones ({renewals.length})
+              </button>
+              {showHistory && (
+                <div className="mt-2 border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-slate-50 dark:bg-white/5 text-[9px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">
+                      <tr>
+                        <th className="px-3 py-2 text-left">#</th>
+                        <th className="px-3 py-2 text-left">Fecha Anterior</th>
+                        <th className="px-3 py-2 text-left">Nueva Fecha</th>
+                        <th className="px-3 py-2 text-right">Interés Pagado</th>
+                        <th className="px-3 py-2 text-left">Notas</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {renewals.map(r => (
+                        <tr key={r.id || r.supabase_id} className="border-t border-slate-100 dark:border-white/5">
+                          <td className="px-3 py-1.5 text-slate-500 dark:text-white/50">{r.renewal_count}</td>
+                          <td className="px-3 py-1.5 text-slate-600 dark:text-white/60 tabular-nums">{fmtDateShort(r.previous_due_date)}</td>
+                          <td className="px-3 py-1.5 text-slate-600 dark:text-white/60 tabular-nums">{fmtDateShort(r.new_due_date)}</td>
+                          <td className="px-3 py-1.5 text-right font-semibold tabular-nums">{fmtRD(r.interest_paid)}</td>
+                          <td className="px-3 py-1.5 text-slate-500 dark:text-white/50 truncate max-w-[200px]">{r.notes || '---'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Actions */}
           {loan.status === 'active' && (
-            <div className="flex gap-2 pt-2">
+            <div className="flex flex-wrap gap-2 pt-2">
+              <button onClick={() => setShowContract(true)} disabled={!!contractRow}
+                className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold text-white bg-[#b3001e] rounded-lg hover:bg-[#8f0017] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                <FilePlus size={12} /> {contractRow ? 'Contrato Generado' : 'Generar Contrato'}
+              </button>
+              {contractRow?.pdf_url && (
+                <a href={contractRow.pdf_url} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold text-[#b3001e] border border-[#b3001e]/30 rounded-lg hover:bg-[#b3001e]/5 transition-colors">
+                  <Download size={12} /> Ver Contrato
+                </a>
+              )}
+              <button onClick={() => setShowRenewal(true)}
+                className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold text-slate-700 dark:text-white border border-slate-300 dark:border-white/20 rounded-lg hover:bg-slate-50 dark:hover:bg-white/10 transition-colors">
+                <RefreshCw size={12} /> Renovar
+              </button>
               <button onClick={handleMarkDefaulted}
                 className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors">
                 <AlertTriangle size={12} /> Marcar en Mora
@@ -747,6 +1439,35 @@ function LoanDetail({ loan, onClose, onReload }) {
               .then(r => setPayments(r || []))
               .catch(() => {})
             onReload()
+          }}
+        />
+      )}
+
+      {/* Contract sub-modal */}
+      {showContract && (
+        <ContractSigner
+          loan={loan}
+          schedule={schedule}
+          onClose={() => setShowContract(false)}
+          onSaved={(row) => {
+            setContractRow(row)
+            setShowContract(false)
+            setToast('Contrato generado y firmado')
+            setTimeout(() => setToast(null), 2500)
+          }}
+        />
+      )}
+
+      {/* Renewal sub-modal */}
+      {showRenewal && (
+        <RenewalModal
+          loan={loan}
+          balance={balance}
+          onClose={() => setShowRenewal(false)}
+          onSaved={() => {
+            setShowRenewal(false)
+            setToast('Préstamo renovado')
+            setTimeout(() => { setToast(null); onReload() }, 1500)
           }}
         />
       )}
@@ -931,10 +1652,19 @@ export default function Loans() {
                           <StatusBadge status={loan.status} />
                         </td>
                         <td className="px-4 py-2.5">
-                          <button onClick={e => { e.stopPropagation(); setDetail(loan) }}
-                            className="p-1.5 text-slate-400 dark:text-white/40 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-50 dark:hover:bg-white/10">
-                            <Eye size={14} />
-                          </button>
+                          <div className="flex items-center justify-end gap-1">
+                            {loan.status === 'active' && (
+                              <button onClick={e => { e.stopPropagation(); setDetail({ ...loan, __openRenewal: true }) }}
+                                title="Renovar"
+                                className="p-1.5 text-slate-400 dark:text-white/40 hover:text-[#b3001e] rounded-lg hover:bg-[#b3001e]/10 transition-colors">
+                                <RefreshCw size={14} />
+                              </button>
+                            )}
+                            <button onClick={e => { e.stopPropagation(); setDetail(loan) }}
+                              className="p-1.5 text-slate-400 dark:text-white/40 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-50 dark:hover:bg-white/10">
+                              <Eye size={14} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )

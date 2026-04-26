@@ -56,6 +56,10 @@ function ItemModal({ item, onSave, onClose }) {
     unit:           item?.unit || (isCarniceria ? 'lb' : ''),
     price_per_unit: item?.price_per_unit ?? (isCarniceria ? 0 : null),
     tare_default:   item?.tare_default ?? 0,
+    // v2.16.3 — carnicería freshness fields
+    prepacked:      !!(item?.prepacked),
+    received_at:    item?.received_at || '',
+    expires_at:     item?.expires_at  || '',
   })
   const cutSuggestions = isCarniceria ? getCutSuggestions(form.category) : []
   const [saving, setSaving] = useState(false)
@@ -85,6 +89,9 @@ function ItemModal({ item, onSave, onClose }) {
         unit:           sold_by_weight ? (form.unit || 'lb') : null,
         price_per_unit: sold_by_weight ? ppu : null,
         tare_default:   sold_by_weight ? (parseFloat(form.tare_default) || 0) : null,
+        prepacked:      !!form.prepacked,
+        received_at:    form.received_at || null,
+        expires_at:     form.expires_at  || null,
       }
       if (item?.id) await api.inventory.update({ id: item.id, ...data })
       else          await api.inventory.create(data)
@@ -167,6 +174,29 @@ function ItemModal({ item, onSave, onClose }) {
                   className="w-4 h-4 rounded border-slate-300 text-[#b3001e] focus:ring-[#b3001e]/30" />
                 <span className="text-[13px] text-slate-700 dark:text-white/80">Vender por peso (báscula)</span>
               </label>
+              {/* v2.16.3 — Pre-pack flag + freshness dates */}
+              {isCarniceria && (
+                <>
+                  <label className="flex items-center gap-2 select-none cursor-pointer">
+                    <input type="checkbox" checked={!!form.prepacked}
+                      onChange={e => set('prepacked', e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-[#b3001e] focus:ring-[#b3001e]/30" />
+                    <span className="text-[13px] text-slate-700 dark:text-white/80">Pre-empacado (peso fijo, no usa báscula)</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">Recibido</label>
+                      <input type="date" value={form.received_at || ''} onChange={e => set('received_at', e.target.value)}
+                        className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide mb-1">Vence</label>
+                      <input type="date" value={form.expires_at || ''} onChange={e => set('expires_at', e.target.value)}
+                        className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
+                    </div>
+                  </div>
+                </>
+              )}
               {form.sold_by_weight && (
                 <div className="grid grid-cols-3 gap-3">
                   <div>

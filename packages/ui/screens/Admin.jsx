@@ -4,12 +4,13 @@ import {
   Users, UserCheck, KeyRound, LayoutGrid, Plus, Edit2, Power,
   Eye, EyeOff, AlertCircle, FileText, Wifi, WifiOff, ExternalLink,
   Check, Coffee, Lock, ChevronUp, ChevronDown, Trash2, CreditCard,
-  CloudUpload,
+  CloudUpload, ToggleLeft, Scissors, Copy,
 } from 'lucide-react'
 import ManagerCardModal from '../components/ManagerCardModal'
 import { useLang } from '../i18n'
 import { useAPI, usePrinterAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
+import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import { ECF_TYPES, BUSINESS_TYPES, testDGIIConnection, DGII_CONFIGURED } from '@terminal-x/services/ecf'
 import { testConnection } from '@terminal-x/services/supabase'
 import { WhatsAppSettings } from './Sistema'
@@ -591,6 +592,7 @@ function Servicios() {
   const [saved,      setSaved]      = useState(false)
   const [error,      setError]      = useState('')
   const [activeTab,  setActiveTab]  = useState('all')
+  const [showInactive, setShowInactive] = useState(false)
   const [catOrder,   setCatOrder]   = useState({}) // { categoryName: orden }
   // v2.14.1: Electron blocks window.prompt() — use a small inline modal instead.
   const [promptModal, setPromptModal] = useState(null) // { title, initial, onSave }
@@ -698,7 +700,9 @@ function Servicios() {
       },
     })
   }
-  const visible    = activeTab === 'all' ? list : list.filter(s => s.category === activeTab)
+  const filtered   = showInactive ? list : list.filter(s => s.active !== 0)
+  const visible    = activeTab === 'all' ? filtered : filtered.filter(s => s.category === activeTab)
+  const inactiveCount = list.filter(s => s.active === 0).length
 
   function openAdd()   { setForm({ ...EMPTY_SERVICE, category: categories[0] || '' }); setNewCatMode(false); setError(''); setSaved(false); setConfirmDelete(false); setPanel('add') }
   function openEdit(s) { setForm({ name: s.name, name_en: s.name_en||'', category: s.category, price: String(s.price), cost: s.cost ? String(s.cost) : '', is_wash: String(s.is_wash ?? 1), commission_washer: s.commission_washer ?? 1, commission_seller: s.commission_seller ?? 1, commission_cashier: s.commission_cashier ?? 1 }); setNewCatMode(false); setError(''); setSaved(false); setConfirmDelete(false); setPanel(s) }
@@ -779,7 +783,7 @@ function Servicios() {
               className={`shrink-0 px-4 py-2.5 text-[12px] font-semibold border-b-2 -mb-px transition-colors ${
                 activeTab === 'all' ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-700 dark:hover:text-white'
               }`}>
-              {L('Todos', 'All')} ({list.length})
+              {L('Todos', 'All')} ({filtered.length})
             </button>
             {categories.map((c, i) => (
               <div key={c} className="flex items-center">
@@ -792,7 +796,7 @@ function Servicios() {
                   className={`shrink-0 px-3 py-2.5 text-[12px] font-semibold border-b-2 -mb-px transition-colors ${
                     activeTab === c ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-700 dark:hover:text-white'
                   }`}>
-                  {c} ({list.filter(s => s.category === c).length})
+                  {c} ({filtered.filter(s => s.category === c).length})
                 </button>
                 {activeTab === c && i < categories.length - 1 && (
                   <button onClick={() => moveCat(c, 1)} className="p-0.5 text-slate-400 hover:text-[#0C447C] dark:text-white/40 dark:hover:text-blue-400" title={L('Mover derecha', 'Move right')}>
@@ -817,7 +821,12 @@ function Servicios() {
               </button>
             )}
           </div>
-          <button onClick={openAdd} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 mb-2 min-h-[44px] md:min-h-0 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors w-full md:w-auto justify-center md:justify-start md:ml-auto">
+          {inactiveCount > 0 && (
+            <button onClick={() => setShowInactive(v => !v)} className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 mb-2 min-h-[44px] md:min-h-0 text-[11px] font-semibold rounded-lg transition-colors md:ml-auto ${showInactive ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40' : 'text-slate-500 dark:text-white/60 border border-slate-200 dark:border-white/10 hover:text-slate-800 dark:hover:text-white'}`}>
+              {showInactive ? L(`Ocultar inactivos (${inactiveCount})`, `Hide inactive (${inactiveCount})`) : L(`Mostrar inactivos (${inactiveCount})`, `Show inactive (${inactiveCount})`)}
+            </button>
+          )}
+          <button onClick={openAdd} className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 mb-2 min-h-[44px] md:min-h-0 bg-[#0C447C] text-white text-[12px] font-bold rounded-lg hover:bg-[#0a3a6a] transition-colors w-full md:w-auto justify-center md:justify-start ${inactiveCount > 0 ? 'md:ml-2' : 'md:ml-auto'}`}>
             <Plus size={13} /> {L('Agregar Servicio', 'Add Service')}
           </button>
         </div>
@@ -1470,6 +1479,193 @@ export function FiscalNCF() {
 
 // ── MI EMPRESA ────────────────────────────────────────────────────────────────
 
+// ── Salon-specific settings (deposit, no-show fee, public booking URL) ───────
+// Cloud-synced via api.settings.update(). Keys are whitelisted in
+// `packages/services/settingsWhitelist.js` under BUSINESS_SETTING_KEYS so the
+// values land in `app_settings` and propagate across devices.
+function SalonSettings() {
+  const api          = useAPI()
+  const { lang }     = useLang()
+  const L            = (es, en) => lang === 'es' ? es : en
+  const { toast, show } = useToast()
+
+  const [loaded, setLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [requireDeposit,   setRequireDeposit]   = useState(false)
+  const [depositAmount,    setDepositAmount]    = useState('300')
+  const [noShowFee,        setNoShowFee]        = useState('500')
+  const [bookingEnabled,   setBookingEnabled]   = useState(false)
+  const [slug,             setSlug]             = useState('')
+  const [slugDirty,        setSlugDirty]        = useState(false)
+
+  useEffect(() => {
+    let mounted = true
+    api?.settings?.get?.().then(s => {
+      if (!mounted) return
+      setRequireDeposit(s.salon_require_deposit === 'true')
+      setDepositAmount(s.salon_deposit_amount_dop || '300')
+      setNoShowFee(s.salon_no_show_fee_dop || '500')
+      setBookingEnabled(s.salon_public_booking_enabled === 'true')
+      setSlug(s.salon_public_booking_slug || '')
+      setLoaded(true)
+    }).catch(() => setLoaded(true))
+    return () => { mounted = false }
+  }, [api])
+
+  function slugify(v) {
+    return String(v || '')
+      .toLowerCase()
+      .normalize('NFD').replace(/\p{Diacritic}/gu, '') // strip diacritics
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/-{2,}/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 64)
+  }
+
+  async function save() {
+    setSaving(true)
+    try {
+      const cleanSlug = slugify(slug)
+      await api.settings.update({
+        salon_require_deposit:        requireDeposit ? 'true' : 'false',
+        salon_deposit_amount_dop:     String(Number(depositAmount) || 0),
+        salon_no_show_fee_dop:        String(Number(noShowFee) || 0),
+        salon_public_booking_enabled: bookingEnabled ? 'true' : 'false',
+        salon_public_booking_slug:    cleanSlug,
+      })
+      setSlug(cleanSlug)
+      setSlugDirty(false)
+      show(L('Configuración guardada ✓', 'Settings saved ✓'))
+    } catch (e) {
+      show(e?.message || L('Error al guardar', 'Save error'), 'error')
+    } finally { setSaving(false) }
+  }
+
+  const previewUrl = slug ? `https://terminalxpos.com/agendar/${slugify(slug)}` : ''
+
+  function copyUrl() {
+    if (!previewUrl) return
+    try {
+      navigator.clipboard.writeText(previewUrl)
+      show(L('Copiado ✓', 'Copied ✓'))
+    } catch { show(L('No se pudo copiar', 'Could not copy'), 'error') }
+  }
+
+  if (!loaded) return <div className="py-6 flex justify-center"><Loader2 className="animate-spin text-slate-300 dark:text-white/30" size={18} /></div>
+
+  return (
+    <div className="space-y-5">
+      <Toast toast={toast} />
+
+      {/* Deposit + no-show */}
+      <div className="space-y-3">
+        <p className="text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">
+          {L('Depósitos y no-shows', 'Deposits & No-shows')}
+        </p>
+
+        <div className="flex items-start justify-between gap-4 py-1">
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-semibold text-slate-700 dark:text-white">
+              {L('Requiere depósito', 'Require deposit')}
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-white/50 mt-0.5">
+              {L('Cobra un depósito al reservar para reducir no-shows.', 'Charge a deposit at booking to reduce no-shows.')}
+            </p>
+          </div>
+          <button onClick={() => setRequireDeposit(v => !v)}
+            aria-pressed={requireDeposit}
+            className={`shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              requireDeposit ? 'bg-[#b3001e]' : 'bg-slate-300 dark:bg-white/20'
+            }`}>
+            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+              requireDeposit ? 'translate-x-5' : 'translate-x-0.5'
+            }`} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 dark:text-white/60 mb-1">
+              {L('Monto del depósito (RD$)', 'Deposit amount (RD$)')}
+            </label>
+            <input type="number" min="0" step="50" value={depositAmount}
+              onChange={e => setDepositAmount(e.target.value)}
+              disabled={!requireDeposit}
+              className="w-full px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[13px] text-slate-700 dark:text-white focus:outline-none focus:border-[#b3001e] focus:ring-1 focus:ring-[#b3001e]/20 disabled:opacity-50" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 dark:text-white/60 mb-1">
+              {L('Cargo por no presentación (RD$)', 'No-show fee (RD$)')}
+            </label>
+            <input type="number" min="0" step="50" value={noShowFee}
+              onChange={e => setNoShowFee(e.target.value)}
+              className="w-full px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[13px] text-slate-700 dark:text-white focus:outline-none focus:border-[#b3001e] focus:ring-1 focus:ring-[#b3001e]/20" />
+          </div>
+        </div>
+      </div>
+
+      {/* Public booking */}
+      <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-white/10">
+        <p className="text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">
+          {L('Reservas públicas', 'Public bookings')}
+        </p>
+
+        <div className="flex items-start justify-between gap-4 py-1">
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-semibold text-slate-700 dark:text-white">
+              {L('Habilitar enlace público', 'Enable public link')}
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-white/50 mt-0.5">
+              {L('Permite que clientes agenden desde la web sin login.', 'Lets clients book from the web without logging in.')}
+            </p>
+          </div>
+          <button onClick={() => setBookingEnabled(v => !v)}
+            aria-pressed={bookingEnabled}
+            className={`shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              bookingEnabled ? 'bg-[#b3001e]' : 'bg-slate-300 dark:bg-white/20'
+            }`}>
+            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+              bookingEnabled ? 'translate-x-5' : 'translate-x-0.5'
+            }`} />
+          </button>
+        </div>
+
+        <div>
+          <label className="block text-[11px] font-semibold text-slate-500 dark:text-white/60 mb-1">
+            {L('URL slug', 'URL slug')}
+          </label>
+          <input type="text" value={slug}
+            onChange={e => { setSlug(e.target.value); setSlugDirty(true) }}
+            placeholder="barberia-maritza"
+            className="w-full px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[13px] text-slate-700 dark:text-white focus:outline-none focus:border-[#b3001e] focus:ring-1 focus:ring-[#b3001e]/20 font-mono" />
+          {slugDirty && slug && (
+            <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1">
+              {L('Se guardará como', 'Will save as')}: <span className="font-mono text-[#b3001e]">{slugify(slug)}</span>
+            </p>
+          )}
+        </div>
+
+        {previewUrl && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl">
+            <span className="text-[11px] text-slate-500 dark:text-white/50 truncate flex-1 font-mono">{previewUrl}</span>
+            <button onClick={copyUrl} title={L('Copiar', 'Copy')}
+              className="p-1.5 rounded-lg hover:bg-[#b3001e]/10 text-slate-400 hover:text-[#b3001e] transition-colors shrink-0">
+              <Copy size={13} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="pt-2">
+        <button onClick={save} disabled={saving}
+          className="flex items-center gap-2 px-5 py-2 bg-[#b3001e] hover:bg-[#8c0017] disabled:opacity-50 text-white font-bold rounded-xl text-[12px] transition-colors">
+          {saving ? <><Loader2 size={13} className="animate-spin" /> {L('Guardando…', 'Saving…')}</> : L('Guardar cambios', 'Save changes')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function MiEmpresa() {
   const api                   = useAPI()
   const { lang }              = useLang()
@@ -1482,6 +1678,7 @@ function MiEmpresa() {
   const [saved,   setSaved]   = useState(false)
   const [error,   setError]   = useState('')
   const { toast, show }       = useToast()
+  const { businessType }      = useBusinessType()
   const fileRef = useRef()
 
   useEffect(() => {
@@ -1643,6 +1840,69 @@ function MiEmpresa() {
         <CollapsibleSection title={L('Respaldo en la Nube', 'Cloud Backup')} icon={CloudUpload}>
           <CloudBackup />
         </CollapsibleSection>
+
+        <CollapsibleSection title={L('Funciones del Negocio', 'Business Features')} icon={ToggleLeft}>
+          <BusinessFeatureToggles />
+        </CollapsibleSection>
+
+        {businessType === 'salon' && (
+          <CollapsibleSection title={L('Salón / Barbería', 'Salon / Barbershop')} icon={Scissors}>
+            <SalonSettings />
+          </CollapsibleSection>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Business Feature Toggles (per-business overrides for hasFeature flags) ───
+// Surfaces the owner-controlled feature switches that gate parts of the UI
+// (currently: Comisiones tab in Reportes). Reads + writes through
+// useBusinessType().setFeatureOverride which persists to app_settings as
+// `feature_<name>_enabled` and syncs to Supabase like every other setting.
+function BusinessFeatureToggles() {
+  const { lang } = useLang()
+  const L = (es, en) => lang === 'es' ? es : en
+  const { hasFeature, setFeatureOverride, businessType } = useBusinessType()
+  const commissionsOn = hasFeature('commissions')
+  const [busy, setBusy] = useState(false)
+
+  async function toggleCommissions() {
+    setBusy(true)
+    try { await setFeatureOverride('commissions', !commissionsOn) } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4 py-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold text-slate-700 dark:text-white">
+            {L('Comisiones de empleados', 'Employee commissions')}
+          </p>
+          <p className="text-[11px] text-slate-500 dark:text-white/60 mt-0.5 leading-snug">
+            {L(
+              'Si tu negocio paga comisiones a vendedores, lavadores o cajeros, deja esto encendido. Si no, apágalo y el tab de Comisiones se ocultará en Reportes.',
+              'If your business pays commissions to salespeople, washers, or cashiers, keep this on. Otherwise turn it off and the Commissions tab will be hidden from Reports.',
+            )}
+          </p>
+          <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1 uppercase tracking-wider">
+            {L('Tipo de negocio actual', 'Current business type')}: {businessType || '—'}
+          </p>
+        </div>
+        <button
+          onClick={toggleCommissions}
+          disabled={busy}
+          aria-pressed={commissionsOn}
+          className={`shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            commissionsOn ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-white/20'
+          } disabled:opacity-50`}
+        >
+          <span
+            className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+              commissionsOn ? 'translate-x-5' : 'translate-x-0.5'
+            }`}
+          />
+        </button>
       </div>
     </div>
   )

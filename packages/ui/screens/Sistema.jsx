@@ -13,6 +13,7 @@ import { useBusinessType } from '../hooks/useBusinessType.jsx'
 import { hasVehicles } from '@terminal-x/config/businessTypes'
 import { usePlan } from '../hooks/usePlan.jsx'
 import { isTech } from '../lib/roles'
+import { ScaleRegistry as _ScaleRegistry } from '@terminal-x/services/scale'
 import { runDrawerAutoDetect } from '../lib/drawerAutoDetect'
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
@@ -560,6 +561,10 @@ export function Preferencias() {
           </>
         )}
       </SettingSection>
+
+      {businessType === 'carniceria' && (
+        <CarniceriaScalesSection L={L} api={api} show={show} />
+      )}
 
       <SettingSection title={L('Impresion Automatica', 'Auto Print')}>
         {showPreTicket && (
@@ -1441,6 +1446,127 @@ export default function Sistema({ initialTab, hideHeader }) {
           <NetworkDiagnostics />
         </div>
       )}
+    </div>
+  )
+}
+
+// ── v2.16.3 — Carnicería multi-scale CRUD (Settings → Báscula) ───────────────
+function CarniceriaScalesSection({ L, api, show }) {
+  const [scales, setScales] = useState([])
+  const [editing, setEditing] = useState(null)
+
+  async function load() {
+    try {
+      const rows = await api?.carniceria?.scales?.list?.() || []
+      setScales(rows)
+      // Re-hydrate the runtime registry so POS picks up the change without
+      // a restart. Active scale is the row with active_default=1.
+      _ScaleRegistry.hydrate(rows)
+    } catch { setScales([]) }
+  }
+  useEffect(() => { load() }, [])
+
+  async function save(row) {
+    try {
+      if (row.id) await api?.carniceria?.scales?.update?.(row)
+      else        await api?.carniceria?.scales?.create?.(row)
+      show(L('Báscula guardada ✓', 'Scale saved ✓'))
+      setEditing(null); load()
+    } catch (e) { show(L('Error al guardar', 'Error saving'), 'error') }
+  }
+  async function del(id) {
+    if (!confirm(L('¿Eliminar esta báscula?', 'Delete this scale?'))) return
+    try { await api?.carniceria?.scales?.remove?.(id); load() } catch {}
+  }
+  async function setActiveDefault(id) {
+    try { await api?.carniceria?.scales?.setActiveDefault?.(id); load() } catch {}
+  }
+
+  return (
+    <SettingSection title={L('Básculas (Carnicería)', 'Scales (Butcher)')}>
+      <div className="space-y-2">
+        {scales.length === 0 && (
+          <p className="text-[12px] text-slate-400 px-2 py-3">
+            {L('No hay básculas registradas. Agrega la báscula de plataforma o de banco.', 'No scales registered. Add the platform or bench scale.')}
+          </p>
+        )}
+        {scales.map(s => (
+          <div key={s.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5">
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-bold text-slate-800 dark:text-white">
+                {s.nombre} <span className="text-[10px] font-normal text-slate-400">· {s.tipo}</span>
+                {s.active_default && <span className="ml-2 px-1.5 py-0.5 rounded bg-[#b3001e] text-white text-[9px] font-bold">ACTIVA</span>}
+              </p>
+              <p className="text-[10px] text-slate-400">{s.protocol} · {s.baud_rate} bps · {s.device_path || '—'}</p>
+            </div>
+            {!s.active_default && (
+              <button onClick={() => setActiveDefault(s.id)}
+                className="px-2.5 py-1 text-[11px] font-semibold border border-slate-200 dark:border-white/10 rounded-lg text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10">
+                {L('Activar', 'Activate')}
+              </button>
+            )}
+            <button onClick={() => setEditing(s)}
+              className="px-2.5 py-1 text-[11px] font-semibold border border-slate-200 dark:border-white/10 rounded-lg text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10">
+              {L('Editar', 'Edit')}
+            </button>
+            <button onClick={() => del(s.id)}
+              className="px-2 py-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg">×</button>
+          </div>
+        ))}
+        <button onClick={() => setEditing({ tipo: 'plataforma', protocol: 'generic', baud_rate: 9600, active: 1 })}
+          className="w-full px-3 py-2 text-[12px] font-bold bg-[#b3001e] hover:bg-[#c8002a] text-white rounded-lg">
+          + {L('Agregar báscula', 'Add scale')}
+        </button>
+      </div>
+      {editing && <ScaleEditor row={editing} onSave={save} onClose={() => setEditing(null)} L={L} />}
+    </SettingSection>
+  )
+}
+
+function ScaleEditor({ row, onSave, onClose, L }) {
+  const [d, setD] = useState(row)
+  const set = (k, v) => setD(p => ({ ...p, [k]: v }))
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} className="bg-white dark:bg-black rounded-2xl border border-black/10 dark:border-white/10 p-6 w-[460px] max-w-[92vw] shadow-2xl space-y-3">
+        <h3 className="font-bold dark:text-white">{row.id ? L('Editar Báscula', 'Edit Scale') : L('Nueva Báscula', 'New Scale')}</h3>
+        <input value={d.nombre || ''} onChange={e => set('nombre', e.target.value)} placeholder={L('Nombre (ej: Plataforma trasera)', 'Name (e.g. Back platform)')}
+          className="w-full px-3 py-2 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white text-[13px] outline-none focus:ring-2 focus:ring-[#b3001e]/25" />
+        <div className="grid grid-cols-2 gap-2">
+          <select value={d.tipo} onChange={e => set('tipo', e.target.value)}
+            className="px-3 py-2 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white text-[13px]">
+            <option value="plataforma">{L('Plataforma', 'Platform')}</option>
+            <option value="banco">{L('Banco', 'Bench')}</option>
+            <option value="otra">{L('Otra', 'Other')}</option>
+          </select>
+          <select value={d.protocol} onChange={e => set('protocol', e.target.value)}
+            className="px-3 py-2 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white text-[13px]">
+            <option value="generic">Generic</option>
+            <option value="cas-pdii">CAS PD-II</option>
+            <option value="toledo">Toledo</option>
+            <option value="mock">Mock</option>
+          </select>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <input value={d.device_path || ''} onChange={e => set('device_path', e.target.value)} placeholder="COM3 / /dev/ttyUSB0"
+            className="px-3 py-2 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white text-[13px]" />
+          <input type="number" value={d.baud_rate || 9600} onChange={e => set('baud_rate', Number(e.target.value))} placeholder="9600"
+            className="px-3 py-2 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white text-[13px]" />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <input type="number" step="0.001" value={d.tare_default || 0} onChange={e => set('tare_default', Number(e.target.value))} placeholder={L('Tara por defecto', 'Default tare')}
+            className="px-3 py-2 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white text-[13px]" />
+          <input type="number" step="0.1" value={d.capacidad_max_lb || ''} onChange={e => set('capacidad_max_lb', Number(e.target.value))} placeholder={L('Cap. máx (lb)', 'Max cap (lb)')}
+            className="px-3 py-2 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-white/5 dark:text-white text-[13px]" />
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="px-3 py-2 text-[12px] font-semibold bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 dark:text-white rounded-lg">{L('Cancelar', 'Cancel')}</button>
+          <button onClick={() => onSave(d)} disabled={!d.nombre}
+            className="flex-1 px-3 py-2 text-[12px] font-bold bg-[#b3001e] hover:bg-[#c8002a] text-white rounded-lg disabled:opacity-50">
+            {L('Guardar', 'Save')}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

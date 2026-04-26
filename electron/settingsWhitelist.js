@@ -21,6 +21,9 @@ const BUSINESS_SETTING_KEYS = new Set([
   // Per-business receipt customization (v1)
   'receipt_show_itbis_pct',
   'receipt_show_commission',
+  // Facturación tier custom branding (v2.16.5) — invoice footer + logo URL.
+  'invoice_footer',
+  'logo_url',
   'business_type', 'biz_business_type',
   'ley_enabled',
   'go_live_date',
@@ -46,6 +49,9 @@ const BUSINESS_SETTING_KEYS = new Set([
   'feature_school_packages_enabled',
   'feature_size_variants_enabled',
   'feature_color_variants_enabled',
+  // Salon vertical (v2.16.1) — public booking + deposit / no-show config.
+  'salon_require_deposit', 'salon_deposit_amount_dop', 'salon_no_show_fee_dop',
+  'salon_public_booking_enabled', 'salon_public_booking_slug',
 ])
 
 // ── 2. DEVICE-LOCAL, CLOUD-MIRRORED (recovery-safe, tagged with HWID) ────────

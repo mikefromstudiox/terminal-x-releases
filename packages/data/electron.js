@@ -24,15 +24,59 @@ export function createElectronAPI() {
     loyaltyAdjust:  (d) => raw.loyalty.adjust(d),
     loyaltyHistory: (d) => raw.loyalty.history(d),
   } : {}
+  // v2.5 — Concesionario photo/document uploads require Supabase Storage.
+  // On desktop, surface a helpful error instead of crashing — clients should
+  // upload photos/documents from the web app at terminalxpos.com/pos.
+  const dealershipUploadStub = async () => {
+    throw new Error('Photo and document uploads are web-only. Open terminalxpos.com/pos to upload.')
+  }
+  const vehicleInventoryAugmented = raw.vehicleInventory ? {
+    ...raw.vehicleInventory,
+    uploadPhoto: dealershipUploadStub,
+    removePhoto: dealershipUploadStub,
+    bulkImport:  async (rows) => {
+      if (!Array.isArray(rows) || !rows.length) return { inserted: 0 }
+      let inserted = 0
+      for (const r of rows) {
+        try { await raw.vehicleInventory.create(r); inserted++ } catch {}
+      }
+      return { inserted }
+    },
+  } : raw.vehicleInventory
+  const vehicleDocumentsAugmented = raw.vehicleDocuments ? {
+    ...raw.vehicleDocuments,
+    upload: dealershipUploadStub,
+  } : raw.vehicleDocuments
+  // v2.14 — flat aliases for namespaces the desktop preload nests under `salon.*`
+  // but the screens (and the web adapter) consume top-level. Without these,
+  // Salon/Memberships.jsx and any caller of `api.salonMemberships.*` blew up
+  // on desktop with "Cannot read properties of undefined".
+  const salonMembershipsFlat   = raw.salon?.memberships         || undefined
+  const clientMembershipsFlat  = raw.salon?.clientMemberships   || undefined
+  const appointmentRemindersFlat = raw.salon?.reminders         || undefined
+  // v2.16.2 — unified activity surface so screens can call `api.activity.log(evt)`
+  // on either platform. Desktop routes to IPC `activity:record`; web routes to
+  // `logActivity()` (see web.js). Without this wrapper screens had to branch.
+  const activityAugmented = raw.activity ? {
+    ...raw.activity,
+    log: (evt) => raw.activity.record?.(evt),
+  } : raw.activity
   return {
     ...raw,
+    activity: activityAugmented,
+    vehicleInventory: vehicleInventoryAugmented,
+    vehicleDocuments: vehicleDocumentsAugmented,
+    salonMemberships:      salonMembershipsFlat,
+    clientMemberships:     clientMembershipsFlat,
+    appointmentReminders:  appointmentRemindersFlat,
     clients: raw.clients ? { ...raw.clients, ...loyalty } : raw.clients,
     mesas: {
-      list:      ()                   => raw.mesas.list(),
-      create:    (data)               => raw.mesas.create(data),
-      update:    (id, data)           => raw.mesas.update(id, data),
-      setStatus: (id, status, opts)   => raw.mesas.setStatus(id, status, opts),
-      delete:    (id)                 => raw.mesas.delete(id),
+      list:        ()                   => raw.mesas.list(),
+      create:      (data)               => raw.mesas.create(data),
+      update:      (id, data)           => raw.mesas.update(id, data),
+      setStatus:   (id, status, opts)   => raw.mesas.setStatus(id, status, opts),
+      requestBill: (id)                 => raw.mesas.requestBill(id),
+      delete:      (id)                 => raw.mesas.delete(id),
     },
     modificadores: {
       list:              ()                                    => raw.modificadores.list(),

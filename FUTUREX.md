@@ -119,11 +119,133 @@ Technical SEO is done (structured data, hreflang, geo meta, FAQPage schema). Rem
 - [ ] Facebook/WhatsApp group posts in Santiago/Santo Domingo
 - [ ] Demo video: ticket → print → report → e-CF
 
+### Concesionario v2.5 (shipped 2026-04-25, same day as v2)
+All 5 items shipped:
+- [x] **Nómina: deal commission feed** — `NominaEmpleados.jsx` now folds `salesDeals.commissionsForPeriod()` into the vendedor bucket so liquidación includes vehicle deal commissions alongside ticket commissions.
+- [x] **Vehicle documents UI** — Documents tab inside VehicleInventory edit modal (upload doc_type + expires_at + notes / list with expiry pill / delete). Resumen "Docs por vencer 30d" tile now populated from `vehicleDocuments.expiringSoon(30)`.
+- [x] **Desktop SQLite parity** — 5 SQLite tables (vehicle_inventory, sales_deals, leads, test_drives, vehicle_documents) + CRUD in `electron/database.js`, IPC handlers in `electron/main.js`, preload bridge in `electron/preload.js`, sync push/pull in `electron/sync.js` (LWW). Photo/document UPLOADS stay web-only (graceful stub on desktop).
+- [x] **Activity log integration** — `deal_closed`, `deal_commission_paid`, `pipeline_stage_change`, `pipeline_followup_logged` events wired via `logActivity` in `web.js`. New "Concesionario" filter chip in RemoteDashboard activity feed.
+- [x] **Plan gating** — `dealership` (Pro PLUS+), `dealership_crm` + `dealership_docs` (Pro MAX) keys added to `usePlan.jsx`.
+
+### Concesionario v3 (after v2.5)
+- [ ] Credit pre-qualification API (Banco Popular / BHD integration)
+- [ ] Multi-unit trade-ins per deal
+- [ ] VIN decoder (NHTSA API auto-fills make/model/year/trim)
+- [ ] Mileage-based warranty rules engine
+- [ ] Insurance quote integration
+- [ ] Marketplace export feeds (encuentra24 / supercarros / facebook marketplace)
+
 ### Other Backlog
 - [ ] Concurrent Electron + Web usage testing (same business, same data)
 - [ ] Website redesign — studioxrdtech.com as umbrella brand (Terminal X, Content/Media, Camera, Computer store)
 - [ ] Electron realtime: bundle @supabase/supabase-js in electron main process (currently "realtime unavailable")
 - [ ] Logo upload RLS: add INSERT policy on Supabase Storage bucket
+
+---
+
+## Recently Shipped (2026-04-25)
+
+- **Concesionario v2** — Expanded dealership vertical:
+  - Migration `20260425100000_concesionario_v2.sql`: `vehicle_inventory.photo_urls`/`featured`, `sales_deals.commission_pct/amount/paid/paid_at`, `leads.next_followup_at/last_contacted_at/interested_vehicle_supabase_id`, `test_drives.outcome/outcome_notes/deal_supabase_id` + CHECK, new `vehicle_documents` table with RLS + storage buckets `vehicle-photos` (public) and `vehicle-documents` (signed URLs)
+  - DealBuilder: commission % input next to salesperson, defaults from `empleados.commission_pct`, computed `commission_amount` persisted on close, vehicle photo preview from `photo_urls`, commission row in summary panel
+  - VehicleInventory: multi-image uploader → `vehicle-photos/{business_id}/{vehicle_id}/`, photo grid with delete, thumbnail column, **CSV import** with header auto-mapping (ES/EN aliases) + preview + bulk insert
+  - SalesPipeline: follow-up date field + Registrar Seguimiento action + overdue badge (red left border + "Vencido" pill) + overdue counter at top
+  - TestDrives: outcome buttons (sold/follow_up/lost) inline in row, follow_up auto-creates a Negotiation lead with 3-day default follow-up
+  - Resumen (new screen): `/concesionario` route — KPI tiles (Disponibles, Ventas mes, Financiado mes, Comisiones mes), alert cards (Seguimientos vencidos, Pruebas, Docs por vencer 30d), Recent Deals + Pending Follow-ups lists
+  - Sidebar: new "Resumen" nav item gated to dealership business type
+  - web.js extensions: `vehicleInventory.uploadPhoto/removePhoto/bulkImport`, new `vehicleDocuments.{byVehicle,expiringSoon,upload,delete}`, `salesDeals.markCommissionPaid/commissionsForPeriod`, `testDrives.setOutcome`, `leads.logContact/overdue`
+  - Verification: web build green (19.97s), desktop Vite build green (18.21s), Ranoza smoke 22/22
+
+## Vertical Hardening — bring 5 unproven types to production-ready (2026-04-25)
+
+Each vertical below ships and renders, but no live client has battle-tested it. Workflow per vertical:
+
+1. **Mike → Grok**: paste the per-vertical prompt (drafted in chat 2026-04-25 session). Grok returns 10 numbered feature ideas.
+2. **Mike → Claude Code**: paste Grok's reply back here. Claude Code generates a **full plan-mode prompt** scoped to that vertical (audits existing code, dedupes against shipped features, prioritizes high-leverage gaps, lays out the implementation plan).
+3. **Mike → /plan**: starts plan mode in Claude Code with the generated prompt. Approves the plan via ExitPlanMode.
+4. **Claude Code builds** the vertical to production-ready in one pass. Ships incrementally as v2.16.0 → v2.16.4 (one minor per vertical).
+
+**Done — skip these (already production):**
+- Licorería ✓ (Ranoza live)
+- Dealership / Concesionario ✓ (v2 shipped)
+- Carwash ✓ (Studio X live)
+
+Verticals queued (8 total, in any order Mike picks):
+- [x] **Taller Mecánico** (`mechanic`) — **v2.16.0 shipped 2026-04-25** (migration `20260426100000_mechanic_v216_hardening.sql` + `20260426100001_mechanic_pgcron_reminders.sql` applied live; new screens `Aseguradoras.jsx`, `Cotizaciones.jsx`, `InsuranceBatch.jsx`, `MechanicResumen.jsx`, `Suministros.jsx`, expanded `WorkOrders.jsx`; new tables `aseguradoras`, `suppliers`, `parts_orders`, `work_order_photos`, `insurance_batches`; storage bucket `mechanic-photos` public; demo seeded with 4 vehicles + 5 WOs + 2 cotizaciones + 2 aseguradoras + 2 suppliers; smoke 20/20)
+- [x] **Barbería / Salón** (`salon`) — **v2.16.1 shipped 2026-04-25** (migration `20260425200000_salon_v2_16_1.sql` applied live; new tables `client_memberships`, `membership_redemptions`, `appointment_reminders`; new columns `appointments.deposit_status / is_walk_in`, `clients.no_show_count`, `memberships.total_sessions / nombre`; new screens `Memberships.jsx`, expanded `Appointments.jsx`; public booking URL infrastructure; demo seeded with 3 memberships + 5 client memberships + 10 appointments + 18 stylist schedules; smoke 21/21)
+- [x] **Préstamos / Empeño** (`prestamos`) — **v2.16.2 shipped 2026-04-25**:
+  - Migration `20260425200000_prestamos_hardening.sql`: new tables `loan_contracts`, `loan_renewals`, `pawn_documents`, `pawn_listings`, `collections_attempts`; new columns `loans.amortization_method` ('french'|'german'|'interest_only'), `loans.renewal_count`, `pawn_items.{default_alert_days,offered_pct,valoracion_notes,signature_dataurl}`; storage buckets `pawn-photos` (public), `pawn-documents` + `loan-documents` (private, 1y signed URLs); RLS + triggers + sync wired
+  - Loans: 3 amortization modes (Solo Intereses default / Cuota Fija Francés / Capital Fijo Alemán), APR display "X.XX% mensual (equivalente Y.YY% anual)" via shared `packages/services/apr.js`, ContractSigner modal → 3-page PDF (cláusulas SB + tabla amortización + firma/DPI) via new `pdfContracts.js`, RenewalModal (interest-only payment + extension + history badge "Renovado N veces")
+  - PawnItems: valoración wizard (multi-foto + % ofrecido slider default 60 + monto auto-calc + días alerta default 3 + notas + firma + DPI), default-alert pills ("Vence en N días" / "VENCIDO"), "Publicar para Venta" → `pawn_listings` con slug, Documentos tab para matrícula/contrato (vehículos)
+  - Collections: 5-outcome attempts modal (Llamé/Prometió/Pagó/No contestó/Rechazó), sortable Cobranza Diaria (días mora desc default), WhatsApp toggle, attempt history drilldown, mirrors a `collections_log` por una release
+  - New screens: `/lending/resumen` (5 KPI tiles: Cartera Activa, Intereses por Cobrar, Mora Actual %, Redenciones Mes, Tasa Default % + 3 alert cards), `/lending/reporte-sb` (CSV exports — Cartera Activa / Mora Aging / Redenciones; PDF SB deshabilitado pendiente plantilla oficial), public `/tienda-empenos/:businessId/:slug` (read-only listings, sin auth, fotos públicas + WhatsApp CTA)
+  - Shared: `packages/ui/components/SignaturePad.jsx` extracted from InventoryCount, `packages/services/apr.js` (formatAPR + effectiveAnnualRate, 7/7 tests), `packages/services/pdfContracts.js` (pdf-lib, brand crimson)
+  - Sidebar: Resumen + Reporte SB children gated `businessTypes:['prestamos']`
+  - Verification: web build green (20.64s), electron build green (18.67s), Playwright hibrido suite passed, apr 7/7 green
+  - **PENDIENTE antes de live deploy (REGULATORY_REVIEW_GATE):**
+    - [ ] Imprimir contrato real → revisión legal del wording de cláusulas SB → sign-off
+    - [ ] Confirmar fórmula APR con legal (efectiva `(1+r)^12-1` shipped, vs simple ×12)
+    - [ ] Mike entrega plantilla oficial Superintendencia de Bancos → field-map → render PDF SB → segunda revisión legal
+    - [ ] Verificar topes de tasa máxima permitidos por SB (¿hay APR cap legal?) y agregar validación si aplica
+    - [ ] Bump `package.json` version 2.15.0 → 2.16.2 antes de tag
+    - [x] Aplicar migration a Supabase prod (aplicado 2026-04-25 vía `scripts/apply-prestamos-hardening.mjs` → proyecto `csppjsoirjflumaiipqw`; verificación e2e 47/47 green: 5 tablas + 3 buckets + schema cols + CHECK constraints + UNIQUE(slug) + storage upload+signed URL round-trip)
+    - [ ] Agregar collections daily auto-fire (cron WhatsApp recordatorios 24h/2h antes de vencimiento) — diferido a v2.16.3
+    - [ ] WhatsApp Business API integration (actualmente solo wa.me deeplink) — diferido
+- [x] **Carnicería** (`carniceria`) — **v2.16.3 shipped 2026-04-25** (new screens `CorteCatalog.jsx`, `FreshnessAlerts.jsx`, `MayoreoOrders.jsx`, `Resumen.jsx`; new tables `carniceria_corte_categories`, `inventory_freshness_log`, `inventory_discards`, `recurring_orders`, `carniceria_scales`; web `api.carniceria.*` namespace added in v2.16.3 audit pass; demo seeded with 6 cortes + 5 cuadre rows; smoke 33/33)
+- [ ] **Híbrido** (`hybrid`) — likely gaps: POS modo dual UX (sticky toggle Mesa↔Venta directa), inventario unificado vs separado, reportes separados, templates de combinación pre-build, multi-printer routing inteligente
+- [ ] **Tienda / Retail genérico** (`retail`) — likely gaps: etiquetas de precio imprimibles, recepción de mercancía/albaranes, devoluciones cliente vs suplidor, múltiples proveedores por SKU, promociones 2x1, combos/kits, expiry tracking, mayoreo B2B
+- [ ] **Servicios / Otro** (`service`) — likely gaps: por horas vs proyecto vs visita, cotización antes del trabajo, suscripciones recurrentes, on-site con GPS/foto/firma, materiales junto al servicio, asignación inteligente, garantía de servicio
+- [x] **Restaurante / Bar** (`restaurant`) — **v2.16.2 shipped 2026-04-25** (new layout: mesas 5×2 grid + Más vendidos row + flat menu cards w/ search + permanent cart sidebar; preserved all existing logic — modifiers, splits, KDS, happy hour, hybrid mode; migration `20260425000000_restaurant_v3_top_sellers_acuenta.sql` applied — `services_top_sellers` RPC + `mesas_with_active_total` view + `mesa.bill_requested_at` + 'acuenta' status workflow with "Pedir cuenta" button; demo seeded with 10 mesas; smoke 20/20)
+
+Mark with [x] + version when each ships.
+
+---
+
+## Marketing site refresh — real screenshots per vertical (queued)
+
+Triggered AFTER all 8 verticals above ship.
+
+- [ ] Mike captures real product screenshots from his actual production data per vertical
+- [ ] Replace static-demo screenshots in `web/public/screenshots/{vertical}.png` with real captures
+- [ ] Re-run `node scripts/build-social-assets.mjs` so IG feed/stories/landscape exports regenerate from real screenshots
+- [ ] Update `VerticalFeatures.jsx` if any vertical needs more than the standard 8 feature bullets
+- [ ] Add per-vertical demo data into the live demo accounts so `/demo/:vertical` static pages reflect production polish
+- [ ] Re-deploy Vercel + push minor release (v2.16.x or v2.17.0)
+
+---
+
+## Content X 30-day campaign — vertical showcase (queued)
+
+Triggered AFTER all 5 verticals + real screenshots are done. Coordinated with Content X (separate project at `A:/Studio X HUB/Content X/`).
+
+**30 daily posts** distributed across verticals:
+- 4 × Carwash
+- 4 × Tienda (rotate subtypes: licorería, farmacia, colmado, supermercado, ferretería, papelería, boutique)
+- 4 × Restaurante
+- 4 × Mecánica
+- 4 × Salón
+- 3 × Concesionario
+- 3 × Préstamos / Empeño
+- 2 × Carnicería
+- 2 × Híbrido
+
+**Each post = 6-7 image carousel** (1080×1080 IG feed):
+- Slide 1: hook (vertical-specific pain point, e.g. "El 15 de mayo es obligatoria la facturación electrónica para tu carnicería")
+- Slide 2-3: feature highlight w/ real screenshot
+- Slide 4: comparison vs competitor or DGII Gratuito for that vertical
+- Slide 5: pricing tier recommended
+- Slide 6: social proof (testimonial when available, certification badge fallback)
+- Slide 7: CTA "Empieza tu prueba 7 días → terminalxpos.com"
+
+**Caption template** per vertical: hook + 3 bullets + CTA + 5 hashtags + WhatsApp link.
+**Auto-schedule** via Content X scheduler.
+**Re-uses existing pipeline**: `social-posts/instagram/feed/` already generates per-vertical 1080×1080 assets — campaign just wires them into 30 scheduled drops.
+**Track ROI**: GA4 event `cta_click` from IG attribution → signup conversion; Mike reviews weekly.
+
+References:
+- Content X campaign system at `A:/Studio X HUB/Content X/`
+- Memory `project_pillow_image_generator.md` (Pillow-based carousel generation pattern)
+- Memory `project_countdown_mvp_20260420.md` (existing T-25 → T-0 countdown campaign currently running)
 
 ---
 

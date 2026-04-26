@@ -17,6 +17,10 @@ export const BUSINESS_SETTING_KEYS = new Set([
   // Per-business receipt customization (v1)
   'receipt_show_itbis_pct',
   'receipt_show_commission',
+  // Facturación tier custom branding (v2.16.5) — invoice footer string and a
+  // logo URL (PNG/JPG) rendered on the crimson header band of every PDF.
+  'invoice_footer',
+  'logo_url',
   'business_type', 'biz_business_type',
   'ley_enabled',
   'go_live_date',
@@ -44,6 +48,9 @@ export const BUSINESS_SETTING_KEYS = new Set([
   'feature_color_variants_enabled',
   // loyalty override (feature_loyalty_enabled) intentionally NOT added —
   // reuse existing `loyalty_enabled` above for that feature.
+  // Salon vertical (v2.16.1) — public booking + deposit / no-show config.
+  'salon_require_deposit', 'salon_deposit_amount_dop', 'salon_no_show_fee_dop',
+  'salon_public_booking_enabled', 'salon_public_booking_slug',
 ])
 
 export const DEVICE_LOCAL_CLOUD_MIRROR_KEYS = new Set([

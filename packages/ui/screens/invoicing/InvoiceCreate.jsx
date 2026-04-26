@@ -1,14 +1,30 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Plus, Trash2, Search, Check, AlertCircle, Download, Send, Loader2, ArrowLeft } from 'lucide-react'
+import { FileText, Plus, Trash2, Search, Check, AlertCircle, Download, Send, Loader2, ArrowLeft, Mail, BookmarkPlus, Bookmark } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
 import { useAuth } from '../../context/AuthContext'
 import { signAndSubmitECF, validateRNC } from '@terminal-x/services/ecf'
+import { waLink } from '@terminal-x/services/whatsapp'
 const saveReceiptPDF = (...args) => import('@terminal-x/services/pdf').then(m => m.saveReceiptPDF(...args))
 
 function fmtRD(n) {
   return 'RD$ ' + Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+// M2 — placeholder for the per-render currency formatter. The component
+// uses displayCurrency-aware fmt() which closes over state below.
+
+// M2 — supported invoice currencies. DOP is the DGII-required base; USD is
+// the most common foreign currency in DR. Adding a third currency is one
+// row + one entry in OtraMoneda payload.
+const CURRENCIES = [
+  { code: 'DOP', symbol: 'RD$', es: 'Pesos (DOP)', en: 'Dominican Pesos (DOP)' },
+  { code: 'USD', symbol: 'US$', es: 'Dólares (USD)', en: 'US Dollars (USD)' },
+]
+function fmtMoney(n, code) {
+  const c = CURRENCIES.find(x => x.code === code) || CURRENCIES[0]
+  return c.symbol + ' ' + Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 const PAYMENT_METHODS = [
@@ -21,7 +37,19 @@ const PAYMENT_METHODS = [
 
 // Ley 10% is computed on pre-ITBIS subtotal to mirror POS/CobrarModal.
 const LEY_RATE = 0.10
-const EMPTY_ITEM = { descripcion: '', cantidad: 1, precio: 0, itbis: true }
+// H3 — supported ITBIS rates per DGII e-CF spec.
+//   1 = Tasa General (18%)
+//   2 = Tasa Reducida (16%)
+//   3 = Tasa 0% (exportación)
+//   4 = Exento
+const ITBIS_OPTIONS = [
+  { code: '1', rate: 18, label_es: '18%',    label_en: '18%' },
+  { code: '2', rate: 16, label_es: '16%',    label_en: '16%' },
+  { code: '3', rate: 0,  label_es: '0%',     label_en: '0%'  },
+  { code: '4', rate: 0,  label_es: 'Exento', label_en: 'Exempt' },
+]
+function itbisOptByCode(code) { return ITBIS_OPTIONS.find(o => o.code === String(code)) || ITBIS_OPTIONS[0] }
+const EMPTY_ITEM = { descripcion: '', cantidad: 1, precio: 0, itbisCode: '1', descuentoPct: 0 }
 
 export default function InvoiceCreate() {
   const api = useAPI()
@@ -45,10 +73,26 @@ export default function InvoiceCreate() {
   const [paymentMethod, setPaymentMethod] = useState('efectivo')
   const [notes, setNotes] = useState('')
 
+  // H2 — Global discount. Operator chooses RD$ amount OR % off subtotal.
+  // Stored as { mode: 'pct' | 'amount', value: number }; applied AFTER per-line
+  // discounts and BEFORE ITBIS so the DGII MontoGravadoTotal lines up with the
+  // discounted subtotal (DGII spec §3.2 — `MontoDescuento` reduces base).
+  const [descuentoMode, setDescuentoMode] = useState('amount')
+  const [descuentoInput, setDescuentoInput] = useState(0)
+
+  // M2 — Currency + exchange rate. Prices on screen are entered in the
+  // displayCurrency. The e-CF total stays in DOP (DGII rule); USD invoices
+  // emit an OtraMoneda block with TipoMoneda='USD' and the snapshot rate.
+  const [displayCurrency, setDisplayCurrency] = useState('DOP')
+  const [usdRate, setUsdRate] = useState(60) // default DOP/USD; user can edit before emit
+
   // Settings-driven fiscal rates. itbis_pct lives in app_settings (string),
   // default 18. ley_enabled is the per-business default for the Ley 10% toggle.
   const [itbisRate, setItbisRate] = useState(18)
   const [leyEnabled, setLeyEnabled] = useState(false)
+  // Branding pulled from app_settings — populated below alongside itbisRate.
+  const [invoiceFooter, setInvoiceFooter] = useState('')
+  const [bizLogo, setBizLogo] = useState('')
 
   // Commission pickers — sellers load from api.sellers.all(); cajeros are
   // users (staff) filterable by role. Cajero auto-defaults to the logged-in
@@ -64,25 +108,121 @@ export default function InvoiceCreate() {
 
   const [empresa, setEmpresa] = useState(null)
 
+  // C3 — cert expiry awareness. Loaded alongside settings; used to block
+  // emission and surface a crimson banner when expired or ≤7d to expiry.
+  const [certInfo, setCertInfo] = useState(null)
+
+  // M1 — track which quote (if any) seeded this invoice, so we can delete it
+  // from localStorage after a successful emission.
+  const [sourceQuoteId, setSourceQuoteId] = useState(null)
+
+  // ── Item Templates / Favorites ──────────────────────────────────────────
+  // Stored in localStorage (same scope as Cotizaciones) so the operator can
+  // save a recurring item set ("Servicio mensual de contabilidad", "Hosting
+  // anual…") and pre-load it with one click. Same shape as item rows.
+  const TEMPLATE_KEY = 'tx.facturacion.itemTemplates'
+  const [templates, setTemplatesState] = useState([])
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false)
+  function loadTemplates() {
+    try {
+      const raw = localStorage.getItem(TEMPLATE_KEY)
+      const arr = raw ? JSON.parse(raw) : []
+      return Array.isArray(arr) ? arr : []
+    } catch { return [] }
+  }
+  useEffect(() => { setTemplatesState(loadTemplates()) }, [])
+  function saveTemplate() {
+    const usableItems = items.filter(i => i.descripcion?.trim())
+    if (!usableItems.length) {
+      alert(L('Agrega al menos un item antes de guardar la plantilla.', 'Add at least one item before saving the template.'))
+      return
+    }
+    const name = window.prompt(L('Nombre de la plantilla:', 'Template name:'), '')?.trim()
+    if (!name) return
+    const tpl = {
+      id: 't_' + Math.random().toString(36).slice(2, 10) + '_' + Date.now().toString(36),
+      name,
+      items: usableItems.map(i => ({
+        descripcion: i.descripcion,
+        cantidad: Number(i.cantidad || 1),
+        precio: Number(i.precio || 0),
+        itbisCode: i.itbisCode || '1',
+        descuentoPct: Number(i.descuentoPct || 0),
+      })),
+      createdAt: Date.now(),
+    }
+    const next = [tpl, ...templates]
+    try { localStorage.setItem(TEMPLATE_KEY, JSON.stringify(next)) } catch {}
+    setTemplatesState(next)
+    alert(L('Plantilla guardada.', 'Template saved.'))
+  }
+  function applyTemplate(tpl) {
+    if (!tpl?.items?.length) return
+    setItems(tpl.items.map(i => ({ ...i })))
+    setShowTemplatePicker(false)
+  }
+  function removeTemplate(id) {
+    const next = templates.filter(t => t.id !== id)
+    try { localStorage.setItem(TEMPLATE_KEY, JSON.stringify(next)) } catch {}
+    setTemplatesState(next)
+  }
+
   const confirmedRef = useRef(false)
+
+  // M1 — hydrate from a pending quote handed off via sessionStorage by
+  // InvoiceQuotes.jsx. Runs once on mount, then clears the slot so a refresh
+  // doesn't re-prefill.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('tx.facturacion.pendingQuote')
+      if (!raw) return
+      sessionStorage.removeItem('tx.facturacion.pendingQuote')
+      const q = JSON.parse(raw)
+      if (Array.isArray(q?.items) && q.items.length) {
+        setItems(q.items.map(i => ({
+          descripcion: i.descripcion || '',
+          cantidad: Number(i.cantidad || 1),
+          precio: Number(i.precio || 0),
+          itbisCode: i.itbisCode || '1',
+          descuentoPct: Number(i.descuentoPct || 0),
+        })))
+      }
+      if (q.clientName || q.clientRnc || q.clientPhone || q.clientEmail) {
+        setNewClient(true)
+        setClientForm({
+          name: q.clientName || '',
+          rnc: q.clientRnc || '',
+          phone: q.clientPhone || '',
+          email: q.clientEmail || '',
+          address: '',
+        })
+      }
+      if (q.notes) setNotes(q.notes)
+      if (q.sourceQuoteId) setSourceQuoteId(q.sourceQuoteId)
+    } catch {}
+  }, [])
 
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const [cls, emp, settings, sls, usrs] = await Promise.all([
+      const [cls, emp, settings, sls, usrs, cert] = await Promise.all([
         api?.clients?.all?.() || [],
         api?.admin?.getEmpresa?.() || null,
         api?.settings?.get?.() || {},
         api?.sellers?.all?.() || [],
         api?.users?.all?.() || [],
+        api?.dgii_ecf?.certInfo?.() || null,
       ])
       if (cancelled) return
       setClients(cls || [])
       setEmpresa(emp)
+      setCertInfo(cert)
       const pct = Number(settings?.itbis_pct)
       if (Number.isFinite(pct) && pct > 0) setItbisRate(pct)
       const leyDefault = String(settings?.ley_enabled ?? '').toLowerCase()
       setLeyEnabled(leyDefault === 'true' || leyDefault === '1')
+      setInvoiceFooter(settings?.invoice_footer || '')
+      setBizLogo(settings?.logo_url || settings?.biz_logo || '')
       setSellers((sls || []).filter(s => s.active !== false && s.active !== 0))
       const cashierPool = (usrs || []).filter(u => (u.active !== false && u.active !== 0) && (u.role === 'cashier' || (u.commission_pct && u.commission_pct > 0)))
       setCajeros(cashierPool)
@@ -132,20 +272,78 @@ export default function InvoiceCreate() {
 
   const itbisFactor = itbisRate / 100
 
-  const { subtotal, itbisTotal, leyAmount, total } = useMemo(() => {
-    const sub = items.reduce((s, i) => s + (Number(i.precio) * Number(i.cantidad || 1)), 0)
-    const itb = items.reduce((s, i) => {
-      if (!i.itbis) return s
-      return s + (Number(i.precio) * Number(i.cantidad || 1) * itbisFactor)
-    }, 0)
-    const ley = leyEnabled ? sub * LEY_RATE : 0
-    return {
-      subtotal: sub,
-      itbisTotal: itb,
-      leyAmount: ley,
-      total: sub + itb + ley,
+  // Per-line math helper. Honors the chosen ITBIS code (H3) and per-line
+  // descuentoPct (H2). Falls back gracefully when legacy `itbis` boolean
+  // shape is present so existing demo seed rows keep working.
+  function lineMath(i, generalItbisPct) {
+    const code = String(i.itbisCode || (i.itbis === false ? '4' : '1'))
+    const opt  = itbisOptByCode(code)
+    const ratePct = code === '1' ? Number(generalItbisPct ?? 18) : opt.rate
+    const qty   = Number(i.cantidad || 1)
+    const price = Number(i.precio || 0)
+    const gross = price * qty
+    const dPct  = Math.max(0, Math.min(100, Number(i.descuentoPct || 0)))
+    const lineDescuento = gross * dPct / 100
+    const net   = Math.max(0, gross - lineDescuento)
+    const itbis = net * (ratePct / 100)
+    return { code, ratePct, qty, price, gross, lineDescuento, net, itbis, total: net + itbis }
+  }
+
+  const totals = useMemo(() => {
+    let sumGross = 0, sumLineDescuento = 0, sumNet = 0
+    let netByCode = { '1': 0, '2': 0, '3': 0, '4': 0 }
+    let itbisByCode = { '1': 0, '2': 0, '3': 0, '4': 0 }
+    for (const i of items) {
+      if (!i.descripcion?.trim() || !Number(i.precio)) continue
+      const m = lineMath(i, itbisRate)
+      sumGross += m.gross
+      sumLineDescuento += m.lineDescuento
+      sumNet += m.net
+      netByCode[m.code]   = (netByCode[m.code]   || 0) + m.net
+      itbisByCode[m.code] = (itbisByCode[m.code] || 0) + m.itbis
     }
-  }, [items, itbisFactor, leyEnabled])
+    // Global discount — applied to the post-line-discount net subtotal.
+    const dInput = Number(descuentoInput || 0)
+    const globalDescuento = descuentoMode === 'pct'
+      ? sumNet * Math.max(0, Math.min(100, dInput)) / 100
+      : Math.max(0, Math.min(sumNet, dInput))
+    // Spread global discount proportionally across rate buckets so the e-CF
+    // MontoGravadoI1/I2/I3/Exento stays internally consistent.
+    let netByCodeAfter = { ...netByCode }
+    let itbisByCodeAfter = { ...itbisByCode }
+    if (globalDescuento > 0 && sumNet > 0) {
+      const factor = (sumNet - globalDescuento) / sumNet
+      for (const c of ['1','2','3','4']) {
+        netByCodeAfter[c]   = netByCode[c] * factor
+        itbisByCodeAfter[c] = itbisByCode[c] * factor
+      }
+    }
+    const subtotalAfter = Object.values(netByCodeAfter).reduce((a,b) => a + b, 0)
+    const itbisTotal    = Object.values(itbisByCodeAfter).reduce((a,b) => a + b, 0)
+    const leyAmount     = leyEnabled ? subtotalAfter * LEY_RATE : 0
+    const total         = subtotalAfter + itbisTotal + leyAmount
+    return {
+      sumGross,
+      sumLineDescuento,
+      globalDescuento,
+      subtotal: subtotalAfter,
+      itbisTotal,
+      leyAmount,
+      total,
+      // for e-CF payload split
+      gravado18: netByCodeAfter['1'] || 0, itbis18: itbisByCodeAfter['1'] || 0,
+      gravado16: netByCodeAfter['2'] || 0, itbis16: itbisByCodeAfter['2'] || 0,
+      gravado0:  netByCodeAfter['3'] || 0,
+      exento:    netByCodeAfter['4'] || 0,
+    }
+  }, [items, itbisFactor, itbisRate, leyEnabled, descuentoMode, descuentoInput])
+
+  // Backwards-compat aliases consumed by Resumen + success view.
+  const subtotal   = totals.subtotal
+  const itbisTotal = totals.itbisTotal
+  const leyAmount  = totals.leyAmount
+  const total      = totals.total
+  const totalDescuento = totals.sumLineDescuento + totals.globalDescuento
 
   function validate() {
     const validItems = items.filter(i => i.descripcion.trim() && Number(i.precio) > 0)
@@ -154,8 +352,22 @@ export default function InvoiceCreate() {
     if (tipoECF === '31') {
       const rnc = selectedClient?.rnc || clientForm.rnc
       if (!rnc || !validateRNC(rnc)) return L('E31 (Credito Fiscal) requiere un RNC valido del comprador', 'E31 (Tax Credit) requires a valid buyer RNC')
+      // E31 fix from audit §5/C5 — must have a real razón social, never the RNC
+      const name = (selectedClient?.name || clientForm.name || '').trim()
+      if (!name) return L('E31 (Credito Fiscal) requiere el nombre / razón social del comprador', 'E31 (Tax Credit) requires the buyer name / legal name')
+    }
+    // C3 hard-stop — refuse emission when cert expired, otherwise DGII rejects
+    // and we burn a sequence number for nothing.
+    if (certInfo?.installed && (certInfo?.expired || isCertExpired(certInfo?.expiry))) {
+      return L('Tu certificado e-CF está vencido. Renueva con Viafirma antes de emitir.', 'Your e-CF certificate has expired. Renew with Viafirma before issuing.')
     }
     return null
+  }
+
+  function isCertExpired(expiry) {
+    if (!expiry) return false
+    const t = new Date(expiry).getTime()
+    return Number.isFinite(t) && t < Date.now()
   }
 
   async function handleSubmit() {
@@ -165,6 +377,16 @@ export default function InvoiceCreate() {
 
     setError(null)
     setSubmitting(true)
+
+    // C1 rollback bookkeeping — track everything we reserve so the catch path
+    // can unwind atomically: the eNCF counter, the local ticket row, and any
+    // partial commission writes. If the e-CF never reaches DGII (network drop,
+    // cert error, signing failure) we MUST not leave a sequence gap or an
+    // orphan `tickets` row with null ecf_result.
+    let reservedENCF = null
+    let reservedNcfType = null
+    let createdTicketId = null
+    let ecfSucceeded = false
 
     try {
       const validItems = items.filter(i => i.descripcion.trim() && Number(i.precio) > 0)
@@ -192,21 +414,28 @@ export default function InvoiceCreate() {
         }
       }
 
-      const ticketItems = validItems.map(item => ({
-        name: item.descripcion,
-        price: Number(item.precio),
-        quantity: Number(item.cantidad || 1),
-        aplica_itbis: item.itbis ? 1 : 0,
-        is_wash: false,
-      }))
+      const ticketItems = validItems.map(item => {
+        const m = lineMath(item, itbisRate)
+        return {
+          name: item.descripcion,
+          price: Number(item.precio),
+          quantity: Number(item.cantidad || 1),
+          // aplica_itbis: anything not '4' is taxable for downstream reports.
+          aplica_itbis: m.code === '4' ? 0 : 1,
+          itbis_code: m.code,
+          itbis_pct: m.ratePct,
+          descuento_pct: Number(item.descuentoPct || 0),
+          is_wash: false,
+        }
+      })
 
-      const itemSubtotal = validItems.reduce((s, i) => s + Number(i.precio) * Number(i.cantidad || 1), 0)
-      const itemItbis = validItems.reduce((s, i) => {
-        if (!i.itbis) return s
-        return s + Number(i.precio) * Number(i.cantidad || 1) * itbisFactor
-      }, 0)
-      const itemLey = leyEnabled ? itemSubtotal * LEY_RATE : 0
-      const itemTotal = itemSubtotal + itemItbis + itemLey
+      // Use the shared `totals` memo so what the user saw on screen is what
+      // gets written to ticket + e-CF — no recompute drift.
+      const itemSubtotal = totals.subtotal
+      const itemItbis    = totals.itbisTotal
+      const itemLey      = totals.leyAmount
+      const itemTotal    = totals.total
+      const itemDescuento = totals.sumLineDescuento + totals.globalDescuento
 
       const ncfType = `E${tipoECF}`
       let eNCF = null
@@ -216,19 +445,25 @@ export default function InvoiceCreate() {
         throw new Error(L('No se pudo obtener el proximo e-NCF. Verifique las secuencias.', 'Could not get next e-NCF. Check sequences.'))
       }
       if (!eNCF) throw new Error(L('Secuencia e-NCF no disponible', 'e-NCF sequence not available'))
+      reservedENCF = eNCF
+      reservedNcfType = ncfType
 
       // NB: seller_id / cajero_id / washer_ids are intentionally NOT passed
       // into ticketCreate — invoice commissions use the flat `invoiceTotal *
       // comision_pct / 100` model and are written below via the dedicated
       // sellerCommissions.create / cajeroCommissions.create endpoints.
       // Washers don't apply to standalone invoices.
+      // Save the DOP-equivalent on the ticket (DGII canonical) — Historial /
+      // 606/607 reads this. Currency + FX rate live in metadata for receipts.
       const ticketData = {
         items: ticketItems,
-        subtotal: parseFloat(itemSubtotal.toFixed(2)),
-        itbis: parseFloat(itemItbis.toFixed(2)),
-        ley: parseFloat(itemLey.toFixed(2)),
-        descuento: 0,
-        total: parseFloat(itemTotal.toFixed(2)),
+        subtotal: parseFloat((itemSubtotal * (displayCurrency === 'USD' ? Number(usdRate || 60) : 1)).toFixed(2)),
+        itbis:    parseFloat((itemItbis    * (displayCurrency === 'USD' ? Number(usdRate || 60) : 1)).toFixed(2)),
+        ley:      parseFloat((itemLey      * (displayCurrency === 'USD' ? Number(usdRate || 60) : 1)).toFixed(2)),
+        descuento:parseFloat((itemDescuento* (displayCurrency === 'USD' ? Number(usdRate || 60) : 1)).toFixed(2)),
+        total:    parseFloat((itemTotal    * (displayCurrency === 'USD' ? Number(usdRate || 60) : 1)).toFixed(2)),
+        currency: displayCurrency,
+        fx_rate:  displayCurrency === 'DOP' ? 1 : Number(usdRate || 60),
         payment_method: paymentMethod,
         comprobante_type: ncfType,
         tipo_venta: paymentMethod === 'credito' ? 'credito' : 'contado',
@@ -244,6 +479,7 @@ export default function InvoiceCreate() {
 
       const ticketResult = await api?.tickets?.create?.(ticketData)
       if (!ticketResult?.id) throw new Error(L('Error creando factura', 'Error creating invoice'))
+      createdTicketId = ticketResult.id
       const ticketSid = ticketResult.supabase_id || null
 
       const emisor = {
@@ -261,13 +497,22 @@ export default function InvoiceCreate() {
         direccion: clientForm.address || 'Santo Domingo',
       } : null
 
-      const ecfItems = validItems.map(item => ({
-        nombre: item.descripcion,
-        precio: Number(item.precio),
-        cantidad: Number(item.cantidad || 1),
-        indicadorFacturacion: item.itbis ? '1' : '4',
-        indicadorBienoServicio: '2',
-      }))
+      // M2 — DGII requires DOP as base. When invoice was entered in USD we
+      // multiply per-line nets and totals by usdRate to get the DOP-equivalent
+      // numbers DGII validates against, then attach an OtraMoneda block with
+      // the original USD totals + snapshot rate.
+      const fxRate = displayCurrency === 'USD' ? Number(usdRate || 60) : 1
+      const ecfItems = validItems.map(item => {
+        const m = lineMath(item, itbisRate)
+        const unitDop = m.qty > 0 ? (m.net / m.qty) * fxRate : Number(item.precio || 0) * fxRate
+        return {
+          nombre: item.descripcion,
+          precio: Number(unitDop.toFixed(4)),
+          cantidad: m.qty,
+          indicadorFacturacion: m.code,
+          indicadorBienoServicio: '2',
+        }
+      })
 
       const ecfInvoiceData = {
         tipoECF,
@@ -276,17 +521,43 @@ export default function InvoiceCreate() {
         comprador,
         items: ecfItems,
         totales: {
-          subtotal: parseFloat(itemSubtotal.toFixed(2)),
-          itbis: parseFloat(itemItbis.toFixed(2)),
-          ley: parseFloat(itemLey.toFixed(2)),
-          total: parseFloat(itemTotal.toFixed(2)),
+          // M2 — DOP-equivalent totals reach DGII regardless of display currency.
+          subtotal: parseFloat((itemSubtotal * fxRate).toFixed(2)),
+          itbis: parseFloat((itemItbis * fxRate).toFixed(2)),
+          ley: parseFloat((itemLey * fxRate).toFixed(2)),
+          total: parseFloat((itemTotal * fxRate).toFixed(2)),
+          // H2/H3 — split totals for multi-rate compliance.
+          montoDescuentoTotal: parseFloat((itemDescuento * fxRate).toFixed(2)),
+          gravado18: parseFloat((totals.gravado18 * fxRate).toFixed(2)),
+          itbis18:   parseFloat((totals.itbis18   * fxRate).toFixed(2)),
+          gravado16: parseFloat((totals.gravado16 * fxRate).toFixed(2)),
+          itbis16:   parseFloat((totals.itbis16   * fxRate).toFixed(2)),
+          gravado0:  parseFloat((totals.gravado0  * fxRate).toFixed(2)),
+          exento:    parseFloat((totals.exento    * fxRate).toFixed(2)),
         },
         metodoPago: paymentMethod,
         tipoIngresos: '01',
         ticket: { id: ticketResult.id },
+        // M2 — OtraMoneda when invoice currency != DOP.
+        ...(displayCurrency !== 'DOP' ? {
+          otraMoneda: {
+            tipoMoneda: displayCurrency,
+            tipoCambio: Number(fxRate.toFixed(4)),
+            montoTotalOtraMoneda: parseFloat(itemTotal.toFixed(2)),
+          },
+        } : {}),
       }
 
       const ecfResult = await signAndSubmitECF(ecfInvoiceData, api)
+      // Anything other than ACEPTADO / ACEPTADO_CONDICIONAL / EN_PROCESO with a
+      // trackId is a hard failure — bail before persisting so the catch unwinds.
+      if (!ecfResult || (!ecfResult.eNCF && !ecfResult.trackId && !ecfResult._stub)) {
+        throw new Error(L('La DGII no aceptó el e-CF. Intente de nuevo.', 'DGII did not accept the e-CF. Please retry.'))
+      }
+      if (ecfResult.status === 'RECHAZADO') {
+        throw new Error(L(`e-CF rechazado por DGII: ${ecfResult.dgiiCodigo || ''}`, `e-CF rejected by DGII: ${ecfResult.dgiiCodigo || ''}`))
+      }
+      ecfSucceeded = true
 
       if (ecfResult && ticketResult.id) {
         try {
@@ -353,6 +624,17 @@ export default function InvoiceCreate() {
         })
       } catch (e) { console.error('[InvoiceCreate] activity log failed:', e.message) }
 
+      // M1 — remove the source quote from localStorage now that it became a
+      // real factura. Best-effort, never fails the success view.
+      if (sourceQuoteId) {
+        try {
+          const raw = localStorage.getItem('tx.facturacion.quotes')
+          const arr = raw ? JSON.parse(raw) : []
+          const next = Array.isArray(arr) ? arr.filter(x => x.id !== sourceQuoteId) : []
+          localStorage.setItem('tx.facturacion.quotes', JSON.stringify(next))
+        } catch {}
+      }
+
       confirmedRef.current = true
       setSuccess({
         ticketId: ticketResult.id,
@@ -366,10 +648,39 @@ export default function InvoiceCreate() {
         subtotal: itemSubtotal,
         itbis: itemItbis,
         ley: itemLey,
+        descuento: itemDescuento,
         clientName,
+        clientEmail: selectedClient?.email || clientForm.email || '',
+        clientPhone: selectedClient?.phone || clientForm.phone || '',
         ecfResult,
       })
     } catch (err) {
+      // ── C1 atomic rollback ──────────────────────────────────────────────
+      // If the e-CF never reached DGII (i.e. ecfSucceeded is false), undo
+      // every side-effect we created BEFORE persisting state to the user:
+      //   1. Soft-void the orphan ticket so Historial doesn't show a
+      //      half-baked factura with a null eNCF.
+      //   2. Roll back the ncf_sequence counter (only succeeds if this was
+      //      the last issued and no DGII trackId was minted).
+      // 72h offline queue resilience: if e-CF DID succeed and only the
+      // ticket update / activity log failed, we KEEP the eNCF (DGII already
+      // owns it) — the queue will reconcile via processDgiiQueue on desktop
+      // or the EN_PROCESO reconciler on web (FIX-C7).
+      if (!ecfSucceeded) {
+        if (createdTicketId) {
+          try {
+            await api?.tickets?.void?.({ id: createdTicketId, reason: 'e-CF rollback (no DGII)', voidById: user?.id })
+          } catch (e) { console.error('[InvoiceCreate] rollback void failed:', e?.message) }
+        }
+        if (reservedENCF) {
+          try {
+            const r = await api?.ncf?.rollback?.(reservedENCF)
+            if (!r?.decremented) {
+              console.warn('[InvoiceCreate] eNCF rollback skipped:', r?.reason, reservedENCF)
+            }
+          } catch (e) { console.error('[InvoiceCreate] rollback ncf failed:', e?.message) }
+        }
+      }
       setError(err.message || L('Error al emitir factura', 'Error issuing invoice'))
     } finally {
       setSubmitting(false)
@@ -388,8 +699,22 @@ export default function InvoiceCreate() {
       ley: success.ley,
       descuento: 0,
       formaPago: PAYMENT_METHODS.find(p => p.key === paymentMethod)?.es || paymentMethod,
-      services: items.filter(i => i.descripcion.trim()).map(i => ({ name: i.descripcion, price: Number(i.precio), qty: Number(i.cantidad || 1) })),
-      biz: { name: empresa?.name || '', rnc: empresa?.rnc || '', phone: empresa?.phone || '', address: empresa?.address || '' },
+      services: items.filter(i => i.descripcion.trim()).map(i => {
+        const m = lineMath(i, itbisRate)
+        return { name: i.descripcion, price: m.qty > 0 ? m.net / m.qty : Number(i.precio || 0), qty: m.qty }
+      }),
+      descuento: success.descuento,
+      biz: {
+        name: empresa?.name || '',
+        rnc: empresa?.rnc || '',
+        phone: empresa?.phone || '',
+        address: empresa?.address || '',
+        // Facturación-tier custom branding — sourced from app_settings via
+        // the settings loader above. PDF builder ignores empty strings.
+        logo: bizLogo,
+        invoice_footer: invoiceFooter,
+      },
+      customFooter: invoiceFooter,
       client: selectedClient || (clientForm.name ? { name: clientForm.name, rnc: clientForm.rnc } : null),
       paidAt: new Date(),
       securityCode: success.securityCode,
@@ -404,7 +729,73 @@ export default function InvoiceCreate() {
     const phone = selectedClient?.phone || clientForm.phone
     if (!phone) return
     const text = `Factura ${success.eNCF || success.docNumber}\nTotal: ${fmtRD(success.total)}\n${success.qrLink ? `Verificar: ${success.qrLink}` : ''}`
-    window.open(`https://wa.me/${phone.replace(/\D/g, '')}?text=${encodeURIComponent(text)}`, '_blank')
+    window.open(waLink(phone, text), '_blank')
+  }
+
+  // FIX-H5 — server-first email send via /api/panel?action=email-invoice; on
+  // 501 (RESEND_API_KEY not configured) we open a pre-filled mailto: so the
+  // operator's mail client takes over. Either way the user gets confirmation.
+  const [emailSending, setEmailSending] = useState(false)
+  async function sendEmail() {
+    if (!success) return
+    let recipient = success.clientEmail || ''
+    if (!recipient) {
+      recipient = window.prompt(L('Correo del cliente:', 'Client email:'), '') || ''
+    }
+    recipient = recipient.trim()
+    if (!recipient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+      alert(L('Correo inválido. La factura no fue enviada.', 'Invalid email. Invoice was not sent.'))
+      return
+    }
+    setEmailSending(true)
+    try {
+      const sender = api?.dgii_ecf // session-aware fetch lives here
+      // Inline fetch so we don't have to plumb a new method through the API.
+      let token = null
+      if (typeof window !== 'undefined' && window.supabase) {
+        try { token = (await window.supabase.auth.getSession())?.data?.session?.access_token } catch {}
+      }
+      // Fallback: read from packages/services/supabase singleton.
+      if (!token) {
+        try {
+          const mod = await import('@terminal-x/services/supabase')
+          const client = mod.getSupabaseClient?.()
+          token = (await client?.auth.getSession())?.data?.session?.access_token
+        } catch {}
+      }
+      if (!token) { alert(L('Sesión expirada. Vuelve a iniciar sesión.', 'Session expired. Please log in again.')); return }
+      const business_id = empresa?.id || empresa?.supabase_id || null
+      const r = await fetch('/api/panel?action=email-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          business_id,
+          to: recipient,
+          subject: `Factura ${success.eNCF || success.docNumber} — ${empresa?.name || ''}`,
+          eNCF: success.eNCF,
+          total: success.total,
+          qrLink: success.qrLink,
+          securityCode: success.securityCode,
+          bizName: empresa?.name || '',
+          clientName: success.clientName || '',
+        }),
+      })
+      const result = await r.json().catch(() => ({}))
+      if (r.ok && result.ok) {
+        alert(L('Factura enviada por correo.', 'Invoice emailed successfully.'))
+      } else if (r.status === 501 || result?.fallback === 'mailto') {
+        // Graceful fallback — open the operator's default mail client.
+        const subject = encodeURIComponent(`Factura ${success.eNCF}`)
+        const body = encodeURIComponent(`Hola ${success.clientName || ''},\n\nTe comparto tu comprobante fiscal:\n\neNCF: ${success.eNCF}\nTotal: ${fmtRD(success.total)}\n${success.qrLink ? `Verificar: ${success.qrLink}` : ''}\n\nGracias por tu compra.\n— ${empresa?.name || ''}`)
+        window.location.href = `mailto:${recipient}?subject=${subject}&body=${body}`
+      } else {
+        alert(L('No se pudo enviar el correo: ', 'Could not send email: ') + (result?.error || r.statusText))
+      }
+    } catch (err) {
+      alert(L('Error de red al enviar correo.', 'Network error sending email.'))
+    } finally {
+      setEmailSending(false)
+    }
   }
 
   function resetForm() {
@@ -416,6 +807,9 @@ export default function InvoiceCreate() {
     setItems([{ ...EMPTY_ITEM }])
     setPaymentMethod('efectivo')
     setNotes('')
+    setDescuentoMode('amount')
+    setDescuentoInput(0)
+    setDisplayCurrency('DOP')
     setSellerId('')
     if (!(user?.role === 'cashier' && user?.id && user.id !== 'web' && cajeros.some(c => String(c.id) === String(user.id)))) {
       setCajeroId('')
@@ -476,6 +870,10 @@ export default function InvoiceCreate() {
             <button onClick={downloadPDF} className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/15 text-slate-700 dark:text-white rounded-lg font-semibold text-sm transition-colors">
               <Download size={16} /> {L('Descargar PDF', 'Download PDF')}
             </button>
+            <button onClick={sendEmail} disabled={emailSending} className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/15 text-slate-700 dark:text-white rounded-lg font-semibold text-sm transition-colors disabled:opacity-50">
+              {emailSending ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
+              {L('Enviar por Email', 'Send by Email')}
+            </button>
             {(selectedClient?.phone || clientForm.phone) && (
               <button onClick={sendWhatsApp} className="flex items-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold text-sm transition-colors">
                 <Send size={16} /> WhatsApp
@@ -509,10 +907,47 @@ export default function InvoiceCreate() {
         </div>
       )}
 
+      {certInfo?.installed && (certInfo?.expired || isCertExpired(certInfo?.expiry)) && (
+        <div className="flex items-center gap-2 bg-[#b3001e]/5 border border-[#b3001e]/30 rounded-lg p-3">
+          <AlertCircle size={16} className="text-[#b3001e] shrink-0" />
+          <p className="text-sm font-bold text-[#b3001e]">{L('Certificado e-CF vencido — no se puede emitir hasta renovar.', 'e-CF certificate expired — cannot issue until renewed.')}</p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <div className="lg:col-span-2 space-y-3">
           {/* ── Card 1: Tipo + Cliente ─────────────────────────────────── */}
           <div className="bg-white dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10 divide-y divide-slate-200 dark:divide-white/10">
+          <div className="p-3 flex items-center justify-between gap-3 flex-wrap">
+            <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">{L('Moneda', 'Currency')}</h3>
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-lg border border-slate-200 dark:border-white/10 overflow-hidden">
+                {CURRENCIES.map(c => (
+                  <button
+                    key={c.code}
+                    type="button"
+                    onClick={() => setDisplayCurrency(c.code)}
+                    className={`px-3 py-1.5 text-xs font-bold transition-colors ${displayCurrency === c.code ? 'bg-[#b3001e] text-white' : 'bg-slate-50 dark:bg-white/5 text-slate-600 dark:text-white/60'}`}
+                  >{c.code}</button>
+                ))}
+              </div>
+              {displayCurrency === 'USD' && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-white/50">{L('Tasa', 'Rate')}</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    value={usdRate}
+                    onChange={e => setUsdRate(Math.max(1, parseFloat(e.target.value) || 60))}
+                    className="w-20 px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-right text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-[#b3001e]/30"
+                  />
+                  <span className="text-[11px] text-slate-400">DOP/USD</span>
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="p-3">
             <h3 className="text-xs font-bold text-slate-700 dark:text-white mb-2 uppercase tracking-wider">{L('Tipo de Comprobante', 'Invoice Type')}</h3>
             <div className="flex gap-2">
@@ -662,17 +1097,17 @@ export default function InvoiceCreate() {
             <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">{L('Items', 'Items')}</h3>
 
             <div className="hidden sm:grid grid-cols-12 gap-2 text-[10px] font-bold text-slate-500 dark:text-white/40 uppercase tracking-wider px-1">
-              <div className="col-span-5">{L('Descripcion', 'Description')}</div>
+              <div className="col-span-4">{L('Descripcion', 'Description')}</div>
               <div className="col-span-1 text-center">{L('Cant', 'Qty')}</div>
               <div className="col-span-2 text-right">{L('Precio', 'Price')}</div>
-              <div className="col-span-1 text-center">{L('Exento', 'Exempt')}</div>
+              <div className="col-span-1 text-center">{L('Desc %', 'Disc %')}</div>
+              <div className="col-span-1 text-center">ITBIS</div>
               <div className="col-span-2 text-right">Total</div>
               <div className="col-span-1"></div>
             </div>
 
             {items.map((item, idx) => {
-              const rowTotal = Number(item.precio) * Number(item.cantidad || 1)
-              const rowItbis = item.itbis ? rowTotal * itbisFactor : 0
+              const m = lineMath(item, itbisRate)
               return (
                 <div key={idx} className="grid grid-cols-12 gap-2 items-center">
                   <input
@@ -680,7 +1115,7 @@ export default function InvoiceCreate() {
                     value={item.descripcion}
                     onChange={e => updateItem(idx, 'descripcion', e.target.value)}
                     placeholder={L('Descripcion del servicio o producto', 'Service or product description')}
-                    className="col-span-12 sm:col-span-5 px-3 py-2.5 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-[#b3001e]/30"
+                    className="col-span-12 sm:col-span-4 px-3 py-2.5 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-[#b3001e]/30"
                   />
                   <input
                     type="number"
@@ -698,21 +1133,31 @@ export default function InvoiceCreate() {
                     placeholder="0.00"
                     className="col-span-4 sm:col-span-2 px-3 py-2.5 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-right text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-[#b3001e]/30"
                   />
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    value={item.descuentoPct || ''}
+                    onChange={e => updateItem(idx, 'descuentoPct', Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))}
+                    placeholder="0"
+                    title={L('Descuento por línea (%)', 'Per-line discount (%)')}
+                    className="col-span-2 sm:col-span-1 px-2 py-2.5 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-center text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-[#b3001e]/30"
+                  />
                   <div className="col-span-2 sm:col-span-1 flex justify-center">
-                    <button
-                      onClick={() => updateItem(idx, 'itbis', !item.itbis)}
-                      title={item.itbis
-                        ? L(`ITBIS ${itbisRate}% — click para marcar Exento`, `ITBIS ${itbisRate}% — click to mark Exempt`)
-                        : L('Exento de ITBIS — click para aplicar ITBIS', 'ITBIS Exempt — click to apply ITBIS')}
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold transition-colors ${
-                        item.itbis ? 'bg-[#b3001e]/10 text-[#b3001e]' : 'bg-slate-200 dark:bg-white/15 text-slate-600 dark:text-white/70'
-                      }`}
+                    <select
+                      value={item.itbisCode || (item.itbis === false ? '4' : '1')}
+                      onChange={e => updateItem(idx, 'itbisCode', e.target.value)}
+                      title={L('Tasa ITBIS', 'ITBIS rate')}
+                      className="w-full px-1 py-2 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-[11px] font-bold text-center text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-[#b3001e]/30"
                     >
-                      {item.itbis ? `${itbisRate}%` : 'EX'}
-                    </button>
+                      {ITBIS_OPTIONS.map(opt => (
+                        <option key={opt.code} value={opt.code}>{lang === 'es' ? opt.label_es : opt.label_en}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="col-span-2 sm:col-span-2 text-right text-sm font-medium text-slate-800 dark:text-white">
-                    {fmtRD(rowTotal + rowItbis)}
+                    {fmtMoney(m.total, displayCurrency)}
                   </div>
                   <div className="col-span-1 flex justify-center">
                     <button onClick={() => removeItem(idx)} className="p-1.5 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors" disabled={items.length <= 1}>
@@ -723,12 +1168,48 @@ export default function InvoiceCreate() {
               )
             })}
 
-            <button
-              onClick={addItem}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-[#b3001e] hover:bg-[#b3001e]/5 rounded-lg transition-colors"
-            >
-              <Plus size={16} /> {L('Agregar Item', 'Add Item')}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={addItem}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-[#b3001e] hover:bg-[#b3001e]/5 rounded-lg transition-colors"
+              >
+                <Plus size={16} /> {L('Agregar Item', 'Add Item')}
+              </button>
+              <button
+                onClick={() => setShowTemplatePicker(v => !v)}
+                disabled={!templates.length}
+                title={L('Cargar una plantilla guardada', 'Load a saved template')}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/10 rounded-lg transition-colors disabled:opacity-40"
+              >
+                <Bookmark size={16} /> {L('Plantillas', 'Templates')} {templates.length > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-white/10">{templates.length}</span>}
+              </button>
+              <button
+                onClick={saveTemplate}
+                title={L('Guardar items actuales como plantilla', 'Save current items as a template')}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/10 rounded-lg transition-colors"
+              >
+                <BookmarkPlus size={16} /> {L('Guardar plantilla', 'Save template')}
+              </button>
+            </div>
+
+            {showTemplatePicker && templates.length > 0 && (
+              <div className="mt-2 rounded-lg border border-slate-200 dark:border-white/10 divide-y divide-slate-100 dark:divide-white/5 max-h-56 overflow-y-auto">
+                {templates.map(tpl => (
+                  <div key={tpl.id} className="flex items-center gap-3 px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-white/5">
+                    <button onClick={() => applyTemplate(tpl)} className="flex-1 min-w-0 text-left">
+                      <p className="text-sm font-semibold text-slate-800 dark:text-white truncate">{tpl.name}</p>
+                      <p className="text-xs text-slate-500 dark:text-white/50">{tpl.items.length} {L('items', 'items')}</p>
+                    </button>
+                    <button onClick={() => applyTemplate(tpl)} className="px-2.5 py-1 rounded-md bg-[#b3001e] hover:bg-[#8c0017] text-white text-xs font-bold transition-colors">
+                      {L('Cargar', 'Load')}
+                    </button>
+                    <button onClick={() => removeTemplate(tpl.id)} className="p-1.5 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-md transition-colors" title={L('Eliminar', 'Delete')}>
+                      <Trash2 size={14} className="text-red-500" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* ── Card 3: Comisiones + Opciones + Pago + Notas ──────────── */}
@@ -762,8 +1243,8 @@ export default function InvoiceCreate() {
               </div>
             </div>
 
-            <div className="p-3 flex flex-wrap items-center justify-between gap-3">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
+            <div className="p-3 flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer select-none mr-auto">
                 <input
                   type="checkbox"
                   checked={leyEnabled}
@@ -773,6 +1254,36 @@ export default function InvoiceCreate() {
                 <span className="text-sm font-bold text-slate-700 dark:text-white">{L('Aplicar Ley 10%', 'Apply 10% Service Charge')}</span>
                 <span className="text-[11px] text-slate-500 dark:text-white/50 hidden sm:inline">— {L('propina sobre subtotal', 'tip on subtotal')}</span>
               </label>
+
+              {/* H2 — global descuento */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-white/50">{L('Descuento Global', 'Global Discount')}</span>
+                <div className="flex rounded-lg border border-slate-200 dark:border-white/10 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setDescuentoMode('amount')}
+                    className={`px-2 py-1.5 text-[11px] font-bold transition-colors ${descuentoMode === 'amount' ? 'bg-[#b3001e] text-white' : 'bg-slate-50 dark:bg-white/5 text-slate-600 dark:text-white/60'}`}
+                  >RD$</button>
+                  <button
+                    type="button"
+                    onClick={() => setDescuentoMode('pct')}
+                    className={`px-2 py-1.5 text-[11px] font-bold transition-colors ${descuentoMode === 'pct' ? 'bg-[#b3001e] text-white' : 'bg-slate-50 dark:bg-white/5 text-slate-600 dark:text-white/60'}`}
+                  >%</button>
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={descuentoInput || ''}
+                  onChange={e => setDescuentoInput(Math.max(0, parseFloat(e.target.value) || 0))}
+                  placeholder="0"
+                  className="w-24 px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-right text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-[#b3001e]/30"
+                />
+              </div>
+            </div>
+
+            <div className="p-3 flex flex-wrap items-center justify-between gap-3">
+              <span className="text-[11px] text-slate-500 dark:text-white/50">{L('Forma de pago', 'Payment method')}</span>
               <div className="flex flex-wrap gap-1.5">
                 {PAYMENT_METHODS.map(pm => (
                   <button
@@ -808,24 +1319,42 @@ export default function InvoiceCreate() {
             <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">{L('Resumen', 'Summary')}</h3>
 
             <div className="space-y-1.5">
+              {totals.sumGross > 0 && totalDescuento > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500 dark:text-white/50">{L('Bruto', 'Gross')}</span>
+                  <span className="text-slate-500 dark:text-white/50 line-through">{fmtMoney(totals.sumGross, displayCurrency)}</span>
+                </div>
+              )}
+              {totalDescuento > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-[#b3001e] font-semibold">{L('Descuento', 'Discount')}</span>
+                  <span className="font-semibold text-[#b3001e]">−{fmtMoney(totalDescuento, displayCurrency)}</span>
+                </div>
+              )}
+              {displayCurrency !== 'DOP' && (
+                <div className="flex justify-between text-[11px] pt-1 border-t border-dashed border-slate-200 dark:border-white/10">
+                  <span className="text-slate-400 dark:text-white/40">{L('Equivalente DOP', 'DOP equivalent')}</span>
+                  <span className="text-slate-500 dark:text-white/50">RD$ {Number(total * Number(usdRate || 60)).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+              )}
               <div className="flex justify-between text-sm">
                 <span className="text-slate-500 dark:text-white/50">Subtotal</span>
-                <span className="font-medium text-slate-800 dark:text-white">{fmtRD(subtotal)}</span>
+                <span className="font-medium text-slate-800 dark:text-white">{fmtMoney(subtotal, displayCurrency)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-500 dark:text-white/50">ITBIS ({itbisRate}%)</span>
-                <span className="font-medium text-slate-800 dark:text-white">{fmtRD(itbisTotal)}</span>
+                <span className="text-slate-500 dark:text-white/50">ITBIS</span>
+                <span className="font-medium text-slate-800 dark:text-white">{fmtMoney(itbisTotal, displayCurrency)}</span>
               </div>
               {leyAmount > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500 dark:text-white/50">{L('Ley 10%', 'Service 10%')}</span>
-                  <span className="font-medium text-slate-800 dark:text-white">{fmtRD(leyAmount)}</span>
+                  <span className="font-medium text-slate-800 dark:text-white">{fmtMoney(leyAmount, displayCurrency)}</span>
                 </div>
               )}
               <div className="h-px bg-slate-200 dark:bg-white/10" />
               <div className="flex justify-between text-lg">
                 <span className="font-bold text-slate-800 dark:text-white">Total</span>
-                <span className="font-extrabold text-[#b3001e]">{fmtRD(total)}</span>
+                <span className="font-extrabold text-[#b3001e]">{fmtMoney(total, displayCurrency)}</span>
               </div>
             </div>
 

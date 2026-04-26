@@ -14,6 +14,7 @@ import {
   Archive, LifeBuoy, Send, Loader2,
   Grid3x3, UtensilsCrossed, ChefHat,
   Wrench, Scissors, Car, Calendar, Warehouse, Banknote, Clock, Briefcase,
+  Beef, Leaf, Truck, Tag, Shield, ShieldCheck,
 } from 'lucide-react'
 import { usePlan } from '../hooks/usePlan.jsx'
 import { useLang } from '../i18n'
@@ -66,11 +67,39 @@ const NAV = [
     roles: ['owner','manager','cashier','waiter'],
   },
   {
+    id: 'mechanic_resumen', to: '/mecanica/resumen', icon: BarChart3,
+    es: 'Resumen', en: 'Overview',
+    feature: 'mechanic_dashboard',
+    businessTypes: ['mechanic'],
+    roles: ['owner','manager','cashier','accountant','cfo'],
+  },
+  {
     id: 'work_orders', to: '/work-orders', icon: Wrench,
     es: 'Órdenes', en: 'Work Orders',
     feature: 'work_orders',
     businessTypes: ['mechanic'],
     roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'cotizaciones', to: '/cotizaciones', icon: FileText,
+    es: 'Cotizaciones', en: 'Estimates',
+    feature: 'work_orders',
+    businessTypes: ['mechanic'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'suministros', to: '/suministros', icon: Package,
+    es: 'Suministros', en: 'Parts Orders',
+    feature: 'parts_ordering',
+    businessTypes: ['mechanic'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'aseguradoras', to: '/aseguradoras', icon: Shield,
+    es: 'Aseguradoras', en: 'Insurers',
+    feature: 'insurance_batching',
+    businessTypes: ['mechanic'],
+    roles: ['owner','manager','cfo','accountant'],
   },
   {
     id: 'vehicles', to: '/vehicles', icon: Car,
@@ -80,28 +109,67 @@ const NAV = [
     roles: ['owner','manager','cashier'],
   },
   {
+    id: 'concesionario_resumen', to: '/concesionario', icon: Car,
+    es: 'Resumen', en: 'Overview',
+    feature: 'concesionario_resumen',
+    businessTypes: ['dealership'],
+    roles: ['owner','manager','cashier','accountant','cfo'],
+  },
+  {
     id: 'vehicle_inventory', to: '/vehicle-inventory', icon: Car,
     es: 'Vehículos', en: 'Vehicle Inventory',
+    feature: 'vehicle_inventory',
     businessTypes: ['dealership'],
     roles: ['owner','manager','cashier'],
   },
   {
     id: 'deal_builder', to: '/deal-builder', icon: Car,
     es: 'Cierre de Venta', en: 'Deal Builder',
+    feature: 'deal_builder',
     businessTypes: ['dealership'],
     roles: ['owner','manager','cashier'],
   },
   {
     id: 'sales_pipeline', to: '/sales-pipeline', icon: Car,
     es: 'Prospectos', en: 'Sales Pipeline',
+    feature: 'sales_pipeline',
+    businessTypes: ['dealership'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'reservations', to: '/reservations', icon: Calendar,
+    es: 'Reservas', en: 'Reservations',
+    feature: 'reservations',
+    businessTypes: ['dealership'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'warranties', to: '/warranties', icon: ShieldCheck,
+    es: 'Garantias', en: 'Warranties',
+    feature: 'warranties',
+    businessTypes: ['dealership'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'preapprovals', to: '/preapprovals', icon: Banknote,
+    es: 'Pre-aprobaciones', en: 'Pre-approvals',
+    feature: 'preapprovals',
     businessTypes: ['dealership'],
     roles: ['owner','manager','cashier'],
   },
   {
     id: 'test_drives', to: '/test-drives', icon: Car,
     es: 'Pruebas de Manejo', en: 'Test Drives',
+    feature: 'test_drives',
     businessTypes: ['dealership'],
     roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'matriculas', to: '/matriculas', icon: FileText,
+    es: 'Matriculas', en: 'Titles',
+    feature: 'matriculas',
+    businessTypes: ['dealership'],
+    roles: ['owner','manager','cashier','accountant','cfo'],
   },
   {
     id: 'service_bays', to: '/service-bays', icon: Warehouse,
@@ -111,10 +179,28 @@ const NAV = [
     roles: ['owner','manager'],
   },
   {
+    // Salon-only dashboard. Sits at the top of the salon nav so it's the first
+    // thing the cashier-stylist sees on login. Pro PLUS+.
+    id: 'salon_resumen', to: '/resumen', icon: BarChart3,
+    es: 'Resumen', en: 'Overview',
+    feature: 'salon_dashboard',
+    businessTypes: ['salon'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
     id: 'appointments', to: '/appointments', icon: Calendar,
     es: 'Citas', en: 'Appointments',
     feature: 'appointments',
     businessTypes: ['salon', 'mechanic'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    // Salon memberships — separate top-level entry (NOT under the generic
+    // Clients group) so it's discoverable for the cashier-stylist on Pro PLUS.
+    id: 'salon_memberships', to: '/memberships', icon: Tag,
+    es: 'Membresías', en: 'Memberships',
+    feature: 'salon_memberships',
+    businessTypes: ['salon'],
     roles: ['owner','manager','cashier'],
   },
   {
@@ -134,7 +220,33 @@ const NAV = [
       { to: '/loans', es: 'Préstamos', en: 'Loans', feature: 'loans' },
       { to: '/pawn-items', es: 'Empeños', en: 'Pawn Items', feature: 'pawn_items' },
       { to: '/collections', es: 'Cobros', en: 'Collections', feature: 'loans' },
+      { to: '/lending/resumen', es: 'Resumen', en: 'Dashboard', feature: 'loans' },
+      { to: '/lending/reporte-sb', es: 'Reporte SB', en: 'SB Report', feature: 'loans' },
     ],
+  },
+  {
+    id: 'carniceria_cortes', to: '/carniceria/cortes', icon: Beef,
+    es: 'Cortes', en: 'Cuts',
+    businessTypes: ['carniceria'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'carniceria_frescura', to: '/carniceria/frescura', icon: Leaf,
+    es: 'Frescura', en: 'Freshness',
+    businessTypes: ['carniceria'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'carniceria_mayoreo', to: '/carniceria/mayoreo', icon: Truck,
+    es: 'Mayoreo', en: 'Wholesale',
+    businessTypes: ['carniceria'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'carniceria_resumen', to: '/carniceria/resumen', icon: BarChart3,
+    es: 'Resumen', en: 'Overview',
+    businessTypes: ['carniceria'],
+    roles: ['owner','manager','cfo','accountant'],
   },
   {
     id: 'service_hub', to: '/servicios', icon: Briefcase,
@@ -205,7 +317,12 @@ const NAV = [
     roles: ['owner','manager','cfo','accountant','cashier'],
     children: [
       { to: '/invoicing/create', es: 'Nueva Factura', en: 'New Invoice' },
+      { to: '/invoicing/quotes', es: 'Cotizaciones', en: 'Quotes' },
       { to: '/invoicing/history', es: 'Historial', en: 'History' },
+      // v2.16.2 Facturación-tier sprint — E33/E34 surfaces here so a billing-only
+      // client never has to hunt for the standalone /credit-notes entry.
+      { to: '/credit-notes', es: 'Notas de Crédito', en: 'Credit Notes', feature: 'credit_notes' },
+      { to: '/dgii', es: 'Reportes 606/607', en: '606/607 Reports', feature: 'dgii_606_607' },
     ],
   },
   {

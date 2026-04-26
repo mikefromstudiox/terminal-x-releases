@@ -127,6 +127,8 @@ const SYNC_TABLES = [
       birthday_treat_available: !!r.birthday_treat_available,
       allergies: r.allergies || null,
       preferred_stylist_supabase_id: r.preferred_stylist_supabase_id || null,
+      // H8 — DR ley protección de datos
+      wa_opt_out: !!r.wa_opt_out,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
     }),
@@ -150,6 +152,14 @@ const SYNC_TABLES = [
       price_per_unit: r.price_per_unit != null ? r.price_per_unit : null,
       bottle_deposit: r.bottle_deposit != null ? r.bottle_deposit : null,
       tare_default: r.tare_default != null ? r.tare_default : null,
+      // v2.16.3 carnicería hardening
+      prepacked: !!(r.prepacked || 0),
+      corte_category_supabase_id: r.corte_category_supabase_id || null,
+      expires_at: r.expires_at || null,
+      received_at: r.received_at || null,
+      // v2.16.1 patch — salon upsell tile flags
+      salon_upsell: !!(r.salon_upsell || 0),
+      salon_upsell_order: r.salon_upsell_order != null ? r.salon_upsell_order : null,
       active: r.active,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
@@ -216,6 +226,8 @@ const SYNC_TABLES = [
       waiter_empleado_supabase_id: r.waiter_empleado_supabase_id,
       guests_count: r.guests_count,
       seated_at: r.seated_at,
+      // v2.16.3 — "Pedir cuenta" timestamp (NULL = no pending bill).
+      bill_requested_at: r.bill_requested_at || null,
       sort_order: r.sort_order,
       active: !!(r.active ?? 1),
       created_at: r.created_at || new Date().toISOString(),
@@ -289,6 +301,214 @@ const SYNC_TABLES = [
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
     }),
+  },
+
+  // Concesionario v2 / v2.5 — dealership push
+  {
+    name: 'vehicle_inventory',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      stock_number: r.stock_number,
+      vin: r.vin,
+      make: r.make,
+      model: r.model,
+      year: r.year,
+      color: r.color,
+      mileage: r.mileage || 0,
+      condition: r.condition || 'used',
+      acquisition_cost: r.acquisition_cost || 0,
+      listing_price: r.listing_price || 0,
+      status: r.status || 'available',
+      title_status: r.title_status || 'clean',
+      photo_urls: (() => {
+        if (Array.isArray(r.photo_urls)) return r.photo_urls
+        if (typeof r.photo_urls === 'string' && r.photo_urls.trim()) {
+          try { return JSON.parse(r.photo_urls) } catch { return [] }
+        }
+        return []
+      })(),
+      featured: !!(r.featured || 0),
+      notes: r.notes,
+      listing_date: r.listing_date,
+      sold_date: r.sold_date,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'sales_deals',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id || null,
+      vehicle_inventory_supabase_id: r.vehicle_inventory_supabase_id || null,
+      salesperson_supabase_id: r.salesperson_supabase_id || null,
+      sale_price: r.sale_price || 0,
+      trade_in_supabase_id: r.trade_in_supabase_id || null,
+      trade_in_value: r.trade_in_value || 0,
+      down_payment: r.down_payment || 0,
+      financed_amount: r.financed_amount || 0,
+      term_months: r.term_months || 0,
+      apr: r.apr || 0,
+      monthly_payment: r.monthly_payment || 0,
+      commission_pct: r.commission_pct,
+      commission_amount: r.commission_amount,
+      commission_paid: !!(r.commission_paid || 0),
+      commission_paid_at: r.commission_paid_at || null,
+      ticket_supabase_id: r.ticket_supabase_id || null,
+      status: r.status || 'open',
+      notes: r.notes,
+      closed_at: r.closed_at,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'leads',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      name: r.name,
+      phone: r.phone,
+      email: r.email,
+      source: r.source || 'walk_in',
+      budget: r.budget,
+      notes: r.notes,
+      stage: r.stage || 'lead',
+      next_followup_at: r.next_followup_at,
+      last_contacted_at: r.last_contacted_at,
+      interested_vehicle_supabase_id: r.interested_vehicle_supabase_id || null,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'test_drives',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id || null,
+      vehicle_inventory_supabase_id: r.vehicle_inventory_supabase_id || null,
+      staff_supabase_id: r.staff_supabase_id || null,
+      scheduled_at: r.scheduled_at,
+      completed_at: r.completed_at,
+      license_number: r.license_number,
+      signed_waiver_url: r.signed_waiver_url,
+      notes: r.notes,
+      outcome: r.outcome,
+      outcome_notes: r.outcome_notes,
+      deal_supabase_id: r.deal_supabase_id || null,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'vehicle_documents',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      vehicle_inventory_supabase_id: r.vehicle_inventory_supabase_id,
+      doc_type: r.doc_type,
+      file_url: r.file_url,
+      file_name: r.file_name,
+      expires_at: r.expires_at,
+      notes: r.notes,
+      active: !!(r.active ?? 1),
+      uploaded_at: r.uploaded_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  // v2.16.2 — concesionario INTRANT matricula/traspaso tracker. Push mirrors the
+  // sales_deals shape; pull side is registered in the LWW table list further down.
+  {
+    name: 'vehicle_titulo',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      sales_deal_supabase_id: r.sales_deal_supabase_id || null,
+      vehicle_inventory_supabase_id: r.vehicle_inventory_supabase_id || null,
+      intrant_status: r.intrant_status || 'pendiente',
+      placa: r.placa || null,
+      matricula_url: r.matricula_url || null,
+      traspaso_initiated_at: r.traspaso_initiated_at || null,
+      traspaso_completed_at: r.traspaso_completed_at || null,
+      notes: r.notes || null,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  // v2.16.4 — concesionario reservation tracker (Sprint 2A H2). Push mirror.
+  {
+    name: 'vehicle_reservations',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      vehicle_inventory_supabase_id: r.vehicle_inventory_supabase_id || null,
+      client_supabase_id: r.client_supabase_id || null,
+      salesperson_supabase_id: r.salesperson_supabase_id || null,
+      deposit_amount: Number(r.deposit_amount) || 0,
+      deposit_method: r.deposit_method || null,
+      expires_at: r.expires_at,
+      released_at: r.released_at || null,
+      released_reason: r.released_reason || null,
+      converted_deal_supabase_id: r.converted_deal_supabase_id || null,
+      status: r.status || 'active',
+      notes: r.notes || null,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  // v2.16.4 — concesionario bank pre-approvals (Sprint 2C H5). Push mirror.
+  {
+    name: 'bank_preapprovals',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id || null,
+      lead_supabase_id: r.lead_supabase_id || null,
+      vehicle_inventory_supabase_id: r.vehicle_inventory_supabase_id || null,
+      salesperson_supabase_id: r.salesperson_supabase_id || null,
+      bank: r.bank,
+      bank_contact: r.bank_contact || null,
+      requested_amount: Number(r.requested_amount) || 0,
+      term_months: r.term_months != null ? Number(r.term_months) : null,
+      rate_offered: r.rate_offered != null ? Number(r.rate_offered) : null,
+      monthly_quota_offered: r.monthly_quota_offered != null ? Number(r.monthly_quota_offered) : null,
+      status: r.status || 'solicitada',
+      expires_at: r.expires_at || null,
+      decision_at: r.decision_at || null,
+      decision_letter_url: r.decision_letter_url || null,
+      notes: r.notes || null,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  // v2.16.4 — concesionario post-sale warranties (Sprint 2B H3). Push mirror.
+  // claims is parsed from local TEXT JSON to a real array on the wire so
+  // Supabase JSONB stores it as an array (not a stringified array).
+  {
+    name: 'vehicle_warranties',
+    cols: r => {
+      let claims = []
+      try { claims = typeof r.claims === 'string' ? JSON.parse(r.claims || '[]') : (Array.isArray(r.claims) ? r.claims : []) }
+      catch { claims = [] }
+      return {
+        supabase_id: r.supabase_id,
+        sales_deal_supabase_id: r.sales_deal_supabase_id,
+        vehicle_inventory_supabase_id: r.vehicle_inventory_supabase_id || null,
+        client_supabase_id: r.client_supabase_id || null,
+        kind: r.kind || 'general',
+        starts_at: r.starts_at,
+        expires_at: r.expires_at,
+        terms: r.terms || null,
+        claims,
+        status: r.status || 'active',
+        notes: r.notes || null,
+        active: !!(r.active ?? 1),
+        created_at: r.created_at || new Date().toISOString(),
+        updated_at: r.updated_at || null,
+      }
+    },
   },
 
   {
@@ -481,6 +701,17 @@ const SYNC_TABLES = [
       promised_date: r.promised_date,
       completed_date: r.completed_date,
       notes: r.notes,
+      // v2.16.0 mecánica hardening
+      aseguradora_supabase_id: r.aseguradora_supabase_id || null,
+      poliza_no: r.poliza_no || null,
+      reclamo_no: r.reclamo_no || null,
+      aseguradora_status: r.aseguradora_status || null,
+      started_at: r.started_at || null,
+      finished_at: r.finished_at || null,
+      ready_at: r.ready_at || null,
+      delivery_required: !!(r.delivery_required || 0),
+      delivery_fee: r.delivery_fee != null ? r.delivery_fee : 0,
+      validity_until: r.validity_until || null,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
     }),
@@ -497,6 +728,13 @@ const SYNC_TABLES = [
       status: r.status,
       services: r.services,
       notes: r.notes,
+      // v2.16.1 — salon hardening
+      is_walk_in: !!(r.is_walk_in || 0),
+      deposit_dop: r.deposit_dop ?? 0,
+      deposit_status: r.deposit_status || 'none',
+      no_show_fee_charged: !!(r.no_show_fee_charged || 0),
+      public_booking_token: r.public_booking_token || null,
+      client_membership_supabase_id: r.client_membership_supabase_id || null,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
     }),
@@ -543,10 +781,12 @@ const SYNC_TABLES = [
       unit: r.unit || null,
       price_per_unit: r.price_per_unit != null ? r.price_per_unit : null,
       inventory_item_supabase_id: r.inventory_item_supabase_id || null,
+      empleado_supabase_id: r.empleado_supabase_id || null,  // v2.16.1 patch — per-line stylist credit
       is_deposit:    r.is_deposit ? true : false,   // v2.6 — licoreria envase line
       course:        r.course || null,
       kds_fired_at:  r.kds_fired_at || null,
       guest_number:  r.guest_number != null ? r.guest_number : null,
+      preparation_notes: r.preparation_notes || null, // v2.16.3 carnicería
       updated_at: r.updated_at || null,
     }),
   },
@@ -934,6 +1174,57 @@ const SYNC_TABLES = [
       end_date: r.end_date,
       status: r.status,
       notes: r.notes,
+      // v2.16.1 — salon catalog (templates) extension. Nullable for carwash rows.
+      nombre: r.nombre || null,
+      service_supabase_id: r.service_supabase_id || null,
+      total_sessions: r.total_sessions ?? null,
+      price_dop: r.price_dop ?? null,
+      validity_days: r.validity_days ?? null,
+      active_template: r.active_template == null ? null : !!r.active_template,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  // v2.16.1 — Salon: per-client membership balance ledger
+  {
+    name: 'client_memberships',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id,
+      membership_supabase_id: r.membership_supabase_id,
+      sessions_remaining: r.sessions_remaining,
+      purchased_at: r.purchased_at || new Date().toISOString(),
+      expires_at: r.expires_at,
+      ticket_supabase_id: r.ticket_supabase_id || null,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  // v2.16.1 — Salon: membership redemption audit trail
+  {
+    name: 'membership_redemptions',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_membership_supabase_id: r.client_membership_supabase_id,
+      ticket_supabase_id: r.ticket_supabase_id,
+      appointment_supabase_id: r.appointment_supabase_id || null,
+      redeemed_at: r.redeemed_at || new Date().toISOString(),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  // v2.16.1 — Salon: appointment reminders queue (24h/2h/manual/confirm)
+  {
+    name: 'appointment_reminders',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      appointment_supabase_id: r.appointment_supabase_id,
+      fire_at: r.fire_at,
+      kind: r.kind,
+      status: r.status || 'pending',
+      ultramsg_message_id: r.ultramsg_message_id || null,
+      error: r.error || null,
+      sent_at: r.sent_at || null,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
     }),
@@ -1080,6 +1371,12 @@ const SYNC_TABLES = [
       redeem_deadline: r.redeem_deadline,
       ticket_code: r.ticket_code || null,
       redemption_date: r.redemption_date || null,
+      // C9 — papeleta legal: firmas cliente + prestamista
+      signature_dataurl: r.signature_dataurl || null,
+      prestamista_signature_dataurl: r.prestamista_signature_dataurl || null,
+      default_alert_days: r.default_alert_days ?? 3,
+      valoracion_notes: r.valoracion_notes || null,
+      offered_pct: r.offered_pct ?? 60,
       notes: r.notes,
       created_at: r.created_at || new Date().toISOString(),
       updated_at: r.updated_at || null,
@@ -1177,6 +1474,202 @@ const SYNC_TABLES = [
       is_device_local: !!r.is_device_local,
       device_hwid: r.device_hwid || null,
       updated_at: r.updated_at || new Date().toISOString(),
+    }),
+  },
+
+  // ── v2.16.3 — Carnicería hardening (LWW catalog + FWW operational logs) ──
+  {
+    name: 'carniceria_corte_categories',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      nombre: r.nombre,
+      nombre_dr_popular: r.nombre_dr_popular || null,
+      tooltip_traduccion: r.tooltip_traduccion || null,
+      especie: r.especie,
+      photo_url: r.photo_url || null,
+      nutrition_json: r.nutrition_json || null,
+      sort_order: r.sort_order || 0,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'inventory_freshness_log',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      inventory_item_supabase_id: r.inventory_item_supabase_id,
+      batch_lote: r.batch_lote || null,
+      received_at: r.received_at,
+      expires_at: r.expires_at,
+      qty_received: r.qty_received,
+      qty_remaining: r.qty_remaining,
+      unit: r.unit || 'lb',
+      auto_discount_applied: !!(r.auto_discount_applied || 0),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'inventory_discards',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      inventory_item_supabase_id: r.inventory_item_supabase_id,
+      freshness_log_supabase_id: r.freshness_log_supabase_id || null,
+      qty: r.qty,
+      unit: r.unit || 'lb',
+      motivo: r.motivo,
+      photo_url: r.photo_url || null,
+      empleado_supabase_id: r.empleado_supabase_id || null,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'recurring_orders',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      client_supabase_id: r.client_supabase_id,
+      nombre: r.nombre,
+      dia_semana: r.dia_semana,
+      items_json: typeof r.items_json === 'string' ? r.items_json : JSON.stringify(r.items_json || []),
+      total_estimado: r.total_estimado != null ? r.total_estimado : null,
+      whatsapp_confirmar: !!(r.whatsapp_confirmar ?? 1),
+      last_sent_at: r.last_sent_at || null,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'carniceria_scales',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      nombre: r.nombre,
+      tipo: r.tipo,
+      device_path: r.device_path || null,
+      protocol: r.protocol || 'generic',
+      baud_rate: r.baud_rate || 9600,
+      capacidad_max_lb: r.capacidad_max_lb != null ? r.capacidad_max_lb : null,
+      tare_default: r.tare_default || 0,
+      active_default: !!(r.active_default || 0),
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'promotions',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      name: r.name,
+      tipo: r.tipo,
+      discount_pct: r.discount_pct != null ? r.discount_pct : null,
+      discount_fixed: r.discount_fixed != null ? r.discount_fixed : null,
+      min_purchase: r.min_purchase != null ? r.min_purchase : null,
+      start_date: r.start_date || null,
+      end_date: r.end_date || null,
+      season_key: r.season_key || null,
+      banner_text: r.banner_text || null,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'promotion_items',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      // business_id is required by RLS on Supabase. The local SQLite schema
+      // for promotion_items doesn't carry business_id (we look it up via the
+      // parent promotion at sync time when missing).
+      business_id: r.business_id || null,
+      promotion_supabase_id: r.promotion_supabase_id,
+      item_type: r.item_type,
+      item_supabase_id: r.item_supabase_id,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+
+  // v2.16.0 — Taller Mecánico hardening
+  {
+    name: 'aseguradoras',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      nombre: r.nombre,
+      rnc: r.rnc,
+      contacto_telefono: r.contacto_telefono,
+      contacto_email: r.contacto_email,
+      ecf_mode: r.ecf_mode || 'per_wo',
+      notas: r.notas,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'suppliers',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      nombre: r.nombre,
+      rnc: r.rnc,
+      telefono: r.telefono,
+      contacto: r.contacto,
+      notas: r.notas,
+      active: !!(r.active ?? 1),
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'parts_orders',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      work_order_supabase_id: r.work_order_supabase_id || null,
+      supplier_supabase_id: r.supplier_supabase_id || null,
+      part_name: r.part_name,
+      part_sku: r.part_sku,
+      quantity: r.quantity,
+      unit_cost_estimate: r.unit_cost_estimate,
+      expected_at: r.expected_at,
+      received_at: r.received_at,
+      received_barcode: r.received_barcode,
+      status: r.status || 'pendiente',
+      notes: r.notes,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'work_order_photos',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      work_order_supabase_id: r.work_order_supabase_id || null,
+      vehicle_supabase_id: r.vehicle_supabase_id || null,
+      phase: r.phase,
+      storage_path: r.storage_path,
+      taken_by_empleado_supabase_id: r.taken_by_empleado_supabase_id || null,
+      caption: r.caption,
+      created_at: r.created_at || new Date().toISOString(),
+    }),
+  },
+  {
+    name: 'insurance_batches',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      aseguradora_supabase_id: r.aseguradora_supabase_id,
+      period_month: r.period_month,
+      ecf_supabase_id: r.ecf_supabase_id || null,
+      ecf_ncf: r.ecf_ncf || null,
+      total_amount: r.total_amount,
+      itbis_amount: r.itbis_amount,
+      pdf_storage_path: r.pdf_storage_path,
+      work_order_count: r.work_order_count,
+      status: r.status || 'borrador',
+      notes: r.notes,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
     }),
   },
 ]
@@ -1652,7 +2145,7 @@ function updatePullLog(tableName, lastPullAt) {
 // Pull path must stringify the inbound array before binding to SQLite.
 // v2.10.5: `body_json` is JSONB on Supabase, TEXT on SQLite — pull must
 // stringify before binding or better-sqlite3 rejects the row.
-const JSON_COLUMNS = new Set(['ecf_result', 'washer_empleado_supabase_ids', 'ticket_ids', 'denominaciones', 'services_json', 'metadata', 'services', 'payment_parts', 'body_json'])
+const JSON_COLUMNS = new Set(['ecf_result', 'washer_empleado_supabase_ids', 'ticket_ids', 'denominaciones', 'services_json', 'metadata', 'services', 'payment_parts', 'body_json', 'claims'])
 
 function sqliteValue(col, val) {
   if (val == null) return null
@@ -1674,10 +2167,10 @@ const PULL_TABLES = [
   { name: 'services', strategy: 'lww', naturalKey: 'name', cols: ['name','name_en','category','price','cost','aplica_itbis','active','is_wash','no_commission','commission_washer','commission_seller','commission_cashier','sort_order','printer_route','is_menu_item','course','station','happy_hour_price','happy_hour_start','happy_hour_end','updated_at'] },
   // v2.1: washers + sellers PULL entries removed — consolidated into `empleados`
   // (tipo='lavador'/'vendedor'). Their data is now part of the empleados pull below.
-  { name: 'clients', strategy: 'lww', naturalKey: 'name', cols: ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','loyalty_points','loyalty_tier','loyalty_lifetime_earned','birthday_treat_available','allergies','created_at','updated_at'],
+  { name: 'clients', strategy: 'lww', naturalKey: 'name', cols: ['name','rnc','phone','email','address','credit_limit','balance','visits','total_spent','notes','active','loyalty_points','loyalty_tier','loyalty_lifetime_earned','birthday_treat_available','allergies','no_show_count','last_no_show_at','wa_opt_out','created_at','updated_at'],
     fkCols: { preferred_stylist_supabase_id: 'empleados' } },
-  { name: 'inventory_items', strategy: 'lww', naturalKey: 'name', cols: ['name','sku','barcode','category','price','price_pedidos_ya','cost','quantity','min_quantity','aplica_itbis','sold_by_weight','unit','price_per_unit','bottle_deposit','tare_default','active','updated_at'] },
-  { name: 'mesas', strategy: 'lww', naturalKey: 'name', cols: ['name','zone','capacity','status','rev','guests_count','seated_at','sort_order','active','created_at','updated_at'],
+  { name: 'inventory_items', strategy: 'lww', naturalKey: 'name', cols: ['name','sku','barcode','category','price','price_pedidos_ya','cost','quantity','min_quantity','aplica_itbis','sold_by_weight','unit','price_per_unit','bottle_deposit','tare_default','prepacked','corte_category_supabase_id','received_at','expires_at','salon_upsell','salon_upsell_order','active','updated_at'] },
+  { name: 'mesas', strategy: 'lww', naturalKey: 'name', cols: ['name','zone','capacity','status','rev','guests_count','seated_at','bill_requested_at','sort_order','active','created_at','updated_at'],
     fkCols: { waiter_empleado_supabase_id: 'empleados' } },
   { name: 'modificadores', strategy: 'lww', naturalKey: 'name', cols: ['name','group_name','price_delta','min_select','max_select','default_selected','sort_order','active','created_at','updated_at'] },
   { name: 'service_modificadores', strategy: 'lww', cols: ['is_required','created_at','updated_at'],
@@ -1696,6 +2189,36 @@ const PULL_TABLES = [
   { name: 'service_bays', strategy: 'lww', naturalKey: 'name', cols: ['name','status','current_work_order_supabase_id','capacity','bay_type','active','created_at','updated_at'] },
   { name: 'stylist_schedules', strategy: 'lww', cols: ['day_of_week','start_time','end_time','active','created_at','updated_at'],
     fkCols: { empleado_supabase_id: 'empleados' } },
+
+  // Concesionario v2 / v2.5 — dealership tables
+  { name: 'vehicle_inventory', strategy: 'lww',
+    cols: ['stock_number','vin','make','model','year','color','mileage','condition','acquisition_cost','listing_price','status','title_status','photo_urls','featured','notes','listing_date','sold_date','active','created_at','updated_at'] },
+  { name: 'sales_deals', strategy: 'lww',
+    cols: ['sale_price','trade_in_value','down_payment','financed_amount','term_months','apr','monthly_payment','commission_pct','commission_amount','commission_paid','commission_paid_at','status','notes','closed_at','active','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', vehicle_inventory_supabase_id: 'vehicle_inventory', salesperson_supabase_id: 'empleados', trade_in_supabase_id: 'vehicle_inventory', ticket_supabase_id: 'tickets' } },
+  { name: 'leads', strategy: 'lww',
+    cols: ['name','phone','email','source','budget','notes','stage','next_followup_at','last_contacted_at','interested_vehicle_supabase_id','active','created_at','updated_at'] },
+  { name: 'test_drives', strategy: 'lww',
+    cols: ['scheduled_at','completed_at','license_number','signed_waiver_url','notes','outcome','outcome_notes','deal_supabase_id','active','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', vehicle_inventory_supabase_id: 'vehicle_inventory', staff_supabase_id: 'empleados' } },
+  { name: 'vehicle_documents', strategy: 'lww',
+    cols: ['vehicle_inventory_supabase_id','doc_type','file_url','file_name','expires_at','notes','active','uploaded_at','updated_at'] },
+  // v2.16.2 — concesionario INTRANT matricula/traspaso tracker
+  { name: 'vehicle_titulo', strategy: 'lww',
+    cols: ['intrant_status','placa','matricula_url','traspaso_initiated_at','traspaso_completed_at','notes','active','created_at','updated_at'],
+    fkCols: { sales_deal_supabase_id: 'sales_deals', vehicle_inventory_supabase_id: 'vehicle_inventory' } },
+  // v2.16.4 — concesionario reservation tracker (Sprint 2A H2)
+  { name: 'vehicle_reservations', strategy: 'lww',
+    cols: ['deposit_amount','deposit_method','expires_at','released_at','released_reason','status','notes','active','created_at','updated_at'],
+    fkCols: { vehicle_inventory_supabase_id: 'vehicle_inventory', client_supabase_id: 'clients', salesperson_supabase_id: 'empleados', converted_deal_supabase_id: 'sales_deals' } },
+  // v2.16.4 — concesionario post-sale warranties (Sprint 2B H3)
+  { name: 'vehicle_warranties', strategy: 'lww',
+    cols: ['kind','starts_at','expires_at','terms','claims','status','notes','active','created_at','updated_at'],
+    fkCols: { sales_deal_supabase_id: 'sales_deals', vehicle_inventory_supabase_id: 'vehicle_inventory', client_supabase_id: 'clients' } },
+  // v2.16.4 — concesionario bank pre-approvals (Sprint 2C H5)
+  { name: 'bank_preapprovals', strategy: 'lww',
+    cols: ['bank','bank_contact','requested_amount','term_months','rate_offered','monthly_quota_offered','status','expires_at','decision_at','decision_letter_url','notes','active','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', vehicle_inventory_supabase_id: 'vehicle_inventory', salesperson_supabase_id: 'empleados' } },
 
   // NOTE on `'users'` refTable in fkCols below (cajero_supabase_id / user_supabase_id /
   // approved_by_supabase_id): on Supabase, `users` is a VIEW over the `staff` base table
@@ -1717,8 +2240,8 @@ const PULL_TABLES = [
     // v2.10.3 — `rev` rides statusSync so both sides of a status flip stay in lockstep.
     statusSync: ['status', 'void_reason', 'void_by', 'void_at', 'rev', 'updated_at'] },
   { name: 'ticket_items', strategy: 'fww',
-    cols: ['name','price','cost','itbis','is_wash','quantity','sku','weight','unit','price_per_unit','is_deposit','course','kds_fired_at','guest_number','created_at','updated_at'],
-    fkCols: { ticket_supabase_id: 'tickets', service_supabase_id: 'services', inventory_item_supabase_id: 'inventory_items' } },
+    cols: ['name','price','cost','itbis','is_wash','quantity','sku','weight','unit','price_per_unit','is_deposit','course','kds_fired_at','guest_number','preparation_notes','empleado_supabase_id','created_at','updated_at'],
+    fkCols: { ticket_supabase_id: 'tickets', service_supabase_id: 'services', inventory_item_supabase_id: 'inventory_items', empleado_supabase_id: 'empleados' } },
   { name: 'queue', strategy: 'lww',
     cols: ['status','assigned_at','completed_at','created_at','updated_at'],
     // v2.1: washer_supabase_id column dropped → empleado_supabase_id (lavador/hybrid).
@@ -1735,13 +2258,15 @@ const PULL_TABLES = [
 
   // Phase 2 (cont.) — multi-vertical dependent entities
   { name: 'work_orders', strategy: 'lww',
-    cols: ['status','estimated_total','actual_total','labor_total','parts_total','itbis','total','inspection_json','estimate_approved_at','customer_signature_url','customer_approval_token','expected_parts_arrival','odometer_in_km','odometer_out_km','promised_date','completed_date','notes','created_at','updated_at'],
-    fkCols: { vehicle_supabase_id: 'vehicles', client_supabase_id: 'clients', technician_empleado_supabase_id: 'empleados', bay_supabase_id: 'service_bays' } },
+    cols: ['status','estimated_total','actual_total','labor_total','parts_total','itbis','total','inspection_json','estimate_approved_at','customer_signature_url','customer_approval_token','expected_parts_arrival','odometer_in_km','odometer_out_km','promised_date','completed_date','notes','poliza_no','reclamo_no','aseguradora_status','started_at','finished_at','ready_at','delivery_required','delivery_fee','validity_until','created_at','updated_at'],
+    fkCols: { vehicle_supabase_id: 'vehicles', client_supabase_id: 'clients', technician_empleado_supabase_id: 'empleados', bay_supabase_id: 'service_bays', aseguradora_supabase_id: 'aseguradoras' } },
   { name: 'appointments', strategy: 'lww',
-    cols: ['date','start_time','end_time','status','services','notes','created_at','updated_at'],
+    cols: ['date','start_time','end_time','status','services','notes',
+           'is_walk_in','deposit_dop','deposit_status','no_show_fee_charged','public_booking_token',
+           'client_membership_supabase_id','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', empleado_supabase_id: 'empleados' } },
   { name: 'loans', strategy: 'lww',
-    cols: ['principal','term_months','interest_rate','monthly_payment','status','disbursed_at','next_due_date','total_paid','total_interest','method','mora_rate_daily','days_late','mora_amount','notes','created_at','updated_at'],
+    cols: ['principal','term_months','interest_rate','monthly_payment','status','disbursed_at','next_due_date','total_paid','total_interest','method','mora_rate_daily','days_late','mora_amount','amortization_method','renewal_count','notes','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients' } },
 
   // Phase 3 — financial (LWW on paid flag)
@@ -1790,7 +2315,7 @@ const PULL_TABLES = [
     cols: ['amount','principal_portion','interest_portion','late_fee','payment_date','due_date','status','notes','created_at','updated_at'],
     fkCols: { loan_supabase_id: 'loans' } },
   { name: 'pawn_items', strategy: 'lww',
-    cols: ['description','estimated_value','storage_location','status','redeem_deadline','ticket_code','redemption_date','notes','created_at','updated_at'],
+    cols: ['description','estimated_value','storage_location','status','redeem_deadline','ticket_code','redemption_date','default_alert_days','valoracion_notes','offered_pct','signature_dataurl','prestamista_signature_dataurl','notes','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', loan_supabase_id: 'loans' } },
   { name: 'loan_schedule', strategy: 'fww',
     cols: ['installment_no','due_date','principal_due','interest_due','total_due','paid_amount','paid_at','status','created_at','updated_at'],
@@ -1798,6 +2323,23 @@ const PULL_TABLES = [
   { name: 'collections_log', strategy: 'fww',
     cols: ['channel','outcome','notes','contacted_at','next_contact_date','created_by_staff_id','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', loan_supabase_id: 'loans' } },
+
+  // v2.16.2 — Prestamos hardening: contracts, renewals, pawn docs/listings, collections attempts
+  { name: 'loan_contracts', strategy: 'lww',
+    cols: ['pdf_url','signature_dataurl','dpi_photo_url','signed_at','apr_monthly','apr_annual_equiv','clauses_version','created_at','updated_at'],
+    fkCols: { loan_supabase_id: 'loans' } },
+  { name: 'loan_renewals', strategy: 'fww',
+    cols: ['renewal_count','interest_paid','new_due_date','previous_due_date','renewed_at','notes','created_at','updated_at'],
+    fkCols: { loan_supabase_id: 'loans' } },
+  { name: 'pawn_documents', strategy: 'lww',
+    cols: ['doc_type','file_url','mime_type','notes','created_at','updated_at'],
+    fkCols: { pawn_supabase_id: 'pawn_items' } },
+  { name: 'pawn_listings', strategy: 'lww',
+    cols: ['list_price','published_at','slug','status','sold_ticket_supabase_id','notes','created_at','updated_at'],
+    fkCols: { pawn_supabase_id: 'pawn_items' } },
+  { name: 'collections_attempts', strategy: 'fww',
+    cols: ['attempt_at','outcome','notes','next_followup_at','whatsapp_sent','created_at','updated_at'],
+    fkCols: { loan_supabase_id: 'loans' } },
 
   // Phase 4 — payroll audit trail + adelantos (FWW — financial records, never overwritten)
   // Note: ecf_submissions is push-only (desktop-authored per-device, no pull) — column name
@@ -1826,8 +2368,21 @@ const PULL_TABLES = [
   // v2.4 — Carwash memberships + wash_combos (LWW — desktop is edit-heavy source of truth)
   { name: 'memberships', strategy: 'lww',
     cols: ['plan_name','plan_price','wash_quota_per_month','washes_used_this_period',
-           'period_start','period_end','start_date','end_date','status','notes','created_at','updated_at'],
-    fkCols: { client_supabase_id: 'clients', vehicle_supabase_id: 'vehicles' } },
+           'period_start','period_end','start_date','end_date','status','notes',
+           // v2.16.1 — salon catalog extension
+           'nombre','total_sessions','price_dop','validity_days','active_template',
+           'created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', vehicle_supabase_id: 'vehicles', service_supabase_id: 'services' } },
+  // v2.16.1 — Salon hardening
+  { name: 'client_memberships', strategy: 'lww',
+    cols: ['sessions_remaining','purchased_at','expires_at','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients', membership_supabase_id: 'memberships', ticket_supabase_id: 'tickets' } },
+  { name: 'membership_redemptions', strategy: 'fww',
+    cols: ['redeemed_at','created_at','updated_at'],
+    fkCols: { client_membership_supabase_id: 'client_memberships', ticket_supabase_id: 'tickets', appointment_supabase_id: 'appointments' } },
+  { name: 'appointment_reminders', strategy: 'lww',
+    cols: ['fire_at','kind','status','ultramsg_message_id','error','sent_at','created_at','updated_at'],
+    fkCols: { appointment_supabase_id: 'appointments' } },
   { name: 'wash_combos', strategy: 'lww',
     cols: ['combo_name','total_washes','used_washes','purchase_price','purchased_at',
            'expires_at','status','notes','created_at','updated_at'],
@@ -1887,6 +2442,41 @@ const PULL_TABLES = [
   // top of pullTable() for this name.
   { name: 'app_settings', strategy: 'lww', naturalKey: 'key',
     cols: ['key','value','updated_at'] },
+
+  // v2.16.0 — Taller Mecánico hardening
+  { name: 'aseguradoras', strategy: 'lww', naturalKey: 'nombre',
+    cols: ['nombre','rnc','contacto_telefono','contacto_email','ecf_mode','notas','active','created_at','updated_at'] },
+  { name: 'suppliers', strategy: 'lww', naturalKey: 'nombre',
+    cols: ['nombre','rnc','telefono','contacto','notas','active','created_at','updated_at'] },
+  { name: 'parts_orders', strategy: 'lww',
+    cols: ['part_name','part_sku','quantity','unit_cost_estimate','expected_at','received_at','received_barcode','status','notes','created_at','updated_at'],
+    fkCols: { work_order_supabase_id: 'work_orders', supplier_supabase_id: 'suppliers' } },
+  { name: 'work_order_photos', strategy: 'fww',
+    cols: ['phase','storage_path','caption','created_at'],
+    fkCols: { work_order_supabase_id: 'work_orders', vehicle_supabase_id: 'vehicles', taken_by_empleado_supabase_id: 'empleados' } },
+  { name: 'insurance_batches', strategy: 'lww',
+    cols: ['period_month','ecf_supabase_id','ecf_ncf','total_amount','itbis_amount','pdf_storage_path','work_order_count','status','notes','created_at','updated_at'],
+    fkCols: { aseguradora_supabase_id: 'aseguradoras' } },
+
+  // ── v2.16.3 — Carnicería hardening (PULL definitions) ────────────────────
+  { name: 'carniceria_corte_categories', strategy: 'lww', naturalKey: 'nombre',
+    cols: ['nombre','nombre_dr_popular','tooltip_traduccion','especie','photo_url','nutrition_json','sort_order','active','created_at','updated_at'] },
+  { name: 'inventory_freshness_log', strategy: 'fww',
+    cols: ['batch_lote','received_at','expires_at','qty_received','qty_remaining','unit','auto_discount_applied','created_at','updated_at'],
+    fkCols: { inventory_item_supabase_id: 'inventory_items' } },
+  { name: 'inventory_discards', strategy: 'fww',
+    cols: ['qty','unit','motivo','photo_url','created_at','updated_at'],
+    fkCols: { inventory_item_supabase_id: 'inventory_items', freshness_log_supabase_id: 'inventory_freshness_log', empleado_supabase_id: 'empleados' } },
+  { name: 'recurring_orders', strategy: 'lww', naturalKey: 'nombre',
+    cols: ['nombre','dia_semana','items_json','total_estimado','whatsapp_confirmar','last_sent_at','active','created_at','updated_at'],
+    fkCols: { client_supabase_id: 'clients' } },
+  { name: 'carniceria_scales', strategy: 'lww', naturalKey: 'nombre',
+    cols: ['nombre','tipo','device_path','protocol','baud_rate','capacidad_max_lb','tare_default','active_default','active','created_at','updated_at'] },
+  { name: 'promotions', strategy: 'lww', naturalKey: 'name',
+    cols: ['name','tipo','discount_pct','discount_fixed','min_purchase','start_date','end_date','season_key','banner_text','active','created_at','updated_at'] },
+  { name: 'promotion_items', strategy: 'lww',
+    cols: ['item_type','item_supabase_id','created_at','updated_at'],
+    fkCols: { promotion_supabase_id: 'promotions' } },
 ]
 
 // -- Pull upsert: Supabase row -> SQLite row ----------------------------------
@@ -2965,8 +3555,12 @@ async function startRealtime() {
     'vehicles','service_bays','work_orders','work_order_items','appointments',
     'stylist_schedules','loans','loan_payments','pawn_items',
     'memberships','wash_combos',
+    // v2.16.1 — salon hardening
+    'client_memberships','membership_redemptions','appointment_reminders',
     'subscriptions','service_packages','projects','client_service_rates','client_item_prices',
     'inventory_counts','inventory_count_items',
+    // v2.16.0 — mecánica
+    'aseguradoras','suppliers','parts_orders','work_order_photos','insurance_batches',
   ]
 
   _realtimeChannel = _realtimeClient.channel(`tx-sync-${bizId}`)
@@ -3049,11 +3643,17 @@ const RECONCILE_TABLES = [
   // the desktop's stale row gets re-pushed on the following tick and the
   // "wiped" rows reappear in 606/607 + Remote Dashboard + Clients.
   'tickets', 'clients', 'queue', 'queue_deletions',
+  // v2.16.1 — salon hardening: reconcile so cloud-side deletes propagate
+  'memberships', 'client_memberships', 'membership_redemptions', 'appointment_reminders',
   // Commission tables: reconcile so a cloud-side dedupe (e.g. wiping
   // duplicate StarSISA import aggregates) propagates to desktop. The
   // 10-min age guard in reconcileDeletes protects commissions created
   // mid-cycle that haven't pushed yet.
   'washer_commissions', 'seller_commissions', 'cajero_commissions',
+  // v2.16.0 — Taller Mecánico hardening: durable entities + supplies workflow
+  'aseguradoras', 'suppliers', 'parts_orders', 'insurance_batches',
+  // v2.16.1 — Préstamos hardening: contracts, renewals, collections, pawn docs/listings
+  'collections_attempts', 'loan_contracts', 'loan_renewals', 'pawn_documents', 'pawn_listings',
 ]
 
 // Flush locally-recorded deletes to Supabase. Called at the top of each sync

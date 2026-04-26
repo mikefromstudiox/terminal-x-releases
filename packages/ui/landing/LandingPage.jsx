@@ -9,7 +9,6 @@ import DgiiComparison from './components/DgiiComparison'
 import VerticalFeatures from './components/VerticalFeatures'
 import FeatureMatrix from './components/FeatureMatrix'
 import RoiCalculator from './components/RoiCalculator'
-import DemoStrip from './components/DemoStrip'
 import DeadlineCta from './components/DeadlineCta'
 import StickyMobileCta from './components/StickyMobileCta'
 import ExitIntentModal from './components/ExitIntentModal'
@@ -261,6 +260,13 @@ const COMPARISON = {
 
 const FAQ = {
   es: [
+    // ── Facturación tier (RD$995/mes) — Q&A ───────────────────────────────
+    { q: 'Que incluye el plan Facturacion de RD$995/mes?', a: 'Es el plan de solo facturacion electronica para negocios que ya usan otro POS o no necesitan cobrar en mostrador. Incluye: emision directa de e-CF E31 y E32 a DGII, notas de credito E33/E34, exportacion de los formatos 606 y 607 cada mes para tu contador, base de clientes con busqueda por nombre/RNC/telefono, y el certificado Viafirma incluido en el precio. Sin intermediarios PSFE.' },
+    { q: 'Que pasa si emito una factura sin internet?', a: 'Terminal X la guarda en una cola local cifrada y la firma con IndicadorEnvioDiferido=1 cuando vuelva la conexion — exactamente como permite la DGII bajo la regla de 72 horas diferidas. La factura nunca se pierde y el comprobante sigue siendo valido.' },
+    { q: 'Puedo emitir notas de credito (E33/E34) con el plan Facturacion?', a: 'Si. El plan Facturacion incluye emision de notas de credito E33 y E34 referenciando el e-NCF original. Las facturas anuladas se envian automaticamente a la cola de ANECF para que DGII las reciba como anuladas.' },
+    { q: 'Puedo exportar 606 y 607 con el plan Facturacion?', a: 'Si — y es la razon principal por la que un plan de solo facturacion sirve en Republica Dominicana. Cada mes generas el TXT formato 606 (Compras) y 607 (Ventas) listo para subir al portal DGII. Tu contador no necesita armar nada a mano.' },
+    { q: 'Que pasa cuando se vence mi certificado e-CF?', a: 'Terminal X te avisa con un banner rojo en el dashboard 30 dias antes del vencimiento, y bloquea la emision el dia que vence para que nunca subas un comprobante con certificado caducado. Cuando renuevas con Viafirma, instalas el nuevo .p12 y todo sigue. Sin sorpresas, sin multas.' },
+    { q: 'Puedo manejar varias tasas de ITBIS y descuentos en una factura?', a: 'Si. Cada linea de la factura tiene su propia tasa (18% general, 16% reducida, 0% exportacion o Exento) y descuento por linea en porcentaje. Ademas puedes aplicar un descuento global en RD$ o porcentaje sobre el subtotal — todo con desglose correcto en el e-CF (MontoGravadoI1, MontoGravadoI2, MontoExento, MontoTotalDescuento).' },
     { q: 'Puedo cambiar de plan en cualquier momento?', a: 'Si, puedes subir o bajar de plan en cualquier momento desde el panel de administracion. El cambio se aplica inmediatamente.' },
     { q: 'Hay contrato anual obligatorio?', a: 'No. Puedes pagar mes a mes sin compromiso. El plan anual tiene 15% de descuento pero no es obligatorio.' },
     { q: 'Que pasa si me quedo sin internet?', a: 'Todo sigue funcionando 100% offline. Puedes cobrar, imprimir facturas, ver reportes. Se sincroniza automaticamente cuando vuelve la conexion (hasta 72 horas de cola).' },
@@ -273,6 +279,13 @@ const FAQ = {
     { q: 'Que pasa si mi proveedor de facturacion electronica (PSFE) se cae?', a: 'Nada — porque no usamos uno. Terminal X es Emisor Electronico directo ante DGII. No dependemos de ef2.do, Indexa, ni ningun otro PSFE. Tu sistema firma y transmite los e-CF directamente al portal de DGII. Si un PSFE se cae, tus competidores dejan de facturar. Tu no.' },
   ],
   en: [
+    // ── Facturación tier (RD$995/mo) — Q&A ────────────────────────────────
+    { q: 'What does the RD$995/mo Facturación plan include?', a: 'It is the invoicing-only tier for businesses that already use another POS or do not need a counter checkout. Included: direct E31 and E32 e-CF issuance with DGII, E33/E34 credit notes, monthly 606 and 607 TXT export for your accountant, client database with name/RNC/phone search, and the Viafirma certificate bundled in the price. Zero PSFE middlemen.' },
+    { q: 'What happens if I issue an invoice without internet?', a: 'Terminal X stores it in an encrypted local queue and signs it with IndicadorEnvioDiferido=1 once the connection returns — exactly the way DGII allows under the 72-hour deferred-emission rule. The invoice is never lost and the receipt stays valid.' },
+    { q: 'Can I issue credit notes (E33/E34) on the Facturación plan?', a: 'Yes. The Facturación plan includes E33 and E34 credit notes that reference the original e-NCF. Voided invoices are auto-routed to the ANECF queue so DGII receives them as cancelled.' },
+    { q: 'Can I export 606 and 607 reports on the Facturación plan?', a: 'Yes — and this is the main reason an invoicing-only plan even works in the Dominican Republic. Every month you generate the 606 (Purchases) and 607 (Sales) TXT files ready to upload to the DGII portal. Your accountant does not have to assemble anything by hand.' },
+    { q: 'What happens when my e-CF certificate expires?', a: 'Terminal X shows a red dashboard banner 30 days before expiry and blocks issuance the day it expires so you never submit a receipt with an expired certificate. When you renew with Viafirma you install the new .p12 and everything keeps going. No surprises, no fines.' },
+    { q: 'Can I handle multiple ITBIS rates and discounts on a single invoice?', a: 'Yes. Every line carries its own rate (18% general, 16% reduced, 0% export, or Exempt) and a per-line discount in percent. You can also apply a global discount in RD$ or percent on the subtotal — all properly broken down in the e-CF (MontoGravadoI1, MontoGravadoI2, MontoExento, MontoTotalDescuento).' },
     { q: 'Can I change plans anytime?', a: 'Yes, you can upgrade or downgrade at any time from the admin panel. Changes apply immediately.' },
     { q: 'Is there a mandatory annual contract?', a: 'No. You can pay month-to-month with no commitment. The annual plan has a 15% discount but is not required.' },
     { q: 'What happens if I lose internet?', a: 'Everything keeps working 100% offline. You can charge, print invoices, view reports. It syncs automatically when connection returns (up to 72 hours queued).' },
@@ -661,9 +674,44 @@ export default function LandingPage({ section }) {
           tabbed mega-section that drives copy from copy.json */}
       <VerticalFeatures lang={lang} />
 
-      {/* SECTION 3.55: Demo strip + cert callout (WHITE) — replaces the single
-          Studio X Car Wash live-client block with the 13-vertical demo grid */}
-      <DemoStrip lang={lang} ecfsIssued="10K+" />
+      {/* SECTION 3.55: WhatsApp demo CTA (WHITE) — replaces the in-app demo grid.
+          Every "demo" entry-point on the site routes to WhatsApp for a guided walk-through. */}
+      <section className="bg-white px-4 py-20 sm:px-6 lg:px-8 border-t border-black/5">
+        <div className="max-w-4xl mx-auto text-center">
+          <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">
+            {L('VER UNA DEMO', 'SEE A DEMO')}
+          </p>
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight text-black">
+            {L('Hablemos por WhatsApp', "Let's talk on WhatsApp")}
+          </h2>
+          <p className="mt-5 text-base text-black/60 max-w-2xl mx-auto leading-relaxed">
+            {L(
+              'Te damos acceso a una cuenta de demo real con datos sembrados para tu vertical y te guiamos en vivo. Nada de juguetes — el sistema completo, con tu plan y tu industria.',
+              'We give you access to a real demo account with seeded data for your vertical and walk you through live. No toys — the full system, with your plan and your industry.'
+            )}
+          </p>
+          <div className="mt-10 flex flex-col sm:flex-row gap-3 justify-center">
+            <a
+              href={`https://wa.me/18098282971?text=${encodeURIComponent(
+                L('Hola, quiero ver una demo de Terminal X', 'Hi, I want to see a Terminal X demo')
+              )}`}
+              target="_blank" rel="noreferrer"
+              className="inline-flex items-center justify-center gap-2 bg-[#b3001e] hover:brightness-110 text-white font-bold px-8 py-4 rounded-xl transition"
+            >
+              {L('Pedir demo por WhatsApp', 'Request demo on WhatsApp')}
+            </a>
+            <a
+              href="/signup"
+              className="inline-flex items-center justify-center gap-2 bg-black hover:bg-black/80 text-white font-bold px-8 py-4 rounded-xl transition"
+            >
+              {L('Empezar 7 días gratis', 'Start 7-day free trial')}
+            </a>
+          </div>
+          <p className="mt-6 text-xs text-black/40 font-semibold tracking-wide">
+            +1 (809) 828-2971 · {L('Lunes a sábado', 'Mon–Sat')} · 9am–7pm
+          </p>
+        </div>
+      </section>
 
       {/* (legacy 3.5 + 3.6 retained but never rendered for diff readability) */}
       {false && (<>

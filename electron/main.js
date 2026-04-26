@@ -757,6 +757,26 @@ ipcMain.handle('dgii:auth-test', async () => {
   }
 })
 
+// v2.16.2 — dgii:queue-anecf-void — DealBuilder.salesDeals.close failure path
+// enqueues a compensating ANECF (anulación) when the sale could not be linked
+// to the e-CF that was already accepted by DGII. processAnecfQueue() drains it
+// on its 60s tick. Returns { ok, queued, ncf, reason } so the renderer can
+// surface a crimson banner when the void was actually queued.
+ipcMain.handle('dgii:queue-anecf-void', async (_, { eNCF, ticketId, ticketSupabaseId, reason } = {}) => {
+  try {
+    if (!eNCF) return { ok: false, error: 'eNCF required' }
+    const id = db.anecfQueueEnqueue({
+      ncf: eNCF,
+      ticketId: ticketId || null,
+      ticketSupabaseId: ticketSupabaseId || null,
+      reason: reason || null,
+    })
+    return { ok: true, queued: !!id, ncf: eNCF, reason: reason || null, id: id || null }
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) }
+  }
+})
+
 // dgii:check-status — check trackId status
 ipcMain.handle('dgii:check-status', async (_, trackId) => {
   try {
@@ -1427,6 +1447,77 @@ app.whenReady().then(async () => {
     setInterval(() => { processDgiiPendingQueue().catch(() => {}) }, 5 * 60_000)
   }, 90_000)
 
+  // v2.16.4 — Concesionario reservation auto-expire. First sweep on boot, then
+  // every 15 minutes. Each expired row gets logged so owners see the release in
+  // the activity feed. Cheap query (indexed on expires_at + status).
+  function _runReservationExpire() {
+    try {
+      const r = db?.vehicleReservationsExpire?.()
+      if (!r?.expired) return
+      for (const item of r.ids) {
+        try {
+          db.activityLogRecord?.({
+            event_type:  'vehicle_reservation_expired',
+            severity:    'info',
+            target_type: 'vehicle_reservation',
+            target_id:   item.id,
+            metadata:    { supabase_id: item.supabase_id, vehicle_inventory_supabase_id: item.vehicle_inventory_supabase_id },
+          })
+        } catch {}
+      }
+    } catch (e) { console.warn('[main] reservation expire failed:', e?.message) }
+  }
+  try { _runReservationExpire() } catch {}
+  setInterval(_runReservationExpire, 15 * 60_000)
+
+  // v2.16.4 Sprint 2B H3 — Concesionario warranty auto-expire. Same cadence as
+  // reservations (15 min) — flips date-due rows to 'expired' so the dashboard
+  // tile and "vencen este mes" count stay honest.
+  function _runWarrantyExpire() {
+    try {
+      const r = db?.vehicleWarrantiesExpire?.()
+      if (!r?.expired) return
+      for (const item of r.ids) {
+        try {
+          db.activityLogRecord?.({
+            event_type:  'vehicle_warranty_expired',
+            severity:    'info',
+            target_type: 'vehicle_warranty',
+            target_id:   item.id,
+            metadata:    { supabase_id: item.supabase_id, sales_deal_supabase_id: item.sales_deal_supabase_id },
+          })
+        } catch {}
+      }
+    } catch (e) { console.warn('[main] warranty expire failed:', e?.message) }
+  }
+  try { _runWarrantyExpire() } catch {}
+  setInterval(_runWarrantyExpire, 15 * 60_000)
+
+  // v2.16.4 Sprint 2C — Concesionario bank pre-approval auto-expire. Same
+  // 15-min cadence as reservations + warranties — flips date-due rows whose
+  // status is still solicitada/en_revision/pre_aprobada to 'expirada' so the
+  // "Pre-aprobadas no utilizadas" dashboard tile stays honest.
+  function _runPreapprovalExpire() {
+    try {
+      const r = db?.bankPreapprovalsExpire?.()
+      if (!r?.expired) return
+      for (const item of r.ids) {
+        try {
+          db.activityLogRecord?.({
+            event_type:  'bank_preapproval_expired',
+            severity:    'info',
+            target_type: 'bank_preapproval',
+            target_id:   item.id,
+            target_name: item.bank,
+            metadata:    { supabase_id: item.supabase_id, client_supabase_id: item.client_supabase_id, bank: item.bank },
+          })
+        } catch {}
+      }
+    } catch (e) { console.warn('[main] preapproval expire failed:', e?.message) }
+  }
+  try { _runPreapprovalExpire() } catch {}
+  setInterval(_runPreapprovalExpire, 15 * 60_000)
+
   // Nightly SQLite → Supabase Storage backup (3:00 AM local, 24h cadence).
   scheduleNightlyBackup()
   app.on('activate', () => {
@@ -1840,6 +1931,7 @@ handleMut('categorias:delete', ({id})          => db.categoriaDelete(id))
 // ── Services ──────────────────────────────────────────────────────────────────
 handle('services:all',       ()              => db.servicesGetAll())
 handle('services:all-admin', ()              => db.servicesGetAllAdmin())
+handle('services:top-sellers', (opts)        => db.servicesTopSellers(opts || {}))
 handleMut('services:create',    (data)          => db.serviceCreate(data), {
   requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'services:create'),
   targetCtx: () => ({ target_type: 'service' }),
@@ -1898,6 +1990,7 @@ handle('mesas:list',       ()                    => db.mesasGetAll())
 handleMut('mesas:create',     (data)                => db.mesaCreate(data))
 handleMut('mesas:update',     ({id, ...data})       => db.mesaUpdate(id, data))
 handleMut('mesas:setStatus',  ({id, status, opts})  => db.mesaSetStatus(id, status, opts || {}))
+handleMut('mesas:request-bill', ({id})              => db.mesaRequestBill(id))
 handleMut('mesas:delete',     ({id})                => { db.mesaDelete(id); return true })
 
 // ── Restaurant Mode — Modificadores ──────────────────────────────────────────
@@ -1990,11 +2083,136 @@ handle('appointments:list',   (params)         => db.appointmentList(params))
 handle('appointments:byId',   (id)             => db.appointmentGetById(id))
 handleMut('appointments:delete', ({id})           => { db.appointmentDelete(id); return true })
 
+// ── Salon v2.16.1 — memberships catalog, client balances, reminders ─────────
+handle('salon:memberships:list',                () => db.salonMembershipList())
+handleMut('salon:memberships:create',           (data) => db.salonMembershipCreate(data || {}))
+handleMut('salon:memberships:update',           ({ supabase_id, ...patch }) => db.salonMembershipUpdate(supabase_id, patch))
+handleMut('salon:memberships:archive',          ({ supabase_id }) => db.salonMembershipArchive(supabase_id))
+
+handle('salon:client-memberships:by-client',    (client_supabase_id) => db.clientMembershipsByClient(client_supabase_id))
+handleMut('salon:client-memberships:purchase',  (data) => db.clientMembershipPurchase(data || {}))
+handleMut('salon:client-memberships:consume',   (data) => db.clientMembershipConsume(data || {}))
+handle('salon:client-memberships:expiring-soon',(days) => db.clientMembershipsExpiringSoon(days))
+
+handleMut('salon:reminders:schedule',           ({ appointment_supabase_id, fire_at, kind }) => db.appointmentReminderSchedule(appointment_supabase_id, fire_at, kind))
+handle('salon:reminders:pending-due',           (now) => db.appointmentRemindersPendingDue(now))
+handleMut('salon:reminders:mark-sent',          ({ id, ultramsg_message_id }) => db.appointmentReminderMarkSent(id, ultramsg_message_id))
+handleMut('salon:reminders:mark-failed',        ({ id, error }) => db.appointmentReminderMarkFailed(id, error))
+handleMut('salon:reminders:schedule-for-appointment', (appt) => db.appointmentReminderScheduleForAppointment(appt || {}))
+
+handleMut('salon:appointments:mark-no-show',    ({ supabase_id }) => db.appointmentMarkNoShow(supabase_id))
+
 // ── Stylist Schedules ────────────────────────────────────────────────────────
 handleMut('stylistSchedules:create', (data)           => db.stylistScheduleCreate(data))
 handleMut('stylistSchedules:update', ({id, ...data})  => db.stylistScheduleUpdate(id, data))
 handle('stylistSchedules:list',   (params)         => db.stylistScheduleList(params))
 handleMut('stylistSchedules:delete', ({id})           => { db.stylistScheduleDelete(id); return true })
+
+// ── Concesionario v2 / v2.5 — dealership ─────────────────────────────────────
+handle('vehicleInventory:list',         (params)               => db.vehicleInventoryList(params))
+handle('vehicleInventory:byId',         (id)                   => db.vehicleInventoryGetById(id))
+handleMut('vehicleInventory:create',    (data)                 => db.vehicleInventoryCreate(data))
+handleMut('vehicleInventory:update',    ({id, ...data})        => db.vehicleInventoryUpdate(id, data))
+handleMut('vehicleInventory:setStatus', ({id, status})         => db.vehicleInventorySetStatus(id, status))
+handleMut('vehicleInventory:delete',    ({id})                 => { db.vehicleInventoryDelete(id); return true })
+
+handle('salesDeals:list',               (params)               => db.salesDealsList(params))
+handle('salesDeals:byId',               (id)                   => db.salesDealsGetById(id))
+handleMut('salesDeals:create',          (data)                 => db.salesDealsCreate(data))
+handleMut('salesDeals:update',          ({id, ...data})        => db.salesDealsUpdate(id, data))
+handleMut('salesDeals:close',           ({id, ticketInfo})     => db.salesDealsClose(id, ticketInfo))
+handleMut('salesDeals:markCommissionPaid', ({id})              => db.salesDealsMarkCommissionPaid(id))
+handle('salesDeals:commissionsForPeriod', (params)             => db.salesDealsCommissionsForPeriod(params))
+handleMut('salesDeals:delete',          ({id})                 => { db.salesDealsDelete(id); return true })
+
+handle('leads:list',                    (params)               => db.leadsList(params))
+handleMut('leads:create',               (data)                 => db.leadsCreate(data))
+handleMut('leads:update',               ({id, ...data})        => db.leadsUpdate(id, data))
+handleMut('leads:setStage',             ({id, stage, extra})   => db.leadsSetStage(id, stage, extra))
+handleMut('leads:logContact',           ({id, ...rest})        => db.leadsLogContact(id, rest))
+handle('leads:overdue',                 ()                     => db.leadsOverdue())
+handleMut('leads:delete',               ({id})                 => { db.leadsDelete(id); return true })
+
+handle('testDrives:list',               ()                     => db.testDrivesList())
+handleMut('testDrives:create',          (data)                 => db.testDrivesCreate(data))
+handleMut('testDrives:update',          ({id, ...data})        => db.testDrivesUpdate(id, data))
+handleMut('testDrives:complete',        ({id, notes})          => db.testDrivesComplete(id, notes))
+handleMut('testDrives:setOutcome',      ({id, ...rest})        => db.testDrivesSetOutcome(id, rest))
+handleMut('testDrives:delete',          ({id})                 => { db.testDrivesDelete(id); return true })
+
+handle('vehicleDocuments:byVehicle',    (vehicleSupabaseId)    => db.vehicleDocumentsByVehicle(vehicleSupabaseId))
+handle('vehicleDocuments:expiringSoon', (days)                 => db.vehicleDocumentsExpiringSoon(days))
+handleMut('vehicleDocuments:create',    (data)                 => db.vehicleDocumentsCreate(data))
+handleMut('vehicleDocuments:delete',    ({id})                 => { db.vehicleDocumentsDelete(id); return true })
+
+// v2.16.2 — Vehicle Titulo (INTRANT matricula / traspaso)
+handle('vehicleTitulo:list',            ()                     => db.vehicleTituloList())
+handleMut('vehicleTitulo:upsert',       (data)                 => db.vehicleTituloUpsert(data))
+handleMut('vehicleTitulo:delete',       ({id})                 => { db.vehicleTituloDelete(id); return true })
+
+// v2.16.4 — Vehicle Reservations (deposit + expiry, Sprint 2A H2)
+handle('vehicle-reservation:list',      ({ business_id } = {}) => db.vehicleReservationList(business_id))
+handle('vehicle-reservation:active',    ({ business_id } = {}) => db.vehicleReservationsActive(business_id))
+handleMut('vehicle-reservation:upsert', (data)                 => db.vehicleReservationUpsert(data))
+handleMut('vehicle-reservation:release',(args)                 => db.vehicleReservationRelease(args || {}))
+handleMut('vehicle-reservation:convert',(args)                 => db.vehicleReservationConvert(args || {}))
+handleMut('vehicle-reservation:expire', ()                     => db.vehicleReservationsExpire())
+
+// v2.16.4 Sprint 2B H3 — Vehicle warranties (post-sale).
+handle('vehicle-warranty:list',           ({ business_id } = {})            => db.vehicleWarrantyList(business_id))
+handle('vehicle-warranty:by-deal',        ({ sales_deal_supabase_id } = {}) => db.vehicleWarrantyByDeal(sales_deal_supabase_id))
+handle('vehicle-warranty:expiring-soon',  ({ business_id, days } = {})      => db.vehicleWarrantyExpiringSoon(business_id, days))
+handleMut('vehicle-warranty:upsert',      (data)                            => db.vehicleWarrantyUpsert(data))
+handleMut('vehicle-warranty:add-claim',   (args)                            => db.vehicleWarrantyAddClaim(args || {}))
+handleMut('vehicle-warranty:void',        (args)                            => db.vehicleWarrantyVoid(args || {}))
+handleMut('vehicle-warranty:expire',      ()                                => db.vehicleWarrantiesExpire())
+
+// v2.16.4 Sprint 2C — Bank pre-approvals (manual workflow).
+handle('bank-preapproval:list',             ({ business_id, ...opts } = {})            => db.bankPreapprovalList(business_id, opts))
+handle('bank-preapproval:active-by-client', ({ client_supabase_id } = {})              => db.bankPreapprovalActiveByClient(client_supabase_id))
+handleMut('bank-preapproval:upsert',        (data)                                     => db.bankPreapprovalUpsert(data))
+handleMut('bank-preapproval:set-status',    (args)                                     => db.bankPreapprovalSetStatus(args || {}))
+handleMut('bank-preapproval:expire',        ()                                         => db.bankPreapprovalsExpire())
+
+// ── v2.16.0 — Taller Mecánico hardening ─────────────────────────────────────
+handle('aseguradoras:list',          (params)               => db.aseguradoraList(params))
+handle('aseguradoras:byId',          (id)                   => db.aseguradoraGetById(id))
+handle('aseguradoras:bySupabaseId',  (supabaseId)           => db.aseguradoraGetBySupabaseId(supabaseId))
+handleMut('aseguradoras:create',     (data)                 => db.aseguradoraCreate(data))
+handleMut('aseguradoras:update',     ({id, ...data})        => db.aseguradoraUpdate(id, data))
+handleMut('aseguradoras:delete',     ({id})                 => { db.aseguradoraDelete(id); return true })
+
+// ── Loan renewals (M2) ─────────────────────────────────────────────────────
+handle('loan-renewals:list',         (params)               => db.loanRenewalsList(params || {}))
+handleMut('loan-renewals:create',    (data)                 => db.loanRenewalCreate(data || {}))
+
+handle('suppliers:list',             (params)               => db.supplierList(params))
+handle('suppliers:byId',             (id)                   => db.supplierGetById(id))
+handleMut('suppliers:create',        (data)                 => db.supplierCreate(data))
+handleMut('suppliers:update',        ({id, ...data})        => db.supplierUpdate(id, data))
+handleMut('suppliers:delete',        ({id})                 => { db.supplierDelete(id); return true })
+
+handle('partsOrders:listByWO',       (wo_supabase_id)       => db.partsOrderListByWO(wo_supabase_id))
+handle('partsOrders:listAwaiting',   ()                     => db.partsOrderListAwaiting())
+handle('partsOrders:findByBarcode',  (barcode)              => db.partsOrderFindByBarcode(barcode))
+handleMut('partsOrders:create',      (data)                 => db.partsOrderCreate(data))
+handleMut('partsOrders:update',      ({id, ...data})        => db.partsOrderUpdate(id, data))
+handleMut('partsOrders:markReceived',({id, received_barcode}) => db.partsOrderMarkReceived(id, { received_barcode }))
+handleMut('partsOrders:delete',      ({id})                 => { db.partsOrderDelete(id); return true })
+
+handle('workOrderPhotos:listByWO',      (wo_supabase_id)    => db.workOrderPhotoListByWO(wo_supabase_id))
+handle('workOrderPhotos:listByVehicle', (veh_supabase_id)   => db.workOrderPhotoListByVehicle(veh_supabase_id))
+handleMut('workOrderPhotos:insert',  (data)                 => db.workOrderPhotoInsert(data))
+handleMut('workOrderPhotos:delete',  ({id})                 => { db.workOrderPhotoDelete(id); return true })
+
+handle('insuranceBatches:listByPeriod', (params)            => db.insuranceBatchListByPeriod(params))
+handle('insuranceBatches:byId',         (id)                => db.insuranceBatchGet(id))
+handleMut('insuranceBatches:create',    (data)              => db.insuranceBatchCreate(data))
+handleMut('insuranceBatches:update',    ({id, ...data})     => db.insuranceBatchUpdate(id, data))
+handle('insuranceBatches:workOrdersFor', ({aseguradora_supabase_id, period_month}) => db.workOrdersForInsuranceBatch(aseguradora_supabase_id, period_month))
+
+handle('mechanic:productivityForPeriod', ({period_start, period_end}) => db.mechanicProductivityForPeriod(period_start, period_end))
+handle('mechanic:serviceRemindersDue',   ()                 => db.mechanicServiceRemindersDue())
 
 // ── Loans (prestamos) ────────────────────────────────────────────────────────
 handleMut('loans:create',  (data)           => db.loanCreate(data))
@@ -2112,6 +2330,7 @@ handleMut('tickets:void',        ({id,reason,voidById}) => db.ticketVoid(id, rea
   requires: guard.guardMac('tickets:void', ([a]) => a?.id),
 })
 handle('tickets:byDateRange', ({from,to}) => db.ticketGetByDateRange(from, to))
+handle('reports:ticketsWithItems', ({from,to}) => db.ticketGetByDateRangeWithItems(from, to))
 handleMut('tickets:updateItemPrice', (data) => db.ticketItemUpdatePrice(data))
 handle('tickets:priceChanges',    ({ticketId}) => db.priceChangesGetByTicket(ticketId))
 handle('tickets:allPriceChanges', ({from,to}) => db.priceChangesGetAll(from, to))
@@ -2119,7 +2338,9 @@ handle('tickets:allPriceChanges', ({from,to}) => db.priceChangesGetAll(from, to)
 // ── Queue ─────────────────────────────────────────────────────────────────────
 handle('queue:active',       ()                        => db.queueGetActive())
 handleMut('queue:updateStatus', ({id,status,washerId})   => db.queueUpdateStatus(id, status, washerId))
-handleMut('queue:delete',       ({id,deletedBy})         => db.queueDelete(id, deletedBy))
+handleMut('queue:delete',       ({id,deletedBy})         => db.queueDelete(id, deletedBy), {
+  requires: guard.guardMac('queue:delete', ([a]) => a?.id),
+})
 
 // ── Commissions ───────────────────────────────────────────────────────────────
 handle('commissions:byWasher', ({washerId,from,to}) => db.commissionsGetByWasher(washerId, from, to))
@@ -2152,6 +2373,7 @@ handleMut('cuadre:openShift', (data) => db.cuadreOpenShift(data || {}))
 // ── NCF ───────────────────────────────────────────────────────────────────────
 handle('ncf:sequences',        ()            => db.ncfGetSequences())
 handleMut('ncf:next',             (type)        => db.ncfGetNext(type))
+handleMut('ncf:rollback',         (ncf)         => db.ncfSequenceRollback(ncf))
 handleMut('ncf:updateSequence',   ({type,...d}) => db.ncfUpdateSequence(type, d))
 
 // ── Caja Chica ────────────────────────────────────────────────────────────────
@@ -2328,6 +2550,29 @@ handle('inventory:lookupSku',    (sku)                          => db.inventoryL
 handle('inventory:search',       (query)                        => db.inventorySearch(query))
 handle('inventory:lowStockCount', ()                             => db.inventoryLowStockCount())
 handle('inventory:oversells:list', (args)                        => db.inventoryOversellsList(args || {}))
+
+// ── v2.16.3 — Carnicería hardening ────────────────────────────────────────────
+handle    ('carniceria:cortes:list',         ()     => db.carniceriaCorteList())
+handleMut ('carniceria:cortes:create',       (data) => db.carniceriaCorteCreate(data || {}))
+handleMut ('carniceria:cortes:update',       (data) => db.carniceriaCorteUpdate(data || {}))
+handleMut ('carniceria:cortes:remove',       (id)   => { db.carniceriaCorteDelete(id); return true })
+handle    ('carniceria:freshness:list',      ()     => db.carniceriaFreshnessList())
+handleMut ('carniceria:freshness:create',    (data) => db.carniceriaFreshnessCreate(data || {}))
+handleMut ('carniceria:freshness:applyDiscount', (args) => db.carniceriaFreshnessApplyDiscount(args || {}))
+handleMut ('carniceria:discards:create',     (data) => db.carniceriaDiscardCreate(data || {}))
+handle    ('carniceria:discards:list',       (args) => db.carniceriaDiscardList(args || {}))
+handle    ('carniceria:recurring:list',      ()     => db.carniceriaRecurringList())
+handleMut ('carniceria:recurring:create',    (data) => db.carniceriaRecurringCreate(data || {}))
+handleMut ('carniceria:recurring:update',    (data) => db.carniceriaRecurringUpdate(data || {}))
+handleMut ('carniceria:recurring:remove',    (id)   => { db.carniceriaRecurringDelete(id); return true })
+handleMut ('carniceria:recurring:markSent',  (args) => db.carniceriaRecurringMarkSent(args || {}))
+handle    ('carniceria:scales:list',         ()     => db.carniceriaScalesList())
+handleMut ('carniceria:scales:create',       (data) => db.carniceriaScalesCreate(data || {}))
+handleMut ('carniceria:scales:update',       (data) => db.carniceriaScalesUpdate(data || {}))
+handleMut ('carniceria:scales:remove',       (id)   => { db.carniceriaScalesDelete(id); return true })
+handleMut ('carniceria:scales:setActiveDefault', (id) => db.carniceriaScalesSetActiveDefault(id))
+handle    ('carniceria:resumen:get',         ()     => db.carniceriaResumenGet())
+handle    ('carniceria:discounts:activeFor',  (args) => db.carniceriaActiveDiscounts(args || {}))
 
 // ── Conteo Fisico (v2.5) ──────────────────────────────────────────────────────
 handleMut('inventoryCount:start',     (args)                          => db.inventoryCountStart(args || {}))

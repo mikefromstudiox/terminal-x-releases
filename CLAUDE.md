@@ -3,7 +3,8 @@
 ## What This App Is
 Full-featured desktop POS for the Dominican Republic market, resold to multiple clients. Flagship differentiator: 100% working e-CF (electronic fiscal receipts) per Ley 32-23.
 
-## Current Release — v2.13.2 (2026-04-20 — Apertura cashier-only + input hardening)
+## Current Release — v2.16.1 (2026-04-25 — Barbería/Salón hardening: appointments + stylist_schedules promoted to Pro PLUS, salon_* feature gates added, salon modules expanded with memberships/retail_upsell/public_booking/walk_in/dashboard, showInventory enabled for retail upsell tile picker.)
+- **v2.13.2** — Apertura cashier-only + input hardening
 - **v2.4.0** — Retail POS categorization (tabs + count badges) + Pedidos Ya channel pricing (one-click toggle, `order_source` stamped on tickets).
 - **v2.4.1** — 1024px cash-register grid fix.
 - **v2.5.0** — Per-client pricing (`client_item_prices`, precedence: client > PY > base) + Conteo Físico + variance report PDF/CSV + severity-scaled activity log.
@@ -41,11 +42,13 @@ Owner overrides a feature per business via `app_settings.feature_<name>_enabled 
 | ecf / dgii | — | ✓ | ✓ | |
 | petty_cash / cash_recon | — | ✓ | ✓ | |
 | loyalty | — | ✓ | ✓ | per-client points + tiers |
+| appointments / stylist_schedules | — | ✓ | ✓ | v2.16.1 promoted from Pro MAX |
 | commissions | — | — | ✓ | |
 | whatsapp_receipts | — | — | ✓ | |
 | remote_dashboard | — | — | ✓ | also gates activity badge + daily digest |
 | multi_location | — | — | ✓ | gates ticket locks |
 | offline_mode | — | — | ✓ | gates service worker registration |
+| salon_* (preferred_stylist=free, walk_in/memberships/public_booking/dashboard/whatsapp_reminders=Pro PLUS+, no_show_deposit/offline_whatsapp_queue=Pro MAX) | partial | ✓ | ✓ | v2.16.1 — see `packages/ui/hooks/usePlan.jsx` |
 Gating lives in `packages/ui/hooks/usePlan.jsx` — add new keys there.
 
 ## Tech Stack

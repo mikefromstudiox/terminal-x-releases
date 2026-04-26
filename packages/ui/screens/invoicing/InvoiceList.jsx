@@ -1,11 +1,21 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Search, Download, Send, X, AlertCircle, Check, Plus, ArrowLeft, Loader2, QrCode, Ban } from 'lucide-react'
+import { FileText, Search, Download, Send, X, AlertCircle, Check, Plus, ArrowLeft, Loader2, QrCode, Ban, FileSpreadsheet } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
 import { useAuth } from '../../context/AuthContext'
+import { waLink } from '@terminal-x/services/whatsapp'
 const saveReceiptPDF = (...args) => import('@terminal-x/services/pdf').then(m => m.saveReceiptPDF(...args))
 import { getQRCode } from '@terminal-x/services/ecf'
+
+// FIX-C8 — single safe-parser for ecf_result. Eliminates the 6 ad-hoc
+// JSON.parse call sites flagged in the audit (§3.2.b) and gives every
+// renderer a stable shape even when the column holds malformed JSON.
+function safeParseEcf(raw) {
+  if (!raw) return {}
+  if (typeof raw === 'object') return raw
+  try { return JSON.parse(raw) } catch { return {} }
+}
 
 function fmtRD(n) {
   return 'RD$ ' + Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -70,6 +80,17 @@ export default function InvoiceList() {
   const [detail, setDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [empresa, setEmpresa] = useState(null)
+  const [brandingSettings, setBrandingSettings] = useState({ invoice_footer: '', logo_url: '' })
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const s = (await api?.settings?.get?.()) || {}
+        if (!cancelled) setBrandingSettings({ invoice_footer: s.invoice_footer || '', logo_url: s.logo_url || s.biz_logo || '' })
+      } catch {}
+    })()
+    return () => { cancelled = true }
+  }, [api])
 
   // Load tickets
   useEffect(() => {
@@ -99,18 +120,26 @@ export default function InvoiceList() {
     return () => { cancelled = true }
   }, [api, tab])
 
-  // Filter + search
+  // FIX-M8 — parse ecf_result ONCE per row and stash it as `_ecf`. Every
+  // downstream renderer (table, detail modal, search) reads from the cached
+  // shape instead of re-parsing on every keystroke.
+  const ticketsParsed = useMemo(
+    () => (tickets || []).map(t => ({ ...t, _ecf: safeParseEcf(t.ecf_result) })),
+    [tickets]
+  )
+
+  // Filter + search — operates on pre-parsed rows so search keystrokes don't
+  // re-JSON.parse the entire list.
   const filtered = useMemo(() => {
-    let rows = tickets
+    let rows = ticketsParsed
     if (search.trim()) {
       const q = search.toLowerCase()
-      rows = rows.filter(t => {
-        const ecf = typeof t.ecf_result === 'string' ? JSON.parse(t.ecf_result || '{}') : (t.ecf_result || {})
-        return (t.client_name || '').toLowerCase().includes(q) ||
-          (t.client_rnc || '').includes(q) ||
-          (ecf?.eNCF || '').toLowerCase().includes(q) ||
-          (t.doc_number || '').toLowerCase().includes(q)
-      })
+      rows = rows.filter(t =>
+        (t.client_name || '').toLowerCase().includes(q) ||
+        (t.client_rnc || '').includes(q) ||
+        (t._ecf?.eNCF || '').toLowerCase().includes(q) ||
+        (t.doc_number || '').toLowerCase().includes(q)
+      )
     }
     if (filterType) {
       rows = rows.filter(t => (t.comprobante_type || '').startsWith(filterType))
@@ -119,7 +148,7 @@ export default function InvoiceList() {
       rows = rows.filter(t => t.status === filterStatus)
     }
     return rows
-  }, [tickets, search, filterType, filterStatus])
+  }, [ticketsParsed, search, filterType, filterStatus])
 
   // Summary stats
   const totalFacturas = filtered.length
@@ -140,7 +169,7 @@ export default function InvoiceList() {
 
   // PDF
   async function downloadPDF(t) {
-    const ecf = typeof t.ecf_result === 'string' ? JSON.parse(t.ecf_result || '{}') : (t.ecf_result || {})
+    const ecf = t._ecf || safeParseEcf(t.ecf_result)
     await saveReceiptPDF({
       docNo: ecf?.eNCF || t.doc_number || `T-${t.id}`,
       ncf: ecf?.eNCF || t.comprobante_type || '',
@@ -148,7 +177,15 @@ export default function InvoiceList() {
       total: t.total, subtotal: t.subtotal || t.total, itbis: t.itbis || 0, ley: t.ley || 0, descuento: t.descuento || 0,
       formaPago: t.payment_method || 'efectivo',
       services: (t.items || []).map(i => ({ name: i.name, price: i.price, qty: i.quantity || 1 })),
-      biz: { name: empresa?.name || '', rnc: empresa?.rnc || '', phone: empresa?.phone || '', address: empresa?.address || '' },
+      biz: {
+        name: empresa?.name || '',
+        rnc: empresa?.rnc || '',
+        phone: empresa?.phone || '',
+        address: empresa?.address || '',
+        logo: brandingSettings.logo_url,
+        invoice_footer: brandingSettings.invoice_footer,
+      },
+      customFooter: brandingSettings.invoice_footer,
       client: t.client_name ? { name: t.client_name, rnc: t.client_rnc } : null,
       paidAt: t.created_at,
       securityCode: ecf?.securityCode,
@@ -157,23 +194,114 @@ export default function InvoiceList() {
     }, api)
   }
 
-  // WhatsApp
-  function sendWhatsApp(t) {
-    const ecf = typeof t.ecf_result === 'string' ? JSON.parse(t.ecf_result || '{}') : (t.ecf_result || {})
+  // WhatsApp — FIX-C2. Pull the client phone from the embedded ticket row OR
+  // hydrate via api.clients.byId so we never open `wa.me/` with no recipient.
+  // If no phone is on file we surface a Spanish toast instead of opening an
+  // empty WhatsApp prompt.
+  async function sendWhatsApp(t) {
+    const ecf = safeParseEcf(t.ecf_result)
+    let phone = (t.client_phone || t.phone || '').toString()
+    if (!phone && (t.client_id || t.client_supabase_id)) {
+      try {
+        const client = await api?.clients?.byId?.(t.client_id || t.client_supabase_id)
+        phone = (client?.phone || '').toString()
+      } catch {}
+    }
+    if (!phone || !phone.replace(/\D/g, '')) {
+      alert(L('Este cliente no tiene teléfono registrado. Edita el cliente y agrega el número antes de enviar por WhatsApp.', 'This client has no phone on file. Edit the client and add a number before sending via WhatsApp.'))
+      return
+    }
     const text = `Factura ${ecf?.eNCF || t.doc_number}\nTotal: ${fmtRD(t.total)}${ecf?.qrLink ? `\nVerificar: ${ecf.qrLink}` : ''}`
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+    window.open(waLink(phone, text), '_blank')
   }
 
-  // Void
-  async function voidInvoice(t) {
-    if (!confirm(L('Seguro que deseas anular esta factura?', 'Are you sure you want to void this invoice?'))) return
+
+  // FIX-M7 — crimson confirm modal replaces the native browser confirm()
+  // because the brand book disallows native dialogs (no gray system chrome).
+  // Two-state: voidCandidate=null (closed) | voidCandidate=ticket (open).
+  const [voidCandidate, setVoidCandidate] = useState(null)
+  const [voidReason, setVoidReason] = useState('')
+  const [voiding, setVoiding] = useState(false)
+
+  function askVoid(t) {
+    setVoidReason('')
+    setVoidCandidate(t)
+  }
+
+  async function confirmVoid() {
+    const t = voidCandidate
+    if (!t || voiding) return
+    setVoiding(true)
     try {
-      await api?.tickets?.void?.(t.id)
+      await api?.tickets?.void?.({ id: t.id, reason: voidReason || null, voidById: user?.id })
       setTickets(prev => prev.map(tk => tk.id === t.id ? { ...tk, status: 'anulado' } : tk))
+      // FIX-M6 — emit invoice_voided activity row so the Owner Activity Feed
+      // can surface it. Best-effort: the void itself is what matters.
+      try {
+        await api?.activity?.record?.({
+          event_type: 'invoice_voided',
+          severity: 'warn',
+          target_type: 'ticket',
+          target_id: t.id,
+          target_name: t._ecf?.eNCF || t.doc_number || `T-${t.id}`,
+          amount: Number(t.total || 0),
+          reason: voidReason || null,
+          metadata: { eNCF: t._ecf?.eNCF || null, comprobante_type: t.comprobante_type || null },
+        })
+      } catch {}
       setDetail(null)
+      setVoidCandidate(null)
     } catch (err) {
       alert(err.message || L('Error al anular', 'Error voiding'))
+    } finally {
+      setVoiding(false)
     }
+  }
+
+  // FIX-M5 — CSV export of the currently-filtered Historial. Mirrors the on-
+  // screen columns + adds eNCF / trackId / status so the operator can hand
+  // it straight to their contador without further reformatting. Excel-safe
+  // (BOM + CRLF + comma-quoted strings) for opening with es-DO locale.
+  function exportCSV() {
+    if (!filtered.length) {
+      alert(L('No hay facturas que exportar.', 'No invoices to export.'))
+      return
+    }
+    const headers = ['Documento', 'Fecha', 'Cliente', 'RNC', 'Tipo', 'eNCF', 'TrackId', 'Subtotal', 'ITBIS', 'Total', 'Estado DGII', 'Estado']
+    const lines = [headers.join(',')]
+    for (const t of filtered) {
+      const ecf = t._ecf || {}
+      const cells = [
+        t.doc_number || '',
+        new Date(t.created_at).toISOString(),
+        t.client_name || '',
+        t.client_rnc || '',
+        t.comprobante_type || '',
+        ecf.eNCF || '',
+        ecf.trackId || '',
+        Number(t.subtotal || 0).toFixed(2),
+        Number(t.itbis || 0).toFixed(2),
+        Number(t.total || 0).toFixed(2),
+        ecf.status || '',
+        t.status || '',
+      ].map(v => {
+        const s = String(v ?? '')
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+      })
+      lines.push(cells.join(','))
+    }
+    // Excel-on-Windows wants UTF-8 BOM + CRLF for proper accent rendering.
+    const csv = '﻿' + lines.join('\r\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const stamp = new Date().toISOString().slice(0, 10)
+    a.download = `facturacion-historial-${stamp}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -186,6 +314,13 @@ export default function InvoiceList() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-slate-800 dark:text-white">{L('Historial de Facturas', 'Invoice History')}</h1>
         </div>
+        <button
+          onClick={exportCSV}
+          title={L('Exportar Historial a CSV', 'Export History to CSV')}
+          className="flex items-center gap-2 px-3 py-2.5 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:border-[#b3001e]/40 text-slate-700 dark:text-white font-semibold rounded-xl text-sm transition-colors"
+        >
+          <FileSpreadsheet size={16} /> CSV
+        </button>
         <button
           onClick={() => navigate('/invoicing/create')}
           className="flex items-center gap-2 px-4 py-2.5 bg-[#b3001e] hover:bg-[#8c0017] text-white font-bold rounded-xl text-sm transition-colors"
@@ -289,7 +424,7 @@ export default function InvoiceList() {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                 {filtered.map(t => {
-                  const ecf = typeof t.ecf_result === 'string' ? JSON.parse(t.ecf_result || '{}') : (t.ecf_result || {})
+                  const ecf = t._ecf || {}
                   return (
                     <tr
                       key={t.id}
@@ -355,7 +490,7 @@ export default function InvoiceList() {
 
               {/* Info header */}
               {(() => {
-                const ecf = typeof detail.ecf_result === 'string' ? JSON.parse(detail.ecf_result || '{}') : (detail.ecf_result || {})
+                const ecf = detail._ecf || safeParseEcf(detail.ecf_result)
                 return (
                   <>
                     <div className="grid grid-cols-2 gap-3 text-sm">
@@ -470,7 +605,7 @@ export default function InvoiceList() {
                         <Send size={14} /> WhatsApp
                       </button>
                       {detail.status !== 'anulado' && (
-                        <button onClick={() => voidInvoice(detail)} className="flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/15 rounded-lg text-sm font-semibold text-red-600 dark:text-red-400 transition-colors ml-auto">
+                        <button onClick={() => askVoid(detail)} className="flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/15 rounded-lg text-sm font-semibold text-red-600 dark:text-red-400 transition-colors ml-auto">
                           <Ban size={14} /> {L('Anular', 'Void')}
                         </button>
                       )}
@@ -478,6 +613,56 @@ export default function InvoiceList() {
                   </>
                 )
               })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FIX-M7 — crimson confirm-void modal (replaces native confirm()). */}
+      {voidCandidate && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60" onClick={() => !voiding && setVoidCandidate(null)}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="bg-[#b3001e]/5 border-b border-[#b3001e]/20 px-5 py-4 flex items-center gap-2">
+              <Ban size={18} className="text-[#b3001e]" />
+              <h3 className="text-base font-bold text-[#b3001e]">{L('Anular factura', 'Void invoice')}</h3>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-slate-700 dark:text-white/80">
+                {L('Vas a anular la factura', 'You are voiding invoice')}{' '}
+                <span className="font-mono font-bold">{voidCandidate._ecf?.eNCF || voidCandidate.doc_number}</span>{' '}
+                {L('por', 'for')}{' '}
+                <span className="font-bold">{fmtRD(voidCandidate.total)}</span>.{' '}
+                {L('Esta acción se enviará a DGII vía ANECF y no se puede deshacer.', 'This action is sent to DGII via ANECF and cannot be undone.')}
+              </p>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-white/50 mb-1">
+                  {L('Motivo (opcional)', 'Reason (optional)')}
+                </label>
+                <input
+                  type="text"
+                  value={voidReason}
+                  onChange={e => setVoidReason(e.target.value)}
+                  placeholder={L('Ej: error en el monto, cliente equivocado…', 'e.g. wrong amount, wrong client…')}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-[#b3001e]/30"
+                />
+              </div>
+            </div>
+            <div className="px-5 py-4 bg-slate-50 dark:bg-white/5 flex justify-end gap-2 border-t border-slate-100 dark:border-white/5">
+              <button
+                onClick={() => setVoidCandidate(null)}
+                disabled={voiding}
+                className="px-4 py-2 rounded-lg bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 text-sm font-semibold text-slate-700 dark:text-white hover:bg-slate-50 dark:hover:bg-white/15 transition-colors disabled:opacity-50"
+              >
+                {L('Cancelar', 'Cancel')}
+              </button>
+              <button
+                onClick={confirmVoid}
+                disabled={voiding}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#b3001e] hover:bg-[#8c0017] text-white text-sm font-bold disabled:opacity-50 transition-colors"
+              >
+                {voiding ? <Loader2 size={14} className="animate-spin" /> : <Ban size={14} />}
+                {voiding ? L('Anulando...', 'Voiding...') : L('Anular factura', 'Void invoice')}
+              </button>
             </div>
           </div>
         </div>

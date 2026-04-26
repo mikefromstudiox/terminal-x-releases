@@ -365,6 +365,15 @@ export function buildClientReceipt(data, logoBytes = '') {
     if (clientRnc)   { lines.push(cols('RNC',     clientRnc,  COL_WIDTH)); lines.push(LF) }
     if (clientPhone) { lines.push(cols('TEL',     formatPhoneForReceipt(clientPhone), COL_WIDTH)); lines.push(LF) }
     if (data.vehiclePlate) { lines.push(cols('VEHICULO', data.vehiclePlate, COL_WIDTH)); lines.push(LF) }
+    // v2.16.0 — mecánica: VIN + make/model + odómetro printed when present (work order receipts)
+    if (data.vehicleVin) { lines.push(cols('VIN', String(data.vehicleVin).slice(0, 26), COL_WIDTH)); lines.push(LF) }
+    if (data.vehicleMake || data.vehicleModel) {
+      const mm = [data.vehicleMake, data.vehicleModel].filter(Boolean).join(' ')
+      lines.push(cols('MARCA/MODELO', mm.slice(0, 26), COL_WIDTH)); lines.push(LF)
+    }
+    if (data.vehicleKm != null && data.vehicleKm !== '') {
+      lines.push(cols('KILOMETRAJE', `${Number(data.vehicleKm).toLocaleString('en-US')} KM`, COL_WIDTH)); lines.push(LF)
+    }
     lines.push(cols('TIPO VENTA', data.tipo === 'credito' ? 'Credito' : 'Contado', COL_WIDTH))
     lines.push(LF)
     if (Array.isArray(data.payment_parts) && data.payment_parts.length > 1) {
@@ -1310,7 +1319,15 @@ export async function printCreditPayment(data, api, printerApi) {
  */
 export function buildPawnTicket(data) {
   const lines = []
-  lines.push(buildHeader(data.biz || {}))
+  const biz = data.biz || {}
+  lines.push(buildHeader(biz))
+
+  // C9 — RNC is mandatory under header (papeleta IS the legal contract)
+  if (biz.rnc) {
+    lines.push(ALIGN_CENTER)
+    lines.push(`RNC: ${biz.rnc}`)
+    lines.push(LF)
+  }
 
   lines.push(ALIGN_CENTER)
   lines.push(BOLD_ON)
@@ -1336,6 +1353,10 @@ export function buildPawnTicket(data) {
   lines.push(LF)
   lines.push(cols('Cliente:', String(data.client_name || '-').substring(0, COL_WIDTH - 9)))
   lines.push(LF)
+  if (data.client_dpi) {
+    lines.push(cols('Cedula:', String(data.client_dpi).substring(0, COL_WIDTH - 8)))
+    lines.push(LF)
+  }
   if (data.client_phone) {
     lines.push(cols('Tel:', String(data.client_phone).substring(0, COL_WIDTH - 5)))
     lines.push(LF)
@@ -1369,22 +1390,61 @@ export function buildPawnTicket(data) {
 
   lines.push(SEP)
   lines.push(LF)
-  lines.push(ALIGN_CENTER)
-  lines.push('Presente esta papeleta para')
-  lines.push(LF)
-  lines.push('reclamar su articulo.')
-  lines.push(LF)
-  lines.push(LF)
-  lines.push('Pasada la fecha limite el')
-  lines.push(LF)
-  lines.push('articulo podra ser decomisado.')
+
+  // ── C9 — Términos del empeño (legal block) ──────────────────────────────
+  // Compute plazo days from today→deadline if available.
+  let plazoDays = null
+  if (data.redeem_deadline) {
+    try {
+      const start = data.created_at ? new Date(data.created_at) : new Date()
+      const end   = new Date(String(data.redeem_deadline).slice(0, 10))
+      plazoDays = Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)))
+    } catch {}
+  }
+  const moraRate = data.mora_rate_daily != null ? Number(data.mora_rate_daily).toFixed(2) : '—'
+
+  lines.push(ALIGN_LEFT)
+  lines.push(BOLD_ON); lines.push('TERMINOS DEL EMPENO'); lines.push(LF); lines.push(BOLD_OFF)
+  if (plazoDays) {
+    wrapText(`- Plazo: ${plazoDays} dias para retirar la prenda.`, COL_WIDTH)
+      .forEach(l => { lines.push(l); lines.push(LF) })
+  }
+  wrapText('- Periodo de gracia: 3 dias despues del vencimiento.', COL_WIDTH)
+    .forEach(l => { lines.push(l); lines.push(LF) })
+  wrapText('- Pasada esa fecha la prenda pasa a remate.', COL_WIDTH)
+    .forEach(l => { lines.push(l); lines.push(LF) })
+  wrapText(`- Tasa de interes moratorio: ${moraRate}% diario sobre el saldo.`, COL_WIDTH)
+    .forEach(l => { lines.push(l); lines.push(LF) })
+  wrapText('- En caso de redencion tardia aplica interes proporcional.', COL_WIDTH)
+    .forEach(l => { lines.push(l); lines.push(LF) })
   lines.push(LF)
 
   if (data.notes) {
-    lines.push(LF)
     lines.push(ALIGN_LEFT)
     wrapText('Notas: ' + String(data.notes), COL_WIDTH).forEach(l => { lines.push(l); lines.push(LF) })
+    lines.push(LF)
   }
+
+  // ── Two signature blocks (printer driver text fallback) ──────────────────
+  lines.push(SEP); lines.push(LF)
+  lines.push(ALIGN_CENTER)
+  lines.push('_______________________________'); lines.push(LF)
+  lines.push('Firma del Empenador'); lines.push(LF)
+  if (data.client_name) { lines.push(String(data.client_name)); lines.push(LF) }
+  if (data.client_dpi)  { lines.push(`Cedula ${data.client_dpi}`); lines.push(LF) }
+  lines.push(LF)
+  lines.push('_______________________________'); lines.push(LF)
+  lines.push('Firma del Prestamista'); lines.push(LF)
+  if (biz.legal_name || biz.name) { lines.push(String(biz.legal_name || biz.name)); lines.push(LF) }
+  if (biz.rnc) { lines.push(`RNC ${biz.rnc}`); lines.push(LF) }
+  lines.push(LF)
+
+  // ── Footer (system-of-record proof) ──────────────────────────────────────
+  lines.push(SEP); lines.push(LF)
+  lines.push(ALIGN_CENTER)
+  const todayIso = new Date().toISOString().slice(0, 10)
+  wrapText(`Papeleta generada por Terminal X - DGII Emisor #42483 - ${todayIso}`, COL_WIDTH)
+    .forEach(l => { lines.push(l); lines.push(LF) })
 
   lines.push(buildFooter())
   return lines.join('')
@@ -1394,4 +1454,69 @@ export function buildPawnTicket(data) {
 export async function printPawnTicket(data, api) {
   const escpos = buildPawnTicket(data)
   return sendToPrinter('pawn-ticket', escpos, data.biz, api)
+}
+
+// ── Carnicería kitchen prep slip (v2.16.3) ────────────────────────────────
+// Compact slip for the back-of-house carnicero. Renders only items that carry
+// `preparation_notes`. Large font, item-first layout, no totals.
+export function buildKitchenPrepSlip(data) {
+  const items = (Array.isArray(data?.items) ? data.items : [])
+    .filter(i => i && (i.preparation_notes || '').trim())
+  if (items.length === 0) return ''
+  const lines = []
+  lines.push(INIT); lines.push(CHARSET_858)
+  lines.push(ALIGN_CENTER); lines.push(DOUBLE_ON); lines.push(BOLD_ON)
+  lines.push('COCINA'); lines.push(LF)
+  lines.push(BOLD_OFF); lines.push(DOUBLE_OFF)
+  lines.push(ALIGN_LEFT)
+  lines.push(SEP); lines.push(LF)
+  lines.push(cols(`Cliente: ${data?.client?.name || '—'}`, fmtDate())); lines.push(LF)
+  if (data?.doc_number) { lines.push(`Ticket: ${data.doc_number}`); lines.push(LF) }
+  lines.push(SEP); lines.push(LF)
+  for (const it of items) {
+    lines.push(LARGE_ON); lines.push(BOLD_ON)
+    lines.push(`${it.qty || ''} ${it.unit || ''} ${it.name || ''}`.trim())
+    lines.push(LF)
+    lines.push(LARGE_OFF); lines.push(BOLD_OFF)
+    wrapText('NOTAS: ' + String(it.preparation_notes), COL_WIDTH).forEach(l => { lines.push(l); lines.push(LF) })
+    lines.push(LF)
+  }
+  lines.push(SEP); lines.push(LF); lines.push(LF); lines.push(LF)
+  lines.push(CUT)
+  return lines.join('')
+}
+
+// Inline COCINA section appended to the receipt when no kitchen printer is
+// configured — graceful degradation per v2.16.3 plan.
+export function buildInlineKitchenBlock(items = []) {
+  const filtered = items.filter(i => i && (i.preparation_notes || '').trim())
+  if (filtered.length === 0) return ''
+  const lines = []
+  lines.push(LF); lines.push(SEP); lines.push(LF)
+  lines.push(ALIGN_CENTER); lines.push(BOLD_ON)
+  lines.push('--- COCINA ---'); lines.push(LF)
+  lines.push(BOLD_OFF); lines.push(ALIGN_LEFT)
+  for (const it of filtered) {
+    lines.push(BOLD_ON)
+    lines.push(`${it.qty || ''} ${it.unit || ''} ${it.name || ''}`.trim())
+    lines.push(LF); lines.push(BOLD_OFF)
+    wrapText('  ' + String(it.preparation_notes), COL_WIDTH).forEach(l => { lines.push(l); lines.push(LF) })
+  }
+  lines.push(SEP); lines.push(LF)
+  return lines.join('')
+}
+
+/**
+ * Print kitchen prep slip — carnicería v2.16.3.
+ * Reads businesses.settings.printers[] (or printer_kitchen) to find a kitchen
+ * device; if absent, returns { fallback: 'inline' } so the caller appends
+ * buildInlineKitchenBlock() to the regular receipt instead.
+ */
+export async function printKitchenPrepSlip(ticketData, settings = {}, api) {
+  const escpos = buildKitchenPrepSlip(ticketData)
+  if (!escpos) return { skipped: true }
+  const kitchenPrinter = settings.printer_kitchen
+    || (Array.isArray(settings.printers) ? settings.printers.find(p => p.role === 'kitchen')?.device_name : null)
+  if (!kitchenPrinter) return { fallback: 'inline' }
+  return sendToPrinter('kitchen-prep', escpos, ticketData.biz, api)
 }

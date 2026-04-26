@@ -24,22 +24,32 @@ export default function ProductsReport() {
   const [loading, setLoading] = useState(true)
   const [tickets, setTickets] = useState([])
   const [shortages, setShortages] = useState([])
+  const [inventoryItems, setInventoryItems] = useState([])
   const [search, setSearch] = useState('')
+  const [category, setCategory] = useState('')   // v2.14.36 — category filter
   const [sortBy, setSortBy] = useState('revenue')
   const [sortDir, setSortDir] = useState('desc')
+  // v2.14.36 — read ITBIS rate from app_settings instead of hardcoding 18%.
+  // Falls back to 18 when unset so historic behavior is preserved.
+  const [itbisFactor, setItbisFactor] = useState(1.18)
 
   useEffect(() => {
     let cancelled = false
     async function load() {
       setLoading(true)
       try {
-        const [tData, sData] = await Promise.all([
+        const [tData, sData, iData, cfg] = await Promise.all([
           api.tickets.byDateRange({ dateFrom: from + 'T00:00:00', dateTo: to + 'T23:59:59' }),
           api.inventory?.oversells?.list?.({ from: from + 'T00:00:00', to: to + 'T23:59:59' }) || Promise.resolve([]),
+          api.inventory?.all?.() || Promise.resolve([]),
+          api.settings?.get?.() || Promise.resolve({}),
         ])
         if (!cancelled) {
           setTickets(tData || [])
           setShortages(Array.isArray(sData) ? sData : [])
+          setInventoryItems(Array.isArray(iData) ? iData : [])
+          const pct = Number(cfg?.itbis_pct)
+          setItbisFactor(Number.isFinite(pct) && pct >= 0 ? 1 + pct / 100 : 1.18)
         }
       } catch {}
       if (!cancelled) setLoading(false)
@@ -47,6 +57,23 @@ export default function ProductsReport() {
     load()
     return () => { cancelled = true }
   }, [from, to, api])
+
+  // Build a sku/inventory_item_id → category map so we can group products by
+  // category even though ticket_items don't carry category directly.
+  const categoryByKey = useMemo(() => {
+    const m = {}
+    for (const it of inventoryItems) {
+      if (!it?.category) continue
+      if (it.id != null) m[String(it.id)] = it.category
+      if (it.sku) m[String(it.sku)]       = it.category
+      if (it.name) m[String(it.name)]     = it.category
+    }
+    return m
+  }, [inventoryItems])
+
+  const allCategories = useMemo(() => {
+    return [...new Set(inventoryItems.map(i => i.category).filter(Boolean))].sort()
+  }, [inventoryItems])
 
   // v2.11.2 — Shortage index. Keyed by every identifier we might match against
   // the product aggregation (item_supabase_id, inventory_item_id, sku, name).
@@ -85,9 +112,14 @@ export default function ProductsReport() {
         const key = item.inventory_item_id || item.sku || item.name
         if (!key) continue
         if (!map[key]) {
+          const cat = categoryByKey[String(item.inventory_item_id ?? '')]
+                   || categoryByKey[String(item.sku ?? '')]
+                   || categoryByKey[String(item.name ?? '')]
+                   || ''
           map[key] = {
             name: item.name,
             sku: item.sku || '',
+            category: cat,
             unitsSold: 0,
             revenue: 0,
             revenueNet: 0,
@@ -102,7 +134,7 @@ export default function ProductsReport() {
         const lineTotal = (item.price || 0) * qty
         const lineCost = (item.cost || 0) * qty
         const aplica = item.aplica_itbis === 1 || item.aplica_itbis === true
-        const lineNet = aplica ? lineTotal / 1.18 : lineTotal
+        const lineNet = aplica ? lineTotal / itbisFactor : lineTotal
         map[key].unitsSold += qty
         map[key].revenue += lineTotal
         map[key].revenueNet += lineNet
@@ -113,13 +145,12 @@ export default function ProductsReport() {
         if (aplica) map[key].taxedRevenue += lineTotal
       }
     }
-    // Derive margin % on net revenue (owner-keep basis).
     for (const p of Object.values(map)) {
       p.marginPct = p.revenueNet > 0 ? ((p.revenueNet - p.cost) / p.revenueNet) * 100 : 0
       p.mostlyTaxed = p.revenue > 0 && (p.taxedRevenue / p.revenue) >= 0.5
     }
     return Object.values(map)
-  }, [tickets])
+  }, [tickets, itbisFactor, categoryByKey])
 
   // Attach shortage counts to each product after aggregation so the column
   // reflects true quiebres even when the product was sold from stock fine
@@ -134,6 +165,7 @@ export default function ProductsReport() {
   // Filter + sort
   const filtered = useMemo(() => {
     let list = productsWithShortages
+    if (category) list = list.filter(p => (p.category || '') === category)
     if (search) {
       const q = search.toLowerCase()
       list = list.filter(p => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
@@ -143,7 +175,24 @@ export default function ProductsReport() {
       return sortDir === 'desc' ? bv - av : av - bv
     })
     return list
-  }, [products, search, sortBy, sortDir])
+  }, [productsWithShortages, search, category, sortBy, sortDir])
+
+  // v2.14.36 — "Top productos por categoría". Aggregates the filtered set by
+  // category and surfaces the top revenue earner per category. Drives the
+  // top-N strip above the main table when category filter is empty.
+  const topByCategory = useMemo(() => {
+    if (category) return []  // hide when a category filter is active
+    const byCat = {}
+    for (const p of productsWithShortages) {
+      const cat = p.category || (lang === 'es' ? 'Sin categoría' : 'Uncategorized')
+      if (!byCat[cat]) byCat[cat] = { name: cat, revenue: 0, units: 0, profit: 0, top: null }
+      byCat[cat].revenue += p.revenue
+      byCat[cat].units   += p.unitsSold
+      byCat[cat].profit  += p.profit
+      if (!byCat[cat].top || p.revenue > byCat[cat].top.revenue) byCat[cat].top = p
+    }
+    return Object.values(byCat).sort((a, b) => b.revenue - a.revenue).slice(0, 6)
+  }, [productsWithShortages, category, lang])
 
   // Totals
   const totals = useMemo(() => {
@@ -187,7 +236,48 @@ export default function ProductsReport() {
             placeholder={L('Buscar producto...', 'Search product...')}
             className="flex-1 min-w-0 bg-transparent outline-none text-xs text-slate-700 dark:text-white placeholder:text-slate-400" />
         </div>
+        <select
+          value={category}
+          onChange={e => setCategory(e.target.value)}
+          className="text-xs border border-slate-200 dark:border-white/10 rounded-lg px-2 py-1.5 bg-white dark:bg-white/5 text-slate-700 dark:text-white max-w-[200px]"
+          title={L('Filtrar por categoría', 'Filter by category')}
+        >
+          <option value="">{L('Todas las categorías', 'All categories')}</option>
+          {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        {category && (
+          <button
+            onClick={() => setCategory('')}
+            className="text-[11px] text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white underline"
+          >
+            {L('Limpiar', 'Clear')}
+          </button>
+        )}
       </div>
+
+      {/* Top productos por categoría — only when no category filter is active */}
+      {topByCategory.length > 0 && (
+        <div className="px-4 md:px-6 pt-3 shrink-0">
+          <p className="text-[10px] text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1.5">
+            {L('Top por categoría', 'Top by category')}
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+            {topByCategory.map(c => (
+              <button
+                key={c.name}
+                onClick={() => setCategory(c.name === (lang === 'es' ? 'Sin categoría' : 'Uncategorized') ? '' : c.name)}
+                className="text-left bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-2 hover:border-sky-300 dark:hover:border-sky-500/40 transition-colors"
+              >
+                <p className="text-[10px] text-slate-400 dark:text-white/40 uppercase tracking-wider truncate">{c.name}</p>
+                <p className="text-[12px] font-bold text-slate-800 dark:text-white">{fmtRD(c.revenue)}</p>
+                <p className="text-[10px] text-slate-500 dark:text-white/60 truncate" title={c.top?.name || ''}>
+                  ★ {c.top?.name || '—'}
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Summary stats */}
       <div className="px-4 md:px-6 py-3 grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">

@@ -373,9 +373,16 @@ export default function VerticalFeatures({ lang = 'es' }) {
             )}
 
             <div className="mt-8 flex flex-col sm:flex-row sm:items-center gap-3">
+              <a
+                href={`/industrias/${active}`}
+                className="group inline-flex items-center gap-2 bg-[#b3001e] hover:brightness-110 text-white font-bold px-6 py-3 rounded-xl transition"
+              >
+                {lang === 'es' ? 'Ver página completa' : 'See full page'}
+                <ArrowRight size={16} className="group-hover:translate-x-0.5 transition-transform" />
+              </a>
               <button
                 onClick={() => scrollToPlan(tabs.find(t => t.key === active)?.planAnchor)}
-                className="group inline-flex items-center gap-2 bg-black hover:bg-[#b3001e] text-white font-bold px-6 py-3 rounded-xl transition-colors"
+                className="group inline-flex items-center gap-2 bg-black hover:bg-black/80 text-white font-bold px-6 py-3 rounded-xl transition-colors"
               >
                 {lang === 'es' ? 'Ver plan recomendado' : 'See recommended plan'}
                 <ArrowRight size={16} className="group-hover:translate-x-0.5 transition-transform" />

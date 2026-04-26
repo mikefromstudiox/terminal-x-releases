@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Globe, Eye, WifiOff, RefreshCw, TrendingUp, ReceiptText, Banknote, CreditCard, ArrowRightLeft, Clock,
   Activity, UserX, Tag, XCircle, Wallet, Percent, Package, PiggyBank, Scale, Lock, ChevronDown, ChevronUp, ClipboardList, Sunrise,
-  DoorOpen, Unlock, HardDrive, ShieldAlert, ShieldX } from 'lucide-react'
+  DoorOpen, Unlock, HardDrive, ShieldAlert, ShieldX, Calendar } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
@@ -534,6 +534,7 @@ const EVENT_META = {
   ticket_voided:         { Icon: XCircle,  color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',        es: 'Ticket anulado',            en: 'Ticket voided' },
   nota_credito_created:  { Icon: ReceiptText, color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',     es: 'Nota de crédito',           en: 'Credit note' },
   invoice_issued:        { Icon: ReceiptText, color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',      es: 'Factura emitida',           en: 'Invoice issued' },
+  invoice_voided:        { Icon: XCircle,     color: 'text-[#b3001e] bg-[#b3001e]/10 dark:text-red-300 dark:bg-red-500/10', es: 'Factura anulada',           en: 'Invoice voided' },
   payroll_paid:          { Icon: Wallet,   color: 'text-violet-600 bg-violet-50 dark:bg-violet-500/10 dark:text-violet-300', es: 'Nómina pagada',         en: 'Payroll paid' },
   discount_applied:      { Icon: Percent,  color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Descuento aplicado',        en: 'Discount applied' },
   inventory_adjusted:    { Icon: Package,  color: 'text-blue-600 bg-blue-50 dark:bg-blue-500/10 dark:text-blue-300',    es: 'Ajuste de inventario',      en: 'Inventory adjusted' },
@@ -578,6 +579,29 @@ const EVENT_META = {
   empleado_deactivated:  { Icon: UserX,       color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Empleado desactivado',      en: 'Employee deactivated' },
   // v2.13.0 — DGII private key export (critical audit trail)
   cert_pem_export:       { Icon: ShieldAlert, color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',          es: 'Exportación de certificado DGII', en: 'DGII cert exported' },
+  // v2.5 — Concesionario CRM + commissions
+  deal_closed:           { Icon: ReceiptText, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-300', es: 'Venta de vehículo cerrada', en: 'Vehicle deal closed' },
+  deal_commission_paid:  { Icon: Wallet,      color: 'text-violet-600 bg-violet-50 dark:bg-violet-500/10 dark:text-violet-300', es: 'Comisión de vehículo pagada', en: 'Vehicle commission paid' },
+  pipeline_stage_change: { Icon: RefreshCw,   color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',          es: 'Etapa de prospecto',          en: 'Pipeline stage change' },
+  pipeline_followup_logged: { Icon: ClipboardList, color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',     es: 'Seguimiento registrado',     en: 'Follow-up logged' },
+  // v2.16.0 — Taller Mecánico hardening
+  wo_estimate_approved:   { Icon: ClipboardList, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-300', es: 'Cotización aprobada',         en: 'Estimate approved' },
+  wo_started:             { Icon: RefreshCw,     color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',          es: 'WO iniciada',                  en: 'Work order started' },
+  wo_parts_received:      { Icon: Package,       color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-300', es: 'Repuesto recibido',           en: 'Parts received' },
+  wo_ready_for_pickup:    { Icon: ReceiptText,   color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',          es: 'Vehículo listo',               en: 'Vehicle ready for pickup' },
+  insurance_batch_emitted:{ Icon: ReceiptText,   color: 'text-violet-600 bg-violet-50 dark:bg-violet-500/10 dark:text-violet-300', es: 'Lote aseguradora emitido',     en: 'Insurance batch emitted' },
+  // v2.16.4 — concesionario reservations + warranties
+  vehicle_reservation_expired: { Icon: Calendar,    color: 'text-slate-600 bg-slate-100 dark:bg-white/10 dark:text-white/70', es: 'Reserva vencida',             en: 'Reservation expired' },
+  vehicle_warranty_expired:    { Icon: ShieldAlert, color: 'text-slate-600 bg-slate-100 dark:bg-white/10 dark:text-white/70', es: 'Garantia vencida',            en: 'Warranty expired' },
+  warranty_create_failed:      { Icon: ShieldAlert, color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Falla al crear garantia', en: 'Warranty create failed' },
+  reservation_override:        { Icon: ShieldAlert, color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Override de reserva',     en: 'Reservation override' },
+  // v2.16.4 Sprint 2C — bank pre-approvals
+  bank_preapproval_expired:    { Icon: ShieldAlert, color: 'text-slate-600 bg-slate-100 dark:bg-white/10 dark:text-white/70',         es: 'Pre-aprobacion vencida',  en: 'Pre-approval expired' },
+  // v2.16.2 Sprint 2E — concesionario completion sweep
+  deal_close_failed:           { Icon: ShieldX,    color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',              es: 'Error al cerrar trato',     en: 'Deal close failed' },
+  vehicle_warranty_claim_added:{ Icon: ClipboardList, color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',           es: 'Reclamo de garantia registrado', en: 'Warranty claim added' },
+  preapproval_used:            { Icon: CreditCard, color: 'text-violet-600 bg-violet-50 dark:bg-violet-500/10 dark:text-violet-300', es: 'Pre-aprobacion utilizada',  en: 'Pre-approval used' },
+  appraisal_recorded:          { Icon: ReceiptText, color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',             es: 'Tasacion detallada registrada', en: 'Appraisal recorded' },
 }
 function eventLabel(evt, lang) {
   const m = EVENT_META[evt]
@@ -669,7 +693,7 @@ const FILTER_CHIPS = [
   { id: 'deletes',  es: 'Eliminaciones',en: 'Deletions',    types: ['user_deleted','user_deactivated','service_deleted'] },
   { id: 'prices',   es: 'Precios',      en: 'Prices',       types: ['service_price_changed'] },
   { id: 'voids',    es: 'Anulaciones',  en: 'Voids',        types: ['ticket_voided','nota_credito_created'] },
-  { id: 'invoices', es: 'Facturas',     en: 'Invoices',     types: ['invoice_issued'] },
+  { id: 'invoices', es: 'Facturas',     en: 'Invoices',     types: ['invoice_issued', 'invoice_voided'] },
   { id: 'payouts',  es: 'Pagos',        en: 'Payouts',      types: ['payroll_paid'] },
   { id: 'discounts',es: 'Descuentos',   en: 'Discounts',    types: ['discount_applied'] },
   { id: 'stock',    es: 'Inventario',   en: 'Inventory',    types: ['inventory_adjusted', 'inventory_created'] },
@@ -683,6 +707,8 @@ const FILTER_CHIPS = [
   { id: 'dgii',     es: 'DGII',         en: 'DGII',         types: ['dgii_reconcile','ncf_auto_anecf'] },
   { id: 'rebind',   es: 'Re-vinculos',  en: 'Rebinds',      types: ['rebind_rejected'] },
   { id: 'mgr',      es: 'Gerente',      en: 'Manager',      types: ['manager_override','manager_card_rotated','manager_card_revoked'] },
+  { id: 'concesionario', es: 'Concesionario', en: 'Dealership', types: ['deal_closed','deal_close_failed','deal_commission_paid','pipeline_stage_change','pipeline_followup_logged','vehicle_reservation_expired','reservation_override','vehicle_warranty_expired','vehicle_warranty_claim_added','warranty_create_failed','bank_preapproval_expired','preapproval_used','appraisal_recorded'] },
+  { id: 'mecanica', es: 'Mecánica', en: 'Auto Shop', types: ['wo_estimate_approved','wo_started','wo_parts_received','wo_ready_for_pickup','insurance_batch_emitted'] },
 ]
 
 function fmtRel(iso, lang) {

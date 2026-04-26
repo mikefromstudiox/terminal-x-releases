@@ -86,6 +86,46 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  // ── v2.16.3 — Carnicería hardening ─────────────────────────────────────────
+  carniceria: {
+    cortes: {
+      list:   ()     => call('carniceria:cortes:list'),
+      create: (data) => call('carniceria:cortes:create', data),
+      update: (data) => call('carniceria:cortes:update', data),
+      remove: (id)   => call('carniceria:cortes:remove', id),
+    },
+    freshness: {
+      list:           ()     => call('carniceria:freshness:list'),
+      create:         (data) => call('carniceria:freshness:create', data),
+      applyDiscount:  (args) => call('carniceria:freshness:applyDiscount', args),
+    },
+    discards: {
+      create: (data) => call('carniceria:discards:create', data),
+      list:   (args) => call('carniceria:discards:list', args || {}),
+    },
+    recurring: {
+      list:     ()     => call('carniceria:recurring:list'),
+      create:   (data) => call('carniceria:recurring:create', data),
+      update:   (data) => call('carniceria:recurring:update', data),
+      remove:   (id)   => call('carniceria:recurring:remove', id),
+      markSent: (args) => call('carniceria:recurring:markSent', args),
+    },
+    scales: {
+      list:             ()     => call('carniceria:scales:list'),
+      create:           (data) => call('carniceria:scales:create', data),
+      update:           (data) => call('carniceria:scales:update', data),
+      remove:           (id)   => call('carniceria:scales:remove', id),
+      setActiveDefault: (id)   => call('carniceria:scales:setActiveDefault', id),
+    },
+    resumen: {
+      get: () => call('carniceria:resumen:get'),
+    },
+    discounts: {
+      // Returns { [item_supabase_id]: [{ source, pct, label, banner_text, season_key }] }
+      activeFor: (item_supabase_ids) => call('carniceria:discounts:activeFor', { item_supabase_ids }),
+    },
+  },
+
   // ── Conteo Fisico (v2.5) ──────────────────────────────────────────────────
   inventoryCount: {
     start:    (args) => call('inventoryCount:start', args),
@@ -145,11 +185,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Services ───────────────────────────────────────────────────────────────
   services: {
-    all:      ()     => call('services:all'),
-    allAdmin: ()     => call('services:all-admin'),
-    create:   (data) => call('services:create', data),
-    update:   (data) => call('services:update', data),
-    delete:   (data) => call('services:delete', data),
+    all:        ()     => call('services:all'),
+    allAdmin:   ()     => call('services:all-admin'),
+    topSellers: (opts) => call('services:top-sellers', opts || {}),
+    create:     (data) => call('services:create', data),
+    update:     (data) => call('services:update', data),
+    delete:     (data) => call('services:delete', data),
   },
 
   // ── Washers ────────────────────────────────────────────────────────────────
@@ -265,6 +306,135 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete:  (id)                => call('stylistSchedules:delete', { id }),
   },
 
+  // ── Concesionario v2 / v2.5 ───────────────────────────────────────────────
+  vehicleInventory: {
+    list:      (params)          => call('vehicleInventory:list', params),
+    byId:      (id)              => call('vehicleInventory:byId', id),
+    create:    (data)            => call('vehicleInventory:create', data),
+    update:    (id, data)        => call('vehicleInventory:update', { id, ...data }),
+    setStatus: (id, status)      => call('vehicleInventory:setStatus', { id, status }),
+    delete:    (id)              => call('vehicleInventory:delete', { id }),
+  },
+  salesDeals: {
+    list:                  (params) => call('salesDeals:list', params),
+    byId:                  (id)     => call('salesDeals:byId', id),
+    create:                (data)   => call('salesDeals:create', data),
+    update:                (id, data) => call('salesDeals:update', { id, ...data }),
+    close:                 (id, ticketInfo) => call('salesDeals:close', { id, ticketInfo }),
+    markCommissionPaid:    (id)     => call('salesDeals:markCommissionPaid', { id }),
+    commissionsForPeriod:  (params) => call('salesDeals:commissionsForPeriod', params),
+    delete:                (id)     => call('salesDeals:delete', { id }),
+  },
+  leads: {
+    list:        (params) => call('leads:list', params),
+    create:      (data)   => call('leads:create', data),
+    update:      (id, data) => call('leads:update', { id, ...data }),
+    setStage:    (id, stage, extra) => call('leads:setStage', { id, stage, extra }),
+    logContact:  (id, rest) => call('leads:logContact', { id, ...(rest || {}) }),
+    overdue:     ()       => call('leads:overdue'),
+    delete:      (id)     => call('leads:delete', { id }),
+  },
+  testDrives: {
+    list:        ()       => call('testDrives:list'),
+    create:      (data)   => call('testDrives:create', data),
+    update:      (id, data) => call('testDrives:update', { id, ...data }),
+    complete:    (id, notes) => call('testDrives:complete', { id, notes }),
+    setOutcome:  (id, rest) => call('testDrives:setOutcome', { id, ...(rest || {}) }),
+    delete:      (id)     => call('testDrives:delete', { id }),
+  },
+  vehicleDocuments: {
+    byVehicle:    (vehicleSupabaseId) => call('vehicleDocuments:byVehicle', vehicleSupabaseId),
+    expiringSoon: (days)              => call('vehicleDocuments:expiringSoon', days),
+    create:       (data)              => call('vehicleDocuments:create', data),
+    delete:       (id)                => call('vehicleDocuments:delete', { id }),
+  },
+  // v2.16.2 — Vehicle Titulo (INTRANT matricula / traspaso)
+  vehicleTitulo: {
+    list:    ()       => call('vehicleTitulo:list'),
+    upsert:  (data)   => call('vehicleTitulo:upsert', data),
+    delete:  (id)     => call('vehicleTitulo:delete', { id }),
+  },
+
+  // v2.16.4 — Vehicle Reservations (Sprint 2A H2)
+  vehicleReservation: {
+    list:    (args)   => call('vehicle-reservation:list', args || {}),
+    active:  (args)   => call('vehicle-reservation:active', args || {}),
+    upsert:  (data)   => call('vehicle-reservation:upsert', data),
+    release: (args)   => call('vehicle-reservation:release', args),
+    convert: (args)   => call('vehicle-reservation:convert', args),
+    expire:  ()       => call('vehicle-reservation:expire'),
+  },
+
+  // v2.16.4 — Vehicle Warranties (Sprint 2B H3)
+  vehicleWarranty: {
+    list:           (args) => call('vehicle-warranty:list', args || {}),
+    byDeal:         (sales_deal_supabase_id) => call('vehicle-warranty:by-deal', { sales_deal_supabase_id }),
+    expiringSoon:   (args) => call('vehicle-warranty:expiring-soon', args || {}),
+    upsert:         (data) => call('vehicle-warranty:upsert', data),
+    addClaim:       (args) => call('vehicle-warranty:add-claim', args),
+    void:           (args) => call('vehicle-warranty:void', args),
+    expire:         ()     => call('vehicle-warranty:expire'),
+  },
+
+  // v2.16.4 — Bank Pre-approvals (Sprint 2C H5)
+  bankPreapproval: {
+    list:           (args) => call('bank-preapproval:list', args || {}),
+    activeByClient: (client_supabase_id) => call('bank-preapproval:active-by-client', { client_supabase_id }),
+    upsert:         (data) => call('bank-preapproval:upsert', data),
+    setStatus:      (args) => call('bank-preapproval:set-status', args),
+    expire:         ()     => call('bank-preapproval:expire'),
+  },
+
+  // ── v2.16.0 Taller Mecánico hardening ────────────────────────────────────
+  aseguradoras: {
+    list:           (params)              => call('aseguradoras:list', params),
+    byId:           (id)                  => call('aseguradoras:byId', id),
+    bySupabaseId:   (supabaseId)          => call('aseguradoras:bySupabaseId', supabaseId),
+    create:         (data)                => call('aseguradoras:create', data),
+    update:         (id, data)            => call('aseguradoras:update', { id, ...data }),
+    delete:         (id)                  => call('aseguradoras:delete', { id }),
+  },
+  // ── Loan renewals (M2 — pawn / lending) ──────────────────────────────────
+  loanRenewals: {
+    list:   (params) => call('loan-renewals:list', params || {}),
+    create: (data)   => call('loan-renewals:create', data),
+  },
+  suppliers: {
+    list:    (params)         => call('suppliers:list', params),
+    byId:    (id)             => call('suppliers:byId', id),
+    create:  (data)           => call('suppliers:create', data),
+    update:  (id, data)       => call('suppliers:update', { id, ...data }),
+    delete:  (id)             => call('suppliers:delete', { id }),
+  },
+  partsOrders: {
+    listByWO:       (wo_supabase_id)        => call('partsOrders:listByWO', wo_supabase_id),
+    listAwaiting:   ()                      => call('partsOrders:listAwaiting'),
+    findByBarcode:  (barcode)               => call('partsOrders:findByBarcode', barcode),
+    create:         (data)                  => call('partsOrders:create', data),
+    update:         (id, data)              => call('partsOrders:update', { id, ...data }),
+    markReceived:   (id, received_barcode)  => call('partsOrders:markReceived', { id, received_barcode }),
+    delete:         (id)                    => call('partsOrders:delete', { id }),
+  },
+  workOrderPhotos: {
+    listByWO:      (wo_supabase_id)   => call('workOrderPhotos:listByWO', wo_supabase_id),
+    listByVehicle: (veh_supabase_id)  => call('workOrderPhotos:listByVehicle', veh_supabase_id),
+    insert:        (data)             => call('workOrderPhotos:insert', data),
+    delete:        (id)               => call('workOrderPhotos:delete', { id }),
+  },
+  insuranceBatches: {
+    listByPeriod:    (params)        => call('insuranceBatches:listByPeriod', params),
+    byId:            (id)            => call('insuranceBatches:byId', id),
+    create:          (data)          => call('insuranceBatches:create', data),
+    update:          (id, data)      => call('insuranceBatches:update', { id, ...data }),
+    workOrdersFor:   (aseguradora_supabase_id, period_month) =>
+                      call('insuranceBatches:workOrdersFor', { aseguradora_supabase_id, period_month }),
+  },
+  mechanic: {
+    productivityForPeriod: (period_start, period_end) =>
+                            call('mechanic:productivityForPeriod', { period_start, period_end }),
+    serviceRemindersDue:   () => call('mechanic:serviceRemindersDue'),
+  },
+
   // ── Loans (prestamos) ─────────────────────────────────────────────────────
   loans: {
     create:  (data)              => call('loans:create', data),
@@ -378,11 +548,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Restaurant Mode — Mesas (floor plan) ───────────────────────────────────
   mesas: {
-    list:      ()                          => call('mesas:list'),
-    create:    (data)                      => call('mesas:create', data),
-    update:    (id, data)                  => call('mesas:update', { id, ...data }),
-    setStatus: (id, status, opts)          => call('mesas:setStatus', { id, status, opts }),
-    delete:    (id)                        => call('mesas:delete', { id }),
+    list:        ()                          => call('mesas:list'),
+    create:      (data)                      => call('mesas:create', data),
+    update:      (id, data)                  => call('mesas:update', { id, ...data }),
+    setStatus:   (id, status, opts)          => call('mesas:setStatus', { id, status, opts }),
+    requestBill: (id)                        => call('mesas:request-bill', { id }),
+    delete:      (id)                        => call('mesas:delete', { id }),
   },
 
   // ── Restaurant Mode — Modificadores (menu add-ons) ─────────────────────────
@@ -492,6 +663,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ncf: {
     sequences:      ()            => call('ncf:sequences'),
     next:           (type)        => call('ncf:next', type),
+    rollback:       (ncf)         => call('ncf:rollback', ncf),
     updateSequence: (data)        => call('ncf:updateSequence', data),
   },
 
@@ -514,6 +686,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     get607:       (params) => call('dgii:607:get',    params),
     addCompra:    (data)   => call('dgii:607:add',    data),
     deleteCompra: ({id})   => call('dgii:607:delete', {id}),
+    // v2.16.2 — concesionario compensating ANECF on deal_close_failed
+    queueAnecfVoid: ({ eNCF, ticketId, ticketSupabaseId, reason } = {}) =>
+                      ipcRenderer.invoke('dgii:queue-anecf-void', { eNCF, ticketId, ticketSupabaseId, reason }),
   },
 
   // ── RNC Lookup ─────────────────────────────────────────────────────────────
@@ -586,6 +761,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list:    (args)   => ipcRenderer.invoke('oversells:list', args || {}),
     count:   ()       => ipcRenderer.invoke('oversells:count'),
     resolve: (payload)=> ipcRenderer.invoke('oversells:resolve', payload || {}),
+  },
+
+  // ── Salon v2.16.1 — memberships, client balances, reminders, no-show ─────
+  salon: {
+    memberships: {
+      list:    ()           => call('salon:memberships:list'),
+      create:  (data)       => call('salon:memberships:create', data),
+      update:  (data)       => call('salon:memberships:update', data),
+      archive: (supabase_id)=> call('salon:memberships:archive', { supabase_id }),
+    },
+    clientMemberships: {
+      byClient:     (client_supabase_id) => call('salon:client-memberships:by-client', client_supabase_id),
+      purchase:     (data)                => call('salon:client-memberships:purchase', data),
+      consume:      (data)                => call('salon:client-memberships:consume', data),
+      expiringSoon: (days)                => call('salon:client-memberships:expiring-soon', days),
+    },
+    reminders: {
+      schedule:               (data) => call('salon:reminders:schedule', data),
+      pendingDue:             (now)  => call('salon:reminders:pending-due', now),
+      markSent:               (data) => call('salon:reminders:mark-sent', data),
+      markFailed:             (data) => call('salon:reminders:mark-failed', data),
+      scheduleForAppointment: (appt) => call('salon:reminders:schedule-for-appointment', appt),
+    },
+    appointments: {
+      markNoShow: (supabase_id) => call('salon:appointments:mark-no-show', { supabase_id }),
+    },
   },
 
   // ── App version ────────────────────────────────────────────────────────────

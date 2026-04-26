@@ -66,3 +66,63 @@ export function applyTare(gross, tare) {
   const n = g - t
   return n > 0 ? Math.round(n * 1000) / 1000 : 0
 }
+
+// ── Multi-scale registry (v2.16.3 carniceria hardening) ─────────────────────
+// One ScaleRegistry per renderer process. Backed by carniceria_scales table
+// via the API bridge; in-memory list mirrors DB rows with one marked active.
+// Hot-swap: setActive(id) emits 'change' so POS header / WeightModal can react
+// without a restart. Driver instance is created lazily per scale row.
+
+const _listeners = new Set()
+let _scales = []           // [{ id, supabase_id, nombre, tipo, protocol, baud_rate, ... }]
+let _activeId = null
+let _activeService = null  // createScaleService instance for current scale
+
+function emit(event) { for (const cb of _listeners) { try { cb(event) } catch {} } }
+
+export const ScaleRegistry = {
+  list()      { return _scales.slice() },
+  getActive() { return _scales.find(s => s.id === _activeId) || null },
+  getActiveService() { return _activeService },
+  subscribe(cb) { _listeners.add(cb); return () => _listeners.delete(cb) },
+
+  // Replace the in-memory roster; pick the row flagged active_default if no
+  // explicit active id is set. Used by Settings + boot sync.
+  hydrate(rows) {
+    _scales = Array.isArray(rows) ? rows.slice() : []
+    if (_activeId && !_scales.find(s => s.id === _activeId)) _activeId = null
+    if (!_activeId) {
+      const def = _scales.find(s => s.active_default) || _scales[0]
+      _activeId = def?.id ?? null
+    }
+    _activeService = null
+    emit({ type: 'hydrate', activeId: _activeId, scales: _scales })
+  },
+
+  async setActive(id) {
+    const next = _scales.find(s => s.id === id)
+    if (!next) throw new Error('Scale not found')
+    if (_activeService) { try { await _activeService.disconnect() } catch {} _activeService = null }
+    _activeId = id
+    emit({ type: 'active-change', activeId: _activeId, scale: next })
+  },
+
+  async ensureConnected() {
+    const cur = ScaleRegistry.getActive()
+    if (!cur) return null
+    if (!_activeService) {
+      _activeService = createScaleService({ driver: cur.protocol === 'mock' ? 'mock' : 'webserial' })
+    }
+    if (!_activeService.isConnected()) {
+      try { await _activeService.connect() } catch (e) { emit({ type: 'connect-error', error: e?.message }); return null }
+    }
+    return _activeService
+  },
+}
+
+// Convenience facade used by WeightModal — always operates on the active scale.
+export async function readActiveWeight() {
+  const svc = await ScaleRegistry.ensureConnected()
+  if (!svc) return { weight: null, unit: 'lb', stable: false }
+  return svc.read()
+}

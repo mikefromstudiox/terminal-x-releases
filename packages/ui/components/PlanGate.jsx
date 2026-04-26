@@ -3,23 +3,53 @@ import { useLang } from '../i18n'
 import { Lock, ArrowUpCircle } from 'lucide-react'
 
 const FEATURE_PLAN_MIN = {
+  // v2.16.2 — Facturación tier sprint. The standalone billing plan must be
+  // DGII-compliant out of the box, which means E33/E34 (credit_notes), the
+  // 606/607 monthly export (dgii_606_607), and the DGII shell + e-CF surface
+  // all land at this tier. Higher tiers obviously include them.
   invoicing: 'facturacion',
+  credit_notes: 'facturacion',
+  dgii: 'facturacion',
+  ecf: 'facturacion',
+  dgii_606_607: 'facturacion',
   // Pro — core POS + basic back-office
   pos: 'pro', queue: 'pro',  // v2.3.30 — closed the ungated hole
-  credits: 'pro', reports: 'pro', petty_cash: 'pro', credit_notes: 'pro',
+  credits: 'pro', reports: 'pro', petty_cash: 'pro',
   cash_recon: 'pro', commissions: 'pro', inventory: 'pro',
   nomina_basic: 'pro',
   // Pro PLUS — fiscal + automation
-  ecf: 'pro_plus', dgii: 'pro_plus', dgii_606_607: 'pro_plus',
   whatsapp_receipts: 'pro_plus', whatsapp_automation: 'pro_plus',
   restaurant_mode: 'pro_plus',
   work_orders: 'pro_plus', appointments: 'pro_plus', service_bays: 'pro_plus',
   loans: 'pro_plus', vehicles: 'pro_plus',
+  // Salon vertical (v2.16.1)
+  salon_memberships: 'pro_plus', salon_dashboard: 'pro_plus',
+  salon_public_booking: 'pro_plus', salon_walk_in_mode: 'pro_plus',
+  salon_whatsapp_reminders: 'pro_plus',
   // Pro MAX — scale + advanced
   remote_dashboard: 'pro_max', multi_location: 'pro_max',
   custom_receipt_design: 'pro_max', nomina_advanced: 'pro_max',
   pawn_items: 'pro_max', loan_analytics: 'pro_max',
-  vehicle_history: 'pro_max', stylist_schedules: 'pro_max',
+  vehicle_history: 'pro_max',
+  // v2.16.1 patch — stylist_schedules promoted to Pro PLUS in usePlan; align here.
+  stylist_schedules: 'pro_plus',
+  // v2.16.1 patch — registered features that previously fell through to 'pro'.
+  salon_no_show_deposit: 'pro_max',
+  salon_offline_whatsapp_queue: 'pro_max',
+  salon_preferred_stylist: 'pro',
+  // v2.16.2 Sprint 2E — concesionario gating
+  concesionario_resumen:   'pro',
+  vehicle_inventory:       'pro_plus',
+  sales_pipeline:          'pro_plus',
+  test_drives:             'pro_plus',
+  deal_builder:            'pro_plus',
+  matriculas:              'pro_plus',
+  reservations:            'pro_plus',
+  warranties:              'pro_plus',
+  preapprovals:            'pro_plus',
+  concesionario_reports:   'pro_plus',
+  intrant_api:             'pro_max',
+  whatsapp_auto:           'pro_max',
 }
 
 export default function PlanGate({ feature, children }) {

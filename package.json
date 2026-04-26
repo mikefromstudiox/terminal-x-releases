@@ -1,6 +1,6 @@
 {
   "name": "terminal-x",
-  "version": "2.15.0",
+  "version": "2.16.5",
   "private": true,
   "description": "Terminal X - POS System for Car Wash, Retail & Services",
   "author": "Studio X",
@@ -18,6 +18,9 @@
     "verify:build": "node scripts/verify-asar.cjs && node scripts/smoke-test-build.cjs",
     "verify:asar": "node scripts/verify-asar.cjs",
     "smoke": "node scripts/smoke-test-build.cjs",
+    "e2e:demo": "node scripts/demo-e2e-smoke.mjs",
+    "e2e:demo:all": "node scripts/demo-e2e-all.mjs",
+    "seed:demo:mecanica": "node scripts/seed-demo-mecanica.mjs",
     "dist:win:beta": "npm run build:react && electron-builder --win -c.publish.channel=beta",
     "dist:mac": "npm run build:react && electron-builder --mac",
     "dist:mac:beta": "npm run build:react && electron-builder --mac -c.publish.channel=beta",

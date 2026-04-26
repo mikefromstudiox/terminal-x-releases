@@ -89,6 +89,7 @@ function dbToTxn(t) {
     notes:      t.notes || t.comentario || null,
     comentario: t.comentario || t.notes || null,
     descuento:  t.descuento || 0,
+    descuentoReason: t.descuento_reason || null,
   }
 }
 
@@ -343,10 +344,17 @@ function DetailModal({ ticket: t, onClose, onReprint, lang }) {
               </div>
             )}
             {t.descuento > 0 && (
-              <div className="flex justify-between text-rose-600 dark:text-rose-400">
-                <span>{lang === 'es' ? 'Descuento' : 'Discount'}</span>
-                <span>−{fmtRD(t.descuento)}</span>
-              </div>
+              <>
+                <div className="flex justify-between text-rose-600 dark:text-rose-400">
+                  <span>{lang === 'es' ? 'Descuento' : 'Discount'}</span>
+                  <span>−{fmtRD(t.descuento)}</span>
+                </div>
+                {t.descuentoReason && (
+                  <div className="flex justify-between text-[11px] text-rose-500/80 dark:text-rose-400/70 -mt-0.5">
+                    <span className="italic">{lang === 'es' ? 'Razón' : 'Reason'}: {t.descuentoReason}</span>
+                  </div>
+                )}
+              </>
             )}
             <div className="flex justify-between font-bold text-slate-800 dark:text-white text-[14px] pt-1 border-t border-slate-200 dark:border-white/10">
               <span>Total</span>

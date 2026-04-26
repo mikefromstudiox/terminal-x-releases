@@ -4,14 +4,21 @@
  */
 
 import { useState, useEffect } from 'react'
-import { Plus, X, Loader2, Check, Trash2, Car as CarIcon } from 'lucide-react'
+import { Plus, X, Loader2, Check, Trash2, Car as CarIcon, Trophy, Frown, Phone, MessageCircle } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
+import { sendTestDriveReminder } from '../../../services/whatsapp-dealership.js'
 
 function fmtDT(s) {
   if (!s) return '—'
   return new Date(s).toLocaleString('es-DO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
+
+const OUTCOMES = [
+  { v: 'sold',      es: 'Vendido',     en: 'Sold',     icon: Trophy, cls: 'bg-black text-white' },
+  { v: 'follow_up', es: 'Seguimiento', en: 'Follow-up', icon: Phone,  cls: 'bg-white text-black border border-black' },
+  { v: 'lost',      es: 'Perdido',     en: 'Lost',     icon: Frown,  cls: 'bg-[#b3001e] text-white' },
+]
 
 function TDModal({ lang, onSave, onClose, clients, units, staff }) {
   const L = (es, en) => lang === 'es' ? es : en
@@ -27,6 +34,19 @@ function TDModal({ lang, onSave, onClose, clients, units, staff }) {
   async function submit(e) {
     e.preventDefault()
     if (!form.client_id || !form.vehicle_inventory_id) return
+    // C6 — DR Ley 146-02 requires verified license + signed waiver before drive.
+    const cedRgx  = /^\d{3}-\d{7}-\d$/
+    const passRgx = /^[A-Z0-9]{6,12}$/i
+    const lic = (form.license_number || '').trim()
+    if (!lic || !(cedRgx.test(lic) || passRgx.test(lic))) {
+      alert('Cedula (formato 000-0000000-0) o pasaporte requerido para registrar prueba de manejo.')
+      return
+    }
+    const waiver = (form.signed_waiver_url || '').trim()
+    if (!waiver || !/^https?:\/\//i.test(waiver)) {
+      alert('Waiver firmado (URL https) es requerido por Ley 146-02 antes de la prueba de manejo.')
+      return
+    }
     setSaving(true)
     const client = clients.find(c => c.id === form.client_id)
     const unit   = units.find(u => u.id === form.vehicle_inventory_id)
@@ -34,6 +54,8 @@ function TDModal({ lang, onSave, onClose, clients, units, staff }) {
     try {
       await onSave({
         ...form,
+        license_number: lic,
+        signed_waiver_url: waiver,
         scheduled_at: new Date(form.scheduled_at).toISOString(),
         client_supabase_id: client?.supabase_id || null,
         vehicle_inventory_supabase_id: unit?.supabase_id || null,
@@ -60,7 +82,7 @@ function TDModal({ lang, onSave, onClose, clients, units, staff }) {
           <label className="block"><span className="text-xs font-semibold">{L('Vehículo', 'Vehicle')}*</span>
             <select value={form.vehicle_inventory_id} onChange={e => setForm(f => ({ ...f, vehicle_inventory_id: e.target.value }))} required className="mt-1 w-full border border-black px-2 py-1.5">
               <option value="">{L('Seleccionar...', 'Select...')}</option>
-              {units.filter(u => u.status === 'available').map(u => <option key={u.id} value={u.id}>{u.year} {u.make} {u.model} {u.stock_number ? `· #${u.stock_number}` : ''}</option>)}
+              {units.filter(u => u.status === 'available' || u.status === 'reserved').map(u => <option key={u.id} value={u.id}>{u.year} {u.make} {u.model} {u.stock_number ? `· #${u.stock_number}` : ''}{u.status === 'reserved' ? ' · (Reservado)' : ''}</option>)}
             </select>
           </label>
           <label className="block"><span className="text-xs font-semibold">{L('Vendedor', 'Salesperson')}</span>
@@ -72,11 +94,12 @@ function TDModal({ lang, onSave, onClose, clients, units, staff }) {
           <label className="block"><span className="text-xs font-semibold">{L('Fecha / Hora', 'Date / Time')}</span>
             <input type="datetime-local" value={form.scheduled_at} onChange={e => setForm(f => ({ ...f, scheduled_at: e.target.value }))} className="mt-1 w-full border border-black px-2 py-1.5" />
           </label>
-          <label className="block"><span className="text-xs font-semibold">{L('Licencia de Conducir', 'Driver License')}</span>
-            <input value={form.license_number} onChange={e => setForm(f => ({ ...f, license_number: e.target.value }))} className="mt-1 w-full border border-black px-2 py-1.5" />
+          <label className="block"><span className="text-xs font-semibold">{L('Cedula o Pasaporte', 'ID or Passport')}*</span>
+            <input value={form.license_number} onChange={e => setForm(f => ({ ...f, license_number: e.target.value }))} placeholder="000-0000000-0" required className="mt-1 w-full border border-black px-2 py-1.5 font-mono" />
+            <span className="block mt-0.5 text-[10px] text-black/60">{L('Requerido por Ley 146-02.', 'Required by Ley 146-02.')}</span>
           </label>
-          <label className="block"><span className="text-xs font-semibold">{L('URL del Descargo (Waiver)', 'Waiver URL')}</span>
-            <input value={form.signed_waiver_url} onChange={e => setForm(f => ({ ...f, signed_waiver_url: e.target.value }))} placeholder="https://..." className="mt-1 w-full border border-black px-2 py-1.5" />
+          <label className="block"><span className="text-xs font-semibold">{L('URL del Descargo Firmado (Waiver)', 'Signed Waiver URL')}*</span>
+            <input type="url" value={form.signed_waiver_url} onChange={e => setForm(f => ({ ...f, signed_waiver_url: e.target.value }))} placeholder="https://..." required className="mt-1 w-full border border-black px-2 py-1.5" />
           </label>
           <label className="block"><span className="text-xs font-semibold">{L('Notas', 'Notes')}</span>
             <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} className="mt-1 w-full border border-black px-2 py-1.5" />
@@ -122,6 +145,28 @@ export default function TestDrives() {
     const notes = prompt(L('Notas del recorrido:', 'Drive notes:')) || ''
     await api.testDrives.complete(id, notes); await load()
   }
+  async function setOutcome(td, outcome) {
+    const notes = prompt(L('Notas del resultado (opcional):', 'Outcome notes (optional):'), td.outcome_notes || '') || ''
+    // C6 — for follow_up the lead must be created BEFORE flipping outcome,
+    // otherwise a partial state ships (drive marked completed, no lead row).
+    if (outcome === 'follow_up' && td.client_id) {
+      try {
+        await api.leads.create({
+          name: td.clients?.name || L('Cliente', 'Client'),
+          phone: td.clients?.phone || null,
+          source: 'walk_in',
+          stage: 'negotiation',
+          notes: `${L('Seguimiento desde prueba de manejo', 'Follow-up from test drive')}: ${notes}`.trim(),
+          next_followup_at: new Date(Date.now() + 3 * 86400000).toISOString(),
+        })
+      } catch (e) {
+        alert(L('No se pudo crear el prospecto de seguimiento. La prueba NO se marco completada. ', 'Lead create failed. The test drive was NOT marked completed. ') + (e?.message || ''))
+        return
+      }
+    }
+    await api.testDrives.setOutcome(td.id, { outcome, outcomeNotes: notes })
+    await load()
+  }
   async function remove(r) {
     if (!confirm(L('¿Eliminar registro?', 'Delete record?'))) return
     await api.testDrives.delete(r.id); await load()
@@ -151,6 +196,7 @@ export default function TestDrives() {
                 <th className="text-left px-3 py-2">{L('Vehículo', 'Vehicle')}</th>
                 <th className="text-left px-3 py-2">{L('Licencia', 'License')}</th>
                 <th className="text-left px-3 py-2">{L('Estado', 'Status')}</th>
+                <th className="text-left px-3 py-2">{L('Resultado', 'Outcome')}</th>
                 <th className="text-right px-3 py-2"></th>
               </tr>
             </thead>
@@ -166,7 +212,34 @@ export default function TestDrives() {
                     <td className="px-3 py-2">{r.completed_at
                       ? <span className="inline-flex items-center gap-1 text-xs font-semibold"><Check size={12}/>{L('Completada', 'Completed')}</span>
                       : <span className="text-xs">{L('Programada', 'Scheduled')}</span>}</td>
+                    <td className="px-3 py-2">
+                      {r.outcome ? (() => {
+                        const o = OUTCOMES.find(x => x.v === r.outcome)
+                        if (!o) return null
+                        const Icon = o.icon
+                        return <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold ${o.cls}`}><Icon size={10}/>{lang === 'es' ? o.es : o.en}</span>
+                      })() : (
+                        <div className="flex gap-1">
+                          {OUTCOMES.map(o => {
+                            const Icon = o.icon
+                            return <button key={o.v} onClick={() => setOutcome(r, o.v)} title={lang==='es'?o.es:o.en} className={`p-1 text-xs ${o.cls} opacity-70 hover:opacity-100`}><Icon size={10}/></button>
+                          })}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right">
+                      {!r.completed_at && r.clients?.phone && (
+                        <button
+                          onClick={() => {
+                            const ok = sendTestDriveReminder(r, r.clients)
+                            if (!ok) alert(L('Cliente sin telefono valido.', 'Client has no valid phone.'))
+                          }}
+                          title={L('Enviar recordatorio por WhatsApp', 'Send WhatsApp reminder')}
+                          className="px-2 py-0.5 text-xs border border-black mr-1 inline-flex items-center gap-1 hover:bg-emerald-600 hover:text-white hover:border-emerald-600"
+                        >
+                          <MessageCircle size={11}/>{L('Recordar', 'Remind')}
+                        </button>
+                      )}
                       {!r.completed_at && <button onClick={() => complete(r.id)} className="px-2 py-0.5 text-xs bg-black text-white mr-1">{L('Completar', 'Complete')}</button>}
                       <button onClick={() => remove(r)} className="p-1 hover:bg-[#b3001e] hover:text-white"><Trash2 size={14}/></button>
                     </td>

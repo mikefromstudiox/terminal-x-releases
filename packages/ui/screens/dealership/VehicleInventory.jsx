@@ -1,37 +1,27 @@
 /**
  * VehicleInventory.jsx — Dealership inventory of vehicles for sale.
  *
+ * Sprint 2D M1: split into VehicleForm / VehicleDocumentManager /
+ * VehicleCsvImporter under ./components/. This file is now a thin orchestrator:
+ * list, filters, KPIs, and modal toggles only.
+ *
  * SEPARATE from customer vehicles (mechanic). Stock units with VIN, condition,
  * listing price, acquisition cost, status (available/reserved/sold/in_service),
  * title status and photo URLs.
- *
- * Shared by the dealership vertical only.
  */
 
 import { useState, useEffect, useMemo } from 'react'
-import {
-  CarFront, Plus, Search, X, Pencil, Trash2, Loader2,
-  DollarSign, Tag, Gauge, Palette, Hash, FileText, CheckCircle2,
-} from 'lucide-react'
+import { CarFront, Plus, Search, Pencil, Trash2, Loader2, FileUp } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
+import VehicleForm from './components/VehicleForm.jsx'
+import VehicleCsvImporter from './components/VehicleCsvImporter.jsx'
 
-const CONDITIONS = [
-  { v: 'new',       es: 'Nuevo',       en: 'New' },
-  { v: 'used',      es: 'Usado',       en: 'Used' },
-  { v: 'certified', es: 'Certificado', en: 'Certified' },
-]
 const STATUSES = [
-  { v: 'available',  es: 'Disponible', en: 'Available',  cls: 'bg-white text-black border-black' },
-  { v: 'reserved',   es: 'Reservado',  en: 'Reserved',   cls: 'bg-black text-white border-black' },
-  { v: 'sold',       es: 'Vendido',    en: 'Sold',       cls: 'bg-[#b3001e] text-white border-[#b3001e]' },
-  { v: 'in_service', es: 'En Servicio',en: 'In Service', cls: 'bg-white text-black border-black' },
-]
-const TITLE_STATUS = [
-  { v: 'clean',   es: 'Limpio',    en: 'Clean' },
-  { v: 'salvage', es: 'Salvamento',en: 'Salvage' },
-  { v: 'lien',    es: 'Con Gravamen',en: 'Lien' },
-  { v: 'pending', es: 'Pendiente', en: 'Pending' },
+  { v: 'available',  es: 'Disponible',  en: 'Available',  cls: 'bg-white text-black border-black' },
+  { v: 'reserved',   es: 'Reservado',   en: 'Reserved',   cls: 'bg-black text-white border-black' },
+  { v: 'sold',       es: 'Vendido',     en: 'Sold',       cls: 'bg-[#b3001e] text-white border-[#b3001e]' },
+  { v: 'in_service', es: 'En Servicio', en: 'In Service', cls: 'bg-white text-black border-black' },
 ]
 
 function fmtRD(n) {
@@ -41,124 +31,6 @@ function fmtRD(n) {
 function StatusPill({ status, lang }) {
   const s = STATUSES.find(x => x.v === status) || STATUSES[0]
   return <span className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold border ${s.cls}`}>{lang === 'es' ? s.es : s.en}</span>
-}
-
-function VehicleModal({ unit, lang, onSave, onClose }) {
-  const L = (es, en) => lang === 'es' ? es : en
-  const [form, setForm] = useState({
-    stock_number:     unit?.stock_number     || '',
-    vin:              unit?.vin              || '',
-    make:             unit?.make             || '',
-    model:            unit?.model            || '',
-    year:             unit?.year             || new Date().getFullYear(),
-    color:            unit?.color            || '',
-    mileage:          unit?.mileage          || 0,
-    condition:        unit?.condition        || 'used',
-    acquisition_cost: unit?.acquisition_cost || 0,
-    listing_price:    unit?.listing_price    || 0,
-    status:           unit?.status           || 'available',
-    title_status:     unit?.title_status     || 'clean',
-    notes:            unit?.notes            || '',
-  })
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState('')
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
-
-  async function submit(e) {
-    e.preventDefault()
-    if (!form.make.trim() || !form.model.trim()) { setErr(L('Marca y modelo son requeridos.', 'Make and model are required.')); return }
-    setSaving(true); setErr('')
-    try {
-      await onSave({
-        ...form,
-        year: Number(form.year) || null,
-        mileage: Number(form.mileage) || 0,
-        acquisition_cost: Number(form.acquisition_cost) || 0,
-        listing_price: Number(form.listing_price) || 0,
-      })
-      onClose()
-    } catch (ex) { setErr(ex?.message || L('Error al guardar.', 'Save failed.')); setSaving(false) }
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white border border-black max-w-2xl w-full max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-black">
-          <h2 className="text-xl font-bold">{unit ? L('Editar Unidad', 'Edit Unit') : L('Nueva Unidad', 'New Unit')}</h2>
-          <button onClick={onClose} className="p-1 hover:bg-black hover:text-white"><X size={20} /></button>
-        </div>
-        <form onSubmit={submit} className="p-5 space-y-4">
-          {err && <div className="bg-[#b3001e] text-white px-3 py-2 text-sm">{err}</div>}
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="text-xs font-semibold">{L('# Stock', 'Stock #')}</span>
-              <input value={form.stock_number} onChange={e => set('stock_number', e.target.value)} className="mt-1 w-full border border-black px-2 py-1.5" />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold">VIN</span>
-              <input value={form.vin} onChange={e => set('vin', e.target.value.toUpperCase())} maxLength={17} className="mt-1 w-full border border-black px-2 py-1.5 font-mono" />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold">{L('Marca', 'Make')}*</span>
-              <input value={form.make} onChange={e => set('make', e.target.value)} className="mt-1 w-full border border-black px-2 py-1.5" required />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold">{L('Modelo', 'Model')}*</span>
-              <input value={form.model} onChange={e => set('model', e.target.value)} className="mt-1 w-full border border-black px-2 py-1.5" required />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold">{L('Año', 'Year')}</span>
-              <input type="number" value={form.year} onChange={e => set('year', e.target.value)} className="mt-1 w-full border border-black px-2 py-1.5" />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold">{L('Color', 'Color')}</span>
-              <input value={form.color} onChange={e => set('color', e.target.value)} className="mt-1 w-full border border-black px-2 py-1.5" />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold">{L('Kilometraje', 'Mileage')}</span>
-              <input type="number" value={form.mileage} onChange={e => set('mileage', e.target.value)} className="mt-1 w-full border border-black px-2 py-1.5" />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold">{L('Condición', 'Condition')}</span>
-              <select value={form.condition} onChange={e => set('condition', e.target.value)} className="mt-1 w-full border border-black px-2 py-1.5">
-                {CONDITIONS.map(c => <option key={c.v} value={c.v}>{lang === 'es' ? c.es : c.en}</option>)}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold">{L('Costo de Adquisición', 'Acquisition Cost')}</span>
-              <input type="number" step="0.01" value={form.acquisition_cost} onChange={e => set('acquisition_cost', e.target.value)} className="mt-1 w-full border border-black px-2 py-1.5" />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold">{L('Precio de Venta', 'Listing Price')}</span>
-              <input type="number" step="0.01" value={form.listing_price} onChange={e => set('listing_price', e.target.value)} className="mt-1 w-full border border-black px-2 py-1.5" />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold">{L('Estado', 'Status')}</span>
-              <select value={form.status} onChange={e => set('status', e.target.value)} className="mt-1 w-full border border-black px-2 py-1.5">
-                {STATUSES.map(s => <option key={s.v} value={s.v}>{lang === 'es' ? s.es : s.en}</option>)}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold">{L('Título', 'Title')}</span>
-              <select value={form.title_status} onChange={e => set('title_status', e.target.value)} className="mt-1 w-full border border-black px-2 py-1.5">
-                {TITLE_STATUS.map(t => <option key={t.v} value={t.v}>{lang === 'es' ? t.es : t.en}</option>)}
-              </select>
-            </label>
-          </div>
-          <label className="block">
-            <span className="text-xs font-semibold">{L('Notas', 'Notes')}</span>
-            <textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={2} className="mt-1 w-full border border-black px-2 py-1.5" />
-          </label>
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 border border-black">{L('Cancelar', 'Cancel')}</button>
-            <button type="submit" disabled={saving} className="px-4 py-2 bg-black text-white disabled:opacity-50 inline-flex items-center gap-2">
-              {saving && <Loader2 size={16} className="animate-spin" />} {L('Guardar', 'Save')}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
 }
 
 export default function VehicleInventory() {
@@ -171,6 +43,7 @@ export default function VehicleInventory() {
   const [filterStatus, setFilterStatus] = useState('')
   const [editing, setEditing] = useState(null)
   const [showModal, setShowModal] = useState(false)
+  const [showCsv, setShowCsv] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -216,7 +89,10 @@ export default function VehicleInventory() {
           <h1 className="text-3xl font-bold flex items-center gap-3"><CarFront size={32} /> {L('Inventario de Vehículos', 'Vehicle Inventory')}</h1>
           <p className="text-sm text-black/70 mt-1">{L('Unidades en venta — distinto del inventario de piezas.', 'Units for sale — separate from parts inventory.')}</p>
         </div>
-        <button onClick={() => { setEditing(null); setShowModal(true) }} className="px-4 py-2 bg-black text-white inline-flex items-center gap-2"><Plus size={18} /> {L('Nueva Unidad', 'New Unit')}</button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowCsv(true)} className="px-4 py-2 border border-black inline-flex items-center gap-2"><FileUp size={16}/>{L('Importar CSV', 'Import CSV')}</button>
+          <button onClick={() => { setEditing(null); setShowModal(true) }} className="px-4 py-2 bg-black text-white inline-flex items-center gap-2"><Plus size={18} /> {L('Nueva Unidad', 'New Unit')}</button>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3 mb-5">
@@ -248,6 +124,7 @@ export default function VehicleInventory() {
           <table className="w-full text-sm">
             <thead className="bg-black text-white">
               <tr>
+                <th className="text-left px-3 py-2 w-14"></th>
                 <th className="text-left px-3 py-2">Stock</th>
                 <th className="text-left px-3 py-2">{L('Vehículo', 'Vehicle')}</th>
                 <th className="text-left px-3 py-2">VIN</th>
@@ -258,26 +135,47 @@ export default function VehicleInventory() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(u => (
-                <tr key={u.id} className="border-t border-black/10 hover:bg-black/5">
-                  <td className="px-3 py-2 font-mono">{u.stock_number || '—'}</td>
-                  <td className="px-3 py-2 font-semibold">{u.year} {u.make} {u.model} {u.color ? <span className="text-black/60 font-normal">· {u.color}</span> : null}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{u.vin || '—'}</td>
-                  <td className="px-3 py-2 text-right">{Number(u.mileage || 0).toLocaleString()}</td>
-                  <td className="px-3 py-2 text-right font-semibold">{fmtRD(u.listing_price)}</td>
-                  <td className="px-3 py-2"><StatusPill status={u.status} lang={lang} /></td>
-                  <td className="px-3 py-2 text-right">
-                    <button onClick={() => { setEditing(u); setShowModal(true) }} className="p-1 hover:bg-black hover:text-white mr-1"><Pencil size={14} /></button>
-                    <button onClick={() => remove(u)} className="p-1 hover:bg-[#b3001e] hover:text-white"><Trash2 size={14} /></button>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map(u => {
+                const thumb = Array.isArray(u.photo_urls) ? u.photo_urls[0] : null
+                return (
+                  <tr key={u.id} className="border-t border-black/10 hover:bg-black/5">
+                    <td className="px-2 py-1">
+                      <div className="w-12 h-9 bg-black/5 border border-black/10 overflow-hidden flex items-center justify-center">
+                        {thumb ? <img src={thumb} alt="" className="w-full h-full object-cover" loading="lazy"/> : <CarFront size={14} className="text-black/30"/>}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 font-mono">{u.stock_number || '—'}</td>
+                    <td className="px-3 py-2 font-semibold">{u.year} {u.make} {u.model} {u.color ? <span className="text-black/60 font-normal">· {u.color}</span> : null}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{u.vin || '—'}</td>
+                    <td className="px-3 py-2 text-right">{Number(u.mileage || 0).toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right font-semibold">{fmtRD(u.listing_price)}</td>
+                    <td className="px-3 py-2"><StatusPill status={u.status} lang={lang} /></td>
+                    <td className="px-3 py-2 text-right">
+                      <button onClick={() => { setEditing(u); setShowModal(true) }} className="p-1 hover:bg-black hover:text-white mr-1"><Pencil size={14} /></button>
+                      <button onClick={() => remove(u)} className="p-1 hover:bg-[#b3001e] hover:text-white"><Trash2 size={14} /></button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
       )}
 
-      {showModal && <VehicleModal unit={editing} lang={lang} onSave={save} onClose={() => setShowModal(false)} />}
+      <VehicleForm
+        open={showModal}
+        unit={editing}
+        lang={lang}
+        onSave={save}
+        onClose={() => setShowModal(false)}
+        onReload={load}
+      />
+      <VehicleCsvImporter
+        open={showCsv}
+        lang={lang}
+        onImported={load}
+        onClose={() => setShowCsv(false)}
+      />
     </div>
   )
 }

@@ -28,6 +28,7 @@ export const TIENDA_SUBTYPES = {
       pedidos_ya:       true,
       bottle_deposit:   true,
       mamajuana_tracking: false,   // legacy flag, keep off
+      commissions:      false,     // licorerías rarely run commissions; owner can toggle on
     },
     defaultCategories: [
       'Rones', 'Cervezas', 'Whiskey', 'Vinos', 'Vodkas', 'Licores',
@@ -85,6 +86,7 @@ export const TIENDA_SUBTYPES = {
       expiry_alerts:             true,
       controlled_substance_log:  true,
       pedidos_ya:                false,
+      commissions:               false,
     },
     defaultCategories: [
       'Analgésicos', 'Antibióticos', 'Vitaminas', 'Primeros Auxilios',
@@ -100,6 +102,7 @@ export const TIENDA_SUBTYPES = {
       pedidos_ya:          true,
       mixed_food_nonfood:  true,
       credit_sales:        true,   // "fiado" — key colmado feature
+      commissions:         false,
     },
     defaultCategories: [
       'Abarrotes', 'Bebidas', 'Snacks', 'Lácteos', 'Panadería', 'Limpieza',
@@ -115,6 +118,7 @@ export const TIENDA_SUBTYPES = {
       pricing_by_weight:  true,
       loyalty:            true,
       deli_counter:       true,
+      commissions:        false,
     },
     defaultCategories: [
       'Carnes', 'Embutidos', 'Lácteos', 'Panadería', 'Frutas', 'Verduras',
@@ -131,6 +135,7 @@ export const TIENDA_SUBTYPES = {
       job_estimates:          true,
       loyalty:                false,
       pedidos_ya:             false,
+      commissions:            false,
     },
     defaultCategories: [
       'Herramientas', 'Eléctrico', 'Plomería', 'Pintura', 'Construcción',
@@ -145,6 +150,7 @@ export const TIENDA_SUBTYPES = {
       school_packages: true,
       loyalty:         true,
       pedidos_ya:      false,
+      commissions:     false,
     },
     defaultCategories: [
       'Cuadernos', 'Bolígrafos', 'Carpetas', 'Arte', 'Oficina', 'Libros',
@@ -160,6 +166,7 @@ export const TIENDA_SUBTYPES = {
       color_variants: true,
       loyalty:        true,
       pedidos_ya:     false,
+      commissions:    true,   // boutiques often pay vendedora commissions on apparel sales
     },
     defaultCategories: [
       'Damas', 'Caballeros', 'Niños', 'Accesorios', 'Calzado',
@@ -170,7 +177,9 @@ export const TIENDA_SUBTYPES = {
   otro: {
     es: 'Otra tienda',
     en: 'Other retail',
-    features: {},
+    features: {
+      commissions: false,
+    },
     defaultCategories: ['General'],
   },
 }

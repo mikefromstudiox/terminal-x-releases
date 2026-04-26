@@ -1,8 +1,12 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
-import { useNavigate, Navigate } from 'react-router-dom'
+import { useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck, Beer, Coffee, Cookie, Droplet, CupSoda, Candy, IceCreamCone, UtensilsCrossed, Sparkles, Cigarette, Flame, Leaf, Pizza, Smartphone, Edit2, Eye, EyeOff, Lock } from 'lucide-react'
 import AgeVerifyModal, { requiresAgeCheck } from '../components/AgeVerifyModal'
 import WeightModal from '../components/WeightModal'
+import { CarniceriaModeToggle, PrepNotesButton, SeasonalPromoBanner } from '../components/CarniceriaCartExtras'
+import { activeSeasons } from '@terminal-x/services/seasonalPromotions'
+import { ScaleRegistry } from '@terminal-x/services/scale'
+import { pickBestDiscount, applyDiscountToLine, discountPillLabel } from '@terminal-x/services/discountEngine'
 import DepositReturnModal from '../components/DepositReturnModal'
 import ManagerAuthGate from '../components/ManagerAuthGate'
 import AperturaTurnoModal from '../components/AperturaTurnoModal'
@@ -16,7 +20,7 @@ import { useRNC } from '../hooks/useRNC'
 import CobrarModal from '../components/CobrarModal'
 import LoyaltyTierBadge from '../components/LoyaltyTierBadge'
 import { NewClientForm } from './Clients'
-import { printClientReceipt, printWasherConduce } from '@terminal-x/services/printer'
+import { printClientReceipt, printWasherConduce, printKitchenPrepSlip } from '@terminal-x/services/printer'
 import RestaurantPOS from './restaurant/RestaurantPOS'
 import { syncTicket, getBusinessId } from '@terminal-x/services/supabase'
 import { getDeviceId, acquireLock, releaseLock, releaseAll, activeLocksQty, sweepExpired, subscribeLocks } from '@terminal-x/services/inventoryLock'
@@ -288,6 +292,139 @@ function QueueStrip({ queue, lang }) {
 
 // ── Main POS Screen ───────────────────────────────────────────────────────────
 
+// PlateLookup — debounced placa search via api.vehicles.list. Offline-safe:
+// reads from local SQLite (electron) or Supabase (web). Free-typing always
+// allowed so unregistered plates still flow through.
+function PlateLookup({ value, onChange, onPick, placeholder, api, lang }) {
+  const [results, setResults] = useState([])
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const q = (value || '').trim()
+    if (q.length < 2) { setResults([]); return }
+    let cancelled = false
+    const t = setTimeout(async () => {
+      setLoading(true)
+      try {
+        const rows = await (api?.vehicles?.list?.({ search: q, limit: 8 }) ?? [])
+        if (cancelled) return
+        // Server already filtered when supported; keep client-side fallback
+        // for web (Supabase) where `search` may be ignored.
+        const Q = q.toUpperCase()
+        const filtered = (rows || [])
+          .filter(v => (v.plate || '').toUpperCase().includes(Q)
+                    || (v.make  || '').toUpperCase().includes(Q)
+                    || (v.model || '').toUpperCase().includes(Q))
+          .slice(0, 8)
+        setResults(filtered)
+        setOpen(filtered.length > 0)
+      } catch { if (!cancelled) setResults([]) }
+      finally { if (!cancelled) setLoading(false) }
+    }, 200)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [value, api])
+
+  useEffect(() => {
+    function onDoc(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  return (
+    <div ref={ref} className="relative">
+      <input
+        type="text"
+        value={value}
+        onChange={e => onChange(e.target.value.toUpperCase())}
+        onFocus={() => results.length > 0 && setOpen(true)}
+        placeholder={placeholder}
+        autoComplete="off"
+        className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-2 text-sm md:text-[12px] text-slate-800 dark:text-white min-h-[44px] md:min-h-0 focus:outline-none focus:border-[#b3001e] placeholder:text-slate-300 dark:placeholder:text-white/30 uppercase"
+      />
+      {open && results.length > 0 && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-black border border-slate-200 dark:border-white/10 rounded-lg shadow-xl z-40 overflow-hidden max-h-64 overflow-y-auto">
+          {results.map(v => (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => { onPick(v); setOpen(false) }}
+              className="w-full text-left px-3 py-2 hover:bg-[#b3001e]/5 dark:hover:bg-white/10 border-b border-slate-100 dark:border-white/5 last:border-b-0"
+            >
+              <div className="text-[13px] font-bold text-slate-800 dark:text-white tracking-wide">{v.plate}</div>
+              <div className="text-[11px] text-slate-500 dark:text-white/60 truncate">
+                {[v.make, v.model, v.color].filter(Boolean).join(' · ')}
+                {v.client_name ? ` — ${v.client_name}` : ''}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+      {loading && (
+        <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">…</div>
+      )}
+    </div>
+  )
+}
+
+// FIX 5.4 — banner showing pending 72h-deferred DGII e-CFs. Reads counts
+// from the offline IndexedDB queue (web) and ecf_queue (desktop) so the
+// cashier knows the receipts will be retried within 72h.
+function DeferredEcfBanner({ lang }) {
+  const [count, setCount] = useState(0)
+  const [oldestAgeHrs, setOldestAgeHrs] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    async function refresh() {
+      try {
+        // Web path
+        if (typeof indexedDB !== 'undefined' && !window.electronAPI) {
+          const mod = await import('@terminal-x/services/offline-ecf-queue')
+          // FIX 5.8 — auto-purge >72h rows so the banner never reflects rows
+          // that DGII would reject anyway. Counts the remaining valid set.
+          try { await mod.purgeStale72h() } catch {}
+          const rows = await mod.all()
+          if (cancelled) return
+          setCount(rows.length)
+          const oldest = rows.reduce((m, r) => Math.min(m, r.createdAt || Date.now()), Date.now())
+          setOldestAgeHrs(rows.length > 0 ? Math.max(0, (Date.now() - oldest) / 3_600_000) : 0)
+          return
+        }
+        // Desktop path
+        const rows = await window.electronAPI?.dgii?.queueList?.({ status: 'pending' })
+        if (cancelled) return
+        setCount(rows?.length || 0)
+      } catch { if (!cancelled) setCount(0) }
+    }
+    refresh()
+    const onEvt = () => refresh()
+    window.addEventListener('tx:ecf-queue-enqueued', onEvt)
+    window.addEventListener('tx:ecf-queue-status', onEvt)
+    window.addEventListener('tx:ecf-queue-drained', onEvt)
+    const id = setInterval(refresh, 30_000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+      window.removeEventListener('tx:ecf-queue-enqueued', onEvt)
+      window.removeEventListener('tx:ecf-queue-status', onEvt)
+      window.removeEventListener('tx:ecf-queue-drained', onEvt)
+    }
+  }, [])
+
+  if (!count) return null
+  const aging = oldestAgeHrs > 60
+  return (
+    <div className={`mt-2 px-3 py-2 rounded-lg border text-[12px] font-semibold flex items-center gap-2 ${aging ? 'bg-[#b3001e]/10 border-[#b3001e]/30 text-[#b3001e]' : 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-400'}`}>
+      <AlertCircle size={14} />
+      {lang === 'es'
+        ? `${count} e-CF en envío diferido (DGII 72h)${oldestAgeHrs > 0 ? ` · más antiguo ${oldestAgeHrs.toFixed(1)}h` : ''}`
+        : `${count} e-CF pending deferred submission (DGII 72h)${oldestAgeHrs > 0 ? ` · oldest ${oldestAgeHrs.toFixed(1)}h` : ''}`}
+    </div>
+  )
+}
+
 function CarWashPOS() {
   const api = useAPI()
   const printerApi = usePrinterAPI()
@@ -296,9 +433,12 @@ function CarWashPOS() {
   const { businessType } = useBusinessType()
   const { user } = useAuth()
   const navigate = useNavigate()
+  // v2.16.2 (Fix 1) — read route state for membership-purchase preload
+  // dispatched from salon/Memberships.jsx "Vender" button.
+  const location = useLocation()
 
   // ── DB data
-  const { data: rawServicesDB, loading: svcLoading, error: svcError } = useServices()
+  const { data: rawServicesDB, loading: svcLoading, error: svcError, reload: reloadServices } = useServices()
   const rawServices = rawServicesDB || []
   const { data: rawWashersDB, loading: wsrLoading }                  = useWashers()
   const rawWashers = rawWashersDB || []
@@ -415,6 +555,47 @@ function CarWashPOS() {
   useEffect(() => {
     api.clients?.all?.().then(r => setClients(r || [])).catch(() => flash(lang === 'es' ? 'Error al cargar clientes' : 'Error loading clients'))
   }, [api])
+
+  // v2.16.2 (Fix 1) — membership-purchase preload from /salon/memberships.
+  // The Memberships "Vender" button navigates here with state carrying the
+  // template + chosen client. We push a single cart line shaped like a
+  // service item, plus an opaque `_membershipPurchase` marker that
+  // handlePaymentConfirm reads AFTER tickets.create succeeds to call
+  // clientMemberships.purchase with the real ticket_supabase_id.
+  // Idempotent: the route-state is consumed once, then cleared so a
+  // back/forward doesn't re-inject.
+  const preloadConsumedRef = useRef(false)
+  useEffect(() => {
+    if (preloadConsumedRef.current) return
+    const st = location?.state
+    if (!st || !st.membershipPurchase) return
+    const mp = st.membershipPurchase
+    const cli = st.preloadClient || null
+    preloadConsumedRef.current = true
+    setItems([{
+      id: `membership-${mp.membership_supabase_id}`,
+      _cartKey: `membership-${mp.membership_supabase_id}`,
+      _membershipPurchase: {
+        membership_supabase_id: mp.membership_supabase_id,
+        client_supabase_id: cli?.supabase_id || null,
+      },
+      service_id: null,
+      inventory_item_id: null,
+      name: `${lang === 'es' ? 'Membresía' : 'Membership'}: ${mp.nombre}`,
+      price: Number(mp.price_dop) || 0,
+      cost: 0,
+      qty: 1,
+      is_wash: 0,
+      aplica_itbis: 1,
+      no_commission: 1, // membership sale itself is not a service line for commission
+    }])
+    if (cli) setSelectedClient(cli)
+    flash(lang === 'es'
+      ? `Membresía cargada · cliente: ${cli?.name || cli?.nombre || ''}`
+      : `Membership loaded · client: ${cli?.name || cli?.nombre || ''}`)
+    // Clear the route state so a refresh doesn't re-inject.
+    try { window.history.replaceState({}, '') } catch {}
+  }, [location?.state, lang])
 
   // ITBIS rate — lives in app_settings, mutable per-business. Default 18.
   const [itbisRate, setItbisRate] = useState(18)
@@ -613,6 +794,10 @@ function CarWashPOS() {
           quantity:           s.qty || 1,
           sku:               s.sku || null,
           aplica_itbis:      s.aplica_itbis ?? 1,
+          weight:            s.weight ?? null,
+          unit:              s.unit ?? null,
+          price_per_unit:    s.price_per_unit ?? null,
+          preparation_notes: s.preparation_notes || null, // v2.16.3 carnicería
         })),
       })
 
@@ -683,17 +868,25 @@ function CarWashPOS() {
         total:            netTotal,
         beverage_subtotal: beverageSubtotal,
         ecf_result:       paymentData.ecf || {},
-        items:            pending.items.map(s => ({
-          service_id:        s._isInventory ? null : (typeof s.id === 'number' ? s.id : null),
-          inventory_item_id: s.inventory_item_id || null,
-          name:              s.name,
-          price:             s.price,  // always unit price
-          cost:              s.cost || 0,
-          is_wash:           s.is_wash ?? 1,
-          quantity:           s.qty || 1,
-          sku:               s.sku || null,
-          aplica_itbis:      s.aplica_itbis ?? 1,
-        })),
+        items:            pending.items.map((s, idx) => {
+          // v2.16.1 patch (#2) — splice per-line stylist credit when the
+          // salon CobrarModal returned a `lineStylists` array. Falls back to
+          // null (commission writers will then credit the ticket-level seller
+          // / washer as before, preserving non-salon behaviour).
+          const ls = (paymentData.lineStylists || []).find(l => l.line_idx === idx)
+          return {
+            service_id:        s._isInventory ? null : (typeof s.id === 'number' ? s.id : null),
+            inventory_item_id: s.inventory_item_id || null,
+            name:              s.name,
+            price:             s.price,  // always unit price
+            cost:              s.cost || 0,
+            is_wash:           s.is_wash ?? 1,
+            quantity:           s.qty || 1,
+            sku:               s.sku || null,
+            aplica_itbis:      s.aplica_itbis ?? 1,
+            empleado_supabase_id: ls?.empleado_supabase_id || null,
+          }
+        }),
         comentario: (Number(paymentData.descuento || 0) > 0 && paymentData.descuentoReason)
                      ? `[Descuento: ${paymentData.descuentoReason}] ${paymentData.comentario || ''}`.trim()
                      : (paymentData.comentario || ''),
@@ -701,6 +894,78 @@ function CarWashPOS() {
         descuento_reason: paymentData.descuentoReason || null,
         mac_jti:    paymentData.mac_jti || null,
       })
+
+      // v2.16.1 patch (#1) — consume any membership redemptions surfaced by
+      // CobrarModal. The ticket is already booked; consume failures must NOT
+      // roll back the cobro (audit ledger, not blocking). Surface a red toast
+      // + Sentry log so the receptionist knows to manually decrement.
+      const tsid = result?.supabase_id || result?.ticket_supabase_id || null
+      const redemptions = paymentData.redemptions || []
+      if (redemptions.length && tsid) {
+        const consumeFn = (typeof window !== 'undefined' && window.electronAPI?.salon?.clientMemberships?.consume)
+          ? window.electronAPI.salon.clientMemberships.consume
+          : api?.salon?.clientMemberships?.consume || api?.clientMemberships?.consume
+        if (consumeFn) {
+          for (const r of redemptions) {
+            try {
+              const res = await consumeFn({
+                client_membership_supabase_id: r.client_membership_supabase_id,
+                ticket_supabase_id: tsid,
+                appointment_supabase_id: paymentData.appointment_supabase_id || null,
+              })
+              if (res && res.ok === false) throw new Error(res.error || 'consume_failed')
+            } catch (err) {
+              console.error('[membership.consume] failed for', r, err)
+              flash(lang === 'es'
+                ? 'Membresía no se pudo descontar — anótalo manualmente'
+                : 'Membership decrement failed — record manually')
+              try { window?.Sentry?.captureException?.(err, { tags: { feature: 'salon_membership_consume' } }) } catch {}
+            }
+          }
+        }
+      }
+
+      // v2.16.2 (Fix 1) — membership PURCHASE persistence. Cart lines flagged
+      // `_membershipPurchase` are catalog templates being sold. After the
+      // ticket books (so the e-CF + cash-drawer flow already ran), call
+      // clientMemberships.purchase to create the persistent balance row.
+      // Without this, paying RD$5,000 for "10 Cortes" cobraba pero NUNCA
+      // creaba el saldo → cliente regresaba y "no tiene membresía".
+      // Failures are non-blocking (the ticket is already booked) but loud:
+      // red toast + Sentry so the receptionist creates the balance manually.
+      const purchases = (pending.items || [])
+        .filter(it => it && it._membershipPurchase && it._membershipPurchase.membership_supabase_id)
+        .map(it => it._membershipPurchase)
+      if (purchases.length && tsid) {
+        const purchaseFn = (typeof window !== 'undefined' && window.electronAPI?.salon?.clientMemberships?.purchase)
+          ? window.electronAPI.salon.clientMemberships.purchase
+          : api?.salon?.clientMemberships?.purchase || api?.clientMemberships?.purchase
+        if (purchaseFn) {
+          for (const p of purchases) {
+            const clientSid = p.client_supabase_id || pending.client?.supabase_id || null
+            if (!clientSid) {
+              flash(lang === 'es'
+                ? 'Membresía cobrada pero sin cliente — saldo no creado'
+                : 'Membership charged but no client — balance not created')
+              continue
+            }
+            try {
+              const res = await purchaseFn({
+                client_supabase_id: clientSid,
+                membership_supabase_id: p.membership_supabase_id,
+                ticket_supabase_id: tsid,
+              })
+              if (res && res.ok === false) throw new Error(res.error || 'purchase_failed')
+            } catch (err) {
+              console.error('[membership.purchase] failed for', p, err)
+              flash(lang === 'es'
+                ? 'Saldo de membresía no creado — créalo manualmente'
+                : 'Membership balance not created — create manually')
+              try { window?.Sentry?.captureException?.(err, { tags: { feature: 'salon_membership_purchase' } }) } catch {}
+            }
+          }
+        }
+      }
 
       // Direct cobrar does NOT add to queue — the ticket is already cobrado.
       // Queue entries are only created by handleEncolar (pendiente → queue workflow).
@@ -798,6 +1063,17 @@ function CarWashPOS() {
         // sequential conduce awaits hit the queue first.
         if (cfg.print_factura_auto === '1') {
           await printClientReceipt(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice'))
+        }
+        // v2.16.3 carnicería — kitchen prep slip if any line carries notes.
+        // Falls back to inline COCINA block on the same receipt when no
+        // dedicated kitchen printer is configured (graceful degradation).
+        if (isCarniceria && ticketData.items?.some(i => (i.preparation_notes || '').trim())) {
+          try {
+            const r = await printKitchenPrepSlip(ticketData, cfg, api)
+            if (r?.fallback === 'inline') {
+              flash(lang === 'es' ? 'Notas de cocina impresas en recibo principal' : 'Kitchen notes printed on main receipt')
+            }
+          } catch {}
         }
         // v2.14.20 — when a ticket has 2+ washers, print one conduce per
         // washer so each worker walks away with their own dispatch slip.
@@ -929,13 +1205,25 @@ function CarWashPOS() {
                       setSavingOrder(true)
                       try {
                         const svcOnly = reorderDraft.filter(x => !x._isInventory)
-                        await Promise.all(svcOnly.map((s, i) =>
-                          api?.services?.update?.({ id: s.id, sort_order: i + 1 }).catch(() => null)
+                        const results = await Promise.all(svcOnly.map((s, i) =>
+                          api?.services?.update?.({ id: s.id, sort_order: i + 1 })
+                            .then(() => ({ ok: true }))
+                            .catch(err => ({ ok: false, err }))
                         ))
-                        flash(lang === 'es' ? 'Orden guardado ✓' : 'Order saved ✓')
-                      } catch { flash(lang === 'es' ? 'Error al guardar orden' : 'Error saving order') }
+                        const failed = results.filter(r => !r.ok)
+                        if (failed.length) {
+                          console.error('[reorder] failed writes:', failed)
+                          flash(lang === 'es' ? `Error al guardar (${failed.length} servicios)` : `Error saving (${failed.length} services)`)
+                        } else {
+                          await reloadServices?.()
+                          flash(lang === 'es' ? 'Orden guardado ✓' : 'Order saved ✓')
+                          setReorderMode(false)
+                        }
+                      } catch (e) {
+                        console.error('[reorder] save error:', e)
+                        flash(lang === 'es' ? 'Error al guardar orden' : 'Error saving order')
+                      }
                       setSavingOrder(false)
-                      setReorderMode(false)
                       setDragTileIdx(null)
                     }}
                     className="px-2.5 py-1.5 rounded-md text-[11px] font-bold text-white bg-[#b3001e] hover:bg-[#b3001e]/90 disabled:opacity-50 transition-colors"
@@ -1024,6 +1312,9 @@ function CarWashPOS() {
         <div className="hidden md:block">
           <QueueStrip queue={queue} lang={lang} />
         </div>
+
+        {/* FIX 5.4 — 72h deferred DGII banner (carwash) */}
+        <DeferredEcfBanner lang={lang} />
       </div>
 
       {/* ══ MOBILE: Floating cart button ═════════════════════════════════ */}
@@ -1205,12 +1496,22 @@ function CarWashPOS() {
               <label className="block text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1.5">
                 {t('pos_vehicle')}
               </label>
-              <input
-                type="text"
+              <PlateLookup
                 value={vehicle}
-                onChange={e => setVehicle(e.target.value)}
+                onChange={setVehicle}
+                onPick={(v) => {
+                  setVehicle((v.plate || '').toUpperCase())
+                  if (v.client_id && clients) {
+                    const c = clients.find(c => c.id === v.client_id)
+                    if (c) setSelectedClient(c)
+                  }
+                  flash(lang === 'es'
+                    ? `Vehículo encontrado · ${v.plate}${v.client_name ? ' · ' + v.client_name : ''}`
+                    : `Vehicle found · ${v.plate}${v.client_name ? ' · ' + v.client_name : ''}`)
+                }}
                 placeholder={t('pos_vehicle_placeholder')}
-                className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-2 text-sm md:text-[12px] text-slate-800 dark:text-white min-h-[44px] md:min-h-0 focus:outline-none focus:border-sky-400 placeholder:text-slate-300 dark:placeholder:text-white/30"
+                api={api}
+                lang={lang}
               />
             </div>
 
@@ -1651,17 +1952,134 @@ function RetailPOS() {
   const [svcCategory, setSvcCategory] = useState(null)
   useEffect(() => { if (serviceCategories.length && !svcCategory) setSvcCategory(serviceCategories[0]) }, [serviceCategories])
 
+  // v2.16.4 — fold carnicería active discounts into a list of lines.
+  // Pure: same input → same output. Reused by `finalLineItems` AND by every
+  // ticket-create call site so subtotal/ITBIS and the persisted ticket_items
+  // rows agree on the post-discount price.
+  function applyCarniceriaDiscounts(lines) {
+    if (!isCarniceria) return lines
+    return lines.map(it => {
+      const sid = it.inventory_item_supabase_id
+      const d = sid ? discountByItemSid[sid] : null
+      if (!d) return it
+      const qty = it.weight != null ? Number(it.weight) : (it.qty || 1)
+      const unitPriceBefore = it.weight != null && it.price_per_unit ? Number(it.price_per_unit) : Number(it.price)
+      const r = applyDiscountToLine({ unitPrice: unitPriceBefore, qtyOrWeight: qty, discount: d })
+      return {
+        ...it,
+        price: it.weight != null ? r.lineSubtotalAfter : r.unitPriceAfter,
+        price_per_unit: it.weight != null ? r.unitPriceAfter : it.price_per_unit,
+        _discount: d,
+        _discountAmount: r.discountAmount,
+        _originalPrice: it.weight != null ? Math.round(unitPriceBefore * qty * 100) / 100 : unitPriceBefore,
+        // Persisted on ticket_items via the existing pipeline so receipts and
+        // 606 reports show the rebate.
+        discount_pct: Number(d.pct) || 0,
+        discount_source: d.source,
+      }
+    })
+  }
+
   // Totals include auto-generated bottle-deposit lines so the cashier sees
   // the real number *before* the CobrarModal opens.
-  const finalLineItems = useMemo(() => expandCartWithDeposits(cart),
+  const finalLineItems = useMemo(
+    () => applyCarniceriaDiscounts(expandCartWithDeposits(cart)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cart, isLicoreria, licoreriaConfig])
+    [cart, isLicoreria, licoreriaConfig, isCarniceria, discountByItemSid]
+  )
   const { subtotal, itbis, total } = calcTotals(finalLineItems, itbisRate)
+  const carniceriaDiscountTotal = useMemo(() => {
+    if (!isCarniceria) return 0
+    return finalLineItems.reduce((s, l) => s + (Number(l._discountAmount) || 0), 0)
+  }, [isCarniceria, finalLineItems])
   const cartCount = cart.reduce((s, i) => s + (i.qty || 1), 0)
   const bottleDepositTotal = useMemo(() => {
     if (!isLicoreria) return 0
     return cart.reduce((s, i) => s + Number(i.bottle_deposit || 0) * (i.qty || 1), 0)
   }, [cart, isLicoreria])
+
+  // v2.16.3/4 — Carnicería: pre-pack vs at-moment mode + prep notes + discounts.
+  const [carniceriaMode, setCarniceriaMode] = useState('at_moment') // 'prepacked' | 'at_moment'
+  const [seasonalActive, setSeasonalActive] = useState([])
+  const [seasonalDismissed, setSeasonalDismissed] = useState(false)
+  // Active-discount map keyed by inventory item supabase_id.
+  // { [item_supabase_id]: { source, pct, label, banner_text, season_key } | null }
+  const [discountByItemSid, setDiscountByItemSid] = useState({})
+  useEffect(() => {
+    if (!isCarniceria) return
+    setSeasonalActive(activeSeasons(new Date()))
+    // Hydrate the scale registry from carniceria_scales so multi-scale
+    // hot-swap works on POS without a restart. Re-runs cheaply on focus.
+    const hydrate = async () => {
+      try {
+        const rows = await api?.carniceria?.scales?.list?.() || []
+        ScaleRegistry.hydrate(rows)
+      } catch {}
+    }
+    hydrate()
+    const onFocus = () => hydrate()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [isCarniceria, api])
+
+  // v2.16.4 — Carnicería: re-fetch active discounts whenever the cart's
+  // inventory items change. Keeps the lookup small (only items in cart) and
+  // refreshes when the cashier adds/removes lines.
+  useEffect(() => {
+    if (!isCarniceria) { setDiscountByItemSid({}); return }
+    const itemSids = Array.from(new Set(
+      cart.map(i => i.inventory_item_supabase_id).filter(Boolean)
+    ))
+    if (itemSids.length === 0) { setDiscountByItemSid({}); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const map = await api?.carniceria?.discounts?.activeFor?.(itemSids) || {}
+        if (cancelled) return
+        const picked = {}
+        for (const sid of itemSids) {
+          picked[sid] = pickBestDiscount(map[sid] || []) || null
+        }
+        setDiscountByItemSid(picked)
+      } catch { if (!cancelled) setDiscountByItemSid({}) }
+    })()
+    return () => { cancelled = true }
+    // Use the joined sid list as the dep so we don't refetch on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCarniceria, cart.map(i => i.inventory_item_supabase_id || '').join(','), api])
+  // v2.16.3 — Mayoreo pre-arm hook. MayoreoOrders writes items_json into
+  // localStorage and navigates to /pos; consume on mount and add to cart.
+  useEffect(() => {
+    if (!isCarniceria) return
+    try {
+      const raw = localStorage.getItem('tx_prearm_cart')
+      if (!raw) return
+      const items = JSON.parse(raw)
+      if (Array.isArray(items) && items.length) {
+        setCart(prev => [
+          ...prev,
+          ...items.map((it, idx) => ({
+            id: `prearm-${Date.now()}-${idx}`,
+            inventory_item_id: null,
+            service_id: null,
+            sku: '',
+            name: `${it.name} (${it.qty} ${it.unit || 'lb'})`,
+            price: Number(it.qty) * Number(it.price_per_unit || 0) || 0,
+            cost: 0,
+            qty: 1,
+            weight: Number(it.qty) || 0,
+            unit: it.unit || 'lb',
+            price_per_unit: Number(it.price_per_unit || 0),
+            aplica_itbis: 1,
+            is_wash: 0,
+          })),
+        ])
+        flash(lang === 'es' ? 'Pedido pre-armado' : 'Order pre-armed')
+      }
+      localStorage.removeItem('tx_prearm_cart')
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCarniceria])
 
   function flash(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
@@ -2047,7 +2465,7 @@ function RetailPOS() {
       else if (e.key === 'F2') {
         e.preventDefault()
         if (cart.length > 0) {
-          setCobrarModal({ items: expandCartWithDeposits(cart), ageVerified, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, salesperson, pyMode })
+          setCobrarModal({ items: applyCarniceriaDiscounts(expandCartWithDeposits(cart)), ageVerified, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, salesperson, pyMode })
         }
       }
       else if (e.key === 'F4') { e.preventDefault(); searchRef.current?.focus() }
@@ -2463,6 +2881,18 @@ function RetailPOS() {
           </div>
         </div>
 
+        {/* v2.16.3 — Carnicería mode toggle + seasonal banner */}
+        {isCarniceria && (
+          <div className="px-4 pt-2">
+            {!seasonalDismissed && seasonalActive.length > 0 && (
+              <div className="-mx-4 mb-2">
+                <SeasonalPromoBanner seasons={seasonalActive} lang={lang} onDismiss={() => setSeasonalDismissed(true)} />
+              </div>
+            )}
+            <CarniceriaModeToggle mode={carniceriaMode} onChange={setCarniceriaMode} lang={lang} />
+          </div>
+        )}
+
         {/* Client selector */}
         <div className="px-4 py-2 border-b border-slate-100 dark:border-white/5">
           {selectedClient ? (
@@ -2502,12 +2932,33 @@ function RetailPOS() {
                   {/* Row 1 — name + delete */}
                   <div className="flex items-start gap-2 mb-1.5">
                     <p className="flex-1 text-[13px] font-semibold text-slate-800 dark:text-white leading-tight line-clamp-2">{item.name}</p>
+                    {isCarniceria && (
+                      <PrepNotesButton
+                        value={item.preparation_notes || ''}
+                        onChange={(v) => setCart(prev => prev.map(i => i.id === item.id ? { ...i, preparation_notes: v } : i))}
+                        lang={lang} />
+                    )}
                     <button onClick={() => removeFromCart(item.id)}
                       className="shrink-0 w-6 h-6 rounded-md text-slate-400 dark:text-white/30 hover:bg-[#b3001e] hover:text-white transition-colors flex items-center justify-center"
                       title={lang === 'es' ? 'Quitar' : 'Remove'}>
                       <X size={13} />
                     </button>
                   </div>
+                  {isCarniceria && item.preparation_notes && (
+                    <p className="text-[10px] text-[#b3001e] italic px-1 mb-1 line-clamp-1" title={item.preparation_notes}>
+                      📝 {item.preparation_notes}
+                    </p>
+                  )}
+                  {/* v2.16.4 — crimson discount pill (cart-line) */}
+                  {isCarniceria && item.inventory_item_supabase_id && discountByItemSid[item.inventory_item_supabase_id] && (
+                    <div className="px-1 mb-1">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#b3001e] text-white text-[10px] font-bold uppercase tracking-wider"
+                            title={discountByItemSid[item.inventory_item_supabase_id].label}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                        {discountPillLabel(discountByItemSid[item.inventory_item_supabase_id], lang)}
+                      </span>
+                    </div>
+                  )}
                   {/* Row 2 — unit price / detail + qty controls + line total */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0 flex-1">
@@ -2589,6 +3040,19 @@ function RetailPOS() {
           </div>
         )}
 
+        {/* v2.16.4 — Carnicería discount strip */}
+        {isCarniceria && carniceriaDiscountTotal > 0 && (
+          <div className="px-4 py-2 border-t border-slate-100 dark:border-white/5">
+            <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-[#b3001e] text-white">
+              <span className="text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                {lang === 'es' ? 'Descuentos aplicados' : 'Discounts applied'}
+              </span>
+              <span className="text-[13px] font-black tabular-nums">−{fmtRD(carniceriaDiscountTotal)}</span>
+            </div>
+          </div>
+        )}
+
         {/* Totals + Cobrar */}
         <div className="border-t border-slate-200 dark:border-white/10 px-4 py-3 space-y-2">
           <div className="flex justify-between text-[12px] text-slate-400"><span>Subtotal</span><span>{fmtRD(subtotal)}</span></div>
@@ -2601,7 +3065,7 @@ function RetailPOS() {
               if (cart.length > 0) {
                 setMobileCartOpen(false)
                 setCobrarModal({
-                  items: expandCartWithDeposits(cart), salesperson,
+                  items: applyCarniceriaDiscounts(expandCartWithDeposits(cart)), salesperson,
                   ageVerified,
                   clientId: selectedClient?.id || null,
                   clientName: selectedClient?.name || rncName || '',

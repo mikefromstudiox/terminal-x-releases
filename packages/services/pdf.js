@@ -138,9 +138,17 @@ async function buildPDF(data) {
   const secCodeH = (qrPngBase64 && data.securityCode) ? 11 : 0
   const firmaH   = (qrPngBase64 && data.signatureDate) ? 11 : 0
   const qrBlockH = qrPngBase64 ? QR_SIZE + 26 + secCodeH + firmaH : 0
-  const FOOTER_H = 46 // X mark + powered by + grace lines
+  // FOOTER_H reserves vertical space for: X mark + grace lines + custom footer
+  // (up to 3 lines × 9pt) + powered-by tagline.
+  const customFooterRaw = (data.customFooter || data.biz?.invoice_footer || '').toString().trim()
+  const customFooterLines = customFooterRaw ? Math.min(3, Math.ceil(customFooterRaw.length / 64)) : 0
+  const FOOTER_H = 46 + customFooterLines * 9
   const bodyH = lines.reduce((h, l) => h + l.height, 0)
-  const pageH = HEADER_BAND_H + 10 + bodyH + TOTAL_BOX_H + 8 + qrBlockH + FOOTER_H + MARGIN
+  // v2.16.0 — extra height for photo evidence grid (2 rows × cell + caption + heading)
+  const photoCount = Array.isArray(data.photoEvidence) ? Math.min(data.photoEvidence.length, 4) : 0
+  const photoCell = photoCount ? ((PAGE_W - MARGIN * 2 - 6) / 2) : 0
+  const photoBlockH = photoCount ? (Math.ceil(photoCount / 2) * (photoCell + 12) + 22) : 0
+  const pageH = HEADER_BAND_H + 10 + bodyH + TOTAL_BOX_H + 8 + qrBlockH + photoBlockH + FOOTER_H + MARGIN
 
   const page = doc.addPage([PAGE_W, pageH])
   const { width, height } = page.getSize()
@@ -302,6 +310,40 @@ async function buildPDF(data) {
     }
   }
 
+  // ═══ EVIDENCIA FOTOGRÁFICA (v2.16.0 — mecánica) ════════════════════════════
+  // data.photoEvidence: optional array of { phase: 'antes'|'despues', base64: 'data:image/jpeg;base64,...', caption }
+  // Up to 4 photos rendered in a 2x2 grid. JPEG and PNG both accepted.
+  if (Array.isArray(data.photoEvidence) && data.photoEvidence.length) {
+    y -= 6
+    const evHeader = 'EVIDENCIA FOTOGRAFICA'
+    const evW = fontB.widthOfTextAtSize(evHeader, 7.5)
+    page.drawText(evHeader, { x: MARGIN + (COL_W - evW) / 2, y: y - 8, size: 7.5, font: fontB, color: RGB(INK) })
+    y -= 14
+    const photos = data.photoEvidence.slice(0, 4)
+    const cell = (COL_W - 6) / 2
+    const rows = Math.ceil(photos.length / 2)
+    for (let r = 0; r < rows; r++) {
+      for (let cIdx = 0; cIdx < 2; cIdx++) {
+        const idx = r * 2 + cIdx
+        if (idx >= photos.length) continue
+        const p = photos[idx]
+        if (!p?.base64) continue
+        try {
+          const b64 = String(p.base64).replace(/^data:image\/(jpeg|jpg|png);base64,/, '')
+          const bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0))
+          const isPng = String(p.base64).startsWith('data:image/png') || p.kind === 'png'
+          const img = isPng ? await doc.embedPng(bytes) : await doc.embedJpg(bytes)
+          const px = MARGIN + cIdx * (cell + 6)
+          const py = y - (r * (cell + 12)) - cell
+          page.drawImage(img, { x: px, y: py, width: cell, height: cell })
+          const cap = (p.phase === 'despues' ? 'DESPUES' : 'ANTES') + (p.caption ? ' - ' + String(p.caption).slice(0, 18) : '')
+          page.drawText(cap, { x: px, y: py - 8, size: 6.5, font, color: RGB(MUTED) })
+        } catch { /* skip bad image silently */ }
+      }
+    }
+    y -= rows * (cell + 12) + 8
+  }
+
   // ═══ FOOTER — X logo mark + gracias + powered by ═══════════════════════════
   y -= 8
   const graceA = 'GRACIAS POR SU PREFERENCIA'
@@ -322,6 +364,31 @@ async function buildPDF(data) {
   page.drawLine({ start: { x: xCx - d, y: xCy - d }, end: { x: xCx + d, y: xCy + d }, thickness: 1.1, color: RGB(CRIMSON) })
   page.drawLine({ start: { x: xCx - d, y: xCy + d }, end: { x: xCx + d, y: xCy - d }, thickness: 1.1, color: RGB(CRIMSON) })
   y -= (xR * 2 + 4)
+
+  // Custom footer (Facturación tier custom branding) — owner-defined string
+  // shown above the "Powered by" tagline. Wraps on COL_W. Up to 3 lines.
+  const customFooter = (data.customFooter || data.biz?.invoice_footer || '').toString().trim()
+  if (customFooter) {
+    const cfSize = 6.5
+    const wrap = (txt, maxW, sz) => {
+      const words = txt.split(/\s+/)
+      const out = []
+      let cur = ''
+      for (const w of words) {
+        const test = cur ? cur + ' ' + w : w
+        if (font.widthOfTextAtSize(test, sz) > maxW) { if (cur) out.push(cur); cur = w } else { cur = test }
+      }
+      if (cur) out.push(cur)
+      return out
+    }
+    const lines2 = wrap(customFooter, COL_W, cfSize).slice(0, 3)
+    for (const cl of lines2) {
+      const w = font.widthOfTextAtSize(cl, cfSize)
+      page.drawText(cl, { x: MARGIN + (COL_W - w) / 2, y: y - 7, size: cfSize, font, color: RGB(MUTED) })
+      y -= 9
+    }
+    y -= 2
+  }
 
   const tagline = 'Powered by Terminal X'
   const tw = font.widthOfTextAtSize(tagline, 6.5)
@@ -403,6 +470,15 @@ function buildLines(data) {
   if (data.cajero)       cols('CAJERO',   data.cajero,       { upper: true, size: SMALL })
   if (data.lavador)      cols('LAVADOR',  data.lavador,      { upper: true, size: SMALL })
   if (data.vehiclePlate) cols('VEHICULO', data.vehiclePlate, { upper: true, size: SMALL })
+  // v2.16.0 — mecánica vehicle block extension
+  if (data.vehicleVin) cols('VIN', String(data.vehicleVin).slice(0, 26), { upper: true, size: SMALL })
+  if (data.vehicleMake || data.vehicleModel) {
+    const mm = [data.vehicleMake, data.vehicleModel].filter(Boolean).join(' ').slice(0, 26)
+    cols('MARCA/MODELO', mm, { upper: true, size: SMALL })
+  }
+  if (data.vehicleKm != null && data.vehicleKm !== '') {
+    cols('KILOMETRAJE', `${Number(data.vehicleKm).toLocaleString('en-US')} KM`, { upper: true, size: SMALL })
+  }
 
   if (data.client?.name || data.client?.rnc || data.client?.phone) {
     gap(4)

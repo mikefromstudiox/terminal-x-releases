@@ -67,10 +67,14 @@ function parseOverride(raw) {
   return null
 }
 
+// Dealership-only setting key (parallel to SUBTYPE_SETTING_KEY for tienda).
+const DEALERSHIP_SUBTYPE_KEY = 'dealership_subtype'
+
 export function BusinessTypeProvider({ children }) {
   const api = useAPI()
   const [businessType, setType] = useState('carwash')
   const [tiendaSubtype, setTiendaSubtypeState] = useState(null)
+  const [dealershipSubtype, setDealershipSubtypeState] = useState(null)
   const [featureOverrides, setFeatureOverrides] = useState({})  // { [featureName]: 'true'|'false' }
   const [loading, setLoading] = useState(true)
 
@@ -83,6 +87,8 @@ export function BusinessTypeProvider({ children }) {
         if (settings?.business_type) setType(normalise(settings.business_type))
         const sub = settings?.[SUBTYPE_SETTING_KEY]
         if (sub && TIENDA_SUBTYPES[sub]) setTiendaSubtypeState(sub)
+        const dsub = settings?.[DEALERSHIP_SUBTYPE_KEY]
+        if (dsub) setDealershipSubtypeState(dsub)
         // Scrape every feature_*_enabled key from the settings bag.
         const overrides = {}
         for (const [k, v] of Object.entries(settings || {})) {
@@ -136,7 +142,15 @@ export function BusinessTypeProvider({ children }) {
   const hasModule = (m) => cfgHasModule(businessType, m)
 
   // Subtype config — only meaningful when the base type is a tienda-like vertical.
-  const subtypeConfig = flags.isTienda && tiendaSubtype ? getTiendaSubtype(tiendaSubtype) : null
+  let subtypeConfig = flags.isTienda && tiendaSubtype ? getTiendaSubtype(tiendaSubtype) : null
+  // Dealership uses an inline subtypes block on the registry (no separate file).
+  // Resolution: settings.dealership_subtype → registry.defaultSubtype → null.
+  if (!subtypeConfig && flags.isDealership && config?.subtypes) {
+    const key = (dealershipSubtype && config.subtypes[dealershipSubtype])
+      ? dealershipSubtype
+      : (config.defaultSubtype && config.subtypes[config.defaultSubtype]) ? config.defaultSubtype : null
+    if (key) subtypeConfig = config.subtypes[key]
+  }
 
   // Unified licorería config selector.
   // Precedence (v2.13):
@@ -174,8 +188,17 @@ export function BusinessTypeProvider({ children }) {
       if (featureName === 'bottle_deposit')   return true
     }
     if (flags.isCarniceria && featureName === 'pricing_by_weight') return true
+    // v2.14.36 — Comisiones default. Service-based verticals run commissions
+    // (lavadores/vendedores/cajeros), tienda subtypes opt-in via the preset
+    // map above. Owner override always wins.
+    if (featureName === 'commissions') {
+      return !!(flags.isCarWash || flags.isMechanic || flags.isSalon ||
+                flags.isHybrid  || flags.isDealership || flags.isRestaurant ||
+                flags.isService)
+    }
     return false
-  }, [featureOverrides, subtypeConfig, tiendaSubtype, flags.isLicoreria, flags.isCarniceria])
+  }, [featureOverrides, subtypeConfig, tiendaSubtype, flags.isLicoreria, flags.isCarniceria,
+      flags.isCarWash, flags.isMechanic, flags.isSalon, flags.isHybrid, flags.isDealership, flags.isRestaurant, flags.isService])
 
   return (
     <BusinessTypeContext.Provider value={{

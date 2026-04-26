@@ -12,14 +12,15 @@ import { openDB } from 'idb'
 // ---------------------------------------------------------------------------
 
 const DB_NAME    = 'terminal-x-offline'
-const DB_VERSION = 1
+// v2: + pending_whatsapp_reminders + pending_whatsapp_reminders_failed (Phase 4d)
+const DB_VERSION = 2
 
 let dbPromise = null
 
 function getDB() {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
+      upgrade(db, oldVersion) {
         if (!db.objectStoreNames.contains('pending_tickets')) {
           const tickets = db.createObjectStore('pending_tickets', { keyPath: 'id', autoIncrement: true })
           tickets.createIndex('status', 'status')
@@ -27,6 +28,16 @@ function getDB() {
         if (!db.objectStoreNames.contains('pending_ecf')) {
           const ecf = db.createObjectStore('pending_ecf', { keyPath: 'id', autoIncrement: true })
           ecf.createIndex('status', 'status')
+        }
+        if (oldVersion < 2) {
+          if (!db.objectStoreNames.contains('pending_whatsapp_reminders')) {
+            const wa = db.createObjectStore('pending_whatsapp_reminders', { keyPath: 'id', autoIncrement: true })
+            wa.createIndex('business_id', 'business_id')
+            wa.createIndex('fire_at', 'fire_at')
+          }
+          if (!db.objectStoreNames.contains('pending_whatsapp_reminders_failed')) {
+            db.createObjectStore('pending_whatsapp_reminders_failed', { keyPath: 'id', autoIncrement: true })
+          }
         }
       },
     })
@@ -105,14 +116,220 @@ export async function markECFFailed(id, error) {
 }
 
 // ---------------------------------------------------------------------------
+// WhatsApp reminders (Phase 4d) — independent stream from e-CF.
+// PlanGated: salon_offline_whatsapp_queue (Pro MAX). The renderer calls
+// setOfflineQueuePlanGate(fn) once on boot so non-React code (online/offline
+// listeners, polling) can short-circuit without a context.
+// ---------------------------------------------------------------------------
+
+let _planHasFeature = () => true  // default permissive (desktop / non-gated callers)
+
+export function setOfflineQueuePlanGate(fn) {
+  _planHasFeature = typeof fn === 'function' ? fn : (() => true)
+}
+
+function waGateOpen() {
+  try { return !!_planHasFeature('salon_offline_whatsapp_queue') } catch { return false }
+}
+
+/**
+ * Enqueue a WhatsApp reminder for offline-deferred send. Returns the IDB id
+ * on success, or null when the plan-gate is closed (caller should treat as
+ * no-op and surface a "feature not in your plan" message upstream).
+ *
+ * payload shape:
+ *   { business_id, appointment_supabase_id, fire_at, kind, template_vars }
+ */
+export async function enqueueWhatsappReminder(payload) {
+  if (!waGateOpen()) return null
+  if (!payload || !payload.appointment_supabase_id || !payload.business_id) {
+    throw new Error('enqueueWhatsappReminder: business_id + appointment_supabase_id required')
+  }
+  const db = await getDB()
+  return db.add('pending_whatsapp_reminders', {
+    business_id:             String(payload.business_id),
+    appointment_supabase_id: String(payload.appointment_supabase_id),
+    fire_at:                 payload.fire_at || now(),
+    kind:                    payload.kind || 'manual',
+    template_vars:           payload.template_vars || {},
+    attempts:                0,
+    last_attempt_at:         null,
+    last_error:              null,
+    createdAt:               now(),
+  })
+}
+
+export async function getPendingWhatsappReminders() {
+  const db = await getDB()
+  const all = await db.getAll('pending_whatsapp_reminders')
+  return all.filter(r => (r.attempts || 0) < 5)
+}
+
+export async function markWhatsappReminderSent(id) {
+  const db = await getDB()
+  return db.delete('pending_whatsapp_reminders', id)
+}
+
+export async function markWhatsappReminderFailed(id, error) {
+  const db = await getDB()
+  const item = await db.get('pending_whatsapp_reminders', id)
+  if (!item) return
+  item.attempts = (item.attempts || 0) + 1
+  item.last_attempt_at = now()
+  item.last_error = typeof error === 'string' ? error : (error?.message || String(error))
+  if (item.attempts >= 5) {
+    // Dead-letter: move to the failed store and drop from the live queue.
+    try {
+      await db.add('pending_whatsapp_reminders_failed', {
+        ...item,
+        movedAt: now(),
+      })
+    } catch {}
+    return db.delete('pending_whatsapp_reminders', id)
+  }
+  return db.put('pending_whatsapp_reminders', item)
+}
+
+/**
+ * Drain pending WhatsApp reminders by POSTing to the panel.js manual_batch
+ * path. Per-row outcome: success -> delete from IDB, failure -> bump attempts.
+ *
+ * supabaseClient is optional; only used to lift the JWT for the Authorization
+ * header (the panel endpoint authenticates via the supabase JWT just like
+ * salon-whatsapp-send-now). When no JWT is available we abort silently.
+ */
+export async function drainWhatsappReminders(supabaseClient, panelUrl = '/api/panel') {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+    if (!waGateOpen()) return
+    const pending = await getPendingWhatsappReminders()
+    if (!pending.length) return
+
+    let jwt = null
+    try {
+      const sess = await supabaseClient?.auth?.getSession?.()
+      jwt = sess?.data?.session?.access_token || null
+    } catch {}
+    if (!jwt) return  // can't auth -> leave queue intact for next cycle
+
+    const reminders = pending.map(p => ({
+      appointment_supabase_id: p.appointment_supabase_id,
+      kind:                    p.kind,
+      template_vars:           p.template_vars || {},
+    }))
+
+    let json = null
+    try {
+      const r = await fetch(`${panelUrl}?action=salon-whatsapp-reminder-tick`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body:    JSON.stringify({ manual_batch: true, reminders }),
+      })
+      if (!r.ok) throw new Error(`panel ${r.status}`)
+      json = await r.json()
+    } catch (e) {
+      // Network/transport failure -> bump attempts on every row, keep them.
+      for (const p of pending) {
+        try { await markWhatsappReminderFailed(p.id, e) } catch {}
+      }
+      return
+    }
+
+    const results = Array.isArray(json?.results) ? json.results : []
+    const byId = new Map(results.map(r => [r.appointment_supabase_id, r]))
+    for (const p of pending) {
+      const r = byId.get(p.appointment_supabase_id)
+      if (r && r.ok) {
+        try { await markWhatsappReminderSent(p.id) } catch {}
+      } else {
+        try { await markWhatsappReminderFailed(p.id, r?.error || 'no_result') } catch {}
+      }
+    }
+  } catch {
+    // Never throw from drain.
+  }
+}
+
+/**
+ * Convenience wrapper for callers that want fire-and-forget semantics:
+ * if online + gated, POST direct via salon-whatsapp-send-now; if offline,
+ * enqueue. Returns { sent, queued, gated }.
+ *
+ * payload: { business_id, appointment_supabase_id, kind, template_vars, fire_at? }
+ */
+export async function sendOrQueueWhatsappReminder(payload, opts = {}) {
+  const { supabaseClient, panelUrl = '/api/panel' } = opts
+  if (!waGateOpen()) return { sent: false, queued: false, gated: true }
+
+  const online = typeof navigator === 'undefined' ? true : navigator.onLine !== false
+  if (online) {
+    try {
+      let jwt = null
+      try {
+        const sess = await supabaseClient?.auth?.getSession?.()
+        jwt = sess?.data?.session?.access_token || null
+      } catch {}
+      if (jwt) {
+        const r = await fetch(`${panelUrl}?action=salon-whatsapp-send-now`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+          body:    JSON.stringify({ appointment_supabase_id: payload.appointment_supabase_id }),
+        })
+        if (r.ok) return { sent: true, queued: false, gated: false }
+      }
+    } catch {}
+  }
+  // Offline or send-now failed -> queue.
+  await enqueueWhatsappReminder(payload)
+  return { sent: false, queued: true, gated: false }
+}
+
+// ---------------------------------------------------------------------------
 // Counts
 // ---------------------------------------------------------------------------
 
 export async function getQueueCounts() {
   const db = await getDB()
-  const tickets = (await db.getAll('pending_tickets')).filter(t => t.status === 'pending').length
-  const ecf     = (await db.getAll('pending_ecf')).filter(e => e.status === 'pending' && e.attempts < 5).length
-  return { tickets, ecf }
+  const tickets  = (await db.getAll('pending_tickets')).filter(t => t.status === 'pending').length
+  const ecf      = (await db.getAll('pending_ecf')).filter(e => e.status === 'pending' && e.attempts < 5).length
+  let whatsapp = 0
+  let whatsapp_failed = 0
+  try {
+    whatsapp = (await db.getAll('pending_whatsapp_reminders')).filter(r => (r.attempts || 0) < 5).length
+  } catch {}
+  // v2.16.1 patch (#13) — surface dead-letter so the UI can offer a retry.
+  try {
+    whatsapp_failed = (await db.getAll('pending_whatsapp_reminders_failed')).length
+  } catch {}
+  return { tickets, ecf, whatsapp, whatsapp_failed }
+}
+
+// v2.16.1 patch (#13) — list + retry the dead-letter store. UI binds these
+// to "Recordatorios fallidos: N" + "Reintentar todos".
+export async function getFailedWhatsappReminders() {
+  const db = await getDB()
+  try { return await db.getAll('pending_whatsapp_reminders_failed') } catch { return [] }
+}
+
+export async function retryAllFailedWhatsappReminders() {
+  const db = await getDB()
+  let restored = 0
+  let rows = []
+  try { rows = await db.getAll('pending_whatsapp_reminders_failed') } catch { return { restored: 0 } }
+  for (const r of rows) {
+    try {
+      const { id: _id, movedAt: _m, ...rest } = r
+      await db.add('pending_whatsapp_reminders', {
+        ...rest,
+        attempts: 0,
+        last_attempt_at: null,
+        last_error: null,
+      })
+      await db.delete('pending_whatsapp_reminders_failed', r.id)
+      restored++
+    } catch {}
+  }
+  return { restored }
 }
 
 // ---------------------------------------------------------------------------
@@ -263,12 +480,14 @@ export function startOfflineSync(supabase, businessId) {
   if (navigator.onLine) {
     syncPendingTickets(supabase, businessId)
     syncPendingECFs(supabase, businessId)
+    drainWhatsappReminders(supabase)
   }
 
   // Listen for online events
   const onOnline = () => {
     syncPendingTickets(supabase, businessId)
     syncPendingECFs(supabase, businessId)
+    drainWhatsappReminders(supabase)
   }
   _onOnlineHandler = onOnline
   window.addEventListener('online', onOnline)
@@ -278,6 +497,7 @@ export function startOfflineSync(supabase, businessId) {
     if (navigator.onLine) {
       syncPendingTickets(supabase, businessId)
       syncPendingECFs(supabase, businessId)
+      drainWhatsappReminders(supabase)
     }
   }, 60_000)
 

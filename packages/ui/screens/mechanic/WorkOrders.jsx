@@ -12,7 +12,9 @@ import {
   User, MapPin, FileText, DollarSign, Loader2, Trash2,
   CheckCircle2, AlertCircle, ClipboardList, Hash,
   ClipboardCheck, PackageOpen, PenLine, Gauge, Link2, Copy,
+  Camera, Shield, Truck,
 } from 'lucide-react'
+import VehicleHistoryModal from '../../components/VehicleHistoryModal'
 import { useAPI } from '../../context/DataContext'
 import { useAuth } from '../../context/AuthContext'
 import { useLang } from '../../i18n'
@@ -26,6 +28,7 @@ const STATUSES = [
   { id: 'awaiting_parts', label_es: 'Esperando Repuestos', label_en: 'Awaiting Parts', bg: 'bg-amber-50 dark:bg-amber-500/10', text: 'text-amber-700 dark:text-amber-400', dot: 'bg-amber-500', border: 'border-amber-200 dark:border-amber-500/30' },
   { id: 'en_progreso',    label_es: 'En Progreso',    label_en: 'In Progress',   bg: 'bg-amber-50 dark:bg-amber-500/10',    text: 'text-amber-700 dark:text-amber-400',   dot: 'bg-amber-500',  border: 'border-amber-200 dark:border-amber-500/30' },
   { id: 'completado',     label_es: 'Completado',     label_en: 'Completed',     bg: 'bg-emerald-50 dark:bg-emerald-500/10', text: 'text-emerald-700 dark:text-emerald-400', dot: 'bg-emerald-500', border: 'border-emerald-200 dark:border-emerald-500/30' },
+  { id: 'listo',          label_es: 'Listo (Cliente)', label_en: 'Ready (Pickup)', bg: 'bg-rose-50 dark:bg-rose-500/10',     text: 'text-[#b3001e] dark:text-rose-400',     dot: 'bg-[#b3001e]', border: 'border-[#b3001e]/40 dark:border-rose-500/30' },
   { id: 'facturado',      label_es: 'Facturado',      label_en: 'Invoiced',      bg: 'bg-violet-50 dark:bg-violet-500/10',  text: 'text-violet-700 dark:text-violet-400',  dot: 'bg-violet-500', border: 'border-violet-200 dark:border-violet-500/30' },
 ]
 
@@ -43,14 +46,25 @@ const NEXT_STATUS = {
   estimado: 'aprobado',
   aprobado: 'en_progreso',
   en_progreso: 'completado',
-  completado: 'facturado',
+  completado: 'listo',
+  listo: 'facturado',
 }
 
 const ACTION_LABELS = {
   estimado:    { es: 'Aprobar',   en: 'Approve' },
   aprobado:    { es: 'Iniciar',   en: 'Start' },
   en_progreso: { es: 'Completar', en: 'Complete' },
-  completado:  { es: 'Facturar',  en: 'Invoice' },
+  completado:  { es: 'Marcar Listo', en: 'Mark Ready' },
+  listo:       { es: 'Facturar',  en: 'Invoice' },
+}
+
+// v2.16.0 — stamp timing fields on status transition
+function timingPatchForStatus(nextStatus) {
+  const now = new Date().toISOString()
+  if (nextStatus === 'en_progreso') return { started_at: now }
+  if (nextStatus === 'completado')  return { finished_at: now }
+  if (nextStatus === 'listo')       return { ready_at: now }
+  return {}
 }
 
 const LINE_TYPES = [
@@ -376,6 +390,72 @@ function DetailModal({ order, lang, onStatusChange, onAddItem, onDeleteItem, onS
   const [partsDate, setPartsDate] = useState(order.expected_parts_arrival || '')
   const [approvalLink, setApprovalLink] = useState('')
   const [copied, setCopied] = useState(false)
+  // v2.16.0 — photo capture + insurance + listo+delivery
+  const [photoCount, setPhotoCount] = useState({ antes: 0, despues: 0 })
+  const [photoUploading, setPhotoUploading] = useState(false)
+  const [showInsurance, setShowInsurance] = useState(!!order.aseguradora_supabase_id)
+  const [insuranceForm, setInsuranceForm] = useState({
+    aseguradora_supabase_id: order.aseguradora_supabase_id || '',
+    poliza_no: order.poliza_no || '',
+    reclamo_no: order.reclamo_no || '',
+    aseguradora_status: order.aseguradora_status || 'pendiente',
+  })
+  const [aseguradoras, setAseguradoras] = useState([])
+  const [showVehicleHistory, setShowVehicleHistory] = useState(false)
+  const [confirmListo, setConfirmListo] = useState(false)
+  const [deliveryToggle, setDeliveryToggle] = useState(!!order.delivery_required)
+  const apiRef = useAPI()
+
+  useEffect(() => {
+    (async () => {
+      if (!order?.supabase_id) return
+      try {
+        const photos = await apiRef.workOrderPhotos?.listByWO?.(order.supabase_id) || []
+        setPhotoCount({
+          antes: photos.filter(p => p.phase === 'antes').length,
+          despues: photos.filter(p => p.phase === 'despues').length,
+        })
+      } catch {}
+      try {
+        const list = await apiRef.aseguradoras?.list?.() || []
+        setAseguradoras(list)
+      } catch {}
+    })()
+  }, [order?.supabase_id]) // eslint-disable-line
+
+  async function handlePhotoUpload(phase, file) {
+    if (!file || !order.supabase_id) return
+    setPhotoUploading(true)
+    try {
+      await apiRef.workOrderPhotos?.upload?.({
+        work_order_supabase_id: order.supabase_id,
+        vehicle_supabase_id: order.vehicle_supabase_id,
+        phase, file,
+      })
+      setPhotoCount(c => ({ ...c, [phase]: (c[phase] || 0) + 1 }))
+    } finally { setPhotoUploading(false) }
+  }
+
+  async function handleSaveInsurance() {
+    await apiRef.workOrders?.update?.(order.id, insuranceForm)
+  }
+
+  async function handleConfirmListo() {
+    const patch = { status: 'listo', ready_at: new Date().toISOString() }
+    if (deliveryToggle && !order.delivery_required) {
+      patch.delivery_required = true
+      patch.delivery_fee = 500
+      try {
+        await apiRef.workOrders?.addItem?.({
+          work_order_id: order.id, type: 'service',
+          name: 'Servicio de remolque / entrega', qty: 1, unit_price: 500,
+        })
+      } catch {}
+    }
+    try { await apiRef.workOrders?.update?.(order.id, patch) } catch {}
+    setConfirmListo(false)
+    onStatusChange(order.id, 'listo')
+  }
 
   async function handleAddItem() {
     if (!newItem.name.trim()) return
@@ -398,6 +478,10 @@ function DetailModal({ order, lang, onStatusChange, onAddItem, onDeleteItem, onS
       setConfirmInvoice(true)
       return
     }
+    if (next === 'listo') {
+      setConfirmListo(true)
+      return
+    }
     onStatusChange(order.id, next)
   }
 
@@ -413,8 +497,11 @@ function DetailModal({ order, lang, onStatusChange, onAddItem, onDeleteItem, onS
   async function handleApprovalLink() {
     const r = await onGenerateApprovalLink(order.id)
     if (r?.token) {
+      // v2.16.0 — public approval page lives at /wo/approve/:token. Path-based
+      // shape so the WhatsApp link previews cleanly. Server still accepts
+      // the legacy ?t= variant for any old links already in customers' phones.
       const base = (typeof window !== 'undefined' ? window.location.origin : 'https://terminalxpos.com')
-      setApprovalLink(`${base}/wo/approve?t=${r.token}`)
+      setApprovalLink(`${base}/wo/approve/${r.token}`)
     }
   }
   async function handleCopy() {
@@ -609,6 +696,53 @@ function DetailModal({ order, lang, onStatusChange, onAddItem, onDeleteItem, onS
               </div>
             )}
 
+            {/* v2.16.0 — Photos + Insurance + Vehicle History */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div className="border border-black dark:border-white/20 rounded-xl p-3">
+                <p className="text-[12px] font-bold text-slate-800 dark:text-white flex items-center gap-1.5 mb-2"><Camera size={13}/>{L('Fotos del Servicio', 'Service Photos')}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="border border-dashed border-black dark:border-white/30 rounded-lg p-2 flex flex-col items-center cursor-pointer hover:bg-black/5 dark:hover:bg-white/5">
+                    <span className="text-[10px] uppercase">{L('Antes','Before')}</span>
+                    <span className="font-bold text-base">{photoCount.antes}</span>
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoUpload('antes', f); e.target.value = '' }}/>
+                  </label>
+                  <label className="border border-dashed border-black dark:border-white/30 rounded-lg p-2 flex flex-col items-center cursor-pointer hover:bg-black/5 dark:hover:bg-white/5">
+                    <span className="text-[10px] uppercase">{L('Después','After')}</span>
+                    <span className="font-bold text-base">{photoCount.despues}</span>
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoUpload('despues', f); e.target.value = '' }}/>
+                  </label>
+                </div>
+                {photoUploading && <p className="text-[10px] mt-1 text-slate-500"><Loader2 size={10} className="inline animate-spin mr-1"/>{L('Subiendo…','Uploading…')}</p>}
+              </div>
+
+              <div className="border border-black dark:border-white/20 rounded-xl p-3">
+                <button type="button" onClick={() => setShowInsurance(s => !s)} className="text-[12px] font-bold text-slate-800 dark:text-white flex items-center gap-1.5 mb-2">
+                  <Shield size={13}/>{L('Trabajo de Aseguradora','Insurance Work')}<ChevronDown size={12} className={`transition-transform ${showInsurance ? 'rotate-180' : ''}`}/>
+                </button>
+                {showInsurance && (
+                  <div className="space-y-2">
+                    <select value={insuranceForm.aseguradora_supabase_id} onChange={e => setInsuranceForm(f => ({...f, aseguradora_supabase_id: e.target.value}))} className="w-full px-2 py-1.5 border border-black dark:border-white/30 rounded text-[12px] bg-white dark:bg-white/5 dark:text-white">
+                      <option value="">{L('— Sin aseguradora —','— None —')}</option>
+                      {aseguradoras.map(a => <option key={a.id} value={a.supabase_id}>{a.nombre}</option>)}
+                    </select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input placeholder={L('Póliza','Policy')} value={insuranceForm.poliza_no} onChange={e => setInsuranceForm(f => ({...f, poliza_no: e.target.value}))} className="px-2 py-1.5 border border-black dark:border-white/30 rounded text-[12px] bg-white dark:bg-white/5 dark:text-white"/>
+                      <input placeholder={L('Reclamo #','Claim #')} value={insuranceForm.reclamo_no} onChange={e => setInsuranceForm(f => ({...f, reclamo_no: e.target.value}))} className="px-2 py-1.5 border border-black dark:border-white/30 rounded text-[12px] bg-white dark:bg-white/5 dark:text-white"/>
+                    </div>
+                    <select value={insuranceForm.aseguradora_status} onChange={e => setInsuranceForm(f => ({...f, aseguradora_status: e.target.value}))} className="w-full px-2 py-1.5 border border-black dark:border-white/30 rounded text-[12px] bg-white dark:bg-white/5 dark:text-white">
+                      <option value="pendiente">{L('Pendiente','Pending')}</option>
+                      <option value="aprobado">{L('Aprobado','Approved')}</option>
+                      <option value="rechazado">{L('Rechazado','Rejected')}</option>
+                    </select>
+                    <button type="button" onClick={handleSaveInsurance} className="w-full py-1.5 bg-black text-white text-[11px] font-bold rounded hover:bg-[#b3001e]">{L('Guardar','Save')}</button>
+                  </div>
+                )}
+                {order.vehicle_supabase_id && (
+                  <button type="button" onClick={() => setShowVehicleHistory(true)} className="mt-2 text-[11px] underline dark:text-white">{L('Ver historial del vehículo','View vehicle history')}</button>
+                )}
+              </div>
+            </div>
+
             {approvalLink && (
               <div className="bg-sky-50 dark:bg-sky-500/5 border border-sky-200 dark:border-sky-500/20 rounded-xl p-3 space-y-2">
                 <p className="text-[12px] font-bold text-sky-800 dark:text-sky-300 flex items-center gap-1.5">
@@ -673,6 +807,51 @@ function DetailModal({ order, lang, onStatusChange, onAddItem, onDeleteItem, onS
               </div>
             </div>
           </div>
+        )}
+
+        {/* v2.16.0 — Listo confirm + WhatsApp + delivery */}
+        {confirmListo && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]" onClick={() => setConfirmListo(false)}>
+            <div className="bg-white dark:bg-black rounded-2xl p-6 max-w-md mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+              <p className="text-[15px] font-bold text-slate-800 dark:text-white mb-1 flex items-center gap-2"><CheckCircle2 size={16} className="text-[#b3001e]"/>{L('Marcar Listo', 'Mark Ready')}</p>
+              <p className="text-[12px] text-slate-500 dark:text-white/60 mb-3">{L('Notifica al cliente y opcionalmente añade cargo de entrega.','Notify the client and optionally add delivery fee.')}</p>
+              <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                <input type="checkbox" checked={deliveryToggle} onChange={e => setDeliveryToggle(e.target.checked)} className="accent-[#b3001e]"/>
+                <span className="text-[13px] dark:text-white"><Truck size={12} className="inline mr-1"/>{L('Entrega a domicilio (+ RD$ 500 remolque)','Home delivery (+ RD$ 500 tow)')}</span>
+              </label>
+              {order.vehicle_plate && (
+                <a className="block mb-3 text-[11px] text-emerald-700 dark:text-emerald-400 hover:underline"
+                  href={`https://wa.me/?text=${encodeURIComponent(L(
+                    `Su vehiculo ${order.vehicle_plate} esta LISTO para recoger. Gracias por su confianza.`,
+                    `Your vehicle ${order.vehicle_plate} is READY for pickup. Thank you.`
+                  ))}`} target="_blank" rel="noopener">
+                  {L('Enviar WhatsApp al cliente','Send WhatsApp to client')}
+                </a>
+              )}
+              <div className="flex gap-3 mt-3">
+                <button onClick={() => setConfirmListo(false)} className="flex-1 py-2.5 text-[13px] font-semibold text-slate-600 dark:text-white/60 border border-slate-200 dark:border-white/10 rounded-lg">
+                  {L('Cancelar','Cancel')}
+                </button>
+                <button onClick={handleConfirmListo} className="flex-1 py-2.5 text-[13px] font-semibold text-white bg-[#b3001e] hover:bg-[#8c0017] rounded-lg">
+                  {L('Confirmar Listo','Confirm Ready')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showVehicleHistory && order.vehicle_supabase_id && (
+          <VehicleHistoryModal
+            vehicle={{
+              id: order.vehicle_id,
+              supabase_id: order.vehicle_supabase_id,
+              plate: order.vehicle_plate || order.plate,
+              vin: order.vehicle_vin,
+              make: order.vehicle_make || order.make,
+              model: order.vehicle_model || order.model,
+            }}
+            onClose={() => setShowVehicleHistory(false)}
+          />
         )}
       </div>
     </div>
@@ -799,7 +978,14 @@ export default function WorkOrders() {
       const wo = orders.find(o => o.id === id)
       if (wo) { setDetail(null); openCobrarForWO(wo); return }
     }
-    await api.workOrders.updateStatus({ id, status: newStatus })
+    // v2.16.0 — stamp started_at / finished_at / ready_at when status flips
+    const timingPatch = timingPatchForStatus(newStatus)
+    if (Object.keys(timingPatch).length) {
+      try { await api.workOrders.update(id, { status: newStatus, ...timingPatch }) }
+      catch { await api.workOrders.updateStatus({ id, status: newStatus }) }
+    } else {
+      await api.workOrders.updateStatus({ id, status: newStatus })
+    }
     await loadAll()
     // Refresh detail if open
     if (detail?.id === id) {

@@ -20,7 +20,11 @@ const AdminApp    = React.lazy(() => import('@/admin/AdminApp'))
 const CertPortal  = React.lazy(() => import('@/portal/CertPortal'))
 const BlogIndex   = React.lazy(() => import('@/landing/components/BlogIndex'))
 const BlogPost    = React.lazy(() => import('@/landing/components/BlogPost'))
-const DemoPage    = React.lazy(() => import('@/landing/demo/DemoPage'))
+const TiendaEmpenosList   = React.lazy(() => import('@/landing/TiendaEmpenos').then(m => ({ default: m.TiendaEmpenosList })))
+const TiendaEmpenosDetail = React.lazy(() => import('@/landing/TiendaEmpenos').then(m => ({ default: m.TiendaEmpenosDetail })))
+const Agendar             = React.lazy(() => import('@/landing/Agendar'))
+const IndustryPage        = React.lazy(() => import('@/landing/IndustryPage'))
+const WorkOrderApprove    = React.lazy(() => import('@/landing/WorkOrderApprove'))
 
 // Blog lang resolver — same precedence as the landing-page hook
 // (`tx_landing_lang` localStorage > navigator.language > 'es') but without
@@ -175,6 +179,43 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {})
   })
 }
+
+// ---------------------------------------------------------------------------
+// FIX-H4 — Offline e-CF queue auto-drain (Facturación tier).
+// Lazy-import keeps the IndexedDB adapter out of the marketing bundle; it
+// only loads after first user interaction with /pos or /invoicing.
+// The submitFn replays the original POST against the current session token,
+// honoring DGII's IndicadorEnvioDiferido=1 promotion (queue helper handles).
+// ---------------------------------------------------------------------------
+function bootEcfQueueAutoDrain() {
+  if (typeof window === 'undefined') return
+  const path = window.location.pathname || ''
+  if (!/^\/(pos|invoicing|credit-notes|dgii)/.test(path)) return
+  Promise.all([
+    import('@terminal-x/services/offline-ecf-queue'),
+    import('@terminal-x/services/supabase'),
+  ]).then(([queueMod, supaMod]) => {
+    queueMod.autoDrain(async (payload) => {
+      try {
+        const client = supaMod.getSupabaseClient?.()
+        if (!client) return { ok: false, error: 'no-supabase' }
+        const sess = (await client.auth.getSession())?.data?.session
+        if (!sess?.access_token) return { ok: false, error: 'no-session' }
+        const r = await fetch('/api/ecf-sign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sess.access_token}` },
+          body: JSON.stringify(payload),
+        })
+        const j = await r.json().catch(() => ({}))
+        if (!j.ok) return { ok: false, error: j.error || `HTTP ${r.status}` }
+        return { ok: true, data: j.data }
+      } catch (err) {
+        return { ok: false, error: err?.message || 'network' }
+      }
+    })
+  }).catch(() => {})
+}
+window.addEventListener('load', bootEcfQueueAutoDrain)
 
 // ---------------------------------------------------------------------------
 // Suspense fallback
@@ -430,8 +471,32 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/blog" element={<BlogIndexRoute />} />
             <Route path="/blog/:slug" element={<BlogPostRoute />} />
 
-            {/* Static, self-contained demos — zero backend, zero auth, zero API. */}
-            <Route path="/demo/:vertical" element={<DemoPage />} />
+            {/* Demo routes removed — every "demo" CTA across the site goes to WhatsApp. */}
+            <Route path="/demo/:vertical" element={<Navigate to="/" replace />} />
+            <Route path="/demo" element={<Navigate to="/" replace />} />
+
+            {/* Public Tienda de Empeños — read-only, no auth, anon Supabase. */}
+            <Route path="/tienda-empenos/:businessId" element={<TiendaEmpenosList />} />
+            <Route path="/tienda-empenos/:businessId/:slug" element={<TiendaEmpenosDetail />} />
+
+            {/* Public salon booking — no auth, hCaptcha-protected. */}
+            <Route path="/agendar/:slug" element={<Agendar />} />
+
+            {/* v2.16.0 — Public Taller Mecánico cotización approval. Token-gated,
+                no auth, rate-limited 30/min/IP via web/api/panel.js?action=wo-approve-*. */}
+            <Route path="/wo/approve/:workOrderId" element={
+              <React.Suspense fallback={<PageLoader />}>
+                <WorkOrderApprove />
+              </React.Suspense>
+            } />
+            <Route path="/wo/approve" element={
+              <React.Suspense fallback={<PageLoader />}>
+                <WorkOrderApprove />
+              </React.Suspense>
+            } />
+
+            <Route path="/industrias" element={<Navigate to="/#vertical-features" replace />} />
+            <Route path="/industrias/:slug" element={<IndustryPage />} />
 
             {/* e-CF Certification Portal — public, token-based */}
             <Route path="/cert/:token" element={
@@ -474,6 +539,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/settings" element={<Navigate to="/pos/admin" replace />} />
             {/* v2.1+ vertical screens — same redirect pattern as the rest. */}
             <Route path="/memberships" element={<Navigate to="/pos/memberships" replace />} />
+            <Route path="/resumen" element={<Navigate to="/pos/resumen" replace />} />
             <Route path="/work-orders" element={<Navigate to="/pos/work-orders" replace />} />
             <Route path="/vehicles" element={<Navigate to="/pos/vehicles" replace />} />
             <Route path="/service-bays" element={<Navigate to="/pos/service-bays" replace />} />
@@ -481,6 +547,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/stylist-schedules" element={<Navigate to="/pos/stylist-schedules" replace />} />
             <Route path="/loans" element={<Navigate to="/pos/loans" replace />} />
             <Route path="/pawn-items" element={<Navigate to="/pos/pawn-items" replace />} />
+            <Route path="/lending/resumen" element={<Navigate to="/pos/lending/resumen" replace />} />
+            <Route path="/lending/reporte-sb" element={<Navigate to="/pos/lending/reporte-sb" replace />} />
             <Route path="/mesas" element={<Navigate to="/pos/mesas" replace />} />
             <Route path="/menu" element={<Navigate to="/pos/menu" replace />} />
             <Route path="/menu-builder" element={<Navigate to="/pos/menu-builder" replace />} />

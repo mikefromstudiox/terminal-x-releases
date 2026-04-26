@@ -8,6 +8,24 @@
 // To add a new vertical: append a key here, wire its modules in UI, seed its
 // defaults in setupBusinessType.js. No other code changes required.
 
+// v2.16.4 Sprint 2C — DR bank roster used by the Concesionario pre-approval
+// flow. Order matches retail-channel mindshare (Popular/Reservas dominate the
+// auto-loan book in DR). Owners cannot extend this list from the UI yet — add
+// a new bank here and ship a build.
+export const DR_BANKS = [
+  'Banco Popular',
+  'Banreservas',
+  'BHD',
+  'Banco Santa Cruz',
+  'Promerica',
+  'Banco Caribe',
+  'Banco Lopez de Haro',
+  'Vimenca',
+  'Banesco',
+  'APAP',
+  'ALAVER',
+]
+
 export const BUSINESS_TYPES = {
   carwash: {
     label:       { es: 'Car Wash', en: 'Car Wash' },
@@ -100,13 +118,14 @@ export const BUSINESS_TYPES = {
     description: { es: 'Barbería, salón de belleza, spa. Citas, estilistas y colas.',
                    en: 'Barbershop, beauty salon, spa. Appointments, stylists and queues.' },
     icon: 'Scissors',
-    modules: ['appointments', 'stylist_schedules', 'queue', 'service_grid', 'commissions'],
+    modules: ['appointments', 'stylist_schedules', 'queue', 'service_grid', 'commissions',
+              'memberships', 'retail_upsell', 'public_booking', 'walk_in', 'dashboard'],
     ui: {
       showTableMap: false,
       enableKDS: false,
       showRetailCart: false,
       showServiceGrid: true,
-      showInventory: false,
+      showInventory: true, // v2.16.1 — needed for retail upsell tile picker in cobro
       posSegmentToggle: false,
     },
     enabled: true,
@@ -143,6 +162,23 @@ export const BUSINESS_TYPES = {
       showInventory: true,
       posSegmentToggle: false,
     },
+    // Concesionario subtypes — chosen via app_settings.dealership_subtype.
+    // `vehicleItbis` flips ITBIS application on the deal line item. DGII rule:
+    // vehiculos nuevos importados → ITBIS aplica; usados (segunda mano) →
+    // generalmente exento. Owner override via app_settings.feature_vehicle_itbis_enabled
+    // always wins (read in useBusinessType.licoreriaConfig sibling logic).
+    subtypes: {
+      concesionario_nuevo: {
+        es: 'Concesionario (Nuevos)', en: 'Dealership (New)',
+        config: { vehicleItbis: true },
+      },
+      concesionario_usado: {
+        es: 'Concesionario (Usados)', en: 'Dealership (Used)',
+        config: { vehicleItbis: false },
+      },
+    },
+    defaultSubtype: 'concesionario_usado',
+    drBanks: DR_BANKS,
     enabled: true,
   },
 
@@ -208,7 +244,9 @@ export const BUSINESS_TYPES = {
     description: { es: 'Venta de carnes por peso. Báscula integrada, cortes por libra/kg.',
                    en: 'Meat sales by weight. Integrated scale, cuts priced by pound/kg.' },
     icon: 'Beef',
-    modules: ['inventory', 'barcode', 'cart', 'scale', 'price_by_weight'],
+    modules: ['inventory', 'barcode', 'cart', 'scale', 'price_by_weight',
+              'multi_scale', 'freshness', 'mayoreo', 'seasonal_promos',
+              'kitchen_notes', 'prepacked_toggle', 'corte_catalog'],
     ui: {
       showTableMap: false,
       enableKDS: false,

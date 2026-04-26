@@ -68,13 +68,14 @@ export default function NominaEmpleados() {
   async function loadAll() {
     setLoading(true)
     try {
-      const [list, sets, empresa, washerComm, sellerComm, cajeroComm] = await Promise.all([
+      const [list, sets, empresa, washerComm, sellerComm, cajeroComm, dealComm] = await Promise.all([
         api?.empleados?.all?.() || [],
         api?.payrollSettings?.get?.() || null,
         api?.admin?.getEmpresa?.() || null,
         api?.commissions?.byPeriod?.({}) || [],
         api?.sellerCommissions?.byPeriod?.({}) || [],
         api?.cajeroCommissions?.byPeriod?.({}) || [],
+        api?.salesDeals?.commissionsForPeriod?.({}) || [],
       ])
       setEmpleados(list || [])
       setSettings(sets)
@@ -101,9 +102,23 @@ export default function NominaEmpleados() {
         }
         return { bySid, byLegacySid, byLegacyId }
       }
+      const sellerBucket = build(sellerComm, 'seller_supabase_id', 'seller_id')
+      // v2.5 — fold sales_deals.commission_amount into the vendedor bucket
+      // keyed by salesperson_supabase_id (also accepts salesperson_id as legacy).
+      for (const d of (dealComm || [])) {
+        const amt = Number(d.commission_amount) || 0
+        if (!amt) continue
+        if (d.salesperson_supabase_id) {
+          const k = String(d.salesperson_supabase_id)
+          sellerBucket.bySid[k] = (sellerBucket.bySid[k] || 0) + amt
+        } else if (d.salesperson_id != null) {
+          const k = String(d.salesperson_id)
+          sellerBucket.byLegacyId[k] = (sellerBucket.byLegacyId[k] || 0) + amt
+        }
+      }
       setCommTotals({
         washers: build(washerComm, 'washer_supabase_id', 'washer_id'),
-        sellers: build(sellerComm, 'seller_supabase_id', 'seller_id'),
+        sellers: sellerBucket,
         cajeros: build(cajeroComm, 'cajero_supabase_id', 'cajero_id'),
       })
     } catch {}

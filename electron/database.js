@@ -1097,6 +1097,109 @@ function init(userDataPath, options = {}) {
     `CREATE INDEX IF NOT EXISTS idx_collections_log_client ON collections_log(client_supabase_id)`,
     `CREATE INDEX IF NOT EXISTS idx_collections_log_next   ON collections_log(next_contact_date)`,
 
+    // ── v2.16.2 — Prestamos hardening: amortization + renewals + contracts + listings ──
+    "ALTER TABLE loans ADD COLUMN amortization_method TEXT NOT NULL DEFAULT 'interest_only'",
+    "ALTER TABLE loans ADD COLUMN renewal_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE pawn_items ADD COLUMN default_alert_days INTEGER NOT NULL DEFAULT 3",
+    "ALTER TABLE pawn_items ADD COLUMN valoracion_notes TEXT",
+    "ALTER TABLE pawn_items ADD COLUMN offered_pct REAL NOT NULL DEFAULT 60",
+    "ALTER TABLE pawn_items ADD COLUMN signature_dataurl TEXT",
+
+    `CREATE TABLE IF NOT EXISTS loan_contracts (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id         TEXT,
+      business_id         TEXT,
+      loan_id             INTEGER REFERENCES loans(id),
+      loan_supabase_id    TEXT,
+      pdf_url             TEXT,
+      signature_dataurl   TEXT,
+      dpi_photo_url       TEXT,
+      signed_at           TEXT,
+      apr_monthly         REAL,
+      apr_annual_equiv    REAL,
+      clauses_version     TEXT,
+      created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(business_id, supabase_id)
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_contracts_supabase_id ON loan_contracts(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_loan_contracts_loan ON loan_contracts(loan_supabase_id)`,
+
+    `CREATE TABLE IF NOT EXISTS loan_renewals (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id         TEXT,
+      business_id         TEXT,
+      loan_id             INTEGER REFERENCES loans(id),
+      loan_supabase_id    TEXT,
+      renewal_count       INTEGER,
+      interest_paid       REAL,
+      new_due_date        TEXT,
+      previous_due_date   TEXT,
+      renewed_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      notes               TEXT,
+      created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(business_id, supabase_id)
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_renewals_supabase_id ON loan_renewals(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_loan_renewals_loan ON loan_renewals(loan_supabase_id)`,
+
+    `CREATE TABLE IF NOT EXISTS pawn_documents (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id         TEXT,
+      business_id         TEXT,
+      pawn_id             INTEGER REFERENCES pawn_items(id),
+      pawn_supabase_id    TEXT,
+      doc_type            TEXT,
+      file_url            TEXT,
+      mime_type           TEXT,
+      notes               TEXT,
+      created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(business_id, supabase_id)
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_pawn_documents_supabase_id ON pawn_documents(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_pawn_documents_pawn ON pawn_documents(pawn_supabase_id)`,
+
+    `CREATE TABLE IF NOT EXISTS pawn_listings (
+      id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id              TEXT,
+      business_id              TEXT,
+      pawn_id                  INTEGER REFERENCES pawn_items(id),
+      pawn_supabase_id         TEXT,
+      list_price               REAL,
+      published_at             TEXT,
+      slug                     TEXT,
+      status                   TEXT NOT NULL DEFAULT 'draft',
+      sold_ticket_supabase_id  TEXT,
+      notes                    TEXT,
+      created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at               TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(business_id, supabase_id)
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_pawn_listings_supabase_id ON pawn_listings(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_pawn_listings_pawn ON pawn_listings(pawn_supabase_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_pawn_listings_biz_slug ON pawn_listings(business_id, slug) WHERE slug IS NOT NULL`,
+
+    `CREATE TABLE IF NOT EXISTS collections_attempts (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id         TEXT,
+      business_id         TEXT,
+      loan_id             INTEGER REFERENCES loans(id),
+      loan_supabase_id    TEXT,
+      attempt_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      outcome             TEXT,
+      notes               TEXT,
+      next_followup_at    TEXT,
+      whatsapp_sent       INTEGER NOT NULL DEFAULT 0,
+      created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(business_id, supabase_id)
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_collections_attempts_supabase_id ON collections_attempts(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_collections_attempts_loan ON collections_attempts(loan_supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_collections_attempts_next ON collections_attempts(next_followup_at)`,
+
     // ── v2.3 — Multi-POS block allocation (NCF, doc_number, inventory oversell) ──
     // Mirrors Supabase ncf_blocks / doc_number_blocks / inventory_oversells.
     // See docs/MULTI-POS-ARCHITECTURE.md §1–§3 and backend migration
@@ -1194,6 +1297,10 @@ function init(userDataPath, options = {}) {
     // v1.9.25 — mesas.rev: monotonic revision counter used to detect the
     // simultaneous-waiter status race (see electron/sync.js header comment).
     'ALTER TABLE mesas ADD COLUMN rev INTEGER NOT NULL DEFAULT 0',
+    // v2.16.3 — bill_requested_at stamped by mesaRequestBill() / cleared by
+    // any non-'acuenta' status transition. Drives the amber 'acuenta' card
+    // in RestaurantPOS and any future bill-pending KDS surfacing.
+    'ALTER TABLE mesas ADD COLUMN bill_requested_at TEXT',
     // v2.10.3 — tickets.rev: same optimistic concurrency guard for tickets.
     // Supabase trigger trg_tickets_rev_guard rejects status changes unless
     // NEW.rev > OLD.rev. Every status-changing UPDATE in this file must bump
@@ -1317,6 +1424,392 @@ function init(userDataPath, options = {}) {
     "INSERT OR IGNORE INTO app_settings(key, value, updated_at) SELECT 'biz_phone',   phone,   datetime('now') FROM businesses WHERE id=1 AND phone   IS NOT NULL AND phone   <> ''",
     "INSERT OR IGNORE INTO app_settings(key, value, updated_at) SELECT 'biz_address', address, datetime('now') FROM businesses WHERE id=1 AND address IS NOT NULL AND address <> ''",
     "INSERT OR IGNORE INTO app_settings(key, value, updated_at) SELECT 'biz_email',   email,   datetime('now') FROM businesses WHERE id=1 AND email   IS NOT NULL AND email   <> ''",
+
+    // ─────────────────────────────────────────────────────────────────────
+    // v2.16.1 — Salón / Barbería hardening (parity with
+    // supabase/migrations/20260425200000_salon_v2_16_1.sql).
+    // SQLite has no `ADD COLUMN IF NOT EXISTS`; the wrapper try/catch above
+    // already swallows "duplicate column" so plain ALTERs are safe + idempotent.
+    // The existing carwash `memberships` table is extended additively; the
+    // salon catalog columns coexist with the carwash subscription columns.
+    // `active_template` is the salon-only flag (carwash uses `status`).
+    // ─────────────────────────────────────────────────────────────────────
+    "ALTER TABLE memberships ADD COLUMN nombre TEXT",
+    "ALTER TABLE memberships ADD COLUMN service_supabase_id TEXT",
+    "ALTER TABLE memberships ADD COLUMN total_sessions INTEGER",
+    "ALTER TABLE memberships ADD COLUMN price_dop REAL",
+    "ALTER TABLE memberships ADD COLUMN validity_days INTEGER DEFAULT 365",
+    "ALTER TABLE memberships ADD COLUMN active_template INTEGER NOT NULL DEFAULT 1",
+    "CREATE INDEX IF NOT EXISTS idx_memberships_biz_supabase ON memberships(business_id, supabase_id)",
+
+    // appointments — salon hardening columns
+    "ALTER TABLE appointments ADD COLUMN is_walk_in INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE appointments ADD COLUMN deposit_dop REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE appointments ADD COLUMN deposit_status TEXT NOT NULL DEFAULT 'none'",
+    "ALTER TABLE appointments ADD COLUMN no_show_fee_charged INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE appointments ADD COLUMN public_booking_token TEXT",
+    "ALTER TABLE appointments ADD COLUMN client_membership_supabase_id TEXT",
+
+    // clients — no-show counters
+    "ALTER TABLE clients ADD COLUMN no_show_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE clients ADD COLUMN last_no_show_at TEXT",
+    // H8 — WhatsApp opt-out (DR ley protección de datos)
+    "ALTER TABLE clients ADD COLUMN wa_opt_out INTEGER NOT NULL DEFAULT 0",
+    // C9 — Papeleta legalmente vinculante: firma del prestamista
+    "ALTER TABLE pawn_items ADD COLUMN prestamista_signature_dataurl TEXT",
+
+    // client_memberships — per-client balance ledger
+    `CREATE TABLE IF NOT EXISTS client_memberships (
+      id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id              TEXT,
+      business_id              TEXT,
+      client_supabase_id       TEXT NOT NULL,
+      membership_supabase_id   TEXT NOT NULL,
+      sessions_remaining       INTEGER NOT NULL,
+      purchased_at             TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at               TEXT NOT NULL,
+      ticket_supabase_id       TEXT,
+      created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at               TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_client_memberships_supabase_id ON client_memberships(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_client_memberships_biz_supabase ON client_memberships(business_id, supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_client_memberships_client_expires ON client_memberships(client_supabase_id, expires_at)`,
+
+    // membership_redemptions — audit trail
+    `CREATE TABLE IF NOT EXISTS membership_redemptions (
+      id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                     TEXT,
+      business_id                     TEXT,
+      client_membership_supabase_id   TEXT NOT NULL,
+      ticket_supabase_id              TEXT NOT NULL,
+      appointment_supabase_id         TEXT,
+      redeemed_at                     TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_membership_redemptions_supabase_id ON membership_redemptions(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_membership_redemptions_biz_supabase ON membership_redemptions(business_id, supabase_id)`,
+
+    // appointment_reminders — 24h / 2h / manual / confirm queue
+    `CREATE TABLE IF NOT EXISTS appointment_reminders (
+      id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                 TEXT,
+      business_id                 TEXT,
+      appointment_supabase_id     TEXT NOT NULL,
+      fire_at                     TEXT NOT NULL,
+      kind                        TEXT NOT NULL CHECK (kind IN ('24h','2h','manual','confirm')),
+      status                      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed','skipped')),
+      ultramsg_message_id         TEXT,
+      error                       TEXT,
+      sent_at                     TEXT,
+      created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_appointment_reminders_supabase_id ON appointment_reminders(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_appointment_reminders_biz_supabase ON appointment_reminders(business_id, supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_appointment_reminders_dispatch ON appointment_reminders(appointment_supabase_id, status, fire_at)`,
+
+    // ── v2.16.1 patch (20260425300000) — silent-failure audit fixes ─────────
+    // ticket_items.empleado_supabase_id — per-line commission credit (#2)
+    "ALTER TABLE ticket_items ADD COLUMN empleado_supabase_id TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_ticket_items_empleado ON ticket_items(empleado_supabase_id) WHERE empleado_supabase_id IS NOT NULL",
+    // inventory_items.salon_upsell + salon_upsell_order — curated upsell tiles (#4)
+    "ALTER TABLE inventory_items ADD COLUMN salon_upsell INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE inventory_items ADD COLUMN salon_upsell_order INTEGER",
+    "CREATE INDEX IF NOT EXISTS idx_inventory_items_salon_upsell ON inventory_items(salon_upsell_order) WHERE salon_upsell=1",
+    // appointments — partial unique index to block double-bookings (#7).
+    // SQLite supports partial indexes; honours the same predicate as Postgres.
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_no_double_book ON appointments(business_id, empleado_supabase_id, date, start_time) WHERE status NOT IN ('cancelled','no_show')",
+
+    // ── v2.16.3 — Carnicería hardening release ──────────────────────────────
+    // Cortes catalog with photo + DR-popular name + nutrition JSON.
+    `CREATE TABLE IF NOT EXISTS carniceria_corte_categories (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id         TEXT,
+      business_id         TEXT,
+      nombre              TEXT NOT NULL,
+      nombre_dr_popular   TEXT,
+      tooltip_traduccion  TEXT,
+      especie             TEXT NOT NULL,
+      photo_url           TEXT,
+      nutrition_json      TEXT,
+      sort_order          INTEGER DEFAULT 0,
+      active              INTEGER NOT NULL DEFAULT 1,
+      created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_corte_cat_sup ON carniceria_corte_categories(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_corte_cat_biz ON carniceria_corte_categories(business_id, active)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_corte_cat_updated_at
+       AFTER UPDATE ON carniceria_corte_categories FOR EACH ROW
+       BEGIN UPDATE carniceria_corte_categories SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    // inventory_items extension — prepacked / corte cat / freshness dates
+    `ALTER TABLE inventory_items ADD COLUMN prepacked INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE inventory_items ADD COLUMN corte_category_supabase_id TEXT`,
+    `ALTER TABLE inventory_items ADD COLUMN expires_at TEXT`,
+    `ALTER TABLE inventory_items ADD COLUMN received_at TEXT`,
+
+    // Freshness batches
+    `CREATE TABLE IF NOT EXISTS inventory_freshness_log (
+      id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                 TEXT,
+      business_id                 TEXT,
+      inventory_item_supabase_id  TEXT NOT NULL,
+      batch_lote                  TEXT,
+      received_at                 TEXT NOT NULL,
+      expires_at                  TEXT NOT NULL,
+      qty_received                REAL NOT NULL,
+      qty_remaining               REAL NOT NULL,
+      unit                        TEXT DEFAULT 'lb',
+      auto_discount_applied       INTEGER NOT NULL DEFAULT 0,
+      created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_fresh_sup ON inventory_freshness_log(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_fresh_biz_item ON inventory_freshness_log(business_id, inventory_item_supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_fresh_expires ON inventory_freshness_log(expires_at)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_fresh_updated_at
+       AFTER UPDATE ON inventory_freshness_log FOR EACH ROW
+       BEGIN UPDATE inventory_freshness_log SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    // Discards (with motivo + photo)
+    `CREATE TABLE IF NOT EXISTS inventory_discards (
+      id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                 TEXT,
+      business_id                 TEXT,
+      inventory_item_supabase_id  TEXT NOT NULL,
+      freshness_log_supabase_id   TEXT,
+      qty                         REAL NOT NULL,
+      unit                        TEXT DEFAULT 'lb',
+      motivo                      TEXT NOT NULL,
+      photo_url                   TEXT,
+      empleado_supabase_id        TEXT,
+      created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_disc_sup ON inventory_discards(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_disc_biz_date ON inventory_discards(business_id, created_at DESC)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_disc_updated_at
+       AFTER UPDATE ON inventory_discards FOR EACH ROW
+       BEGIN UPDATE inventory_discards SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    // Prep notes on ticket items (for kitchen-style tickets)
+    `ALTER TABLE ticket_items ADD COLUMN preparation_notes TEXT`,
+
+    // v2.16.4 — discard provenance for E33 NCC trigger
+    `ALTER TABLE inventory_discards ADD COLUMN is_post_sale INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE inventory_discards ADD COLUMN related_ticket_supabase_id TEXT`,
+    `ALTER TABLE inventory_discards ADD COLUMN e33_encf TEXT`,
+
+    // Mayoreo recurring orders
+    `CREATE TABLE IF NOT EXISTS recurring_orders (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id         TEXT,
+      business_id         TEXT,
+      client_supabase_id  TEXT NOT NULL,
+      nombre              TEXT NOT NULL,
+      dia_semana          INTEGER,
+      items_json          TEXT NOT NULL,
+      total_estimado      REAL,
+      whatsapp_confirmar  INTEGER NOT NULL DEFAULT 1,
+      last_sent_at        TEXT,
+      active              INTEGER NOT NULL DEFAULT 1,
+      created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_recurring_sup ON recurring_orders(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_recurring_biz_dia ON recurring_orders(business_id, dia_semana, active)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_recurring_updated_at
+       AFTER UPDATE ON recurring_orders FOR EACH ROW
+       BEGIN UPDATE recurring_orders SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    // Multi-scale registry
+    `CREATE TABLE IF NOT EXISTS carniceria_scales (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id       TEXT,
+      business_id       TEXT,
+      nombre            TEXT NOT NULL,
+      tipo              TEXT NOT NULL,
+      device_path       TEXT,
+      protocol          TEXT DEFAULT 'generic',
+      baud_rate         INTEGER DEFAULT 9600,
+      capacidad_max_lb  REAL,
+      tare_default      REAL DEFAULT 0,
+      active_default    INTEGER NOT NULL DEFAULT 0,
+      active            INTEGER NOT NULL DEFAULT 1,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_scales_sup ON carniceria_scales(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_scales_biz ON carniceria_scales(business_id, active)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_scales_updated_at
+       AFTER UPDATE ON carniceria_scales FOR EACH ROW
+       BEGIN UPDATE carniceria_scales SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    // Generic promotions (used by all verticals; carnicería seeds DR seasonal)
+    `CREATE TABLE IF NOT EXISTS promotions (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id     TEXT,
+      business_id     TEXT,
+      name            TEXT NOT NULL,
+      tipo            TEXT NOT NULL,
+      discount_pct    REAL,
+      discount_fixed  REAL,
+      min_purchase    REAL,
+      start_date      TEXT,
+      end_date        TEXT,
+      season_key      TEXT,
+      banner_text     TEXT,
+      active          INTEGER NOT NULL DEFAULT 1,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_promos_sup ON promotions(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_promos_biz ON promotions(business_id, active)`,
+    `CREATE INDEX IF NOT EXISTS idx_promos_window ON promotions(business_id, start_date, end_date)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_promos_updated_at
+       AFTER UPDATE ON promotions FOR EACH ROW
+       BEGIN UPDATE promotions SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    `CREATE TABLE IF NOT EXISTS promotion_items (
+      id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id            TEXT,
+      promotion_id           INTEGER REFERENCES promotions(id) ON DELETE CASCADE,
+      promotion_supabase_id  TEXT NOT NULL,
+      item_type              TEXT NOT NULL,
+      item_supabase_id       TEXT NOT NULL,
+      created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at             TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_promo_items_sup ON promotion_items(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_promo_items_promo ON promotion_items(promotion_supabase_id)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_promo_items_updated_at
+       AFTER UPDATE ON promotion_items FOR EACH ROW
+       BEGIN UPDATE promotion_items SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    // ── v2.16.0 — Taller Mecánico hardening ──────────────────────────────────
+    `ALTER TABLE work_orders ADD COLUMN aseguradora_supabase_id TEXT`,
+    `ALTER TABLE work_orders ADD COLUMN poliza_no TEXT`,
+    `ALTER TABLE work_orders ADD COLUMN reclamo_no TEXT`,
+    `ALTER TABLE work_orders ADD COLUMN aseguradora_status TEXT`,
+    `ALTER TABLE work_orders ADD COLUMN started_at TEXT`,
+    `ALTER TABLE work_orders ADD COLUMN finished_at TEXT`,
+    `ALTER TABLE work_orders ADD COLUMN ready_at TEXT`,
+    `ALTER TABLE work_orders ADD COLUMN delivery_required INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE work_orders ADD COLUMN delivery_fee REAL NOT NULL DEFAULT 0`,
+    `ALTER TABLE work_orders ADD COLUMN validity_until TEXT`,
+    `CREATE INDEX IF NOT EXISTS idx_work_orders_aseguradora ON work_orders(aseguradora_supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_work_orders_validity_until ON work_orders(validity_until)`,
+
+    `CREATE TABLE IF NOT EXISTS aseguradoras (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id        TEXT,
+      business_id        TEXT,
+      nombre             TEXT NOT NULL,
+      rnc                TEXT,
+      contacto_telefono  TEXT,
+      contacto_email     TEXT,
+      ecf_mode           TEXT NOT NULL DEFAULT 'per_wo',
+      notas              TEXT,
+      active             INTEGER NOT NULL DEFAULT 1,
+      created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_aseguradoras_supabase_id ON aseguradoras(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_aseguradoras_biz_active ON aseguradoras(business_id, active)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_aseguradoras_updated_at
+       AFTER UPDATE ON aseguradoras FOR EACH ROW
+       BEGIN UPDATE aseguradoras SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    `CREATE TABLE IF NOT EXISTS suppliers (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id  TEXT,
+      business_id  TEXT,
+      nombre       TEXT NOT NULL,
+      rnc          TEXT,
+      telefono     TEXT,
+      contacto     TEXT,
+      notas        TEXT,
+      active       INTEGER NOT NULL DEFAULT 1,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_supabase_id ON suppliers(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_suppliers_biz_active ON suppliers(business_id, active)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_suppliers_updated_at
+       AFTER UPDATE ON suppliers FOR EACH ROW
+       BEGIN UPDATE suppliers SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    `CREATE TABLE IF NOT EXISTS parts_orders (
+      id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id              TEXT,
+      business_id              TEXT,
+      work_order_supabase_id   TEXT,
+      supplier_supabase_id     TEXT,
+      part_name                TEXT NOT NULL,
+      part_sku                 TEXT,
+      quantity                 REAL NOT NULL DEFAULT 1,
+      unit_cost_estimate       REAL NOT NULL DEFAULT 0,
+      expected_at              TEXT,
+      received_at              TEXT,
+      received_barcode         TEXT,
+      status                   TEXT NOT NULL DEFAULT 'pendiente',
+      notes                    TEXT,
+      created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at               TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_parts_orders_supabase_id ON parts_orders(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_parts_orders_biz_status ON parts_orders(business_id, status)`,
+    `CREATE INDEX IF NOT EXISTS idx_parts_orders_wo ON parts_orders(work_order_supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_parts_orders_barcode ON parts_orders(business_id, received_barcode)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_parts_orders_updated_at
+       AFTER UPDATE ON parts_orders FOR EACH ROW
+       BEGIN UPDATE parts_orders SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    `CREATE TABLE IF NOT EXISTS work_order_photos (
+      id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                     TEXT,
+      business_id                     TEXT,
+      work_order_supabase_id          TEXT,
+      vehicle_supabase_id             TEXT,
+      phase                           TEXT NOT NULL,
+      storage_path                    TEXT NOT NULL,
+      taken_by_empleado_supabase_id   TEXT,
+      caption                         TEXT,
+      created_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_wo_photos_supabase_id ON work_order_photos(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_wo_photos_wo ON work_order_photos(work_order_supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_wo_photos_vehicle ON work_order_photos(vehicle_supabase_id)`,
+
+    `CREATE TABLE IF NOT EXISTS insurance_batches (
+      id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id              TEXT,
+      business_id              TEXT,
+      aseguradora_supabase_id  TEXT NOT NULL,
+      period_month             TEXT NOT NULL,
+      ecf_supabase_id          TEXT,
+      ecf_ncf                  TEXT,
+      total_amount             REAL NOT NULL DEFAULT 0,
+      itbis_amount             REAL NOT NULL DEFAULT 0,
+      pdf_storage_path         TEXT,
+      work_order_count         INTEGER NOT NULL DEFAULT 0,
+      status                   TEXT NOT NULL DEFAULT 'borrador',
+      notes                    TEXT,
+      created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at               TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_insurance_batches_supabase_id ON insurance_batches(supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_insurance_batches_biz_period ON insurance_batches(business_id, aseguradora_supabase_id, period_month)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_insurance_batches_updated_at
+       AFTER UPDATE ON insurance_batches FOR EACH ROW
+       BEGIN UPDATE insurance_batches SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+    // v2.16.2 — concesionario compliance: capture WHY an anecf was queued so the
+    // owner Actividad feed can distinguish a manual void from a deal_close_failed
+    // compensation. Guarded ALTER — silently no-ops if column already exists.
+    "ALTER TABLE anecf_queue ADD COLUMN reason TEXT",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -2037,6 +2530,240 @@ function init(userDataPath, options = {}) {
     deleted_at  TEXT NOT NULL DEFAULT (datetime('now')),
     reason      TEXT DEFAULT 'manual'
   )`)
+
+  // ── Concesionario v2 / v2.5 — dealership tables ─────────────────────────
+  db.exec(`CREATE TABLE IF NOT EXISTS vehicle_inventory (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id        TEXT,
+    stock_number       TEXT,
+    vin                TEXT,
+    make               TEXT,
+    model              TEXT,
+    year               INTEGER,
+    color              TEXT,
+    mileage            INTEGER DEFAULT 0,
+    condition          TEXT DEFAULT 'used',
+    acquisition_cost   REAL DEFAULT 0,
+    listing_price      REAL DEFAULT 0,
+    status             TEXT DEFAULT 'available',
+    title_status       TEXT DEFAULT 'clean',
+    photo_urls         TEXT,
+    featured           INTEGER DEFAULT 0,
+    notes              TEXT,
+    listing_date       TEXT,
+    sold_date          TEXT,
+    active             INTEGER NOT NULL DEFAULT 1,
+    created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicle_inventory_supabase_id ON vehicle_inventory(supabase_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_vehicle_inventory_status ON vehicle_inventory(status, active)')
+
+  db.exec(`CREATE TABLE IF NOT EXISTS sales_deals (
+    id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                   TEXT,
+    client_id                     INTEGER,
+    client_supabase_id            TEXT,
+    vehicle_inventory_id          INTEGER,
+    vehicle_inventory_supabase_id TEXT,
+    salesperson_id                INTEGER,
+    salesperson_supabase_id       TEXT,
+    sale_price                    REAL DEFAULT 0,
+    trade_in_vehicle_id           INTEGER,
+    trade_in_supabase_id          TEXT,
+    trade_in_value                REAL DEFAULT 0,
+    down_payment                  REAL DEFAULT 0,
+    financed_amount               REAL DEFAULT 0,
+    term_months                   INTEGER DEFAULT 0,
+    apr                           REAL DEFAULT 0,
+    monthly_payment               REAL DEFAULT 0,
+    commission_pct                REAL,
+    commission_amount             REAL,
+    commission_paid               INTEGER DEFAULT 0,
+    commission_paid_at            TEXT,
+    ticket_id                     INTEGER,
+    ticket_supabase_id            TEXT,
+    status                        TEXT DEFAULT 'open',
+    notes                         TEXT,
+    closed_at                     TEXT,
+    active                        INTEGER NOT NULL DEFAULT 1,
+    created_at                    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                    TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_deals_supabase_id ON sales_deals(supabase_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sales_deals_status ON sales_deals(status, closed_at)')
+
+  db.exec(`CREATE TABLE IF NOT EXISTS leads (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                     TEXT,
+    name                            TEXT NOT NULL,
+    phone                           TEXT,
+    email                           TEXT,
+    source                          TEXT DEFAULT 'walk_in',
+    budget                          REAL,
+    notes                           TEXT,
+    stage                           TEXT DEFAULT 'lead',
+    next_followup_at                TEXT,
+    last_contacted_at               TEXT,
+    interested_vehicle_supabase_id  TEXT,
+    active                          INTEGER NOT NULL DEFAULT 1,
+    created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_supabase_id ON leads(supabase_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage, active)')
+
+  db.exec(`CREATE TABLE IF NOT EXISTS test_drives (
+    id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                   TEXT,
+    client_id                     INTEGER,
+    client_supabase_id            TEXT,
+    vehicle_inventory_id          INTEGER,
+    vehicle_inventory_supabase_id TEXT,
+    staff_id                      INTEGER,
+    staff_supabase_id             TEXT,
+    scheduled_at                  TEXT,
+    completed_at                  TEXT,
+    license_number                TEXT,
+    signed_waiver_url             TEXT,
+    notes                         TEXT,
+    outcome                       TEXT,
+    outcome_notes                 TEXT,
+    deal_supabase_id              TEXT,
+    active                        INTEGER NOT NULL DEFAULT 1,
+    created_at                    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                    TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_test_drives_supabase_id ON test_drives(supabase_id)')
+
+  db.exec(`CREATE TABLE IF NOT EXISTS vehicle_documents (
+    id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                   TEXT,
+    vehicle_inventory_supabase_id TEXT NOT NULL,
+    doc_type                      TEXT NOT NULL,
+    file_url                      TEXT NOT NULL,
+    file_name                     TEXT,
+    expires_at                    TEXT,
+    notes                         TEXT,
+    active                        INTEGER NOT NULL DEFAULT 1,
+    uploaded_at                   TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                    TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicle_documents_supabase_id ON vehicle_documents(supabase_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_vehicle_documents_vehicle ON vehicle_documents(vehicle_inventory_supabase_id, active)')
+
+  // Concesionario v2.1 — fiscal/AML markers + INTRANT titulo tracking.
+  // Safe ALTERs: try/catch since ADD COLUMN fails when column already exists.
+  const safeAlter = (sql) => { try { db.exec(sql) } catch {} }
+  safeAlter('ALTER TABLE sales_deals ADD COLUMN dgii_e31_required INTEGER DEFAULT 0')
+  safeAlter('ALTER TABLE sales_deals ADD COLUMN uaf_threshold_exceeded INTEGER DEFAULT 0')
+  safeAlter('ALTER TABLE sales_deals ADD COLUMN uaf_report_url TEXT')
+  safeAlter('ALTER TABLE sales_deals ADD COLUMN uaf_acknowledged_by TEXT')
+  safeAlter('ALTER TABLE sales_deals ADD COLUMN uaf_acknowledged_at TEXT')
+
+  db.exec(`CREATE TABLE IF NOT EXISTS vehicle_titulo (
+    id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                   TEXT,
+    sales_deal_supabase_id        TEXT NOT NULL,
+    vehicle_inventory_supabase_id TEXT,
+    intrant_status                TEXT NOT NULL DEFAULT 'pendiente',
+    placa                         TEXT,
+    matricula_url                 TEXT,
+    traspaso_initiated_at         TEXT,
+    traspaso_completed_at         TEXT,
+    notes                         TEXT,
+    active                        INTEGER NOT NULL DEFAULT 1,
+    created_at                    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                    TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicle_titulo_supabase_id ON vehicle_titulo(supabase_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_vehicle_titulo_deal ON vehicle_titulo(sales_deal_supabase_id, active)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_vehicle_titulo_status ON vehicle_titulo(intrant_status, active)')
+
+  // v2.16.4 — Concesionario Sprint 2A H2: vehicle reservations with deposit + expiry.
+  db.exec(`CREATE TABLE IF NOT EXISTS vehicle_reservations (
+    id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                   TEXT,
+    vehicle_inventory_supabase_id TEXT,
+    client_id                     INTEGER,
+    client_supabase_id            TEXT,
+    salesperson_id                INTEGER,
+    salesperson_supabase_id       TEXT,
+    deposit_amount                REAL DEFAULT 0,
+    deposit_method                TEXT,
+    expires_at                    TEXT NOT NULL,
+    released_at                   TEXT,
+    released_reason               TEXT,
+    converted_deal_supabase_id    TEXT,
+    status                        TEXT NOT NULL DEFAULT 'active',
+    notes                         TEXT,
+    active                        INTEGER NOT NULL DEFAULT 1,
+    created_at                    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                    TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicle_reservations_supabase_id ON vehicle_reservations(supabase_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_vehicle_reservations_vehicle ON vehicle_reservations(vehicle_inventory_supabase_id, status, active)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_vehicle_reservations_expires ON vehicle_reservations(expires_at, status)')
+
+  // v2.16.4 — Concesionario Sprint 2B H3: post-sale warranties (garantia 30/60/90d / 1yr).
+  // claims is a TEXT JSON array — JSON.parse/stringify handled in the CRUD layer.
+  db.exec(`CREATE TABLE IF NOT EXISTS vehicle_warranties (
+    id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                   TEXT,
+    sales_deal_supabase_id        TEXT NOT NULL,
+    vehicle_inventory_supabase_id TEXT,
+    client_id                     INTEGER,
+    client_supabase_id            TEXT,
+    kind                          TEXT NOT NULL DEFAULT 'general',
+    starts_at                     TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at                    TEXT NOT NULL,
+    terms                         TEXT,
+    claims                        TEXT NOT NULL DEFAULT '[]',
+    status                        TEXT NOT NULL DEFAULT 'active',
+    notes                         TEXT,
+    active                        INTEGER NOT NULL DEFAULT 1,
+    created_at                    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                    TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicle_warranties_supabase_id ON vehicle_warranties(supabase_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_vehicle_warranties_deal ON vehicle_warranties(sales_deal_supabase_id, active)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_vehicle_warranties_expires ON vehicle_warranties(expires_at, status, active)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_vehicle_warranties_status ON vehicle_warranties(status, active)')
+
+  // v2.16.4 Sprint 2C — Concesionario bank pre-approvals (manual workflow).
+  // status flow: solicitada → en_revision → pre_aprobada → utilizada (when
+  // attached to a closed deal) | rechazada | expirada (auto by sweep when
+  // expires_at < now AND status not in utilizada/rechazada).
+  db.exec(`CREATE TABLE IF NOT EXISTS bank_preapprovals (
+    id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                   TEXT,
+    client_id                     INTEGER,
+    client_supabase_id            TEXT,
+    lead_supabase_id              TEXT,
+    vehicle_inventory_supabase_id TEXT,
+    salesperson_id                INTEGER,
+    salesperson_supabase_id       TEXT,
+    bank                          TEXT NOT NULL,
+    bank_contact                  TEXT,
+    requested_amount              REAL NOT NULL DEFAULT 0,
+    term_months                   INTEGER,
+    rate_offered                  REAL,
+    monthly_quota_offered         REAL,
+    status                        TEXT NOT NULL DEFAULT 'solicitada',
+    expires_at                    TEXT,
+    decision_at                   TEXT,
+    decision_letter_url           TEXT,
+    notes                         TEXT,
+    active                        INTEGER NOT NULL DEFAULT 1,
+    created_at                    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                    TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_bank_preapprovals_supabase_id ON bank_preapprovals(supabase_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_bank_preapprovals_client ON bank_preapprovals(client_supabase_id, status, active)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_bank_preapprovals_status ON bank_preapprovals(status, active)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_bank_preapprovals_expires ON bank_preapprovals(expires_at, status, active)')
+  // Safe ALTER — link the chosen pre-approval onto a closed deal so reports can join.
+  try { db.exec('ALTER TABLE sales_deals ADD COLUMN bank_preapproval_supabase_id TEXT') } catch {}
 
   // Performance indexes for report queries at scale
   db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_created ON tickets(created_at)')
@@ -3093,6 +3820,35 @@ function servicesGetAllAdmin() {
   if (!db) return []
   return db.prepare('SELECT * FROM services ORDER BY category, sort_order, id').all()
 }
+// v2.16.3 — Top sellers ranked by ticket_items.quantity over the last `days`
+// days for non-voided tickets. Mirrors the Postgres services_top_sellers RPC
+// semantics exactly: dual-key join (service_id OR service_supabase_id),
+// status NOT IN voided/anulado/nula, full service rows in qty-desc order.
+// Returns same shape as servicesGetAll() so the UI renders through the
+// same MenuItemCard.
+function servicesTopSellers({ days = 30, limit = 8 } = {}) {
+  if (!db) return []
+  const since = new Date(Date.now() - Math.max(1, days) * 86400000).toISOString()
+  const cap   = Math.max(1, Math.min(limit | 0, 50))
+  return db.prepare(`
+    SELECT s.*, agg.total_qty
+    FROM services s
+    JOIN (
+      SELECT
+        COALESCE(CAST(ti.service_id AS TEXT), ti.service_supabase_id) AS svc_key,
+        SUM(COALESCE(ti.quantity, 1)) AS total_qty
+      FROM ticket_items ti
+      JOIN tickets t ON t.id = ti.ticket_id
+      WHERE t.created_at >= ?
+        AND t.status NOT IN ('voided','anulado','nula')
+        AND (ti.service_id IS NOT NULL OR ti.service_supabase_id IS NOT NULL)
+      GROUP BY 1
+    ) agg ON agg.svc_key = COALESCE(CAST(s.id AS TEXT), s.supabase_id)
+    WHERE s.active = 1
+    ORDER BY agg.total_qty DESC
+    LIMIT ?
+  `).all(since, cap)
+}
 function serviceCreate(data) {
   if (!db) return null
   const sid = crypto.randomUUID()
@@ -3320,9 +4076,34 @@ function empleadoHardDelete(id) {
 }
 
 // ── Mesas (floor plan) ──────────────────────────────────────────────────────
+// v2.16.3 — surfaces active_ticket_total (running total of the open ticket on
+// each mesa) so RestaurantPOS idle ocupada cards can render RD$ amounts.
+// Total formula matches the live cart: SUM((price + sum(modifier delta)) * qty).
+// Open ticket = mesa-bound ticket whose status is NOT cobrado/voided/anulado/nula.
+// Mirrors the Supabase mesas_with_active_total VIEW semantics exactly.
 function mesasGetAll() {
   if (!db) return []
-  return db.prepare('SELECT * FROM mesas WHERE active=1 ORDER BY sort_order, name').all()
+  return db.prepare(`
+    SELECT m.*,
+      COALESCE((
+        SELECT SUM(
+          (COALESCE(ti.price, 0)
+           + COALESCE((
+               SELECT SUM(tim.price_delta_snapshot)
+               FROM ticket_item_modificadores tim
+               WHERE tim.ticket_item_id = ti.id
+             ), 0)
+          ) * COALESCE(ti.quantity, 1)
+        )
+        FROM tickets t
+        JOIN ticket_items ti ON ti.ticket_id = t.id
+        WHERE t.mesa_id = m.id
+          AND t.status NOT IN ('cobrado','voided','anulado','nula')
+      ), 0) AS active_ticket_total
+    FROM mesas m
+    WHERE m.active=1
+    ORDER BY m.sort_order, m.name
+  `).all()
 }
 function mesaCreate(data) {
   if (!db) return null
@@ -3340,7 +4121,7 @@ function mesaCreate(data) {
 }
 function mesaUpdate(id, data) {
   if (!db) return
-  const allowed = ['name','zone','capacity','status','waiter_empleado_id','waiter_empleado_supabase_id','guests_count','seated_at','sort_order','active']
+  const allowed = ['name','zone','capacity','status','waiter_empleado_id','waiter_empleado_supabase_id','guests_count','seated_at','sort_order','active','bill_requested_at']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return db.prepare('SELECT * FROM mesas WHERE id=?').get(id)
   const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
@@ -3351,19 +4132,46 @@ function mesaSetStatus(id, status, opts = {}) {
   if (!db) return
   // Stamps seated_at once when transitioning into 'ocupada'; other waiter/guest
   // fields are only overwritten when explicitly provided (undefined → keep).
-  const current = db.prepare('SELECT waiter_empleado_id, waiter_empleado_supabase_id, guests_count FROM mesas WHERE id=?').get(id)
+  const current = db.prepare('SELECT waiter_empleado_id, waiter_empleado_supabase_id, guests_count, bill_requested_at FROM mesas WHERE id=?').get(id)
   if (!current) return null
   const waiterId    = opts.waiter_empleado_id          !== undefined ? opts.waiter_empleado_id          : current.waiter_empleado_id
   const waiterSid   = opts.waiter_empleado_supabase_id !== undefined ? opts.waiter_empleado_supabase_id : current.waiter_empleado_supabase_id
   const guests      = opts.guests_count                !== undefined ? opts.guests_count                : current.guests_count
+  // v2.16.3 — bill_requested_at: caller can pass null (post-cobro cleanup),
+  // an explicit ISO string, or omit. On any transition OUT of 'acuenta'
+  // (and the opt wasn't explicitly provided) auto-clear so the amber card
+  // doesn't linger. mesaRequestBill() is the canonical entry into 'acuenta'.
+  let billReq
+  if (opts.bill_requested_at !== undefined)        billReq = opts.bill_requested_at
+  else if (status === 'acuenta')                   billReq = current.bill_requested_at
+  else                                             billReq = null
+  // seated_at: opts override > stamp on first ocupada > preserve current.
+  const seatedAtFragment = opts.seated_at !== undefined
+    ? '?'  // explicit value (incl. null)
+    : "COALESCE(seated_at, CASE WHEN ?='ocupada' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') END)"
+  const seatedAtArg = opts.seated_at !== undefined ? opts.seated_at : status
   // v1.9.25 — bump monotonic rev so Supabase trigger can reject a slower
   // concurrent status change. See sync.js header "mesas.status race".
   db.prepare(`UPDATE mesas
     SET status=?, waiter_empleado_id=?, waiter_empleado_supabase_id=?, guests_count=?,
-        seated_at=COALESCE(seated_at, CASE WHEN ?='ocupada' THEN datetime('now') END),
+        seated_at=${seatedAtFragment},
+        bill_requested_at=?,
         rev=COALESCE(rev,0)+1,
-        updated_at=datetime('now')
-    WHERE id=?`).run(status, waiterId, waiterSid, guests, status, id)
+        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    WHERE id=?`).run(status, waiterId, waiterSid, guests, seatedAtArg, billReq, id)
+  return db.prepare('SELECT * FROM mesas WHERE id=?').get(id)
+}
+// v2.16.3 — "Pedir cuenta" workflow. Stamps mesas.status='acuenta' +
+// bill_requested_at=NOW(). The cobrar→sucia transition in mesaSetStatus
+// auto-clears bill_requested_at (status !== 'acuenta' branch above).
+function mesaRequestBill(id) {
+  if (!db) return null
+  db.prepare(`UPDATE mesas
+    SET status='acuenta',
+        bill_requested_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+        rev=COALESCE(rev,0)+1,
+        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    WHERE id=?`).run(id)
   return db.prepare('SELECT * FROM mesas WHERE id=?').get(id)
 }
 function mesaDelete(id) {
@@ -4432,8 +5240,11 @@ function ticketCreate(data) {
     const invRows = db.prepare('SELECT id, aplica_itbis, supabase_id FROM inventory_items').all()
     const invItbisById = new Map(invRows.map(r => [r.id, r.aplica_itbis]))
     const invSidById = new Map(invRows.map(r => [r.id, r.supabase_id || null]))
-    const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,cost,itbis,is_wash,quantity,sku,inventory_item_id,weight,unit,price_per_unit,is_deposit,supabase_id,ticket_supabase_id,service_supabase_id,inventory_item_supabase_id)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    // v2.16.1 patch (#2) — per-line empleado_supabase_id stamped on the row
+    // so commission writers below can credit the picker, not the ticket-level
+    // seller. Default null → existing roll-up commission paths still apply.
+    const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,cost,itbis,is_wash,quantity,sku,inventory_item_id,weight,unit,price_per_unit,is_deposit,preparation_notes,empleado_supabase_id,supabase_id,ticket_supabase_id,service_supabase_id,inventory_item_supabase_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     for (const item of (data.items || [])) {
       const svcId = (item.service_id && validSvcIds.has(item.service_id)) ? item.service_id : null
       const qty = item.quantity || 1
@@ -4455,6 +5266,8 @@ function ticketCreate(data) {
         item.unit || null,
         item.price_per_unit != null ? Number(item.price_per_unit) : null,
         isDeposit,
+        item.preparation_notes ? String(item.preparation_notes).trim() || null : null, // v2.16.3 carnicería
+        item.empleado_supabase_id || null, // v2.16.1 patch (#2) — per-line stylist
         itemSid, ticketSid, svcId ? svcSidById.get(svcId) : null, invItemSid)
 
       // Auto-deduct inventory stock (floor at 0 — never go negative).
@@ -4503,6 +5316,12 @@ function ticketCreate(data) {
     const svcIsWashById = new Map(svcRows.map(r => [r.id, r.is_wash ?? 1]))
     const hasSeller = !!sellerEmpSid
     let washerBaseGross = 0, sellerBaseGross = 0, cashierBaseGross = 0
+    // v2.16.1 patch (#2) — per-line stylist credit. When the cashier picked a
+    // stylist for a specific line (CobrarModal salon flow), that line's
+    // commission goes to THAT stylist, not the ticket-level seller/washer
+    // roll-up. Collect those credits separately and exclude their gross from
+    // the bulk washer/seller bases below.
+    const perLineCredits = [] // [{ empleado_supabase_id, baseGross }]
     for (const item of (data.items || [])) {
       const svcId = item.service_id && validSvcIds.has(item.service_id) ? item.service_id : null
       const qty = Math.max(1, parseInt(item.quantity || 1, 10))
@@ -4511,6 +5330,14 @@ function ticketCreate(data) {
       const washerOn  = svcId ? !!svcWasherById.get(svcId)  : (itemIsWash !== 0)
       const sellerOn  = svcId ? !!svcSellerById.get(svcId)  : (itemIsWash !== 0)
       const cashierOn = svcId ? !!svcCashierById.get(svcId) : true
+      // Per-line stylist trumps the roll-up (only relevant when the line is
+      // commission-eligible at all — washerOn || sellerOn).
+      if (item.empleado_supabase_id && (washerOn || sellerOn)) {
+        perLineCredits.push({ empleado_supabase_id: item.empleado_supabase_id, baseGross: line })
+        // Cashier still earns on products/no-seller services per existing rule.
+        if (cashierOn && (itemIsWash === 0 || !hasSeller)) cashierBaseGross += line
+        continue
+      }
       if (washerOn)  washerBaseGross += line
       if (sellerOn)  sellerBaseGross += line
       // Cashier: products always, services only when no seller
@@ -4579,6 +5406,33 @@ function ticketCreate(data) {
           (cajero_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,cajero_supabase_id,ticket_supabase_id)
           VALUES(?,?,?,?,?,0,?,?,?)`).run(data.cajero_id, ticketId, cashierBase, cajero.commission_pct, commAmount,
           ccSid, cajero.supabase_id || null, ticketSid)
+      }
+    }
+
+    // v2.16.1 patch (#2) — per-line stylist credits. Writes to the role's
+    // canonical commission table based on empleados.tipo (lavador/hybrid →
+    // washer_commissions, vendedor → seller_commissions). Sum bases per
+    // empleado before writing so two lines for the same stylist collapse
+    // into one row (matches the roll-up shape).
+    if (perLineCredits.length) {
+      const grossSumByEmp = new Map()
+      for (const c of perLineCredits) {
+        grossSumByEmp.set(c.empleado_supabase_id, (grossSumByEmp.get(c.empleado_supabase_id) || 0) + c.baseGross)
+      }
+      for (const [empSid, gross] of grossSumByEmp.entries()) {
+        try {
+          const emp = db.prepare(`SELECT tipo, comision_pct FROM empleados WHERE supabase_id=?`).get(empSid)
+          if (!emp) continue
+          const pct = Number(emp.comision_pct || 0)
+          if (pct <= 0) continue
+          const baseStripped = parseFloat((gross / (1 + itbisFactor)).toFixed(2))
+          const commAmt = parseFloat((baseStripped * pct / 100).toFixed(2))
+          const sid = crypto.randomUUID()
+          const tbl = (emp.tipo === 'vendedor') ? 'seller_commissions' : 'washer_commissions'
+          db.prepare(`INSERT INTO ${tbl}
+            (empleado_supabase_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,ticket_supabase_id)
+            VALUES(?,?,?,?,?,0,?,?)`).run(empSid, ticketId, baseStripped, pct, commAmt, sid, ticketSid)
+        } catch (e) { /* per-line credit write failure is non-fatal — roll-up still on */ }
       }
     }
 
@@ -4939,6 +5793,11 @@ function queueDelete(id, deletedBy) {
   if (!db) return null
   const row = db.prepare('SELECT q.*, t.doc_number, t.ncf as t_ncf, t.supabase_id as t_supabase_id FROM queue q LEFT JOIN tickets t ON t.id = q.ticket_id WHERE q.id=?').get(id)
   if (!row) return null
+  // FIX 5.5 — idempotent: a second delete (multi-bay race / network retry)
+  // must NOT double-reverse balance, double-restore inventory, or double-
+  // tombstone commissions. If the queue row is already cancelled, return a
+  // soft-success so the renderer's optimistic update still resolves.
+  if (row.status === 'cancelled') return { id, ticketId: row.ticket_id, alreadyCancelled: true }
   const now = new Date().toISOString()
   db.transaction(() => {
     // Reverse any credit-ticket balance BEFORE we mark the ticket anulado.
@@ -5862,8 +6721,8 @@ function inventoryCreate(data) {
   if (!db) return null
   const sid = crypto.randomUUID()
   const initialQty = Number(data.quantity) || 0
-  const r = db.prepare(`INSERT INTO inventory_items(sku,name,category,quantity,min_quantity,price,price_pedidos_ya,cost,barcode,aplica_itbis,sold_by_weight,unit,price_per_unit,bottle_deposit,tare_default,supabase_id)
-    VALUES(@sku,@name,@category,@quantity,@min_quantity,@price,@price_pedidos_ya,@cost,@barcode,@aplica_itbis,@sold_by_weight,@unit,@price_per_unit,@bottle_deposit,@tare_default,@supabase_id)`).run({
+  const r = db.prepare(`INSERT INTO inventory_items(sku,name,category,quantity,min_quantity,price,price_pedidos_ya,cost,barcode,aplica_itbis,sold_by_weight,unit,price_per_unit,bottle_deposit,tare_default,prepacked,corte_category_supabase_id,received_at,expires_at,supabase_id)
+    VALUES(@sku,@name,@category,@quantity,@min_quantity,@price,@price_pedidos_ya,@cost,@barcode,@aplica_itbis,@sold_by_weight,@unit,@price_per_unit,@bottle_deposit,@tare_default,@prepacked,@corte_category_supabase_id,@received_at,@expires_at,@supabase_id)`).run({
     sku: data.sku || null, name: data.name, category: data.category || '',
     quantity: initialQty, min_quantity: data.min_quantity ?? 5,
     price: data.price || 0,
@@ -5875,9 +6734,32 @@ function inventoryCreate(data) {
     price_per_unit: data.price_per_unit != null ? Number(data.price_per_unit) : null,
     bottle_deposit: data.bottle_deposit != null ? Number(data.bottle_deposit) : null,
     tare_default: data.tare_default != null ? Number(data.tare_default) : null,
+    // v2.16.3 carnicería
+    prepacked: data.prepacked ? 1 : 0,
+    corte_category_supabase_id: data.corte_category_supabase_id || null,
+    received_at: data.received_at || null,
+    expires_at: data.expires_at || null,
     supabase_id: sid,
   })
   const newId = r.lastInsertRowid
+  // v2.16.3 — when a carnicería item is created with received_at + expires_at,
+  // auto-open a freshness_log batch so FreshnessAlerts shows it without
+  // requiring a separate manual step. Idempotent: only fires on initial create
+  // with both dates populated.
+  if (data.received_at && data.expires_at && initialQty > 0) {
+    try {
+      const fSid = crypto.randomUUID()
+      db.prepare(`INSERT INTO inventory_freshness_log
+        (supabase_id, business_id, inventory_item_supabase_id, batch_lote, received_at, expires_at, qty_received, qty_remaining, unit, auto_discount_applied)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`).run(
+          fSid, _bizId(), sid,
+          data.batch_lote || ('LOTE-' + new Date().toISOString().slice(0,10).replace(/-/g,'')),
+          data.received_at, data.expires_at,
+          initialQty, initialQty,
+          data.unit || 'lb'
+        )
+    } catch {}
+  }
   // v2.14.35 — emit opening-balance ledger row + activity_log entry so a brand-new
   // product's stock has the same audit footprint as any later adjustment. Skip
   // the ledger insert when initialQty is 0 (no movement to log).
@@ -5908,13 +6790,15 @@ function inventoryUpdate(id, data) {
   // row + activity_log entry. Silent qty edits during a price/category bulk
   // update are now impossible. (Sales, voids, and conteo apply still update
   // qty directly via their own audited paths.)
-  const ALLOWED = ['sku','name','category','min_quantity','price','price_pedidos_ya','cost','barcode','aplica_itbis','sold_by_weight','unit','price_per_unit','bottle_deposit','tare_default']
+  const ALLOWED = ['sku','name','category','min_quantity','price','price_pedidos_ya','cost','barcode','aplica_itbis','sold_by_weight','unit','price_per_unit','bottle_deposit','tare_default',
+    // v2.16.3 carnicería
+    'prepacked','corte_category_supabase_id','received_at','expires_at']
   const sets = []
   const params = { id }
   for (const k of ALLOWED) {
     if (!(k in data)) continue
     let v = data[k]
-    if (k === 'sold_by_weight') v = v ? 1 : 0
+    if (k === 'sold_by_weight' || k === 'prepacked') v = v ? 1 : 0
     else if (k === 'aplica_itbis') v = v ?? 1
     else if (['price_pedidos_ya','price_per_unit','bottle_deposit','tare_default'].includes(k)) {
       v = (v === '' || v == null) ? null : Number(v)
@@ -5922,7 +6806,7 @@ function inventoryUpdate(id, data) {
       v = v === '' || v == null ? 0 : Number(v)
     } else if (k === 'min_quantity') {
       v = v ?? 5
-    } else if (['sku','barcode','unit'].includes(k)) {
+    } else if (['sku','barcode','unit','corte_category_supabase_id','received_at','expires_at'].includes(k)) {
       v = v || null
     } else if (k === 'category') {
       v = v || ''
@@ -6110,7 +6994,7 @@ function isECF(ncf) {
  * the owner Actividad feed (DGII chip) shows every auto-anulación. Only on
  * an actual insert (not on duplicate/skip) to avoid noise on double-voids.
  */
-function anecfQueueEnqueue({ ncf, ticketId, ticketSupabaseId, environment } = {}) {
+function anecfQueueEnqueue({ ncf, ticketId, ticketSupabaseId, environment, reason } = {}) {
   if (!db) return null
   if (!isECF(ncf)) return null
   try {
@@ -6120,9 +7004,9 @@ function anecfQueueEnqueue({ ncf, ticketId, ticketSupabaseId, environment } = {}
     const sid = crypto.randomUUID()
     const info = db.prepare(
       `INSERT OR IGNORE INTO anecf_queue
-         (ticket_id, ticket_supabase_id, ncf, tipo_ecf, rango_desde, rango_hasta, environment, supabase_id)
-       VALUES (?,?,?,?,?,?,?,?)`
-    ).run(ticketId || null, ticketSupabaseId || null, ncf, tipoEcf, rango, rango, env, sid)
+         (ticket_id, ticket_supabase_id, ncf, tipo_ecf, rango_desde, rango_hasta, environment, supabase_id, reason)
+       VALUES (?,?,?,?,?,?,?,?,?)`
+    ).run(ticketId || null, ticketSupabaseId || null, ncf, tipoEcf, rango, rango, env, sid, reason || null)
     if (info.changes > 0) {
       // Classified audit event — never block the void on log failure.
       try {
@@ -6154,6 +7038,29 @@ function anecfQueueEnqueue({ ncf, ticketId, ticketSupabaseId, environment } = {}
 // NCFs (the auditor just sees the range with a voided doc in it).
 //
 // Returns: { decremented: boolean, prefix, number, reason }
+// Rollback path for an eNCF/NCF that was reserved via ncfGetNext but the
+// downstream e-CF submission FAILED before reaching DGII. Unlike
+// ncfSequenceDecrementIfLast (which refuses E-prefixes because ANECF handles
+// them), this is the pre-submit rollback: safe to decrement E-series IF and
+// only IF this is still the last issued sequence number AND the ticket never
+// got a DGII trackId. Caller is responsible for verifying no DGII roundtrip
+// occurred. Returns { decremented, reason }.
+function ncfSequenceRollback(ncf) {
+  if (!db || !ncf || typeof ncf !== 'string') return { decremented: false, reason: 'invalid-ncf' }
+  const m = ncf.trim().match(/^([A-Z]\d{2})(\d+)$/)
+  if (!m) return { decremented: false, reason: 'bad-format' }
+  const prefix = m[1]
+  const num = parseInt(m[2], 10)
+  if (!Number.isFinite(num) || num <= 0) return { decremented: false, reason: 'bad-number' }
+  const row = db.prepare('SELECT type, current_number FROM ncf_sequences WHERE prefix=? AND active=1').get(prefix)
+  if (!row) return { decremented: false, reason: 'no-sequence' }
+  if (Number(row.current_number) !== num) {
+    return { decremented: false, reason: 'not-last', prefix, number: num, current: Number(row.current_number) }
+  }
+  db.prepare("UPDATE ncf_sequences SET current_number=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE type=?").run(num - 1, row.type)
+  return { decremented: true, prefix, number: num }
+}
+
 function ncfSequenceDecrementIfLast(ncf) {
   if (!db || !ncf || typeof ncf !== 'string') return { decremented: false, reason: 'invalid-ncf' }
   // NCF format: prefix (B01/B02/E31/E32/...) + zero-padded sequence.
@@ -6523,13 +7430,22 @@ function vehicleUpdate(id, data) {
   db.prepare(`UPDATE vehicles SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
   return db.prepare('SELECT * FROM vehicles WHERE id=?').get(id)
 }
-function vehicleList({ client_id, active } = {}) {
+function vehicleList({ client_id, active, search, limit } = {}) {
   if (!db) return []
   let sql = 'SELECT v.*, c.name AS client_name FROM vehicles v LEFT JOIN clients c ON c.id = v.client_id WHERE 1=1'
   const params = []
   if (client_id) { sql += ' AND v.client_id = ?'; params.push(client_id) }
   if (active !== undefined) { sql += ' AND v.active = ?'; params.push(active ? 1 : 0) }
+  // FIX 5.6 — server-side placa/make/model filter for PlateLookup. Case-
+  // insensitive LIKE; clients pass `search:'ABC'` and get matches without
+  // pulling the full vehicle list across the IPC bridge.
+  if (search && String(search).trim()) {
+    const like = `%${String(search).trim().toUpperCase()}%`
+    sql += ' AND (UPPER(COALESCE(v.plate,\'\')) LIKE ? OR UPPER(COALESCE(v.make,\'\')) LIKE ? OR UPPER(COALESCE(v.model,\'\')) LIKE ?)'
+    params.push(like, like, like)
+  }
   sql += ' ORDER BY v.created_at DESC'
+  if (limit && Number(limit) > 0) { sql += ' LIMIT ?'; params.push(Number(limit)) }
   return db.prepare(sql).all(...params)
 }
 function vehicleGetById(id) {
@@ -6591,7 +7507,7 @@ function workOrderCreate({ vehicle_id, client_id, technician_empleado_id, bay_id
 }
 function workOrderUpdate(id, data) {
   if (!db) return
-  const allowed = ['vehicle_id','vehicle_supabase_id','client_id','client_supabase_id','technician_empleado_id','technician_empleado_supabase_id','bay_id','bay_supabase_id','status','estimated_total','actual_total','labor_total','parts_total','itbis','total','inspection_json','estimate_approved_at','customer_signature_url','customer_approval_token','expected_parts_arrival','odometer_in_km','odometer_out_km','promised_date','completed_date','notes']
+  const allowed = ['vehicle_id','vehicle_supabase_id','client_id','client_supabase_id','technician_empleado_id','technician_empleado_supabase_id','bay_id','bay_supabase_id','status','estimated_total','actual_total','labor_total','parts_total','itbis','total','inspection_json','estimate_approved_at','customer_signature_url','customer_approval_token','expected_parts_arrival','odometer_in_km','odometer_out_km','promised_date','completed_date','notes','aseguradora_supabase_id','poliza_no','reclamo_no','aseguradora_status','started_at','finished_at','ready_at','delivery_required','delivery_fee','validity_until']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   // Resolve FK supabase_ids
   if (data.vehicle_id && !data.vehicle_supabase_id) { const v = db.prepare('SELECT supabase_id FROM vehicles WHERE id=?').get(data.vehicle_id); if (v) patch.vehicle_supabase_id = v.supabase_id }
@@ -6744,24 +7660,41 @@ function workOrderClose(work_order_id, { odometer_out_km } = {}) {
 }
 
 // ── APPOINTMENTS ─────────────────────────────────────────────────────────────
-function appointmentCreate({ client_id, empleado_id, date, start_time, end_time, services, notes }) {
+function appointmentCreate({ client_id, empleado_id, date, start_time, end_time, services, notes, is_walk_in, deposit_dop, deposit_status, public_booking_token, client_membership_supabase_id }) {
   if (!db) return null
   const sid = crypto.randomUUID()
   const client = client_id ? db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(client_id) : null
   const emp = empleado_id ? db.prepare('SELECT supabase_id FROM empleados WHERE id=?').get(empleado_id) : null
-  const r = db.prepare(`INSERT INTO appointments(supabase_id, client_id, client_supabase_id, empleado_id, empleado_supabase_id, date, start_time, end_time, services, notes)
-    VALUES(@sid, @client_id, @client_sid, @empleado_id, @emp_sid, @date, @start_time, @end_time, @services, @notes)`).run({
+  const walkIn = (is_walk_in === true || is_walk_in === 1) ? 1 : 0
+  const r = db.prepare(`INSERT INTO appointments(
+      supabase_id, client_id, client_supabase_id, empleado_id, empleado_supabase_id,
+      date, start_time, end_time, services, notes,
+      is_walk_in, deposit_dop, deposit_status, public_booking_token, client_membership_supabase_id)
+    VALUES(@sid, @client_id, @client_sid, @empleado_id, @emp_sid,
+           @date, @start_time, @end_time, @services, @notes,
+           @walk_in, @deposit_dop, @deposit_status, @pbt, @cms)`).run({
     sid, client_id: client_id || null, client_sid: client?.supabase_id || null,
     empleado_id: empleado_id || null, emp_sid: emp?.supabase_id || null,
     date, start_time, end_time: end_time || null,
     services: typeof services === 'string' ? services : JSON.stringify(services || []),
     notes: notes || null,
+    walk_in: walkIn,
+    deposit_dop: Number(deposit_dop) || 0,
+    deposit_status: deposit_status || 'none',
+    pbt: public_booking_token || null,
+    cms: client_membership_supabase_id || null,
   })
+  // Auto-schedule reminders for non-walk-in citas (mirrors web.js logic)
+  if (!walkIn) {
+    try { appointmentReminderScheduleForAppointment({ supabase_id: sid, date, start_time }) }
+    catch (e) { console.warn('[appointmentCreate] reminder schedule failed:', e?.message || e) }
+  }
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function appointmentUpdate(id, data) {
   if (!db) return
-  const allowed = ['client_id','client_supabase_id','empleado_id','empleado_supabase_id','date','start_time','end_time','status','services','notes']
+  const allowed = ['client_id','client_supabase_id','empleado_id','empleado_supabase_id','date','start_time','end_time','status','services','notes',
+                   'is_walk_in','deposit_dop','deposit_status','no_show_fee_charged','public_booking_token','client_membership_supabase_id']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (data.client_id && !data.client_supabase_id) { const c = db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(data.client_id); if (c) patch.client_supabase_id = c.supabase_id }
   if (data.empleado_id && !data.empleado_supabase_id) { const e = db.prepare('SELECT supabase_id FROM empleados WHERE id=?').get(data.empleado_id); if (e) patch.empleado_supabase_id = e.supabase_id }
@@ -6792,6 +7725,193 @@ function appointmentGetById(id) {
 function appointmentDelete(id) {
   if (!db) return
   db.prepare("UPDATE appointments SET status='cancelled', updated_at=datetime('now') WHERE id=?").run(id)
+}
+
+// v2.16.1 — mark a salon appointment as no-show. Returns shouldChargeFee +
+// fee_amount when a deposit was held; the caller (cobro path) emits the E32.
+function appointmentMarkNoShow(supabase_id) {
+  if (!db || !supabase_id) return { ok: false, error: 'missing_id' }
+  const appt = db.prepare(`SELECT id, supabase_id, client_id, client_supabase_id, deposit_status, deposit_dop, no_show_fee_charged
+    FROM appointments WHERE supabase_id=?`).get(supabase_id)
+  if (!appt) return { ok: false, error: 'not_found' }
+  db.prepare(`UPDATE appointments SET status='no_show', updated_at=datetime('now') WHERE id=?`).run(appt.id)
+  if (appt.client_id) {
+    db.prepare(`UPDATE clients SET no_show_count = COALESCE(no_show_count,0) + 1,
+        last_no_show_at = datetime('now'), updated_at = datetime('now') WHERE id=?`).run(appt.client_id)
+  }
+  let shouldChargeFee = appt.deposit_status === 'held' && !appt.no_show_fee_charged
+  let fee_amount = 0
+  if (shouldChargeFee) {
+    const feeRow = db.prepare(`SELECT value FROM app_settings WHERE key='salon_no_show_fee_dop'`).get()
+    fee_amount = Number(feeRow?.value) || Number(appt.deposit_dop) || 500
+  }
+  return {
+    ok: true,
+    shouldChargeFee,
+    fee_amount,
+    client_supabase_id: appt.client_supabase_id || null,
+    appointment_supabase_id: supabase_id,
+  }
+}
+
+// ── SALON MEMBERSHIPS (templates — extends `memberships` table additively) ──
+function salonMembershipList() {
+  if (!db) return []
+  return db.prepare(`SELECT m.*, s.name AS service_name FROM memberships m
+    LEFT JOIN services s ON s.supabase_id = m.service_supabase_id
+    WHERE COALESCE(m.active_template,0)=1 AND m.total_sessions IS NOT NULL
+    ORDER BY m.created_at DESC`).all()
+}
+function salonMembershipCreate({ nombre, service_supabase_id, total_sessions, price_dop, validity_days }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO memberships(
+      supabase_id, nombre, plan_name, service_supabase_id, total_sessions,
+      price_dop, plan_price, validity_days, active_template, status,
+      wash_quota_per_month, washes_used_this_period, period_start, period_end, start_date)
+    VALUES(@sid, @nombre, @nombre, @ssid, @total, @price, @price, @validity, 1, 'active',
+           0, 0, date('now'), date('now','+1 year'), date('now'))`).run({
+    sid, nombre: String(nombre || '').trim(),
+    ssid: service_supabase_id || null,
+    total: Number(total_sessions) || 0,
+    price: Number(price_dop) || 0,
+    validity: Number(validity_days) || 365,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function salonMembershipUpdate(supabase_id, patch) {
+  if (!db || !supabase_id) return
+  const allowed = ['nombre','service_supabase_id','total_sessions','price_dop','validity_days','active_template']
+  const clean = Object.fromEntries(Object.entries(patch || {}).filter(([k]) => allowed.includes(k)))
+  if (clean.nombre != null) clean.plan_name = clean.nombre
+  if (clean.price_dop != null) clean.plan_price = clean.price_dop
+  if (!Object.keys(clean).length) return
+  const fields = Object.keys(clean).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE memberships SET ${fields}, updated_at=datetime('now') WHERE supabase_id=@sid`).run({ ...clean, sid: supabase_id })
+  return { supabase_id }
+}
+function salonMembershipArchive(supabase_id) {
+  if (!db || !supabase_id) return
+  db.prepare(`UPDATE memberships SET active_template=0, updated_at=datetime('now') WHERE supabase_id=?`).run(supabase_id)
+  return { supabase_id }
+}
+
+// ── CLIENT MEMBERSHIPS (per-client balances) ────────────────────────────────
+function clientMembershipsByClient(client_supabase_id) {
+  if (!db || !client_supabase_id) return []
+  return db.prepare(`SELECT cm.*, m.nombre AS membership_nombre, m.total_sessions AS membership_total_sessions,
+      m.service_supabase_id AS service_supabase_id
+    FROM client_memberships cm
+    LEFT JOIN memberships m ON m.supabase_id = cm.membership_supabase_id
+    WHERE cm.client_supabase_id=? AND cm.sessions_remaining > 0
+      AND cm.expires_at >= datetime('now')
+    ORDER BY cm.expires_at ASC`).all(client_supabase_id)
+}
+function clientMembershipPurchase({ client_supabase_id, membership_supabase_id, ticket_supabase_id }) {
+  if (!db || !client_supabase_id || !membership_supabase_id) return { ok: false, error: 'missing_args' }
+  const tpl = db.prepare(`SELECT total_sessions, validity_days FROM memberships WHERE supabase_id=?`).get(membership_supabase_id)
+  if (!tpl) return { ok: false, error: 'template_not_found' }
+  const sid = crypto.randomUUID()
+  const validity = Number(tpl.validity_days) || 365
+  const expires_at = new Date(Date.now() + validity * 86400000).toISOString()
+  const r = db.prepare(`INSERT INTO client_memberships(
+      supabase_id, client_supabase_id, membership_supabase_id,
+      sessions_remaining, expires_at, ticket_supabase_id)
+    VALUES(?, ?, ?, ?, ?, ?)`).run(
+    sid, client_supabase_id, membership_supabase_id,
+    Number(tpl.total_sessions) || 0, expires_at, ticket_supabase_id || null,
+  )
+  return { id: r.lastInsertRowid, supabase_id: sid, sessions_remaining: tpl.total_sessions, expires_at }
+}
+function clientMembershipConsume({ client_membership_supabase_id, ticket_supabase_id, appointment_supabase_id }) {
+  if (!db || !client_membership_supabase_id || !ticket_supabase_id) return { ok: false, error: 'missing_args' }
+  // v2.16.1 patch (#8) — compare-and-swap inside a transaction. better-sqlite3
+  // serialises writes per-process, so the race window is small but realtime
+  // sync from a peer desktop can still mutate sessions_remaining between the
+  // SELECT and UPDATE. WHERE sessions_remaining=? makes the decrement a no-op
+  // when another writer beat us to it; we re-read and retry up to 3 times.
+  const txn = db.transaction(() => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const cm = db.prepare(`SELECT id, sessions_remaining, expires_at FROM client_memberships WHERE supabase_id=?`).get(client_membership_supabase_id)
+      if (!cm) return { ok: false, error: 'not_found' }
+      if (cm.sessions_remaining <= 0) return { ok: false, error: 'no_sessions_remaining' }
+      if (cm.expires_at && new Date(cm.expires_at) < new Date()) return { ok: false, error: 'expired' }
+      const r = db.prepare(`UPDATE client_memberships
+          SET sessions_remaining = sessions_remaining - 1, updated_at=datetime('now')
+          WHERE id=? AND sessions_remaining=?`).run(cm.id, cm.sessions_remaining)
+      if (r.changes === 1) {
+        const rsid = crypto.randomUUID()
+        db.prepare(`INSERT INTO membership_redemptions(
+            supabase_id, client_membership_supabase_id, ticket_supabase_id, appointment_supabase_id)
+          VALUES(?,?,?,?)`).run(rsid, client_membership_supabase_id, ticket_supabase_id, appointment_supabase_id || null)
+        return { ok: true, remaining: cm.sessions_remaining - 1, redemption_supabase_id: rsid }
+      }
+      // CAS missed; loop and retry with a fresh read.
+    }
+    return { ok: false, error: 'concurrent_consume' }
+  })
+  return txn()
+}
+function clientMembershipsExpiringSoon(days) {
+  if (!db) return []
+  const horizon = new Date(Date.now() + (Number(days) || 14) * 86400000).toISOString()
+  return db.prepare(`SELECT cm.*, c.name AS client_name, c.phone AS client_phone
+    FROM client_memberships cm
+    LEFT JOIN clients c ON c.supabase_id = cm.client_supabase_id
+    WHERE cm.sessions_remaining > 0
+      AND cm.expires_at >= datetime('now') AND cm.expires_at <= ?
+    ORDER BY cm.expires_at ASC`).all(horizon)
+}
+
+// ── APPOINTMENT REMINDERS (24h / 2h / manual / confirm) ─────────────────────
+function appointmentReminderSchedule(appointment_supabase_id, fire_at, kind) {
+  if (!db || !appointment_supabase_id || !fire_at || !kind) return null
+  const sid = crypto.randomUUID()
+  const fa = typeof fire_at === 'string' ? fire_at : new Date(fire_at).toISOString()
+  const r = db.prepare(`INSERT INTO appointment_reminders(supabase_id, appointment_supabase_id, fire_at, kind, status)
+    VALUES(?,?,?,?, 'pending')`).run(sid, appointment_supabase_id, fa, kind)
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function appointmentRemindersPendingDue(now) {
+  if (!db) return []
+  const cutoff = now ? (typeof now === 'string' ? now : new Date(now).toISOString()) : new Date().toISOString()
+  return db.prepare(`SELECT * FROM appointment_reminders
+    WHERE status='pending' AND fire_at <= ?
+    ORDER BY fire_at ASC LIMIT 25`).all(cutoff)
+}
+function appointmentReminderMarkSent(id, ultramsg_message_id) {
+  if (!db) return
+  db.prepare(`UPDATE appointment_reminders SET status='sent', ultramsg_message_id=?, sent_at=datetime('now'), updated_at=datetime('now') WHERE id=?`)
+    .run(ultramsg_message_id || null, id)
+  return { id, ok: true }
+}
+function appointmentReminderMarkFailed(id, error) {
+  if (!db) return
+  db.prepare(`UPDATE appointment_reminders SET status='failed', error=?, updated_at=datetime('now') WHERE id=?`)
+    .run(String(error || '').slice(0, 500), id)
+  return { id, ok: true }
+}
+function appointmentReminderScheduleForAppointment(appt) {
+  if (!db || !appt?.supabase_id || !appt.date || !appt.start_time) return { scheduled: 0 }
+  // v2.16.1 patch (#5) — DR is fixed UTC-4 (no DST). Without an explicit TZ
+  // suffix the parser uses the executing host's local TZ, which on a Vercel
+  // function (UTC) shifts reminders 4 hours early. Pin to -04:00.
+  const startMs = new Date(`${appt.date}T${appt.start_time}:00-04:00`).getTime()
+  if (!Number.isFinite(startMs)) return { scheduled: 0 }
+  const now = Date.now()
+  const out = []
+  const want = [
+    { kind: '24h', fireMs: startMs - 24 * 60 * 60 * 1000 },
+    { kind: '2h',  fireMs: startMs -  2 * 60 * 60 * 1000 },
+  ]
+  for (const w of want) {
+    if (w.fireMs <= now) continue
+    try {
+      const r = appointmentReminderSchedule(appt.supabase_id, new Date(w.fireMs).toISOString(), w.kind)
+      if (r) out.push(r.id)
+    } catch (e) { /* swallow */ }
+  }
+  return { scheduled: out.length, ids: out }
 }
 
 // ── STYLIST SCHEDULES ────────────────────────────────────────────────────────
@@ -7090,24 +8210,46 @@ function _membershipCurrentPeriod(start) {
 }
 function membershipCreate({ client_id, vehicle_id, plan_name, plan_price, wash_quota_per_month, start_date, end_date, notes }) {
   if (!db) return null
+  // FIX 5.3 — atomic create. If validation fails, FK lookup throws, or any
+  // post-insert step (activity log, sync queue) raises, rollback so the user
+  // never sees a "ghost" membership row that wasn't fully provisioned.
+  if (!plan_name || !String(plan_name).trim()) {
+    throw new Error('Nombre del plan requerido')
+  }
   const sid = crypto.randomUUID()
-  const fk  = _membershipResolveFK({ client_id, vehicle_id })
-  const { period_start, period_end } = _membershipCurrentPeriod(start_date)
-  const r = db.prepare(`INSERT INTO memberships
-    (supabase_id, client_id, client_supabase_id, vehicle_id, vehicle_supabase_id,
-     plan_name, plan_price, wash_quota_per_month, washes_used_this_period,
-     period_start, period_end, start_date, end_date, status, notes)
-    VALUES(@sid, @cid, @csid, @vid, @vsid, @name, @price, @quota, 0,
-           @ps, @pe, @start, @end, 'active', @notes)`).run({
-    sid, cid: client_id || null, csid: fk.client_supabase_id,
-    vid: vehicle_id || null, vsid: fk.vehicle_supabase_id,
-    name: plan_name, price: Number(plan_price) || 0,
-    quota: Number(wash_quota_per_month) || 0,
-    ps: period_start, pe: period_end,
-    start: start_date || new Date().toISOString().slice(0, 10),
-    end: end_date || null, notes: notes || null,
+  const txn = db.transaction(() => {
+    const fk  = _membershipResolveFK({ client_id, vehicle_id })
+    const { period_start, period_end } = _membershipCurrentPeriod(start_date)
+    const r = db.prepare(`INSERT INTO memberships
+      (supabase_id, client_id, client_supabase_id, vehicle_id, vehicle_supabase_id,
+       plan_name, plan_price, wash_quota_per_month, washes_used_this_period,
+       period_start, period_end, start_date, end_date, status, notes)
+      VALUES(@sid, @cid, @csid, @vid, @vsid, @name, @price, @quota, 0,
+             @ps, @pe, @start, @end, 'active', @notes)`).run({
+      sid, cid: client_id || null, csid: fk.client_supabase_id,
+      vid: vehicle_id || null, vsid: fk.vehicle_supabase_id,
+      name: String(plan_name).trim(), price: Number(plan_price) || 0,
+      quota: Number(wash_quota_per_month) || 0,
+      ps: period_start, pe: period_end,
+      start: start_date || new Date().toISOString().slice(0, 10),
+      end: end_date || null, notes: notes || null,
+    })
+    try {
+      activityLogRecord({
+        event_type: 'membership_created',
+        severity: 'info',
+        target_type: 'membership',
+        target_id: String(r.lastInsertRowid),
+        target_name: String(plan_name).trim(),
+        amount: Number(plan_price) || 0,
+        metadata: { client_id: client_id || null, vehicle_id: vehicle_id || null, supabase_id: sid },
+      })
+    } catch (e) {
+      throw new Error('No se pudo registrar la membresía en bitácora — operación revertida: ' + e.message)
+    }
+    return { id: r.lastInsertRowid, supabase_id: sid }
   })
-  return { id: r.lastInsertRowid, supabase_id: sid }
+  return txn()
 }
 function membershipUpdate(id, data) {
   if (!db) return
@@ -7118,9 +8260,27 @@ function membershipUpdate(id, data) {
   if (data.client_id  && !data.client_supabase_id)  { const c = db.prepare('SELECT supabase_id FROM clients  WHERE id=?').get(data.client_id);  if (c) patch.client_supabase_id  = c.supabase_id }
   if (data.vehicle_id && !data.vehicle_supabase_id) { const v = db.prepare('SELECT supabase_id FROM vehicles WHERE id=?').get(data.vehicle_id); if (v) patch.vehicle_supabase_id = v.supabase_id }
   if (!Object.keys(patch).length) return db.prepare('SELECT * FROM memberships WHERE id=?').get(id)
-  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
-  db.prepare(`UPDATE memberships SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
-  return db.prepare('SELECT * FROM memberships WHERE id=?').get(id)
+  // FIX 5.9 — atomic update with audit trail. Status transitions (active →
+  // paused/cancelled) are owner-relevant events; activity_log inside the txn
+  // means a logging failure rolls the status change back.
+  const before = db.prepare('SELECT status, plan_name FROM memberships WHERE id=?').get(id)
+  const txn = db.transaction(() => {
+    const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+    db.prepare(`UPDATE memberships SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+    if (patch.status && before && patch.status !== before.status) {
+      activityLogRecord({
+        event_type: 'membership_status_changed',
+        severity: patch.status === 'cancelled' ? 'warn' : 'info',
+        target_type: 'membership',
+        target_id: String(id),
+        target_name: before.plan_name,
+        old_value: before.status,
+        new_value: patch.status,
+      })
+    }
+    return db.prepare('SELECT * FROM memberships WHERE id=?').get(id)
+  })
+  return txn()
 }
 function membershipList({ client_id, status } = {}) {
   if (!db) return []
@@ -8312,9 +9472,853 @@ function tombstoneMarkFailed(id, err) {
   try { db.prepare(`UPDATE sync_tombstones SET attempts = attempts + 1, last_error = ? WHERE id = ?`).run(String(err || '').slice(0, 500), id) } catch {}
 }
 
+// ── Concesionario v2 / v2.5 — dealership CRUD ───────────────────────────────
+function _parsePhotoUrls(row) {
+  if (!row) return row
+  if (typeof row.photo_urls === 'string') {
+    try { row.photo_urls = JSON.parse(row.photo_urls) } catch { row.photo_urls = [] }
+  }
+  return row
+}
+function _serializePhotoUrls(arr) {
+  if (Array.isArray(arr)) return JSON.stringify(arr)
+  if (typeof arr === 'string') return arr
+  return null
+}
+const VEHICLE_INVENTORY_COLS = ['supabase_id','stock_number','vin','make','model','year','color','mileage','condition','acquisition_cost','listing_price','status','title_status','photo_urls','featured','notes','listing_date','sold_date','active']
+function vehicleInventoryList(filters = {}) {
+  const where = ['active = 1']
+  const params = {}
+  if (filters.status) { where.push('status = @status'); params.status = filters.status }
+  const sql = `SELECT * FROM vehicle_inventory WHERE ${where.join(' AND ')} ORDER BY COALESCE(listing_date, created_at) DESC`
+  return db.prepare(sql).all(params).map(_parsePhotoUrls)
+}
+function vehicleInventoryGetById(id) { return _parsePhotoUrls(db.prepare('SELECT * FROM vehicle_inventory WHERE id = ?').get(id)) }
+function vehicleInventoryCreate(data) {
+  const sid = data.supabase_id || (require('crypto').randomUUID ? require('crypto').randomUUID() : String(Date.now()))
+  const photoUrls = _serializePhotoUrls(data.photo_urls)
+  const r = db.prepare(`INSERT INTO vehicle_inventory(supabase_id, stock_number, vin, make, model, year, color, mileage, condition, acquisition_cost, listing_price, status, title_status, photo_urls, featured, notes, listing_date)
+    VALUES (@supabase_id, @stock_number, @vin, @make, @model, @year, @color, @mileage, @condition, @acquisition_cost, @listing_price, @status, @title_status, @photo_urls, @featured, @notes, @listing_date)`)
+    .run({
+      supabase_id: sid, stock_number: data.stock_number || null, vin: data.vin || null,
+      make: data.make || null, model: data.model || null, year: data.year || null, color: data.color || null,
+      mileage: data.mileage || 0, condition: data.condition || 'used',
+      acquisition_cost: data.acquisition_cost || 0, listing_price: data.listing_price || 0,
+      status: data.status || 'available', title_status: data.title_status || 'clean',
+      photo_urls: photoUrls, featured: data.featured ? 1 : 0,
+      notes: data.notes || null, listing_date: data.listing_date || new Date().toISOString(),
+    })
+  return _parsePhotoUrls(db.prepare('SELECT * FROM vehicle_inventory WHERE id = ?').get(r.lastInsertRowid))
+}
+function vehicleInventoryUpdate(id, patch) {
+  const allowed = VEHICLE_INVENTORY_COLS.filter(c => c !== 'supabase_id')
+  const cleaned = {}
+  for (const k of allowed) if (patch[k] !== undefined) cleaned[k] = patch[k]
+  if (cleaned.photo_urls !== undefined) cleaned.photo_urls = _serializePhotoUrls(cleaned.photo_urls)
+  if (!Object.keys(cleaned).length) return vehicleInventoryGetById(id)
+  const fields = Object.keys(cleaned).map(k => `${k} = @${k}`).join(', ')
+  db.prepare(`UPDATE vehicle_inventory SET ${fields}, updated_at=datetime('now') WHERE id = @id`).run({ ...cleaned, id })
+  return vehicleInventoryGetById(id)
+}
+function vehicleInventorySetStatus(id, status) {
+  const patch = { status }
+  if (status === 'sold') patch.sold_date = new Date().toISOString()
+  return vehicleInventoryUpdate(id, patch)
+}
+function vehicleInventoryDelete(id) {
+  db.prepare("UPDATE vehicle_inventory SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+}
+
+const SALES_DEAL_COLS = ['supabase_id','client_id','client_supabase_id','vehicle_inventory_id','vehicle_inventory_supabase_id','salesperson_id','salesperson_supabase_id','sale_price','trade_in_vehicle_id','trade_in_supabase_id','trade_in_value','down_payment','financed_amount','term_months','apr','monthly_payment','commission_pct','commission_amount','commission_paid','commission_paid_at','ticket_id','ticket_supabase_id','status','notes','closed_at','active']
+function salesDealsList(filters = {}) {
+  const where = ['active = 1']; const params = {}
+  if (filters.status) { where.push('status = @status'); params.status = filters.status }
+  return db.prepare(`SELECT * FROM sales_deals WHERE ${where.join(' AND ')} ORDER BY COALESCE(closed_at, created_at) DESC`).all(params)
+}
+function salesDealsGetById(id) { return db.prepare('SELECT * FROM sales_deals WHERE id = ?').get(id) }
+function salesDealsCreate(data) {
+  const sid = data.supabase_id || require('crypto').randomUUID()
+  const cleaned = { supabase_id: sid }
+  for (const c of SALES_DEAL_COLS) if (c !== 'supabase_id' && data[c] !== undefined) cleaned[c] = data[c]
+  cleaned.commission_paid = cleaned.commission_paid ? 1 : 0
+  cleaned.active = 1
+  const cols = Object.keys(cleaned)
+  const placeholders = cols.map(c => `@${c}`).join(', ')
+  const r = db.prepare(`INSERT INTO sales_deals(${cols.join(', ')}) VALUES (${placeholders})`).run(cleaned)
+  return salesDealsGetById(r.lastInsertRowid)
+}
+function salesDealsUpdate(id, patch) {
+  const allowed = SALES_DEAL_COLS.filter(c => c !== 'supabase_id')
+  const cleaned = {}
+  for (const k of allowed) if (patch[k] !== undefined) cleaned[k] = patch[k]
+  if (cleaned.commission_paid !== undefined) cleaned.commission_paid = cleaned.commission_paid ? 1 : 0
+  if (!Object.keys(cleaned).length) return salesDealsGetById(id)
+  const fields = Object.keys(cleaned).map(k => `${k} = @${k}`).join(', ')
+  db.prepare(`UPDATE sales_deals SET ${fields}, updated_at=datetime('now') WHERE id = @id`).run({ ...cleaned, id })
+  return salesDealsGetById(id)
+}
+function salesDealsClose(id, ticketInfo = {}) {
+  const patch = { status: 'closed', closed_at: new Date().toISOString() }
+  if (ticketInfo.ticket_id) patch.ticket_id = ticketInfo.ticket_id
+  if (ticketInfo.ticket_supabase_id) patch.ticket_supabase_id = ticketInfo.ticket_supabase_id
+  return salesDealsUpdate(id, patch)
+}
+function salesDealsMarkCommissionPaid(id) {
+  return salesDealsUpdate(id, { commission_paid: 1, commission_paid_at: new Date().toISOString() })
+}
+function salesDealsCommissionsForPeriod({ from, to, salespersonSupabaseId } = {}) {
+  const where = ["active = 1", "status = 'closed'", "commission_amount IS NOT NULL"]
+  const params = {}
+  if (from) { where.push('closed_at >= @from'); params.from = from }
+  if (to) { where.push('closed_at <= @to'); params.to = to }
+  if (salespersonSupabaseId) { where.push('salesperson_supabase_id = @sid'); params.sid = salespersonSupabaseId }
+  return db.prepare(`SELECT id, supabase_id, salesperson_id, salesperson_supabase_id, commission_amount, commission_paid, closed_at, sale_price FROM sales_deals WHERE ${where.join(' AND ')} ORDER BY closed_at DESC`).all(params)
+}
+function salesDealsDelete(id) { db.prepare("UPDATE sales_deals SET active=0, updated_at=datetime('now') WHERE id=?").run(id) }
+
+const LEAD_COLS = ['supabase_id','name','phone','email','source','budget','notes','stage','next_followup_at','last_contacted_at','interested_vehicle_supabase_id','active']
+function leadsList(filters = {}) {
+  const where = ['active = 1']; const params = {}
+  if (filters.stage) { where.push('stage = @stage'); params.stage = filters.stage }
+  return db.prepare(`SELECT * FROM leads WHERE ${where.join(' AND ')} ORDER BY updated_at DESC`).all(params)
+}
+function leadsCreate(data) {
+  const sid = data.supabase_id || require('crypto').randomUUID()
+  const cleaned = { supabase_id: sid }
+  for (const c of LEAD_COLS) if (c !== 'supabase_id' && data[c] !== undefined) cleaned[c] = data[c]
+  cleaned.active = 1
+  if (!cleaned.stage) cleaned.stage = 'lead'
+  const cols = Object.keys(cleaned)
+  const r = db.prepare(`INSERT INTO leads(${cols.join(', ')}) VALUES (${cols.map(c => '@' + c).join(', ')})`).run(cleaned)
+  return db.prepare('SELECT * FROM leads WHERE id = ?').get(r.lastInsertRowid)
+}
+function leadsUpdate(id, patch) {
+  const allowed = LEAD_COLS.filter(c => c !== 'supabase_id')
+  const cleaned = {}
+  for (const k of allowed) if (patch[k] !== undefined) cleaned[k] = patch[k]
+  if (!Object.keys(cleaned).length) return db.prepare('SELECT * FROM leads WHERE id = ?').get(id)
+  const fields = Object.keys(cleaned).map(k => `${k} = @${k}`).join(', ')
+  db.prepare(`UPDATE leads SET ${fields}, updated_at=datetime('now') WHERE id = @id`).run({ ...cleaned, id })
+  return db.prepare('SELECT * FROM leads WHERE id = ?').get(id)
+}
+function leadsSetStage(id, stage, extra = {}) { return leadsUpdate(id, { stage, ...extra }) }
+function leadsLogContact(id, { nextFollowupAt, notes } = {}) {
+  const patch = { last_contacted_at: new Date().toISOString() }
+  if (nextFollowupAt) patch.next_followup_at = nextFollowupAt
+  if (notes !== undefined) patch.notes = notes
+  return leadsUpdate(id, patch)
+}
+function leadsOverdue() {
+  return db.prepare(`SELECT * FROM leads WHERE active=1 AND next_followup_at IS NOT NULL AND next_followup_at <= datetime('now') AND stage NOT IN ('closed','lost') ORDER BY next_followup_at`).all()
+}
+function leadsDelete(id) { db.prepare("UPDATE leads SET active=0, updated_at=datetime('now') WHERE id=?").run(id) }
+
+const TEST_DRIVE_COLS = ['supabase_id','client_id','client_supabase_id','vehicle_inventory_id','vehicle_inventory_supabase_id','staff_id','staff_supabase_id','scheduled_at','completed_at','license_number','signed_waiver_url','notes','outcome','outcome_notes','deal_supabase_id','active']
+function testDrivesList() {
+  return db.prepare("SELECT td.*, c.name AS _client_name FROM test_drives td LEFT JOIN clients c ON c.id=td.client_id WHERE td.active=1 ORDER BY td.scheduled_at DESC").all()
+    .map(r => ({ ...r, clients: r._client_name ? { name: r._client_name } : null }))
+}
+function testDrivesCreate(data) {
+  const sid = data.supabase_id || require('crypto').randomUUID()
+  const cleaned = { supabase_id: sid }
+  for (const c of TEST_DRIVE_COLS) if (c !== 'supabase_id' && data[c] !== undefined) cleaned[c] = data[c]
+  cleaned.active = 1
+  const cols = Object.keys(cleaned)
+  const r = db.prepare(`INSERT INTO test_drives(${cols.join(', ')}) VALUES (${cols.map(c => '@' + c).join(', ')})`).run(cleaned)
+  return db.prepare('SELECT * FROM test_drives WHERE id = ?').get(r.lastInsertRowid)
+}
+function testDrivesUpdate(id, patch) {
+  const allowed = TEST_DRIVE_COLS.filter(c => c !== 'supabase_id')
+  const cleaned = {}
+  for (const k of allowed) if (patch[k] !== undefined) cleaned[k] = patch[k]
+  if (!Object.keys(cleaned).length) return db.prepare('SELECT * FROM test_drives WHERE id = ?').get(id)
+  const fields = Object.keys(cleaned).map(k => `${k} = @${k}`).join(', ')
+  db.prepare(`UPDATE test_drives SET ${fields}, updated_at=datetime('now') WHERE id = @id`).run({ ...cleaned, id })
+  return db.prepare('SELECT * FROM test_drives WHERE id = ?').get(id)
+}
+function testDrivesComplete(id, notes) { return testDrivesUpdate(id, { completed_at: new Date().toISOString(), notes }) }
+function testDrivesSetOutcome(id, { outcome, outcomeNotes, dealSupabaseId } = {}) {
+  const patch = { outcome, outcome_notes: outcomeNotes || null }
+  if (dealSupabaseId) patch.deal_supabase_id = dealSupabaseId
+  if (outcome) patch.completed_at = new Date().toISOString()
+  return testDrivesUpdate(id, patch)
+}
+function testDrivesDelete(id) { db.prepare("UPDATE test_drives SET active=0, updated_at=datetime('now') WHERE id=?").run(id) }
+
+const VEHICLE_DOC_COLS = ['supabase_id','vehicle_inventory_supabase_id','doc_type','file_url','file_name','expires_at','notes','active']
+function vehicleDocumentsByVehicle(vehicleSupabaseId) {
+  if (!vehicleSupabaseId) return []
+  return db.prepare("SELECT * FROM vehicle_documents WHERE active=1 AND vehicle_inventory_supabase_id=? ORDER BY uploaded_at DESC").all(vehicleSupabaseId)
+}
+function vehicleDocumentsExpiringSoon(days = 30) {
+  const cutoff = new Date(Date.now() + days * 86400000).toISOString()
+  return db.prepare("SELECT * FROM vehicle_documents WHERE active=1 AND expires_at IS NOT NULL AND expires_at <= ? ORDER BY expires_at").all(cutoff)
+}
+function vehicleDocumentsCreate(data) {
+  const sid = data.supabase_id || require('crypto').randomUUID()
+  const cleaned = { supabase_id: sid }
+  for (const c of VEHICLE_DOC_COLS) if (c !== 'supabase_id' && data[c] !== undefined) cleaned[c] = data[c]
+  cleaned.active = 1
+  const cols = Object.keys(cleaned)
+  const r = db.prepare(`INSERT INTO vehicle_documents(${cols.join(', ')}) VALUES (${cols.map(c => '@' + c).join(', ')})`).run(cleaned)
+  return db.prepare('SELECT * FROM vehicle_documents WHERE id = ?').get(r.lastInsertRowid)
+}
+function vehicleDocumentsDelete(id) { db.prepare("UPDATE vehicle_documents SET active=0, updated_at=datetime('now') WHERE id=?").run(id) }
+
+// ── Vehicle Titulo (INTRANT matricula/traspaso) — v2.16.2 ────────────────
+const VEHICLE_TITULO_COLS = ['supabase_id','sales_deal_supabase_id','vehicle_inventory_supabase_id','intrant_status','placa','matricula_url','traspaso_initiated_at','traspaso_completed_at','notes','active']
+function vehicleTituloList() {
+  return db.prepare("SELECT * FROM vehicle_titulo WHERE active=1 ORDER BY created_at DESC").all()
+}
+function vehicleTituloByDeal(dealSupabaseId) {
+  if (!dealSupabaseId) return null
+  return db.prepare("SELECT * FROM vehicle_titulo WHERE active=1 AND sales_deal_supabase_id=? ORDER BY created_at DESC LIMIT 1").get(dealSupabaseId)
+}
+function vehicleTituloUpsert(data) {
+  if (!db) return null
+  const sid = data.supabase_id || crypto.randomUUID()
+  const existing = data.id
+    ? db.prepare('SELECT * FROM vehicle_titulo WHERE id=?').get(data.id)
+    : (data.sales_deal_supabase_id ? vehicleTituloByDeal(data.sales_deal_supabase_id) : null)
+  if (existing) {
+    const cleaned = {}
+    for (const k of VEHICLE_TITULO_COLS) if (k !== 'supabase_id' && data[k] !== undefined) cleaned[k] = data[k]
+    if (!Object.keys(cleaned).length) return existing
+    const fields = Object.keys(cleaned).map(k => `${k} = @${k}`).join(', ')
+    db.prepare(`UPDATE vehicle_titulo SET ${fields}, updated_at=datetime('now') WHERE id = @id`).run({ ...cleaned, id: existing.id })
+    return db.prepare('SELECT * FROM vehicle_titulo WHERE id=?').get(existing.id)
+  }
+  const cleaned = { supabase_id: sid }
+  for (const k of VEHICLE_TITULO_COLS) if (k !== 'supabase_id' && data[k] !== undefined) cleaned[k] = data[k]
+  if (!cleaned.intrant_status) cleaned.intrant_status = 'pendiente'
+  cleaned.active = 1
+  const cols = Object.keys(cleaned)
+  const r = db.prepare(`INSERT INTO vehicle_titulo(${cols.join(', ')}) VALUES (${cols.map(c => '@' + c).join(', ')})`).run(cleaned)
+  return db.prepare('SELECT * FROM vehicle_titulo WHERE id=?').get(r.lastInsertRowid)
+}
+function vehicleTituloDelete(id) { db.prepare("UPDATE vehicle_titulo SET active=0, updated_at=datetime('now') WHERE id=?").run(id) }
+
+// ── Vehicle Reservations (deposit + expiry) — v2.16.4 ─────────────────────
+const VEHICLE_RES_COLS = ['supabase_id','vehicle_inventory_supabase_id','client_id','client_supabase_id','salesperson_id','salesperson_supabase_id','deposit_amount','deposit_method','expires_at','released_at','released_reason','converted_deal_supabase_id','status','notes','active']
+
+// Internal: flip the reserved unit's inventory status. Two rules:
+//   1. Activating a reservation only flips 'available' → 'reserved' (don't
+//      stomp 'sold' or anything in flight).
+//   2. Releasing/expiring only flips 'reserved' → 'available' AND only when
+//      no OTHER active reservation still holds the same unit.
+function _vehicleResMarkReserved(vehicle_supabase_id) {
+  if (!vehicle_supabase_id) return
+  try {
+    db.prepare("UPDATE vehicle_inventory SET status='reserved', updated_at=datetime('now') WHERE supabase_id=? AND status='available'").run(vehicle_supabase_id)
+  } catch {}
+}
+function _vehicleResMarkAvailableIfFree(vehicle_supabase_id) {
+  if (!vehicle_supabase_id) return
+  try {
+    const stillHeld = db.prepare("SELECT 1 FROM vehicle_reservations WHERE active=1 AND status='active' AND vehicle_inventory_supabase_id=? LIMIT 1").get(vehicle_supabase_id)
+    if (stillHeld) return
+    db.prepare("UPDATE vehicle_inventory SET status='available', updated_at=datetime('now') WHERE supabase_id=? AND status='reserved'").run(vehicle_supabase_id)
+  } catch {}
+}
+function _vehicleResMarkSold(vehicle_supabase_id) {
+  if (!vehicle_supabase_id) return
+  try {
+    db.prepare("UPDATE vehicle_inventory SET status='sold', sold_date=?, updated_at=datetime('now') WHERE supabase_id=?").run(new Date().toISOString(), vehicle_supabase_id)
+  } catch {}
+}
+
+function vehicleReservationList(business_id) {
+  // business_id arg kept for API parity with the namespace contract — desktop
+  // SQLite is single-tenant per install so it's a no-op here.
+  void business_id
+  return db.prepare("SELECT * FROM vehicle_reservations WHERE active=1 ORDER BY expires_at ASC").all()
+}
+function vehicleReservationsActive(business_id) {
+  void business_id
+  return db.prepare("SELECT * FROM vehicle_reservations WHERE active=1 AND status='active' ORDER BY expires_at ASC").all()
+}
+function vehicleReservationGetById(id) {
+  return db.prepare("SELECT * FROM vehicle_reservations WHERE id=?").get(id)
+}
+function vehicleReservationUpsert(payload) {
+  if (!db) return null
+  const data = payload || {}
+  const sid = data.supabase_id || crypto.randomUUID()
+  const existing = data.id ? vehicleReservationGetById(data.id) : null
+  if (existing) {
+    const cleaned = {}
+    for (const k of VEHICLE_RES_COLS) if (k !== 'supabase_id' && data[k] !== undefined) cleaned[k] = data[k]
+    if (!Object.keys(cleaned).length) return existing
+    const fields = Object.keys(cleaned).map(k => `${k} = @${k}`).join(', ')
+    db.prepare(`UPDATE vehicle_reservations SET ${fields}, updated_at=datetime('now') WHERE id = @id`).run({ ...cleaned, id: existing.id })
+    const row = vehicleReservationGetById(existing.id)
+    if (row?.status === 'active' && row.active) _vehicleResMarkReserved(row.vehicle_inventory_supabase_id)
+    return row
+  }
+  const cleaned = { supabase_id: sid }
+  for (const k of VEHICLE_RES_COLS) if (k !== 'supabase_id' && data[k] !== undefined) cleaned[k] = data[k]
+  if (!cleaned.status) cleaned.status = 'active'
+  if (!cleaned.expires_at) throw new Error('expires_at requerido')
+  cleaned.active = 1
+  const cols = Object.keys(cleaned)
+  const r = db.prepare(`INSERT INTO vehicle_reservations(${cols.join(', ')}) VALUES (${cols.map(c => '@' + c).join(', ')})`).run(cleaned)
+  const row = vehicleReservationGetById(r.lastInsertRowid)
+  if (row?.status === 'active') _vehicleResMarkReserved(row.vehicle_inventory_supabase_id)
+  return row
+}
+function vehicleReservationRelease({ id, reason } = {}) {
+  if (!db || !id) return null
+  const row = vehicleReservationGetById(id)
+  if (!row) return null
+  db.prepare("UPDATE vehicle_reservations SET status='released', released_at=?, released_reason=?, updated_at=datetime('now') WHERE id=?")
+    .run(new Date().toISOString(), reason || null, id)
+  _vehicleResMarkAvailableIfFree(row.vehicle_inventory_supabase_id)
+  return vehicleReservationGetById(id)
+}
+function vehicleReservationConvert({ id, deal_supabase_id } = {}) {
+  if (!db || !id) return null
+  const row = vehicleReservationGetById(id)
+  if (!row) return null
+  db.prepare("UPDATE vehicle_reservations SET status='converted', converted_deal_supabase_id=?, updated_at=datetime('now') WHERE id=?")
+    .run(deal_supabase_id || null, id)
+  _vehicleResMarkSold(row.vehicle_inventory_supabase_id)
+  return vehicleReservationGetById(id)
+}
+function vehicleReservationsExpire() {
+  if (!db) return { expired: 0, ids: [] }
+  const nowIso = new Date().toISOString()
+  const due = db.prepare("SELECT id, supabase_id, vehicle_inventory_supabase_id FROM vehicle_reservations WHERE active=1 AND status='active' AND expires_at <= ?").all(nowIso)
+  if (!due.length) return { expired: 0, ids: [] }
+  const upd = db.prepare("UPDATE vehicle_reservations SET status='expired', released_at=?, released_reason='auto_expired', updated_at=datetime('now') WHERE id=?")
+  const ids = []
+  for (const r of due) {
+    upd.run(nowIso, r.id)
+    _vehicleResMarkAvailableIfFree(r.vehicle_inventory_supabase_id)
+    ids.push({ id: r.id, supabase_id: r.supabase_id, vehicle_inventory_supabase_id: r.vehicle_inventory_supabase_id })
+  }
+  return { expired: ids.length, ids }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v2.16.4 Sprint 2B H3 — Vehicle Warranties (post-sale).
+// Claims live as a JSON array on each warranty row. Status transitions:
+//   active → claimed (one or more claims registered) → expired (date passed)
+//   active → expired (date passed without claims) → voided (manually anulada)
+// vehicleWarrantiesExpire() flips date-due rows to 'expired' (only if not
+// already 'voided' or 'claimed'), called from main.js setInterval next to
+// the reservations sweep. Cheap query (indexed expires_at + status + active).
+// ═══════════════════════════════════════════════════════════════════════════
+const VEHICLE_WARRANTY_COLS = ['supabase_id','sales_deal_supabase_id','vehicle_inventory_supabase_id','client_id','client_supabase_id','kind','starts_at','expires_at','terms','claims','status','notes','active']
+function _parseClaims(row) {
+  if (!row) return row
+  let claims = []
+  try { claims = JSON.parse(row.claims || '[]') } catch { claims = [] }
+  if (!Array.isArray(claims)) claims = []
+  return { ...row, claims }
+}
+function vehicleWarrantyList(business_id) {
+  void business_id
+  if (!db) return []
+  return db.prepare("SELECT * FROM vehicle_warranties WHERE active=1 ORDER BY expires_at ASC").all().map(_parseClaims)
+}
+function vehicleWarrantyByDeal(sales_deal_supabase_id) {
+  if (!db || !sales_deal_supabase_id) return []
+  return db.prepare("SELECT * FROM vehicle_warranties WHERE active=1 AND sales_deal_supabase_id=? ORDER BY created_at DESC").all(sales_deal_supabase_id).map(_parseClaims)
+}
+function vehicleWarrantyGetById(id) {
+  if (!db || !id) return null
+  const row = db.prepare("SELECT * FROM vehicle_warranties WHERE id=?").get(id)
+  return row ? _parseClaims(row) : null
+}
+function vehicleWarrantyUpsert(payload) {
+  if (!db) return null
+  const data = payload || {}
+  const sid = data.supabase_id || crypto.randomUUID()
+  const existing = data.id ? vehicleWarrantyGetById(data.id) : null
+  if (existing) {
+    const cleaned = {}
+    for (const k of VEHICLE_WARRANTY_COLS) {
+      if (k === 'supabase_id') continue
+      if (data[k] === undefined) continue
+      cleaned[k] = (k === 'claims' && Array.isArray(data[k])) ? JSON.stringify(data[k]) : data[k]
+    }
+    if (!Object.keys(cleaned).length) return existing
+    const fields = Object.keys(cleaned).map(k => `${k} = @${k}`).join(', ')
+    db.prepare(`UPDATE vehicle_warranties SET ${fields}, updated_at=datetime('now') WHERE id = @id`).run({ ...cleaned, id: existing.id })
+    return vehicleWarrantyGetById(existing.id)
+  }
+  if (!data.sales_deal_supabase_id) throw new Error('sales_deal_supabase_id requerido')
+  if (!data.expires_at) throw new Error('expires_at requerido')
+  const cleaned = { supabase_id: sid }
+  for (const k of VEHICLE_WARRANTY_COLS) {
+    if (k === 'supabase_id') continue
+    if (data[k] === undefined) continue
+    cleaned[k] = (k === 'claims' && Array.isArray(data[k])) ? JSON.stringify(data[k]) : data[k]
+  }
+  if (!cleaned.kind) cleaned.kind = 'general'
+  if (!cleaned.status) cleaned.status = 'active'
+  if (!cleaned.starts_at) cleaned.starts_at = new Date().toISOString()
+  if (!cleaned.claims) cleaned.claims = '[]'
+  cleaned.active = 1
+  const cols = Object.keys(cleaned)
+  const r = db.prepare(`INSERT INTO vehicle_warranties(${cols.join(', ')}) VALUES (${cols.map(c => '@' + c).join(', ')})`).run(cleaned)
+  return vehicleWarrantyGetById(r.lastInsertRowid)
+}
+function vehicleWarrantyAddClaim({ id, claim } = {}) {
+  if (!db || !id || !claim) return null
+  const row = vehicleWarrantyGetById(id)
+  if (!row) return null
+  const next = Array.isArray(row.claims) ? row.claims.slice() : []
+  next.push({
+    date:        claim.date || new Date().toISOString(),
+    description: String(claim.description || '').slice(0, 1000),
+    status:      ['open','in_progress','resolved','rejected'].includes(claim.status) ? claim.status : 'open',
+    cost:        Number(claim.cost) || 0,
+  })
+  // Promote warranty to 'claimed' the first time a claim is recorded so the
+  // dashboard tile counts match what the owner expects to see.
+  const newStatus = row.status === 'active' ? 'claimed' : row.status
+  db.prepare("UPDATE vehicle_warranties SET claims=?, status=?, updated_at=datetime('now') WHERE id=?")
+    .run(JSON.stringify(next), newStatus, id)
+  // v2.16.2 Sprint 2E — surface warranty claims in the owner activity feed.
+  try {
+    activityLogRecord({
+      event_type:  'vehicle_warranty_claim_added',
+      severity:    'info',
+      target_type: 'vehicle_warranty',
+      target_id:   id,
+      target_name: row.kind || 'general',
+      amount:      Number(claim.cost) || 0,
+      metadata: {
+        warranty_supabase_id: row.supabase_id || null,
+        sales_deal_supabase_id: row.sales_deal_supabase_id || null,
+        vehicle_inventory_supabase_id: row.vehicle_inventory_supabase_id || null,
+        claim_status: ['open','in_progress','resolved','rejected'].includes(claim.status) ? claim.status : 'open',
+        description:  String(claim.description || '').slice(0, 200),
+      },
+    })
+  } catch {}
+  return vehicleWarrantyGetById(id)
+}
+function vehicleWarrantyVoid({ id, reason } = {}) {
+  if (!db || !id) return null
+  const row = vehicleWarrantyGetById(id)
+  if (!row) return null
+  const notes = reason ? `${row.notes ? row.notes + '\n' : ''}[ANULADA] ${reason}` : row.notes
+  db.prepare("UPDATE vehicle_warranties SET status='voided', notes=?, updated_at=datetime('now') WHERE id=?")
+    .run(notes, id)
+  return vehicleWarrantyGetById(id)
+}
+function vehicleWarrantyExpiringSoon(business_id, days) {
+  void business_id
+  if (!db) return []
+  const d = Math.max(1, Number(days) || 30)
+  const cutoff = new Date(Date.now() + d * 86400000).toISOString()
+  const nowIso = new Date().toISOString()
+  return db.prepare("SELECT * FROM vehicle_warranties WHERE active=1 AND status='active' AND expires_at > ? AND expires_at <= ? ORDER BY expires_at ASC")
+    .all(nowIso, cutoff).map(_parseClaims)
+}
+function vehicleWarrantiesExpire() {
+  if (!db) return { expired: 0, ids: [] }
+  const nowIso = new Date().toISOString()
+  // Only flip rows whose status is still 'active' or 'claimed' — voided rows
+  // should never get re-stamped, and rows already 'expired' are no-ops.
+  const due = db.prepare("SELECT id, supabase_id, sales_deal_supabase_id FROM vehicle_warranties WHERE active=1 AND status IN ('active','claimed') AND expires_at <= ?").all(nowIso)
+  if (!due.length) return { expired: 0, ids: [] }
+  const upd = db.prepare("UPDATE vehicle_warranties SET status='expired', updated_at=datetime('now') WHERE id=?")
+  const ids = []
+  for (const r of due) {
+    upd.run(r.id)
+    ids.push({ id: r.id, supabase_id: r.supabase_id, sales_deal_supabase_id: r.sales_deal_supabase_id })
+  }
+  return { expired: ids.length, ids }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v2.16.4 Sprint 2C — Bank Pre-approvals (manual workflow, no API).
+// Vendedor llama el banco, registra la oferta. Estado avanza manual:
+//   solicitada → en_revision → pre_aprobada → utilizada (al cerrar trato)
+//                                          ↘ rechazada
+//                                          ↘ expirada (sweep)
+// bankPreapprovalsExpire() flips date-due rows to 'expirada' (only if not
+// already utilizada/rechazada), called from main.js setInterval next to the
+// reservations + warranty sweeps.
+// ═══════════════════════════════════════════════════════════════════════════
+const BANK_PREAPPROVAL_COLS = ['supabase_id','client_id','client_supabase_id','lead_supabase_id','vehicle_inventory_supabase_id','salesperson_id','salesperson_supabase_id','bank','bank_contact','requested_amount','term_months','rate_offered','monthly_quota_offered','status','expires_at','decision_at','decision_letter_url','notes','active']
+function bankPreapprovalList(business_id, opts) {
+  void business_id
+  if (!db) return []
+  const { status, since } = opts || {}
+  const where = ['active=1']
+  const args = []
+  if (status) { where.push('status=?'); args.push(status) }
+  if (since)  { where.push('created_at >= ?'); args.push(since) }
+  const sql = `SELECT * FROM bank_preapprovals WHERE ${where.join(' AND ')} ORDER BY created_at DESC`
+  return db.prepare(sql).all(...args)
+}
+function bankPreapprovalActiveByClient(client_supabase_id) {
+  if (!db || !client_supabase_id) return []
+  const nowIso = new Date().toISOString()
+  return db.prepare(
+    "SELECT * FROM bank_preapprovals WHERE active=1 AND client_supabase_id=? AND status='pre_aprobada' AND (expires_at IS NULL OR expires_at > ?) ORDER BY decision_at DESC, created_at DESC"
+  ).all(client_supabase_id, nowIso)
+}
+function bankPreapprovalGetById(id) {
+  if (!db || !id) return null
+  return db.prepare("SELECT * FROM bank_preapprovals WHERE id=?").get(id) || null
+}
+function bankPreapprovalUpsert(payload) {
+  if (!db) return null
+  const data = payload || {}
+  const sid = data.supabase_id || crypto.randomUUID()
+  const existing = data.id ? bankPreapprovalGetById(data.id) : null
+  if (existing) {
+    const cleaned = {}
+    for (const k of BANK_PREAPPROVAL_COLS) {
+      if (k === 'supabase_id') continue
+      if (data[k] === undefined) continue
+      cleaned[k] = data[k]
+    }
+    if (!Object.keys(cleaned).length) return existing
+    const fields = Object.keys(cleaned).map(k => `${k} = @${k}`).join(', ')
+    db.prepare(`UPDATE bank_preapprovals SET ${fields}, updated_at=datetime('now') WHERE id = @id`).run({ ...cleaned, id: existing.id })
+    return bankPreapprovalGetById(existing.id)
+  }
+  if (!data.bank) throw new Error('bank requerido')
+  const cleaned = { supabase_id: sid }
+  for (const k of BANK_PREAPPROVAL_COLS) {
+    if (k === 'supabase_id') continue
+    if (data[k] === undefined) continue
+    cleaned[k] = data[k]
+  }
+  if (!cleaned.status) cleaned.status = 'solicitada'
+  if (cleaned.requested_amount == null) cleaned.requested_amount = 0
+  cleaned.active = 1
+  const cols = Object.keys(cleaned)
+  const r = db.prepare(`INSERT INTO bank_preapprovals(${cols.join(', ')}) VALUES (${cols.map(c => '@' + c).join(', ')})`).run(cleaned)
+  return bankPreapprovalGetById(r.lastInsertRowid)
+}
+function bankPreapprovalSetStatus({ id, status, decision_letter_url, notes } = {}) {
+  if (!db || !id || !status) return null
+  const allowed = ['solicitada','en_revision','pre_aprobada','rechazada','expirada','utilizada']
+  if (!allowed.includes(status)) throw new Error(`status invalido: ${status}`)
+  const row = bankPreapprovalGetById(id)
+  if (!row) return null
+  const decisionAt = (status === 'pre_aprobada' || status === 'rechazada') ? new Date().toISOString() : row.decision_at
+  const url = decision_letter_url !== undefined ? decision_letter_url : row.decision_letter_url
+  const mergedNotes = notes ? `${row.notes ? row.notes + '\n' : ''}${notes}` : row.notes
+  db.prepare("UPDATE bank_preapprovals SET status=?, decision_at=?, decision_letter_url=?, notes=?, updated_at=datetime('now') WHERE id=?")
+    .run(status, decisionAt, url, mergedNotes, id)
+  return bankPreapprovalGetById(id)
+}
+function bankPreapprovalsExpire() {
+  if (!db) return { expired: 0, ids: [] }
+  const nowIso = new Date().toISOString()
+  const due = db.prepare(
+    "SELECT id, supabase_id, client_supabase_id, bank FROM bank_preapprovals WHERE active=1 AND status IN ('solicitada','en_revision','pre_aprobada') AND expires_at IS NOT NULL AND expires_at <= ?"
+  ).all(nowIso)
+  if (!due.length) return { expired: 0, ids: [] }
+  const upd = db.prepare("UPDATE bank_preapprovals SET status='expirada', updated_at=datetime('now') WHERE id=?")
+  const ids = []
+  for (const r of due) {
+    upd.run(r.id)
+    ids.push({ id: r.id, supabase_id: r.supabase_id, client_supabase_id: r.client_supabase_id, bank: r.bank })
+  }
+  return { expired: ids.length, ids }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v2.16.0 — Taller Mecánico hardening: aseguradoras / suppliers / parts_orders
+// / work_order_photos / insurance_batches CRUD.
+// ═══════════════════════════════════════════════════════════════════════════
+
+function aseguradoraCreate({ nombre, rnc, contacto_telefono, contacto_email, ecf_mode, notas }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO aseguradoras(supabase_id, business_id, nombre, rnc, contacto_telefono, contacto_email, ecf_mode, notas)
+    VALUES(@sid, @biz, @nombre, @rnc, @tel, @email, @mode, @notas)`).run({
+    sid, biz: _bizId(), nombre, rnc: rnc || null,
+    tel: contacto_telefono || null, email: contacto_email || null,
+    mode: ecf_mode === 'monthly_batch' ? 'monthly_batch' : 'per_wo',
+    notas: notas || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function aseguradoraUpdate(id, data) {
+  if (!db) return null
+  const allowed = ['nombre','rnc','contacto_telefono','contacto_email','ecf_mode','notas','active']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM aseguradoras WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE aseguradoras SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM aseguradoras WHERE id=?').get(id)
+}
+function aseguradoraList({ active = 1 } = {}) {
+  if (!db) return []
+  return db.prepare('SELECT * FROM aseguradoras WHERE active=? ORDER BY nombre').all(active ? 1 : 0)
+}
+function aseguradoraGetById(id) {
+  if (!db) return null
+  return db.prepare('SELECT * FROM aseguradoras WHERE id=?').get(id)
+}
+function aseguradoraGetBySupabaseId(supabase_id) {
+  if (!db || !supabase_id) return null
+  return db.prepare('SELECT * FROM aseguradoras WHERE supabase_id=?').get(supabase_id)
+}
+function aseguradoraDelete(id) {
+  if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM aseguradoras WHERE id=?').get(id)
+  db.prepare("UPDATE aseguradoras SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+  if (row?.supabase_id) tombstoneAdd('aseguradoras', row.supabase_id, row.business_id)
+}
+
+// ── v2.16.2 — Loan renewals (M2 desktop preload parity) ────────────────────
+function loanRenewalsList({ loanSupabaseId, loan_supabase_id, businessId } = {}) {
+  if (!db) return []
+  const biz = businessId || _bizId()
+  const lsid = loanSupabaseId || loan_supabase_id || null
+  if (lsid) {
+    return db.prepare(`SELECT * FROM loan_renewals
+      WHERE (business_id=? OR business_id IS NULL) AND loan_supabase_id=?
+      ORDER BY renewed_at DESC`).all(biz, lsid)
+  }
+  return db.prepare(`SELECT * FROM loan_renewals
+    WHERE (business_id=? OR business_id IS NULL)
+    ORDER BY renewed_at DESC`).all(biz)
+}
+function loanRenewalCreate(data) {
+  if (!db) return null
+  const sid = data?.supabase_id || crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO loan_renewals
+    (supabase_id, business_id, loan_id, loan_supabase_id, renewal_count, interest_paid,
+     new_due_date, previous_due_date, renewed_at, notes)
+    VALUES (@sid, @biz, @lid, @lsid, @rc, @ip, @ndd, @pdd, COALESCE(@ra, datetime('now')), @notes)`).run({
+      sid,
+      biz: _bizId(),
+      lid:  data?.loan_id != null ? Number(data.loan_id) : null,
+      lsid: data?.loan_supabase_id || null,
+      rc:   Number(data?.renewal_count) || 0,
+      ip:   data?.interest_paid != null ? Number(data.interest_paid) : null,
+      ndd:  data?.new_due_date || null,
+      pdd:  data?.previous_due_date || null,
+      ra:   data?.renewed_at || null,
+      notes: data?.notes || null,
+    })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+
+function supplierCreate({ nombre, rnc, telefono, contacto, notas }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO suppliers(supabase_id, business_id, nombre, rnc, telefono, contacto, notas)
+    VALUES(@sid, @biz, @nombre, @rnc, @tel, @contacto, @notas)`).run({
+    sid, biz: _bizId(), nombre, rnc: rnc || null,
+    tel: telefono || null, contacto: contacto || null, notas: notas || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function supplierUpdate(id, data) {
+  if (!db) return null
+  const allowed = ['nombre','rnc','telefono','contacto','notas','active']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM suppliers WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE suppliers SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM suppliers WHERE id=?').get(id)
+}
+function supplierList({ active = 1 } = {}) {
+  if (!db) return []
+  return db.prepare('SELECT * FROM suppliers WHERE active=? ORDER BY nombre').all(active ? 1 : 0)
+}
+function supplierGetById(id) {
+  if (!db) return null
+  return db.prepare('SELECT * FROM suppliers WHERE id=?').get(id)
+}
+function supplierDelete(id) {
+  if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM suppliers WHERE id=?').get(id)
+  db.prepare("UPDATE suppliers SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+  if (row?.supabase_id) tombstoneAdd('suppliers', row.supabase_id, row.business_id)
+}
+
+function partsOrderCreate({ work_order_supabase_id, supplier_supabase_id, part_name, part_sku, quantity, unit_cost_estimate, expected_at, notes }) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO parts_orders(supabase_id, business_id, work_order_supabase_id, supplier_supabase_id, part_name, part_sku, quantity, unit_cost_estimate, expected_at, notes)
+    VALUES(@sid, @biz, @wo_sid, @sup_sid, @name, @sku, @qty, @cost, @exp, @notes)`).run({
+    sid, biz: _bizId(),
+    wo_sid: work_order_supabase_id || null, sup_sid: supplier_supabase_id || null,
+    name: part_name, sku: part_sku || null,
+    qty: Number(quantity) || 1, cost: Number(unit_cost_estimate) || 0,
+    exp: expected_at || null, notes: notes || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function partsOrderUpdate(id, data) {
+  if (!db) return null
+  const allowed = ['work_order_supabase_id','supplier_supabase_id','part_name','part_sku','quantity','unit_cost_estimate','expected_at','received_at','received_barcode','status','notes']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM parts_orders WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE parts_orders SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM parts_orders WHERE id=?').get(id)
+}
+function partsOrderMarkReceived(id, { received_barcode } = {}) {
+  if (!db) return null
+  db.prepare(`UPDATE parts_orders SET status='recibido', received_at=datetime('now'),
+    received_barcode=COALESCE(?, received_barcode), updated_at=datetime('now') WHERE id=?`)
+    .run(received_barcode || null, id)
+  return db.prepare('SELECT * FROM parts_orders WHERE id=?').get(id)
+}
+function partsOrderListByWO(work_order_supabase_id) {
+  if (!db || !work_order_supabase_id) return []
+  return db.prepare(`SELECT po.*, s.nombre AS supplier_name
+    FROM parts_orders po
+    LEFT JOIN suppliers s ON s.supabase_id = po.supplier_supabase_id
+    WHERE po.work_order_supabase_id=? ORDER BY po.created_at DESC`).all(work_order_supabase_id)
+}
+function partsOrderListAwaiting() {
+  if (!db) return []
+  return db.prepare(`SELECT po.*, s.nombre AS supplier_name, wo.id AS wo_id, v.plate AS vehicle_plate, c.name AS client_name, c.phone AS client_phone
+    FROM parts_orders po
+    LEFT JOIN suppliers s ON s.supabase_id = po.supplier_supabase_id
+    LEFT JOIN work_orders wo ON wo.supabase_id = po.work_order_supabase_id
+    LEFT JOIN vehicles v ON v.id = wo.vehicle_id
+    LEFT JOIN clients c ON c.id = wo.client_id
+    WHERE po.status IN ('pendiente','en_camino') ORDER BY po.expected_at, po.created_at`).all()
+}
+function partsOrderFindByBarcode(barcode) {
+  if (!db || !barcode) return null
+  return db.prepare(`SELECT * FROM parts_orders WHERE received_barcode=? AND status IN ('pendiente','en_camino') ORDER BY created_at DESC LIMIT 1`).get(barcode)
+}
+function partsOrderDelete(id) {
+  if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM parts_orders WHERE id=?').get(id)
+  db.prepare('DELETE FROM parts_orders WHERE id=?').run(id)
+  if (row?.supabase_id) tombstoneAdd('parts_orders', row.supabase_id, row.business_id)
+}
+
+function workOrderPhotoInsert({ work_order_supabase_id, vehicle_supabase_id, phase, storage_path, taken_by_empleado_supabase_id, caption }) {
+  if (!db) return null
+  if (phase !== 'antes' && phase !== 'despues') throw new Error('phase must be antes|despues')
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO work_order_photos(supabase_id, business_id, work_order_supabase_id, vehicle_supabase_id, phase, storage_path, taken_by_empleado_supabase_id, caption)
+    VALUES(@sid, @biz, @wo_sid, @veh_sid, @phase, @path, @emp_sid, @caption)`).run({
+    sid, biz: _bizId(),
+    wo_sid: work_order_supabase_id || null, veh_sid: vehicle_supabase_id || null,
+    phase, path: storage_path,
+    emp_sid: taken_by_empleado_supabase_id || null, caption: caption || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function workOrderPhotoListByWO(work_order_supabase_id) {
+  if (!db || !work_order_supabase_id) return []
+  return db.prepare('SELECT * FROM work_order_photos WHERE work_order_supabase_id=? ORDER BY created_at').all(work_order_supabase_id)
+}
+function workOrderPhotoListByVehicle(vehicle_supabase_id) {
+  if (!db || !vehicle_supabase_id) return []
+  return db.prepare('SELECT * FROM work_order_photos WHERE vehicle_supabase_id=? ORDER BY created_at DESC').all(vehicle_supabase_id)
+}
+function workOrderPhotoDelete(id) {
+  if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM work_order_photos WHERE id=?').get(id)
+  db.prepare('DELETE FROM work_order_photos WHERE id=?').run(id)
+  if (row?.supabase_id) tombstoneAdd('work_order_photos', row.supabase_id, row.business_id)
+}
+
+function insuranceBatchCreate({ aseguradora_supabase_id, period_month, notes }) {
+  if (!db || !aseguradora_supabase_id || !period_month) return null
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO insurance_batches(supabase_id, business_id, aseguradora_supabase_id, period_month, notes)
+    VALUES(@sid, @biz, @aseg_sid, @period, @notes)`).run({
+    sid, biz: _bizId(), aseg_sid: aseguradora_supabase_id, period: period_month, notes: notes || null,
+  })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function insuranceBatchUpdate(id, data) {
+  if (!db) return null
+  const allowed = ['ecf_supabase_id','ecf_ncf','total_amount','itbis_amount','pdf_storage_path','work_order_count','status','notes']
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
+  if (!Object.keys(patch).length) return db.prepare('SELECT * FROM insurance_batches WHERE id=?').get(id)
+  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE insurance_batches SET ${fields}, updated_at=datetime('now') WHERE id=@id`).run({ ...patch, id })
+  return db.prepare('SELECT * FROM insurance_batches WHERE id=?').get(id)
+}
+function insuranceBatchListByPeriod({ aseguradora_supabase_id, period_month } = {}) {
+  if (!db) return []
+  let sql = 'SELECT * FROM insurance_batches WHERE 1=1'
+  const params = []
+  if (aseguradora_supabase_id) { sql += ' AND aseguradora_supabase_id=?'; params.push(aseguradora_supabase_id) }
+  if (period_month)            { sql += ' AND period_month=?';            params.push(period_month) }
+  sql += ' ORDER BY period_month DESC'
+  return db.prepare(sql).all(...params)
+}
+function insuranceBatchGet(id) {
+  if (!db) return null
+  return db.prepare('SELECT * FROM insurance_batches WHERE id=?').get(id)
+}
+
+// Work-orders for a given insurer + month, used to assemble a monthly batch.
+function workOrdersForInsuranceBatch(aseguradora_supabase_id, period_month) {
+  if (!db || !aseguradora_supabase_id || !period_month) return []
+  return db.prepare(`SELECT wo.*, v.plate AS vehicle_plate, v.make AS vehicle_make, v.model AS vehicle_model, c.name AS client_name
+    FROM work_orders wo
+    LEFT JOIN vehicles v ON v.id = wo.vehicle_id
+    LEFT JOIN clients c ON c.id = wo.client_id
+    WHERE wo.aseguradora_supabase_id=?
+      AND substr(COALESCE(wo.completed_date, wo.finished_at, wo.updated_at),1,7) = ?
+      AND wo.status IN ('facturado','closed','listo')
+    ORDER BY wo.completed_date, wo.id`).all(aseguradora_supabase_id, period_month)
+}
+
+// Mechanic productivity: hours-on-WO per technician for a period.
+function mechanicProductivityForPeriod(period_start, period_end) {
+  if (!db) return []
+  return db.prepare(`SELECT
+      e.id AS empleado_id, e.supabase_id AS empleado_supabase_id, e.nombre,
+      e.commission_pct,
+      COUNT(wo.id) AS wo_count,
+      SUM(CASE WHEN wo.started_at IS NOT NULL AND wo.finished_at IS NOT NULL
+               THEN (julianday(wo.finished_at) - julianday(wo.started_at)) * 24 ELSE 0 END) AS hours_total,
+      SUM(COALESCE(wo.labor_total,0)) AS labor_total,
+      SUM(COALESCE(wo.total,0)) AS revenue_total
+    FROM empleados e
+    LEFT JOIN work_orders wo ON wo.technician_empleado_id = e.id
+      AND wo.completed_date BETWEEN ? AND ?
+    WHERE e.active = 1
+    GROUP BY e.id
+    ORDER BY hours_total DESC`).all(period_start, period_end)
+}
+
+// Daily reminder candidates (vehicles needing service soon).
+function mechanicServiceRemindersDue() {
+  if (!db) return []
+  return db.prepare(`SELECT v.*, c.name AS client_name, c.phone AS client_phone
+    FROM vehicles v
+    LEFT JOIN clients c ON c.id = v.client_id
+    WHERE v.active = 1 AND (
+      (v.next_service_km IS NOT NULL AND v.odometer_km IS NOT NULL
+        AND v.odometer_km >= v.next_service_km - 500)
+      OR
+      (v.next_service_at IS NOT NULL
+        AND date(v.next_service_at) <= date('now','+7 days'))
+    )
+    ORDER BY v.next_service_at, v.next_service_km`).all()
+}
+
 module.exports = {
   init, isReady, getError, rawPrepare, rawExec, closeDb, dbBackupTo,
   tombstoneAdd, tombstonesPending, tombstoneMarkSent, tombstoneMarkFailed,
+  // Concesionario v2 / v2.5
+  vehicleInventoryList, vehicleInventoryGetById, vehicleInventoryCreate, vehicleInventoryUpdate, vehicleInventorySetStatus, vehicleInventoryDelete,
+  salesDealsList, salesDealsGetById, salesDealsCreate, salesDealsUpdate, salesDealsClose, salesDealsMarkCommissionPaid, salesDealsCommissionsForPeriod, salesDealsDelete,
+  leadsList, leadsCreate, leadsUpdate, leadsSetStage, leadsLogContact, leadsOverdue, leadsDelete,
+  testDrivesList, testDrivesCreate, testDrivesUpdate, testDrivesComplete, testDrivesSetOutcome, testDrivesDelete,
+  vehicleDocumentsByVehicle, vehicleDocumentsExpiringSoon, vehicleDocumentsCreate, vehicleDocumentsDelete,
+  vehicleTituloList, vehicleTituloByDeal, vehicleTituloUpsert, vehicleTituloDelete,
+  vehicleReservationList, vehicleReservationsActive, vehicleReservationGetById, vehicleReservationUpsert, vehicleReservationRelease, vehicleReservationConvert, vehicleReservationsExpire,
+  vehicleWarrantyList, vehicleWarrantyByDeal, vehicleWarrantyGetById, vehicleWarrantyUpsert, vehicleWarrantyAddClaim, vehicleWarrantyVoid, vehicleWarrantyExpiringSoon, vehicleWarrantiesExpire,
+  bankPreapprovalList, bankPreapprovalActiveByClient, bankPreapprovalGetById, bankPreapprovalUpsert, bankPreapprovalSetStatus, bankPreapprovalsExpire,
   // Empresa
   configGet, configSet,
   empresaGet, empresaSave,
@@ -8326,7 +10330,7 @@ module.exports = {
   // Categorías de servicio
   categoriasGetAll, categoriaCreate, categoriaUpdate, categoriaDelete,
   // Services
-  servicesGetAll, servicesGetAllAdmin, serviceCreate, serviceUpdate, serviceDelete,
+  servicesGetAll, servicesGetAllAdmin, servicesTopSellers, serviceCreate, serviceUpdate, serviceDelete,
   // Washers
   washersGetAll, washersGetAllAdmin, washerCreate, washerUpdate, washerDelete,
   // Sellers
@@ -8381,7 +10385,7 @@ module.exports = {
   ecfQueueGetStaleSubmitted, ecfQueueMarkDone, ecfClearDeferredForTicket,
   // ANECF auto-queue (v2.10.4 — audit E-C6)
   anecfQueueEnqueue, anecfQueueGetPending, anecfQueueMarkSubmitted, anecfQueueMarkFailed,
-  ncfSequenceDecrementIfLast,
+  ncfSequenceDecrementIfLast, ncfSequenceRollback,
   anecfQueueCount, anecfQueueList, isECF,
   // e-CF submissions log
   ecfSubmissionAdd, ecfSubmissionUpdate, ecfSubmissionGetByTrackId, ecfSubmissionGetByTicket,
@@ -8391,7 +10395,7 @@ module.exports = {
   // e-CF certificate rotation history (audit trail — append-only, synced)
   ecfCertHistoryInsert, ecfCertHistoryList,
   // Restaurant Mode — mesas / modificadores / kds / ticket-item modifier snapshots
-  mesasGetAll, mesaCreate, mesaUpdate, mesaSetStatus, mesaDelete,
+  mesasGetAll, mesaCreate, mesaUpdate, mesaSetStatus, mesaRequestBill, mesaDelete,
   modificadoresGetAll, modificadoresGetAllAdmin, modificadorCreate, modificadorUpdate, modificadorDelete,
   modificadoresListForService, modificadorAttachToService, modificadorDetachFromService,
   kdsListActive, kdsFire, kdsSetStatus,
@@ -8404,6 +10408,12 @@ module.exports = {
   workOrderSaveInspection, workOrderGenerateApprovalToken, workOrderApproveEstimate,
   workOrderSetPartsOrder, workOrderClose, recalcWorkOrderTotals,
   appointmentCreate, appointmentUpdate, appointmentList, appointmentGetById, appointmentDelete,
+  appointmentMarkNoShow,
+  // Salon v2.16.1 — memberships, client balances, reminders
+  salonMembershipList, salonMembershipCreate, salonMembershipUpdate, salonMembershipArchive,
+  clientMembershipsByClient, clientMembershipPurchase, clientMembershipConsume, clientMembershipsExpiringSoon,
+  appointmentReminderSchedule, appointmentRemindersPendingDue,
+  appointmentReminderMarkSent, appointmentReminderMarkFailed, appointmentReminderScheduleForAppointment,
   stylistScheduleCreate, stylistScheduleUpdate, stylistScheduleList, stylistScheduleDelete,
   loanCreate, loanUpdate, loanList, loanGetById,
   loanPaymentCreate, loanPaymentList,
@@ -8432,4 +10442,537 @@ module.exports = {
   pendingDeductEnqueue, pendingDeductList, pendingDeductMarkPushed, pendingDeductMarkFailed,
   oversellRecord, oversellList, oversellResolveLocal, oversellUnresolvedCount,
   inventoryOversellsList,
+  // v2.16.0 — Taller Mecánico hardening
+  aseguradoraCreate, aseguradoraUpdate, aseguradoraList, aseguradoraGetById, aseguradoraGetBySupabaseId, aseguradoraDelete,
+  loanRenewalsList, loanRenewalCreate,
+  supplierCreate, supplierUpdate, supplierList, supplierGetById, supplierDelete,
+  partsOrderCreate, partsOrderUpdate, partsOrderMarkReceived, partsOrderListByWO, partsOrderListAwaiting, partsOrderFindByBarcode, partsOrderDelete,
+  workOrderPhotoInsert, workOrderPhotoListByWO, workOrderPhotoListByVehicle, workOrderPhotoDelete,
+  insuranceBatchCreate, insuranceBatchUpdate, insuranceBatchListByPeriod, insuranceBatchGet,
+  workOrdersForInsuranceBatch, mechanicProductivityForPeriod, mechanicServiceRemindersDue,
+  // v2.16.3 — Carnicería hardening
+  carniceriaCorteList, carniceriaCorteCreate, carniceriaCorteUpdate, carniceriaCorteDelete,
+  carniceriaFreshnessList, carniceriaFreshnessCreate, carniceriaFreshnessApplyDiscount,
+  carniceriaDiscardCreate, carniceriaDiscardList,
+  carniceriaRecurringList, carniceriaRecurringCreate, carniceriaRecurringUpdate, carniceriaRecurringDelete, carniceriaRecurringMarkSent,
+  carniceriaScalesList, carniceriaScalesCreate, carniceriaScalesUpdate, carniceriaScalesDelete, carniceriaScalesSetActiveDefault,
+  carniceriaResumenGet,
+  carniceriaActiveDiscounts,
+  carniceriaEnqueueE33ForDiscard,
+}
+
+// ── v2.16.3 — Carnicería data helpers ───────────────────────────────────────
+function _hydrateCorte(r) {
+  if (!r) return r
+  if (r.nutrition_json && typeof r.nutrition_json === 'string') {
+    try { r.nutrition_json = JSON.parse(r.nutrition_json) } catch {}
+  }
+  return r
+}
+function _hydrateRecurring(r) {
+  if (!r) return r
+  if (r.items_json && typeof r.items_json === 'string') {
+    try { r.items_json = JSON.parse(r.items_json) } catch { r.items_json = [] }
+  }
+  return r
+}
+
+function carniceriaCorteList() {
+  if (!db) return []
+  const biz = _bizId()
+  const rows = db.prepare(`SELECT * FROM carniceria_corte_categories
+    WHERE active=1 AND (business_id=? OR business_id IS NULL)
+    ORDER BY sort_order, especie, nombre`).all(biz)
+  return rows.map(_hydrateCorte)
+}
+function carniceriaCorteCreate(data) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO carniceria_corte_categories
+    (supabase_id, business_id, nombre, nombre_dr_popular, tooltip_traduccion, especie, photo_url, nutrition_json, sort_order, active)
+    VALUES (@sid, @biz, @nombre, @drp, @tt, @esp, @photo, @nut, @sort, 1)`).run({
+      sid, biz: _bizId(),
+      nombre: data.nombre || '',
+      drp: data.nombre_dr_popular || null,
+      tt: data.tooltip_traduccion || null,
+      esp: data.especie || 'otros',
+      photo: data.photo_url || null,
+      nut: data.nutrition_json ? (typeof data.nutrition_json === 'string' ? data.nutrition_json : JSON.stringify(data.nutrition_json)) : null,
+      sort: data.sort_order || 0,
+    })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function carniceriaCorteUpdate(data) {
+  if (!db || !data?.id) return null
+  const allowed = ['nombre','nombre_dr_popular','tooltip_traduccion','especie','photo_url','nutrition_json','sort_order','active']
+  const patch = {}
+  for (const k of allowed) if (k in data) patch[k] = k === 'nutrition_json' && data[k] && typeof data[k] !== 'string' ? JSON.stringify(data[k]) : data[k]
+  if (!Object.keys(patch).length) return null
+  const set = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE carniceria_corte_categories SET ${set} WHERE id=@id`).run({ ...patch, id: data.id })
+  return _hydrateCorte(db.prepare('SELECT * FROM carniceria_corte_categories WHERE id=?').get(data.id))
+}
+function carniceriaCorteDelete(id) {
+  if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM carniceria_corte_categories WHERE id=?').get(id)
+  db.prepare(`UPDATE carniceria_corte_categories SET active=0, updated_at=datetime('now') WHERE id=?`).run(id)
+  if (row?.supabase_id) tombstoneAdd('carniceria_corte_categories', row.supabase_id, row.business_id)
+}
+
+function carniceriaFreshnessList() {
+  if (!db) return []
+  const biz = _bizId()
+  return db.prepare(`SELECT f.*, i.name AS item_name
+    FROM inventory_freshness_log f
+    LEFT JOIN inventory_items i ON i.supabase_id = f.inventory_item_supabase_id
+    WHERE (f.business_id=? OR f.business_id IS NULL) AND f.qty_remaining > 0
+    ORDER BY f.expires_at ASC`).all(biz)
+}
+function carniceriaFreshnessCreate(data) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO inventory_freshness_log
+    (supabase_id, business_id, inventory_item_supabase_id, batch_lote, received_at, expires_at, qty_received, qty_remaining, unit, auto_discount_applied)
+    VALUES (@sid, @biz, @item, @lote, @rec, @exp, @qty, @qty, @unit, 0)`).run({
+      sid, biz: _bizId(),
+      item: data.inventory_item_supabase_id,
+      lote: data.batch_lote || null,
+      rec: data.received_at, exp: data.expires_at,
+      qty: Number(data.qty_received) || 0,
+      unit: data.unit || 'lb',
+    })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function carniceriaFreshnessApplyDiscount({ id, pct = 50 }) {
+  if (!db || !id) return null
+  const f = db.prepare('SELECT * FROM inventory_freshness_log WHERE id=?').get(id)
+  if (!f) return null
+  // Mark batch as auto-discounted; persist a promotions row tied to the item.
+  db.prepare(`UPDATE inventory_freshness_log SET auto_discount_applied=1, updated_at=datetime('now') WHERE id=?`).run(id)
+  const promoSid = crypto.randomUUID()
+  db.prepare(`INSERT INTO promotions
+    (supabase_id, business_id, name, tipo, discount_pct, start_date, end_date, season_key, banner_text, active)
+    VALUES (@sid, @biz, @name, 'auto_50_vence', @pct, date('now'), @end, NULL, @banner, 1)`).run({
+      sid: promoSid, biz: _bizId(),
+      name: `Vence pronto -${pct}%`,
+      pct, end: f.expires_at,
+      banner: `Lote ${f.batch_lote || ''} -${pct}% por vencimiento`,
+    })
+  if (f.inventory_item_supabase_id) {
+    db.prepare(`INSERT INTO promotion_items
+      (supabase_id, promotion_supabase_id, item_type, item_supabase_id)
+      VALUES (?, ?, 'inventory_item', ?)`).run(crypto.randomUUID(), promoSid, f.inventory_item_supabase_id)
+  }
+  return { ok: true }
+}
+
+function carniceriaDiscardCreate(data) {
+  if (!db) return null
+  // Caller may pre-mint a supabase_id so the photo's storage path matches
+  // the eventual DB row. Falls back to a fresh UUID otherwise.
+  const sid = data.supabase_id || crypto.randomUUID()
+  const isPostSale = data.is_post_sale ? 1 : 0
+  const r = db.prepare(`INSERT INTO inventory_discards
+    (supabase_id, business_id, inventory_item_supabase_id, freshness_log_supabase_id, qty, unit, motivo, photo_url, empleado_supabase_id, is_post_sale, related_ticket_supabase_id)
+    VALUES (@sid, @biz, @item, @flog, @qty, @unit, @motivo, @photo, @emp, @isPost, @relTicket)`).run({
+      sid, biz: _bizId(),
+      item: data.inventory_item_supabase_id,
+      flog: data.freshness_log_supabase_id || null,
+      qty: Number(data.qty) || 0,
+      unit: data.unit || 'lb',
+      motivo: data.motivo || '',
+      photo: data.photo_url || null,
+      emp: data.empleado_supabase_id || null,
+      isPost: isPostSale,
+      relTicket: data.related_ticket_supabase_id || null,
+    })
+  // Decrement freshness log qty_remaining if linked
+  if (data.freshness_log_supabase_id) {
+    db.prepare(`UPDATE inventory_freshness_log
+      SET qty_remaining = MAX(0, qty_remaining - ?), updated_at=datetime('now')
+      WHERE supabase_id=?`).run(Number(data.qty) || 0, data.freshness_log_supabase_id)
+  }
+  // Decrement actual stock so reports stay consistent.
+  try {
+    db.prepare(`UPDATE inventory_items
+      SET quantity = MAX(0, quantity - ?), updated_at=datetime('now')
+      WHERE supabase_id = ?`).run(Number(data.qty) || 0, data.inventory_item_supabase_id)
+  } catch {}
+  // v2.16.4 — post-venta merma triggers an E33 Nota de Crédito.
+  let e33 = null
+  if (isPostSale) {
+    e33 = carniceriaEnqueueE33ForDiscard({
+      inventory_item_supabase_id: data.inventory_item_supabase_id,
+      qty: Number(data.qty) || 0,
+      motivo: data.motivo || 'Merma post-venta',
+      related_ticket_supabase_id: data.related_ticket_supabase_id || null,
+    })
+    if (e33?.encf) {
+      db.prepare(`UPDATE inventory_discards SET e33_encf = ?, related_ticket_supabase_id = COALESCE(related_ticket_supabase_id, ?), updated_at = datetime('now')
+                  WHERE supabase_id = ?`).run(e33.encf, e33.ticket_supabase_id, sid)
+    }
+  }
+  // Audit trail
+  try {
+    activityLogRecord({
+      event_type: isPostSale ? 'carniceria_discard_post_sale' : 'carniceria_discard_internal',
+      severity: isPostSale ? 'warn' : 'info',
+      target_type: 'inventory_item',
+      target_name: data.inventory_item_supabase_id,
+      amount: Number(data.qty) || 0,
+      reason: data.motivo || null,
+      metadata: { unit: data.unit || 'lb', e33_encf: e33?.encf || null },
+    })
+  } catch {}
+  return { id: r.lastInsertRowid, supabase_id: sid, e33_enqueued: e33 || null }
+}
+function carniceriaDiscardList({ since } = {}) {
+  if (!db) return []
+  const biz = _bizId()
+  const sinceClause = since ? ' AND created_at >= ?' : ''
+  const params = since ? [biz, since] : [biz]
+  return db.prepare(`SELECT * FROM inventory_discards
+    WHERE (business_id=? OR business_id IS NULL)${sinceClause}
+    ORDER BY created_at DESC`).all(...params)
+}
+
+function carniceriaRecurringList() {
+  if (!db) return []
+  const biz = _bizId()
+  const rows = db.prepare(`SELECT * FROM recurring_orders
+    WHERE active=1 AND (business_id=? OR business_id IS NULL)
+    ORDER BY dia_semana, nombre`).all(biz)
+  return rows.map(_hydrateRecurring)
+}
+function carniceriaRecurringCreate(data) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO recurring_orders
+    (supabase_id, business_id, client_supabase_id, nombre, dia_semana, items_json, total_estimado, whatsapp_confirmar, active)
+    VALUES (@sid, @biz, @client, @nombre, @dia, @items, @total, @wa, 1)`).run({
+      sid, biz: _bizId(),
+      client: data.client_supabase_id || '',
+      nombre: data.nombre || '',
+      dia: data.dia_semana ?? null,
+      items: typeof data.items_json === 'string' ? data.items_json : JSON.stringify(data.items_json || []),
+      total: data.total_estimado != null ? Number(data.total_estimado) : null,
+      wa: data.whatsapp_confirmar ? 1 : 0,
+    })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function carniceriaRecurringUpdate(data) {
+  if (!db || !data?.id) return null
+  const allowed = ['client_supabase_id','nombre','dia_semana','items_json','total_estimado','whatsapp_confirmar','active']
+  const patch = {}
+  for (const k of allowed) {
+    if (k in data) {
+      patch[k] = k === 'items_json' && typeof data[k] !== 'string' ? JSON.stringify(data[k]) : data[k]
+      if (k === 'whatsapp_confirmar' || k === 'active') patch[k] = data[k] ? 1 : 0
+    }
+  }
+  if (!Object.keys(patch).length) return null
+  const set = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE recurring_orders SET ${set} WHERE id=@id`).run({ ...patch, id: data.id })
+  return _hydrateRecurring(db.prepare('SELECT * FROM recurring_orders WHERE id=?').get(data.id))
+}
+function carniceriaRecurringDelete(id) {
+  if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM recurring_orders WHERE id=?').get(id)
+  db.prepare(`UPDATE recurring_orders SET active=0, updated_at=datetime('now') WHERE id=?`).run(id)
+  if (row?.supabase_id) tombstoneAdd('recurring_orders', row.supabase_id, row.business_id)
+}
+function carniceriaRecurringMarkSent({ id }) {
+  if (!db || !id) return null
+  db.prepare(`UPDATE recurring_orders SET last_sent_at=datetime('now'), updated_at=datetime('now') WHERE id=?`).run(id)
+  return { ok: true }
+}
+
+function carniceriaScalesList() {
+  if (!db) return []
+  const biz = _bizId()
+  return db.prepare(`SELECT * FROM carniceria_scales
+    WHERE active=1 AND (business_id=? OR business_id IS NULL)
+    ORDER BY active_default DESC, nombre`).all(biz)
+}
+function carniceriaScalesCreate(data) {
+  if (!db) return null
+  const sid = crypto.randomUUID()
+  const r = db.prepare(`INSERT INTO carniceria_scales
+    (supabase_id, business_id, nombre, tipo, device_path, protocol, baud_rate, capacidad_max_lb, tare_default, active_default, active)
+    VALUES (@sid, @biz, @nombre, @tipo, @path, @proto, @baud, @cap, @tare, @def, 1)`).run({
+      sid, biz: _bizId(),
+      nombre: data.nombre || '',
+      tipo: data.tipo || 'plataforma',
+      path: data.device_path || null,
+      proto: data.protocol || 'generic',
+      baud: data.baud_rate || 9600,
+      cap: data.capacidad_max_lb != null ? Number(data.capacidad_max_lb) : null,
+      tare: data.tare_default || 0,
+      def: data.active_default ? 1 : 0,
+    })
+  return { id: r.lastInsertRowid, supabase_id: sid }
+}
+function carniceriaScalesUpdate(data) {
+  if (!db || !data?.id) return null
+  const allowed = ['nombre','tipo','device_path','protocol','baud_rate','capacidad_max_lb','tare_default','active_default','active']
+  const patch = {}
+  for (const k of allowed) if (k in data) {
+    patch[k] = k === 'active_default' || k === 'active' ? (data[k] ? 1 : 0) : data[k]
+  }
+  if (!Object.keys(patch).length) return null
+  const set = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+  db.prepare(`UPDATE carniceria_scales SET ${set} WHERE id=@id`).run({ ...patch, id: data.id })
+  return db.prepare('SELECT * FROM carniceria_scales WHERE id=?').get(data.id)
+}
+function carniceriaScalesDelete(id) {
+  if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM carniceria_scales WHERE id=?').get(id)
+  db.prepare(`UPDATE carniceria_scales SET active=0, updated_at=datetime('now') WHERE id=?`).run(id)
+  if (row?.supabase_id) tombstoneAdd('carniceria_scales', row.supabase_id, row.business_id)
+}
+function carniceriaScalesSetActiveDefault(id) {
+  if (!db || !id) return null
+  const biz = _bizId()
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE carniceria_scales SET active_default=0, updated_at=datetime('now')
+      WHERE business_id=? OR business_id IS NULL`).run(biz)
+    db.prepare(`UPDATE carniceria_scales SET active_default=1, updated_at=datetime('now') WHERE id=?`).run(id)
+  })
+  tx()
+  return { ok: true }
+}
+
+// v2.16.4 — return active discounts (auto_50_vence + seasonal) per item.
+// Input:  { item_supabase_ids: string[] }
+// Output: { [item_supabase_id]: [{ source, pct, label, banner_text, season_key }] }
+//
+// Rules:
+//   • auto_50_vence: a freshness_log row exists for the item with
+//     auto_discount_applied=1 AND qty_remaining > 0 AND today ≤ expires_at.
+//   • season:<key>:  a promotions row with active=1, today between
+//     start_date/end_date, AND either (a) a promotion_items row pointing at
+//     this inventory item OR (b) NO promotion_items rows at all (general
+//     promo applies to the whole catalog).
+function carniceriaActiveDiscounts({ item_supabase_ids } = {}) {
+  if (!db) return {}
+  const ids = Array.isArray(item_supabase_ids) ? item_supabase_ids.filter(Boolean) : []
+  if (!ids.length) return {}
+  const biz = _bizId()
+  const out = {}
+  for (const sid of ids) out[sid] = []
+
+  // 1. auto_50_vence — derived from freshness rows
+  try {
+    const placeholders = ids.map(() => '?').join(',')
+    const fresh = db.prepare(`
+      SELECT inventory_item_supabase_id AS item_sid, expires_at, qty_remaining, batch_lote
+      FROM inventory_freshness_log
+      WHERE auto_discount_applied = 1
+        AND qty_remaining > 0
+        AND date(expires_at) >= date('now')
+        AND inventory_item_supabase_id IN (${placeholders})
+        AND (business_id = ? OR business_id IS NULL)
+    `).all(...ids, biz)
+    for (const f of fresh) {
+      out[f.item_sid].push({
+        source: 'auto_50_vence',
+        pct: 50,
+        label: `Lote ${f.batch_lote || 's/lote'} vence ${f.expires_at}`,
+        banner_text: `−50 % por vencimiento`,
+        season_key: null,
+      })
+    }
+  } catch (e) {
+    console.warn('[carniceriaActiveDiscounts] freshness query failed:', e?.message)
+  }
+
+  // 2. seasonal / item-targeted promotions
+  try {
+    const placeholders = ids.map(() => '?').join(',')
+    const targeted = db.prepare(`
+      SELECT pi.item_supabase_id AS item_sid,
+             p.name, p.tipo, p.discount_pct, p.season_key, p.banner_text
+      FROM promotion_items pi
+      JOIN promotions p ON p.supabase_id = pi.promotion_supabase_id
+      WHERE p.active = 1
+        AND p.tipo = 'pct'
+        AND date('now') BETWEEN date(p.start_date) AND date(p.end_date)
+        AND pi.item_supabase_id IN (${placeholders})
+        AND (p.business_id = ? OR p.business_id IS NULL)
+    `).all(...ids, biz)
+    for (const t of targeted) {
+      out[t.item_sid].push({
+        source: t.season_key ? `season:${t.season_key}` : `promo:${t.name}`,
+        pct: Number(t.discount_pct) || 0,
+        label: t.banner_text || t.name,
+        banner_text: t.banner_text,
+        season_key: t.season_key,
+      })
+    }
+
+    // General promotions (NO promotion_items rows = applies to entire carnicería catalog).
+    // Gated to season_key set so a blank promo can't accidentally discount everything.
+    const general = db.prepare(`
+      SELECT p.name, p.discount_pct, p.season_key, p.banner_text
+      FROM promotions p
+      WHERE p.active = 1
+        AND p.tipo = 'pct'
+        AND p.season_key IS NOT NULL
+        AND date('now') BETWEEN date(p.start_date) AND date(p.end_date)
+        AND (p.business_id = ? OR p.business_id IS NULL)
+        AND NOT EXISTS (
+          SELECT 1 FROM promotion_items pi WHERE pi.promotion_supabase_id = p.supabase_id
+        )
+    `).all(biz)
+    if (general.length) {
+      for (const sid of ids) {
+        for (const g of general) {
+          out[sid].push({
+            source: `season:${g.season_key}`,
+            pct: Number(g.discount_pct) || 0,
+            label: g.banner_text || g.name,
+            banner_text: g.banner_text,
+            season_key: g.season_key,
+          })
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[carniceriaActiveDiscounts] promotions query failed:', e?.message)
+  }
+
+  return out
+}
+
+// v2.16.4 — Generate E33 NCC for a post-sale merma. Looks up the most-recent
+// unvoided ticket carrying this inventory item (last 7 days), then enqueues
+// an E33 in the standard ecf_queue (offline-first, 72h retry already wired).
+// Returns { encf, ticket_supabase_id } when enqueued, null when no source ticket.
+function carniceriaEnqueueE33ForDiscard({ inventory_item_supabase_id, qty, motivo, related_ticket_supabase_id } = {}) {
+  if (!db || !inventory_item_supabase_id) return null
+  const biz = _bizId()
+  let ticket = null
+  try {
+    if (related_ticket_supabase_id) {
+      ticket = db.prepare(`SELECT id, supabase_id, doc_number, ncf, comprobante_type, total
+                           FROM tickets WHERE supabase_id = ? LIMIT 1`).get(related_ticket_supabase_id)
+    }
+    if (!ticket) {
+      // Most-recent ticket within 7 days that carries this inventory item.
+      ticket = db.prepare(`
+        SELECT t.id, t.supabase_id, t.doc_number, t.ncf, t.comprobante_type, t.total
+        FROM tickets t
+        JOIN ticket_items ti ON ti.ticket_id = t.id
+        WHERE ti.inventory_item_supabase_id = ?
+          AND t.status NOT IN ('anulado','nula','voided')
+          AND datetime(t.created_at) >= datetime('now', '-7 days')
+        ORDER BY t.created_at DESC
+        LIMIT 1
+      `).get(inventory_item_supabase_id)
+    }
+    if (!ticket) return null
+    // Reserve the next E33 NCF
+    let nextEncf = null
+    try {
+      const seq = db.prepare(`SELECT id, prefix, current_number, limit_number, active, enabled
+                              FROM ncf_sequences WHERE business_id = ? AND type = 'E33' LIMIT 1`).get(biz)
+      if (seq && seq.active && seq.enabled && seq.current_number < (seq.limit_number || 1e12)) {
+        const num = String(seq.current_number).padStart(10, '0')
+        nextEncf = `${seq.prefix || 'E33'}${num}`
+        db.prepare(`UPDATE ncf_sequences SET current_number = current_number + 1, updated_at = datetime('now')
+                    WHERE id = ?`).run(seq.id)
+      }
+    } catch (e) {
+      console.warn('[E33 enqueue] NCF reservation failed:', e?.message)
+    }
+
+    const sid = crypto.randomUUID()
+    const body = JSON.stringify({
+      tipo_ecf: 'E33',
+      ncf_modificado: ticket.ncf || ticket.doc_number,
+      tipo_ecf_modificado: ticket.comprobante_type || 'E32',
+      razon_modificacion: motivo || 'Merma post-venta',
+      codigo_modificacion: '2', // 2 = anulación parcial / devolución (DGII)
+      original_total: Number(ticket.total) || 0,
+      qty: Number(qty) || 0,
+      inventory_item_supabase_id,
+      reserved_encf: nextEncf,
+      enqueued_at: new Date().toISOString(),
+    })
+    db.prepare(`INSERT INTO ecf_queue
+      (supabase_id, business_id, ticket_supabase_id, encf, tipo_ecf, body_json, status, attempts, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'E33', ?, 'pending', 0, datetime('now'), datetime('now'))`).run(
+        sid, biz, ticket.supabase_id, nextEncf, body
+      )
+    return { encf: nextEncf, ticket_supabase_id: ticket.supabase_id, queue_supabase_id: sid }
+  } catch (e) {
+    console.error('[carniceriaEnqueueE33ForDiscard] failed:', e?.message)
+    return null
+  }
+}
+
+function carniceriaResumenGet() {
+  if (!db) return {}
+  const biz = _bizId()
+  const todayStart = new Date(); todayStart.setHours(0,0,0,0)
+  const sinceIso = todayStart.toISOString()
+  // Ventas hoy por corte (top 5)
+  let ventas_por_corte = []
+  try {
+    ventas_por_corte = db.prepare(`
+      SELECT ti.name AS label, SUM(ti.price * COALESCE(ti.quantity,1)) AS value
+      FROM ticket_items ti
+      JOIN tickets t ON t.id = ti.ticket_id
+      WHERE t.created_at >= ? AND t.status != 'voided'
+      GROUP BY ti.name ORDER BY value DESC LIMIT 5
+    `).all(sinceIso) || []
+  } catch {}
+  // Top 5 mayoreo (clientes por venta hoy)
+  let top_mayoreo = []
+  try {
+    top_mayoreo = db.prepare(`
+      SELECT c.name AS client_name, SUM(t.total) AS total
+      FROM tickets t JOIN clients c ON c.id = t.client_id
+      WHERE t.created_at >= ? AND t.status != 'voided' AND t.client_id IS NOT NULL
+      GROUP BY c.id ORDER BY total DESC LIMIT 5
+    `).all(sinceIso) || []
+  } catch {}
+  // Lb vendidas hoy
+  let lb_vendidas = 0
+  try {
+    const r = db.prepare(`
+      SELECT COALESCE(SUM(ti.weight),0) AS lb
+      FROM ticket_items ti JOIN tickets t ON t.id = ti.ticket_id
+      WHERE t.created_at >= ? AND t.status != 'voided' AND ti.unit IN ('lb','LB')
+    `).get(sinceIso)
+    lb_vendidas = Number(r?.lb || 0)
+  } catch {}
+  // Margen por corte (price-cost) %
+  let margen_por_corte = []
+  try {
+    margen_por_corte = db.prepare(`
+      SELECT ti.name, SUM(ti.price - ti.cost) * 100.0 / NULLIF(SUM(ti.price), 0) AS margin_pct
+      FROM ticket_items ti JOIN tickets t ON t.id = ti.ticket_id
+      WHERE t.created_at >= ? AND t.status != 'voided'
+      GROUP BY ti.name ORDER BY margin_pct DESC LIMIT 5
+    `).all(sinceIso) || []
+  } catch {}
+  // Mermas (kg + % del inventario)
+  let mermas = { kg: 0, pct: 0 }
+  try {
+    const d = db.prepare(`
+      SELECT COALESCE(SUM(qty),0) AS qty FROM inventory_discards
+      WHERE created_at >= ?
+    `).get(sinceIso)
+    const stk = db.prepare(`
+      SELECT COALESCE(SUM(quantity),0) AS qty FROM inventory_items WHERE active=1
+    `).get()
+    const dQty = Number(d?.qty || 0)
+    const sQty = Number(stk?.qty || 1)
+    mermas = {
+      kg: dQty * 0.453592, // assume lb → kg conversion
+      pct: sQty > 0 ? (dQty / sQty) * 100 : 0,
+    }
+  } catch {}
+  return { ventas_por_corte, top_mayoreo, lb_vendidas, margen_por_corte, mermas, biz }
 }

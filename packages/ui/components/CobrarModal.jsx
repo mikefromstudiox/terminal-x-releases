@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import LoyaltyTierBadge, { tierMultiplier } from './LoyaltyTierBadge'
-import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, AlertCircle, Loader2, QrCode, User, MessageSquare, Split, Plus, Minus } from 'lucide-react'
+import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, AlertCircle, Loader2, QrCode, User, MessageSquare, Split, Plus, Minus, Scissors, Award } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -478,6 +478,197 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
   const isSalon = businessType === 'salon'
   const upsellTip = useMemo(() => isSalon ? salonUpsellSuggestion(ticket, lang) : null, [isSalon, ticket, lang])
 
+  // ── v2.16.1 — Salon-only POS extensions ───────────────────────────────────
+  // Per-line stylist picker (defaults to client.preferred_stylist_supabase_id),
+  // commission breakdown, retail upsell tiles, "Usar Membresía" button.
+  const [salonEmpleados, setSalonEmpleados] = useState([]) // [{id, supabase_id, nombre, comision_pct}]
+  const [salonUpsellItems, setSalonUpsellItems] = useState([]) // up to 6 inventory_items
+  const [salonClientMemberships, setSalonClientMemberships] = useState([]) // active client_memberships
+  // Per-line cart annotations: keyed by ticket.services index.
+  // { stylistEmpId, redeemed, commissionPct, isService }
+  const [lineMeta, setLineMeta] = useState(() => (ticket?.services || []).map(svc => ({
+    stylistEmpId: '',
+    redeemed: false,
+    redemptionId: null,
+    commissionPct: null, // null = derive from svc/inventory default
+    isService: !svc.inventory_item_id,
+  })))
+  // Local cart state for upsell-added retail tiles (mirrors ticket.services into a derived list).
+  const [extraLines, setExtraLines] = useState([]) // [{ id, name, price, qty, inventory_item_id, commission_pct }]
+  const allCartLines = useMemo(() => {
+    const base = (ticket?.services || []).map((s, i) => ({ ...s, _idx: i, _kind: 'base' }))
+    const extras = extraLines.map((s, i) => ({ ...s, _idx: i, _kind: 'extra' }))
+    return [...base, ...extras]
+  }, [ticket?.services, extraLines])
+  // Per-line meta for both base + extra rows.
+  const [extraMeta, setExtraMeta] = useState([]) // mirrors extraLines
+
+  // Load salon-context data (empleados, upsell items) once when modal opens.
+  useEffect(() => {
+    if (!isSalon) return
+    let cancel = false
+    ;(async () => {
+      try {
+        const emps = await (api?.empleados?.all?.() || Promise.resolve([]))
+        if (!cancel) setSalonEmpleados((emps || []).filter(e => e.active !== 0))
+      } catch {}
+      try {
+        const inv = await (api?.inventory?.all?.() || Promise.resolve([]))
+        // v2.16.1 patch (#4) — column now exists in both schemas. Sort by
+        // salon_upsell_order ASC NULLS LAST, name ASC. Falls back to legacy
+        // featured/top-N path for back-compat with carwash inventory.
+        const list = (inv || [])
+        const flagged = list
+          .filter(i => i.salon_upsell)
+          .sort((a, b) => {
+            const ao = a.salon_upsell_order, bo = b.salon_upsell_order
+            const aHas = ao != null, bHas = bo != null
+            if (aHas && bHas) return Number(ao) - Number(bo)
+            if (aHas) return -1
+            if (bHas) return 1
+            return String(a.name || '').localeCompare(String(b.name || ''))
+          })
+        const pool = flagged.length ? flagged : list.filter(i => i.featured)
+        const final = (pool.length ? pool : list).slice(0, 6)
+        if (!cancel) setSalonUpsellItems(final)
+      } catch {}
+    })()
+    return () => { cancel = true }
+  }, [isSalon, api])
+
+  // Load active client_memberships when client picked.
+  useEffect(() => {
+    if (!isSalon) return
+    if (!hasFeature?.('salon_memberships')) return
+    const supaId = selectedClient?.supabase_id
+    if (!supaId) { setSalonClientMemberships([]); return }
+    let cancel = false
+    ;(async () => {
+      try {
+        const rows = await (api?.clientMemberships?.byClient?.(supaId) || Promise.resolve([]))
+        if (!cancel) setSalonClientMemberships(rows || [])
+      } catch {
+        if (!cancel) setSalonClientMemberships([])
+      }
+    })()
+    return () => { cancel = true }
+  }, [isSalon, hasFeature, selectedClient?.supabase_id, api])
+
+  // Default each base line's stylist to the client's preferred stylist (when known).
+  useEffect(() => {
+    if (!isSalon) return
+    const psSupaId = selectedClient?.preferred_stylist_supabase_id
+    if (!psSupaId) return
+    const psEmp = salonEmpleados.find(e => e.supabase_id === psSupaId)
+    if (!psEmp) return
+    setLineMeta(metas => metas.map(m => m.stylistEmpId ? m : { ...m, stylistEmpId: String(psEmp.id) }))
+  }, [isSalon, selectedClient?.preferred_stylist_supabase_id, salonEmpleados])
+
+  function pickLineStylist(idx, kind, value) {
+    if (kind === 'extra') {
+      setExtraMeta(arr => {
+        const copy = [...arr]
+        copy[idx] = { ...(copy[idx] || {}), stylistEmpId: value }
+        return copy
+      })
+    } else {
+      setLineMeta(arr => {
+        const copy = [...arr]
+        copy[idx] = { ...(copy[idx] || {}), stylistEmpId: value }
+        return copy
+      })
+    }
+  }
+
+  function getLineCommissionPct(line, meta) {
+    // Line-stamped value wins; else service.commission_pct; else default by kind.
+    if (meta?.commissionPct != null) return Number(meta.commissionPct)
+    if (line.commission_pct != null) return Number(line.commission_pct)
+    return meta?.isService === false || line.inventory_item_id ? 10 : 50
+  }
+
+  function addUpsellItem(item) {
+    const newLine = {
+      id: `upsell-${item.id}-${Date.now()}`,
+      name: item.name || item.nombre,
+      price: Number(item.price) || 0,
+      qty: 1,
+      inventory_item_id: item.id,
+      sku: item.sku || item.codigo || null,
+      supabase_id: item.supabase_id || null,
+      commission_pct: item.commission_pct ?? 10,
+    }
+    setExtraLines(arr => [...arr, newLine])
+    setExtraMeta(arr => [...arr, { stylistEmpId: '', redeemed: false, redemptionId: null, isService: false, commissionPct: newLine.commission_pct }])
+  }
+
+  // ── Membership redemption ────────────────────────────────────────────────
+  const [showMembershipPicker, setShowMembershipPicker] = useState(false)
+  const eligibleMemberships = useMemo(() => {
+    if (!isSalon || !hasFeature?.('salon_memberships')) return []
+    if (!salonClientMemberships?.length) return []
+    // Match if membership is "any service" (service_supabase_id null) OR matches a cart service.
+    const cartSvcSupaIds = new Set((ticket?.services || []).map(s => s.service_supabase_id || s.supabase_id).filter(Boolean))
+    return salonClientMemberships.filter(m =>
+      Number(m.sessions_remaining || 0) > 0 &&
+      (!m.service_supabase_id || cartSvcSupaIds.has(m.service_supabase_id))
+    )
+  }, [isSalon, hasFeature, salonClientMemberships, ticket?.services])
+
+  async function consumeMembershipForLine(lineKind, lineIdx, membership) {
+    try {
+      // Optimistic local zero-out + tag — server consume happens on cobro confirm.
+      if (lineKind === 'extra') {
+        setExtraLines(arr => arr.map((l, i) => i === lineIdx ? { ...l, price: 0 } : l))
+        setExtraMeta(arr => {
+          const copy = [...arr]
+          copy[lineIdx] = { ...(copy[lineIdx] || {}), redeemed: true, redemptionId: membership.supabase_id }
+          return copy
+        })
+      } else {
+        // Mutate local copy — base line price drives total memo.
+        setLineMeta(arr => {
+          const copy = [...arr]
+          copy[lineIdx] = { ...(copy[lineIdx] || {}), redeemed: true, redemptionId: membership.supabase_id }
+          return copy
+        })
+        // For base lines we override price in totals via redemption discount path.
+        // We zero by adding a synthetic discount line — handled in totals.
+      }
+      setShowMembershipPicker(false)
+    } catch {}
+  }
+
+  // Sum redemption discounts for base lines (extras are already mutated to price=0).
+  const membershipDiscount = useMemo(() => {
+    if (!isSalon) return 0
+    let total = 0
+    ;(ticket?.services || []).forEach((svc, i) => {
+      if (lineMeta[i]?.redeemed) total += (Number(svc.price) || 0) * (svc.qty || 1)
+    })
+    return total
+  }, [isSalon, lineMeta, ticket?.services])
+
+  // Commission breakdown: { stylistEarned, businessEarned } against post-discount line totals.
+  const commissionBreakdown = useMemo(() => {
+    if (!isSalon) return { stylistEarned: 0, businessEarned: 0 }
+    let stylist = 0, biz = 0
+    const calcLine = (line, meta) => {
+      const lineSubtotal = (Number(line.price) || 0) * (line.qty || 1)
+      const pct = getLineCommissionPct(line, meta) / 100
+      const sty = lineSubtotal * pct
+      stylist += sty
+      biz += lineSubtotal - sty
+    }
+    ;(ticket?.services || []).forEach((s, i) => {
+      const m = lineMeta[i] || {}
+      if (m.redeemed) return
+      calcLine(s, m)
+    })
+    extraLines.forEach((s, i) => calcLine(s, extraMeta[i] || {}))
+    return { stylistEarned: stylist, businessEarned: biz }
+  }, [isSalon, ticket?.services, lineMeta, extraLines, extraMeta])
+
   // v2.7.1 — cross-vertical loyalty program. Plan-gated (Pro PLUS + Pro MAX)
   // + owner toggle in Settings. Legacy salon auto-accrual still works when the
   // business hasn't enabled the program (back-compat).
@@ -558,10 +749,13 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
   // Totals — prices already include ITBIS, extract it for display.
   // Descuento = RD$ flat amount subtracted from gross; proportionally
   // reduces subtotal + itbis so e-CF totals stay internally consistent.
-  const totalGross = ticket.services.reduce((s, svc) => s + svc.price * (svc.qty || 1), 0)
+  const baseGross  = ticket.services.reduce((s, svc) => s + svc.price * (svc.qty || 1), 0)
+  const extraGross = extraLines.reduce((s, svc) => s + svc.price * (svc.qty || 1), 0)
+  const totalGross = baseGross + extraGross
   const manualDescuento   = Math.max(0, parseFloat(descuentoInput) || 0)
   const loyaltyDiscount   = Math.max(0, Number(loyaltyRedemption?.discount || 0))
-  const descuento         = Math.min(manualDescuento + loyaltyDiscount, totalGross)
+  const membershipDescuento = Math.max(0, Number(membershipDiscount || 0))
+  const descuento         = Math.min(manualDescuento + loyaltyDiscount + membershipDescuento, totalGross)
   const total    = parseFloat((totalGross - descuento).toFixed(2))
   const subtotal = parseFloat((total / (1 + itbisFactor)).toFixed(2))
   const itbis    = parseFloat((total - subtotal).toFixed(2))
@@ -790,6 +984,27 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
     }
   }, [enabledEcfTypes, forceNcfType, bizSettings, fiscalOverride])
 
+  // v2.16.3/4 — Auto-E31 when client has RNC. Carnicería golden path: pick a
+  // restaurant/colmadón client → sale silently routes to E31 with no extra
+  // taps. The ref tracks the *RNC value* we last auto-promoted so swapping
+  // to a new client (different RNC) re-fires, and clearing the RNC fully
+  // resets the latch.
+  const _autoE31Ref = useRef('')
+  useEffect(() => {
+    if (forceNcfType) return
+    const rawMode = (bizSettings?.fiscal_mode || bizSettings?.facturacion_mode || 'ecf').toLowerCase()
+    if (rawMode !== 'ecf' && !fiscalOverride) return
+    const rncDigits = String(rnc || '').replace(/\D+/g, '')
+    if (!rncDigits) { _autoE31Ref.current = ''; return } // RNC cleared — reset latch
+    // DGII: 9 digits = empresa RNC, 11 digits = cédula. Anything else = invalid.
+    if (rncDigits.length !== 9 && rncDigits.length !== 11) return
+    if (_autoE31Ref.current === rncDigits) return // already promoted for this exact RNC
+    const e31Available = !enabledEcfTypes || enabledEcfTypes.some(e => e.code === 'E31')
+    if (!e31Available) return
+    if (ncfType !== 'E31') setNcfType('E31')
+    _autoE31Ref.current = rncDigits
+  }, [rnc, enabledEcfTypes, forceNcfType, bizSettings, fiscalOverride, ncfType])
+
   useEffect(() => {
     const handler = e => { if (clientRef.current && !clientRef.current.contains(e.target)) setShowClientDrop(false) }
     document.addEventListener('mousedown', handler)
@@ -887,6 +1102,79 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
     }
   }
 
+  // v2.16.1 patch (#1, #2) — payload builders the parent threads into
+  // tickets.create (per-line empleado_supabase_id) and the post-create
+  // clientMemberships.consume loop. Resolves stylistEmpId (numeric local id)
+  // to the canonical empleado_supabase_id via the loaded salonEmpleados list.
+  // v2.16.1 hotfix — reshape an upsell extraLine into a regular cart-item
+  // shape so downstream tickets.create auto-deducts inventory, logs retail
+  // commission, and prints the line. Membership-redeemed extras keep
+  // price=0 (already mutated optimistically in consumeMembershipForLine).
+  function extraToItemShape(line, idx) {
+    const meta = extraMeta[idx] || {}
+    const empId = meta.stylistEmpId
+    const emp = empId ? salonEmpleados.find(e => String(e.id) === String(empId)) : null
+    return {
+      name: line.name,
+      price: Number(line.price) || 0,
+      qty: line.qty || 1,
+      sku: line.sku || null,
+      inventory_item_id: line.inventory_item_id || null,
+      supabase_id: line.supabase_id || null,
+      empleado_supabase_id: emp?.supabase_id || null,
+      commission_pct: line.commission_pct ?? meta.commissionPct ?? 10,
+    }
+  }
+  // Single source of truth for what gets persisted, printed, and e-CF'd.
+  // Base lines first (preserve their indices for legacy lineMeta lookups),
+  // upsell extras appended. NEVER mutate ticket.services.
+  function buildEffectiveItems() {
+    const base = (ticket?.services || [])
+    const extras = extraLines.map(extraToItemShape)
+    return [...base, ...extras]
+  }
+  function buildLineStylistsPayload() {
+    if (!isSalon) return []
+    const out = []
+    const baseLen = (ticket?.services || []).length
+    ;(ticket?.services || []).forEach((_svc, idx) => {
+      const m = lineMeta[idx] || {}
+      const empId = m.stylistEmpId
+      if (!empId) return
+      const emp = salonEmpleados.find(e => String(e.id) === String(empId))
+      const supaId = emp?.supabase_id || null
+      if (supaId) out.push({ line_idx: idx, empleado_supabase_id: supaId })
+    })
+    // Re-key extras against the merged effectiveItems index (baseLen + i).
+    extraLines.forEach((_line, i) => {
+      const m = extraMeta[i] || {}
+      const empId = m.stylistEmpId
+      if (!empId) return
+      const emp = salonEmpleados.find(e => String(e.id) === String(empId))
+      const supaId = emp?.supabase_id || null
+      if (supaId) out.push({ line_idx: baseLen + i, empleado_supabase_id: supaId })
+    })
+    return out
+  }
+  function buildRedemptionsPayload() {
+    if (!isSalon) return []
+    const out = []
+    const baseLen = (ticket?.services || []).length
+    ;(ticket?.services || []).forEach((_svc, idx) => {
+      const m = lineMeta[idx] || {}
+      if (m.redeemed && m.redemptionId) {
+        out.push({ line_idx: idx, client_membership_supabase_id: m.redemptionId })
+      }
+    })
+    extraLines.forEach((_line, i) => {
+      const m = extraMeta[i] || {}
+      if (m.redeemed && m.redemptionId) {
+        out.push({ line_idx: baseLen + i, client_membership_supabase_id: m.redemptionId })
+      }
+    })
+    return out
+  }
+
   async function handleConfirm() {
     if (!canSubmit) return
     if (confirmedRef.current) return
@@ -942,6 +1230,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         const dominantMethod = mixtoPayload
           ? mixtoPayload.slice().sort((a, b) => b.amount - a.amount)[0].method
           : formaPago
+        const effectiveItems = buildEffectiveItems()
         onConfirm({
           ticketId:  ticket.id,
           ticketNo:  ticket.ticketNo,
@@ -954,6 +1243,15 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           comentario, total, descuento, descuentoReason: descuentoReason.trim() || null, subtotal, itbis,
           mac_jti:   _macJtiRef.current || null,
           paidAt:    new Date(),
+          // v2.16.1 hotfix — merged base + upsell-tile lines. Downstream
+          // tickets.create auto-deducts inventory, logs retail commission,
+          // and the printer/e-CF builder iterate from this single source.
+          items:     effectiveItems,
+          // v2.16.1 patch (#1, #2) — surface per-line stylist credit (ticket_items.empleado_supabase_id)
+          // and pending membership redemptions (caller awaits salon.clientMemberships.consume
+          // post-tickets.create using the resulting ticket_supabase_id).
+          lineStylists: buildLineStylistsPayload(),
+          redemptions:  buildRedemptionsPayload(),
           ecf:       legacyResult,
         })
         awardLoyaltyPoints(selectedClient, total, ticket?.supabase_id || null)
@@ -1058,7 +1356,9 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           direccion: selectedClient?.address || 'Santo Domingo',
         } : null,
         totales: { subtotal, itbis, total },
-        items: ticket.services.map(s => ({
+        // v2.16.1 hotfix — include upsell extraLines so e-CF XML matches
+        // the charged total + printed receipt.
+        items: buildEffectiveItems().map(s => ({
           nombre: s.name,
           precio: s.price,
           cantidad: s.qty || 1,
@@ -1075,7 +1375,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         // Legacy fields (used by stub fallback)
         ncfType, rnc, rncName, tipo,
         formaPago:  tipo === 'credito' ? 'credit' : ecfFormaPago,
-        ticket:     { id: ticket.id, ticketNo: ticket.ticketNo, vehicle: ticket.vehicle, services: ticket.services },
+        ticket:     { id: ticket.id, ticketNo: ticket.ticketNo, vehicle: ticket.vehicle, services: buildEffectiveItems() },
         comentario,
         paidAt:     new Date(),
       }
@@ -1095,6 +1395,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         const dominantMethod = mixtoPayload
           ? mixtoPayload.slice().sort((a, b) => b.amount - a.amount)[0].method
           : formaPago
+        const effectiveItems = buildEffectiveItems()
         onConfirm({
           ticketId:  ticket.id,
           ticketNo:  ticket.ticketNo,
@@ -1107,6 +1408,15 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           comentario, total, descuento, descuentoReason: descuentoReason.trim() || null, subtotal, itbis,
           mac_jti:   _macJtiRef.current || null,
           paidAt:    new Date(),
+          // v2.16.1 hotfix — merged base + upsell-tile lines. Downstream
+          // tickets.create auto-deducts inventory, logs retail commission,
+          // and the printer/e-CF builder iterate from this single source.
+          items:     effectiveItems,
+          // v2.16.1 patch (#1, #2) — surface per-line stylist credit (ticket_items.empleado_supabase_id)
+          // and pending membership redemptions (caller awaits salon.clientMemberships.consume
+          // post-tickets.create using the resulting ticket_supabase_id).
+          lineStylists: buildLineStylistsPayload(),
+          redemptions:  buildRedemptionsPayload(),
           ecf:       result,
         })
         awardLoyaltyPoints(selectedClient, total, ticket?.supabase_id || null)
@@ -1284,19 +1594,111 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
               <div className="bg-slate-50 dark:bg-white/5 rounded-xl p-4">
                 <SectionLabel>{tl('summary', lang)}</SectionLabel>
                 <div className="space-y-1.5 mb-3">
-                  {ticket.services.map((svc, i) => (
-                    <div key={i} className="flex justify-between items-start">
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[13px] text-slate-700 dark:text-white">
-                          {(svc.qty || 1) > 1 && svc.weight == null ? `${svc.qty}x ` : ''}{svc.name}
-                        </span>
-                        {svc.weight != null && svc.unit && svc.price_per_unit != null && (
-                          <p className="text-[10px] text-slate-400 tabular-nums">{Number(svc.weight).toFixed(3)} {svc.unit} × {fmtRD(svc.price_per_unit)}/{svc.unit}</p>
-                        )}
+                  {ticket.services.map((svc, i) => {
+                    const meta = lineMeta[i] || {}
+                    const lineTotal = (svc.price || 0) * (svc.qty || 1)
+                    const pct = isSalon ? getLineCommissionPct(svc, meta) : null
+                    return (
+                      <div key={i} className="flex justify-between items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[13px] text-slate-700 dark:text-white">
+                              {(svc.qty || 1) > 1 && svc.weight == null ? `${svc.qty}x ` : ''}{svc.name}
+                            </span>
+                            {meta.redeemed && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-[#b3001e]/10 text-[#b3001e] border border-[#b3001e]/30">
+                                <Award size={9} /> {lang === 'es' ? 'Membresía' : 'Membership'}
+                              </span>
+                            )}
+                          </div>
+                          {svc.weight != null && svc.unit && svc.price_per_unit != null && (
+                            <p className="text-[10px] text-slate-400 tabular-nums">{Number(svc.weight).toFixed(3)} {svc.unit} × {fmtRD(svc.price_per_unit)}/{svc.unit}</p>
+                          )}
+                          {isSalon && salonEmpleados.length > 0 && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <Scissors size={10} className="text-slate-400" />
+                              <select
+                                value={meta.stylistEmpId || ''}
+                                onChange={e => pickLineStylist(i, 'base', e.target.value)}
+                                className="text-[10px] py-0.5 px-1.5 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-600 dark:text-white/70 focus:outline-none focus:border-[#b3001e]"
+                              >
+                                <option value="">— {lang === 'es' ? 'estilista' : 'stylist'} —</option>
+                                {salonEmpleados.map(emp => (
+                                  <option key={emp.id} value={String(emp.id)}>{emp.nombre}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <span className={`text-[13px] font-medium tabular-nums ${meta.redeemed ? 'text-slate-400 line-through' : 'text-slate-600 dark:text-white/60'}`}>
+                            {fmtRD(lineTotal)}
+                          </span>
+                          {isSalon && !meta.redeemed && pct != null && (
+                            <p className="text-[9px] text-slate-400 dark:text-white/40 tabular-nums">
+                              {lang === 'es' ? 'comisión' : 'commission'}: {pct}%
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      <span className="text-[13px] text-slate-600 dark:text-white/60 font-medium tabular-nums">{fmtRD(svc.price * (svc.qty || 1))}</span>
-                    </div>
-                  ))}
+                    )
+                  })}
+                  {/* Extra lines added by upsell tiles */}
+                  {extraLines.map((svc, i) => {
+                    const meta = extraMeta[i] || {}
+                    const lineTotal = (svc.price || 0) * (svc.qty || 1)
+                    const pct = isSalon ? getLineCommissionPct(svc, meta) : null
+                    return (
+                      <div key={`extra-${i}`} className="flex justify-between items-start gap-2 pl-2 border-l-2 border-[#b3001e]/30">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[13px] text-slate-700 dark:text-white">{svc.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setExtraLines(arr => arr.filter((_, idx) => idx !== i))
+                                setExtraMeta(arr => arr.filter((_, idx) => idx !== i))
+                              }}
+                              className="text-slate-300 hover:text-red-500"
+                              title={lang === 'es' ? 'Quitar' : 'Remove'}
+                            >
+                              <X size={11} />
+                            </button>
+                            {meta.redeemed && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-[#b3001e]/10 text-[#b3001e] border border-[#b3001e]/30">
+                                <Award size={9} /> {lang === 'es' ? 'Membresía' : 'Membership'}
+                              </span>
+                            )}
+                          </div>
+                          {salonEmpleados.length > 0 && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <Scissors size={10} className="text-slate-400" />
+                              <select
+                                value={meta.stylistEmpId || ''}
+                                onChange={e => pickLineStylist(i, 'extra', e.target.value)}
+                                className="text-[10px] py-0.5 px-1.5 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-600 dark:text-white/70 focus:outline-none focus:border-[#b3001e]"
+                              >
+                                <option value="">— {lang === 'es' ? 'estilista' : 'stylist'} —</option>
+                                {salonEmpleados.map(emp => (
+                                  <option key={emp.id} value={String(emp.id)}>{emp.nombre}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <span className={`text-[13px] font-medium tabular-nums ${meta.redeemed ? 'text-slate-400 line-through' : 'text-slate-600 dark:text-white/60'}`}>
+                            {fmtRD(lineTotal)}
+                          </span>
+                          {pct != null && !meta.redeemed && (
+                            <p className="text-[9px] text-slate-400 dark:text-white/40 tabular-nums">
+                              {lang === 'es' ? 'comisión' : 'commission'}: {pct}%
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
                 {/* Salon cross-sell tip — surfaced when the cart hits a cut/color/treatment keyword */}
                 {upsellTip && (
@@ -1446,6 +1848,14 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
                       >
                         e-CF
                       </button>
+                    </div>
+                  )}
+
+                  {/* v2.16.3 — Auto-E31 Mayoreo pill */}
+                  {!isLegacy && ncfType === 'E31' && _autoE31Ref.current && (
+                    <div className="mb-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#b3001e] text-white text-[10px] font-bold uppercase tracking-wider">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                      {lang === 'es' ? 'E31 Mayoreo · auto' : 'E31 Wholesale · auto'}
                     </div>
                   )}
 
@@ -1670,6 +2080,122 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
                   </div>
                 </div>
               </div>
+
+              {/* ── Salon upsell tiles + commission breakdown + membership ── */}
+              {isSalon && (
+                <>
+                  {salonUpsellItems.length > 0 && (
+                    <div>
+                      <SectionLabel>{lang === 'es' ? 'Productos para vender' : 'Add a retail product'}</SectionLabel>
+                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                        {salonUpsellItems.map(item => {
+                          const initials = (item.name || '?').split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => addUpsellItem(item)}
+                              className="flex flex-col items-center gap-1 p-2 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-[#b3001e] hover:bg-[#b3001e]/5 transition-colors"
+                            >
+                              {item.photo_url || item.image_url ? (
+                                <img src={item.photo_url || item.image_url} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-lg bg-[#b3001e]/10 text-[#b3001e] flex items-center justify-center text-[11px] font-bold">
+                                  {initials}
+                                </div>
+                              )}
+                              <p className="text-[10px] font-semibold text-slate-700 dark:text-white text-center leading-tight line-clamp-2">{item.name}</p>
+                              <p className="text-[10px] font-bold text-[#b3001e] tabular-nums">RD${Number(item.price || 0).toFixed(0)}</p>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Membership "Usar Membresía" button */}
+                  {hasFeature?.('salon_memberships') && eligibleMemberships.length > 0 && (
+                    <div className="rounded-xl border border-[#b3001e]/30 bg-[#b3001e]/5 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Award size={14} className="text-[#b3001e]" />
+                          <span className="text-[12px] font-bold text-[#b3001e]">
+                            {lang === 'es' ? 'Membresía disponible' : 'Membership available'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowMembershipPicker(o => !o)}
+                          className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-[#b3001e] text-white hover:bg-[#8c0017]"
+                        >
+                          {lang === 'es' ? 'Usar membresía' : 'Use membership'}
+                        </button>
+                      </div>
+                      {showMembershipPicker && (
+                        <div className="mt-2 space-y-1.5">
+                          {eligibleMemberships.map(m => (
+                            <div key={m.supabase_id} className="flex items-center justify-between gap-2">
+                              <div>
+                                <p className="text-[12px] font-semibold text-slate-700 dark:text-white">
+                                  {m.membership_nombre || (lang === 'es' ? 'Membresía' : 'Membership')}
+                                </p>
+                                <p className="text-[10px] text-slate-500 dark:text-white/60">
+                                  {Number(m.sessions_remaining || 0)} {lang === 'es' ? 'sesiones restantes' : 'sessions left'}
+                                </p>
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                {/* For each redeemable cart line offer a quick "apply to". */}
+                                {(ticket?.services || []).map((svc, i) => {
+                                  const meta = lineMeta[i]
+                                  if (meta?.redeemed) return null
+                                  // Membership filtered by service in eligibleMemberships;
+                                  // any-service memberships apply to all lines.
+                                  if (m.service_supabase_id && (svc.service_supabase_id || svc.supabase_id) !== m.service_supabase_id) return null
+                                  return (
+                                    <button
+                                      key={`${m.supabase_id}-${i}`}
+                                      type="button"
+                                      onClick={() => consumeMembershipForLine('base', i, m)}
+                                      className="px-2 py-1 rounded text-[10px] font-bold border border-[#b3001e]/40 text-[#b3001e] hover:bg-[#b3001e] hover:text-white transition-colors"
+                                    >
+                                      {lang === 'es' ? 'Aplicar a' : 'Apply to'} "{svc.name}"
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Commission breakdown footer (Estilista gana / Negocio gana) */}
+                  {(commissionBreakdown.stylistEarned > 0 || commissionBreakdown.businessEarned > 0) && (
+                    <div className="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 p-3">
+                      <SectionLabel>{lang === 'es' ? 'Comisiones' : 'Commissions'}</SectionLabel>
+                      <div className="grid grid-cols-2 gap-2 text-center">
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-0.5">
+                            {lang === 'es' ? 'Estilista gana' : 'Stylist earns'}
+                          </p>
+                          <p className="text-[14px] font-bold text-[#b3001e] tabular-nums">
+                            {fmtRD(commissionBreakdown.stylistEarned)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-0.5">
+                            {lang === 'es' ? 'Negocio gana' : 'Business earns'}
+                          </p>
+                          <p className="text-[14px] font-bold text-slate-800 dark:text-white tabular-nums">
+                            {fmtRD(commissionBreakdown.businessEarned)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
 
               {/* Forma de pago */}
               {tipo === 'credito' ? (

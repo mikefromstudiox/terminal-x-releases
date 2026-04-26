@@ -38,6 +38,7 @@ export default function StylistSchedules() {
 
   const [empleados, setEmpleados] = useState([])
   const [schedules, setSchedules] = useState([])
+  const [todayStats, setTodayStats] = useState({}) // { [empleado_id]: { count, earned } }
   const [loading,   setLoading]   = useState(true)
   const [saving,    setSaving]    = useState(null) // `${empId}-${dow}`
   const [toast,     setToast]     = useState(null)
@@ -46,16 +47,65 @@ export default function StylistSchedules() {
     setToast({ msg, ok }); setTimeout(() => setToast(null), 2500)
   }
 
+  // v2.16.2 (Fix 4) — local-date YYYY-MM-DD (DR is UTC-4, no DST). Without
+  // this, after 8pm AST `toISOString` rolls to tomorrow and "Citas hoy" /
+  // "Ganado hoy" both render zero with cash drawer full.
+  function localDateStr(d = new Date()) {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+
   async function load() {
     setLoading(true)
     try {
-      const [emps, schs] = await Promise.all([
+      const today = localDateStr()
+      const [emps, schs, tickets, services] = await Promise.all([
         api?.empleados?.all?.() || [],
         api?.stylistSchedules?.list?.() || [],
+        // Best-effort: list today's tickets so we can compute commissions inline.
+        api?.tickets?.list?.({ from: today, to: today }) || api?.tickets?.list?.({ date: today }) || [],
+        api?.services?.getAll?.() || [],
       ])
       // Salon schedules only make sense for stylists (tipo lavador or hybrid) or any active empleado.
-      setEmpleados((emps || []).filter(e => e.active !== 0))
+      const activeEmps = (emps || []).filter(e => e.active !== 0)
+      setEmpleados(activeEmps)
       setSchedules(schs || [])
+
+      // Compute per-stylist count + earnings for today.
+      // Earnings = Σ (line_subtotal × commission_pct/100) where the line's
+      // empleado matches. Falls back to ticket-level empleado if cart-line
+      // empleado isn't shipped yet. Service vs retail commission split is
+      // 50%/10% defaults when row doesn't carry an explicit pct.
+      const svcByName = new Map()
+      ;(services || []).forEach(s => svcByName.set((s.name || '').toLowerCase(), s))
+      const stats = {}
+      for (const e of activeEmps) stats[e.id] = { count: 0, earned: 0 }
+      for (const t of (tickets || [])) {
+        // Group by line empleado_id (preferred) or whole-ticket empleado_id.
+        const lines = Array.isArray(t.items) ? t.items : Array.isArray(t.services) ? t.services : []
+        if (lines.length === 0 && t.empleado_id) {
+          const total = Number(t.total || 0)
+          if (stats[t.empleado_id]) {
+            stats[t.empleado_id].count += 1
+            stats[t.empleado_id].earned += total * 0.5
+          }
+          continue
+        }
+        const seen = new Set()
+        for (const line of lines) {
+          const empId = line.empleado_id || t.empleado_id
+          if (!empId || !stats[empId]) continue
+          const lineTotal = Number(line.price || line.subtotal || 0) * Number(line.qty || 1)
+          const isService = !!line.service_id || !!line.service_supabase_id ||
+            (line.name && svcByName.has(String(line.name).toLowerCase()))
+          const pct = Number(line.commission_pct ?? (isService ? 50 : 10)) / 100
+          stats[empId].earned += lineTotal * pct
+          if (!seen.has(empId)) { stats[empId].count += 1; seen.add(empId) }
+        }
+      }
+      setTodayStats(stats)
     } catch (e) {
       flash(e?.message || L('Error cargando', 'Error loading'), false)
     }
@@ -137,6 +187,24 @@ export default function StylistSchedules() {
                   <div className="flex-1">
                     <p className="text-[13px] font-bold text-slate-800 dark:text-white">{emp.nombre}</p>
                     <p className="text-[10px] text-slate-400 dark:text-white/40 uppercase tracking-wider">{emp.tipo || 'estilista'}</p>
+                  </div>
+                  <div className="flex items-center gap-3 text-right">
+                    <div>
+                      <p className="text-[9px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">
+                        {L('Citas hoy', 'Today')}
+                      </p>
+                      <p className="text-[13px] font-bold text-slate-800 dark:text-white tabular-nums">
+                        {todayStats[emp.id]?.count || 0}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">
+                        {L('Ganado hoy', 'Earned today')}
+                      </p>
+                      <p className="text-[13px] font-bold text-[#b3001e] tabular-nums">
+                        RD$ {Number(todayStats[emp.id]?.earned || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      </p>
+                    </div>
                   </div>
                 </div>
 

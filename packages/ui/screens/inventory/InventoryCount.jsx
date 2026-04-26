@@ -17,13 +17,14 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   ClipboardList, Plus, Printer, FileSpreadsheet, Search, ArrowLeft,
   CheckCircle2, XCircle, Loader2, Trash2, AlertTriangle, Package,
-  TrendingDown, TrendingUp, Minus, PenLine, RotateCcw,
+  TrendingDown, TrendingUp, Minus, PenLine,
 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { useAuth } from '../../context/AuthContext'
 import { useLang } from '../../i18n'
 import { saveCountSheetPDF, saveVarianceReportPDF } from '@terminal-x/services/countSheetPdf'
 import { exportInventoryCount } from '@terminal-x/services/csv'
+import SignaturePad from '../../components/SignaturePad'
 
 const ALLOWED = ['owner', 'manager', 'cfo', 'accountant']
 
@@ -202,100 +203,6 @@ function StartModal({ onStart, onClose, empleados, availableCategories }) {
             Iniciar conteo
           </button>
         </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Signature pad ───────────────────────────────────────────────────────────
-// Lightweight canvas signature capture (no deps). Exposes current dataURL via
-// `onChange(dataUrl|null)` so the parent can gate its confirm button on a
-// non-empty signature. Supports mouse + touch; resets on clear.
-
-function SignaturePad({ onChange, height = 140 }) {
-  const canvasRef = useRef(null)
-  const drawingRef = useRef(false)
-  const dirtyRef = useRef(false)
-  const lastPtRef = useRef(null)
-
-  const getCtx = () => {
-    const c = canvasRef.current
-    if (!c) return null
-    const ctx = c.getContext('2d')
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.lineWidth = 2
-    ctx.strokeStyle = '#000'
-    return ctx
-  }
-
-  const pointFromEvent = (e) => {
-    const c = canvasRef.current
-    const rect = c.getBoundingClientRect()
-    const t = e.touches?.[0]
-    const x = ((t ? t.clientX : e.clientX) - rect.left) * (c.width / rect.width)
-    const y = ((t ? t.clientY : e.clientY) - rect.top)  * (c.height / rect.height)
-    return { x, y }
-  }
-
-  const start = (e) => {
-    e.preventDefault()
-    drawingRef.current = true
-    lastPtRef.current = pointFromEvent(e)
-  }
-  const move = (e) => {
-    if (!drawingRef.current) return
-    e.preventDefault()
-    const ctx = getCtx(); if (!ctx) return
-    const p = pointFromEvent(e)
-    const last = lastPtRef.current || p
-    ctx.beginPath()
-    ctx.moveTo(last.x, last.y)
-    ctx.lineTo(p.x, p.y)
-    ctx.stroke()
-    lastPtRef.current = p
-    dirtyRef.current = true
-  }
-  const end = () => {
-    if (!drawingRef.current) return
-    drawingRef.current = false
-    lastPtRef.current = null
-    if (dirtyRef.current && onChange) {
-      try { onChange(canvasRef.current.toDataURL('image/png')) } catch {}
-    }
-  }
-
-  const clear = () => {
-    const c = canvasRef.current; if (!c) return
-    const ctx = getCtx(); if (!ctx) return
-    ctx.clearRect(0, 0, c.width, c.height)
-    dirtyRef.current = false
-    if (onChange) onChange(null)
-  }
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <label className="block text-xs font-semibold uppercase tracking-wide text-black/60 dark:text-white/60">
-          Firma
-        </label>
-        <button type="button" onClick={clear}
-          className="inline-flex items-center gap-1 text-xs text-black/60 dark:text-white/60 hover:text-[#b3001e]">
-          <RotateCcw size={12} /> Limpiar
-        </button>
-      </div>
-      <div className="rounded-lg border border-black/15 dark:border-white/15 bg-white overflow-hidden">
-        <canvas
-          ref={canvasRef}
-          width={560}
-          height={height * 2}
-          style={{ width: '100%', height, touchAction: 'none', cursor: 'crosshair', display: 'block' }}
-          onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
-          onTouchStart={start} onTouchMove={move} onTouchEnd={end}
-        />
-      </div>
-      <div className="text-[11px] text-black/50 dark:text-white/50">
-        Firme con el dedo o el mouse — requerido para finalizar.
       </div>
     </div>
   )

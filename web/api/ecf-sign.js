@@ -13,7 +13,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { buildECFXml, buildRFCEXml } from '../lib/xml-builder.js'
 import { signXML } from '../lib/xml-signer.js'
-import { authenticate, submitECF, submitRFCE, pollStatus, buildQRUrl, clearTokenCache } from '../lib/dgii-client.js'
+import { authenticate, submitECF, submitRFCE, pollStatus, checkStatus, buildQRUrl, clearTokenCache } from '../lib/dgii-client.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://xbmhtrdhbnkgdliuxcha.supabase.co'
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -54,6 +54,29 @@ export default async function handler(req, res) {
 
   const body = req.body
   if (!body?.business_id) return json(res, 400, { ok: false, error: 'Missing business_id' })
+
+  // ── EN_PROCESO reconciler (web FIX-C7) ────────────────────────────────
+  // Action: 'status' — re-poll DGII for a single trackId and return the
+  // final verdict. Used by InvoiceDashboard to drain the pending queue
+  // without keeping a DB cron just for facturación-tier customers.
+  if (body.action === 'status') {
+    const bid = body.business_id
+    const trackId = body.trackId
+    if (!trackId) return json(res, 400, { ok: false, error: 'Missing trackId' })
+    const { data: staffRow } = await supabase.from('staff').select('id').eq('business_id', bid).eq('auth_user_id', user.id).single()
+    if (!staffRow) return json(res, 403, { ok: false, error: 'No access to this business' })
+    const { data: biz } = await supabase.from('businesses').select('settings').eq('id', bid).single()
+    const s = parseSettingsIfString(biz?.settings)
+    if (!s.ecf_private_key_pem || !s.ecf_certificate_pem) return json(res, 400, { ok: false, error: 'Certificado no configurado' })
+    try {
+      const env = s.dgii_environment || 'certecf'
+      const token = await authenticate(env, s.ecf_private_key_pem, s.ecf_certificate_pem)
+      const result = await checkStatus(trackId, token, env)
+      return json(res, 200, { ok: true, data: { codigo: result.codigo, estado: result.estado, mensajes: result.mensajes || [] } })
+    } catch (err) {
+      return json(res, 200, { ok: false, error: err.message || 'Error consultando DGII' })
+    }
+  }
 
   // Auth test mode — just verify cert is configured and DGII auth works
   if (body.test) {

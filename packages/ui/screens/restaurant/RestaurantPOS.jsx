@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   ArrowLeft, Users, User, Clock, Plus, Minus, Trash2, ChefHat, CreditCard,
   Check, X, AlertCircle, Loader2, Utensils, Coffee, Wine, IceCream, Soup,
-  ListOrdered, Split,
+  ListOrdered, Split, Search, Star, ShoppingCart, Receipt,
 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import CobrarModal from '../../components/CobrarModal'
@@ -289,39 +289,299 @@ function SeatPromptModal({ open, mesa, empleados, onClose, onConfirm }) {
   )
 }
 
-// ── MESA CARD (compact) ───────────────────────────────────────────────────────
-const STATUS_STYLE = {
-  libre:     { chip: 'bg-green-500/15 text-green-400 border-green-500/30', ring: 'border-green-500/40 hover:border-green-500/70', label: 'Libre' },
-  ocupada:   { chip: 'bg-red-600/15 text-red-400 border-red-600/30',       ring: 'border-red-600/50 hover:border-red-600/80',     label: 'Ocupada' },
-  sucia:     { chip: 'bg-amber-500/15 text-amber-400 border-amber-500/30', ring: 'border-amber-500/40 hover:border-amber-500/70', label: 'Sucia' },
-  reservada: { chip: 'bg-blue-500/15 text-blue-400 border-blue-500/30',    ring: 'border-blue-500/40 hover:border-blue-500/70',   label: 'Reservada' },
-}
+// ── MESA CARD ─────────────────────────────────────────────────────────────────
+// Three visual states: libre (white) / ocupada (crimson) / acuenta (amber).
+// `acuenta` triggers when mesa.status === 'acuenta' OR a future bill_requested_at flag.
+function MesaCard({ mesa, now, active, total, onClick }) {
+  const isOcupada = mesa.status === 'ocupada'
+  const isAcuenta = mesa.status === 'acuenta' || !!mesa.bill_requested_at
+  const isLibre = !isOcupada && !isAcuenta
+  const guests = mesa.guests ?? mesa.guests_count ?? null
+  const mins = isOcupada || isAcuenta ? elapsedMinutes(mesa.seated_at, now) : 0
 
-function MesaCompactCard({ mesa, now, onClick }) {
-  const s = STATUS_STYLE[mesa.status] || STATUS_STYLE.libre
-  const mins = mesa.status === 'ocupada' ? elapsedMinutes(mesa.seated_at, now) : 0
+  let cls = ''
+  let label = 'Libre'
+  if (isLibre) {
+    cls = 'bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-400 dark:text-white/40'
+    label = mesa.status === 'sucia' ? 'Por limpiar' : (mesa.status === 'reservada' ? 'Reservada' : 'Libre')
+  } else if (isAcuenta) {
+    cls = 'bg-amber-500 text-black border border-amber-500'
+    label = 'A cuenta'
+  } else {
+    cls = 'bg-[#b3001e] text-white border border-[#b3001e]'
+    label = 'Ocupada'
+  }
+
+  const ring = active ? 'ring-2 ring-offset-2 ring-offset-slate-50 dark:ring-offset-black ring-[#b3001e]' : ''
+
   return (
     <button
       onClick={onClick}
-      className={`group bg-zinc-900 rounded-2xl p-4 border text-left transition-all ${s.ring} hover:-translate-y-0.5`}
+      className={`aspect-[1.4/1] rounded-2xl p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-lg flex flex-col justify-between ${cls} ${ring}`}
     >
-      <div className="flex items-start justify-between mb-2">
-        <div className="text-xl font-bold text-white truncate">{mesa.name}</div>
-        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${s.chip}`}>
-          {s.label}
-        </span>
+      <div>
+        <div className={`text-xl font-extrabold tracking-tight ${isLibre ? 'text-slate-900 dark:text-white' : ''}`}>
+          {mesa.name}
+        </div>
+        {(isOcupada || isAcuenta) && guests != null && (
+          <div className="flex items-center gap-1 text-xs mt-1 opacity-90">
+            <Users size={12} /> {guests}
+            {mins > 0 && <><span className="opacity-50 mx-1">·</span><Clock size={11} /> {fmtElapsed(mins)}</>}
+          </div>
+        )}
       </div>
-      <div className="flex items-center gap-3 text-xs text-white/60">
-        <span className="inline-flex items-center gap-1">
-          <Users size={12} /> {mesa.guests ?? mesa.capacity ?? 0}
-        </span>
-        {mesa.status === 'ocupada' && (
-          <span className="inline-flex items-center gap-1">
-            <Clock size={12} /> {fmtElapsed(mins)}
-          </span>
+      <div>
+        {(isOcupada || isAcuenta) && total > 0 && (
+          <div className="text-base font-bold leading-tight">{fmtRD(total)}</div>
+        )}
+        <div className="text-[10px] font-extrabold tracking-[1.5px] uppercase opacity-85 mt-0.5">{label}</div>
+      </div>
+    </button>
+  )
+}
+
+// ── MENU ITEM CARD ────────────────────────────────────────────────────────────
+function MenuItemCard({ svc, happyHourEnabled, onClick }) {
+  const hh = isHappyHourActive(svc, { enabled: happyHourEnabled })
+  const base = Number(svc.price || 0)
+  const eff  = effectivePrice(svc, { enabled: happyHourEnabled })
+  const cat = String(svc.categoria || courseForService(svc) || '').toUpperCase()
+  return (
+    <button
+      onClick={onClick}
+      className="bg-white dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10 p-4 text-left transition-all hover:-translate-y-0.5 hover:border-[#b3001e] hover:shadow-md"
+    >
+      {cat && (
+        <div className="text-[10px] font-extrabold tracking-[1.5px] text-[#b3001e] uppercase mb-2">
+          {cat}
+        </div>
+      )}
+      <div className="text-sm font-bold leading-tight text-slate-900 dark:text-white line-clamp-2 min-h-9 mb-3">
+        {svc.name}
+      </div>
+      <div className="flex items-center gap-2">
+        {hh ? (
+          <>
+            <span className="text-base font-extrabold text-[#b3001e]">{fmtRD(eff)}</span>
+            <span className="text-[11px] text-slate-400 dark:text-white/40 line-through">{fmtRD(base)}</span>
+            <span className="ml-auto text-[9px] font-extrabold tracking-[1px] px-1.5 py-0.5 rounded bg-[#b3001e] text-white">HH</span>
+          </>
+        ) : (
+          <span className="text-base font-extrabold text-slate-900 dark:text-white">{fmtRD(base)}</span>
         )}
       </div>
     </button>
+  )
+}
+
+// ── CART SIDEBAR ──────────────────────────────────────────────────────────────
+function CartSidebar({
+  activeTicket, ticketSubtotal, hasUnfiredItems, unfiredCoursesInTicket,
+  waiterName, elapsedTicketMin, isHybrid,
+  onClose, onIncQty, onRemoveItem, onFireToKDS, onCobrar, onSplit, onSplitByItem, onHybridConvert,
+  onRequestBill,
+}) {
+  const isAcuenta = activeTicket?.mesa?.status === 'acuenta' || !!activeTicket?.mesa?.bill_requested_at
+  const canRequestBill = !!activeTicket && (activeTicket.items?.length || 0) > 0 && !isAcuenta
+  const itemsCount = activeTicket?.items?.reduce((n, it) => n + (it.qty || 0), 0) || 0
+
+  return (
+    <div className="bg-white dark:bg-white/5 border-l border-slate-200 dark:border-white/10 flex flex-col min-h-0 max-h-screen">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-200 dark:border-white/10">
+        {activeTicket ? (
+          <button
+            onClick={onClose}
+            className="w-9 h-9 rounded-lg border border-slate-200 dark:border-white/10 hover:border-[#b3001e] text-slate-500 dark:text-white/60 hover:text-[#b3001e] flex items-center justify-center shrink-0"
+            title="Volver"
+          >
+            <ArrowLeft size={16} />
+          </button>
+        ) : (
+          <div className="w-9 h-9 rounded-lg bg-[#b3001e] grid place-items-center shrink-0">
+            <ShoppingCart size={16} className="text-white" />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="text-base font-extrabold tracking-tight text-slate-900 dark:text-white truncate">
+              {activeTicket ? `MESA ${activeTicket.mesa.name}` : 'SIN MESA'}
+            </div>
+            {isAcuenta && (
+              <span className="text-[10px] font-extrabold tracking-wider px-2 py-0.5 rounded-full bg-amber-500 text-black shrink-0">A CUENTA</span>
+            )}
+          </div>
+          <div className="text-xs text-slate-500 dark:text-white/50 mt-0.5 truncate">
+            {activeTicket
+              ? `${itemsCount} producto${itemsCount === 1 ? '' : 's'} · ${activeTicket.guests || 0} persona${activeTicket.guests === 1 ? '' : 's'}`
+              : '0 productos'}
+          </div>
+        </div>
+      </div>
+
+      {!activeTicket ? (
+        <div className="flex-1 grid place-items-center text-sm text-slate-400 dark:text-white/40 px-6 text-center">
+          Selecciona una mesa.
+        </div>
+      ) : (
+        <>
+          {/* Meta */}
+          <div className="px-5 py-2.5 border-b border-slate-100 dark:border-white/5 flex items-center gap-3 text-[11px] text-slate-500 dark:text-white/50">
+            <span className="inline-flex items-center gap-1"><User size={11} /> {waiterName}</span>
+            <span className="inline-flex items-center gap-1"><Clock size={11} /> {fmtElapsed(elapsedTicketMin)}</span>
+          </div>
+
+          {/* Items */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            {activeTicket.items.length === 0 ? (
+              <div className="text-center text-slate-400 dark:text-white/40 py-12 text-sm">
+                Toca un producto del menú para agregarlo.
+              </div>
+            ) : activeTicket.items.map(it => {
+              const modSum = (it.modifiers || []).reduce((x, m) => x + Number(m.price_delta || 0), 0)
+              const lineTotal = (Number(it.price) + modSum) * it.qty
+              const fired = !!it.kds_fired_at
+              return (
+                <div
+                  key={it.local_id}
+                  className={`rounded-xl border p-3 ${fired ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5'}`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-slate-900 dark:text-white font-bold text-sm truncate">{it.name}</span>
+                        {fired && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 uppercase tracking-wider">
+                            Enviado
+                          </span>
+                        )}
+                      </div>
+                      {(it.modifiers || []).length > 0 && (
+                        <div className="mt-1 space-y-0.5">
+                          {it.modifiers.map((m, i) => (
+                            <div key={i} className="text-[11px] text-slate-500 dark:text-white/50 pl-2">
+                              · {m.name}
+                              {Number(m.price_delta) !== 0 && (
+                                <span className="ml-1 text-slate-400 dark:text-white/40">
+                                  ({Number(m.price_delta) > 0 ? '+' : ''}{fmtRD(Number(m.price_delta))})
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="text-xs text-slate-500 dark:text-white/50 mt-1">
+                        {it.qty} × {fmtRD(Number(it.price) + modSum)}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <div className="text-slate-900 dark:text-white font-extrabold text-sm">{fmtRD(lineTotal)}</div>
+                      {!fired && (
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => onIncQty(it.local_id, -1)} className="w-7 h-7 rounded-md border border-slate-200 dark:border-white/10 hover:border-[#b3001e] text-slate-600 dark:text-white/70 flex items-center justify-center">
+                            <Minus size={12} />
+                          </button>
+                          <span className="w-6 text-center text-sm font-bold text-slate-900 dark:text-white">{it.qty}</span>
+                          <button onClick={() => onIncQty(it.local_id, 1)} className="w-7 h-7 rounded-md border border-slate-200 dark:border-white/10 hover:border-[#b3001e] text-slate-600 dark:text-white/70 flex items-center justify-center">
+                            <Plus size={12} />
+                          </button>
+                          <button onClick={() => onRemoveItem(it.local_id)} className="w-7 h-7 rounded-md border border-[#b3001e]/30 hover:bg-[#b3001e]/10 text-[#b3001e] flex items-center justify-center ml-1">
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Footer */}
+          <div className="border-t border-slate-200 dark:border-white/10 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-slate-500 dark:text-white/60 text-sm">Subtotal</span>
+              <span className="text-slate-900 dark:text-white text-2xl font-extrabold">{fmtRD(ticketSubtotal)}</span>
+            </div>
+
+            {unfiredCoursesInTicket.length > 0 && (
+              <div className="mb-3">
+                <div className="text-[10px] uppercase tracking-[1.5px] text-slate-400 dark:text-white/50 mb-1.5 flex items-center gap-1.5">
+                  <ChefHat size={11} /> Enviar por tiempo
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {unfiredCoursesInTicket.map(c => {
+                    const Icon = c.icon
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() => onFireToKDS(c.id)}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 hover:border-[#b3001e] text-slate-700 dark:text-white text-xs font-bold flex items-center gap-1.5 transition-colors"
+                      >
+                        <Icon size={12} /> {c.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => onFireToKDS(null)}
+                disabled={!hasUnfiredItems}
+                className="py-3 rounded-xl border border-slate-200 dark:border-white/10 hover:border-[#b3001e] text-slate-700 dark:text-white font-bold flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+              >
+                <ChefHat size={16} /> Cocina
+              </button>
+              <button
+                onClick={onCobrar}
+                disabled={activeTicket.items.length === 0}
+                className="py-3 rounded-xl bg-[#b3001e] hover:bg-[#8a0017] text-white font-bold flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+              >
+                <CreditCard size={16} /> Cobrar
+              </button>
+            </div>
+
+            {canRequestBill && (
+              <button
+                onClick={onRequestBill}
+                className="mt-2 w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-black font-bold flex items-center justify-center gap-2 text-sm transition-colors"
+              >
+                <Receipt size={16} /> Pedir cuenta
+              </button>
+            )}
+
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <button
+                onClick={onSplit}
+                disabled={activeTicket.items.length === 0}
+                className="py-2.5 rounded-xl border border-slate-200 dark:border-white/10 hover:border-[#b3001e] text-slate-700 dark:text-white text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-40"
+              >
+                <Split size={13} /> Dividir
+              </button>
+              <button
+                onClick={onSplitByItem}
+                disabled={activeTicket.items.length === 0}
+                className="py-2.5 rounded-xl border border-slate-200 dark:border-white/10 hover:border-[#b3001e] text-slate-700 dark:text-white text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-40"
+              >
+                <Users size={13} /> Por plato
+              </button>
+            </div>
+
+            {isHybrid && (
+              <button
+                onClick={onHybridConvert}
+                disabled={!activeTicket.items.length}
+                className="mt-2 w-full py-2 rounded-lg border border-slate-200 dark:border-white/10 hover:border-[#b3001e] text-slate-500 dark:text-white/70 hover:text-[#b3001e] text-[11px] font-bold transition-colors disabled:opacity-40"
+              >
+                Convertir a Venta Directa (Takeout)
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -339,7 +599,9 @@ export default function RestaurantPOS() {
   // View state
   const [now, setNow]               = useState(Date.now())
   const [activeTicket, setActiveTicket] = useState(null) // { id, supabase_id, mesa, waiterId, guests, items:[], startedAt }
-  const [courseFilter, setCourseFilter] = useState(COURSES[0].id)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [topSellers, setTopSellers] = useState([])
+  const [businessType, setBusinessType] = useState(null)
 
   // Modals
   const [seatPrompt, setSeatPrompt] = useState(null)     // mesa
@@ -369,6 +631,8 @@ export default function RestaurantPOS() {
       ])
       const hhFlag = settings?.restaurant_happy_hour_enabled
       setHappyHourEnabled(hhFlag == null ? true : (hhFlag === '1' || hhFlag === 1 || hhFlag === true))
+      const bt = settings?.business_type || settings?.businessType || null
+      setBusinessType(bt)
       setMesas(Array.isArray(mList) ? mList : [])
       setServices((Array.isArray(sList) ? sList : []).filter(s => s.is_menu_item === 1 || s.is_menu_item === true))
       setEmpleados(Array.isArray(eList) ? eList : [])
@@ -394,16 +658,42 @@ export default function RestaurantPOS() {
     return byCourse
   }, [services])
 
-  const availableCourses = useMemo(
-    () => COURSES.filter(c => (courseGroups[c.id] || []).length > 0),
-    [courseGroups]
+  // Search-driven menu filter — name / categoria / course tag
+  const filteredServices = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return services
+    return services.filter(s =>
+      String(s.name || '').toLowerCase().includes(q) ||
+      String(s.categoria || '').toLowerCase().includes(q) ||
+      String(courseForService(s) || '').toLowerCase().includes(q)
+    )
+  }, [services, searchQuery])
+
+  // Top sellers — graceful fallback to first N services when endpoint missing.
+  // TODO v2.16.3: implement api.services.topSellers({ days, limit }) in
+  // packages/data/web.js and packages/data/electron.js (aggregates ticket_items
+  // grouped by service over a 30-day window).
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const list = await (api.services?.topSellers?.({ days: 30, limit: 8 }))
+        if (!cancelled && Array.isArray(list) && list.length) {
+          setTopSellers(list)
+          return
+        }
+      } catch {}
+      if (!cancelled) setTopSellers(services.slice(0, 8))
+    })()
+    return () => { cancelled = true }
+  }, [api, services])
+
+  const ocupadasCount = useMemo(
+    () => mesas.filter(m => m.status === 'ocupada' || m.status === 'acuenta').length,
+    [mesas]
   )
 
-  useEffect(() => {
-    if (availableCourses.length && !availableCourses.find(c => c.id === courseFilter)) {
-      setCourseFilter(availableCourses[0].id)
-    }
-  }, [availableCourses, courseFilter])
+  const isHybrid = businessType === 'hybrid'
 
   const ticketSubtotal = useMemo(() => {
     if (!activeTicket) return 0
@@ -500,6 +790,16 @@ export default function RestaurantPOS() {
     } finally {
       setBusy(null)
     }
+  }
+
+  // Wrapper used by menu cards + top sellers row. Surfaces an error toast
+  // if no mesa is open so the user is never confused about why nothing happened.
+  const addServiceToTicketWithFlow = async (svc) => {
+    if (!activeTicket) {
+      setError('Selecciona una mesa primero.')
+      return
+    }
+    return addServiceToTicket(svc)
   }
 
   const addServiceToTicket = async (svc) => {
@@ -608,6 +908,28 @@ export default function RestaurantPOS() {
     } catch (e) {
       console.error(e)
       setError(e.message || 'Error enviando a cocina')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // Mark mesa as "a cuenta" — server sets status='acuenta' + bill_requested_at=now().
+  // We mirror locally so the mesa card flips amber + the cart button hides immediately.
+  const handleRequestBill = async () => {
+    if (!activeTicket?.mesa?.id) return
+    setBusy('Pidiendo cuenta...')
+    try {
+      await api.mesas.requestBill(activeTicket.mesa.id)
+      const requestedAt = new Date().toISOString()
+      setMesas(prev => prev.map(m =>
+        m.id === activeTicket.mesa.id
+          ? { ...m, status: 'acuenta', bill_requested_at: requestedAt }
+          : m
+      ))
+      setActiveTicket(t => t ? { ...t, mesa: { ...t.mesa, status: 'acuenta', bill_requested_at: requestedAt } } : t)
+    } catch (e) {
+      console.error('[RestaurantPOS] requestBill failed', e)
+      setError(e?.message || 'Error al pedir cuenta')
     } finally {
       setBusy(null)
     }
@@ -725,6 +1047,7 @@ export default function RestaurantPOS() {
         guests: null,
         waiter_empleado_id: null,
         seated_at: null,
+        bill_requested_at: null,
       })
     } catch (e) {
       console.error('[RestaurantPOS] post-cobro cleanup failed', e)
@@ -780,6 +1103,7 @@ export default function RestaurantPOS() {
         guests: null,
         waiter_empleado_id: null,
         seated_at: null,
+        bill_requested_at: null,
       })
       setActiveTicket(null)
       await reload()
@@ -808,296 +1132,163 @@ export default function RestaurantPOS() {
     : null
 
   const elapsedTicketMin = activeTicket ? elapsedMinutes(activeTicket.startedAt, now) : 0
-  const activeCourseGroup = courseGroups[courseFilter] || []
+
+  // Hybrid → Venta Directa cart handoff via localStorage.
+  const handleHybridConvert = () => {
+    if (!activeTicket?.items?.length) return
+    const payload = {
+      items: activeTicket.items.map(it => ({
+        service_id: it.service_id,
+        service_supabase_id: it.service_supabase_id,
+        name: it.name,
+        price: Number(it.price) + (it.modifiers || []).reduce((x, m) => x + Number(m.price_delta || 0), 0),
+        qty: it.qty,
+      })),
+      from_mesa_id: activeTicket.mesa?.id || null,
+      from_mesa_supabase_id: activeTicket.mesa?.supabase_id || null,
+      from_ticket_supabase_id: activeTicket.supabase_id || null,
+      note: activeTicket.mesa ? `Convertido de Mesa ${activeTicket.mesa.name}` : '',
+    }
+    try {
+      window.localStorage.setItem('tx_hybrid_convert_cart', JSON.stringify(payload))
+      window.localStorage.setItem('tx_hybrid_pos_mode', 'directa')
+      window.dispatchEvent(new CustomEvent('tx_hybrid_mode_change', { detail: 'directa' }))
+    } catch {}
+  }
+
+  // Total per mesa for the grid card. Live ticket total wins for the active mesa.
+  const totalForMesa = (m) => {
+    if (activeTicket?.mesa?.id === m.id) return ticketSubtotal
+    return Number(m.active_ticket_total ?? m.current_ticket_total ?? 0)
+  }
 
   return (
-    <div className="h-full flex flex-col bg-black text-white">
-      {/* Error banner */}
+    <div className="h-full grid grid-cols-1 lg:grid-cols-[1fr_380px] bg-slate-50 dark:bg-black min-h-0">
+      {/* Error toast */}
       {error && (
-        <div className="m-3 p-3 rounded-xl bg-red-600/15 border border-red-600/40 text-red-300 text-sm flex items-center justify-between gap-3">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[80] max-w-md p-3 rounded-xl bg-[#b3001e] text-white text-sm flex items-center justify-between gap-3 shadow-2xl">
           <span className="flex items-center gap-2"><AlertCircle size={16} /> {error}</span>
-          <button onClick={() => setError(null)} className="text-red-300/70 hover:text-white"><X size={16} /></button>
+          <button onClick={() => setError(null)} className="text-white/80 hover:text-white"><X size={16} /></button>
         </div>
       )}
 
       {busy && (
-        <div className="fixed top-4 right-4 z-[70] bg-zinc-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white/80 flex items-center gap-2 shadow-2xl">
-          <Loader2 size={14} className="animate-spin text-red-500" /> {busy}
+        <div className="fixed top-4 right-4 z-[70] bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-white flex items-center gap-2 shadow-2xl">
+          <Loader2 size={14} className="animate-spin text-[#b3001e]" /> {busy}
         </div>
       )}
 
-      <div className="flex-1 flex min-h-0">
-        {/* LEFT PANE (60%) */}
-        <div className="w-[60%] border-r border-white/10 flex flex-col min-h-0">
-          {!activeTicket ? (
-            <>
-              <div className="px-5 py-4 border-b border-white/10">
-                <div className="text-lg font-bold text-white">Mesas</div>
-                <div className="text-xs text-white/50 mt-0.5">Toca una mesa libre para sentar comensales</div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4">
-                {mesas.length === 0 ? (
-                  <div className="text-center text-white/40 py-12 text-sm">
-                    No hay mesas configuradas todavía.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {mesas.map(m => (
-                      <MesaCompactCard key={m.id} mesa={m} now={now} onClick={() => openMesa(m)} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Ticket header */}
-              <div className="px-5 py-3 border-b border-white/10 flex items-center gap-3">
-                <button
-                  onClick={() => setActiveTicket(null)}
-                  className="w-9 h-9 rounded-lg bg-zinc-900 border border-white/10 hover:border-white/30 text-white/70 hover:text-white flex items-center justify-center"
-                  title="Volver a mesas"
-                >
-                  <ArrowLeft size={16} />
-                </button>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <div className="text-lg font-bold text-white truncate">{activeTicket.mesa.name}</div>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-red-600/15 text-red-400 border-red-600/30">
-                      Ocupada
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-white/60 mt-0.5">
-                    <span className="inline-flex items-center gap-1"><User size={11} /> {waiterName}</span>
-                    <span className="inline-flex items-center gap-1"><Users size={11} /> {activeTicket.guests}</span>
-                    <span className="inline-flex items-center gap-1"><Clock size={11} /> {fmtElapsed(elapsedTicketMin)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Ticket items */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                {activeTicket.items.length === 0 ? (
-                  <div className="text-center text-white/40 py-12 text-sm">
-                    Agrega productos desde el menú →
-                  </div>
-                ) : activeTicket.items.map(it => {
-                  const modSum = (it.modifiers || []).reduce((x, m) => x + Number(m.price_delta || 0), 0)
-                  const lineTotal = (Number(it.price) + modSum) * it.qty
-                  const fired = !!it.kds_fired_at
-                  return (
-                    <div
-                      key={it.local_id}
-                      className={`bg-zinc-900 rounded-xl border p-3 ${fired ? 'border-green-500/30' : 'border-white/5'}`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-white font-semibold truncate">{it.name}</span>
-                            {fired && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/30 uppercase tracking-wider">
-                                Enviado
-                              </span>
-                            )}
-                          </div>
-                          {(it.modifiers || []).length > 0 && (
-                            <div className="mt-1 space-y-0.5">
-                              {it.modifiers.map((m, i) => (
-                                <div key={i} className="text-[11px] text-white/50 pl-2">
-                                  · {m.name}
-                                  {Number(m.price_delta) !== 0 && (
-                                    <span className="ml-1 text-white/40">
-                                      ({Number(m.price_delta) > 0 ? '+' : ''}{fmtRD(Number(m.price_delta))})
-                                    </span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          <div className="text-xs text-white/50 mt-1">
-                            {it.qty} × {fmtRD(Number(it.price) + modSum)}
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-end gap-1 shrink-0">
-                          <div className="text-white font-bold">{fmtRD(lineTotal)}</div>
-                          {!fired && (
-                            <div className="flex items-center gap-1">
-                              <button onClick={() => incQty(it.local_id, -1)} className="w-6 h-6 rounded bg-zinc-950 border border-white/10 hover:border-white/30 text-white/70 flex items-center justify-center">
-                                <Minus size={12} />
-                              </button>
-                              <span className="w-6 text-center text-sm text-white">{it.qty}</span>
-                              <button onClick={() => incQty(it.local_id, 1)} className="w-6 h-6 rounded bg-zinc-950 border border-white/10 hover:border-white/30 text-white/70 flex items-center justify-center">
-                                <Plus size={12} />
-                              </button>
-                              <button onClick={() => removeItem(it.local_id)} className="w-6 h-6 rounded bg-zinc-950 border border-red-600/30 hover:bg-red-600/20 text-red-400 flex items-center justify-center ml-1">
-                                <Trash2 size={12} />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* Footer */}
-              <div className="border-t border-white/10 bg-zinc-950 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-white/60 text-sm">Subtotal</span>
-                  <span className="text-white text-xl font-bold">{fmtRD(ticketSubtotal)}</span>
-                </div>
-
-                {/* Coursing — fire one course at a time */}
-                {unfiredCoursesInTicket.length > 0 && (
-                  <div className="mb-2">
-                    <div className="text-[10px] uppercase tracking-wider text-white/50 mb-1.5 flex items-center gap-1.5">
-                      <ChefHat size={11} /> Firing courses
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {unfiredCoursesInTicket.map(c => {
-                        const Icon = c.icon
-                        return (
-                          <button
-                            key={c.id}
-                            onClick={() => fireToKDS(c.id)}
-                            className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-white/10 hover:border-[#b3001e] text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
-                          >
-                            <Icon size={12} /> {c.label}
-                          </button>
-                        )
-                      })}
-                      <button
-                        onClick={() => fireToKDS(null)}
-                        className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-white/10 hover:border-white/30 text-white/70 text-xs font-medium flex items-center gap-1.5"
-                      >
-                        Todo
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => fireToKDS(null)}
-                    disabled={!hasUnfiredItems}
-                    className="py-3 rounded-xl bg-zinc-900 border border-white/10 hover:border-white/30 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <ChefHat size={16} /> Enviar todo
-                  </button>
-                  <button
-                    onClick={openCobroFlow}
-                    disabled={activeTicket.items.length === 0}
-                    className="py-3 rounded-xl bg-[#b3001e] hover:bg-red-700 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <CreditCard size={16} /> Cobrar
-                  </button>
-                </div>
-                {/* Cross-mode conversion — hybrid vertical only. Moves the
-                    current mesa's lines into the Venta Directa cart (takeout)
-                    via localStorage so no items are lost in the switch. */}
-                <button
-                  onClick={() => {
-                    if (!activeTicket?.items?.length) return
-                    const payload = {
-                      items: activeTicket.items.map(it => ({
-                        service_id: it.service_id,
-                        service_supabase_id: it.service_supabase_id,
-                        name: it.name,
-                        price: Number(it.price) + (it.modifiers || []).reduce((x, m) => x + Number(m.price_delta || 0), 0),
-                        qty: it.qty,
-                      })),
-                      from_mesa_id: activeTicket.mesa?.id || null,
-                      from_mesa_supabase_id: activeTicket.mesa?.supabase_id || null,
-                      from_ticket_supabase_id: activeTicket.supabase_id || null,
-                      note: activeTicket.mesa ? `Convertido de Mesa ${activeTicket.mesa.name}` : '',
-                    }
-                    try {
-                      window.localStorage.setItem('tx_hybrid_convert_cart', JSON.stringify(payload))
-                      window.localStorage.setItem('tx_hybrid_pos_mode', 'directa')
-                      window.dispatchEvent(new CustomEvent('tx_hybrid_mode_change', { detail: 'directa' }))
-                    } catch {}
-                  }}
-                  disabled={!activeTicket?.items?.length}
-                  className="mt-2 w-full py-2 rounded-lg bg-transparent border border-white/15 hover:border-[#b3001e] text-white/70 hover:text-white text-[11px] font-semibold transition-colors disabled:opacity-40"
-                >
-                  Convertir a Venta Directa (Takeout)
-                </button>
-              </div>
-            </>
-          )}
+      {/* MAIN PANE — mesas + search + top sellers + menu */}
+      <div className="overflow-y-auto p-5 lg:p-7 min-h-0">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-12 h-12 rounded-xl bg-[#b3001e]/10 grid place-items-center">
+            <Utensils className="text-[#b3001e]" size={20} />
+          </div>
+          <div>
+            <h1 className="text-2xl lg:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Restaurante</h1>
+            <p className="text-xs text-slate-500 dark:text-white/50 mt-0.5">{ocupadasCount}/{mesas.length} mesas activas</p>
+          </div>
         </div>
 
-        {/* RIGHT PANE (40%) — Menu */}
-        <div className="w-[40%] flex flex-col min-h-0">
-          <div className="px-4 py-3 border-b border-white/10">
-            <div className="text-sm font-bold text-white mb-2">Menú</div>
-            <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
-              {availableCourses.map(c => {
-                const Icon = c.icon
-                const active = courseFilter === c.id
-                return (
-                  <button
-                    key={c.id}
-                    onClick={() => setCourseFilter(c.id)}
-                    className={`shrink-0 px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                      active
-                        ? 'bg-red-600 border-red-500 text-white'
-                        : 'bg-zinc-900 border-white/10 text-white/60 hover:border-white/30'
-                    }`}
-                  >
-                    <Icon size={13} /> {c.label}
-                  </button>
-                )
-              })}
+        {/* Salón */}
+        <div className="text-[11px] font-extrabold tracking-[2px] text-slate-400 dark:text-white/40 mb-3 uppercase">Salón</div>
+        {mesas.length === 0 ? (
+          <div className="text-center text-slate-400 dark:text-white/40 py-8 text-sm mb-7">
+            No hay mesas configuradas todavía.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-7">
+            {mesas.map(m => (
+              <MesaCard
+                key={m.id}
+                mesa={m}
+                now={now}
+                active={activeTicket?.mesa?.id === m.id}
+                total={totalForMesa(m)}
+                onClick={() => openMesa(m)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Menú */}
+        <div className="text-[11px] font-extrabold tracking-[2px] text-slate-400 dark:text-white/40 mb-3 uppercase">Menú</div>
+
+        {/* Search */}
+        <div className="relative mb-4">
+          <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Buscar plato, bebida o categoría..."
+            className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-[#b3001e]"
+            autoComplete="off"
+            spellCheck="false"
+          />
+        </div>
+
+        {/* Más vendidos */}
+        {!searchQuery.trim() && topSellers.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto pb-3 mb-5">
+            <div className="text-[10px] font-extrabold tracking-[1.5px] text-[#b3001e] uppercase py-2 pr-3 self-center whitespace-nowrap flex items-center gap-1.5">
+              <Star size={12} fill="currentColor" /> Más vendidos
             </div>
+            {topSellers.map((s, i) => (
+              <button
+                key={s.id}
+                onClick={() => addServiceToTicketWithFlow(s)}
+                className="group flex-none min-w-[140px] px-4 py-2.5 rounded-xl border-2 border-[#b3001e] bg-white dark:bg-white/5 text-slate-900 dark:text-white text-left hover:bg-[#b3001e] hover:text-white transition-all"
+              >
+                <span className="inline-block text-[9px] font-extrabold tracking-[1px] px-1.5 py-0.5 rounded bg-[#b3001e] text-white group-hover:bg-white group-hover:text-[#b3001e] mb-1.5">
+                  #{i + 1}
+                </span>
+                <div className="text-[13px] font-bold leading-tight mb-1 line-clamp-2">{s.name}</div>
+                <div className="text-[13px] font-semibold opacity-70">{fmtRD(Number(s.price || 0))}</div>
+              </button>
+            ))}
           </div>
-          <div className="flex-1 overflow-y-auto p-3">
-            {!activeTicket ? (
-              <div className="text-center text-white/40 py-12 text-sm px-4">
-                Selecciona una mesa para comenzar a ordenar.
-              </div>
-            ) : activeCourseGroup.length === 0 ? (
-              <div className="text-center text-white/40 py-12 text-sm">
-                Sin productos en esta categoría.
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                {activeCourseGroup.map(svc => {
-                  const hh = isHappyHourActive(svc, { enabled: happyHourEnabled })
-                  const base = Number(svc.price || 0)
-                  const eff  = effectivePrice(svc, { enabled: happyHourEnabled })
-                  return (
-                    <button
-                      key={svc.id}
-                      onClick={() => addServiceToTicket(svc)}
-                      className={`bg-zinc-900 rounded-xl border p-3 text-left transition-colors ${
-                        hh ? 'border-[#b3001e]/60 hover:border-[#b3001e]' : 'border-white/5 hover:border-red-500/50'
-                      }`}
-                    >
-                      <div className="text-sm font-semibold text-white line-clamp-2">{svc.name}</div>
-                      <div className="mt-1 flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          {hh ? (
-                            <div className="flex items-baseline gap-1.5">
-                              <span className="text-[#b3001e] font-bold text-sm">{fmtRD(eff)}</span>
-                              <span className="text-[10px] text-white/40 line-through">{fmtRD(base)}</span>
-                            </div>
-                          ) : (
-                            <span className="text-red-400 font-bold text-sm">{fmtRD(base)}</span>
-                          )}
-                          {hh && <div className="text-[9px] uppercase tracking-wider text-[#b3001e] font-bold mt-0.5">Happy Hour</div>}
-                        </div>
-                        <Plus size={14} className="text-white/40 shrink-0" />
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
+        )}
+
+        {/* Menu grid */}
+        {filteredServices.length === 0 ? (
+          <div className="text-center py-12 text-sm text-slate-400 dark:text-white/40">
+            {searchQuery.trim() ? `Sin coincidencias para "${searchQuery}"` : 'No hay productos en el menú.'}
           </div>
-        </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {filteredServices.map(svc => (
+              <MenuItemCard
+                key={svc.id}
+                svc={svc}
+                happyHourEnabled={happyHourEnabled}
+                onClick={() => addServiceToTicketWithFlow(svc)}
+              />
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* CART SIDEBAR — always visible on lg+, stacks below on mobile */}
+      <CartSidebar
+        activeTicket={activeTicket}
+        ticketSubtotal={ticketSubtotal}
+        hasUnfiredItems={hasUnfiredItems}
+        unfiredCoursesInTicket={unfiredCoursesInTicket}
+        waiterName={waiterName}
+        elapsedTicketMin={elapsedTicketMin}
+        isHybrid={isHybrid}
+        onClose={() => setActiveTicket(null)}
+        onIncQty={incQty}
+        onRemoveItem={removeItem}
+        onFireToKDS={fireToKDS}
+        onCobrar={openCobroFlow}
+        onSplit={() => setSplitModal({ total: ticketSubtotal })}
+        onSplitByItem={() => setSplitItemModal({ total: ticketSubtotal })}
+        onHybridConvert={handleHybridConvert}
+        onRequestBill={handleRequestBill}
+      />
 
       {/* Modals */}
       <SeatPromptModal

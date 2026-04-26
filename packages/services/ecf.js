@@ -214,23 +214,65 @@ function buildItems(items) {
   }
 }
 
-// Standard 18% ITBIS totals
+// Standard 18% ITBIS totals.
+// v2.16.2 (Facturación tier H2/H3): if `t.gravado18 / gravado16 / gravado0 /
+// exento / montoDescuentoTotal` are present we emit the per-tasa breakdown
+// DGII expects when an invoice mixes rates or carries a discount. When they
+// are absent we fall back to the original 18%-only shape so every other
+// vertical / payload site remains untouched.
 function buildTotales18(t) {
-  return {
-    MontoGravadoTotal: Number(t.subtotal).toFixed(2),
-    MontoGravadoI1:    Number(t.subtotal).toFixed(2),
-    ITBIS1:            '18',
-    TotalITBIS:        Number(t.itbis).toFixed(2),
-    TotalITBIS1:       Number(t.itbis).toFixed(2),
-    MontoTotal:        Number(t.total).toFixed(2),
+  const hasSplit = ['gravado18','gravado16','gravado0','exento','montoDescuentoTotal']
+    .some(k => t[k] !== undefined && t[k] !== null)
+  if (!hasSplit) {
+    return {
+      MontoGravadoTotal: Number(t.subtotal).toFixed(2),
+      MontoGravadoI1:    Number(t.subtotal).toFixed(2),
+      ITBIS1:            '18',
+      TotalITBIS:        Number(t.itbis).toFixed(2),
+      TotalITBIS1:       Number(t.itbis).toFixed(2),
+      MontoTotal:        Number(t.total).toFixed(2),
+    }
   }
+  const g18 = Number(t.gravado18 || 0)
+  const g16 = Number(t.gravado16 || 0)
+  const g0  = Number(t.gravado0  || 0)
+  const ex  = Number(t.exento    || 0)
+  const i18 = Number(t.itbis18   || 0)
+  const i16 = Number(t.itbis16   || 0)
+  const totalGravado = g18 + g16 + g0
+  const totalItbis   = i18 + i16
+  const result = {}
+  if (totalGravado > 0) result.MontoGravadoTotal = totalGravado.toFixed(2)
+  if (g18 > 0) { result.MontoGravadoI1 = g18.toFixed(2); result.ITBIS1 = '18' }
+  if (g16 > 0) { result.MontoGravadoI2 = g16.toFixed(2); result.ITBIS2 = '16' }
+  if (g0  > 0) { result.MontoGravadoI3 = g0.toFixed(2);  result.ITBIS3 = '0'  }
+  if (ex  > 0)  result.MontoExento = ex.toFixed(2)
+  if (Number(t.montoDescuentoTotal || 0) > 0) result.MontoTotalDescuento = Number(t.montoDescuentoTotal).toFixed(2)
+  if (totalItbis > 0) result.TotalITBIS = totalItbis.toFixed(2)
+  if (i18 > 0) result.TotalITBIS1 = i18.toFixed(2)
+  if (i16 > 0) result.TotalITBIS2 = i16.toFixed(2)
+  result.MontoTotal = Number(t.total).toFixed(2)
+  return result
 }
 
 // ── Payload builders per e-CF type ────────────────────────────────────────────
 
+// M2 — Build OtraMoneda block per DGII spec when invoice was issued in a
+// non-DOP currency. Total in DOP stays canonical; this block adds the
+// foreign-currency snapshot + rate so the buyer sees the original USD totals.
+function buildOtraMoneda(om) {
+  if (!om?.tipoMoneda || om.tipoMoneda === 'DOP') return null
+  return {
+    TipoMoneda:           String(om.tipoMoneda).toUpperCase(),
+    TipoCambio:           Number(om.tipoCambio || 0).toFixed(4),
+    MontoTotalOtraMoneda: Number(om.montoTotalOtraMoneda || 0).toFixed(2),
+  }
+}
+
 function buildE31(d) {
   const comprador = buildComprador(d.comprador)
   if (!comprador) throw new Error('E31 requiere RNC del comprador')
+  const otraMoneda = buildOtraMoneda(d.otraMoneda)
   return {
     ECF: {
       Encabezado: {
@@ -246,6 +288,7 @@ function buildE31(d) {
         Emisor:    buildEmisor(d.emisor),
         Comprador: comprador,
         Totales:   buildTotales18(d.totales),
+        ...(otraMoneda ? { OtraMoneda: otraMoneda } : {}),
       },
       DetallesItems: buildItems(d.items),
     },
@@ -255,6 +298,7 @@ function buildE31(d) {
 function buildE32(d) {
   const comprador = buildComprador(d.comprador)
   const above250k = Number(d.totales?.total) >= 250000
+  const otraMoneda = buildOtraMoneda(d.otraMoneda)
   return {
     ECF: {
       Encabezado: {
@@ -270,6 +314,7 @@ function buildE32(d) {
         Emisor: buildEmisor(d.emisor),
         ...(above250k && comprador ? { Comprador: comprador } : {}),
         Totales: buildTotales18(d.totales),
+        ...(otraMoneda ? { OtraMoneda: otraMoneda } : {}),
       },
       DetallesItems: buildItems(d.items),
     },

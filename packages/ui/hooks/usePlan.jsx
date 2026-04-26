@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react'
 import { useAPI } from '../context/DataContext'
 import { useLicense } from '../context/LicenseContext'
+import { setOfflineQueuePlanGate } from '../../services/offline-queue.js'
 
 // v2.3.30 re-bucket per plan-gate audit:
 //  - pos/queue were ungated → now gated at Pro (closes Facturacion exploit)
@@ -13,12 +14,26 @@ import { useLicense } from '../context/LicenseContext'
 const PLAN_FEATURES = {
   facturacion: [
     'invoicing', 'ecf', 'dgii', 'clients', 'reports',
+    // v2.16.2 — Facturación tier critical-fix sprint:
+    //  - credit_notes: E33/E34 issuance is mandatory for any DGII-compliant
+    //    billing-only product. Reuses existing /credit-notes screen.
+    //  - dgii_606_607: monthly TXT export is what every DR contador asks for;
+    //    a billing tool without it is unsellable.
+    //  - commissions: InvoiceCreate writes seller_commissions / cajero_commissions
+    //    inline. Either gate the picker or unlock the feature — we unlock so
+    //    multi-cashier invoicing shops work out of the box.
+    'credit_notes', 'dgii_606_607', 'commissions',
     // Facturacion is WEB-ONLY for e-CF issuance. No POS/queue access.
   ],
   pro: [
     'pos', 'queue', 'clients', 'credits', 'reports',
     'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory',
     'invoicing', 'nomina_basic',
+    // v2.16.1 — salon free tier
+    'salon_preferred_stylist',
+    // v2.16.2 Sprint 2E — concesionario_resumen tile lives at every tier so an
+    // owner trialing the dealership vertical sees the dashboard immediately.
+    'concesionario_resumen',
   ],
   pro_plus: [
     'pos', 'queue', 'clients', 'credits', 'reports',
@@ -27,8 +42,21 @@ const PLAN_FEATURES = {
     'whatsapp_receipts', 'whatsapp_automation',
     'restaurant_mode', 'work_orders', 'appointments', 'service_bays',
     'loans', 'vehicles', 'invoicing', 'nomina_basic',
+    'dealership',
     // v2.7.1
     'loyalty',
+    // v2.16.1 — appointments + stylist_schedules promoted from Pro MAX
+    'stylist_schedules',
+    // v2.16.1 — salon Pro PLUS bundle
+    'salon_preferred_stylist', 'salon_walk_in_mode', 'salon_memberships',
+    'salon_public_booking', 'salon_dashboard', 'salon_whatsapp_reminders',
+    // v2.16.0 — Taller Mecánico hardening
+    'mechanic_photos', 'mechanic_dashboard', 'mechanic_productivity',
+    'parts_ordering', 'mechanic_pickup_delivery', 'mechanic_intervals_alerts',
+    // v2.16.2 Sprint 2E — concesionario feature keys (Pro PLUS+)
+    'vehicle_inventory', 'sales_pipeline', 'test_drives', 'deal_builder',
+    'matriculas', 'reservations', 'warranties', 'preapprovals',
+    'concesionario_resumen', 'concesionario_reports',
   ],
   pro_max: [
     'pos', 'queue', 'clients', 'credits', 'reports',
@@ -41,8 +69,22 @@ const PLAN_FEATURES = {
     'loans', 'vehicles',
     'pawn_items', 'loan_analytics', 'vehicle_history', 'stylist_schedules',
     'invoicing',
+    'dealership', 'dealership_crm', 'dealership_docs',
     // v2.7.1
     'loyalty', 'offline_mode',
+    // v2.16.1 — salon Pro PLUS bundle (inherited) + Pro MAX exclusives
+    'salon_preferred_stylist', 'salon_walk_in_mode', 'salon_memberships',
+    'salon_public_booking', 'salon_dashboard', 'salon_whatsapp_reminders',
+    'salon_no_show_deposit', 'salon_offline_whatsapp_queue',
+    // v2.16.0 — Taller Mecánico hardening (inherited from Pro PLUS) + Pro MAX exclusive
+    'mechanic_photos', 'mechanic_dashboard', 'mechanic_productivity',
+    'parts_ordering', 'mechanic_pickup_delivery', 'mechanic_intervals_alerts',
+    'insurance_batching',
+    // v2.16.2 Sprint 2E — concesionario keys inherited + Pro MAX exclusives
+    'vehicle_inventory', 'sales_pipeline', 'test_drives', 'deal_builder',
+    'matriculas', 'reservations', 'warranties', 'preapprovals',
+    'concesionario_resumen', 'concesionario_reports',
+    'intrant_api', 'whatsapp_auto',
   ],
 }
 
@@ -85,6 +127,13 @@ export function PlanProvider({ children }) {
   const features = PLAN_FEATURES[plan] || PLAN_FEATURES.pro
   const hasFeature = useCallback((key) => features.includes(key), [features])
   const displayName = PLAN_DISPLAY[plan] || 'Pro'
+
+  // Bridge plan-gate into the non-React offline-queue module so its
+  // online/offline drain hooks can short-circuit when the feature is off.
+  // (Phase 4d — salon_offline_whatsapp_queue.)
+  useEffect(() => {
+    setOfflineQueuePlanGate((key) => features.includes(key))
+  }, [features])
 
   const value = { plan, displayName, features, hasFeature, loading }
 
