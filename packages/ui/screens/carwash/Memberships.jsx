@@ -60,18 +60,29 @@ export default function Memberships() {
   useEffect(() => { load() }, [])
 
   async function saveMembership(form) {
+    // FIX 5.3 — keep the form open on failure so the cashier can correct &
+    // retry. ALWAYS reload after either path so a partial server-side
+    // rollback doesn't leave a stale optimistic row in the list.
     try {
       if (editing) {
         await api.memberships.update({ id: editing.id, ...form })
         flash(lang === 'es' ? 'Membresía actualizada' : 'Membership updated')
       } else {
-        await api.memberships.create(form)
+        const res = await api.memberships.create(form)
+        if (!res || (!res.id && !res.supabase_id)) {
+          throw new Error(lang === 'es'
+            ? 'La membresía no fue creada — intenta de nuevo'
+            : 'Membership was not created — please retry')
+        }
         flash(lang === 'es' ? 'Membresía creada' : 'Membership created')
       }
       setShowForm(false); setEditing(null)
-      await load()
     } catch (e) {
-      flash(`Error: ${e.message}`)
+      flash(lang === 'es'
+        ? `Error · operación revertida: ${e.message}`
+        : `Error · operation rolled back: ${e.message}`)
+    } finally {
+      await load()
     }
   }
 

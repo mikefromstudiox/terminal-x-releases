@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import CobrarModal from '../../components/CobrarModal'
+import PaymentErrorBoundary from '../../components/PaymentErrorBoundary'
 import TipEntryModal from './TipEntryModal'
 import SplitBillModal from './SplitBillModal'
 import SplitByItemModal from './SplitByItemModal'
@@ -1337,11 +1338,13 @@ export default function RestaurantPOS() {
       )}
 
       {cobrarModal && (
-        <CobrarModal
-          ticket={cobrarModal.ticket}
-          onClose={() => setCobrarModal(null)}
-          onConfirm={handleTicketPaid}
-        />
+        <PaymentErrorBoundary onClose={() => setCobrarModal(null)}>
+          <CobrarModal
+            ticket={cobrarModal.ticket}
+            onClose={() => setCobrarModal(null)}
+            onConfirm={handleTicketPaid}
+          />
+        </PaymentErrorBoundary>
       )}
 
       {splitModal && (

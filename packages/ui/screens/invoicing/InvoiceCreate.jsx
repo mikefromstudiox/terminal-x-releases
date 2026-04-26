@@ -697,7 +697,6 @@ export default function InvoiceCreate() {
       subtotal: success.subtotal,
       itbis: success.itbis,
       ley: success.ley,
-      descuento: 0,
       formaPago: PAYMENT_METHODS.find(p => p.key === paymentMethod)?.es || paymentMethod,
       services: items.filter(i => i.descripcion.trim()).map(i => {
         const m = lineMath(i, itbisRate)
