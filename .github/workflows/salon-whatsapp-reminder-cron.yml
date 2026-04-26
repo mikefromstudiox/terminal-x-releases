@@ -1,0 +1,69 @@
+# salon-whatsapp-reminder-cron.yml
+#
+# Drives the salon vertical's WhatsApp reminder pipeline:
+#   - 24h-before-appointment reminders
+#   - 2h-before-appointment reminders
+#   - confirm/manual sends staged via the renderer's `salon-whatsapp-send-now`
+#
+# Calls the panel.js cron handler at /api/panel?action=salon-whatsapp-reminder-tick
+# with the `x-cron-secret` header. The endpoint scans `appointment_reminders`
+# for rows with status='pending' AND fire_at<=now(), then UltraMsg-sends each
+# in batches of 50 (rate limit is per UltraMsg account, not per cron run).
+#
+# Idempotent: rows are stamped 'sent' on success, 'failed' on transient error
+# (with attempts++ and exponential nextAttemptAt backoff), or 'pending' with
+# a 24h fire_at advance when client.phone is missing.
+#
+# Why 10-min cadence: salons rarely book at sub-15-min granularity; 10 min
+# guarantees a 24h reminder fires within 10 min of the target window. The
+# /api/panel cron path also handles the deferred queue from the offline
+# WhatsApp drain, so missed runs are caught up automatically on the next tick.
+
+name: Salon WhatsApp Reminder Cron
+
+on:
+  schedule:
+    # Every 10 minutes (UTC). Vercel cron is also an option, but a GitHub
+    # Actions cron keeps the secret under our control + lets us inspect runs
+    # in the Actions tab. Vercel has its own scheduler quota tier; this path
+    # is free under our existing usage.
+    - cron: '*/10 * * * *'
+  # Manual trigger — useful for catching up after an outage.
+  workflow_dispatch:
+
+# Concurrency: cancel in-progress runs if a new schedule fires before the
+# current curl returns. Avoids piling up stale ticks if the endpoint is slow.
+concurrency:
+  group: salon-whatsapp-reminder-cron
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Hit cron endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret missing on this repo"
+            exit 1
+          fi
+          response=$(curl -sS -w "\n%{http_code}" \
+            -X POST "https://terminalxpos.com/api/panel?action=salon-whatsapp-reminder-tick" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: $CRON_SECRET" \
+            --data '{}' \
+            --max-time 60)
+          http_code=$(printf '%s\n' "$response" | tail -n1)
+          body=$(printf '%s\n' "$response" | sed '$d')
+          echo "HTTP $http_code"
+          echo "$body"
+          # 200 = success (any processed/skipped/failed counts are inside body).
+          # 401/503 = secret mismatch or fail-closed gate — fail the run loudly.
+          # Anything else = surface and fail.
+          if [ "$http_code" != "200" ]; then
+            echo "::error::Cron tick failed with HTTP $http_code"
+            exit 1
+          fi
