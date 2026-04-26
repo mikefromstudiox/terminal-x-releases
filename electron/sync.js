@@ -92,8 +92,16 @@ function _jwtIsExpiringSoon(jwt) {
   }
 }
 
+let _jwtHookMissingWarned = false
 async function _maybeRefreshJwt() {
-  if (!_userJwt || typeof _refreshUserJwt !== 'function') return
+  if (!_userJwt) return
+  if (typeof _refreshUserJwt !== 'function') {
+    if (!_jwtHookMissingWarned && _jwtIsExpiringSoon(_userJwt)) {
+      _jwtHookMissingWarned = true
+      try { log.error('[sync] JWT is set but setJwtRefreshHook() was never installed — sync will start failing with 401 once the token expires. Wire sync.setJwtRefreshHook() in main.js.') } catch {}
+    }
+    return
+  }
   if (!_jwtIsExpiringSoon(_userJwt)) return
   try { await _refreshUserJwt() } catch (e) {
     try { log.warn('[sync] JWT refresh failed:', e.message) } catch {}
@@ -2030,6 +2038,129 @@ function init(db, { supabaseUrl, supabaseKey }) {
 // -- Supabase REST upsert -----------------------------------------------------
 const SYNC_TIMEOUT_MS = 30_000
 
+// PG17 server-side MERGE … RETURNING upsert path (FIX-PG17-5).
+// Toggled by app_settings.sync_use_merge_v17 ('1' / 'true' = ON, anything
+// else = legacy PostgREST upsert). Default: OFF. Cached for 5s so flipping
+// the flag takes effect on the next sync cycle without a restart.
+const SYNC_USE_MERGE_V17_KEY = 'sync_use_merge_v17'
+const APPEND_ONLY_TABLES = new Set(['activity_log'])
+// `users` is a VIEW on `staff` — MERGE on the view requires INSTEAD OF
+// triggers; not worth the complexity. Stay on legacy PostgREST path.
+const MERGE_INELIGIBLE = new Set(['users'])
+let _mergeFlagCache = null
+let _mergeFlagCacheAt = 0
+let _mergeFirstUseLogged = false
+
+function _mergeFlagEnabled() {
+  if (_mergeFlagCacheAt && (Date.now() - _mergeFlagCacheAt < 5000)) return _mergeFlagCache
+  let v = false
+  try {
+    const row = _db.rawPrepare(
+      "SELECT value FROM app_settings WHERE key = ? AND (device_hwid IS NULL OR device_hwid = '') LIMIT 1"
+    ).get(SYNC_USE_MERGE_V17_KEY)
+    const raw = (row?.value ?? '').toString().toLowerCase()
+    v = (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on')
+  } catch {}
+  _mergeFlagCache = v
+  _mergeFlagCacheAt = Date.now()
+  return v
+}
+
+async function _logMergeFirstUse(table) {
+  if (_mergeFirstUseLogged) return
+  _mergeFirstUseLogged = true
+  try {
+    const bizId = await resolveBusinessId()
+    if (!bizId) return
+    // Best-effort safety log: route through the legacy POST so it lands even
+    // if the MERGE path itself has any latent bug.
+    const supabase_id = require('crypto').randomUUID()
+    const body = JSON.stringify([{
+      supabase_id,
+      business_id: bizId,
+      event_type: 'sync_merge_v17_enabled',
+      severity: 'info',
+      target_type: 'system',
+      metadata: { table, ts: new Date().toISOString() },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }])
+    await new Promise((resolve) => {
+      const reqUrl = new URL(`${_url}/rest/v1/activity_log?on_conflict=business_id,supabase_id`)
+      const req = https.request({
+        hostname: reqUrl.hostname,
+        path: reqUrl.pathname + reqUrl.search,
+        method: 'POST',
+        headers: _authHeaders({
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=ignore-duplicates,return=minimal',
+          'Content-Length': Buffer.byteLength(body),
+        }),
+      }, res => { res.on('data', () => {}); res.on('end', resolve) })
+      req.on('error', () => resolve())
+      req.setTimeout(5000, () => { try { req.destroy() } catch {}; resolve() })
+      req.write(body); req.end()
+    })
+  } catch (e) { log.warn('[sync] merge first-use log failed:', e.message) }
+}
+
+async function pgMergeUpsert(table, cleanedRows) {
+  // Server-side MERGE … RETURNING via the sync_merge_upsert RPC.
+  // Caller is responsible for shape-cleaning rows (see supabaseUpsert).
+  if (!cleanedRows.length) return { ok: true, count: 0, inserted: 0, updated: 0 }
+  const bizId = await resolveBusinessId()
+  if (!bizId) throw new Error('pgMergeUpsert: no business_id resolved')
+
+  // Strip business_id from rows — RPC binds it from the parameter to prevent
+  // cross-tenant writes. JS layer never sets it on individual rows anyway.
+  const safeRows = cleanedRows.map(r => {
+    if (!('business_id' in r)) return r
+    const { business_id, ...rest } = r
+    return rest
+  })
+
+  const payload = JSON.stringify({
+    p_table: table,
+    p_rows: safeRows,
+    p_business_id: bizId,
+    p_append_only: APPEND_ONLY_TABLES.has(table),
+  })
+
+  return await new Promise((resolve, reject) => {
+    const reqUrl = new URL(`${_url}/rest/v1/rpc/sync_merge_upsert`)
+    const req = https.request({
+      hostname: reqUrl.hostname,
+      path: reqUrl.pathname,
+      method: 'POST',
+      headers: _authHeaders({
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+      }),
+    }, response => {
+      let data = ''
+      response.on('data', chunk => { data += chunk.toString() })
+      response.on('end', () => {
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          let parsed = null; try { parsed = JSON.parse(data) } catch {}
+          resolve({
+            ok: true,
+            count: parsed?.count ?? safeRows.length,
+            inserted: parsed?.inserted ?? 0,
+            updated: parsed?.updated ?? 0,
+          })
+        } else {
+          reject(new Error(`MERGE ${table} ${response.statusCode}: ${data}`))
+        }
+      })
+    })
+    req.on('error', reject)
+    req.setTimeout(SYNC_TIMEOUT_MS, () => {
+      req.destroy(new Error(`MERGE ${table} timed out after ${SYNC_TIMEOUT_MS / 1000}s`))
+    })
+    req.write(payload); req.end()
+  })
+}
+
 async function supabaseUpsert(table, rows) {
   if (!rows.length) return { ok: true, count: 0 }
 
@@ -2047,6 +2178,20 @@ async function supabaseUpsert(table, rows) {
     return out
   })
 
+  // PG17 MERGE path — feature-flagged, table-allowlisted via RPC.
+  // Falls through to legacy PostgREST on any error so a bad row never wedges
+  // sync. Per-row 23505/409 retry semantics are preserved by the legacy path.
+  if (_mergeFlagEnabled() && !MERGE_INELIGIBLE.has(table)) {
+    try {
+      const result = await pgMergeUpsert(table, cleaned)
+      _logMergeFirstUse(table)  // fire-and-forget on first success
+      return result
+    } catch (e) {
+      log.warn(`[sync] MERGE path failed for ${table}, falling back to legacy: ${e.message}`)
+      // fall through to legacy below
+    }
+  }
+
   // Supabase has real UNIQUE (business_id, supabase_id) constraints on every
   // sync table (created 2026-04-11 — previously these were partial indexes
   // which PostgREST can't use as on_conflict targets). Clean upsert works.
@@ -2056,7 +2201,6 @@ async function supabaseUpsert(table, rows) {
   // exists in Supabase, PostgREST issues an UPDATE → 400. Swap to
   // ignore-duplicates for the append-only tables so conflicts become no-ops
   // instead of aborts.
-  const APPEND_ONLY_TABLES = new Set(['activity_log'])
   const resolution = APPEND_ONLY_TABLES.has(table) ? 'ignore-duplicates' : 'merge-duplicates'
   const doPost = (payload) => new Promise((resolve, reject) => {
     const reqUrl = new URL(`${_url}/rest/v1/${table}?on_conflict=business_id,supabase_id`)
@@ -3754,6 +3898,19 @@ async function startRealtime() {
     'inventory_counts','inventory_count_items',
     // v2.16.0 — mecánica
     'aseguradoras','suppliers','parts_orders','work_order_photos','insurance_batches',
+    // v2.16.7 — close realtime gap with SYNC_TABLES so cross-device propagation
+    // doesn't wait the full 30-min poll for these entities.
+    'mesas','modificadores','service_modificadores','service_recipe_items',
+    'ticket_item_modificadores','kds_events','restaurant_reservations',
+    'mechanic_commissions','inventory_oversells',
+    'ecf_submissions','ecf_queue','queue_deletions',
+    'loyalty_transactions','loan_schedule','collections_log',
+    'carniceria_corte_categories','inventory_freshness_log','inventory_discards',
+    'recurring_orders','carniceria_scales','promotions','promotion_items',
+    // Concesionario
+    'vehicle_inventory','sales_deals','leads','test_drives',
+    'vehicle_documents','vehicle_titulo','vehicle_reservations',
+    'bank_preapprovals','vehicle_warranties',
   ]
 
   _realtimeChannel = _realtimeClient.channel(`tx-sync-${bizId}`)
