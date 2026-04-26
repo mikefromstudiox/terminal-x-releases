@@ -515,31 +515,77 @@ export function createWebAPI(supabase, businessId) {
   // Web mutations write log rows directly to Supabase; the module-level actor
   // is set via api.activity.setActor(...) from AuthContext on login.
   let _webActor = null
+  // Compose a fully-resolved row from a caller payload. Pulled out so both
+  // the live writer and the fallback drainer build identical Supabase rows.
+  function _buildActivityRow(evt) {
+    const actor = _webActor || {}
+    const nowIso = new Date().toISOString()
+    return {
+      supabase_id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()),
+      business_id: bid,
+      event_type: evt.event_type,
+      severity: evt.severity || 'info',
+      actor_supabase_id: evt.actor_supabase_id || (actor && actor.id && typeof actor.id === 'string' && actor.id.includes('-') ? actor.id : null),
+      actor_name: evt.actor_name || actor.name || null,
+      actor_role: evt.actor_role || actor.role || null,
+      target_type: evt.target_type || null,
+      target_id:   evt.target_id != null ? String(evt.target_id) : null,
+      target_name: evt.target_name || null,
+      amount:      evt.amount != null ? Number(evt.amount) : null,
+      old_value:   evt.old_value != null ? String(evt.old_value) : null,
+      new_value:   evt.new_value != null ? String(evt.new_value) : null,
+      reason:      evt.reason || null,
+      metadata:    evt.metadata || null,
+      created_at:  nowIso,
+      updated_at:  nowIso,
+    }
+  }
+  // Lazy import to avoid pulling `idb` into landing/admin chunks. The promise
+  // resolves to the queue module once on first use and is reused thereafter.
+  let _alqPromise = null
+  function _alq() {
+    if (!_alqPromise) _alqPromise = import('@terminal-x/services/activity-log-queue.js').catch(() => null)
+    return _alqPromise
+  }
+  // The "writer" the queue calls during drain. Wired once on first logActivity
+  // so retries land via the same code path as live writes.
+  async function _writeRowViaSupabase(payload) {
+    const row = _buildActivityRow(payload)
+    const { error } = await supabase.from('activity_log').insert(row)
+    if (error) throw new Error(error.message || 'activity_log insert failed')
+  }
+  let _writerRegistered = false
+  async function _ensureWriter() {
+    if (_writerRegistered) return
+    const mod = await _alq()
+    if (!mod) return
+    try {
+      mod.registerWriter(_writeRowViaSupabase)
+      mod.startAutoDrain({ supabaseInsertFn: _writeRowViaSupabase })
+      _writerRegistered = true
+    } catch {}
+  }
   async function logActivity(evt) {
     if (!evt || !evt.event_type) return
+    // Fire-and-forget: ensure the queue has a writer + drain loop running.
+    _ensureWriter()
     try {
-      const actor = _webActor || {}
-      const nowIso = new Date().toISOString()
-      await supabase.from('activity_log').insert({
-        supabase_id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()),
-        business_id: bid,
-        event_type: evt.event_type,
-        severity: evt.severity || 'info',
-        actor_supabase_id: evt.actor_supabase_id || (actor && actor.id && typeof actor.id === 'string' && actor.id.includes('-') ? actor.id : null),
-        actor_name: evt.actor_name || actor.name || null,
-        actor_role: evt.actor_role || actor.role || null,
-        target_type: evt.target_type || null,
-        target_id:   evt.target_id != null ? String(evt.target_id) : null,
-        target_name: evt.target_name || null,
-        amount:      evt.amount != null ? Number(evt.amount) : null,
-        old_value:   evt.old_value != null ? String(evt.old_value) : null,
-        new_value:   evt.new_value != null ? String(evt.new_value) : null,
-        reason:      evt.reason || null,
-        metadata:    evt.metadata || null,
-        created_at:  nowIso,
-        updated_at:  nowIso,
-      })
-    } catch (e) { console.error('[activity_log web] failed:', e?.message || e) }
+      const { error } = await supabase.from('activity_log').insert(_buildActivityRow(evt))
+      if (error) throw new Error(error.message || 'activity_log insert failed')
+    } catch (e) {
+      // Compliance backbone — never silent-drop. Persist to IDB fallback for
+      // exponential-backoff retry. `critical` severity also re-throws so the
+      // calling UI surfaces a loud failure to the operator.
+      const isCritical = (evt.severity === 'critical')
+      try {
+        const mod = await _alq()
+        if (mod) await mod.enqueueActivity(evt)
+        else console.error('[activity_log web] failed (no queue):', e?.message || e)
+      } catch (qe) {
+        console.error('[activity_log web] enqueue failed:', qe?.message || qe)
+      }
+      if (isCritical) throw e
+    }
   }
 
   // ── Server-side role-hierarchy guard (parity with electron/auth-guard.js) ─

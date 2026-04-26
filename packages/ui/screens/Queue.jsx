@@ -5,6 +5,8 @@ import { useAPI, usePrinterAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import { useQueueActive, useWashers } from '../hooks/useDB'
 import CobrarModal from '../components/CobrarModal'
+import PaymentErrorBoundary from '../components/PaymentErrorBoundary'
+import ManagerAuthGate from '../components/ManagerAuthGate'
 import { printClientReceipt, printWasherConduce } from '@terminal-x/services/printer'
 import { syncTicket } from '@terminal-x/services/supabase'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
@@ -462,6 +464,7 @@ export default function Queue() {
   const [loadingTicket, setLoadingTicket] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [priceChangeModal, setPriceChangeModal] = useState(null)
+  const [deleteAuthFor, setDeleteAuthFor] = useState(null)
 
   // Sync DB data → local state (preserves optimistic updates)
   useEffect(() => {
@@ -484,15 +487,26 @@ export default function Queue() {
     setTimeout(() => setToast(null), 3000)
   }
 
-  async function deleteFromQueue(ticket) {
+  async function deleteFromQueue(ticket, approval = null) {
+    // Owners are exempt server-side; non-owners must scan a Manager Auth Card.
+    if (!approval && user?.role && user.role !== 'owner') {
+      setDeleteConfirm(null)
+      setDeleteAuthFor(ticket)
+      return
+    }
     try {
-      await api.queue.delete({ id: ticket.id, deletedBy: user?.name || user?.username || 'unknown' })
+      await api.queue.delete({
+        id: ticket.id,
+        deletedBy: user?.name || user?.username || 'unknown',
+        mac_jti: approval?.mac_jti || null,
+      })
       setQueue(q => q.filter(t => t.id !== ticket.id))
       flash(`${ticket.ticketNo} · ${lang === 'es' ? 'Eliminado de cola' : 'Removed from queue'}`)
     } catch (err) {
-      flash(lang === 'es' ? 'Error al eliminar' : 'Delete error')
+      flash(err.message || (lang === 'es' ? 'Error al eliminar' : 'Delete error'))
     }
     setDeleteConfirm(null)
+    setDeleteAuthFor(null)
   }
 
   async function cycleStatus(id) {
@@ -1047,6 +1061,23 @@ export default function Queue() {
         </div>
       )}
 
+      {/* Manager auth — required to delete from queue (non-owner) */}
+      {deleteAuthFor && (
+        <ManagerAuthGate
+          action="queue:delete"
+          actionLabel={lang === 'es'
+            ? `Eliminar ${deleteAuthFor.ticketNo} de la cola`
+            : `Remove ${deleteAuthFor.ticketNo} from queue`}
+          context={{
+            target_type: 'ticket',
+            target_id:   deleteAuthFor.id != null ? String(deleteAuthFor.id) : null,
+            target_name: deleteAuthFor.ticketNo,
+          }}
+          onApprove={(approval) => deleteFromQueue(deleteAuthFor, approval)}
+          onCancel={() => setDeleteAuthFor(null)}
+        />
+      )}
+
       {/* Price Change Modal */}
       {priceChangeModal && (
         <PriceChangeModal
@@ -1059,11 +1090,13 @@ export default function Queue() {
 
       {/* Cobrar Modal */}
       {cobrarModal && (
-        <CobrarModal
-          ticket={cobrarModal}
-          onConfirm={handlePaymentConfirm}
-          onClose={() => setCobrarModal(null)}
-        />
+        <PaymentErrorBoundary onClose={() => setCobrarModal(null)}>
+          <CobrarModal
+            ticket={cobrarModal}
+            onConfirm={handlePaymentConfirm}
+            onClose={() => setCobrarModal(null)}
+          />
+        </PaymentErrorBoundary>
       )}
     </div>
   )

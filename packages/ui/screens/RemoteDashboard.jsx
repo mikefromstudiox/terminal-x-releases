@@ -602,6 +602,11 @@ const EVENT_META = {
   vehicle_warranty_claim_added:{ Icon: ClipboardList, color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',           es: 'Reclamo de garantia registrado', en: 'Warranty claim added' },
   preapproval_used:            { Icon: CreditCard, color: 'text-violet-600 bg-violet-50 dark:bg-violet-500/10 dark:text-violet-300', es: 'Pre-aprobacion utilizada',  en: 'Pre-approval used' },
   appraisal_recorded:          { Icon: ReceiptText, color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',             es: 'Tasacion detallada registrada', en: 'Appraisal recorded' },
+  // FIX-C2 — PaymentErrorBoundary catches CobrarModal crashes (critical: cashier UI hung mid-payment)
+  cobrar_modal_crashed:        { Icon: ShieldAlert, color: 'text-white bg-[#b3001e] dark:text-white dark:bg-[#b3001e]',                  es: 'Crash en modal de cobro',     en: 'Payment modal crashed' },
+  // FIX-HIGH-8 — emitted by activity_log fallback queue (web IDB / desktop SQLite)
+  // when an audit row cannot be persisted after 5 retries. Compliance-critical.
+  activity_log_dropped:        { Icon: ShieldX,    color: 'text-white bg-[#b3001e] dark:text-white dark:bg-[#b3001e]',                   es: 'Registro de actividad descartado tras 5 intentos', en: 'Activity log entry dropped after 5 retries' },
 }
 function eventLabel(evt, lang) {
   const m = EVENT_META[evt]

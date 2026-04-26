@@ -9,6 +9,7 @@ import ProductsReport from './reports/ProductsReport'
 import BottleDepositReport from './reports/BottleDepositReport'
 import ConcesionarioCommissionsReport from './reports/ConcesionarioCommissionsReport'
 import InventoryAgingReport from './reports/InventoryAgingReport'
+import TestDriveFunnelReport from './reports/TestDriveFunnelReport'
 
 const TABS = [
   { id: 'daily',      es: 'Diario',     en: 'Daily',       icon: BarChart2  },
@@ -24,6 +25,8 @@ const TABS = [
   { id: 'comisiones_concesionario', es: 'Comisiones Vendedores', en: 'Salesperson Commissions', icon: DollarSign, businessTypes: ['dealership'] },
   // v2.16.5 — Sprint 2D M7 — inventory aging.
   { id: 'aging_concesionario', es: 'Antigüedad Inventario', en: 'Inventory Aging', icon: Clock, businessTypes: ['dealership'] },
+  // v2.16.2 Sprint 2E — test-drive funnel report (dealership-only).
+  { id: 'funnel_concesionario', es: 'Funnel Conversion', en: 'Conversion Funnel', icon: BarChart2, businessTypes: ['dealership'] },
 ]
 
 export default function Reportes() {
@@ -63,6 +66,7 @@ export default function Reportes() {
         {tab === 'comisiones' && <WorkerReport />}
         {tab === 'comisiones_concesionario' && <ConcesionarioCommissionsReport />}
         {tab === 'aging_concesionario' && <InventoryAgingReport />}
+        {tab === 'funnel_concesionario' && <TestDriveFunnelReport />}
       </div>
     </div>
   )

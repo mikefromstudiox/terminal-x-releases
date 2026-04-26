@@ -111,6 +111,43 @@ export async function submitRFCE(signedXml, token, env) {
   return parsed
 }
 
+/**
+ * submitANECF — sends a signed ANECF (Anulación de Rangos) XML to DGII.
+ * Voids unused e-NCF sequence ranges. Uses multipart/form-data per DGII spec.
+ * Endpoint: anulacionrangos/api/operaciones/anularrango
+ *
+ * Mirrors electron/dgii-client.js submitANECF — including the v2.14.32
+ * success-message workaround where DGII returns codigo!=1 with
+ * "anuladas correctamente" message on accepted voids.
+ */
+export async function submitANECF(signedXml, token, env) {
+  const e = ENVIRONMENTS[env]
+  const { body: multipartBody, contentType } = wrapMultipart(signedXml)
+  const res = await httpsRequest({
+    hostname: e.ecf,
+    path: `${e.prefix}/anulacionrangos/api/operaciones/anularrango`,
+    method: 'POST',
+    headers: {
+      'Content-Type': contentType,
+      'Authorization': `Bearer ${token}`,
+      'Content-Length': String(Buffer.byteLength(multipartBody, 'utf8')),
+    },
+    body: multipartBody,
+  })
+  if (res.status === 401) { clearTokenCache(); throw new Error('DGII token expirado') }
+  let parsed
+  try { parsed = JSON.parse(res.body) } catch {
+    throw new Error(`DGII ANECF respuesta inesperada (${res.status}): ${res.body.substring(0, 300)}`)
+  }
+  const msgsJoined = (parsed.mensajes?.join('; ') || parsed.nombre || parsed.mensaje || '').toLowerCase()
+  const isSuccess = /anuladas?\s+correctamente|aceptad[oa]/i.test(msgsJoined)
+  if (!isSuccess && parsed.codigo && parsed.codigo !== '1' && parsed.codigo !== 1) {
+    const msgs = parsed.mensajes?.join('; ') || parsed.nombre || 'Error desconocido'
+    throw new Error(`DGII rechazó anulación: ${msgs}`)
+  }
+  return parsed
+}
+
 export async function checkStatus(trackId, token, env) {
   const e = ENVIRONMENTS[env]
   const res = await httpsRequest({

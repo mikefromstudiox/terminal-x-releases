@@ -18,6 +18,7 @@ import { useAPI, usePrinterAPI } from '../context/DataContext'
 import { useServices, useWashers, useSellers } from '../hooks/useDB'
 import { useRNC } from '../hooks/useRNC'
 import CobrarModal from '../components/CobrarModal'
+import PaymentErrorBoundary from '../components/PaymentErrorBoundary'
 import LoyaltyTierBadge from '../components/LoyaltyTierBadge'
 import { NewClientForm } from './Clients'
 import { printClientReceipt, printWasherConduce, printKitchenPrepSlip } from '@terminal-x/services/printer'
@@ -1680,17 +1681,19 @@ function CarWashPOS() {
 
       {/* ── Cobrar Modal ──────────────────────────────────────────────────── */}
       {cobrarModal && (
-        <CobrarModal
-          ticket={{
-            id:       null,
-            ticketNo: lang === 'es' ? 'NUEVO' : 'NEW',
-            vehicle:  cobrarModal.vehicle,
-            services: cobrarModal.items,
-            client:   cobrarModal.client || null,
-          }}
-          onConfirm={handlePaymentConfirm}
-          onClose={() => setCobrarModal(null)}
-        />
+        <PaymentErrorBoundary onClose={() => setCobrarModal(null)}>
+          <CobrarModal
+            ticket={{
+              id:       null,
+              ticketNo: lang === 'es' ? 'NUEVO' : 'NEW',
+              vehicle:  cobrarModal.vehicle,
+              services: cobrarModal.items,
+              client:   cobrarModal.client || null,
+            }}
+            onConfirm={handlePaymentConfirm}
+            onClose={() => setCobrarModal(null)}
+          />
+        </PaymentErrorBoundary>
       )}
 
     </div>
@@ -3136,17 +3139,19 @@ function RetailPOS() {
 
       {/* CobrarModal */}
       {cobrarModal && (
-        <CobrarModal
-          ticket={{
-            id: null,
-            ticketNo: lang === 'es' ? 'NUEVO' : 'NEW',
-            vehicle: '',
-            services: cobrarModal.items,
-            client:   cobrarModal.client || null,
-          }}
-          onConfirm={handlePaymentConfirm}
-          onClose={() => setCobrarModal(null)}
-        />
+        <PaymentErrorBoundary onClose={() => setCobrarModal(null)}>
+          <CobrarModal
+            ticket={{
+              id: null,
+              ticketNo: lang === 'es' ? 'NUEVO' : 'NEW',
+              vehicle: '',
+              services: cobrarModal.items,
+              client:   cobrarModal.client || null,
+            }}
+            onConfirm={handlePaymentConfirm}
+            onClose={() => setCobrarModal(null)}
+          />
+        </PaymentErrorBoundary>
       )}
 
       {/* Licorería — age verification gate */}

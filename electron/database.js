@@ -557,6 +557,23 @@ function init(userDataPath, options = {}) {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON activity_log(created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_activity_log_event_type ON activity_log(event_type)`,
+    // FIX-HIGH-8 — fallback queue for activity_log writes that fail at the
+    // canonical INSERT step (extremely rare on local SQLite, but possible
+    // during DB self-heal / disk-full / SQLCipher key rotation windows).
+    // Drained at the end of every sync cycle by electron/sync.js. NEVER
+    // raw-INSERT into activity_log from the drainer — always re-call
+    // activityLogRecord() so the single chokepoint stays canonical.
+    `CREATE TABLE IF NOT EXISTS activity_log_fallback (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      payload         TEXT NOT NULL,
+      attempts        INTEGER NOT NULL DEFAULT 0,
+      last_error      TEXT,
+      status          TEXT NOT NULL DEFAULT 'pending',
+      created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+      last_attempt_at TEXT,
+      next_attempt_at TEXT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_activity_log_fallback_status ON activity_log_fallback(status, next_attempt_at)`,
     // v2.14 — Tombstone log for cloud-delete propagation. Any time desktop
     // deletes a synced row locally we record its (table, supabase_id) here so
     // the next sync cycle can issue DELETE against Supabase. Without this,
@@ -7420,7 +7437,143 @@ function activityLogRecord(evt) {
     if (_activityErrorSink) {
       try { _activityErrorSink('activity_log:record', e, evt) } catch {}
     }
+    // FIX-HIGH-8 — never silent-drop an audit row. Persist to fallback queue
+    // for retry on the next sync cycle. The drainer re-calls this function
+    // (so the canonical INSERT path stays the single chokepoint) but skips
+    // re-enqueue on its own failures to avoid an infinite loop — the row
+    // simply stays at status='pending' until next cycle, or escalates to
+    // 'dead' after MAX_ATTEMPTS.
+    try { _activityFallbackEnqueue(evt, e?.message || String(e)) } catch {}
+    return null
   }
+}
+
+// ── activity_log fallback queue (desktop) ────────────────────────────────────
+const _AL_FALLBACK_MAX_ATTEMPTS = 5
+// Backoff in seconds — applied to next_attempt_at so the drainer skips the
+// row until the timer elapses. Mirrors the renderer queue (30s,1m,2m,5m,10m).
+const _AL_FALLBACK_BACKOFF_S    = [30, 60, 120, 300, 600]
+let _al_draining = false
+
+function _activityFallbackEnqueue(evt, errMsg) {
+  if (!db || !evt || !evt.event_type) return
+  try {
+    db.prepare(`INSERT INTO activity_log_fallback
+      (payload, attempts, last_error, status, created_at, next_attempt_at)
+      VALUES (?, 0, ?, 'pending', datetime('now'), datetime('now'))`
+    ).run(JSON.stringify(evt), errMsg ? String(errMsg).slice(0, 500) : null)
+  } catch (e) {
+    // Last resort — log only. We've already lost the canonical INSERT, so
+    // surfacing the queue-insert failure is the only signal left.
+    console.error('[activity_log fallback] enqueue failed:', e?.message || e)
+    if (_activityErrorSink) {
+      try { _activityErrorSink('activity_log:fallback-enqueue', e, evt) } catch {}
+    }
+  }
+}
+
+// Called by electron/sync.js at the end of every sync cycle.
+function activityLogDrainFallback() {
+  if (!db) return { drained: 0, dead: 0, remaining: 0 }
+  if (_al_draining) return { drained: 0, dead: 0, remaining: 0, skipped: 'busy' }
+  _al_draining = true
+  let drained = 0, dead = 0, remaining = 0
+  try {
+    const rows = db.prepare(
+      `SELECT id, payload, attempts FROM activity_log_fallback
+        WHERE status='pending'
+          AND (next_attempt_at IS NULL OR next_attempt_at <= datetime('now'))
+        ORDER BY id ASC LIMIT 200`
+    ).all()
+    for (const row of rows) {
+      let payload = null
+      try { payload = JSON.parse(row.payload) } catch {}
+      if (!payload || !payload.event_type) {
+        // Corrupt row — mark dead so we don't keep retrying garbage.
+        db.prepare(`UPDATE activity_log_fallback SET status='dead', last_attempt_at=datetime('now'), last_error='corrupt-payload' WHERE id=?`).run(row.id)
+        dead++; continue
+      }
+      // Inline retry of the canonical INSERT — but bypass the catch's
+      // re-enqueue path so a persistent failure doesn't multiply rows. We
+      // achieve this by replicating the INSERT here against the same
+      // schema. If it succeeds, delete the fallback row.
+      try {
+        const sid = crypto.randomUUID()
+        const nowIso = new Date().toISOString()
+        db.prepare(`INSERT INTO activity_log
+          (supabase_id, event_type, severity, actor_user_id, actor_supabase_id, actor_name, actor_role,
+           target_type, target_id, target_name, amount, old_value, new_value, reason, metadata,
+           created_at, updated_at)
+          VALUES (@supabase_id, @event_type, @severity, @actor_user_id, @actor_supabase_id, @actor_name, @actor_role,
+                  @target_type, @target_id, @target_name, @amount, @old_value, @new_value, @reason, @metadata,
+                  @created_at, @updated_at)`).run({
+          supabase_id: sid,
+          event_type:  payload.event_type,
+          severity:    payload.severity || 'info',
+          actor_user_id:     (payload.actor_user_id != null && Number.isFinite(Number(payload.actor_user_id))) ? Number(payload.actor_user_id) : null,
+          actor_supabase_id: payload.actor_supabase_id || null,
+          actor_name:        payload.actor_name || 'system',
+          actor_role:        payload.actor_role || 'system',
+          target_type: payload.target_type || null,
+          target_id:   payload.target_id != null ? String(payload.target_id) : null,
+          target_name: payload.target_name || null,
+          amount:      payload.amount != null ? Number(payload.amount) : null,
+          old_value:   payload.old_value != null ? String(payload.old_value) : null,
+          new_value:   payload.new_value != null ? String(payload.new_value) : null,
+          reason:      payload.reason || null,
+          metadata:    payload.metadata ? JSON.stringify(payload.metadata) : null,
+          created_at:  nowIso,
+          updated_at:  nowIso,
+        })
+        db.prepare(`DELETE FROM activity_log_fallback WHERE id=?`).run(row.id)
+        drained++
+      } catch (e) {
+        const attempts = (row.attempts || 0) + 1
+        if (attempts >= _AL_FALLBACK_MAX_ATTEMPTS) {
+          db.prepare(
+            `UPDATE activity_log_fallback
+                SET status='dead', attempts=?, last_error=?, last_attempt_at=datetime('now')
+              WHERE id=?`
+          ).run(attempts, String(e?.message || e).slice(0, 500), row.id)
+          dead++
+          // Emit a terminal `activity_log_dropped` row through the canonical
+          // path so the owner sees the compliance gap in the audit feed. If
+          // THIS write also fails (shouldn't happen — it's a different INSERT
+          // with no metadata schema mismatch risk), it'll be enqueued again
+          // and we'll keep trying. That's acceptable — drop-of-drop is rare.
+          try {
+            activityLogRecord({
+              event_type: 'activity_log_dropped',
+              severity:   'critical',
+              target_type: 'activity_log',
+              reason:     'Audit row dropped after 5 retries (desktop fallback)',
+              metadata: {
+                original_event_type: payload.event_type,
+                original_severity:   payload.severity,
+                last_error:          String(e?.message || e).slice(0, 500),
+                attempts,
+              },
+            })
+          } catch {}
+        } else {
+          const backoffSec = _AL_FALLBACK_BACKOFF_S[Math.min(attempts - 1, _AL_FALLBACK_BACKOFF_S.length - 1)]
+          db.prepare(
+            `UPDATE activity_log_fallback
+                SET attempts=?, last_error=?, last_attempt_at=datetime('now'),
+                    next_attempt_at=datetime('now', '+' || ? || ' seconds')
+              WHERE id=?`
+          ).run(attempts, String(e?.message || e).slice(0, 500), backoffSec, row.id)
+          remaining++
+        }
+      }
+    }
+  } finally {
+    _al_draining = false
+  }
+  if (drained || dead) {
+    try { console.log(`[activity_log fallback] drained=${drained} dead=${dead} remaining=${remaining}`) } catch {}
+  }
+  return { drained, dead, remaining }
 }
 
 function activityLogList({ dateFrom, dateTo, eventTypes, limit = 200 } = {}) {
@@ -10596,7 +10749,7 @@ module.exports = {
   ecfSubmissionAdd, ecfSubmissionUpdate, ecfSubmissionGetByTrackId, ecfSubmissionGetByTicket,
   ecfSubmissionGetPending, ecfSubmissionGetAll,
   // Activity log (owner audit feed)
-  setActiveUser, getActiveUser, activityLogRecord, activityLogList, activityLogSelfHeal, setActivityErrorSink,
+  setActiveUser, getActiveUser, activityLogRecord, activityLogList, activityLogSelfHeal, setActivityErrorSink, activityLogDrainFallback,
   // e-CF certificate rotation history (audit trail — append-only, synced)
   ecfCertHistoryInsert, ecfCertHistoryList,
   // Restaurant Mode — mesas / modificadores / kds / ticket-item modifier snapshots

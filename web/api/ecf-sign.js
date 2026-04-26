@@ -11,9 +11,9 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
-import { buildECFXml, buildRFCEXml } from '../lib/xml-builder.js'
+import { buildECFXml, buildRFCEXml, buildARECFXml, buildACECFXml, buildANECFXml } from '../lib/xml-builder.js'
 import { signXML } from '../lib/xml-signer.js'
-import { authenticate, submitECF, submitRFCE, pollStatus, checkStatus, buildQRUrl, clearTokenCache } from '../lib/dgii-client.js'
+import { authenticate, submitECF, submitRFCE, submitANECF, pollStatus, checkStatus, buildQRUrl, clearTokenCache } from '../lib/dgii-client.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://xbmhtrdhbnkgdliuxcha.supabase.co'
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -75,6 +75,86 @@ export default async function handler(req, res) {
       return json(res, 200, { ok: true, data: { codigo: result.codigo, estado: result.estado, mensajes: result.mensajes || [] } })
     } catch (err) {
       return json(res, 200, { ok: false, error: err.message || 'Error consultando DGII' })
+    }
+  }
+
+  // ── Helper: resolve business + cert PEMs in one shot (DRY for action branches) ──
+  async function loadBizCert(bid) {
+    const { data: staffRow } = await supabase.from('staff').select('id').eq('business_id', bid).eq('auth_user_id', user.id).single()
+    if (!staffRow) return { err: { status: 403, body: { ok: false, error: 'No access to this business' } } }
+    const { data: biz } = await supabase.from('businesses').select('settings,rnc').eq('id', bid).single()
+    if (!biz) return { err: { status: 404, body: { ok: false, error: 'Business not found' } } }
+    const s = parseSettingsIfString(biz.settings)
+    if (!s.ecf_private_key_pem || !s.ecf_certificate_pem) {
+      return { err: { status: 400, body: { ok: false, error: 'Certificado e-CF no configurado. Instale el .p12 desde el escritorio.' } } }
+    }
+    return { biz, settings: s, env: s.dgii_environment || 'certecf' }
+  }
+
+  // ── Action: 'void' — sign + submit ANECF (Anulación de Rangos) to DGII ──
+  // Body: { business_id, action:'void', rncEmisor, cantidadNCF, tipoECF,
+  //         rangos?: [{ tipoECF?, ncfDesde, ncfHasta }],
+  //         rangoDesde?, rangoHasta? }
+  if (body.action === 'void') {
+    const ctx = await loadBizCert(body.business_id)
+    if (ctx.err) return json(res, ctx.err.status, ctx.err.body)
+    try {
+      const xml = buildANECFXml({
+        rncEmisor: body.rncEmisor || ctx.biz.rnc,
+        cantidadNCF: body.cantidadNCF,
+        tipoECF: body.tipoECF,
+        rangos: body.rangos,
+        rangoDesde: body.rangoDesde,
+        rangoHasta: body.rangoHasta,
+      })
+      const { signedXml } = signXML(xml, ctx.settings.ecf_private_key_pem, ctx.settings.ecf_certificate_pem)
+      const dgiiToken = await authenticate(ctx.env, ctx.settings.ecf_private_key_pem, ctx.settings.ecf_certificate_pem)
+      const result = await submitANECF(signedXml, dgiiToken, ctx.env)
+      return json(res, 200, { ok: true, data: { codigo: result.codigo, mensajes: result.mensajes || [], nombre: result.nombre, signedXml } })
+    } catch (err) {
+      clearTokenCache()
+      return json(res, 200, { ok: false, error: err.message || 'Error anulando rango' })
+    }
+  }
+
+  // ── Action: 'arecf' — sign Acuse de Recibo (returned to caller) ──
+  // ARECF/ACECF are peer-to-peer between issuer and receiver, NOT submitted
+  // to DGII. We sign and return the XML; the caller forwards to the receiver.
+  // Body: { business_id, action:'arecf', rncEmisor, eNCF, estado, fechaRecepcion? }
+  if (body.action === 'arecf') {
+    const ctx = await loadBizCert(body.business_id)
+    if (ctx.err) return json(res, ctx.err.status, ctx.err.body)
+    try {
+      const xml = buildARECFXml({
+        rncEmisor: body.rncEmisor || ctx.biz.rnc,
+        eNCF: body.eNCF,
+        estado: body.estado,
+        fechaRecepcion: body.fechaRecepcion,
+      })
+      const { signedXml, securityCode, signatureDate } = signXML(xml, ctx.settings.ecf_private_key_pem, ctx.settings.ecf_certificate_pem)
+      return json(res, 200, { ok: true, data: { signedXml, securityCode, signatureDate } })
+    } catch (err) {
+      return json(res, 200, { ok: false, error: err.message || 'Error firmando ARECF' })
+    }
+  }
+
+  // ── Action: 'acecf' — sign Aprobación Comercial (returned to caller) ──
+  // Body: { business_id, action:'acecf', rncEmisor, eNCF, estado, comentario?, fecha? }
+  if (body.action === 'acecf') {
+    const ctx = await loadBizCert(body.business_id)
+    if (ctx.err) return json(res, ctx.err.status, ctx.err.body)
+    try {
+      const xml = buildACECFXml({
+        rncEmisor: body.rncEmisor || ctx.biz.rnc,
+        eNCF: body.eNCF,
+        estado: body.estado,
+        comentario: body.comentario,
+        fecha: body.fecha,
+      })
+      const { signedXml, securityCode, signatureDate } = signXML(xml, ctx.settings.ecf_private_key_pem, ctx.settings.ecf_certificate_pem)
+      return json(res, 200, { ok: true, data: { signedXml, securityCode, signatureDate } })
+    } catch (err) {
+      return json(res, 200, { ok: false, error: err.message || 'Error firmando ACECF' })
     }
   }
 

@@ -442,6 +442,259 @@ export async function buildReceiptPDFBase64(data) {
   return { base64, filename }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// FIX-M5 — Hoja técnica para aseguradora (Mapfre BHD / Universal / La Colonial).
+//
+// Letter-size diagnostic sheet that DR insurance adjusters sign off on before
+// approving a claim. Layout is intentionally close to the carbon-copy form
+// the adjusters were used to before going digital — taller name + RNC, the
+// vehicle block, the inspection findings table, the parts/labor breakdown,
+// and a signature row at the bottom.
+//
+// Inputs (all optional except wo):
+//   wo:           { id, plate, make, model, year, vin, odometer_in_km,
+//                   labor_total, parts_total, itbis, total, items[], notes,
+//                   poliza_no, reclamo_no, aseguradora_status, inspection_json }
+//   business:     { name, rnc, phone, address }
+//   aseguradora:  { nombre, rnc, contacto_telefono }
+//   client:       { name, rnc, phone }
+//   inspection:   parsed inspection_json (optional override)
+//   photos:       [{ phase, base64, caption }] — up to 4, embedded in the
+//                 footer evidence grid
+// ─────────────────────────────────────────────────────────────────────────
+export async function buildInspectionReportPdf({
+  wo, business = {}, aseguradora = {}, client = null, inspection = null, photos = [],
+}) {
+  const PW = 612, PH = 792, M = 36     // Letter US, 0.5" margins
+  const doc   = await PDFDocument.create()
+  const font  = await doc.embedFont(StandardFonts.Helvetica)
+  const fontB = await doc.embedFont(StandardFonts.HelveticaBold)
+  const page  = doc.addPage([PW, PH])
+  const W     = PW - 2 * M
+  let y = PH - M
+
+  const wrap = (s, w, size, f) => {
+    const out = []
+    if (!s) return out
+    const words = String(s).split(/\s+/)
+    let line = ''
+    for (const w_ of words) {
+      const t = line ? line + ' ' + w_ : w_
+      if (f.widthOfTextAtSize(t, size) > w) { if (line) out.push(line); line = w_ }
+      else line = t
+    }
+    if (line) out.push(line)
+    return out
+  }
+
+  // ── Header band ──
+  page.drawRectangle({ x: 0, y: y - 56, width: PW, height: 56, color: RGB(CRIMSON) })
+  page.drawText('HOJA TECNICA · ASEGURADORA', { x: M, y: y - 22, size: 11, font: fontB, color: RGB(PAPER) })
+  page.drawText(String(business.name || 'TALLER MECANICO').toUpperCase(),
+    { x: M, y: y - 40, size: 16, font: fontB, color: RGB(PAPER) })
+  if (business.rnc) {
+    page.drawText(`RNC ${business.rnc}`, { x: M, y: y - 52, size: 8, font, color: RGB(PAPER) })
+  }
+  // WO number — top right, big
+  const woStr = `WO-${String(wo?.id ?? '').replace(/\D/g, '').padStart(4, '0')}`
+  const woW = fontB.widthOfTextAtSize(woStr, 18)
+  page.drawText(woStr, { x: PW - M - woW, y: y - 30, size: 18, font: fontB, color: RGB(PAPER) })
+  page.drawText(fmtDate(new Date()), {
+    x: PW - M - font.widthOfTextAtSize(fmtDate(new Date()), 8),
+    y: y - 48, size: 8, font, color: RGB(PAPER),
+  })
+  y -= 70
+
+  // ── Aseguradora + cliente block (two columns) ──
+  const colW = (W - 12) / 2
+  const drawLabel = (x, yy, label, value) => {
+    page.drawText(String(label).toUpperCase(), { x, y: yy, size: 7, font: fontB, color: RGB(MUTED) })
+    page.drawText(String(value || '—'), { x, y: yy - 11, size: 10.5, font: fontB, color: RGB(INK) })
+  }
+  drawLabel(M, y, 'Aseguradora', aseguradora.nombre || '—')
+  drawLabel(M, y - 28, 'RNC Aseguradora', aseguradora.rnc || '—')
+  drawLabel(M, y - 56, 'Póliza', wo?.poliza_no || '—')
+  drawLabel(M, y - 84, 'Reclamo #', wo?.reclamo_no || '—')
+
+  drawLabel(M + colW + 12, y, 'Cliente', client?.name || '—')
+  drawLabel(M + colW + 12, y - 28, 'Teléfono cliente', client?.phone || '—')
+  drawLabel(M + colW + 12, y - 56, 'Estado del reclamo', String(wo?.aseguradora_status || 'pendiente').toUpperCase())
+  drawLabel(M + colW + 12, y - 84, 'Fecha de servicio', fmtDate(new Date()))
+  y -= 104
+
+  page.drawLine({ start: { x: M, y }, end: { x: PW - M, y }, thickness: 0.6, color: RGB(INK) })
+  y -= 14
+
+  // ── Vehicle block ──
+  page.drawText('VEHICULO', { x: M, y, size: 8, font: fontB, color: RGB(CRIMSON) })
+  y -= 14
+  const vehGrid = [
+    ['Placa',    wo?.plate || '—'],
+    ['Marca',    wo?.make  || '—'],
+    ['Modelo',   wo?.model || '—'],
+    ['Año',      wo?.year  || '—'],
+    ['VIN',      wo?.vin   ? String(wo.vin).slice(0, 22) : '—'],
+    ['Kilometraje', wo?.odometer_in_km != null ? `${Number(wo.odometer_in_km).toLocaleString('en-US')} km` : '—'],
+  ]
+  const cellW = W / 3
+  for (let i = 0; i < vehGrid.length; i++) {
+    const col = i % 3
+    const row = Math.floor(i / 3)
+    const cx = M + col * cellW
+    const cy = y - row * 26
+    page.drawText(vehGrid[i][0].toUpperCase(), { x: cx, y: cy, size: 7, font: fontB, color: RGB(MUTED) })
+    page.drawText(String(vehGrid[i][1]), { x: cx, y: cy - 11, size: 10, font, color: RGB(INK) })
+  }
+  y -= 60
+
+  page.drawLine({ start: { x: M, y }, end: { x: PW - M, y }, thickness: 0.6, color: RGB(INK) })
+  y -= 14
+
+  // ── Diagnóstico (inspection) ──
+  page.drawText('DIAGNOSTICO TECNICO', { x: M, y, size: 8, font: fontB, color: RGB(CRIMSON) })
+  y -= 12
+  const insp = inspection || (() => {
+    try { return typeof wo?.inspection_json === 'string' ? JSON.parse(wo.inspection_json || '{}') : (wo?.inspection_json || {}) }
+    catch { return {} }
+  })()
+  const inspItems = insp?.items || {}
+  const inspKeys = Object.keys(inspItems).slice(0, 14)
+  if (inspKeys.length === 0) {
+    page.drawText('Sin inspección registrada.', { x: M, y, size: 9, font, color: RGB(MUTED) })
+    y -= 14
+  } else {
+    // Two-column inspection list
+    const colWidth = (W - 12) / 2
+    inspKeys.forEach((key, idx) => {
+      const it = inspItems[key] || {}
+      const col = idx % 2
+      const row = Math.floor(idx / 2)
+      const cx = M + col * (colWidth + 12)
+      const cy = y - row * 16
+      const status = (it.status || '?').toUpperCase()
+      const statusColor = status === 'PASS' ? [0.1, 0.5, 0.2]
+                       : status === 'WARN' ? [0.78, 0.55, 0.05]
+                       : status === 'FAIL' ? CRIMSON
+                       : MUTED
+      // Status pill
+      page.drawRectangle({ x: cx, y: cy - 2, width: 32, height: 10, color: RGB(statusColor) })
+      page.drawText(status.slice(0, 4), { x: cx + 3, y: cy, size: 6.5, font: fontB, color: RGB(PAPER) })
+      // Label
+      page.drawText(String(key).slice(0, 32), { x: cx + 38, y: cy, size: 9, font: fontB, color: RGB(INK) })
+      if (it.note) {
+        page.drawText(String(it.note).slice(0, 36), { x: cx + 38, y: cy - 8, size: 7, font, color: RGB(MUTED) })
+      }
+    })
+    y -= Math.ceil(inspKeys.length / 2) * 16 + 6
+  }
+
+  page.drawLine({ start: { x: M, y }, end: { x: PW - M, y }, thickness: 0.6, color: RGB(INK) })
+  y -= 14
+
+  // ── Items + totals ──
+  page.drawText('TRABAJO REALIZADO', { x: M, y, size: 8, font: fontB, color: RGB(CRIMSON) })
+  y -= 14
+  // Header row
+  page.drawRectangle({ x: M, y: y - 2, width: W, height: 14, color: RGB(INK) })
+  page.drawText('TIPO', { x: M + 6,  y: y + 2, size: 7.5, font: fontB, color: RGB(PAPER) })
+  page.drawText('DESCRIPCION', { x: M + 60, y: y + 2, size: 7.5, font: fontB, color: RGB(PAPER) })
+  const colCantX  = PW - M - 200
+  const colPriceX = PW - M - 130
+  const colTotalX = PW - M - 60
+  page.drawText('CANT', { x: colCantX,  y: y + 2, size: 7.5, font: fontB, color: RGB(PAPER) })
+  page.drawText('PRECIO',{ x: colPriceX, y: y + 2, size: 7.5, font: fontB, color: RGB(PAPER) })
+  page.drawText('TOTAL', { x: colTotalX, y: y + 2, size: 7.5, font: fontB, color: RGB(PAPER) })
+  y -= 14
+
+  const items = Array.isArray(wo?.items) ? wo.items : []
+  for (const it of items) {
+    const typeLabel = it.type === 'part' ? 'REPUESTO' : it.type === 'service' ? 'SERVICIO' : 'MANO DE OBRA'
+    const desc = String(it.name || '—').slice(0, 50)
+    const qty = Number(it.qty ?? it.quantity ?? 1)
+    const price = Number(it.unit_price || 0)
+    const total = it.total != null ? Number(it.total) : qty * price
+    page.drawText(typeLabel, { x: M + 6, y, size: 7.5, font, color: RGB(MUTED) })
+    page.drawText(desc, { x: M + 60, y, size: 9, font, color: RGB(INK) })
+    page.drawText(String(qty), { x: colCantX, y, size: 9, font, color: RGB(INK) })
+    page.drawText(fmtRD(price), { x: colPriceX, y, size: 9, font, color: RGB(INK) })
+    page.drawText(fmtRD(total), { x: colTotalX, y, size: 9, font: fontB, color: RGB(INK) })
+    y -= 13
+    page.drawLine({ start: { x: M, y: y + 4 }, end: { x: PW - M, y: y + 4 }, thickness: 0.2, color: RGB(HAIRLINE) })
+    if (y < M + 220) break
+  }
+  y -= 6
+
+  // Totals box
+  const totalsY = y
+  const drawTotalRow = (label, value, bold = false) => {
+    page.drawText(label, { x: PW - M - 200, y, size: 9, font: bold ? fontB : font, color: RGB(INK) })
+    page.drawText(fmtRD(value), { x: PW - M - 90, y, size: bold ? 11 : 9, font: bold ? fontB : font, color: bold ? RGB(CRIMSON) : RGB(INK) })
+    y -= 12
+  }
+  drawTotalRow('Mano de obra', wo?.labor_total)
+  drawTotalRow('Repuestos',    wo?.parts_total)
+  drawTotalRow('ITBIS 18%',    wo?.itbis)
+  page.drawLine({ start: { x: PW - M - 200, y: y + 4 }, end: { x: PW - M, y: y + 4 }, thickness: 0.6, color: RGB(INK) })
+  drawTotalRow('TOTAL',        wo?.total ?? wo?.estimated_total, true)
+  y -= 6
+
+  // ── Photo evidence (if any) ──
+  if (Array.isArray(photos) && photos.length) {
+    page.drawText('EVIDENCIA FOTOGRAFICA', { x: M, y, size: 8, font: fontB, color: RGB(CRIMSON) })
+    y -= 12
+    const slots = photos.slice(0, 4)
+    const cell = (W - 12) / 2
+    for (let i = 0; i < slots.length; i++) {
+      const p = slots[i]
+      if (!p?.base64) continue
+      try {
+        const b64 = String(p.base64).replace(/^data:image\/(jpeg|jpg|png);base64,/, '')
+        const bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0))
+        const isPng = String(p.base64).startsWith('data:image/png')
+        const img = isPng ? await doc.embedPng(bytes) : await doc.embedJpg(bytes)
+        const col = i % 2
+        const row = Math.floor(i / 2)
+        const px = M + col * (cell + 12)
+        const py = y - (row + 1) * (cell * 0.6) - row * 14
+        page.drawImage(img, { x: px, y: py, width: cell, height: cell * 0.6 })
+        const cap = (p.phase === 'despues' ? 'DESPUES' : 'ANTES') + (p.caption ? ' · ' + String(p.caption).slice(0, 20) : '')
+        page.drawText(cap, { x: px, y: py - 10, size: 7, font, color: RGB(MUTED) })
+      } catch { /* skip bad image */ }
+    }
+    y -= Math.ceil(slots.length / 2) * (cell * 0.6 + 14) + 6
+  }
+
+  // ── Notes ──
+  if (wo?.notes) {
+    page.drawText('NOTAS', { x: M, y, size: 8, font: fontB, color: RGB(CRIMSON) })
+    y -= 12
+    const wrapped = wrap(String(wo.notes), W, 9, font).slice(0, 4)
+    for (const ln of wrapped) {
+      page.drawText(ln, { x: M, y, size: 9, font, color: RGB(INK) })
+      y -= 11
+    }
+    y -= 4
+  }
+
+  // ── Signature row (bottom of page) ──
+  const sigY = M + 60
+  page.drawLine({ start: { x: M, y: sigY }, end: { x: M + 220, y: sigY }, thickness: 0.6, color: RGB(INK) })
+  page.drawText('FIRMA TECNICO', { x: M, y: sigY - 12, size: 7, font: fontB, color: RGB(MUTED) })
+
+  page.drawLine({ start: { x: PW - M - 220, y: sigY }, end: { x: PW - M, y: sigY }, thickness: 0.6, color: RGB(INK) })
+  page.drawText('FIRMA AJUSTADOR ASEGURADORA', { x: PW - M - 220, y: sigY - 12, size: 7, font: fontB, color: RGB(MUTED) })
+
+  page.drawText(`Powered by Terminal X · DGII Emisor #42483`, {
+    x: M, y: M + 18, size: 7, font, color: RGB(MUTED),
+  })
+  totalsY // referenced to silence linter; geometry intentionally fixed.
+
+  const pdfBytes = await doc.save()
+  const filename = `${woStr}_hoja_tecnica.pdf`
+  const base64 = btoa(String.fromCharCode(...pdfBytes))
+  return { pdfBytes, base64, filename }
+}
+
 function formatFormaPagoPDF(f) {
   const map = {
     cash: 'Efectivo', card: 'Tarjeta', transfer: 'Transferencia', cheque: 'Cheque', credit: 'A credito',

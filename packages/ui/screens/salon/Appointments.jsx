@@ -24,6 +24,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useLang } from '../../i18n'
 import { usePlan } from '../../hooks/usePlan'
 import CobrarModal from '../../components/CobrarModal'
+import PaymentErrorBoundary from '../../components/PaymentErrorBoundary'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -1045,12 +1046,14 @@ export default function Appointments() {
           onConfirm={handleNoShowConfirm} />
       )}
       {cobrarTicket && (
-        <CobrarModal
-          ticket={cobrarTicket}
-          forceNcfType="E32"
-          onClose={() => { setCobrarTicket(null); setPendingFee(null) }}
-          onConfirm={handleNoShowCobrarConfirm}
-        />
+        <PaymentErrorBoundary onClose={() => { setCobrarTicket(null); setPendingFee(null) }}>
+          <CobrarModal
+            ticket={cobrarTicket}
+            forceNcfType="E32"
+            onClose={() => { setCobrarTicket(null); setPendingFee(null) }}
+            onConfirm={handleNoShowCobrarConfirm}
+          />
+        </PaymentErrorBoundary>
       )}
 
       {/* Toast */}
