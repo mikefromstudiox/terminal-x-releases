@@ -54,6 +54,9 @@ export const BUSINESS_SETTING_KEYS = new Set([
   // Mecánica vertical (v2.16.x FIX-HIGH-7) — owner-configurable tow fee
   // (replaces the hardcoded RD$ 500 in WorkOrders). Cloud-synced.
   'mechanic_tow_fee_default',
+  // v2.16.17 — sync engine feature flags. See electron/settingsWhitelist.js
+  // for the matching CommonJS entry. Both files MUST stay in lockstep.
+  'sync_use_merge_v17',
 ])
 
 export const DEVICE_LOCAL_CLOUD_MIRROR_KEYS = new Set([

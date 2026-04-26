@@ -451,7 +451,17 @@ export function buildClientReceipt(data, logoBytes = '') {
     lines.push(LF)
   }
   if (isFiscal) {
-    lines.push(cols('Subtotal',   fmt(data.subtotal), COL_WIDTH))
+    // v2.16.16 — Subtotal shown ex-ITBIS so the breakdown is mathematically
+    // additive (Subtotal + ITBIS = TOTAL). Previously Subtotal printed the
+    // gross (ITBIS-included) amount, which made the totals block look like
+    // Subtotal + ITBIS = TOTAL only by coincidence (TOTAL == Subtotal,
+    // ITBIS shown for info). Owner picked the additive layout per Studio X
+    // testing 2026-04-26. Line items still display gross (customer-facing)
+    // prices; only the totals block strips the ITBIS portion. Edge case:
+    // ticket with no ITBIS-applicable lines → data.itbis=0 → subtotal
+    // unchanged.
+    const subtotalExItbis = (Number(data.subtotal) || 0) - (Number(data.itbis) || 0)
+    lines.push(cols('Subtotal', fmt(subtotalExItbis), COL_WIDTH))
     lines.push(LF)
     // v2.14.34 — optional ITBIS percentage label ("ITBIS 18%"). Owner toggles
     // via Sistema → Preferencias → Personalización de Recibo. Reads cfg from

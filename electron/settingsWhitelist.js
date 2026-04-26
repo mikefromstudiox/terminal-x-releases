@@ -57,6 +57,13 @@ const BUSINESS_SETTING_KEYS = new Set([
   // the hardcoded RD$ 500 in WorkOrders. Cloud-synced so every register sees
   // the same fee the moment Sistema is saved.
   'mechanic_tow_fee_default',
+  // v2.16.17 — sync engine feature flags. Owner toggles cloud-side via
+  // app_settings; flag must propagate to every desktop register so the
+  // sync upsert path switches uniformly. Without whitelisting these,
+  // pullAppSettings classifies them as "rogue device key in business
+  // slot" and drops them — was the reason sync_merge_v17_enabled
+  // metric never fired despite the cloud flag being set.
+  'sync_use_merge_v17',
 ])
 
 // ── 2. DEVICE-LOCAL, CLOUD-MIRRORED (recovery-safe, tagged with HWID) ────────
