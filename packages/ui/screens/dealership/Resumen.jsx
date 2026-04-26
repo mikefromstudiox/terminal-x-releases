@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
+import WabaStubBanner from '../../components/WabaStubBanner'
 
 function fmtRD(n) {
   return `RD$ ${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
@@ -125,6 +126,8 @@ export default function Resumen() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      {/* v2.16.7 — WABA-status honesty banner (whatsapp_auto stub). */}
+      <WabaStubBanner />
       <div className="mb-6">
         <h1 className="text-3xl font-bold flex items-center gap-3"><CarFront size={32} />{L('Concesionario', 'Dealership')}</h1>
         <p className="text-sm text-black/70 mt-1">{L('Resumen del mes y seguimiento operativo.', 'Monthly summary and operations.')}</p>

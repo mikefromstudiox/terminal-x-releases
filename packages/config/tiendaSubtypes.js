@@ -56,7 +56,32 @@ export const TIENDA_SUBTYPES = {
         enabled: true,
         // DR standard deposit — operator can override per-SKU.
         defaultAmount: 5,
+        // Hard cap so a typo in inventory_items.bottle_deposit can't book
+        // a RD$5,000 phantom liability per unit. Anything above this is
+        // ignored at POS expand time and at refund time.
+        maxAmount: 100,
         lineLabel: { es: 'Depósito de botella', en: 'Bottle deposit' },
+      },
+      // Wholesale tier — colmados/bares buying cases. Triggered when a
+      // single line qty hits `caseQty` (e.g. 24 cervezas) OR ticket subtotal
+      // crosses `subtotalThreshold`. Discount applies to the qualifying lines
+      // only. Operator overrides via app_settings.feature_mayoreo_enabled.
+      mayoreo: {
+        enabled: false,                  // off by default — owner opts in
+        caseQty: 24,
+        subtotalThreshold: 5000,         // RD$
+        discountPct: 8,                  // 8% off list
+        requiresClient: true,            // mayoreo always nominal — DGII trail
+      },
+      // Decreto 308-08 — many DR municipalities ban alcohol sales after
+      // midnight. Off by default (varies by municipio); owner enables
+      // and sets local cutoff. Soft block: cashier can override with
+      // ManagerAuthGate (audit logged).
+      lateNightBlock: {
+        enabled: false,
+        startHour: 0,                    // 00:00 local
+        endHour:   8,                    // 08:00 local
+        reasonCode: 'decreto_308_08',
       },
       quickSell: {
         enabled: true,
@@ -193,6 +218,8 @@ export const TIENDA_FEATURE_KEYS = [
   'age_verification',
   'pedidos_ya',
   'bottle_deposit',
+  'mayoreo',
+  'late_night_block',
   'mamajuana_tracking',
   'prescription_tracking',
   'expiry_alerts',
@@ -215,6 +242,8 @@ export const TIENDA_FEATURE_LABELS = {
   age_verification:         { es: 'Verificación de edad',        en: 'Age verification' },
   pedidos_ya:               { es: 'Pedidos Ya (delivery)',       en: 'Pedidos Ya (delivery)' },
   bottle_deposit:           { es: 'Depósito de botella',         en: 'Bottle deposit' },
+  mayoreo:                  { es: 'Precio mayoreo (caja)',       en: 'Wholesale pricing (case)' },
+  late_night_block:         { es: 'Bloqueo venta nocturna',      en: 'Late-night sale block' },
   mamajuana_tracking:       { es: 'Control de mamajuana',        en: 'Mamajuana tracking' },
   prescription_tracking:    { es: 'Control de recetas',          en: 'Prescription tracking' },
   expiry_alerts:            { es: 'Alertas de vencimiento',      en: 'Expiry alerts' },

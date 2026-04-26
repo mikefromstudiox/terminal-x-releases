@@ -14,6 +14,26 @@
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { fromZonedTime, toZonedTime, format as formatTz } from 'date-fns-tz'
+
+// Santo Domingo is the only timezone Terminal X targets. Centralised so a
+// future expansion (e.g. PR / multi-region) only edits one constant.
+//
+// v2.16.7 — The previous hand-rolled `T12:00:00` UTC roll-over guard worked
+// for *display* but silently drifted any time a Date was round-tripped
+// through `toISOString()` (sync queue, JSON serialisation, server logs).
+// `date-fns-tz` gives us a single authoritative source: every Date that
+// represents "what day is it in Santo Domingo right now" goes through
+// `toZonedTime`, every string-date we send back to the DB / RPC goes
+// through `fromZonedTime`. No more silent off-by-one at 8 PM AST.
+const TX_TZ = 'America/Santo_Domingo'
+
+// date-fns-tz v3 renamed v1's `zonedTimeToUtc` → `fromZonedTime` and
+// `utcToZonedTime` → `toZonedTime`. We re-export the old names as no-cost
+// aliases so any future code (or grep) that uses the canonical pre-v3 API
+// continues to work.
+const zonedTimeToUtc = fromZonedTime
+const utcToZonedTime = toZonedTime
 import {
   Calendar, Plus, X, Search, Clock, User, Scissors,
   Loader2, CheckCircle2, AlertCircle, ChevronLeft,
@@ -50,18 +70,23 @@ for (let h = 8; h < 20; h++) {
   TIME_SLOTS.push({ hour: h, minute: 30, label: `${String(h).padStart(2, '0')}:30` })
 }
 
+// All date helpers are timezone-aware. Input "d" is either a YYYY-MM-DD string
+// (from the DB / form) or a Date instance. We always interpret YYYY-MM-DD as
+// "midnight in Santo Domingo on that calendar date", never as UTC.
 function fmtDate(d) {
-  return new Date(d + 'T12:00:00').toLocaleDateString('es-DO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  // Anchor to noon Santo Domingo to avoid any DST edge case (DR doesn't
+  // observe DST, but this is the same defensive idiom used elsewhere).
+  const utc = zonedTimeToUtc(`${d}T12:00:00`, TX_TZ)
+  return utc.toLocaleDateString('es-DO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: TX_TZ })
 }
 
-// v2.16.1 patch (#6) — build local-date YYYY-MM-DD without UTC roll-over.
-// `toISOString` rolls forward at midnight UTC (8 PM AST), so opening the
-// calendar at night silently jumped to "tomorrow". Use the local clock fields.
+// Build YYYY-MM-DD from a Date as observed from Santo Domingo. Replaces the
+// hand-rolled `getFullYear/getMonth/getDate` trio that depended on the host
+// machine's local clock — a kiosk in Miami or a CI runner in UTC would hand
+// back the wrong calendar date for tickets created late at night.
 function toDateStr(d) {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  const zoned = utcToZonedTime(d instanceof Date ? d : new Date(d), TX_TZ)
+  return formatTz(zoned, 'yyyy-MM-dd', { timeZone: TX_TZ })
 }
 
 function timeToSlotIndex(timeStr) {
@@ -514,9 +539,13 @@ export default function Appointments() {
   }
 
   function changeDate(delta) {
-    const d = new Date(selectedDate + 'T12:00:00')
-    d.setDate(d.getDate() + delta)
-    setSelectedDate(toDateStr(d))
+    // Operate on the Santo Domingo wall-clock date, not the host clock.
+    // `fromZonedTime` gives us the UTC instant for "noon AST on selectedDate";
+    // adding `delta` days then re-zoning yields the correct neighbour day
+    // even if the user is on a UTC server / different-timezone laptop.
+    const utcAtNoon = zonedTimeToUtc(`${selectedDate}T12:00:00`, TX_TZ)
+    utcAtNoon.setUTCDate(utcAtNoon.getUTCDate() + delta)
+    setSelectedDate(toDateStr(utcAtNoon))
   }
 
   async function handleVoidNoShowFee(appt) {
@@ -689,7 +718,13 @@ export default function Appointments() {
     return m
   }, [schedules])
 
-  const selectedDow = useMemo(() => new Date(selectedDate + 'T12:00:00').getDay(), [selectedDate])
+  // Day-of-week calculated from the Santo Domingo wall clock, not the host
+  // clock — `getDay()` on a Date is host-tz-dependent and would return
+  // Monday at 11:30 PM AST Sunday on a UTC server.
+  const selectedDow = useMemo(() => {
+    const zoned = utcToZonedTime(zonedTimeToUtc(`${selectedDate}T12:00:00`, TX_TZ), TX_TZ)
+    return zoned.getDay()
+  }, [selectedDate])
 
   // Filter appointments by mode toggle.
   const filteredAppointments = useMemo(() => {

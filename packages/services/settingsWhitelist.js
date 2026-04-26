@@ -51,6 +51,9 @@ export const BUSINESS_SETTING_KEYS = new Set([
   // Salon vertical (v2.16.1) — public booking + deposit / no-show config.
   'salon_require_deposit', 'salon_deposit_amount_dop', 'salon_no_show_fee_dop',
   'salon_public_booking_enabled', 'salon_public_booking_slug',
+  // Mecánica vertical (v2.16.x FIX-HIGH-7) — owner-configurable tow fee
+  // (replaces the hardcoded RD$ 500 in WorkOrders). Cloud-synced.
+  'mechanic_tow_fee_default',
 ])
 
 export const DEVICE_LOCAL_CLOUD_MIRROR_KEYS = new Set([

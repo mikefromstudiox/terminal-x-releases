@@ -8,6 +8,7 @@ import { Plus, X, Loader2, Check, Trash2, Car as CarIcon, Trophy, Frown, Phone, 
 import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
 import { sendTestDriveReminder } from '../../../services/whatsapp-dealership.js'
+import WabaStubBanner from '../../components/WabaStubBanner'
 
 function fmtDT(s) {
   if (!s) return '—'
@@ -174,6 +175,8 @@ export default function TestDrives() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
+      {/* v2.16.7 — WABA-status honesty banner (whatsapp_auto stub). */}
+      <WabaStubBanner />
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3"><CarIcon size={32} />{L('Pruebas de Manejo', 'Test Drives')}</h1>

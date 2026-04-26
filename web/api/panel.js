@@ -142,6 +142,11 @@ export default async function handler(req, res) {
   if (action === 'salon-membership-purchase')   return handleSalonMembershipPurchase(req, res)
   if (action === 'salon-membership-consume')    return handleSalonMembershipConsume(req, res)
 
+  // ── v2.16.7 — Lending collections reminders (24h + 2h windows) ──────────
+  // Hourly cron tick + license-JWT mark/list paths. WABA is NOT live —
+  // wa.me deep links only. UI must reflect "pendiente" until WABA approved.
+  if (action === 'collections_remind') return handleCollectionsRemind(req, res)
+
   // FIX-H5 — Facturación tier email post-emisión.
   if (action === 'email-invoice') return handleEmailInvoice(req, res)
 
@@ -2580,4 +2585,177 @@ async function handleWorkOrderApproval(action, req, res, supabase) {
   } catch { /* non-blocking */ }
 
   return res.json({ ok: true, status: 'aprobado', signature_path: path })
+}
+
+// ─── v2.16.7 — Collections daily auto-fire ────────────────────────────────
+//
+// Three paths under one action so we stay inside the Vercel 12/12 cap:
+//
+//   mode='cron'      — pg_cron hourly hit. CRON_SECRET-gated. Calls
+//                      lending_reminders_due() RPC, builds wa.me link +
+//                      Spanish message per row, INSERTs loan_reminders
+//                      with status='pending' + emits loan_reminder_sent
+//                      activity_log row. Idempotent — RPC dedupes 12h.
+//
+//   mode='list'      — license-JWT (business member). Returns pending
+//                      reminders for the current business so the
+//                      RemoteDashboard "Recordatorios pendientes" panel
+//                      can render with one wa.me click per row.
+//
+//   mode='mark_open' — license-JWT. Stamps a single reminder
+//                      status='opened' + opened_at=now() after the user
+//                      clicks the wa.me link. WABA is NOT live so we never
+//                      claim 'sent' — only 'opened' (manual flow).
+//
+// HONESTY RULE: until app_settings.waba_approved='true', no string anywhere
+// in this handler may say "enviado automáticamente". We say "pendiente" and
+// let the user push the message themselves.
+async function handleCollectionsRemind(req, res) {
+  const body = req.method === 'POST'
+    ? (typeof req.body === 'string' ? safeJson(req.body) : (req.body || {}))
+    : {}
+  const mode = body.mode || req.query?.mode || 'cron'
+
+  if (mode === 'cron') {
+    const cronSecret = process.env.CRON_SECRET
+    const provided = req.headers['x-cron-secret'] || req.query?.cron_secret
+    if (cronSecret) {
+      if (provided !== cronSecret) return res.status(401).json({ error: 'invalid_cron_secret' })
+    } else {
+      console.error('[collections_remind] CRON_SECRET unset — refusing cron path')
+      return res.status(503).json({ error: 'cron_disabled' })
+    }
+    try {
+      const supabase = getClient()
+      const { data: due, error } = await supabase.rpc('lending_reminders_due', { p_business_id: null })
+      if (error) throw new Error(error.message)
+      const result = { processed: 0, queued: 0, skipped: 0, failed: 0 }
+      for (const r of (due || [])) {
+        result.processed++
+        try {
+          const phone = normalisePhoneDR(String(r.client_phone || ''))
+          if (!phone) { result.skipped++; continue }
+          const message = buildLoanReminderMessage(r)
+          const waLink = buildWaMeLink(phone, message)
+          const ins = await supabase.from('loan_reminders').insert({
+            business_id: r.business_id,
+            loan_supabase_id: r.loan_supabase_id,
+            schedule_supabase_id: r.schedule_supabase_id,
+            client_supabase_id: r.client_supabase_id,
+            kind: r.kind,
+            due_date: r.due_date,
+            fire_at: new Date().toISOString(),
+            status: 'pending',
+            message,
+            wa_link: waLink,
+            phone,
+          }).select('id,supabase_id').maybeSingle()
+          if (ins.error) {
+            // Unique-violation = already enqueued by an earlier tick — that's a
+            // skip, not a failure. Postgres code 23505.
+            if (String(ins.error.code) === '23505') { result.skipped++; continue }
+            throw new Error(ins.error.message)
+          }
+          // Audit log — emit loan_reminder_sent (severity=info). UI surfaces
+          // these in the activity feed alongside other lending events.
+          try {
+            await supabase.from('activity_log').insert({
+              supabase_id: crypto.randomUUID(),
+              business_id: r.business_id,
+              event_type: 'loan_reminder_sent',
+              severity: 'info',
+              actor_name: 'Sistema (cron)',
+              target_type: 'loan',
+              target_id: null,
+              target_name: r.client_name || null,
+              metadata: {
+                loan_supabase_id: r.loan_supabase_id,
+                schedule_supabase_id: r.schedule_supabase_id,
+                kind: r.kind,
+                due_date: r.due_date,
+                phone,
+                wa_link: waLink,
+                channel: 'wa_me_manual',  // honest: not WABA
+              },
+            })
+          } catch { /* non-blocking — RLS may reject service-role-less log */ }
+          result.queued++
+        } catch (e) {
+          console.error('[collections_remind] enqueue', e?.message || e)
+          result.failed++
+        }
+      }
+      return res.json({ ok: true, ...result })
+    } catch (err) {
+      console.error('[collections_remind cron]', err?.message || err)
+      return res.status(500).json({ error: err.message })
+    }
+  }
+
+  if (mode === 'list') {
+    const auth = await requireBusinessMember(req)
+    if (auth.error) return res.status(auth.status).json({ error: auth.error })
+    const { supabase, businessId } = auth
+    const { data, error } = await supabase.from('loan_reminders')
+      .select('id,supabase_id,loan_supabase_id,schedule_supabase_id,client_supabase_id,kind,due_date,status,message,wa_link,phone,fire_at,opened_at,created_at')
+      .eq('business_id', businessId)
+      .in('status', ['pending', 'opened'])
+      .order('fire_at', { ascending: true })
+      .limit(200)
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ ok: true, reminders: data || [] })
+  }
+
+  if (mode === 'mark_open') {
+    const auth = await requireBusinessMember(req)
+    if (auth.error) return res.status(auth.status).json({ error: auth.error })
+    const { supabase, businessId } = auth
+    const sid = body.supabase_id
+    if (!sid) return res.status(400).json({ error: 'supabase_id required' })
+    const { data, error } = await supabase.from('loan_reminders')
+      .update({
+        status: 'opened',
+        opened_at: new Date().toISOString(),
+        attempts: 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('supabase_id', sid)
+      .eq('business_id', businessId)
+      .select('id,supabase_id,status,opened_at')
+      .maybeSingle()
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ ok: true, reminder: data || null })
+  }
+
+  return res.status(400).json({ error: `unknown_mode:${mode}` })
+}
+
+function fmtRDServer(n) {
+  return `RD$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function fmtDateESDOServer(yyyy_mm_dd) {
+  if (!yyyy_mm_dd) return ''
+  // due_date is a TEXT 'YYYY-MM-DD' — render in es-DO long form without TZ drift.
+  const [y, m, d] = String(yyyy_mm_dd).split('-').map(s => parseInt(s, 10))
+  if (!y || !m || !d) return String(yyyy_mm_dd)
+  const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
+  return `${d} de ${months[m - 1] || m} de ${y}`
+}
+
+function buildLoanReminderMessage(r) {
+  const name   = (r.client_name || 'estimado cliente').trim()
+  const monto  = fmtRDServer(r.monthly_payment || 0)
+  const fecha  = fmtDateESDOServer(r.due_date || '')
+  const empresa = (r.business_name || '').trim()
+  const tail   = empresa ? ` en ${empresa}` : ''
+  return `Hola ${name}, este es un recordatorio de tu pago de ${monto} con vencimiento ${fecha}${tail}. Gracias.`
+}
+
+function buildWaMeLink(phone, message) {
+  // phone is already normalised E.164 digits (no '+', see normalisePhoneDR).
+  // wa.me wants raw international number. Strip any leading '+' just in case.
+  const num = String(phone || '').replace(/[^0-9]/g, '')
+  const enc = encodeURIComponent(message || '')
+  return `https://wa.me/${num}?text=${enc}`
 }

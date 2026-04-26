@@ -200,15 +200,39 @@ export function LicenseProvider({ children }) {
           if (pullFn) {
             setFirstPullProgress({ stage: 'starting', done: 0, total: 1, table: null })
             setPullError(null)
-            await pullFn()
+            // v2.16.3 — 8s hard timeout via AbortController. Previously this
+            // await could hang indefinitely on a flaky link, blocking the
+            // login screen forever. On timeout we drop into the catch below
+            // and let the user proceed with cached license (offline grace).
+            const ac = new AbortController()
+            const timeoutId = setTimeout(() => ac.abort(), 8000)
+            try {
+              await Promise.race([
+                pullFn(),
+                new Promise((_, reject) => {
+                  ac.signal.addEventListener('abort', () => {
+                    reject(new Error('initial_pull_timeout_8s'))
+                  }, { once: true })
+                }),
+              ])
+            } finally {
+              clearTimeout(timeoutId)
+            }
           }
         } catch (pullErr) {
-          console.error('[LicenseContext] initial pull failed:', pullErr)
+          const isTimeout = pullErr?.message === 'initial_pull_timeout_8s'
+          if (isTimeout) {
+            console.warn('[LicenseContext] initial pull timed out after 8s — using cached license (offline grace path)')
+          } else {
+            console.error('[LicenseContext] initial pull failed:', pullErr)
+          }
           // v2.10.2 — surface a human-readable message so the UI can render a
           // non-blocking retry banner. Keep the gate flip below intact.
-          const msg = humanizeLicenseError(pullErr, { context: 'LicenseContext.initialPull' })
-            || pullErr?.message
-            || 'No se pudo sincronizar los datos iniciales. Verifique su conexión.'
+          const msg = isTimeout
+            ? 'Conexión lenta — usando licencia en caché.'
+            : (humanizeLicenseError(pullErr, { context: 'LicenseContext.initialPull' })
+                || pullErr?.message
+                || 'No se pudo sincronizar los datos iniciales. Verifique su conexión.')
           setPullError(msg)
         } finally {
           // F16 — flip the gate once pull resolves (success or failure). UI

@@ -46,6 +46,11 @@ const PLAN_FEATURES = {
     'restaurant_mode', 'work_orders', 'appointments', 'service_bays',
     'loans', 'vehicles', 'invoicing', 'nomina_basic',
     'dealership',
+    // v2.16.3 — Restaurante hardening (H4 + H5):
+    //  - restaurant_reservations: front-of-house Reservas screen.
+    //  - restaurant_salon_dashboard: manager Resumen del Salón.
+    // Distinct keys from `reservations` (dealership) and `salon_dashboard` (barbería).
+    'restaurant_reservations', 'restaurant_salon_dashboard',
     // v2.7.1
     'loyalty',
     // v2.16.1 — appointments + stylist_schedules promoted from Pro MAX
@@ -73,6 +78,8 @@ const PLAN_FEATURES = {
     'nomina_basic', 'nomina_advanced',
     'restaurant_mode', 'work_orders', 'appointments', 'service_bays',
     'loans', 'vehicles',
+    // v2.16.3 — Restaurante hardening keys (inherited from Pro PLUS).
+    'restaurant_reservations', 'restaurant_salon_dashboard',
     'pawn_items', 'loan_analytics', 'vehicle_history', 'stylist_schedules',
     'invoicing',
     'dealership', 'dealership_crm', 'dealership_docs',

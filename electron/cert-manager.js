@@ -122,15 +122,28 @@ function installCert(sourcePath, passphrase, opts = {}) {
   const destPath = path.join(_certDir, 'dgii-cert.p12')
   fs.copyFileSync(sourcePath, destPath)
 
-  // Encrypt passphrase with safeStorage
+  // Encrypt passphrase with safeStorage. v2.16.3: refuse to fall back to
+  // base64 (effectively cleartext). If the host OS lacks a working keychain
+  // (Linux without libsecret, locked-down VM, Wine, etc.) we surface a hard
+  // error and audit it as critical — the cert install must NOT silently
+  // downgrade to plaintext-on-disk.
+  if (!safeStorage.isEncryptionAvailable()) {
+    try {
+      _db?.activityLogRecord?.({
+        event_type:  'cert_safestorage_unavailable',
+        severity:    'critical',
+        target_type: 'dgii_cert',
+        target_name: subject || serialNumber || 'dgii-cert.p12',
+        reason:      'safeStorage.isEncryptionAvailable() returned false — refused to persist passphrase as base64',
+        metadata:    { serialNumber, subject, expiry, platform: process.platform },
+      })
+    } catch {}
+    throw new Error('Almacenamiento seguro del sistema no disponible. No se puede guardar la contraseña del certificado en este dispositivo.')
+  }
   const storePath = path.join(_app.getPath('userData'), 'safe_store.json')
   let store = {}
   try { store = JSON.parse(fs.readFileSync(storePath, 'utf8')) } catch {}
-  if (safeStorage.isEncryptionAvailable()) {
-    store['dgii_cert_pass'] = { enc: true, data: safeStorage.encryptString(passphrase).toString('base64') }
-  } else {
-    store['dgii_cert_pass'] = { enc: false, data: Buffer.from(passphrase).toString('base64') }
-  }
+  store['dgii_cert_pass'] = { enc: true, data: safeStorage.encryptString(passphrase).toString('base64') }
   fs.writeFileSync(storePath, JSON.stringify(store))
 
   // Append audit row for the rotation (desktop-originated).
@@ -201,6 +214,15 @@ function getCertInfo() {
   const certPath = path.join(_certDir, 'dgii-cert.p12')
   if (!fs.existsSync(certPath)) return { installed: false }
 
+  // v2.16.3: detect legacy base64 passphrase (pre-hardening installs) so the
+  // UI can prompt the user to re-enter and migrate to safeStorage.
+  let legacyPassphrase = false
+  try {
+    const storePath = path.join(_app.getPath('userData'), 'safe_store.json')
+    const store = JSON.parse(fs.readFileSync(storePath, 'utf8'))
+    if (store?.dgii_cert_pass && store.dgii_cert_pass.enc === false) legacyPassphrase = true
+  } catch {}
+
   try {
     const { serialNumber, subject, expiry } = loadCert()
     return {
@@ -209,9 +231,10 @@ function getCertInfo() {
       subject,
       expiry,
       expired: new Date(expiry) < new Date(),
+      legacyPassphrase,
     }
   } catch {
-    return { installed: true, error: 'No se pudo leer el certificado' }
+    return { installed: true, error: 'No se pudo leer el certificado', legacyPassphrase }
   }
 }
 

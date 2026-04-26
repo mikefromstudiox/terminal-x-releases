@@ -11,6 +11,7 @@ import { useAPI } from '../../context/DataContext'
 import { useLang } from '../../i18n'
 import DateTimeModal from '../../components/DateTimeModal'
 import { sendFollowupOverdue } from '../../../services/whatsapp-dealership.js'
+import WabaStubBanner from '../../components/WabaStubBanner'
 
 const STAGES = [
   { v: 'lead',         es: 'Prospecto',   en: 'Lead' },
@@ -241,6 +242,8 @@ export default function SalesPipeline() {
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto">
+      {/* v2.16.7 — WABA-status honesty banner (whatsapp_auto stub). */}
+      <WabaStubBanner />
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold">{L('Prospectos', 'Sales Pipeline')}</h1>

@@ -719,6 +719,11 @@ const SYNC_TABLES = [
         // rejects status changes unless NEW.rev > OLD.rev. Every status-changing
         // UPDATE in electron/database.js bumps rev=COALESCE(rev,0)+1.
         rev: r.rev || 0,
+        // v2.16.4 — Restaurant open-ticket lifecycle. 'open' = mesa seated,
+        // items being added; 'closed' = paid or never opened. Sync is FWW so
+        // a desktop-opened ticket pushed to the cloud stays 'open' until the
+        // close-with-payment write flips it to 'closed'.
+        open_status: r.open_status || 'closed',
         created_at: r.created_at || new Date().toISOString(),
         updated_at: r.updated_at || null,
       }

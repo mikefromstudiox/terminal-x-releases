@@ -1,5 +1,6 @@
 import { Component } from 'react'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { captureSentryException } from '@terminal-x/services/sentry-renderer.js'
 
 const CHUNK_PATTERNS = [
   /Loading chunk/i,
@@ -59,12 +60,14 @@ export default class ErrorBoundary extends Component {
   componentDidCatch(error, info) {
     console.error('[ErrorBoundary] Uncaught render error:', error, info.componentStack)
     if (isChunkError(error)) { nukeCachesAndReload(); return }
-    // Forward to Sentry (no-op when DSN unset). Lazy-import so ErrorBoundary
-    // stays synchronous and doesn't pull the Sentry chunk into the landing
-    // bundle when DSN is unconfigured.
-    import('@terminal-x/services/sentry-renderer.js')
-      .then(m => m.captureSentryException?.(error, { componentStack: info?.componentStack }))
-      .catch(() => {})
+    // Forward to Sentry (no-op when DSN unset). Static import — `sentry-renderer`
+    // is already loaded eagerly by `main.jsx` for `initSentryRenderer()`, so
+    // a dynamic import here only created a Vite "imported both dynamically and
+    // statically" warning without any code-split benefit. v2.16.7: unified to
+    // static across all call sites.
+    try {
+      captureSentryException(error, { componentStack: info?.componentStack })
+    } catch {}
   }
 
   render() {

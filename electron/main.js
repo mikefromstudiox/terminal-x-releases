@@ -600,7 +600,9 @@ async function checkCertExpiry() {
       }
     } catch {}
 
-    console.log(`[cert-expiry] tier transition ${lastTier} → ${tier} (${daysLeft}d left)`)
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[cert-expiry] tier transition ${lastTier} → ${tier} (${daysLeft}d left)`)
+    }
   } catch (e) {
     console.warn('[cert-expiry] check failed:', e.message)
   }
@@ -721,11 +723,20 @@ ipcMain.handle('dgii:restore-from-pem', async (_, { privateKeyPem, certificatePe
       const storePath = pathMod.join(app.getPath('userData'), 'safe_store.json')
       let store = {}
       try { store = JSON.parse(fs.readFileSync(storePath, 'utf8')) } catch {}
-      if (safeStorage.isEncryptionAvailable()) {
-        store['dgii_cert_pass'] = { enc: true, data: safeStorage.encryptString(pass).toString('base64') }
-      } else {
-        store['dgii_cert_pass'] = { enc: false, data: Buffer.from(pass).toString('base64') }
+      if (!safeStorage.isEncryptionAvailable()) {
+        try {
+          db.activityLogRecord?.({
+            event_type:  'cert_safestorage_unavailable',
+            severity:    'critical',
+            target_type: 'dgii_cert',
+            target_name: 'restore-from-pem',
+            reason:      'safeStorage.isEncryptionAvailable() returned false during PEM restore — refused to persist passphrase as base64',
+            metadata:    { platform: process.platform },
+          })
+        } catch {}
+        return { ok: false, error: 'Almacenamiento seguro del sistema no disponible. No se puede guardar la contraseña del certificado en este dispositivo.' }
       }
+      store['dgii_cert_pass'] = { enc: true, data: safeStorage.encryptString(pass).toString('base64') }
       fs.writeFileSync(storePath, JSON.stringify(store))
     } catch (e) {
       console.error('[dgii:restore-from-pem] safe_store write:', e.message)
@@ -1128,7 +1139,9 @@ async function processAnecfQueue() {
         const { signedXml } = xmlSigner.signXML(xml, privateKeyPem, certificatePem)
         const result = await dgiiClient.submitANECF(signedXml, token, env)
         db.anecfQueueMarkSubmitted(item.id, result?.trackId || result?.encf || null)
-        console.log('[anecf-queue] submitted ANECF for', item.ncf, '→', result?.trackId || 'ok')
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[anecf-queue] submitted ANECF for', item.ncf, '→', result?.trackId || 'ok')
+        }
       } catch (e) {
         console.error('[anecf-queue] item', item.id, 'failed:', e.message)
         try { db.anecfQueueMarkFailed(item.id, e.message) } catch {}
@@ -1238,7 +1251,9 @@ async function _wireLicenseJwt(licenseKey, { force = false } = {}) {
     })
     sync.setUserJwt(bundle.access_token)
     _activeLicenseKey = licenseKey
-    console.log('[license-jwt] minted/loaded; expires_at=', new Date(bundle.expires_at).toISOString())
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[license-jwt] minted/loaded; expires_at=', new Date(bundle.expires_at).toISOString())
+    }
   } catch (e) {
     // Soft fallback during the RLS lockdown migration window.
     console.error('[license-jwt] could not mint JWT, sync will run with bare anon (legacy fallback):', e.message)
@@ -1479,7 +1494,7 @@ app.whenReady().then(async () => {
       } catch (e) { console.warn('[main] key derivation failed, opening plaintext:', e.message) }
       const ok = db.init(app.getPath('userData'), { encryptionKey })
       if (!ok) console.error('[main] DB init returned false:', db.getError?.())
-      else console.log('[main] DB initialized at', app.getPath('userData'))
+      else if (process.env.NODE_ENV !== 'production') console.log('[main] DB initialized at', app.getPath('userData'))
       // v2.3 — stamp HWID into app_settings so database.js (no electron dep)
       // can read it inside ticketCreate for multi-POS block consumption.
       try {
@@ -1489,7 +1504,7 @@ app.whenReady().then(async () => {
         }
       } catch (e) { console.warn('[main] hwid stamp failed:', e.message) }
       // Prestamos — recompute mora at startup so dashboard numbers are fresh.
-      try { const ids = db.loansComputeMora?.(); if (ids?.length) console.log(`[main] mora recomputed for ${ids.length} loans`) } catch (e) { console.warn('[main] computeMora failed:', e.message) }
+      try { const ids = db.loansComputeMora?.(); if (ids?.length && process.env.NODE_ENV !== 'production') console.log(`[main] mora recomputed for ${ids.length} loans`) } catch (e) { console.warn('[main] computeMora failed:', e.message) }
       // Daily cron (12h interval — idempotent, cheap).
       try { setInterval(() => { try { db.loansComputeMora?.() } catch {} }, 12 * 60 * 60 * 1000) } catch {}
     } catch (err) {
@@ -1667,7 +1682,9 @@ async function runBackupGuarded(reason) {
 
 function scheduleNightlyBackup() {
   const delay = msUntilNext3AM()
-  console.log(`[backup] next nightly run in ${Math.round(delay / 60000)} min`)
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[backup] next nightly run in ${Math.round(delay / 60000)} min`)
+  }
   setTimeout(async () => {
     try { await runBackupGuarded('scheduled') } catch (e) { console.warn('[backup] scheduled run failed:', e.message) }
     scheduleNightlyBackup() // recompute for next 3 AM (handles DST drift)
@@ -1914,7 +1931,9 @@ handle('auth:pin', async (pin) => {
 
   _lastPinRescuePullAt = now
   try {
-    console.log(`[auth:pin] miss — staffCount=${staffCount} stale=${stale}, forcing sync pull`)
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[auth:pin] miss — staffCount=${staffCount} stale=${stale}, forcing sync pull`)
+    }
     await Promise.race([
       sync.pullNow?.() || Promise.resolve(),
       new Promise((_, rej) => setTimeout(() => rej(new Error('rescue-pull timeout')), 10_000)),
@@ -2431,6 +2450,20 @@ handleMut('tickets:void',        ({id,reason,voidById}) => db.ticketVoid(id, rea
   requires: guard.guardMac('tickets:void', ([a]) => a?.id),
 })
 handle('tickets:byDateRange', ({from,to}) => db.ticketGetByDateRange(from, to))
+// v2.16.4 — Restaurant open-ticket lifecycle (persist at seat-time, not cobro).
+handleMut('tickets:openForMesa',     (data) => db.ticketOpenForMesa(data || {}))
+handleMut('tickets:addItem',         (data) => db.ticketAddItem(data || {}))
+handleMut('tickets:updateItemQty',   (data) => db.ticketUpdateItemQty(data || {}))
+handleMut('tickets:removeItem',      (data) => db.ticketRemoveItem(data || {}))
+handle('tickets:getActiveByMesa',    ({ mesa_id } = {}) => db.ticketGetActiveByMesa(mesa_id))
+handleMut('tickets:closeWithPayment', (data) => db.ticketCloseWithPayment(data || {}), {
+  // closeWithPayment nests the cobro fields under `payload`, so unwrap before
+  // delegating to the shared big-discount gate.
+  requires: ({ actor, args, db: _db }) => {
+    const payload = args?.[0]?.payload || {}
+    return requiresBigDiscountMac({ actor, args: [payload], db: _db })
+  },
+})
 handle('reports:ticketsWithItems', ({from,to}) => db.ticketGetByDateRangeWithItems(from, to))
 handleMut('tickets:updateItemPrice', (data) => db.ticketItemUpdatePrice(data))
 handle('tickets:priceChanges',    ({ticketId}) => db.priceChangesGetByTicket(ticketId))

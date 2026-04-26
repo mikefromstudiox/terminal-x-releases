@@ -2,6 +2,10 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { X, ChevronDown, Check, CheckCircle2, Search, Loader2, AlertCircle, ShoppingCart, UserRound, Plus, Minus, Barcode, Package, LayoutGrid, Wine, Zap, ShieldCheck, Beer, Coffee, Cookie, Droplet, CupSoda, Candy, IceCreamCone, UtensilsCrossed, Sparkles, Cigarette, Flame, Leaf, Pizza, Smartphone, Edit2, Eye, EyeOff, Lock } from 'lucide-react'
 import AgeVerifyModal, { requiresAgeCheck } from '../components/AgeVerifyModal'
+import {
+  expandCartWithDeposits as licExpandCartWithDeposits,
+  checkAgeGate as licCheckAgeGate,
+} from './pos/licoreria-helpers'
 import WeightModal from '../components/WeightModal'
 import { CarniceriaModeToggle, PrepNotesButton, SeasonalPromoBanner } from '../components/CarniceriaCartExtras'
 import { activeSeasons } from '@terminal-x/services/seasonalPromotions'
@@ -1775,6 +1779,19 @@ function RetailPOS() {
   // awaiting verification so the cashier can confirm/cancel without losing it.
   const [ageVerified, setAgeVerified]       = useState(null)
   const [pendingAgeItem, setPendingAgeItem] = useState(null)
+
+  // Re-validation gate: block "Cobrar" if any cart line is age-restricted
+  // (per the live config, not the stale flag stamped at add-to-cart time)
+  // and the ticket has no verification yet. Pure logic lives in
+  // pos/licoreria-helpers.js so it's testable and reusable.
+  function ensureAgeVerifiedForCart(items) {
+    const result = licCheckAgeGate({
+      items, ageVerificationEnabled, ageVerified, licoreriaConfig,
+    })
+    if (result.ok) return true
+    if (result.reason === 'pending') setPendingAgeItem(result.item)
+    return false
+  }
   const [quickSells, setQuickSells]         = useState([])
   // v2.6 — Licoreria: Devolución de envases modal (bottle-return refunds).
   const [depositReturnOpen, setDepositReturnOpen] = useState(false)
@@ -2297,33 +2314,12 @@ function RetailPOS() {
   // Expand cart → final line items, appending synthetic bottle-deposit lines
   // for licoreria. Each deposit line is non-ITBIS, qty-matched, and carries a
   // `bottle_deposit: true` flag so printer / PDF / reports can segregate it.
+  // Pure helper now lives in pos/licoreria-helpers.js — closure here just
+  // forwards the live config + lang.
   function expandCartWithDeposits(items) {
-    if (!bottleDepositEnabled || !licoreriaConfig?.bottleDeposit?.enabled) return items
-    const lineLabel = licoreriaConfig.bottleDeposit.lineLabel?.[lang] ||
-                      licoreriaConfig.bottleDeposit.lineLabel?.es || 'Depósito de botella'
-    const out = []
-    for (const it of items) {
-      out.push(it)
-      const dep = Number(it.bottle_deposit || 0)
-      if (dep > 0 && it.inventory_item_id) {
-        out.push({
-          id:                `dep-${it.id}`,
-          inventory_item_id: null,
-          service_id:        null,
-          sku:               'DEP',
-          name:              `${lineLabel} — ${it.name}`,
-          price:             dep,
-          cost:              0,
-          qty:               it.qty || 1,
-          aplica_itbis:      0,
-          is_wash:           0,
-          is_deposit:        true,        // v2.6 canonical flag → ticket_items.is_deposit
-          bottle_deposit_line: true,      // legacy alias (printer/pdf/report readers)
-          parent_inventory_item_id: it.inventory_item_id,
-        })
-      }
-    }
-    return out
+    return licExpandCartWithDeposits(items, {
+      bottleDepositEnabled, licoreriaConfig, lang,
+    })
   }
 
   // Called by AgeVerifyModal on successful verification.
@@ -2468,7 +2464,9 @@ function RetailPOS() {
       else if (e.key === 'F2') {
         e.preventDefault()
         if (cart.length > 0) {
-          setCobrarModal({ items: applyCarniceriaDiscounts(expandCartWithDeposits(cart)), ageVerified, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, salesperson, pyMode })
+          const items = applyCarniceriaDiscounts(expandCartWithDeposits(cart))
+          if (!ensureAgeVerifiedForCart(items)) return
+          setCobrarModal({ items, ageVerified, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, salesperson, pyMode })
         }
       }
       else if (e.key === 'F4') { e.preventDefault(); searchRef.current?.focus() }
@@ -3066,9 +3064,11 @@ function RetailPOS() {
           <button
             onClick={() => {
               if (cart.length > 0) {
+                const items = applyCarniceriaDiscounts(expandCartWithDeposits(cart))
+                if (!ensureAgeVerifiedForCart(items)) return
                 setMobileCartOpen(false)
                 setCobrarModal({
-                  items: applyCarniceriaDiscounts(expandCartWithDeposits(cart)), salesperson,
+                  items, salesperson,
                   ageVerified,
                   clientId: selectedClient?.id || null,
                   clientName: selectedClient?.name || rncName || '',

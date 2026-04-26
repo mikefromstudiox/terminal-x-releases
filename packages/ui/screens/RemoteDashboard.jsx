@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Globe, Eye, WifiOff, RefreshCw, TrendingUp, ReceiptText, Banknote, CreditCard, ArrowRightLeft, Clock,
   Activity, UserX, Tag, XCircle, Wallet, Percent, Package, PiggyBank, Scale, Lock, ChevronDown, ChevronUp, ClipboardList, Sunrise,
-  DoorOpen, Unlock, HardDrive, ShieldAlert, ShieldX, Calendar } from 'lucide-react'
+  DoorOpen, Unlock, HardDrive, ShieldAlert, ShieldX, Calendar, MessageSquare } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
@@ -579,6 +579,8 @@ const EVENT_META = {
   empleado_deactivated:  { Icon: UserX,       color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Empleado desactivado',      en: 'Employee deactivated' },
   // v2.13.0 — DGII private key export (critical audit trail)
   cert_pem_export:       { Icon: ShieldAlert, color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',          es: 'Exportación de certificado DGII', en: 'DGII cert exported' },
+  // v2.16.3 — host safeStorage unavailable → cert install refused
+  cert_safestorage_unavailable: { Icon: ShieldAlert, color: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',   es: 'Almacenamiento seguro DGII no disponible', en: 'DGII safe storage unavailable' },
   // v2.5 — Concesionario CRM + commissions
   deal_closed:           { Icon: ReceiptText, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-300', es: 'Venta de vehículo cerrada', en: 'Vehicle deal closed' },
   deal_commission_paid:  { Icon: Wallet,      color: 'text-violet-600 bg-violet-50 dark:bg-violet-500/10 dark:text-violet-300', es: 'Comisión de vehículo pagada', en: 'Vehicle commission paid' },
@@ -607,6 +609,25 @@ const EVENT_META = {
   // FIX-HIGH-8 — emitted by activity_log fallback queue (web IDB / desktop SQLite)
   // when an audit row cannot be persisted after 5 retries. Compliance-critical.
   activity_log_dropped:        { Icon: ShieldX,    color: 'text-white bg-[#b3001e] dark:text-white dark:bg-[#b3001e]',                   es: 'Registro de actividad descartado tras 5 intentos', en: 'Activity log entry dropped after 5 retries' },
+  // H7 — Restaurante: anulación de plato ya enviado a cocina (manager-gated).
+  restaurant_void_fired_item:  { Icon: XCircle,    color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300',         es: 'Anulación plato en cocina', en: 'Fired-item void' },
+  // FIX-HIGH-7 — Mecánica WorkOrders mutation failures (create/update/items/
+  // inspection/parts/cobrar/finalize) now surface as a red toast AND emit this
+  // audit row through the canonical helper (with IDB fallback queue).
+  mechanic_wo_mutation_failed: { Icon: ShieldAlert, color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300',          es: 'Error guardando orden de trabajo',           en: 'Work order save failed' },
+  // v2.16.3 — Restaurante H3 (Mover/Juntar) + H4 (Reservas)
+  restaurant_mesa_transfer:    { Icon: RefreshCw,    color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',                  es: 'Mesa movida',                  en: 'Table moved' },
+  restaurant_mesa_merge:       { Icon: RefreshCw,    color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',                  es: 'Mesas juntadas',               en: 'Tables merged' },
+  reservation_created:         { Icon: Calendar,     color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',                  es: 'Reserva creada',               en: 'Reservation created' },
+  reservation_confirmed:       { Icon: Calendar,     color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-300',  es: 'Reserva confirmada',           en: 'Reservation confirmed' },
+  reservation_cancelled:       { Icon: XCircle,      color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300',          es: 'Reserva cancelada',            en: 'Reservation cancelled' },
+  reservation_no_show:         { Icon: ShieldAlert,  color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300',          es: 'Reserva no se presentó',       en: 'Reservation no-show' },
+  reservation_seated:          { Icon: Calendar,     color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-300',  es: 'Reserva sentada',              en: 'Reservation seated' },
+  // v2.16.6 — DealBuilder reservation/override silent-catch hardening (FIX-HIGH-8 fallback)
+  reservation_conflict_silent_catch_recovered: { Icon: ShieldAlert, color: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300', es: 'Reserva — error recuperado',   en: 'Reservation — silent catch recovered' },
+  // v2.16.7 — Lending collections daily auto-fire (24h + 2h windows). wa.me
+  // deep-link only; no WABA send claim until app_settings.waba_approved=true.
+  loan_reminder_sent:          { Icon: MessageSquare,  color: 'text-sky-600 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300',                  es: 'Recordatorio de pago encolado', en: 'Loan reminder queued' },
 }
 function eventLabel(evt, lang) {
   const m = EVENT_META[evt]

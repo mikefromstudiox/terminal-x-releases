@@ -29,12 +29,17 @@ import { useAuth } from '../../context/AuthContext'
 import { useLang } from '../../i18n'
 import { useBusinessType } from '../../hooks/useBusinessType.jsx'
 import { computeDeal } from './lib/financing.js'
+// FIX-HIGH-8 — fallback queue for compliance-critical audit rows (reservation
+// override failures + silent reservation conflict catches) so a transient
+// activity_log insert error never erases the trail.
+import { enqueueActivity } from '@terminal-x/services/activity-log-queue.js'
 import CobrarModal from '../../components/CobrarModal'
 import PaymentErrorBoundary from '../../components/PaymentErrorBoundary'
 import UafComplianceModal from '../../components/UafComplianceModal'
 import DateTimeModal from '../../components/DateTimeModal'
 import QuotePdfModal from './components/QuotePdfModal'
 import AppraisalChecklist from './components/AppraisalChecklist'
+import WabaStubBanner from '../../components/WabaStubBanner'
 
 // DGII: E31 (Crédito Fiscal) required when the buyer expects ITBIS credit,
 // and is the norm for DR dealership vehicle sales ≥ RD$250,000. Below that
@@ -70,6 +75,19 @@ export default function DealBuilder() {
   // CobrarModal with the vehicle as a single line item so the sale produces
   // a fiscal receipt + hits Cuadre / reports.
   const [cobrarCtx, setCobrarCtx] = useState(null)
+  // v2.16.6 — surface-only toast for reservation/override failures. Mirrors the
+  // WorkOrders FIX-HIGH-7 pattern (kind: 'ok' | 'error', auto-dismiss).
+  const [toast, setToast] = useState(null)
+  function flashToast(msg, kind = 'ok') {
+    setToast({ msg, kind })
+    setTimeout(() => setToast(null), kind === 'error' ? 5000 : 3000)
+  }
+  // Route a compliance-critical audit row through the canonical helper, with
+  // an IDB fallback queue (FIX-HIGH-8) so the trail survives a Supabase blip.
+  async function safeAudit(payload) {
+    try { await api.activity?.log?.(payload) }
+    catch { try { await enqueueActivity(payload) } catch {} }
+  }
 
   const [vehicleId, setVehicleId] = useState('')
   const [clientId, setClientId] = useState('')
@@ -236,20 +254,44 @@ export default function DealBuilder() {
       return
     }
     if (reservationConflict && reservationOverride) {
-      try {
-        await api.activity?.log?.({
-          event_type:  'reservation_override',
+      // v2.16.6 — was a silent try/catch. Reservation override is a real
+      // money-affecting event (we are about to anular another client's hold).
+      // Route through the canonical helper + IDB fallback queue so the audit
+      // row never silently disappears. If BOTH paths fail we still surface a
+      // crimson Spanish toast and emit a higher-severity recovery event so
+      // the owner can see what happened in the Actividad feed.
+      const overridePayload = {
+        event_type:  'reservation_override',
+        severity:    'warn',
+        target_type: 'vehicle_reservation',
+        target_id:   activeReservation?.id || null,
+        metadata:    {
+          vehicle_inventory_supabase_id: activeReservation?.vehicle_inventory_supabase_id || null,
+          held_by_client_supabase_id:    activeReservation?.client_supabase_id || null,
+          buyer_client_id:               clientId,
+          expires_at:                    activeReservation?.expires_at || null,
+        },
+      }
+      let auditOk = true
+      try { await api.activity?.log?.(overridePayload) }
+      catch {
+        auditOk = false
+        try { await enqueueActivity(overridePayload) } catch {}
+      }
+      if (!auditOk) {
+        flashToast('No se pudo aplicar la anulación de reservación. Reintenta.', 'error')
+        await safeAudit({
+          event_type:  'reservation_conflict_silent_catch_recovered',
           severity:    'warn',
           target_type: 'vehicle_reservation',
           target_id:   activeReservation?.id || null,
           metadata:    {
-            vehicle_inventory_supabase_id: activeReservation?.vehicle_inventory_supabase_id || null,
-            held_by_client_supabase_id:    activeReservation?.client_supabase_id || null,
-            buyer_client_id:               clientId,
-            expires_at:                    activeReservation?.expires_at || null,
+            scope: 'reservation_override_audit',
+            deal_vehicle_id: vehicleId,
+            buyer_client_id: clientId,
           },
         })
-      } catch {}
+      }
     }
 
     // C1 — hardened total compute. NaN/negative kills E31/E32 routing.
@@ -418,10 +460,26 @@ export default function DealBuilder() {
         // v2.16.4 — convert the reservation now that the deal is closed cleanly.
         // Best-effort: any failure here just leaves the reservation 'active' for
         // a manual release in /reservations; the deal itself is already booked.
+        // v2.16.6 — was silent. Surface to a Spanish toast + recoverable audit
+        // row so the owner sees the orphan reservation that needs manual close.
         if (activeReservation?.id && (reservationByThisClient || reservationOverride)) {
           try {
             await api.vehicleReservation?.convert?.({ id: activeReservation.id, deal_supabase_id: ctx.dealSupabaseId || null })
-          } catch {}
+          } catch (rcErr) {
+            flashToast('No se pudo aplicar la anulación de reservación. Reintenta.', 'error')
+            await safeAudit({
+              event_type:  'reservation_conflict_silent_catch_recovered',
+              severity:    'warn',
+              target_type: 'vehicle_reservation',
+              target_id:   activeReservation.id,
+              metadata:    {
+                scope: 'reservation_convert_after_deal_close',
+                dealId: ctx.dealId || null,
+                deal_supabase_id: ctx.dealSupabaseId || null,
+                error: String(rcErr?.message || rcErr),
+              },
+            })
+          }
         }
         // v2.16.4 Sprint 2B H3 — auto-create post-sale warranty if cashier kept
         // the toggle on. Best-effort: failure does NOT block the deal close
@@ -595,9 +653,26 @@ export default function DealBuilder() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
+      {/* v2.16.7 — Honest WABA-status banner (visible only on Pro MAX while
+          waba_approved !== 'true'). Auto-hides once admin flips the flag. */}
+      <WabaStubBanner />
       {cobrarModal}
       {uafModal}
       {preapprovalModal}
+      {/* v2.16.6 — surface for reservation/override failures */}
+      {toast && (
+        <div
+          role="status"
+          aria-live={toast.kind === 'error' ? 'assertive' : 'polite'}
+          className={`fixed top-4 right-4 z-[200] px-4 py-2.5 rounded-lg text-sm font-semibold shadow-2xl ${
+            toast.kind === 'error'
+              ? 'bg-[#b3001e] text-white'
+              : 'bg-black text-white'
+          }`}
+        >
+          {toast.msg}
+        </div>
+      )}
       {showQuoteModal && (
         <QuotePdfModal
           vehicle={selectedUnit}

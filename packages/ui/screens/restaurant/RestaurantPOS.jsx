@@ -1,16 +1,20 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   ArrowLeft, Users, User, Clock, Plus, Minus, Trash2, ChefHat, CreditCard,
   Check, X, AlertCircle, Loader2, Utensils, Coffee, Wine, IceCream, Soup,
   ListOrdered, Split, Search, Star, ShoppingCart, Receipt,
+  ArrowRightLeft, Combine,
 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import CobrarModal from '../../components/CobrarModal'
 import PaymentErrorBoundary from '../../components/PaymentErrorBoundary'
+import ManagerAuthGate from '../../components/ManagerAuthGate'
 import TipEntryModal from './TipEntryModal'
 import SplitBillModal from './SplitBillModal'
 import SplitByItemModal from './SplitByItemModal'
+import { MoveMesaModal, JoinMesaModal } from './MesaActionModals'
 import { effectivePrice, isHappyHourActive } from './happyHour'
+import { printPreCuenta } from '@terminal-x/services/printer.js'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtRD(n) {
@@ -32,13 +36,26 @@ function fmtElapsed(mins) {
   return `${h}h ${m}m`
 }
 
+// M11 (audit) — robust boolean cast for app_settings values that may arrive
+// as '1' / 'true' / true / 1 / 'yes' / 'si' depending on storage layer (KV
+// rows are TEXT on SQLite + Supabase; web JSON booleans round-trip native).
+function truthy(v) {
+  if (v === true || v === 1) return true
+  if (v == null) return false
+  const s = String(v).toLowerCase().trim()
+  return s === '1' || s === 'true' || s === 'yes' || s === 'si' || s === 'sí'
+}
+
+// H10 — CSPRNG-only UUID. Electron + every modern browser exposes
+// crypto.randomUUID; the prior Math.random fallback was a security smell
+// (predictable IDs) and is no longer reachable. Throw loud if absent so a
+// regressed environment is caught immediately instead of silently writing
+// non-unique ticket IDs.
 function uuidv4() {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = (Math.random() * 16) | 0
-    const v = c === 'x' ? r : (r & 0x3) | 0x8
-    return v.toString(16)
-  })
+  if (typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') {
+    throw new Error('crypto.randomUUID unavailable — refusing to generate a non-CSPRNG UUID')
+  }
+  return crypto.randomUUID()
 }
 
 // Course → icon + spanish label
@@ -293,7 +310,7 @@ function SeatPromptModal({ open, mesa, empleados, onClose, onConfirm }) {
 // ── MESA CARD ─────────────────────────────────────────────────────────────────
 // Three visual states: libre (white) / ocupada (crimson) / acuenta (amber).
 // `acuenta` triggers when mesa.status === 'acuenta' OR a future bill_requested_at flag.
-function MesaCard({ mesa, now, active, total, onClick }) {
+function MesaCardImpl({ mesa, now, active, total, onClick }) {
   const isOcupada = mesa.status === 'ocupada'
   const isAcuenta = mesa.status === 'acuenta' || !!mesa.bill_requested_at
   const isLibre = !isOcupada && !isAcuenta
@@ -341,6 +358,27 @@ function MesaCard({ mesa, now, active, total, onClick }) {
   )
 }
 
+// M2 (audit) — memoize MesaCard. The 15s `now` tick re-renders the parent
+// every interval, but a card only changes visually every ~3 minutes (elapsed
+// label) or when its mesa state shifts. Custom equality bucket the timer
+// down to 3-min granularity so we cut renders ~12x without losing a meaningful
+// label refresh.
+const MesaCard = React.memo(MesaCardImpl, (prev, next) => {
+  if (prev.mesa.id !== next.mesa.id) return false
+  if (prev.mesa.status !== next.mesa.status) return false
+  if (prev.mesa.bill_requested_at !== next.mesa.bill_requested_at) return false
+  if ((prev.mesa.guests_count ?? prev.mesa.guests) !== (next.mesa.guests_count ?? next.mesa.guests)) return false
+  if (prev.mesa.seated_at !== next.mesa.seated_at) return false
+  if (prev.active !== next.active) return false
+  if (prev.total !== next.total) return false
+  // Bucket elapsed minutes by 3 — re-render at most every 3 min for clock label.
+  const seatedT = prev.mesa.seated_at ? new Date(prev.mesa.seated_at).getTime() : 0
+  const prevBucket = seatedT ? Math.floor(((prev.now - seatedT) / 60000) / 3) : 0
+  const nextBucket = seatedT ? Math.floor(((next.now - seatedT) / 60000) / 3) : 0
+  if (prevBucket !== nextBucket) return false
+  return true
+})
+
 // ── MENU ITEM CARD ────────────────────────────────────────────────────────────
 function MenuItemCard({ svc, happyHourEnabled, onClick }) {
   const hh = isHappyHourActive(svc, { enabled: happyHourEnabled })
@@ -378,10 +416,39 @@ function MenuItemCard({ svc, happyHourEnabled, onClick }) {
 // ── CART SIDEBAR ──────────────────────────────────────────────────────────────
 function CartSidebar({
   activeTicket, ticketSubtotal, hasUnfiredItems, unfiredCoursesInTicket,
-  waiterName, elapsedTicketMin, isHybrid,
+  waiterName, elapsedTicketMin, isHybrid, services,
   onClose, onIncQty, onRemoveItem, onFireToKDS, onCobrar, onSplit, onSplitByItem, onHybridConvert,
-  onRequestBill,
+  onRequestBill, onMoveMesa, onJoinMesa,
 }) {
+  // M1 (audit) — ITBIS desglose. Restaurant menu prices are ITBIS-inclusive;
+  // back out the tax per-line so the diner sees the legally required breakout
+  // (Subtotal sin ITBIS / ITBIS 18% / Total). Items whose service has
+  // aplica_itbis === 0 (rare for restos but possible) contribute nothing
+  // to the tax line.
+  const ITBIS_FACTOR = 0.18
+  const { netSubtotal, itbisAmount, grossTotal } = useMemo(() => {
+    if (!activeTicket) return { netSubtotal: 0, itbisAmount: 0, grossTotal: 0 }
+    let net = 0, tax = 0, gross = 0
+    for (const it of (activeTicket.items || [])) {
+      const modSum = (it.modifiers || []).reduce((x, m) => x + Number(m.price_delta || 0), 0)
+      const lineGross = (Number(it.price) + modSum) * it.qty
+      const svc = (services || []).find(s => s.id === it.service_id || s.supabase_id === it.service_supabase_id)
+      const aplica = svc ? (svc.aplica_itbis !== 0) : true // default applies in resto context
+      gross += lineGross
+      if (aplica) {
+        const lineNet = lineGross / (1 + ITBIS_FACTOR)
+        net += lineNet
+        tax += (lineGross - lineNet)
+      } else {
+        net += lineGross
+      }
+    }
+    return {
+      netSubtotal: parseFloat(net.toFixed(2)),
+      itbisAmount: parseFloat(tax.toFixed(2)),
+      grossTotal:  parseFloat(gross.toFixed(2)),
+    }
+  }, [activeTicket, services])
   const isAcuenta = activeTicket?.mesa?.status === 'acuenta' || !!activeTicket?.mesa?.bill_requested_at
   const canRequestBill = !!activeTicket && (activeTicket.items?.length || 0) > 0 && !isAcuenta
   const itemsCount = activeTicket?.items?.reduce((n, it) => n + (it.qty || 0), 0) || 0
@@ -442,16 +509,27 @@ function CartSidebar({
               const modSum = (it.modifiers || []).reduce((x, m) => x + Number(m.price_delta || 0), 0)
               const lineTotal = (Number(it.price) + modSum) * it.qty
               const fired = !!it.kds_fired_at
+              // M6 (audit) — fired+qty=0 is ANULADO. COORD-SIBLING-B
+              const isVoided = fired && it.qty === 0
               return (
                 <div
                   key={it.local_id}
-                  className={`rounded-xl border p-3 ${fired ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5'}`}
+                  className={`rounded-xl border p-3 ${
+                    isVoided ? 'border-[#b3001e]/60 bg-[#b3001e]/5'
+                    : fired ? 'border-emerald-500/40 bg-emerald-500/5'
+                    : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5'
+                  }`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-slate-900 dark:text-white font-bold text-sm truncate">{it.name}</span>
-                        {fired && (
+                        <span className={`text-slate-900 dark:text-white font-bold text-sm truncate ${isVoided ? 'line-through opacity-70' : ''}`}>{it.name}</span>
+                        {isVoided && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#b3001e] text-white uppercase tracking-wider">
+                            Anulado
+                          </span>
+                        )}
+                        {fired && !isVoided && (
                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 uppercase tracking-wider">
                             Enviado
                           </span>
@@ -477,7 +555,7 @@ function CartSidebar({
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <div className="text-slate-900 dark:text-white font-extrabold text-sm">{fmtRD(lineTotal)}</div>
-                      {!fired && (
+                      {!fired ? (
                         <div className="flex items-center gap-1">
                           <button onClick={() => onIncQty(it.local_id, -1)} className="w-7 h-7 rounded-md border border-slate-200 dark:border-white/10 hover:border-[#b3001e] text-slate-600 dark:text-white/70 flex items-center justify-center">
                             <Minus size={12} />
@@ -490,6 +568,16 @@ function CartSidebar({
                             <Trash2 size={12} />
                           </button>
                         </div>
+                      ) : (
+                        // H7 — fired items: only show a trash that triggers ManagerAuthGate.
+                        // Cocinero already cooked; voiding requires manager authorization.
+                        <button
+                          onClick={() => onRemoveItem(it.local_id)}
+                          title="Anular plato (requiere autorización de gerente)"
+                          className="w-7 h-7 rounded-md border border-[#b3001e]/30 hover:bg-[#b3001e]/10 text-[#b3001e] flex items-center justify-center"
+                        >
+                          <Trash2 size={12} />
+                        </button>
                       )}
                     </div>
                   </div>
@@ -500,9 +588,18 @@ function CartSidebar({
 
           {/* Footer */}
           <div className="border-t border-slate-200 dark:border-white/10 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-slate-500 dark:text-white/60 text-sm">Subtotal</span>
-              <span className="text-slate-900 dark:text-white text-2xl font-extrabold">{fmtRD(ticketSubtotal)}</span>
+            {/* M1 (audit) — ITBIS desglose. Required for fiscal clarity. */}
+            <div className="flex items-center justify-between text-[12px] text-slate-500 dark:text-white/50">
+              <span>Subtotal sin ITBIS</span>
+              <span className="font-semibold text-slate-700 dark:text-white/80">{fmtRD(netSubtotal)}</span>
+            </div>
+            <div className="flex items-center justify-between text-[12px] text-slate-500 dark:text-white/50 mt-0.5">
+              <span>ITBIS 18%</span>
+              <span className="font-semibold text-slate-700 dark:text-white/80">{fmtRD(itbisAmount)}</span>
+            </div>
+            <div className="flex items-center justify-between mt-2 mb-3 pt-2 border-t border-slate-100 dark:border-white/5">
+              <span className="text-slate-500 dark:text-white/60 text-sm font-bold uppercase tracking-wider">Total</span>
+              <span className="text-slate-900 dark:text-white text-2xl font-extrabold">{fmtRD(grossTotal)}</span>
             </div>
 
             {unfiredCoursesInTicket.length > 0 && (
@@ -570,6 +667,22 @@ function CartSidebar({
               </button>
             </div>
 
+            {/* v2.16.3 H3 — Mover / Juntar mesas (manager-gated) */}
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <button
+                onClick={onMoveMesa}
+                className="py-2.5 rounded-xl border border-slate-200 dark:border-white/10 hover:border-[#b3001e] text-slate-700 dark:text-white text-xs font-bold flex items-center justify-center gap-1.5"
+              >
+                <ArrowRightLeft size={13} /> Mover
+              </button>
+              <button
+                onClick={onJoinMesa}
+                className="py-2.5 rounded-xl border border-slate-200 dark:border-white/10 hover:border-[#b3001e] text-slate-700 dark:text-white text-xs font-bold flex items-center justify-center gap-1.5"
+              >
+                <Combine size={13} /> Juntar
+              </button>
+            </div>
+
             {isHybrid && (
               <button
                 onClick={onHybridConvert}
@@ -611,8 +724,21 @@ export default function RestaurantPOS() {
   const [splitModal, setSplitModal] = useState(null)     // { total }
   const [splitItemModal, setSplitItemModal] = useState(null) // { total }
   const [cobrarModal, setCobrarModal] = useState(null)   // ticket shape
+  // v2.16.3 H3 — Mover/Juntar mesas
+  const [moveModal, setMoveModal] = useState(false)
+  const [joinModal, setJoinModal] = useState(false)
   const [busy, setBusy]             = useState(null)     // label while async
   const [happyHourEnabled, setHappyHourEnabled] = useState(true)
+  // H1/H2 — restaurant prefs loaded from app_settings
+  const [restoSettings, setRestoSettings] = useState({
+    print_precuenta_enabled: true,
+    servicio_pct: 10,
+    servicio_auto_apply: true,
+    itbis_pct: 18,
+    biz: {},
+  })
+  // H7 — manager auth gate state for void-of-fired-items
+  const [managerGate, setManagerGate] = useState(null) // { localId, item, op:'remove'|'zero' }
 
   // Tick for elapsed times
   useEffect(() => {
@@ -631,7 +757,23 @@ export default function RestaurantPOS() {
         api.settings?.get?.() || Promise.resolve({}),
       ])
       const hhFlag = settings?.restaurant_happy_hour_enabled
-      setHappyHourEnabled(hhFlag == null ? true : (hhFlag === '1' || hhFlag === 1 || hhFlag === true))
+      setHappyHourEnabled(hhFlag == null ? true : truthy(hhFlag))
+      // H1/H2 — restaurant prefs (defaults: print=ON, servicio=10%, auto=ON)
+      const truthy = (v, dflt) => {
+        if (v == null || v === '') return dflt
+        return v === '1' || v === 1 || v === true || v === 'true'
+      }
+      const numOr = (v, dflt) => {
+        const n = parseFloat(v)
+        return Number.isFinite(n) ? n : dflt
+      }
+      setRestoSettings({
+        print_precuenta_enabled: truthy(settings?.restaurant_print_precuenta_enabled, true),
+        servicio_pct:            numOr(settings?.restaurant_servicio_pct, 10),
+        servicio_auto_apply:     truthy(settings?.restaurant_servicio_auto_apply, true),
+        itbis_pct:               numOr(settings?.itbis_pct, 18),
+        biz: settings || {},
+      })
       const bt = settings?.business_type || settings?.businessType || null
       setBusinessType(bt)
       setMesas(Array.isArray(mList) ? mList : [])
@@ -767,22 +909,45 @@ export default function RestaurantPOS() {
     const mesa = seatPrompt
     setSeatPrompt(null)
     if (!mesa) return
+    const seatedAt = new Date().toISOString()
     try {
       setBusy('Sentando mesa...')
       await api.mesas.setStatus(mesa.id, 'ocupada', {
         guests,
         waiter_empleado_id: waiterId,
-        seated_at: new Date().toISOString(),
+        seated_at: seatedAt,
       })
-      const freshMesa = { ...mesa, status: 'ocupada', guests, waiter_empleado_id: waiterId, seated_at: new Date().toISOString() }
+      // C1 — Persist the open ticket immediately. If openForMesa fails, revert
+      // the mesa to libre so we don't strand an ocupada-with-no-ticket zombie.
+      const ticketSid = uuidv4()
+      let opened = null
+      try {
+        opened = await api.tickets?.openForMesa?.({
+          mesa_id: mesa.id,
+          mesa_supabase_id: mesa.supabase_id,
+          waiter_empleado_id: waiterId,
+          guests,
+          supabase_id: ticketSid,
+        })
+      } catch (e) {
+        console.error('[RestaurantPOS] openForMesa failed — reverting mesa to libre', e)
+        try {
+          await api.mesas.setStatus(mesa.id, 'libre', {
+            guests: null, waiter_empleado_id: null, seated_at: null,
+          })
+        } catch (e2) { console.warn('[RestaurantPOS] mesa revert failed', e2) }
+        setError(e?.message || 'No se pudo abrir el ticket de la mesa.')
+        return
+      }
+      const freshMesa = { ...mesa, status: 'ocupada', guests, waiter_empleado_id: waiterId, seated_at: seatedAt }
       setActiveTicket({
-        id: null,
-        supabase_id: uuidv4(),
+        id: opened?.id || null,
+        supabase_id: opened?.supabase_id || ticketSid,
         mesa: freshMesa,
         waiterId,
         guests,
         items: [],
-        startedAt: new Date().toISOString(),
+        startedAt: seatedAt,
       })
       await reload()
     } catch (e) {
@@ -807,7 +972,14 @@ export default function RestaurantPOS() {
     // Detect modifier groups
     let groups = []
     try {
-      groups = await (api.modificadores?.listForService?.(svc.id) || [])
+      // C3 — pass supabase_id (UUID) so the WEB adapter resolves links via
+      // service_modificadores.service_supabase_id. Desktop adapter is now
+      // polymorphic and accepts either, so this single call site works both
+      // platforms. Fall back to integer id if no supabase_id is available
+      // (legacy unsynced rows). console.warn if neither is present.
+      const svcKey = svc.supabase_id || svc.id
+      if (!svcKey) console.warn('[RestaurantPOS] service has no id/supabase_id', svc)
+      groups = await (api.modificadores?.listForService?.(svcKey) || [])
     } catch (e) {
       console.warn('[RestaurantPOS] modificadores load failed', e)
     }
@@ -819,32 +991,68 @@ export default function RestaurantPOS() {
     pushItem(svc, [])
   }
 
+  // C1 — pushItem keeps optimistic UI but ALSO persists each line to the open
+  // ticket as soon as it's added so a crash/refresh mid-dinner doesn't drop
+  // anything. The server-assigned ticket_item_id is patched back into the
+  // matching local item on success; on failure we revert + surface a toast.
   const pushItem = (svc, modifiers) => {
+    const localId = uuidv4()
+    const itemSid = uuidv4()
+    const unit = effectivePrice(svc, { enabled: happyHourEnabled, now: new Date() })
+    const applied = unit !== Number(svc.price || 0)
+    const course = courseForService(svc)
+    const newItem = {
+      local_id: localId,
+      ticket_item_id: null,
+      ticket_item_supabase_id: itemSid,
+      service_id: svc.id,
+      service_supabase_id: svc.supabase_id,
+      name: applied ? `${svc.name} · Happy Hour` : svc.name,
+      price: unit,
+      qty: 1,
+      modifiers,
+      kds_fired_at: null,
+      course,
+      happy_hour_applied: applied,
+    }
+    let snapshotTicket = null
     setActiveTicket(t => {
       if (!t) return t
-      const unit = effectivePrice(svc, { enabled: happyHourEnabled, now: new Date() })
-      const applied = unit !== Number(svc.price || 0)
-      return {
-        ...t,
-        items: [
-          ...t.items,
-          {
-            local_id: uuidv4(),
-            ticket_item_id: null,
-            ticket_item_supabase_id: uuidv4(),
-            service_id: svc.id,
-            service_supabase_id: svc.supabase_id,
-            name: applied ? `${svc.name} · Happy Hour` : svc.name,
-            price: unit,
-            qty: 1,
-            modifiers,
-            kds_fired_at: null,
-            course: courseForService(svc),
-            happy_hour_applied: applied,
-          },
-        ],
-      }
+      snapshotTicket = t
+      return { ...t, items: [...t.items, newItem] }
     })
+    // Fire-and-forget persistence. Renderer stays snappy; reconciliation
+    // happens via the ticket_item_id patch below.
+    ;(async () => {
+      try {
+        if (!snapshotTicket || !api.tickets?.addItem) return
+        const res = await api.tickets.addItem({
+          ticket_id: snapshotTicket.id || null,
+          ticket_supabase_id: snapshotTicket.supabase_id || null,
+          service_id: svc.id,
+          service_supabase_id: svc.supabase_id,
+          name: newItem.name,
+          price: unit,
+          qty: 1,
+          modifiers,
+          course,
+          happy_hour_applied: applied,
+          supabase_id: itemSid,
+        })
+        if (res?.id || res?.supabase_id) {
+          setActiveTicket(t => t ? {
+            ...t,
+            items: t.items.map(it => it.local_id === localId
+              ? { ...it, ticket_item_id: res.id || it.ticket_item_id, ticket_item_supabase_id: res.supabase_id || it.ticket_item_supabase_id }
+              : it),
+          } : t)
+        }
+      } catch (e) {
+        console.error('[RestaurantPOS] addItem persist failed — reverting line', e)
+        setActiveTicket(t => t ? { ...t, items: t.items.filter(it => it.local_id !== localId) } : t)
+        setError(e?.message || 'No se pudo guardar el plato.')
+      }
+    })()
   }
 
   const confirmModifier = (mods) => {
@@ -853,23 +1061,128 @@ export default function RestaurantPOS() {
     if (svc) pushItem(svc, mods)
   }
 
-  const incQty = (localId, delta) => {
+  // C1 — debounced qty push. We persist the LAST qty per ticket_item_id 400ms
+  // after the cashier stops clicking +/-, instead of one IPC per click. The
+  // map is keyed by ticket_item_id so concurrent edits to different lines
+  // don't clobber each other.
+  const qtyDebounceRef = useRef(new Map())
+  const schedulePersistQty = (ticketItemId, qty) => {
+    if (!ticketItemId || !api.tickets?.updateItemQty) return
+    const map = qtyDebounceRef.current
+    const prev = map.get(ticketItemId)
+    if (prev) clearTimeout(prev.timer)
+    const timer = setTimeout(async () => {
+      map.delete(ticketItemId)
+      try { await api.tickets.updateItemQty({ ticket_item_id: ticketItemId, qty }) }
+      catch (e) { console.warn('[RestaurantPOS] updateItemQty persist failed', e) }
+    }, 400)
+    map.set(ticketItemId, { timer, qty })
+  }
+
+  // Internal — perform the actual mutation, post-authorization. Never
+  // call directly when the item has kds_fired_at; route via the gate.
+  const _incQtyApply = (localId, delta) => {
+    let touched = null
     setActiveTicket(t => {
       if (!t) return t
-      return {
+      const next = {
         ...t,
         items: t.items
-          .map(it => it.local_id === localId ? { ...it, qty: Math.max(0, it.qty + delta) } : it)
+          .map(it => {
+            if (it.local_id !== localId) return it
+            const updated = { ...it, qty: Math.max(0, it.qty + delta) }
+            touched = updated
+            return updated
+          })
           .filter(it => it.qty > 0 || it.kds_fired_at),
       }
+      return next
     })
+    // Persist qty change for any line that was already saved server-side.
+    if (touched?.ticket_item_id) {
+      if (touched.qty <= 0) {
+        api.tickets?.removeItem?.({ ticket_item_id: touched.ticket_item_id, ticket_item_supabase_id: touched.ticket_item_supabase_id })
+          ?.catch(e => console.warn('[RestaurantPOS] removeItem persist failed', e))
+      } else {
+        schedulePersistQty(touched.ticket_item_id, touched.qty)
+      }
+    }
+  }
+  const _removeApply = (localId) => {
+    let removed = null
+    setActiveTicket(t => {
+      if (!t) return t
+      removed = t.items.find(it => it.local_id === localId) || null
+      // H7 — once authorized, allow removal of fired items too. The original
+      // filter kept fired items; we now drop them outright when the manager
+      // approves the void.
+      return { ...t, items: t.items.filter(it => it.local_id !== localId) }
+    })
+    if (removed?.ticket_item_id || removed?.ticket_item_supabase_id) {
+      api.tickets?.removeItem?.({
+        ticket_item_id: removed.ticket_item_id || null,
+        ticket_item_supabase_id: removed.ticket_item_supabase_id || null,
+      })?.catch(e => console.warn('[RestaurantPOS] removeItem persist failed', e))
+    }
+  }
+
+  // H7 — gated wrappers. If the line was already fired to KDS, ask the
+  // manager to authorize. Logs a `restaurant_void_fired_item` activity
+  // row with full context (mesa, item, qty, modifiers, ticket sid, mgr id).
+  const incQty = (localId, delta) => {
+    if (!activeTicket) return
+    const it = activeTicket.items.find(x => x.local_id === localId)
+    if (!it) return
+    if (it.kds_fired_at && delta < 0 && (it.qty + delta) <= 0) {
+      setManagerGate({ localId, item: it, op: 'zero' })
+      return
+    }
+    _incQtyApply(localId, delta)
   }
 
   const removeItem = (localId) => {
-    setActiveTicket(t => {
-      if (!t) return t
-      return { ...t, items: t.items.filter(it => it.local_id !== localId || it.kds_fired_at) }
-    })
+    if (!activeTicket) return
+    const it = activeTicket.items.find(x => x.local_id === localId)
+    if (!it) return
+    if (it.kds_fired_at) {
+      setManagerGate({ localId, item: it, op: 'remove' })
+      return
+    }
+    _removeApply(localId)
+  }
+
+  const onManagerApprove = async (auth) => {
+    const gate = managerGate
+    setManagerGate(null)
+    if (!gate || !activeTicket) return
+    const it = gate.item
+    try {
+      await api.activity?.record?.({
+        event_type: 'restaurant_void_fired_item',
+        severity: 'warn',
+        target_type: 'ticket_item',
+        target_id: it.ticket_item_id != null ? String(it.ticket_item_id) : null,
+        target_name: it.name,
+        amount: (Number(it.price) || 0) * (Number(it.qty) || 0),
+        reason: gate.op === 'remove' ? 'Anular plato ya enviado a cocina' : 'Reducir a 0 plato ya enviado a cocina',
+        metadata: {
+          mesa_name: activeTicket.mesa?.name || null,
+          mesa_supabase_id: activeTicket.mesa?.supabase_id || null,
+          item_name: it.name,
+          qty: it.qty,
+          modifiers: it.modifiers || [],
+          ticket_supabase_id: activeTicket.supabase_id || null,
+          ticket_item_supabase_id: it.ticket_item_supabase_id || null,
+          manager_empleado_id: auth?.staff_id || null,
+          manager_name: auth?.staff_name || null,
+          manager_method: auth?.method || null,
+        },
+      })
+    } catch (e) {
+      console.warn('[RestaurantPOS] activity log restaurant_void_fired_item failed', e)
+    }
+    if (gate.op === 'remove') _removeApply(gate.localId)
+    else                       _incQtyApply(gate.localId, -1)
   }
 
   // When courseId is null/undefined → fire ALL unfired. Otherwise only fire
@@ -883,7 +1196,12 @@ export default function RestaurantPOS() {
     try {
       setBusy('Enviando a cocina...')
       const station = (svc) => {
-        const pr = (services.find(s => s.id === svc.service_id)?.printer_route || 'kitchen').toLowerCase()
+        // M7 (audit) — items synced from cloud carry only service_supabase_id;
+        // matching by integer id alone misses them and defaults to 'kitchen'.
+        // Match either key so bar-routed drinks reach the bar station even
+        // after a cross-device pickup.
+        const matched = services.find(s => s.id === svc.service_id || s.supabase_id === svc.service_supabase_id)
+        const pr = (matched?.printer_route || 'kitchen').toLowerCase()
         if (pr === 'bar') return 'bar'
         if (pr === 'kitchen' || pr === 'cocina') return 'kitchen'
         return 'kitchen'
@@ -928,6 +1246,36 @@ export default function RestaurantPOS() {
           : m
       ))
       setActiveTicket(t => t ? { ...t, mesa: { ...t.mesa, status: 'acuenta', bill_requested_at: requestedAt } } : t)
+
+      // H1 — best-effort pre-cuenta print. Failure must NOT roll back the
+      // status flip — diner's check was already requested. Show a soft
+      // toast if the printer is offline; never throw out of this branch.
+      if (restoSettings.print_precuenta_enabled) {
+        try {
+          const waiterName = empleados.find(e => e.id === activeTicket.waiterId)?.name
+                          || empleados.find(e => e.id === activeTicket.waiterId)?.full_name
+                          || empleados.find(e => e.id === activeTicket.waiterId)?.nombre
+                          || ''
+          await printPreCuenta({
+            biz: restoSettings.biz,
+            mesa: activeTicket.mesa.name,
+            waiter: waiterName,
+            guests: activeTicket.guests,
+            items: activeTicket.items.map(it => ({
+              name: it.name,
+              qty: it.qty,
+              price: Number(it.price),
+              modifiers: it.modifiers || [],
+            })),
+            subtotal: ticketSubtotal,
+            itbisPct: restoSettings.itbis_pct,
+            servicioPct: restoSettings.servicio_auto_apply ? restoSettings.servicio_pct : 0,
+          }, api)
+        } catch (e) {
+          console.warn('[RestaurantPOS] pre-cuenta print failed', e)
+          setError('Cuenta enviada. Impresora no disponible.')
+        }
+      }
     } catch (e) {
       console.error('[RestaurantPOS] requestBill failed', e)
       setError(e?.message || 'Error al pedir cuenta')
@@ -996,15 +1344,35 @@ export default function RestaurantPOS() {
       })
       const tipAmount = Number(payload?.tip_amount ?? cobrarModal?.tipAmount ?? 0) || 0
       const total = Number(payload?.total ?? (ticketSubtotal + tipAmount))
-      await api.tickets.create({
+      // H6 (audit) — Comisiones por mesero. The waiter assigned at seat-time
+      // is credited as the ticket's "seller" so the existing seller_commissions
+      // path (desktop database.js + web.js) writes a row using the empleado's
+      // commission_pct. Skip is automatic when comision_pct=0 / no_commission=1.
+      // COORD-SIBLING-A — alongside persistence work.
+      const _waiterEmp = activeTicket.waiterId
+        ? empleados.find(e => e.id === activeTicket.waiterId || e.supabase_id === activeTicket.waiterId)
+        : null
+      const _waiterSid = _waiterEmp?.supabase_id || null
+      const _waiterId  = _waiterEmp?.id || activeTicket.waiterId || null
+      // C1 — prefer closeWithPayment when the ticket was already opened at
+      // mesa-seat time. Falls back to legacy create() for any pre-open-ticket
+      // session (e.g. ticket loaded before this build's deploy).
+      const cobroPayload = {
         items,
         mesa_id: activeTicket.mesa.id,
         mesa_supabase_id: activeTicket.mesa.supabase_id,
         waiter_empleado_id: activeTicket.waiterId || null,
+        // H6 — alias waiter → seller so seller_commissions fires.
+        seller_id: _waiterId,
+        seller_supabase_id: _waiterSid,
+        seller_empleado_supabase_id: _waiterSid,
         guests: activeTicket.guests || null,
         fulfillment_type: 'dine_in',
         mode: 'mesa',
         tip_amount: tipAmount,
+        // H2 — Servicio (Ley 16-92) computed independently from chosen tip.
+        servicio_amount: Math.round(Number(payload?.subtotal ?? ticketSubtotal) * (restoSettings.servicio_auto_apply ? Number(restoSettings.servicio_pct || 0) : 0) / 100 * 100) / 100,
+        servicio_pct: restoSettings.servicio_auto_apply ? Number(restoSettings.servicio_pct || 0) : 0,
         total,
         subtotal: Number(payload?.subtotal ?? ticketSubtotal),
         itbis: Number(payload?.itbis ?? 0),
@@ -1019,7 +1387,17 @@ export default function RestaurantPOS() {
         mac_jti: payload?.mac_jti || null,
         ecf: payload?.ecf || null,
         ticket_supabase_id: activeTicket.supabase_id || undefined,
-      })
+      }
+      const hasOpenTicket = !!(activeTicket.id || activeTicket.supabase_id)
+      if (hasOpenTicket && api.tickets?.closeWithPayment) {
+        await api.tickets.closeWithPayment({
+          ticket_id: activeTicket.id || null,
+          ticket_supabase_id: activeTicket.supabase_id || null,
+          payload: cobroPayload,
+        })
+      } else {
+        await api.tickets.create(cobroPayload)
+      }
     } catch (e) {
       // Ticket persist failed — LEAVE mesa occupied, keep ticket loaded, surface error.
       console.error('[RestaurantPOS] ticket create failed — mesa left ocupada', e)
@@ -1073,7 +1451,16 @@ export default function RestaurantPOS() {
   const handleSplitPay = async (parts) => {
     try {
       setBusy('Registrando pagos...')
-      const total = parts.reduce((s, p) => s + p.amount, 0)
+      const total = parts.reduce((s, p) => s + Number(p.amount || 0), 0)
+      // M10 (audit) — Validate that the parts sum exactly to the expected
+      // total within a 1-cent tolerance. Without this check a missed cent
+      // (rounding / manual adjust upstream) silently shorts cuadre.
+      const expectedTotal = Number(ticketSubtotal) + Number(cobrarModal?.tipAmount || 0)
+      if (Math.abs(total - expectedTotal) > 0.01) {
+        setBusy(null)
+        setError(`Los pagos no suman el total (RD$ ${total.toFixed(2)} vs RD$ ${expectedTotal.toFixed(2)}).`)
+        return
+      }
       const ticketShape = cobrarModal.ticket
       const items = activeTicket.items.map(it => {
         const modSum = (it.modifiers || []).reduce((x, m) => x + Number(m.price_delta || 0), 0)
@@ -1086,18 +1473,62 @@ export default function RestaurantPOS() {
           modifiers: it.modifiers,
         }
       })
-      await api.tickets.create({
+      // H6 — same waiter→seller alias as non-split path.
+      const _waiterEmpS = activeTicket.waiterId
+        ? empleados.find(e => e.id === activeTicket.waiterId || e.supabase_id === activeTicket.waiterId)
+        : null
+      const _waiterSidS = _waiterEmpS?.supabase_id || null
+      const _waiterIdS  = _waiterEmpS?.id || activeTicket.waiterId || null
+      const splitPayload = {
         items,
         mesa_id: activeTicket.mesa.id,
         mesa_supabase_id: activeTicket.mesa.supabase_id,
+        waiter_empleado_id: activeTicket.waiterId || null,
+        seller_id: _waiterIdS,
+        seller_supabase_id: _waiterSidS,
+        seller_empleado_supabase_id: _waiterSidS,
         fulfillment_type: 'dine_in',
         mode: 'mesa',
         tip_amount: cobrarModal.tipAmount || 0,
+        // H2 — Servicio (Ley 16-92) — see paired note in handleTicketPaid.
+        servicio_amount: Math.round(ticketSubtotal * (restoSettings.servicio_auto_apply ? Number(restoSettings.servicio_pct || 0) : 0) / 100 * 100) / 100,
+        servicio_pct: restoSettings.servicio_auto_apply ? Number(restoSettings.servicio_pct || 0) : 0,
         total,
+        subtotal: Number(ticketSubtotal),
         payment_method: parts[0].method,
         payment_parts: parts,
         split: parts.length > 1,
-      })
+      }
+      const hasOpenTicket = !!(activeTicket.id || activeTicket.supabase_id)
+      if (hasOpenTicket && api.tickets?.closeWithPayment) {
+        await api.tickets.closeWithPayment({
+          ticket_id: activeTicket.id || null,
+          ticket_supabase_id: activeTicket.supabase_id || null,
+          payload: splitPayload,
+        })
+      } else {
+        await api.tickets.create(splitPayload)
+      }
+
+      // C5 — snapshot modifiers in the split flow (parity with handleTicketPaid).
+      // Previously only the non-split path persisted ticket_item_modificadores;
+      // split-paid tickets had no modifier audit trail in Supabase.
+      try {
+        if (api.restaurant?.itemModificadores?.snapshot) {
+          for (const it of activeTicket.items) {
+            if (it.modifiers?.length) {
+              try {
+                await api.restaurant.itemModificadores.snapshot(
+                  it.ticket_item_supabase_id,
+                  it.ticket_item_id,
+                  it.modifiers
+                )
+              } catch (e) { console.warn('[RestaurantPOS] split snapshot mod failed', e) }
+            }
+          }
+        }
+      } catch (e) { console.warn('[RestaurantPOS] split snapshot loop failed', e) }
+
       setSplitModal(null)
       setCobrarModal(null)
       await api.mesas.setStatus(activeTicket.mesa.id, 'sucia', {
@@ -1280,6 +1711,7 @@ export default function RestaurantPOS() {
         waiterName={waiterName}
         elapsedTicketMin={elapsedTicketMin}
         isHybrid={isHybrid}
+        services={services}
         onClose={() => setActiveTicket(null)}
         onIncQty={incQty}
         onRemoveItem={removeItem}
@@ -1289,6 +1721,8 @@ export default function RestaurantPOS() {
         onSplitByItem={() => setSplitItemModal({ total: ticketSubtotal })}
         onHybridConvert={handleHybridConvert}
         onRequestBill={handleRequestBill}
+        onMoveMesa={() => setMoveModal(true)}
+        onJoinMesa={() => setJoinModal(true)}
       />
 
       {/* Modals */}
@@ -1313,6 +1747,8 @@ export default function RestaurantPOS() {
         subtotal={ticketSubtotal}
         onClose={() => setTipModal(false)}
         onConfirm={handleTipConfirmed}
+        servicioPct={restoSettings.servicio_pct}
+        servicioAutoApply={restoSettings.servicio_auto_apply}
       />
 
       {/* Floating "Dividir" buttons on top of CobrarModal */}
@@ -1356,6 +1792,20 @@ export default function RestaurantPOS() {
         />
       )}
 
+      {managerGate && (
+        <ManagerAuthGate
+          action="restaurant_void_fired_item"
+          actionLabel="Anular plato ya enviado a cocina"
+          context={{
+            target_id: managerGate.item?.ticket_item_supabase_id || null,
+            target_name: managerGate.item?.name || null,
+            mesa_name: activeTicket?.mesa?.name || null,
+          }}
+          onApprove={onManagerApprove}
+          onCancel={() => setManagerGate(null)}
+        />
+      )}
+
       {splitItemModal && (
         <SplitByItemModal
           open={true}
@@ -1375,6 +1825,34 @@ export default function RestaurantPOS() {
           }}
         />
       )}
+
+      {/* v2.16.3 H3 — Mover mesa */}
+      <MoveMesaModal
+        open={moveModal && !!activeTicket}
+        sourceMesa={activeTicket?.mesa}
+        sourceTicketSupabaseId={activeTicket?.supabase_id}
+        mesas={mesas}
+        onClose={() => setMoveModal(false)}
+        onSuccess={async () => {
+          setMoveModal(false)
+          setActiveTicket(null)
+          await reload()
+        }}
+      />
+
+      {/* v2.16.3 H3 — Juntar mesas */}
+      <JoinMesaModal
+        open={joinModal && !!activeTicket}
+        targetMesa={activeTicket?.mesa}
+        targetTicketSupabaseId={activeTicket?.supabase_id}
+        mesas={mesas}
+        onClose={() => setJoinModal(false)}
+        onSuccess={async () => {
+          setJoinModal(false)
+          setActiveTicket(null)
+          await reload()
+        }}
+      />
     </div>
   )
 }

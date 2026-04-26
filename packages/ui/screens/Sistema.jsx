@@ -295,6 +295,10 @@ const SISTEMA_DEFAULTS = {
   // customer-facing factura only (buildClientReceipt in services/printer.js).
   receipt_show_itbis_pct:  '0',
   receipt_show_commission: '0',
+  // v2.16.x FIX-HIGH-7 — Mecánica: owner-configurable tow/delivery fee auto-
+  // added to a WO when "Marcar Listo" toggles entrega a domicilio. Was hardcoded
+  // RD$ 500. Cloud-synced (BUSINESS_SETTING_KEYS) so every register matches.
+  mechanic_tow_fee_default: '500',
 }
 
 // Shared settings hook — loads cfg from DB once, provides set/save
@@ -351,7 +355,7 @@ function useSettings() {
 export function Preferencias() {
   const { cfg, set, on, handleSave, saving, saved, printers, toast, show, printerApi, api } = useSettings()
   const { lang, setLang } = useLang()
-  const { businessType } = useBusinessType()
+  const { businessType, isMechanic } = useBusinessType()
   const { plan, hasFeature } = usePlan()
   const { user } = useAuth()
   const isOwner = user?.role === 'owner'
@@ -507,6 +511,26 @@ export function Preferencias() {
         </SettingRow>
       </SettingSection>
 
+      {isMechanic && (
+        <SettingSection title={L('Mecánica', 'Mechanic')}>
+          <SettingRow
+            label={L('Tarifa de remolque', 'Tow fee')}
+            hint={L(
+              'Monto en RD$ que se cobra automáticamente al usar el botón Remolque en órdenes de trabajo.',
+              'Amount in RD$ auto-charged when toggling the tow button on work orders.',
+            )}
+          >
+            <Input
+              type="number" min="0" step="1"
+              placeholder="500"
+              value={cfg.mechanic_tow_fee_default ?? '500'}
+              onChange={e => set('mechanic_tow_fee_default', e.target.value)}
+              className="w-28 text-center"
+            />
+          </SettingRow>
+        </SettingSection>
+      )}
+
       {isOwner && (
         <SettingSection title={L('Fecha de Go-Live', 'Go-Live Date')}>
           <SettingRow
@@ -521,6 +545,68 @@ export function Preferencias() {
               value={cfg.go_live_date || ''}
               onChange={e => set('go_live_date', e.target.value)}
               className="border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-[#b3001e]"
+            />
+          </SettingRow>
+        </SettingSection>
+      )}
+
+      {/* H2 — Restaurante: Servicio % + auto-apply + pre-cuenta print toggle.
+          Visible only when business_type === 'restaurant'. Costumbre RD /
+          Ley 16-92: 10% Servicio is standard. */}
+      {businessType === 'restaurant' && (
+        <SettingSection title={L('Restaurante', 'Restaurant')}>
+          <SettingRow
+            label={L('Servicio (%)', 'Service charge (%)')}
+            hint={L('Costumbre RD / Ley 16-92. Defecto: 10%.', 'DR custom / Law 16-92. Default: 10%.')}
+          >
+            <Input
+              type="number" min="0" max="100" step="0.5"
+              value={cfg.restaurant_servicio_pct ?? '10'}
+              onChange={e => set('restaurant_servicio_pct', e.target.value)}
+              className="w-24 text-center"
+            />
+          </SettingRow>
+          <SettingRow
+            label={L('Aplicar automáticamente', 'Apply automatically')}
+            hint={L('Pre-selecciona la propina al cobrar.', 'Pre-selects the tip chip at checkout.')}
+          >
+            <Toggle
+              enabled={String(cfg.restaurant_servicio_auto_apply ?? '1') === '1'}
+              onChange={v => set('restaurant_servicio_auto_apply', v ? '1' : '0')}
+            />
+          </SettingRow>
+          <SettingRow
+            label={L('Imprimir pre-cuenta', 'Print pre-bill')}
+            hint={L('Al pulsar "Pedir cuenta" se imprime un recibo NO fiscal.', 'On "Request bill", prints a NON-fiscal receipt.')}
+          >
+            <Toggle
+              enabled={String(cfg.restaurant_print_precuenta_enabled ?? '1') === '1'}
+              onChange={v => set('restaurant_print_precuenta_enabled', v ? '1' : '0')}
+            />
+          </SettingRow>
+          {/* M3 (audit) — KDS thresholds. Defaults: 300s amber / 600s red. */}
+          <SettingRow
+            settingKey="kds_warn_seconds"
+            label={L('Aviso KDS (amarillo)', 'KDS warn (amber)')}
+            hint={L('Segundos antes de marcar la orden en amarillo.', 'Seconds before flagging order amber.')}
+          >
+            <input
+              type="number" min="30" max="3600" step="30"
+              value={cfg.kds_warn_seconds ?? '300'}
+              onChange={e => set('kds_warn_seconds', e.target.value)}
+              className="w-24 border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400"
+            />
+          </SettingRow>
+          <SettingRow
+            settingKey="kds_stale_seconds"
+            label={L('Alerta KDS (rojo)', 'KDS stale (red)')}
+            hint={L('Segundos antes de marcar la orden en rojo + parpadeo.', 'Seconds before pulsing red.')}
+          >
+            <input
+              type="number" min="60" max="7200" step="30"
+              value={cfg.kds_stale_seconds ?? '600'}
+              onChange={e => set('kds_stale_seconds', e.target.value)}
+              className="w-24 border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400"
             />
           </SettingRow>
         </SettingSection>

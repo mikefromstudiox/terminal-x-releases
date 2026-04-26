@@ -34,8 +34,21 @@ function bcryptHashPin(pin, salt) {
   return bcrypt.hashSync(String(pin) + (salt || ''), BCRYPT_COST)
 }
 function bcryptComparePin(pin, salt, hash) {
-  try { return bcrypt.compareSync(String(pin) + (salt || ''), String(hash || '')) }
-  catch { return false }
+  // v2.16.3 — fail LOUD. Previously a thrown bcrypt error (corrupted hash,
+  // native lib failure, malformed salt) was swallowed and returned `false`,
+  // which silently denied a valid PIN and produced the generic "PIN
+  // incorrecto" error in the UI — leaving the operator with no diagnostic
+  // signal. Now we log the underlying cause and rethrow with a tagged
+  // message the UI/IPC layer can surface verbatim.
+  try {
+    return bcrypt.compareSync(String(pin) + (salt || ''), String(hash || ''))
+  } catch (err) {
+    console.error('[bcrypt] compare failed:', err && err.message ? err.message : err)
+    const e = new Error('bcrypt_compare_failed: ' + (err && err.message ? err.message : 'unknown'))
+    e.code = 'BCRYPT_COMPARE_FAILED'
+    e.cause = err
+    throw e
+  }
 }
 
 // Lockout policy — 5 consecutive wrong guesses per row trigger a 5-minute
@@ -58,9 +71,13 @@ try {
   try {
     Database = require('better-sqlite3')
     dbEngine = 'plain'
-    console.warn('[db] ciphers fork unavailable, using plain better-sqlite3:', err1.message)
+    // Diagnostic only — fallback path is healthy. Surface in dev.
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[db] ciphers fork unavailable, using plain better-sqlite3:', err1.message)
+    }
   } catch (err2) {
     dbLoadError = err2.message
+    // FATAL — no sqlite driver available at all. Always log.
     console.error('[db] no sqlite driver available:', err2.message)
     Database = null
   }
@@ -106,7 +123,9 @@ function ensureEncrypted(dbPath, keyHex) {
 
   if (!plaintext) return { ok: true, migrated: false, reason: 'already-encrypted' }
 
-  console.log('[db] plaintext DB detected, running first-boot encryption migration...')
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[db] plaintext DB detected, running first-boot encryption migration...')
+  }
   const bakPath = dbPath + '.plaintext.bak'
   const encPath = dbPath + '.enc.tmp'
   try { fs.copyFileSync(dbPath, bakPath) } catch (err) { return { ok: false, error: 'backup failed: ' + err.message } }
@@ -213,7 +232,9 @@ function ensureEncrypted(dbPath, keyHex) {
 
   const tableCount = Object.keys(tableRowCounts).length
   const rowsCopied = Object.values(tableRowCounts).reduce((s, r) => s + r.dst, 0)
-  console.log(`[db] encryption migration complete — ${tableCount} tables / ${rowsCopied} rows. backup at ${bakPath}`)
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[db] encryption migration complete — ${tableCount} tables / ${rowsCopied} rows. backup at ${bakPath}`)
+  }
   return { ok: true, migrated: true, tableCount, rowsCopied }
 }
 
@@ -634,6 +655,11 @@ function init(userDataPath, options = {}) {
     'ALTER TABLE tickets ADD COLUMN payment_parts TEXT',
     'ALTER TABLE tickets ADD COLUMN split_bill    INTEGER DEFAULT 0',
     'ALTER TABLE tickets ADD COLUMN tip_amount REAL DEFAULT 0',
+    // H2 — Restaurant: 10% Servicio (Ley 16-92 / costumbre RD). Persisted
+    // per-ticket so historical reports + commission splits stay accurate
+    // even when the owner changes the global default later.
+    'ALTER TABLE tickets ADD COLUMN servicio_amount REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE tickets ADD COLUMN servicio_pct REAL DEFAULT 0',
     'ALTER TABLE tickets ADD COLUMN fulfillment_type TEXT',
     'ALTER TABLE tickets ADD COLUMN mesa_id INTEGER',
     'ALTER TABLE tickets ADD COLUMN mesa_supabase_id TEXT',
@@ -649,6 +675,15 @@ function init(userDataPath, options = {}) {
     "ALTER TABLE tickets ADD COLUMN washer_empleado_supabase_ids TEXT DEFAULT '[]'",
     'ALTER TABLE tickets ADD COLUMN seller_empleado_supabase_id TEXT',
     'ALTER TABLE queue ADD COLUMN empleado_supabase_id TEXT',
+    // v2.16.4 — Restaurant: persist open tickets at mesa-seating time. The
+    // existing `status` column is overloaded for finance state
+    // (cobrado/pendiente/nula/anulado), so we add a parallel `open_status`
+    // column with values 'open' (mesa seated, items being added) | 'closed'
+    // (paid or never opened). Default 'closed' keeps every legacy/finance
+    // ticket out of the open-tickets index. The partial index makes
+    // ticketGetActiveByMesa O(1) even with 100k tickets.
+    "ALTER TABLE tickets ADD COLUMN open_status TEXT NOT NULL DEFAULT 'closed'",
+    "CREATE INDEX IF NOT EXISTS idx_tickets_open_by_mesa ON tickets(mesa_id, open_status) WHERE open_status='open'",
     // v2.0 — ticket_items needs created_at for pull parity (web-created items include it)
     'ALTER TABLE ticket_items ADD COLUMN created_at TEXT',
     // v2.0 — Restaurant Mode tables are CREATE'd empty with AUTOINCREMENT ids;
@@ -2099,6 +2134,24 @@ function init(userDataPath, options = {}) {
     updated_at               TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
 
+  // H2 — Restaurant: Servicio (10%) distribution among empleados. v2.16.3
+  // ships ONE row per ticket where the entire amount routes to the waiter.
+  // TODO v2.17: multi-empleado tip split by points (a points-weighted
+  // distribution across waiters / busboys / kitchen).
+  db.exec(`CREATE TABLE IF NOT EXISTS tip_distributions (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id              TEXT,
+    ticket_id                INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+    ticket_supabase_id       TEXT,
+    empleado_id              INTEGER REFERENCES empleados(id) ON DELETE SET NULL,
+    empleado_supabase_id     TEXT,
+    points                   REAL NOT NULL DEFAULT 1,
+    amount                   REAL NOT NULL DEFAULT 0,
+    business_id              TEXT,
+    created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at               TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+
   // v1.6 — unique indexes on supabase_id (safe to run multiple times)
   const sidIndexes = [
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_services_supabase_id ON services(supabase_id)',
@@ -2129,6 +2182,10 @@ function init(userDataPath, options = {}) {
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_service_modificadores_supabase_id ON service_modificadores(supabase_id)',
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_item_modificadores_supabase_id ON ticket_item_modificadores(supabase_id)',
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_kds_events_supabase_id ON kds_events(supabase_id)',
+    // H2 — tip_distributions
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_tip_distributions_supabase_id ON tip_distributions(supabase_id)',
+    'CREATE INDEX IF NOT EXISTS idx_tip_distributions_ticket ON tip_distributions(ticket_id)',
+    'CREATE INDEX IF NOT EXISTS idx_tip_distributions_empleado ON tip_distributions(empleado_id)',
     'CREATE INDEX IF NOT EXISTS idx_tim_ticket_item ON ticket_item_modificadores(ticket_item_id)',
     'CREATE INDEX IF NOT EXISTS idx_sm_service ON service_modificadores(service_id)',
     'CREATE INDEX IF NOT EXISTS idx_kds_events_status ON kds_events(status)',
@@ -3407,6 +3464,12 @@ function authByPin(pin) {
   const legacyHash = sha256(pinStr)
   let matched = null
   const incrementCandidates = []
+  // v2.16.3 — bcryptComparePin now THROWS on engine failure (corrupted hash,
+  // native lib crash). We must not let one bad row abort the loop, but we
+  // also refuse to silently deny a valid PIN if the matching row was the
+  // one that threw. So: capture the first throw, continue scanning, and if
+  // no row matches at the end, surface the captured error to the IPC layer.
+  let lastBcryptError = null
 
   for (const r of rows) {
     // Locked? Skip — neither a match nor a miss counts against this row.
@@ -3421,13 +3484,20 @@ function authByPin(pin) {
     const h = String(r.pin_hash || '')
     const looksBcrypt = h.startsWith('$2') && h.length === 60
     const looksSha256 = /^[0-9a-f]{64}$/.test(h)
-    if (looksBcrypt) {
-      hit = bcryptComparePin(pinStr, r.pin_salt, r.pin_hash)
-    } else if (looksSha256) {
-      hit = (r.pin_hash === legacyHash)
-    } else {
-      // Unknown shape — try both, last resort.
-      hit = bcryptComparePin(pinStr, r.pin_salt, r.pin_hash) || (r.pin_hash === legacyHash)
+    try {
+      if (looksBcrypt) {
+        hit = bcryptComparePin(pinStr, r.pin_salt, r.pin_hash)
+      } else if (looksSha256) {
+        hit = (r.pin_hash === legacyHash)
+      } else {
+        // Unknown shape — try both, last resort.
+        hit = bcryptComparePin(pinStr, r.pin_salt, r.pin_hash) || (r.pin_hash === legacyHash)
+      }
+    } catch (cmpErr) {
+      // Loud (already console.error'd inside bcryptComparePin). Track and
+      // continue so we still scan the rest of the staff table.
+      if (!lastBcryptError) lastBcryptError = cmpErr
+      continue
     }
 
     if (hit) {
@@ -3436,6 +3506,10 @@ function authByPin(pin) {
     }
     incrementCandidates.push(r.id)
   }
+
+  // No match AND a bcrypt engine failure was observed → surface it. Otherwise
+  // a corrupted hash row would silently deny a valid PIN.
+  if (!matched && lastBcryptError) throw lastBcryptError
 
   if (matched) {
     // Reset lockout counters + opportunistic rehash to bcrypt.
@@ -3766,9 +3840,10 @@ function userUpdate(id, data) {
 }
 function userDelete(id) {
   if (!db) return { softDeleted: true }
-  const target = db.prepare('SELECT name, username FROM users WHERE id=?').get(id)
+  const target = db.prepare('SELECT name, username, supabase_id, business_id FROM users WHERE id=?').get(id)
   const targetName = target ? `${target.name} (@${target.username})` : `#${id}`
   db.prepare('UPDATE users SET active=0, updated_at=datetime(?) WHERE id=?').run(new Date().toISOString(), id)
+  if (target?.supabase_id) tombstoneAdd('staff', target.supabase_id, target.business_id)
   activityLogRecord({ event_type: 'user_deactivated', severity: 'warn',
     target_type: 'user', target_id: id, target_name: targetName })
   return { deleted: true }
@@ -4019,6 +4094,7 @@ function serviceDelete(id) {
     const fkBlocked = /FOREIGN KEY|constraint/i.test(e.message || '')
     if (!fkBlocked) throw e
     db.prepare('UPDATE services SET active=0, updated_at=? WHERE id=?').run(new Date().toISOString(), id)
+    if (svc?.supabase_id) tombstoneAdd('services', svc.supabase_id, svc.business_id)
     activityLogRecord({ event_type: 'service_deleted', severity: 'warn',
       target_type: 'service', target_id: id, target_name: svc?.name || `#${id}`,
       amount: svc?.price, metadata: { soft: true, reason: 'has_history' } })
@@ -4084,7 +4160,9 @@ function washerUpdate(id, data) {
 }
 function washerDelete(id) {
   if (!db) return
+  const row = db.prepare(`SELECT supabase_id, business_id FROM empleados WHERE id=? AND tipo IN ('lavador','hybrid')`).get(id)
   db.prepare(`UPDATE empleados SET active=0 WHERE id=? AND tipo IN ('lavador','hybrid')`).run(id)
+  if (row?.supabase_id) tombstoneAdd('empleados', row.supabase_id, row.business_id)
 }
 
 // ── Empleados (payroll) ─────────────────────────────────────────────────────
@@ -4152,7 +4230,9 @@ function empleadoUpdate(id, data) {
 }
 function empleadoDelete(id) {
   if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM empleados WHERE id=?').get(id)
   db.prepare('UPDATE empleados SET active=0 WHERE id=?').run(id)
+  if (row?.supabase_id) tombstoneAdd('empleados', row.supabase_id, row.business_id)
 }
 function empleadoHardDelete(id) {
   if (!db) return { ok: false, reason: 'no-db' }
@@ -4165,7 +4245,9 @@ function empleadoHardDelete(id) {
   try { commCount += db.prepare('SELECT COUNT(*) AS n FROM washer_commissions WHERE empleado_supabase_id=?').get(emp.supabase_id)?.n || 0 } catch {}
   try { commCount += db.prepare('SELECT COUNT(*) AS n FROM seller_commissions WHERE empleado_supabase_id=?').get(emp.supabase_id)?.n || 0 } catch {}
   if (runs > 0 || commCount > 0) {
+    const bizRow = db.prepare('SELECT business_id FROM empleados WHERE id=?').get(id)
     db.prepare('UPDATE empleados SET active=0 WHERE id=?').run(id)
+    if (emp.supabase_id) tombstoneAdd('empleados', emp.supabase_id, bizRow?.business_id)
     return { ok: true, softDeleted: true, reason: 'has-history', runs, commissions: commCount }
   }
   // No history — fully erase the employee + their salary_changes log.
@@ -4275,7 +4357,9 @@ function mesaRequestBill(id) {
 }
 function mesaDelete(id) {
   if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM mesas WHERE id=?').get(id)
   db.prepare('UPDATE mesas SET active=0, updated_at=datetime(\'now\') WHERE id=?').run(id)
+  if (row?.supabase_id) tombstoneAdd('mesas', row.supabase_id, row.business_id)
 }
 
 // ── Modificadores (menu add-ons) ────────────────────────────────────────────
@@ -4316,15 +4400,33 @@ function modificadorUpdate(id, data) {
 }
 function modificadorDelete(id) {
   if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM modificadores WHERE id=?').get(id)
   db.prepare('UPDATE modificadores SET active=0, updated_at=datetime(\'now\') WHERE id=?').run(id)
+  if (row?.supabase_id) tombstoneAdd('modificadores', row.supabase_id, row.business_id)
 }
-function modificadoresListForService(serviceId) {
+// C3 — polymorphic: accepts integer id or supabase_id (UUID). Web POS
+// passes svc.supabase_id; desktop callers historically pass svc.id. We
+// resolve the UUID branch via service_modificadores.service_supabase_id
+// and fall back to integer service_id when the input is numeric.
+function modificadoresListForService(serviceKey) {
   if (!db) return []
+  if (serviceKey == null || serviceKey === '') {
+    console.warn('[modificadoresListForService] empty serviceKey')
+    return []
+  }
+  const isUuid = typeof serviceKey === 'string' && /^[0-9a-f-]{36}$/i.test(serviceKey)
+  if (isUuid) {
+    return db.prepare(`SELECT m.*, sm.is_required
+      FROM service_modificadores sm
+      JOIN modificadores m ON m.supabase_id = sm.modificador_supabase_id
+      WHERE sm.service_supabase_id=? AND m.active=1
+      ORDER BY m.group_name, m.sort_order, m.name`).all(serviceKey)
+  }
   return db.prepare(`SELECT m.*, sm.is_required
     FROM service_modificadores sm
     JOIN modificadores m ON m.id = sm.modificador_id
     WHERE sm.service_id=? AND m.active=1
-    ORDER BY m.group_name, m.sort_order, m.name`).all(serviceId)
+    ORDER BY m.group_name, m.sort_order, m.name`).all(serviceKey)
 }
 function modificadorAttachToService(serviceId, modificadorId, isRequired = 0) {
   if (!db) return
@@ -4770,7 +4872,9 @@ function sellerUpdate(id, data) {
 }
 function sellerDelete(id) {
   if (!db) return
+  const row = db.prepare(`SELECT supabase_id, business_id FROM empleados WHERE id=? AND tipo IN ('vendedor','hybrid')`).get(id)
   db.prepare(`UPDATE empleados SET active=0 WHERE id=? AND tipo IN ('vendedor','hybrid')`).run(id)
+  if (row?.supabase_id) tombstoneAdd('empleados', row.supabase_id, row.business_id)
 }
 
 // ── CLIENTS ───────────────────────────────────────────────────────────────────
@@ -5113,6 +5217,321 @@ function ticketGetById(id) {
   }
   return ticket
 }
+
+// ── Restaurant open-ticket lifecycle (v2.16.4) ────────────────────────────────
+// Persist tickets the moment a mesa is seated, not at cobro. Power loss / app
+// crash mid-dinner no longer drops in-flight items + KDS rows. The `open_status`
+// column ('open' | 'closed') is orthogonal to financial `status` so cuadre and
+// reports stay correct.
+function _selfHealOpenTicketsCols() {
+  if (!db) return
+  const cols = [
+    "ALTER TABLE tickets ADD COLUMN open_status TEXT NOT NULL DEFAULT 'closed'",
+    "CREATE INDEX IF NOT EXISTS idx_tickets_open_by_mesa ON tickets(mesa_id, open_status) WHERE open_status='open'",
+  ]
+  for (const sql of cols) { try { db.exec(sql) } catch {} }
+}
+
+function ticketOpenForMesa({ mesa_id, mesa_supabase_id, waiter_empleado_id, guests, supabase_id } = {}) {
+  if (!db) return null
+  _selfHealOpenTicketsCols()
+  const ticketSid = supabase_id || crypto.randomUUID()
+  const last = db.prepare('SELECT doc_number FROM tickets ORDER BY id DESC LIMIT 1').get()
+  let nextNum = 1
+  if (last?.doc_number) {
+    const m = String(last.doc_number).match(/T-(\d+)/)
+    if (m) nextNum = parseInt(m[1], 10) + 1
+  }
+  const docNumber = `T-${String(nextNum).padStart(4, '0')}`
+  const tx = db.transaction(() => {
+    const result = db.prepare(`INSERT INTO tickets
+      (doc_number, supabase_id, mesa_id, mesa_supabase_id,
+       fulfillment_type, mode, subtotal, descuento, itbis, ley, total,
+       payment_method, status, open_status, tipo_venta, order_source,
+       created_at)
+      VALUES(?,?,?,?,?,?,0,0,0,0,0,?,?,?,?,?,datetime('now'))`).run(
+      docNumber, ticketSid, mesa_id || null, mesa_supabase_id || null,
+      'dine_in', 'mesa', 'pending', 'pendiente', 'open', 'contado', 'pos',
+    )
+    return { id: result.lastInsertRowid, supabase_id: ticketSid, doc_number: docNumber }
+  })
+  return tx()
+}
+
+function ticketAddItem({ ticket_id, ticket_supabase_id, service_id, service_supabase_id, name, price, qty, modifiers, course, happy_hour_applied, guest_number, preparation_notes, empleado_supabase_id } = {}) {
+  if (!db) return null
+  const itemSid = crypto.randomUUID()
+  const safeQty = Math.max(1, parseInt(qty || 1, 10))
+  let svcSid = service_supabase_id || null
+  if (!svcSid && service_id) {
+    try { svcSid = db.prepare('SELECT supabase_id FROM services WHERE id=?').get(service_id)?.supabase_id || null } catch {}
+  }
+  const tx = db.transaction(() => {
+    const r = db.prepare(`INSERT INTO ticket_items
+      (ticket_id, service_id, name, price, cost, itbis, is_wash, quantity,
+       course, kds_fired_at, guest_number, preparation_notes, empleado_supabase_id,
+       supabase_id, ticket_supabase_id, service_supabase_id)
+      VALUES(?,?,?,?,0,0,1,?,?,?,?,?,?,?,?,?)`).run(
+      ticket_id || null, service_id || null, name || '', Number(price) || 0,
+      safeQty, course || null, null, guest_number || null,
+      preparation_notes ? String(preparation_notes).trim() || null : null,
+      empleado_supabase_id || null,
+      itemSid, ticket_supabase_id || null, svcSid,
+    )
+    if (Array.isArray(modifiers) && modifiers.length) {
+      const ins = db.prepare(`INSERT INTO ticket_item_modificadores
+        (supabase_id, ticket_item_id, ticket_item_supabase_id, modificador_id, modificador_supabase_id, name_snapshot, price_delta_snapshot)
+        VALUES(?,?,?,?,?,?,?)`)
+      for (const m of modifiers) {
+        ins.run(crypto.randomUUID(), r.lastInsertRowid, itemSid,
+          m.modificador_id || null, m.modificador_supabase_id || null,
+          m.name || m.name_snapshot || '', Number(m.price_delta || m.price_delta_snapshot || 0))
+      }
+    }
+    if (ticket_id) {
+      db.prepare("UPDATE tickets SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").run(ticket_id)
+    }
+    return { id: r.lastInsertRowid, supabase_id: itemSid }
+  })
+  return tx()
+}
+
+function ticketUpdateItemQty({ ticket_item_id, qty } = {}) {
+  if (!db || !ticket_item_id) return null
+  const safeQty = Math.max(0, parseInt(qty || 0, 10))
+  if (safeQty === 0) return ticketRemoveItem({ ticket_item_id })
+  const tx = db.transaction(() => {
+    const row = db.prepare('SELECT ticket_id FROM ticket_items WHERE id=?').get(ticket_item_id)
+    db.prepare('UPDATE ticket_items SET quantity=? WHERE id=?').run(safeQty, ticket_item_id)
+    if (row?.ticket_id) {
+      db.prepare("UPDATE tickets SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").run(row.ticket_id)
+    }
+    return { id: ticket_item_id, qty: safeQty }
+  })
+  return tx()
+}
+
+function ticketRemoveItem({ ticket_item_id } = {}) {
+  if (!db || !ticket_item_id) return null
+  const tx = db.transaction(() => {
+    const row = db.prepare('SELECT ticket_id, supabase_id FROM ticket_items WHERE id=?').get(ticket_item_id)
+    if (!row) return { id: ticket_item_id, removed: false }
+    if (row.supabase_id) {
+      try { db.prepare('DELETE FROM ticket_item_modificadores WHERE ticket_item_supabase_id=?').run(row.supabase_id) } catch {}
+    }
+    try { db.prepare('DELETE FROM ticket_item_modificadores WHERE ticket_item_id=?').run(ticket_item_id) } catch {}
+    db.prepare('DELETE FROM ticket_items WHERE id=?').run(ticket_item_id)
+    if (row.ticket_id) {
+      db.prepare("UPDATE tickets SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").run(row.ticket_id)
+    }
+    return { id: ticket_item_id, removed: true }
+  })
+  return tx()
+}
+
+function ticketGetActiveByMesa(mesaId) {
+  if (!db || !mesaId) return null
+  _selfHealOpenTicketsCols()
+  const ticket = db.prepare(
+    `SELECT * FROM tickets WHERE mesa_id=? AND open_status='open' ORDER BY id DESC LIMIT 1`
+  ).get(mesaId)
+  if (!ticket) return null
+  const items = db.prepare(
+    `SELECT * FROM ticket_items WHERE ticket_id=? ORDER BY id ASC`
+  ).all(ticket.id)
+  const modsByItem = {}
+  if (items.length) {
+    const itemIds = items.map(i => i.id).filter(Boolean)
+    const itemSids = items.map(i => i.supabase_id).filter(Boolean)
+    let mods = []
+    if (itemIds.length) {
+      const placeholders = itemIds.map(() => '?').join(',')
+      try { mods = db.prepare(`SELECT * FROM ticket_item_modificadores WHERE ticket_item_id IN (${placeholders})`).all(...itemIds) } catch { mods = [] }
+    }
+    if (!mods.length && itemSids.length) {
+      const ph2 = itemSids.map(() => '?').join(',')
+      try { mods = db.prepare(`SELECT * FROM ticket_item_modificadores WHERE ticket_item_supabase_id IN (${ph2})`).all(...itemSids) } catch { mods = [] }
+    }
+    for (const m of mods) {
+      const key = m.ticket_item_id || m.ticket_item_supabase_id
+      if (!modsByItem[key]) modsByItem[key] = []
+      modsByItem[key].push({
+        modificador_id: m.modificador_id,
+        modificador_supabase_id: m.modificador_supabase_id,
+        name: m.name_snapshot,
+        price_delta: Number(m.price_delta_snapshot || 0),
+      })
+    }
+  }
+  ticket.items = items.map(it => ({
+    ...it,
+    qty: it.quantity,
+    modifiers: modsByItem[it.id] || modsByItem[it.supabase_id] || [],
+  }))
+  return ticket
+}
+
+function ticketCloseWithPayment({ ticket_id, ticket_supabase_id, payload } = {}) {
+  if (!db) return null
+  if (!ticket_id && !ticket_supabase_id) return null
+  const row = ticket_id
+    ? db.prepare('SELECT * FROM tickets WHERE id=?').get(ticket_id)
+    : db.prepare('SELECT * FROM tickets WHERE supabase_id=?').get(ticket_supabase_id)
+  if (!row) return null
+  const data = payload || {}
+  const itbisPctRow = db.prepare('SELECT value FROM app_settings WHERE key=?').get('itbis_pct')
+  const itbisPct = Number(itbisPctRow?.value)
+  const itbisFactor = (Number.isFinite(itbisPct) && itbisPct >= 0 ? itbisPct : 18) / 100
+
+  const tx = db.transaction(() => {
+    let ncf = (data.ncf && String(data.ncf).trim()) ? String(data.ncf).trim().toUpperCase() : (row.ncf || null)
+    const ncfType = data.comprobante_type || row.comprobante_type || 'B02'
+    if (!ncf) {
+      const ncfRow = db.prepare('SELECT * FROM ncf_sequences WHERE type=? AND active=1').get(ncfType)
+      if (ncfRow) {
+        const nextNCF = ncfRow.current_number + 1
+        const ncfPrefix = String(ncfType).toUpperCase()
+        const pad = /^E/.test(ncfPrefix) ? 10 : 8
+        ncf = `${ncfPrefix}${String(nextNCF).padStart(pad, '0')}`
+        db.prepare("UPDATE ncf_sequences SET current_number=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE type=?")
+          .run(nextNCF, ncfRow.type)
+      }
+    }
+
+    const status = data.status || (data.tipo_venta === 'credito' || data.payment_method === 'credit' ? 'pendiente' : 'cobrado')
+    let paymentPartsJson = null
+    if (Array.isArray(data.payment_parts) && data.payment_parts.length) {
+      try { paymentPartsJson = JSON.stringify(data.payment_parts) } catch { paymentPartsJson = null }
+    }
+    const splitBillFlag = (data.split === true || (Array.isArray(data.payment_parts) && data.payment_parts.length > 1)) ? 1 : 0
+
+    db.prepare(`UPDATE tickets SET
+       open_status='closed',
+       status=?,
+       subtotal=?, descuento=?, itbis=?, ley=?, total=?,
+       beverage_subtotal=?, payment_method=?, comprobante_type=?, ncf=?,
+       ecf_result=?, tipo_venta=?, vehicle_plate=COALESCE(?,vehicle_plate),
+       client_id=COALESCE(?,client_id), client_supabase_id=COALESCE(?,client_supabase_id),
+       cajero_id=COALESCE(?,cajero_id), cajero_supabase_id=COALESCE(?,cajero_supabase_id),
+       seller_empleado_supabase_id=COALESCE(?,seller_empleado_supabase_id),
+       washer_empleado_supabase_ids=COALESCE(?,washer_empleado_supabase_ids),
+       tip_amount=?, servicio_amount=?, servicio_pct=?, fulfillment_type=COALESCE(?,fulfillment_type),
+       mode=COALESCE(?,mode), notes=COALESCE(?,notes),
+       order_source=COALESCE(?,order_source),
+       payment_parts=?, split_bill=?,
+       rev=COALESCE(rev,0)+1,
+       updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE id=?`).run(
+      status,
+      Number(data.subtotal || 0), Number(data.descuento || 0), Number(data.itbis || 0),
+      Number(data.ley || 0), Number(data.total || 0),
+      Number(data.beverage_subtotal || 0),
+      data.payment_method || 'cash',
+      ncfType, ncf,
+      JSON.stringify(data.ecf_result || data.ecf || {}),
+      data.tipo_venta || 'contado',
+      data.vehicle_plate || null,
+      data.client_id || null, data.client_supabase_id || null,
+      data.cajero_id || null, data.cajero_supabase_id || null,
+      data.seller_empleado_supabase_id || null,
+      Array.isArray(data.washer_empleado_supabase_ids) ? JSON.stringify(data.washer_empleado_supabase_ids) : null,
+      Number(data.tip_amount || 0),
+      Number(data.servicio_amount || 0),
+      Number(data.servicio_pct || 0),
+      data.fulfillment_type || null,
+      data.mode || null,
+      data.comentario || data.notes || null,
+      data.order_source || null,
+      paymentPartsJson, splitBillFlag,
+      row.id,
+    )
+
+    // Refresh cost + itbis on persisted items using current service rows
+    // (parity with ticketCreate snapshot). Items inserted at seat-time had
+    // cost=0/itbis=0 — fix here at close so profit reports stay accurate.
+    const svcRows = db.prepare('SELECT id, cost, aplica_itbis FROM services').all()
+    const svcCostById = new Map(svcRows.map(r => [r.id, r.cost || 0]))
+    const svcAplicaById = new Map(svcRows.map(r => [r.id, r.aplica_itbis ?? 1]))
+    const items = db.prepare('SELECT * FROM ticket_items WHERE ticket_id=?').all(row.id)
+    const updItem = db.prepare('UPDATE ticket_items SET cost=?, itbis=? WHERE id=?')
+    for (const it of items) {
+      const cost = it.service_id ? (svcCostById.get(it.service_id) || 0) : 0
+      const aplica = it.service_id ? (svcAplicaById.get(it.service_id) ?? 1) : 1
+      const itbis = aplica !== 0 ? parseFloat((Number(it.price) * itbisFactor).toFixed(2)) : 0
+      updItem.run(cost, itbis, it.id)
+    }
+
+    // Commission writes — wipe any pre-existing rows for idempotency, then
+    // recompute against the canonical seller/washer/cajero set.
+    const sellerSid = data.seller_empleado_supabase_id || row.seller_empleado_supabase_id || null
+    let washerSids = []
+    try {
+      const raw = data.washer_empleado_supabase_ids || row.washer_empleado_supabase_ids || '[]'
+      washerSids = Array.isArray(raw) ? raw : JSON.parse(raw || '[]')
+    } catch { washerSids = [] }
+    const cajeroId = data.cajero_id || row.cajero_id || null
+
+    const gross2base = 1 + itbisFactor
+    let washerBaseGross = 0, sellerBaseGross = 0, cashierBaseGross = 0
+    for (const it of items) {
+      const line = (Number(it.price) || 0) * (Number(it.quantity) || 1)
+      washerBaseGross += line
+      sellerBaseGross += line
+      if (!sellerSid) cashierBaseGross += line
+    }
+    const washerBase  = parseFloat((washerBaseGross  / gross2base).toFixed(2))
+    const sellerBase  = parseFloat((sellerBaseGross  / gross2base).toFixed(2))
+    const cashierBase = parseFloat((cashierBaseGross / gross2base).toFixed(2))
+
+    try { db.prepare('DELETE FROM washer_commissions WHERE ticket_id=?').run(row.id) } catch {}
+    try { db.prepare('DELETE FROM seller_commissions WHERE ticket_id=?').run(row.id) } catch {}
+    try { db.prepare('DELETE FROM cajero_commissions WHERE ticket_id=?').run(row.id) } catch {}
+
+    if (washerBase > 0 && washerSids.length) {
+      for (const empSid of washerSids) {
+        const emp = db.prepare(`SELECT comision_pct FROM empleados WHERE supabase_id=? AND tipo IN ('lavador','hybrid') LIMIT 1`).get(empSid)
+        const pct = Number(emp?.comision_pct || 0)
+        if (!emp || pct <= 0) continue
+        const amt = parseFloat((washerBase * pct / 100).toFixed(2))
+        db.prepare(`INSERT INTO washer_commissions
+          (empleado_supabase_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,ticket_supabase_id)
+          VALUES(?,?,?,?,?,0,?,?)`).run(empSid, row.id, washerBase, pct, amt, crypto.randomUUID(), row.supabase_id)
+      }
+    }
+    if (sellerSid && sellerBase > 0) {
+      const emp = db.prepare(`SELECT comision_pct FROM empleados WHERE supabase_id=? AND tipo IN ('vendedor','hybrid') LIMIT 1`).get(sellerSid)
+      const pct = Number(emp?.comision_pct || 0)
+      if (emp && pct > 0) {
+        const amt = parseFloat((sellerBase * pct / 100).toFixed(2))
+        db.prepare(`INSERT INTO seller_commissions
+          (empleado_supabase_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,ticket_supabase_id)
+          VALUES(?,?,?,?,?,0,?,?)`).run(sellerSid, row.id, sellerBase, pct, amt, crypto.randomUUID(), row.supabase_id)
+      }
+    }
+    if (cajeroId && cashierBase > 0) {
+      const cajero = db.prepare('SELECT commission_pct, supabase_id FROM users WHERE id=?').get(cajeroId)
+      if (cajero && cajero.commission_pct > 0) {
+        const amt = parseFloat((cashierBase * cajero.commission_pct / 100).toFixed(2))
+        db.prepare(`INSERT INTO cajero_commissions
+          (cajero_id,ticket_id,base_amount,commission_pct,commission_amount,paid,supabase_id,cajero_supabase_id,ticket_supabase_id)
+          VALUES(?,?,?,?,?,0,?,?,?)`).run(cajeroId, row.id, cashierBase, cajero.commission_pct, amt,
+            crypto.randomUUID(), cajero.supabase_id || null, row.supabase_id)
+      }
+    }
+
+    if (data.client_id && data.tipo_venta === 'credito') {
+      db.prepare('UPDATE clients SET balance=balance+?,visits=visits+1,total_spent=total_spent+? WHERE id=?')
+        .run(Number(data.total || 0), Number(data.total || 0), data.client_id)
+    } else if (data.client_id) {
+      db.prepare('UPDATE clients SET visits=visits+1,total_spent=total_spent+? WHERE id=?')
+        .run(Number(data.total || 0), data.client_id)
+    }
+
+    return { ticketId: row.id, supabase_id: row.supabase_id, doc_number: row.doc_number, ncf }
+  })
+  return tx()
+}
+
 function ticketCreate(data) {
   if (!db) return null
 
@@ -5133,6 +5552,10 @@ function ticketCreate(data) {
     "ALTER TABLE tickets ADD COLUMN mesa_supabase_id TEXT",
     "ALTER TABLE tickets ADD COLUMN fulfillment_type TEXT",
     "ALTER TABLE tickets ADD COLUMN tip_amount REAL DEFAULT 0",
+    // H2 — restaurant servicio (Ley 16-92) — repeated in self-heal so installs
+    // that skipped the early migration block still get the columns.
+    "ALTER TABLE tickets ADD COLUMN servicio_amount REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE tickets ADD COLUMN servicio_pct REAL DEFAULT 0",
     "ALTER TABLE tickets ADD COLUMN mode TEXT",
     "ALTER TABLE tickets ADD COLUMN converted_from_mesa_id INTEGER",
     "ALTER TABLE tickets ADD COLUMN converted_from_mesa_supabase_id TEXT",
@@ -5280,10 +5703,10 @@ function ticketCreate(data) {
     const result = db.prepare(`INSERT INTO tickets
       (doc_number,client_id,washer_empleado_supabase_ids,seller_empleado_supabase_id,cajero_id,subtotal,descuento,itbis,ley,total,
        beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,supabase_id,client_supabase_id,seller_supabase_id,cajero_supabase_id,
-       mesa_id,mesa_supabase_id,fulfillment_type,tip_amount,mode,converted_from_mesa_id,converted_from_mesa_supabase_id,converted_from_ticket_id,converted_from_ticket_supabase_id,
+       mesa_id,mesa_supabase_id,fulfillment_type,tip_amount,servicio_amount,servicio_pct,mode,converted_from_mesa_id,converted_from_mesa_supabase_id,converted_from_ticket_id,converted_from_ticket_supabase_id,
        origin_hwid,used_legacy_counter,notes,order_source,payment_parts,split_bill,
        created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
       docNumber,
       data.client_id || null,
       JSON.stringify(washerEmpSids),
@@ -5310,6 +5733,8 @@ function ticketCreate(data) {
       data.mesa_supabase_id || null,
       data.fulfillment_type || null,
       Number(data.tip_amount || 0),
+      Number(data.servicio_amount || 0),
+      Number(data.servicio_pct || 0),
       data.mode || null,
       data.converted_from_mesa_id || null,
       data.converted_from_mesa_supabase_id || null,
@@ -5394,6 +5819,27 @@ function ticketCreate(data) {
           .run(item.inventory_item_id, 'sale', -fulfilled, `Ticket #${ticketId}`, data.cajero_id || null,
                txSid, invRow?.supabase_id || null)
       }
+    }
+
+    // H2 — Restaurant Servicio (Ley 16-92) tip distribution. v2.16.3 ships
+    // ONE row per ticket where the entire amount routes to the waiter.
+    // TODO v2.17: multi-empleado tip split by points (waiters / busboys /
+    // kitchen weighted distribution).
+    const servicioAmt = Number(data.servicio_amount || 0)
+    if (servicioAmt > 0 && data.waiter_empleado_id) {
+      try {
+        const w = db.prepare('SELECT id, supabase_id FROM empleados WHERE id=?').get(data.waiter_empleado_id)
+        if (w) {
+          db.prepare(`INSERT INTO tip_distributions
+            (supabase_id, ticket_id, ticket_supabase_id, empleado_id, empleado_supabase_id, points, amount, business_id)
+            VALUES (?,?,?,?,?,?,?,?)`).run(
+              crypto.randomUUID(),
+              ticketId, ticketSid,
+              w.id, w.supabase_id || null,
+              1, servicioAmt, bizId || null,
+            )
+        }
+      } catch (e) { /* non-fatal — tip distribution is audit-grade, never blocks sale */ }
     }
 
     // Update client balance if credit
@@ -6927,7 +7373,9 @@ function inventoryBulkUpdate(ids, patch) {
 }
 function inventoryDelete(id) {
   if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM inventory_items WHERE id=?').get(id)
   db.prepare('UPDATE inventory_items SET active=0 WHERE id=?').run(id)
+  if (row?.supabase_id) tombstoneAdd('inventory_items', row.supabase_id, row.business_id)
 }
 function inventoryAdjust(id, delta, notes, userId) {
   if (!db) return null
@@ -7689,7 +8137,9 @@ function vehicleGetById(id) {
 }
 function vehicleDelete(id) {
   if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM vehicles WHERE id=?').get(id)
   db.prepare("UPDATE vehicles SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+  if (row?.supabase_id) tombstoneAdd('vehicles', row.supabase_id, row.business_id)
 }
 
 // ── SERVICE BAYS ─────────────────────────────────────────────────────────────
@@ -7717,7 +8167,9 @@ function serviceBayList({ active } = {}) {
 }
 function serviceBayDelete(id) {
   if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM service_bays WHERE id=?').get(id)
   db.prepare("UPDATE service_bays SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+  if (row?.supabase_id) tombstoneAdd('service_bays', row.supabase_id, row.business_id)
 }
 
 // ── WORK ORDERS ──────────────────────────────────────────────────────────────
@@ -8240,7 +8692,9 @@ function stylistScheduleList({ empleado_id } = {}) {
 }
 function stylistScheduleDelete(id) {
   if (!db) return
+  const row = db.prepare('SELECT supabase_id, business_id FROM stylist_schedules WHERE id=?').get(id)
   db.prepare("UPDATE stylist_schedules SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+  if (row?.supabase_id) tombstoneAdd('stylist_schedules', row.supabase_id, row.business_id)
 }
 
 // ── LOANS ────────────────────────────────────────────────────────────────────
@@ -9826,7 +10280,9 @@ function vehicleInventorySetStatus(id, status) {
   return vehicleInventoryUpdate(id, patch)
 }
 function vehicleInventoryDelete(id) {
+  const row = db.prepare('SELECT supabase_id, business_id FROM vehicle_inventory WHERE id=?').get(id)
   db.prepare("UPDATE vehicle_inventory SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+  if (row?.supabase_id) tombstoneAdd('vehicle_inventory', row.supabase_id, row.business_id)
 }
 
 const SALES_DEAL_COLS = ['supabase_id','client_id','client_supabase_id','vehicle_inventory_id','vehicle_inventory_supabase_id','salesperson_id','salesperson_supabase_id','sale_price','trade_in_vehicle_id','trade_in_supabase_id','trade_in_value','down_payment','financed_amount','term_months','apr','monthly_payment','commission_pct','commission_amount','commission_paid','commission_paid_at','ticket_id','ticket_supabase_id','status','notes','closed_at','active']
@@ -9874,7 +10330,11 @@ function salesDealsCommissionsForPeriod({ from, to, salespersonSupabaseId } = {}
   if (salespersonSupabaseId) { where.push('salesperson_supabase_id = @sid'); params.sid = salespersonSupabaseId }
   return db.prepare(`SELECT id, supabase_id, salesperson_id, salesperson_supabase_id, commission_amount, commission_paid, closed_at, sale_price FROM sales_deals WHERE ${where.join(' AND ')} ORDER BY closed_at DESC`).all(params)
 }
-function salesDealsDelete(id) { db.prepare("UPDATE sales_deals SET active=0, updated_at=datetime('now') WHERE id=?").run(id) }
+function salesDealsDelete(id) {
+  const row = db.prepare('SELECT supabase_id, business_id FROM sales_deals WHERE id=?').get(id)
+  db.prepare("UPDATE sales_deals SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+  if (row?.supabase_id) tombstoneAdd('sales_deals', row.supabase_id, row.business_id)
+}
 
 const LEAD_COLS = ['supabase_id','name','phone','email','source','budget','notes','stage','next_followup_at','last_contacted_at','interested_vehicle_supabase_id','active']
 function leadsList(filters = {}) {
@@ -9911,7 +10371,11 @@ function leadsLogContact(id, { nextFollowupAt, notes } = {}) {
 function leadsOverdue() {
   return db.prepare(`SELECT * FROM leads WHERE active=1 AND next_followup_at IS NOT NULL AND next_followup_at <= datetime('now') AND stage NOT IN ('closed','lost') ORDER BY next_followup_at`).all()
 }
-function leadsDelete(id) { db.prepare("UPDATE leads SET active=0, updated_at=datetime('now') WHERE id=?").run(id) }
+function leadsDelete(id) {
+  const row = db.prepare('SELECT supabase_id, business_id FROM leads WHERE id=?').get(id)
+  db.prepare("UPDATE leads SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+  if (row?.supabase_id) tombstoneAdd('leads', row.supabase_id, row.business_id)
+}
 
 const TEST_DRIVE_COLS = ['supabase_id','client_id','client_supabase_id','vehicle_inventory_id','vehicle_inventory_supabase_id','staff_id','staff_supabase_id','scheduled_at','completed_at','license_number','signed_waiver_url','notes','outcome','outcome_notes','deal_supabase_id','active']
 function testDrivesList() {
@@ -9943,7 +10407,11 @@ function testDrivesSetOutcome(id, { outcome, outcomeNotes, dealSupabaseId } = {}
   if (outcome) patch.completed_at = new Date().toISOString()
   return testDrivesUpdate(id, patch)
 }
-function testDrivesDelete(id) { db.prepare("UPDATE test_drives SET active=0, updated_at=datetime('now') WHERE id=?").run(id) }
+function testDrivesDelete(id) {
+  const row = db.prepare('SELECT supabase_id, business_id FROM test_drives WHERE id=?').get(id)
+  db.prepare("UPDATE test_drives SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+  if (row?.supabase_id) tombstoneAdd('test_drives', row.supabase_id, row.business_id)
+}
 
 const VEHICLE_DOC_COLS = ['supabase_id','vehicle_inventory_supabase_id','doc_type','file_url','file_name','expires_at','notes','active']
 function vehicleDocumentsByVehicle(vehicleSupabaseId) {
@@ -9963,7 +10431,11 @@ function vehicleDocumentsCreate(data) {
   const r = db.prepare(`INSERT INTO vehicle_documents(${cols.join(', ')}) VALUES (${cols.map(c => '@' + c).join(', ')})`).run(cleaned)
   return db.prepare('SELECT * FROM vehicle_documents WHERE id = ?').get(r.lastInsertRowid)
 }
-function vehicleDocumentsDelete(id) { db.prepare("UPDATE vehicle_documents SET active=0, updated_at=datetime('now') WHERE id=?").run(id) }
+function vehicleDocumentsDelete(id) {
+  const row = db.prepare('SELECT supabase_id, business_id FROM vehicle_documents WHERE id=?').get(id)
+  db.prepare("UPDATE vehicle_documents SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+  if (row?.supabase_id) tombstoneAdd('vehicle_documents', row.supabase_id, row.business_id)
+}
 
 // ── Vehicle Titulo (INTRANT matricula/traspaso) — v2.16.2 ────────────────
 const VEHICLE_TITULO_COLS = ['supabase_id','sales_deal_supabase_id','vehicle_inventory_supabase_id','intrant_status','placa','matricula_url','traspaso_initiated_at','traspaso_completed_at','notes','active']
@@ -9996,7 +10468,11 @@ function vehicleTituloUpsert(data) {
   const r = db.prepare(`INSERT INTO vehicle_titulo(${cols.join(', ')}) VALUES (${cols.map(c => '@' + c).join(', ')})`).run(cleaned)
   return db.prepare('SELECT * FROM vehicle_titulo WHERE id=?').get(r.lastInsertRowid)
 }
-function vehicleTituloDelete(id) { db.prepare("UPDATE vehicle_titulo SET active=0, updated_at=datetime('now') WHERE id=?").run(id) }
+function vehicleTituloDelete(id) {
+  const row = db.prepare('SELECT supabase_id, business_id FROM vehicle_titulo WHERE id=?').get(id)
+  db.prepare("UPDATE vehicle_titulo SET active=0, updated_at=datetime('now') WHERE id=?").run(id)
+  if (row?.supabase_id) tombstoneAdd('vehicle_titulo', row.supabase_id, row.business_id)
+}
 
 // ── Vehicle Reservations (deposit + expiry) — v2.16.4 ─────────────────────
 const VEHICLE_RES_COLS = ['supabase_id','vehicle_inventory_supabase_id','client_id','client_supabase_id','salesperson_id','salesperson_supabase_id','deposit_amount','deposit_method','expires_at','released_at','released_reason','converted_deal_supabase_id','status','notes','active']
@@ -10705,6 +11181,7 @@ module.exports = {
   loyaltyAward, loyaltyRedeem, loyaltyAdjust, loyaltyHistory,
   // Tickets
   ticketsGetAll, ticketGetById, ticketCreate, ticketMarkPaid, ticketVoid, ticketGetByDateRange, ticketGetByDateRangeWithItems,
+  ticketOpenForMesa, ticketAddItem, ticketUpdateItemQty, ticketRemoveItem, ticketGetActiveByMesa, ticketCloseWithPayment,
   // Price changes
   ticketItemUpdatePrice, priceChangesGetByTicket, priceChangesGetAll,
   // Queue

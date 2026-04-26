@@ -3002,6 +3002,383 @@ export function createWebAPI(supabase, businessId) {
         } catch (e) { console.error('[web.js] void stock reversal failed:', e.message) }
       }),
 
+      // C2/v2.16.4 — `getActiveByMesa` superseded by the open_status-based
+      // implementation defined further down (open_status='open' filter +
+      // nested ticket_items + ticket_item_modificadores). Legacy block removed
+      // here to keep a single source of truth.
+
+      // v2.16.3 — Restaurante H3 "Mover": move an open ticket from its current
+      // mesa to a free target mesa. Both the ticket row AND mesa rows are
+      // updated atomically (best-effort sequence — RLS scopes by business_id
+      // so cross-tenant leakage is impossible). Manager-gated at the UI layer.
+      //
+      // Inputs:
+      //   ticketSupabaseId  string  open ticket UUID
+      //   newMesaId         number  target mesa.id (libre/sucia/reservada)
+      //
+      // Side-effects:
+      //   - tickets.{mesa_id, mesa_supabase_id} → new mesa
+      //   - mesas[old].status='sucia', clears guests/seated_at/waiter
+      //   - mesas[new].status='ocupada', copies guests/waiter/seated_at
+      //   - activity_log row: restaurant_mesa_transfer (info)
+      transferToMesa: (ticketSupabaseId, newMesaId) => tryOr(async () => {
+        if (!ticketSupabaseId || !newMesaId) throw new Error('Faltan parámetros')
+
+        // Resolve current ticket + new mesa
+        const { data: ticket } = await supabase.from('tickets')
+          .select('id, supabase_id, mesa_id, mesa_supabase_id, guests, waiter_empleado_supabase_id, doc_number, status')
+          .eq('business_id', bid).eq('supabase_id', ticketSupabaseId).maybeSingle()
+        if (!ticket) throw new Error('Ticket no encontrado')
+        if (['cobrado','nula','anulado','voided'].includes(ticket.status)) throw new Error('Ticket ya cerrado')
+        if (ticket.mesa_id === newMesaId) throw new Error('La mesa destino es la misma')
+
+        const { data: newMesa } = await supabase.from('mesas')
+          .select('id, supabase_id, name, status').eq('id', newMesaId).eq('business_id', bid).maybeSingle()
+        if (!newMesa) throw new Error('Mesa destino no existe')
+        if (!['libre','sucia','reservada'].includes(newMesa.status)) {
+          throw new Error('Mesa destino no está disponible')
+        }
+
+        const { data: oldMesa } = ticket.mesa_id ? await supabase.from('mesas')
+          .select('id, supabase_id, name, guests_count, waiter_empleado_supabase_id, seated_at')
+          .eq('id', ticket.mesa_id).eq('business_id', bid).maybeSingle() : { data: null }
+
+        // Rebump rev for tickets.rev_guard trigger (matches markPaid pattern).
+        const { data: cur } = await supabase.from('tickets').select('rev').eq('id', ticket.id).maybeSingle()
+        const nextRev = Number(cur?.rev || 0) + 1
+
+        // 1. Move the ticket
+        throwSupaError(await supabase.from('tickets').update({
+          mesa_id: newMesa.id,
+          mesa_supabase_id: newMesa.supabase_id,
+          rev: nextRev,
+        }).eq('id', ticket.id).eq('business_id', bid))
+
+        // 2. Free the old mesa (status='sucia' to force a wipe-down before reseat)
+        if (oldMesa?.id) {
+          throwSupaError(await supabase.from('mesas').update({
+            status: 'sucia',
+            guests_count: null,
+            waiter_empleado_supabase_id: null,
+            seated_at: null,
+            bill_requested_at: null,
+          }).eq('id', oldMesa.id).eq('business_id', bid))
+        }
+
+        // 3. Seat the new mesa with the carried-over context
+        const seatedAt = oldMesa?.seated_at || ticket.created_at || new Date().toISOString()
+        throwSupaError(await supabase.from('mesas').update({
+          status: 'ocupada',
+          guests_count: oldMesa?.guests_count ?? ticket.guests ?? null,
+          waiter_empleado_supabase_id: oldMesa?.waiter_empleado_supabase_id ?? ticket.waiter_empleado_supabase_id ?? null,
+          seated_at: seatedAt,
+          bill_requested_at: null,
+        }).eq('id', newMesa.id).eq('business_id', bid))
+
+        await logActivity({
+          event_type: 'restaurant_mesa_transfer',
+          severity: 'info',
+          target_type: 'ticket',
+          target_id: ticket.id,
+          target_name: ticket.doc_number || `#${ticket.id}`,
+          metadata: {
+            from_mesa_id: oldMesa?.id ?? null,
+            from_mesa_name: oldMesa?.name ?? null,
+            to_mesa_id: newMesa.id,
+            to_mesa_name: newMesa.name,
+          },
+        })
+        return { ok: true, ticket_id: ticket.id, new_mesa_id: newMesa.id }
+      }),
+
+      // v2.16.3 — Restaurante H3 "Juntar": merge two open tickets onto a single
+      // target mesa. Source ticket items move to target, source guests count
+      // adds to target, source mesa frees to 'sucia', source ticket marked
+      // 'merged' (a benign status filtered out of every report). Manager-gated.
+      //
+      // Inputs:
+      //   targetTicketSupabaseId  string  ticket that survives
+      //   sourceTicketSupabaseId  string  ticket whose items get absorbed
+      merge: (targetTicketSupabaseId, sourceTicketSupabaseId) => tryOr(async () => {
+        if (!targetTicketSupabaseId || !sourceTicketSupabaseId) throw new Error('Faltan parámetros')
+        if (targetTicketSupabaseId === sourceTicketSupabaseId) throw new Error('No se puede juntar consigo mismo')
+
+        const { data: target } = await supabase.from('tickets')
+          .select('id, supabase_id, mesa_id, mesa_supabase_id, guests, doc_number, status, rev')
+          .eq('business_id', bid).eq('supabase_id', targetTicketSupabaseId).maybeSingle()
+        if (!target) throw new Error('Ticket destino no encontrado')
+        if (['cobrado','nula','anulado','voided','merged'].includes(target.status)) throw new Error('Ticket destino ya cerrado')
+
+        const { data: source } = await supabase.from('tickets')
+          .select('id, supabase_id, mesa_id, mesa_supabase_id, guests, doc_number, status, rev')
+          .eq('business_id', bid).eq('supabase_id', sourceTicketSupabaseId).maybeSingle()
+        if (!source) throw new Error('Ticket origen no encontrado')
+        if (['cobrado','nula','anulado','voided','merged'].includes(source.status)) throw new Error('Ticket origen ya cerrado')
+
+        // 1. Move items from source → target by ticket_supabase_id (FK is
+        //    nullable on ticket_id; the supabase_id pair is the canonical join).
+        throwSupaError(await supabase.from('ticket_items')
+          .update({ ticket_supabase_id: target.supabase_id, ticket_id: target.id })
+          .eq('ticket_supabase_id', source.supabase_id))
+
+        // 2. Sum guests onto target.
+        const totalGuests = Number(target.guests || 0) + Number(source.guests || 0)
+        const tNextRev = Number(target.rev || 0) + 1
+        throwSupaError(await supabase.from('tickets').update({
+          guests: totalGuests || null, rev: tNextRev,
+        }).eq('id', target.id).eq('business_id', bid))
+
+        // 3. Mark source as merged so cuadre/reports skip it.
+        const sNextRev = Number(source.rev || 0) + 1
+        throwSupaError(await supabase.from('tickets').update({
+          status: 'merged',
+          notes: `Combinado con ${target.doc_number || target.id}`,
+          rev: sNextRev,
+        }).eq('id', source.id).eq('business_id', bid))
+
+        // 4. Free the source mesa to 'sucia'.
+        if (source.mesa_id) {
+          throwSupaError(await supabase.from('mesas').update({
+            status: 'sucia',
+            guests_count: null,
+            waiter_empleado_supabase_id: null,
+            seated_at: null,
+            bill_requested_at: null,
+          }).eq('id', source.mesa_id).eq('business_id', bid))
+        }
+
+        // 5. Update target mesa guests count (best-effort).
+        if (target.mesa_id && totalGuests) {
+          await supabase.from('mesas').update({ guests_count: totalGuests })
+            .eq('id', target.mesa_id).eq('business_id', bid)
+        }
+
+        await logActivity({
+          event_type: 'restaurant_mesa_merge',
+          severity: 'info',
+          target_type: 'ticket',
+          target_id: target.id,
+          target_name: target.doc_number || `#${target.id}`,
+          metadata: {
+            target_ticket_id: target.id,
+            source_ticket_id: source.id,
+            source_doc_number: source.doc_number,
+            target_mesa_id: target.mesa_id,
+            source_mesa_id: source.mesa_id,
+            total_guests: totalGuests,
+          },
+        })
+        return { ok: true, target_ticket_id: target.id, source_ticket_id: source.id }
+      }),
+
+      // ── v2.16.4 — Restaurant open-ticket lifecycle ───────────────────────
+      // Persist tickets at mesa-seat time so a refresh / power loss mid-dinner
+      // doesn't drop in-flight items + KDS rows. The `open_status` column
+      // ('open' | 'closed') is orthogonal to financial `status`.
+      openForMesa: (data = {}) => tryOr(async () => {
+        const ticketSid = data.supabase_id || crypto.randomUUID()
+        const { data: lastDoc } = await supabase.from('tickets')
+          .select('doc_number').eq('business_id', bid)
+          .order('created_at', { ascending: false }).limit(1).maybeSingle()
+        let nextNum = 1
+        if (lastDoc?.doc_number) {
+          const m = String(lastDoc.doc_number).match(/T-(\d+)/)
+          if (m) nextNum = parseInt(m[1], 10) + 1
+        }
+        const docNum = `T-${String(nextNum).padStart(4, '0')}`
+        const row = throwSupaError(await supabase.from('tickets').insert({
+          supabase_id:      ticketSid,
+          business_id:      bid,
+          doc_number:       docNum,
+          mesa_supabase_id: data.mesa_supabase_id || null,
+          fulfillment_type: 'dine_in',
+          mode:             'mesa',
+          subtotal: 0, descuento: 0, itbis: 0, ley: 0, total: 0,
+          payment_method:   'pending',
+          status:           'pendiente',
+          open_status:      'open',
+          tipo_venta:       'contado',
+          order_source:     'pos',
+        }).select().single())
+        return { id: row?.id || null, supabase_id: ticketSid, doc_number: docNum }
+      }, null),
+
+      addItem: (data = {}) => tryOr(async () => {
+        const itemSid = crypto.randomUUID()
+        const safeQty = Math.max(1, parseInt(data.qty || data.quantity || 1, 10))
+        const row = throwSupaError(await supabase.from('ticket_items').insert({
+          supabase_id:        itemSid,
+          ticket_supabase_id: data.ticket_supabase_id,
+          service_supabase_id: data.service_supabase_id || null,
+          name:               data.name || '',
+          price:              Number(data.price) || 0,
+          cost: 0, itbis: 0, is_wash: true,
+          quantity:           safeQty,
+          course:             data.course || null,
+          guest_number:       data.guest_number || null,
+          preparation_notes:  data.preparation_notes || null,
+          empleado_supabase_id: data.empleado_supabase_id || null,
+          business_id:        bid,
+        }).select().single())
+        if (Array.isArray(data.modifiers) && data.modifiers.length) {
+          const modRows = data.modifiers.map(m => ({
+            supabase_id:               crypto.randomUUID(),
+            ticket_item_supabase_id:   itemSid,
+            modificador_supabase_id:   m.modificador_supabase_id || null,
+            name_snapshot:             m.name || m.name_snapshot || '',
+            price_delta_snapshot:      Number(m.price_delta || m.price_delta_snapshot || 0),
+            business_id:               bid,
+          }))
+          try { await supabase.from('ticket_item_modificadores').insert(modRows) }
+          catch (e) { console.error('[web.js] addItem modifier snapshot failed:', e.message) }
+        }
+        if (data.ticket_supabase_id) {
+          await supabase.from('tickets').update({ updated_at: new Date().toISOString() })
+            .eq('supabase_id', data.ticket_supabase_id).eq('business_id', bid)
+        }
+        return { id: row?.id || null, supabase_id: itemSid }
+      }, null),
+
+      updateItemQty: (data = {}) => tryOr(async () => {
+        const safeQty = Math.max(0, parseInt(data.qty || 0, 10))
+        if (safeQty === 0) {
+          if (data.ticket_item_id) {
+            throwSupaError(await supabase.from('ticket_items').delete()
+              .eq('id', data.ticket_item_id).eq('business_id', bid))
+          } else if (data.ticket_item_supabase_id) {
+            throwSupaError(await supabase.from('ticket_items').delete()
+              .eq('supabase_id', data.ticket_item_supabase_id).eq('business_id', bid))
+          }
+          return { id: data.ticket_item_id, qty: 0 }
+        }
+        if (data.ticket_item_id) {
+          throwSupaError(await supabase.from('ticket_items').update({ quantity: safeQty })
+            .eq('id', data.ticket_item_id).eq('business_id', bid))
+        } else if (data.ticket_item_supabase_id) {
+          throwSupaError(await supabase.from('ticket_items').update({ quantity: safeQty })
+            .eq('supabase_id', data.ticket_item_supabase_id).eq('business_id', bid))
+        }
+        return { id: data.ticket_item_id, qty: safeQty }
+      }, null),
+
+      removeItem: (data = {}) => tryOr(async () => {
+        if (data.ticket_item_supabase_id) {
+          try {
+            await supabase.from('ticket_item_modificadores').delete()
+              .eq('ticket_item_supabase_id', data.ticket_item_supabase_id).eq('business_id', bid)
+          } catch {}
+        }
+        if (data.ticket_item_id) {
+          throwSupaError(await supabase.from('ticket_items').delete()
+            .eq('id', data.ticket_item_id).eq('business_id', bid))
+        } else if (data.ticket_item_supabase_id) {
+          throwSupaError(await supabase.from('ticket_items').delete()
+            .eq('supabase_id', data.ticket_item_supabase_id).eq('business_id', bid))
+        }
+        return { removed: true }
+      }, null),
+
+      getActiveByMesa: (mesaId) => tryOr(async () => {
+        if (!mesaId) return null
+        let mesaSid = null
+        if (typeof mesaId === 'string' && mesaId.length >= 32 && mesaId.includes('-')) {
+          mesaSid = mesaId
+        } else {
+          const { data: m } = await supabase.from('mesas').select('supabase_id')
+            .eq('id', mesaId).eq('business_id', bid).maybeSingle()
+          mesaSid = m?.supabase_id || null
+        }
+        let q = supabase.from('tickets').select(`
+          *,
+          ticket_items(*, ticket_item_modificadores(*))
+        `)
+          .eq('business_id', bid)
+          .eq('open_status', 'open')
+          .order('created_at', { ascending: false })
+          .limit(1)
+        if (mesaSid) q = q.eq('mesa_supabase_id', mesaSid)
+        else q = q.eq('mesa_id', mesaId)
+        const { data: rows } = await q
+        const ticket = rows && rows[0]
+        if (!ticket) return null
+        ticket.items = (ticket.ticket_items || []).map(it => ({
+          ...it,
+          qty: it.quantity,
+          modifiers: (it.ticket_item_modificadores || []).map(m => ({
+            modificador_id: m.modificador_id,
+            modificador_supabase_id: m.modificador_supabase_id,
+            name: m.name_snapshot,
+            price_delta: Number(m.price_delta_snapshot || 0),
+          })),
+        }))
+        delete ticket.ticket_items
+        return ticket
+      }, null),
+
+      closeWithPayment: async (ticketRef, payload = {}) => {
+        const _ticketId  = (ticketRef && typeof ticketRef === 'object') ? ticketRef.ticket_id : ticketRef
+        const _ticketSid = (ticketRef && typeof ticketRef === 'object') ? ticketRef.ticket_supabase_id : null
+        const data = (ticketRef && typeof ticketRef === 'object' && ticketRef.payload) ? ticketRef.payload : payload
+        try {
+          return await tryOr(async () => {
+            let q = supabase.from('tickets').select('*').eq('business_id', bid).limit(1)
+            if (_ticketSid) q = q.eq('supabase_id', _ticketSid)
+            else if (_ticketId) q = q.eq('id', _ticketId)
+            else throw new Error('closeWithPayment: missing ticket reference')
+            const { data: rows } = await q
+            const row = rows && rows[0]
+            if (!row) throw new Error('closeWithPayment: ticket not found')
+
+            const status = data.status || (data.tipo_venta === 'credito' || data.payment_method === 'credit' ? 'pendiente' : 'cobrado')
+            const updates = {
+              open_status:      'closed',
+              status,
+              subtotal:         Number(data.subtotal || 0),
+              descuento:        Number(data.descuento || 0),
+              itbis:            Number(data.itbis || 0),
+              ley:              Number(data.ley || 0),
+              total:            Number(data.total || 0),
+              payment_method:   data.payment_method || 'cash',
+              comprobante_type: data.comprobante_type || row.comprobante_type || 'B02',
+              ncf:              data.ncf || row.ncf || null,
+              ecf_result:       data.ecf_result || data.ecf || row.ecf_result || {},
+              tipo_venta:       data.tipo_venta || 'contado',
+              tip_amount:       Number(data.tip_amount || 0),
+              fulfillment_type: data.fulfillment_type || row.fulfillment_type || 'dine_in',
+              mode:             data.mode || row.mode || 'mesa',
+              notes:            data.comentario ?? data.notes ?? row.notes ?? null,
+              order_source:     data.order_source || row.order_source || 'pos',
+              payment_parts:    (Array.isArray(data.payment_parts) && data.payment_parts.length) ? data.payment_parts : null,
+              split_bill:       (data.split === true || (Array.isArray(data.payment_parts) && data.payment_parts.length > 1)) || false,
+              rev:              Number(row.rev || 0) + 1,
+              paid_at:          status === 'cobrado' ? new Date().toISOString() : null,
+            }
+            if (data.client_supabase_id) updates.client_supabase_id = data.client_supabase_id
+            if (data.cajero_supabase_id) updates.cajero_supabase_id = data.cajero_supabase_id
+            if (data.seller_empleado_supabase_id) updates.seller_empleado_supabase_id = data.seller_empleado_supabase_id
+            if (Array.isArray(data.washer_empleado_supabase_ids)) updates.washer_empleado_supabase_ids = data.washer_empleado_supabase_ids
+
+            throwSupaError(await supabase.from('tickets').update(updates)
+              .eq('id', row.id).eq('business_id', bid))
+
+            const desc = Number(data.descuento || 0)
+            const subt = Number(data.subtotal || 0)
+            const pct  = subt > 0 ? (desc / subt) * 100 : 0
+            if (desc > 500 || pct > 15) {
+              await logActivity({ event_type: 'discount_applied',
+                severity: desc > 2000 || pct > 30 ? 'warn' : 'info',
+                target_type: 'ticket', target_id: row.id, target_name: row.doc_number || `#${row.id}`,
+                amount: desc,
+                metadata: { subtotal: subt, total: data.total, pct: Math.round(pct * 10) / 10, payment_method: data.payment_method, source: 'closeWithPayment' } })
+            }
+            return { id: row.id, supabase_id: row.supabase_id, docNumber: row.doc_number, ncf: updates.ncf }
+          })
+        } catch (err) {
+          console.error('[web.js] closeWithPayment failed:', err?.message || err)
+          throw err
+        }
+      },
+
       byDateRange: (params) => tryOr(async () => {
         const dateFrom = params?.dateFrom ?? params?.from
         const dateTo   = params?.dateTo   ?? params?.to
@@ -4483,6 +4860,145 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(
           await supabase.from('mesas')
             .update({ status: 'acuenta', bill_requested_at: new Date().toISOString() })
+            .eq('id', id).eq('business_id', bid).select('*').single()
+        )
+      }),
+    },
+
+    // ── Restaurant Mode — Reservas (front-of-house) ──────────────────────────
+    // v2.16.3 H4. Distinct from the dealership `vehicleReservations` namespace
+    // (which lives elsewhere in this file). Reservation lifecycle:
+    //   pendiente → confirmada → sentada    (happy path)
+    //              ↘ cancelada  ↘ no_show   (degenerate paths)
+    // Manager auth not required — front-of-house can self-manage. activity_log
+    // emits info-severity rows for each transition.
+
+    restaurantReservations: {
+      list: ({ date, status, dateFrom, dateTo } = {}) => tryOr(async () => {
+        let q = supabase.from('restaurant_reservations').select('*').eq('business_id', bid)
+        if (date)     q = q.eq('fecha', date)
+        if (dateFrom) q = q.gte('fecha', dateFrom)
+        if (dateTo)   q = q.lte('fecha', dateTo)
+        if (status && status !== 'all') q = q.eq('status', status)
+        q = q.order('fecha', { ascending: true }).order('hora', { ascending: true })
+        return throwSupaError(await q) || []
+      }, []),
+
+      create: (data) => tryOr(async () => {
+        const sid = crypto.randomUUID()
+        const row = throwSupaError(await supabase.from('restaurant_reservations').insert({
+          supabase_id:      sid,
+          business_id:      bid,
+          mesa_id:          data.mesa_id || null,
+          mesa_supabase_id: data.mesa_supabase_id || null,
+          fecha:            data.fecha,
+          hora:             data.hora,
+          duration_min:     Number(data.duration_min || 90),
+          nombre:           String(data.nombre || '').trim(),
+          telefono:         data.telefono ? String(data.telefono).trim() : null,
+          guests:           Math.max(1, Number(data.guests || 2)),
+          notas:            data.notas || null,
+          status:           data.status || 'pendiente',
+        }).select('*').single())
+        await logActivity({
+          event_type: 'reservation_created', severity: 'info',
+          target_type: 'reservation', target_id: row.id, target_name: row.nombre,
+          metadata: { fecha: row.fecha, hora: row.hora, guests: row.guests, mesa_id: row.mesa_id },
+        })
+        return row
+      }),
+
+      update: (id, data) => tryOr(async () => {
+        const allowed = ['mesa_id','mesa_supabase_id','fecha','hora','duration_min','nombre','telefono','guests','notas','status','whatsapp_sent_at','cancelled_reason','seated_ticket_supabase_id']
+        const patch = Object.fromEntries(Object.entries(data || {}).filter(([k]) => allowed.includes(k)))
+        if (!Object.keys(patch).length) {
+          return (await supabase.from('restaurant_reservations').select('*').eq('id', id).eq('business_id', bid).maybeSingle())?.data || null
+        }
+        return throwSupaError(
+          await supabase.from('restaurant_reservations').update(patch).eq('id', id).eq('business_id', bid).select('*').single()
+        )
+      }),
+
+      confirm: (id) => tryOr(async () => {
+        const row = throwSupaError(
+          await supabase.from('restaurant_reservations').update({ status: 'confirmada' })
+            .eq('id', id).eq('business_id', bid).select('*').single()
+        )
+        await logActivity({
+          event_type: 'reservation_confirmed', severity: 'info',
+          target_type: 'reservation', target_id: row.id, target_name: row.nombre,
+          metadata: { fecha: row.fecha, hora: row.hora, guests: row.guests },
+        })
+        return row
+      }),
+
+      cancel: (id, reason) => tryOr(async () => {
+        const row = throwSupaError(
+          await supabase.from('restaurant_reservations').update({
+            status: 'cancelada',
+            cancelled_reason: reason || null,
+          }).eq('id', id).eq('business_id', bid).select('*').single()
+        )
+        await logActivity({
+          event_type: 'reservation_cancelled', severity: 'warn',
+          target_type: 'reservation', target_id: row.id, target_name: row.nombre,
+          reason: reason || null,
+          metadata: { fecha: row.fecha, hora: row.hora },
+        })
+        return row
+      }),
+
+      markNoShow: (id) => tryOr(async () => {
+        const row = throwSupaError(
+          await supabase.from('restaurant_reservations').update({ status: 'no_show' })
+            .eq('id', id).eq('business_id', bid).select('*').single()
+        )
+        await logActivity({
+          event_type: 'reservation_no_show', severity: 'warn',
+          target_type: 'reservation', target_id: row.id, target_name: row.nombre,
+          metadata: { fecha: row.fecha, hora: row.hora, guests: row.guests },
+        })
+        return row
+      }),
+
+      // Mark as 'sentada' and (best-effort) flip the assigned mesa to 'ocupada'.
+      // Caller is expected to follow-up by opening the POS for the new mesa.
+      seat: (id, mesaId) => tryOr(async () => {
+        let mesaSid = null
+        if (mesaId) {
+          const { data: m } = await supabase.from('mesas').select('id, supabase_id, name')
+            .eq('id', mesaId).eq('business_id', bid).maybeSingle()
+          if (!m) throw new Error('Mesa no encontrada')
+          mesaSid = m.supabase_id
+          // Flip the mesa to ocupada with the reservation's guest count.
+          const { data: res } = await supabase.from('restaurant_reservations')
+            .select('guests, nombre').eq('id', id).eq('business_id', bid).maybeSingle()
+          await supabase.from('mesas').update({
+            status: 'ocupada',
+            guests_count: res?.guests || null,
+            seated_at: new Date().toISOString(),
+            bill_requested_at: null,
+          }).eq('id', mesaId).eq('business_id', bid)
+        }
+        const patch = { status: 'sentada' }
+        if (mesaId)  patch.mesa_id = mesaId
+        if (mesaSid) patch.mesa_supabase_id = mesaSid
+        const row = throwSupaError(
+          await supabase.from('restaurant_reservations').update(patch)
+            .eq('id', id).eq('business_id', bid).select('*').single()
+        )
+        await logActivity({
+          event_type: 'reservation_seated', severity: 'info',
+          target_type: 'reservation', target_id: row.id, target_name: row.nombre,
+          metadata: { fecha: row.fecha, hora: row.hora, mesa_id: mesaId },
+        })
+        return row
+      }),
+
+      stampWhatsapp: (id) => tryOr(async () => {
+        return throwSupaError(
+          await supabase.from('restaurant_reservations')
+            .update({ whatsapp_sent_at: new Date().toISOString() })
             .eq('id', id).eq('business_id', bid).select('*').single()
         )
       }),
@@ -6252,6 +6768,18 @@ export function createWebAPI(supabase, businessId) {
       delete: ({ id }) => tryOr(async () => {
         throwSupaError(await supabase.from('memberships').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
         return true
+      }),
+
+      // v2.16.7 — Authoritative rolling-period advance via Supabase RPC.
+      // Replaces the desktop-only `_membershipCurrentPeriod` SPOF so any
+      // device (web tablet, second register, owner's phone) can advance
+      // the period and every other device sees the same truth on next read.
+      // The RPC is idempotent: it no-ops when period_end >= today.
+      advancePeriod: (membership_supabase_id) => tryOr(async () => {
+        if (!membership_supabase_id) return null
+        const { data, error } = await supabase.rpc('carwash_memberships_advance_period', { membership_id: membership_supabase_id })
+        if (error) throw error
+        return data
       }),
     },
 

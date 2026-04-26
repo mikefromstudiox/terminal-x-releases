@@ -200,10 +200,10 @@ export function AuthProvider({ children }) {
     // get revoked server-side, but we never block on it.
     try {
       if (sb?.auth?.signOut) {
-        await Promise.race([
-          sb.auth.signOut({ scope: 'local' }).catch(() => {}),
-          new Promise(resolve => setTimeout(resolve, 1500)),
-        ])
+        // v2.16.3 — instantaneous logout. Awaits only real local cleanup (no
+        // fake setTimeout delay). Local-scope signOut is a synchronous
+        // localStorage wipe + same-tab broadcast — it resolves immediately.
+        await sb.auth.signOut({ scope: 'local' }).catch(() => {})
         // Fire-and-forget global revocation — does not block redirect.
         try { sb.auth.signOut({ scope: 'global' }).catch(() => {}) } catch {}
       }

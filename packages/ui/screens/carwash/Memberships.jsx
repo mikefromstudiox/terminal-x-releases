@@ -1,7 +1,18 @@
 // Memberships.jsx — carwash-only monthly subscription CRUD screen.
 // Each membership binds a vehicle (optional) to a client with a monthly wash quota.
-// Rolling period is maintained by the desktop (membershipGetActiveForClient) on read;
-// web clients see the raw period_start/period_end written by the last desktop touch.
+//
+// v2.16.7 — Rolling-period ownership moved off the desktop. The advance is now
+// performed server-side by the Supabase RPC `carwash_memberships_advance_period`
+// (atomic, RLS-aware, idempotent). When the device is online we call the RPC
+// for every active row whose period has rolled past today; when offline we
+// fall back to the local `api.memberships.advancePeriod` desktop helper so
+// kiosks without internet still display the correct period.
+//
+// Why: pre-v2.16.7, only the desktop's `membershipGetActiveForClient()` would
+// roll the period forward on read. A multi-device shop where the web tablet
+// rang up the first wash on the 1st of the month consumed against the
+// previous period until the desktop happened to read the row → washes_used
+// counters drifted between devices.
 
 import { useEffect, useMemo, useState } from 'react'
 import { Plus, X, RefreshCw, AlertCircle, Trash2, Pencil, Car, BadgeCheck, Ban, Pause } from 'lucide-react'
@@ -39,11 +50,40 @@ export default function Memberships() {
 
   function flash(m) { setToast(m); setTimeout(() => setToast(null), 2500) }
 
+  // v2.16.7 — Roll any stale active periods forward via the Supabase RPC
+  // (online) or the local desktop helper (offline). One RPC call per stale
+  // row. We do this BEFORE list() so the rendered counts reflect the new
+  // period immediately, with no flash of stale data.
+  async function advanceStalePeriods(rowsHint) {
+    const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine
+    const today = new Date().toISOString().slice(0, 10)
+    const stale = (rowsHint || []).filter(r =>
+      r?.status === 'active' && r?.period_end && String(r.period_end).slice(0, 10) < today
+    )
+    if (stale.length === 0) return
+    const advance = api?.memberships?.advancePeriod
+    if (typeof advance !== 'function') return
+    // Best-effort: a failed advance must not block the screen from rendering.
+    await Promise.all(stale.map(async (r) => {
+      try {
+        if (isOnline) {
+          await advance(r.supabase_id || r.id)
+        } else if (api?.memberships?.advancePeriodLocal) {
+          await api.memberships.advancePeriodLocal(r.id)
+        }
+      } catch (e) { console.warn('[Memberships] advancePeriod failed for', r.id, e?.message || e) }
+    }))
+  }
+
   async function load() {
     setLoading(true)
     try {
-      const [m, c, v] = await Promise.all([
-        api?.memberships?.list?.() ?? [],
+      let m = (await (api?.memberships?.list?.() ?? [])) || []
+      // Advance stale rows, then re-list so the UI shows the rolled-forward
+      // period_start/period_end + reset washes_used_this_period.
+      await advanceStalePeriods(m)
+      m = (await (api?.memberships?.list?.() ?? [])) || []
+      const [c, v] = await Promise.all([
         api?.clients?.all?.() ?? [],
         api?.vehicles?.list?.() ?? [],
       ])

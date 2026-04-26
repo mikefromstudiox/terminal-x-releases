@@ -3,6 +3,44 @@
 ## What This App Is
 Full-featured desktop POS for the Dominican Republic market, resold to multiple clients. Flagship differentiator: 100% working e-CF (electronic fiscal receipts) per Ley 32-23.
 
+## Restaurante UX (v2.16.3 — DR-restaurant-operator hardening, 2026-04-26)
+- **C3** — Web POS modifier loading: `RestaurantPOS.addServiceToTicket` now passes `svc.supabase_id` (UUID) to `api.modificadores.listForService`. Desktop `modificadoresListForService(serviceKey)` is polymorphic — accepts integer id or supabase_id (UUID detected by regex), `console.warn` if neither. Both platforms now show modifier prompts for any plato with `service_modificadores` rows.
+- **H1** — Pre-cuenta print on "Pedir cuenta": new `printPreCuenta(data, api, printerApi)` + `buildPreCuenta(data)` in `packages/services/printer.js`. ESC/POS 80mm 42-col, header "PRE-CUENTA", per-item lines + modifiers + line totals, subtotal + ITBIS-included breakdown + Servicio % (if set) + TOTAL + tip suggestions (10/15/18%) + INVERT-bar disclaimer "*** NO ES COMPROBANTE FISCAL ***". Cash drawer NEVER opens (no `DRAWER_KICK` byte). Wired in `RestaurantPOS.handleRequestBill` after `requestBill` API call. Print failure surfaces toast "Cuenta enviada. Impresora no disponible." but does not roll back the status flip. Setting: `restaurant_print_precuenta_enabled` (default `'1'`).
+- **H2** — 10% Servicio (Ley 16-92 / costumbre RD): settings `restaurant_servicio_pct` (default `'10'`) + `restaurant_servicio_auto_apply` (default `'1'`). UI in `Sistema.jsx → Preferencias → Restaurante` (visible only when `business_type === 'restaurant'`). `TipEntryModal` reads both via props (`servicioPct`, `servicioAutoApply`); when auto-apply is on it pre-selects the chip matching servicio_pct, surfaces it in the chip grid even if not in 0/10/15/20, and shows banner `Servicio N% incluido (Ley 16-92)`. Persisted as `tickets.servicio_amount REAL NOT NULL DEFAULT 0` + `tickets.servicio_pct REAL DEFAULT 0` (self-heal ALTERs in `electron/database.js`, both legacy `ticketCreate` INSERT and `closeWithPayment` UPDATE paths). New table `tip_distributions(id, supabase_id, ticket_id, ticket_supabase_id, empleado_id, empleado_supabase_id, points, amount, business_id, created_at, updated_at)` — v2.16.3 ships ONE row per ticket with full amount routed to `waiter_empleado_id`. `// TODO v2.17: multi-empleado tip split by points`.
+- **H3** — Mover / Juntar mesas (this sprint, 2026-04-26). `MoveMesaModal` + `JoinMesaModal` in `packages/ui/screens/restaurant/MesaActionModals.jsx` wrapped in `ManagerAuthGate`. Web layer: `api.tickets.transferToMesa(ticketSupabaseId, newMesaId)` updates `tickets.{mesa_id, mesa_supabase_id}`, frees old mesa to `'sucia'`, seats new mesa with copied guests/waiter/seated_at; `api.tickets.merge(targetTicketSupabaseId, sourceTicketSupabaseId)` reassigns `ticket_items.ticket_supabase_id` to target, sums guests, marks source `status='merged'`, frees source mesa. Activity log: `restaurant_mesa_transfer` (info) + `restaurant_mesa_merge` (info). Buttons live in `CartSidebar` next to Dividir/Por plato. Desktop IPC stubs reject with upgrade message until matching ipcMain handlers land.
+- **H4** — Reservas (this sprint). New table `restaurant_reservations` (`id`, `supabase_id` UUID UNIQUE, `business_id`, `mesa_id`/`mesa_supabase_id` nullable, `fecha` DATE, `hora` TIME, `duration_min` default 90, `nombre`, `telefono`, `guests` ≥ 1, `notas`, `status` IN(`pendiente`,`confirmada`,`sentada`,`cancelada`,`no_show`), `whatsapp_sent_at`, `cancelled_reason`, `seated_ticket_supabase_id`, `created_at`, `updated_at`). RLS scoped by business_id, anon revoked from writes. Migration `migrations/2026_04_26_restaurant_reservations.sql` idempotent. Screen at `packages/ui/screens/restaurant/Reservations.jsx` (route `/reservas`, sidebar entry "Reservas" gated `restaurant_reservations` + `business_type==='restaurant'`). API namespace `api.restaurantReservations.{list,create,update,confirm,cancel,markNoShow,seat,stampWhatsapp}` in `packages/data/web.js` + electron passthrough stubs in `packages/data/electron.js`. WhatsApp deep link via `wa.me/${normalizeWaPhone(telefono)}` with template `"Hola ${nombre}, confirmamos su reserva en ${biz_name} para ${fecha} a las ${hora} para ${guests} personas."`. Activity events emitted on every transition: `reservation_created`, `reservation_confirmed`, `reservation_cancelled`, `reservation_no_show`, `reservation_seated` — all in `EVENT_META`. "Sentar" flips assigned mesa to `'ocupada'` and stamps `seated_at`. Plan key `restaurant_reservations` (Pro PLUS+).
+- **H5** — Resumen del Salón (this sprint). Manager-only dashboard at `/salon-dashboard` (RESTRICTED, owner/cfo/accountant/manager). `packages/ui/screens/restaurant/SalonDashboard.jsx`. 4 tiles: (1) Mesas activas with progress bar, (2) Tiempo prom mesa hoy (live ocupadas avg + closed-today avg blended), (3) Cuenta más alta (live `active_ticket_total`), (4) Ventas turno (sum `tickets.total` mode='mesa' + status='cobrado' since `cuadre_caja.opened_at`). Lists: "Mesas que tardan" (`seated_at` > 90 min, sorted desc, with mesero name), "Top platos hoy" (agg `ticket_items` by service, top 10), "Por mesero hoy" (agg by `waiter_empleado_supabase_id` — # mesas, ventas, propinas). Polls every 30s. Pure read-only — no mutations. Sidebar entry "Resumen Salón" + plan key `restaurant_salon_dashboard` (Pro PLUS+).
+- **H7** — ManagerAuthGate on void of fired-to-kitchen items: `RestaurantPOS.removeItem` and `incQty(localId, -1 → 0)` route through gate when `it.kds_fired_at` is set. Trash icon now rendered on fired lines (was hidden) so the gate can trigger. `onManagerApprove` writes `activity_log` with event_type `restaurant_void_fired_item`, severity `warn`, target_type `ticket_item`, full metadata (mesa_name, mesa_supabase_id, item_name, qty, modifiers, ticket_supabase_id, ticket_item_supabase_id, manager_empleado_id, manager_name, manager_method, reason). Added to `EVENT_META` in `RemoteDashboard.jsx` (icon `XCircle`, amber).
+
+### v2.16.3 feature flags & tables quick-ref
+| Setting key | Default | Where |
+|---|---|---|
+| `restaurant_print_precuenta_enabled` | `'1'` | Sistema.jsx → Preferencias → Restaurante |
+| `restaurant_servicio_pct` | `'10'` | Sistema.jsx → Preferencias → Restaurante |
+| `restaurant_servicio_auto_apply` | `'1'` | Sistema.jsx → Preferencias → Restaurante |
+| `kds_warn_seconds` | `'300'` | Sistema.jsx → Preferencias → Restaurante (M3) |
+| `kds_stale_seconds` | `'600'` | Sistema.jsx → Preferencias → Restaurante (M3, replaces legacy `kds_stale_order_seconds` which is still read for back-compat) |
+| `tickets.servicio_amount` | 0 | per-ticket persistence |
+| `tickets.servicio_pct` | 0 | per-ticket persistence |
+| Table `tip_distributions` | new | 1 row/ticket (v2.16.3); multi-empleado in v2.17 |
+| Activity event `restaurant_void_fired_item` | new | manager-gated kitchen voids |
+
+### Restaurante polish sprint (2026-04-26 — sibling C track)
+- **C4** — KDS route role-gated in `App.jsx`. Allowed roles: owner, manager, cfo, accountant, cashier, kitchen. Wrong role → in-place 403 "Acceso denegado" page with link back to `/pos`. Auth gate (`if (!user) <Login />`) was already present. TODO add `kitchen` to `empleados.role` enum; for now manager+owner are the practical KDS users.
+- **H6** — Comisiones por mesero. `RestaurantPOS.handleTicketPaid` + `handleSplitPay` now alias `waiter_empleado_id` → `seller_supabase_id` / `seller_empleado_supabase_id` so the existing `seller_commissions` insert path (desktop `database.js` ticketCreate + web `web.js` ticket create) credits the waiter using their `comision_pct`. No schema change required. `WorkerReport.jsx` already relabels the primary tab to "Meseros" for restaurant/hybrid via `WORKER_LABELS` and queries `seller_commissions` for the Vendedores tab — both views now populate.
+- **H8** — KDS realtime reconnect banner. `KDS.jsx` infers connection health from refresh cadence (>15s without a successful ingest = unhealthy). Shows amber "⚠ Reconectando... (intento N)" while degraded, green "✓ Conectado" flash for 2s on recovery. No new realtime API surface.
+- **H9** — `services.topSellers({days, limit})` was already implemented end-to-end in v2.16.3 (Postgres RPC `services_top_sellers`, desktop `database.js#servicesTopSellers`, IPC `services:top-sellers`, both data adapters). Verified live; no changes needed.
+- **M1** — ITBIS desglose in CartSidebar: 3-line footer (Subtotal sin ITBIS / ITBIS 18% / Total). Items with `service.aplica_itbis === 0` are excluded from the tax line.
+- **M2** — `MesaCard` wrapped in `React.memo` with custom equality (mesa.id/status/bill_requested_at/guests/seated_at + active + total + 3-min elapsed bucket). Cuts re-renders ~12x during the 15s POS tick.
+- **M3** — KDS thresholds editable via Sistema → Preferencias → Restaurante (`kds_warn_seconds`, `kds_stale_seconds`). KDS reads new keys with fallback to legacy `kds_stale_order_seconds`.
+- **M4** — `playBell` exponential ramp endpoints bumped from `0.0001` to `0.001` to stay strictly positive across browsers. Imperceptible audibly.
+- **M5** — KDS audio-gesture banner. Yellow top banner "Toca para activar sonido..." until first click/keydown calls `audioCtx.resume()`. Persisted in `localStorage.kds_audio_unlocked` so subsequent sessions skip the banner.
+- **M6** — Fired+qty=0 line renders ANULADO (red border, strike-through name, crimson badge). Coordinated with H7 ManagerAuthGate via `it.void_authorized_at` field (sibling-B persists).
+- **M7** — `fireToKDS` station resolution falls back to `service_supabase_id` when integer `service_id` doesn't match — synced cloud items now route to `bar` correctly.
+- **M10** — `payment_parts` sum validated to within 1¢ of the expected total in both `RestaurantPOS.handleSplitPay` and `SplitBillModal.handlePay`. Mismatch surfaces a Spanish toast and aborts.
+- **M11** — `truthy()` helper at file scope (accepts `1/'1'/true/'true'/'yes'/'si'/'sí'`); applied to `restaurant_happy_hour_enabled`. Other restaurant booleans use the sibling agent's local `truthy` already.
+- **M8 / M9 / M12** — DEFERRED to a follow-up sprint. Each requires multi-table migrations (service_recipe_items, services.in_stock) + IPC + sync.js entries + UI in MenuBuilder + course-pacing timer persistence; partial implementations would risk silent data drift. Tracked in this section so the next agent can pick them up cleanly.
+
 ## Current Release — v2.16.2 (2026-04-25 — Concesionario hardening sprint 2E: matriculas + INTRANT stub, reservations w/ deposit, warranties + claims, bank pre-approvals, UAF Ley 155-17 modal, RNC guard for E31, dynamic ITBIS, lead scoring + hot-lead filter, conversion funnel report, inventory aging report, WhatsApp triggers, QuotePdfModal pre-sale PDF, AppraisalChecklist with photo upload, full plan-gating sweep across 12 dealership feature keys, EVENT_META completed for 4 new events, training manual section 34.)
 - **v2.16.1** — Barbería/Salón hardening: appointments + stylist_schedules promoted to Pro PLUS, salon_* feature gates added, salon modules expanded with memberships/retail_upsell/public_booking/walk_in/dashboard.
 - **v2.13.2** — Apertura cashier-only + input hardening
@@ -57,6 +95,7 @@ Owner overrides a feature per business via `app_settings.feature_<name>_enabled 
 | intrant_api / whatsapp_auto | — | — | ✓ | v2.16.2 — Pro MAX exclusives, stubs in v2.16.2 |
 | carniceria_resumen | ✓ | ✓ | ✓ | FIX-HIGH-6 — visible at every tier as upgrade hook (mirrors concesionario_resumen) |
 | carniceria_corte_catalog / carniceria_mayoreo / carniceria_freshness_alerts | — | ✓ | ✓ | FIX-HIGH-6 carnicería core (Pro PLUS+) |
+| restaurant_reservations / restaurant_salon_dashboard | — | ✓ | ✓ | v2.16.3 H4+H5 — Reservas + Resumen del Salón (Pro PLUS+) |
 Gating lives in `packages/ui/hooks/usePlan.jsx` — add new keys there.
 
 ## Concesionario Vertical
@@ -108,7 +147,7 @@ All `electron/database.js` functions synchronous. Key tables: businesses, users/
 - **e-CF**: E31/E32/E33/E34… mandatory after May 15 2026.
 - **CodigoSeguridad**: `SignatureValue[0:6]` (raw base64, NO SHA-256).
 - **QR URL**: `ecf.dgii.gov.do/{env}/ConsultaTimbre` (E32<250K → `fc.dgii.gov.do/{env}/ConsultaTimbreFC`). E43/E47 omit `RncComprador`.
-- Receiver endpoints LIVE at fe.terminalxpos.com (VPS Express) + Vercel backup in `web/api/fe/`.
+- Receiver endpoints LIVE at fe.terminalxpos.com (VPS Express) + Vercel backup in `web/api/fe.js` (consolidated v2.16.3 — single function routing semilla/validarcertificado/recepcion/aprobacion via `?action=<name>`; old `/fe/...` public URLs preserved via vercel.json rewrites).
 - **Production switch**: change `dgii_environment` from `certecf` to `ecf` + install .p12.
 - **Seed auth**: `dgii-ecf` lib's `Signature` class (namespace-sorted digest). POST `multipart/form-data`. e-CF submission stays raw `application/xml`.
 - **IndicadorEnvioDiferido**: set to `1` on offline-queued e-CFs resubmitted by `processDgiiQueue()` (72h deferred rule).
@@ -158,10 +197,9 @@ cd "A:\Studio X HUB\Terminal X"
 npm run build:web
 echo '{"private":true,"type":"module","dependencies":{"@supabase/supabase-js":"^2.49.4","xml-crypto":"^2.1.5","@xmldom/xmldom":"^0.8.6","jsonwebtoken":"^9.0.2","dgii-ecf":"^1.6.8","node-forge":"^1.3.3","busboy":"^1.6.0","bcryptjs":"^2.4.3"}}' > dist-web/package.json
 cp web/vercel.json dist-web/
-mkdir -p dist-web/api/signup dist-web/api/fe dist-web/api/digest dist-web/lib dist-web/.vercel
-cp web/api/panel.js web/api/validate.js web/api/rnc.js web/api/ecf-sign.js web/api/dgii-cert-upload.js web/api/staff-verify-auth.js dist-web/api/
+mkdir -p dist-web/api/signup dist-web/api/digest dist-web/lib dist-web/.vercel
+cp web/api/panel.js web/api/validate.js web/api/rnc.js web/api/ecf-sign.js web/api/dgii-cert-upload.js web/api/staff-verify-auth.js web/api/fe.js dist-web/api/
 cp web/api/signup/provision.js dist-web/api/signup/
-cp web/api/fe/semilla.js web/api/fe/validarcertificado.js web/api/fe/recepcion.js web/api/fe/aprobacion.js dist-web/api/fe/
 cp web/api/digest/daily.js dist-web/api/digest/
 cp web/lib/xml-builder.js web/lib/xml-signer.js web/lib/dgii-client.js web/lib/rate-limit.js dist-web/lib/
 cp web/middleware.js dist-web/middleware.js
@@ -187,8 +225,11 @@ Hosts DGII e-CF Receiver (fe.terminalxpos.com, Express:3100) and Content X. Clau
 7. Supabase uses UUIDs — never `parseInt()` on Supabase IDs
 8. Web user ID may be `'web'` — guard `(user?.id && user.id !== 'web') ? user.id : null`
 9. All Vercel API routes use ESM (`export default`)
-10. Vercel Hobby = 12 serverless function cap — admin consolidated in `panel.js?action=`
+10. Vercel Hobby = 12 serverless function cap — admin consolidated in `panel.js?action=`, fe receivers consolidated in `fe.js?action=` (v2.16.3 — 9/12 used)
 11. Deploy commands / SQL / code blocks as single long lines for copy-paste
+
+## RLS Audit
+Run `node scripts/rls-policy-audit.mjs` before EVERY release. The script connects to Supabase via `SUPABASE_ACCESS_TOKEN` (Management API) or `SUPABASE_SERVICE_ROLE_KEY` (RPC fallback) from `.env`, scans every `public` table where `pg_class.relrowsecurity = true`, and fails (exit 1) if any of them have ZERO policies in `pg_policies` — those tables 42501-reject every read/write from anon and authenticated roles. Add policies (or disable RLS) before shipping.
 
 ## Data Architecture — supabase_id (MANDATORY)
 Every synced table uses the **supabase_id** pattern:

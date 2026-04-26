@@ -94,10 +94,30 @@ export async function enqueueECF(payload) {
   })
 }
 
+// v2.16.3 — exponential backoff config for the e-CF queue.
+//   - Max 8 attempts (was 5). After the 8th failure the row is marked
+//     status='dead' (NOT deleted — kept for forensics) and an audit row is
+//     emitted via the activity-log queue (which itself has an IDB fallback,
+//     so dead-letter audits survive offline).
+//   - Backoff: 30s, 60s, 2m, 4m, 8m, 16m, 30m, 30m (capped). Drains skip rows
+//     whose nextAttemptAt is still in the future.
+const ECF_MAX_ATTEMPTS  = 8
+const ECF_BACKOFF_BASE  = 30_000          // 30s
+const ECF_BACKOFF_CAP   = 30 * 60_000     // 30m
+
+function _ecfBackoffMs(attempts) {
+  return Math.min(ECF_BACKOFF_CAP, ECF_BACKOFF_BASE * Math.pow(2, Math.max(0, attempts - 1)))
+}
+
 export async function getPendingECFs() {
   const db = await getDB()
   const all = await db.getAll('pending_ecf')
-  return all.filter(e => e.status === 'pending' && e.attempts < 5)
+  const t = Date.now()
+  return all.filter(e =>
+    e.status === 'pending'
+    && (e.attempts || 0) < ECF_MAX_ATTEMPTS
+    && (Number(e.nextAttemptAt) || 0) <= t
+  )
 }
 
 export async function markECFSent(id) {
@@ -105,13 +125,51 @@ export async function markECFSent(id) {
   return db.delete('pending_ecf', id)
 }
 
+// v2.16.3 — emit a "dead-letter" audit row when a queued e-CF exhausts its
+// retries. Lazy-loaded to avoid pulling the supabase client into the offline
+// bundle path (the activity-log queue itself has its own IDB fallback so
+// this still works while offline).
+async function _emitEcfDeadAudit(item) {
+  try {
+    const mod = await import('./activity-log-queue.js').catch(() => null)
+    if (!mod || typeof mod.enqueueActivity !== 'function') return
+    await mod.enqueueActivity({
+      event_type: 'ecf_queue_dead',
+      severity:   'critical',
+      target_type: 'ecf',
+      target_id:   String(item?.id ?? ''),
+      reason:      'e-CF queue exhausted retries (8 attempts)',
+      metadata: {
+        attempts:   item?.attempts ?? null,
+        last_error: item?.lastError ?? null,
+        created_at: item?.createdAt ?? null,
+        died_at:    now(),
+        // Keep just the head of the payload so the audit row stays small but
+        // forensically useful (eNCF, RNC, total are all in here).
+        payload_preview: item?.payload ? JSON.stringify(item.payload).slice(0, 1024) : null,
+      },
+    })
+  } catch (e) {
+    console.error('[offline-queue] dead-letter audit emit failed:', e?.message || e)
+  }
+}
+
 export async function markECFFailed(id, error) {
   const db = await getDB()
   const item = await db.get('pending_ecf', id)
   if (!item) return
-  item.attempts += 1
+  item.attempts = (item.attempts || 0) + 1
   item.lastError = typeof error === 'string' ? error : (error?.message || String(error))
-  if (item.attempts >= 5) item.status = 'failed'
+  item.last_attempt_at = now()
+  // Schedule next attempt with exponential backoff (drains skip until then).
+  item.nextAttemptAt = Date.now() + _ecfBackoffMs(item.attempts)
+  if (item.attempts >= ECF_MAX_ATTEMPTS) {
+    // Dead-letter — keep the row for forensics, but stop draining and emit
+    // an activity_log critical so owners see it on the dashboard.
+    item.status = 'dead'
+    item.diedAt = now()
+    await _emitEcfDeadAudit(item)
+  }
   return db.put('pending_ecf', item)
 }
 
@@ -303,7 +361,7 @@ export async function sendOrQueueWhatsappReminder(payload, opts = {}) {
 export async function getQueueCounts() {
   const db = await getDB()
   const tickets  = (await db.getAll('pending_tickets')).filter(t => t.status === 'pending').length
-  const ecf      = (await db.getAll('pending_ecf')).filter(e => e.status === 'pending' && e.attempts < 5).length
+  const ecf      = (await db.getAll('pending_ecf')).filter(e => e.status === 'pending' && (e.attempts || 0) < ECF_MAX_ATTEMPTS).length
   let whatsapp = 0
   let whatsapp_failed = 0
   try {

@@ -1132,6 +1132,15 @@ export function FiscalNCF() {
   const [certPass,    setCertPass]    = useState('')
   const [certInstalling, setCertInstalling] = useState(false)
   const [certMsg,     setCertMsg]     = useState(null)
+  const [certLegacyPass, setCertLegacyPass] = useState(false)  // v2.16.3 base64-passphrase migration banner
+
+  useEffect(() => {
+    const dgii = window.electronAPI?.dgii_ecf
+    if (!dgii?.certInfo) return
+    dgii.certInfo()
+      .then(res => { if (res?.ok && res.data?.legacyPassphrase) setCertLegacyPass(true) })
+      .catch(() => {})
+  }, [certMsg])  // re-check after every install attempt
 
   const load = useCallback(async () => {
     try {
@@ -1389,6 +1398,14 @@ export function FiscalNCF() {
             <p className="text-[11px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider mb-3">
               {L('Instalar / Reinstalar Certificado .p12', 'Install / Reinstall Certificate .p12')}
             </p>
+            {certLegacyPass && (
+              <div className="mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-[12px] text-amber-700 dark:text-amber-300">
+                {L(
+                  'Re-ingresa la contraseña del certificado para migrar a almacenamiento cifrado del sistema.',
+                  'Re-enter the certificate password to migrate to system-encrypted storage.'
+                )}
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <input type="password" value={certPass} onChange={e => setCertPass(e.target.value)}
                 placeholder={L('Contraseña del .p12', '.p12 password')}

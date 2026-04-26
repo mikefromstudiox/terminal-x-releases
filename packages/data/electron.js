@@ -71,7 +71,35 @@ export function createElectronAPI() {
   const ticketsAugmented = raw.tickets ? {
     ...raw.tickets,
     voidNoShowFee: (args) => voidNoShowFeeOrchestrator(args || {}, augmentedRef),
+    // v2.16.3 — Restaurante H3 Mover/Juntar. Routed through new IPC channels;
+    // the renderer-facing names mirror the web.js contract so RestaurantPOS
+    // can call api.tickets.transferToMesa / merge regardless of platform.
+    getActiveByMesa: (mesaId) => raw.tickets.getActiveByMesa
+      ? raw.tickets.getActiveByMesa(mesaId)
+      : Promise.resolve(null),
+    transferToMesa:  (ticketSupabaseId, newMesaId) => raw.tickets.transferToMesa
+      ? raw.tickets.transferToMesa(ticketSupabaseId, newMesaId)
+      : Promise.reject(new Error('Mover mesa requiere actualización (IPC no expuesto)')),
+    merge: (targetTicketSupabaseId, sourceTicketSupabaseId) => raw.tickets.merge
+      ? raw.tickets.merge(targetTicketSupabaseId, sourceTicketSupabaseId)
+      : Promise.reject(new Error('Juntar mesas requiere actualización (IPC no expuesto)')),
   } : raw.tickets
+
+  // v2.16.3 — Restaurante H4 Reservas. Desktop ships an IPC namespace under
+  // raw.restaurantReservations once the matching ipcMain handlers land. Until
+  // then we expose the stub surface so the screen mounts without crashing on
+  // older desktop builds — list returns []; mutations reject with a helpful
+  // upgrade message that the UI translates to a Spanish toast.
+  const restReservationsAugmented = raw.restaurantReservations || {
+    list:         async () => [],
+    create:       async () => { throw new Error('Reservas requiere actualización del Terminal X') },
+    update:       async () => { throw new Error('Reservas requiere actualización del Terminal X') },
+    confirm:      async () => { throw new Error('Reservas requiere actualización del Terminal X') },
+    cancel:       async () => { throw new Error('Reservas requiere actualización del Terminal X') },
+    markNoShow:   async () => { throw new Error('Reservas requiere actualización del Terminal X') },
+    seat:         async () => { throw new Error('Reservas requiere actualización del Terminal X') },
+    stampWhatsapp: async () => { throw new Error('Reservas requiere actualización del Terminal X') },
+  }
   return (augmentedRef = {
     ...raw,
     activity: activityAugmented,
@@ -81,6 +109,7 @@ export function createElectronAPI() {
     clientMemberships:     clientMembershipsFlat,
     appointmentReminders:  appointmentRemindersFlat,
     tickets:  ticketsAugmented,
+    restaurantReservations: restReservationsAugmented,
     clients: raw.clients ? { ...raw.clients, ...loyalty } : raw.clients,
     mesas: {
       list:        ()                   => raw.mesas.list(),

@@ -61,6 +61,9 @@ const Mesas               = lazy(() => import('./screens/restaurant/Mesas'))
 const MenuBuilder         = lazy(() => import('./screens/restaurant/MenuBuilder'))
 const HybridCatalogo      = lazy(() => import('./screens/hybrid/Catalogo'))
 const KDS                 = lazy(() => import('./screens/restaurant/KDS'))
+// v2.16.3 — Restaurante H4 (Reservas) + H5 (Resumen del Salón)
+const RestaurantReservations = lazy(() => import('./screens/restaurant/Reservations'))
+const SalonDashboard         = lazy(() => import('./screens/restaurant/SalonDashboard'))
 const WorkOrders          = lazy(() => import('./screens/mechanic/WorkOrders'))
 const Vehicles            = lazy(() => import('./screens/mechanic/Vehicles'))
 const ServiceBays         = lazy(() => import('./screens/mechanic/ServiceBays'))
@@ -104,7 +107,7 @@ const CarniceriaMayoreoOrders   = lazy(() => import('./screens/carniceria/Mayore
 const CarniceriaResumen         = lazy(() => import('./screens/carniceria/Resumen'))
 
 // Routes accessible only to non-cashier roles
-const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/sistema','/inventory','/conteo-fisico','/config']
+const RESTRICTED = ['/credits','/reports','/cash-recon','/dgii','/petty-cash','/credit-notes','/admin','/remote','/sistema','/inventory','/conteo-fisico','/config','/salon-dashboard']
 
 function ProtectedRoute({ element }) {
   const { user } = useAuth()
@@ -217,7 +220,31 @@ export default function App() {
 
   // Fullscreen KDS — render without Layout chrome (sidebar/header). Mirrors
   // how <Login /> is returned outside Layout above. Plan-gated identically.
+  // C4 (audit) — role-gate KDS. The auth `if (!user) return <Login />` above
+  // already covers unauthenticated users; here we deny roles that have no
+  // business in the kitchen view. NOTE: 'kitchen' role is not yet in the
+  // empleados.role enum — TODO add it; for now manager|owner|cfo|accountant|
+  // cashier may open KDS (cashier is included so a single-station bar can
+  // also see the queue from a POS).
   if (window.location.pathname === '/kds') {
+    const KDS_ROLES = ['owner', 'manager', 'cfo', 'accountant', 'cashier', 'kitchen']
+    if (!KDS_ROLES.includes(user?.role)) {
+      return (
+        <div className="fixed inset-0 flex items-center justify-center bg-black text-white p-8">
+          <div className="max-w-md text-center">
+            <div className="text-6xl font-black tracking-tight text-[#b3001e] mb-3">403</div>
+            <div className="text-2xl font-extrabold mb-2">Acceso denegado</div>
+            <p className="text-sm text-white/60 mb-6">
+              Tu rol actual no tiene permiso para abrir el Kitchen Display System.
+              Contacta al gerente o dueño.
+            </p>
+            <a href="/pos" className="inline-block px-5 py-2.5 rounded-xl bg-[#b3001e] hover:bg-[#8a0017] text-white text-sm font-bold">
+              Volver al POS
+            </a>
+          </div>
+        </div>
+      )
+    }
     return (
       <Suspense fallback={
         <div className="fixed inset-0 flex items-center justify-center bg-black">
@@ -255,6 +282,9 @@ export default function App() {
         <Route path="/inventory"             element={<ProtectedRoute element={<PlanGate feature="inventory"><Inventory /></PlanGate>} />} />
         <Route path="/conteo-fisico"         element={<ProtectedRoute element={<PlanGate feature="inventory"><InventoryCount /></PlanGate>} />} />
         <Route path="/mesas"                 element={<PlanGate feature="restaurant_mode"><Mesas /></PlanGate>} />
+        {/* v2.16.3 — Restaurante H4 + H5 */}
+        <Route path="/reservas"              element={<PlanGate feature="restaurant_reservations"><RestaurantReservations /></PlanGate>} />
+        <Route path="/salon-dashboard"       element={<ProtectedRoute element={<PlanGate feature="restaurant_salon_dashboard"><SalonDashboard /></PlanGate>} />} />
         <Route path="/menu-builder"          element={<ProtectedRoute element={<PlanGate feature="restaurant_mode"><MenuBuilder /></PlanGate>} />} />
         <Route path="/catalogo"              element={<ProtectedRoute element={<HybridCatalogo />} />} />
         <Route path="/cash-recon"            element={<ProtectedRoute element={<PlanGate feature="cash_recon"><CashReconciliation /></PlanGate>} />} />

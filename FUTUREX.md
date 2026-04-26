@@ -313,3 +313,9 @@ References:
 - **Settings cleanup** — Sucursales + auto-backup dead toggles removed, empleados tipo CHECK dropped
 - **Reports Net Profit** — already done (DailyReport.jsx:628)
 - **Edge Function sources** — already done (deployment verification still pending)
+
+---
+
+## Tech debt
+
+- **Vite v5.4.21 unpatched CVE GHSA-4w7w-66w2-5vf9** (path traversal in `.map` handling). Upgrade to v8 deferred — breaking change (no patched 5.x or 6.x exists; advisory range is `<=6.4.1`, fix only in v8.0.0+). Risk: **dev-server only, not production** — bundled output is unaffected. Mitigation: never expose Vite dev server (`npm run dev` / `dev:web`) to a network interface; bind to localhost only; `.map` files are served only locally during development. Action: schedule v8 migration sprint (review breaking changes in plugin API + SSR + CSS handling). Audited 2026-04-25 alongside postcss 8.5.8 → 8.5.10 patch.
