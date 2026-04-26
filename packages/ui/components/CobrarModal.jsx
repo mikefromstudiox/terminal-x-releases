@@ -485,6 +485,15 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
   const [salonEmpleados, setSalonEmpleados] = useState([]) // [{id, supabase_id, nombre, comision_pct}]
   const [salonUpsellItems, setSalonUpsellItems] = useState([]) // up to 6 inventory_items
   const [salonClientMemberships, setSalonClientMemberships] = useState([]) // active client_memberships
+  // v2.16.13 — selectedClient state was declared on line 859 but salon
+  // useEffects on ~541/559 referenced selectedClient?.supabase_id in their
+  // dep arrays. Hooks are evaluated top-down at render time, so accessing
+  // selectedClient before its declaration line is a TDZ violation:
+  // "Cannot access 'selectedClient' before initialization" (minified to
+  // "Ht" in the production bundle). Worked accidentally before React 19 /
+  // Vite 5 minifier rev. Hoisted up here to before any useEffect that
+  // depends on it. Original line 859 declaration is removed below.
+  const [selectedClient, setSelectedClient] = useState(ticket?.client || null)
   // Per-line cart annotations: keyed by ticket.services index.
   // { stylistEmpId, redeemed, commissionPct, isService }
   const [lineMeta, setLineMeta] = useState(() => (ticket?.services || []).map(svc => ({
@@ -856,7 +865,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
   // ── Client search ───────────────────────────────────────────────────────────
   const [allClients,    setAllClients]    = useState([])
   const [clientQuery,   setClientQuery]   = useState('')
-  const [selectedClient, setSelectedClient] = useState(ticket?.client || null)
+  // selectedClient hoisted to ~line 488 (above salon useEffects) — see
+  // v2.16.13 note. DO NOT redeclare it here.
   const [showClientDrop, setShowClientDrop] = useState(false)
   const clientRef = useRef(null)
   const confirmedRef = useRef(false)

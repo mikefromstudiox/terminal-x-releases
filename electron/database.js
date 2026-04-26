@@ -4207,11 +4207,12 @@ function _empLavadorRow(e) {
 }
 function washersGetAll() {
   if (!db) return []
-  return db.prepare(`SELECT * FROM empleados WHERE active=1 AND tipo IN ('lavador','hybrid') ORDER BY nombre`).all().map(_empLavadorRow)
+  // v2.16.13 — exclude owners (admin hybrids) from operational lavador list.
+  return db.prepare(`SELECT * FROM empleados WHERE active=1 AND tipo IN ('lavador','hybrid') AND COALESCE(role,'none')!='owner' ORDER BY nombre`).all().map(_empLavadorRow)
 }
 function washersGetAllAdmin() {
   if (!db) return []
-  return db.prepare(`SELECT * FROM empleados WHERE tipo IN ('lavador','hybrid') ORDER BY nombre`).all().map(_empLavadorRow)
+  return db.prepare(`SELECT * FROM empleados WHERE tipo IN ('lavador','hybrid') AND COALESCE(role,'none')!='owner' ORDER BY nombre`).all().map(_empLavadorRow)
 }
 function washerCreate(data) {
   if (!db) return null
@@ -4920,11 +4921,12 @@ function _empVendedorRow(e) {
 }
 function sellersGetAll() {
   if (!db) return []
-  return db.prepare(`SELECT * FROM empleados WHERE active=1 AND tipo IN ('vendedor','hybrid') ORDER BY nombre`).all().map(_empVendedorRow)
+  // v2.16.13 — exclude owners (admin hybrids) from operational vendedor list.
+  return db.prepare(`SELECT * FROM empleados WHERE active=1 AND tipo IN ('vendedor','hybrid') AND COALESCE(role,'none')!='owner' ORDER BY nombre`).all().map(_empVendedorRow)
 }
 function sellersGetAllAdmin() {
   if (!db) return []
-  return db.prepare(`SELECT * FROM empleados WHERE tipo IN ('vendedor','hybrid') ORDER BY nombre`).all().map(_empVendedorRow)
+  return db.prepare(`SELECT * FROM empleados WHERE tipo IN ('vendedor','hybrid') AND COALESCE(role,'none')!='owner' ORDER BY nombre`).all().map(_empVendedorRow)
 }
 function sellerCreate(data) {
   if (!db) return null

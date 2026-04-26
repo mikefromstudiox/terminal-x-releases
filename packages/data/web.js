@@ -795,7 +795,7 @@ export function createWebAPI(supabase, businessId) {
       }),
 
       getLavadores: () => tryOr(async () => {
-        const rows = throwSupaError(await supabase.from('empleados').select('id, supabase_id, nombre, comision_pct, active, cedula, phone, start_date').eq('business_id', bid).in('tipo', ['lavador', 'hybrid']).eq('active', true).order('nombre'))
+        const rows = throwSupaError(await supabase.from('empleados').select('id, supabase_id, nombre, comision_pct, active, cedula, phone, start_date').eq('business_id', bid).in('tipo', ['lavador', 'hybrid']).eq('active', true).neq('role', 'owner').order('nombre'))
         return (rows || []).map(r => ({ ...r, name: r.nombre, commission_pct: r.comision_pct }))
       }, []),
 
@@ -822,7 +822,7 @@ export function createWebAPI(supabase, businessId) {
       }),
 
       getVendedores: () => tryOr(async () => {
-        const rows = throwSupaError(await supabase.from('empleados').select('id, supabase_id, nombre, comision_pct, active, cedula, phone, start_date').eq('business_id', bid).in('tipo', ['vendedor', 'hybrid']).eq('active', true).order('nombre'))
+        const rows = throwSupaError(await supabase.from('empleados').select('id, supabase_id, nombre, comision_pct, active, cedula, phone, start_date').eq('business_id', bid).in('tipo', ['vendedor', 'hybrid']).eq('active', true).neq('role', 'owner').order('nombre'))
         return (rows || []).map(r => ({ ...r, name: r.nombre, commission_pct: r.comision_pct }))
       }, []),
 
@@ -1859,7 +1859,7 @@ export function createWebAPI(supabase, businessId) {
 
     washers: {
       all: () => tryOr(async () => {
-        const rows = throwSupaError(await supabase.from('empleados').select('id, supabase_id, nombre, comision_pct, phone, cedula, start_date, active').eq('business_id', bid).in('tipo', ['lavador', 'hybrid']).eq('active', true).order('nombre'))
+        const rows = throwSupaError(await supabase.from('empleados').select('id, supabase_id, nombre, comision_pct, phone, cedula, start_date, active').eq('business_id', bid).in('tipo', ['lavador', 'hybrid']).eq('active', true).neq('role', 'owner').order('nombre'))
         return (rows || []).map(r => ({ ...r, name: r.nombre, commission_pct: r.comision_pct }))
       }, []),
 
@@ -1899,7 +1899,7 @@ export function createWebAPI(supabase, businessId) {
 
     sellers: {
       all: () => tryOr(async () => {
-        const rows = throwSupaError(await supabase.from('empleados').select('id, supabase_id, nombre, comision_pct, phone, active').eq('business_id', bid).in('tipo', ['vendedor', 'hybrid']).eq('active', true).order('nombre'))
+        const rows = throwSupaError(await supabase.from('empleados').select('id, supabase_id, nombre, comision_pct, phone, active').eq('business_id', bid).in('tipo', ['vendedor', 'hybrid']).eq('active', true).neq('role', 'owner').order('nombre'))
         return (rows || []).map(r => ({ ...r, name: r.nombre, commission_pct: r.comision_pct }))
       }, []),
 

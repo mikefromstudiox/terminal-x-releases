@@ -169,6 +169,10 @@ export default function NominaEmpleados() {
 
   // ── Filtering ──────────────────────────────────────────────────────────────
   const visible = useMemo(() => {
+    // Owners stay visible here — payroll runs (ISR / TSS / liquidación)
+    // legitimately apply to owner-type empleados too. The owner exclusion
+    // only applies to operational floor pickers (POS Vendido por / Lavador
+    // dropdowns + WorkerReport vendor tabs in Reportes).
     let list = empleados
     if (filterTipo !== 'all') list = list.filter(e => e.tipo === filterTipo)
     if (search.trim()) {
