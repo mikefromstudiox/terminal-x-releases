@@ -172,12 +172,20 @@ function DrawerTester({ printerApi, cfg, set, persistKey, show, L, showAdvanced 
   }
 
   async function confirmAutoOpened() {
-    if (autoHex) {
-      setSelected(autoIdx)
-      await persistKey('drawer_pulse_hex', autoHex)
+    // v2.16.15 — cancel the auto-detect LOOP before awaiting persistKey.
+    // Previously persistKey ran first; while it was awaiting (~1-3s for the
+    // write + cloud sync round-trip) the runDrawerAutoDetect timer kept
+    // firing the next variant every 1.6s, so the gaveta would keep popping
+    // even after the user clicked "¡Se abrió!". Snapshot the values, cancel
+    // the loop, THEN persist.
+    const hexToPersist = autoHex
+    const idxToSelect = autoIdx
+    stopAutoDetect()
+    if (hexToPersist) {
+      setSelected(idxToSelect)
+      await persistKey('drawer_pulse_hex', hexToPersist)
       show(L('Gaveta configurada ✓ Guardado', 'Drawer configured ✓ Saved'))
     }
-    stopAutoDetect()
   }
 
   function stopAutoDetect() {

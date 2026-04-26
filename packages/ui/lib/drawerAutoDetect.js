@@ -18,12 +18,18 @@ export function runDrawerAutoDetect({ printerApi, printer, onProgress, onExhaust
       if (state.cancelled) return
       try {
         const r = await printerApi?.fireDrawerVariant?.(i, printer || undefined)
+        // v2.16.15 — defense in depth. If cancel() was called WHILE the
+        // fire was in flight, drop the result on the floor instead of
+        // updating state + firing onProgress (which would re-arm the UI).
+        if (state.cancelled) return
         if (r?.total) total = r.total
         state.currentIdx = i
         state.currentHex = r?.hex || null
         onProgress?.({ idx: i, total, hex: r?.hex || null })
       } catch {}
+      if (state.cancelled) return
       await new Promise(res => { state.timer = setTimeout(res, 1600) })
+      if (state.cancelled) return
     }
     if (!state.cancelled) {
       state.currentIdx = null
