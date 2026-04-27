@@ -33,6 +33,9 @@ const BUSINESS_SETTING_KEYS = new Set([
   'loyalty_tier_silver', 'loyalty_tier_gold', 'loyalty_tier_platinum',
   // Tienda subtype template system — cloud-synced, business-wide.
   'tienda_subtype',
+  // Hybrid components (CSV) — owner-picked list of business types that
+  // make up a hybrid setup (e.g. "restaurant,retail" or "carwash,salon").
+  'hybrid_components',
   'feature_age_verification_enabled',
   'feature_pedidos_ya_enabled',
   'feature_bottle_deposit_enabled',

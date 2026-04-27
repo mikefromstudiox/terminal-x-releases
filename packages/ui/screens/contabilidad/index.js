@@ -1,0 +1,10 @@
+// Contabilidad — barrel exports.
+export { default as ContabilidadShell } from './ContabilidadShell.jsx'
+export { default as Bandeja } from './Bandeja.jsx'
+export { default as Cartera } from './Cartera.jsx'
+export { default as Calendario } from './Calendario.jsx'
+export { default as Comprobantes } from './Comprobantes.jsx'
+export { default as Vault } from './Vault.jsx'
+export { default as Honorarios } from './Honorarios.jsx'
+export { default as LibroMayor } from './LibroMayor.jsx'
+export { default as Banco } from './Banco.jsx'

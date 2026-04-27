@@ -76,6 +76,12 @@ const PLAN_FEATURES = {
     'whatsapp_receipts', 'whatsapp_automation', 'custom_receipt_design',
     'remote_dashboard', 'multi_location',
     'nomina_basic', 'nomina_advanced',
+    // Slice 4 — contabilidad Phase 2 keys exposed to existing Pro MAX tenants
+    // who want to opt into the firm-side suite without buying Pro CTB.
+    'contabilidad_nomina', 'contabilidad_activos', 'contabilidad_tareas',
+    'contabilidad_reportes_ejecutivos', 'contabilidad_libro_mayor', 'contabilidad_banco',
+    'contabilidad_inbox', 'contabilidad_cartera', 'contabilidad_calendario',
+    'contabilidad_comprobantes', 'contabilidad_vault', 'contabilidad_honorarios',
     'restaurant_mode', 'work_orders', 'appointments', 'service_bays',
     'loans', 'vehicles',
     // v2.16.3 — Restaurante hardening keys (inherited from Pro PLUS).
@@ -102,9 +108,35 @@ const PLAN_FEATURES = {
     'carniceria_resumen', 'carniceria_corte_catalog',
     'carniceria_mayoreo', 'carniceria_freshness_alerts',
   ],
+  // Pro CTB — firm-side accounting suite (Phase 1 ship). Bundles every
+  // contabilidad_* feature plus the existing dgii/ecf/clients/reports/invoicing
+  // primitives the contable already needs. Phase 2/3 keys (libro_mayor, banco,
+  // nomina, activos, tareas, cross_firm) are listed so the gate exists; the UI
+  // renders them as "Próximamente" until those modules ship.
+  pro_ctb: [
+    'invoicing', 'ecf', 'dgii', 'clients', 'reports',
+    'credit_notes', 'dgii_606_607',
+    // Phase 1 (live)
+    'contabilidad_inbox', 'contabilidad_cartera', 'contabilidad_calendario',
+    'contabilidad_comprobantes', 'contabilidad_vault', 'contabilidad_honorarios',
+    // Phase 2/3 (gated UI shows "Próximamente" until shipped)
+    'contabilidad_libro_mayor', 'contabilidad_banco', 'contabilidad_nomina',
+    'contabilidad_activos', 'contabilidad_tareas',
+    'contabilidad_reportes_ejecutivos', 'contabilidad_cross_firm',
+  ],
 }
 
-const PLAN_DISPLAY = { facturacion: 'Facturacion', pro: 'Pro', pro_plus: 'Pro PLUS', pro_max: 'Pro MAX' }
+const PLAN_DISPLAY = { facturacion: 'Facturacion', pro: 'Pro', pro_plus: 'Pro PLUS', pro_max: 'Pro MAX', pro_ctb: 'Pro CTB' }
+
+// Feature keys that are recognized by the gate but render as "Próximamente"
+// until their backing module ships. Consumers should branch on this set to
+// decide between active-feature UI and the upgrade/coming-soon placeholder.
+const COMING_SOON_FEATURES = new Set([
+  // Slice 4 ships nomina/activos/retenciones/tareas/reportes ejecutivos.
+  // Cross-firm wire is the only contabilidad gate still pending (Slice 5).
+  'contabilidad_cross_firm',
+])
+export function isComingSoonFeature(key) { return COMING_SOON_FEATURES.has(key) }
 
 const PlanContext = createContext(null)
 

@@ -8078,6 +8078,28 @@ export function createWebAPI(supabase, businessId) {
       }, null),
     },
   }
+
+  // ── Contabilidad (firm-side accounting suite, Phase 1) ────────────────────
+  // Mounted lazily so the import only runs in tenants where the file is used.
+  // The createContabilidadAPI factory captures `supabase` + `businessId` once
+  // and returns a flat method bag matching the future IPC surface.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('./contabilidad.js')
+    if (mod && typeof mod.createContabilidadAPI === 'function') {
+      api.contabilidad = mod.createContabilidadAPI(supabase, businessId)
+    }
+  } catch {
+    // ESM-only build path: dynamic import unavailable here. Fall back to the
+    // promise-shaped ESM import so the namespace becomes available a tick
+    // later — Bandeja/Cartera read it lazily on first call.
+    import('./contabilidad.js').then((mod) => {
+      if (mod && typeof mod.createContabilidadAPI === 'function') {
+        api.contabilidad = mod.createContabilidadAPI(supabase, businessId)
+      }
+    }).catch(() => {})
+  }
+
   return api
 }
 

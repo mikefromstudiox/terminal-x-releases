@@ -2208,6 +2208,496 @@ function init(userDataPath, options = {}) {
     updated_at               TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
 
+  // ── Phase 1B — Contabilidad firm-side suite (desktop parity) ───────────────
+  // Mirrors migrations/2026_05_01_contabilidad_phase1.sql column-for-column.
+  // SQLite type translation: UUID→TEXT, TIMESTAMPTZ→TEXT (ISO8601),
+  // JSONB→TEXT (JSON), BOOLEAN→INTEGER (0/1), DECIMAL/NUMERIC→REAL.
+  // FK across devices: schema deployed in Phase 1A uses BIGINT
+  // accounting_client_id (auto-increment per side). Cross-device firms with
+  // multiple desktops should treat this as single-device-of-truth until
+  // Phase 2 introduces accounting_client_supabase_id to the public schema.
+  // Idempotent — safe to run on every boot.
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_clients (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                 TEXT,
+    business_id                 TEXT,
+    client_business_supabase_id TEXT,
+    nombre_comercial            TEXT NOT NULL DEFAULT '',
+    rnc                         TEXT,
+    cedula                      TEXT,
+    tipo_persona                TEXT NOT NULL DEFAULT 'pj' CHECK (tipo_persona IN ('pf','pj','eirl')),
+    regimen                     TEXT NOT NULL DEFAULT 'ordinario',
+    fecha_cierre_mes            INTEGER,
+    fecha_cierre_dia            INTEGER,
+    honorarios_mensuales        REAL NOT NULL DEFAULT 0,
+    currency                    TEXT NOT NULL DEFAULT 'DOP',
+    assigned_to_user_id         INTEGER,
+    status                      TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','paused','archived')),
+    notes                       TEXT,
+    created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_clients_supabase_id ON accounting_clients(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_clients_status ON accounting_clients(status)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_inbox (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                 TEXT,
+    business_id                 TEXT,
+    accounting_client_id        INTEGER,
+    source                      TEXT NOT NULL DEFAULT 'dropzone' CHECK (source IN ('dropzone','email','whatsapp','api')),
+    original_filename           TEXT NOT NULL DEFAULT 'sin-nombre',
+    mime                        TEXT NOT NULL DEFAULT 'application/octet-stream',
+    size                        INTEGER NOT NULL DEFAULT 0,
+    r2_key                      TEXT,
+    ocr_status                  TEXT NOT NULL DEFAULT 'pending' CHECK (ocr_status IN ('pending','done','failed')),
+    ocr_text                    TEXT,
+    classified_type             TEXT NOT NULL DEFAULT 'otro' CHECK (classified_type IN ('ecf_xml','factura_pdf','retencion','banco_estado','tss','csv','contrato','otro')),
+    classification_confidence   REAL NOT NULL DEFAULT 0,
+    status                      TEXT NOT NULL DEFAULT 'unclassified' CHECK (status IN ('unclassified','classified','posted','archived')),
+    posted_journal_entry_id     INTEGER,
+    posted_at                   TEXT,
+    notes                       TEXT,
+    created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_inbox_supabase_id ON accounting_inbox(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_inbox_status ON accounting_inbox(status)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_inbox_client ON accounting_inbox(accounting_client_id)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_obligations_calendar (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                 TEXT,
+    business_id                 TEXT,
+    accounting_client_id        INTEGER NOT NULL,
+    form_type                   TEXT NOT NULL,
+    period_year                 INTEGER NOT NULL,
+    period_month                INTEGER NOT NULL DEFAULT 0,
+    due_date                    TEXT NOT NULL,
+    status                      TEXT NOT NULL DEFAULT 'pendiente' CHECK (status IN ('pendiente','en_revision','firmado','radicado','pagado','vencido')),
+    filed_at                    TEXT,
+    filed_by_user_id            INTEGER,
+    dgii_constancia_no          TEXT,
+    attachment_supabase_id      TEXT,
+    notes                       TEXT,
+    created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(business_id, accounting_client_id, form_type, period_year, period_month)
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_obl_supabase_id ON accounting_obligations_calendar(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_obl_due ON accounting_obligations_calendar(due_date)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_obl_client ON accounting_obligations_calendar(accounting_client_id)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_documents (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                 TEXT,
+    business_id                 TEXT,
+    accounting_client_id        INTEGER,
+    category                    TEXT NOT NULL DEFAULT 'otro',
+    period_year                 INTEGER,
+    period_month                INTEGER,
+    filename                    TEXT NOT NULL DEFAULT 'sin-nombre',
+    r2_key                      TEXT,
+    mime                        TEXT NOT NULL DEFAULT 'application/octet-stream',
+    size                        INTEGER NOT NULL DEFAULT 0,
+    uploaded_by_user_id         INTEGER,
+    expires_at                  TEXT,
+    tags                        TEXT,
+    notes                       TEXT,
+    created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_docs_supabase_id ON accounting_documents(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_docs_client ON accounting_documents(accounting_client_id)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_billing_plans (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                 TEXT,
+    business_id                 TEXT,
+    accounting_client_id        INTEGER,
+    monthly_amount              REAL NOT NULL DEFAULT 0,
+    currency                    TEXT NOT NULL DEFAULT 'DOP',
+    bill_day                    INTEGER NOT NULL DEFAULT 1,
+    ecf_type                    TEXT NOT NULL DEFAULT 'e32' CHECK (ecf_type IN ('e31','e32')),
+    late_fee_pct                REAL NOT NULL DEFAULT 0,
+    late_fee_after_days         INTEGER NOT NULL DEFAULT 0,
+    active                      INTEGER NOT NULL DEFAULT 1,
+    notes                       TEXT,
+    created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_bp_supabase_id ON accounting_billing_plans(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_bp_client ON accounting_billing_plans(accounting_client_id)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_billing_invoices (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                 TEXT,
+    business_id                 TEXT,
+    accounting_client_id        INTEGER,
+    ticket_supabase_id          TEXT,
+    period_year                 INTEGER NOT NULL,
+    period_month                INTEGER NOT NULL,
+    amount                      REAL NOT NULL DEFAULT 0,
+    currency                    TEXT NOT NULL DEFAULT 'DOP',
+    status                      TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','issued','paid','void')),
+    ecf_track_id                TEXT,
+    ecf_status                  TEXT,
+    paid_at                     TEXT,
+    created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_inv_supabase_id ON accounting_billing_invoices(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_inv_period ON accounting_billing_invoices(period_year DESC, period_month DESC)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_inv_client ON accounting_billing_invoices(accounting_client_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_inv_status ON accounting_billing_invoices(status)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_csv_mappings (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                 TEXT,
+    business_id                 TEXT,
+    accounting_client_id        INTEGER,
+    doc_type                    TEXT NOT NULL,
+    name                        TEXT NOT NULL,
+    mapping_json                TEXT NOT NULL,
+    created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_csv_supabase_id ON accounting_csv_mappings(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_csv_client ON accounting_csv_mappings(accounting_client_id)') } catch {}
+
+  // Phase 2 Slice 1 — accounting_client_supabase_id companion column on every
+  // Phase 1 child table that references accounting_clients(id). Lets cross-
+  // device firms resolve FKs via the UUID after a desktop rebuild and lets
+  // web/desktop dual-key joins land. Idempotent ALTER TABLE — duplicate column
+  // throws and is swallowed.
+  for (const t of [
+    'accounting_inbox',
+    'accounting_obligations_calendar',
+    'accounting_documents',
+    'accounting_billing_plans',
+    'accounting_billing_invoices',
+    'accounting_csv_mappings',
+  ]) {
+    try { db.exec(`ALTER TABLE ${t} ADD COLUMN accounting_client_supabase_id TEXT`) } catch {}
+    try { db.exec(`CREATE INDEX IF NOT EXISTS idx_${t}_acc_cli_sid ON ${t}(accounting_client_supabase_id)`) } catch {}
+  }
+
+  // ── Phase 2 Slice 1 — Contabilidad full firm-side schema ─────────────────
+  // 14 new tables: COA + journal + auto-post rules, bank reconciliation,
+  // fixed assets, retentions emitidas/recibidas, payroll periods/lines,
+  // TSS filings, tasks, foreign payments. Mirrors
+  // migrations/2026_05_02_contabilidad_phase2.sql column-for-column.
+  // Type translation: UUID→TEXT, NUMERIC→REAL, BOOLEAN→INTEGER, JSONB→TEXT.
+  // Idempotent — safe to re-run on every boot.
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_chart_of_accounts (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                     TEXT,
+    business_id                     TEXT,
+    accounting_client_id            INTEGER,
+    accounting_client_supabase_id   TEXT,
+    code                            TEXT NOT NULL,
+    parent_id                       INTEGER,
+    parent_supabase_id              TEXT,
+    name                            TEXT NOT NULL DEFAULT '',
+    type                            TEXT NOT NULL DEFAULT 'activo' CHECK (type IN ('activo','pasivo','patrimonio','ingreso','costo','gasto')),
+    is_postable                     INTEGER NOT NULL DEFAULT 1,
+    currency                        TEXT NOT NULL DEFAULT 'DOP',
+    notes                           TEXT,
+    created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_coa_supabase_id ON accounting_chart_of_accounts(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_coa_biz ON accounting_chart_of_accounts(business_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_coa_client ON accounting_chart_of_accounts(accounting_client_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_coa_parent ON accounting_chart_of_accounts(parent_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_coa_code ON accounting_chart_of_accounts(accounting_client_id, code)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_journal_entries (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                     TEXT,
+    business_id                     TEXT,
+    accounting_client_id            INTEGER,
+    accounting_client_supabase_id   TEXT,
+    fecha                           TEXT,
+    description                     TEXT,
+    type                            TEXT NOT NULL DEFAULT 'manual' CHECK (type IN ('manual','auto_sales','auto_purchase','auto_payroll','auto_depreciation','adjustment','closing')),
+    reference_doc_supabase_id       TEXT,
+    status                          TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','posted','reversed')),
+    posted_by_user_id               INTEGER,
+    period_year                     INTEGER,
+    period_month                    INTEGER,
+    totals_debit                    REAL NOT NULL DEFAULT 0,
+    totals_credit                   REAL NOT NULL DEFAULT 0,
+    created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_je_supabase_id ON accounting_journal_entries(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_je_biz ON accounting_journal_entries(business_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_je_client ON accounting_journal_entries(accounting_client_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_je_period ON accounting_journal_entries(accounting_client_id, period_year DESC, period_month DESC)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_je_fecha ON accounting_journal_entries(fecha)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_journal_lines (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                     TEXT,
+    business_id                     TEXT,
+    journal_entry_id                INTEGER,
+    journal_entry_supabase_id       TEXT,
+    account_id                      INTEGER,
+    account_supabase_id             TEXT,
+    debit                           REAL NOT NULL DEFAULT 0,
+    credit                          REAL NOT NULL DEFAULT 0,
+    currency                        TEXT NOT NULL DEFAULT 'DOP',
+    exchange_rate                   REAL NOT NULL DEFAULT 1,
+    memo                            TEXT,
+    created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_jl_supabase_id ON accounting_journal_lines(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_jl_biz ON accounting_journal_lines(business_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_jl_entry ON accounting_journal_lines(journal_entry_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_jl_account ON accounting_journal_lines(account_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_jl_entry_account ON accounting_journal_lines(journal_entry_id, account_id)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_coa_auto_post_rules (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                     TEXT,
+    business_id                     TEXT,
+    accounting_client_id            INTEGER,
+    accounting_client_supabase_id   TEXT,
+    event                           TEXT NOT NULL CHECK (event IN ('sale','purchase','payment','refund','payroll','depreciation')),
+    condition_json                  TEXT,
+    debit_account_id                INTEGER,
+    debit_account_supabase_id       TEXT,
+    credit_account_id               INTEGER,
+    credit_account_supabase_id      TEXT,
+    priority                        INTEGER NOT NULL DEFAULT 100,
+    active                          INTEGER NOT NULL DEFAULT 1,
+    created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_apr_supabase_id ON accounting_coa_auto_post_rules(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_apr_biz ON accounting_coa_auto_post_rules(business_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_apr_client ON accounting_coa_auto_post_rules(accounting_client_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_apr_event ON accounting_coa_auto_post_rules(accounting_client_id, event, priority)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_bank_accounts (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                     TEXT,
+    business_id                     TEXT,
+    accounting_client_id            INTEGER,
+    accounting_client_supabase_id   TEXT,
+    banco                           TEXT NOT NULL DEFAULT 'otro' CHECK (banco IN ('bhd_leon','banreservas','banco_popular','scotiabank','otro')),
+    account_no_last4                TEXT,
+    account_type                    TEXT NOT NULL DEFAULT 'checking' CHECK (account_type IN ('checking','savings')),
+    currency                        TEXT NOT NULL DEFAULT 'DOP',
+    opening_balance                 REAL NOT NULL DEFAULT 0,
+    active                          INTEGER NOT NULL DEFAULT 1,
+    created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_ba_supabase_id ON accounting_bank_accounts(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_ba_biz ON accounting_bank_accounts(business_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_ba_client ON accounting_bank_accounts(accounting_client_id)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_bank_statement_lines (
+    id                                INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                       TEXT,
+    business_id                       TEXT,
+    bank_account_id                   INTEGER,
+    bank_account_supabase_id          TEXT,
+    fecha                             TEXT,
+    descripcion                       TEXT,
+    referencia                        TEXT,
+    debit                             REAL NOT NULL DEFAULT 0,
+    credit                            REAL NOT NULL DEFAULT 0,
+    balance                           REAL,
+    matched_journal_line_id           INTEGER,
+    matched_journal_line_supabase_id  TEXT,
+    match_status                      TEXT NOT NULL DEFAULT 'unmatched' CHECK (match_status IN ('unmatched','matched','ignored','adjustment')),
+    raw_row                           TEXT,
+    created_at                        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                        TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_bsl_supabase_id ON accounting_bank_statement_lines(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_bsl_biz ON accounting_bank_statement_lines(business_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_bsl_account ON accounting_bank_statement_lines(bank_account_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_bsl_status ON accounting_bank_statement_lines(bank_account_id, match_status)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_fixed_assets (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                     TEXT,
+    business_id                     TEXT,
+    accounting_client_id            INTEGER,
+    accounting_client_supabase_id   TEXT,
+    name                            TEXT NOT NULL DEFAULT '',
+    categoria                       TEXT NOT NULL DEFAULT 'cat_2' CHECK (categoria IN ('cat_1','cat_2','cat_3')),
+    fecha_adquisicion               TEXT,
+    costo                           REAL NOT NULL DEFAULT 0,
+    vida_util_meses                 INTEGER NOT NULL DEFAULT 0,
+    valor_residual                  REAL NOT NULL DEFAULT 0,
+    depreciacion_acumulada          REAL NOT NULL DEFAULT 0,
+    status                          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','sold','written_off')),
+    sold_at                         TEXT,
+    sold_amount                     REAL,
+    notes                           TEXT,
+    created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_fa_supabase_id ON accounting_fixed_assets(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_fa_biz ON accounting_fixed_assets(business_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_fa_client ON accounting_fixed_assets(accounting_client_id)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_retentions_emitidas (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                     TEXT,
+    business_id                     TEXT,
+    accounting_client_id            INTEGER,
+    accounting_client_supabase_id   TEXT,
+    fecha                           TEXT,
+    beneficiario_rnc                TEXT,
+    beneficiario_nombre             TEXT,
+    tipo                            TEXT NOT NULL DEFAULT 'servicios_no_dom' CHECK (tipo IN ('alquiler','honorarios','dividendos','servicios_no_dom')),
+    base                            REAL NOT NULL DEFAULT 0,
+    tasa                            REAL NOT NULL DEFAULT 0,
+    retencion                       REAL NOT NULL DEFAULT 0,
+    ncf_emitido                     TEXT,
+    comprobante_url                 TEXT,
+    created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_re_supabase_id ON accounting_retentions_emitidas(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_re_biz ON accounting_retentions_emitidas(business_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_re_client ON accounting_retentions_emitidas(accounting_client_id)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_retentions_recibidas (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                     TEXT,
+    business_id                     TEXT,
+    accounting_client_id            INTEGER,
+    accounting_client_supabase_id   TEXT,
+    fecha                           TEXT,
+    retenedor_rnc                   TEXT,
+    retenedor_nombre                TEXT,
+    tipo                            TEXT,
+    base                            REAL NOT NULL DEFAULT 0,
+    tasa                            REAL NOT NULL DEFAULT 0,
+    retencion                       REAL NOT NULL DEFAULT 0,
+    comprobante_url                 TEXT,
+    created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_rr_supabase_id ON accounting_retentions_recibidas(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_rr_biz ON accounting_retentions_recibidas(business_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_rr_client ON accounting_retentions_recibidas(accounting_client_id)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_payroll_periods (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                     TEXT,
+    business_id                     TEXT,
+    accounting_client_id            INTEGER,
+    accounting_client_supabase_id   TEXT,
+    year                            INTEGER NOT NULL,
+    month                           INTEGER NOT NULL,
+    status                          TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','posted','paid')),
+    totals_json                     TEXT,
+    created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_pp_supabase_id ON accounting_payroll_periods(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_pp_biz ON accounting_payroll_periods(business_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_pp_client ON accounting_payroll_periods(accounting_client_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_pp_period ON accounting_payroll_periods(accounting_client_id, year DESC, month DESC)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_payroll_lines (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                     TEXT,
+    business_id                     TEXT,
+    payroll_period_id               INTEGER,
+    payroll_period_supabase_id      TEXT,
+    employee_name                   TEXT,
+    employee_cedula                 TEXT,
+    employee_nss                    TEXT,
+    salario_base                    REAL NOT NULL DEFAULT 0,
+    dependientes                    INTEGER NOT NULL DEFAULT 0,
+    afp                             REAL NOT NULL DEFAULT 0,
+    ars                             REAL NOT NULL DEFAULT 0,
+    sfs                             REAL NOT NULL DEFAULT 0,
+    riesgos_laborales               REAL NOT NULL DEFAULT 0,
+    isr                             REAL NOT NULL DEFAULT 0,
+    otras_deducciones               REAL NOT NULL DEFAULT 0,
+    neto                            REAL NOT NULL DEFAULT 0,
+    created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_pl_supabase_id ON accounting_payroll_lines(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_pl_biz ON accounting_payroll_lines(business_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_pl_period ON accounting_payroll_lines(payroll_period_id)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_tss_filings (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                     TEXT,
+    business_id                     TEXT,
+    accounting_client_id            INTEGER,
+    accounting_client_supabase_id   TEXT,
+    year                            INTEGER NOT NULL,
+    month                           INTEGER NOT NULL,
+    filename                        TEXT,
+    file_supabase_id                TEXT,
+    status                          TEXT NOT NULL DEFAULT 'pendiente' CHECK (status IN ('pendiente','radicado')),
+    created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_tss_supabase_id ON accounting_tss_filings(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_tss_biz ON accounting_tss_filings(business_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_tss_client ON accounting_tss_filings(accounting_client_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_tss_period ON accounting_tss_filings(accounting_client_id, year DESC, month DESC)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_tasks (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                     TEXT,
+    business_id                     TEXT,
+    accounting_client_id            INTEGER,
+    accounting_client_supabase_id   TEXT,
+    title                           TEXT NOT NULL DEFAULT '',
+    description                     TEXT,
+    assigned_to_user_id             INTEGER,
+    status                          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_progress','review','done')),
+    priority                        TEXT NOT NULL DEFAULT 'med' CHECK (priority IN ('low','med','high')),
+    due_date                        TEXT,
+    parent_obligation_supabase_id   TEXT,
+    created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_tk_supabase_id ON accounting_tasks(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_tk_biz ON accounting_tasks(business_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_tk_client ON accounting_tasks(accounting_client_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_tk_status ON accounting_tasks(accounting_client_id, status, due_date)') } catch {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS accounting_foreign_payments (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    supabase_id                     TEXT,
+    business_id                     TEXT,
+    accounting_client_id            INTEGER,
+    accounting_client_supabase_id   TEXT,
+    fecha                           TEXT,
+    beneficiario_id                 TEXT,
+    beneficiario_pais               TEXT,
+    beneficiario_nombre             TEXT,
+    tipo_renta                      TEXT,
+    moneda                          TEXT NOT NULL DEFAULT 'USD',
+    monto_moneda_pago               REAL NOT NULL DEFAULT 0,
+    tasa_cambio                     REAL NOT NULL DEFAULT 1,
+    monto_local                     REAL NOT NULL DEFAULT 0,
+    isr_retenido                    REAL NOT NULL DEFAULT 0,
+    created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_acc_fp_supabase_id ON accounting_foreign_payments(supabase_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_fp_biz ON accounting_foreign_payments(business_id)') } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_fp_client ON accounting_foreign_payments(accounting_client_id)') } catch {}
+
   // v1.6 — unique indexes on supabase_id (safe to run multiple times)
   const sidIndexes = [
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_services_supabase_id ON services(supabase_id)',
@@ -2261,7 +2751,7 @@ function init(userDataPath, options = {}) {
   // old `datetime('now')` shape produced "YYYY-MM-DD HH:MM:SS" (space), which
   // sorted lower than Supabase's "YYYY-MM-DDTHH:MM:SS.µµµ+00:00" (T). That was
   // the root cause of the LWW inversion that clobbered every local edit.
-  const triggerTables = ['businesses', 'services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions', 'activity_log', 'mesas', 'modificadores', 'service_modificadores', 'ticket_item_modificadores', 'kds_events', 'restaurant_reservations', 'vehicles', 'service_bays', 'work_orders', 'work_order_items', 'appointments', 'stylist_schedules', 'loans', 'loan_payments', 'pawn_items', 'subscriptions', 'service_packages', 'projects', 'client_service_rates']
+  const triggerTables = ['businesses', 'services', 'washers', 'sellers', 'clients', 'inventory_items', 'tickets', 'empleados', 'ncf_sequences', 'ticket_items', 'queue', 'washer_commissions', 'seller_commissions', 'cajero_commissions', 'credit_payments', 'cuadre_caja', 'caja_chica', 'notas_credito', 'inventory_transactions', 'compras_607', 'categorias_servicio', 'users', 'salary_changes', 'payroll_runs', 'ecf_submissions', 'queue_deletions', 'activity_log', 'mesas', 'modificadores', 'service_modificadores', 'ticket_item_modificadores', 'kds_events', 'restaurant_reservations', 'vehicles', 'service_bays', 'work_orders', 'work_order_items', 'appointments', 'stylist_schedules', 'loans', 'loan_payments', 'pawn_items', 'subscriptions', 'service_packages', 'projects', 'client_service_rates', 'accounting_clients', 'accounting_inbox', 'accounting_obligations_calendar', 'accounting_documents', 'accounting_billing_plans', 'accounting_billing_invoices', 'accounting_csv_mappings', 'accounting_chart_of_accounts', 'accounting_journal_entries', 'accounting_journal_lines', 'accounting_coa_auto_post_rules', 'accounting_bank_accounts', 'accounting_bank_statement_lines', 'accounting_fixed_assets', 'accounting_retentions_emitidas', 'accounting_retentions_recibidas', 'accounting_payroll_periods', 'accounting_payroll_lines', 'accounting_tss_filings', 'accounting_tasks', 'accounting_foreign_payments']
 
   // v2.0 — one-shot: drop the legacy SQL-space triggers so the ISO-8601
   // replacements below are the only ones that fire. Gated so we don't drop
@@ -11641,6 +12131,1312 @@ function mechanicServiceRemindersDue() {
     ORDER BY v.next_service_at, v.next_service_km`).all()
 }
 
+// ─── Phase 1B — Contabilidad firm-side helpers ─────────────────────────────
+//
+// Calendar templates live in `electron/contabilidadCalendar.cjs` (CJS shim of
+// `packages/config/contabilidadCalendar.js`). Phase 2 Slice 1 deduped the
+// previously-inlined array.
+const { applicableTemplates: _accApplicableTemplates, dueDateFor: _accDueDate } = require('./contabilidadCalendar.cjs')
+
+function _accNowIso() { return new Date().toISOString() }
+function _accUuid()   { return crypto.randomUUID() }
+
+// ── accounting_clients ────────────────────────────────────────────────────
+function accountingClientCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  const r = db.prepare(`INSERT INTO accounting_clients
+    (supabase_id, business_id, client_business_supabase_id, nombre_comercial, rnc, cedula,
+     tipo_persona, regimen, fecha_cierre_mes, fecha_cierre_dia, honorarios_mensuales,
+     currency, assigned_to_user_id, status, notes, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.client_business_supabase_id || null,
+    payload.nombre_comercial || '',
+    payload.rnc || null,
+    payload.cedula || null,
+    payload.tipo_persona || 'pj',
+    payload.regimen || 'ordinario',
+    payload.fecha_cierre_mes ?? null,
+    payload.fecha_cierre_dia ?? null,
+    payload.honorarios_mensuales ?? 0,
+    payload.currency || 'DOP',
+    payload.assigned_to_user_id ?? null,
+    payload.status || 'active',
+    payload.notes || null,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_clients WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingClientUpdate(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const allowed = ['client_business_supabase_id','nombre_comercial','rnc','cedula','tipo_persona','regimen',
+    'fecha_cierre_mes','fecha_cierre_dia','honorarios_mensuales','currency','assigned_to_user_id','status','notes']
+  const sets = []
+  const vals = []
+  for (const k of allowed) {
+    if (k in patch) { sets.push(`${k}=?`); vals.push(patch[k]) }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM accounting_clients WHERE id=?').get(id) || null
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_clients SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_clients WHERE id=?').get(id) || null
+}
+
+function accountingClientList({ businessId, status } = {}) {
+  if (!db) return []
+  const conds = []
+  const params = []
+  if (businessId) { conds.push('business_id=?'); params.push(businessId) }
+  if (status)     { conds.push('status=?');      params.push(status) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_clients ${where} ORDER BY nombre_comercial ASC`).all(...params)
+}
+
+function accountingClientGet(id) {
+  if (!db) return null
+  return db.prepare('SELECT * FROM accounting_clients WHERE id=?').get(id) || null
+}
+
+function accountingClientDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  // Soft-delete (parity with web layer): flip status to archived.
+  db.prepare(`UPDATE accounting_clients SET status='archived', updated_at=? WHERE id=?`).run(_accNowIso(), id)
+  return db.prepare('SELECT * FROM accounting_clients WHERE id=?').get(id) || null
+}
+
+// ── accounting_inbox ──────────────────────────────────────────────────────
+function accountingInboxAdd(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const r = db.prepare(`INSERT INTO accounting_inbox
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, source,
+     original_filename, mime, size, r2_key, ocr_status, ocr_text, classified_type,
+     classification_confidence, status, posted_journal_entry_id, posted_at, notes,
+     created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.source || 'dropzone',
+    payload.original_filename || 'sin-nombre',
+    payload.mime || 'application/octet-stream',
+    payload.size ?? 0,
+    payload.r2_key || null,
+    payload.ocr_status || 'pending',
+    payload.ocr_text || null,
+    payload.classified_type || 'otro',
+    payload.classification_confidence ?? 0,
+    payload.status || 'unclassified',
+    payload.posted_journal_entry_id ?? null,
+    payload.posted_at || null,
+    payload.notes || null,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_inbox WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingInboxList({ businessId, status, accountingClientId } = {}) {
+  if (!db) return []
+  const conds = []
+  const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (status)             { conds.push('status=?');               params.push(status) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_inbox ${where} ORDER BY created_at DESC LIMIT 500`).all(...params)
+}
+
+function accountingInboxClassify(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const sets = []
+  const vals = []
+  if ('classified_type' in patch)      { sets.push('classified_type=?');      vals.push(patch.classified_type) }
+  if ('accounting_client_id' in patch) { sets.push('accounting_client_id=?'); vals.push(patch.accounting_client_id) }
+  if ('notes' in patch)                { sets.push('notes=?');                vals.push(patch.notes) }
+  sets.push('status=?'); vals.push(patch.status || 'classified')
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_inbox SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_inbox WHERE id=?').get(id) || null
+}
+
+function accountingInboxPost(id, { posted_journal_entry_id = null } = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  db.prepare(`UPDATE accounting_inbox
+    SET status='posted', posted_journal_entry_id=?, posted_at=?, updated_at=?
+    WHERE id=?`).run(posted_journal_entry_id, now, now, id)
+  return db.prepare('SELECT * FROM accounting_inbox WHERE id=?').get(id) || null
+}
+
+function accountingInboxDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  db.prepare('DELETE FROM accounting_inbox WHERE id=?').run(id)
+  return { id }
+}
+
+// ── accounting_obligations_calendar ───────────────────────────────────────
+function accountingObligationGenerateYear({ businessId, accountingClientId, year } = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  if (!accountingClientId || !year) throw new Error('Faltan parámetros: accountingClientId y year son requeridos')
+  // Look up the client's regimen + tipo_persona to filter applicable templates.
+  const cli = db.prepare('SELECT regimen, tipo_persona FROM accounting_clients WHERE id=?').get(accountingClientId)
+  if (!cli) throw new Error('Cliente de contabilidad no encontrado')
+  const templates = _accApplicableTemplates({ regimen: cli.regimen, persona: cli.tipo_persona })
+  const now = _accNowIso()
+  const cliSid = _resolveClientSupabaseId(accountingClientId)
+  const stmt = db.prepare(`INSERT OR IGNORE INTO accounting_obligations_calendar
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, form_type,
+     period_year, period_month, due_date, status, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?, 'pendiente', ?, ?)`)
+  let inserted = 0
+  const tx = db.transaction(() => {
+    for (const t of templates) {
+      if (t.periodicity === 'annual') {
+        const r = stmt.run(_accUuid(), businessId || null, accountingClientId, cliSid,
+          t.form_type, year, 0, _accDueDate(t, year, 0), now, now)
+        if (r.changes) inserted++
+      } else {
+        for (let m = 1; m <= 12; m++) {
+          const r = stmt.run(_accUuid(), businessId || null, accountingClientId, cliSid,
+            t.form_type, year, m, _accDueDate(t, year, m), now, now)
+          if (r.changes) inserted++
+        }
+      }
+    }
+  })
+  tx()
+  return { inserted }
+}
+
+function accountingObligationsList({ businessId, accountingClientId, dateFrom, dateTo, status } = {}) {
+  if (!db) return []
+  const conds = []
+  const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  if (dateFrom)           { conds.push('due_date >= ?');          params.push(dateFrom) }
+  if (dateTo)             { conds.push('due_date <= ?');          params.push(dateTo) }
+  if (status && status !== 'all') { conds.push('status=?');       params.push(status) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_obligations_calendar ${where}
+    ORDER BY due_date ASC`).all(...params)
+}
+
+function accountingObligationMarkFiled(id, payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  db.prepare(`UPDATE accounting_obligations_calendar
+    SET status=?, filed_at=?, filed_by_user_id=?, dgii_constancia_no=?,
+        attachment_supabase_id=?, updated_at=?
+    WHERE id=?`).run(
+    payload.status || 'radicado',
+    now,
+    payload.filed_by_user_id ?? null,
+    payload.dgii_constancia_no || null,
+    payload.attachment_supabase_id || null,
+    now,
+    id,
+  )
+  return db.prepare('SELECT * FROM accounting_obligations_calendar WHERE id=?').get(id) || null
+}
+
+// ── accounting_documents ──────────────────────────────────────────────────
+function accountingDocumentAdd(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const r = db.prepare(`INSERT INTO accounting_documents
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, category,
+     period_year, period_month, filename, r2_key, mime, size, uploaded_by_user_id,
+     expires_at, tags, notes, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.category || 'otro',
+    payload.period_year ?? null,
+    payload.period_month ?? null,
+    payload.filename || 'sin-nombre',
+    payload.r2_key || null,
+    payload.mime || 'application/octet-stream',
+    payload.size ?? 0,
+    payload.uploaded_by_user_id ?? null,
+    payload.expires_at || null,
+    Array.isArray(payload.tags) ? JSON.stringify(payload.tags) : (payload.tags || null),
+    payload.notes || null,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_documents WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingDocumentList({ businessId, accountingClientId, category } = {}) {
+  if (!db) return []
+  const conds = []
+  const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  if (category)           { conds.push('category=?');             params.push(category) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_documents ${where}
+    ORDER BY created_at DESC LIMIT 500`).all(...params)
+}
+
+function accountingDocumentDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  db.prepare('DELETE FROM accounting_documents WHERE id=?').run(id)
+  return { id }
+}
+
+// ── accounting_billing_plans ──────────────────────────────────────────────
+function accountingBillingPlanCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const r = db.prepare(`INSERT INTO accounting_billing_plans
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, monthly_amount,
+     currency, bill_day, ecf_type, late_fee_pct, late_fee_after_days, active, notes,
+     created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.monthly_amount ?? 0,
+    payload.currency || 'DOP',
+    payload.bill_day ?? 1,
+    payload.ecf_type || 'e32',
+    payload.late_fee_pct ?? 0,
+    payload.late_fee_after_days ?? 0,
+    payload.active === false ? 0 : 1,
+    payload.notes || null,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_billing_plans WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingBillingPlanUpdate(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const allowed = ['accounting_client_id','monthly_amount','currency','bill_day','ecf_type',
+    'late_fee_pct','late_fee_after_days','active','notes']
+  const sets = []
+  const vals = []
+  for (const k of allowed) {
+    if (k in patch) {
+      sets.push(`${k}=?`)
+      vals.push(k === 'active' ? (patch[k] ? 1 : 0) : patch[k])
+    }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM accounting_billing_plans WHERE id=?').get(id) || null
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_billing_plans SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_billing_plans WHERE id=?').get(id) || null
+}
+
+function accountingBillingPlanList({ businessId, accountingClientId } = {}) {
+  if (!db) return []
+  const conds = []
+  const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_billing_plans ${where}
+    ORDER BY created_at DESC`).all(...params)
+}
+
+// ── accounting_billing_invoices ───────────────────────────────────────────
+function accountingBillingInvoiceCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  if (payload.period_year == null || payload.period_month == null) {
+    throw new Error('Período (period_year, period_month) requerido')
+  }
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const r = db.prepare(`INSERT INTO accounting_billing_invoices
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id,
+     ticket_supabase_id, period_year, period_month, amount, currency, status, ecf_track_id,
+     ecf_status, paid_at, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.ticket_supabase_id || null,
+    payload.period_year,
+    payload.period_month,
+    payload.amount ?? 0,
+    payload.currency || 'DOP',
+    payload.status || 'draft',
+    payload.ecf_track_id || null,
+    payload.ecf_status || null,
+    payload.paid_at || null,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_billing_invoices WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingBillingInvoiceMarkPaid(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  db.prepare(`UPDATE accounting_billing_invoices
+    SET status='paid', paid_at=?, updated_at=?
+    WHERE id=?`).run(now, now, id)
+  return db.prepare('SELECT * FROM accounting_billing_invoices WHERE id=?').get(id) || null
+}
+
+function accountingBillingInvoiceList({ businessId, accountingClientId, status } = {}) {
+  if (!db) return []
+  const conds = []
+  const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  if (status)             { conds.push('status=?');               params.push(status) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_billing_invoices ${where}
+    ORDER BY period_year DESC, period_month DESC`).all(...params)
+}
+
+// ── accounting_csv_mappings ───────────────────────────────────────────────
+function accountingCsvMappingCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  if (!payload.doc_type || !payload.name || !payload.mapping_json) {
+    throw new Error('doc_type, name y mapping_json son requeridos')
+  }
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const r = db.prepare(`INSERT INTO accounting_csv_mappings
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, doc_type,
+     name, mapping_json, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.doc_type,
+    payload.name,
+    typeof payload.mapping_json === 'string' ? payload.mapping_json : JSON.stringify(payload.mapping_json),
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_csv_mappings WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingCsvMappingList({ businessId, accountingClientId, docType } = {}) {
+  if (!db) return []
+  const conds = []
+  const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  if (docType)            { conds.push('doc_type=?');             params.push(docType) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_csv_mappings ${where}
+    ORDER BY created_at DESC`).all(...params)
+}
+
+// ─── Phase 2 Slice 1 — Contabilidad full firm-side helpers ────────────────────
+//
+// _resolveClientSupabaseId(accounting_client_id) → uuid | null. Looks up the
+// parent's UUID so every child insert that carries an integer FK can also set
+// the companion *_supabase_id column (Phase 1 hardening + Phase 2 parity).
+function _resolveClientSupabaseId(accountingClientId) {
+  if (!db || !accountingClientId) return null
+  try {
+    const r = db.prepare('SELECT supabase_id FROM accounting_clients WHERE id=?').get(accountingClientId)
+    return r?.supabase_id || null
+  } catch { return null }
+}
+
+function _resolveJournalEntrySupabaseId(journalEntryId) {
+  if (!db || !journalEntryId) return null
+  try {
+    const r = db.prepare('SELECT supabase_id FROM accounting_journal_entries WHERE id=?').get(journalEntryId)
+    return r?.supabase_id || null
+  } catch { return null }
+}
+
+function _resolveAccountSupabaseId(accountId) {
+  if (!db || !accountId) return null
+  try {
+    const r = db.prepare('SELECT supabase_id FROM accounting_chart_of_accounts WHERE id=?').get(accountId)
+    return r?.supabase_id || null
+  } catch { return null }
+}
+
+function _resolveBankAccountSupabaseId(bankAccountId) {
+  if (!db || !bankAccountId) return null
+  try {
+    const r = db.prepare('SELECT supabase_id FROM accounting_bank_accounts WHERE id=?').get(bankAccountId)
+    return r?.supabase_id || null
+  } catch { return null }
+}
+
+function _resolvePayrollPeriodSupabaseId(periodId) {
+  if (!db || !periodId) return null
+  try {
+    const r = db.prepare('SELECT supabase_id FROM accounting_payroll_periods WHERE id=?').get(periodId)
+    return r?.supabase_id || null
+  } catch { return null }
+}
+
+// ── accounting_chart_of_accounts ─────────────────────────────────────────────
+function accountingCoaCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  if (!payload.code) throw new Error('code requerido')
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  let parentSid = payload.parent_supabase_id || null
+  if (!parentSid && payload.parent_id) {
+    try {
+      const p = db.prepare('SELECT supabase_id FROM accounting_chart_of_accounts WHERE id=?').get(payload.parent_id)
+      parentSid = p?.supabase_id || null
+    } catch {}
+  }
+  const r = db.prepare(`INSERT INTO accounting_chart_of_accounts
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, code,
+     parent_id, parent_supabase_id, name, type, is_postable, currency, notes, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.code,
+    payload.parent_id ?? null,
+    parentSid,
+    payload.name || '',
+    payload.type || 'activo',
+    payload.is_postable === false ? 0 : 1,
+    payload.currency || 'DOP',
+    payload.notes || null,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_chart_of_accounts WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingCoaUpdate(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const allowed = ['code','parent_id','parent_supabase_id','name','type','is_postable','currency','notes',
+    'accounting_client_supabase_id']
+  const sets = []
+  const vals = []
+  for (const k of allowed) {
+    if (k in patch) {
+      sets.push(`${k}=?`)
+      vals.push(k === 'is_postable' ? (patch[k] ? 1 : 0) : patch[k])
+    }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM accounting_chart_of_accounts WHERE id=?').get(id) || null
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_chart_of_accounts SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_chart_of_accounts WHERE id=?').get(id) || null
+}
+
+function accountingCoaList({ businessId, accountingClientId, type } = {}) {
+  if (!db) return []
+  const conds = []; const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  if (type)               { conds.push('type=?');                 params.push(type) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_chart_of_accounts ${where} ORDER BY code ASC`).all(...params)
+}
+
+function accountingCoaGet(id) {
+  if (!db) return null
+  return db.prepare('SELECT * FROM accounting_chart_of_accounts WHERE id=?').get(id) || null
+}
+
+function accountingCoaDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  db.prepare('DELETE FROM accounting_chart_of_accounts WHERE id=?').run(id)
+  return { id }
+}
+
+// ── accounting_journal_entries + journal_lines ───────────────────────────────
+function accountingJournalEntryCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const r = db.prepare(`INSERT INTO accounting_journal_entries
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, fecha,
+     description, type, reference_doc_supabase_id, status, posted_by_user_id, period_year,
+     period_month, totals_debit, totals_credit, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.fecha || null,
+    payload.description || null,
+    payload.type || 'manual',
+    payload.reference_doc_supabase_id || null,
+    payload.status || 'draft',
+    payload.posted_by_user_id ?? null,
+    payload.period_year ?? null,
+    payload.period_month ?? null,
+    payload.totals_debit ?? 0,
+    payload.totals_credit ?? 0,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_journal_entries WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingJournalEntryUpdate(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const allowed = ['fecha','description','type','reference_doc_supabase_id','status','posted_by_user_id',
+    'period_year','period_month','totals_debit','totals_credit','accounting_client_supabase_id']
+  const sets = []; const vals = []
+  for (const k of allowed) {
+    if (k in patch) { sets.push(`${k}=?`); vals.push(patch[k]) }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM accounting_journal_entries WHERE id=?').get(id) || null
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_journal_entries SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_journal_entries WHERE id=?').get(id) || null
+}
+
+function accountingJournalEntryList({ businessId, accountingClientId, periodYear, periodMonth, status } = {}) {
+  if (!db) return []
+  const conds = []; const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  if (periodYear  != null){ conds.push('period_year=?');          params.push(periodYear) }
+  if (periodMonth != null){ conds.push('period_month=?');         params.push(periodMonth) }
+  if (status)             { conds.push('status=?');               params.push(status) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_journal_entries ${where}
+    ORDER BY fecha DESC, id DESC LIMIT 1000`).all(...params)
+}
+
+function accountingJournalEntryGet(id) {
+  if (!db) return null
+  const e = db.prepare('SELECT * FROM accounting_journal_entries WHERE id=?').get(id) || null
+  if (e) {
+    e.lines = db.prepare(`SELECT * FROM accounting_journal_lines
+      WHERE journal_entry_id=? ORDER BY id ASC`).all(id)
+  }
+  return e
+}
+
+function accountingJournalEntryDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM accounting_journal_lines WHERE journal_entry_id=?').run(id)
+    db.prepare('DELETE FROM accounting_journal_entries WHERE id=?').run(id)
+  })
+  tx()
+  return { id }
+}
+
+function accountingJournalLineAdd(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  const entrySid = payload.journal_entry_supabase_id || _resolveJournalEntrySupabaseId(payload.journal_entry_id)
+  const acctSid  = payload.account_supabase_id || _resolveAccountSupabaseId(payload.account_id)
+  const r = db.prepare(`INSERT INTO accounting_journal_lines
+    (supabase_id, business_id, journal_entry_id, journal_entry_supabase_id, account_id,
+     account_supabase_id, debit, credit, currency, exchange_rate, memo, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.journal_entry_id ?? null,
+    entrySid,
+    payload.account_id ?? null,
+    acctSid,
+    payload.debit ?? 0,
+    payload.credit ?? 0,
+    payload.currency || 'DOP',
+    payload.exchange_rate ?? 1,
+    payload.memo || null,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_journal_lines WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingJournalLineList({ businessId, journalEntryId, accountId } = {}) {
+  if (!db) return []
+  const conds = []; const params = []
+  if (businessId)     { conds.push('business_id=?');      params.push(businessId) }
+  if (journalEntryId) { conds.push('journal_entry_id=?'); params.push(journalEntryId) }
+  if (accountId)      { conds.push('account_id=?');       params.push(accountId) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_journal_lines ${where} ORDER BY id ASC`).all(...params)
+}
+
+function accountingJournalLineDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  db.prepare('DELETE FROM accounting_journal_lines WHERE id=?').run(id)
+  return { id }
+}
+
+// ── accounting_coa_auto_post_rules ───────────────────────────────────────────
+function accountingAutoPostRuleCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  if (!payload.event) throw new Error('event requerido')
+  const now = _accNowIso()
+  const cliSid    = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const debitSid  = payload.debit_account_supabase_id  || _resolveAccountSupabaseId(payload.debit_account_id)
+  const creditSid = payload.credit_account_supabase_id || _resolveAccountSupabaseId(payload.credit_account_id)
+  const r = db.prepare(`INSERT INTO accounting_coa_auto_post_rules
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, event,
+     condition_json, debit_account_id, debit_account_supabase_id, credit_account_id,
+     credit_account_supabase_id, priority, active, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.event,
+    typeof payload.condition_json === 'string' ? payload.condition_json : (payload.condition_json ? JSON.stringify(payload.condition_json) : null),
+    payload.debit_account_id ?? null,
+    debitSid,
+    payload.credit_account_id ?? null,
+    creditSid,
+    payload.priority ?? 100,
+    payload.active === false ? 0 : 1,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_coa_auto_post_rules WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingAutoPostRuleUpdate(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const allowed = ['event','condition_json','debit_account_id','debit_account_supabase_id',
+    'credit_account_id','credit_account_supabase_id','priority','active','accounting_client_supabase_id']
+  const sets = []; const vals = []
+  for (const k of allowed) {
+    if (k in patch) {
+      let v = patch[k]
+      if (k === 'active') v = v ? 1 : 0
+      if (k === 'condition_json' && typeof v !== 'string') v = v ? JSON.stringify(v) : null
+      sets.push(`${k}=?`); vals.push(v)
+    }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM accounting_coa_auto_post_rules WHERE id=?').get(id) || null
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_coa_auto_post_rules SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_coa_auto_post_rules WHERE id=?').get(id) || null
+}
+
+function accountingAutoPostRuleList({ businessId, accountingClientId, event } = {}) {
+  if (!db) return []
+  const conds = []; const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  if (event)              { conds.push('event=?');                params.push(event) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_coa_auto_post_rules ${where}
+    ORDER BY priority ASC, id ASC`).all(...params)
+}
+
+function accountingAutoPostRuleDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  db.prepare('DELETE FROM accounting_coa_auto_post_rules WHERE id=?').run(id)
+  return { id }
+}
+
+// ── accounting_bank_accounts ─────────────────────────────────────────────────
+function accountingBankAccountCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const r = db.prepare(`INSERT INTO accounting_bank_accounts
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, banco,
+     account_no_last4, account_type, currency, opening_balance, active, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.banco || 'otro',
+    payload.account_no_last4 || null,
+    payload.account_type || 'checking',
+    payload.currency || 'DOP',
+    payload.opening_balance ?? 0,
+    payload.active === false ? 0 : 1,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_bank_accounts WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingBankAccountUpdate(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const allowed = ['banco','account_no_last4','account_type','currency','opening_balance','active',
+    'accounting_client_supabase_id']
+  const sets = []; const vals = []
+  for (const k of allowed) {
+    if (k in patch) {
+      sets.push(`${k}=?`); vals.push(k === 'active' ? (patch[k] ? 1 : 0) : patch[k])
+    }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM accounting_bank_accounts WHERE id=?').get(id) || null
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_bank_accounts SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_bank_accounts WHERE id=?').get(id) || null
+}
+
+function accountingBankAccountList({ businessId, accountingClientId } = {}) {
+  if (!db) return []
+  const conds = []; const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_bank_accounts ${where} ORDER BY banco ASC, id ASC`).all(...params)
+}
+
+function accountingBankAccountDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  db.prepare('DELETE FROM accounting_bank_accounts WHERE id=?').run(id)
+  return { id }
+}
+
+// ── accounting_bank_statement_lines ──────────────────────────────────────────
+function accountingBankStatementLineAdd(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  const baSid = payload.bank_account_supabase_id || _resolveBankAccountSupabaseId(payload.bank_account_id)
+  const r = db.prepare(`INSERT INTO accounting_bank_statement_lines
+    (supabase_id, business_id, bank_account_id, bank_account_supabase_id, fecha, descripcion,
+     referencia, debit, credit, balance, matched_journal_line_id, matched_journal_line_supabase_id,
+     match_status, raw_row, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.bank_account_id ?? null,
+    baSid,
+    payload.fecha || null,
+    payload.descripcion || null,
+    payload.referencia || null,
+    payload.debit ?? 0,
+    payload.credit ?? 0,
+    payload.balance ?? null,
+    payload.matched_journal_line_id ?? null,
+    payload.matched_journal_line_supabase_id || null,
+    payload.match_status || 'unmatched',
+    typeof payload.raw_row === 'string' ? payload.raw_row : (payload.raw_row ? JSON.stringify(payload.raw_row) : null),
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_bank_statement_lines WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingBankStatementLineUpdate(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const allowed = ['fecha','descripcion','referencia','debit','credit','balance',
+    'matched_journal_line_id','matched_journal_line_supabase_id','match_status','raw_row',
+    'bank_account_supabase_id']
+  const sets = []; const vals = []
+  for (const k of allowed) {
+    if (k in patch) {
+      let v = patch[k]
+      if (k === 'raw_row' && typeof v !== 'string') v = v ? JSON.stringify(v) : null
+      sets.push(`${k}=?`); vals.push(v)
+    }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM accounting_bank_statement_lines WHERE id=?').get(id) || null
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_bank_statement_lines SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_bank_statement_lines WHERE id=?').get(id) || null
+}
+
+function accountingBankStatementLineList({ businessId, bankAccountId, matchStatus } = {}) {
+  if (!db) return []
+  const conds = []; const params = []
+  if (businessId)    { conds.push('business_id=?');     params.push(businessId) }
+  if (bankAccountId) { conds.push('bank_account_id=?'); params.push(bankAccountId) }
+  if (matchStatus)   { conds.push('match_status=?');    params.push(matchStatus) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_bank_statement_lines ${where}
+    ORDER BY fecha ASC, id ASC LIMIT 5000`).all(...params)
+}
+
+function accountingBankStatementLineDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  db.prepare('DELETE FROM accounting_bank_statement_lines WHERE id=?').run(id)
+  return { id }
+}
+
+// ── accounting_fixed_assets ──────────────────────────────────────────────────
+function accountingFixedAssetCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const r = db.prepare(`INSERT INTO accounting_fixed_assets
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, name,
+     categoria, fecha_adquisicion, costo, vida_util_meses, valor_residual, depreciacion_acumulada,
+     status, sold_at, sold_amount, notes, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.name || '',
+    payload.categoria || 'cat_2',
+    payload.fecha_adquisicion || null,
+    payload.costo ?? 0,
+    payload.vida_util_meses ?? 0,
+    payload.valor_residual ?? 0,
+    payload.depreciacion_acumulada ?? 0,
+    payload.status || 'active',
+    payload.sold_at || null,
+    payload.sold_amount ?? null,
+    payload.notes || null,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_fixed_assets WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingFixedAssetUpdate(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const allowed = ['name','categoria','fecha_adquisicion','costo','vida_util_meses','valor_residual',
+    'depreciacion_acumulada','status','sold_at','sold_amount','notes','accounting_client_supabase_id']
+  const sets = []; const vals = []
+  for (const k of allowed) {
+    if (k in patch) { sets.push(`${k}=?`); vals.push(patch[k]) }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM accounting_fixed_assets WHERE id=?').get(id) || null
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_fixed_assets SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_fixed_assets WHERE id=?').get(id) || null
+}
+
+function accountingFixedAssetList({ businessId, accountingClientId, status } = {}) {
+  if (!db) return []
+  const conds = []; const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  if (status)             { conds.push('status=?');               params.push(status) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_fixed_assets ${where} ORDER BY fecha_adquisicion DESC, id DESC`).all(...params)
+}
+
+function accountingFixedAssetDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  db.prepare('DELETE FROM accounting_fixed_assets WHERE id=?').run(id)
+  return { id }
+}
+
+// ── accounting_retentions_emitidas ───────────────────────────────────────────
+function accountingRetentionEmitidaCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const r = db.prepare(`INSERT INTO accounting_retentions_emitidas
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, fecha,
+     beneficiario_rnc, beneficiario_nombre, tipo, base, tasa, retencion, ncf_emitido,
+     comprobante_url, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.fecha || null,
+    payload.beneficiario_rnc || null,
+    payload.beneficiario_nombre || null,
+    payload.tipo || 'servicios_no_dom',
+    payload.base ?? 0,
+    payload.tasa ?? 0,
+    payload.retencion ?? 0,
+    payload.ncf_emitido || null,
+    payload.comprobante_url || null,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_retentions_emitidas WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingRetentionEmitidaUpdate(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const allowed = ['fecha','beneficiario_rnc','beneficiario_nombre','tipo','base','tasa','retencion',
+    'ncf_emitido','comprobante_url','accounting_client_supabase_id']
+  const sets = []; const vals = []
+  for (const k of allowed) {
+    if (k in patch) { sets.push(`${k}=?`); vals.push(patch[k]) }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM accounting_retentions_emitidas WHERE id=?').get(id) || null
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_retentions_emitidas SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_retentions_emitidas WHERE id=?').get(id) || null
+}
+
+function accountingRetentionEmitidaList({ businessId, accountingClientId, dateFrom, dateTo } = {}) {
+  if (!db) return []
+  const conds = []; const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  if (dateFrom)           { conds.push('fecha >= ?');             params.push(dateFrom) }
+  if (dateTo)             { conds.push('fecha <= ?');             params.push(dateTo) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_retentions_emitidas ${where} ORDER BY fecha DESC, id DESC`).all(...params)
+}
+
+function accountingRetentionEmitidaDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  db.prepare('DELETE FROM accounting_retentions_emitidas WHERE id=?').run(id)
+  return { id }
+}
+
+// ── accounting_retentions_recibidas ──────────────────────────────────────────
+function accountingRetentionRecibidaCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const r = db.prepare(`INSERT INTO accounting_retentions_recibidas
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, fecha,
+     retenedor_rnc, retenedor_nombre, tipo, base, tasa, retencion, comprobante_url,
+     created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.fecha || null,
+    payload.retenedor_rnc || null,
+    payload.retenedor_nombre || null,
+    payload.tipo || null,
+    payload.base ?? 0,
+    payload.tasa ?? 0,
+    payload.retencion ?? 0,
+    payload.comprobante_url || null,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_retentions_recibidas WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingRetentionRecibidaUpdate(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const allowed = ['fecha','retenedor_rnc','retenedor_nombre','tipo','base','tasa','retencion',
+    'comprobante_url','accounting_client_supabase_id']
+  const sets = []; const vals = []
+  for (const k of allowed) {
+    if (k in patch) { sets.push(`${k}=?`); vals.push(patch[k]) }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM accounting_retentions_recibidas WHERE id=?').get(id) || null
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_retentions_recibidas SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_retentions_recibidas WHERE id=?').get(id) || null
+}
+
+function accountingRetentionRecibidaList({ businessId, accountingClientId, dateFrom, dateTo } = {}) {
+  if (!db) return []
+  const conds = []; const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  if (dateFrom)           { conds.push('fecha >= ?');             params.push(dateFrom) }
+  if (dateTo)             { conds.push('fecha <= ?');             params.push(dateTo) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_retentions_recibidas ${where} ORDER BY fecha DESC, id DESC`).all(...params)
+}
+
+function accountingRetentionRecibidaDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  db.prepare('DELETE FROM accounting_retentions_recibidas WHERE id=?').run(id)
+  return { id }
+}
+
+// ── accounting_payroll_periods + payroll_lines ───────────────────────────────
+function accountingPayrollPeriodCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  if (payload.year == null || payload.month == null) throw new Error('year y month requeridos')
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const r = db.prepare(`INSERT INTO accounting_payroll_periods
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, year, month,
+     status, totals_json, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.year,
+    payload.month,
+    payload.status || 'draft',
+    typeof payload.totals_json === 'string' ? payload.totals_json : (payload.totals_json ? JSON.stringify(payload.totals_json) : null),
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_payroll_periods WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingPayrollPeriodUpdate(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const allowed = ['status','totals_json','accounting_client_supabase_id']
+  const sets = []; const vals = []
+  for (const k of allowed) {
+    if (k in patch) {
+      let v = patch[k]
+      if (k === 'totals_json' && typeof v !== 'string') v = v ? JSON.stringify(v) : null
+      sets.push(`${k}=?`); vals.push(v)
+    }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM accounting_payroll_periods WHERE id=?').get(id) || null
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_payroll_periods SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_payroll_periods WHERE id=?').get(id) || null
+}
+
+function accountingPayrollPeriodList({ businessId, accountingClientId, year, status } = {}) {
+  if (!db) return []
+  const conds = []; const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  if (year != null)       { conds.push('year=?');                 params.push(year) }
+  if (status)             { conds.push('status=?');               params.push(status) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_payroll_periods ${where} ORDER BY year DESC, month DESC`).all(...params)
+}
+
+function accountingPayrollPeriodGet(id) {
+  if (!db) return null
+  const p = db.prepare('SELECT * FROM accounting_payroll_periods WHERE id=?').get(id) || null
+  if (p) {
+    p.lines = db.prepare(`SELECT * FROM accounting_payroll_lines
+      WHERE payroll_period_id=? ORDER BY id ASC`).all(id)
+  }
+  return p
+}
+
+function accountingPayrollPeriodDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM accounting_payroll_lines WHERE payroll_period_id=?').run(id)
+    db.prepare('DELETE FROM accounting_payroll_periods WHERE id=?').run(id)
+  })
+  tx()
+  return { id }
+}
+
+function accountingPayrollLineAdd(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  const periodSid = payload.payroll_period_supabase_id || _resolvePayrollPeriodSupabaseId(payload.payroll_period_id)
+  const r = db.prepare(`INSERT INTO accounting_payroll_lines
+    (supabase_id, business_id, payroll_period_id, payroll_period_supabase_id, employee_name,
+     employee_cedula, employee_nss, salario_base, dependientes, afp, ars, sfs, riesgos_laborales,
+     isr, otras_deducciones, neto, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.payroll_period_id ?? null,
+    periodSid,
+    payload.employee_name || null,
+    payload.employee_cedula || null,
+    payload.employee_nss || null,
+    payload.salario_base ?? 0,
+    payload.dependientes ?? 0,
+    payload.afp ?? 0,
+    payload.ars ?? 0,
+    payload.sfs ?? 0,
+    payload.riesgos_laborales ?? 0,
+    payload.isr ?? 0,
+    payload.otras_deducciones ?? 0,
+    payload.neto ?? 0,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_payroll_lines WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingPayrollLineList({ businessId, payrollPeriodId } = {}) {
+  if (!db) return []
+  const conds = []; const params = []
+  if (businessId)      { conds.push('business_id=?');       params.push(businessId) }
+  if (payrollPeriodId) { conds.push('payroll_period_id=?'); params.push(payrollPeriodId) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_payroll_lines ${where} ORDER BY id ASC`).all(...params)
+}
+
+function accountingPayrollLineDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  db.prepare('DELETE FROM accounting_payroll_lines WHERE id=?').run(id)
+  return { id }
+}
+
+// ── accounting_tss_filings ───────────────────────────────────────────────────
+function accountingTssFilingCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  if (payload.year == null || payload.month == null) throw new Error('year y month requeridos')
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const r = db.prepare(`INSERT INTO accounting_tss_filings
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, year, month,
+     filename, file_supabase_id, status, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.year,
+    payload.month,
+    payload.filename || null,
+    payload.file_supabase_id || null,
+    payload.status || 'pendiente',
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_tss_filings WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingTssFilingUpdate(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const allowed = ['filename','file_supabase_id','status','accounting_client_supabase_id']
+  const sets = []; const vals = []
+  for (const k of allowed) {
+    if (k in patch) { sets.push(`${k}=?`); vals.push(patch[k]) }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM accounting_tss_filings WHERE id=?').get(id) || null
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_tss_filings SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_tss_filings WHERE id=?').get(id) || null
+}
+
+function accountingTssFilingList({ businessId, accountingClientId, year, status } = {}) {
+  if (!db) return []
+  const conds = []; const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  if (year != null)       { conds.push('year=?');                 params.push(year) }
+  if (status)             { conds.push('status=?');               params.push(status) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_tss_filings ${where} ORDER BY year DESC, month DESC`).all(...params)
+}
+
+function accountingTssFilingDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  db.prepare('DELETE FROM accounting_tss_filings WHERE id=?').run(id)
+  return { id }
+}
+
+// ── accounting_tasks ─────────────────────────────────────────────────────────
+function accountingTaskCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const r = db.prepare(`INSERT INTO accounting_tasks
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, title,
+     description, assigned_to_user_id, status, priority, due_date, parent_obligation_supabase_id,
+     created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.title || '',
+    payload.description || null,
+    payload.assigned_to_user_id ?? null,
+    payload.status || 'pending',
+    payload.priority || 'med',
+    payload.due_date || null,
+    payload.parent_obligation_supabase_id || null,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_tasks WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingTaskUpdate(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const allowed = ['title','description','assigned_to_user_id','status','priority','due_date',
+    'parent_obligation_supabase_id','accounting_client_supabase_id']
+  const sets = []; const vals = []
+  for (const k of allowed) {
+    if (k in patch) { sets.push(`${k}=?`); vals.push(patch[k]) }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM accounting_tasks WHERE id=?').get(id) || null
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_tasks SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_tasks WHERE id=?').get(id) || null
+}
+
+function accountingTaskList({ businessId, accountingClientId, status, assignedToUserId } = {}) {
+  if (!db) return []
+  const conds = []; const params = []
+  if (businessId)         { conds.push('business_id=?');           params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?');  params.push(accountingClientId) }
+  if (status)             { conds.push('status=?');                params.push(status) }
+  if (assignedToUserId)   { conds.push('assigned_to_user_id=?');   params.push(assignedToUserId) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_tasks ${where} ORDER BY due_date ASC, priority DESC, id ASC`).all(...params)
+}
+
+function accountingTaskDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  db.prepare('DELETE FROM accounting_tasks WHERE id=?').run(id)
+  return { id }
+}
+
+// ── accounting_foreign_payments ──────────────────────────────────────────────
+function accountingForeignPaymentCreate(payload = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const now = _accNowIso()
+  const cliSid = payload.accounting_client_supabase_id || _resolveClientSupabaseId(payload.accounting_client_id)
+  const r = db.prepare(`INSERT INTO accounting_foreign_payments
+    (supabase_id, business_id, accounting_client_id, accounting_client_supabase_id, fecha,
+     beneficiario_id, beneficiario_pais, beneficiario_nombre, tipo_renta, moneda,
+     monto_moneda_pago, tasa_cambio, monto_local, isr_retenido, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    payload.supabase_id || _accUuid(),
+    payload.business_id || null,
+    payload.accounting_client_id ?? null,
+    cliSid,
+    payload.fecha || null,
+    payload.beneficiario_id || null,
+    payload.beneficiario_pais || null,
+    payload.beneficiario_nombre || null,
+    payload.tipo_renta || null,
+    payload.moneda || 'USD',
+    payload.monto_moneda_pago ?? 0,
+    payload.tasa_cambio ?? 1,
+    payload.monto_local ?? 0,
+    payload.isr_retenido ?? 0,
+    now, now,
+  )
+  return db.prepare('SELECT * FROM accounting_foreign_payments WHERE id=?').get(r.lastInsertRowid)
+}
+
+function accountingForeignPaymentUpdate(id, patch = {}) {
+  if (!db) throw new Error('Base de datos no disponible')
+  const allowed = ['fecha','beneficiario_id','beneficiario_pais','beneficiario_nombre','tipo_renta',
+    'moneda','monto_moneda_pago','tasa_cambio','monto_local','isr_retenido','accounting_client_supabase_id']
+  const sets = []; const vals = []
+  for (const k of allowed) {
+    if (k in patch) { sets.push(`${k}=?`); vals.push(patch[k]) }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM accounting_foreign_payments WHERE id=?').get(id) || null
+  sets.push('updated_at=?'); vals.push(_accNowIso())
+  vals.push(id)
+  db.prepare(`UPDATE accounting_foreign_payments SET ${sets.join(', ')} WHERE id=?`).run(...vals)
+  return db.prepare('SELECT * FROM accounting_foreign_payments WHERE id=?').get(id) || null
+}
+
+function accountingForeignPaymentList({ businessId, accountingClientId, dateFrom, dateTo } = {}) {
+  if (!db) return []
+  const conds = []; const params = []
+  if (businessId)         { conds.push('business_id=?');          params.push(businessId) }
+  if (accountingClientId) { conds.push('accounting_client_id=?'); params.push(accountingClientId) }
+  if (dateFrom)           { conds.push('fecha >= ?');             params.push(dateFrom) }
+  if (dateTo)             { conds.push('fecha <= ?');             params.push(dateTo) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM accounting_foreign_payments ${where} ORDER BY fecha DESC, id DESC`).all(...params)
+}
+
+function accountingForeignPaymentDelete(id) {
+  if (!db) throw new Error('Base de datos no disponible')
+  db.prepare('DELETE FROM accounting_foreign_payments WHERE id=?').run(id)
+  return { id }
+}
+
 module.exports = {
   init, isReady, getError, rawPrepare, rawExec, closeDb, dbBackupTo,
   tombstoneAdd, tombstonesPending, tombstoneMarkSent, tombstoneMarkFailed,
@@ -11804,6 +13600,29 @@ module.exports = {
   carniceriaResumenGet,
   carniceriaActiveDiscounts,
   carniceriaEnqueueE33ForDiscard,
+  // Phase 1B — Contabilidad firm-side suite
+  accountingClientCreate, accountingClientUpdate, accountingClientList, accountingClientGet, accountingClientDelete,
+  accountingInboxAdd, accountingInboxList, accountingInboxClassify, accountingInboxPost, accountingInboxDelete,
+  accountingObligationGenerateYear, accountingObligationsList, accountingObligationMarkFiled,
+  accountingDocumentAdd, accountingDocumentList, accountingDocumentDelete,
+  accountingBillingPlanCreate, accountingBillingPlanUpdate, accountingBillingPlanList,
+  accountingBillingInvoiceCreate, accountingBillingInvoiceMarkPaid, accountingBillingInvoiceList,
+  accountingCsvMappingCreate, accountingCsvMappingList,
+  // Phase 2 Slice 1 — Contabilidad full firm-side schema
+  accountingCoaCreate, accountingCoaUpdate, accountingCoaList, accountingCoaGet, accountingCoaDelete,
+  accountingJournalEntryCreate, accountingJournalEntryUpdate, accountingJournalEntryList, accountingJournalEntryGet, accountingJournalEntryDelete,
+  accountingJournalLineAdd, accountingJournalLineList, accountingJournalLineDelete,
+  accountingAutoPostRuleCreate, accountingAutoPostRuleUpdate, accountingAutoPostRuleList, accountingAutoPostRuleDelete,
+  accountingBankAccountCreate, accountingBankAccountUpdate, accountingBankAccountList, accountingBankAccountDelete,
+  accountingBankStatementLineAdd, accountingBankStatementLineUpdate, accountingBankStatementLineList, accountingBankStatementLineDelete,
+  accountingFixedAssetCreate, accountingFixedAssetUpdate, accountingFixedAssetList, accountingFixedAssetDelete,
+  accountingRetentionEmitidaCreate, accountingRetentionEmitidaUpdate, accountingRetentionEmitidaList, accountingRetentionEmitidaDelete,
+  accountingRetentionRecibidaCreate, accountingRetentionRecibidaUpdate, accountingRetentionRecibidaList, accountingRetentionRecibidaDelete,
+  accountingPayrollPeriodCreate, accountingPayrollPeriodUpdate, accountingPayrollPeriodList, accountingPayrollPeriodGet, accountingPayrollPeriodDelete,
+  accountingPayrollLineAdd, accountingPayrollLineList, accountingPayrollLineDelete,
+  accountingTssFilingCreate, accountingTssFilingUpdate, accountingTssFilingList, accountingTssFilingDelete,
+  accountingTaskCreate, accountingTaskUpdate, accountingTaskList, accountingTaskDelete,
+  accountingForeignPaymentCreate, accountingForeignPaymentUpdate, accountingForeignPaymentList, accountingForeignPaymentDelete,
 }
 
 // ── v2.16.3 — Carnicería data helpers ───────────────────────────────────────

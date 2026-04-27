@@ -287,6 +287,13 @@ const NAV = [
     roles: ['owner','manager','cashier','cfo','accountant'],
   },
   {
+    id: 'contabilidad', to: '/contabilidad', icon: Briefcase,
+    es: 'Contabilidad', en: 'Accounting',
+    businessTypes: ['contabilidad'],
+    roles: ['owner','manager','cfo','accountant'],
+    feature: 'contabilidad_inbox',
+  },
+  {
     id: 'clients', icon: Users,
     es: 'Clientes', en: 'Clients',
     feature: 'clients',

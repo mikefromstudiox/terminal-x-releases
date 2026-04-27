@@ -2530,6 +2530,218 @@ handleMut('reservations:markNoShow', ({ id })       => db.reservationsMarkNoShow
 handleMut('reservations:seat',       ({ id, mesa_id }) => db.reservationsSeat(id, mesa_id))
 handleMut('reservations:stampWhatsapp', ({ id })    => db.reservationsStampWhatsapp(id))
 
+// ── Phase 1B — Contabilidad (firm-side suite) ────────────────────────────────
+handleMut('contabilidad:client-create',  (payload)               => db.accountingClientCreate(payload || {}))
+handleMut('contabilidad:client-update',  ({ id, ...patch } = {}) => db.accountingClientUpdate(id, patch))
+handle   ('contabilidad:client-list',    (params)                => db.accountingClientList(params || {}))
+handle   ('contabilidad:client-get',     ({ id } = {})           => db.accountingClientGet(id))
+handleMut('contabilidad:client-delete',  ({ id } = {})           => db.accountingClientDelete(id))
+
+handleMut('contabilidad:inbox-add',      (payload)               => db.accountingInboxAdd(payload || {}))
+handle   ('contabilidad:inbox-list',     (params)                => db.accountingInboxList(params || {}))
+handleMut('contabilidad:inbox-classify', ({ id, ...patch } = {}) => db.accountingInboxClassify(id, patch))
+handleMut('contabilidad:inbox-post',     ({ id, ...rest } = {})  => db.accountingInboxPost(id, rest))
+handleMut('contabilidad:inbox-delete',   ({ id } = {})           => db.accountingInboxDelete(id))
+
+handleMut('contabilidad:obligations-generate-year', (params)            => db.accountingObligationGenerateYear(params || {}))
+handle   ('contabilidad:obligations-list',          (params)            => db.accountingObligationsList(params || {}))
+handleMut('contabilidad:obligations-mark-filed',    ({ id, ...rest } = {}) => db.accountingObligationMarkFiled(id, rest))
+
+handleMut('contabilidad:document-add',    (payload)      => db.accountingDocumentAdd(payload || {}))
+handle   ('contabilidad:document-list',   (params)       => db.accountingDocumentList(params || {}))
+handleMut('contabilidad:document-delete', ({ id } = {})  => db.accountingDocumentDelete(id))
+
+handleMut('contabilidad:billing-plan-create', (payload)               => db.accountingBillingPlanCreate(payload || {}))
+handleMut('contabilidad:billing-plan-update', ({ id, ...patch } = {}) => db.accountingBillingPlanUpdate(id, patch))
+handle   ('contabilidad:billing-plan-list',   (params)                => db.accountingBillingPlanList(params || {}))
+
+handleMut('contabilidad:billing-invoice-create',    (payload)     => db.accountingBillingInvoiceCreate(payload || {}))
+handleMut('contabilidad:billing-invoice-mark-paid', ({ id } = {}) => db.accountingBillingInvoiceMarkPaid(id))
+handle   ('contabilidad:billing-invoice-list',      (params)      => db.accountingBillingInvoiceList(params || {}))
+
+handleMut('contabilidad:csv-mapping-create', (payload) => db.accountingCsvMappingCreate(payload || {}))
+handle   ('contabilidad:csv-mapping-list',   (params)  => db.accountingCsvMappingList(params || {}))
+
+// ── Phase 2 Slice 1 — Contabilidad full firm-side suite ──────────────────────
+// Chart of accounts
+handleMut('contabilidad:coa-create',  (payload)               => db.accountingCoaCreate(payload || {}))
+handleMut('contabilidad:coa-update',  ({ id, ...patch } = {}) => db.accountingCoaUpdate(id, patch))
+handle   ('contabilidad:coa-list',    (params)                => db.accountingCoaList(params || {}))
+handle   ('contabilidad:coa-get',     ({ id } = {})           => db.accountingCoaGet(id))
+handleMut('contabilidad:coa-delete',  ({ id } = {})           => db.accountingCoaDelete(id))
+// Journal entries + lines
+handleMut('contabilidad:journal-entry-create',  (payload)               => db.accountingJournalEntryCreate(payload || {}))
+handleMut('contabilidad:journal-entry-update',  ({ id, ...patch } = {}) => db.accountingJournalEntryUpdate(id, patch))
+handle   ('contabilidad:journal-entry-list',    (params)                => db.accountingJournalEntryList(params || {}))
+handle   ('contabilidad:journal-entry-get',     ({ id } = {})           => db.accountingJournalEntryGet(id))
+handleMut('contabilidad:journal-entry-delete',  ({ id } = {})           => db.accountingJournalEntryDelete(id))
+handleMut('contabilidad:journal-line-add',      (payload)               => db.accountingJournalLineAdd(payload || {}))
+handle   ('contabilidad:journal-line-list',     (params)                => db.accountingJournalLineList(params || {}))
+handleMut('contabilidad:journal-line-delete',   ({ id } = {})           => db.accountingJournalLineDelete(id))
+// Auto-post rules
+handleMut('contabilidad:auto-post-rule-create', (payload)               => db.accountingAutoPostRuleCreate(payload || {}))
+handleMut('contabilidad:auto-post-rule-update', ({ id, ...patch } = {}) => db.accountingAutoPostRuleUpdate(id, patch))
+handle   ('contabilidad:auto-post-rule-list',   (params)                => db.accountingAutoPostRuleList(params || {}))
+handleMut('contabilidad:auto-post-rule-delete', ({ id } = {})           => db.accountingAutoPostRuleDelete(id))
+// Bank accounts + statement lines
+handleMut('contabilidad:bank-account-create',   (payload)               => db.accountingBankAccountCreate(payload || {}))
+handleMut('contabilidad:bank-account-update',   ({ id, ...patch } = {}) => db.accountingBankAccountUpdate(id, patch))
+handle   ('contabilidad:bank-account-list',     (params)                => db.accountingBankAccountList(params || {}))
+handleMut('contabilidad:bank-account-delete',   ({ id } = {})           => db.accountingBankAccountDelete(id))
+handleMut('contabilidad:bank-statement-line-add',    (payload)               => db.accountingBankStatementLineAdd(payload || {}))
+handleMut('contabilidad:bank-statement-line-update', ({ id, ...patch } = {}) => db.accountingBankStatementLineUpdate(id, patch))
+handle   ('contabilidad:bank-statement-line-list',   (params)                => db.accountingBankStatementLineList(params || {}))
+handleMut('contabilidad:bank-statement-line-delete', ({ id } = {})           => db.accountingBankStatementLineDelete(id))
+// Fixed assets
+handleMut('contabilidad:fixed-asset-create', (payload)               => db.accountingFixedAssetCreate(payload || {}))
+handleMut('contabilidad:fixed-asset-update', ({ id, ...patch } = {}) => db.accountingFixedAssetUpdate(id, patch))
+handle   ('contabilidad:fixed-asset-list',   (params)                => db.accountingFixedAssetList(params || {}))
+handleMut('contabilidad:fixed-asset-delete', ({ id } = {})           => db.accountingFixedAssetDelete(id))
+// Retentions emitidas/recibidas
+handleMut('contabilidad:retention-emitida-create', (payload)               => db.accountingRetentionEmitidaCreate(payload || {}))
+handleMut('contabilidad:retention-emitida-update', ({ id, ...patch } = {}) => db.accountingRetentionEmitidaUpdate(id, patch))
+handle   ('contabilidad:retention-emitida-list',   (params)                => db.accountingRetentionEmitidaList(params || {}))
+handleMut('contabilidad:retention-emitida-delete', ({ id } = {})           => db.accountingRetentionEmitidaDelete(id))
+handleMut('contabilidad:retention-recibida-create', (payload)               => db.accountingRetentionRecibidaCreate(payload || {}))
+handleMut('contabilidad:retention-recibida-update', ({ id, ...patch } = {}) => db.accountingRetentionRecibidaUpdate(id, patch))
+handle   ('contabilidad:retention-recibida-list',   (params)                => db.accountingRetentionRecibidaList(params || {}))
+handleMut('contabilidad:retention-recibida-delete', ({ id } = {})           => db.accountingRetentionRecibidaDelete(id))
+// Payroll
+handleMut('contabilidad:payroll-period-create', (payload)               => db.accountingPayrollPeriodCreate(payload || {}))
+handleMut('contabilidad:payroll-period-update', ({ id, ...patch } = {}) => db.accountingPayrollPeriodUpdate(id, patch))
+handle   ('contabilidad:payroll-period-list',   (params)                => db.accountingPayrollPeriodList(params || {}))
+handle   ('contabilidad:payroll-period-get',    ({ id } = {})           => db.accountingPayrollPeriodGet(id))
+handleMut('contabilidad:payroll-period-delete', ({ id } = {})           => db.accountingPayrollPeriodDelete(id))
+handleMut('contabilidad:payroll-line-add',      (payload)               => db.accountingPayrollLineAdd(payload || {}))
+handle   ('contabilidad:payroll-line-list',     (params)                => db.accountingPayrollLineList(params || {}))
+handleMut('contabilidad:payroll-line-delete',   ({ id } = {})           => db.accountingPayrollLineDelete(id))
+// TSS filings
+handleMut('contabilidad:tss-filing-create', (payload)               => db.accountingTssFilingCreate(payload || {}))
+handleMut('contabilidad:tss-filing-update', ({ id, ...patch } = {}) => db.accountingTssFilingUpdate(id, patch))
+handle   ('contabilidad:tss-filing-list',   (params)                => db.accountingTssFilingList(params || {}))
+handleMut('contabilidad:tss-filing-delete', ({ id } = {})           => db.accountingTssFilingDelete(id))
+// Tasks
+handleMut('contabilidad:task-create', (payload)               => db.accountingTaskCreate(payload || {}))
+handleMut('contabilidad:task-update', ({ id, ...patch } = {}) => db.accountingTaskUpdate(id, patch))
+handle   ('contabilidad:task-list',   (params)                => db.accountingTaskList(params || {}))
+handleMut('contabilidad:task-delete', ({ id } = {})           => db.accountingTaskDelete(id))
+// Foreign payments (609)
+handleMut('contabilidad:foreign-payment-create', (payload)               => db.accountingForeignPaymentCreate(payload || {}))
+handleMut('contabilidad:foreign-payment-update', ({ id, ...patch } = {}) => db.accountingForeignPaymentUpdate(id, patch))
+handle   ('contabilidad:foreign-payment-list',   (params)                => db.accountingForeignPaymentList(params || {}))
+handleMut('contabilidad:foreign-payment-delete', ({ id } = {})           => db.accountingForeignPaymentDelete(id))
+
+// ── Slice 2 — DGII generators (609 / IT-1 / IR-3 / IR-17 / IR-1 / IR-2 / Anexo A)
+// Each handler:
+//   1. Resolves emisor RNC + razón social from accounting_clients (or businesses settings).
+//   2. Pulls the relevant source rows for the period from db.*.
+//   3. Calls the corresponding generator from packages/services/dgii-reports.js.
+//   4. Returns { filename, content, contentType, summary } to the renderer.
+// PDF facsimiles return base64; TXT generators return plain text.
+//
+// dgii-reports.js is ESM and the rest of electron/ is CommonJS, so we lazy-load
+// via dynamic import. Cache the module promise to avoid re-importing per call.
+let _dgiiReportsModPromise = null
+function _loadDgiiReports() {
+  if (!_dgiiReportsModPromise) _dgiiReportsModPromise = import('../packages/services/dgii-reports.js')
+  return _dgiiReportsModPromise
+}
+async function _resolveEmisor(accountingClientId) {
+  if (!accountingClientId || !db.accountingClientGet) return { rncEmisor: '', razonSocial: '' }
+  const c = await db.accountingClientGet(accountingClientId)
+  return {
+    rncEmisor:   c?.rnc || c?.cedula || '',
+    razonSocial: c?.nombre_comercial || '',
+  }
+}
+function _periodFromArgs({ year, month }) {
+  const y = Number(year)
+  const m = Number(month)
+  return { from: `${y}-${String(m).padStart(2, '0')}-01`, to: `${y}-${String(m).padStart(2, '0')}-31` }
+}
+
+handle('contabilidad:gen-609', async ({ businessId, accountingClientId, year, month } = {}) => {
+  const mod = await _loadDgiiReports()
+  const { rncEmisor, razonSocial } = await _resolveEmisor(accountingClientId)
+  const { from, to } = _periodFromArgs({ year, month })
+  const foreignPayments = (await db.accountingForeignPaymentList?.({ accountingClientId, dateFrom: from, dateTo: to })) || []
+  void businessId
+  return mod.generate609({ rncEmisor, razonSocial, year, month, foreignPayments })
+})
+
+handle('contabilidad:gen-it1', async ({ businessId, accountingClientId, year, month, ventas, compras, retencionesRecibidas } = {}) => {
+  const mod = await _loadDgiiReports()
+  const { rncEmisor, razonSocial } = await _resolveEmisor(accountingClientId)
+  // Ventas/compras for IT-1 are taken from the same data the existing 606/607
+  // IPC consumes. Caller may pre-fetch and pass them in to avoid double query;
+  // when omitted we fall back to the 606/607 datasets.
+  const v = Array.isArray(ventas)  ? ventas  : ((await db.dgiiVentasByPeriod?.(year, month)) || [])
+  const c = Array.isArray(compras) ? compras : ((await db.dgiiComprasByPeriod?.(year, month)) || [])
+  const ret = Array.isArray(retencionesRecibidas) ? retencionesRecibidas : []
+  void businessId
+  return mod.generateIT1({ rncEmisor, razonSocial, year, month, ventas: v, compras: c, retencionesRecibidas: ret })
+})
+
+handle('contabilidad:gen-ir3', async ({ businessId, accountingClientId, year, month } = {}) => {
+  const mod = await _loadDgiiReports()
+  const { rncEmisor, razonSocial } = await _resolveEmisor(accountingClientId)
+  // Sum payroll lines across all periods of (accountingClientId, year, month).
+  const periods = (await db.accountingPayrollPeriodList?.({ accountingClientId, year })) || []
+  const matchingIds = periods.filter(p => Number(p.month) === Number(month)).map(p => p.id)
+  let lines = []
+  for (const pid of matchingIds) {
+    const ll = (await db.accountingPayrollLineList?.({ payrollPeriodId: pid })) || []
+    lines = lines.concat(ll)
+  }
+  void businessId
+  return mod.generateIR3({ rncEmisor, razonSocial, year, month, payrollLines: lines })
+})
+
+handle('contabilidad:gen-ir17', async ({ businessId, accountingClientId, year, month } = {}) => {
+  const mod = await _loadDgiiReports()
+  const { rncEmisor, razonSocial } = await _resolveEmisor(accountingClientId)
+  const { from, to } = _periodFromArgs({ year, month })
+  const retentions = (await db.accountingRetentionEmitidaList?.({ accountingClientId, dateFrom: from, dateTo: to })) || []
+  void businessId
+  return mod.generateIR17({ rncEmisor, razonSocial, year, month, retentions })
+})
+
+handle('contabilidad:gen-ir1', async ({ businessId, accountingClientId, year, journalEntries, retencionesRecibidas, anticiposPagados, deducciones } = {}) => {
+  const mod = await _loadDgiiReports()
+  const { rncEmisor, razonSocial } = await _resolveEmisor(accountingClientId)
+  // Caller may pass synthesized journal_entries (computed) or rely on us to
+  // pull from accounting_journal_entries for the year. We default to caller-
+  // provided arrays since the COA-aware aggregation lives in renderer.
+  void businessId
+  return mod.generateIR1({
+    rncEmisor, razonSocial, year,
+    journalEntries: journalEntries || [],
+    retencionesRecibidas: retencionesRecibidas || [],
+    anticiposPagados: anticiposPagados || 0,
+    deducciones: deducciones || {},
+  })
+})
+
+handle('contabilidad:gen-ir2', async ({ businessId, accountingClientId, year, resultadoNeto, anticiposPagados, retencionesRecibidas, ajustes } = {}) => {
+  const mod = await _loadDgiiReports()
+  const { rncEmisor, razonSocial } = await _resolveEmisor(accountingClientId)
+  void businessId
+  return mod.generateIR2({
+    rncEmisor, razonSocial, year,
+    resultadoNeto: resultadoNeto || 0,
+    anticiposPagados: anticiposPagados || 0,
+    retencionesRecibidas: retencionesRecibidas || [],
+    ajustes: ajustes || {},
+  })
+})
+
+handle('contabilidad:gen-anexoa', async ({ businessId, accountingClientId, year, accounts } = {}) => {
+  const mod = await _loadDgiiReports()
+  const { rncEmisor, razonSocial } = await _resolveEmisor(accountingClientId)
+  void businessId
+  return mod.generateAnexoA({ rncEmisor, razonSocial, year, accounts: accounts || [] })
+})
+
 // ── Queue ─────────────────────────────────────────────────────────────────────
 handle('queue:active',       ()                        => db.queueGetActive())
 handleMut('queue:updateStatus', ({id,status,washerId})   => db.queueUpdateStatus(id, status, washerId))

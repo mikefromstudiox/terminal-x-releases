@@ -100,8 +100,116 @@ export function createElectronAPI() {
     seat:         async () => { throw new Error('Reservas requiere actualización del Terminal X') },
     stampWhatsapp: async () => { throw new Error('Reservas requiere actualización del Terminal X') },
   }
+  // Phase 1B — Contabilidad firm-side suite. Mirrors the API surface of
+  // packages/data/contabilidad.js (web/Supabase) so the screens shipped in
+  // Phase 1A consume `api.contabilidad.*` identically on either platform.
+  // Web inserts pass `business_id` implicitly via Supabase auth.business_id;
+  // desktop reads it from app_settings via the IPC handler — UI never sets it.
+  const contabilidadAugmented = raw.contabilidad ? {
+    // Cartera
+    clientList:             (params = {})   => raw.contabilidad.clientList(params),
+    clientCreate:           (payload)       => raw.contabilidad.clientCreate(payload),
+    clientUpdate:           (id, patch)     => raw.contabilidad.clientUpdate(id, patch),
+    clientGet:              (id)            => raw.contabilidad.clientGet(id),
+    clientDelete:           (id)            => raw.contabilidad.clientDelete(id),
+    // Bandeja
+    inboxList:              (params = {})   => raw.contabilidad.inboxList(params),
+    inboxAdd:               (payload)       => raw.contabilidad.inboxAdd(payload),
+    inboxClassify:          (id, patch)     => raw.contabilidad.inboxClassify(id, patch),
+    inboxPost:              (id, journalEntryId = null) =>
+      raw.contabilidad.inboxPost(id, { posted_journal_entry_id: journalEntryId }),
+    inboxDelete:            (id)            => raw.contabilidad.inboxDelete(id),
+    // Calendario / obligaciones
+    obligationsList:        (params = {})   => raw.contabilidad.obligationsList(params),
+    obligationsMarkFiled:   (id, payload)   => raw.contabilidad.obligationMarkFiled(id, payload),
+    obligationsGenerateYear:(params)        => raw.contabilidad.obligationsGenerateYear(params),
+    // Documentos
+    documentList:           (params = {})   => raw.contabilidad.documentList(params),
+    documentAdd:            (payload)       => raw.contabilidad.documentAdd(payload),
+    documentDelete:         (id)            => raw.contabilidad.documentDelete(id),
+    // Honorarios
+    billingPlanList:        (params = {})   => raw.contabilidad.billingPlanList(params),
+    billingPlanCreate:      (payload)       => raw.contabilidad.billingPlanCreate(payload),
+    billingPlanUpdate:      (id, patch)     => raw.contabilidad.billingPlanUpdate(id, patch),
+    billingInvoiceList:     (params = {})   => raw.contabilidad.billingInvoiceList(params),
+    billingInvoiceCreate:   (payload)       => raw.contabilidad.billingInvoiceCreate(payload),
+    billingInvoiceMarkPaid: (id)            => raw.contabilidad.billingInvoiceMarkPaid(id),
+    // CSV mappings (desktop-only convenience)
+    csvMappingList:         (params = {})   => raw.contabilidad.csvMappingList(params),
+    csvMappingCreate:       (payload)       => raw.contabilidad.csvMappingCreate(payload),
+
+    // Phase 2 Slice 1 — Chart of accounts
+    coaList:                (params = {})   => raw.contabilidad.coaList(params),
+    coaCreate:              (payload)       => raw.contabilidad.coaCreate(payload),
+    coaUpdate:              (id, patch)     => raw.contabilidad.coaUpdate(id, patch),
+    coaGet:                 (id)            => raw.contabilidad.coaGet(id),
+    coaDelete:              (id)            => raw.contabilidad.coaDelete(id),
+    // Journal entries + lines
+    journalEntryList:       (params = {})   => raw.contabilidad.journalEntryList(params),
+    journalEntryCreate:     (payload)       => raw.contabilidad.journalEntryCreate(payload),
+    journalEntryUpdate:     (id, patch)     => raw.contabilidad.journalEntryUpdate(id, patch),
+    journalEntryGet:        (id)            => raw.contabilidad.journalEntryGet(id),
+    journalEntryDelete:     (id)            => raw.contabilidad.journalEntryDelete(id),
+    journalLineList:        (params = {})   => raw.contabilidad.journalLineList(params),
+    journalLineAdd:         (payload)       => raw.contabilidad.journalLineAdd(payload),
+    journalLineDelete:      (id)            => raw.contabilidad.journalLineDelete(id),
+    // Auto-post rules
+    autoPostRuleList:       (params = {})   => raw.contabilidad.autoPostRuleList(params),
+    autoPostRuleCreate:     (payload)       => raw.contabilidad.autoPostRuleCreate(payload),
+    autoPostRuleUpdate:     (id, patch)     => raw.contabilidad.autoPostRuleUpdate(id, patch),
+    autoPostRuleDelete:     (id)            => raw.contabilidad.autoPostRuleDelete(id),
+    // Bank accounts + statement lines
+    bankAccountList:        (params = {})   => raw.contabilidad.bankAccountList(params),
+    bankAccountCreate:      (payload)       => raw.contabilidad.bankAccountCreate(payload),
+    bankAccountUpdate:      (id, patch)     => raw.contabilidad.bankAccountUpdate(id, patch),
+    bankAccountDelete:      (id)            => raw.contabilidad.bankAccountDelete(id),
+    bankStatementLineList:    (params = {}) => raw.contabilidad.bankStatementLineList(params),
+    bankStatementLineAdd:     (payload)     => raw.contabilidad.bankStatementLineAdd(payload),
+    bankStatementLineUpdate:  (id, patch)   => raw.contabilidad.bankStatementLineUpdate(id, patch),
+    bankStatementLineDelete:  (id)          => raw.contabilidad.bankStatementLineDelete(id),
+    // Fixed assets
+    fixedAssetList:         (params = {})   => raw.contabilidad.fixedAssetList(params),
+    fixedAssetCreate:       (payload)       => raw.contabilidad.fixedAssetCreate(payload),
+    fixedAssetUpdate:       (id, patch)     => raw.contabilidad.fixedAssetUpdate(id, patch),
+    fixedAssetDelete:       (id)            => raw.contabilidad.fixedAssetDelete(id),
+    // Retentions
+    retentionEmitidaList:   (params = {})   => raw.contabilidad.retentionEmitidaList(params),
+    retentionEmitidaCreate: (payload)       => raw.contabilidad.retentionEmitidaCreate(payload),
+    retentionEmitidaUpdate: (id, patch)     => raw.contabilidad.retentionEmitidaUpdate(id, patch),
+    retentionEmitidaDelete: (id)            => raw.contabilidad.retentionEmitidaDelete(id),
+    retentionRecibidaList:   (params = {})  => raw.contabilidad.retentionRecibidaList(params),
+    retentionRecibidaCreate: (payload)      => raw.contabilidad.retentionRecibidaCreate(payload),
+    retentionRecibidaUpdate: (id, patch)    => raw.contabilidad.retentionRecibidaUpdate(id, patch),
+    retentionRecibidaDelete: (id)           => raw.contabilidad.retentionRecibidaDelete(id),
+    // Payroll
+    payrollPeriodList:      (params = {})   => raw.contabilidad.payrollPeriodList(params),
+    payrollPeriodCreate:    (payload)       => raw.contabilidad.payrollPeriodCreate(payload),
+    payrollPeriodUpdate:    (id, patch)     => raw.contabilidad.payrollPeriodUpdate(id, patch),
+    payrollPeriodGet:       (id)            => raw.contabilidad.payrollPeriodGet(id),
+    payrollPeriodDelete:    (id)            => raw.contabilidad.payrollPeriodDelete(id),
+    payrollLineList:        (params = {})   => raw.contabilidad.payrollLineList(params),
+    payrollLineAdd:         (payload)       => raw.contabilidad.payrollLineAdd(payload),
+    payrollLineDelete:      (id)            => raw.contabilidad.payrollLineDelete(id),
+    // TSS
+    tssFilingList:          (params = {})   => raw.contabilidad.tssFilingList(params),
+    tssFilingCreate:        (payload)       => raw.contabilidad.tssFilingCreate(payload),
+    tssFilingUpdate:        (id, patch)     => raw.contabilidad.tssFilingUpdate(id, patch),
+    tssFilingDelete:        (id)            => raw.contabilidad.tssFilingDelete(id),
+    // Tasks
+    taskList:               (params = {})   => raw.contabilidad.taskList(params),
+    taskCreate:             (payload)       => raw.contabilidad.taskCreate(payload),
+    taskUpdate:             (id, patch)     => raw.contabilidad.taskUpdate(id, patch),
+    taskDelete:             (id)            => raw.contabilidad.taskDelete(id),
+    // Foreign payments
+    foreignPaymentList:     (params = {})   => raw.contabilidad.foreignPaymentList(params),
+    foreignPaymentCreate:   (payload)       => raw.contabilidad.foreignPaymentCreate(payload),
+    foreignPaymentUpdate:   (id, patch)     => raw.contabilidad.foreignPaymentUpdate(id, patch),
+    foreignPaymentDelete:   (id)            => raw.contabilidad.foreignPaymentDelete(id),
+  } : undefined
+
   return (augmentedRef = {
     ...raw,
+    contabilidad: contabilidadAugmented,
     activity: activityAugmented,
     vehicleInventory: vehicleInventoryAugmented,
     vehicleDocuments: vehicleDocumentsAugmented,

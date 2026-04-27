@@ -779,3 +779,141 @@ function buildLines(data) {
 
   return lines
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Contabilidad — Letter-size financial report PDFs.
+//
+// One renderer drives Balance de Comprobación, Estado de Resultados and
+// Balance General. Brand palette: black/white/#b3001e only. All amounts
+// formatted in es-DO. Auto-paginates and triggers a browser download (web)
+// or save-to-disk (when an IPC pdf.save handler is mounted).
+// ─────────────────────────────────────────────────────────────────────────
+
+const PERIOD_LABELS = [
+  'Enero','Febrero','Marzo','Abril','Mayo','Junio',
+  'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre',
+]
+
+export async function buildContabilidadReportPDF({
+  title, year, month, kind,
+  rows = [], totals = { d: 0, c: 0 },
+  groups = null, utilidad = 0, totalPasPat = 0,
+  api,
+}) {
+  const pdf  = await PDFDocument.create()
+  const font = await pdf.embedFont(StandardFonts.Helvetica)
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
+  const PAGE_W_LTR = 612, PAGE_H_LTR = 792
+  const M = 36
+  let page = pdf.addPage([PAGE_W_LTR, PAGE_H_LTR])
+  let y = PAGE_H_LTR - M
+
+  function newPage() { page = pdf.addPage([PAGE_W_LTR, PAGE_H_LTR]); y = PAGE_H_LTR - M }
+  function ensure(h) { if (y - h < M) newPage() }
+  function text(t, x, opts = {}) {
+    const f = opts.bold ? bold : font
+    const s = opts.size || 10
+    const c = opts.color || INK
+    page.drawText(String(t ?? ''), { x, y, size: s, font: f, color: RGB(c) })
+  }
+  function rule(c = HAIRLINE) {
+    page.drawLine({ start: { x: M, y }, end: { x: PAGE_W_LTR - M, y }, thickness: 0.5, color: RGB(c) })
+  }
+  function row(cells, opts = {}) {
+    const h = opts.h || 14
+    ensure(h)
+    y -= h
+    const widths = opts.widths || cells.map(() => (PAGE_W_LTR - 2 * M) / cells.length)
+    let x = M
+    cells.forEach((c, i) => {
+      const align = (opts.align || [])[i] || 'left'
+      const w = widths[i]
+      const s = String(c ?? '')
+      const f = opts.bold ? bold : font
+      const sz = opts.size || 10
+      const tw = f.widthOfTextAtSize(s, sz)
+      const tx = align === 'right' ? x + w - tw - 2 : (align === 'center' ? x + (w - tw) / 2 : x + 2)
+      page.drawText(s, { x: tx, y: y + 3, size: sz, font: f, color: RGB(opts.color || INK) })
+      x += w
+    })
+  }
+
+  // Header
+  page.drawRectangle({ x: 0, y: PAGE_H_LTR - 60, width: PAGE_W_LTR, height: 60, color: RGB(CRIMSON) })
+  page.drawText(title, { x: M, y: PAGE_H_LTR - 38, size: 18, font: bold, color: RGB(PAPER) })
+  const periodStr = `${PERIOD_LABELS[(month || 1) - 1]} ${year}`
+  page.drawText(periodStr, { x: M, y: PAGE_H_LTR - 54, size: 10, font, color: RGB(PAPER) })
+  y = PAGE_H_LTR - 80
+
+  // Body per kind
+  if (kind === 'balance') {
+    const widths = [70, 280, 80, 80, 80]
+    row(['Código','Cuenta','Débito','Crédito','Saldo'], { widths, align: ['left','left','right','right','right'], bold: true, h: 18 })
+    rule(INK)
+    rows.forEach(r => {
+      row([r.code, r.name, fmtRD(r.debit), fmtRD(r.credit), fmtRD(r.saldo)], { widths, align: ['left','left','right','right','right'] })
+    })
+    rule(INK)
+    row(['', 'Totales', fmtRD(totals.d), fmtRD(totals.c), fmtRD(totals.d - totals.c)], { widths, align: ['left','right','right','right','right'], bold: true, h: 18, color: CRIMSON })
+  } else if (kind === 'er') {
+    const sections = [
+      { label: 'Ingresos', list: groups?.ing || [], total: groups?.totalIng || 0 },
+      { label: 'Costos',   list: groups?.cos || [], total: groups?.totalCos || 0 },
+      { label: 'Gastos',   list: groups?.gas || [], total: groups?.totalGas || 0 },
+    ]
+    const widths = [70, 360, 80]
+    for (const s of sections) {
+      ensure(28); y -= 14
+      text(s.label, M, { bold: true, size: 12, color: CRIMSON })
+      y -= 4; rule(CRIMSON)
+      for (const r of s.list) row([r.code, r.name, fmtRD(r.saldo)], { widths, align: ['left','left','right'] })
+      row(['', `Total ${s.label}`, fmtRD(s.total)], { widths, align: ['left','right','right'], bold: true })
+      y -= 4
+    }
+    ensure(28); y -= 18; rule(INK)
+    row(['', 'Utilidad / (Pérdida) del Período', fmtRD(utilidad)], { widths, align: ['left','right','right'], bold: true, color: CRIMSON, size: 12, h: 20 })
+  } else if (kind === 'bg') {
+    const widths = [70, 360, 80]
+    const draw = (label, list, total) => {
+      ensure(28); y -= 14
+      text(label, M, { bold: true, size: 12, color: CRIMSON })
+      y -= 4; rule(CRIMSON)
+      for (const r of list) row([r.code, r.name, fmtRD(r.saldo)], { widths, align: ['left','left','right'] })
+      row(['', `Total ${label}`, fmtRD(total)], { widths, align: ['left','right','right'], bold: true })
+      y -= 4
+    }
+    draw('Activos',     groups?.act || [], groups?.totalAct || 0)
+    draw('Pasivos',     groups?.pas || [], groups?.totalPas || 0)
+    draw('Patrimonio',  groups?.pat || [], groups?.totalPat || 0)
+    ensure(28); y -= 14
+    row(['', 'Utilidad acumulada del ejercicio', fmtRD(groups?.utilidad || 0)], { widths, align: ['left','right','right'], bold: true })
+    rule(INK)
+    row(['', 'Total Pasivo + Patrimonio', fmtRD(totalPasPat)], { widths, align: ['left','right','right'], bold: true, color: CRIMSON, size: 12, h: 20 })
+    const diff = (groups?.totalAct || 0) - totalPasPat
+    ensure(20); y -= 14
+    text(Math.abs(diff) < 0.01
+      ? 'Ecuación contable cuadrada: Activo = Pasivo + Patrimonio.'
+      : `Diferencia detectada: ${fmtRD(diff)} — revisar asientos.`,
+      M, { size: 9, color: Math.abs(diff) < 0.01 ? CRIMSON : INK })
+  }
+
+  const filename = `${kind || 'reporte'}_${year}_${String(month || 0).padStart(2,'0')}.pdf`
+  const pdfBytes = await pdf.save()
+  const base64 = btoa(String.fromCharCode(...pdfBytes))
+
+  const pdfApi = api?.pdf || (typeof window !== 'undefined' ? window.electronAPI?.pdf : null)
+  if (pdfApi?.save) {
+    try { return await pdfApi.save({ filename, base64 }) } catch {}
+  }
+  if (typeof window !== 'undefined') {
+    const byteChars = atob(base64)
+    const byteArray = new Uint8Array(byteChars.length)
+    for (let i = 0; i < byteChars.length; i++) byteArray[i] = byteChars.charCodeAt(i)
+    const blob = new Blob([byteArray], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = filename; a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+  return { ok: true, filename }
+}

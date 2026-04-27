@@ -97,6 +97,7 @@ const Memberships         = lazy(() => import('./screens/carwash/Memberships'))
 const SalonMemberships    = lazy(() => import('./screens/salon/Memberships'))
 const SalonResumen        = lazy(() => import('./screens/salon/Resumen'))
 const ServiceHub          = lazy(() => import('./screens/service/ServiceHub'))
+const ContabilidadShell   = lazy(() => import('./screens/contabilidad/ContabilidadShell.jsx'))
 const InvoiceDashboard    = lazy(() => import('./screens/invoicing/InvoiceDashboard'))
 const InvoiceCreate       = lazy(() => import('./screens/invoicing/InvoiceCreate'))
 const InvoiceList         = lazy(() => import('./screens/invoicing/InvoiceList'))
@@ -338,6 +339,8 @@ export default function App() {
         <Route path="/carniceria/frescura"  element={<ProtectedRoute element={<PlanGate feature="carniceria_freshness_alerts"><CarniceriaFreshnessAlerts /></PlanGate>} />} />
         <Route path="/carniceria/mayoreo"   element={<ProtectedRoute element={<PlanGate feature="carniceria_mayoreo"><CarniceriaMayoreoOrders /></PlanGate>} />} />
         <Route path="/carniceria/resumen"   element={<ProtectedRoute element={<PlanGate feature="carniceria_resumen"><CarniceriaResumen /></PlanGate>} />} />
+        {/* Contabilidad — firm-side accounting suite (Phase 1) */}
+        <Route path="/contabilidad/*"        element={<ProtectedRoute element={<PlanGate feature="contabilidad_inbox"><ContabilidadShell /></PlanGate>} />} />
         {/* Legacy routes — redirect to canonical destinations */}
         <Route path="/workers"               element={<Navigate to="/reports/workers" replace />} />
         <Route path="/services"              element={<Navigate to="/admin" replace />} />

@@ -663,6 +663,117 @@ contextBridge.exposeInMainWorld('electronAPI', {
     stampWhatsapp: (id)            => call('reservations:stampWhatsapp', { id }),
   },
 
+  // ── Phase 1B — Contabilidad (firm-side suite) ───────────────────────────
+  contabilidad: {
+    clientCreate:           (payload)        => call('contabilidad:client-create', payload),
+    clientUpdate:           (id, patch)      => call('contabilidad:client-update', { id, ...(patch || {}) }),
+    clientList:             (params)         => call('contabilidad:client-list', params),
+    clientGet:              (id)             => call('contabilidad:client-get', { id }),
+    clientDelete:           (id)             => call('contabilidad:client-delete', { id }),
+
+    inboxAdd:               (payload)        => call('contabilidad:inbox-add', payload),
+    inboxList:              (params)         => call('contabilidad:inbox-list', params),
+    inboxClassify:          (id, patch)      => call('contabilidad:inbox-classify', { id, ...(patch || {}) }),
+    inboxPost:              (id, rest)       => call('contabilidad:inbox-post', { id, ...(rest || {}) }),
+    inboxDelete:            (id)             => call('contabilidad:inbox-delete', { id }),
+
+    obligationsGenerateYear:(params)         => call('contabilidad:obligations-generate-year', params),
+    obligationsList:        (params)         => call('contabilidad:obligations-list', params),
+    obligationMarkFiled:    (id, payload)    => call('contabilidad:obligations-mark-filed', { id, ...(payload || {}) }),
+
+    documentAdd:            (payload)        => call('contabilidad:document-add', payload),
+    documentList:           (params)         => call('contabilidad:document-list', params),
+    documentDelete:         (id)             => call('contabilidad:document-delete', { id }),
+
+    billingPlanCreate:      (payload)        => call('contabilidad:billing-plan-create', payload),
+    billingPlanUpdate:      (id, patch)      => call('contabilidad:billing-plan-update', { id, ...(patch || {}) }),
+    billingPlanList:        (params)         => call('contabilidad:billing-plan-list', params),
+
+    billingInvoiceCreate:   (payload)        => call('contabilidad:billing-invoice-create', payload),
+    billingInvoiceMarkPaid: (id)             => call('contabilidad:billing-invoice-mark-paid', { id }),
+    billingInvoiceList:     (params)         => call('contabilidad:billing-invoice-list', params),
+
+    csvMappingCreate:       (payload)        => call('contabilidad:csv-mapping-create', payload),
+    csvMappingList:         (params)         => call('contabilidad:csv-mapping-list', params),
+
+    // Phase 2 Slice 1 — Chart of accounts
+    coaCreate:              (payload)        => call('contabilidad:coa-create', payload),
+    coaUpdate:              (id, patch)      => call('contabilidad:coa-update', { id, ...(patch || {}) }),
+    coaList:                (params)         => call('contabilidad:coa-list', params),
+    coaGet:                 (id)             => call('contabilidad:coa-get', { id }),
+    coaDelete:              (id)             => call('contabilidad:coa-delete', { id }),
+    // Journal entries + lines
+    journalEntryCreate:     (payload)        => call('contabilidad:journal-entry-create', payload),
+    journalEntryUpdate:     (id, patch)      => call('contabilidad:journal-entry-update', { id, ...(patch || {}) }),
+    journalEntryList:       (params)         => call('contabilidad:journal-entry-list', params),
+    journalEntryGet:        (id)             => call('contabilidad:journal-entry-get', { id }),
+    journalEntryDelete:     (id)             => call('contabilidad:journal-entry-delete', { id }),
+    journalLineAdd:         (payload)        => call('contabilidad:journal-line-add', payload),
+    journalLineList:        (params)         => call('contabilidad:journal-line-list', params),
+    journalLineDelete:      (id)             => call('contabilidad:journal-line-delete', { id }),
+    // Auto-post rules
+    autoPostRuleCreate:     (payload)        => call('contabilidad:auto-post-rule-create', payload),
+    autoPostRuleUpdate:     (id, patch)      => call('contabilidad:auto-post-rule-update', { id, ...(patch || {}) }),
+    autoPostRuleList:       (params)         => call('contabilidad:auto-post-rule-list', params),
+    autoPostRuleDelete:     (id)             => call('contabilidad:auto-post-rule-delete', { id }),
+    // Bank accounts + statement lines
+    bankAccountCreate:      (payload)        => call('contabilidad:bank-account-create', payload),
+    bankAccountUpdate:      (id, patch)      => call('contabilidad:bank-account-update', { id, ...(patch || {}) }),
+    bankAccountList:        (params)         => call('contabilidad:bank-account-list', params),
+    bankAccountDelete:      (id)             => call('contabilidad:bank-account-delete', { id }),
+    bankStatementLineAdd:    (payload)       => call('contabilidad:bank-statement-line-add', payload),
+    bankStatementLineUpdate: (id, patch)     => call('contabilidad:bank-statement-line-update', { id, ...(patch || {}) }),
+    bankStatementLineList:   (params)        => call('contabilidad:bank-statement-line-list', params),
+    bankStatementLineDelete: (id)            => call('contabilidad:bank-statement-line-delete', { id }),
+    // Fixed assets
+    fixedAssetCreate:       (payload)        => call('contabilidad:fixed-asset-create', payload),
+    fixedAssetUpdate:       (id, patch)      => call('contabilidad:fixed-asset-update', { id, ...(patch || {}) }),
+    fixedAssetList:         (params)         => call('contabilidad:fixed-asset-list', params),
+    fixedAssetDelete:       (id)             => call('contabilidad:fixed-asset-delete', { id }),
+    // Retentions emitidas/recibidas
+    retentionEmitidaCreate:  (payload)       => call('contabilidad:retention-emitida-create', payload),
+    retentionEmitidaUpdate:  (id, patch)     => call('contabilidad:retention-emitida-update', { id, ...(patch || {}) }),
+    retentionEmitidaList:    (params)        => call('contabilidad:retention-emitida-list', params),
+    retentionEmitidaDelete:  (id)            => call('contabilidad:retention-emitida-delete', { id }),
+    retentionRecibidaCreate: (payload)       => call('contabilidad:retention-recibida-create', payload),
+    retentionRecibidaUpdate: (id, patch)     => call('contabilidad:retention-recibida-update', { id, ...(patch || {}) }),
+    retentionRecibidaList:   (params)        => call('contabilidad:retention-recibida-list', params),
+    retentionRecibidaDelete: (id)            => call('contabilidad:retention-recibida-delete', { id }),
+    // Payroll
+    payrollPeriodCreate:    (payload)        => call('contabilidad:payroll-period-create', payload),
+    payrollPeriodUpdate:    (id, patch)      => call('contabilidad:payroll-period-update', { id, ...(patch || {}) }),
+    payrollPeriodList:      (params)         => call('contabilidad:payroll-period-list', params),
+    payrollPeriodGet:       (id)             => call('contabilidad:payroll-period-get', { id }),
+    payrollPeriodDelete:    (id)             => call('contabilidad:payroll-period-delete', { id }),
+    payrollLineAdd:         (payload)        => call('contabilidad:payroll-line-add', payload),
+    payrollLineList:        (params)         => call('contabilidad:payroll-line-list', params),
+    payrollLineDelete:      (id)             => call('contabilidad:payroll-line-delete', { id }),
+    // TSS filings
+    tssFilingCreate:        (payload)        => call('contabilidad:tss-filing-create', payload),
+    tssFilingUpdate:        (id, patch)      => call('contabilidad:tss-filing-update', { id, ...(patch || {}) }),
+    tssFilingList:          (params)         => call('contabilidad:tss-filing-list', params),
+    tssFilingDelete:        (id)             => call('contabilidad:tss-filing-delete', { id }),
+    // Tasks
+    taskCreate:             (payload)        => call('contabilidad:task-create', payload),
+    taskUpdate:             (id, patch)      => call('contabilidad:task-update', { id, ...(patch || {}) }),
+    taskList:               (params)         => call('contabilidad:task-list', params),
+    taskDelete:             (id)             => call('contabilidad:task-delete', { id }),
+    // Foreign payments (609)
+    foreignPaymentCreate:   (payload)        => call('contabilidad:foreign-payment-create', payload),
+    foreignPaymentUpdate:   (id, patch)      => call('contabilidad:foreign-payment-update', { id, ...(patch || {}) }),
+    foreignPaymentList:     (params)         => call('contabilidad:foreign-payment-list', params),
+    foreignPaymentDelete:   (id)             => call('contabilidad:foreign-payment-delete', { id }),
+
+    // Slice 2 — DGII generators
+    gen609:    (params) => call('contabilidad:gen-609',    params),
+    genIT1:    (params) => call('contabilidad:gen-it1',    params),
+    genIR3:    (params) => call('contabilidad:gen-ir3',    params),
+    genIR17:   (params) => call('contabilidad:gen-ir17',   params),
+    genIR1:    (params) => call('contabilidad:gen-ir1',    params),
+    genIR2:    (params) => call('contabilidad:gen-ir2',    params),
+    genAnexoA: (params) => call('contabilidad:gen-anexoa', params),
+  },
+
   // ── Queue ──────────────────────────────────────────────────────────────────
   queue: {
     active:       ()     => call('queue:active'),
