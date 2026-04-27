@@ -5,6 +5,7 @@ import {
   Eye, EyeOff, AlertCircle, FileText, Wifi, WifiOff, ExternalLink,
   Check, Coffee, Lock, ChevronUp, ChevronDown, Trash2, CreditCard,
   CloudUpload, ToggleLeft, Scissors, Copy, QrCode, Download,
+  Briefcase, Link2, Unlink,
 } from 'lucide-react'
 import QRCode from 'qrcode'
 import ManagerCardModal from '../components/ManagerCardModal'
@@ -2027,6 +2028,7 @@ const TABS = [
   { id: 'empresa',    es: 'Mi Empresa',    en: 'Business',          icon: Building2  },
   { id: 'usuarios',   es: 'Usuarios',      en: 'Users',             icon: KeyRound   },
   { id: 'servicios',  es: 'Servicios',     en: 'Services',          icon: LayoutGrid },
+  { id: 'contable',   es: 'Compartir con contador', en: 'Share with accountant', icon: Briefcase },
 ]
 
 export default function Admin({ initialTab, hideHeader }) {
@@ -2068,6 +2070,7 @@ export default function Admin({ initialTab, hideHeader }) {
         {tab === 'empresa'    && <MiEmpresa />}
         {tab === 'usuarios'   && <Usuarios />}
         {tab === 'servicios'  && <Servicios />}
+        {tab === 'contable'   && <ShareWithAccountant />}
       </div>
     </div>
   )
@@ -2275,6 +2278,131 @@ export function CloudBackup() {
           {L('Si tu PC falla, podemos restaurar tu negocio al estado de anoche.',
              'If your PC fails, we can restore your business to last night’s state.')}
         </p>
+      </div>
+    </div>
+  )
+}
+
+// ── Share with accountant (Slice 5 — cross-firm wire) ──────────────────────
+async function callCtbPanel(action, payload, method = 'POST') {
+  const mod = await import('@terminal-x/services/supabase')
+  const sb = mod.getSupabaseClient?.()
+  const sess = (await sb?.auth?.getSession?.())?.data?.session
+  const token = sess?.access_token
+  if (!token) throw new Error('Sesión expirada — vuelve a iniciar sesión.')
+  const isGet = method === 'GET'
+  const qs = isGet
+    ? '?' + new URLSearchParams({ action, ...(payload || {}) }).toString()
+    : `?action=${encodeURIComponent(action)}`
+  const res = await fetch('/api/panel' + qs, {
+    method, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: isGet ? undefined : JSON.stringify(payload || {}),
+  })
+  const j = await res.json().catch(() => ({}))
+  if (!res.ok || j?.ok === false) throw new Error(j?.error || j?.message || `HTTP ${res.status}`)
+  return j
+}
+
+function ShareWithAccountant() {
+  const [grants, setGrants] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  const reload = useCallback(async () => {
+    setLoading(true)
+    try {
+      const r = await callCtbPanel('ctb_my_accountant', null, 'GET')
+      setGrants(r?.grants || [])
+    } catch (e) { setMsg({ kind: 'error', text: e?.message || String(e) }) }
+    finally { setLoading(false) }
+  }, [])
+  useEffect(() => { reload() }, [reload])
+
+  async function accept() {
+    const c = code.trim().toUpperCase()
+    if (c.length !== 8) return setMsg({ kind: 'error', text: 'El código debe tener 8 caracteres.' })
+    setBusy(true); setMsg(null)
+    try {
+      const r = await callCtbPanel('ctb_accept_access_code', { code: c })
+      setMsg({ kind: 'ok', text: `Conectado a ${r.firm_name || 'el contador'}.` })
+      setCode('')
+      await reload()
+    } catch (e) {
+      const m = e?.message || ''
+      const friendly = m.includes('expired') ? 'El código venció. Pide uno nuevo a tu contador.'
+                    : m.includes('consumed') ? 'Ese código ya fue usado o no existe.'
+                    : m.includes('already_granted') ? 'Este cliente ya está conectado a otro tenant.'
+                    : m
+      setMsg({ kind: 'error', text: friendly })
+    } finally { setBusy(false) }
+  }
+
+  async function revoke(grant) {
+    if (!confirm(`¿Revocar acceso de "${grant.firm_name || 'tu contador'}" a tus datos?`)) return
+    setBusy(true); setMsg(null)
+    try {
+      await callCtbPanel('ctb_revoke_access', { accounting_client_id: grant.accounting_client_id })
+      setMsg({ kind: 'ok', text: 'Acceso revocado.' })
+      await reload()
+    } catch (e) { setMsg({ kind: 'error', text: e?.message || String(e) }) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-5 text-slate-800 dark:text-white">
+      <div>
+        <h2 className="text-base font-bold inline-flex items-center gap-2"><Briefcase size={16} className="text-[#b3001e]"/> Compartir con tu contador</h2>
+        <p className="text-xs text-slate-500 dark:text-white/60 mt-1">
+          Si tu contador usa Terminal X, puede ver tus ventas, e-CFs e inventario sin exportar nada manualmente.
+          Pídele un código de 8 caracteres y pégalo aquí. El acceso es <strong>solo lectura</strong> y puedes revocarlo cuando quieras.
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 p-5">
+        <div className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-white/60 mb-2">Ingresar código</div>
+        <div className="flex gap-2">
+          <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 8))}
+            placeholder="XXXXXXXX" maxLength={8}
+            className="flex-1 font-mono text-2xl tracking-widest text-center px-3 py-2 rounded-lg border border-slate-300 dark:border-white/15 bg-white dark:bg-black"/>
+          <button onClick={accept} disabled={busy || code.length !== 8}
+            className="px-4 py-2 rounded-lg bg-[#b3001e] text-white text-sm font-bold hover:bg-[#8f0018] disabled:opacity-50 inline-flex items-center gap-1">
+            {busy ? <Loader2 size={14} className="animate-spin"/> : <Link2 size={14}/>} Conectar
+          </button>
+        </div>
+        {msg && (
+          <div className={`mt-3 text-xs px-3 py-2 rounded-lg ${msg.kind === 'ok'
+              ? 'bg-[#b3001e]/10 text-[#b3001e] border border-[#b3001e]/30'
+              : 'bg-black text-white border border-black dark:bg-white dark:text-black dark:border-white'}`}>
+            {msg.text}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-white/60 mb-2">Conexiones activas</div>
+        {loading && <div className="text-sm text-slate-500 dark:text-white/60 inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin"/> Cargando…</div>}
+        {!loading && !grants.length && (
+          <div className="rounded-2xl border border-dashed border-slate-300 dark:border-white/15 p-6 text-center text-xs text-slate-500 dark:text-white/60">
+            No hay contadores conectados.
+          </div>
+        )}
+        {!loading && grants.map(g => (
+          <div key={g.accounting_client_id} className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 p-4 flex items-center gap-3">
+            <Briefcase size={18} className="text-[#b3001e]"/>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold truncate">{g.firm_name || 'Bufete'}</div>
+              <div className="text-[11px] text-slate-500 dark:text-white/60">
+                Conectado {g.granted_at ? new Date(g.granted_at).toLocaleDateString('es-DO') : '—'}
+              </div>
+            </div>
+            <button onClick={() => revoke(g)} disabled={busy}
+              className="px-3 py-1.5 rounded-lg border border-black/15 dark:border-white/15 text-xs font-bold text-black/70 dark:text-white/70 hover:border-[#b3001e] hover:text-[#b3001e] inline-flex items-center gap-1 disabled:opacity-50">
+              <Unlink size={12}/> Revocar
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   )

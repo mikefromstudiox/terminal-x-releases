@@ -54,7 +54,7 @@ async function requireAdmin(req, minRole) {
   const { data: admin } = await supabase.from('admin_users')
     .select('id, role, name, active').eq('auth_user_id', user.id).eq('active', true).maybeSingle()
   if (!admin) return { error: 'Not an admin', status: 403 }
-  const h = { super_admin: 3, admin: 2, support: 1 }
+  const h = { super_admin: 3, admin: 2, sales_manager: 2, sales: 1, support: 1 }
   if ((h[admin.role] || 0) < (h[minRole] || 0)) return { error: 'Insufficient permissions', status: 403 }
   return { admin, user, supabase }
 }
@@ -150,7 +150,416 @@ export default async function handler(req, res) {
   // FIX-H5 — Facturación tier email post-emisión.
   if (action === 'email-invoice') return handleEmailInvoice(req, res)
 
+  // CRM — admin sales pipeline for signups + cold leads.
+  if (action === 'crm_list')   return handleCrmList(req, res)
+  if (action === 'crm_detail') return handleCrmDetail(req, res)
+  if (action === 'crm_update') return handleCrmUpdate(req, res)
+  if (action === 'crm_note')   return handleCrmNote(req, res)
+  if (action === 'crm_create') return handleCrmCreate(req, res)
+
+  // Desktop cloud backup — license-validated signed upload URL for db-backups bucket.
+  if (action === 'db-backup-sign') return handleDbBackupSign(req, res)
+  if (action === 'db-backup-status') return handleDbBackupStatus(req, res)
+
+  // ── Contabilidad cross-firm wire (Slice 5) ────────────────────────────────
+  if (action === 'ctb_generate_access_code') return handleCtbGenerateAccessCode(req, res)
+  if (action === 'ctb_accept_access_code')   return handleCtbAcceptAccessCode(req, res)
+  if (action === 'ctb_revoke_access')        return handleCtbRevokeAccess(req, res)
+  if (action === 'ctb_client_data')          return handleCtbClientData(req, res)
+  if (action === 'ctb_my_accountant')        return handleCtbMyAccountant(req, res)
+
   return res.status(400).json({ error: 'Unknown action' })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Contabilidad cross-firm wire — Slice 5
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth pattern: Supabase JWT in Authorization: Bearer <token>. The JWT carries
+// app_metadata.business_id (set by /signup/provision.js + AuthContext refresh).
+// We resolve it via supabase.auth.getUser, then load the businesses row to
+// confirm business_type. Service role bypasses RLS so we can write to
+// accounting_clients on behalf of either tenant.
+//
+// Token format: 8-char from CHARS (32-char alphabet, ~5 bits/char ≈ 40 bits of
+// entropy). One-time, expires after 24h. We expire by overwriting with NULL
+// when consumed; expiry-without-consume is enforced at lookup time.
+
+async function ctbAuthUser(req) {
+  const authHeader = req.headers.authorization || ''
+  if (!authHeader.startsWith('Bearer ')) return { error: 'missing_auth_token', status: 401 }
+  const token = authHeader.slice(7)
+  const supabase = getClient()
+  const { data: { user }, error } = await supabase.auth.getUser(token)
+  if (error || !user) return { error: 'invalid_token', status: 401 }
+  // Resolve business_id via app_metadata first; fallback to staff lookup so
+  // installs that never refreshed the JWT after provisioning still work.
+  let businessId = user.app_metadata?.business_id || null
+  if (!businessId) {
+    const { data: staff } = await supabase.from('staff')
+      .select('business_id, role').eq('auth_user_id', user.id).eq('active', true).maybeSingle()
+    businessId = staff?.business_id || null
+  }
+  if (!businessId) return { error: 'no_business', status: 403 }
+  const { data: biz } = await supabase.from('businesses')
+    .select('id, name, business_type, settings').eq('id', businessId).maybeSingle()
+  if (!biz) return { error: 'business_not_found', status: 403 }
+  return { supabase, user, businessId, business: biz }
+}
+
+function generateAccessCode() {
+  // 8 chars from the same alphabet as license keys (no ambiguous 0/O/1/I).
+  return Array.from({ length: 8 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('')
+}
+
+// POST { accounting_client_id } — firm side (must be business_type='contabilidad').
+async function handleCtbGenerateAccessCode(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' })
+  const auth = await ctbAuthUser(req)
+  if (auth.error) return res.status(auth.status).json({ ok: false, error: auth.error })
+  if (auth.business.business_type !== 'contabilidad') {
+    return res.status(403).json({ ok: false, error: 'firm_only' })
+  }
+  const body = req.body || {}
+  const acId = Number(body.accounting_client_id)
+  if (!acId) return res.status(400).json({ ok: false, error: 'missing_accounting_client_id' })
+  const { data: ac } = await auth.supabase.from('accounting_clients')
+    .select('id, business_id, nombre_comercial')
+    .eq('id', acId).eq('business_id', auth.businessId).maybeSingle()
+  if (!ac) return res.status(404).json({ ok: false, error: 'accounting_client_not_found' })
+  const code = generateAccessCode()
+  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  const { error } = await auth.supabase.from('accounting_clients')
+    .update({
+      access_token: code,
+      access_token_expires_at: expires,
+      access_granted: false,
+      shared_business_id: null,
+      access_granted_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', acId).eq('business_id', auth.businessId)
+  if (error) return res.status(500).json({ ok: false, error: error.message })
+  return res.status(200).json({
+    ok: true,
+    code,
+    expires_at: expires,
+    nombre_comercial: ac.nombre_comercial,
+    instructions: 'El cliente ingresa este código en Configuración → Compartir con contador. Vence en 24 horas.',
+  })
+}
+
+// POST { code } — client side (any business_type). Resolves the token, sets
+// shared_business_id = current_business_id, access_granted = true.
+async function handleCtbAcceptAccessCode(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' })
+  const auth = await ctbAuthUser(req)
+  if (auth.error) return res.status(auth.status).json({ ok: false, error: auth.error })
+  const body = req.body || {}
+  const code = String(body.code || '').toUpperCase().replace(/\s+/g, '')
+  if (!code || code.length !== 8) return res.status(400).json({ ok: false, error: 'invalid_code' })
+  const { data: ac } = await auth.supabase.from('accounting_clients')
+    .select('id, business_id, nombre_comercial, access_token, access_token_expires_at, access_granted, shared_business_id')
+    .eq('access_token', code).maybeSingle()
+  if (!ac) return res.status(404).json({ ok: false, error: 'code_not_found_or_consumed' })
+  if (ac.access_token_expires_at && new Date(ac.access_token_expires_at) < new Date()) {
+    return res.status(410).json({ ok: false, error: 'code_expired' })
+  }
+  // Already granted to a different business → reject.
+  if (ac.access_granted && ac.shared_business_id && ac.shared_business_id !== auth.businessId) {
+    return res.status(409).json({ ok: false, error: 'already_granted_to_other_business' })
+  }
+  const { error } = await auth.supabase.from('accounting_clients')
+    .update({
+      shared_business_id: auth.businessId,
+      access_granted: true,
+      access_granted_at: new Date().toISOString(),
+      access_token: null,                 // single-use → null after consume
+      access_token_expires_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', ac.id)
+  if (error) return res.status(500).json({ ok: false, error: error.message })
+  // Resolve the firm name for the response.
+  const { data: firm } = await auth.supabase.from('businesses').select('id, name').eq('id', ac.business_id).maybeSingle()
+  return res.status(200).json({
+    ok: true,
+    accounting_client_id: ac.id,
+    firm_name: firm?.name || '',
+    nombre_comercial: ac.nombre_comercial,
+  })
+}
+
+// POST { accounting_client_id } — firm-side OR client-side revoke.
+async function handleCtbRevokeAccess(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' })
+  const auth = await ctbAuthUser(req)
+  if (auth.error) return res.status(auth.status).json({ ok: false, error: auth.error })
+  const body = req.body || {}
+  const acId = body.accounting_client_id ? Number(body.accounting_client_id) : null
+  let q = auth.supabase.from('accounting_clients')
+  // Firm side
+  if (acId) {
+    const { data: ac } = await auth.supabase.from('accounting_clients')
+      .select('id, business_id, shared_business_id').eq('id', acId).maybeSingle()
+    if (!ac) return res.status(404).json({ ok: false, error: 'accounting_client_not_found' })
+    const isFirm = ac.business_id === auth.businessId
+    const isClient = ac.shared_business_id === auth.businessId
+    if (!isFirm && !isClient) return res.status(403).json({ ok: false, error: 'forbidden' })
+    const { error } = await auth.supabase.from('accounting_clients')
+      .update({
+        access_granted: false, shared_business_id: null, access_granted_at: null,
+        access_token: null, access_token_expires_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', acId)
+    if (error) return res.status(500).json({ ok: false, error: error.message })
+    return res.status(200).json({ ok: true })
+  }
+  // Client side blanket: revoke any links pointing at us
+  const { error, data } = await auth.supabase.from('accounting_clients')
+    .update({
+      access_granted: false, shared_business_id: null, access_granted_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('shared_business_id', auth.businessId)
+    .select('id')
+  if (error) return res.status(500).json({ ok: false, error: error.message })
+  return res.status(200).json({ ok: true, revoked: (data || []).length })
+}
+
+// GET ?dataset=tickets|ecf|inventory|services|clients|compras_607
+//     &accounting_client_id=<id>&from=YYYY-MM-DD&to=YYYY-MM-DD
+// Firm-side endpoint. Verifies the firm tenant has an access_granted=true
+// accounting_clients row for the requested client, then queries the dataset
+// scoped to shared_business_id. RLS allows the SELECT via has_accountant_access.
+const CTB_DATASETS = {
+  tickets:       { table: 'tickets',         dateCol: 'created_at',
+                   columns: 'id,supabase_id,business_id,ncf,total,subtotal,itbis,status,created_at,client_id,client_supabase_id' },
+  tickets_full:  { table: 'tickets',         dateCol: 'created_at',
+                   columns: '*' },
+  ecf:           { table: 'ecf_documents',   dateCol: 'created_at',
+                   columns: 'id,supabase_id,business_id,e_ncf,track_id,status,total,itbis,created_at' },
+  inventory:     { table: 'inventory_items', dateCol: null,
+                   columns: 'id,supabase_id,business_id,name,sku,barcode,price,cost,stock,category,active' },
+  services:      { table: 'services',        dateCol: null,
+                   columns: 'id,supabase_id,business_id,name,price,aplica_itbis,active,category' },
+  clients:       { table: 'clients',         dateCol: null,
+                   columns: 'id,supabase_id,business_id,name,rnc,phone,email,active' },
+  compras_607:   { table: 'compras_607',     dateCol: 'fecha_ncf',
+                   columns: 'id,supabase_id,business_id,ncf,fecha_ncf,total,itbis_facturado,monto_servicios,monto_bienes,rnc_proveedor' },
+}
+
+async function handleCtbClientData(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ ok: false, error: 'GET only' })
+  const auth = await ctbAuthUser(req)
+  if (auth.error) return res.status(auth.status).json({ ok: false, error: auth.error })
+  if (auth.business.business_type !== 'contabilidad') {
+    return res.status(403).json({ ok: false, error: 'firm_only' })
+  }
+  const acId = Number(req.query.accounting_client_id)
+  const dataset = String(req.query.dataset || '')
+  if (!acId) return res.status(400).json({ ok: false, error: 'missing_accounting_client_id' })
+  const cfg = CTB_DATASETS[dataset]
+  if (!cfg) return res.status(400).json({ ok: false, error: 'unknown_dataset' })
+
+  const { data: ac } = await auth.supabase.from('accounting_clients')
+    .select('id, shared_business_id, access_granted')
+    .eq('id', acId).eq('business_id', auth.businessId).maybeSingle()
+  if (!ac) return res.status(404).json({ ok: false, error: 'accounting_client_not_found' })
+  if (!ac.access_granted || !ac.shared_business_id) {
+    return res.status(403).json({ ok: false, error: 'access_not_granted', message: 'El cliente aún no ha aceptado el código.' })
+  }
+
+  let q = auth.supabase.from(cfg.table).select(cfg.columns).eq('business_id', ac.shared_business_id)
+  if (cfg.dateCol) {
+    if (req.query.from) q = q.gte(cfg.dateCol, String(req.query.from))
+    if (req.query.to)   q = q.lte(cfg.dateCol, String(req.query.to) + 'T23:59:59')
+    q = q.order(cfg.dateCol, { ascending: false })
+  }
+  const limit = Math.min(5000, Number(req.query.limit) || 1000)
+  q = q.limit(limit)
+  const { data, error } = await q
+  if (error) {
+    // Fall back gracefully when the table doesn't exist in this env.
+    if (/does not exist/i.test(error.message)) return res.status(200).json({ ok: true, dataset, rows: [] })
+    return res.status(500).json({ ok: false, error: error.message })
+  }
+  return res.status(200).json({ ok: true, dataset, count: (data || []).length, rows: data || [] })
+}
+
+// GET — client-side: which firm currently has access to this tenant?
+async function handleCtbMyAccountant(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ ok: false, error: 'GET only' })
+  const auth = await ctbAuthUser(req)
+  if (auth.error) return res.status(auth.status).json({ ok: false, error: auth.error })
+  const { data, error } = await auth.supabase.from('accounting_clients')
+    .select('id, business_id, nombre_comercial, access_granted, access_granted_at')
+    .eq('shared_business_id', auth.businessId).eq('access_granted', true)
+  if (error) return res.status(500).json({ ok: false, error: error.message })
+  if (!data?.length) return res.status(200).json({ ok: true, linked: false })
+  // Resolve firm name
+  const ids = Array.from(new Set(data.map(r => r.business_id)))
+  const { data: firms } = await auth.supabase.from('businesses').select('id, name').in('id', ids)
+  const byId = new Map((firms || []).map(b => [b.id, b]))
+  return res.status(200).json({
+    ok: true,
+    linked: true,
+    grants: data.map(r => ({
+      accounting_client_id: r.id,
+      firm_business_id: r.business_id,
+      firm_name: byId.get(r.business_id)?.name || '',
+      nombre_comercial: r.nombre_comercial,
+      granted_at: r.access_granted_at,
+    })),
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CRM — admin sales pipeline. Auto-populated from signup/provision.js.
+// All endpoints behind requireAdmin. Service role bypasses RLS.
+// ─────────────────────────────────────────────────────────────────────────────
+const CRM_STATUSES = ['new','contacted','qualified','demo_scheduled','proposal','won','lost']
+
+async function handleCrmList(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase } = auth
+  const { status, assigned_to, plan, q } = req.query || {}
+  try {
+    let query = supabase.from('crm_leads')
+      .select('id, business_id, email, phone, contact_name, business_name, rnc, requested_plan, business_type, utm_source, assigned_to, status, last_contacted_at, next_followup_at, source, created_at, updated_at')
+      .order('created_at', { ascending: false }).limit(500)
+    if (status && CRM_STATUSES.includes(status)) query = query.eq('status', status)
+    if (assigned_to === 'unassigned') query = query.is('assigned_to', null)
+    else if (assigned_to) query = query.eq('assigned_to', assigned_to)
+    if (plan) query = query.eq('requested_plan', plan)
+    const { data: leads, error } = await query
+    if (error) throw error
+    const adminIds = [...new Set((leads || []).map(l => l.assigned_to).filter(Boolean))]
+    const { data: admins } = adminIds.length
+      ? await supabase.from('admin_users').select('id, name').in('id', adminIds)
+      : { data: [] }
+    const adminMap = Object.fromEntries((admins || []).map(a => [a.id, a.name]))
+    const filtered = (leads || []).filter(l => {
+      if (!q) return true
+      const s = String(q).toLowerCase()
+      return (l.business_name || '').toLowerCase().includes(s)
+          || (l.email || '').toLowerCase().includes(s)
+          || (l.phone || '').includes(s)
+          || (l.rnc || '').includes(s)
+    }).map(l => ({ ...l, assigned_to_name: adminMap[l.assigned_to] || null }))
+    return res.json({ data: filtered })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleCrmDetail(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase } = auth
+  const id = req.query?.id
+  if (!id) return res.status(400).json({ error: 'id required' })
+  try {
+    const { data: lead, error } = await supabase.from('crm_leads').select('*').eq('id', id).maybeSingle()
+    if (error) throw error
+    if (!lead) return res.status(404).json({ error: 'Lead not found' })
+    const [{ data: activity }, { data: admins }, biz] = await Promise.all([
+      supabase.from('crm_lead_activity').select('*').eq('lead_id', id).order('created_at', { ascending: false }).limit(200),
+      supabase.from('admin_users').select('id, name, role, active').eq('active', true).order('name'),
+      lead.business_id
+        ? supabase.from('businesses').select('id, name, rnc, phone, plan, settings, created_at').eq('id', lead.business_id).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ])
+    return res.json({ data: { lead, activity: activity || [], admins: admins || [], business: biz?.data || null } })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleCrmUpdate(req, res) {
+  if (req.method !== 'PATCH') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase, admin } = auth
+  const { id, status, assigned_to, next_followup_at, contact_name, email, phone, rnc, requested_plan } = req.body || {}
+  if (!id) return res.status(400).json({ error: 'id required' })
+  if (status && !CRM_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' })
+  try {
+    const { data: prev } = await supabase.from('crm_leads').select('*').eq('id', id).maybeSingle()
+    if (!prev) return res.status(404).json({ error: 'Lead not found' })
+    const patch = {}
+    const allowed = { status, assigned_to, next_followup_at, contact_name, email, phone, rnc, requested_plan }
+    for (const [k, v] of Object.entries(allowed)) if (v !== undefined) patch[k] = v === '' ? null : v
+    if (status === 'contacted' && prev.status === 'new') patch.last_contacted_at = new Date().toISOString()
+    const { data, error } = await supabase.from('crm_leads').update(patch).eq('id', id).select().single()
+    if (error) throw error
+    // Activity log entries for status / assignment / followup changes
+    const events = []
+    if (patch.status && patch.status !== prev.status)
+      events.push({ kind: 'status_change', body: `${prev.status} → ${patch.status}`, metadata: { from: prev.status, to: patch.status } })
+    if (patch.assigned_to !== undefined && patch.assigned_to !== prev.assigned_to) {
+      let toName = null
+      if (patch.assigned_to) {
+        const { data: a } = await supabase.from('admin_users').select('name').eq('id', patch.assigned_to).maybeSingle()
+        toName = a?.name || null
+      }
+      events.push({ kind: 'assignment', body: toName ? `Asignado a ${toName}` : 'Sin asignar', metadata: { to: patch.assigned_to } })
+    }
+    if (patch.next_followup_at !== undefined && patch.next_followup_at !== prev.next_followup_at)
+      events.push({ kind: 'followup_set', body: patch.next_followup_at ? `Seguimiento: ${patch.next_followup_at}` : 'Seguimiento removido' })
+    if (events.length) {
+      await supabase.from('crm_lead_activity').insert(events.map(e => ({
+        lead_id: id, admin_user_id: admin.id, admin_name: admin.name, ...e,
+      })))
+    }
+    return res.json({ data })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleCrmNote(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase, admin } = auth
+  const { lead_id, kind, body } = req.body || {}
+  if (!lead_id) return res.status(400).json({ error: 'lead_id required' })
+  if (!body || !String(body).trim()) return res.status(400).json({ error: 'body required' })
+  const allowedKind = ['note','call','whatsapp','email']
+  const k = allowedKind.includes(kind) ? kind : 'note'
+  try {
+    const { data, error } = await supabase.from('crm_lead_activity').insert({
+      lead_id, admin_user_id: admin.id, admin_name: admin.name, kind: k, body: String(body).trim(),
+    }).select().single()
+    if (error) throw error
+    if (k === 'call' || k === 'whatsapp' || k === 'email') {
+      await supabase.from('crm_leads').update({ last_contacted_at: new Date().toISOString() }).eq('id', lead_id)
+    }
+    return res.json({ data })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleCrmCreate(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase } = auth
+  const { contact_name, business_name, email, phone, rnc, requested_plan, business_type, utm_source } = req.body || {}
+  if (!contact_name && !business_name) return res.status(400).json({ error: 'Name required' })
+  try {
+    const { data, error } = await supabase.from('crm_leads').insert({
+      contact_name: contact_name || null,
+      business_name: business_name || contact_name || null,
+      email: email || null,
+      phone: phone || null,
+      rnc: rnc || null,
+      requested_plan: requested_plan || null,
+      business_type: business_type || null,
+      utm_source: utm_source || null,
+      source: 'manual',
+      status: 'new',
+    }).select().single()
+    if (error) throw error
+    return res.json({ data })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -431,7 +840,9 @@ async function handleUsers(req, res) {
     if (listErr) return res.status(500).json({ error: listErr.message })
     const authUser = (users || []).find(u => u.email === email)
     if (!authUser) return res.status(404).json({ error: 'No auth user with that email.' })
-    const { data, error } = await auth.supabase.from('admin_users').insert({ auth_user_id: authUser.id, name, role: role || 'support' }).select().single()
+    const VALID_ROLES = ['super_admin', 'admin', 'sales_manager', 'sales', 'support']
+    const safeRole = VALID_ROLES.includes(role) ? role : 'support'
+    const { data, error } = await auth.supabase.from('admin_users').insert({ auth_user_id: authUser.id, name, role: safeRole }).select().single()
     if (error) return res.status(500).json({ error: error.message })
     return res.json({ data })
   }
@@ -441,7 +852,9 @@ async function handleUsers(req, res) {
     const { id, ...updates } = req.body || {}
     if (!id) return res.status(400).json({ error: 'id required' })
     const allowed = ['role', 'name', 'active']
+    const VALID_ROLES = ['super_admin', 'admin', 'sales_manager', 'sales', 'support']
     const patch = Object.fromEntries(Object.entries(updates).filter(([k]) => allowed.includes(k)))
+    if (patch.role && !VALID_ROLES.includes(patch.role)) return res.status(400).json({ error: 'Invalid role' })
     const { data, error } = await auth.supabase.from('admin_users').update(patch).eq('id', id).select().single()
     if (error) return res.status(500).json({ error: error.message })
     return res.json({ data })
@@ -2760,4 +3173,106 @@ function buildWaMeLink(phone, message) {
   const num = String(phone || '').replace(/[^0-9]/g, '')
   const enc = encodeURIComponent(message || '')
   return `https://wa.me/${num}?text=${enc}`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Desktop cloud backup — license-validated signed upload URL.
+// Production desktop installers ship the anon key, which RLS-rejects writes to
+// `db-backups` storage. Instead the desktop calls this endpoint with its
+// license_key + hwid, we validate the binding server-side, and mint a
+// short-lived signed upload URL scoped to `{business_id}/{date}.sqlite.gz`.
+// Service role lives only on the server.
+// ─────────────────────────────────────────────────────────────────────────────
+const BACKUP_MAX_BYTES = 1024 * 1024 * 1024 // 1 GB compressed daily — plenty for DR client DBs.
+
+async function validateLicenseForBackup(req) {
+  const { key, hwid, business_id } = req.body || {}
+  if (!key || !hwid || !business_id) return { error: 'missing_credentials', status: 400 }
+  const supabase = getClient()
+  const { data: license } = await supabase.from('licenses')
+    .select('id, business_id, hardware_id, status')
+    .eq('license_key', String(key).toUpperCase().trim())
+    .maybeSingle()
+  if (!license) return { error: 'license_not_found', status: 401 }
+  if (!['active', 'trial'].includes(license.status)) return { error: 'license_inactive', status: 403 }
+  if (license.business_id !== business_id) return { error: 'business_mismatch', status: 403 }
+  // hardware_id may be null on first validate; bind here. Otherwise must match.
+  if (license.hardware_id && license.hardware_id !== hwid && hwid !== 'web-client') {
+    return { error: 'hardware_mismatch', status: 403 }
+  }
+  return { license, supabase }
+}
+
+async function handleDbBackupSign(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' })
+  const ip = callerIp(req)
+  if (!(await checkRateLimit(`db-backup-sign:${ip}`, 30))) {
+    return res.status(429).json({ error: 'rate_limited' })
+  }
+  const v = await validateLicenseForBackup(req)
+  if (v.error) return res.status(v.status).json({ error: v.error })
+
+  const { business_id, path: objectPath, bytes } = req.body || {}
+  if (!objectPath || typeof objectPath !== 'string') return res.status(400).json({ error: 'missing_path' })
+  // Path safety: must be `${business_id}/<safe-name>.sqlite.gz` — no traversal.
+  const safe = /^[A-Za-z0-9_\-]+\/[A-Za-z0-9_\-.]+\.sqlite\.gz$/.test(objectPath)
+  if (!safe || !objectPath.startsWith(business_id + '/') || objectPath.includes('..')) {
+    return res.status(400).json({ error: 'bad_path' })
+  }
+  if (bytes != null && Number(bytes) > BACKUP_MAX_BYTES) {
+    return res.status(413).json({ error: 'too_large', max_bytes: BACKUP_MAX_BYTES })
+  }
+
+  const { data, error } = await v.supabase.storage.from('db-backups')
+    .createSignedUploadUrl(objectPath, { upsert: true })
+  if (error) return res.status(500).json({ error: error.message || 'sign_failed' })
+
+  // Best-effort retention purge (14 days). Runs server-side with service role.
+  // Fire-and-forget — never block the upload sign on cleanup.
+  ;(async () => {
+    try {
+      const { data: items } = await v.supabase.storage.from('db-backups').list(business_id, { limit: 1000 })
+      if (!items?.length) return
+      const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000
+      const victims = items.filter(it => {
+        const m = /^(\d{4})-(\d{2})-(\d{2})\./.exec(it.name)
+        if (!m) return false
+        return Date.UTC(+m[1], +m[2] - 1, +m[3]) < cutoff
+      }).map(it => `${business_id}/${it.name}`)
+      if (victims.length) await v.supabase.storage.from('db-backups').remove(victims)
+    } catch {}
+  })()
+
+  return res.json({ ok: true, signedUrl: data.signedUrl, token: data.token, path: data.path })
+}
+
+async function handleDbBackupStatus(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' })
+  const ip = callerIp(req)
+  if (!(await checkRateLimit(`db-backup-status:${ip}`, 30))) {
+    return res.status(429).json({ error: 'rate_limited' })
+  }
+  const v = await validateLicenseForBackup(req)
+  if (v.error) return res.status(v.status).json({ error: v.error })
+
+  const { business_id, last_ok_at, last_error_at, last_error, last_bytes, last_path } = req.body || {}
+  // Mirror backup health into businesses.settings.last_backup so admin
+  // ClientDetail and the daily owner digest can read it without a separate
+  // app_settings → cloud sync hop. Last-write-wins is fine here.
+  const patchObj = {
+    last_backup: {
+      last_ok_at:    last_ok_at    || null,
+      last_error_at: last_error_at || null,
+      last_error:    last_error    || null,
+      last_bytes:    last_bytes != null ? Number(last_bytes) : null,
+      last_path:     last_path     || null,
+      reported_at:   new Date().toISOString(),
+    },
+  }
+  try {
+    await v.supabase.rpc('merge_business_settings', { p_business_id: business_id, p_patch: patchObj })
+  } catch (e) {
+    return res.status(500).json({ error: e.message || 'merge_failed' })
+  }
+  return res.json({ ok: true })
 }

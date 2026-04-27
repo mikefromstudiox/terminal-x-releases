@@ -37,6 +37,8 @@ const PLAN_FEATURES = {
     // FIX-HIGH-6 — carniceria_resumen mirrors the concesionario pattern: visible
     // at every tier as upgrade hook for the carnicería vertical.
     'carniceria_resumen',
+    // Slice 5 — every plan can share read-only data with their contador.
+    'share_with_accountant',
   ],
   pro_plus: [
     'pos', 'queue', 'clients', 'credits', 'reports',
@@ -68,6 +70,7 @@ const PLAN_FEATURES = {
     // FIX-HIGH-6 — carnicería vertical (Pro PLUS+)
     'carniceria_resumen', 'carniceria_corte_catalog',
     'carniceria_mayoreo', 'carniceria_freshness_alerts',
+    'share_with_accountant',
   ],
   pro_max: [
     'pos', 'queue', 'clients', 'credits', 'reports',
@@ -107,6 +110,7 @@ const PLAN_FEATURES = {
     // FIX-HIGH-6 — carnicería vertical (inherited from Pro PLUS)
     'carniceria_resumen', 'carniceria_corte_catalog',
     'carniceria_mayoreo', 'carniceria_freshness_alerts',
+    'share_with_accountant',
   ],
   // Pro CTB — firm-side accounting suite (Phase 1 ship). Bundles every
   // contabilidad_* feature plus the existing dgii/ecf/clients/reports/invoicing
@@ -123,6 +127,7 @@ const PLAN_FEATURES = {
     'contabilidad_libro_mayor', 'contabilidad_banco', 'contabilidad_nomina',
     'contabilidad_activos', 'contabilidad_tareas',
     'contabilidad_reportes_ejecutivos', 'contabilidad_cross_firm',
+    'share_with_accountant',
   ],
 }
 
@@ -132,9 +137,7 @@ const PLAN_DISPLAY = { facturacion: 'Facturacion', pro: 'Pro', pro_plus: 'Pro PL
 // until their backing module ships. Consumers should branch on this set to
 // decide between active-feature UI and the upgrade/coming-soon placeholder.
 const COMING_SOON_FEATURES = new Set([
-  // Slice 4 ships nomina/activos/retenciones/tareas/reportes ejecutivos.
-  // Cross-firm wire is the only contabilidad gate still pending (Slice 5).
-  'contabilidad_cross_firm',
+  // Slices 4 + 5 + 6 shipped end-to-end. Add future stubs here.
 ])
 export function isComingSoonFeature(key) { return COMING_SOON_FEATURES.has(key) }
 

@@ -1,9 +1,30 @@
 // Cartera — Contabilidad client roster + per-client semáforo (Phase 1).
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Plus, Search, X, Loader2, Building2, AlertCircle } from 'lucide-react'
+import { Plus, Search, X, Loader2, Building2, AlertCircle, Link2, Copy, Check, Unlink } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { useRNC } from '../../hooks/useRNC'
 import { applicableTemplates } from '@terminal-x/config/contabilidadCalendar.js'
+
+const PANEL_API = '/api/panel'
+
+async function callCtb(action, payload, method = 'POST') {
+  const mod = await import('@terminal-x/services/supabase')
+  const sb = mod.getSupabaseClient?.()
+  const sess = (await sb?.auth?.getSession?.())?.data?.session
+  const token = sess?.access_token
+  if (!token) throw new Error('Sesión expirada — inicia sesión.')
+  const isGet = method === 'GET'
+  const qs = isGet
+    ? '?' + new URLSearchParams({ action, ...(payload || {}) }).toString()
+    : `?action=${encodeURIComponent(action)}`
+  const res = await fetch(`${PANEL_API}${qs}`, {
+    method, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: isGet ? undefined : JSON.stringify(payload || {}),
+  })
+  const j = await res.json().catch(() => ({}))
+  if (!res.ok || j?.ok === false) throw new Error(j?.error || j?.message || `HTTP ${res.status}`)
+  return j
+}
 
 const PERSONA_LABEL = { pf: 'Persona física', pj: 'Persona jurídica', eirl: 'EIRL' }
 const REGIMEN_LABEL = { ordinario: 'Ordinario', rst: 'RST', pst: 'PST', sin_operaciones: 'Sin operaciones' }
@@ -75,6 +96,25 @@ export default function Cartera() {
     }
   }
 
+  const [linkClient, setLinkClient] = useState(null)
+  const [linkResult, setLinkResult] = useState(null)
+  async function generateAccessCode(client) {
+    setBusy(true); setLinkResult(null); setLinkClient(client)
+    try {
+      const r = await callCtb('ctb_generate_access_code', { accounting_client_id: client.id })
+      setLinkResult(r)
+      await reload()
+    } catch (e) { alert(`Error: ${e?.message || e}`); setLinkClient(null) }
+    finally    { setBusy(false) }
+  }
+  async function revokeAccess(client) {
+    if (!confirm(`¿Revocar acceso de "${client.nombre_comercial}"?`)) return
+    setBusy(true)
+    try { await callCtb('ctb_revoke_access', { accounting_client_id: client.id }); await reload() }
+    catch (e) { alert(`Error: ${e?.message || e}`) }
+    finally   { setBusy(false) }
+  }
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-5">
@@ -126,6 +166,17 @@ export default function Cartera() {
                       : <span className="text-black/40 dark:text-white/40">0</span>}
                   </td>
                   <td className="px-4 py-2 text-right space-x-2 whitespace-nowrap">
+                    {r.access_granted ? (
+                      <button onClick={() => revokeAccess(r)} title="Revocar acceso a datos del cliente"
+                        className="px-2.5 py-1 rounded-lg bg-[#b3001e]/10 border border-[#b3001e]/30 text-[#b3001e] text-xs font-bold inline-flex items-center gap-1">
+                        <Unlink size={12}/> Conectado
+                      </button>
+                    ) : (
+                      <button onClick={() => generateAccessCode(r)} disabled={busy} title="Generar código para conectar al sistema del cliente"
+                        className="px-2.5 py-1 rounded-lg border border-black/15 dark:border-white/15 text-xs text-black/70 dark:text-white/70 hover:border-[#b3001e] hover:text-[#b3001e] inline-flex items-center gap-1 disabled:opacity-50">
+                        <Link2 size={12}/> Conectar
+                      </button>
+                    )}
                     <button onClick={() => generateYear(r)}
                       className="px-2.5 py-1 rounded-lg border border-black/15 dark:border-white/15 text-xs text-black/70 dark:text-white/70 hover:border-[#b3001e] hover:text-[#b3001e]">
                       Generar {year}
@@ -152,6 +203,68 @@ export default function Cartera() {
           rncLoading={rncLoading}
         />
       )}
+
+      {linkClient && (
+        <AccessCodeModal
+          client={linkClient}
+          result={linkResult}
+          busy={busy}
+          onRegenerate={() => generateAccessCode(linkClient)}
+          onClose={() => { setLinkClient(null); setLinkResult(null) }}
+        />
+      )}
+    </div>
+  )
+}
+
+function AccessCodeModal({ client, result, busy, onRegenerate, onClose }) {
+  const [copied, setCopied] = useState(false)
+  function copy() {
+    if (!result?.code) return
+    navigator.clipboard?.writeText(result.code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) })
+  }
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-black rounded-2xl border border-black/10 dark:border-white/10 max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-black text-black dark:text-white text-base inline-flex items-center gap-2">
+            <Link2 size={16} className="text-[#b3001e]"/> Conectar con cliente
+          </h2>
+          <button onClick={onClose} className="text-black/50 dark:text-white/50 hover:text-[#b3001e]"><X size={18}/></button>
+        </div>
+        <div className="text-sm text-black/70 dark:text-white/70 mb-3">
+          <strong>{client.nombre_comercial}</strong>
+        </div>
+        {busy && <div className="text-sm text-[#b3001e] inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin"/> Generando código…</div>}
+        {!busy && result?.code && (
+          <>
+            <div className="rounded-2xl border-2 border-[#b3001e] bg-[#b3001e]/5 p-4 text-center mb-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[#b3001e] mb-2">Código de un solo uso</div>
+              <div className="font-mono text-3xl font-black text-black dark:text-white tracking-widest mb-3 select-all">{result.code}</div>
+              <button onClick={copy} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-black text-white dark:bg-white dark:text-black text-xs font-bold">
+                {copied ? <><Check size={12}/> Copiado</> : <><Copy size={12}/> Copiar</>}
+              </button>
+            </div>
+            <div className="text-xs text-black/70 dark:text-white/70 space-y-1">
+              <p><strong>Pasos para el cliente:</strong></p>
+              <ol className="list-decimal pl-5 space-y-1">
+                <li>Iniciar sesión en su Terminal X.</li>
+                <li>Ir a <strong>Configuración → Compartir con contador</strong>.</li>
+                <li>Ingresar el código de 8 caracteres y confirmar.</li>
+              </ol>
+              <p className="text-[#b3001e] mt-2">Vence en 24 horas. Una vez aceptado, el código se invalida automáticamente.</p>
+            </div>
+          </>
+        )}
+        {!busy && !result && (
+          <button onClick={onRegenerate} className="w-full px-4 py-2 rounded-lg bg-[#b3001e] text-white text-sm font-bold">
+            Generar código
+          </button>
+        )}
+        <div className="flex justify-end mt-5">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-black/15 dark:border-white/15 text-sm">Cerrar</button>
+        </div>
+      </div>
     </div>
   )
 }

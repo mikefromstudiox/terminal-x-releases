@@ -1,7 +1,8 @@
 // Calendario — DGII obligations next 30 days (Phase 1).
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Calendar, Check, Loader2 } from 'lucide-react'
+import { Calendar, Check, Loader2, MessageCircle } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
+import { contabilidadVencimiento } from '@terminal-x/services/whatsapp-business-stub.js'
 
 const STATUS_PILL = {
   pendiente:   'bg-[#b3001e]/10 text-[#b3001e] border-[#b3001e]/30',
@@ -63,6 +64,22 @@ export default function Calendario() {
   }
 
   const clientName = (id) => clients.find(c => c.id === id)?.nombre_comercial || '—'
+  const clientPhone = (id) => {
+    const c = clients.find(x => x.id === id)
+    return (c?.notes || '').match(/8\d{9}/)?.[0] || ''
+  }
+  function whatsappRemind(o) {
+    const c = clients.find(x => x.id === o.accounting_client_id)
+    const due = new Date(o.due_date + 'T23:59:59')
+    const days = Math.max(0, Math.ceil((due - new Date()) / 86400000))
+    const { url } = contabilidadVencimiento({
+      phone: clientPhone(o.accounting_client_id),
+      cliente: c?.nombre_comercial || '',
+      formato: o.form_type,
+      dias: days,
+    })
+    window.open(url, '_blank', 'noopener')
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -106,7 +123,13 @@ export default function Calendario() {
                 <td className="px-4 py-2">
                   <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wide ${STATUS_PILL[o.status] || ''}`}>{o.status}</span>
                 </td>
-                <td className="px-4 py-2 text-right">
+                <td className="px-4 py-2 text-right whitespace-nowrap space-x-2">
+                  {(o.status === 'pendiente' || o.status === 'en_revision' || o.status === 'firmado') && (
+                    <button onClick={() => whatsappRemind(o)} title="Recordar al cliente por WhatsApp"
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-black/10 dark:border-white/10 text-black/70 dark:text-white/70 text-xs hover:border-[#b3001e] hover:text-[#b3001e]">
+                      <MessageCircle size={12}/>
+                    </button>
+                  )}
                   {o.status === 'pendiente' && (
                     <button onClick={() => markFiled(o)} disabled={busyId === o.id}
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#b3001e] text-white text-xs font-bold disabled:opacity-50 hover:bg-[#c8002a]">
