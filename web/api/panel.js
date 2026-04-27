@@ -436,12 +436,31 @@ async function handleCrmList(req, res) {
     if (plan) query = query.eq('requested_plan', plan)
     const { data: leads, error } = await query
     if (error) throw error
+    // Exclude demo tenants from CRM. Three signals:
+    //   1. business_id resolves to a businesses row with is_demo = true
+    //   2. business_name starts with 'Demo ' (legacy seed leads w/ null business_id)
+    //   3. email matches *.demo.terminalxpos.com (legacy demo accounts)
+    const leadBids = [...new Set((leads || []).map(l => l.business_id).filter(Boolean))]
+    let demoBidSet = new Set()
+    if (leadBids.length) {
+      const { data: demoBizRows } = await supabase.from('businesses')
+        .select('id').in('id', leadBids).eq('is_demo', true)
+      demoBidSet = new Set((demoBizRows || []).map(r => r.id))
+    }
+    const isDemoLead = (l) => {
+      if (l.business_id && demoBidSet.has(l.business_id)) return true
+      const name = (l.business_name || '').trim().toLowerCase()
+      if (name.startsWith('demo ') || name === 'demo') return true
+      if ((l.email || '').toLowerCase().endsWith('.demo.terminalxpos.com')) return true
+      return false
+    }
     const adminIds = [...new Set((leads || []).map(l => l.assigned_to).filter(Boolean))]
     const { data: admins } = adminIds.length
       ? await supabase.from('admin_users').select('id, name').in('id', adminIds)
       : { data: [] }
     const adminMap = Object.fromEntries((admins || []).map(a => [a.id, a.name]))
     const filtered = (leads || []).filter(l => {
+      if (isDemoLead(l)) return false
       if (!q) return true
       const s = String(q).toLowerCase()
       return (l.business_name || '').toLowerCase().includes(s)
