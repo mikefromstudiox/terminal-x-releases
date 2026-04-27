@@ -2,7 +2,7 @@
 // Mounted by the per-tenant app shell when business_type === 'contabilidad'.
 // Provides the inner sidebar and routes to the screen barrel.
 import { useState } from 'react'
-import { Inbox, Building2, Calendar, FileText, Folder, Banknote, BookOpen, Landmark } from 'lucide-react'
+import { Inbox, Building2, Calendar, FileText, Folder, Banknote, BookOpen, Landmark, Users, Package, ClipboardList, BarChart3 } from 'lucide-react'
 import Bandeja from './Bandeja.jsx'
 import Cartera from './Cartera.jsx'
 import Calendario from './Calendario.jsx'
@@ -11,17 +11,25 @@ import Vault from './Vault.jsx'
 import Honorarios from './Honorarios.jsx'
 import LibroMayor from './LibroMayor.jsx'
 import Banco from './Banco.jsx'
+import Nomina from './Nomina.jsx'
+import Activos from './Activos.jsx'
+import Tareas from './Tareas.jsx'
+import Reportes from './Reportes.jsx'
 import { usePlan, isComingSoonFeature } from '../../hooks/usePlan'
 
 const TABS = [
-  { id: 'bandeja',     label: 'Bandeja',      icon: Inbox,      Component: Bandeja },
-  { id: 'cartera',     label: 'Cartera',      icon: Building2,  Component: Cartera },
-  { id: 'calendario',  label: 'Calendario',   icon: Calendar,   Component: Calendario },
-  { id: 'comprobantes',label: 'Comprobantes', icon: FileText,   Component: Comprobantes },
-  { id: 'libro_mayor', label: 'Libro Mayor',  icon: BookOpen,   Component: LibroMayor, featureKey: 'contabilidad_libro_mayor' },
-  { id: 'banco',       label: 'Banco',        icon: Landmark,   Component: Banco,      featureKey: 'contabilidad_banco' },
-  { id: 'vault',       label: 'Vault',        icon: Folder,     Component: Vault },
-  { id: 'honorarios',  label: 'Honorarios',   icon: Banknote,   Component: Honorarios },
+  { id: 'bandeja',     label: 'Bandeja',      icon: Inbox,         Component: Bandeja },
+  { id: 'cartera',     label: 'Cartera',      icon: Building2,     Component: Cartera },
+  { id: 'calendario',  label: 'Calendario',   icon: Calendar,      Component: Calendario },
+  { id: 'tareas',      label: 'Tareas',       icon: ClipboardList, Component: Tareas,      featureKey: 'contabilidad_tareas' },
+  { id: 'comprobantes',label: 'Comprobantes', icon: FileText,      Component: Comprobantes },
+  { id: 'libro_mayor', label: 'Libro Mayor',  icon: BookOpen,      Component: LibroMayor,  featureKey: 'contabilidad_libro_mayor' },
+  { id: 'banco',       label: 'Banco',        icon: Landmark,      Component: Banco,       featureKey: 'contabilidad_banco' },
+  { id: 'nomina',      label: 'Nómina',       icon: Users,         Component: Nomina,      featureKey: 'contabilidad_nomina' },
+  { id: 'activos',     label: 'Activos',      icon: Package,       Component: Activos,     featureKey: 'contabilidad_activos' },
+  { id: 'reportes',    label: 'Reportes',     icon: BarChart3,     Component: Reportes,    featureKey: 'contabilidad_reportes_ejecutivos' },
+  { id: 'vault',       label: 'Vault',        icon: Folder,        Component: Vault },
+  { id: 'honorarios',  label: 'Honorarios',   icon: Banknote,      Component: Honorarios },
 ]
 
 export default function ContabilidadShell({ initialTab = 'bandeja' } = {}) {
