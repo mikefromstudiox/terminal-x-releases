@@ -82,11 +82,24 @@ function httpRequest({ method = 'GET', url, headers = {}, body = null, timeoutMs
 
 // -- Supabase Storage operations ---------------------------------------------
 async function ensureBucket({ supabase }) {
-  // Service role can create the bucket if it doesn't exist. 409 = already exists.
-  const url = `${supabase.url}/storage/v1/bucket`
+  // GET-first: if the bucket exists, skip POST entirely. Newer Supabase
+  // projects RLS-reject bucket-create even for service_role tokens (returns
+  // HTTP 400 with statusCode:403 / "new row violates row-level security
+  // policy") — that path always failed here. Existence check sidesteps it.
+  const headRes = await httpRequest({
+    method: 'GET',
+    url: `${supabase.url}/storage/v1/bucket/${BUCKET}`,
+    headers: {
+      'apikey':        supabase.key,
+      'Authorization': `Bearer ${supabase.key}`,
+    },
+  })
+  if (headRes.status === 200) return true
+
+  // Bucket missing — try to create. 409 = race-already-exists.
   const res = await httpRequest({
     method: 'POST',
-    url,
+    url: `${supabase.url}/storage/v1/bucket`,
     headers: {
       'apikey':        supabase.key,
       'Authorization': `Bearer ${supabase.key}`,
@@ -95,9 +108,19 @@ async function ensureBucket({ supabase }) {
     body: JSON.stringify({ id: BUCKET, name: BUCKET, public: false }),
   })
   if (res.status === 200 || res.status === 201 || res.status === 409) return true
-  // Some deploys reject duplicate-create with 400 + "already exists" payload
   const text = res.body.toString('utf8')
   if (/already\s*exists/i.test(text)) return true
+  // RLS-rejected create on a project where the bucket already exists but the
+  // GET probe failed for an auth reason: surface a clearer error so support
+  // knows the bucket needs to be provisioned server-side, not from desktop.
+  if (res.status === 400 && /row-level security|statusCode["\s:]+403/i.test(text)) {
+    throw new Error(
+      'ensureBucket: storage RLS blocks bucket creation from this client. ' +
+      'Provision the "' + BUCKET + '" bucket once via Supabase dashboard or ' +
+      'server-side migration, then retry. Service-role keys on newer projects ' +
+      'no longer bypass storage.buckets RLS.'
+    )
+  }
   throw new Error(`ensureBucket failed: HTTP ${res.status} — ${text.slice(0, 300)}`)
 }
 
@@ -231,8 +254,71 @@ function cleanup(paths) {
   for (const p of paths) { try { fs.unlinkSync(p) } catch {} }
 }
 
+// -- Service-role detection --------------------------------------------------
+// Production installers ship the anon key; only devs running with
+// SUPABASE_SERVICE_ROLE_KEY in env get the direct-write path. Anon key cannot
+// create buckets or insert into storage.objects without RLS policies, so we
+// route through the server-signed URL endpoint instead.
+function isServiceRoleKey(key) {
+  try {
+    const part = String(key).split('.')[1]
+    if (!part) return false
+    const json = Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+    return JSON.parse(json).role === 'service_role'
+  } catch { return false }
+}
+
+// -- Server-signed upload (production path) ----------------------------------
+// Calls panel.js?action=db-backup-sign with license_key + hwid; receives a
+// short-lived signed upload URL (service role mints it server-side); PUTs the
+// gzipped DB to that URL. No bucket-create or storage RLS gymnastics needed.
+async function uploadViaSignedUrl({ supabase, apiBase, licenseKey, hwid, businessId, objectPath, gzPath, bytes }) {
+  const signRes = await httpRequest({
+    method: 'POST',
+    url: `${apiBase}/api/panel?action=db-backup-sign`,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: licenseKey, hwid, business_id: businessId, path: objectPath, bytes }),
+    timeoutMs: 30000,
+  })
+  if (signRes.status < 200 || signRes.status >= 300) {
+    throw new Error(`db-backup-sign HTTP ${signRes.status}: ${signRes.body.toString('utf8').slice(0, 200)}`)
+  }
+  let sign
+  try { sign = JSON.parse(signRes.body.toString('utf8')) } catch { sign = {} }
+  if (!sign.ok || !sign.signedUrl) throw new Error(sign.error || 'db-backup-sign: no url')
+  const fullUrl = sign.signedUrl.startsWith('http') ? sign.signedUrl : `${supabase.url}${sign.signedUrl}`
+  const buf = fs.readFileSync(gzPath)
+  const putRes = await httpRequest({
+    method: 'PUT',
+    url: fullUrl,
+    headers: {
+      'Content-Type':   'application/gzip',
+      'Content-Length': buf.length,
+      'x-upsert':       'true',
+      'Cache-Control':  'no-store',
+    },
+    body: buf,
+  })
+  if (putRes.status < 200 || putRes.status >= 300) {
+    throw new Error(`signed PUT HTTP ${putRes.status}: ${putRes.body.toString('utf8').slice(0, 200)}`)
+  }
+  return true
+}
+
+async function reportBackupStatus({ apiBase, licenseKey, hwid, businessId, status }) {
+  try {
+    await httpRequest({
+      method: 'POST',
+      url: `${apiBase}/api/panel?action=db-backup-status`,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: licenseKey, hwid, business_id: businessId, ...status }),
+      timeoutMs: 10000,
+    })
+  } catch {}
+}
+
 // -- Public entrypoint -------------------------------------------------------
-async function runNightlyBackup({ db, supabase, business_id, tmpDir, reason = 'scheduled' }) {
+async function runNightlyBackup({ db, supabase, business_id, tmpDir, reason = 'scheduled', licenseKey = null, hwid = null, apiBase = 'https://terminalxpos.com' }) {
   if (!db || !supabase?.url || !supabase?.key) {
     throw new Error('runNightlyBackup: db + supabase credentials required')
   }
@@ -242,20 +328,32 @@ async function runNightlyBackup({ db, supabase, business_id, tmpDir, reason = 's
   const online = await isOnline({ supabase })
   if (!online) throw new Error('offline — Supabase unreachable')
 
+  const useSignedUrl = !isServiceRoleKey(supabase.key)
+  if (useSignedUrl && (!licenseKey || !hwid)) {
+    throw new Error('cloud backup requires license activation — log in and try again')
+  }
+
   const workDir = tmpDir || path.join(require('os').tmpdir(), 'terminal-x-backups')
   let rawPath = null, gzPath = null, bytes = 0
   try {
-    await ensureBucket({ supabase })
+    if (!useSignedUrl) await ensureBucket({ supabase })
     ;({ rawPath, gzPath, bytes } = await snapshotAndGzip({ db, tmpDir: workDir }))
     const objectPath = `${businessId}/${todayStr()}.sqlite.gz`
-    await uploadObject({
-      supabase, bucket: BUCKET, objectPath,
-      buffer: fs.readFileSync(gzPath),
-      contentType: 'application/gzip',
-    })
-    const purged = await purgeOldBackups({ supabase, businessId })
+    if (useSignedUrl) {
+      await uploadViaSignedUrl({ supabase, apiBase, licenseKey, hwid, businessId, objectPath, gzPath, bytes })
+    } else {
+      await uploadObject({
+        supabase, bucket: BUCKET, objectPath,
+        buffer: fs.readFileSync(gzPath),
+        contentType: 'application/gzip',
+      })
+    }
+    // Retention purge: signed-URL path delegates to server (service role); local
+    // path with a real service-role key can purge directly.
+    const purged = useSignedUrl ? 0 : await purgeOldBackups({ supabase, businessId })
 
-    setSetting(db, 'backup_last_ok_at', iso())
+    const okAt = iso()
+    setSetting(db, 'backup_last_ok_at', okAt)
     setSetting(db, 'backup_last_bytes', bytes)
     setSetting(db, 'backup_last_path',  objectPath)
     setSetting(db, 'backup_last_error', '')
@@ -270,10 +368,15 @@ async function runNightlyBackup({ db, supabase, business_id, tmpDir, reason = 's
         metadata:    { reason, bytes, purged, path: objectPath },
       })
     } catch {}
+    if (useSignedUrl) {
+      await reportBackupStatus({ apiBase, licenseKey, hwid, businessId,
+        status: { last_ok_at: okAt, last_error_at: null, last_error: null, last_bytes: bytes, last_path: objectPath } })
+    }
     return { ok: true, path: objectPath, bytes, purged }
   } catch (err) {
     const msg = err?.message || String(err)
-    setSetting(db, 'backup_last_error_at', iso())
+    const errAt = iso()
+    setSetting(db, 'backup_last_error_at', errAt)
     setSetting(db, 'backup_last_error', msg)
     try {
       db.activityLogRecord?.({
@@ -285,6 +388,10 @@ async function runNightlyBackup({ db, supabase, business_id, tmpDir, reason = 's
         metadata:    { reason, error: msg },
       })
     } catch {}
+    if (useSignedUrl && licenseKey && hwid) {
+      await reportBackupStatus({ apiBase, licenseKey, hwid, businessId,
+        status: { last_error_at: errAt, last_error: msg } })
+    }
     throw err
   } finally {
     cleanup([rawPath, gzPath].filter(Boolean))

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { initSentryRenderer, captureSentryException } from '@terminal-x/services/sentry-renderer.js'
 import '@/index.css'
@@ -25,6 +25,7 @@ const TiendaEmpenosDetail = React.lazy(() => import('@/landing/TiendaEmpenos').t
 const Agendar             = React.lazy(() => import('@/landing/Agendar'))
 const IndustryPage        = React.lazy(() => import('@/landing/IndustryPage'))
 const WorkOrderApprove    = React.lazy(() => import('@/landing/WorkOrderApprove'))
+const Demo                = React.lazy(() => import('@/landing/demos/Demo'))
 
 // Blog lang resolver — same precedence as the landing-page hook
 // (`tx_landing_lang` localStorage > navigator.language > 'es') but without
@@ -46,33 +47,29 @@ function BlogPostRoute() {
   return <BlogPost lang={resolveBlogLang()} />
 }
 
-// Lazy load Supabase — only resolves when needed (saves 172KB on landing page)
+// Lazy load Supabase — fetched only when a route that needs it (POS / Admin /
+// Signup) is actually visited. Previously this fired at module-eval, which put
+// the supabase + data + services chunks on the landing-page critical path
+// (~200 KiB / 1.5s on mobile slow-4G).
 let _supabase = null
-const supabaseReady = (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
-  ? import('@supabase/supabase-js').then(({ createClient }) => {
-      _supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY)
-      // Expose the SAME client instance globally so AuthContext.logout() can
-      // call supabase.auth.signOut() on the exact session that SupabaseAuthGate
-      // is tracking. Without this, logout was signing out a different client
-      // instance and the gate never flipped back to the sign-in screen.
-      if (typeof window !== 'undefined') {
-        window.__txSupabase = _supabase
-        // Expose a resetter so AuthContext.logout() can null out the
-        // module-scope cache. Without this, if window.location.replace('/')
-        // is intercepted/blocked the SPA reuses the torn-down client and the
-        // next signInWithPassword fails with "Failed to fetch" because GoTrue
-        // already revoked its internal fetch wrapper.
-        window.__txResetSupabase = () => { _supabase = null }
-      }
-      // Per-license JWT boot — fire-and-forget. No-ops for demo accounts
-      // (no `tx_license_key` in localStorage), so signInWithPassword keeps
-      // owning auth on that path.
-      import('@terminal-x/data/web').then(({ bootLicenseJwt }) => {
-        bootLicenseJwt(_supabase, import.meta.env.VITE_SUPABASE_URL).catch(() => {})
-      }).catch(() => {})
-      return _supabase
-    })
-  : Promise.resolve(null)
+let _supabaseReadyPromise = null
+function getSupabaseReady() {
+  if (_supabaseReadyPromise) return _supabaseReadyPromise
+  _supabaseReadyPromise = (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+    ? import('@supabase/supabase-js').then(({ createClient }) => {
+        _supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY)
+        if (typeof window !== 'undefined') {
+          window.__txSupabase = _supabase
+          window.__txResetSupabase = () => { _supabase = null; _supabaseReadyPromise = null }
+        }
+        import('@terminal-x/data/web').then(({ bootLicenseJwt }) => {
+          bootLicenseJwt(_supabase, import.meta.env.VITE_SUPABASE_URL).catch(() => {})
+        }).catch(() => {})
+        return _supabase
+      })
+    : Promise.resolve(null)
+  return _supabaseReadyPromise
+}
 
 export { _supabase as supabase }
 
@@ -89,7 +86,7 @@ const POSRoute = React.lazy(() =>
     import('@/context/KioskContext'),
     import('@terminal-x/data/web'),
     import('@terminal-x/services/offline-queue'),
-    supabaseReady,
+    getSupabaseReady(),
   ]).then(([App, i18n, Auth, License, Data, Plan, BizType, Kiosk, WebData, Offline]) => ({
     default: function POSShell() {
       return (
@@ -160,6 +157,7 @@ window.addEventListener('error', (event) => {
   try {
     if (!isChunkMsg(event?.error || event?.message)) {
       captureSentryException(event?.error || new Error(String(event?.message || 'web error')))
+      reportClientError(event?.error || event?.message)
     }
   } catch {}
 })
@@ -168,6 +166,7 @@ window.addEventListener('unhandledrejection', (event) => {
   try {
     if (!isChunkMsg(event?.reason)) {
       captureSentryException(event?.reason instanceof Error ? event.reason : new Error(String(event?.reason)))
+      reportClientError(event?.reason)
     }
   } catch {}
 })
@@ -175,6 +174,56 @@ window.addEventListener('unhandledrejection', (event) => {
 function isChunkMsg(x) {
   const m = String((x && x.message) || x || '')
   return /chunk|dynamically imported module|Importing a module script failed/i.test(m)
+}
+
+// ---------------------------------------------------------------------------
+// Per-client error reporter — POSTs to /api/panel?action=report_error so the
+// admin panel can show errors per-business without users having to send
+// screenshots. Anonymous, fire-and-forget; runs in parallel with Sentry.
+// Throttled to avoid flooding from error storms.
+// ---------------------------------------------------------------------------
+const _errReportRecent = new Set()
+function reportClientError(err, severity = 'error') {
+  try {
+    const message = String((err && err.message) || err || 'unknown error')
+    if (isChunkMsg(message)) return // chunk reloads handled separately
+    const sig = message.slice(0, 200)
+    if (_errReportRecent.has(sig)) return
+    _errReportRecent.add(sig)
+    setTimeout(() => _errReportRecent.delete(sig), 60000) // 1-min dedupe window
+
+    const businessId = (() => {
+      try { return localStorage.getItem('tx_business_id') || null } catch { return null }
+    })()
+    const userId = (() => {
+      try { return localStorage.getItem('tx_user_id') || null } catch { return null }
+    })()
+    const userRole = (() => {
+      try { return localStorage.getItem('tx_user_role') || null } catch { return null }
+    })()
+    const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : null
+
+    fetch('/api/panel?action=report_error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      keepalive: true,
+      body: JSON.stringify({
+        business_id: businessId,
+        user_id: userId,
+        user_role: userRole,
+        message,
+        stack: (err && err.stack) || null,
+        route: typeof window !== 'undefined' ? window.location.pathname + window.location.search : null,
+        user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+        app_version: appVersion,
+        severity,
+      }),
+    }).catch(() => {})
+  } catch {}
+}
+
+if (typeof window !== 'undefined') {
+  window.__txReportError = reportClientError
 }
 
 // ---------------------------------------------------------------------------
@@ -250,14 +299,29 @@ function SupabaseAuthGate({ children, supabase, createWebAPI, createWebPrinterAP
   const [password, setPassword]     = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  const api = useMemo(() => businessId ? createWebAPI(supabase, businessId) : null, [businessId])
+  // Cross-firm impersonation: when the contadora has an active "Ver como
+  // cliente" session, swap the business_id passed to createWebAPI so every
+  // web.js read is scoped to the impersonated tenant. Server-side
+  // (panel.js?action=firm_impersonate_check) verified she has an
+  // access_granted accounting_clients row before sessionStorage was set —
+  // RLS via has_accountant_access(target) accepts the SELECTs that follow.
+  const impersonatingBid = useMemo(() => {
+    try { return sessionStorage.getItem('tx_impersonating_biz_id') || null }
+    catch { return null }
+  }, [])
+  const effectiveBid = impersonatingBid || businessId
+  const api = useMemo(() => effectiveBid ? createWebAPI(supabase, effectiveBid) : null, [effectiveBid])
   const printerApi = useMemo(() => createWebPrinterAPI(), [])
 
   useEffect(() => {
+    // Suspend offline-sync entirely while impersonating a client tenant.
+    // The contadora's view is read-only by design; running the firm's sync
+    // loop against a swapped business_id would cause cross-tenant writes.
+    if (impersonatingBid) return
     if (supabase && businessId) {
       return startOfflineSync(supabase, businessId)
     }
-  }, [businessId])
+  }, [businessId, impersonatingBid])
 
   useEffect(() => {
     if (!supabase) { setLoading(false); return }
@@ -430,7 +494,7 @@ const AdminRoute = React.lazy(() =>
   Promise.all([
     import('@/i18n'),
     import('@/admin/AdminApp'),
-    supabaseReady,
+    getSupabaseReady(),
   ]).then(([i18n, AdminApp]) => ({
     default: function AdminShell() {
       return <i18n.LangProvider><AdminApp.default supabase={_supabase} /></i18n.LangProvider>
@@ -444,7 +508,7 @@ const AdminRoute = React.lazy(() =>
 const SignupRoute = React.lazy(() =>
   Promise.all([
     import('@/landing/SignupPage'),
-    supabaseReady,
+    getSupabaseReady(),
   ]).then(([SignupPage]) => ({
     default: function SignupShell() {
       return <SignupPage.default supabase={_supabase} />
@@ -452,9 +516,52 @@ const SignupRoute = React.lazy(() =>
   }))
 )
 
+function ContabilidadRedirect() {
+  const { tab } = useParams()
+  const target = tab ? `/pos/contabilidad/${tab}` : '/pos/contabilidad'
+  return <Navigate to={target} replace />
+}
+
 function ConfigRedirect() {
   const { section } = useParams()
   return <Navigate to={`/pos/config/${section}`} replace />
+}
+
+// SPA canonical updater — keeps <link rel="canonical"> and og:url in sync with
+// the current route. Without this every route inherits index.html's hardcoded
+// canonical=https://terminalxpos.com/, which Google flags as
+// "alternate page with proper canonical tag" for /signup, /blog/*, /pricing, etc.
+// Skips app/private routes (/pos, /admin, /invoicing, /cert, /wo, /tienda-empenos, /agendar)
+// since those are noindex by intent.
+function RouteCanonical() {
+  const { pathname, search } = useLocation()
+  React.useEffect(() => {
+    const PRIVATE = /^\/(pos|admin|invoicing|cert|wo|tienda-empenos|agendar|queue|clients|credits|reports|inventory|conteo-fisico|dgii|cash-recon|petty-cash|credit-notes|returns|empleados|config|remote|sistema|license-admin|settings|memberships|resumen|work-orders|vehicles|service-bays|appointments|stylist-schedules|loans|pawn-items|lending|mesas|menu|menu-builder|kds|vehicle-inventory|sales-pipeline|test-drives|deal-builder|probar|demo)(\/|$)/
+    const isPrivate = PRIVATE.test(pathname)
+    const url = `https://terminalxpos.com${pathname}${search || ''}`
+    let link = document.querySelector('link[rel="canonical"]')
+    if (!link) {
+      link = document.createElement('link')
+      link.setAttribute('rel', 'canonical')
+      document.head.appendChild(link)
+    }
+    link.setAttribute('href', isPrivate ? 'https://terminalxpos.com/' : url)
+    let og = document.querySelector('meta[property="og:url"]')
+    if (!og) {
+      og = document.createElement('meta')
+      og.setAttribute('property', 'og:url')
+      document.head.appendChild(og)
+    }
+    og.setAttribute('content', isPrivate ? 'https://terminalxpos.com/' : url)
+    let robots = document.querySelector('meta[name="robots"]')
+    if (!robots) {
+      robots = document.createElement('meta')
+      robots.setAttribute('name', 'robots')
+      document.head.appendChild(robots)
+    }
+    robots.setAttribute('content', isPrivate ? 'noindex, nofollow' : 'index, follow, max-image-preview:large')
+  }, [pathname, search])
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -464,6 +571,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary>
       <BrowserRouter>
+        <RouteCanonical />
         <React.Suspense fallback={<PageLoader />}>
           <Routes>
             {/* Public landing pages — no Supabase needed */}
@@ -504,6 +612,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/industrias" element={<Navigate to="/#vertical-features" replace />} />
             <Route path="/industrias/:slug" element={<IndustryPage />} />
 
+            {/* /probar/:vertical — interactive marketing demos. Pure React +
+                seed data, no Supabase. Single dispatcher (Demo.jsx) loads
+                the correct vertical config dynamically. Gated by signup. */}
+            <Route path="/probar" element={<Navigate to="/#vertical-features" replace />} />
+            <Route path="/probar/:vertical" element={<Demo />} />
+
             {/* e-CF Certification Portal — public, token-based */}
             <Route path="/cert/:token" element={
               <React.Suspense fallback={<PageLoader />}>
@@ -537,6 +651,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/credit-notes" element={<Navigate to="/pos/credit-notes" replace />} />
             <Route path="/returns" element={<Navigate to="/pos/returns" replace />} />
             <Route path="/empleados" element={<Navigate to="/pos/empleados" replace />} />
+            <Route path="/contabilidad" element={<Navigate to="/pos/contabilidad" replace />} />
+            <Route path="/contabilidad/:tab" element={<ContabilidadRedirect />} />
             <Route path="/config/:section" element={<ConfigRedirect />} />
             <Route path="/config" element={<Navigate to="/pos/config" replace />} />
             <Route path="/remote" element={<Navigate to="/pos/remote" replace />} />

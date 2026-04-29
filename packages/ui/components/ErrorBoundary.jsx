@@ -68,6 +68,11 @@ export default class ErrorBoundary extends Component {
     try {
       captureSentryException(error, { componentStack: info?.componentStack })
     } catch {}
+    try {
+      if (typeof window !== 'undefined' && typeof window.__txReportError === 'function') {
+        window.__txReportError(error, 'error')
+      }
+    } catch {}
   }
 
   render() {

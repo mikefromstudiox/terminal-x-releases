@@ -142,18 +142,18 @@ ipcMain.handle('whatsapp:send', (_, { to, body }) => {
       let raw = ''
       res.on('data', chunk => { raw += chunk })
       res.on('end',  ()    => {
-        // v2.14.20 — normalize UltraMsg's quirky response shape. It returns
-        // {sent:"true", message:"ok", id:"..."} on success (note: "true" is a
-        // STRING) and {error:"..."} on failure. Previously the renderer
-        // checked r?.success / r?.ok — both undefined on success — so every
-        // successful send surfaced "No se pudo enviar WhatsApp".
         let body = {}
         try { body = JSON.parse(raw) || {} } catch {}
         const ok = !body.error && (body.sent === 'true' || body.sent === true || !!body.id || body.message === 'ok')
-        resolve({ ok, error: body.error || null, raw: body })
+        // Surface the real UltraMsg failure (e.g. instance suspended for
+        // non-payment returns HTTP 404 with `{error:"Your instance has been
+        // Stopped..."}`). Previously the renderer just saw a generic
+        // "error de red" because the body was discarded on non-2xx.
+        const err = body.error || (res.statusCode >= 400 ? `UltraMsg HTTP ${res.statusCode}: ${raw.slice(0,200)}` : null)
+        resolve({ ok, error: err, raw: body })
       })
     })
-    req.on('error', reject)
+    req.on('error', e => resolve({ ok: false, error: `red: ${e.message}` }))
     req.write(postData)
     req.end()
   })
@@ -189,10 +189,11 @@ ipcMain.handle('whatsapp:sendDocument', (_, { to, base64, filename, caption }) =
         let body = {}
         try { body = JSON.parse(raw) || {} } catch {}
         const ok = !body.error && (body.sent === 'true' || body.sent === true || !!body.id || body.message === 'ok')
-        resolve({ ok, error: body.error || null, raw: body })
+        const err = body.error || (res.statusCode >= 400 ? `UltraMsg HTTP ${res.statusCode}: ${raw.slice(0,200)}` : null)
+        resolve({ ok, error: err, raw: body })
       })
     })
-    req.on('error', reject)
+    req.on('error', e => resolve({ ok: false, error: `red: ${e.message}` }))
     req.write(postData)
     req.end()
   })
@@ -1712,6 +1713,12 @@ async function runBackupGuarded(reason) {
     business_id: null, // resolved from app_settings inside
     tmpDir:      path.join(app.getPath('userData'), 'backup-tmp'),
     reason,
+    // Production path (anon key): server-signed upload URL via panel.js. The
+    // endpoint validates license+hwid before minting the URL, so the desktop
+    // never needs storage write privilege.
+    licenseKey:  _activeLicenseKey,
+    hwid:        getHardwareId(),
+    apiBase:     process.env.TX_ADMIN_API_BASE || 'https://terminalxpos.com',
   })
 }
 
@@ -1907,6 +1914,11 @@ handle('settings:get',    ()     => db.settingsGet())
 // ManagerAuthGate so gating here would break all non-owner settings edits.
 // Will add once Sistema/DGII screens wrap their save buttons in ManagerAuthGate.
 handleMut('settings:update', (obj)  => { db.settingsUpdate(obj); return true })
+
+// ── Go-Live Gate ─────────────────────────────────────────────────────────────
+handle('app:is-live',         ()  => db.isProductionLive())
+handle('app:test-data-count', ()  => db.testDataCount())
+handleMut('app:go-live-commit', () => db.goLiveCommit())
 
 // ── Cloud Sync ───────────────────────────────────────────────────────────────
 handle('sync:status', () => sync.getStatus())
@@ -2164,6 +2176,12 @@ handle('recipeItems:listForService', ({ serviceKey })                  => db.rec
 handleMut('recipeItems:add',         (data)                             => db.recipeItemsAdd(data))
 handleMut('recipeItems:update',      ({ id, qty_per_unit })             => db.recipeItemsUpdate(id, qty_per_unit))
 handleMut('recipeItems:remove',      ({ id })                           => { db.recipeItemsRemove(id); return true })
+
+// ── Ofertas (product bundles) ────────────────────────────────────────────────
+handle('ofertas:list',    (opts = {})        => db.ofertasList(opts || {}))
+handle('ofertas:get',     ({ supabase_id })  => db.ofertasGet(supabase_id))
+handleMut('ofertas:upsert', (data)           => db.ofertasUpsert(data))
+handleMut('ofertas:delete', ({ supabase_id }) => db.ofertasDelete(supabase_id))
 
 // ── Restaurant Mode — KDS events ─────────────────────────────────────────────
 handle('kds:listActive', ()                => db.kdsListActive())

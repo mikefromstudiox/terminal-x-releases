@@ -2554,6 +2554,22 @@ export function createWebAPI(supabase, businessId) {
       create: async (data) => {
         try {
           return await tryOr(async () => {
+            // v2.16.10 — Go-Live gate (web mirror). Read go_live_date from
+            // app_settings; if empty/future, mark the ticket is_test=true and
+            // skip commission writes + credit grant. Cloud sync push filters
+            // is_test rows on desktop. Web reads can still see them per-device.
+            let _liveWeb = false
+            try {
+              const { data: gl } = await supabase.from('app_settings')
+                .select('value').eq('business_id', bid).eq('key', 'go_live_date').maybeSingle()
+              const v = gl?.value
+              if (v) {
+                const today = new Date(); today.setHours(0,0,0,0)
+                const d = new Date(`${v}T00:00:00`)
+                if (!Number.isNaN(d.getTime())) _liveWeb = d.getTime() <= today.getTime()
+              }
+            } catch {}
+
             // Resolve per-business ITBIS rate once (app_settings is keyed by
             // business_id; value is the percentage as a string, default '18').
             // Callers may also pass `data.itbis_rate` to skip the lookup.
@@ -2658,6 +2674,7 @@ export function createWebAPI(supabase, businessId) {
               // ticket. See supabase/migrations/20260420100000_*.sql.
               payment_parts:   (Array.isArray(data.payment_parts) && data.payment_parts.length) ? data.payment_parts : null,
               split_bill:      (data.split === true || (Array.isArray(data.payment_parts) && data.payment_parts.length > 1)) || false,
+              is_test:         !_liveWeb,
             }).select().single())
 
             // Insert ticket items — try with business_id first, fall back without
@@ -2758,7 +2775,7 @@ export function createWebAPI(supabase, businessId) {
             }
 
             // Washer commissions — only on wash/service items (NOT beverages/snacks).
-            if (ticket?.id && commBase > 0 && Array.isArray(data.washer_ids) && data.washer_ids.length) {
+            if (_liveWeb && ticket?.id && commBase > 0 && Array.isArray(data.washer_ids) && data.washer_ids.length) {
               try {
                 const empRows = await resolveEmpleadoSid(data.washer_ids)
                 for (const e of empRows) {
@@ -2774,7 +2791,7 @@ export function createWebAPI(supabase, businessId) {
 
             // Seller commission — only on wash/service items (NOT beverages/snacks).
             const sellerRef = data.seller_supabase_id || data.seller_id || null
-            if (ticket?.id && commBase > 0 && sellerRef) {
+            if (_liveWeb && ticket?.id && commBase > 0 && sellerRef) {
               try {
                 const [seller] = await resolveEmpleadoSid([sellerRef])
                 if (seller && seller.comision_pct > 0) {
@@ -2797,7 +2814,7 @@ export function createWebAPI(supabase, businessId) {
             // washer/seller is supplied. Same trade-off as the carwash split.
             try {
               const itemsWithEmp = (data.items || []).filter(i => i?.empleado_supabase_id)
-              if (ticket?.id && itemsWithEmp.length) {
+              if (_liveWeb && ticket?.id && itemsWithEmp.length) {
                 const grossByEmp = new Map()
                 for (const i of itemsWithEmp) {
                   const line = (Number(i.price) || 0) * (Number(i.quantity) || 1)
@@ -2824,7 +2841,7 @@ export function createWebAPI(supabase, businessId) {
 
             // Cajero commission — on beverages/snacks ONLY.
             const cajeroRef = data.cajero_supabase_id || data.cajero_id || null
-            if (ticket?.id && bevBase > 0 && cajeroRef) {
+            if (_liveWeb && ticket?.id && bevBase > 0 && cajeroRef) {
               try {
                 const [cajero] = await resolveEmpleadoSid([cajeroRef])
                 if (cajero && cajero.comision_pct > 0) {
@@ -2857,7 +2874,7 @@ export function createWebAPI(supabase, businessId) {
             }
 
             // Update client balance for credit sales (by supabase_id)
-            if (status === 'pendiente' && data.client_supabase_id) {
+            if (_liveWeb && status === 'pendiente' && data.client_supabase_id) {
               try {
                 const { data: cl } = await supabase.from('clients').select('balance').eq('supabase_id', data.client_supabase_id).eq('business_id', bid).single()
                 if (cl) await supabase.from('clients').update({ balance: (cl.balance || 0) + (data.total || 0) }).eq('supabase_id', data.client_supabase_id).eq('business_id', bid)
@@ -4598,8 +4615,9 @@ export function createWebAPI(supabase, businessId) {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: `token=${encodeURIComponent(cfg.whatsapp_token)}&to=${encodeURIComponent(to)}&body=${encodeURIComponent(body)}`,
         })
-        if (!r.ok) throw new Error(`UltraMsg ${r.status}`)
-        return r.json()
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok || j?.error) throw new Error(j?.error || `UltraMsg HTTP ${r.status}`)
+        return j
       }),
 
       sendDocument: ({ to, base64, filename, caption }) => tryOr(async () => {
@@ -4618,8 +4636,9 @@ export function createWebAPI(supabase, businessId) {
             caption ? `caption=${encodeURIComponent(caption)}` : '',
           ].filter(Boolean).join('&'),
         })
-        if (!r.ok) throw new Error(`UltraMsg ${r.status}`)
-        return r.json()
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok || j?.error) throw new Error(j?.error || `UltraMsg HTTP ${r.status}`)
+        return j
       }),
     },
 
@@ -5239,6 +5258,209 @@ export function createWebAPI(supabase, businessId) {
       remove: (id) => tryOr(async () => {
         throwSupaError(await supabase.from('service_recipe_items')
           .delete().eq('id', id).eq('business_id', bid))
+        return { deleted: true }
+      }),
+    },
+
+    // ── Ofertas (product bundles, v2.16.x) ───────────────────────────────────
+    // Mirrors desktop ofertas helpers. Components can reference EITHER a
+    // service (services.in_stock=0 ⇒ out of stock) OR an inventory_item
+    // (quantity / qty floored). oferta_available = floor(min(per-component)).
+    ofertas: {
+      list: ({ activeOnly = false } = {}) => tryOr(async () => {
+        let q = supabase.from('ofertas').select('*').eq('business_id', bid)
+        if (activeOnly) q = q.eq('active', true)
+        const ofertas = throwSupaError(await q.order('active', { ascending: false }).order('name'))
+        if (!ofertas.length) return []
+        const sids = ofertas.map(o => o.supabase_id).filter(Boolean)
+        const items = sids.length ? throwSupaError(
+          await supabase.from('oferta_items').select('*')
+            .eq('business_id', bid).in('oferta_supabase_id', sids)
+        ) : []
+        // Pre-fetch component details.
+        const svcSids = [...new Set(items.map(i => i.service_supabase_id).filter(Boolean))]
+        const invSids = [...new Set(items.map(i => i.inventory_item_supabase_id).filter(Boolean))]
+        const svcMap = {}
+        if (svcSids.length) {
+          const { data: svcs } = await supabase.from('services')
+            .select('supabase_id,name,price,in_stock').eq('business_id', bid).in('supabase_id', svcSids)
+          for (const s of (svcs || [])) svcMap[s.supabase_id] = s
+        }
+        const invMap = {}
+        if (invSids.length) {
+          const { data: invs } = await supabase.from('inventory_items')
+            .select('supabase_id,name,sku,unit,quantity,price').eq('business_id', bid).in('supabase_id', invSids)
+          for (const i of (invs || [])) invMap[i.supabase_id] = i
+        }
+        const itemsByOferta = {}
+        for (const it of items) {
+          const arr = itemsByOferta[it.oferta_supabase_id] || (itemsByOferta[it.oferta_supabase_id] = [])
+          arr.push(it)
+        }
+        const compAvail = (it) => {
+          const need = Number(it.qty || 1) || 1
+          if (need <= 0) return Infinity
+          if (it.service_supabase_id) {
+            const s = svcMap[it.service_supabase_id]
+            if (!s) return 0
+            if (s.in_stock === false || s.in_stock === 0) return 0
+            return Infinity
+          }
+          if (it.inventory_item_supabase_id) {
+            const i = invMap[it.inventory_item_supabase_id]
+            if (!i) return 0
+            return Math.floor(Number(i.quantity || 0) / need)
+          }
+          return 0
+        }
+        return ofertas.map(o => {
+          const its = itemsByOferta[o.supabase_id] || []
+          let min = Infinity
+          for (const it of its) { const a = compAvail(it); if (a < min) min = a }
+          const avail = its.length === 0 ? 0 : (Number.isFinite(min) ? Math.floor(min) : 0)
+          return { ...o, components_count: its.length, oferta_available: avail }
+        })
+      }, []),
+
+      get: (supabase_id) => tryOr(async () => {
+        if (!supabase_id) return null
+        const { data: o } = await supabase.from('ofertas').select('*')
+          .eq('business_id', bid).eq('supabase_id', supabase_id).maybeSingle()
+        if (!o) return null
+        const items = throwSupaError(
+          await supabase.from('oferta_items').select('*')
+            .eq('business_id', bid).eq('oferta_supabase_id', supabase_id).order('id')
+        ) || []
+        const svcSids = [...new Set(items.map(i => i.service_supabase_id).filter(Boolean))]
+        const invSids = [...new Set(items.map(i => i.inventory_item_supabase_id).filter(Boolean))]
+        const svcMap = {}, invMap = {}
+        if (svcSids.length) {
+          const { data: svcs } = await supabase.from('services')
+            .select('supabase_id,name,price,in_stock').eq('business_id', bid).in('supabase_id', svcSids)
+          for (const s of (svcs || [])) svcMap[s.supabase_id] = s
+        }
+        if (invSids.length) {
+          const { data: invs } = await supabase.from('inventory_items')
+            .select('supabase_id,name,sku,unit,quantity,price').eq('business_id', bid).in('supabase_id', invSids)
+          for (const i of (invs || [])) invMap[i.supabase_id] = i
+        }
+        let min = Infinity
+        const enriched = items.map(it => {
+          const need = Number(it.qty || 1) || 1
+          let kind = null, name = null, price = null, qty_avail = null, unit = null, available_units = null
+          if (it.service_supabase_id) {
+            const s = svcMap[it.service_supabase_id]
+            kind = 'service'; name = s?.name || null; price = s?.price != null ? Number(s.price) : null
+            qty_avail = (s && (s.in_stock === false || s.in_stock === 0)) ? 0 : null
+            available_units = (s && (s.in_stock === false || s.in_stock === 0)) ? 0 : null
+          } else if (it.inventory_item_supabase_id) {
+            const i = invMap[it.inventory_item_supabase_id]
+            kind = 'inventory_item'; name = i?.name || null; price = i?.price != null ? Number(i.price) : null
+            qty_avail = i?.quantity != null ? Number(i.quantity) : 0
+            unit = i?.unit || null
+            available_units = i ? Math.floor(Number(i.quantity || 0) / need) : 0
+          }
+          const compA = available_units == null ? Infinity : available_units
+          if (compA < min) min = compA
+          return {
+            ...it,
+            component_kind: kind,
+            component_name: name,
+            component_price: price,
+            component_quantity: qty_avail,
+            component_unit: unit,
+            available_units,
+          }
+        })
+        const avail = items.length === 0 ? 0 : (Number.isFinite(min) ? Math.floor(min) : 0)
+        return { ...o, items: enriched, oferta_available: avail }
+      }, null),
+
+      upsert: (data = {}) => tryOr(async () => {
+        if (!data.name || data.price == null) {
+          throw new Error('ofertas.upsert: name + price required')
+        }
+        const items = Array.isArray(data.items) ? data.items : []
+        const sid = data.supabase_id || crypto.randomUUID()
+        const { data: existing } = await supabase.from('ofertas').select('supabase_id')
+          .eq('business_id', bid).eq('supabase_id', sid).maybeSingle()
+        const isNew = !existing
+
+        const payload = {
+          supabase_id: sid,
+          business_id: bid,
+          name: data.name,
+          description: data.description || null,
+          price: Number(data.price) || 0,
+          active: data.active === false || data.active === 0 ? false : true,
+          starts_at: data.starts_at || null,
+          ends_at: data.ends_at || null,
+          updated_at: new Date().toISOString(),
+        }
+        if (isNew) {
+          throwSupaError(await supabase.from('ofertas').insert(payload).select('supabase_id').single())
+        } else {
+          throwSupaError(await supabase.from('ofertas').update(payload)
+            .eq('business_id', bid).eq('supabase_id', sid))
+        }
+
+        // Replace components
+        throwSupaError(await supabase.from('oferta_items').delete()
+          .eq('business_id', bid).eq('oferta_supabase_id', sid))
+        const rows = []
+        for (const it of items) {
+          const svc = it.service_supabase_id || null
+          const inv = it.inventory_item_supabase_id || null
+          if (!svc && !inv) continue
+          rows.push({
+            supabase_id: it.supabase_id || crypto.randomUUID(),
+            business_id: bid,
+            oferta_supabase_id: sid,
+            service_supabase_id: svc ? svc : null,
+            inventory_item_supabase_id: svc ? null : inv,
+            qty: Number(it.qty) || 1,
+          })
+        }
+        if (rows.length) {
+          throwSupaError(await supabase.from('oferta_items').insert(rows))
+        }
+
+        try {
+          await supabase.from('activity_log').insert({
+            supabase_id: crypto.randomUUID(),
+            business_id: bid,
+            event_type: isNew ? 'oferta_create' : 'oferta_update',
+            severity: 'info',
+            target_type: 'oferta',
+            target_id: sid,
+            target_name: data.name,
+            amount: Number(data.price) || 0,
+            metadata: { components: items.length },
+          })
+        } catch {}
+
+        return { supabase_id: sid }
+      }),
+
+      delete: (supabase_id) => tryOr(async () => {
+        if (!supabase_id) return { deleted: false }
+        throwSupaError(await supabase.from('oferta_items').delete()
+          .eq('business_id', bid).eq('oferta_supabase_id', supabase_id))
+        const { data: o } = await supabase.from('ofertas').select('name')
+          .eq('business_id', bid).eq('supabase_id', supabase_id).maybeSingle()
+        throwSupaError(await supabase.from('ofertas').delete()
+          .eq('business_id', bid).eq('supabase_id', supabase_id))
+        try {
+          await supabase.from('activity_log').insert({
+            supabase_id: crypto.randomUUID(),
+            business_id: bid,
+            event_type: 'oferta_delete',
+            severity: 'info',
+            target_type: 'oferta',
+            target_id: supabase_id,
+            target_name: o?.name || null,
+          })
+        } catch {}
         return { deleted: true }
       }),
     },

@@ -202,6 +202,7 @@ export function LicenseProvider({ children }) {
       // Store business_id for cloud sync + BLOCKING initial pull so Login has data
       if (res.valid && res.businessId && api?.settings?.update) {
         try { await api.settings.update({ supabase_business_id: res.businessId }) } catch {}
+        try { localStorage.setItem('tx_business_id', String(res.businessId)) } catch {}
         // Await the pull — otherwise Login screen renders against an empty DB
         // and every PIN fails. Fall through on network error (still let user in).
         try {
