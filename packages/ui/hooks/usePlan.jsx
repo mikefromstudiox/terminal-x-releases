@@ -10,7 +10,8 @@ import { setOfflineQueuePlanGate } from '../../services/offline-queue.js'
 //  - whatsapp_automation (Cola Listo + Balance Reminder + future auto-triggers) → Pro PLUS (NEW)
 //  - custom_receipt_design (crimson-branded PDF, logos, custom footers) → Pro MAX (NEW)
 //  - dgii_606_607 (monthly TXT export) → Pro PLUS (NEW — strong upgrade driver from Pro)
-// Prices unchanged: RD$995 / 2,490 / 4,490 / 6,990.
+// Prices (2026-04-27 update): Facturación RD$995/1,990/2,990 · Pro RD$2,990 ·
+// Pro PLUS RD$5,490 · Pro MAX RD$9,990. Existing customers grandfathered.
 const PLAN_FEATURES = {
   facturacion: [
     'invoicing', 'ecf', 'dgii', 'clients', 'reports',
@@ -44,6 +45,8 @@ const PLAN_FEATURES = {
     'pos', 'queue', 'clients', 'credits', 'reports',
     'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory',
     'ecf', 'dgii', 'dgii_606_607',
+    // v2.16.10 — bundle promos, gated Pro PLUS+
+    'ofertas',
     'whatsapp_receipts', 'whatsapp_automation',
     'restaurant_mode', 'work_orders', 'appointments', 'service_bays',
     'loans', 'vehicles', 'invoicing', 'nomina_basic',
@@ -70,12 +73,23 @@ const PLAN_FEATURES = {
     // FIX-HIGH-6 — carnicería vertical (Pro PLUS+)
     'carniceria_resumen', 'carniceria_corte_catalog',
     'carniceria_mayoreo', 'carniceria_freshness_alerts',
+    // 2026-04-27 — contabilidad Pro PLUS bundle (single-firm + multi-firm up
+    // to 10 clients). Pro MAX adds portfolio cockpit + auto-pull + AI.
+    'contabilidad_inbox', 'contabilidad_cartera', 'contabilidad_calendario',
+    'contabilidad_comprobantes', 'contabilidad_vault', 'contabilidad_honorarios',
+    'contabilidad_libro_mayor', 'contabilidad_banco', 'contabilidad_nomina',
+    'contabilidad_activos', 'contabilidad_tareas', 'contabilidad_reportes_ejecutivos',
+    'contabilidad_multi_firm', 'contabilidad_bank_parsers',
+    'contabilidad_itbis_proporcionalidad', 'contabilidad_retencion_auto',
+    'contabilidad_csv_bulk', 'contabilidad_whatsapp_chase',
     'share_with_accountant',
   ],
   pro_max: [
     'pos', 'queue', 'clients', 'credits', 'reports',
     'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory',
     'ecf', 'dgii', 'dgii_606_607',
+    // v2.16.10 — bundle promos, gated Pro PLUS+
+    'ofertas',
     'whatsapp_receipts', 'whatsapp_automation', 'custom_receipt_design',
     'remote_dashboard', 'multi_location',
     'nomina_basic', 'nomina_advanced',
@@ -85,6 +99,15 @@ const PLAN_FEATURES = {
     'contabilidad_reportes_ejecutivos', 'contabilidad_libro_mayor', 'contabilidad_banco',
     'contabilidad_inbox', 'contabilidad_cartera', 'contabilidad_calendario',
     'contabilidad_comprobantes', 'contabilidad_vault', 'contabilidad_honorarios',
+    // 2026-04-27 — contadora portfolio mode. Pro MAX exclusive across business types.
+    'contabilidad_portfolio', 'contabilidad_batch_dgii', 'contabilidad_auto_pull',
+    'contabilidad_ai_classifier', 'contabilidad_view_as_client',
+    'contabilidad_multi_firm_unlimited',
+    // Pro PLUS gets multi-firm up to 10 + bank parsers + ITBIS proporcionalidad
+    // (Pro MAX inherits all Pro PLUS keys via this entry too).
+    'contabilidad_multi_firm', 'contabilidad_bank_parsers',
+    'contabilidad_itbis_proporcionalidad', 'contabilidad_retencion_auto',
+    'contabilidad_csv_bulk', 'contabilidad_whatsapp_chase',
     'restaurant_mode', 'work_orders', 'appointments', 'service_bays',
     'loans', 'vehicles',
     // v2.16.3 — Restaurante hardening keys (inherited from Pro PLUS).

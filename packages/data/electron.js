@@ -11,6 +11,20 @@
 
 import { voidNoShowFeeOrchestrator } from '@terminal-x/services/voidNoShowFee'
 
+// Pure client-side projection of mora (late fee) for an invoice given its plan.
+function projectedLateFee(inv, plan) {
+  if (!inv || !plan) return { amount: 0, applies: false, ageDays: 0 }
+  if (inv.status === 'paid' || inv.status === 'void') return { amount: 0, applies: false, ageDays: 0 }
+  const pct  = Number(plan.late_fee_pct || 0)
+  const days = Number(plan.late_fee_after_days || 0)
+  if (pct <= 0 || days <= 0 || !inv.created_at) return { amount: 0, applies: false, ageDays: 0 }
+  const issued = new Date(inv.created_at).getTime()
+  const ageDays = Math.floor((Date.now() - issued) / 86400000)
+  if (ageDays <= days) return { amount: 0, applies: false, ageDays }
+  const base = Number(inv.amount || plan.monthly_amount || 0)
+  return { amount: Math.round(base * (pct / 100) * 100) / 100, applies: true, ageDays }
+}
+
 export function createElectronAPI() {
   const raw = (typeof window !== 'undefined') ? window.electronAPI : null
   if (!raw) return null
@@ -134,6 +148,7 @@ export function createElectronAPI() {
     billingInvoiceList:     (params = {})   => raw.contabilidad.billingInvoiceList(params),
     billingInvoiceCreate:   (payload)       => raw.contabilidad.billingInvoiceCreate(payload),
     billingInvoiceMarkPaid: (id)            => raw.contabilidad.billingInvoiceMarkPaid(id),
+    billingInvoiceProjectedLateFee: (inv, plan) => projectedLateFee(inv, plan),
     // CSV mappings (desktop-only convenience)
     csvMappingList:         (params = {})   => raw.contabilidad.csvMappingList(params),
     csvMappingCreate:       (payload)       => raw.contabilidad.csvMappingCreate(payload),
@@ -190,6 +205,9 @@ export function createElectronAPI() {
     payrollLineList:        (params = {})   => raw.contabilidad.payrollLineList(params),
     payrollLineAdd:         (payload)       => raw.contabilidad.payrollLineAdd(payload),
     payrollLineDelete:      (id)            => raw.contabilidad.payrollLineDelete(id),
+    payrollLineUpdate:      (id, patch)     => raw.contabilidad?.payrollLineUpdate?.(id, patch),
+    payrollEmpBankList:     (params = {})   => raw.contabilidad?.payrollEmpBankList?.(params) || [],
+    payrollEmpBankUpsert:   (payload)       => raw.contabilidad?.payrollEmpBankUpsert?.(payload),
     // TSS
     tssFilingList:          (params = {})   => raw.contabilidad.tssFilingList(params),
     tssFilingCreate:        (payload)       => raw.contabilidad.tssFilingCreate(payload),
@@ -242,6 +260,12 @@ export function createElectronAPI() {
       fire:       (data)          => raw.kds.fire(data),
       setStatus:  (id, status)    => raw.kds.setStatus(id, status),
     },
+    ofertas: raw.ofertas ? {
+      list:   (opts = {})         => raw.ofertas.list(opts || {}),
+      get:    (supabase_id)       => raw.ofertas.get(supabase_id),
+      upsert: (data)              => raw.ofertas.upsert(data),
+      delete: (supabase_id)       => raw.ofertas.delete(supabase_id),
+    } : undefined,
     restaurant: {
       itemModificadores: {
         list:     (ticketItemId) => raw.restaurant.itemModificadores.list(ticketItemId),

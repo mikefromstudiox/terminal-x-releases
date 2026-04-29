@@ -25,9 +25,9 @@ const TIERS = [
   { name: 'Facturación',           price: '995',  desc: '50 e-CFs/mes incluidos · RD$15 por extra' },
   { name: 'Facturación Plus',      price: '1990', desc: '200 e-CFs/mes incluidos · RD$10 por extra' },
   { name: 'Facturación Ilimitado', price: '2990', desc: 'e-CFs ilimitados · sin tope' },
-  { name: 'Pro',                   price: '2490', desc: 'POS completo · NCF papel · 1 usuario' },
-  { name: 'Pro PLUS',              price: '4490', desc: 'POS + e-CF ilimitado · 5 usuarios · loyalty' },
-  { name: 'Pro MAX',               price: '6990', desc: 'Todo + nómina · ilimitados usuarios · digest diario' },
+  { name: 'Pro',                   price: '2990', desc: 'POS completo · NCF papel · 1 usuario' },
+  { name: 'Pro PLUS',              price: '5490', desc: 'POS + e-CF ilimitado · 5 usuarios · loyalty' },
+  { name: 'Pro MAX',               price: '9990', desc: 'Todo + nómina · ilimitados usuarios · digest diario' },
 ]
 
 export function softwareApplicationLd() {
@@ -100,11 +100,13 @@ const FAQ_ES = [
   { q: 'Puedo cambiar de plan en cualquier momento?', a: 'Si, puedes subir o bajar de plan en cualquier momento desde el panel de administracion. El cambio se aplica inmediatamente.' },
   { q: 'Hay contrato anual obligatorio?', a: 'No. Puedes pagar mes a mes sin compromiso. El plan anual tiene 15% de descuento pero no es obligatorio.' },
   { q: 'Que pasa si me quedo sin internet?', a: 'Todo sigue funcionando 100% offline. Puedes cobrar, imprimir facturas, ver reportes. Se sincroniza automaticamente cuando vuelve la conexion (hasta 72 horas de cola).' },
-  { q: 'Necesito comprar impresora especial?', a: 'Terminal X funciona con cualquier impresora termica de 80mm con conexion USB. Nosotros podemos recomendarte e instalarte la impresora y el cajon de dinero.' },
+  { q: 'Necesito comprar impresora especial?', a: 'Terminal X funciona con cualquier impresora termica 80mm USB. Si necesitas hardware nuevo, te lo vendemos a precio de costo: Impresora 2connect USB v6 RD$3,600, Impresora 2connect USB+LAN+Bluetooth+WiFi v10 RD$4,200, Lector 2D RD$1,400, Lector 2D inalambrico RD$2,000, Cajon 4 billetes/5 monedas RD$2,120, Cajon 5 billetes/8 monedas RD$3,170. El hardware NO esta incluido en la suscripcion mensual.' },
   { q: 'Que es e-CF y por que lo necesito?', a: 'e-CF (Comprobante Fiscal Electronico) es el nuevo formato obligatorio de la DGII bajo la Ley 32-23. Todos los negocios deben migrar antes de mayo 2026. Terminal X es el unico POS que se conecta directo a la DGII, sin intermediarios ni costos adicionales.' },
   { q: 'Funciona para mi tipo de negocio?', a: 'Si. Terminal X tiene modo Car Wash (cola de servicios, lavadores, comisiones), modo Tienda/Retail (inventario con codigo de barras, carrito con cantidades, stock automatico), y modo Servicios (talleres, salones, barber shops). El sistema se adapta automaticamente.' },
   { q: 'Como funciona el soporte?', a: 'Pro: autoservicio con guias. Pro PLUS: nuestro equipo te configura todo remotamente y soporte por WhatsApp en horario laboral. Pro MAX: ejecutivo dedicado + soporte prioritario + visita tecnica mensual.' },
-  { q: 'Puedo manejar la nomina sin contratar un contador externo?', a: 'Si, y es una de las ventajas mas grandes de Pro MAX. Terminal X incluye nomina in-house completa: pagos quincenales o mensuales masivos en un click, calculo automatico de TSS (SFS + AFP con topes oficiales 2026), INFOTEP 1%, ISR progresivo (escalas DGII 2026), reportes listos para subir al portal TSS y DGII, recibos formales de pago, y log automatico de cambios de salario. Un contador externo en RD cobra entre RD$8,000 y RD$15,000/mes solo por esto — Pro MAX lo incluye por RD$6,990/mes.' },
+  { q: 'Puedo manejar la nomina sin contratar un contador externo?', a: 'Si, y es una de las ventajas mas grandes de Pro MAX. Terminal X incluye nomina in-house completa: pagos quincenales o mensuales masivos en un click, calculo automatico de TSS (SFS + AFP con topes oficiales 2026), INFOTEP 1%, ISR progresivo (escalas DGII 2026), reportes listos para subir al portal TSS y DGII, recibos formales de pago, y log automatico de cambios de salario. Un contador externo en RD cobra entre RD$8,000 y RD$15,000/mes solo por esto — Pro MAX lo incluye por RD$9,990/mes.' },
+  { q: 'Soy contador y manejo varios clientes — Terminal X me sirve?', a: 'Si — Pro MAX esta especificamente disenado para tu flujo. Tienes un cockpit Portfolio que muestra los 32 clientes en una sola pantalla con semaforo de obligaciones (verde radicado, ambar listo, rojo vencido). El sistema baja automaticamente cada noche los e-CFs recibidos de cada cliente desde el portal DGII Oficina Virtual (auto-pull). Generas el 606, 607, 608, 609, IR-17 e IR-13 de TODOS tus clientes con UN click — descarga un ZIP listo para subir. Conciliacion automatica detecta NCFs que faltan grabar. IT-1 mensual calculado con casillas listas para copiar. Anticipos ISR PJ calculados por Art. 314. Activos fijos con flujo de venta. Pago masivo bancario para BHD Leon y Banreservas. Modo Ver como cliente auditado para soporte directo. Cada cliente extra es solo un RNC mas — sin limite. Perla, nuestra contadora piloto, paso de 3 dias por cierre a 4 horas.' },
+  { q: 'Como funciona el auto-pull de DGII?', a: 'En el panel Portfolio configuras la sesion DGII de cada cliente (pegas el ASP.NET_SessionId desde DevTools — F12 → Application → Cookies — o usas usuario/contrasena que el sistema cifra con AES-256-GCM). Cada noche a las 03:00 AST, un cron worker se conecta al portal DGII Oficina Virtual de cada cliente, descarga la lista de e-CFs Recibidos via la pagina ConsultaRCF.aspx, exporta el XLS, lo parsea, y guarda los registros. La proxima manana ves todos los comprobantes nuevos listos para clasificar. Cuando un cliente no te ha enviado un comprobante que el portal DGII si tiene registrado, el boton Conciliar con DGII lo detecta y te ofrece importarlo con un click, o generar un mensaje WhatsApp con los NCFs exactos que faltan.' },
   { q: 'Puedo importar datos de mi sistema anterior?', a: 'Si. Nuestro equipo puede importar tu historial de ventas, clientes y productos desde Starsisa, WilPOS u otros sistemas.' },
   { q: 'Que pasa si mi proveedor de facturacion electronica (PSFE) se cae?', a: 'Nada — porque no usamos uno. Terminal X es Emisor Electronico directo ante DGII. No dependemos de ef2.do, Indexa, ni ningun otro PSFE. Tu sistema firma y transmite los e-CF directamente al portal de DGII. Si un PSFE se cae, tus competidores dejan de facturar. Tu no.' },
 ]
@@ -188,7 +190,7 @@ export function localBusinessLd() {
     logo: LOGO_URL,
     image: OG_IMAGE_URL,
     telephone: SUPPORT_PHONE,
-    priceRange: 'RD$995–RD$6,990',
+    priceRange: 'RD$995–RD$9,990',
     taxID: ORG_RNC,
     address: {
       '@type': 'PostalAddress',

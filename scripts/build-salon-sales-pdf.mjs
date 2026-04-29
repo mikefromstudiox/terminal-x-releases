@@ -154,7 +154,7 @@ page.drawText(sanitize('Como vender y explicar Terminal X'), { x: M_X, y: 286, s
 page.drawText(sanitize('a un dueno de salon o barberia en Republica Dominicana'), { x: M_X, y: 264, size: 16, font: fontReg, color: WHITE });
 
 page.drawRectangle({ x: M_X, y: 180, width: PAGE_W - 2 * M_X, height: 1, color: CRIMSON });
-page.drawText(sanitize('Pro PLUS  -  RD$4,490 / mes'), { x: M_X, y: 150, size: 14, font: fontBold, color: WHITE });
+page.drawText(sanitize('Pro PLUS  -  RD$5,490 / mes'), { x: M_X, y: 150, size: 14, font: fontBold, color: WHITE });
 page.drawText(sanitize('e-CF Certificado DGII (Cert #42483)  |  WhatsApp UltraMsg  |  Reservas Publicas'), { x: M_X, y: 128, size: 10, font: fontReg, color: rgb(0.8, 0.8, 0.8) });
 
 page.drawText(sanitize('Studio X SRL  |  terminalxpos.com  |  v2.16.1  |  2026-04-25'), { x: M_X, y: 60, size: 9, font: fontReg, color: rgb(0.6, 0.6, 0.6) });
@@ -210,7 +210,7 @@ numbered(10, 'Cola de WhatsApp offline', 'Si se cae el internet, los recordatori
 newPage();
 h1('4. El pitch de 30 segundos');
 callout('Memoriza este parrafo',
-'Terminal X es el unico sistema en RD certificado direct ante la DGII para emitir facturas electronicas. Para tu salon hace tres cosas: tus clientas reservan solas por un link de Instagram, te recuerda WhatsApp 24 y 2 horas antes para que no falten, y te calcula la comision de cada estilista en tiempo real. Pro PLUS RD$4,490 al mes. Cuando llegue mayo del 26 vas a estar listo para la 32-23 sin contratar otro servicio.');
+'Terminal X es el unico sistema en RD certificado direct ante la DGII para emitir facturas electronicas. Para tu salon hace tres cosas: tus clientas reservan solas por un link de Instagram, te recuerda WhatsApp 24 y 2 horas antes para que no falten, y te calcula la comision de cada estilista en tiempo real. Pro PLUS RD$5,490 al mes. Cuando llegue mayo del 26 vas a estar listo para la 32-23 sin contratar otro servicio.');
 
 h2('Como abrir la conversacion');
 bullet('"?Cuanto pierdes al mes en clientas que no aparecen?" -> los lleva al deposito + recordatorios.');
@@ -245,7 +245,7 @@ newPage();
 h1('6. Manejo de objeciones');
 
 h2('"Esta caro"');
-p('"Pro PLUS son RD$4,490 al mes. Una clienta que no aparece te cuesta RD$800-1,500 en tiempo perdido del estilista. Si Terminal X recupera 4 no-shows al mes, ya se pago. Y eso sin contar reservas extras del link publico."');
+p('"Pro PLUS son RD$5,490 al mes. Una clienta que no aparece te cuesta RD$800-1,500 en tiempo perdido del estilista. Si Terminal X recupera 4 no-shows al mes, ya se pago. Y eso sin contar reservas extras del link publico."');
 
 h2('"Yo uso Google Calendar y me funciona"');
 p('"Google Calendar es gratis y le sirve si no le importa: emitir e-CF, calcular comisiones, recordar por WhatsApp, vender membresias, y cumplir con la 32-23 en mayo 2026. Cuando llegue esa fecha va a tener que comprar SI O SI un sistema certificado. Mejor empezar ahora que aprender bajo presion."');
@@ -267,9 +267,9 @@ newPage();
 h1('7. Cierre y precio');
 
 h2('Estructura de precios');
-p('Pro      RD$2,490 / mes   - POS basico, citas no incluidas.', { bold: true });
-p('Pro PLUS RD$4,490 / mes   - Agenda + e-CF + WhatsApp + reservas publicas + membresias + dashboard. ESTE ES EL PLAN PARA SALONES.', { bold: true, color: CRIMSON });
-p('Pro MAX  RD$6,990 / mes   - Todo lo anterior + multi-sucursal + cola WhatsApp offline + deposito automatico.', { bold: true });
+p('Pro      RD$2,990 / mes   - POS basico, citas no incluidas.', { bold: true });
+p('Pro PLUS RD$5,490 / mes   - Agenda + e-CF + WhatsApp + reservas publicas + membresias + dashboard. ESTE ES EL PLAN PARA SALONES.', { bold: true, color: CRIMSON });
+p('Pro MAX  RD$9,990 / mes   - Todo lo anterior + multi-sucursal + cola WhatsApp offline + deposito automatico.', { bold: true });
 p('Pago anual: 15% OFF. Trial Pro MAX 7 dias gratis en todos los signups.', { italic: true, color: GREY });
 
 h2('Tres formas de cerrar');

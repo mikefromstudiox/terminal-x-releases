@@ -258,27 +258,118 @@ export const BUSINESS_TYPES = {
     enabled: true,
   },
 
+  // Contabilidad — full firm-side accounting suite. Phase 1: Bandeja, Cartera,
+  // Calendario, Comprobantes (606/607/608), Vault, Honorarios. Phase 2/3 add
+  // libro mayor, banco, nomina, activos/retenciones, tareas, cross-firm wire.
+  // No POS, no inventory — invoicingOnly stays true.
+  contabilidad: {
+    label:       { es: 'Contabilidad', en: 'Accounting' },
+    description: { es: 'Suite contable DGII completa: bandeja, cartera, calendario fiscal, libros, conciliación bancaria, nómina TSS y honorarios.',
+                   en: 'Full DGII accounting suite: inbox, client roster, tax calendar, ledgers, bank reconciliation, payroll/TSS and fees.' },
+    icon: 'Briefcase',
+    modules: [
+      'invoicing', 'clients', 'reports', 'dgii',
+      'accounting_inbox', 'accounting_calendar', 'accounting_vault',
+      'accounting_honorarios', 'accounting_libro_mayor', 'accounting_banco',
+      'accounting_nomina', 'accounting_activos_retenciones',
+      'accounting_tareas', 'accounting_reportes',
+    ],
+    ui: {
+      showTableMap: false,
+      enableKDS: false,
+      showRetailCart: false,
+      showServiceGrid: false,
+      showInventory: false,
+      posSegmentToggle: false,
+      invoicingOnly: true,
+    },
+    enabled: true,
+  },
+
+  // Hybrid is a generic combination of any 2+ other verticals chosen by the
+  // owner (stored as a CSV in app_settings.hybrid_components). The block below
+  // is just the registry placeholder — the *effective* config is built at
+  // runtime by getHybridConfig() unioning modules + OR'ing UI flags from the
+  // selected components. Defaults to restaurant + retail for backward compat
+  // with installs that pre-date the generalization.
   hybrid: {
     label:       { es: 'Híbrido', en: 'Hybrid' },
-    description: { es: 'Combinación — ej: restaurante con tienda de merch.',
-                   en: 'Combination — e.g. restaurant with merch store.' },
+    description: { es: 'Combina dos o más tipos de negocio en uno.',
+                   en: 'Combine two or more business types in one.' },
     icon: 'LayoutGrid',
-    modules: ['tables', 'menu', 'modifiers', 'kds', 'split_pay', 'multi_printer',
-              'tip', 'inventory', 'barcode', 'cart', 'commissions'],
+    modules: [],
     ui: {
-      showTableMap: true,
-      enableKDS: true,
-      showRetailCart: true,
+      showTableMap: false,
+      enableKDS: false,
+      showRetailCart: false,
       showServiceGrid: false,
-      showInventory: true,
-      posSegmentToggle: true, // Mesa vs Venta directa
-      fulfillmentDefault: 'dine_in',
+      showInventory: false,
+      posSegmentToggle: true,
     },
+    defaultComponents: ['restaurant', 'retail'],
     enabled: true,
   },
 }
 
-export const BUSINESS_TYPE_KEYS = ['carwash', 'retail', 'licoreria', 'carniceria', 'service', 'restaurant', 'mechanic', 'salon', 'prestamos', 'dealership', 'hybrid']
+// Components a hybrid setup can be built from. Excludes 'hybrid' itself.
+export const HYBRID_COMPONENT_KEYS = ['carwash', 'retail', 'licoreria', 'carniceria', 'service', 'restaurant', 'mechanic', 'salon', 'prestamos', 'dealership']
+
+// Validate + normalize a list of hybrid components. Always returns at least
+// the registry default (['restaurant','retail']) so the POS never renders
+// blank when an owner clears the picker.
+export function normalizeHybridComponents(input) {
+  const raw = Array.isArray(input)
+    ? input
+    : (typeof input === 'string' ? input.split(',') : [])
+  const seen = new Set()
+  const out = []
+  for (const v of raw) {
+    const k = normalizeBusinessType(v)
+    if (k === 'hybrid' || !HYBRID_COMPONENT_KEYS.includes(k)) continue
+    if (seen.has(k)) continue
+    seen.add(k); out.push(k)
+  }
+  return out.length >= 2 ? out : (BUSINESS_TYPES.hybrid.defaultComponents || ['restaurant', 'retail'])
+}
+
+// Build the effective hybrid config by unioning modules + OR'ing UI flags
+// across the selected component types. Label/description are composed from
+// the component labels so the UI ("Restaurante + Tienda") reflects the mix.
+export function getHybridConfig(components) {
+  const comps = normalizeHybridComponents(components)
+  const modules = new Set()
+  const ui = {
+    showTableMap: false,
+    enableKDS: false,
+    showRetailCart: false,
+    showServiceGrid: false,
+    showInventory: false,
+    posSegmentToggle: true,
+    fulfillmentDefault: undefined,
+  }
+  for (const k of comps) {
+    const cfg = BUSINESS_TYPES[k]
+    if (!cfg) continue
+    for (const m of cfg.modules || []) modules.add(m)
+    for (const flag of ['showTableMap', 'enableKDS', 'showRetailCart', 'showServiceGrid', 'showInventory']) {
+      if (cfg.ui?.[flag]) ui[flag] = true
+    }
+    if (!ui.fulfillmentDefault && cfg.ui?.fulfillmentDefault) ui.fulfillmentDefault = cfg.ui.fulfillmentDefault
+  }
+  const labelEs = comps.map(k => BUSINESS_TYPES[k]?.label?.es || k).join(' + ')
+  const labelEn = comps.map(k => BUSINESS_TYPES[k]?.label?.en || k).join(' + ')
+  return {
+    label:       { es: labelEs, en: labelEn },
+    description: BUSINESS_TYPES.hybrid.description,
+    icon: 'LayoutGrid',
+    modules: Array.from(modules),
+    ui,
+    components: comps,
+    enabled: true,
+  }
+}
+
+export const BUSINESS_TYPE_KEYS = ['carwash', 'retail', 'licoreria', 'carniceria', 'service', 'restaurant', 'mechanic', 'salon', 'prestamos', 'dealership', 'contabilidad', 'hybrid']
 
 // Service-based verticals — where vehicle/worker/queue concepts apply.
 export const SERVICE_BASED_TYPES = ['carwash', 'service', 'mechanic', 'salon', 'hybrid']

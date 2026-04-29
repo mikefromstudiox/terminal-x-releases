@@ -192,9 +192,9 @@ echo '{"private":true,"type":"module","dependencies":{"@supabase/supabase-js":"^
 cp web/vercel.json dist-web/
 mkdir -p dist-web/api/signup dist-web/api/digest dist-web/lib dist-web/.vercel
 cp web/api/panel.js web/api/validate.js web/api/rnc.js web/api/ecf-sign.js web/api/dgii-cert-upload.js web/api/staff-verify-auth.js web/api/fe.js dist-web/api/
-cp web/api/signup/provision.js dist-web/api/signup/
+cp web/api/signup/provision.js web/api/signup/lead.js dist-web/api/signup/
 cp web/api/digest/daily.js dist-web/api/digest/
-cp web/lib/xml-builder.js web/lib/xml-signer.js web/lib/dgii-client.js web/lib/rate-limit.js dist-web/lib/
+cp web/lib/*.js dist-web/lib/  # sync ALL libs — cherry-picking caused FUNCTION_INVOCATION_FAILED when new lib files (salon-wa-templates.js, dgii-seed-verify.js) were added without updating this line. Wildcard prevents recurrence.
 cp web/middleware.js dist-web/middleware.js
 echo '{"projectId":"prj_AjhpUcrbNGuSWZrs9CLxQmKkGXnL","orgId":"team_J0ZQKmOPRiXDLC7I1RA00PM9"}' > dist-web/.vercel/project.json
 cd dist-web && npm install --silent && npx vercel --prod --yes

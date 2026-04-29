@@ -57,6 +57,15 @@ export default defineConfig(({ mode }) => ({
     outDir: '../dist-web',
     emptyOutDir: true,
     sourcemap: false,
+    // Strip modulepreload hints for heavy lazy-only chunks (pdf, data, supabase,
+    // services). Vite preloads every reachable chunk by default — including ones
+    // gated behind React.lazy() — which forces the landing page to download
+    // ~330 KiB it never executes. Browser still fetches them on-demand when the
+    // lazy import resolves; we just stop pre-fetching them at first paint.
+    modulePreload: {
+      resolveDependencies: (filename, deps) =>
+        deps.filter(d => !/\/(pdf|data|supabase|services)-[A-Za-z0-9_-]+\.js$/.test(d)),
+    },
     minify: 'terser',
     terserOptions: {
       compress: {

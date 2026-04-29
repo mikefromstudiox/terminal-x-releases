@@ -51,6 +51,7 @@
     }
   ],
   "crons": [
-    { "path": "/api/digest/daily", "schedule": "0 13 * * *" }
+    { "path": "/api/digest/daily", "schedule": "0 13 * * *" },
+    { "path": "/api/panel?action=cron_dgii_pull", "schedule": "0 7 * * *" }
   ]
 }

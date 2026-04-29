@@ -25,7 +25,7 @@ export default async function handler(req, res) {
   const { data: { user }, error: authErr } = await supabase.auth.getUser(token)
   if (authErr || !user) return res.status(401).json({ error: 'Invalid token' })
 
-  const { business_name, rnc, phone, plan } = req.body || {}
+  const { business_name, rnc, phone, plan, business_type, utm_source, utm_medium, utm_campaign } = req.body || {}
   if (!business_name || !business_name.trim()) return res.status(400).json({ error: 'Business name required' })
 
   try {
@@ -41,10 +41,15 @@ export default async function handler(req, res) {
 
     const { data: planRow } = await supabase.from('plans').select('id, name, max_users').eq('name', trialPlan).maybeSingle()
 
+    const bizType = (business_type || '').trim() || null
     const { data: biz, error: bizErr } = await supabase.from('businesses').insert({
       owner_id: user.id, name: business_name.trim(), rnc: (rnc || '').trim(),
       phone: (phone || '').trim(), plan: trialPlan,
-      settings: { itbis_pct: 18, ley_pct: 10, language: 'es', facturacion_mode: 'ecf', trial_end: trialEnd, requested_plan: requestedPlan },
+      settings: {
+        itbis_pct: 18, ley_pct: 10, language: 'es', facturacion_mode: 'ecf',
+        trial_end: trialEnd, requested_plan: requestedPlan,
+        ...(bizType ? { business_type: bizType, biz_type: bizType, biz_business_type: bizType } : {}),
+      },
     }).select('id').single()
     if (bizErr) throw bizErr
 
@@ -63,13 +68,70 @@ export default async function handler(req, res) {
       expires_at: trialEnd, trial_end: trialEnd,
     })
 
-    const ncfTypes = ['B01', 'B02', 'B14', 'B15', 'E31', 'E32', 'E33', 'E34']
+    // NCF set: contabilidad clients only need E-series (e-CF). POS verticals
+    // also get B01/B02 (legacy paper) + B14/B15 (gov/special) for fallback.
+    const ncfTypes = bizType === 'contabilidad'
+      ? ['E31', 'E32', 'E33', 'E34']
+      : ['B01', 'B02', 'B14', 'B15', 'E31', 'E32', 'E33', 'E34']
     for (const type of ncfTypes) {
       const { error: ncfErr } = await supabase.from('ncf_sequences').upsert({
         business_id: biz.id, type, prefix: type, next_number: 1, max_number: 999999999,
       }, { onConflict: 'business_id,type', ignoreDuplicates: true })
       if (ncfErr && !ncfErr.message?.includes('duplicate')) throw ncfErr
     }
+
+    // Seed business_type into app_settings KV so useBusinessType()
+    // resolves correctly on first launch (it reads app_settings before
+    // falling back to businesses.settings JSON).
+    if (bizType) {
+      try {
+        await supabase.from('app_settings').upsert({
+          business_id: biz.id, key: 'business_type', value: bizType,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'business_id,key' })
+      } catch (_) { /* non-fatal */ }
+    }
+
+    // CRM lead row — non-fatal. Admin panel uses this for sales follow-up.
+    // If an anonymous lead with the same email already exists (created on
+    // step 1 of the signup form), promote it to this business_id instead of
+    // creating a duplicate row.
+    try {
+      const leadEmail = (user.email || '').toLowerCase()
+      const leadPayload = {
+        business_id: biz.id,
+        email: user.email || null,
+        phone: (phone || '').trim() || null,
+        contact_name: business_name.trim(),
+        business_name: business_name.trim(),
+        rnc: (rnc || '').trim() || null,
+        requested_plan: requestedPlan,
+        business_type: business_type || null,
+        utm_source: utm_source || null,
+        utm_medium: utm_medium || null,
+        utm_campaign: utm_campaign || null,
+        source: 'signup',
+        status: 'new',
+      }
+      let promoted = false
+      if (leadEmail) {
+        const { data: existingLead } = await supabase
+          .from('crm_leads')
+          .select('id')
+          .is('business_id', null)
+          .ilike('email', leadEmail)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (existingLead?.id) {
+          await supabase.from('crm_leads').update(leadPayload).eq('id', existingLead.id)
+          promoted = true
+        }
+      }
+      if (!promoted) {
+        await supabase.from('crm_leads').upsert(leadPayload, { onConflict: 'business_id' })
+      }
+    } catch (_) { /* non-fatal — provisioning succeeds even if CRM insert fails */ }
 
     return res.json({ ok: true, business_id: biz.id })
   } catch (err) {

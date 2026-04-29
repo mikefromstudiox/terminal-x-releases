@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Upload, FileText, FileX2, Check, Loader2, Filter } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { ocrDocument, heuristicClassify } from '@terminal-x/services/ocr.js'
+import { parseEcfXml, ecfXmlToComprobanteRow } from '@terminal-x/services/dgii-ecf-xml-parser.js'
 
 const STATUS_PILL = {
   unclassified: { es: 'Sin clasificar', cls: 'bg-[#b3001e]/10 text-[#b3001e] border-[#b3001e]/30' },
@@ -62,8 +63,48 @@ export default function Bandeja() {
     const files = Array.from(fileList || [])
     if (!files.length) return
     setBusy(true)
+    let xmlPosted = 0, xmlSkipped = 0
     try {
       for (const f of files) {
+        const isXml = /\.xml$/i.test(f.name) || (f.type || '').includes('xml')
+        // ── e-CF XML fast path: parse + auto-post to accounting_comprobantes
+        if (isXml) {
+          try {
+            const text = await f.text()
+            const parsed = parseEcfXml(text)
+            if (parsed.ok) {
+              // Try to auto-match a client by emisor RNC (this is a received e-CF
+              // whose emisor is the supplier; the receiving CLIENT is whichever
+              // accounting_client matches the buyer RNC).
+              const buyerRnc = (parsed.encabezado.comprador_rnc || '').replace(/\D/g, '')
+              const matched = clients.find(c => (c.rnc || '').replace(/\D/g, '') === buyerRnc)
+              const row = ecfXmlToComprobanteRow(parsed, {
+                kind: 'compra',
+                accounting_client_id: matched?.id || null,
+                accounting_client_supabase_id: matched?.supabase_id || null,
+              })
+              if (matched && api.contabilidad.comprobantesAdd) {
+                await api.contabilidad.comprobantesAdd(row)
+                xmlPosted++
+              } else {
+                xmlSkipped++
+              }
+              // Also drop a Bandeja record for traceability + manual review
+              await api.contabilidad.inboxAdd({
+                source: 'dropzone',
+                original_filename: f.name,
+                mime: 'application/xml',
+                size: f.size || 0,
+                ocr_status: 'done',
+                ocr_text: `e-CF ${parsed.encabezado.ncf} | Emisor ${parsed.encabezado.emisor_rnc} ${parsed.encabezado.emisor_razon_social || ''} | RD$${(parsed.totales.monto_total || 0).toFixed(2)}`,
+                classified_type: 'ecf_xml',
+                status: matched ? 'posted' : 'classified',
+                notes: matched ? `Auto-posteado a ${matched.nombre_comercial}` : `Sin cliente asignado — RNC comprador ${buyerRnc} no encontrado en cartera`,
+              })
+              continue
+            }
+          } catch (_) { /* fall through to OCR path */ }
+        }
         const classified = heuristicClassify(f)
         const ocr = await ocrDocument(f)
         await api.contabilidad.inboxAdd({
@@ -76,6 +117,11 @@ export default function Bandeja() {
           classified_type: classified,
           status: 'unclassified',
         })
+      }
+      if (xmlPosted || xmlSkipped) {
+        const msg = xmlPosted ? `${xmlPosted} e-CF posteado${xmlPosted !== 1 ? 's' : ''}` : ''
+        const msg2 = xmlSkipped ? `${xmlSkipped} sin cliente asignado` : ''
+        window.alert([msg, msg2].filter(Boolean).join(' · '))
       }
       await reload()
     } finally {

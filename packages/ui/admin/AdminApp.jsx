@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, Component } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { LayoutDashboard, KeyRound, Building2, Users, LogOut, Loader2, Sun, Moon, Monitor, ShieldCheck, MessageCircle, ShieldAlert, FlaskConical } from 'lucide-react'
+import { LayoutDashboard, KeyRound, Building2, Users, LogOut, Loader2, Sun, Moon, Monitor, ShieldCheck, MessageCircle, ShieldAlert, FlaskConical, Target } from 'lucide-react'
 import { withRetry, isSupabaseRetryable } from '@terminal-x/services/retry.js'
 import { humanizeNetworkError } from '@terminal-x/services/networkError.js'
 
@@ -34,6 +34,8 @@ import Team from './pages/Team'
 import Certifications from './pages/Certifications'
 import CertificationDetail from './pages/CertificationDetail'
 import Support from './pages/Support'
+import CRM from './pages/CRM'
+import CRMLead from './pages/CRMLead'
 import { loginCard, buttonTap, pageVariants } from './motion'
 
 function getSystemTheme() {
@@ -288,6 +290,7 @@ export default function AdminApp({ supabase }) {
   const L = (es, en) => lang === 'es' ? es : en
   const NAV = [
     { path: '/admin',          icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/admin/crm',      icon: Target,          label: 'CRM' },
     { path: '/admin/clients',  icon: Building2,       label: L('Clientes', 'Clients') },
     { path: '/admin/demos',    icon: FlaskConical,    label: L('Demos', 'Demos') },
     { path: '/admin/licenses', icon: KeyRound,        label: L('Licencias', 'Licenses') },
@@ -436,6 +439,8 @@ export default function AdminApp({ supabase }) {
             >
               <Routes location={location}>
                 <Route path="/" element={<Dashboard getToken={getToken} refreshToken={refreshToken} isDark={theme.isDark} lang={lang} />} />
+                <Route path="/crm" element={<CRM getToken={getToken} refreshToken={refreshToken} isDark={theme.isDark} lang={lang} />} />
+                <Route path="/crm/:id" element={<CRMLead getToken={getToken} refreshToken={refreshToken} isDark={theme.isDark} lang={lang} />} />
                 <Route path="/clients" element={<Clients getToken={getToken} refreshToken={refreshToken} isDark={theme.isDark} lang={lang} />} />
                 <Route path="/demos" element={<Clients getToken={getToken} refreshToken={refreshToken} isDark={theme.isDark} lang={lang} demoMode />} />
                 <Route path="/clients/:id" element={<ClientDetail getToken={getToken} refreshToken={refreshToken} isDark={theme.isDark} lang={lang} />} />

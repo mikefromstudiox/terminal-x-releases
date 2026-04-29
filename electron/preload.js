@@ -68,6 +68,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     update: (obj) => call('settings:update', obj),
   },
 
+  // ── Go-Live Gate ───────────────────────────────────────────────────────────
+  app: {
+    isLive:        ()  => call('app:is-live'),
+    testDataCount: ()  => call('app:test-data-count'),
+    goLiveCommit:  ()  => call('app:go-live-commit'),
+  },
+
   // ── Inventory ──────────────────────────────────────────────────────────────
   inventory: {
     all:          ()                            => call('inventory:all'),
@@ -581,6 +588,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     add:            (data)                   => call('recipeItems:add', data),
     update:         (id, qty_per_unit)       => call('recipeItems:update', { id, qty_per_unit }),
     remove:         (id)                     => call('recipeItems:remove', { id }),
+  },
+
+  // ── Ofertas (product bundles, v2.16.x) ────────────────────────────────────
+  ofertas: {
+    list:   (opts = {})       => call('ofertas:list', opts || {}),
+    get:    (supabase_id)     => call('ofertas:get', { supabase_id }),
+    upsert: (data)            => call('ofertas:upsert', data),
+    delete: (supabase_id)     => call('ofertas:delete', { supabase_id }),
   },
 
   // ── Restaurant Mode — KDS (kitchen display) ────────────────────────────────

@@ -1,11 +1,14 @@
 import { LayoutProvider } from '../context/LayoutContext'
 import { BackupProvider } from '../context/BackupContext'
 import { useLicense } from '../context/LicenseContext'
+import { useAuth } from '../context/AuthContext'
 import Sidebar from './Sidebar'
 import CertExpiryBanner from './CertExpiryBanner'
 import CertExpiryModal from './CertExpiryModal'
 import PrintQueueBanner from './PrintQueueBanner'
-import { AlertTriangle, ShieldX, KeyRound } from 'lucide-react'
+import TestModeFrame from './TestModeFrame'
+import { useGoLive } from '../hooks/useGoLive'
+import { AlertTriangle, ShieldX, KeyRound, Eye, LogOut } from 'lucide-react'
 
 // Change to your WhatsApp number (must match LicenseGate.jsx)
 const WA_NUMBER = '18098282971'
@@ -74,21 +77,59 @@ function LicenseBanner() {
   return null
 }
 
+// ── Impersonation banner ("Ver como cliente") ─────────────────────────────────
+//
+// Renders a sticky CRIMSON bar at the very top of the shell whenever the
+// contadora has an active "Ver como cliente" session. Click "Salir" → exits
+// impersonation, reloads to /contabilidad/cartera. Severity is intentionally
+// loud — the contadora is operating inside another tenant's data and must
+// never lose sight of that fact.
+function ImpersonationBanner() {
+  let auth = null
+  try { auth = useAuth() } catch { /* AuthProvider not mounted — public route */ }
+  if (!auth?.isImpersonating) return null
+  const name = auth.impersonationMeta?.client_name || 'cliente'
+  async function handleExit() {
+    try { await auth.exitImpersonation() } catch { /* navigation is best-effort */ }
+  }
+  return (
+    <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-[#b3001e] text-white text-[12px] font-semibold border-b border-white/10 shadow-lg z-50">
+      <Eye size={14} className="shrink-0" />
+      <span className="flex-1 truncate">
+        Viendo como cliente: <strong className="font-black">{name}</strong>
+        <span className="hidden sm:inline ml-2 opacity-80 font-normal">
+          · Modo solo-lectura · Toda actividad se registra en la auditoría.
+        </span>
+      </span>
+      <button
+        onClick={handleExit}
+        className="ml-auto shrink-0 inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-white text-[11px] font-bold transition-colors"
+      >
+        <LogOut size={12} /> Salir
+      </button>
+    </div>
+  )
+}
+
 // ── Main Layout ───────────────────────────────────────────────────────────────
 
 function AppLayout({ children }) {
+  const { isLive, goLiveDate, ready } = useGoLive()
+  const showTestFrame = ready && !isLive
   return (
     <div className="flex h-screen bg-[#f0f2f5] dark:bg-zinc-950 overflow-hidden flex-col">
+      <ImpersonationBanner />
       <LicenseBanner />
       <CertExpiryBanner />
       <PrintQueueBanner />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
-        <main className="flex-1 flex flex-col overflow-hidden dark:bg-zinc-900 pb-20 md:pb-0">
+        <main className={`flex-1 flex flex-col overflow-hidden dark:bg-zinc-900 ${showTestFrame ? 'pb-24 md:pb-16' : 'pb-20 md:pb-0'}`}>
           {children}
         </main>
       </div>
       <CertExpiryModal />
+      {showTestFrame && <TestModeFrame goLiveDate={goLiveDate} />}
     </div>
   )
 }

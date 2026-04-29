@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Package, Plus, Trash2, Loader2, FileDown, Lock, X, Check, Receipt,
+  Package, Plus, Trash2, Loader2, FileDown, Lock, X, Check, Receipt, TrendingDown,
 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { usePlan } from '../../hooks/usePlan'
@@ -78,6 +78,26 @@ function depCuotaMensual(asset) {
   return Math.round((base / vida) * 100) / 100
 }
 
+// Per-asset cuota capped at residual-value floor: never depreciate below
+// (costo - residual). Returns the actual cuota that may be posted this period
+// (0 when fully depreciated, partial when floor would be breached).
+function depCuotaCapped(asset) {
+  const costo = Number(asset.costo || 0)
+  const residual = Number(asset.valor_residual || 0)
+  const acum = Number(asset.depreciacion_acumulada || 0)
+  const maxAcum = Math.max(0, costo - residual)
+  const remaining = Math.max(0, maxAcum - acum)
+  const cuota = depCuotaMensual(asset)
+  return Math.round(Math.min(cuota, remaining) * 100) / 100
+}
+
+function isFullyDepreciated(asset) {
+  const costo = Number(asset.costo || 0)
+  const residual = Number(asset.valor_residual || 0)
+  const acum = Number(asset.depreciacion_acumulada || 0)
+  return (costo - acum) <= residual + 0.005
+}
+
 function depMesesTranscurridos(asset, year, month) {
   if (!asset.fecha_adquisicion) return 0
   const adq = new Date(asset.fecha_adquisicion + 'T00:00:00')
@@ -92,6 +112,7 @@ function ActivosTab({ api, clientId, accounts, year, month }) {
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(null)
   const [postOpen, setPostOpen] = useState(false)
+  const [disposing, setDisposing] = useState(null)
 
   const reload = useCallback(async () => {
     if (!api?.contabilidad || !clientId) { setAssets([]); return }
@@ -148,12 +169,12 @@ function ActivosTab({ api, clientId, accounts, year, month }) {
     let cuotaPeriodo = 0, valorEnLibros = 0
     for (const a of assets) {
       if (a.status !== 'active') continue
-      const c = depCuotaMensual(a)
       const transcurridos = depMesesTranscurridos(a, year, month)
-      const acumulada = Math.min(c * transcurridos, Number(a.costo || 0) - Number(a.valor_residual || 0))
+      const cap = depCuotaCapped(a) // residual-floor enforced
       // Solo contar cuota si todavía está dentro de la vida útil al cierre del período
-      if (transcurridos > 0 && transcurridos <= Number(a.vida_util_meses || 0)) cuotaPeriodo += c
-      valorEnLibros += Math.max(Number(a.valor_residual || 0), Number(a.costo || 0) - acumulada)
+      if (transcurridos > 0 && transcurridos <= Number(a.vida_util_meses || 0)) cuotaPeriodo += cap
+      const acum = Number(a.depreciacion_acumulada || 0)
+      valorEnLibros += Math.max(Number(a.valor_residual || 0), Number(a.costo || 0) - acum)
     }
     return { cuotaPeriodo: Math.round(cuotaPeriodo * 100) / 100, valorEnLibros: Math.round(valorEnLibros * 100) / 100 }
   }, [assets, year, month])
@@ -182,14 +203,15 @@ function ActivosTab({ api, clientId, accounts, year, month }) {
         debit: 0, credit: totals.cuotaPeriodo,
         memo: `Depreciación acumulada del período`,
       })
-      // increment depreciacion_acumulada per active asset
+      // increment depreciacion_acumulada per active asset, capped at residual floor
       for (const a of assets) {
         if (a.status !== 'active') continue
-        const c = depCuotaMensual(a)
+        const cap = depCuotaCapped(a)
+        if (cap <= 0) continue // already at residual — never depreciate below it
         const transcurridos = depMesesTranscurridos(a, year, month)
         if (transcurridos > 0 && transcurridos <= Number(a.vida_util_meses || 0)) {
           const newAcum = Math.min(
-            Number(a.depreciacion_acumulada || 0) + c,
+            Number(a.depreciacion_acumulada || 0) + cap,
             Number(a.costo || 0) - Number(a.valor_residual || 0)
           )
           await api.contabilidad.fixedAssetUpdate(a.id, { depreciacion_acumulada: Math.round(newAcum * 100) / 100 })
@@ -198,6 +220,111 @@ function ActivosTab({ api, clientId, accounts, year, month }) {
       setPostOpen(false)
       await reload()
       alert(`Depreciación posteada: RD$ ${fmtRD(totals.cuotaPeriodo)}`)
+    } catch (e) { alert(`Error: ${e?.message || e}`) }
+    finally    { setBusy(false) }
+  }
+
+  // Disposal: post a balanced journal entry, mark asset sold/written_off.
+  //
+  // Asiento (DR Banco/CxC + DR Dep. Acumulada + CR Costo del activo):
+  //
+  //   DR  Banco / CxC                          monto_venta
+  //   DR  Depreciación Acumulada               depreciacion_acumulada
+  //   DR  Pérdida por venta de activo fijo     loss            (si loss > 0)
+  //   CR  Costo del Activo Fijo                                          costo
+  //   CR  Ingreso por venta de activo fijo                                gain   (si gain > 0)
+  //
+  // Donde:
+  //   book_value = costo - depreciacion_acumulada
+  //   diff       = monto_venta - book_value     (>0 ganancia, <0 pérdida)
+  //
+  // Debits = monto_venta + depreciacion_acumulada + max(-diff, 0)
+  // Credits= costo + max(diff, 0)
+  // Identity check: monto_venta + dep + max(-diff,0) === costo + max(diff,0)
+  //                 monto_venta + dep + (book - venta if loss) === costo + (venta - book if gain)
+  //                 → both reduce to costo + dep_or_minus on each side. Verified balanced.
+  async function disposeAsset({ asset, fechaVenta, montoVenta, notas, cuentas }) {
+    const costo = Number(asset.costo || 0)
+    const acum  = Number(asset.depreciacion_acumulada || 0)
+    const venta = Number(montoVenta || 0)
+    const bookValue = Math.round((costo - acum) * 100) / 100
+    const diff = Math.round((venta - bookValue) * 100) / 100
+    const gain = diff > 0 ? diff : 0
+    const loss = diff < 0 ? -diff : 0
+    const isWriteOff = venta <= 0
+    const totalDebit  = Math.round((venta + acum + loss) * 100) / 100
+    const totalCredit = Math.round((costo + gain) * 100) / 100
+
+    // Sanity: balanced within 1 cent (rounding tolerance)
+    if (Math.abs(totalDebit - totalCredit) > 0.01) {
+      throw new Error(`Asiento desbalanceado: Dr ${totalDebit} ≠ Cr ${totalCredit}`)
+    }
+
+    setBusy(true)
+    try {
+      const entry = await api.contabilidad.journalEntryCreate({
+        accounting_client_id: clientId,
+        fecha: fechaVenta,
+        description: `${isWriteOff ? 'Baja' : 'Venta'} de activo fijo: ${asset.name}${notas ? ' — ' + notas : ''}`,
+        type: 'asset_disposal',
+        period_year: Number(fechaVenta.slice(0, 4)),
+        period_month: Number(fechaVenta.slice(5, 7)),
+        totals_debit: totalDebit,
+        totals_credit: totalCredit,
+        status: 'posted',
+      })
+
+      // DR Banco/CxC (only if there's a sale price)
+      if (venta > 0 && cuentas.bancoId) {
+        await api.contabilidad.journalLineAdd({
+          journal_entry_id: entry.id, account_id: cuentas.bancoId,
+          debit: venta, credit: 0,
+          memo: isWriteOff ? null : `Venta de ${asset.name}`,
+        })
+      }
+      // DR Depreciación Acumulada (reverse the accumulated depreciation)
+      if (acum > 0) {
+        await api.contabilidad.journalLineAdd({
+          journal_entry_id: entry.id, account_id: cuentas.acumId,
+          debit: Math.round(acum * 100) / 100, credit: 0,
+          memo: `Reverso depreciación acumulada de ${asset.name}`,
+        })
+      }
+      // DR Pérdida (if loss)
+      if (loss > 0) {
+        await api.contabilidad.journalLineAdd({
+          journal_entry_id: entry.id, account_id: cuentas.perdidaId,
+          debit: loss, credit: 0,
+          memo: `Pérdida por ${isWriteOff ? 'baja' : 'venta'} de ${asset.name}`,
+        })
+      }
+      // CR Costo del activo fijo
+      await api.contabilidad.journalLineAdd({
+        journal_entry_id: entry.id, account_id: cuentas.activoId,
+        debit: 0, credit: Math.round(costo * 100) / 100,
+        memo: `Baja del activo ${asset.name} (costo histórico)`,
+      })
+      // CR Ganancia (if gain)
+      if (gain > 0) {
+        await api.contabilidad.journalLineAdd({
+          journal_entry_id: entry.id, account_id: cuentas.gananciaId,
+          debit: 0, credit: gain,
+          memo: `Ganancia por venta de ${asset.name}`,
+        })
+      }
+
+      // Mark asset disposed
+      await api.contabilidad.fixedAssetUpdate(asset.id, {
+        status: isWriteOff ? 'written_off' : 'sold',
+        sold_at: fechaVenta,
+        sold_amount: venta,
+        notes: notas ? `${asset.notes ? asset.notes + '\n' : ''}[${fechaVenta}] ${isWriteOff ? 'Baja' : 'Venta'}: ${notas}` : asset.notes,
+      })
+
+      setDisposing(null)
+      await reload()
+      const sign = gain > 0 ? `Ganancia RD$ ${fmtRD(gain)}` : loss > 0 ? `Pérdida RD$ ${fmtRD(loss)}` : 'Sin ganancia ni pérdida'
+      alert(`${isWriteOff ? 'Baja' : 'Venta'} registrada. ${sign}.`)
     } catch (e) { alert(`Error: ${e?.message || e}`) }
     finally    { setBusy(false) }
   }
@@ -259,7 +386,7 @@ function ActivosTab({ api, clientId, accounts, year, month }) {
               <th className="text-right px-3 py-2">Cuota/mes</th>
               <th className="text-right px-3 py-2">Acumulada</th>
               <th className="text-right px-3 py-2">En libros</th>
-              <th className="text-left px-3 py-2">Status</th>
+              <th className="text-left px-3 py-2">Estado</th>
               <th className="px-3 py-2"></th>
             </tr>
           </thead>
@@ -268,25 +395,47 @@ function ActivosTab({ api, clientId, accounts, year, month }) {
             {assets.map(a => {
               const cuota = depCuotaMensual(a)
               const acum = Number(a.depreciacion_acumulada || 0)
-              const enLibros = Math.max(Number(a.valor_residual || 0), Number(a.costo || 0) - acum)
+              const bookValue = Math.round((Number(a.costo || 0) - acum) * 100) / 100
+              const enLibros = Math.max(Number(a.valor_residual || 0), bookValue)
+              const atFloor = isFullyDepreciated(a)
+              const isDisposed = a.status === 'sold' || a.status === 'written_off'
+              const pillCls = a.status === 'active'
+                ? 'bg-[#b3001e] text-white border-[#b3001e]'
+                : a.status === 'sold'
+                  ? 'bg-black text-white border-black dark:bg-white dark:text-black dark:border-white'
+                  : 'bg-white text-black border-black/30 dark:bg-black dark:text-white dark:border-white/30'
+              const pillLabel = a.status === 'active' ? 'Activo' : a.status === 'sold' ? 'Vendido' : 'Baja'
+              const enLibrosCls = isDisposed
+                ? 'text-black/30 dark:text-white/30 line-through'
+                : atFloor
+                  ? 'text-black/40 dark:text-white/40'
+                  : ''
               return (
-                <tr key={a.id} className="border-t border-black/10 dark:border-white/10">
+                <tr key={a.id} className={`border-t border-black/10 dark:border-white/10 ${isDisposed ? 'opacity-60' : ''}`}>
                   <td className="px-3 py-2 font-bold">{a.name}</td>
                   <td className="px-3 py-2 text-xs">{CATEGORIA_LABELS[a.categoria] || a.categoria}</td>
                   <td className="px-3 py-2 font-mono text-xs">{a.fecha_adquisicion || '—'}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtRD(a.costo)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtRD(a.valor_residual)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{fmtRD(cuota)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{atFloor || isDisposed ? '—' : fmtRD(cuota)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtRD(acum)}</td>
-                  <td className="px-3 py-2 text-right font-mono font-bold">{fmtRD(enLibros)}</td>
+                  <td className={`px-3 py-2 text-right font-mono font-bold ${enLibrosCls}`} title={atFloor ? 'Totalmente depreciado (al valor residual)' : ''}>
+                    {fmtRD(enLibros)}
+                  </td>
                   <td className="px-3 py-2">
-                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
-                      a.status === 'active' ? 'bg-[#b3001e] text-white border-[#b3001e]'
-                      : 'bg-white text-black border-black/20 dark:bg-black dark:text-white dark:border-white/20'}`}>
-                      {a.status === 'active' ? 'Activo' : a.status === 'sold' ? 'Vendido' : 'Baja'}
+                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${pillCls}`}>
+                      {pillLabel}
                     </span>
+                    {a.sold_at && (
+                      <div className="text-[10px] text-black/50 dark:text-white/50 font-mono mt-0.5">{a.sold_at}</div>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
+                    {!isDisposed && (
+                      <button onClick={() => setDisposing(a)} className="text-xs font-bold text-[#b3001e] hover:underline mr-3 inline-flex items-center gap-1" title="Vender o dar de baja">
+                        <TrendingDown size={12}/> Vender
+                      </button>
+                    )}
                     <button onClick={() => setEditing(a)} className="text-xs font-bold text-[#b3001e] hover:underline mr-3">Editar</button>
                     <button onClick={() => remove(a.id)} className="text-xs font-bold text-black/60 dark:text-white/60 hover:text-[#b3001e]"><Trash2 size={12} className="inline"/></button>
                   </td>
@@ -302,6 +451,167 @@ function ActivosTab({ api, clientId, accounts, year, month }) {
         <DepPostModal totals={totals} accounts={accounts} year={year} month={month}
           onClose={() => setPostOpen(false)} onConfirm={postDepreciacion} busy={busy}/>
       )}
+      {disposing && (
+        <DisposalModal asset={disposing} accounts={accounts}
+          onClose={() => setDisposing(null)}
+          onConfirm={(payload) => disposeAsset({ asset: disposing, ...payload })}
+          busy={busy}/>
+      )}
+    </div>
+  )
+}
+
+// Disposal modal: sale price (0 = write-off), date, notes, account picks for
+// the disposal journal entry. Live computes book value, gain/loss preview.
+function DisposalModal({ asset, accounts, onClose, onConfirm, busy }) {
+  const [fechaVenta, setFechaVenta] = useState(new Date().toISOString().slice(0, 10))
+  const [montoVenta, setMontoVenta] = useState(0)
+  const [notas, setNotas] = useState('')
+
+  // Catálogo Único guesses:
+  //   1101 — Caja/Banco; 1102 — CxC
+  //   1290 — Depreciación acumulada
+  //   1200 / 12 — Activo fijo (costo histórico)
+  //   4xxx — Ingreso por venta de activo fijo
+  //   5xxx — Pérdida por venta de activo fijo
+  const guess = useMemo(() => {
+    const byCode = (code) => accounts.find(a => String(a.code).startsWith(code))
+    const byKeyword = (kw) => accounts.find(a => (a.name || '').toLowerCase().includes(kw))
+    return {
+      banco:    byCode('1101') || byCode('1102') || byKeyword('banco') || byKeyword('caja') || null,
+      acum:     byCode('1290') || byCode('129')  || byKeyword('depreciación acum') || byKeyword('depreciacion acum') || null,
+      activo:   byCode('1200') || byCode('12')   || byKeyword('activo fijo') || null,
+      ganancia: byKeyword('ganancia') || byKeyword('ingreso por venta') || null,
+      perdida:  byKeyword('pérdida por venta') || byKeyword('perdida por venta') || byKeyword('pérdida') || null,
+    }
+  }, [accounts])
+
+  const [bancoId, setBancoId]       = useState(guess.banco?.id || null)
+  const [acumId, setAcumId]         = useState(guess.acum?.id || null)
+  const [activoId, setActivoId]     = useState(guess.activo?.id || null)
+  const [gananciaId, setGananciaId] = useState(guess.ganancia?.id || null)
+  const [perdidaId, setPerdidaId]   = useState(guess.perdida?.id || null)
+
+  const postable = (accounts || []).filter(a => a.is_postable)
+
+  const costo = Number(asset.costo || 0)
+  const acum  = Number(asset.depreciacion_acumulada || 0)
+  const venta = Number(montoVenta || 0)
+  const bookValue = Math.round((costo - acum) * 100) / 100
+  const diff = Math.round((venta - bookValue) * 100) / 100
+  const isWriteOff = venta <= 0
+  const gain = diff > 0 ? diff : 0
+  const loss = diff < 0 ? -diff : 0
+
+  // Required accounts for the entry to balance:
+  //   – Activo histórico (CR costo) — always
+  //   – Dep. acumulada (DR) — if acum > 0
+  //   – Banco/CxC (DR venta) — if venta > 0
+  //   – Ganancia (CR) — if gain > 0
+  //   – Pérdida (DR) — if loss > 0
+  const missing = []
+  if (!activoId) missing.push('Cuenta del activo')
+  if (acum > 0 && !acumId) missing.push('Depreciación acumulada')
+  if (venta > 0 && !bancoId) missing.push('Banco / Caja')
+  if (gain > 0 && !gananciaId) missing.push('Cuenta de ganancia')
+  if (loss > 0 && !perdidaId) missing.push('Cuenta de pérdida')
+  const canSubmit = !busy && fechaVenta && missing.length === 0
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-black rounded-2xl border border-black/10 dark:border-white/10 max-w-2xl w-full p-5 max-h-[92vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <div className="font-bold inline-flex items-center gap-2"><TrendingDown size={16}/> Vender / dar de baja: {asset.name}</div>
+          <button onClick={onClose}><X size={16}/></button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <label className="block text-xs font-bold">Fecha de venta / baja
+            <input type="date" value={fechaVenta} onChange={(e) => setFechaVenta(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-black/10 dark:border-white/10 bg-white dark:bg-black px-3 py-2 text-sm"/>
+          </label>
+          <label className="block text-xs font-bold">Monto de venta (RD$) — 0 = baja
+            <input type="number" min="0" step="0.01" value={montoVenta} onChange={(e) => setMontoVenta(Number(e.target.value))}
+              className="mt-1 w-full rounded-lg border border-black/10 dark:border-white/10 bg-white dark:bg-black px-3 py-2 text-sm font-mono text-right"/>
+          </label>
+        </div>
+
+        <label className="block text-xs font-bold mb-3">Notas
+          <textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={2}
+            placeholder="Comprador, motivo, referencia de pago…"
+            className="mt-1 w-full rounded-lg border border-black/10 dark:border-white/10 bg-white dark:bg-black px-3 py-2 text-sm"/>
+        </label>
+
+        <div className="rounded-2xl border border-[#b3001e]/30 bg-[#b3001e]/5 p-3 text-xs space-y-1 mb-4">
+          <div className="font-bold text-[#b3001e] mb-1">Cálculo</div>
+          <div className="flex justify-between"><span>Costo histórico</span><span className="font-mono">RD$ {fmtRD(costo)}</span></div>
+          <div className="flex justify-between"><span>(–) Depreciación acumulada</span><span className="font-mono">RD$ {fmtRD(acum)}</span></div>
+          <div className="flex justify-between font-bold border-t border-[#b3001e]/20 pt-1"><span>Valor en libros</span><span className="font-mono">RD$ {fmtRD(bookValue)}</span></div>
+          <div className="flex justify-between"><span>Monto de venta</span><span className="font-mono">RD$ {fmtRD(venta)}</span></div>
+          <div className={`flex justify-between font-bold pt-1 border-t border-[#b3001e]/20 ${gain > 0 ? 'text-[#b3001e]' : loss > 0 ? 'text-black dark:text-white' : ''}`}>
+            <span>{gain > 0 ? 'Ganancia' : loss > 0 ? 'Pérdida' : 'Sin ganancia ni pérdida'}</span>
+            <span className="font-mono">RD$ {fmtRD(gain || loss)}</span>
+          </div>
+          <div className="text-[10px] text-black/50 dark:text-white/50 pt-1">{isWriteOff ? 'Se marcará como Baja (written_off).' : 'Se marcará como Vendido (sold).'}</div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="text-xs font-bold uppercase text-black/60 dark:text-white/60">Cuentas del asiento</div>
+          <label className="block text-xs font-bold">Cuenta del activo (Cr costo)
+            <select value={activoId || ''} onChange={(e) => setActivoId(Number(e.target.value) || null)}
+              className="mt-1 w-full rounded-lg border border-black/10 dark:border-white/10 bg-white dark:bg-black px-3 py-2 text-sm">
+              <option value="">— Seleccionar —</option>
+              {postable.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+            </select>
+          </label>
+          <label className="block text-xs font-bold">Depreciación acumulada (Dr reverso) {acum <= 0 && <span className="text-black/40 dark:text-white/40">(no aplica — sin acumulada)</span>}
+            <select disabled={acum <= 0} value={acumId || ''} onChange={(e) => setAcumId(Number(e.target.value) || null)}
+              className="mt-1 w-full rounded-lg border border-black/10 dark:border-white/10 bg-white dark:bg-black px-3 py-2 text-sm disabled:opacity-50">
+              <option value="">— Seleccionar —</option>
+              {postable.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+            </select>
+          </label>
+          <label className="block text-xs font-bold">Banco / Caja / CxC (Dr venta) {venta <= 0 && <span className="text-black/40 dark:text-white/40">(no aplica — baja sin venta)</span>}
+            <select disabled={venta <= 0} value={bancoId || ''} onChange={(e) => setBancoId(Number(e.target.value) || null)}
+              className="mt-1 w-full rounded-lg border border-black/10 dark:border-white/10 bg-white dark:bg-black px-3 py-2 text-sm disabled:opacity-50">
+              <option value="">— Seleccionar —</option>
+              {postable.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-xs font-bold">Ganancia por venta (Cr) {gain <= 0 && <span className="text-black/40 dark:text-white/40">(no aplica)</span>}
+              <select disabled={gain <= 0} value={gananciaId || ''} onChange={(e) => setGananciaId(Number(e.target.value) || null)}
+                className="mt-1 w-full rounded-lg border border-black/10 dark:border-white/10 bg-white dark:bg-black px-3 py-2 text-sm disabled:opacity-50">
+                <option value="">— Seleccionar —</option>
+                {postable.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+              </select>
+            </label>
+            <label className="block text-xs font-bold">Pérdida por venta (Dr) {loss <= 0 && <span className="text-black/40 dark:text-white/40">(no aplica)</span>}
+              <select disabled={loss <= 0} value={perdidaId || ''} onChange={(e) => setPerdidaId(Number(e.target.value) || null)}
+                className="mt-1 w-full rounded-lg border border-black/10 dark:border-white/10 bg-white dark:bg-black px-3 py-2 text-sm disabled:opacity-50">
+                <option value="">— Seleccionar —</option>
+                {postable.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+              </select>
+            </label>
+          </div>
+        </div>
+
+        {missing.length > 0 && (
+          <div className="mt-3 text-xs text-[#b3001e]">Falta seleccionar: {missing.join(', ')}.</div>
+        )}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm font-bold border border-black/10 dark:border-white/10">Cancelar</button>
+          <button disabled={!canSubmit}
+            onClick={() => onConfirm({
+              fechaVenta, montoVenta: venta, notas,
+              cuentas: { bancoId, acumId, activoId, gananciaId, perdidaId },
+            })}
+            className="px-3 py-2 rounded-lg text-sm font-bold bg-[#b3001e] text-white disabled:opacity-50 inline-flex items-center gap-1">
+            {busy && <Loader2 size={12} className="animate-spin"/>} Confirmar {isWriteOff ? 'baja' : 'venta'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

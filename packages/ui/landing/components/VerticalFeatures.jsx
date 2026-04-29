@@ -2,11 +2,24 @@ import { useState, useEffect, useRef } from 'react'
 import {
   Receipt, Droplets, Store, UtensilsCrossed, Wrench, Building2,
   Check, Wine, Pill, ShoppingBasket, ShoppingCart, Hammer,
-  BookOpen, Shirt, Boxes, ChevronDown, ChevronUp, ArrowRight
+  BookOpen, Shirt, Boxes, ChevronDown, ChevronUp, ArrowRight,
+  Briefcase
 } from 'lucide-react'
 
 // VerticalFeatures — tabbed mega-section, replaces flat 10-card grid.
 // Self-contained. Accepts `lang` prop. Default "es".
+
+// Maps the marketing tab key → /probar/<businessTypeKey>. The demo routes
+// use signup BUSINESS_TYPE_KEYS, while the tabs here are marketing slugs.
+const TAB_TO_DEMO = {
+  facturacion:  'facturacion',
+  carwash:      'carwash',
+  tiendas:      'retail',
+  restaurantes: 'restaurant',
+  servicios:    'service',
+  empresas:     'dealership',
+  contabilidad: 'contabilidad',
+}
 
 const TABS = {
   es: [
@@ -16,6 +29,7 @@ const TABS = {
     { key: 'restaurantes', label: 'Restaurantes', icon: UtensilsCrossed, planAnchor: 'pro_plus' },
     { key: 'servicios', label: 'Servicios', icon: Wrench, planAnchor: 'pro_plus' },
     { key: 'empresas', label: 'Empresas', icon: Building2, planAnchor: 'pro_max' },
+    { key: 'contabilidad', label: 'Contabilidad', icon: Briefcase, planAnchor: 'pro_max' },
   ],
   en: [
     { key: 'facturacion', label: 'Invoicing', icon: Receipt, planAnchor: 'facturacion' },
@@ -24,6 +38,7 @@ const TABS = {
     { key: 'restaurantes', label: 'Restaurants', icon: UtensilsCrossed, planAnchor: 'pro_plus' },
     { key: 'servicios', label: 'Services', icon: Wrench, planAnchor: 'pro_plus' },
     { key: 'empresas', label: 'Enterprise', icon: Building2, planAnchor: 'pro_max' },
+    { key: 'contabilidad', label: 'Accounting', icon: Briefcase, planAnchor: 'pro_max' },
   ],
 }
 
@@ -57,7 +72,7 @@ const VERTICALS = {
         'Tarjetas de autorización gerencial Code128',
         'Resumen diario al dueño por correo',
       ],
-      planLabel: 'Plan recomendado: Pro · desde RD$2,490/mes',
+      planLabel: 'Plan recomendado: Pro · desde RD$2,990/mes',
     },
     tiendas: {
       title: 'Para Tiendas',
@@ -80,7 +95,7 @@ const VERTICALS = {
         { icon: Shirt, name: 'Boutique', detail: 'Variantes (talla, color)' },
         { icon: Boxes, name: 'Otro', detail: 'Personalizable' },
       ],
-      planLabel: 'Plan recomendado: Pro PLUS · desde RD$4,490/mes',
+      planLabel: 'Plan recomendado: Pro PLUS · desde RD$5,490/mes',
     },
     restaurantes: {
       title: 'Para Restaurantes',
@@ -95,7 +110,7 @@ const VERTICALS = {
         'Reportes restaurante (rotación, mesa, hora)',
         'Ruteo multi-impresora (cocina/bar/cajero)',
       ],
-      planLabel: 'Plan recomendado: Pro PLUS · desde RD$4,490/mes',
+      planLabel: 'Plan recomendado: Pro PLUS · desde RD$5,490/mes',
     },
     servicios: {
       title: 'Para Servicios',
@@ -110,7 +125,7 @@ const VERTICALS = {
         'Calculadora de financiamiento',
         'Recibos formales con depreciación',
       ],
-      planLabel: 'Plan recomendado: Pro PLUS · desde RD$4,490/mes',
+      planLabel: 'Plan recomendado: Pro PLUS · desde RD$5,490/mes',
     },
     empresas: {
       title: 'Para Empresas con Empleados',
@@ -127,7 +142,29 @@ const VERTICALS = {
         'Multi-ubicación + ticket locks',
         'Dashboard remoto en tiempo real',
       ],
-      planLabel: 'Plan recomendado: Pro MAX · desde RD$6,990/mes',
+      planLabel: 'Plan recomendado: Pro MAX · desde RD$9,990/mes',
+    },
+    contabilidad: {
+      title: 'Para Contadores',
+      blurb: 'La única plataforma DR diseñada para contadoras con portafolios.',
+      bullets: [
+        'Cockpit Portfolio: todos tus clientes en una pantalla con semáforo de obligaciones',
+        'Auto-pull de Mis Comprobantes Recibidos del portal DGII cada noche',
+        'Genera 606/607/608/609/IR-17/IR-13 de TODOS los clientes en 1 click → ZIP',
+        'Conciliación automática 606 vs DGII — detecta NCFs faltantes',
+        'Clasificador IA Norma 07-18 (categorías 1-11) automático',
+        'IT-1 mensual con casillas listas para copiar al portal',
+        'Anticipos ISR PJ calculados (Art. 314 — 1.5% sobre ingresos vs ISR previo/12)',
+        'Drag-and-drop XML e-CF → posteado automáticamente al cliente correcto',
+        'Bancos BHD León / Banreservas / Popular / Scotiabank con conciliación',
+        'Nómina TSS / AFP / SFS / INFOTEP / ISR 2026 + pago masivo BHD/Banreservas',
+        'Activos fijos con flujo venta/baja + asiento contable automático',
+        'Honorarios con mora automática en facturas atrasadas',
+        'Vault con almacenamiento real (50MB) por cliente, encriptado',
+        'WhatsApp doc-chase con NCFs faltantes específicos',
+        '"Ver como cliente" para soporte directo (auditado en ambos lados)',
+      ],
+      planLabel: 'Plan recomendado: Pro MAX · desde RD$9,990/mes',
     },
   },
   en: {
@@ -159,7 +196,7 @@ const VERTICALS = {
         'Manager auth cards Code128',
         'Daily owner digest email',
       ],
-      planLabel: 'Recommended: Pro · from RD$2,490/mo',
+      planLabel: 'Recommended: Pro · from RD$2,990/mo',
     },
     tiendas: {
       title: 'For Retail',
@@ -182,7 +219,7 @@ const VERTICALS = {
         { icon: Shirt, name: 'Boutique', detail: 'Variants (size, color)' },
         { icon: Boxes, name: 'Other', detail: 'Customizable' },
       ],
-      planLabel: 'Recommended: Pro PLUS · from RD$4,490/mo',
+      planLabel: 'Recommended: Pro PLUS · from RD$5,490/mo',
     },
     restaurantes: {
       title: 'For Restaurants',
@@ -197,7 +234,7 @@ const VERTICALS = {
         'Restaurant reports (turnover, table, hour)',
         'Multi-printer routing (kitchen/bar/cashier)',
       ],
-      planLabel: 'Recommended: Pro PLUS · from RD$4,490/mo',
+      planLabel: 'Recommended: Pro PLUS · from RD$5,490/mo',
     },
     servicios: {
       title: 'For Services',
@@ -212,7 +249,7 @@ const VERTICALS = {
         'Financing calculator',
         'Formal receipts with depreciation',
       ],
-      planLabel: 'Recommended: Pro PLUS · from RD$4,490/mo',
+      planLabel: 'Recommended: Pro PLUS · from RD$5,490/mo',
     },
     empresas: {
       title: 'For Businesses with Employees',
@@ -229,7 +266,29 @@ const VERTICALS = {
         'Multi-location + ticket locks',
         'Real-time remote dashboard',
       ],
-      planLabel: 'Recommended: Pro MAX · from RD$6,990/mo',
+      planLabel: 'Recommended: Pro MAX · from RD$9,990/mo',
+    },
+    contabilidad: {
+      title: 'For Accountants',
+      blurb: 'The only DR platform built for accountants with client portfolios.',
+      bullets: [
+        'Portfolio cockpit: all your clients in one traffic-light grid',
+        'Auto-pull of received e-CFs from the DGII portal every night',
+        'Generate 606/607/608/609/IR-17/IR-13 for ALL clients with 1 click → ZIP',
+        '606 vs DGII auto-reconciliation — finds missing NCFs',
+        'AI classifier Norma 07-18 (11 categories) automatic',
+        'Monthly IT-1 calculator with copy-ready casillas',
+        'PJ anticipos ISR auto-calc (Art. 314 — 1.5% revenue vs prior ISR/12)',
+        'Drag-and-drop XML e-CF → auto-posted to right client',
+        'Banks BHD León / Banreservas / Popular / Scotiabank reconciliation',
+        'Payroll 2026 + bank disbursement files (BHD / Banreservas / generic CSV)',
+        'Fixed assets with sale/write-off flow + auto journal entry',
+        'Honorarios with automatic late fees on overdue invoices',
+        'Vault with real storage (50MB) per client, encrypted',
+        'WhatsApp doc-chase with specific missing NCFs',
+        '"View as client" support mode (audited on both tenants)',
+      ],
+      planLabel: 'Recommended: Pro MAX · from RD$9,990/mo',
     },
   },
 }
@@ -247,9 +306,14 @@ const SCREENSHOTS = {
 function PreviewShot({ vertical, alt }) {
   const src = SCREENSHOTS[vertical]
   if (!src) return null
+  // facturacion has a generated -sm.png variant. Other verticals fall back to
+  // single-source until -sm variants are generated for them too.
+  const smSrc = vertical === 'facturacion' ? src.replace('.png', '-sm.png') : null
   return (
     <img
       src={src}
+      srcSet={smSrc ? `${smSrc} 800w, ${src} 1280w` : undefined}
+      sizes={smSrc ? '(max-width: 768px) 100vw, 800px' : undefined}
       alt={alt}
       width={1280}
       height={720}
@@ -311,15 +375,15 @@ export default function VerticalFeatures({ lang = 'es' }) {
   const eyebrow = lang === 'es' ? 'POR INDUSTRIA' : 'BY INDUSTRY'
 
   return (
-    <section id="vertical-features" className="bg-white py-20 md:py-28 px-4 sm:px-6 lg:px-8">
+    <section id="vertical-features" className="bg-black py-20 md:py-28 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-10 md:mb-12">
           <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">{eyebrow}</p>
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight text-black">{sectionTitle}</h2>
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight text-white">{sectionTitle}</h2>
         </div>
 
         {/* Sticky tab bar */}
-        <div ref={tabBarRef} className="sticky top-[120px] z-30 -mx-4 sm:mx-0 mb-10 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 border-y border-black/5">
+        <div ref={tabBarRef} className="sticky top-[120px] z-30 -mx-4 sm:mx-0 mb-10 bg-black/95 backdrop-blur supports-[backdrop-filter]:bg-black/80 border-y border-white/10">
           <div className="flex overflow-x-auto no-scrollbar gap-1 px-4 sm:px-2 py-3">
             {tabs.map(tab => {
               const Icon = tab.icon
@@ -331,7 +395,7 @@ export default function VerticalFeatures({ lang = 'es' }) {
                   className={`shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold whitespace-nowrap transition-all ${
                     isActive
                       ? 'bg-[#b3001e] text-white shadow-lg shadow-[#b3001e]/25'
-                      : 'bg-black/5 text-black/70 hover:bg-black/10'
+                      : 'bg-white/5 text-white/70 hover:bg-white/10'
                   }`}
                 >
                   <Icon size={15} />
@@ -345,15 +409,15 @@ export default function VerticalFeatures({ lang = 'es' }) {
         {/* Panel */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-10 lg:gap-16 items-start">
           <div>
-            <h3 className="text-2xl sm:text-3xl font-black text-black tracking-tight">{data.title}</h3>
-            <p className="mt-3 text-black/60 text-base leading-relaxed">{data.blurb}</p>
+            <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight">{data.title}</h3>
+            <p className="mt-3 text-white/60 text-base leading-relaxed">{data.blurb}</p>
             <ul className="mt-6 space-y-3">
               {data.bullets.map((b, i) => (
                 <li key={i} className="flex items-start gap-3">
-                  <div className="mt-0.5 shrink-0 w-5 h-5 rounded-full bg-[#b3001e]/10 flex items-center justify-center">
+                  <div className="mt-0.5 shrink-0 w-5 h-5 rounded-full bg-[#b3001e]/15 flex items-center justify-center">
                     <Check size={12} className="text-[#b3001e]" />
                   </div>
-                  <span className="text-sm text-black/80 leading-snug">{b}</span>
+                  <span className="text-sm text-white/80 leading-snug">{b}</span>
                 </li>
               ))}
             </ul>
@@ -361,12 +425,12 @@ export default function VerticalFeatures({ lang = 'es' }) {
             {data.subtypes && (
               <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {data.subtypes.map((s, i) => (
-                  <div key={i} className="rounded-xl border border-black/10 bg-black/[0.02] hover:bg-black/[0.04] p-4 transition-colors">
+                  <div key={i} className="rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 p-4 transition-colors">
                     <div className="flex items-center gap-3">
                       <s.icon size={18} className="text-[#b3001e]" />
-                      <span className="font-bold text-sm text-black">{s.name}</span>
+                      <span className="font-bold text-sm text-white">{s.name}</span>
                     </div>
-                    <p className="mt-2 text-xs text-black/60 leading-relaxed">{s.detail}</p>
+                    <p className="mt-2 text-xs text-white/60 leading-relaxed">{s.detail}</p>
                   </div>
                 ))}
               </div>
@@ -374,24 +438,24 @@ export default function VerticalFeatures({ lang = 'es' }) {
 
             <div className="mt-8 flex flex-col sm:flex-row sm:items-center gap-3">
               <a
-                href={`/industrias/${active}`}
-                className="group inline-flex items-center gap-2 bg-[#b3001e] hover:brightness-110 text-white font-bold px-6 py-3 rounded-xl transition"
+                href={`/signup?plan=${tabs.find(t => t.key === active)?.planAnchor || 'pro'}`}
+                className="group inline-flex items-center gap-2 bg-[#b3001e] hover:brightness-110 text-white font-bold px-6 py-3 rounded-xl transition shadow-lg shadow-[#b3001e]/30"
               >
-                {lang === 'es' ? 'Ver página completa' : 'See full page'}
+                {lang === 'es' ? 'Probar demo interactivo' : 'Try interactive demo'}
                 <ArrowRight size={16} className="group-hover:translate-x-0.5 transition-transform" />
               </a>
-              <button
-                onClick={() => scrollToPlan(tabs.find(t => t.key === active)?.planAnchor)}
-                className="group inline-flex items-center gap-2 bg-black hover:bg-black/80 text-white font-bold px-6 py-3 rounded-xl transition-colors"
+              <a
+                href={`/industrias/${active}`}
+                className="group inline-flex items-center gap-2 bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold px-6 py-3 rounded-xl transition"
               >
-                {lang === 'es' ? 'Ver plan recomendado' : 'See recommended plan'}
+                {lang === 'es' ? 'Ver pagina completa' : 'See full page'}
                 <ArrowRight size={16} className="group-hover:translate-x-0.5 transition-transform" />
-              </button>
-              <span className="text-xs font-semibold text-black/50">{data.planLabel}</span>
+              </a>
+              <span className="text-xs font-semibold text-white/50">{data.planLabel}</span>
             </div>
           </div>
 
-          <div className="rounded-2xl bg-black p-3 shadow-2xl shadow-black/10 sticky md:top-[200px]">
+          <div className="rounded-2xl bg-white/5 border border-white/10 p-3 shadow-2xl shadow-black/40 sticky md:top-[200px]">
             <PreviewShot vertical={active} alt={data.title} />
           </div>
         </div>

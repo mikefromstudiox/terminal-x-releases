@@ -2,7 +2,10 @@ import { useState, useEffect, useCallback, createContext, useContext } from 'rea
 import { useAPI } from '../context/DataContext'
 import {
   BUSINESS_TYPE_KEYS,
+  BUSINESS_TYPES as BUSINESS_TYPE_REGISTRY,
   getBusinessTypeConfig,
+  getHybridConfig,
+  normalizeHybridComponents,
   hasModule as cfgHasModule,
   normalizeBusinessType,
 } from '@terminal-x/config/businessTypes'
@@ -34,25 +37,34 @@ function isTiendaBaseType(type) {
 // Group membership flags — how each type maps to POS behavior.
 // stockTracked → retail-style POS with inventory + barcode + qty cart
 // serviceBased → car-wash-style POS with service grid + queue + workers
-// hybrid       → both (combined view)
-function flagsFor(type) {
-  const stockTracked = ['retail', 'dealership', 'restaurant', 'hybrid', 'mechanic', 'licoreria', 'carniceria'].includes(type)
-  const serviceBased = ['carwash', 'service', 'hybrid', 'salon', 'mechanic'].includes(type)
-  const priceByWeight = ['carniceria'].includes(type)
+// hybrid       → flags are derived from the union of component types
+function flagsFor(type, hybridComponents) {
+  // For hybrid, build the membership set as the union of every component.
+  // The convenience flags (isRestaurant, isRetail, isCarWash...) all stay
+  // true if ANY component qualifies, so plan-gated UI ("show KDS",
+  // "show service grid") just works without a hybrid-specific code path.
+  const members = type === 'hybrid'
+    ? new Set(normalizeHybridComponents(hybridComponents))
+    : new Set([type])
+  const has = (k) => members.has(k)
+
+  const stockTracked  = has('retail') || has('dealership') || has('restaurant') || has('mechanic') || has('licoreria') || has('carniceria')
+  const serviceBased  = has('carwash') || has('service') || has('salon') || has('mechanic')
+  const priceByWeight = has('carniceria')
   const scaleEnabled  = priceByWeight
   return {
     isRetail:     stockTracked,   // kept for backward-compat with existing call sites
     isCarWash:    serviceBased,   // kept for backward-compat
     isHybrid:     type === 'hybrid',
-    isService:    type === 'service',
-    isDealership: type === 'dealership',
-    isRestaurant: type === 'restaurant',
-    isMechanic:   type === 'mechanic',
-    isSalon:      type === 'salon',
-    isPrestamos:  type === 'prestamos',
-    isLicoreria:  type === 'licoreria',
-    isCarniceria: type === 'carniceria',
-    isTienda:     isTiendaBaseType(type),
+    isService:    has('service'),
+    isDealership: has('dealership'),
+    isRestaurant: has('restaurant'),
+    isMechanic:   has('mechanic'),
+    isSalon:      has('salon'),
+    isPrestamos:  has('prestamos'),
+    isLicoreria:  has('licoreria'),
+    isCarniceria: has('carniceria'),
+    isTienda:     [...members].some(isTiendaBaseType),
     stockTracked, serviceBased, priceByWeight, scaleEnabled,
   }
 }
@@ -69,12 +81,15 @@ function parseOverride(raw) {
 
 // Dealership-only setting key (parallel to SUBTYPE_SETTING_KEY for tienda).
 const DEALERSHIP_SUBTYPE_KEY = 'dealership_subtype'
+// Hybrid components — CSV in app_settings (e.g. "restaurant,retail").
+const HYBRID_COMPONENTS_KEY = 'hybrid_components'
 
 export function BusinessTypeProvider({ children }) {
   const api = useAPI()
   const [businessType, setType] = useState('carwash')
   const [tiendaSubtype, setTiendaSubtypeState] = useState(null)
   const [dealershipSubtype, setDealershipSubtypeState] = useState(null)
+  const [hybridComponents, setHybridComponentsState] = useState(['restaurant', 'retail'])
   const [featureOverrides, setFeatureOverrides] = useState({})  // { [featureName]: 'true'|'false' }
   const [loading, setLoading] = useState(true)
 
@@ -89,6 +104,8 @@ export function BusinessTypeProvider({ children }) {
         if (sub && TIENDA_SUBTYPES[sub]) setTiendaSubtypeState(sub)
         const dsub = settings?.[DEALERSHIP_SUBTYPE_KEY]
         if (dsub) setDealershipSubtypeState(dsub)
+        const hyb = settings?.[HYBRID_COMPONENTS_KEY]
+        if (hyb) setHybridComponentsState(normalizeHybridComponents(hyb))
         // Scrape every feature_*_enabled key from the settings bag.
         const overrides = {}
         for (const [k, v] of Object.entries(settings || {})) {
@@ -107,6 +124,12 @@ export function BusinessTypeProvider({ children }) {
     const norm = normalise(type)
     setType(norm)
     try { await api?.settings?.update?.({ business_type: norm }) } catch {}
+  }, [api])
+
+  const setHybridComponents = useCallback(async (next) => {
+    const norm = normalizeHybridComponents(next)
+    setHybridComponentsState(norm)
+    try { await api?.settings?.update?.({ [HYBRID_COMPONENTS_KEY]: norm.join(',') }) } catch {}
   }, [api])
 
   const setTiendaSubtype = useCallback(async (subtype) => {
@@ -137,9 +160,11 @@ export function BusinessTypeProvider({ children }) {
     } catch {}
   }, [api, featureOverrides])
 
-  const flags = flagsFor(businessType)
-  const config = getBusinessTypeConfig(businessType)
-  const hasModule = (m) => cfgHasModule(businessType, m)
+  const flags = flagsFor(businessType, hybridComponents)
+  const config = businessType === 'hybrid'
+    ? getHybridConfig(hybridComponents)
+    : getBusinessTypeConfig(businessType)
+  const hasModule = (m) => (config.modules || []).includes(m)
 
   // Subtype config — only meaningful when the base type is a tienda-like vertical.
   let subtypeConfig = flags.isTienda && tiendaSubtype ? getTiendaSubtype(tiendaSubtype) : null
@@ -215,6 +240,8 @@ export function BusinessTypeProvider({ children }) {
       tiendaSubtype,
       subtypeConfig,
       setTiendaSubtype,
+      hybridComponents,
+      setHybridComponents,
       featureOverrides,
       setFeatureOverride,
       clearFeatureOverrides,
@@ -242,6 +269,8 @@ export function useBusinessType() {
       tiendaSubtype: null,
       subtypeConfig: null,
       setTiendaSubtype: () => {},
+      hybridComponents: ['restaurant', 'retail'],
+      setHybridComponents: () => {},
       featureOverrides: {},
       setFeatureOverride: () => {},
       clearFeatureOverrides: () => {},

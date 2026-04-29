@@ -1482,6 +1482,44 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
 
     } catch (err) {
       clearTimeout(t1); clearTimeout(t2)
+      // v2.16.10 — Go-Live gate: in TEST MODE the ecf service throws
+      // TEST_MODE_NO_DGII. Treat it as a "soft success": persist the ticket
+      // locally (no e-CF), let the parent close the cart, and surface a banner
+      // confirming the test save. The persistent crimson frame already tells
+      // the cashier the POS isn't live.
+      if (err?.code === 'TEST_MODE_NO_DGII' || /TEST_MODE_NO_DGII/.test(err?.message || '')) {
+        setEcfResult(null)
+        setEcfState('success')
+        if (!confirmedRef.current) {
+          confirmedRef.current = true
+          const mixtoPayload = (formaPago === 'mixto')
+            ? mixtoParts.map(p => ({ method: p.method, amount: Math.round(Number(p.amount) * 100) / 100 }))
+            : null
+          const dominantMethod = mixtoPayload
+            ? mixtoPayload.slice().sort((a, b) => b.amount - a.amount)[0].method
+            : formaPago
+          const effectiveItems = buildEffectiveItems()
+          onConfirm({
+            ticketId:  ticket.id,
+            ticketNo:  ticket.ticketNo,
+            clientId:  selectedClient?.id || null,
+            ncfType, rnc, rncName, tipo,
+            formaPago: tipo === 'credito' ? 'credit' : dominantMethod,
+            payment_parts: mixtoPayload,
+            recibido:  recibidoNum,
+            devuelta:  showEfectivo ? devuelta : null,
+            comentario, total, descuento, descuentoReason: descuentoReason.trim() || null, subtotal, itbis,
+            mac_jti:   _macJtiRef.current || null,
+            paidAt:    new Date(),
+            items:     effectiveItems,
+            lineStylists: buildLineStylistsPayload(),
+            redemptions:  buildRedemptionsPayload(),
+            ecf:       null,
+            testMode:  true,
+          })
+        }
+        return
+      }
       setEcfError(err?.message || 'Error al enviar e-CF a DGII')
       setEcfState('error')
     }

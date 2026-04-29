@@ -50,6 +50,8 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
   const [stats, setStats] = useState(null)
   const [feed, setFeed] = useState([])
   const [loyalty, setLoyalty] = useState(null)
+  const [recentErrors, setRecentErrors] = useState([])
+  const [errorsLoading, setErrorsLoading] = useState(false)
   const [tierFilter, setTierFilter] = useState(null)   // null | 'gold' | 'silver' | 'bronze'
   const [digest, setDigest] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -78,18 +80,31 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       let token = await refreshToken()
       if (!token) token = getToken()
       const headers = { 'Authorization': `Bearer ${token}` }
-      const [statsResp, feedResp, loyaltyResp, digestResp] = await Promise.all([
+      const [statsResp, feedResp, loyaltyResp, digestResp, errResp] = await Promise.all([
         fetch('/api/panel?action=stats', { headers }),
         fetch('/api/panel?action=activity_feed', { headers }),
         fetch('/api/panel?action=loyalty-overview', { headers }),
         fetch('/api/panel?action=digest-health', { headers }),
+        fetch('/api/panel?action=errors_list&unresolved=1&limit=50', { headers }),
       ])
       if (statsResp.ok) setStats(await statsResp.json())
       if (feedResp.ok) { const f = await feedResp.json(); setFeed(f.data || []) }
       if (loyaltyResp.ok) setLoyalty(await loyaltyResp.json())
       if (digestResp.ok) setDigest(await digestResp.json())
+      if (errResp.ok) setRecentErrors(((await errResp.json()).data) || [])
     } catch (e) { console.error('Dashboard load:', e) }
     setLoading(false)
+  }
+
+  async function reloadErrors() {
+    setErrorsLoading(true)
+    try {
+      let token = await refreshToken()
+      if (!token) token = getToken()
+      const r = await fetch('/api/panel?action=errors_list&unresolved=1&limit=50', { headers: { 'Authorization': `Bearer ${token}` } })
+      if (r.ok) setRecentErrors(((await r.json()).data) || [])
+    } catch {}
+    setErrorsLoading(false)
   }
 
   async function runBulkAction(type, actionData = {}) {
@@ -299,105 +314,83 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
         )}
       </motion.div>
 
-      {/* Loyalty + Digest Health — two-column */}
+      {/* Recent client errors — full-width, copy-paste-ready format */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.26, duration: 0.4 }}
+        className={`rounded-2xl p-6 transition-colors ${cardBase}`}
+      >
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <p className={`text-[15px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+            <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-2" />
+            {L('Errores recientes', 'Recent errors')}
+            {recentErrors.length > 0 && (
+              <span className="ml-2 text-[11px] font-bold text-red-400 bg-red-500/10 border border-red-500/30 rounded-full px-2 py-0.5">
+                {recentErrors.length}
+              </span>
+            )}
+          </p>
+          <button
+            onClick={reloadErrors}
+            disabled={errorsLoading}
+            className={`text-[11px] font-bold px-3 py-1 rounded-full transition-colors ${isDark ? 'text-white/50 hover:text-white hover:bg-white/5' : 'text-black/50 hover:text-black hover:bg-black/5'}`}
+          >
+            {errorsLoading ? L('Cargando...', 'Loading...') : L('Refrescar', 'Refresh')}
+          </button>
+        </div>
+        {recentErrors.length === 0 ? (
+          <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>
+            {L('Sin errores sin resolver. Todo limpio.', 'No unresolved errors. All clean.')}
+          </p>
+        ) : (
+          <div className="space-y-2 max-h-[420px] overflow-y-auto">
+            {recentErrors.map(e => {
+              const bizName = e.businesses?.name || L('(sin negocio)', '(no business)')
+              const when = new Date(e.created_at).toLocaleString('es-DO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+              const copyText = `[${bizName}] ${e.message}${e.route ? ` @ ${e.route}` : ''}${e.app_version ? ` (v${e.app_version})` : ''}`
+              return (
+                <div key={e.id} className={`flex items-start gap-3 p-3 rounded-lg ${isDark ? 'bg-white/[0.03] hover:bg-white/[0.06]' : 'bg-black/[0.02] hover:bg-black/[0.05]'} transition-colors`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                      <button
+                        onClick={() => e.business_id && navigate(`/admin/clients/${e.business_id}`)}
+                        className={`text-[12px] font-bold ${e.business_id ? 'hover:text-[#b3001e]' : 'cursor-default'} ${isDark ? 'text-white' : 'text-black'}`}
+                      >
+                        {bizName}
+                      </button>
+                      <span className={`text-[10px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{when}</span>
+                      {e.app_version && <span className={`text-[10px] font-mono ${isDark ? 'text-white/30' : 'text-black/30'}`}>v{e.app_version}</span>}
+                    </div>
+                    <p className={`text-[12px] font-mono break-words ${isDark ? 'text-red-300' : 'text-red-700'}`}>
+                      {e.message}
+                    </p>
+                    {e.route && (
+                      <p className={`text-[10px] font-mono mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                        {e.route}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => { try { navigator.clipboard?.writeText(copyText) } catch {} }}
+                    className={`shrink-0 px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${isDark ? 'bg-white/5 hover:bg-white/10 text-white/70' : 'bg-black/5 hover:bg-black/10 text-black/70'}`}
+                    title={L('Copiar al portapapeles', 'Copy to clipboard')}
+                  >
+                    {L('Copiar', 'Copy')}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </motion.div>
+
+      {/* Digest Health */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.28, duration: 0.4 }}
-        className="grid md:grid-cols-2 gap-5"
       >
-        {/* Loyalty overview */}
-        <div className={`rounded-2xl p-6 transition-colors ${cardBase}`}>
-          <div className="flex items-center justify-between mb-4">
-            <p className={`text-[15px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
-              <Gift size={14} className="inline mr-1.5 text-[#b3001e]" />
-              {L('Lealtad', 'Loyalty')}
-            </p>
-            <span className="text-[10px] font-bold text-[#b3001e] uppercase tracking-[1.2px]">
-              {L('Pro PLUS+', 'Pro PLUS+')}
-            </span>
-          </div>
-          {!loyalty ? (
-            <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin datos.', 'No data.')}</p>
-          ) : (
-            <>
-              {/* Tier filter chips */}
-              <div className="flex flex-wrap items-center gap-1.5 mb-3">
-                {[
-                  { key: null,      label: L('Todos', 'All'),   count: null },
-                  { key: 'gold',    label: L('Oro', 'Gold'),    count: loyalty.tierBreakdown?.gold },
-                  { key: 'silver',  label: L('Plata', 'Silver'),count: loyalty.tierBreakdown?.silver },
-                  { key: 'bronze',  label: L('Bronce', 'Bronze'),count: loyalty.tierBreakdown?.bronze },
-                ].map(chip => {
-                  const on = tierFilter === chip.key
-                  const tone = chip.key === 'gold'
-                    ? (on ? 'bg-amber-500 text-black' : 'bg-amber-400/15 text-amber-500 hover:bg-amber-400/25')
-                    : chip.key === 'silver'
-                    ? (on ? 'bg-slate-400 text-black' : 'bg-slate-400/15 text-slate-400 hover:bg-slate-400/25')
-                    : chip.key === 'bronze'
-                    ? (on ? 'bg-orange-700 text-white' : 'bg-orange-700/15 text-orange-500 hover:bg-orange-700/25')
-                    : (on ? 'bg-[#b3001e] text-white' : (isDark ? 'bg-white/5 text-white/60 hover:bg-white/10' : 'bg-black/5 text-black/60 hover:bg-black/10'))
-                  return (
-                    <button
-                      key={String(chip.key)}
-                      onClick={() => setTierFilter(chip.key)}
-                      className={`text-[10px] font-bold uppercase tracking-[1px] px-2.5 py-1 rounded-full transition-colors ${tone}`}
-                    >
-                      {chip.label}
-                      {chip.count != null && <span className="ml-1 opacity-60">({chip.count})</span>}
-                    </button>
-                  )
-                })}
-              </div>
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div>
-                  <p className="text-[10px] font-bold text-[#b3001e] uppercase tracking-[1.2px]">{L('Puntos vivos', 'Outstanding')}</p>
-                  <p className={`text-[22px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>
-                    <AnimatedNumber value={Math.round(loyalty.totalPoints || 0)} />
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-bold text-[#b3001e] uppercase tracking-[1.2px]">{L('Negocios', 'Businesses')}</p>
-                  <p className={`text-[22px] font-black mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>
-                    <AnimatedNumber value={loyalty.businessCount || 0} />
-                  </p>
-                </div>
-              </div>
-              {(loyalty.topClients || []).length === 0 ? (
-                <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin clientes con puntos.', 'No clients with points.')}</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {loyalty.topClients.map((c, i) => {
-                    const isGold = (c.tier || '').toLowerCase() === 'gold' || (c.tier || '').toLowerCase() === 'platinum'
-                    const isSilver = (c.tier || '').toLowerCase() === 'silver'
-                    const tierCls = isGold
-                      ? 'bg-amber-400/20 text-amber-500 border border-amber-500/40'
-                      : isSilver
-                      ? 'bg-slate-400/20 text-slate-400 border border-slate-400/40'
-                      : isDark ? 'bg-white/5 text-white/50' : 'bg-black/5 text-black/50'
-                    const tierLabel = isGold ? L('Oro','Gold') : isSilver ? L('Plata','Silver') : L('Bronce','Bronze')
-                    const valueShown = tierFilter ? Math.round(c.lifetime ?? c.points) : Math.round(c.points)
-                    return (
-                      <button
-                        key={i}
-                        onClick={() => c.business_id && navigate(`/admin/clients/${c.business_id}`)}
-                        className={`w-full flex items-center gap-2 text-left py-1.5 border-b last:border-0 transition-colors hover:text-[#b3001e] ${isDark ? 'border-white/5 text-white/80' : 'border-black/5 text-black/80'}`}
-                      >
-                        <span className={`text-[10px] font-bold w-5 shrink-0 ${isDark ? 'text-white/30' : 'text-black/30'}`}>{i + 1}.</span>
-                        <span className="text-[12px] font-semibold truncate flex-1">{c.business_name}</span>
-                        <span className={`text-[11px] truncate max-w-[120px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>{c.client_name}</span>
-                        {c.birthday_treat && <span title={L('Regalo de cumpleaños disponible','Birthday treat available')} className="text-[10px]">🎂</span>}
-                        <span className="text-[11px] font-bold text-[#b3001e] shrink-0 tabular-nums">{valueShown.toLocaleString()}</span>
-                        <span className={`text-[9px] font-bold uppercase tracking-[1px] shrink-0 px-1.5 py-0.5 rounded ${tierCls}`}>{tierLabel}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
         {/* Digest health */}
         <div className={`rounded-2xl p-6 transition-colors ${cardBase}`}>
           <div className="flex items-center justify-between mb-4">

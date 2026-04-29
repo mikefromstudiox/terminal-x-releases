@@ -621,8 +621,8 @@ async function build() {
       { header: 'Para quién', width: 2.5 },
     ],
     [
-      ['Pro PLUS', 'RD$4,490 / mes', '1 sucursal, hasta 3 usuarios. Ideal para casa de empeño individual.'],
-      ['Pro MAX',  'RD$6,990 / mes', 'Multi-sucursal, usuarios ilimitados, soporte prioritario WhatsApp directo.'],
+      ['Pro PLUS', 'RD$5,490 / mes', '1 sucursal, hasta 3 usuarios. Ideal para casa de empeño individual.'],
+      ['Pro MAX',  'RD$9,990 / mes', 'Multi-sucursal, usuarios ilimitados, soporte prioritario WhatsApp directo.'],
     ],
   )
   h2('Comparación vs alternativas')
@@ -635,7 +635,7 @@ async function build() {
     [
       ['Excel + papel', 'RD$0', 'Caos legal. Contratos perdidos. Sin reporte SB. Sin e-CF.'],
       ['SaaS genérico', 'RD$3-8k/mes', 'No certificado DGII. Pagas terceros por cada e-CF. No tiene módulo de empeño.'],
-      ['Terminal X', 'desde RD$4,490', 'Todo-en-uno. Certificado DGII directo. Contrato + cobranza + tienda + e-CF.'],
+      ['Terminal X', 'desde RD$5,490', 'Todo-en-uno. Certificado DGII directo. Contrato + cobranza + tienda + e-CF.'],
     ],
   )
   h2('ROI rápido')
@@ -652,13 +652,13 @@ async function build() {
   numBullet(5, '¿Vendes prendas vencidas? ¿Cómo manejas el e-CF?')
 
   h2('Pitch en 60 segundos')
-  quoteBox('"Tienes [N] préstamos activos. Ahora mismo cada uno depende de un papel firmado que puede perderse, una hoja de Excel que solo tú entiendes, y mensajes de WhatsApp para cobrar. Terminal X te da el contrato firmado digital con foto de cédula guardado encriptado, la cobranza con un click por WhatsApp, el dashboard con tu mora en tiempo real, y cuando una prenda vence la publicas en una tienda online y la vendes con e-CF DGII directo - todo por RD$4,490 al mes. Eso es menos de lo que pierdes en una sola disputa legal por un contrato extraviado."')
+  quoteBox('"Tienes [N] préstamos activos. Ahora mismo cada uno depende de un papel firmado que puede perderse, una hoja de Excel que solo tú entiendes, y mensajes de WhatsApp para cobrar. Terminal X te da el contrato firmado digital con foto de cédula guardado encriptado, la cobranza con un click por WhatsApp, el dashboard con tu mora en tiempo real, y cuando una prenda vence la publicas en una tienda online y la vendes con e-CF DGII directo - todo por RD$5,490 al mes. Eso es menos de lo que pierdes en una sola disputa legal por un contrato extraviado."')
 
   // ============ PÁGINA 13 — Objeciones ============
   newPage('Objeciones + Demo flow')
   h1('Objeciones comunes + respuestas')
   h3('"Es caro."')
-  p('RD$4,490 = RD$150/día. Una sola mora cobrada extra paga el mes. Un solo contrato disputado en tribunal cuesta 10x más.')
+  p('RD$5,490 = RD$150/día. Una sola mora cobrada extra paga el mes. Un solo contrato disputado en tribunal cuesta 10x más.')
   h3('"Yo uso WhatsApp y me funciona."')
   p('WhatsApp no te da contrato firmado, no es evidencia legal SB, y no te genera el reporte mensual de cartera. Cuando viene la auditoría, ¿qué les muestras? ¿Capturas de pantalla?')
   h3('"Mi cliente no sabe usar tablets."')

@@ -1,0 +1,66 @@
+{
+  "deck": "features",
+  "source_html": "index.html",
+  "posts": [
+    {
+      "id": "cover",
+      "title": "Cover — Terminal X",
+      "caption_es": "El POS que hace todo. Certificado por DGII.\n\n• 10 funciones, 1 sistema\n• 7 verticales: carwash, tienda, restaurante, salón, mecánica, concesionario, carnicería\n• e-CF Ley 32-23 listo, Viafirma incluido\n• Modo offline 72h y WhatsApp en cada paso\n• Lo usamos en Studio X Auto Detailing antes de vendértelo\n\nEmpieza gratis 7 días → terminalxpos.com\nO escríbenos por WhatsApp +1 809 828 2971\n\n#TerminalX #POSDominicana #FacturacionElectronicaDR #DGII #ECF #LeyDGII3223 #EmprendedorDR #PymesRD #SantoDomingo #RD #NegociosDR"
+    },
+    {
+      "id": "ecf-dgii",
+      "title": "e-CF DGII Ley 32-23",
+      "caption_es": "El 15 de mayo entra en vigencia la Ley 32-23. Si no estás certificado, estás multado.\n\n• Certificado DGII #42483, listos hoy\n• Todos los tipos de e-CF: E31, E32, E33, E34, E43, E47\n• Viafirma .p12 incluido en todos los planes\n• Factura en 3 pasos: cobras → firmamos XML → DGII responde con QR\n• Modo diferido 72h offline (Indicador 1) sin penalidad\n\n0 multas. 0 estrés. 0 improvisación.\n\nEmpieza gratis 7 días → terminalxpos.com\n\n#FacturacionElectronicaDR #DGII #ECF #LeyDGII3223 #Ley3223 #TerminalX #EmisorElectronico #PymesRD #EmprendedorDR #SantoDomingo #RD #ContabilidadDR"
+    },
+    {
+      "id": "pos-multivertical",
+      "title": "POS multivertical",
+      "caption_es": "Un solo POS. Cualquier negocio.\n\n• 7 verticales completos sin plugins: Carwash, Restaurante, Salón/Barbería, Mecánica, Concesionario, Carnicería, Tienda\n• 8 subtipos de tienda con plantillas listas: Licorería, Farmacia, Colmado, Supermercado, Ferretería, Papelería, Boutique, Otro\n• Cada subtipo trae sus categorías, reglas y funciones\n• Cambias de rubro sin cambiar de sistema\n\nUna licencia. Todo tu negocio.\n\nEmpieza gratis 7 días → terminalxpos.com\n\n#POSDominicana #TerminalX #Colmado #Licoreria #Farmacia #Ferreteria #Restaurante #Carwash #PymesRD #EmprendedorDR #SantoDomingo #RD"
+    },
+    {
+      "id": "restaurante",
+      "title": "Restaurante completo",
+      "caption_es": "De cocina a caja. Sala, KDS y comanda sincronizadas.\n\n• Mesero toma orden con course pacing (entradas, principales, postres)\n• KDS imprime en cocina, 86-list bloquea platos agotados al instante\n• Pre-cuenta sin abrir gaveta, 10% Servicio Ley 16-92\n• Recetas BOM: vendes el plato, baja pan, carne, queso del inventario solo\n• Reservas con depósito, mover/juntar mesas, comisión por mesero\n\nResumen del salón en vivo desde tu teléfono.\n\nEmpieza gratis 7 días → terminalxpos.com\n\n#RestauranteRD #POSRestaurante #KDS #TerminalX #ComidaDR #SantoDomingo #PymesRD #EmprendedorDR #DGII #ECF #RD #FacturacionElectronicaDR"
+    },
+    {
+      "id": "concesionario",
+      "title": "Concesionario",
+      "caption_es": "Del lead a la matrícula, en un solo sistema.\n\n• Pipeline kanban con lead scoring para priorizar el cierre\n• DealBuilder con UAF Ley 155-17 y RNC E31 automático\n• ITBIS dinámico, reservas con depósito, garantías y reclamos\n• Pre-aprobaciones bancarias integradas\n• Matrículas + INTRANT en Pro MAX\n• Reportes: funnel de conversión, aging de inventario, comisiones por vendedor\n\nCumplimiento UAF incluido. WhatsApp en cada etapa.\n\nEmpieza gratis 7 días → terminalxpos.com\n\n#ConcesionarioRD #VentaDeVehiculos #UAF #Ley15517 #DGII #ECF #TerminalX #PymesRD #SantoDomingo #RD #AutosDR #FacturacionElectronicaDR"
+    },
+    {
+      "id": "salon-barberia",
+      "title": "Salón / Barbería",
+      "caption_es": "Agenda llena. No-shows fuera.\n\n• Citas online con link público, cliente escoge estilista y servicio\n• Depósito por WhatsApp para garantizar la cita\n• Recordatorios automáticos 24h antes\n• Walk-ins en cola, horario por estilista\n• Membresías mensuales, paquetes prepagados, rebooking automático\n• Estilista preferido: el sistema lo recuerda por cliente\n\nMenos huecos en la agenda. Más clientes que vuelven.\n\nEmpieza gratis 7 días → terminalxpos.com\n\n#SalonRD #BarberiaRD #POSBarberia #CitasOnline #TerminalX #PymesRD #EmprendedorDR #SantoDomingo #RD #BellezaDR #DGII #ECF"
+    },
+    {
+      "id": "modo-offline",
+      "title": "Modo offline 72h",
+      "caption_es": "Sin internet, sigues facturando.\n\n• 72 horas de gracia offline\n• SQLite local cifrado con SQLCipher AES-256\n• Cada venta dispara sync apenas regresa la señal\n• e-CF en modo diferido (Indicador 1), DGII lo acepta sin penalidad\n• Tu data vive en tu máquina, encriptada en reposo\n\nCuando se cae el internet del barrio, tu caja sigue cobrando.\n\nEmpieza gratis 7 días → terminalxpos.com\n\n#POSOffline #SeguridadDeDatos #TerminalX #DGII #ECF #FacturacionElectronicaDR #PymesRD #EmprendedorDR #SantoDomingo #RD #NegociosDR"
+    },
+    {
+      "id": "whatsapp",
+      "title": "WhatsApp integrado",
+      "caption_es": "Tu cliente no abre email. Abre WhatsApp.\n\n• Recibo PDF con QR DGII al cerrar la venta, directo al chat\n• Recordatorios de cita 24h antes\n• Mensajes de cobro de cuenta vencida con link de pago\n• Cliente recibe, paga y vuelve\n• Cero papel para botar, cero llamadas perdidas\n\nEl recibo queda en su teléfono para siempre.\n\nEmpieza gratis 7 días → terminalxpos.com\nO escríbenos por WhatsApp +1 809 828 2971\n\n#WhatsAppBusiness #POSDominicana #TerminalX #FacturacionElectronicaDR #DGII #ECF #PymesRD #EmprendedorDR #SantoDomingo #RD #NegociosDR"
+    },
+    {
+      "id": "reportes-dashboard",
+      "title": "Reportes y dashboard remoto",
+      "caption_es": "Tu negocio en tu bolsillo.\n\n• Dashboard remoto desde cualquier teléfono\n• Cuadre diario con cierre digital\n• Caja chica y movimientos\n• Comisiones totales acumuladas por empleado\n• Ventas por hora, día y producto · top productos y categorías\n• Roles: owner, CFO, contador, cajero\n• Log de actividad firmado y auditable: cada movimiento queda\n\nEstés donde estés, sabes qué pasa.\n\nEmpieza gratis 7 días → terminalxpos.com\n\n#DashboardEmpresarial #ReportesDeVenta #POSDominicana #TerminalX #PymesRD #EmprendedorDR #SantoDomingo #RD #DGII #ECF #ContabilidadDR"
+    },
+    {
+      "id": "inventario-lealtad",
+      "title": "Inventario y lealtad",
+      "caption_es": "Inventario vivo. Clientes que vuelven.\n\n• Stock en tiempo real: cada venta resta, cada compra suma\n• Alertas de mínimo antes que se acabe\n• Devoluciones con NCE (nota de crédito electrónica DGII)\n• Lealtad en 3 niveles: Bronce, Plata, Oro\n• Puntos canjeables, descuentos por tier, reportes de retención\n\nSabes qué tienes. Sabes qué falta. Tus clientes regresan.\n\nEmpieza gratis 7 días → terminalxpos.com\n\n#InventarioPOS #LealtadDeClientes #POSDominicana #TerminalX #DGII #ECF #NCE #PymesRD #EmprendedorDR #SantoDomingo #RD #NegociosDR"
+    },
+    {
+      "id": "planes",
+      "title": "3 planes desde RD$2,990",
+      "caption_es": "3 planes. Desde RD$2,990/mes. 58% más barato que STARSISA.\n\n• PRO RD$2,990 — POS, cola, clientes, créditos, inventario básico\n• PRO PLUS RD$5,490 (POPULAR) — todo Pro + e-CF DGII, reportes, citas, mesas, lealtad\n• PRO MAX RD$9,990 — todo PLUS + comisiones, multi-local, modo offline, WhatsApp\n\n• Anual con 15% OFF\n• 7 días gratis Pro MAX, sin tarjeta\n• Viafirma incluido en todos los planes\n• Migramos tu data del POS anterior gratis\n\nEmpieza gratis 7 días → terminalxpos.com\nO escríbenos por WhatsApp +1 809 828 2971\n\n#PreciosPOS #TerminalX #POSDominicana #FacturacionElectronicaDR #DGII #ECF #PymesRD #EmprendedorDR #SantoDomingo #RD #NegociosDR"
+    },
+    {
+      "id": "cta-final",
+      "title": "Empieza hoy — CTA final",
+      "caption_es": "Activa Terminal X en menos de 1 hora.\n\n• 10 funciones, 1 sistema, 7 verticales\n• e-CF DGII Ley 32-23 listo · Viafirma incluido\n• Modo offline 72h · WhatsApp en cada paso\n• Reportes, inventario, lealtad, comisiones\n• Soporte directo por WhatsApp con el equipo que construye el sistema. Sin tickets, sin call center.\n• 7 días gratis Pro MAX. Sin tarjeta. Sin riesgo.\n\nCada día sin Terminal X es dinero por la ventana.\n\nEmpieza ahora → terminalxpos.com\nO escríbenos por WhatsApp +1 809 828 2971\n\n#TerminalX #POSDominicana #FacturacionElectronicaDR #DGII #ECF #LeyDGII3223 #PymesRD #EmprendedorDR #SantoDomingo #RD #NegociosDR #SoporteWhatsApp"
+    }
+  ]
+}

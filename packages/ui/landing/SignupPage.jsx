@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Loader2, ArrowLeft, Check, Car, Store, Briefcase, UtensilsCrossed, CarFront, LayoutGrid, Sparkles } from 'lucide-react'
 import logoImg from '../assets/logo.webp'
-import { BUSINESS_TYPES, BUSINESS_TYPE_KEYS } from '@terminal-x/config/businessTypes'
+import { BUSINESS_TYPES, BUSINESS_TYPE_KEYS, HYBRID_COMPONENT_KEYS, normalizeHybridComponents } from '@terminal-x/config/businessTypes'
 
 function detectLang() {
   const stored = localStorage.getItem('tx_landing_lang')
@@ -21,11 +21,36 @@ function recommendedPlanFor(type) {
 export default function SignupPage({ supabase }) {
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const [step, setStep] = useState(1)
-  const rawPlan = params.get('plan') || 'pro'
+  // Resume from /probar/* demo — when the user comes back to /signup after
+  // exploring an interactive demo, restore their step-1 inputs + selected
+  // business type so they don't have to retype everything.
+  const resume = (() => {
+    try {
+      const raw = sessionStorage.getItem('tx_signup_resume')
+      if (raw) {
+        const r = JSON.parse(raw)
+        if (r && typeof r === 'object') return r
+      }
+    } catch (_) { /* ignore */ }
+    return null
+  })()
+  const wantsStep3 = params.get('step') === '3' && !!resume?.email
+  const [step, setStep] = useState(wantsStep3 ? 3 : 1)
+  const rawPlan = params.get('plan') || resume?.plan || 'pro'
   const [plan, setPlan] = useState(VALID_PLANS[rawPlan] ? rawPlan : 'pro')
-  const [form, setForm] = useState({ business_name: '', rnc: '', phone: '', email: '', password: '' })
-  const [businessType, setBusinessType] = useState('carwash')
+  const [form, setForm] = useState({
+    business_name: resume?.business_name || '',
+    rnc:           resume?.rnc           || '',
+    phone:         resume?.phone         || '',
+    email:         resume?.email         || '',
+    password:      '',
+  })
+  const [businessType, setBusinessType] = useState(resume?.businessType || 'carwash')
+  const [hybridComps, setHybridComps] = useState(
+    Array.isArray(resume?.hybridComps) && resume.hybridComps.length >= 2
+      ? resume.hybridComps
+      : ['restaurant', 'retail']
+  )
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const lang = detectLang()
@@ -39,21 +64,53 @@ export default function SignupPage({ supabase }) {
 
     if (step === 1) {
       if (!form.business_name.trim()) { setError(L('Nombre del negocio requerido', 'Business name required')); return }
+      if (!form.email.trim()) { setError(L('Email requerido', 'Email required')); return }
+      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!emailRe.test(form.email.trim())) { setError(L('Email invalido', 'Invalid email')); return }
+      // Fire-and-forget early lead capture so we keep the lead even if the
+      // user bails before finishing signup. Failures are silent.
+      try {
+        fetch('/api/signup/lead', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: form.email.trim(),
+            business_name: form.business_name.trim(),
+            rnc: form.rnc.trim(),
+            phone: form.phone.trim(),
+            plan,
+            business_type: businessType,
+            hybrid_components: businessType === 'hybrid' ? normalizeHybridComponents(hybridComps).join(',') : null,
+            utm_source: params.get('utm_source') || null,
+            utm_medium: params.get('utm_medium') || null,
+            utm_campaign: params.get('utm_campaign') || null,
+          }),
+          keepalive: true,
+        }).catch(() => {})
+      } catch (_) { /* non-fatal */ }
       setStep(2)
       return
     }
 
     if (step === 2) {
-      // Business type selection → move to credentials
+      // Business type selection → open the interactive demo for that vertical.
+      // The demo's "Crear cuenta" CTA brings them back to /signup?step=3 to
+      // finish creating the account (lead is already captured at step 1).
       const cfg = BUSINESS_TYPES[businessType]
       if (!cfg || cfg.enabled === false) {
         setError(L('Selecciona un tipo de negocio disponible', 'Select an available business type'))
         return
       }
-      // Auto-upgrade suggested plan if the type needs pro_plus (user can still change later)
       const suggested = recommendedPlanFor(businessType)
       if (suggested === 'pro_plus' && plan === 'pro') setPlan('pro_plus')
-      setStep(3)
+      if (businessType === 'hybrid' && normalizeHybridComponents(hybridComps).length < 2) {
+        setError(L('Para Híbrido, elige al menos 2 tipos de negocio.', 'For Hybrid, pick at least 2 business types.'))
+        return
+      }
+      try {
+        sessionStorage.setItem('tx_signup_resume', JSON.stringify({ ...form, plan, businessType, hybridComps }))
+      } catch (_) { /* non-fatal */ }
+      navigate(`/probar/${businessType}`)
       return
     }
 
@@ -85,6 +142,9 @@ export default function SignupPage({ supabase }) {
       try {
         localStorage.setItem('pending_business_type', businessType)
         localStorage.setItem('pending_plan_tier', plan)
+        if (businessType === 'hybrid') {
+          localStorage.setItem('pending_hybrid_components', normalizeHybridComponents(hybridComps).join(','))
+        }
       } catch (_) { /* non-fatal */ }
 
       const resp = await fetch('/api/signup/provision', {
@@ -96,7 +156,11 @@ export default function SignupPage({ supabase }) {
           phone: form.phone.trim(),
           plan,
           business_type: businessType,
+          hybrid_components: businessType === 'hybrid' ? normalizeHybridComponents(hybridComps).join(',') : null,
           plan_tier: plan,
+          utm_source: params.get('utm_source') || null,
+          utm_medium: params.get('utm_medium') || null,
+          utm_campaign: params.get('utm_campaign') || null,
         }),
       })
 
@@ -152,6 +216,12 @@ export default function SignupPage({ supabase }) {
                 placeholder="123-45678-9" className="w-full px-4 py-3 rounded-lg bg-slate-800 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-[#b3001e]" />
             </div>
             <div>
+              <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">{L('Email', 'Email')} *</label>
+              <input type="email" value={form.email} onChange={e => set('email', e.target.value)}
+                placeholder="tu@email.com" autoComplete="email" className="w-full px-4 py-3 rounded-lg bg-slate-800 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-[#b3001e]" required />
+              <p className="mt-1 text-[10px] text-slate-500">{L('Lo usaremos para crear tu cuenta y enviarte el acceso.', 'We will use it to create your account and send your access.')}</p>
+            </div>
+            <div>
               <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">{L('Telefono (opcional)', 'Phone (optional)')}</label>
               <input value={form.phone} onChange={e => set('phone', e.target.value)}
                 placeholder="809-555-0000" className="w-full px-4 py-3 rounded-lg bg-slate-800 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-[#b3001e]" />
@@ -165,6 +235,10 @@ export default function SignupPage({ supabase }) {
               <label className="block text-xs font-bold text-white uppercase tracking-wider mb-2">
                 {L('Que tipo de negocio tienes?', 'What type of business do you have?')}
               </label>
+              <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
+                {L('Toca tu tipo de negocio para entrar a una demo interactiva con datos de ejemplo. Asi ves exactamente como funciona Terminal X para ti.',
+                   'Tap your business type to enter an interactive demo with sample data. See exactly how Terminal X works for you.')}
+              </p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {BUSINESS_TYPE_KEYS.map((key) => {
                   const cfg = BUSINESS_TYPES[key]
@@ -204,37 +278,49 @@ export default function SignupPage({ supabase }) {
                   )
                 })}
               </div>
-            </div>
-
-            {(() => {
-              const rec = recommendedPlanFor(businessType)
-              const recLabel = VALID_PLANS[rec]
-              const reason = rec === 'pro_plus'
-                ? L('Recomendamos Pro PLUS para restaurantes e hibridos (mesas, KDS, split pay).',
-                    'We recommend Pro PLUS for restaurants and hybrids (tables, KDS, split pay).')
-                : L('Pro cubre lo esencial para este tipo de negocio. Puedes cambiar de plan despues.',
-                    'Pro covers the essentials for this business type. You can change plans later.')
-              return (
-                <div className="flex items-start gap-2 p-3 rounded-lg bg-[#b3001e]/10 border border-[#b3001e]/30">
-                  <Sparkles size={14} className="text-[#b3001e] mt-0.5 flex-shrink-0" />
-                  <div className="text-[11px] text-slate-200 leading-relaxed">
-                    <span className="font-bold text-white">
-                      {L('Recomendamos', 'We recommend')} {recLabel}
-                    </span>
-                    <span className="block text-slate-400 mt-0.5">{reason}</span>
+              {businessType === 'hybrid' && (
+                <div className="mt-4">
+                  <label className="block text-[11px] font-bold text-white uppercase tracking-wider mb-2">
+                    {L('Combinar cuáles tipos?', 'Combine which types?')}
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {HYBRID_COMPONENT_KEYS.map(key => {
+                      const cfg = BUSINESS_TYPES[key]
+                      if (!cfg || cfg.enabled === false) return null
+                      const checked = hybridComps.includes(key)
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setHybridComps(prev => checked ? prev.filter(k => k !== key) : [...prev, key])}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 text-left transition-all
+                            ${checked ? 'border-[#b3001e] bg-[#b3001e]/10 text-white' : 'border-slate-700 bg-slate-800/50 text-slate-300 hover:border-slate-500'}`}
+                        >
+                          <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0
+                            ${checked ? 'border-[#b3001e] bg-[#b3001e]' : 'border-slate-600'}`}>
+                            {checked && <Check size={10} className="text-white" />}
+                          </span>
+                          <span className="text-[12px] font-semibold">{cfg.label[lang] || cfg.label.es}</span>
+                        </button>
+                      )
+                    })}
                   </div>
+                  <p className="text-[10px] text-slate-400 mt-1.5">
+                    {L('Elige al menos 2. La vista del POS combina ambos automáticamente.', 'Pick at least 2. POS view combines them automatically.')}
+                  </p>
                 </div>
-              )
-            })()}
+              )}
+            </div>
           </>
         )}
 
         {step === 3 && (
           <>
             <div>
-              <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">{L('Email', 'Email')} *</label>
-              <input type="email" value={form.email} onChange={e => set('email', e.target.value)}
-                placeholder="tu@email.com" className="w-full px-4 py-3 rounded-lg bg-slate-800 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-[#b3001e]" required />
+              <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">{L('Email', 'Email')}</label>
+              <input type="email" value={form.email} readOnly
+                className="w-full px-4 py-3 rounded-lg bg-slate-900 text-slate-300 outline-none cursor-not-allowed border border-slate-700" />
+              <p className="mt-1 text-[10px] text-slate-500">{L('Capturado en el paso 1. Vuelve atras para cambiarlo.', 'Captured on step 1. Go back to change it.')}</p>
             </div>
             <div>
               <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">{L('Contrasena', 'Password')} *</label>
@@ -247,7 +333,9 @@ export default function SignupPage({ supabase }) {
         <button type="submit" disabled={submitting}
           className="w-full py-3 rounded-xl bg-[#b3001e] hover:bg-[#8c0017] text-white font-bold disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
           {submitting ? <><Loader2 size={16} className="animate-spin" /> {L('Creando...', 'Creating...')}</> :
-           step === 3 ? L('Crear Cuenta y Entrar', 'Create Account & Enter') : L('Siguiente', 'Next')}
+           step === 3 ? L('Crear Cuenta y Entrar', 'Create Account & Enter') :
+           step === 2 ? L('Probar demo interactivo', 'Try interactive demo') :
+           L('Siguiente', 'Next')}
         </button>
 
         <p className="text-center text-xs text-slate-500">

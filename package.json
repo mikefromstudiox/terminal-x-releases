@@ -1,6 +1,6 @@
 {
   "name": "terminal-x",
-  "version": "2.16.17",
+  "version": "2.16.18",
   "private": true,
   "description": "Terminal X - POS System for Car Wash, Retail & Services",
   "author": "Studio X",
@@ -46,6 +46,7 @@
     "electron-updater": "^6.8.3",
     "framer-motion": "^12.38.0",
     "idb": "^8.0.3",
+    "jszip": "^3.10.1",
     "node-forge": "^1.4.0",
     "pdf-lib": "^1.17.1",
     "qrcode": "^1.5.4",

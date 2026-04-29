@@ -656,8 +656,40 @@ const SYNC_TABLES = [
       updated_at: r.updated_at || null,
     }),
   },
+  // v2.16.x — Ofertas (product bundles)
+  {
+    name: 'ofertas',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      business_id: r.business_id,
+      name: r.name,
+      description: r.description ?? null,
+      price: Number(r.price) || 0,
+      active: r.active ? true : false,
+      starts_at: r.starts_at ?? null,
+      ends_at: r.ends_at ?? null,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
+  {
+    name: 'oferta_items',
+    cols: r => ({
+      supabase_id: r.supabase_id,
+      business_id: r.business_id,
+      oferta_supabase_id: r.oferta_supabase_id,
+      service_supabase_id: r.service_supabase_id ?? null,
+      inventory_item_supabase_id: r.inventory_item_supabase_id ?? null,
+      qty: Number(r.qty) || 1,
+      created_at: r.created_at || new Date().toISOString(),
+      updated_at: r.updated_at || null,
+    }),
+  },
   {
     name: 'tickets',
+    // v2.16.10 — Go-Live gate. Skip TEST-mode tickets entirely; they're wiped
+    // locally on goLiveCommit() before reaching production.
+    rowFilter: r => !r.is_test,
     cols: r => {
       // Build services_json from ticket_items for Remote Dashboard compatibility
       let services_json = null
@@ -843,6 +875,14 @@ const SYNC_TABLES = [
   // Phase 3 — depend on tickets and other phase 1/2 entities
   {
     name: 'ticket_items',
+    // v2.16.10 — Go-Live gate. Drop items whose parent ticket is is_test=1.
+    rowFilter: r => {
+      try {
+        if (!r.ticket_id) return true
+        const t = _db.rawPrepare('SELECT is_test FROM tickets WHERE id=?').get(r.ticket_id)
+        return !(t && t.is_test)
+      } catch { return true }
+    },
     cols: r => ({
       supabase_id: r.supabase_id,
       ticket_supabase_id: r.ticket_supabase_id,
@@ -864,6 +904,7 @@ const SYNC_TABLES = [
       kds_fired_at:  r.kds_fired_at || null,
       guest_number:  r.guest_number != null ? r.guest_number : null,
       preparation_notes: r.preparation_notes || null, // v2.16.3 carnicería
+      oferta_supabase_id: r.oferta_supabase_id ?? null, // v2.16.x — bundle tag
       updated_at: r.updated_at || null,
     }),
   },
@@ -2841,6 +2882,11 @@ const PULL_TABLES = [
   // v2.16.3 — Restaurante recetas (Bill-of-Materials per service)
   { name: 'service_recipe_items', strategy: 'lww', cols: ['qty_per_unit','created_at','updated_at'],
     fkCols: { service_supabase_id: 'services', inventory_item_supabase_id: 'inventory_items' } },
+  // v2.16.x — Ofertas (product bundles)
+  { name: 'ofertas', strategy: 'lww',
+    cols: ['name','description','price','active','starts_at','ends_at','created_at','updated_at'] },
+  { name: 'oferta_items', strategy: 'lww', cols: ['qty','created_at','updated_at'],
+    fkCols: { service_supabase_id: 'services', inventory_item_supabase_id: 'inventory_items' } },
   { name: 'ncf_sequences', strategy: 'lww', cols: ['type','prefix','current_number','limit_number','valid_until','active','enabled','updated_at'] },
   { name: 'empleados', strategy: 'lww', naturalKey: 'nombre', cols: ['nombre','cedula','phone','tipo','salary','start_date','active','ref_id','puesto','email','bank_account','tss_id','role','comision_pct','updated_at'] },
   { name: 'categorias_servicio', strategy: 'lww', naturalKey: 'nombre', cols: ['nombre','orden','updated_at'] },
@@ -2906,7 +2952,7 @@ const PULL_TABLES = [
     // v2.10.3 — `rev` rides statusSync so both sides of a status flip stay in lockstep.
     statusSync: ['status', 'void_reason', 'void_by', 'void_at', 'rev', 'updated_at'] },
   { name: 'ticket_items', strategy: 'fww',
-    cols: ['name','price','cost','itbis','is_wash','quantity','sku','weight','unit','price_per_unit','is_deposit','course','kds_fired_at','guest_number','preparation_notes','empleado_supabase_id','created_at','updated_at'],
+    cols: ['name','price','cost','itbis','is_wash','quantity','sku','weight','unit','price_per_unit','is_deposit','course','kds_fired_at','guest_number','preparation_notes','empleado_supabase_id','oferta_supabase_id','created_at','updated_at'],
     fkCols: { ticket_supabase_id: 'tickets', service_supabase_id: 'services', inventory_item_supabase_id: 'inventory_items', empleado_supabase_id: 'empleados' } },
   { name: 'queue', strategy: 'lww',
     cols: ['status','assigned_at','completed_at','created_at','updated_at'],
@@ -4394,6 +4440,7 @@ async function startRealtime() {
     // v2.16.7 — close realtime gap with SYNC_TABLES so cross-device propagation
     // doesn't wait the full 30-min poll for these entities.
     'mesas','modificadores','service_modificadores','service_recipe_items',
+    'ofertas','oferta_items',
     'ticket_item_modificadores','kds_events','restaurant_reservations',
     'mechanic_commissions','inventory_oversells',
     'ecf_submissions','ecf_queue','queue_deletions',
@@ -4485,7 +4532,7 @@ async function supabaseDelete(table, supabaseId, businessId) {
 const RECONCILE_TABLES = [
   'salary_changes', 'adelantos', 'caja_chica', 'notas_credito',
   'services', 'empleados', 'categorias_servicio', 'client_item_prices',
-  'client_service_rates', 'service_modificadores', 'service_recipe_items', 'payroll_runs',
+  'client_service_rates', 'service_modificadores', 'service_recipe_items', 'ofertas', 'oferta_items', 'payroll_runs',
   'inventory_counts', 'inventory_count_items',
   'compras_607', 'ecf_queue', 'work_order_items',
   // v2.14.22 — the bucket that was silently out. When Supabase loses a

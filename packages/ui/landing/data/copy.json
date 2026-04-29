@@ -187,8 +187,8 @@
     "carwash": {
       "tab_label_es": "Carwash",
       "tab_label_en": "Carwash",
-      "tier_es": "Plan Pro · RD$2,490/mes",
-      "tier_en": "Pro plan · RD$2,490/mo",
+      "tier_es": "Plan Pro · RD$2,990/mes",
+      "tier_en": "Pro plan · RD$2,990/mo",
       "headline_es": "Operación completa para lavaderos",
       "headline_en": "Full operations for carwashes",
       "bullets_es": [
@@ -215,8 +215,8 @@
     "tiendas": {
       "tab_label_es": "Tiendas",
       "tab_label_en": "Retail",
-      "tier_es": "Plan Pro PLUS · RD$4,490/mes",
-      "tier_en": "Pro PLUS plan · RD$4,490/mo",
+      "tier_es": "Plan Pro PLUS · RD$5,490/mes",
+      "tier_en": "Pro PLUS plan · RD$5,490/mo",
       "headline_es": "Ocho subtipos, una sola plataforma",
       "headline_en": "Eight subtypes, one platform",
       "bullets_es": [
@@ -293,8 +293,8 @@
     "restaurantes": {
       "tab_label_es": "Restaurantes",
       "tab_label_en": "Restaurants",
-      "tier_es": "Plan Pro PLUS · RD$4,490/mes",
-      "tier_en": "Pro PLUS plan · RD$4,490/mo",
+      "tier_es": "Plan Pro PLUS · RD$5,490/mes",
+      "tier_en": "Pro PLUS plan · RD$5,490/mo",
       "headline_es": "De la mesa a la cocina sin papel",
       "headline_en": "From table to kitchen, paperless",
       "bullets_es": [
@@ -321,8 +321,8 @@
     "servicios": {
       "tab_label_es": "Servicios",
       "tab_label_en": "Services",
-      "tier_es": "Plan Pro PLUS · RD$4,490/mes",
-      "tier_en": "Pro PLUS plan · RD$4,490/mo",
+      "tier_es": "Plan Pro PLUS · RD$5,490/mes",
+      "tier_en": "Pro PLUS plan · RD$5,490/mo",
       "headline_es": "Cuatro verticales de servicios en una plataforma",
       "headline_en": "Four service verticals in one platform",
       "subtabs": {
@@ -395,8 +395,8 @@
     "empresas": {
       "tab_label_es": "Empresas con empleados",
       "tab_label_en": "Companies with employees",
-      "tier_es": "Plan Pro MAX · RD$6,990/mes",
-      "tier_en": "Pro MAX plan · RD$6,990/mo",
+      "tier_es": "Plan Pro MAX · RD$9,990/mes",
+      "tier_en": "Pro MAX plan · RD$9,990/mo",
       "headline_es": "Nómina dominicana 100% en regla",
       "headline_en": "Fully compliant Dominican payroll",
       "bullets_es": [

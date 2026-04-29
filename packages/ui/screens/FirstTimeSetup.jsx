@@ -15,7 +15,7 @@ import { useLicense } from '../context/LicenseContext'
 import { getSupabaseClient, setStoredSetting, getStoredSetting, ensureBusinessRegistered } from '@terminal-x/services/supabase'
 import { withRetry, isSupabaseRetryable } from '@terminal-x/services/retry.js'
 import { humanizeNetworkError } from '@terminal-x/services/networkError.js'
-import { BUSINESS_TYPES, BUSINESS_TYPE_KEYS, isBusinessTypeEnabled } from '@terminal-x/config/businessTypes'
+import { BUSINESS_TYPES, BUSINESS_TYPE_KEYS, HYBRID_COMPONENT_KEYS, normalizeHybridComponents, isBusinessTypeEnabled } from '@terminal-x/config/businessTypes'
 import { TIENDA_SUBTYPES, TIENDA_SUBTYPE_KEYS } from '@terminal-x/config/tiendaSubtypes'
 import { formatRnc, formatPhone, RNC_MAX_LENGTH, PHONE_MAX_LENGTH } from '../lib/formatters'
 
@@ -743,6 +743,9 @@ const BIZ_TYPES = BUSINESS_TYPE_KEYS.map(key => {
 function StepEmpresa({ t, lang, onNext, onBack }) {
   const api = useAPI()
   const [bizType,  setBizType]  = useState('carwash')
+  // Hybrid: owner picks 2+ component verticals. Defaults to restaurant+retail
+  // (legacy hardcoded behavior) so existing installs keep working.
+  const [hybridComps, setHybridComps] = useState(['restaurant', 'retail'])
   // Tienda subtype — only used when bizType is a tienda vertical. Defaults
   // to 'otro' so we always write something; owner refines it later in Settings.
   const [tiendaSub, setTiendaSub] = useState('otro')
@@ -789,6 +792,9 @@ function StepEmpresa({ t, lang, onNext, onBack }) {
                            : tiendaSub
       const payload = { business_type: bizType }
       if (tiendaLike) payload.tienda_subtype = subtypeToWrite
+      if (bizType === 'hybrid') {
+        payload.hybrid_components = normalizeHybridComponents(hybridComps).join(',')
+      }
       await api?.settings?.update?.(payload)
       onNext({ rnc: rnc.trim(), nombre: nombre.trim() })
     } catch (e) {
@@ -847,6 +853,47 @@ function StepEmpresa({ t, lang, onNext, onBack }) {
               ))}
             </div>
           </div>
+
+          {/* Hybrid components — pick 2+ verticals to combine */}
+          {bizType === 'hybrid' && (
+            <div>
+              <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+                {lang === 'en' ? 'Combine which business types?' : 'Combinar cuáles tipos de negocio?'}
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {HYBRID_COMPONENT_KEYS.map(key => {
+                  const cfg = BUSINESS_TYPES[key]
+                  if (!cfg || cfg.enabled === false) return null
+                  const checked = hybridComps.includes(key)
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setHybridComps(prev => checked ? prev.filter(k => k !== key) : [...prev, key])}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 text-left transition-all
+                        ${checked ? 'border-red-500 bg-red-500/5 text-white' : 'border-zinc-700 bg-zinc-800/50 text-zinc-300 hover:border-zinc-500'}`}
+                    >
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0
+                        ${checked ? 'border-red-500 bg-red-500' : 'border-zinc-600'}`}>
+                        {checked && <X size={10} className="text-white rotate-45" />}
+                      </span>
+                      <span className="text-[12px] font-semibold">{cfg.label[lang] || cfg.label.es}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-[10px] text-zinc-500 mt-1.5">
+                {lang === 'en'
+                  ? 'Pick at least 2. Modules and POS layout combine automatically.'
+                  : 'Elige al menos 2. Los módulos y la vista del POS se combinan automáticamente.'}
+              </p>
+              {hybridComps.length < 2 && (
+                <p className="text-[10px] text-amber-400 mt-1">
+                  {lang === 'en' ? 'Select at least 2 — falls back to Restaurant + Retail otherwise.' : 'Elige al menos 2 — si no, se usará Restaurante + Tienda.'}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Tienda subtype — only when retail/tienda was picked */}
           {bizType === 'retail' && (

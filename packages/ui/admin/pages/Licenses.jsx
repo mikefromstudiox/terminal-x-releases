@@ -28,6 +28,7 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
   const [loadErr, setLoadErr] = useState('')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
+  const [showDemos, setShowDemos] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [businesses, setBusinesses] = useState([])
   const [addForm, setAddForm] = useState(EMPTY_FORM)
@@ -130,7 +131,13 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
 
   const FILTER_LABELS = { all: L('Todas', 'All'), active: L('Activa', 'Active'), pending: L('Pendiente', 'Pending'), suspended: L('Suspendida', 'Suspended'), expired: L('Expirada', 'Expired') }
 
+  const isDemoLicense = (l) =>
+    l.businesses?.is_demo === true ||
+    /^demo-/i.test(l.hardware_id || '') ||
+    /\bDEMO\b/.test(l.notes || '')
+
   const filtered = list.filter(l => {
+    if (!showDemos && isDemoLicense(l)) return false
     if (filter !== 'all' && l.status !== filter) return false
     if (search) {
       const s = search.toLowerCase()
@@ -140,6 +147,8 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
     }
     return true
   })
+
+  const demoCount = list.filter(isDemoLicense).length
 
   const STATUS_BADGE = isDark ? STATUS_BADGE_DARK : STATUS_BADGE_LIGHT
   const tableBase = isDark ? 'bg-white/[0.03] border border-white/10' : 'bg-white border border-black/10 shadow-sm'
@@ -206,6 +215,20 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
             </motion.button>
           ))}
         </div>
+        {demoCount > 0 && (
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowDemos(s => !s)}
+            className={`px-3.5 py-1.5 rounded-full text-[11px] font-bold transition-colors border ${
+              showDemos
+                ? isDark ? 'bg-white/10 border-white/20 text-white' : 'bg-black/5 border-black/15 text-black'
+                : isDark ? 'border-white/10 text-white/40 hover:text-white/70' : 'border-black/10 text-black/40 hover:text-black/70'
+            }`}
+            title={L('Mostrar/ocultar cuentas demo', 'Show/hide demo accounts')}
+          >
+            {showDemos ? L('Ocultar demos', 'Hide demos') : L('Mostrar demos', 'Show demos')} ({demoCount})
+          </motion.button>
+        )}
       </motion.div>
 
       {/* Pending HWID rebind requests (S-H9) */}

@@ -1,7 +1,9 @@
 // Cartera — Contabilidad client roster + per-client semáforo (Phase 1).
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Plus, Search, X, Loader2, Building2, AlertCircle, Link2, Copy, Check, Unlink } from 'lucide-react'
+import { Plus, Search, X, Loader2, Building2, AlertCircle, Link2, Copy, Check, Unlink, Eye } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
+import { useAuth } from '../../context/AuthContext'
+import { usePlan } from '../../hooks/usePlan'
 import { useRNC } from '../../hooks/useRNC'
 import { applicableTemplates } from '@terminal-x/config/contabilidadCalendar.js'
 
@@ -40,6 +42,9 @@ function pendingForClient(obligations, clientId, year, month) {
 
 export default function Cartera() {
   const api = useAPI()
+  const { hasFeature } = usePlan()
+  const { enterImpersonation } = useAuth()
+  const canImpersonate = hasFeature('contabilidad_view_as_client')
   const { lookup: rncLookup, lookupLoading: rncLoading } = useRNC()
   const [rows, setRows] = useState([])
   const [obligations, setObligations] = useState([])
@@ -115,6 +120,33 @@ export default function Cartera() {
     finally   { setBusy(false) }
   }
 
+  // "Ver como cliente" — server verifies the firm has an access_granted
+  // accounting_clients row pointing at shared_business_id, writes the
+  // firm_impersonate_start activity log entry under BOTH tenants, then we
+  // flip sessionStorage and hard-reload into /pos so every memoized
+  // createWebAPI(supabase, businessId) closure rebuilds against the client.
+  async function viewAsClient(client) {
+    if (!client?.shared_business_id) {
+      alert('Este cliente aún no ha aceptado el código. Primero generale un código y pídele que lo acepte.')
+      return
+    }
+    if (!confirm(`Vas a ver el sistema como "${client.nombre_comercial}". Toda actividad queda registrada en la auditoría. ¿Continuar?`)) return
+    setBusy(true)
+    try {
+      await enterImpersonation({
+        clientBusinessId:    client.shared_business_id,
+        clientName:          client.nombre_comercial,
+        accountingClientId:  client.id,
+      })
+      // enterImpersonation does a hard reload — execution typically does not
+      // reach here, but if the navigation is intercepted we still drop busy.
+    } catch (e) {
+      alert(`Error: ${e?.message || e}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-5">
@@ -175,6 +207,13 @@ export default function Cartera() {
                       <button onClick={() => generateAccessCode(r)} disabled={busy} title="Generar código para conectar al sistema del cliente"
                         className="px-2.5 py-1 rounded-lg border border-black/15 dark:border-white/15 text-xs text-black/70 dark:text-white/70 hover:border-[#b3001e] hover:text-[#b3001e] inline-flex items-center gap-1 disabled:opacity-50">
                         <Link2 size={12}/> Conectar
+                      </button>
+                    )}
+                    {canImpersonate && r.access_granted && r.shared_business_id && (
+                      <button onClick={() => viewAsClient(r)} disabled={busy}
+                        title="Ver el sistema como este cliente (modo solo-lectura, auditado)"
+                        className="px-2.5 py-1 rounded-lg bg-black text-white text-xs font-bold inline-flex items-center gap-1 hover:bg-[#b3001e] dark:bg-white dark:text-black dark:hover:bg-[#b3001e] dark:hover:text-white disabled:opacity-50">
+                        <Eye size={12}/> Ver como cliente
                       </button>
                     )}
                     <button onClick={() => generateYear(r)}
@@ -277,6 +316,10 @@ function ClientModal({ initial, onClose, onSave, busy, rncLookup, rncLoading }) 
     tipo_persona: initial?.tipo_persona || 'pj',
     regimen: initial?.regimen || 'ordinario',
     honorarios_mensuales: initial?.honorarios_mensuales || 0,
+    anticipo_ingresos_brutos_previos: initial?.anticipo_ingresos_brutos_previos || 0,
+    anticipo_isr_previo: initial?.anticipo_isr_previo || 0,
+    anticipo_had_loss: initial?.anticipo_had_loss ? 1 : 0,
+    anticipo_base_year: initial?.anticipo_base_year || (new Date().getFullYear() - 1),
     notes: initial?.notes || '',
   })
 
@@ -342,6 +385,45 @@ function ClientModal({ initial, onClose, onSave, busy, rncLookup, rncLoading }) 
               onChange={(e) => set('honorarios_mensuales', Number(e.target.value))}
               className="w-full px-3 py-2 rounded-lg bg-white dark:bg-white/5 border border-black/15 dark:border-white/15 text-black dark:text-white" />
           </Field>
+
+          {form.tipo_persona === 'pj' && form.regimen === 'ordinario' && (
+            <div className="rounded-xl border border-[#b3001e]/30 bg-[#b3001e]/5 p-3 space-y-3">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-[#b3001e]">
+                Anticipos ISR — base IR-2 año anterior (Art. 314 CT)
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Año fiscal base">
+                  <input type="number" min="2000" max="2100" step="1"
+                    value={form.anticipo_base_year}
+                    onChange={(e) => set('anticipo_base_year', Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded-lg bg-white dark:bg-white/5 border border-black/15 dark:border-white/15 text-black dark:text-white" />
+                </Field>
+                <Field label="Pérdida fiscal año anterior">
+                  <select value={form.anticipo_had_loss}
+                    onChange={(e) => set('anticipo_had_loss', Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded-lg bg-white dark:bg-white/5 border border-black/15 dark:border-white/15 text-black dark:text-white">
+                    <option value={0}>No</option>
+                    <option value={1}>Sí — anticipo = 0</option>
+                  </select>
+                </Field>
+              </div>
+              <Field label="Ingresos brutos año anterior (RD$)">
+                <input type="number" min="0" step="0.01"
+                  value={form.anticipo_ingresos_brutos_previos}
+                  disabled={form.anticipo_had_loss === 1}
+                  onChange={(e) => set('anticipo_ingresos_brutos_previos', Number(e.target.value))}
+                  className="w-full px-3 py-2 rounded-lg bg-white dark:bg-white/5 border border-black/15 dark:border-white/15 text-black dark:text-white disabled:opacity-50" />
+              </Field>
+              <Field label="ISR liquidado año anterior (RD$)">
+                <input type="number" min="0" step="0.01"
+                  value={form.anticipo_isr_previo}
+                  disabled={form.anticipo_had_loss === 1}
+                  onChange={(e) => set('anticipo_isr_previo', Number(e.target.value))}
+                  className="w-full px-3 py-2 rounded-lg bg-white dark:bg-white/5 border border-black/15 dark:border-white/15 text-black dark:text-white disabled:opacity-50" />
+              </Field>
+            </div>
+          )}
+
           <Field label="Notas">
             <textarea rows={2} value={form.notes} onChange={(e) => set('notes', e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-white dark:bg-white/5 border border-black/15 dark:border-white/15 text-black dark:text-white" />

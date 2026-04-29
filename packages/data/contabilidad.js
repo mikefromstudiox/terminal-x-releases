@@ -18,6 +18,7 @@ const TBL = {
   billingPlans:      'accounting_billing_plans',
   billingInvoices:   'accounting_billing_invoices',
   csvMappings:       'accounting_csv_mappings',
+  comprobantes:      'accounting_comprobantes',
   // Phase 2 Slice 1
   coa:               'accounting_chart_of_accounts',
   journalEntries:    'accounting_journal_entries',
@@ -30,6 +31,7 @@ const TBL = {
   retentionsRecv:    'accounting_retentions_recibidas',
   payrollPeriods:    'accounting_payroll_periods',
   payrollLines:      'accounting_payroll_lines',
+  payrollEmpBank:    'accounting_payroll_employee_bank',
   tssFilings:        'accounting_tss_filings',
   tasks:             'accounting_tasks',
   foreignPayments:   'accounting_foreign_payments',
@@ -113,6 +115,10 @@ export function createContabilidadAPI(supabase, businessId) {
       status: input?.status || 'active',
       notes: input?.notes || null,
       client_business_supabase_id: input?.client_business_supabase_id ?? null,
+      anticipo_ingresos_brutos_previos: input?.anticipo_ingresos_brutos_previos ?? 0,
+      anticipo_isr_previo: input?.anticipo_isr_previo ?? 0,
+      anticipo_had_loss: input?.anticipo_had_loss ? 1 : 0,
+      anticipo_base_year: input?.anticipo_base_year ?? null,
       created_at: nowIso(),
       updated_at: nowIso(),
     }).select('*').single())
@@ -360,9 +366,47 @@ export function createContabilidadAPI(supabase, businessId) {
     }).select('*').single())
   }
   async function billingInvoiceMarkPaid(id) {
+    // Fetch invoice + active plan to compute mora (recargo por mora)
+    const { data: inv } = await supabase.from(TBL.billingInvoices)
+      .select('*').eq('id', id).eq('business_id', bid()).single()
+    let lateFeeAmount = 0
+    let paidLate = 0
+    if (inv) {
+      const { data: plans } = await supabase.from(TBL.billingPlans)
+        .select('late_fee_pct,late_fee_after_days,monthly_amount,active')
+        .eq('business_id', bid())
+        .eq('accounting_client_id', inv.accounting_client_id)
+        .eq('active', 1)
+        .order('id', { ascending: false }).limit(1)
+      const plan = plans?.[0]
+      const pct  = Number(plan?.late_fee_pct || 0)
+      const days = Number(plan?.late_fee_after_days || 0)
+      if (pct > 0 && days > 0 && inv.created_at) {
+        const issued = new Date(inv.created_at).getTime()
+        const ageDays = Math.floor((Date.now() - issued) / 86400000)
+        if (ageDays > days) {
+          const base = Number(inv.amount || plan?.monthly_amount || 0)
+          lateFeeAmount = Math.round(base * (pct / 100) * 100) / 100
+          paidLate = 1
+        }
+      }
+    }
     return tryWrite(() => supabase.from(TBL.billingInvoices)
-      .update({ status: 'paid', paid_at: nowIso(), updated_at: nowIso() })
+      .update({ status: 'paid', paid_at: nowIso(), late_fee_amount: lateFeeAmount, paid_late: paidLate, updated_at: nowIso() })
       .eq('id', id).eq('business_id', bid()).select('*').single())
+  }
+  // Compute projected mora (display only, never persists)
+  function billingInvoiceProjectedLateFee(inv, plan) {
+    if (!inv || !plan) return { amount: 0, applies: false, ageDays: 0 }
+    if (inv.status === 'paid' || inv.status === 'void') return { amount: 0, applies: false, ageDays: 0 }
+    const pct  = Number(plan.late_fee_pct || 0)
+    const days = Number(plan.late_fee_after_days || 0)
+    if (pct <= 0 || days <= 0 || !inv.created_at) return { amount: 0, applies: false, ageDays: 0 }
+    const issued = new Date(inv.created_at).getTime()
+    const ageDays = Math.floor((Date.now() - issued) / 86400000)
+    if (ageDays <= days) return { amount: 0, applies: false, ageDays }
+    const base = Number(inv.amount || plan.monthly_amount || 0)
+    return { amount: Math.round(base * (pct / 100) * 100) / 100, applies: true, ageDays }
   }
 
   // ── Phase 2 Slice 1 — Chart of accounts ──────────────────────────────────
@@ -800,11 +844,48 @@ export function createContabilidadAPI(supabase, businessId) {
       isr: input?.isr ?? 0,
       otras_deducciones: input?.otras_deducciones ?? 0,
       neto: input?.neto ?? 0,
+      cuenta_destino: input?.cuenta_destino || null,
+      banco_destino:  input?.banco_destino  || null,
+      tipo_cuenta:    input?.tipo_cuenta    || null,
       created_at: nowIso(), updated_at: nowIso(),
     }).select('*').single())
   }
   async function payrollLineDelete(id) {
     return tryWrite(() => supabase.from(TBL.payrollLines).delete().eq('id', id).eq('business_id', bid()))
+  }
+  async function payrollLineUpdate(id, patch) {
+    return tryWrite(() => supabase.from(TBL.payrollLines)
+      .update({ ...patch, updated_at: nowIso() })
+      .eq('id', id).eq('business_id', bid()).select('*').single())
+  }
+
+  // ── Roster-level bank info (persists across periods) ─────────────────────
+  async function payrollEmpBankList({ accountingClientId, accountingClientSupabaseId } = {}) {
+    return tryOr(async () => {
+      let q = supabase.from(TBL.payrollEmpBank).select('*').eq('business_id', bid())
+      const dk = _dualKey('accounting_client_id', accountingClientId, 'accounting_client_supabase_id', accountingClientSupabaseId)
+      if (dk) q = q.or(dk)
+      const { data, error } = await q
+      if (error) throw error
+      return data || []
+    }, [])
+  }
+  async function payrollEmpBankUpsert(input) {
+    const cliSid = input?.accounting_client_supabase_id || await _resolveClientSid(input?.accounting_client_id)
+    return tryWrite(() => supabase.from(TBL.payrollEmpBank).upsert({
+      supabase_id: input?.supabase_id || uuid(),
+      business_id: bid(),
+      accounting_client_id: input?.accounting_client_id ?? null,
+      accounting_client_supabase_id: cliSid,
+      employee_cedula: String(input?.employee_cedula || '').replace(/\D+/g, ''),
+      employee_name:   input?.employee_name || null,
+      employee_email:  input?.employee_email || null,
+      cuenta_destino:  input?.cuenta_destino || null,
+      banco_destino:   input?.banco_destino  || null,
+      tipo_cuenta:     input?.tipo_cuenta    || null,
+      updated_at: nowIso(),
+    }, { onConflict: 'business_id,accounting_client_id,employee_cedula' })
+      .select('*').single())
   }
 
   // ── TSS filings ──────────────────────────────────────────────────────────
@@ -993,13 +1074,195 @@ export function createContabilidadAPI(supabase, businessId) {
 
   const dgii = { gen609, genIT1, genIR3, genIR17, genIR1, genIR2, genAnexoA }
 
+  // ── Comprobantes (606/607/608 register) ────────────────────────────────
+  async function comprobantesList({ accountingClientId, year, month, kind } = {}) {
+    let q = supabase.from(TBL.comprobantes).select('*').eq('business_id', businessId)
+    if (accountingClientId) q = q.eq('accounting_client_id', accountingClientId)
+    if (year) q = q.eq('period_year', year)
+    if (month) q = q.eq('period_month', month)
+    if (kind) q = q.eq('kind', kind)
+    q = q.order('fecha_comprobante', { ascending: false }).limit(2000)
+    const { data, error } = await q
+    if (error) return []
+    return data || []
+  }
+
+  async function comprobantesAdd(payload = {}) {
+    const row = {
+      supabase_id: uuid(),
+      business_id: businessId,
+      accounting_client_id: payload.accounting_client_id ?? null,
+      accounting_client_supabase_id: payload.accounting_client_supabase_id ?? null,
+      kind: payload.kind || 'compra',
+      period_year: payload.period_year,
+      period_month: payload.period_month ?? 0,
+      ncf: payload.ncf || null,
+      ncf_modificado: payload.ncf_modificado || null,
+      fecha_comprobante: payload.fecha_comprobante || null,
+      fecha_pago: payload.fecha_pago || null,
+      rnc_contraparte: payload.rnc_contraparte || null,
+      razon_social: payload.razon_social || null,
+      tipo_id: payload.tipo_id || 'rnc',
+      itbis_rate: payload.itbis_rate ?? 18,
+      monto_facturado: payload.monto_facturado ?? 0,
+      itbis_facturado: payload.itbis_facturado ?? 0,
+      itbis_retenido: payload.itbis_retenido ?? 0,
+      itbis_proporcionalidad: payload.itbis_proporcionalidad ?? 0,
+      itbis_llevado_al_costo: payload.itbis_llevado_al_costo ?? 0,
+      isr_retenido: payload.isr_retenido ?? 0,
+      retencion_renta: payload.retencion_renta ?? 0,
+      retencion_pct: payload.retencion_pct ?? 0,
+      tipo_bienes_servicios: payload.tipo_bienes_servicios ?? null,
+      impuesto_selectivo: payload.impuesto_selectivo ?? 0,
+      otros_impuestos: payload.otros_impuestos ?? 0,
+      propina_legal: payload.propina_legal ?? 0,
+      monto_total: payload.monto_total ?? 0,
+      forma_pago: payload.forma_pago || null,
+      motivo_anulacion: payload.motivo_anulacion || null,
+      notes: payload.notes || null,
+      source: payload.source || 'manual',
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    }
+    const { data, error } = await supabase.from(TBL.comprobantes).insert(row).select().single()
+    if (error) throw error
+    return data
+  }
+
+  async function comprobantesBulkInsert(rows = []) {
+    if (!rows.length) return { inserted: 0 }
+    const now = nowIso()
+    const payload = rows.map(r => ({
+      supabase_id: uuid(),
+      business_id: businessId,
+      accounting_client_id: r.accounting_client_id ?? null,
+      accounting_client_supabase_id: r.accounting_client_supabase_id ?? null,
+      kind: r.kind || 'compra',
+      period_year: r.period_year,
+      period_month: r.period_month ?? 0,
+      ncf: r.ncf || null,
+      ncf_modificado: r.ncf_modificado || null,
+      fecha_comprobante: r.fecha_comprobante || null,
+      fecha_pago: r.fecha_pago || null,
+      rnc_contraparte: r.rnc_contraparte || null,
+      razon_social: r.razon_social || null,
+      tipo_id: r.tipo_id || 'rnc',
+      itbis_rate: r.itbis_rate ?? 18,
+      monto_facturado: r.monto_facturado ?? 0,
+      itbis_facturado: r.itbis_facturado ?? 0,
+      itbis_retenido: r.itbis_retenido ?? 0,
+      isr_retenido: r.isr_retenido ?? 0,
+      retencion_renta: r.retencion_renta ?? 0,
+      impuesto_selectivo: r.impuesto_selectivo ?? 0,
+      otros_impuestos: r.otros_impuestos ?? 0,
+      propina_legal: r.propina_legal ?? 0,
+      monto_total: r.monto_total ?? 0,
+      forma_pago: r.forma_pago || null,
+      motivo_anulacion: r.motivo_anulacion || null,
+      notes: r.notes || null,
+      source: r.source || 'csv',
+      created_at: now,
+      updated_at: now,
+    }))
+    // Chunk to avoid Supabase 1000-row limit per request.
+    let inserted = 0
+    for (let i = 0; i < payload.length; i += 500) {
+      const slice = payload.slice(i, i + 500)
+      const { data, error } = await supabase.from(TBL.comprobantes).upsert(slice, {
+        onConflict: 'business_id,accounting_client_id,kind,ncf,fecha_comprobante',
+        ignoreDuplicates: true,
+      }).select('id')
+      if (error) throw error
+      inserted += (data || []).length
+    }
+    return { inserted, total: payload.length }
+  }
+
+  async function comprobantesUpdate(id, patch = {}) {
+    const allowed = ['ncf','ncf_modificado','fecha_comprobante','fecha_pago','rnc_contraparte','razon_social','tipo_id','itbis_rate','monto_facturado','itbis_facturado','itbis_retenido','itbis_proporcionalidad','itbis_llevado_al_costo','isr_retenido','retencion_renta','retencion_pct','tipo_bienes_servicios','impuesto_selectivo','otros_impuestos','propina_legal','monto_total','forma_pago','motivo_anulacion','notes']
+    const row = Object.fromEntries(Object.entries(patch).filter(([k]) => allowed.includes(k)))
+    row.updated_at = nowIso()
+    const { data, error } = await supabase.from(TBL.comprobantes).update(row).eq('id', id).eq('business_id', businessId).select().single()
+    if (error) throw error
+    return data
+  }
+
+  async function comprobantesDelete(id) {
+    const { error } = await supabase.from(TBL.comprobantes).delete().eq('id', id).eq('business_id', businessId)
+    if (error) throw error
+    return { ok: true }
+  }
+
+  // Conciliación 606: compare local accounting_comprobantes (kind='compra')
+  // with DGII auto-pull rows (client_received_ecfs) for a period. Flags:
+  //   missing_in_local: DGII has it, contadora forgot to record
+  //   missing_in_dgii:  contadora recorded it, DGII didn't (typo? wrong NCF?)
+  //   amount_mismatch:  both have it, but totals differ > RD$0.50
+  async function comprobantesReconcile({ accountingClientId, clientRnc, year, month } = {}) {
+    if (!accountingClientId && !clientRnc) return { error: 'accountingClientId or clientRnc required' }
+    const periodStart = `${year}-${String(month).padStart(2,'0')}-01`
+    const lastDay = new Date(year, month, 0).getDate()
+    const periodEnd = `${year}-${String(month).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`
+
+    // Pull local compras for the period
+    let localQ = supabase.from(TBL.comprobantes).select('*')
+      .eq('business_id', businessId).eq('kind', 'compra')
+      .eq('period_year', year).eq('period_month', month)
+    if (accountingClientId) localQ = localQ.eq('accounting_client_id', accountingClientId)
+    const { data: local, error: localErr } = await localQ
+    if (localErr) return { error: localErr.message }
+
+    // Pull DGII auto-pull rows for the same client+period
+    let dgiiQ = supabase.from('client_received_ecfs').select('*')
+      .eq('firm_business_id', businessId)
+      .gte('fecha_emision', periodStart).lte('fecha_emision', periodEnd)
+    if (clientRnc) dgiiQ = dgiiQ.eq('client_rnc', String(clientRnc).replace(/\D/g, ''))
+    const { data: dgii, error: dgiiErr } = await dgiiQ
+    if (dgiiErr) return { error: dgiiErr.message }
+
+    const localByNcf = new Map((local || []).map(r => [r.ncf, r]).filter(([k]) => k))
+    const dgiiByNcf  = new Map((dgii || []).map(r => [r.ncf, r]).filter(([k]) => k))
+
+    const missingInLocal = []
+    const missingInDgii = []
+    const amountMismatch = []
+
+    for (const [ncf, dgRow] of dgiiByNcf) {
+      const lo = localByNcf.get(ncf)
+      if (!lo) {
+        missingInLocal.push(dgRow)
+        continue
+      }
+      const localTotal = Number(lo.monto_total || 0)
+      const dgiiTotal  = Number(dgRow.monto_total || 0)
+      if (Math.abs(localTotal - dgiiTotal) > 0.5) {
+        amountMismatch.push({ ncf, local: lo, dgii: dgRow, localTotal, dgiiTotal, delta: localTotal - dgiiTotal })
+      }
+    }
+    for (const [ncf, loRow] of localByNcf) {
+      if (!dgiiByNcf.has(ncf)) missingInDgii.push(loRow)
+    }
+    return {
+      summary: {
+        local_count: local?.length || 0,
+        dgii_count: dgii?.length || 0,
+        missing_in_local: missingInLocal.length,
+        missing_in_dgii: missingInDgii.length,
+        amount_mismatch: amountMismatch.length,
+      },
+      missingInLocal,
+      missingInDgii,
+      amountMismatch,
+    }
+  }
+
   return {
     clientList, clientCreate, clientUpdate, clientDelete,
     inboxList, inboxAdd, inboxClassify, inboxPost,
     obligationsList, obligationsMarkFiled, obligationsGenerateYear,
     documentList, documentAdd, documentDelete,
     billingPlanList, billingPlanCreate, billingPlanUpdate,
-    billingInvoiceList, billingInvoiceCreate, billingInvoiceMarkPaid,
+    billingInvoiceList, billingInvoiceCreate, billingInvoiceMarkPaid, billingInvoiceProjectedLateFee,
     // Phase 2 Slice 1
     coaList, coaCreate, coaUpdate, coaGet, coaDelete,
     journalEntryList, journalEntryCreate, journalEntryUpdate, journalEntryGet, journalEntryDelete,
@@ -1011,10 +1274,13 @@ export function createContabilidadAPI(supabase, businessId) {
     retentionEmitidaList, retentionEmitidaCreate, retentionEmitidaUpdate, retentionEmitidaDelete,
     retentionRecibidaList, retentionRecibidaCreate, retentionRecibidaUpdate, retentionRecibidaDelete,
     payrollPeriodList, payrollPeriodCreate, payrollPeriodUpdate, payrollPeriodGet, payrollPeriodDelete,
-    payrollLineList, payrollLineAdd, payrollLineDelete,
+    payrollLineList, payrollLineAdd, payrollLineDelete, payrollLineUpdate,
+    payrollEmpBankList, payrollEmpBankUpsert,
     tssFilingList, tssFilingCreate, tssFilingUpdate, tssFilingDelete,
     taskList, taskCreate, taskUpdate, taskDelete,
     foreignPaymentList, foreignPaymentCreate, foreignPaymentUpdate, foreignPaymentDelete,
+    // Comprobantes register (Slice 6 — 606/607/608 source of truth)
+    comprobantesList, comprobantesAdd, comprobantesBulkInsert, comprobantesUpdate, comprobantesDelete, comprobantesReconcile,
     // Slice 2 — DGII generators
     dgii,
   }

@@ -36,19 +36,19 @@ function useBrowserLang() {
 const PLANS = {
   es: [
     {
-      name: 'Pro', key: 'pro', price: 'RD$2,490', annual: 'RD$2,117/mes facturado anual (15% OFF)',
+      name: 'Pro', key: 'pro', price: 'RD$2,990', annual: 'RD$2,541/mes facturado anual (15% OFF)',
       sub: '/mes', desc: 'Ideal para negocios pequenos', users: '2 usuarios',
-      features: ['POS completo + cobrar + imprimir', 'Directorio de clientes', 'NCF B01/B02 (papel)', 'Certificado digital Viafirma INCLUIDO (valor RD$2,360/ano)', 'Reportes diario y mensual', 'Cuadre de Caja + Caja Chica', 'Actualizaciones automaticas'],
+      features: ['POS completo + cobrar + imprimir', 'Directorio de clientes', 'NCF B01/B02 (papel)', 'Reportes diario y mensual', 'Cuadre de Caja + Caja Chica', 'Actualizaciones automaticas'],
       support: 'Autoservicio — tu configuras todo', cta: 'Comenzar con Pro', highlight: false,
     },
     {
-      name: 'Pro PLUS', key: 'pro_plus', price: 'RD$4,490', annual: 'RD$3,817/mes facturado anual (15% OFF)',
+      name: 'Pro PLUS', key: 'pro_plus', price: 'RD$5,490', annual: 'RD$4,667/mes facturado anual (15% OFF)',
       sub: '/mes', badge: 'Mas popular', desc: 'Para negocios que quieren crecer', users: '5 usuarios',
       features: ['Todo en Pro, mas:', 'Creditos + Notas de Credito', 'Inventario con alertas de stock', 'Comisiones por empleado/vendedor/cajera', 'e-CF DIRECTO A DGII — sin PSFE, sin costo por comprobante', 'Certificado digital Viafirma INCLUIDO (valor RD$2,360/ano)', 'Reportes avanzados + Nomina Ley 16-92', 'Soporte WhatsApp horario laboral', 'Configuracion remota por nuestro equipo'],
       support: 'Nuestro equipo te configura todo remoto', cta: 'Comenzar con Pro PLUS', highlight: true,
     },
     {
-      name: 'Pro MAX', key: 'pro_max', price: 'RD$6,990', annual: 'RD$5,942/mes facturado anual (15% OFF)',
+      name: 'Pro MAX', key: 'pro_max', price: 'RD$9,990', annual: 'RD$8,491/mes facturado anual (15% OFF)',
       sub: '/mes', desc: 'Para cadenas y alto volumen', users: 'Usuarios ilimitados',
       features: [
         'Todo en Pro PLUS, mas:',
@@ -71,19 +71,19 @@ const PLANS = {
   ],
   en: [
     {
-      name: 'Pro', key: 'pro', price: 'RD$2,490', annual: 'RD$2,117/mo billed annually (15% OFF)',
+      name: 'Pro', key: 'pro', price: 'RD$2,990', annual: 'RD$2,541/mo billed annually (15% OFF)',
       sub: '/mo', desc: 'Ideal for small businesses', users: '2 users',
-      features: ['Full POS + charge + print', 'Client directory', 'NCF B01/B02 (paper)', 'Viafirma digital certificate INCLUDED (RD$2,360/yr value)', 'Daily and monthly reports', 'Cash Recon + Petty Cash', 'Automatic updates'],
+      features: ['Full POS + charge + print', 'Client directory', 'NCF B01/B02 (paper)', 'Daily and monthly reports', 'Cash Recon + Petty Cash', 'Automatic updates'],
       support: 'Self-service — you configure everything', cta: 'Start with Pro', highlight: false,
     },
     {
-      name: 'Pro PLUS', key: 'pro_plus', price: 'RD$4,490', annual: 'RD$3,817/mo billed annually (15% OFF)',
+      name: 'Pro PLUS', key: 'pro_plus', price: 'RD$5,490', annual: 'RD$4,667/mo billed annually (15% OFF)',
       sub: '/mo', badge: 'Most popular', desc: 'For growing businesses', users: '5 users',
       features: ['Everything in Pro, plus:', 'Credits + Credit Notes', 'Inventory with stock alerts', 'Commissions per employee/seller/cashier', 'e-CF DIRECT TO DGII — no PSFE, no per-invoice fees', 'Viafirma digital certificate INCLUDED (RD$2,360/yr value)', 'Advanced reports + Payroll Law 16-92', 'WhatsApp support business hours', 'Remote config by our team'],
       support: 'Our team configures everything remotely', cta: 'Start with Pro PLUS', highlight: true,
     },
     {
-      name: 'Pro MAX', key: 'pro_max', price: 'RD$6,990', annual: 'RD$5,942/mo billed annually (15% OFF)',
+      name: 'Pro MAX', key: 'pro_max', price: 'RD$9,990', annual: 'RD$8,491/mo billed annually (15% OFF)',
       sub: '/mo', desc: 'For chains and high volume', users: 'Unlimited users',
       features: [
         'Everything in Pro PLUS, plus:',
@@ -194,7 +194,7 @@ const FEATURES = {
     { icon: BarChart3, title: 'Nomina in-house (Pro MAX)', desc: 'Despidete del contador externo. Pagos quincenales/mensuales masivos, TSS + INFOTEP + ISR progresivo automatico (topes 2026), reportes para el portal DGII, recibos formales y log de cambios de salario.' },
     { icon: Shield, title: 'DGII Integrado', desc: 'Reportes 606, 607. RNC lookup automatico con 900,000+ registros. NCF B01/B02 + todos los e-CF.' },
     { icon: Users, title: 'Multi-usuario + Roles', desc: '5 niveles de acceso: dueno, gerente, CFO, contador, cajero. Cada rol ve solo lo que necesita.' },
-    { icon: Printer, title: 'Impresion Termica', desc: 'Impresora 80mm con cajon de dinero integrado. Facturas con NCF/e-CF, QR code, conduce de servicio.' },
+    { icon: Printer, title: 'Hardware Compatible', desc: 'Funciona con cualquier impresora termica 80mm USB y cajon de dinero estandar. Te vendemos los accesorios 2connect a precio de costo (ver mas abajo).' },
     { icon: Headphones, title: 'Soporte Humano', desc: 'Nuestro equipo configura tu sistema remotamente. No tienes que ser experto en tecnologia.' },
     { icon: CreditCard, title: 'Creditos + Cobros', desc: 'Clientes a credito, pagos parciales, notas de credito. Control total de cuentas por cobrar.' },
     { icon: Star, title: 'Certificacion DGII como Servicio', desc: 'Quieres ser Emisor Electronico directo tu tambien? Nosotros te guiamos y hacemos todo el proceso completo. Precio especial para clientes Terminal X.', cta: true },
@@ -206,7 +206,7 @@ const FEATURES = {
     { icon: BarChart3, title: 'In-house Payroll (Pro MAX)', desc: 'Say goodbye to your external accountant. Biweekly/monthly bulk runs, auto TSS + INFOTEP + progressive ISR (2026 caps), DGII portal reports, formal pay stubs and salary change log.' },
     { icon: Shield, title: 'DGII Integrated', desc: 'Reports 606, 607. Auto RNC lookup with 900,000+ records. NCF B01/B02 + all e-CF types.' },
     { icon: Users, title: 'Multi-user + Roles', desc: '5 access levels: owner, manager, CFO, accountant, cashier. Each role sees only what they need.' },
-    { icon: Printer, title: 'Thermal Printing', desc: '80mm printer with built-in cash drawer. Invoices with NCF/e-CF, QR code, service dispatch.' },
+    { icon: Printer, title: 'Compatible Hardware', desc: 'Works with any 80mm USB thermal printer and standard cash drawer. We sell 2connect accessories at cost (see below).' },
     { icon: Headphones, title: 'Human Support', desc: 'Our team configures your system remotely. You don\'t have to be a tech expert.' },
     { icon: CreditCard, title: 'Credits + Collections', desc: 'Credit clients, partial payments, credit notes. Full control of accounts receivable.' },
     { icon: Star, title: 'DGII Certification as a Service', desc: 'Want to become a direct Electronic Issuer too? We guide you and handle the entire process. Special pricing for Terminal X clients.', cta: true },
@@ -215,7 +215,7 @@ const FEATURES = {
 
 const COMPARISON = {
   es: [
-    { feature: 'Certificado digital Viafirma incluido', tx: true, alegra: false, wil: false, otros: false },
+    { feature: 'Certificado Viafirma incluido (Pro PLUS y Pro MAX)', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Facturacion directa DGII (sin intermediario)', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Emisor Electronico propio (sin PSFE)', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Todos los 10 tipos de e-CF + RFCE', tx: true, alegra: false, wil: false, otros: false },
@@ -229,14 +229,13 @@ const COMPARISON = {
     { feature: 'Reportes TSS/ISR listos para el portal DGII', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Liquidacion Ley 16-92 + pasivo acumulado', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Comisiones por empleado/vendedor/cajero', tx: true, alegra: false, wil: false, otros: false },
-    { feature: 'Impresora termica + cajon', tx: true, alegra: true, wil: true, otros: false },
     { feature: 'Configuracion remota por nuestro equipo', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Visitas tecnicas a tu negocio', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Actualizaciones automaticas', tx: true, alegra: true, wil: false, otros: false },
     { feature: 'Precio menor a RD$5,000/mes', tx: true, alegra: false, wil: true, otros: true },
   ],
   en: [
-    { feature: 'Viafirma digital certificate included', tx: true, alegra: false, wil: false, otros: false },
+    { feature: 'Viafirma digital certificate included (Pro PLUS and Pro MAX)', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Direct DGII invoicing (no middleman)', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Own Electronic Issuer (no PSFE)', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'All 10 e-CF types + RFCE', tx: true, alegra: false, wil: false, otros: false },
@@ -250,7 +249,6 @@ const COMPARISON = {
     { feature: 'TSS/ISR reports ready for DGII portal', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Law 16-92 severance + accrued liability', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Commissions per employee/seller/cashier', tx: true, alegra: false, wil: false, otros: false },
-    { feature: 'Thermal printer + cash drawer', tx: true, alegra: true, wil: true, otros: false },
     { feature: 'Remote config by our team', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'On-site tech visits', tx: true, alegra: false, wil: false, otros: false },
     { feature: 'Automatic updates', tx: true, alegra: true, wil: false, otros: false },
@@ -270,11 +268,13 @@ const FAQ = {
     { q: 'Puedo cambiar de plan en cualquier momento?', a: 'Si, puedes subir o bajar de plan en cualquier momento desde el panel de administracion. El cambio se aplica inmediatamente.' },
     { q: 'Hay contrato anual obligatorio?', a: 'No. Puedes pagar mes a mes sin compromiso. El plan anual tiene 15% de descuento pero no es obligatorio.' },
     { q: 'Que pasa si me quedo sin internet?', a: 'Todo sigue funcionando 100% offline. Puedes cobrar, imprimir facturas, ver reportes. Se sincroniza automaticamente cuando vuelve la conexion (hasta 72 horas de cola).' },
-    { q: 'Necesito comprar impresora especial?', a: 'Terminal X funciona con cualquier impresora termica de 80mm con conexion USB. Nosotros podemos recomendarte e instalarte la impresora y el cajon de dinero.' },
+    { q: 'Necesito comprar impresora especial?', a: 'Terminal X funciona con cualquier impresora termica 80mm USB. Si necesitas hardware nuevo, te lo vendemos a precio de costo: Impresora 2connect USB v6 RD$3,600, Impresora 2connect USB+LAN+Bluetooth+WiFi v10 RD$4,200, Lector 2D RD$1,400, Lector 2D inalambrico RD$2,000, Cajon 4 billetes/5 monedas RD$2,120, Cajon 5 billetes/8 monedas RD$3,170. El hardware NO esta incluido en la suscripcion mensual.' },
     { q: 'Que es e-CF y por que lo necesito?', a: 'e-CF (Comprobante Fiscal Electronico) es el nuevo formato obligatorio de la DGII bajo la Ley 32-23. Todos los negocios deben migrar antes de mayo 2026. Terminal X es el unico POS que se conecta directo a la DGII, sin intermediarios ni costos adicionales.' },
     { q: 'Funciona para mi tipo de negocio?', a: 'Si. Terminal X tiene modo Car Wash (cola de servicios, lavadores, comisiones), modo Tienda/Retail (inventario con codigo de barras, carrito con cantidades, stock automatico), y modo Servicios (talleres, salones, barber shops). El sistema se adapta automaticamente.' },
     { q: 'Como funciona el soporte?', a: 'Pro: autoservicio con guias. Pro PLUS: nuestro equipo te configura todo remotamente y soporte por WhatsApp en horario laboral. Pro MAX: ejecutivo dedicado + soporte prioritario + visita tecnica mensual.' },
-    { q: 'Puedo manejar la nomina sin contratar un contador externo?', a: 'Si, y es una de las ventajas mas grandes de Pro MAX. Terminal X incluye nomina in-house completa: pagos quincenales o mensuales masivos en un click, calculo automatico de TSS (SFS + AFP con topes oficiales 2026), INFOTEP 1%, ISR progresivo (escalas DGII 2026), reportes listos para subir al portal TSS y DGII, recibos formales de pago, y log automatico de cambios de salario. Un contador externo en RD cobra entre RD$8,000 y RD$15,000/mes solo por esto — Pro MAX lo incluye por RD$6,990/mes.' },
+    { q: 'Puedo manejar la nomina sin contratar un contador externo?', a: 'Si, y es una de las ventajas mas grandes de Pro MAX. Terminal X incluye nomina in-house completa: pagos quincenales o mensuales masivos en un click, calculo automatico de TSS (SFS + AFP con topes oficiales 2026), INFOTEP 1%, ISR progresivo (escalas DGII 2026), reportes listos para subir al portal TSS y DGII, recibos formales de pago, y log automatico de cambios de salario. Un contador externo en RD cobra entre RD$8,000 y RD$15,000/mes solo por esto — Pro MAX lo incluye por RD$9,990/mes.' },
+    { q: 'Soy contador y manejo varios clientes — Terminal X me sirve?', a: 'Si — Pro MAX esta especificamente disenado para tu flujo. Tienes un cockpit Portfolio que muestra los 32 clientes en una sola pantalla con semaforo de obligaciones (verde radicado, ambar listo, rojo vencido). El sistema baja automaticamente cada noche los e-CFs recibidos de cada cliente desde el portal DGII Oficina Virtual (auto-pull). Generas el 606, 607, 608, 609, IR-17 e IR-13 de TODOS tus clientes con UN click — descarga un ZIP listo para subir. Conciliacion automatica detecta NCFs que faltan grabar. IT-1 mensual calculado con casillas listas para copiar. Anticipos ISR PJ calculados por Art. 314. Activos fijos con flujo de venta. Pago masivo bancario para BHD Leon y Banreservas. Modo "Ver como cliente" auditado para soporte directo. Cada cliente extra es solo un RNC mas — sin limite. Perla, nuestra contadora piloto, paso de 3 dias por cierre a 4 horas.' },
+    { q: 'Como funciona el auto-pull de DGII?', a: 'En el panel Portfolio configuras la sesion DGII de cada cliente (pegas el ASP.NET_SessionId desde DevTools — F12 → Application → Cookies — o usas usuario/contrasena que el sistema cifra con AES-256-GCM). Cada noche a las 03:00 AST, un cron worker se conecta al portal DGII Oficina Virtual de cada cliente, descarga la lista de e-CFs Recibidos via la pagina ConsultaRCF.aspx, exporta el XLS, lo parsea, y guarda los registros. La proxima manana ves todos los comprobantes nuevos listos para clasificar. Cuando un cliente no te ha enviado un comprobante que el portal DGII si tiene registrado, el boton "Conciliar con DGII" lo detecta y te ofrece importarlo con un click, o generar un mensaje WhatsApp con los NCFs exactos que faltan.' },
     { q: 'Puedo importar datos de mi sistema anterior?', a: 'Si. Nuestro equipo puede importar tu historial de ventas, clientes y productos desde Starsisa, WilPOS u otros sistemas.' },
     { q: 'Que pasa si mi proveedor de facturacion electronica (PSFE) se cae?', a: 'Nada — porque no usamos uno. Terminal X es Emisor Electronico directo ante DGII. No dependemos de ef2.do, Indexa, ni ningun otro PSFE. Tu sistema firma y transmite los e-CF directamente al portal de DGII. Si un PSFE se cae, tus competidores dejan de facturar. Tu no.' },
   ],
@@ -289,11 +289,11 @@ const FAQ = {
     { q: 'Can I change plans anytime?', a: 'Yes, you can upgrade or downgrade at any time from the admin panel. Changes apply immediately.' },
     { q: 'Is there a mandatory annual contract?', a: 'No. You can pay month-to-month with no commitment. The annual plan has a 15% discount but is not required.' },
     { q: 'What happens if I lose internet?', a: 'Everything keeps working 100% offline. You can charge, print invoices, view reports. It syncs automatically when connection returns (up to 72 hours queued).' },
-    { q: 'Do I need a special printer?', a: 'Terminal X works with any 80mm thermal printer with USB connection. We can recommend and install the printer and cash drawer for you.' },
+    { q: 'Do I need a special printer?', a: 'Terminal X works with any 80mm USB thermal printer. If you need new hardware, we sell it at cost: 2connect USB Printer v6 RD$3,600, 2connect USB+LAN+Bluetooth+WiFi Printer v10 RD$4,200, 2D Scanner RD$1,400, Wireless 2D Scanner RD$2,000, 4-bill/5-coin Drawer RD$2,120, 5-bill/8-coin Drawer RD$3,170. Hardware is NOT included in the monthly subscription.' },
     { q: 'What is e-CF and why do I need it?', a: 'e-CF (Electronic Fiscal Receipt) is the new mandatory DGII format under Law 32-23. All businesses must migrate before May 2026. Terminal X is the only POS that connects directly to DGII, with no middlemen or additional costs.' },
     { q: 'Does it work for my type of business?', a: 'Yes. Terminal X works for any service business in DR: Car Wash, auto shops, barber shops, dealers, stores, colmados, and more. The system adapts to your services and products.' },
     { q: 'How does support work?', a: 'Pro: self-service with guides. Pro PLUS: our team configures everything remotely + WhatsApp support during business hours. Pro MAX: dedicated executive + priority support + monthly on-site visit.' },
-    { q: 'Can I run payroll without hiring an external accountant?', a: 'Yes — this is one of the biggest Pro MAX advantages. Terminal X includes full in-house payroll: biweekly or monthly bulk runs in one click, auto TSS (SFS + AFP with official 2026 caps), INFOTEP 1%, progressive ISR (2026 DGII brackets), reports ready for the TSS and DGII portals, formal pay stubs, and automatic salary change logs. An external accountant in DR charges RD$8,000–15,000/month for this alone — Pro MAX includes it for RD$6,990/month.' },
+    { q: 'Can I run payroll without hiring an external accountant?', a: 'Yes — this is one of the biggest Pro MAX advantages. Terminal X includes full in-house payroll: biweekly or monthly bulk runs in one click, auto TSS (SFS + AFP with official 2026 caps), INFOTEP 1%, progressive ISR (2026 DGII brackets), reports ready for the TSS and DGII portals, formal pay stubs, and automatic salary change logs. An external accountant in DR charges RD$8,000–15,000/month for this alone — Pro MAX includes it for RD$9,990/month.' },
     { q: 'Can I import data from my previous system?', a: 'Yes. Our team can import your sales history, clients, and products from Starsisa, WilPOS, or other systems.' },
     { q: 'What happens if my e-invoicing provider (PSFE) goes down?', a: 'Nothing — because we don\'t use one. Terminal X is a direct Electronic Issuer with DGII. We don\'t depend on ef2.do, Indexa, or any other PSFE. Your system signs and transmits e-CFs directly to DGII\'s portal. If a PSFE goes down, your competitors stop invoicing. You don\'t.' },
   ],
@@ -411,6 +411,9 @@ export default function LandingPage({ section }) {
 
       {/* SECTION 1: Hero — WHITE — HeroAnimated (3-col SVG mockup grid) */}
       <HeroAnimated lang={lang} />
+
+      {/* SECTION 1.2: Verticals (WHITE) — moved up so visitors see "Por Industria" right after the hero */}
+      <VerticalFeatures lang={lang} />
 
       {/* SECTION 1.5: DGII vs Terminal X — BLACK — head-to-head capability table */}
       <DgiiComparison lang={lang} />
@@ -548,7 +551,7 @@ export default function LandingPage({ section }) {
                       </p>
                     </div>
                     <div className="sm:border-x sm:border-white/10 sm:px-6 pt-6 sm:pt-0 border-t sm:border-t-0 border-white/10">
-                      <p className="text-4xl sm:text-5xl font-extrabold text-white">RD$6,990</p>
+                      <p className="text-4xl sm:text-5xl font-extrabold text-white">RD$9,990</p>
                       <p className="mt-2 text-xs uppercase tracking-wider text-white/50">
                         {L('Pro MAX incluye TODO esto / mes', 'Pro MAX includes ALL this / mo')}
                       </p>
@@ -669,10 +672,6 @@ export default function LandingPage({ section }) {
           </div>
         </div>
       </section>
-
-      {/* SECTION 3.5: Verticals (WHITE) — replaces flat Multi-Business-Type grid with the
-          tabbed mega-section that drives copy from copy.json */}
-      <VerticalFeatures lang={lang} />
 
       {/* SECTION 3.55: WhatsApp demo CTA (WHITE) — replaces the in-app demo grid.
           Every "demo" entry-point on the site routes to WhatsApp for a guided walk-through. */}
@@ -862,7 +861,7 @@ export default function LandingPage({ section }) {
             <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Planes', 'Plans')}</p>
             <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-white">{L('Planes y Precios', 'Plans & Pricing')}</h2>
             <p className="mt-4 text-lg text-white/50">{L('Elige el plan ideal para tu negocio. Sin contrato. Cancela cuando quieras.', 'Choose the ideal plan for your business. No contract. Cancel anytime.')}</p>
-            <p className="mt-2 text-sm font-semibold text-[#b3001e]">{L('Todos los planes incluyen certificado digital Viafirma, impresora termica, cajon de dinero y actualizaciones.', 'All plans include Viafirma digital certificate, thermal printer, cash drawer and updates.')}</p>
+            <p className="mt-2 text-sm font-semibold text-[#b3001e]">{L('Certificado digital Viafirma incluido en Pro PLUS y Pro MAX. Hardware (impresora, cajon, lector) se vende aparte a precio de costo.', 'Viafirma digital certificate included in Pro PLUS and Pro MAX. Hardware (printer, drawer, scanner) sold separately at cost.')}</p>
             <div className="mt-6 inline-flex items-center gap-3 px-5 py-3 rounded-2xl border border-white/10 bg-white/5">
               <p className="text-[13px] text-white/70">{L('Pagas RD$6,000/mes por un sistema sin e-CF? Cambiate hoy.', 'Paying RD$6,000/mo for a system without e-CF? Switch today.')}</p>
               <span className="text-[12px] font-bold text-[#b3001e] whitespace-nowrap">{L('Ahorra 58%', 'Save 58%')}</span>
@@ -915,6 +914,48 @@ export default function LandingPage({ section }) {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* SECTION 4.4: Hardware accesorios — WHITE */}
+      <section id="hardware" className="bg-white px-4 py-24 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center">
+            <p className="text-sm font-bold uppercase tracking-[4px] text-[#b3001e]">{L('Hardware', 'Hardware')}</p>
+            <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">{L('Accesorios 2connect a precio de costo', '2connect accessories at cost')}</h2>
+            <p className="mt-4 text-lg text-black/60 max-w-2xl mx-auto">{L('El hardware NO esta incluido en la suscripcion mensual. Si necesitas impresora, cajon o lector, te los vendemos al mismo precio que pagamos. Tambien funciona con tu hardware actual.', 'Hardware is NOT included in the monthly subscription. If you need a printer, drawer or scanner, we sell them at the same price we pay. Also works with your existing hardware.')}</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-14">
+            {[
+              { icon: Printer, title: L('Impresora termica 2connect USB v6', '2connect USB Thermal Printer v6'), desc: L('80mm USB. La opcion mas economica.', '80mm USB. Most affordable option.'), price: 'RD$3,600' },
+              { icon: Printer, title: L('Impresora termica 2connect v10', '2connect Thermal Printer v10'), desc: L('80mm USB + LAN + Bluetooth + WiFi. Multi-conexion.', '80mm USB + LAN + Bluetooth + WiFi. Multi-connection.'), price: 'RD$4,200', badge: L('Recomendada', 'Recommended') },
+              { icon: Package, title: L('Cajon de dinero 4 billetes / 5 monedas', '4-bill / 5-coin Cash Drawer'), desc: L('Compacto, ideal para mostrador pequeno.', 'Compact, ideal for small counter.'), price: 'RD$2,120' },
+              { icon: Package, title: L('Cajon de dinero 5 billetes / 8 monedas', '5-bill / 8-coin Cash Drawer'), desc: L('Tamano completo. Mas espacio para vueltos.', 'Full size. More room for change.'), price: 'RD$3,170' },
+              { icon: Zap, title: L('Lector 2D 2connect (USB)', '2connect 2D Scanner (USB)'), desc: L('Lee codigos de barras 1D y QR. Cable USB.', 'Reads 1D barcodes and QR. USB cable.'), price: 'RD$1,400' },
+              { icon: Zap, title: L('Lector 2D 2connect inalambrico', '2connect Wireless 2D Scanner'), desc: L('1D + QR sin cable. Para movilidad en tienda.', '1D + QR wireless. For in-store mobility.'), price: 'RD$2,000' },
+            ].map((h, i) => {
+              const Icon = h.icon
+              return (
+                <div key={i} className="rounded-2xl border border-black/10 bg-white p-6 hover:border-[#b3001e]/40 hover:shadow-lg transition-all relative">
+                  {h.badge && (
+                    <div className="absolute -top-3 left-6 px-3 py-1 bg-[#b3001e] text-white text-[10px] font-bold rounded-full uppercase tracking-wider">{h.badge}</div>
+                  )}
+                  <div className="w-12 h-12 rounded-xl bg-black/5 flex items-center justify-center mb-4">
+                    <Icon size={22} className="text-[#b3001e]" />
+                  </div>
+                  <h3 className="text-base font-bold text-black leading-tight">{h.title}</h3>
+                  <p className="text-sm text-black/60 mt-2 leading-relaxed">{h.desc}</p>
+                  <p className="text-2xl font-extrabold text-black mt-4">{h.price}</p>
+                  <p className="text-[11px] text-black/40 uppercase tracking-wider mt-1">{L('Pago unico', 'One-time')}</p>
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-center mt-10 text-sm text-black/60 max-w-2xl mx-auto">
+            {L('Pidelo por WhatsApp al ', 'Order via WhatsApp at ')}
+            <a href="https://wa.me/18098282971" className="text-[#b3001e] font-bold hover:underline">+1 (809) 828-2971</a>
+            {L('. Lo configuramos contigo el dia que llegue.', '. We configure it with you the day it arrives.')}
+          </p>
         </div>
       </section>
 
@@ -1131,10 +1172,10 @@ export default function LandingPage({ section }) {
                     { f: L('Base de clientes guardada', 'Saved client database'),                  g: false,                                                      t: true },
                     { f: L('POS (cobrar, imprimir, gaveta)', 'POS (charge, print, drawer)'),       g: false,                                                      t: true },
                     { f: L('Multi-moneda (USD)', 'Multi-currency (USD)'),                          g: L('Solo DOP', 'DOP only'),                                  t: true },
-                    { f: L('Certificado digital incluido', 'Digital certificate included'),        g: L('Solo dentro del facturador', 'Only inside the tool'),    t: L('Viafirma en todos los planes', 'Viafirma in all plans'), tBold: true },
+                    { f: L('Certificado digital incluido', 'Digital certificate included'),        g: L('Solo dentro del facturador', 'Only inside the tool'),    t: L('Viafirma en Pro PLUS y Pro MAX', 'Viafirma in Pro PLUS and Pro MAX'), tBold: true },
                     { f: L('Reportes avanzados (ventas, inventario, nomina)', 'Advanced reports (sales, inventory, payroll)'), g: false, t: true },
                     { f: L('Funciona offline', 'Works offline'),                                   g: false,                                                      t: L('Desktop', 'Desktop') },
-                    { f: L('Costo', 'Cost'),                                                       g: L('Gratis', 'Free'),                                        t: 'RD$4,490/mes' },
+                    { f: L('Costo', 'Cost'),                                                       g: L('Gratis', 'Free'),                                        t: 'RD$5,490/mes' },
                     { f: L('Ideal para', 'Ideal for'),                                             g: L('Profesionales liberales (3–5 facturas/mes)', 'Liberal professionals (3–5 invoices/mo)'), t: L('Negocios con 50+ ventas/dia', 'Businesses with 50+ sales/day') },
                   ].map((row, i) => (
                     <tr key={i} className={i % 2 === 0 ? 'bg-white/5' : ''}>
@@ -1182,8 +1223,8 @@ export default function LandingPage({ section }) {
                 {
                   q: L('Necesito pagar para emitir e-CF?', 'Do I need to pay to issue e-CF?'),
                   a: L(
-                    'Si. Necesitas un certificado digital (RD$2,360/ano) + un sistema autorizado. Terminal X incluye ambos desde RD$2,490/mes.',
-                    'Yes. You need a digital certificate (RD$2,360/yr) + an authorized system. Terminal X includes both starting at RD$2,490/mo.'
+                    'Si. Necesitas un certificado digital (RD$2,360/ano) + un sistema autorizado. Terminal X incluye ambos desde RD$2,990/mes.',
+                    'Yes. You need a digital certificate (RD$2,360/yr) + an authorized system. Terminal X includes both starting at RD$2,990/mo.'
                   ),
                 },
                 {

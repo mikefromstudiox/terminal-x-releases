@@ -40,6 +40,8 @@ function DesktopMockup({ alt }) {
   return (
     <img
       src="/hero/desktop-pos.png"
+      srcSet="/hero/desktop-pos-sm.png 640w, /hero/desktop-pos.png 1280w"
+      sizes="(max-width: 768px) 50vw, 640px"
       alt={alt}
       width={1600}
       height={1000}
@@ -54,6 +56,8 @@ function WebMockup({ alt }) {
   return (
     <img
       src="/hero/web-invoice.png"
+      srcSet="/hero/web-invoice-sm.png 640w, /hero/web-invoice.png 1280w"
+      sizes="(max-width: 768px) 100vw, 640px"
       alt={alt}
       width={1600}
       height={1000}
@@ -68,6 +72,8 @@ function MobileMockup({ alt }) {
   return (
     <img
       src="/hero/mobile-receipt.png"
+      srcSet="/hero/mobile-receipt-sm.png 360w, /hero/mobile-receipt.png 600w"
+      sizes="(max-width: 768px) 80vw, 300px"
       alt={alt}
       width={390}
       height={844}

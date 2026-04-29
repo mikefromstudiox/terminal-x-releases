@@ -1,8 +1,9 @@
 // ContabilidadShell — wrapper for the firm-side suite (Phase 1 + Phase 2 Slice 3).
 // Mounted by the per-tenant app shell when business_type === 'contabilidad'.
-// Provides the inner sidebar and routes to the screen barrel.
-import { useState } from 'react'
-import { Inbox, Building2, Calendar, FileText, Folder, Banknote, BookOpen, Landmark, Users, Package, ClipboardList, BarChart3 } from 'lucide-react'
+// Each sub-screen is a top-level sidebar item now; this shell just routes by
+// URL param (`/contabilidad/:tab`) so the main sidebar stays the source of
+// truth for navigation.
+import { useParams, Navigate } from 'react-router-dom'
 import Bandeja from './Bandeja.jsx'
 import Cartera from './Cartera.jsx'
 import Calendario from './Calendario.jsx'
@@ -15,56 +16,33 @@ import Nomina from './Nomina.jsx'
 import Activos from './Activos.jsx'
 import Tareas from './Tareas.jsx'
 import Reportes from './Reportes.jsx'
-import { usePlan, isComingSoonFeature } from '../../hooks/usePlan'
+import Portfolio from './Portfolio.jsx'
 
-const TABS = [
-  { id: 'bandeja',     label: 'Bandeja',      icon: Inbox,         Component: Bandeja },
-  { id: 'cartera',     label: 'Cartera',      icon: Building2,     Component: Cartera },
-  { id: 'calendario',  label: 'Calendario',   icon: Calendar,      Component: Calendario },
-  { id: 'tareas',      label: 'Tareas',       icon: ClipboardList, Component: Tareas,      featureKey: 'contabilidad_tareas' },
-  { id: 'comprobantes',label: 'Comprobantes', icon: FileText,      Component: Comprobantes },
-  { id: 'libro_mayor', label: 'Libro Mayor',  icon: BookOpen,      Component: LibroMayor,  featureKey: 'contabilidad_libro_mayor' },
-  { id: 'banco',       label: 'Banco',        icon: Landmark,      Component: Banco,       featureKey: 'contabilidad_banco' },
-  { id: 'nomina',      label: 'Nómina',       icon: Users,         Component: Nomina,      featureKey: 'contabilidad_nomina' },
-  { id: 'activos',     label: 'Activos',      icon: Package,       Component: Activos,     featureKey: 'contabilidad_activos' },
-  { id: 'reportes',    label: 'Reportes',     icon: BarChart3,     Component: Reportes,    featureKey: 'contabilidad_reportes_ejecutivos' },
-  { id: 'vault',       label: 'Vault',        icon: Folder,        Component: Vault },
-  { id: 'honorarios',  label: 'Honorarios',   icon: Banknote,      Component: Honorarios },
-]
+const TABS = {
+  portfolio:    Portfolio,
+  bandeja:      Bandeja,
+  cartera:      Cartera,
+  calendario:   Calendario,
+  tareas:       Tareas,
+  comprobantes: Comprobantes,
+  libro_mayor:  LibroMayor,
+  banco:        Banco,
+  nomina:       Nomina,
+  activos:      Activos,
+  reportes:     Reportes,
+  vault:        Vault,
+  honorarios:   Honorarios,
+}
 
-export default function ContabilidadShell({ initialTab = 'bandeja' } = {}) {
-  const [tab, setTab] = useState(initialTab)
-  const { hasFeature } = usePlan()
-  const Active = TABS.find(t => t.id === tab)?.Component || Bandeja
+export default function ContabilidadShell({ initialTab } = {}) {
+  const { tab } = useParams()
+  const key = tab || initialTab
+  if (!key) return <Navigate to="/contabilidad/bandeja" replace />
+  const Active = TABS[key]
+  if (!Active) return <Navigate to="/contabilidad/bandeja" replace />
   return (
-    <div className="flex flex-col md:flex-row min-h-full">
-      <aside className="md:w-56 shrink-0 border-b md:border-b-0 md:border-r border-black/10 dark:border-white/10 bg-white dark:bg-black">
-        <nav className="flex md:flex-col gap-1 p-3 overflow-x-auto">
-          {TABS.map(t => {
-            const Icon = t.icon
-            const active = tab === t.id
-            const soon = t.featureKey && isComingSoonFeature(t.featureKey) && !hasFeature(t.featureKey)
-            return (
-              <button key={t.id} onClick={() => setTab(t.id)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-colors whitespace-nowrap text-left
-                  ${active
-                    ? 'bg-[#b3001e]/15 border border-[#b3001e]/30 text-[#b3001e]'
-                    : 'text-black/70 dark:text-white/70 hover:bg-[#b3001e]/5 hover:text-[#b3001e] border border-transparent'}`}>
-                <Icon size={14} className={active ? 'text-[#b3001e]' : 'text-black/50 dark:text-white/50'} />
-                <span className="flex-1">{t.label}</span>
-                {soon && (
-                  <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full border border-[#b3001e]/30 text-[#b3001e]">
-                    Próx.
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </nav>
-      </aside>
-      <div className="flex-1 min-w-0">
-        <Active />
-      </div>
+    <div className="flex-1 min-w-0">
+      <Active />
     </div>
   )
 }

@@ -15,11 +15,29 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Users, Plus, Trash2, Loader2, FileDown, Check, Lock, X, Calculator, MessageCircle,
+  Users, Plus, Trash2, Loader2, FileDown, Check, Lock, X, Calculator, MessageCircle, Banknote,
 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { usePlan } from '../../hooks/usePlan'
 import { calcPayroll, DR_PAYROLL_RATES } from '@terminal-x/config/drPayrollRates.js'
+import {
+  genBhdLeonNomina, genBanreservasNomina, genGenericCsvNomina, downloadBankFile,
+} from '@terminal-x/services/bankDisbursement.js'
+
+const DR_BANKS = [
+  { code: 'BHD',       label: 'BHD León' },
+  { code: 'BRES',      label: 'Banreservas' },
+  { code: 'POPULAR',   label: 'Banco Popular' },
+  { code: 'SCOTIA',    label: 'Scotiabank' },
+  { code: 'PROGRESO',  label: 'Banco del Progreso' },
+  { code: 'CARIBE',    label: 'Banco Caribe' },
+  { code: 'SANTACRUZ', label: 'Banco Santa Cruz' },
+  { code: 'PROMERICA', label: 'Banco Promerica' },
+  { code: 'LAFISE',    label: 'Banco Lafise' },
+  { code: 'ADEMI',     label: 'Banco Ademi' },
+  { code: 'ADOPEM',    label: 'Banco Adopem' },
+  { code: 'OTRO',      label: 'Otro' },
+]
 
 const MONTHS = [
   '01 - Enero','02 - Febrero','03 - Marzo','04 - Abril','05 - Mayo','06 - Junio',
@@ -79,6 +97,10 @@ function EmployeeModal({ initial, onClose, onSave, busy }) {
     salario_base:     Number(initial?.salario_base || 0),
     dependientes:     Number(initial?.dependientes || 0),
     otras_deducciones: Number(initial?.otras_deducciones || 0),
+    cuenta_destino:   initial?.cuenta_destino   || '',
+    banco_destino:    initial?.banco_destino    || '',
+    tipo_cuenta:      initial?.tipo_cuenta      || '',
+    employee_email:   initial?.employee_email   || '',
   })
   function set(k, v) { setForm(f => ({ ...f, [k]: v })) }
   const calc = useMemo(() => calcPayroll({
@@ -125,6 +147,36 @@ function EmployeeModal({ initial, onClose, onSave, busy }) {
               className="mt-1 w-full rounded-lg border border-black/10 dark:border-white/10 bg-white dark:bg-black px-3 py-2 text-sm font-mono text-right"/>
           </label>
 
+          <div className="rounded-2xl border border-black/10 dark:border-white/10 p-3 bg-white dark:bg-black/40">
+            <div className="text-xs font-bold mb-2 inline-flex items-center gap-2"><Banknote size={14}/> Datos bancarios (Pago Masivo)</div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-xs font-bold">Banco destino
+                <select value={form.banco_destino} onChange={(e) => set('banco_destino', e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-black/10 dark:border-white/10 bg-white dark:bg-black px-3 py-2 text-sm">
+                  <option value="">— Seleccionar —</option>
+                  {DR_BANKS.map(b => <option key={b.code} value={b.code}>{b.label}</option>)}
+                </select>
+              </label>
+              <label className="block text-xs font-bold">Tipo de cuenta
+                <select value={form.tipo_cuenta} onChange={(e) => set('tipo_cuenta', e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-black/10 dark:border-white/10 bg-white dark:bg-black px-3 py-2 text-sm">
+                  <option value="">— Seleccionar —</option>
+                  <option value="corriente">Corriente</option>
+                  <option value="ahorros">Ahorros</option>
+                </select>
+              </label>
+            </div>
+            <label className="block text-xs font-bold mt-2">Cuenta destino (número)
+              <input value={form.cuenta_destino} onChange={(e) => set('cuenta_destino', e.target.value.replace(/\D+/g, '').slice(0, 20))}
+                className="mt-1 w-full rounded-lg border border-black/10 dark:border-white/10 bg-white dark:bg-black px-3 py-2 text-sm font-mono"/>
+            </label>
+            <label className="block text-xs font-bold mt-2">Email para notificación (opcional)
+              <input type="email" value={form.employee_email} onChange={(e) => set('employee_email', e.target.value)}
+                className="mt-1 w-full rounded-lg border border-black/10 dark:border-white/10 bg-white dark:bg-black px-3 py-2 text-sm"/>
+            </label>
+            <div className="text-[10px] text-black/50 dark:text-white/50 mt-2">Se guarda en la nómina y en el roster del cliente — no hay que volver a escribirlo el próximo mes.</div>
+          </div>
+
           {Number(form.salario_base) > 0 && (
             <div className="rounded-2xl border border-[#b3001e]/30 bg-[#b3001e]/5 p-3 text-xs">
               <div className="font-bold mb-2 flex items-center gap-2 text-[#b3001e]"><Calculator size={14}/> Cálculo Ley 87-01 (RD 2026)</div>
@@ -153,6 +205,10 @@ function EmployeeModal({ initial, onClose, onSave, busy }) {
               isr: calc.isr,
               otras_deducciones: otras,
               neto: netoFinal,
+              cuenta_destino: form.cuenta_destino || null,
+              banco_destino:  form.banco_destino  || null,
+              tipo_cuenta:    form.tipo_cuenta    || null,
+              employee_email: form.employee_email || null,
             })}
             className="px-3 py-2 rounded-lg text-sm font-bold bg-[#b3001e] text-white disabled:opacity-50">
             Guardar
@@ -234,11 +290,13 @@ function PeriodosList({ api, clientId, year, periods, reload, onSelect, currentM
 
 // ── Período detail (empleados + post + IR-3) ─────────────────────────────────
 
-function PeriodDetail({ api, clientId, period, accounts, onChange, onClose, clientPhone, clientName }) {
+function PeriodDetail({ api, clientId, period, accounts, onChange, onClose, clientPhone, clientName, client }) {
   const [lines, setLines] = useState([])
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(null)
   const [postOpen, setPostOpen] = useState(false)
+  const [roster, setRoster] = useState([])
+  const [disbursementOpen, setDisbursementOpen] = useState(false)
 
   const reload = useCallback(async () => {
     if (!api?.contabilidad || !period?.id) { setLines([]); return }
@@ -247,6 +305,30 @@ function PeriodDetail({ api, clientId, period, accounts, onChange, onClose, clie
   }, [api, period])
 
   useEffect(() => { reload() }, [reload])
+
+  // Load roster bank cache for this client.
+  useEffect(() => {
+    let cancelled = false
+    async function loadRoster() {
+      if (!api?.contabilidad?.payrollEmpBankList || !clientId) { setRoster([]); return }
+      const r = await api.contabilidad.payrollEmpBankList({ accountingClientId: clientId })
+      if (!cancelled) setRoster(r || [])
+    }
+    loadRoster()
+    return () => { cancelled = true }
+  }, [api, clientId])
+
+  // Hydrate edit form with roster bank data when adding a new employee.
+  function startEdit(line) {
+    if (line && line.id) { setEditing(line); return }
+    // For new employees the modal starts blank; nothing to hydrate yet.
+    setEditing(line || {})
+  }
+  function rosterMatch(cedula) {
+    const c = String(cedula || '').replace(/\D+/g, '')
+    if (!c) return null
+    return roster.find(r => String(r.employee_cedula || '').replace(/\D+/g, '') === c) || null
+  }
 
   const totals = useMemo(() => {
     const t = { salario: 0, afp: 0, sfs: 0, isr: 0, otras: 0, neto: 0, employerCost: 0 }
@@ -268,6 +350,17 @@ function PeriodDetail({ api, clientId, period, accounts, onChange, onClose, clie
   async function saveEmployee(form) {
     setBusy(true)
     try {
+      // If the user typed only a cédula (and no bank info), borrow whatever the
+      // roster cache already has for that empleado so re-entry is unnecessary.
+      const cached = rosterMatch(form.employee_cedula)
+      const merged = {
+        ...form,
+        cuenta_destino: form.cuenta_destino || cached?.cuenta_destino || null,
+        banco_destino:  form.banco_destino  || cached?.banco_destino  || null,
+        tipo_cuenta:    form.tipo_cuenta    || cached?.tipo_cuenta    || null,
+        employee_email: form.employee_email || cached?.employee_email || null,
+      }
+
       if (editing?.id) {
         // payrollLineDelete + add (no update endpoint; deterministic replace)
         await api.contabilidad.payrollLineDelete(editing.id)
@@ -275,21 +368,84 @@ function PeriodDetail({ api, clientId, period, accounts, onChange, onClose, clie
       await api.contabilidad.payrollLineAdd({
         payroll_period_id: period.id,
         payroll_period_supabase_id: period.supabase_id,
-        employee_name: form.employee_name,
-        employee_cedula: form.employee_cedula,
-        employee_nss: form.employee_nss,
-        salario_base: form.salario_base,
-        dependientes: form.dependientes,
-        afp: form.afp, sfs: form.sfs, ars: form.ars,
-        riesgos_laborales: form.riesgos_laborales,
-        isr: form.isr,
-        otras_deducciones: form.otras_deducciones,
-        neto: form.neto,
+        employee_name: merged.employee_name,
+        employee_cedula: merged.employee_cedula,
+        employee_nss: merged.employee_nss,
+        salario_base: merged.salario_base,
+        dependientes: merged.dependientes,
+        afp: merged.afp, sfs: merged.sfs, ars: merged.ars,
+        riesgos_laborales: merged.riesgos_laborales,
+        isr: merged.isr,
+        otras_deducciones: merged.otras_deducciones,
+        neto: merged.neto,
+        cuenta_destino: merged.cuenta_destino,
+        banco_destino:  merged.banco_destino,
+        tipo_cuenta:    merged.tipo_cuenta,
       })
+
+      // Upsert roster bank cache so the next período auto-fills.
+      if (merged.employee_cedula && api?.contabilidad?.payrollEmpBankUpsert &&
+          (merged.cuenta_destino || merged.banco_destino || merged.tipo_cuenta || merged.employee_email)) {
+        try {
+          await api.contabilidad.payrollEmpBankUpsert({
+            accounting_client_id: clientId,
+            employee_cedula: merged.employee_cedula,
+            employee_name:   merged.employee_name,
+            employee_email:  merged.employee_email,
+            cuenta_destino:  merged.cuenta_destino,
+            banco_destino:   merged.banco_destino,
+            tipo_cuenta:     merged.tipo_cuenta,
+          })
+          const r = await api.contabilidad.payrollEmpBankList({ accountingClientId: clientId })
+          setRoster(r || [])
+        } catch { /* non-fatal: período saved, roster will retry next save */ }
+      }
+
       setEditing(null)
       await reload()
     } catch (e) { alert(`Error: ${e?.message || e}`) }
     finally    { setBusy(false) }
+  }
+
+  async function generateDisbursement(bank) {
+    const rnc = (client?.rnc || client?.cedula || '').replace(/\D+/g, '')
+    if (!rnc) {
+      alert('El cliente no tiene RNC/cédula configurado. Edítalo en Cartera para generar el archivo de pago.')
+      return
+    }
+    const fecha = `${period.year}-${String(period.month).padStart(2,'0')}-15`
+    const cuentaOrigen = window.prompt('Cuenta de origen del cliente (cuenta empresa que paga la nómina):', '') || ''
+    const opts = {
+      rncEmpresa: rnc,
+      cuentaOrigen,
+      fecha,
+      concepto: `Nomina ${MONTHS[period.month - 1]} ${period.year}`,
+      referencia: `NOMINA ${period.year}${String(period.month).padStart(2,'0')}`,
+    }
+    let res
+    try {
+      if (bank === 'bhd_leon')         res = genBhdLeonNomina(lines, opts)
+      else if (bank === 'banreservas') res = genBanreservasNomina(lines, opts)
+      else                             res = genGenericCsvNomina(lines, opts)
+    } catch (e) {
+      alert(`Error generando archivo: ${e?.message || e}`)
+      return
+    }
+    if (!res.count) {
+      alert(`No hay empleados con cuenta destino válida.\n${(res.warnings || []).join('\n')}`)
+      return
+    }
+    const mime = bank === 'banreservas' ? 'text/plain;charset=utf-8' : 'text/csv;charset=utf-8'
+    downloadBankFile(res, mime)
+    try {
+      await api.contabilidad.payrollPeriodUpdate(period.id, {
+        disbursement_generated_at: new Date().toISOString(),
+        disbursement_bank: bank,
+      })
+    } catch { /* column may be absent on legacy desktop; non-fatal */ }
+    setDisbursementOpen(false)
+    const warn = res.warnings?.length ? `\n\nAdvertencias:\n${res.warnings.join('\n')}` : ''
+    alert(`Archivo generado: ${res.filename}\n${res.count} empleados · RD$ ${fmtRD(res.totalAmount)}${warn}`)
   }
 
   async function removeEmployee(id) {
@@ -441,6 +597,12 @@ function PeriodDetail({ api, clientId, period, accounts, onChange, onClose, clie
             className="inline-flex items-center gap-1 rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-xs font-bold">
             <FileDown size={12}/> IR-3 TXT
           </button>
+          {isReadonly && (
+            <button onClick={() => setDisbursementOpen(true)}
+              className="inline-flex items-center gap-1 rounded-lg bg-[#b3001e] text-white px-3 py-2 text-xs font-bold hover:bg-[#8f0018]">
+              <Banknote size={12}/> Generar pago bancario
+            </button>
+          )}
         </div>
       </div>
 
@@ -509,6 +671,64 @@ function PeriodDetail({ api, clientId, period, accounts, onChange, onClose, clie
       {postOpen && (
         <PostModal totals={totals} accounts={accounts} onClose={() => setPostOpen(false)} onConfirm={post} busy={busy}/>
       )}
+      {disbursementOpen && (
+        <DisbursementModal
+          lines={lines} period={period} client={client}
+          onClose={() => setDisbursementOpen(false)}
+          onGenerate={generateDisbursement}
+          busy={busy}
+        />
+      )}
+    </div>
+  )
+}
+
+function DisbursementModal({ lines, period, client, onClose, onGenerate, busy }) {
+  const missing = (lines || []).filter(l => !String(l.cuenta_destino || '').replace(/\D+/g, ''))
+  const ready   = (lines || []).length - missing.length
+  const total   = (lines || []).filter(l => !!String(l.cuenta_destino || '').replace(/\D+/g, ''))
+                              .reduce((s, l) => s + Number(l.neto || 0), 0)
+  const rnc = (client?.rnc || client?.cedula || '').replace(/\D+/g, '')
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-black rounded-2xl border border-black/10 dark:border-white/10 max-w-lg w-full p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <div className="font-bold inline-flex items-center gap-2"><Banknote size={16}/> Pago Masivo de Nómina</div>
+          <button onClick={onClose}><X size={16}/></button>
+        </div>
+        <div className="text-xs text-black/70 dark:text-white/70 mb-3">
+          Período: <strong>{MONTHS[period.month - 1]} {period.year}</strong> · RNC: <strong>{rnc || '— faltante —'}</strong>
+        </div>
+        <div className="rounded-2xl border border-black/10 dark:border-white/10 p-3 mb-3 text-xs">
+          <div className="flex justify-between"><span>Empleados con cuenta válida</span><strong>{ready}</strong></div>
+          <div className="flex justify-between"><span>Empleados excluidos</span><strong className={missing.length ? 'text-[#b3001e]' : ''}>{missing.length}</strong></div>
+          <div className="flex justify-between border-t border-black/10 dark:border-white/10 mt-1 pt-1"><span>Monto total a pagar</span><strong className="font-mono">RD$ {fmtRD(total)}</strong></div>
+          {missing.length > 0 && (
+            <div className="mt-2 text-[11px] text-[#b3001e]">
+              Sin cuenta destino: {missing.slice(0, 8).map(l => l.employee_name || l.employee_cedula || 's/n').join(', ')}{missing.length > 8 ? ` (+${missing.length - 8} más)` : ''}
+            </div>
+          )}
+        </div>
+        <div className="grid grid-cols-1 gap-2">
+          <button disabled={busy || !rnc || !ready} onClick={() => onGenerate('bhd_leon')}
+            className="w-full text-left px-3 py-2 rounded-lg border border-black/10 dark:border-white/10 hover:border-[#b3001e] hover:bg-[#b3001e]/5 disabled:opacity-50">
+            <div className="text-sm font-bold">Generar pago BHD León</div>
+            <div className="text-[11px] text-black/60 dark:text-white/60">CSV · Pago Masivo (Servicios Empresariales)</div>
+          </button>
+          <button disabled={busy || !rnc || !ready} onClick={() => onGenerate('banreservas')}
+            className="w-full text-left px-3 py-2 rounded-lg border border-black/10 dark:border-white/10 hover:border-[#b3001e] hover:bg-[#b3001e]/5 disabled:opacity-50">
+            <div className="text-sm font-bold">Generar pago Banreservas</div>
+            <div className="text-[11px] text-black/60 dark:text-white/60">TXT pipe-delimited · Pago a Terceros / Nómina</div>
+          </button>
+          <button disabled={busy || !rnc || !ready} onClick={() => onGenerate('generic')}
+            className="w-full text-left px-3 py-2 rounded-lg border border-black/10 dark:border-white/10 hover:border-[#b3001e] hover:bg-[#b3001e]/5 disabled:opacity-50">
+            <div className="text-sm font-bold">CSV genérico (otro banco)</div>
+            <div className="text-[11px] text-black/60 dark:text-white/60">Para Popular, Scotia y otros — adapta columnas si el portal lo exige</div>
+          </button>
+        </div>
+        {!rnc && <div className="mt-3 text-[11px] text-[#b3001e]">El cliente no tiene RNC/cédula. Edítalo en Cartera primero.</div>}
+      </div>
     </div>
   )
 }
@@ -647,7 +867,7 @@ export default function Nomina() {
         )}
         {clientId && openPeriod && (
           <PeriodDetail api={api} clientId={clientId} period={openPeriod}
-            accounts={accounts} clientName={client?.nombre_comercial || ''} clientPhone={clientPhone}
+            accounts={accounts} clientName={client?.nombre_comercial || ''} clientPhone={clientPhone} client={client}
             onChange={reloadPeriods} onClose={() => setOpenPeriodId(null)}/>
         )}
       </div>

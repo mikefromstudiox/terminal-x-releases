@@ -156,10 +156,30 @@ export default async function handler(req, res) {
   if (action === 'crm_update') return handleCrmUpdate(req, res)
   if (action === 'crm_note')   return handleCrmNote(req, res)
   if (action === 'crm_create') return handleCrmCreate(req, res)
+  if (action === 'crm_delete') return handleCrmDelete(req, res)
+
+  // Client error log — anonymous-write, admin-read.
+  if (action === 'report_error')   return handleReportError(req, res)
+  if (action === 'errors_list')    return handleErrorsList(req, res)
+  if (action === 'errors_resolve') return handleErrorsResolve(req, res)
+
+  // DGII Mis Comprobantes auto-pull — credential vault + status + manual trigger
+  if (action === 'dgii_creds_save')   return handleDgiiCredsSave(req, res)
+  if (action === 'dgii_creds_status') return handleDgiiCredsStatus(req, res)
+  if (action === 'dgii_creds_delete') return handleDgiiCredsDelete(req, res)
+  if (action === 'dgii_pull_run')     return handleDgiiPullRun(req, res)
+  if (action === 'cron_dgii_pull')    return handleCronDgiiPull(req, res)
+  if (action === 'dgii_creds_save_plaintext') return handleDgiiCredsSavePlaintext(req, res)
+  if (action === 'dgii_login_test')   return handleDgiiLoginTest(req, res)
 
   // Desktop cloud backup — license-validated signed upload URL for db-backups bucket.
   if (action === 'db-backup-sign') return handleDbBackupSign(req, res)
   if (action === 'db-backup-status') return handleDbBackupStatus(req, res)
+
+  // ── Contabilidad Vault (Supabase Storage signed URLs) ────────────────────
+  if (action === 'vault_upload_sign')   return handleVaultUploadSign(req, res)
+  if (action === 'vault_download_sign') return handleVaultDownloadSign(req, res)
+  if (action === 'vault_delete')        return handleVaultDelete(req, res)
 
   // ── Contabilidad cross-firm wire (Slice 5) ────────────────────────────────
   if (action === 'ctb_generate_access_code') return handleCtbGenerateAccessCode(req, res)
@@ -167,6 +187,10 @@ export default async function handler(req, res) {
   if (action === 'ctb_revoke_access')        return handleCtbRevokeAccess(req, res)
   if (action === 'ctb_client_data')          return handleCtbClientData(req, res)
   if (action === 'ctb_my_accountant')        return handleCtbMyAccountant(req, res)
+
+  // ── Cross-firm impersonation ("Ver como cliente") — Pro MAX contadora ───
+  if (action === 'firm_impersonate_check')   return handleFirmImpersonateCheck(req, res)
+  if (action === 'firm_impersonate_end')     return handleFirmImpersonateEnd(req, res)
 
   return res.status(400).json({ error: 'Unknown action' })
 }
@@ -415,6 +439,134 @@ async function handleCtbMyAccountant(req, res) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Firm impersonation — "Ver como cliente"
+// ─────────────────────────────────────────────────────────────────────────────
+// Server-side authorization gate for the contadora's "log in as client" flow.
+// Verifies the calling JWT's business_id has an access_granted accounting_clients
+// row whose shared_business_id == requested target. Writes a CRITICAL audit
+// entry to activity_log on BOTH the firm and the client tenants so the trail
+// is visible from either side.
+
+async function logImpersonationEvent({ supabase, eventType, firmAuth, clientBusinessId, clientName, accountingClientId, ip, ua }) {
+  const baseMeta = {
+    firm_business_id:     firmAuth.businessId,
+    firm_name:            firmAuth.business?.name || null,
+    client_business_id:   clientBusinessId,
+    client_name:          clientName || null,
+    accounting_client_id: accountingClientId || null,
+    actor_user_id:        firmAuth.user?.id || null,
+    actor_email:          firmAuth.user?.email || null,
+    ip:                   ip || null,
+    ua:                   (ua || '').slice(0, 200),
+  }
+  const targetName = clientName || 'cliente'
+  const rows = [
+    {
+      business_id: firmAuth.businessId,
+      event_type:  eventType,
+      severity:    'critical',
+      target_type: 'business',
+      target_name: targetName,
+      metadata:    baseMeta,
+    },
+    {
+      business_id: clientBusinessId,
+      event_type:  eventType,
+      severity:    'critical',
+      target_type: 'business',
+      target_name: firmAuth.business?.name || 'contador',
+      metadata:    baseMeta,
+    },
+  ]
+  try { await supabase.from('activity_log').insert(rows) } catch { /* non-blocking audit */ }
+}
+
+// POST { client_business_id, accounting_client_id? } — firm side. Returns
+// { ok, role, client_name, firm_business_id, accounting_client_id }.
+async function handleFirmImpersonateCheck(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' })
+  const auth = await ctbAuthUser(req)
+  if (auth.error) return res.status(auth.status).json({ ok: false, error: auth.error })
+  if (auth.business.business_type !== 'contabilidad') {
+    return res.status(403).json({ ok: false, error: 'firm_only', message: 'Solo cuentas contables pueden impersonar.' })
+  }
+  const body = req.body || {}
+  const clientBusinessId = String(body.client_business_id || '').trim()
+  const acId = body.accounting_client_id ? Number(body.accounting_client_id) : null
+  if (!clientBusinessId) return res.status(400).json({ ok: false, error: 'missing_client_business_id' })
+
+  let q = auth.supabase.from('accounting_clients')
+    .select('id, business_id, shared_business_id, nombre_comercial, access_granted, status')
+    .eq('business_id', auth.businessId)
+    .eq('shared_business_id', clientBusinessId)
+    .eq('access_granted', true)
+    .eq('status', 'active')
+  if (acId) q = q.eq('id', acId)
+  const { data: ac, error } = await q.limit(1).maybeSingle()
+  if (error) return res.status(500).json({ ok: false, error: error.message })
+  if (!ac) {
+    return res.status(403).json({
+      ok: false,
+      error: 'no_active_membership',
+      message: 'No tienes acceso activo a este cliente. Pídele que te conceda el código de acceso.',
+    })
+  }
+
+  const { data: clientBiz } = await auth.supabase.from('businesses')
+    .select('id, name').eq('id', clientBusinessId).maybeSingle()
+
+  const ip = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').toString().split(',')[0].trim()
+  const ua = req.headers['user-agent'] || ''
+
+  await logImpersonationEvent({
+    supabase: auth.supabase,
+    eventType: 'firm_impersonate_start',
+    firmAuth: auth,
+    clientBusinessId,
+    clientName: clientBiz?.name || ac.nombre_comercial || '',
+    accountingClientId: ac.id,
+    ip, ua,
+  })
+
+  return res.status(200).json({
+    ok: true,
+    role: 'accountant_view',
+    client_business_id:   clientBusinessId,
+    client_name:          clientBiz?.name || ac.nombre_comercial || '',
+    firm_business_id:     auth.businessId,
+    accounting_client_id: ac.id,
+  })
+}
+
+// POST { client_business_id, accounting_client_id? } — fire-and-forget audit on exit.
+async function handleFirmImpersonateEnd(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' })
+  const auth = await ctbAuthUser(req)
+  if (auth.error) return res.status(auth.status).json({ ok: false, error: auth.error })
+  const body = req.body || {}
+  const clientBusinessId = String(body.client_business_id || '').trim()
+  const acId = body.accounting_client_id ? Number(body.accounting_client_id) : null
+  if (!clientBusinessId) return res.status(400).json({ ok: false, error: 'missing_client_business_id' })
+
+  const { data: clientBiz } = await auth.supabase.from('businesses')
+    .select('id, name').eq('id', clientBusinessId).maybeSingle()
+
+  const ip = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').toString().split(',')[0].trim()
+  const ua = req.headers['user-agent'] || ''
+
+  await logImpersonationEvent({
+    supabase: auth.supabase,
+    eventType: 'firm_impersonate_end',
+    firmAuth: auth,
+    clientBusinessId,
+    clientName: clientBiz?.name || '',
+    accountingClientId: acId,
+    ip, ua,
+  })
+  return res.status(200).json({ ok: true })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CRM — admin sales pipeline. Auto-populated from signup/provision.js.
 // All endpoints behind requireAdmin. Service role bypasses RLS.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -556,6 +708,495 @@ async function handleCrmNote(req, res) {
   } catch (err) { return res.status(500).json({ error: err.message }) }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Client error log — clients POST anonymously so errors are captured even when
+// auth is broken (chunk-load failures, signed-out states). Admin reads via
+// service role behind requireAdmin.
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleReportError(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  try {
+    const { createClient } = await import('@supabase/supabase-js')
+    const SUPABASE_URL = process.env.SUPABASE_URL
+    const SVC = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!SUPABASE_URL || !SVC) return res.status(500).json({ error: 'Service role not configured' })
+    const supabase = createClient(SUPABASE_URL, SVC, { auth: { autoRefreshToken: false, persistSession: false } })
+
+    const body = req.body || {}
+    const trim = (s, n=8000) => typeof s === 'string' ? s.slice(0, n) : null
+    const businessId = typeof body.business_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.business_id) ? body.business_id : null
+    const severity = ['error','warning','info'].includes(body.severity) ? body.severity : 'error'
+    const insertRow = {
+      business_id: businessId,
+      message: trim(body.message || 'unknown', 2000) || 'unknown',
+      stack: trim(body.stack, 8000),
+      route: trim(body.route, 500),
+      user_agent: trim(body.user_agent, 500),
+      app_version: trim(body.app_version, 60),
+      user_id: typeof body.user_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.user_id) ? body.user_id : null,
+      user_role: trim(body.user_role, 60),
+      severity,
+      metadata: typeof body.metadata === 'object' && body.metadata !== null ? body.metadata : null,
+    }
+    const { error } = await supabase.from('client_errors').insert(insertRow)
+    if (error) throw error
+    return res.json({ ok: true })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleErrorsList(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  try {
+    const { business_id, unresolved, limit } = req.query
+    let q = auth.supabase.from('client_errors')
+      .select('*, businesses(name, rnc)')
+      .order('created_at', { ascending: false })
+      .limit(Math.min(parseInt(limit) || 100, 500))
+    if (business_id) q = q.eq('business_id', business_id)
+    if (unresolved === '1') q = q.is('resolved_at', null)
+    const { data, error } = await q
+    if (error) throw error
+    return res.json({ data: data || [] })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleErrorsResolve(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { id, resolution } = req.body || {}
+  if (!id) return res.status(400).json({ error: 'id required' })
+  try {
+    const { error } = await auth.supabase.from('client_errors').update({
+      resolved_at: new Date().toISOString(),
+      resolved_by: auth.admin?.id || null,
+      resolution: typeof resolution === 'string' ? resolution.slice(0, 1000) : null,
+    }).eq('id', id)
+    if (error) throw error
+    return res.json({ ok: true })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DGII auto-pull — credential vault + status + manual trigger.
+// Creds are encrypted CLIENT-SIDE with AES-GCM (the firm's master key) before
+// they reach this endpoint. Server only stores the cipher + iv + salt.
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleDgiiCredsSave(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { firm_business_id, client_business_id, rnc, cred_cipher, cred_iv, cred_salt, session_cookie } = req.body || {}
+  if (!firm_business_id || !client_business_id || !rnc) {
+    return res.status(400).json({ error: 'firm_business_id, client_business_id, rnc required' })
+  }
+  // Two auth modes: full encrypted user/pass OR session_cookie (interim).
+  if (!session_cookie && (!cred_cipher || !cred_iv || !cred_salt)) {
+    return res.status(400).json({ error: 'session_cookie OR (cred_cipher + cred_iv + cred_salt) required' })
+  }
+  try {
+    const row = {
+      firm_business_id, client_business_id, rnc: String(rnc).replace(/\D/g, ''),
+      status: 'active', updated_at: new Date().toISOString(),
+    }
+    if (session_cookie) {
+      row.session_cookie = session_cookie
+      // Sessions typically last ~30 minutes idle, ~24h sliding. Mark a soft
+      // expiry of 36h so the UI can warn the contadora to refresh.
+      row.session_cookie_expires_at = new Date(Date.now() + 36 * 3600 * 1000).toISOString()
+      // Ensure required NOT NULL columns get values when only session is set
+      row.cred_cipher = row.cred_cipher || ''
+      row.cred_iv = row.cred_iv || ''
+      row.cred_salt = row.cred_salt || ''
+    }
+    if (cred_cipher) { row.cred_cipher = cred_cipher; row.cred_iv = cred_iv; row.cred_salt = cred_salt }
+    const { data, error } = await auth.supabase.from('client_dgii_credentials').upsert(row, {
+      onConflict: 'client_business_id',
+    }).select().single()
+    if (error) throw error
+    return res.json({ data })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleDgiiCredsStatus(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { firm_business_id } = req.query
+  if (!firm_business_id) return res.status(400).json({ error: 'firm_business_id required' })
+  try {
+    const { data, error } = await auth.supabase.from('client_dgii_credentials')
+      .select('id, client_business_id, rnc, status, last_pull_at, last_pull_count, last_pull_error')
+      .eq('firm_business_id', firm_business_id)
+      .order('updated_at', { ascending: false })
+    if (error) throw error
+    return res.json({ data: data || [] })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleDgiiCredsDelete(req, res) {
+  if (req.method !== 'POST' && req.method !== 'DELETE') return res.status(405).json({ error: 'POST or DELETE' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const id = req.body?.id || req.query?.id
+  if (!id) return res.status(400).json({ error: 'id required' })
+  try {
+    const { error } = await auth.supabase.from('client_dgii_credentials').delete().eq('id', id)
+    if (error) throw error
+    return res.json({ ok: true })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// Manual trigger for the DGII pull worker. The actual scraper lives in a
+// separate worker process (web/workers/dgii-pull.js) which we kick via this
+// endpoint or via a daily Vercel cron. Phase 1: returns "queued" — the worker
+// itself needs a real DGII session sample to wire (Perla's cred test).
+async function handleDgiiPullRun(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { client_business_id } = req.body || {}
+  if (!client_business_id) return res.status(400).json({ error: 'client_business_id required' })
+  // For now: mark the cred as "queued" by updating last_pull_error to a
+  // status message. Real scraper TBD when we have a sample DGII session.
+  try {
+    await auth.supabase.from('client_dgii_credentials').update({
+      last_pull_error: 'Queued — scraper requires manual config; contact support.',
+      updated_at: new Date().toISOString(),
+    }).eq('client_business_id', client_business_id)
+    return res.json({ ok: true, status: 'queued', note: 'Scraper will run on the next Vercel cron tick once configured.' })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// ─── Server-side AES-256-GCM helpers for DGII passwords ───────────────────
+// Uses process.env.DGII_CRED_KEY (32-byte hex). If unset, falls back to a
+// derived key from SUPABASE_SERVICE_ROLE_KEY so deploys don't break — but
+// production should set DGII_CRED_KEY explicitly.
+async function _dgiiEncryptPass(plaintext) {
+  const { createCipheriv, randomBytes, createHash } = await import('crypto')
+  const keyMat = process.env.DGII_CRED_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || 'unset'
+  const key = createHash('sha256').update(keyMat).digest()
+  const iv = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', key, iv)
+  const enc = Buffer.concat([cipher.update(String(plaintext), 'utf8'), cipher.final()])
+  const tag = cipher.getAuthTag()
+  return { cipher: Buffer.concat([enc, tag]).toString('base64'), iv: iv.toString('base64') }
+}
+async function _dgiiDecryptPass(cipherB64, ivB64) {
+  const { createDecipheriv, createHash } = await import('crypto')
+  const keyMat = process.env.DGII_CRED_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || 'unset'
+  const key = createHash('sha256').update(keyMat).digest()
+  const iv = Buffer.from(ivB64, 'base64')
+  const blob = Buffer.from(cipherB64, 'base64')
+  const tag = blob.subarray(blob.length - 16)
+  const ct = blob.subarray(0, blob.length - 16)
+  const decipher = createDecipheriv('aes-256-gcm', key, iv)
+  decipher.setAuthTag(tag)
+  return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8')
+}
+
+async function handleDgiiCredsSavePlaintext(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { firm_business_id, client_business_id, rnc, dgii_user, dgii_pass } = req.body || {}
+  if (!firm_business_id || !client_business_id || !rnc || !dgii_user || !dgii_pass) {
+    return res.status(400).json({ error: 'firm_business_id, client_business_id, rnc, dgii_user, dgii_pass required' })
+  }
+  try {
+    const { cipher, iv } = await _dgiiEncryptPass(dgii_pass)
+    const { data, error } = await auth.supabase.from('client_dgii_credentials').upsert({
+      firm_business_id, client_business_id, rnc: String(rnc).replace(/\D/g, ''),
+      srv_user: String(dgii_user),
+      srv_cred_cipher: cipher,
+      srv_cred_iv: iv,
+      // Required-but-now-nullable legacy fields — set empty so upsert works
+      cred_cipher: '', cred_iv: '', cred_salt: '',
+      status: 'active', updated_at: new Date().toISOString(),
+    }, { onConflict: 'client_business_id' }).select('id, rnc, status').single()
+    if (error) throw error
+    return res.json({ data, ok: true })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+async function handleDgiiLoginTest(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { client_business_id } = req.body || {}
+  if (!client_business_id) return res.status(400).json({ error: 'client_business_id required' })
+  try {
+    const { data: cred, error } = await auth.supabase.from('client_dgii_credentials')
+      .select('id, srv_user, srv_cred_cipher, srv_cred_iv, session_cookie, rnc')
+      .eq('client_business_id', client_business_id).maybeSingle()
+    if (error) throw error
+    if (!cred) return res.status(404).json({ error: 'no credentials saved for this client' })
+    const { loginToDgii } = await import('../lib/dgii-scraper.js')
+    let result
+    if (cred.srv_user && cred.srv_cred_cipher && cred.srv_cred_iv) {
+      const pass = await _dgiiDecryptPass(cred.srv_cred_cipher, cred.srv_cred_iv)
+      result = await loginToDgii({ user: cred.srv_user, pass })
+    } else if (cred.session_cookie) {
+      // Session cookie path — just verify it still works by hitting Consultas page
+      result = { ok: true, sessionCookie: cred.session_cookie, mode: 'cookie' }
+    } else {
+      return res.status(400).json({ error: 'no credentials configured (set user/pass or session_cookie)' })
+    }
+    if (result.ok) {
+      // Persist the fresh session cookie so cron + manual pulls reuse it
+      await auth.supabase.from('client_dgii_credentials').update({
+        session_cookie: result.sessionCookie,
+        session_cookie_expires_at: new Date(Date.now() + 36 * 3600 * 1000).toISOString(),
+        last_pull_error: null,
+        status: 'active',
+        updated_at: new Date().toISOString(),
+      }).eq('id', cred.id)
+    }
+    return res.json({ ok: result.ok, error: result.error || null, hasSession: !!result.sessionCookie })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cron: nightly DGII Mis Comprobantes auto-pull worker.
+// Triggered by Vercel cron (configured in vercel.json) at 03:00 AST = 07:00 UTC.
+// Auth: Vercel cron sets `x-vercel-cron-signature` header and supplies
+// CRON_SECRET via authorization header — we accept either.
+//
+// Phase 1 (this ship): iterates all active credentials, marks `last_pull_at`
+// + `last_pull_error: 'scraper_pending'`. The actual scraper that walks the
+// DGII Oficina Virtual session lives in `_dgiiPullForClient()` — currently
+// a stub that returns 0 rows. Drop in the real scraper there once we have a
+// session sample.
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleCronDgiiPull(req, res) {
+  // Auth: Vercel cron OR explicit CRON_SECRET in Authorization header.
+  const expected = process.env.CRON_SECRET
+  const got = req.headers.authorization || ''
+  const isVercelCron = !!req.headers['x-vercel-cron-signature']
+  if (!isVercelCron && (!expected || got !== `Bearer ${expected}`)) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  try {
+    const { createClient } = await import('@supabase/supabase-js')
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { autoRefreshToken: false, persistSession: false } })
+    const { data: creds, error } = await supabase.from('client_dgii_credentials')
+      .select('id, firm_business_id, client_business_id, rnc, cred_cipher, cred_iv, cred_salt, srv_user, srv_cred_cipher, srv_cred_iv, session_cookie, status')
+      .eq('status', 'active')
+    if (error) throw error
+    const results = []
+    for (const c of creds || []) {
+      try {
+        const out = await _dgiiPullForClient(c, supabase)
+        results.push({ id: c.id, ok: true, count: out.count })
+      } catch (e) {
+        await supabase.from('client_dgii_credentials').update({
+          last_pull_error: String(e?.message || e).slice(0, 500),
+          updated_at: new Date().toISOString(),
+        }).eq('id', c.id)
+        results.push({ id: c.id, ok: false, error: e?.message || String(e) })
+      }
+    }
+    return res.json({ ok: true, processed: results.length, results })
+  } catch (err) {
+    return res.status(500).json({ error: err.message })
+  }
+}
+
+// _dgiiPullForClient — LIVE scraper for DGII Oficina Virtual.
+// Currently uses session_cookie auth (contadora pastes ASP.NET_SessionId
+// weekly). Login flow capture is TBD — when wired, will auto-refresh.
+//
+// Flow:
+//   1. Pull Emitidos (all in one shot — for the firm's own e-CFs)
+//   2. Pull Recibidos per known supplier RNC (DGII forces per-issuer)
+//   3. Parse XLS export → upsert into client_received_ecfs
+//   4. Mark last_pull_at + last_pull_count
+async function _dgiiPullForClient(cred, supabase) {
+  const { searchEmitidos, exportEmitidosXlsx, exportRecibidosXlsx, searchRecibidos, loginToDgii } = await import('../lib/dgii-scraper.js')
+
+  // Resolve session cookie. Priority:
+  //   1. srv_user + srv_cred_cipher → fresh auto-login each pull
+  //   2. session_cookie (manually pasted) → use until expired
+  let sessionCookie = null
+  if (cred.srv_user && cred.srv_cred_cipher && cred.srv_cred_iv) {
+    try {
+      const pass = await _dgiiDecryptPass(cred.srv_cred_cipher, cred.srv_cred_iv)
+      const login = await loginToDgii({ user: cred.srv_user, pass })
+      if (!login.ok) {
+        await supabase.from('client_dgii_credentials').update({
+          last_pull_error: `auto_login_failed: ${login.error || 'unknown'}`,
+          status: 'failed', updated_at: new Date().toISOString(),
+        }).eq('id', cred.id)
+        return { count: 0 }
+      }
+      sessionCookie = login.sessionCookie
+      // Persist the new session cookie so subsequent calls in the same run can reuse it
+      await supabase.from('client_dgii_credentials').update({
+        session_cookie: sessionCookie,
+        session_cookie_expires_at: new Date(Date.now() + 36 * 3600 * 1000).toISOString(),
+      }).eq('id', cred.id)
+    } catch (e) {
+      await supabase.from('client_dgii_credentials').update({
+        last_pull_error: `auto_login_exception: ${e?.message || e}`,
+        updated_at: new Date().toISOString(),
+      }).eq('id', cred.id)
+      return { count: 0 }
+    }
+  } else if (cred.session_cookie) {
+    sessionCookie = cred.session_cookie
+  } else {
+    await supabase.from('client_dgii_credentials').update({
+      last_pull_error: 'no_credentials — guarda usuario/contraseña o ASP.NET_SessionId',
+      updated_at: new Date().toISOString(),
+    }).eq('id', cred.id)
+    return { count: 0 }
+  }
+
+
+  const XLSX = (await import('xlsx')).default
+
+  // Period: last 90 days (covers most monthly cierres + previous month tail)
+  const today = new Date()
+  const past = new Date(); past.setDate(past.getDate() - 90)
+  const iso = (d) => d.toISOString().slice(0, 10)
+  const fechaDesde = iso(past), fechaHasta = iso(today)
+
+  let totalRows = 0
+  const errors = []
+
+  // ── 1. Emitidos (sent) — single shot ──────────────────────────────────
+  try {
+    const search = await searchEmitidos({ sessionCookie, fechaDesde, fechaHasta })
+    if (search.errors.includes('session_expired')) {
+      await supabase.from('client_dgii_credentials').update({
+        last_pull_error: 'session_expired — refresca el ASP.NET_SessionId desde DGII',
+        status: 'failed',
+        updated_at: new Date().toISOString(),
+      }).eq('id', cred.id)
+      return { count: 0 }
+    }
+    if (search.rows.length > 0 && search.raw?.viewState) {
+      const xlsBuf = await exportEmitidosXlsx({
+        sessionCookie,
+        searchState: { viewState: search.raw.viewState, viewStateGenerator: search.raw.viewStateGenerator, eventValidation: search.raw.eventValidation },
+        fechaDesde, fechaHasta,
+      })
+      const wb = XLSX.read(xlsBuf, { type: 'buffer' })
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' })
+      // Map DGII columns → our schema. Emitidos go into a separate "sent_ecfs"
+      // bucket — for now, store them in client_received_ecfs with a kind flag.
+      const upserts = rows.map(r => ({
+        firm_business_id: cred.firm_business_id,
+        client_business_id: cred.client_business_id,
+        client_rnc: cred.rnc,
+        ecf_type: String(r['ENCF'] || '').slice(0, 3) || 'E32',
+        ncf: r['ENCF'] || null,
+        ncf_modificado: r['ENCF Modificado'] || null,
+        fecha_emision: parseDgiiDate(r['Fecha Comprobante']),
+        emisor_rnc: cred.rnc, // for Emitidos, the firm IS the emitter
+        monto_facturado: Number(r['Monto Total Gravado'] || 0),
+        itbis_facturado: Number(r['ITBIS Facturado'] || 0),
+        monto_total: Number(r['Monto Total Gravado'] || 0) + Number(r['ITBIS Facturado'] || 0),
+        source: 'dgii_pull',
+      }))
+      if (upserts.length) {
+        const { error } = await supabase.from('client_received_ecfs').upsert(upserts, {
+          onConflict: 'client_business_id,ncf', ignoreDuplicates: true,
+        })
+        if (error) errors.push(`emitidos upsert: ${error.message}`)
+        totalRows += upserts.length
+      }
+    }
+  } catch (e) { errors.push(`emitidos: ${e.message || e}`) }
+
+  // ── 2. Recibidos — iterate known supplier RNCs from history ───────────
+  try {
+    const { data: knownSuppliers } = await supabase
+      .from('accounting_comprobantes')
+      .select('rnc_contraparte')
+      .eq('business_id', cred.firm_business_id)
+      .eq('kind', 'compra')
+      .gte('fecha_comprobante', iso(new Date(today - 365 * 86400000))) // last 12 mo
+      .not('rnc_contraparte', 'is', null)
+      .limit(2000)
+    const uniqRncs = [...new Set((knownSuppliers || []).map(r => r.rnc_contraparte))].filter(Boolean)
+    for (const supplierRnc of uniqRncs) {
+      try {
+        const s = await searchRecibidos({ sessionCookie, rncEmisor: supplierRnc, fechaDesde, fechaHasta })
+        if (s.errors.includes('session_expired')) { errors.push('session_expired'); break }
+        if (s.rows.length === 0) continue
+        const xls = await exportRecibidosXlsx({
+          sessionCookie, rncEmisor: supplierRnc,
+          searchState: { viewState: s.raw.viewState, viewStateGenerator: s.raw.viewStateGenerator, eventValidation: s.raw.eventValidation },
+          fechaDesde, fechaHasta,
+        })
+        const wb = XLSX.read(xls, { type: 'buffer' })
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' })
+        const upserts = rows.map(r => ({
+          firm_business_id: cred.firm_business_id,
+          client_business_id: cred.client_business_id,
+          client_rnc: cred.rnc,
+          ecf_type: String(r['ENCF'] || r['NCF'] || '').slice(0, 3) || 'E31',
+          ncf: r['ENCF'] || r['NCF'] || null,
+          ncf_modificado: r['ENCF Modificado'] || r['NCF Modificado'] || null,
+          fecha_emision: parseDgiiDate(r['Fecha Comprobante']),
+          emisor_rnc: supplierRnc,
+          emisor_razon_social: r['Razón Social Emisor'] || r['Razon Social'] || null,
+          monto_facturado: Number(r['Monto Total Gravado'] || r['Monto Facturado'] || 0),
+          itbis_facturado: Number(r['ITBIS Facturado'] || 0),
+          monto_total: Number(r['Monto Total Gravado'] || 0) + Number(r['ITBIS Facturado'] || 0),
+          source: 'dgii_pull',
+        }))
+        if (upserts.length) {
+          const { error } = await supabase.from('client_received_ecfs').upsert(upserts, {
+            onConflict: 'client_business_id,ncf', ignoreDuplicates: true,
+          })
+          if (error) errors.push(`recibidos[${supplierRnc}]: ${error.message}`)
+          totalRows += upserts.length
+        }
+        // Polite delay between supplier queries to avoid DGII rate-limit
+        await new Promise(r => setTimeout(r, 500))
+      } catch (e) { errors.push(`recibidos[${supplierRnc}]: ${e.message || e}`) }
+    }
+  } catch (e) { errors.push(`recibidos sweep: ${e.message || e}`) }
+
+  // ── 3. Update status ──────────────────────────────────────────────────
+  await supabase.from('client_dgii_credentials').update({
+    last_pull_at: new Date().toISOString(),
+    last_pull_count: totalRows,
+    last_pull_error: errors.length ? errors.join(' | ').slice(0, 500) : null,
+    status: errors.includes('session_expired') ? 'failed' : 'active',
+    updated_at: new Date().toISOString(),
+  }).eq('id', cred.id)
+
+  return { count: totalRows, errors }
+}
+
+function parseDgiiDate(s) {
+  if (!s) return null
+  // DGII format: "23/04/2026 09:27:14 P.M." → take just the date part
+  const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+  if (!m) return null
+  return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`
+}
+
+async function handleCrmDelete(req, res) {
+  if (req.method !== 'POST' && req.method !== 'DELETE') return res.status(405).json({ error: 'Method not allowed' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { supabase } = auth
+  const id = req.body?.id || req.query?.id
+  if (!id) return res.status(400).json({ error: 'id required' })
+  try {
+    const { error } = await supabase.from('crm_leads').delete().eq('id', id)
+    if (error) throw error
+    return res.json({ ok: true })
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
 async function handleCrmCreate(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
   const auth = await requireAdmin(req)
@@ -688,7 +1329,7 @@ async function handleLicenses(req, res) {
     if (auth.error) return res.status(auth.status).json({ error: auth.error })
     try {
       const { data, error } = await auth.supabase.from('licenses')
-        .select('*, businesses(name, rnc, phone), plans(name, display_name)')
+        .select('*, businesses(name, rnc, phone, is_demo), plans(name, display_name)')
         .order('created_at', { ascending: false }).limit(500)
       if (error) throw error
       return res.json({ data: data || [] })
@@ -3294,4 +3935,133 @@ async function handleDbBackupStatus(req, res) {
     return res.status(500).json({ error: e.message || 'merge_failed' })
   }
   return res.json({ ok: true })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Contabilidad Vault — Supabase Storage (bucket: contabilidad-vault, private)
+// ─────────────────────────────────────────────────────────────────────────────
+// Path convention: <business_id>/<accounting_client_id|firma>/<yyyy>/<mm>/<uuid>-<filename>
+// Storage RLS scopes per-tenant via folder[1] == business_id. Server endpoints
+// use service role and re-validate JWT → business_id ownership before signing.
+const VAULT_BUCKET = 'contabilidad-vault'
+const VAULT_MAX_BYTES = 50 * 1024 * 1024 // 50 MB
+
+function sanitizeFilename(name) {
+  // Strip path separators + control chars; keep unicode letters/digits/dots/dashes/underscores/spaces.
+  const base = String(name || 'archivo').replace(/[\\/]/g, '_').replace(/[\x00-\x1f]/g, '').trim()
+  // Limit to 180 chars to leave headroom under storage key limits.
+  return (base.slice(0, 180) || 'archivo').replace(/^\.+/, '_')
+}
+
+function isSafeVaultKey(key, businessId) {
+  if (!key || typeof key !== 'string') return false
+  if (key.includes('..') || key.startsWith('/')) return false
+  if (!key.startsWith(businessId + '/')) return false
+  // Allow most printable chars but no NUL/control. Length cap.
+  if (key.length > 1024) return false
+  return !/[\x00-\x1f]/.test(key)
+}
+
+async function handleVaultUploadSign(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' })
+  const ip = callerIp(req)
+  if (!(await checkRateLimit(`vault_upload_sign:${ip}`, 60))) {
+    return res.status(429).json({ error: 'rate_limited' })
+  }
+  const auth = await ctbAuthUser(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+
+  const { filename, mime, size, accounting_client_id } = req.body || {}
+  if (!filename) return res.status(400).json({ error: 'missing_filename' })
+  if (size != null && Number(size) > VAULT_MAX_BYTES) {
+    return res.status(413).json({ error: 'too_large', max_bytes: VAULT_MAX_BYTES })
+  }
+
+  const safe = sanitizeFilename(filename)
+  const now = new Date()
+  const yyyy = String(now.getUTCFullYear())
+  const mm = String(now.getUTCMonth() + 1).padStart(2, '0')
+  const clientSeg = accounting_client_id ? String(accounting_client_id).replace(/[^A-Za-z0-9_\-]/g, '') || 'firma' : 'firma'
+  const id = (crypto.randomUUID && crypto.randomUUID()) || crypto.randomBytes(16).toString('hex')
+  const key = `${auth.businessId}/${clientSeg}/${yyyy}/${mm}/${id}-${safe}`
+
+  if (!isSafeVaultKey(key, auth.businessId)) return res.status(400).json({ error: 'bad_path' })
+
+  const { data, error } = await auth.supabase.storage.from(VAULT_BUCKET)
+    .createSignedUploadUrl(key, { upsert: false })
+  if (error) return res.status(500).json({ error: error.message || 'sign_failed' })
+
+  return res.json({
+    ok: true,
+    bucket: VAULT_BUCKET,
+    path: data.path || key,
+    token: data.token,
+    signedUrl: data.signedUrl,
+    expiresIn: 300,
+    contentType: mime || 'application/octet-stream',
+  })
+}
+
+async function handleVaultDownloadSign(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' })
+  const ip = callerIp(req)
+  if (!(await checkRateLimit(`vault_download_sign:${ip}`, 120))) {
+    return res.status(429).json({ error: 'rate_limited' })
+  }
+  const auth = await ctbAuthUser(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+
+  const { r2_key, download_filename } = req.body || {}
+  if (!isSafeVaultKey(r2_key, auth.businessId)) return res.status(400).json({ error: 'bad_path' })
+
+  const opts = { download: download_filename ? sanitizeFilename(download_filename) : true }
+  const { data, error } = await auth.supabase.storage.from(VAULT_BUCKET)
+    .createSignedUrl(r2_key, 3600, opts)
+  if (error) return res.status(500).json({ error: error.message || 'sign_failed' })
+
+  return res.json({ ok: true, signedUrl: data.signedUrl, expiresIn: 3600 })
+}
+
+async function handleVaultDelete(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' })
+  const ip = callerIp(req)
+  if (!(await checkRateLimit(`vault_delete:${ip}`, 60))) {
+    return res.status(429).json({ error: 'rate_limited' })
+  }
+  const auth = await ctbAuthUser(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+
+  // Admin-role gate: owner / manager / cfo / accountant only.
+  const { data: staff } = await auth.supabase.from('staff')
+    .select('role').eq('auth_user_id', auth.user.id).eq('business_id', auth.businessId)
+    .eq('active', true).maybeSingle()
+  const role = staff?.role || ''
+  if (!['owner', 'manager', 'cfo', 'accountant'].includes(role)) {
+    return res.status(403).json({ error: 'insufficient_role' })
+  }
+
+  const { document_id, r2_key } = req.body || {}
+  if (!document_id) return res.status(400).json({ error: 'missing_document_id' })
+
+  // Re-fetch row to confirm it belongs to the caller's business and capture the key
+  // even if the client lied about r2_key. Service role bypasses RLS.
+  const { data: row, error: rowErr } = await auth.supabase.from('accounting_documents')
+    .select('id, business_id, r2_key, filename, size')
+    .eq('id', document_id).maybeSingle()
+  if (rowErr) return res.status(500).json({ error: rowErr.message || 'lookup_failed' })
+  if (!row) return res.status(404).json({ error: 'not_found' })
+  if (row.business_id !== auth.businessId) return res.status(403).json({ error: 'wrong_tenant' })
+
+  const key = row.r2_key || r2_key
+  if (key) {
+    if (!isSafeVaultKey(key, auth.businessId)) return res.status(400).json({ error: 'bad_path' })
+    // Best-effort remove. If the object is already gone, delete the row anyway.
+    await auth.supabase.storage.from(VAULT_BUCKET).remove([key]).catch(() => {})
+  }
+
+  const { error: delErr } = await auth.supabase.from('accounting_documents')
+    .delete().eq('id', document_id).eq('business_id', auth.businessId)
+  if (delErr) return res.status(500).json({ error: delErr.message || 'delete_failed' })
+
+  return res.json({ ok: true, filename: row.filename, size: row.size, r2_key: key || null })
 }

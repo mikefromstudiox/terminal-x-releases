@@ -1,18 +1,22 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Loader2, Plus, Shield, ShieldCheck, Eye } from 'lucide-react'
+import { Loader2, Plus, Shield, ShieldCheck, Eye, Briefcase, Target } from 'lucide-react'
 import { listContainer, listItem } from '../motion'
 
 const ROLE_LABELS = {
-  super_admin: { es: 'Super Admin', en: 'Super Admin' },
-  admin:       { es: 'Admin',       en: 'Admin' },
-  support:     { es: 'Soporte',     en: 'Support' },
+  super_admin:   { es: 'Super Admin',       en: 'Super Admin' },
+  admin:         { es: 'Admin',             en: 'Admin' },
+  sales_manager: { es: 'Gerente de Ventas', en: 'Sales Manager' },
+  sales:         { es: 'Ventas / CRM',      en: 'Sales / CRM' },
+  support:       { es: 'Soporte',           en: 'Support' },
 }
 
 const ROLE_ICONS = {
-  super_admin: ShieldCheck,
-  admin:       Shield,
-  support:     Eye,
+  super_admin:   ShieldCheck,
+  admin:         Shield,
+  sales_manager: Briefcase,
+  sales:         Target,
+  support:       Eye,
 }
 
 export default function Team({ getToken, refreshToken, isDark, lang }) {
@@ -113,6 +117,8 @@ export default function Team({ getToken, refreshToken, isDark, lang }) {
               <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
                 className={`px-3.5 py-2.5 border rounded-xl text-[12px] outline-none transition-all focus:ring-2 ${inputBase}`}>
                 <option value="support">{L('Soporte', 'Support')}</option>
+                <option value="sales">{L('Ventas / CRM', 'Sales / CRM')}</option>
+                <option value="sales_manager">{L('Gerente de Ventas', 'Sales Manager')}</option>
                 <option value="admin">Admin</option>
                 <option value="super_admin">Super Admin</option>
               </select>

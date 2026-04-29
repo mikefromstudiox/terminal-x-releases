@@ -20,9 +20,9 @@ const TIER_PRICES = {
   facturacion: 'RD$995',
   facturacion_plus: 'RD$1,990',
   facturacion_unlimited: 'RD$2,990',
-  pro: 'RD$2,490',
-  pro_plus: 'RD$4,490',
-  pro_max: 'RD$6,990',
+  pro: 'RD$2,990',
+  pro_plus: 'RD$5,490',
+  pro_max: 'RD$9,990',
 }
 
 const CATEGORY_LABELS = {

@@ -45,9 +45,34 @@ export function contabilidadReporteEjecutivo({ phone, cliente, periodo } = {}) {
   return { url: buildWaLink(phone, text), text }
 }
 
+/**
+ * Doc-chase: ask the client to send specific missing documents (e-CFs,
+ * bank statements, payroll docs) for a period. Returns wa.me deep-link.
+ */
+export function contabilidadDocChase({ phone, cliente, periodo, missingDocs = [] } = {}) {
+  const docList = missingDocs.length
+    ? `\n\nMe faltan:\n${missingDocs.map(d => `• ${d}`).join('\n')}`
+    : ''
+  const text = `Hola ${cliente || ''}, para cerrar tu contabilidad de ${periodo || 'este período'} necesito que me envíes los siguientes documentos.${docList}\n\nGracias.`
+  return { url: buildWaLink(phone, text), text }
+}
+
+/**
+ * Specific NCF gap chase: list NCF numbers the contadora suspects exist but
+ * don't have the source PDF/XML for. Used when DGII Mis Comprobantes shows
+ * an e-CF that the client never forwarded.
+ */
+export function contabilidadNcfFaltantes({ phone, cliente, ncfs = [] } = {}) {
+  const list = ncfs.slice(0, 20).map(n => `• ${n}`).join('\n')
+  const text = `Hola ${cliente || ''}, en el portal DGII tengo registrados estos comprobantes pero no tengo el PDF o XML. Por favor envíamelos:\n\n${list}\n\nSi alguno está duplicado o ya no aplica, avísame.`
+  return { url: buildWaLink(phone, text), text }
+}
+
 export const contabilidadTemplates = {
   vencimiento:        contabilidadVencimiento,
   honorarioPendiente: contabilidadHonorarioPendiente,
   estadosListos:      contabilidadEstadosListos,
   reporteEjecutivo:   contabilidadReporteEjecutivo,
+  docChase:           contabilidadDocChase,
+  ncfFaltantes:       contabilidadNcfFaltantes,
 }

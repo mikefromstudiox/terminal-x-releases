@@ -1,0 +1,46 @@
+{
+  "deck": "industrias",
+  "source_html": "industrias.html",
+  "posts": [
+    {
+      "id": "cover",
+      "title": "Cover — Por Industria",
+      "caption_es": "Tu negocio no es como los demás. Tu POS tampoco debería serlo.\n\nTerminal X se adapta a 6 industrias distintas en una sola plataforma — sin parches, sin atajos, sin pagar por módulos que nunca usas.\n\n• Facturación, Carwash, Tiendas, Restaurantes, Servicios y Empresas con empleados\n• POS dominicano · Certificado DGII #42483 · Hecho en Santo Domingo\n• 7 días gratis · sin tarjeta · soporte por WhatsApp con el founder\n• Multi-dispositivo: desktop + web + móvil sincronizados\n\nEmpieza gratis 7 días → terminalxpos.com\nWhatsApp +1 809 828 2971\n\n#TerminalX #POSDominicana #DGII #ECF #SantoDomingo #PymesRD #EmprendedorDR #FacturacionElectronica #RepublicaDominicana #NegociosRD #SoftwareDominicano #StudioX"
+    },
+    {
+      "id": "facturacion",
+      "title": "Para Facturación",
+      "caption_es": "Si todavía estás peleando con el portal gratuito de DGII, estás perdiendo horas todos los meses.\n\nPlan Facturación de Terminal X — desde RD$995/mes — reemplaza el facturador manual con automatización real:\n\n• e-CF directo a DGII: E31, E32, E33, E34 y E43\n• RNC lookup con 900,000 registros locales (sin esperar la web de DGII)\n• Formato 606 (compras) y 607 (ventas) en 1 click\n• Multi-moneda DOP + USD\n• Certificado Viafirma incluido y administrado por nosotros\n• Cola offline 72 horas con IndicadorEnvioDiferido\n• Envío de factura por WhatsApp después del cobro\n• Creación de factura desde tu celular\n\nConectado a DGII en menos de 30 minutos. Sin gestoría, sin instalaciones complicadas.\n\nEmpieza gratis 7 días → terminalxpos.com/industrias/facturacion\nWhatsApp +1 809 828 2971\n\n#Facturacion #ECF #DGII #FacturacionElectronica #POSDominicana #Viafirma #RNC #Ley3223 #PymesRD #SantoDomingo #EmprendedorDR #ContabilidadRD"
+    },
+    {
+      "id": "carwash",
+      "title": "Para Carwash",
+      "caption_es": "El lavadero no se opera con un POS de tienda. Se opera con cola en vivo, lavadores y comisiones que cuadren.\n\nPlan Pro de Terminal X — desde RD$2,990/mes — está hecho específicamente para carwash dominicano:\n\n• Cola de servicios + asignación de lavadores + cálculo de comisiones\n• Multi-lavador con conduce dividido (cuando 2 trabajan el mismo carro)\n• Memberships con débito automático para clientes recurrentes\n• Búsqueda por placa de vehículo\n• Modo Kiosko con auto-bloqueo para el cajero\n• Tarjetas Code128 de autorización gerencial\n• Conteo físico con varianza PDF/CSV al cierre\n• Resumen diario al dueño por correo\n\nTe entrenamos al equipo en una visita. WhatsApp directo con el founder, sin call centers.\n\nEmpieza gratis 7 días → terminalxpos.com/industrias/carwash\nWhatsApp +1 809 828 2971\n\n#CarwashRD #Carwash #LavaderoDR #POSDominicana #PymesRD #SantoDomingo #DGII #ECF #EmprendedorDR #NegociosRD #ComisionesRD #TerminalX"
+    },
+    {
+      "id": "tiendas",
+      "title": "Para Tiendas",
+      "caption_es": "No es lo mismo vender ron que vender medicinas, ni dar fiado en un colmado que armar paquetes escolares en una papelería.\n\nPlan Pro PLUS de Terminal X — desde RD$5,490/mes — viene con 8 subtipos preconfigurados, cada uno con sus reglas:\n\n• Licorería — verificación de edad + depósito de envases\n• Farmacia — tracking de recetas controladas\n• Colmado — fiado + cobro mensual\n• Supermercado — mostrador deli + venta por peso\n• Ferretería — cotizaciones formales\n• Papelería — paquetes escolares\n• Boutique — variantes de talla y color\n• Otro — personalizable a tu medida\n\nBase común a las 8: códigos de barras + SKU, inventario con alertas de stock, importación CSV/TSV con auto-mapeo, lealtad Bronce/Plata/Oro, Pedidos Ya en 1-click, precios por cliente (cliente > PY > base) y e-CF DGII incluido.\n\nEmpieza gratis 7 días → terminalxpos.com/industrias/tiendas\nWhatsApp +1 809 828 2971\n\n#TiendasRD #ColmadosDR #LicoreriaRD #FarmaciasDR #FerreteriaRD #SupermercadoRD #BoutiqueRD #POSDominicana #DGII #ECF #PymesRD #EmprendedorDR"
+    },
+    {
+      "id": "restaurantes",
+      "title": "Para Restaurantes",
+      "caption_es": "Servicio en sala no se resuelve con una app de retail. Necesitas KDS, mesas, propinas y rutas de impresión que no fallen en hora pico.\n\nPlan Pro PLUS de Terminal X — desde RD$5,490/mes — está listo para servicio:\n\n• KDS para cocina con tickets activos\n• Manejo de mesas con cuenta abierta\n• SplitBill por ítem o por persona\n• MenuBuilder con modificadores\n• Propinas configurables\n• Comprobante E43 para gastos\n• Reportes de rotación, mesa y hora\n• Ruteo multi-impresora (cocina, bar, cajero)\n\nConfiguramos tu carta, modificadores y zonas de impresión antes de que abras la próxima jornada. e-CF DGII incluido.\n\nEmpieza gratis 7 días → terminalxpos.com/industrias/restaurantes\nWhatsApp +1 809 828 2971\n\n#RestaurantesRD #ComidaDR #ChefRD #POSDominicana #KDS #DGII #ECF #SantoDomingo #PymesRD #EmprendedorDR #GastronomiaRD #TerminalX"
+    },
+    {
+      "id": "servicios",
+      "title": "Para Servicios",
+      "caption_es": "Mecánica, salones, concesionarios y casas de empeño no necesitan 4 sistemas separados — necesitan 1 plataforma con 4 modos.\n\nPlan Pro PLUS de Terminal X — desde RD$5,490/mes — los cubre todos:\n\n• Mecánica: WorkOrders → ticket bridge + ServiceBays + historial vehicular\n• Salones y barberías: Citas + schedules de estilistas\n• Concesionarios: DealBuilder con ruteo automático a e-CF E31 cuando supera RD$250K\n• Casas de empeño: Loans + Collections + PawnItems\n• Inventario de vehículos para concesionario\n• Pipeline de ventas + test drives\n• Calculadora de financiamiento\n• Recibos formales con depreciación\n\nTe llamamos en 24 horas para configurar tu negocio. Mecánica, salón, concesionario o empeño — tú eliges el modo.\n\nEmpieza gratis 7 días → terminalxpos.com/industrias/servicios\nWhatsApp +1 809 828 2971\n\n#MecanicaRD #SalonesRD #BarberiasRD #ConcesionariosRD #EmpeñosRD #POSDominicana #DGII #ECF #SantoDomingo #PymesRD #EmprendedorDR #TerminalX"
+    },
+    {
+      "id": "empresas",
+      "title": "Para Empresas",
+      "caption_es": "Si tienes empleados, los cálculos de TSS, INFOTEP, ISR y cesantía son demasiado serios para hacerlos en Excel.\n\nPlan Pro MAX de Terminal X — desde RD$9,990/mes — automatiza la nómina dominicana entera:\n\n• Nómina quincenal y mensual masiva en 1 click\n• TSS automático (SFS + AFP con topes 2026)\n• INFOTEP 1% automático\n• ISR progresivo según escalas DGII 2026\n• Cesantía Ley 16-92 con pasivo acumulado\n• Reportes listos para portal TSS y DGII\n• Recibos de pago formales\n• Log automático de cambios de salario\n• Multi-ubicación + ticket locks\n• Dashboard remoto en tiempo real\n• Tarjetas Code128 de autorización gerencial\n• Auditoría completa con activity_log\n• Permisos por rol (owner / manager / cfo / cajero)\n\nControla tu operación desde cualquier lugar. Cumplimiento DR-2026 sin gestoría.\n\nEmpieza gratis 7 días → terminalxpos.com/industrias/empresas\nWhatsApp +1 809 828 2971\n\n#EmpresasRD #NominaRD #TSS #INFOTEP #ISR #DGII #Ley1692 #Cesantia #POSDominicana #PymesRD #SantoDomingo #EmprendedorDR"
+    },
+    {
+      "id": "cta-final",
+      "title": "Cierre",
+      "caption_es": "6 industrias. 1 POS. DGII Cert #42483.\n\nFacturación · Carwash · Tiendas · Restaurantes · Servicios · Empresas con empleados — todo corriendo sobre la misma plataforma certificada por DGII.\n\n• 7 días gratis sin tarjeta de crédito\n• Onboarding 1-on-1 por WhatsApp con el founder\n• Tu data lista antes de cobrar el primer ticket\n• Cancelas cuando quieras\n• Soporte directo, sin call centers\n\nNo importa cuál sea tu industria — empieza hoy.\n\nEmpieza gratis 7 días → terminalxpos.com\nWhatsApp +1 809 828 2971\n\nX Group Holdings SRL · Santo Domingo, RD\n\n#TerminalX #POSDominicana #DGII #ECF #FacturacionElectronica #SantoDomingo #PymesRD #EmprendedorDR #CarwashRD #RestaurantesRD #ColmadosRD #SalonesRD #ConcesionariosRD #NegociosRD"
+    }
+  ]
+}

@@ -128,6 +128,15 @@ function MembershipsRouter() {
   return <Memberships />
 }
 
+// Home route — branches by business_type so contabilidad clients land in the
+// accounting shell instead of the POS screen on their default authenticated
+// route. Other verticals keep the POS landing they always had.
+function HomeRoute() {
+  const { businessType } = useBusinessType()
+  if (businessType === 'contabilidad') return <Navigate to="/contabilidad" replace />
+  return <POS />
+}
+
 // ── Startup spinner ───────────────────────────────────────────────────────────
 function Spinner() {
   return (
@@ -270,8 +279,8 @@ export default function App() {
         </div>
       }>
       <Routes>
-        <Route path="/"                      element={<POS />} />
-        <Route path="/pos"                   element={<POS />} />
+        <Route path="/"                      element={<HomeRoute />} />
+        <Route path="/pos"                   element={<HomeRoute />} />
         <Route path="/queue"                 element={<Queue />} />
         <Route path="/clients"               element={<Clients />} />
         <Route path="/credits"               element={<ProtectedRoute element={<PlanGate feature="credits"><Credits /></PlanGate>} />} />
@@ -340,7 +349,8 @@ export default function App() {
         <Route path="/carniceria/mayoreo"   element={<ProtectedRoute element={<PlanGate feature="carniceria_mayoreo"><CarniceriaMayoreoOrders /></PlanGate>} />} />
         <Route path="/carniceria/resumen"   element={<ProtectedRoute element={<PlanGate feature="carniceria_resumen"><CarniceriaResumen /></PlanGate>} />} />
         {/* Contabilidad — firm-side accounting suite (Phase 1) */}
-        <Route path="/contabilidad/*"        element={<ProtectedRoute element={<PlanGate feature="contabilidad_inbox"><ContabilidadShell /></PlanGate>} />} />
+        <Route path="/contabilidad"          element={<ProtectedRoute element={<PlanGate feature="contabilidad_inbox"><ContabilidadShell /></PlanGate>} />} />
+        <Route path="/contabilidad/:tab"     element={<ProtectedRoute element={<PlanGate feature="contabilidad_inbox"><ContabilidadShell /></PlanGate>} />} />
         {/* Legacy routes — redirect to canonical destinations */}
         <Route path="/workers"               element={<Navigate to="/reports/workers" replace />} />
         <Route path="/services"              element={<Navigate to="/admin" replace />} />

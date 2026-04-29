@@ -64,14 +64,14 @@ function Cell({ value, isCrimson }) {
   if (value === false) {
     return (
       <span className="inline-flex items-center justify-center">
-        <X size={18} className={isCrimson ? 'text-white/40' : 'text-black/30 dark:text-white/30'} />
+        <X size={18} className={isCrimson ? 'text-[#b3001e]/50' : 'text-black/30'} />
       </span>
     )
   }
   if (value === true) {
     return (
       <span className="inline-flex items-center justify-center">
-        <Check size={18} className={isCrimson ? 'text-white' : 'text-[#b3001e]'} />
+        <Check size={18} className="text-[#b3001e]" />
       </span>
     )
   }
@@ -84,28 +84,28 @@ export default function DgiiComparison({ lang = 'es' }) {
   const t = HEAD[lang] || HEAD.es
 
   return (
-    <section id="dgii-comparison" className="relative bg-black text-white py-20 md:py-28 px-4 sm:px-6 lg:px-8">
+    <section id="dgii-comparison" className="relative bg-white text-black py-20 md:py-28 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-12 md:mb-16">
           <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">{t.eyebrow}</p>
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight leading-tight">{t.title}</h2>
-          <p className="mt-4 text-white/60 text-base sm:text-lg max-w-2xl mx-auto">{t.sub}</p>
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight leading-tight text-black">{t.title}</h2>
+          <p className="mt-4 text-black/60 text-base sm:text-lg max-w-2xl mx-auto">{t.sub}</p>
         </div>
 
         {/* Desktop / md+ table */}
-        <div className="hidden md:block rounded-2xl overflow-hidden border border-white/10">
-          <div className="grid grid-cols-12 bg-white/5 border-b border-white/10">
-            <div className="col-span-4 px-6 py-4 text-[11px] font-extrabold tracking-[2px] uppercase text-white/50">{t.colA}</div>
-            <div className="col-span-4 px-6 py-4 text-[11px] font-extrabold tracking-[2px] uppercase text-white/50 border-l border-white/10">{t.colB}</div>
-            <div className="col-span-4 px-6 py-4 text-[11px] font-extrabold tracking-[2px] uppercase text-white border-l border-[#b3001e]/40 bg-[#b3001e]/15">{t.colC}</div>
+        <div className="hidden md:block rounded-2xl overflow-hidden border border-black/10">
+          <div className="grid grid-cols-12 bg-black/[0.03] border-b border-black/10">
+            <div className="col-span-4 px-6 py-4 text-[11px] font-extrabold tracking-[2px] uppercase text-black/50">{t.colA}</div>
+            <div className="col-span-4 px-6 py-4 text-[11px] font-extrabold tracking-[2px] uppercase text-black/50 border-l border-black/10">{t.colB}</div>
+            <div className="col-span-4 px-6 py-4 text-[11px] font-extrabold tracking-[2px] uppercase text-white border-l border-[#b3001e]/40 bg-[#b3001e]">{t.colC}</div>
           </div>
           {rows.map((row, i) => (
-            <div key={i} className={`grid grid-cols-12 border-b border-white/5 ${i % 2 === 0 ? '' : 'bg-white/[0.02]'}`}>
-              <div className="col-span-4 px-6 py-4 text-sm font-semibold text-white">{row.cap}</div>
-              <div className="col-span-4 px-6 py-4 text-sm text-white/55 bg-white/5 border-l border-white/10 flex items-center">
+            <div key={i} className={`grid grid-cols-12 border-b border-black/5 ${i % 2 === 0 ? '' : 'bg-black/[0.02]'}`}>
+              <div className="col-span-4 px-6 py-4 text-sm font-semibold text-black">{row.cap}</div>
+              <div className="col-span-4 px-6 py-4 text-sm text-black/55 bg-black/[0.02] border-l border-black/10 flex items-center">
                 <Cell value={row.dgii} isCrimson={false} />
               </div>
-              <div className="col-span-4 px-6 py-4 text-sm text-white border-l border-[#b3001e]/40 bg-[#b3001e]/10 flex items-center">
+              <div className="col-span-4 px-6 py-4 text-sm text-black border-l border-[#b3001e]/40 bg-[#b3001e]/[0.08] flex items-center">
                 <Cell value={row.tx} isCrimson={true} />
               </div>
             </div>
@@ -115,16 +115,16 @@ export default function DgiiComparison({ lang = 'es' }) {
         {/* Mobile stacked cards */}
         <div className="md:hidden space-y-4">
           {rows.map((row, i) => (
-            <div key={i} className="rounded-xl border border-white/10 overflow-hidden">
-              <div className="px-4 py-3 bg-white/5 text-sm font-bold text-white">{row.cap}</div>
-              <div className="grid grid-cols-2 divide-x divide-white/10">
-                <div className="px-4 py-3 bg-white/5">
-                  <p className="text-[10px] font-extrabold tracking-[2px] uppercase text-white/40 mb-1.5">{t.colB}</p>
-                  <div className="text-sm text-white/60"><Cell value={row.dgii} isCrimson={false} /></div>
+            <div key={i} className="rounded-xl border border-black/10 overflow-hidden">
+              <div className="px-4 py-3 bg-black/[0.03] text-sm font-bold text-black">{row.cap}</div>
+              <div className="grid grid-cols-2 divide-x divide-black/10">
+                <div className="px-4 py-3 bg-black/[0.02]">
+                  <p className="text-[10px] font-extrabold tracking-[2px] uppercase text-black/40 mb-1.5">{t.colB}</p>
+                  <div className="text-sm text-black/60"><Cell value={row.dgii} isCrimson={false} /></div>
                 </div>
-                <div className="px-4 py-3 bg-[#b3001e]/15">
-                  <p className="text-[10px] font-extrabold tracking-[2px] uppercase text-white/70 mb-1.5">{t.colC}</p>
-                  <div className="text-sm text-white"><Cell value={row.tx} isCrimson={true} /></div>
+                <div className="px-4 py-3 bg-[#b3001e]/[0.08]">
+                  <p className="text-[10px] font-extrabold tracking-[2px] uppercase text-[#b3001e] mb-1.5">{t.colC}</p>
+                  <div className="text-sm text-black"><Cell value={row.tx} isCrimson={true} /></div>
                 </div>
               </div>
             </div>

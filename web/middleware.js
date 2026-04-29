@@ -53,7 +53,7 @@ function buildCsp(nonce) {
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline' https:`,
     // Tailwind + injected styles still need unsafe-inline for now.
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https://*.supabase.co https://www.google-analytics.com",
+    "img-src 'self' data: blob: https://*.supabase.co https://www.google-analytics.com https://www.googletagmanager.com",
     "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://www.google-analytics.com https://www.googletagmanager.com https://region1.google-analytics.com",
     "font-src 'self' data:",
     "frame-src 'none'",

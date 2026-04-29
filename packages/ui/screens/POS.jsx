@@ -1796,6 +1796,21 @@ function RetailPOS() {
   const [toast, setToast] = useState(null)
   const [cobrarModal, setCobrarModal] = useState(null)
   const [tab, setTab] = useState('products')  // 'products' | 'services'
+  // v2.16.10 — Ofertas (bundle promos). Pro PLUS+ only. Live list of active
+  // bundles, refreshed on mount and after each ticket close.
+  const ofertasEnabled = hasFeature('ofertas')
+  const [ofertas, setOfertas] = useState([])
+  useEffect(() => {
+    if (!ofertasEnabled) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await api?.ofertas?.list?.({ activeOnly: true })
+        if (!cancelled) setOfertas(Array.isArray(rows) ? rows : [])
+      } catch { if (!cancelled) setOfertas([]) }
+    })()
+    return () => { cancelled = true }
+  }, [api, ofertasEnabled])
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searching, setSearching] = useState(false)
@@ -2110,6 +2125,12 @@ function RetailPOS() {
       const did = deviceIdRef.current
       if (bid && did) releaseAll(bid, did).catch(() => {})
     }
+    // v2.16.10 — refresh ofertas availability after each ticket close.
+    if (ofertasEnabled) {
+      api?.ofertas?.list?.({ activeOnly: true })
+        .then(rows => setOfertas(Array.isArray(rows) ? rows : []))
+        .catch(() => {})
+    }
   }
 
   // ── Licorería quick-sells: load top-N active products ────────────────────
@@ -2301,6 +2322,115 @@ function RetailPOS() {
     }
   }
 
+  // ── v2.16.10 — Ofertas (bundle promos) ────────────────────────────────────
+  // Click an active oferta tile → push N component lines + 1-2 discount lines
+  // (split across taxable vs exempt) so ITBIS math stays correct. Every line
+  // shares an `oferta_group_id` so the cart can render them grouped and remove
+  // the whole group when the cashier deletes any line. Persists via
+  // `oferta_supabase_id` on each ticket_item.
+  function addOfertaToCart(oferta) {
+    if (!oferta) return
+    const components = (oferta.items || [])
+    if (components.length === 0) {
+      flash(lang === 'es' ? 'Oferta sin componentes' : 'Bundle has no components')
+      return
+    }
+    // Available units already accounts for inventory quantity. Reduce by what
+    // other oferta groups in cart already consume from the same components.
+    const pendingByComponent = {}
+    for (const line of cart) {
+      if (!line.oferta_group_id) continue
+      const key = line._clientOverrideKey || line.inventory_item_supabase_id
+      if (key) pendingByComponent[key] = (pendingByComponent[key] || 0) + Number(line.qty || 0)
+    }
+    let blockedComponent = null
+    for (const c of components) {
+      const key = c.inventory_item_supabase_id
+      if (!key) continue // services don't decrement stock
+      const have = Number(c.available_units ?? Infinity)
+      const used = pendingByComponent[key] || 0
+      if (have - used < Number(c.qty || 1)) { blockedComponent = c; break }
+    }
+    const liveAvailable = Number(oferta.oferta_available ?? 0)
+    if (liveAvailable < 1 || blockedComponent) {
+      const name = blockedComponent?.name || components[0]?.name || ''
+      flash(lang === 'es' ? `Sin stock — falta ${name}` : `Out of stock — missing ${name}`)
+      return
+    }
+
+    const groupId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `og-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const newLines = []
+    let subtotal = 0
+    let taxableSub = 0
+    for (const c of components) {
+      const qty = Number(c.qty || 1)
+      const basePrice = Number(c.base_price || 0)
+      const aplica = c.aplica_itbis ?? 1
+      const lineSub = basePrice * qty
+      subtotal += lineSub
+      if (aplica) taxableSub += lineSub
+      newLines.push({
+        id: `oferta-${groupId}-${c.service_supabase_id || c.inventory_item_supabase_id || newLines.length}`,
+        inventory_item_id: null,
+        inventory_item_supabase_id: c.inventory_item_supabase_id || null,
+        service_id: null,
+        service_supabase_id: c.service_supabase_id || null,
+        _clientOverrideKey: c.inventory_item_supabase_id || null,
+        sku: '',
+        name: c.name,
+        price: basePrice,
+        cost: 0,
+        qty,
+        aplica_itbis: aplica,
+        is_wash: 0,
+        oferta_supabase_id: oferta.supabase_id,
+        oferta_group_id: groupId,
+        oferta_name: oferta.name,
+      })
+    }
+    const ofertaPrice = Number(oferta.price || 0)
+    const discountTotal = ofertaPrice - subtotal // negative when oferta saves money
+    if (discountTotal !== 0 && subtotal > 0) {
+      const taxableShare = taxableSub / subtotal
+      const discountTaxable = Number((discountTotal * taxableShare).toFixed(2))
+      const discountExempt = Number((discountTotal - discountTaxable).toFixed(2))
+      const baseDiscount = {
+        inventory_item_id: null,
+        service_id: null,
+        sku: '',
+        cost: 0,
+        qty: 1,
+        is_wash: 0,
+        _ofertaDiscount: true,
+        oferta_supabase_id: oferta.supabase_id,
+        oferta_group_id: groupId,
+        oferta_name: oferta.name,
+      }
+      if (discountTaxable !== 0) {
+        newLines.push({
+          ...baseDiscount,
+          id: `oferta-disc-tx-${groupId}`,
+          name: `${lang === 'es' ? 'Descuento Oferta' : 'Bundle discount'}: ${oferta.name}`,
+          price: discountTaxable,
+          aplica_itbis: 1,
+        })
+      }
+      if (discountExempt !== 0) {
+        newLines.push({
+          ...baseDiscount,
+          id: `oferta-disc-ex-${groupId}`,
+          name: discountTaxable !== 0
+            ? `${lang === 'es' ? 'Descuento Oferta (ex.)' : 'Bundle discount (ex.)'}: ${oferta.name}`
+            : `${lang === 'es' ? 'Descuento Oferta' : 'Bundle discount'}: ${oferta.name}`,
+          price: discountExempt,
+          aplica_itbis: 0,
+        })
+      }
+    }
+    setCart(prev => [...prev, ...newLines])
+    flash(lang === 'es' ? `Oferta agregada: ${oferta.name}` : `Bundle added: ${oferta.name}`)
+  }
+
   // Expand cart → final line items, appending synthetic bottle-deposit lines
   // for licoreria. Each deposit line is non-ITBIS, qty-matched, and carries a
   // `bottle_deposit: true` flag so printer / PDF / reports can segregate it.
@@ -2405,6 +2535,10 @@ function RetailPOS() {
         if (bid && did && itemSid) {
           releaseLock(bid, itemSid, did).catch(() => {})
         }
+      }
+      // v2.16.10 — Removing any line of an oferta group removes the whole bundle.
+      if (victim?.oferta_group_id) {
+        return prev.filter(i => i.oferta_group_id !== victim.oferta_group_id)
       }
       return prev.filter(i => i.id !== cartId)
     })
@@ -2515,6 +2649,8 @@ function RetailPOS() {
           weight:            i.weight != null ? Number(i.weight) : null,
           unit:              i.unit || null,
           price_per_unit:    i.price_per_unit != null ? Number(i.price_per_unit) : null,
+          // v2.16.10 — bundle promo grouping; backend persists in ticket_items.
+          oferta_supabase_id: i.oferta_supabase_id || null,
         })),
         comentario: (Number(paymentData.descuento || 0) > 0 && paymentData.descuentoReason)
                      ? `[Descuento: ${paymentData.descuentoReason}] ${paymentData.comentario || ''}`.trim()
@@ -2727,6 +2863,81 @@ function RetailPOS() {
             </div>
           )}
 
+          {/* v2.16.10 — Ofertas (bundle promos). Pro PLUS+ only. Renders above
+              the product grid as a horizontal scroller of crimson-accent tiles. */}
+          {tab === 'products' && !searchQuery && ofertasEnabled && ofertas.length > 0 && (
+            <div className="mb-5">
+              <div className="flex items-center gap-2 mb-2">
+                <Sparkles size={13} className="text-[#b3001e]" />
+                <p className="text-[11px] font-bold text-slate-500 dark:text-white/50 uppercase tracking-wider">
+                  {lang === 'es' ? 'Ofertas' : 'Bundles'}
+                </p>
+              </div>
+              <div className={`grid ${gridCols} gap-2`}>
+                {ofertas.map(o => {
+                  const available = Number(o.oferta_available ?? 0)
+                  const inStock = available >= 1
+                  const components = o.items || []
+                  const subtotal = components.reduce((s, c) => s + Number(c.base_price || 0) * Number(c.qty || 1), 0)
+                  const saves = Math.max(0, subtotal - Number(o.price || 0))
+                  const firstMissing = components.find(c => c.inventory_item_supabase_id && Number(c.available_units ?? Infinity) < Number(c.qty || 1))
+                  const tooltip = !inStock && firstMissing
+                    ? (lang === 'es' ? `Sin stock — falta ${firstMissing.name}` : `Out of stock — missing ${firstMissing.name}`)
+                    : ''
+                  return (
+                    <button
+                      key={o.supabase_id}
+                      onClick={() => inStock && addOfertaToCart(o)}
+                      disabled={!inStock}
+                      title={tooltip}
+                      className={`group relative overflow-hidden flex flex-col justify-between p-4 md:p-5 rounded-2xl border text-left transition-all duration-200 ease-out min-h-[136px] will-change-transform ${inStock
+                        ? 'border-[#b3001e]/50 bg-gradient-to-br from-[#b3001e]/[0.07] via-white to-white dark:from-[#b3001e]/20 dark:via-white/[0.04] dark:to-white/[0.03] hover:border-[#b3001e] hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-12px_rgba(179,0,30,0.55)] active:translate-y-0 active:scale-[0.99]'
+                        : 'border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 opacity-50 cursor-not-allowed'}`}>
+                      <span className={`absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#b3001e] to-transparent ${inStock ? 'opacity-70 group-hover:opacity-100' : 'opacity-30'} transition-opacity duration-300`} />
+                      <div className="relative flex items-start justify-between gap-2 mb-1.5">
+                        <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-[0.14em] px-1.5 py-0.5 rounded-md bg-[#b3001e] text-white shadow-[0_4px_10px_-2px_rgba(179,0,30,0.6)]">
+                          <Sparkles size={9} strokeWidth={3} /> OFERTA
+                        </span>
+                        {inStock ? (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                            {available} {lang === 'es' ? 'disp.' : 'avail.'}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-50 dark:bg-red-500/15 text-red-600 dark:text-red-400">
+                            {lang === 'es' ? 'Sin stock' : 'Out'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative flex-1">
+                        <p className="text-[14px] md:text-[15px] font-semibold text-slate-800 dark:text-white leading-snug line-clamp-2 tracking-[-0.01em]">{o.name}</p>
+                        {components.length > 0 && (
+                          <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1 line-clamp-1">
+                            {components.map(c => `${c.name}×${c.qty}`).join(' + ')}
+                          </p>
+                        )}
+                      </div>
+                      <div className="relative mt-2 pt-2.5 border-t border-dashed border-[#b3001e]/20 dark:border-white/10">
+                        {saves > 0 && (
+                          <div className="flex justify-end">
+                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                              −{fmtRD(saves)}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex justify-end items-baseline gap-1.5">
+                          <span className="text-[11px] font-medium text-slate-400 dark:text-white/40 uppercase tracking-[0.1em]">RD$</span>
+                          <span className="font-black tabular-nums leading-none tracking-[-0.02em] text-[26px] text-[#b3001e]">
+                            {Number(o.price || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Licorería — quick-sells bestseller grid above inventory */}
           {tab === 'products' && !searchQuery && isLicoreria && quickSells.length > 0 && (
             <div className="mb-5">
@@ -2910,7 +3121,14 @@ function RetailPOS() {
                 <div key={item.id} className="group relative py-2.5 px-2 rounded-xl border border-slate-100 dark:border-white/5 hover:border-[#b3001e]/30 dark:hover:border-[#b3001e]/40 bg-white dark:bg-white/[0.02] transition-colors">
                   {/* Row 1 — name + delete */}
                   <div className="flex items-start gap-2 mb-1.5">
-                    <p className="flex-1 text-[13px] font-semibold text-slate-800 dark:text-white leading-tight line-clamp-2">{item.name}</p>
+                    <div className="flex-1 min-w-0">
+                      {item.oferta_group_id && (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-[0.14em] px-1.5 py-0.5 rounded-md bg-[#b3001e] text-white mb-1">
+                          <Sparkles size={9} strokeWidth={3} /> OFERTA
+                        </span>
+                      )}
+                      <p className="text-[13px] font-semibold text-slate-800 dark:text-white leading-tight line-clamp-2">{item.name}</p>
+                    </div>
                     {isCarniceria && (
                       <PrepNotesButton
                         value={item.preparation_notes || ''}
@@ -2977,7 +3195,7 @@ function RetailPOS() {
                       )}
                       <p className="text-[14px] font-black text-[#b3001e] tabular-nums leading-none mt-0.5">{fmtRD(item.price * (item.qty || 1))}</p>
                     </div>
-                    {item.weight == null && (
+                    {item.weight == null && !item._ofertaDiscount && !item.oferta_group_id && (
                       <div className="flex items-center gap-0 rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 bg-white dark:bg-black shrink-0">
                         <button onClick={() => item.qty <= 1 ? removeFromCart(item.id) : updateQty(item.id, -1)}
                           className="w-9 h-9 flex items-center justify-center text-[#b3001e] hover:bg-[#b3001e] hover:text-white active:scale-95 transition-all"

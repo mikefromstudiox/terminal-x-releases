@@ -61,6 +61,9 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
   const [digestStatus, setDigestStatus] = useState(null)
   const [digestSending, setDigestSending] = useState(false)
   const [digestMsg, setDigestMsg] = useState(null)
+  const [errors, setErrors] = useState(null)
+  const [errorsLoading, setErrorsLoading] = useState(false)
+  const [showResolved, setShowResolved] = useState(false)
   // e-CF certificate rotation history — loaded lazily when the section expands.
   const [certHistory, setCertHistory] = useState(null)
   const [certHistoryLoading, setCertHistoryLoading] = useState(false)
@@ -84,6 +87,29 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
   }
 
   useEffect(() => { load() }, [id])
+
+  async function loadErrors() {
+    setErrorsLoading(true)
+    try {
+      let token = await refreshToken?.(); if (!token) token = getToken()
+      const url = `/api/panel?action=errors_list&business_id=${id}&limit=200${showResolved ? '' : '&unresolved=1'}`
+      const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } })
+      if (resp.ok) setErrors((await resp.json()).data || [])
+    } catch (e) { console.error('loadErrors:', e) }
+    setErrorsLoading(false)
+  }
+
+  async function resolveError(errId, resolution) {
+    try {
+      let token = await refreshToken?.(); if (!token) token = getToken()
+      await fetch('/api/panel?action=errors_resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ id: errId, resolution: resolution || null }),
+      })
+      setErrors(null); loadErrors()
+    } catch (_) {}
+  }
 
   async function loadLoyalty() {
     setLoyaltyLoading(true)
@@ -148,6 +174,7 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
   useEffect(() => {
     if (tab === 'loyalty' && !loyalty && !loyaltyLoading) loadLoyalty()
     if (tab === 'digests' && !digestStatus) loadDigestStatus()
+    if (tab === 'errors' && errors === null && !errorsLoading) loadErrors()
   }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function deleteStaff(s) {
@@ -321,6 +348,7 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
         {[
           { k: 'overview', es: 'Resumen',       en: 'Overview' },
           { k: 'config',   es: 'Configuracion', en: 'Configuration' },
+          { k: 'errors',   es: 'Errores',       en: 'Errors' },
           { k: 'loyalty',  es: 'Lealtad',       en: 'Loyalty' },
           { k: 'digests',  es: 'Digests',       en: 'Digests' },
         ].map(({ k, es, en }) => (
@@ -356,6 +384,101 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
             transition={{ duration: 0.25 }}
           >
             <ConfigEditor businessId={id} getToken={getToken} onRefresh={load} isDark={isDark} plan={license?.plans?.name || biz?.plan || 'pro'} />
+          </motion.div>
+        )}
+
+        {tab === 'errors' && (
+          <motion.div
+            key="errors"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.25 }}
+            className="space-y-4"
+          >
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h2 className={`text-[16px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>{L('Errores reportados', 'Reported errors')}</h2>
+                <p className={`text-[11px] mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                  {L('Capturados automaticamente del navegador del cliente', 'Auto-captured from the client browser')}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setShowResolved(s => !s); setErrors(null) }}
+                  className={`px-3 py-1.5 rounded-full text-[11px] font-bold border transition-colors ${
+                    showResolved
+                      ? isDark ? 'bg-white/10 border-white/20 text-white' : 'bg-black/5 border-black/15 text-black'
+                      : isDark ? 'border-white/10 text-white/40 hover:text-white/70' : 'border-black/10 text-black/40 hover:text-black/70'
+                  }`}
+                >
+                  {showResolved ? L('Mostrando todos', 'Showing all') : L('Solo sin resolver', 'Unresolved only')}
+                </button>
+                <button
+                  onClick={() => { setErrors(null); loadErrors() }}
+                  className={`px-3 py-1.5 rounded-full text-[11px] font-bold transition-colors ${isDark ? 'text-white/60 hover:text-white hover:bg-white/5' : 'text-black/60 hover:text-black hover:bg-black/5'}`}
+                >
+                  {L('Refrescar', 'Refresh')}
+                </button>
+              </div>
+            </div>
+
+            {errorsLoading ? (
+              <div className="flex items-center justify-center py-12"><Loader2 size={18} className="animate-spin text-[#b3001e]" /></div>
+            ) : !errors || errors.length === 0 ? (
+              <div className={`rounded-2xl border p-8 text-center text-[12px] ${isDark ? 'border-white/10 bg-white/[0.03] text-white/50' : 'border-black/10 bg-white text-black/50'}`}>
+                {L('Sin errores reportados.', 'No errors reported.')}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {errors.map(e => {
+                  const sevColor = e.severity === 'error' ? 'text-red-400 border-red-500/30 bg-red-500/5'
+                                  : e.severity === 'warning' ? 'text-amber-400 border-amber-500/30 bg-amber-500/5'
+                                  : 'text-blue-400 border-blue-500/30 bg-blue-500/5'
+                  return (
+                    <div key={e.id} className={`rounded-xl border p-4 ${e.resolved_at ? 'opacity-60' : ''} ${isDark ? 'border-white/10 bg-white/[0.03]' : 'border-black/10 bg-white'}`}>
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${sevColor}`}>{e.severity}</span>
+                            <span className={`text-[10px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                              {new Date(e.created_at).toLocaleString('es-DO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            {e.app_version && <span className={`text-[10px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>v{e.app_version}</span>}
+                            {e.resolved_at && <span className="text-[10px] font-bold text-emerald-400">{L('Resuelto', 'Resolved')}</span>}
+                          </div>
+                          <p className={`text-[13px] font-bold break-words ${isDark ? 'text-white' : 'text-black'}`}>{e.message}</p>
+                          {e.route && <p className={`text-[11px] mt-1 font-mono ${isDark ? 'text-white/40' : 'text-black/40'}`}>{e.route}</p>}
+                          {e.stack && (
+                            <details className="mt-2">
+                              <summary className={`text-[11px] cursor-pointer ${isDark ? 'text-white/50 hover:text-white/80' : 'text-black/50 hover:text-black/80'}`}>{L('Stack trace', 'Stack trace')}</summary>
+                              <pre className={`mt-2 text-[10px] font-mono whitespace-pre-wrap break-all p-2 rounded ${isDark ? 'bg-black/40 text-white/60' : 'bg-black/5 text-black/60'}`}>{e.stack}</pre>
+                            </details>
+                          )}
+                          {e.user_agent && <p className={`text-[10px] mt-1 truncate ${isDark ? 'text-white/30' : 'text-black/30'}`}>{e.user_agent}</p>}
+                        </div>
+                        {!e.resolved_at && (
+                          <button
+                            onClick={() => {
+                              const note = window.prompt(L('Nota de resolucion (opcional):', 'Resolution note (optional):'), '')
+                              if (note !== null) resolveError(e.id, note)
+                            }}
+                            className="shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-colors"
+                          >
+                            {L('Marcar resuelto', 'Mark resolved')}
+                          </button>
+                        )}
+                      </div>
+                      {e.resolution && (
+                        <p className={`text-[11px] italic mt-2 pt-2 border-t ${isDark ? 'border-white/10 text-white/50' : 'border-black/10 text-black/50'}`}>
+                          {e.resolution}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </motion.div>
         )}
 

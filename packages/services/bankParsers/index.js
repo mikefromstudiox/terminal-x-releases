@@ -7,8 +7,9 @@
 //   SUPPORTED_BANKS         — entries the UI may show as "selectable now"
 //   COMING_SOON_BANKS       — entries the UI may show as "Próximamente"
 //
-// Phase 2 Slice 3 ship: OFX-only via Scotiabank + Banco Popular.
-// BHD León + Banreservas return "not yet supported" until we receive samples.
+// Phase 3 ship (2026-04-27): all 4 banks live.
+//   - Scotiabank, Banco Popular: OFX
+//   - BHD León, Banreservas: CSV (generic DR-bank parser)
 
 import scotiabank from './scotiabank.js'
 import bancoPopular from './bancoPopular.js'
@@ -30,8 +31,8 @@ export const BANK_LABELS = {
   otro:          'Otro',
 }
 
-export const SUPPORTED_BANKS   = ['scotiabank', 'banco_popular']
-export const COMING_SOON_BANKS = ['bhd_leon', 'banreservas']
+export const SUPPORTED_BANKS   = ['scotiabank', 'banco_popular', 'bhd_leon', 'banreservas']
+export const COMING_SOON_BANKS = []
 
 /**
  * Sniff content for OFX format. Returns null when fingerprint not recognized
@@ -42,6 +43,17 @@ export function detectFormat(content) {
   const head = content.slice(0, 512).toUpperCase()
   if (head.includes('OFXHEADER') || /<\?XML/.test(head) || head.includes('<OFX>')) {
     return { bank: null, format: 'ofx' }
+  }
+  // CSV heuristic — first 5 non-empty lines have at least 3 commas/pipes/tabs each
+  const lines = content.split(/\r?\n/).filter(l => l.trim()).slice(0, 5)
+  if (lines.length >= 2) {
+    const sepCounts = lines.map(l => Math.max(
+      (l.match(/,/g) || []).length,
+      (l.match(/;/g) || []).length,
+      (l.match(/\|/g) || []).length,
+      (l.match(/\t/g) || []).length,
+    ))
+    if (sepCounts.every(c => c >= 3)) return { bank: null, format: 'csv' }
   }
   return null
 }

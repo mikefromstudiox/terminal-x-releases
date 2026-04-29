@@ -1965,6 +1965,49 @@ function init(userDataPath, options = {}) {
     `CREATE TRIGGER IF NOT EXISTS trg_service_recipe_items_updated_at
        AFTER UPDATE ON service_recipe_items FOR EACH ROW
        BEGIN UPDATE service_recipe_items SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    // v2.16.x — Ofertas (product bundles): bundle multiple services / inventory
+    // items at a custom promo price. At sale time POS explodes into component
+    // ticket_items + a discount line, with each line tagged via
+    // ticket_items.oferta_supabase_id for reporting / undo grouping.
+    `CREATE TABLE IF NOT EXISTS ofertas (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id   TEXT UNIQUE,
+      business_id   TEXT,
+      name          TEXT NOT NULL,
+      description   TEXT,
+      price         REAL NOT NULL,
+      active        INTEGER NOT NULL DEFAULT 1,
+      starts_at     TEXT,
+      ends_at       TEXT,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_ofertas_biz_active ON ofertas(business_id, active)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_ofertas_updated_at
+       AFTER UPDATE ON ofertas FOR EACH ROW
+       BEGIN UPDATE ofertas SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    `CREATE TABLE IF NOT EXISTS oferta_items (
+      id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                 TEXT UNIQUE,
+      business_id                 TEXT,
+      oferta_supabase_id          TEXT NOT NULL,
+      service_supabase_id         TEXT,
+      inventory_item_supabase_id  TEXT,
+      qty                         REAL NOT NULL DEFAULT 1,
+      created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_oferta_items_oferta ON oferta_items(oferta_supabase_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_oferta_items_biz ON oferta_items(business_id)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_oferta_items_updated_at
+       AFTER UPDATE ON oferta_items FOR EACH ROW
+       BEGIN UPDATE oferta_items SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    // ticket_items.oferta_supabase_id — tag each cart line with the parent
+    // oferta so a single bundle sale can be reported / undone as a unit.
+    "ALTER TABLE ticket_items ADD COLUMN oferta_supabase_id TEXT",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -2350,6 +2393,8 @@ function init(userDataPath, options = {}) {
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_inv_period ON accounting_billing_invoices(period_year DESC, period_month DESC)') } catch {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_inv_client ON accounting_billing_invoices(accounting_client_id)') } catch {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_acc_inv_status ON accounting_billing_invoices(status)') } catch {}
+  try { db.exec('ALTER TABLE accounting_billing_invoices ADD COLUMN late_fee_amount REAL NOT NULL DEFAULT 0') } catch {}
+  try { db.exec('ALTER TABLE accounting_billing_invoices ADD COLUMN paid_late INTEGER NOT NULL DEFAULT 0') } catch {}
 
   db.exec(`CREATE TABLE IF NOT EXISTS accounting_csv_mappings (
     id                          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3853,9 +3898,14 @@ function empresaGet() {
 }
 function empresaSave(data) {
   if (!db) return
-  const allowed = ['name', 'rnc', 'address', 'phone', 'email', 'logo', 'settings', 'plan', 'mora_rate_daily']
+  const allowed = ['name', 'rnc', 'address', 'phone', 'email', 'logo', 'settings', 'plan', 'mora_rate_daily', 'updated_at']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
+  // Stamp updated_at on every save so sync.js LWW pull won't clobber a fresh
+  // local edit before its async push has completed (user-close race). Caller
+  // can pass an explicit updated_at to override (e.g. pullBusinessMeta carrying
+  // remote's timestamp through). Fresh local edits always get NOW.
+  if (!('updated_at' in patch)) patch.updated_at = new Date().toISOString()
 
   // Normalise the logo field. The renderer sends it as a `data:image/...;base64,...`
   // string from FileReader. If we just store that as-is, SQLite writes the UTF-8
@@ -3939,6 +3989,73 @@ function setSetting(key, value) {
       device_hwid     = excluded.device_hwid,
       updated_at      = datetime('now')
   `).run(key, String(value), bizId, uuid, scope.is_device_local, scope.device_hwid)
+}
+
+// ── PRODUCTION GATE ───────────────────────────────────────────────────────────
+// Master TEST → LIVE switch. While `go_live_date` is empty or in the future,
+// the POS is in TEST MODE: tickets are flagged is_test=1, no commissions
+// accrue, no client credit grants, no cloud push of sales rows, no DGII
+// submission. Once the date is reached and goLiveCommit() runs, all is_test
+// rows are wiped and the POS goes live.
+function isProductionLive() {
+  if (!db) return false
+  try {
+    const row = db.prepare("SELECT value FROM app_settings WHERE key='go_live_date'").get()
+    const v = row?.value
+    if (!v) return false
+    // ISO date YYYY-MM-DD; compare date-only against local today.
+    const today = new Date(); today.setHours(0,0,0,0)
+    const d = new Date(`${v}T00:00:00`)
+    if (Number.isNaN(d.getTime())) return false
+    return d.getTime() <= today.getTime()
+  } catch { return false }
+}
+
+function testDataCount() {
+  if (!db) return { tickets: 0, items: 0, payments: 0 }
+  try {
+    return {
+      tickets:  db.prepare('SELECT COUNT(*) c FROM tickets WHERE is_test=1').get()?.c || 0,
+      items:    db.prepare('SELECT COUNT(*) c FROM ticket_items WHERE ticket_id IN (SELECT id FROM tickets WHERE is_test=1)').get()?.c || 0,
+      payments: (() => {
+        try { return db.prepare('SELECT COUNT(*) c FROM ticket_payments WHERE ticket_id IN (SELECT id FROM tickets WHERE is_test=1)').get()?.c || 0 } catch { return 0 }
+      })(),
+    }
+  } catch { return { tickets: 0, items: 0, payments: 0 } }
+}
+
+function wipeTestData() {
+  if (!db) return { ticketsWiped: 0 }
+  // Self-heal: ensure column exists before WHERE.
+  try { db.exec('ALTER TABLE tickets ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0') } catch {}
+  const tx = db.transaction(() => {
+    const ids = db.prepare('SELECT id FROM tickets WHERE is_test=1').all().map(r => r.id)
+    if (!ids.length) return { ticketsWiped: 0 }
+    const placeholders = ids.map(() => '?').join(',')
+    // Children — each guarded so a missing table doesn't abort the wipe.
+    const childTables = [
+      'ticket_items','ticket_payments','ticket_item_modificadores',
+      'washer_commissions','seller_commissions','cajero_commissions',
+    ]
+    for (const t of childTables) {
+      try { db.prepare(`DELETE FROM ${t} WHERE ticket_id IN (${placeholders})`).run(...ids) } catch {}
+    }
+    db.prepare(`DELETE FROM tickets WHERE id IN (${placeholders})`).run(...ids)
+    return { ticketsWiped: ids.length }
+  })
+  return tx()
+}
+
+function goLiveCommit() {
+  if (!db) return { ok: false }
+  const wiped = wipeTestData()
+  // Stamp commit time directly so we don't recurse through settingsUpdate.
+  try {
+    const stamp = new Date().toISOString()
+    db.prepare(`INSERT INTO app_settings(key,value,updated_at) VALUES('go_live_committed_at',?,datetime('now'))
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')`).run(stamp)
+  } catch {}
+  return { ok: true, ...wiped }
 }
 
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
@@ -6345,7 +6462,11 @@ function ticketCloseWithPayment({ ticket_id, ticket_supabase_id, payload } = {})
     try { db.prepare('DELETE FROM seller_commissions WHERE ticket_id=?').run(row.id) } catch {}
     try { db.prepare('DELETE FROM cajero_commissions WHERE ticket_id=?').run(row.id) } catch {}
 
-    if (washerBase > 0 && washerSids.length) {
+    // Go-Live gate: in TEST MODE skip all commission/credit writes. Mirrors
+    // ticketCreate. The DELETE-then-INSERT idempotency above already cleared
+    // any pre-existing commission rows for this ticket.
+    const _liveClose = isProductionLive()
+    if (_liveClose && washerBase > 0 && washerSids.length) {
       for (const empSid of washerSids) {
         const emp = db.prepare(`SELECT comision_pct FROM empleados WHERE supabase_id=? AND tipo IN ('lavador','hybrid') LIMIT 1`).get(empSid)
         const pct = Number(emp?.comision_pct || 0)
@@ -6356,7 +6477,7 @@ function ticketCloseWithPayment({ ticket_id, ticket_supabase_id, payload } = {})
           VALUES(?,?,?,?,?,0,?,?)`).run(empSid, row.id, washerBase, pct, amt, crypto.randomUUID(), row.supabase_id)
       }
     }
-    if (sellerSid && sellerBase > 0) {
+    if (_liveClose && sellerSid && sellerBase > 0) {
       const emp = db.prepare(`SELECT comision_pct FROM empleados WHERE supabase_id=? AND tipo IN ('vendedor','hybrid') LIMIT 1`).get(sellerSid)
       const pct = Number(emp?.comision_pct || 0)
       if (emp && pct > 0) {
@@ -6366,7 +6487,7 @@ function ticketCloseWithPayment({ ticket_id, ticket_supabase_id, payload } = {})
           VALUES(?,?,?,?,?,0,?,?)`).run(sellerSid, row.id, sellerBase, pct, amt, crypto.randomUUID(), row.supabase_id)
       }
     }
-    if (cajeroId && cashierBase > 0) {
+    if (_liveClose && cajeroId && cashierBase > 0) {
       const cajero = db.prepare('SELECT commission_pct, supabase_id FROM users WHERE id=?').get(cajeroId)
       if (cajero && cajero.commission_pct > 0) {
         const amt = parseFloat((cashierBase * cajero.commission_pct / 100).toFixed(2))
@@ -6377,10 +6498,10 @@ function ticketCloseWithPayment({ ticket_id, ticket_supabase_id, payload } = {})
       }
     }
 
-    if (data.client_id && data.tipo_venta === 'credito') {
+    if (_liveClose && data.client_id && data.tipo_venta === 'credito') {
       db.prepare('UPDATE clients SET balance=balance+?,visits=visits+1,total_spent=total_spent+? WHERE id=?')
         .run(Number(data.total || 0), Number(data.total || 0), data.client_id)
-    } else if (data.client_id) {
+    } else if (_liveClose && data.client_id) {
       db.prepare('UPDATE clients SET visits=visits+1,total_spent=total_spent+? WHERE id=?')
         .run(Number(data.total || 0), data.client_id)
     }
@@ -6433,8 +6554,15 @@ function ticketCreate(data) {
     "ALTER TABLE queue ADD COLUMN empleado_supabase_id TEXT",
     "ALTER TABLE queue ADD COLUMN ticket_supabase_id TEXT",
     "ALTER TABLE queue ADD COLUMN supabase_id TEXT",
+    // v2.16.10 — Go-Live gate. While empty/future go_live_date, tickets are
+    // flagged is_test=1 so they're skipped by sync push, DGII, commissions,
+    // and credit. Wiped on goLiveCommit().
+    "ALTER TABLE tickets ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0",
   ]
   for (const sql of SELF_HEAL_TICKETS_COLS) { try { db.exec(sql) } catch {} }
+
+  // Go-Live gate snapshot — read once, used on every gated branch below.
+  const _live = isProductionLive()
 
   // Resolve the ITBIS rate once per ticket creation — stored as a string
   // percentage in app_settings.itbis_pct (default '18'). Avoid hitting the
@@ -6566,9 +6694,9 @@ function ticketCreate(data) {
       (doc_number,client_id,washer_empleado_supabase_ids,seller_empleado_supabase_id,cajero_id,subtotal,descuento,itbis,ley,total,
        beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,supabase_id,client_supabase_id,seller_supabase_id,cajero_supabase_id,
        mesa_id,mesa_supabase_id,fulfillment_type,tip_amount,servicio_amount,servicio_pct,mode,converted_from_mesa_id,converted_from_mesa_supabase_id,converted_from_ticket_id,converted_from_ticket_supabase_id,
-       origin_hwid,used_legacy_counter,notes,order_source,payment_parts,split_bill,
+       origin_hwid,used_legacy_counter,notes,order_source,payment_parts,split_bill,is_test,
        created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
       docNumber,
       data.client_id || null,
       JSON.stringify(washerEmpSids),
@@ -6608,6 +6736,7 @@ function ticketCreate(data) {
       data.order_source || 'pos',
       paymentPartsJson,
       splitBillFlag,
+      _live ? 0 : 1,
     )
     const ticketId = result.lastInsertRowid
 
@@ -6704,13 +6833,16 @@ function ticketCreate(data) {
       } catch (e) { /* non-fatal — tip distribution is audit-grade, never blocks sale */ }
     }
 
-    // Update client balance if credit
-    if (data.client_id && data.tipo_venta === 'credito') {
-      db.prepare('UPDATE clients SET balance=balance+?,visits=visits+1,total_spent=total_spent+? WHERE id=?')
-        .run(data.total, data.total, data.client_id)
-    } else if (data.client_id) {
-      db.prepare('UPDATE clients SET visits=visits+1,total_spent=total_spent+? WHERE id=?')
-        .run(data.total, data.client_id)
+    // Update client balance if credit — gated by Go-Live: in TEST mode we
+    // never grant credit balance or stamp visit/spend (would pollute clients).
+    if (_live) {
+      if (data.client_id && data.tipo_venta === 'credito') {
+        db.prepare('UPDATE clients SET balance=balance+?,visits=visits+1,total_spent=total_spent+? WHERE id=?')
+          .run(data.total, data.total, data.client_id)
+      } else if (data.client_id) {
+        db.prepare('UPDATE clients SET visits=visits+1,total_spent=total_spent+? WHERE id=?')
+          .run(data.total, data.client_id)
+      }
     }
 
     // Per-role commission base — iterate items and sum only those where the
@@ -6755,7 +6887,7 @@ function ticketCreate(data) {
     const sellerBase  = parseFloat((sellerBaseGross  / gross2base).toFixed(2))
     const cashierBase = parseFloat((cashierBaseGross / gross2base).toFixed(2))
 
-    if (washerBase > 0 && washerEmpSids.length) {
+    if (_live && washerBase > 0 && washerEmpSids.length) {
       // v2.14.20 — optional per-washer commission override. When the cashier
       // enters a specific RD$ amount for a given lavador on a 2+ washer
       // ticket, that amount wins over the auto-calc (empleado.comision_pct
@@ -6792,7 +6924,7 @@ function ticketCreate(data) {
       }
     }
 
-    if (sellerEmpSid && sellerBase > 0) {
+    if (_live && sellerEmpSid && sellerBase > 0) {
       const emp = db.prepare(`SELECT comision_pct FROM empleados WHERE supabase_id=? AND tipo IN ('vendedor','hybrid') LIMIT 1`).get(sellerEmpSid)
       const pct = Number(emp?.comision_pct || 0)
       if (emp && pct > 0) {
@@ -6804,7 +6936,7 @@ function ticketCreate(data) {
       }
     }
 
-    if (data.cajero_id && cashierBase > 0) {
+    if (_live && data.cajero_id && cashierBase > 0) {
       const cajero = db.prepare('SELECT commission_pct, supabase_id FROM users WHERE id=?').get(data.cajero_id)
       if (cajero && cajero.commission_pct > 0) {
         const commAmount = parseFloat((cashierBase * cajero.commission_pct / 100).toFixed(2))
@@ -6821,7 +6953,7 @@ function ticketCreate(data) {
     // washer_commissions, vendedor → seller_commissions). Sum bases per
     // empleado before writing so two lines for the same stylist collapse
     // into one row (matches the roll-up shape).
-    if (perLineCredits.length) {
+    if (_live && perLineCredits.length) {
       const grossSumByEmp = new Map()
       for (const c of perLineCredits) {
         grossSumByEmp.set(c.empleado_supabase_id, (grossSumByEmp.get(c.empleado_supabase_id) || 0) + c.baseGross)
@@ -6944,7 +7076,7 @@ function ticketMarkPaid(id, { paymentMethod, ncf, ecfResult, cajeroId, tipoVenta
       (descuento != null ? Number(descuento) : null),
       id)
 
-    if (tipoVenta === 'credito' && clientId) {
+    if (tipoVenta === 'credito' && clientId && isProductionLive()) {
       // Fetch original tipo_venta to avoid double-counting if ticket was already posted as credit
       const row = db.prepare('SELECT total, descuento, tipo_venta FROM tickets WHERE id=?').get(id)
       if (row && row.tipo_venta !== 'credito') {
@@ -8349,6 +8481,201 @@ function recipeItemsRemove(id) {
   if (row?.supabase_id) {
     try { tombstoneAdd('service_recipe_items', row.supabase_id, row.business_id) } catch {}
   }
+  return { deleted: true }
+}
+
+// ── v2.16.x — Ofertas (product bundles) ─────────────────────────────────────
+// Components can reference EITHER a service (services.in_stock=0 → out of
+// stock, treated as 0 available) OR an inventory_item (quantity / qty per
+// component, floored). oferta_available = floor(min(per-component available)).
+
+function _ofertaComponentAvailable(comp) {
+  // comp: { service_supabase_id, inventory_item_supabase_id, qty }
+  const need = Number(comp.qty || 1) || 1
+  if (need <= 0) return Infinity
+  if (comp.service_supabase_id) {
+    const svc = db.prepare('SELECT in_stock FROM services WHERE supabase_id=?').get(comp.service_supabase_id)
+    if (!svc) return 0
+    // services.in_stock is a boolean 86-list flag. NULL = in stock (default).
+    if (svc.in_stock === 0) return 0
+    return Infinity
+  }
+  if (comp.inventory_item_supabase_id) {
+    const inv = db.prepare('SELECT quantity FROM inventory_items WHERE supabase_id=?').get(comp.inventory_item_supabase_id)
+    if (!inv) return 0
+    return Math.floor(Number(inv.quantity || 0) / need)
+  }
+  return 0
+}
+
+function _ofertaEnrichItems(items) {
+  const out = []
+  for (const it of items) {
+    let component_name = null, component_kind = null, component_price = null, component_quantity = null, component_unit = null
+    if (it.service_supabase_id) {
+      const svc = db.prepare('SELECT name, price, in_stock FROM services WHERE supabase_id=?').get(it.service_supabase_id)
+      component_kind = 'service'
+      component_name = svc?.name || null
+      component_price = svc?.price != null ? Number(svc.price) : null
+      component_quantity = (svc && svc.in_stock === 0) ? 0 : null
+    } else if (it.inventory_item_supabase_id) {
+      const inv = db.prepare('SELECT name, sku, unit, quantity, price FROM inventory_items WHERE supabase_id=?').get(it.inventory_item_supabase_id)
+      component_kind = 'inventory_item'
+      component_name = inv?.name || null
+      component_price = inv?.price != null ? Number(inv.price) : null
+      component_quantity = inv?.quantity != null ? Number(inv.quantity) : 0
+      component_unit = inv?.unit || null
+    }
+    const available_units = _ofertaComponentAvailable(it)
+    out.push({
+      ...it,
+      component_kind,
+      component_name,
+      component_price,
+      component_quantity,
+      component_unit,
+      available_units: Number.isFinite(available_units) ? available_units : null,
+    })
+  }
+  return out
+}
+
+function _ofertaAvailable(items) {
+  if (!items.length) return 0
+  let min = Infinity
+  for (const it of items) {
+    const a = _ofertaComponentAvailable(it)
+    if (a < min) min = a
+  }
+  return Number.isFinite(min) ? Math.floor(min) : 0
+}
+
+function ofertasList({ activeOnly = false } = {}) {
+  if (!db) return []
+  const biz = _bizId()
+  const rows = db.prepare(`
+    SELECT * FROM ofertas
+    WHERE (business_id IS NULL OR business_id = ?)
+      ${activeOnly ? 'AND active = 1' : ''}
+    ORDER BY active DESC, name COLLATE NOCASE
+  `).all(biz)
+  return rows.map(o => {
+    const items = db.prepare('SELECT * FROM oferta_items WHERE oferta_supabase_id = ?').all(o.supabase_id)
+    const enriched = _ofertaEnrichItems(items)
+    return {
+      ...o,
+      active: !!o.active,
+      components_count: enriched.length,
+      oferta_available: _ofertaAvailable(items),
+    }
+  })
+}
+
+function ofertasGet(supabase_id) {
+  if (!db || !supabase_id) return null
+  const o = db.prepare('SELECT * FROM ofertas WHERE supabase_id = ?').get(supabase_id)
+  if (!o) return null
+  const items = db.prepare('SELECT * FROM oferta_items WHERE oferta_supabase_id = ? ORDER BY id').all(supabase_id)
+  const enriched = _ofertaEnrichItems(items)
+  return {
+    ...o,
+    active: !!o.active,
+    items: enriched,
+    oferta_available: _ofertaAvailable(items),
+  }
+}
+
+function ofertasUpsert(data = {}) {
+  if (!db) return null
+  if (!data.name || data.price == null) {
+    throw new Error('ofertasUpsert: name + price required')
+  }
+  const biz = data.business_id || _bizId() || null
+  const sid = data.supabase_id || crypto.randomUUID()
+  const items = Array.isArray(data.items) ? data.items : []
+  const isNew = !db.prepare('SELECT 1 FROM ofertas WHERE supabase_id=?').get(sid)
+
+  const tx = db.transaction(() => {
+    if (isNew) {
+      db.prepare(`INSERT INTO ofertas
+        (supabase_id, business_id, name, description, price, active, starts_at, ends_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(sid, biz, data.name, data.description || null,
+             Number(data.price) || 0,
+             data.active === false || data.active === 0 ? 0 : 1,
+             data.starts_at || null, data.ends_at || null)
+    } else {
+      db.prepare(`UPDATE ofertas SET
+        name=?, description=?, price=?, active=?, starts_at=?, ends_at=?,
+        business_id = COALESCE(business_id, ?), updated_at=datetime('now')
+        WHERE supabase_id=?`)
+        .run(data.name, data.description || null,
+             Number(data.price) || 0,
+             data.active === false || data.active === 0 ? 0 : 1,
+             data.starts_at || null, data.ends_at || null, biz, sid)
+    }
+
+    // Replace components — collect existing ids for tombstones, then nuke.
+    const existing = db.prepare('SELECT supabase_id, business_id FROM oferta_items WHERE oferta_supabase_id=?').all(sid)
+    db.prepare('DELETE FROM oferta_items WHERE oferta_supabase_id=?').run(sid)
+    for (const ex of existing) {
+      if (ex.supabase_id) {
+        try { tombstoneAdd('oferta_items', ex.supabase_id, ex.business_id) } catch {}
+      }
+    }
+
+    const ins = db.prepare(`INSERT INTO oferta_items
+      (supabase_id, business_id, oferta_supabase_id, service_supabase_id, inventory_item_supabase_id, qty)
+      VALUES (?, ?, ?, ?, ?, ?)`)
+    for (const it of items) {
+      const svc = it.service_supabase_id || null
+      const inv = it.inventory_item_supabase_id || null
+      if (!svc && !inv) continue
+      // Mutually exclusive — service wins if both supplied.
+      const useSvc = svc ? svc : null
+      const useInv = svc ? null : inv
+      ins.run(it.supabase_id || crypto.randomUUID(), biz, sid, useSvc, useInv, Number(it.qty) || 1)
+    }
+  })
+  tx()
+
+  try {
+    activityLogRecord({
+      event_type: isNew ? 'oferta_create' : 'oferta_update',
+      severity: 'info',
+      target_type: 'oferta',
+      target_id: sid,
+      target_name: data.name,
+      amount: Number(data.price) || 0,
+      metadata: { components: items.length },
+    })
+  } catch {}
+
+  return ofertasGet(sid)
+}
+
+function ofertasDelete(supabase_id) {
+  if (!db || !supabase_id) return null
+  const o = db.prepare('SELECT supabase_id, business_id, name FROM ofertas WHERE supabase_id=?').get(supabase_id)
+  if (!o) return { deleted: false }
+  const items = db.prepare('SELECT supabase_id, business_id FROM oferta_items WHERE oferta_supabase_id=?').all(supabase_id)
+
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM oferta_items WHERE oferta_supabase_id=?').run(supabase_id)
+    db.prepare('DELETE FROM ofertas WHERE supabase_id=?').run(supabase_id)
+  })
+  tx()
+
+  for (const it of items) {
+    if (it.supabase_id) { try { tombstoneAdd('oferta_items', it.supabase_id, it.business_id) } catch {} }
+  }
+  try { tombstoneAdd('ofertas', o.supabase_id, o.business_id) } catch {}
+  try {
+    activityLogRecord({
+      event_type: 'oferta_delete', severity: 'info',
+      target_type: 'oferta', target_id: supabase_id, target_name: o.name,
+    })
+  } catch {}
   return { deleted: true }
 }
 
@@ -12486,9 +12813,32 @@ function accountingBillingInvoiceCreate(payload = {}) {
 function accountingBillingInvoiceMarkPaid(id) {
   if (!db) throw new Error('Base de datos no disponible')
   const now = _accNowIso()
+  const inv = db.prepare('SELECT * FROM accounting_billing_invoices WHERE id=?').get(id)
+  if (!inv) return null
+  // Resolve plan for this client to get late_fee_pct + late_fee_after_days
+  let lateFeeAmount = 0
+  let paidLate = 0
+  try {
+    const plan = db.prepare(`SELECT late_fee_pct, late_fee_after_days, monthly_amount
+      FROM accounting_billing_plans
+      WHERE accounting_client_id=? AND active=1
+      ORDER BY id DESC LIMIT 1`).get(inv.accounting_client_id)
+    const pct  = Number(plan?.late_fee_pct || 0)
+    const days = Number(plan?.late_fee_after_days || 0)
+    if (pct > 0 && days > 0 && inv.created_at) {
+      const issued = new Date(inv.created_at).getTime()
+      const paidMs = Date.now()
+      const ageDays = Math.floor((paidMs - issued) / 86400000)
+      if (ageDays > days) {
+        const base = Number(inv.amount || plan?.monthly_amount || 0)
+        lateFeeAmount = Math.round(base * (pct / 100) * 100) / 100
+        paidLate = 1
+      }
+    }
+  } catch {}
   db.prepare(`UPDATE accounting_billing_invoices
-    SET status='paid', paid_at=?, updated_at=?
-    WHERE id=?`).run(now, now, id)
+    SET status='paid', paid_at=?, late_fee_amount=?, paid_late=?, updated_at=?
+    WHERE id=?`).run(now, lateFeeAmount, paidLate, now, id)
   return db.prepare('SELECT * FROM accounting_billing_invoices WHERE id=?').get(id) || null
 }
 
@@ -13455,6 +13805,7 @@ module.exports = {
   empresaGet, empresaSave,
   // Settings
   settingsGet, settingsUpdate, getSetting, setSetting,
+  isProductionLive, testDataCount, wipeTestData, goLiveCommit,
   // Auth
   authByPin, authLockoutStatus, usersGetAll, userCreate, userUpdate, userDelete, userDeleteHard,
   staffGenerateAuthCard, staffRevokeAuthCard, staffVerifyAuthToken,
@@ -13538,6 +13889,8 @@ module.exports = {
   modificadoresListForService, modificadorAttachToService, modificadorDetachFromService,
   // v2.16.3 — Restaurante: recetas (Bill-of-Materials per service)
   recipeItemsListForService, recipeItemsAdd, recipeItemsUpdate, recipeItemsRemove,
+  // v2.16.x — Ofertas (product bundles)
+  ofertasList, ofertasGet, ofertasUpsert, ofertasDelete,
   kdsListActive, kdsFire, kdsSetStatus,
   ticketItemModificadoresList, ticketItemModificadoresSnapshot,
   // Multi-vertical expansion — vehicles, service_bays, work_orders, appointments, schedules, loans, pawn

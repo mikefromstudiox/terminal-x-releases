@@ -3,13 +3,15 @@ import {
   Package, Plus, Search, AlertTriangle, X,
   ChevronUp, ChevronDown, Pencil, Trash2,
   History, RefreshCw, Loader2, Upload, FileSpreadsheet,
-  Check, Wine, Tags, Bike, TrendingDown, Calendar,
+  Check, Wine, Tags, Bike, TrendingDown, Calendar, Sparkles,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useAPI } from '../context/DataContext'
 import { useLang } from '../i18n'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
+import { usePlan } from '../hooks/usePlan.jsx'
 import ManagerAuthGate from '../components/ManagerAuthGate'
+import OfertasTab from './inventory/OfertasTab.jsx'
 import { needsGate } from '@terminal-x/services/managerGateRules'
 import { getCarniceriaCategoryOptions, getCutSuggestions } from '@terminal-x/config/carniceriaCatalog'
 
@@ -1308,7 +1310,9 @@ export default function Inventory() {
   const [loading,  setLoading]  = useState(true)
   const [search,   setSearch]   = useState('')
   const [filter,   setFilter]   = useState('all')   // 'all' | 'low'
-  const [tab,      setTab]      = useState('items') // 'items' | 'shortages'
+  const [tab,      setTab]      = useState('items') // 'items' | 'ofertas' | 'shortages'
+  const { hasFeature } = usePlan()
+  const ofertasEnabled = hasFeature('ofertas')
   const [modal,    setModal]    = useState(null)     // null | { type: 'item'|'adjust'|'history'|'import', item }
   const [showImport, setShowImport] = useState(false)
   const [showOrganize, setShowOrganize] = useState(false)
@@ -1431,6 +1435,12 @@ export default function Inventory() {
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'items' ? 'bg-black text-white' : 'text-slate-500 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/10'}`}>
           <Package size={14} /> {lang === 'en' ? 'Items' : 'Productos'}
         </button>
+        {ofertasEnabled && (
+          <button onClick={() => setTab('ofertas')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'ofertas' ? 'bg-black text-white' : 'text-slate-500 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/10'}`}>
+            <Sparkles size={14} className={tab === 'ofertas' ? '' : 'text-[#b3001e]'} /> Ofertas
+          </button>
+        )}
         <button onClick={() => setTab('shortages')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'shortages' ? 'bg-black text-white' : 'text-slate-500 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/10'}`}>
           <TrendingDown size={14} /> {lang === 'en' ? 'Stock shortages' : 'Quiebres de stock'}
@@ -1439,6 +1449,8 @@ export default function Inventory() {
 
       {tab === 'shortages' ? (
         <ShortagesTab items={items} />
+      ) : tab === 'ofertas' && ofertasEnabled ? (
+        <OfertasTab />
       ) : (
       <>
       {/* Stats */}

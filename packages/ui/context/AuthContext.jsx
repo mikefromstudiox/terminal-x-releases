@@ -16,6 +16,14 @@ const TEMP_OWNER = { id: 'web', name: 'Owner', username: 'owner', role: 'owner',
 // Persist PIN-auth user to sessionStorage on web so navigation doesn't kick
 // them back to the PIN screen. Desktop has no lazy-reload issue.
 const STORAGE_KEY = 'tx_pos_user'
+// Cross-firm impersonation ("Ver como cliente"). When set, the SupabaseAuthGate
+// hands the impersonated business_id into createWebAPI() so every web.js read
+// is scoped to the client tenant rather than the contadora's firm. Pro MAX
+// only — gate enforced both in the UI (hasFeature('contabilidad_view_as_client'))
+// and on the server (panel.js?action=firm_impersonate_check verifies an active
+// access_granted row in accounting_clients).
+const IMPERSONATION_KEY    = 'tx_impersonating_biz_id'
+const IMPERSONATION_META   = 'tx_impersonating_meta'   // { client_name, firm_business_id }
 // Sticky flag — survives full page reload. While set, the TEMP_OWNER auto-login
 // path must NOT fire, otherwise logging out of the seeded demo accounts (which
 // have active users) silently re-grants owner access on the very next render.
@@ -42,6 +50,14 @@ export function AuthProvider({ children }) {
       try {
         if (u) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(u))
         else sessionStorage.removeItem(STORAGE_KEY)
+      } catch {}
+    }
+    // localStorage scope tags so reportClientError() in main.jsx can attach
+    // them to error reports without needing the AuthContext at error time.
+    if (isWeb && typeof localStorage !== 'undefined') {
+      try {
+        if (u?.id) localStorage.setItem('tx_user_id', String(u.id)); else localStorage.removeItem('tx_user_id')
+        if (u?.role) localStorage.setItem('tx_user_role', String(u.role)); else localStorage.removeItem('tx_user_role')
       } catch {}
     }
     try { api?.activity?.setActor?.(u || null) } catch {}
@@ -270,8 +286,104 @@ export function AuthProvider({ children }) {
     setUser(null)
   }
 
+  // ── Cross-firm impersonation ("Ver como cliente") ────────────────────────
+  // The effective business_id swap happens at SupabaseAuthGate (createWebAPI
+  // closes over businessId, so React state is captured at construction time).
+  // We therefore drive the swap via sessionStorage + a hard reload — every
+  // memoized hook, DataContext consumer, sync interval, and offline queue gets
+  // a clean slate against the new tenant. This is also the safest pattern:
+  // never accidentally leak a firm-scoped query into a client-scoped session.
+  const [impersonatingBusinessId, setImpersonatingBusinessId] = useState(() => {
+    if (typeof sessionStorage === 'undefined') return null
+    try { return sessionStorage.getItem(IMPERSONATION_KEY) || null } catch { return null }
+  })
+  const [impersonationMeta, setImpersonationMeta] = useState(() => {
+    if (typeof sessionStorage === 'undefined') return null
+    try {
+      const raw = sessionStorage.getItem(IMPERSONATION_META)
+      return raw ? JSON.parse(raw) : null
+    } catch { return null }
+  })
+
+  async function enterImpersonation({ clientBusinessId, clientName, firmBusinessId, accountingClientId } = {}) {
+    if (!clientBusinessId) throw new Error('clientBusinessId required')
+    // Server-side authorization + audit write. Bearer-auth via the canonical
+    // Supabase client — same pattern as ctb_* actions in Cartera.jsx.
+    const sb = (typeof window !== 'undefined' && window.__txSupabase) || null
+    const sess = sb ? (await sb.auth.getSession())?.data?.session : null
+    const token = sess?.access_token
+    if (!token) throw new Error('Sesión expirada — inicia sesión.')
+    const res = await fetch('/api/panel?action=firm_impersonate_check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({
+        client_business_id:    clientBusinessId,
+        accounting_client_id:  accountingClientId || null,
+      }),
+    })
+    const j = await res.json().catch(() => ({}))
+    if (!res.ok || j?.ok === false) {
+      throw new Error(j?.error || j?.message || `HTTP ${res.status}`)
+    }
+    const meta = {
+      client_business_id:   clientBusinessId,
+      client_name:          clientName || j?.client_name || '',
+      firm_business_id:     firmBusinessId || j?.firm_business_id || null,
+      accounting_client_id: accountingClientId || null,
+      started_at:           new Date().toISOString(),
+    }
+    try {
+      sessionStorage.setItem(IMPERSONATION_KEY, String(clientBusinessId))
+      sessionStorage.setItem(IMPERSONATION_META, JSON.stringify(meta))
+    } catch {}
+    setImpersonatingBusinessId(String(clientBusinessId))
+    setImpersonationMeta(meta)
+    // Hard reload into /pos so every context (Data/License/Plan/BizType) and
+    // memoized createWebAPI(supabase, businessId) closure rebuilds against
+    // the new tenant. No partial-state leakage.
+    try { window.location.replace('/pos') } catch {
+      try { window.location.href = '/pos' } catch {}
+    }
+    return j
+  }
+
+  async function exitImpersonation() {
+    // Fire-and-forget audit write; failures must NOT block the user from
+    // escaping the impersonated tenant. The server endpoint is idempotent.
+    try {
+      const sb = (typeof window !== 'undefined' && window.__txSupabase) || null
+      const sess = sb ? (await sb.auth.getSession())?.data?.session : null
+      const token = sess?.access_token
+      if (token) {
+        await fetch('/api/panel?action=firm_impersonate_end', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({
+            client_business_id:    impersonatingBusinessId,
+            accounting_client_id:  impersonationMeta?.accounting_client_id || null,
+          }),
+        }).catch(() => {})
+      }
+    } catch {}
+    try {
+      sessionStorage.removeItem(IMPERSONATION_KEY)
+      sessionStorage.removeItem(IMPERSONATION_META)
+    } catch {}
+    setImpersonatingBusinessId(null)
+    setImpersonationMeta(null)
+    // Hard reload back to /contabilidad/cartera — the contadora's natural home.
+    try { window.location.replace('/contabilidad/cartera') } catch {
+      try { window.location.href = '/contabilidad/cartera' } catch {}
+    }
+  }
+
   return (
-    <AuthContext.Provider value={{ user, login, loginWithPassword, logout, webChecked }}>
+    <AuthContext.Provider value={{
+      user, login, loginWithPassword, logout, webChecked,
+      impersonatingBusinessId, impersonationMeta,
+      enterImpersonation, exitImpersonation,
+      isImpersonating: !!impersonatingBusinessId,
+    }}>
       {children}
     </AuthContext.Provider>
   )

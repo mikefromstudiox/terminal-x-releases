@@ -68,6 +68,7 @@ export default function ConfigEditor({ businessId, getToken, onRefresh, isDark, 
 
   // Features
   const [features, setFeatures] = useState({})
+  const [businessType, setBusinessType] = useState('')
 
   // Support Log
   const [supportLog, setSupportLog] = useState([])
@@ -95,6 +96,7 @@ export default function ConfigEditor({ businessId, getToken, onRefresh, isDark, 
       setPrinterName(app.printer_name || '')
       setPrinterWidth(app.printer_width || '80')
       setFeatures(biz.feature_overrides || {})
+      setBusinessType(biz.business_type || biz.biz_type || app.business_type || '')
       setLogoPreview(data.logo_url || null)
       // Parse notes — if JSON array, use as structured log; if string, migrate
       const rawNotes = data.notes || ''
@@ -281,49 +283,72 @@ export default function ConfigEditor({ businessId, getToken, onRefresh, isDark, 
         </div>
       </div>
 
-      {/* Feature Overrides */}
-      <div className={`${card} ${readOnly ? 'opacity-60 pointer-events-none' : ''}`}>
-        <p className={sectionTitle}><Settings size={13} /> {L('Funciones', 'Features')}</p>
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            { key: 'inventory', es: 'Inventario', en: 'Inventory' },
-            { key: 'credits', es: 'Creditos', en: 'Credits' },
-            { key: 'credit_notes', es: 'Notas de Credito', en: 'Credit Notes' },
-            { key: 'commissions', es: 'Comisiones', en: 'Commissions' },
-            { key: 'cash_recon', es: 'Cuadre de Caja', en: 'Cash Recon' },
-            { key: 'petty_cash', es: 'Caja Chica', en: 'Petty Cash' },
-            { key: 'reports', es: 'Reportes Avanzados', en: 'Advanced Reports' },
-            { key: 'ecf', es: 'e-CF Electronico', en: 'e-CF Electronic' },
-            { key: 'whatsapp_receipts', es: 'Recibos WhatsApp', en: 'WhatsApp Receipts' },
-            { key: 'remote_dashboard', es: 'Dashboard Remoto', en: 'Remote Dashboard' },
-          ].map(f => (
-            <label key={f.key} className={`flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer text-[12px] transition-colors ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}>
-              <input type="checkbox" checked={features[f.key] !== false}
-                onChange={e => setFeatures(prev => ({ ...prev, [f.key]: e.target.checked }))}
-                disabled={readOnly} className="accent-[#b3001e]" />
-              <span className={isDark ? 'text-white/80' : 'text-black/80'}>{lang === 'es' ? f.es : f.en}</span>
-            </label>
-          ))}
+      {/* Feature Overrides — branch by business_type */}
+      {businessType === 'contabilidad' ? (
+        <div className={`${card} ${readOnly ? 'opacity-60 pointer-events-none' : ''}`}>
+          <p className={sectionTitle}><Settings size={13} /> {L('Funciones', 'Features')}</p>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { key: 'contabilidad', es: 'Contabilidad', en: 'Accounting' },
+            ].map(f => (
+              <label key={f.key} className={`flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer text-[12px] transition-colors ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}>
+                <input type="checkbox" checked={features[f.key] !== false}
+                  onChange={e => setFeatures(prev => ({ ...prev, [f.key]: e.target.checked }))}
+                  disabled={readOnly} className="accent-[#b3001e]" />
+                <span className={isDark ? 'text-white/80' : 'text-black/80'}>{lang === 'es' ? f.es : f.en}</span>
+              </label>
+            ))}
+          </div>
+          <p className={`text-[11px] mt-3 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+            {L('Cliente de contabilidad — funciones POS no aplican.', 'Accounting client — POS features do not apply.')}
+          </p>
         </div>
-      </div>
+      ) : (
+        <>
+          <div className={`${card} ${readOnly ? 'opacity-60 pointer-events-none' : ''}`}>
+            <p className={sectionTitle}><Settings size={13} /> {L('Funciones', 'Features')}</p>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { key: 'inventory', es: 'Inventario', en: 'Inventory' },
+                { key: 'credits', es: 'Creditos', en: 'Credits' },
+                { key: 'credit_notes', es: 'Notas de Credito', en: 'Credit Notes' },
+                { key: 'commissions', es: 'Comisiones', en: 'Commissions' },
+                { key: 'cash_recon', es: 'Cuadre de Caja', en: 'Cash Recon' },
+                { key: 'petty_cash', es: 'Caja Chica', en: 'Petty Cash' },
+                { key: 'reports', es: 'Reportes Avanzados', en: 'Advanced Reports' },
+                { key: 'ecf', es: 'e-CF Electronico', en: 'e-CF Electronic' },
+                { key: 'whatsapp_receipts', es: 'Recibos WhatsApp', en: 'WhatsApp Receipts' },
+                { key: 'remote_dashboard', es: 'Dashboard Remoto', en: 'Remote Dashboard' },
+              ].map(f => (
+                <label key={f.key} className={`flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer text-[12px] transition-colors ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}>
+                  <input type="checkbox" checked={features[f.key] !== false}
+                    onChange={e => setFeatures(prev => ({ ...prev, [f.key]: e.target.checked }))}
+                    disabled={readOnly} className="accent-[#b3001e]" />
+                  <span className={isDark ? 'text-white/80' : 'text-black/80'}>{lang === 'es' ? f.es : f.en}</span>
+                </label>
+              ))}
+            </div>
+          </div>
 
-      {/* Service Templates */}
-      <div className={`${card} ${readOnly ? 'opacity-60 pointer-events-none' : ''}`}>
-        <p className={sectionTitle}><Palette size={13} /> {L('Plantillas de Servicios', 'Service Templates')}</p>
-        <p className={`text-[11px] mb-3 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-          {L('Agrega servicios predeterminados al negocio del cliente.', 'Push preset services to the client\'s business.')}
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {Object.entries(SERVICE_TEMPLATES).map(([key, tpl]) => (
-            <button key={key} onClick={() => pushTemplate(key)} disabled={!!pushingTemplate}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[11px] font-bold border transition-colors disabled:opacity-50 ${isDark ? 'border-white/10 text-white/70 hover:bg-white/5 hover:border-[#b3001e]/40 hover:text-white' : 'border-black/10 text-black/70 hover:bg-black/5 hover:border-[#b3001e]/40 hover:text-black'}`}>
-              {pushingTemplate === key ? <Loader2 size={12} className="animate-spin" /> : <Palette size={12} />}
-              {lang === 'es' ? tpl.label.es : tpl.label.en}
-              <span className={`text-[10px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>({tpl.services.length})</span>
-            </button>
-          ))}
-        </div>
-      </div>
+          {/* Service Templates — POS only */}
+          <div className={`${card} ${readOnly ? 'opacity-60 pointer-events-none' : ''}`}>
+            <p className={sectionTitle}><Palette size={13} /> {L('Plantillas de Servicios', 'Service Templates')}</p>
+            <p className={`text-[11px] mb-3 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+              {L('Agrega servicios predeterminados al negocio del cliente.', 'Push preset services to the client\'s business.')}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(SERVICE_TEMPLATES).map(([key, tpl]) => (
+                <button key={key} onClick={() => pushTemplate(key)} disabled={!!pushingTemplate}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[11px] font-bold border transition-colors disabled:opacity-50 ${isDark ? 'border-white/10 text-white/70 hover:bg-white/5 hover:border-[#b3001e]/40 hover:text-white' : 'border-black/10 text-black/70 hover:bg-black/5 hover:border-[#b3001e]/40 hover:text-black'}`}>
+                  {pushingTemplate === key ? <Loader2 size={12} className="animate-spin" /> : <Palette size={12} />}
+                  {lang === 'es' ? tpl.label.es : tpl.label.en}
+                  <span className={`text-[10px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>({tpl.services.length})</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Support Log */}
       <div className={card}>

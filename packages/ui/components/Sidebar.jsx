@@ -15,6 +15,7 @@ import {
   Grid3x3, UtensilsCrossed, ChefHat,
   Wrench, Scissors, Car, Calendar, Warehouse, Banknote, Clock, Briefcase,
   Beef, Leaf, Truck, Tag, Shield, ShieldCheck,
+  Inbox, BookOpen, FolderArchive,
 } from 'lucide-react'
 import { usePlan } from '../hooks/usePlan.jsx'
 import { useLang } from '../i18n'
@@ -287,10 +288,81 @@ const NAV = [
     roles: ['owner','manager','cashier','cfo','accountant'],
   },
   {
-    id: 'contabilidad', to: '/contabilidad', icon: Briefcase,
-    es: 'Contabilidad', en: 'Accounting',
-    businessTypes: ['contabilidad'],
-    roles: ['owner','manager','cfo','accountant'],
+    id: 'ctb_portfolio', to: '/contabilidad/portfolio', icon: LayoutGrid,
+    es: 'Portfolio', en: 'Portfolio',
+    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    feature: 'contabilidad_portfolio',
+  },
+  {
+    id: 'ctb_bandeja', to: '/contabilidad/bandeja', icon: Inbox,
+    es: 'Bandeja', en: 'Inbox',
+    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    feature: 'contabilidad_inbox',
+  },
+  {
+    id: 'ctb_cartera', to: '/contabilidad/cartera', icon: Building2,
+    es: 'Cartera', en: 'Client Roster',
+    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    feature: 'contabilidad_inbox',
+  },
+  {
+    id: 'ctb_calendario', to: '/contabilidad/calendario', icon: Calendar,
+    es: 'Calendario Fiscal', en: 'Tax Calendar',
+    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    feature: 'contabilidad_inbox',
+  },
+  {
+    id: 'ctb_tareas', to: '/contabilidad/tareas', icon: ClipboardList,
+    es: 'Tareas', en: 'Tasks',
+    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    feature: 'contabilidad_tareas',
+  },
+  {
+    id: 'ctb_comprobantes', to: '/contabilidad/comprobantes', icon: FileText,
+    es: 'Comprobantes', en: 'Receipts',
+    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    feature: 'contabilidad_inbox',
+  },
+  {
+    id: 'ctb_libro_mayor', to: '/contabilidad/libro_mayor', icon: BookOpen,
+    es: 'Libro Mayor', en: 'General Ledger',
+    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    feature: 'contabilidad_libro_mayor',
+  },
+  {
+    id: 'ctb_banco', to: '/contabilidad/banco', icon: Landmark,
+    es: 'Banco', en: 'Bank',
+    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    feature: 'contabilidad_banco',
+  },
+  {
+    id: 'ctb_nomina', to: '/contabilidad/nomina', icon: Users,
+    es: 'Nómina', en: 'Payroll',
+    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    feature: 'contabilidad_nomina',
+  },
+  {
+    id: 'ctb_activos', to: '/contabilidad/activos', icon: Package,
+    es: 'Activos', en: 'Fixed Assets',
+    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    feature: 'contabilidad_activos',
+  },
+  {
+    id: 'ctb_reportes', to: '/contabilidad/reportes', icon: BarChart3,
+    es: 'Reportes', en: 'Reports',
+    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    feature: 'contabilidad_reportes_ejecutivos',
+  },
+  {
+    id: 'ctb_vault', to: '/contabilidad/vault', icon: FolderArchive,
+    es: 'Vault', en: 'Vault',
+    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    feature: 'contabilidad_inbox',
+  },
+  {
+    id: 'ctb_honorarios', to: '/contabilidad/honorarios', icon: Banknote,
+    es: 'Honorarios', en: 'Fees',
+    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
     feature: 'contabilidad_inbox',
   },
   {
@@ -964,10 +1036,23 @@ export default function Sidebar() {
   // Filter nav items by role, business type and required features.
   // `featureAny` hides the item entirely unless the plan unlocks at least one
   // of the listed features (distinct from `feature`, which only greys it out).
+  //
+  // Invoicing-only verticals (contabilidad) get a whitelist: POS-side items
+  // that don't declare `businessTypes` would otherwise leak through. Only
+  // items explicitly relevant to a contadora are shown.
+  const CONTABILIDAD_ALLOWED_IDS = new Set([
+    'ctb_portfolio',
+    'ctb_bandeja', 'ctb_cartera', 'ctb_calendario', 'ctb_tareas',
+    'ctb_comprobantes', 'ctb_libro_mayor', 'ctb_banco', 'ctb_nomina',
+    'ctb_activos', 'ctb_reportes', 'ctb_vault', 'ctb_honorarios',
+    'remote_dashboard', 'sistema', 'settings', 'activity', 'logout',
+  ])
+  const isInvoicingOnly = businessType === 'contabilidad'
   const visibleNav = NAV.filter(item =>
     (!item.roles || item.roles.includes(user?.role)) &&
     (!item.businessTypes || item.businessTypes.includes(businessType)) &&
-    (!item.featureAny || item.featureAny.some(f => hasFeature(f)))
+    (!item.featureAny || item.featureAny.some(f => hasFeature(f))) &&
+    (!isInvoicingOnly || CONTABILIDAD_ALLOWED_IDS.has(item.id))
   )
 
   return (

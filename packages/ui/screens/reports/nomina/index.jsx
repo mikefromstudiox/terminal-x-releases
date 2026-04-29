@@ -153,8 +153,8 @@ function NominaUpgradePrompt({ viewName, currentPlan, lang }) {
           </p>
           <p className="text-[14px] text-emerald-900 dark:text-emerald-100 font-semibold">
             {L(
-              'Un contador externo en RD cobra entre RD$8,000 y RD$15,000/mes por preparar nómina, TSS e ISR. Pro MAX incluye todo esto por RD$6,990/mes.',
-              'An external accountant in DR charges RD$8,000–15,000/month for payroll, TSS and ISR prep. Pro MAX includes all of this for RD$6,990/month.'
+              'Un contador externo en RD cobra entre RD$8,000 y RD$15,000/mes por preparar nómina, TSS e ISR. Pro MAX incluye todo esto por RD$9,990/mes.',
+              'An external accountant in DR charges RD$8,000–15,000/month for payroll, TSS and ISR prep. Pro MAX includes all of this for RD$9,990/month.'
             )}
           </p>
         </div>

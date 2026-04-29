@@ -623,6 +623,22 @@ async function isDGIIConfigured(api) {
  * Returns: { eNCF, status, trackId, submittedAt, qrLink, securityCode, signatureDate }
  */
 export async function signAndSubmitECF(invoiceData, api) {
+  // v2.16.10 — Go-Live gate. In TEST MODE we never submit to DGII. Caller
+  // (CobrarModal) interprets the rejection and surfaces a "modo prueba" toast.
+  try {
+    const appApi = api?.app || window?.electronAPI?.app
+    if (appApi?.isLive) {
+      const live = await appApi.isLive()
+      if (!live) {
+        const err = new Error('TEST_MODE_NO_DGII')
+        err.code = 'TEST_MODE_NO_DGII'
+        throw err
+      }
+    }
+  } catch (e) {
+    if (e?.code === 'TEST_MODE_NO_DGII') throw e
+  }
+
   // Check if DGII direct is available
   const dgiiApi = api?.dgii_ecf || window?.electronAPI?.dgii_ecf
   if (!dgiiApi) {

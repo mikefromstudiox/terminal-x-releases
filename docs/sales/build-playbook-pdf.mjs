@@ -327,7 +327,7 @@ function drawQA(page, q, a, x, y, maxW) {
 
   const qas = [
     ['"Alegra es mas barato."',
-     'Alegra arranca en RD$1,800, si. Pero Alegra NO esta certificada directa con DGII - usa un PSFE intermediario, y el PSFE te cobra por cada e-CF que emites. Si haces 200 comprobantes al mes a RD$8 cada uno, son RD$1,600 extra mensuales - mas el certificado Viafirma que pagas aparte (RD$2,360/ano). Terminal X es plano: RD$4,490, sin comprobantes pagados, certificado incluido. A 200 comprobantes/mes ya somos mas baratos. A 500 te ahorramos RD$30,000 al ano.'],
+     'Alegra arranca en RD$1,800, si. Pero Alegra NO esta certificada directa con DGII - usa un PSFE intermediario, y el PSFE te cobra por cada e-CF que emites. Si haces 200 comprobantes al mes a RD$8 cada uno, son RD$1,600 extra mensuales - mas el certificado Viafirma que pagas aparte (RD$2,360/ano). Terminal X es plano: RD$5,490, sin comprobantes pagados, certificado incluido. A 200 comprobantes/mes ya somos mas baratos. A 500 te ahorramos RD$30,000 al ano.'],
     ['"Ya tengo un sistema, no quiero cambiar."',
      'Te entiendo, cambiar de POS es un dolor. Por eso ofrecemos configuracion remota incluida - tu no tocas nada. Yo importo tu menu, tus mesas, tus empleados. En 48 horas estas operando. Y si en 7 dias no te convence, no pagas. Una pregunta: tu sistema actual esta listo para el 15 de mayo de 2026?'],
     ['"Mi cocina es chica, no necesito KDS."',
@@ -467,7 +467,7 @@ function drawQA(page, q, a, x, y, maxW) {
   whiteSection('Si dice "dejame pensarlo":',
     '"Claro. Una cosa: el 15 de mayo se vence el plazo de DGII. Te dejo activado el trial de 7 dias gratis ahora - si no te gusta, no pagas, no pasa nada. Pero al menos quedas listo. Te parece?"');
   whiteSection('Si dice "el precio esta alto":',
-    '"Te entiendo. Cuanto facturas al mes? RD$X. Pro PLUS te cuesta el 0.7% de eso. Tu PSFE actual con Alegra te cuesta mas solo en comprobantes. Vamos al anual con 15% OFF - bajas a RD$3,817/mes y te ahorras RD$8,000 al ano."');
+    '"Te entiendo. Cuanto facturas al mes? RD$X. Pro PLUS te cuesta el 0.7% de eso. Tu PSFE actual con Alegra te cuesta mas solo en comprobantes. Vamos al anual con 15% OFF - bajas a RD$4,667/mes y te ahorras RD$8,000 al ano."');
 
   drawFooter(page, 7, true);
 }
@@ -481,7 +481,7 @@ function drawQA(page, q, a, x, y, maxW) {
   drawText(page, '5. El plan + que incluye', M, y, { font: fontBold, size: 22, color: CRIMSON });
   y -= 22;
   drawWrapped(page,
-    'Pro PLUS - RD$4,490/mes. Anual con 15% OFF baja a RD$3,817/mes (ahorras ~RD$8,000/ano).',
+    'Pro PLUS - RD$5,490/mes. Anual con 15% OFF baja a RD$4,667/mes (ahorras ~RD$8,000/ano).',
     M, y, CONTENT_W, { font: fontBold, size: 11, lh: 14 });
   y -= 20;
 
@@ -506,7 +506,7 @@ function drawQA(page, q, a, x, y, maxW) {
     ['Modo hibrido (restaurante + tienda)', 'SI', 'NO', 'NO'],
     ['Modo Kiosk con auto-lock', 'SI', 'NO', 'NO'],
   ];
-  const totalRow = ['Precio mensual', 'RD$4,490', 'RD$1,800-3,500 + por e-CF', 'RD$2,000-4,000'];
+  const totalRow = ['Precio mensual', 'RD$5,490', 'RD$1,800-3,500 + por e-CF', 'RD$2,000-4,000'];
 
   const colWidths = [CONTENT_W * 0.46, CONTENT_W * 0.18, CONTENT_W * 0.18, CONTENT_W * 0.18];
   const rowH = 18;
@@ -546,7 +546,7 @@ function drawQA(page, q, a, x, y, maxW) {
   y -= totalH + 8;
 
   drawWrapped(page,
-    'Pro PLUS incluye 5 usuarios. Pro MAX (RD$6,990/mes) agrega WhatsApp recibos, dashboard remoto, ticket-locks multi-sucursal, modo offline PWA web, daily digest. Trial 7 dias gratis Pro MAX para todos los signups.',
+    'Pro PLUS incluye 5 usuarios. Pro MAX (RD$9,990/mes) agrega WhatsApp recibos, dashboard remoto, ticket-locks multi-sucursal, modo offline PWA web, daily digest. Trial 7 dias gratis Pro MAX para todos los signups.',
     M, y, CONTENT_W, { font: fontItalic, size: 9, lh: 12 });
 
   drawFooter(page, 8);
@@ -625,7 +625,7 @@ function drawQA(page, q, a, x, y, maxW) {
   caseBox('Caso A - Restaurante familiar, 12 mesas, RD$600,000/mes', [
     'Situacion: Comedor de barrio en Naco, dueno + esposa + 4 empleados. Hoy usa Alegra basico + libreta para mesas + WhatsApp para pedidos.',
     'Volumen e-CF estimado: ~250 comprobantes/mes. Con Alegra paga RD$2,500 plan + RD$2,000 PSFE = RD$4,500 efectivo. Sin mesas reales, sin KDS, sin propinas Ley 10%.',
-    'Con Terminal X Pro PLUS: RD$4,490 plano. Mesas + KDS + comisiones + propinas Ley + e-CF directo + Viafirma incluido. ROI: paridad de costo + 4 features que Alegra no tiene. Plan anual 15% OFF baja a RD$3,817 - ahorra RD$8,000/ano.',
+    'Con Terminal X Pro PLUS: RD$5,490 plano. Mesas + KDS + comisiones + propinas Ley + e-CF directo + Viafirma incluido. ROI: paridad de costo + 4 features que Alegra no tiene. Plan anual 15% OFF baja a RD$4,667 - ahorra RD$8,000/ano.',
   ]);
 
   caseBox('Caso B - Bar de fin de semana, 6 mesas + delivery, RD$400,000/mes', [

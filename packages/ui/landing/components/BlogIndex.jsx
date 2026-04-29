@@ -1,12 +1,12 @@
 import { Link } from 'react-router-dom'
-import { Clock, ArrowRight } from 'lucide-react'
+import { Clock, ArrowRight, ArrowLeft } from 'lucide-react'
 import posts from '../data/blogPosts.json'
 
 // BlogIndex — list view at /blog. Self-contained.
 
 const COPY = {
-  es: { eyebrow: 'BLOG', title: 'Guías y comparativas', readM: 'min lectura', read: 'Leer' },
-  en: { eyebrow: 'BLOG', title: 'Guides and comparisons', readM: 'min read', read: 'Read' },
+  es: { eyebrow: 'BLOG', title: 'Guías y comparativas', readM: 'min lectura', read: 'Leer', back: 'Volver al inicio' },
+  en: { eyebrow: 'BLOG', title: 'Guides and comparisons', readM: 'min read', read: 'Read', back: 'Back to home' },
 }
 
 export default function BlogIndex({ lang = 'es' }) {
@@ -17,6 +17,9 @@ export default function BlogIndex({ lang = 'es' }) {
   return (
     <section className="bg-white py-20 md:py-24 px-4 sm:px-6 lg:px-8 min-h-screen">
       <div className="max-w-5xl mx-auto">
+        <Link to="/" className="inline-flex items-center gap-2 text-sm font-bold text-black/50 hover:text-[#b3001e] mb-8 transition-colors">
+          <ArrowLeft size={14} />{t.back}
+        </Link>
         <div className="mb-12">
           <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">{t.eyebrow}</p>
           <h1 className="text-4xl md:text-5xl font-black uppercase tracking-tight text-black">{t.title}</h1>
