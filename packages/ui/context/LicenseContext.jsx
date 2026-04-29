@@ -203,6 +203,11 @@ export function LicenseProvider({ children }) {
       if (res.valid && res.businessId && api?.settings?.update) {
         try { await api.settings.update({ supabase_business_id: res.businessId }) } catch {}
         try { localStorage.setItem('tx_business_id', String(res.businessId)) } catch {}
+        // Push the license key to the main process so cloud backup +
+        // license-scoped JWT minting work. Without this, _activeLicenseKey
+        // stays null and runBackupGuarded throws "cloud backup requires
+        // license activation" before any network call.
+        try { await api?.license?.setKey?.(k) } catch {}
         // Await the pull — otherwise Login screen renders against an empty DB
         // and every PIN fails. Fall through on network error (still let user in).
         try {
