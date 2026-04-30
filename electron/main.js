@@ -37,7 +37,45 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   console.error('[FATAL] Unhandled rejection:', reason)
   try { captureMainException(reason instanceof Error ? reason : new Error(String(reason))) } catch {}
+  reportMainProcessError(reason instanceof Error ? reason : new Error(String(reason)), 'unhandledRejection')
 })
+
+// Main-process error reporter — POSTs to /api/panel?action=report_error so
+// errors that happen outside the renderer (backup, sync, IPC handlers) are
+// visible in admin Errores tab. Mirrors web/main.jsx + packages/ui/main.jsx
+// reporters but uses Node's https module + `app_settings` for business_id.
+const _mainErrReportRecent = new Set()
+function reportMainProcessError(err, source) {
+  try {
+    const message = String((err && err.message) || err || 'unknown error')
+    const sig = source + ':' + message.slice(0, 200)
+    if (_mainErrReportRecent.has(sig)) return
+    _mainErrReportRecent.add(sig)
+    setTimeout(() => _mainErrReportRecent.delete(sig), 60000)
+    let businessId = null
+    try { businessId = db?.rawPrepare?.("SELECT value FROM app_settings WHERE key='supabase_business_id'").get()?.value || null } catch {}
+    const body = JSON.stringify({
+      business_id: businessId,
+      message,
+      stack: (err && err.stack) || null,
+      route: 'main-process:' + source,
+      app_version: pkgVersion || null,
+      severity: 'error',
+      metadata: { platform: 'desktop-main', source },
+    })
+    const req = https.request({
+      method: 'POST',
+      hostname: 'www.terminalxpos.com',
+      path: '/api/panel?action=report_error',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      timeout: 10000,
+    }, () => {})
+    req.on('error', () => {})
+    req.on('timeout', () => { try { req.destroy() } catch {} })
+    req.write(body)
+    req.end()
+  } catch {}
+}
 
 // ── Env-var accessors (with safe fallbacks) ───────────────────────────────────
 // Anon key is SAFE TO SHIP: it's the public client key, and Supabase RLS
@@ -1728,7 +1766,11 @@ function scheduleNightlyBackup() {
     console.log(`[backup] next nightly run in ${Math.round(delay / 60000)} min`)
   }
   setTimeout(async () => {
-    try { await runBackupGuarded('scheduled') } catch (e) { console.warn('[backup] scheduled run failed:', e.message) }
+    try { await runBackupGuarded('scheduled') }
+    catch (e) {
+      console.warn('[backup] scheduled run failed:', e.message)
+      reportMainProcessError(e, 'backup:scheduled')
+    }
     scheduleNightlyBackup() // recompute for next 3 AM (handles DST drift)
   }, delay)
 }
@@ -1738,6 +1780,7 @@ ipcMain.handle('backup:runNow', async () => {
     const res = await runBackupGuarded('manual')
     return { ok: true, data: res }
   } catch (e) {
+    reportMainProcessError(e, 'backup:runNow')
     return { ok: false, error: e?.message || String(e) }
   }
 })

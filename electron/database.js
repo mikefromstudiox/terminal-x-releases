@@ -11509,12 +11509,20 @@ function inventoryCountDelete(id) {
 function rawPrepare(sql) { return db ? db.prepare(sql) : null }
 function rawExec(sql) { if (db) db.exec(sql) }
 
-// Consistent online snapshot via better-sqlite3's native backup API.
-// Preserves SQLCipher encryption page-by-page (ciphertext copied as-is).
+// Consistent online snapshot via VACUUM INTO. We do NOT use better-sqlite3's
+// native .backup() because better-sqlite3-multiple-ciphers opens the
+// destination as a plain (no-cipher) database, and the SQLite Online Backup
+// API then rejects an SQLCipher source with "backup is not supported with
+// incompatible source database". VACUUM INTO writes an encrypted copy with
+// the current key, which is what we actually want.
 function dbBackupTo(destPath) {
   if (!db) return Promise.reject(new Error('db not initialized'))
-  if (typeof db.backup !== 'function') return Promise.reject(new Error('better-sqlite3 backup() unavailable'))
-  return db.backup(destPath)
+  try {
+    db.exec(`VACUUM INTO '${destPath.replace(/'/g, "''")}'`)
+    return Promise.resolve()
+  } catch (e) {
+    return Promise.reject(e)
+  }
 }
 
 function closeDb() {
