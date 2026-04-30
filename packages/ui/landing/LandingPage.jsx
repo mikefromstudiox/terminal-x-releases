@@ -1,6 +1,6 @@
 import { useNavigate, Link } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { Monitor, Shield, Zap, BarChart3, Receipt, Users, ArrowRight, ArrowUp, Check, X, Wifi, WifiOff, Printer, MessageSquare, ChevronDown, ChevronUp, Clock, CreditCard, FileText, Lock, Smartphone, Star, TrendingUp, Headphones, Menu, ExternalLink, Globe, Banknote, Calculator, Crown, Award, BadgeCheck, Package, Gift, ClipboardList, Mail, IdCard, BookOpen } from 'lucide-react'
+import { Monitor, Shield, Zap, BarChart3, Receipt, Users, ArrowRight, ArrowUp, Check, X, Wifi, WifiOff, Printer, MessageSquare, MessageCircle, ChevronDown, ChevronUp, Clock, CreditCard, FileText, Lock, Smartphone, Star, TrendingUp, Headphones, Menu, ExternalLink, Globe, Banknote, Calculator, Crown, Award, BadgeCheck, Package, Gift, ClipboardList, Mail, IdCard, BookOpen } from 'lucide-react'
 import logoImg from '../assets/logo.webp'
 
 // New section components — see brief "Plan reference: steady-mixing-charm.md"
@@ -913,6 +913,33 @@ export default function LandingPage({ section }) {
                 </button>
               </div>
             ))}
+          </div>
+
+          {/* Add-ons — WhatsApp Automatización (UltraMsg) */}
+          <div className="max-w-3xl mx-auto mt-12">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 sm:p-7">
+              <div className="flex items-start gap-4">
+                <div className="w-11 h-11 rounded-xl bg-[#b3001e]/15 flex items-center justify-center shrink-0">
+                  <MessageCircle size={20} className="text-[#b3001e]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <h3 className="text-base font-bold text-white">{L('Add-on: Automatización WhatsApp', 'Add-on: WhatsApp Automation')}</h3>
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-white/10 text-white/70">{L('Opcional', 'Optional')}</span>
+                  </div>
+                  <p className="text-[13px] text-white/60 leading-relaxed">
+                    {L(
+                      'Envío automático de recibos, recordatorios de pago y facturas por WhatsApp desde el POS. Requiere instancia UltraMsg activa por cuenta del cliente. Sin add-on, los planes incluyen envío manual vía wa.me (un toque para abrir WhatsApp con el mensaje listo).',
+                      'Automated sending of receipts, payment reminders and invoices via WhatsApp from the POS. Requires an active UltraMsg instance billed to the client. Without the add-on, all plans include manual sending via wa.me (one tap opens WhatsApp with the message ready).'
+                    )}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-[12px]">
+                    <span className="text-[#b3001e] font-bold">RD$1,990<span className="text-white/40 font-normal">/{L('mes', 'mo')}</span></span>
+                    <span className="text-white/40">{L('o el cliente paga UltraMsg directo (~US$39/mes)', 'or the client pays UltraMsg directly (~US$39/mo)')}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>

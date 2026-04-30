@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Save, X, ShieldCheck, ShieldAlert, Lock, Pencil, Calendar, MapPin, Plus, Trash2, Gift, Mail, Send, CheckCircle2, XCircle } from 'lucide-react'
+import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Save, X, ShieldCheck, ShieldAlert, Lock, Pencil, Calendar, MapPin, Plus, Trash2, Gift, Mail, Send, CheckCircle2, XCircle, MessageCircle, RefreshCw } from 'lucide-react'
 import { useLang } from '../../i18n'
 import OnboardingChecklist from '../components/OnboardingChecklist'
 import QuickActions from '../components/QuickActions'
@@ -68,6 +68,58 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
   const [certHistory, setCertHistory] = useState(null)
   const [certHistoryLoading, setCertHistoryLoading] = useState(false)
   const [certHistoryOpen, setCertHistoryOpen] = useState(false)
+  // UltraMsg WhatsApp creds + live status.
+  const [waCreds, setWaCreds] = useState({ instance: '', token_masked: '', has_token: false })
+  const [waInstance, setWaInstance] = useState('')
+  const [waToken, setWaToken] = useState('')
+  const [waStatus, setWaStatus] = useState(null) // {state, message, instance}
+  const [waLoading, setWaLoading] = useState(false)
+  const [waSaving, setWaSaving] = useState(false)
+  const [waEditing, setWaEditing] = useState(false)
+
+  async function loadWhatsapp() {
+    if (!id) return
+    setWaLoading(true)
+    try {
+      let token = await refreshToken?.(); if (!token) token = getToken()
+      const headers = { 'Authorization': `Bearer ${token}` }
+      const [credsResp, statusResp] = await Promise.all([
+        fetch(`/api/panel?action=ultramsg_get&business_id=${id}`, { headers }),
+        fetch(`/api/panel?action=ultramsg_status&business_id=${id}`, { headers }),
+      ])
+      const credsJson = await credsResp.json().catch(() => ({}))
+      const statusJson = await statusResp.json().catch(() => ({}))
+      if (credsJson.data) {
+        setWaCreds(credsJson.data)
+        setWaInstance(credsJson.data.instance || '')
+      }
+      if (statusJson.data) setWaStatus(statusJson.data)
+    } finally {
+      setWaLoading(false)
+    }
+  }
+
+  async function saveWhatsapp() {
+    if (!waInstance || !waToken) return
+    setWaSaving(true)
+    try {
+      let token = await refreshToken?.(); if (!token) token = getToken()
+      const r = await fetch('/api/panel?action=ultramsg_save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ business_id: id, instance: waInstance.trim(), token: waToken.trim() }),
+      })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`)
+      setWaToken('')
+      setWaEditing(false)
+      await loadWhatsapp()
+    } catch (e) {
+      alert('Error: ' + (e.message || e))
+    } finally {
+      setWaSaving(false)
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -86,7 +138,7 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [id])
+  useEffect(() => { load(); loadWhatsapp() }, [id])
 
   async function loadErrors() {
     setErrorsLoading(true)
@@ -1047,6 +1099,78 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </motion.div>
+
+              {/* WhatsApp UltraMsg status */}
+              <motion.div variants={listItem} className={card}>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[11px] font-bold uppercase tracking-[1.2px] text-[#b3001e] flex items-center gap-2">
+                    <MessageCircle size={13} /> {L('WhatsApp (UltraMsg)', 'WhatsApp (UltraMsg)')}
+                  </p>
+                  <button onClick={loadWhatsapp} disabled={waLoading}
+                    title={L('Verificar estado en vivo', 'Re-check live status')}
+                    className={`text-[10px] font-bold px-2 py-1 rounded-lg transition-colors disabled:opacity-40 ${isDark ? 'text-white/40 hover:text-white/70 border border-white/10' : 'text-black/40 hover:text-black/70 border border-black/10'}`}>
+                    <RefreshCw size={11} className={`inline mr-1 ${waLoading ? 'animate-spin' : ''}`} />
+                    {L('Verificar', 'Check')}
+                  </button>
+                </div>
+
+                {(() => {
+                  const s = waStatus?.state
+                  const dot = s === 'active' ? 'bg-emerald-500'
+                            : s === 'suspended' ? 'bg-red-500'
+                            : s === 'not_configured' ? (isDark ? 'bg-white/20' : 'bg-black/20')
+                            : 'bg-amber-500'
+                  const label = s === 'active' ? L('Activo', 'Active')
+                              : s === 'suspended' ? L('Suspendido — pago vencido', 'Suspended — payment due')
+                              : s === 'not_configured' ? L('Sin configurar', 'Not configured')
+                              : s === 'error' ? L('Error', 'Error')
+                              : L('Desconocido', 'Unknown')
+                  return (
+                    <div className={`rounded-xl p-3 mb-3 ${isDark ? 'bg-white/5' : 'bg-black/5'}`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`w-2 h-2 rounded-full ${dot}`} />
+                        <span className={`text-[12px] font-semibold ${isDark ? 'text-white/90' : 'text-black/90'}`}>{label}</span>
+                      </div>
+                      {waStatus?.message && (
+                        <p className={`text-[11px] leading-relaxed ${s === 'suspended' ? 'text-red-500' : (isDark ? 'text-white/50' : 'text-black/50')}`}>
+                          {waStatus.message}
+                        </p>
+                      )}
+                      {waCreds.instance && (
+                        <p className={`text-[10px] mt-1.5 font-mono ${isDark ? 'text-white/30' : 'text-black/30'}`}>
+                          {waCreds.instance} · token: {waCreds.token_masked || '—'}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })()}
+
+                {!waEditing ? (
+                  <button onClick={() => { setWaEditing(true); setWaToken('') }}
+                    className={`w-full px-3 py-2 rounded-lg text-[11px] font-bold transition-colors ${isDark ? 'bg-white/5 text-white/70 hover:bg-white/10 border border-white/10' : 'bg-black/5 text-black/70 hover:bg-black/10 border border-black/10'}`}>
+                    {waCreds.has_token ? L('Cambiar credenciales', 'Change credentials') : L('Configurar credenciales', 'Configure credentials')}
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <input value={waInstance} onChange={e => setWaInstance(e.target.value)}
+                      placeholder="instance166620"
+                      className={`w-full px-2.5 py-2 rounded-lg text-[12px] font-mono outline-none ${isDark ? 'bg-white/5 border border-white/10 text-white placeholder-white/30' : 'bg-white border border-black/10 text-black placeholder-black/30'}`} />
+                    <input value={waToken} onChange={e => setWaToken(e.target.value)}
+                      placeholder={L('Token nuevo', 'New token')}
+                      className={`w-full px-2.5 py-2 rounded-lg text-[12px] font-mono outline-none ${isDark ? 'bg-white/5 border border-white/10 text-white placeholder-white/30' : 'bg-white border border-black/10 text-black placeholder-black/30'}`} />
+                    <div className="flex gap-2">
+                      <button onClick={saveWhatsapp} disabled={!waInstance || !waToken || waSaving}
+                        className="flex-1 px-3 py-2 rounded-lg text-[11px] font-bold bg-[#b3001e] text-white hover:bg-[#c8002a] disabled:opacity-50 transition-colors">
+                        {waSaving ? L('Guardando...', 'Saving...') : L('Guardar', 'Save')}
+                      </button>
+                      <button onClick={() => { setWaEditing(false); setWaToken('') }}
+                        className={`px-3 py-2 rounded-lg text-[11px] font-bold transition-colors ${isDark ? 'bg-white/5 text-white/60 hover:bg-white/10' : 'bg-black/5 text-black/60 hover:bg-black/10'}`}>
+                        {L('Cancelar', 'Cancel')}
+                      </button>
+                    </div>
                   </div>
                 )}
               </motion.div>

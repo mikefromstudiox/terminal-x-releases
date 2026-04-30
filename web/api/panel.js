@@ -176,6 +176,11 @@ export default async function handler(req, res) {
   if (action === 'db-backup-sign') return handleDbBackupSign(req, res)
   if (action === 'db-backup-status') return handleDbBackupStatus(req, res)
 
+  // UltraMsg WhatsApp credentials per-client + live status probe.
+  if (action === 'ultramsg_get')    return handleUltramsgGet(req, res)
+  if (action === 'ultramsg_save')   return handleUltramsgSave(req, res)
+  if (action === 'ultramsg_status') return handleUltramsgStatus(req, res)
+
   // ── Contabilidad Vault (Supabase Storage signed URLs) ────────────────────
   if (action === 'vault_upload_sign')   return handleVaultUploadSign(req, res)
   if (action === 'vault_download_sign') return handleVaultDownloadSign(req, res)
@@ -3904,6 +3909,95 @@ async function handleDbBackupSign(req, res) {
   })()
 
   return res.json({ ok: true, signedUrl: data.signedUrl, token: data.token, path: data.path })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UltraMsg WhatsApp creds — per-client management + live status probe.
+// Admin-only (requireAdmin). Stores instance + token in app_settings, scoped
+// to the business_id. Status probe hits api.ultramsg.com/{instance}/instance/
+// status?token={token} so the admin can see at a glance whether the client's
+// instance is active / suspended for non-payment / token revoked.
+// ─────────────────────────────────────────────────────────────────────────────
+async function _ultramsgFetchCreds(supabase, business_id) {
+  const { data: rows } = await supabase.from('app_settings')
+    .select('key,value')
+    .eq('business_id', business_id)
+    .in('key', ['whatsapp_instance', 'whatsapp_token'])
+  const cfg = Object.fromEntries((rows || []).map(r => [r.key, r.value]))
+  return { instance: cfg.whatsapp_instance || '', token: cfg.whatsapp_token || '' }
+}
+
+async function handleUltramsgGet(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { business_id } = req.query
+  if (!business_id) return res.status(400).json({ error: 'business_id required' })
+  try {
+    const { instance, token } = await _ultramsgFetchCreds(auth.supabase, business_id)
+    const masked = token ? token.slice(0, 4) + '••••' + token.slice(-4) : ''
+    return res.json({ data: { instance, token_masked: masked, has_token: !!token } })
+  } catch (e) { return res.status(500).json({ error: e.message }) }
+}
+
+async function handleUltramsgSave(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { business_id, instance, token } = req.body || {}
+  if (!business_id) return res.status(400).json({ error: 'business_id required' })
+  if (!instance || !token) return res.status(400).json({ error: 'instance + token required' })
+  try {
+    const now = new Date().toISOString()
+    const rows = [
+      { business_id, key: 'whatsapp_instance', value: String(instance).trim(), updated_at: now },
+      { business_id, key: 'whatsapp_token',    value: String(token).trim(),    updated_at: now },
+    ]
+    const { error } = await auth.supabase.from('app_settings')
+      .upsert(rows, { onConflict: 'business_id,key' })
+    if (error) throw error
+    return res.json({ ok: true })
+  } catch (e) { return res.status(500).json({ error: e.message }) }
+}
+
+async function handleUltramsgStatus(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { business_id } = req.query
+  if (!business_id) return res.status(400).json({ error: 'business_id required' })
+  try {
+    const { instance, token } = await _ultramsgFetchCreds(auth.supabase, business_id)
+    if (!instance || !token) {
+      return res.json({ data: { state: 'not_configured', message: 'Sin credenciales UltraMsg.' } })
+    }
+    const r = await fetch(`https://api.ultramsg.com/${encodeURIComponent(instance)}/instance/status?token=${encodeURIComponent(token)}`)
+    const text = await r.text()
+    let body = {}; try { body = JSON.parse(text) } catch {}
+    // Suspended-for-non-payment shape: {error: "Your instance has been Stopped due to non-payment..."}
+    if (body.error) {
+      const msg = String(body.error)
+      const isSuspended = /stopped|non.?payment|expired|subscription/i.test(msg)
+      return res.json({ data: {
+        state: isSuspended ? 'suspended' : 'error',
+        message: msg,
+        instance,
+        http_status: r.status,
+        raw: body,
+      }})
+    }
+    // Active shape: {accountStatus:{status:"authenticated"}, ...} or similar
+    const accountStatus = body?.accountStatus?.status || body?.status || (r.ok ? 'active' : 'unknown')
+    return res.json({ data: {
+      state: r.ok ? 'active' : 'error',
+      message: typeof accountStatus === 'string' ? accountStatus : 'OK',
+      instance,
+      http_status: r.status,
+      raw: body,
+    }})
+  } catch (e) {
+    return res.json({ data: { state: 'error', message: e.message || 'network error' } })
+  }
 }
 
 async function handleDbBackupStatus(req, res) {
