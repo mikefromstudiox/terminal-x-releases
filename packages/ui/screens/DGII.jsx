@@ -3,7 +3,7 @@ import {
   FileText, FilePlus, Download, Send, CheckCircle2, AlertCircle,
   Clock, AlertTriangle, RefreshCw, Database, ShoppingCart,
   Package, Minus, ChevronDown, Search, Trash2, Plus, X, Ban,
-  ShieldCheck, Upload, KeyRound,
+  ShieldCheck, Upload, KeyRound, Receipt,
 } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
@@ -1601,13 +1601,12 @@ function ScreenCert() {
               {L('Contraseña del certificado', 'Certificate passphrase')}
             </label>
             <div className="relative">
-              <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 pointer-events-none" />
               <input type={showPass ? 'text' : 'password'} value={passphrase}
                 onChange={e => { setPass(e.target.value); setPreview(null) }}
                 onBlur={validateNow}
                 placeholder={L('Su contraseña Viafirma', 'Your Viafirma password')}
                 autoComplete="new-password"
-                className="w-full border border-slate-200 dark:border-white/10 dark:bg-white/5 dark:text-white rounded-xl pl-10 pr-16 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 placeholder:text-slate-300 dark:placeholder:text-white/20" />
+                className="w-full border border-slate-200 dark:border-white/10 dark:bg-white/5 dark:text-white rounded-xl px-3 pr-20 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 placeholder:text-slate-300 dark:placeholder:text-white/20" />
               <button type="button" onClick={() => setShowPass(p => !p)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-500 dark:text-white/60 hover:text-slate-700 dark:hover:text-white/90 px-2 py-1">
                 {showPass ? L('OCULTAR', 'HIDE') : L('VER', 'SHOW')}
@@ -1806,7 +1805,14 @@ function SandboxDemoCard() {
 // ── Main DGII shell with 606 / 607 / ANECF tabs ─────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 export default function DGII() {
-  const [screen, setScreen] = useState('606')
+  // Honor ?tab= deep-links so onboarding/wizard CTAs (e.g. "Cargar certificado")
+  // can jump straight to the right tab instead of dropping the user on 607.
+  const initialTab = (() => {
+    if (typeof window === 'undefined') return '606'
+    const t = new URLSearchParams(window.location.search).get('tab')
+    return ['606', '607', 'anecf', 'cert'].includes(t) ? t : '606'
+  })()
+  const [screen, setScreen] = useState(initialTab)
   const { lang } = useLang()
   const { user } = useAuth()
   const L = (es, en) => lang === 'es' ? es : en

@@ -141,6 +141,10 @@ export default async function handler(req, res) {
     privateKeyPem = forge.pki.privateKeyToPem(privateKey)
     subject = cert.subject.getField('CN')?.value || ''
     certSerial = cert.serialNumber || null
+    // NOTE: Viafirma DO issues e-CF certs to the *authorized representative*
+    // (Persona Natural) who is registered at DGII as the signer for the
+    // company's RNC. Do NOT reject natural-person certs — they are the
+    // standard production shape.
     issuedISO = cert.validity.notBefore ? cert.validity.notBefore.toISOString() : null
     const validTo = cert.validity.notAfter
     expiryISO = validTo.toISOString()
@@ -152,7 +156,13 @@ export default async function handler(req, res) {
       sha256Fp = crypto.createHash('sha256').update(certDer).digest('hex')
     } catch { sha256Fp = null }
   } catch (err) {
-    // node-forge throws a generic error for both wrong passphrase and corrupt files
+    // node-forge throws a generic error for both wrong passphrase and corrupt files,
+    // but our own throws (natural-person guard, etc.) carry actionable Spanish copy —
+    // surface those verbatim so the user knows what to fix.
+    const msg = err?.message || ''
+    if (/PERSONA NATURAL|NATURAL PERSON|certificado no encontrado|llave privada/i.test(msg)) {
+      return json(res, 400, { ok: false, error: msg })
+    }
     return json(res, 400, { ok: false, error: 'Contraseña incorrecta o archivo .p12 inválido' })
   } finally {
     // Best-effort scrub of sensitive bytes from memory

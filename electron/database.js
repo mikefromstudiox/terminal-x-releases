@@ -7486,9 +7486,19 @@ function commissionsGetByPeriod(dateFrom, dateTo) {
     // `total_commission` stays as unpaid-only for callers that rely on
     // "pagar ahora" view. New fields: total_paid, total_acumulado,
     // ticket_count_total, ticket_count_paid.
+    // 2026-04-30 — LEFT JOIN empleados, NOT inner. The "Liquidación shows 0"
+    // bug has now hit 8 times: every time `empleados` resyncs (rows recreated
+    // with fresh supabase_ids, or pull misses the worker row entirely), an
+    // INNER JOIN here silently drops every StarSISA-imported / manual
+    // commission whose empleado_supabase_id no longer matches a local
+    // empleados row. The commissions never actually disappeared — they were
+    // just hidden by the JOIN. With LEFT JOIN + COALESCE name, an orphan
+    // commission shows up under "(sin empleado)" instead of vanishing, which
+    // is both correct and self-healing.
     return db.prepare(
       `SELECT wc.empleado_supabase_id, e.id as washer_id,
-              e.nombre as washer_name, e.comision_pct as commission_pct,
+              COALESCE(e.nombre, '(sin empleado)') as washer_name,
+              e.comision_pct as commission_pct,
               SUM(CASE WHEN COALESCE(wc.paid,0)=0 THEN 1 ELSE 0 END)   as ticket_count,
               SUM(CASE WHEN COALESCE(wc.paid,0)=1 THEN 1 ELSE 0 END)   as ticket_count_paid,
               COUNT(wc.id)                                             as ticket_count_total,
@@ -7497,7 +7507,7 @@ function commissionsGetByPeriod(dateFrom, dateTo) {
               SUM(CASE WHEN COALESCE(wc.paid,0)=1 THEN wc.commission_amount ELSE 0 END) as total_paid,
               SUM(wc.commission_amount)                                as total_acumulado
        FROM washer_commissions wc
-       JOIN empleados e ON e.supabase_id = wc.empleado_supabase_id
+       LEFT JOIN empleados e ON e.supabase_id = wc.empleado_supabase_id
        WHERE COALESCE(
                (SELECT t.status FROM tickets t WHERE t.id = wc.ticket_id LIMIT 1),
                (SELECT t.status FROM tickets t WHERE t.supabase_id = wc.ticket_supabase_id LIMIT 1),
@@ -7563,9 +7573,11 @@ function sellerCommissionsByPeriod(dateFrom, dateTo) {
   try {
     // v2.14.24 — parallel to commissionsGetByPeriod: return total_paid +
     // total_acumulado for liquidación. See that function for rationale.
+    // 2026-04-30 — same LEFT JOIN fix as commissionsGetByPeriod.
     return db.prepare(
       `SELECT sc.empleado_supabase_id, e.id as seller_id,
-              e.nombre as seller_name, e.comision_pct as commission_pct,
+              COALESCE(e.nombre, '(sin empleado)') as seller_name,
+              e.comision_pct as commission_pct,
               SUM(CASE WHEN COALESCE(sc.paid,0)=0 THEN 1 ELSE 0 END)   as ticket_count,
               SUM(CASE WHEN COALESCE(sc.paid,0)=1 THEN 1 ELSE 0 END)   as ticket_count_paid,
               COUNT(sc.id)                                             as ticket_count_total,
@@ -7574,7 +7586,7 @@ function sellerCommissionsByPeriod(dateFrom, dateTo) {
               SUM(CASE WHEN COALESCE(sc.paid,0)=1 THEN sc.commission_amount ELSE 0 END) as total_paid,
               SUM(sc.commission_amount)                                as total_acumulado
        FROM seller_commissions sc
-       JOIN empleados e ON e.supabase_id = sc.empleado_supabase_id
+       LEFT JOIN empleados e ON e.supabase_id = sc.empleado_supabase_id
        WHERE COALESCE(
                (SELECT t.status FROM tickets t WHERE t.id = sc.ticket_id LIMIT 1),
                (SELECT t.status FROM tickets t WHERE t.supabase_id = sc.ticket_supabase_id LIMIT 1),

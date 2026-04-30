@@ -22,6 +22,10 @@
 import 'dotenv/config'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'node:crypto'
+// Shim `window` so the production ecf.js (which references window.electronAPI
+// at module top level via isDGIIConfigured) loads cleanly under plain Node.
+if (typeof globalThis.window === 'undefined') globalThis.window = {}
+const { buildECFPayload, formatDGIIDate } = await import('../packages/services/ecf.js')
 
 const SUPA_URL = process.env.SUPABASE_URL
 const ANON     = process.env.SUPABASE_ANON_KEY
@@ -113,41 +117,55 @@ async function run() {
     process.exit(1)
   }
 
-  // 2. Pull next E31 eNCF for the factura
-  const facturaEncf = await loadSequence('E31')
-  if (!facturaEncf) { log('no E31 sequence available', false); process.exit(1) }
+  // 2. Pull next E32 eNCF — RFCE flow (E32 < 250K). This is the document
+  // type Mike has actually been submitting in production from desktop, so
+  // we know DGII accepts this exact shape with this exact cert. Testing
+  // E31 is meaningless until prod has ever produced one (it hasn't).
+  const facturaEncf = await loadSequence('E32')
+  if (!facturaEncf) { log('no E32 sequence available', false); process.exit(1) }
   log('seq: factura eNCF reserved', true, facturaEncf)
 
-  // Pull next E34 eNCF for the NC
+  // Pull next E34 eNCF for the NC (still tests the parent-acceptance gate)
   const ncEncf = await loadSequence('E34')
   if (!ncEncf) { log('no E34 sequence available', false); process.exit(1) }
   log('seq: NC eNCF reserved', true, ncEncf)
 
-  // 3. Build factura E31 payload + submit
-  // Studio X SRL info (from businesses + settings)
-  const { data: biz } = await svc.from('businesses').select('rnc, name').eq('id', STUDIO_X_BID).single()
-  const fechaEmision = new Date().toISOString().slice(0, 10).split('-').reverse().join('-')
+  // 3. Build factura E31 payload + submit. Use the production buildECFPayload
+  // so the XML matches what the live POS submits (FechaVencimientoSecuencia,
+  // IndicadorMontoGravado, full Emisor with Municipio/Provincia/CorreoEmisor,
+  // full Comprador). Hand-rolling here previously omitted required XSD fields
+  // and got DGII rejecting with "Archivo no válido".
+  const { data: biz } = await svc.from('businesses').select('rnc, name, settings').eq('id', STUDIO_X_BID).single()
+  const fechaEmision = formatDGIIDate()
 
-  const facturaPayload = {
-    ECF: {
-      Encabezado: {
-        Version: '1.0',
-        IdDoc: { TipoECF: '31', eNCF: facturaEncf, FechaEmision: fechaEmision, IndicadorEnvioDiferido: '0', TipoIngresos: '01', TipoPago: '1' },
-        Emisor: { RNCEmisor: (biz?.rnc || '').replace(/\D/g, ''), RazonSocialEmisor: (biz?.name || 'STUDIO X SRL').toUpperCase(), DireccionEmisor: 'Santo Domingo' },
-        Comprador: { RNCComprador: '101000001', RazonSocialComprador: 'CLIENTE PRUEBA' },
-        Totales: { MontoGravadoTotal: 100, MontoGravadoI1: 100, ITBIS1: 18, TotalITBIS: 18, TotalITBIS1: 18, MontoTotal: 118 },
-      },
-      DetallesItems: { Item: [{ NumeroLinea: 1, IndicadorFacturacion: '1', NombreItem: 'Servicio de prueba', IndicadorBienoServicio: '2', CantidadItem: 1, UnidadMedida: '43', PrecioUnitarioItem: 100, MontoItem: 100 }] },
+  // E32 < 250K — Resumen Factura Consumo Electrónica (RFCE). This is the
+  // only document type Mike has prod-confirmed accepted by DGII (E320000000020
+  // accepted 2026-04-24 from desktop). Different endpoint, different XML
+  // shape — uses buildRFCEXml + multipart/form-data POST to fc.dgii.gov.do.
+  const invoiceData = {
+    tipoECF: '32',
+    emisor: {
+      rnc: (biz?.rnc || '').replace(/\D/g, ''),
+      nombre: (biz?.name || 'STUDIO X SRL').toUpperCase(),
+      direccion: 'Santo Domingo',
+      email: 'admin@studiox.com.do',
     },
+    // No comprador for E32 < 250K — RFCE doesn't carry buyer info.
+    items: [{ nombre: 'Servicio de prueba', cantidad: 1, precio: 169.4915, indicadorFacturacion: '1', indicadorBienoServicio: '2' }],
+    totales: { subtotal: 169.49, itbis: 30.51, total: 200.00 },
+    metodoPago: 'efectivo',
+    tipoIngresos: '01',
   }
+  const facturaPayload = buildECFPayload(invoiceData)
+  facturaPayload.ECF.Encabezado.IdDoc.eNCF = facturaEncf
   const facturaBody = {
     business_id: STUDIO_X_BID,
     eNCF: facturaEncf,
-    tipoECF: '31',
-    montoTotal: 118,
+    tipoECF: '32',
+    montoTotal: 200,
     payload: facturaPayload,
     emisor: facturaPayload.ECF.Encabezado.Emisor,
-    comprador: facturaPayload.ECF.Encabezado.Comprador,
+    comprador: null,
     totales: { subtotal: 100, itbis: 18, total: 118 },
     fechaEmision,
     tipoIngresos: '01',
@@ -166,19 +184,13 @@ async function run() {
 
   // 4. Try NC immediately while parent might still be EN_PROCESO
   console.log('\n--- 2. Try NC immediately (race against parent acceptance) ---')
-  const ncPayload = {
-    ECF: {
-      Encabezado: {
-        Version: '1.0',
-        IdDoc: { TipoECF: '34', eNCF: ncEncf, FechaEmision: fechaEmision, IndicadorEnvioDiferido: '0', TipoIngresos: '01', TipoPago: '1' },
-        Emisor: facturaPayload.ECF.Encabezado.Emisor,
-        Comprador: facturaPayload.ECF.Encabezado.Comprador,
-        InformacionReferencia: { NCFModificado: facturaEncf, RazonModificacion: 'Devolucion total', FechaNCFModificado: fechaEmision, CodigoModificacion: '1' },
-        Totales: { MontoGravadoTotal: 100, MontoGravadoI1: 100, ITBIS1: 18, TotalITBIS: 18, TotalITBIS1: 18, MontoTotal: 118 },
-      },
-      DetallesItems: facturaPayload.ECF.DetallesItems,
-    },
+  const ncInvoiceData = {
+    ...invoiceData,
+    tipoECF: '34',
+    referencia: { ncfModificado: facturaEncf, razonModificacion: 'Devolucion total', fechaNCFModificado: fechaEmision, codigoModificacion: '1' },
   }
+  const ncPayload = buildECFPayload(ncInvoiceData)
+  ncPayload.ECF.Encabezado.IdDoc.eNCF = ncEncf
   const ncBody = {
     business_id: STUDIO_X_BID, eNCF: ncEncf, tipoECF: '34', montoTotal: 118,
     payload: ncPayload, emisor: ncPayload.ECF.Encabezado.Emisor, comprador: ncPayload.ECF.Encabezado.Comprador,

@@ -362,6 +362,14 @@ export default async function handler(req, res) {
     // Step 1: Build XML
     const xml = buildECFXml(body.payload, eNCF)
 
+    // Debug short-circuit: return the unsigned + signed XML without submitting
+    // so we can diff against a desktop-prod accepted XML when DGII rejects a
+    // web submission. Owner-only via the same JWT auth above.
+    if (body.__debugXml === true) {
+      const { signedXml: dbgSigned } = signXML(xml, privateKeyPem, certificatePem)
+      return json(res, 200, { ok: true, debug: { unsignedXml: xml, signedXml: dbgSigned } })
+    }
+
     // Step 2: Sign
     const { signedXml, securityCode, signatureDate } = signXML(xml, privateKeyPem, certificatePem)
 
@@ -406,10 +414,12 @@ export default async function handler(req, res) {
     }
 
     // Build QR URL
+    // emisor payload uses DGII's `RNCEmisor` casing in the round-trip script;
+    // accept both shapes so QR never gets `rncemisor=undefined`.
     const qrLink = buildQRUrl({
       env: dgiiEnv,
-      rncEmisor: body.emisor?.rnc,
-      rncComprador: body.comprador?.rnc || '',
+      rncEmisor: body.emisor?.rnc || body.emisor?.RNCEmisor || body.emisor?.RncEmisor,
+      rncComprador: body.comprador?.rnc || body.comprador?.RNCComprador || body.comprador?.RncComprador || '',
       eNCF,
       fechaEmision: body.fechaEmision,
       montoTotal,

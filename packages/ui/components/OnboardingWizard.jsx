@@ -57,15 +57,27 @@ export default function OnboardingWizard() {
         const stored = s?.[STATE_KEY]
         if (stored === 'completed' || stored === 'dismissed') return
         // Fetch supplementary signals — cert + ticket count drive step completion.
+        let c = null, t = []
         try {
-          const c = await api.dgii_ecf?.certInfo?.()
+          c = await api.dgii_ecf?.certInfo?.()
           if (!cancelled) setCertInfo(c || { installed: false })
         } catch {}
         try {
-          const t = await api.tickets?.all?.({ limit: 1 })
+          t = await api.tickets?.all?.({ limit: 1 })
           if (!cancelled) setTickets({ count: Array.isArray(t) ? t.length : 0 })
         } catch {}
-        if (!cancelled) setOpen(true)
+        if (cancelled) return
+        // 2026-04-30 — if every step is already done at mount time (e.g. user
+        // finished setup but never clicked "Siguiente" through to the end),
+        // auto-persist completed so the wizard never re-pops on navigation.
+        const bizFilled = !!(s?.biz_rnc && s?.biz_address && s?.biz_phone)
+        const certInstalled = !!(c?.installed)
+        const hasTicket = Array.isArray(t) ? t.length > 0 : false
+        if (bizFilled && certInstalled && hasTicket) {
+          try { await api.settings?.update?.({ [STATE_KEY]: 'completed' }) } catch {}
+          return
+        }
+        setOpen(true)
       } catch {}
     })()
     return () => { cancelled = true }
@@ -113,7 +125,7 @@ export default function OnboardingWizard() {
               'Your Viafirma certificate uploads in 30 seconds at /pos/dgii. If you don’t have one yet, Tech X handles the full DGII certification.'),
         cta: certInfo?.installed
           ? { label: L('Continuar', 'Continue'), action: 'next' }
-          : { label: L('Cargar certificado', 'Upload certificate'), to: '/pos/dgii' },
+          : { label: L('Cargar certificado', 'Upload certificate'), to: '/pos/dgii?tab=cert' },
         done: !!certInfo?.installed,
       },
       {
@@ -229,10 +241,10 @@ export default function OnboardingWizard() {
                 <ChevronRight size={15} />
               </a>
             ) : (
-              <button onClick={() => stepIdx < steps.length - 1 ? setStepIdx(stepIdx + 1) : persistState('completed')}
+              <button onClick={() => allDone ? persistState('completed') : (stepIdx < steps.length - 1 ? setStepIdx(stepIdx + 1) : persistState('completed'))}
                 disabled={persisting}
                 className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#b3001e] text-white text-sm font-bold rounded-xl hover:bg-[#8f0018] transition disabled:opacity-50">
-                {step.cta?.label || (allDone ? L('Cerrar', 'Close') : L('Siguiente', 'Next'))}
+                {step.cta?.label || (allDone ? L('Finalizar', 'Finish') : L('Siguiente', 'Next'))}
                 <ArrowRight size={15} />
               </button>
             )}

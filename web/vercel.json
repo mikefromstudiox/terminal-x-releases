@@ -1,5 +1,9 @@
 {
-    "rewrites": [
+    "redirects": [
+    { "source": "/demo/:vertical", "destination": "/", "permanent": true },
+    { "source": "/demo-login", "destination": "/", "permanent": true }
+  ],
+  "rewrites": [
     { "source": "/fe/autenticacion/api/semilla", "destination": "/api/fe?action=semilla" },
     { "source": "/fe/autenticacion/api/ValidacionCertificado", "destination": "/api/fe?action=validarcertificado" },
     { "source": "/fe/autenticacion/api/validacioncertificado", "destination": "/api/fe?action=validarcertificado" },
@@ -12,7 +16,6 @@
     { "source": "/og-image.png", "destination": "/og-image.png" },
     { "source": "/og-image.svg", "destination": "/og-image.svg" },
     { "source": "/blog/:slug", "destination": "/index.html" },
-    { "source": "/demo/:vertical", "destination": "/index.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

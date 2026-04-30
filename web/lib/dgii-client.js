@@ -91,9 +91,14 @@ export async function submitECF(signedXml, token, env) {
     if (m) return { trackId: m[1] }
     throw new Error(`DGII respuesta inesperada (${res.status}): ${res.body.substring(0, 300)}`)
   }
-  if (parsed.trackId) return parsed
+  // DGII has been observed returning trackId as `trackId`, `TrackId`, `track_id`,
+  // and once `idTrack` across env upgrades. Normalize to `trackId` so callers
+  // can rely on a single key.
+  const tid = parsed.trackId || parsed.TrackId || parsed.track_id || parsed.idTrack || parsed.id
+  if (tid) return { ...parsed, trackId: tid }
   if (parsed.error || parsed.mensaje) throw new Error(`DGII rechazó e-CF: ${parsed.mensaje || parsed.error}`)
-  return parsed
+  // No recognizable trackId AND no error — surface the body so we can see what DGII sent.
+  throw new Error(`DGII aceptó pero sin trackId reconocible. status=${res.status} body=${JSON.stringify(parsed).slice(0, 400)}`)
 }
 
 export async function submitRFCE(signedXml, token, env) {

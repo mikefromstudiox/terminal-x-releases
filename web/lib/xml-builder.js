@@ -25,11 +25,21 @@ export function buildECFXml(payload, eNCF) {
   if (!enc) throw new Error('ECF must have Encabezado')
 
   if (enc.IdDoc) {
+    // DGII XSD requires <TipoeCF> with lowercase 'e'. Accept payloads that
+    // use any casing (TipoECF, TipoECf, etc.) so a one-character typo at
+    // the call site doesn't produce silently-malformed XML and a 400
+    // "Archivo no válido" from DGII.
     const idDoc = {}
-    idDoc.TipoeCF = enc.IdDoc.TipoeCF
+    let tipo = enc.IdDoc.TipoeCF
+    if (tipo === undefined) {
+      for (const [k, v] of Object.entries(enc.IdDoc)) {
+        if (k !== 'TipoeCF' && /^tipoe?cf$/i.test(k)) { tipo = v; break }
+      }
+    }
+    idDoc.TipoeCF = tipo
     idDoc.eNCF = eNCF
     for (const [k, v] of Object.entries(enc.IdDoc)) {
-      if (k !== 'TipoeCF') idDoc[k] = v
+      if (!/^tipoe?cf$/i.test(k) && k !== 'eNCF') idDoc[k] = v
     }
     enc.IdDoc = idDoc
   }
@@ -47,6 +57,15 @@ export function buildECFXml(payload, eNCF) {
   body += '</Encabezado>'
 
   if (ecf.DetallesItems) body += jsonToXml('DetallesItems', ecf.DetallesItems)
+
+  // FechaHoraFirma — required at ECF root after DetallesItems per DGII XSD.
+  // cert-step4 (which passed DGII certification Steps 1–15) emits this; the
+  // POS-path xml-builder previously omitted it and DGII certecf rejected with
+  // "Archivo no válido". Format: dd-mm-yyyy HH:mm:ss.
+  const d = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  const fechaHoraFirma = `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  body += jsonToXml('FechaHoraFirma', fechaHoraFirma)
 
   return `<?xml version="1.0" encoding="UTF-8"?><ECF>${body}</ECF>`
 }

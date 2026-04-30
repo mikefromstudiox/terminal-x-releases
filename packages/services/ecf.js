@@ -208,7 +208,10 @@ function buildItems(items) {
       IndicadorBienoServicio: item.indicadorBienoServicio || '2',
       CantidadItem:           String(item.cantidad        || 1),
       UnidadMedida:           item.unidadMedida           || '43',
-      PrecioUnitarioItem:     Number(item.precio).toFixed(2),
+      // DGII XSD: PrecioUnitarioItem is xs:decimal with fractionDigits=4. The
+      // cert-accepted golden XMLs (test-xmls/step4-sim/) all serialize with 4
+      // decimals (e.g. "800.0000"); 2-decimal serialization gets rejected.
+      PrecioUnitarioItem:     Number(item.precio).toFixed(4),
       MontoItem:              (Number(item.precio) * Number(item.cantidad || 1)).toFixed(2),
     })),
   }
@@ -231,6 +234,12 @@ function buildTotales18(t) {
       TotalITBIS:        Number(t.itbis).toFixed(2),
       TotalITBIS1:       Number(t.itbis).toFixed(2),
       MontoTotal:        Number(t.total).toFixed(2),
+      // DGII XSD: ValorPagar is required as last child of Totales for E31.
+      // The cert-step4 golden XMLs (test-xmls/step4-sim/) all emit this; our
+      // production builder previously omitted it and DGII certecf rejected
+      // submissions with "Archivo no válido". Same value as MontoTotal when
+      // there are no retentions / agente de retención modifiers.
+      ValorPagar:        Number(t.total).toFixed(2),
     }
   }
   const g18 = Number(t.gravado18 || 0)
