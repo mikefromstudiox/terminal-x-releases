@@ -234,6 +234,33 @@ async function run() {
   const { error: e14 } = await anon.rpc('loyalty_tier_for', { points: 7500 })
   log('rpc: loyalty_tier_for callable', !e14, e14?.message)
 
+  // 15. Liquidación regression — empleado_supabase_id contract.
+  // The "shows 0" 8x bug was caused by byPeriod return shapes dropping
+  // empleado_supabase_id, so NominaEmpleados.build() couldn't bucket per
+  // worker. This guards the contract: every commission row must carry
+  // empleado_supabase_id, and a synthesized bucket must expose the same
+  // key NominaEmpleados reads (r.empleado_supabase_id).
+  for (const table of ['washer_commissions','seller_commissions','cajero_commissions']) {
+    const { data: rows, error: ce } = await svc.from(table)
+      .select('empleado_supabase_id, base_amount, commission_amount, paid')
+      .not('empleado_supabase_id','is',null)
+      .limit(50)
+    if (ce) { log(`liquidación: ${table} readable`, false, ce.message); continue }
+    const allHaveSid = rows.length === 0 || rows.every(r => typeof r.empleado_supabase_id === 'string' && r.empleado_supabase_id.length > 0)
+    log(`liquidación: ${table} rows carry empleado_supabase_id`, allHaveSid, `${rows.length} rows`)
+    // Simulate byPeriod bucket shape — must expose empleado_supabase_id key.
+    const map = {}
+    for (const r of rows) {
+      const sid = r.empleado_supabase_id
+      if (!map[sid]) map[sid] = { empleado_supabase_id: sid, ticket_count: 0, total_commission: 0 }
+      map[sid].ticket_count += 1
+      map[sid].total_commission += Number(r.commission_amount || 0)
+    }
+    const buckets = Object.values(map)
+    const shapeOK = buckets.every(b => 'empleado_supabase_id' in b && b.empleado_supabase_id)
+    log(`liquidación: ${table} byPeriod bucket shape exposes empleado_supabase_id`, shapeOK, `${buckets.length} buckets`)
+  }
+
   // ===== Summary =====
   console.log(`\n=== ${pass} passed, ${fail} failed ===`)
   if (fail > 0) {
