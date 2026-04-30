@@ -5283,13 +5283,13 @@ export function createWebAPI(supabase, businessId) {
         const svcMap = {}
         if (svcSids.length) {
           const { data: svcs } = await supabase.from('services')
-            .select('supabase_id,name,price,in_stock').eq('business_id', bid).in('supabase_id', svcSids)
+            .select('supabase_id,name,price,in_stock,aplica_itbis').eq('business_id', bid).in('supabase_id', svcSids)
           for (const s of (svcs || [])) svcMap[s.supabase_id] = s
         }
         const invMap = {}
         if (invSids.length) {
           const { data: invs } = await supabase.from('inventory_items')
-            .select('supabase_id,name,sku,unit,quantity,price').eq('business_id', bid).in('supabase_id', invSids)
+            .select('supabase_id,name,sku,unit,quantity,price,aplica_itbis').eq('business_id', bid).in('supabase_id', invSids)
           for (const i of (invs || [])) invMap[i.supabase_id] = i
         }
         const itemsByOferta = {}
@@ -5318,7 +5318,30 @@ export function createWebAPI(supabase, businessId) {
           let min = Infinity
           for (const it of its) { const a = compAvail(it); if (a < min) min = a }
           const avail = its.length === 0 ? 0 : (Number.isFinite(min) ? Math.floor(min) : 0)
-          return { ...o, components_count: its.length, oferta_available: avail }
+          // Hydrate component details so POS can render savings + addOfertaToCart
+          // can iterate o.items. Without this, list() returns ofertas with no
+          // items array → POS throws "Oferta sin componentes" on tile click.
+          const enriched = its.map(it => {
+            if (it.service_supabase_id) {
+              const s = svcMap[it.service_supabase_id] || {}
+              return {
+                ...it,
+                name: s.name || '',
+                base_price: Number(s.price || 0),
+                aplica_itbis: s.aplica_itbis ?? 1,
+                available_units: (s.in_stock === false || s.in_stock === 0) ? 0 : Infinity,
+              }
+            }
+            const i = invMap[it.inventory_item_supabase_id] || {}
+            return {
+              ...it,
+              name: i.name || '',
+              base_price: Number(i.price || 0),
+              aplica_itbis: i.aplica_itbis ?? 1,
+              available_units: Number(i.quantity || 0),
+            }
+          })
+          return { ...o, items: enriched, components_count: its.length, oferta_available: avail }
         })
       }, []),
 

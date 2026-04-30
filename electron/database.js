@@ -8512,19 +8512,22 @@ function _ofertaEnrichItems(items) {
   const out = []
   for (const it of items) {
     let component_name = null, component_kind = null, component_price = null, component_quantity = null, component_unit = null
+    let aplica = 1
     if (it.service_supabase_id) {
-      const svc = db.prepare('SELECT name, price, in_stock FROM services WHERE supabase_id=?').get(it.service_supabase_id)
+      const svc = db.prepare('SELECT name, price, in_stock, aplica_itbis FROM services WHERE supabase_id=?').get(it.service_supabase_id)
       component_kind = 'service'
       component_name = svc?.name || null
       component_price = svc?.price != null ? Number(svc.price) : null
       component_quantity = (svc && svc.in_stock === 0) ? 0 : null
+      aplica = svc?.aplica_itbis ?? 1
     } else if (it.inventory_item_supabase_id) {
-      const inv = db.prepare('SELECT name, sku, unit, quantity, price FROM inventory_items WHERE supabase_id=?').get(it.inventory_item_supabase_id)
+      const inv = db.prepare('SELECT name, sku, unit, quantity, price, aplica_itbis FROM inventory_items WHERE supabase_id=?').get(it.inventory_item_supabase_id)
       component_kind = 'inventory_item'
       component_name = inv?.name || null
       component_price = inv?.price != null ? Number(inv.price) : null
       component_quantity = inv?.quantity != null ? Number(inv.quantity) : 0
       component_unit = inv?.unit || null
+      aplica = inv?.aplica_itbis ?? 1
     }
     const available_units = _ofertaComponentAvailable(it)
     out.push({
@@ -8534,6 +8537,14 @@ function _ofertaEnrichItems(items) {
       component_price,
       component_quantity,
       component_unit,
+      // POS reads `name`, `base_price`, `aplica_itbis` directly off each
+      // component when adding the oferta to the cart (and when computing the
+      // savings tooltip on the tile). Without these aliases addOfertaToCart
+      // sees empty/zero values and can throw "Oferta sin componentes" or push
+      // a free-bundle into the cart at price 0.
+      name: component_name,
+      base_price: component_price != null ? component_price : 0,
+      aplica_itbis: aplica,
       available_units: Number.isFinite(available_units) ? available_units : null,
     })
   }
@@ -8565,6 +8576,7 @@ function ofertasList({ activeOnly = false } = {}) {
     return {
       ...o,
       active: !!o.active,
+      items: enriched,
       components_count: enriched.length,
       oferta_available: _ofertaAvailable(items),
     }
