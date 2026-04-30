@@ -4,7 +4,15 @@
 // Validates a license key against the licenses table (via direct PostgREST
 // fetch with the service-role key — no SDK import to keep edge boot lean),
 // then mints a Supabase-compatible HS256 JWT signed with TX_JWT_SECRET.
-// All sync RLS policies read user_metadata.business_id from this JWT.
+// All sync RLS policies read app_metadata.business_id from this JWT.
+//
+// 2026-04-30 fix: previously this minter wrote `user_metadata.business_id`,
+// which RLS could NOT use (Supabase RLS reads `app_metadata`, not
+// `user_metadata` — only `app_metadata` is server-authoritative). Result:
+// every PULL returned [] under RLS, sync's reconcileDeletes wiped local
+// master tables on a doom loop. Switched to `app_metadata` so RLS can
+// authoritatively check it. Also added an `app_metadata.role` claim so
+// the policy chain has a clear authorization principal.
 //
 // Error policy: any failure → 401 { error: 'invalid_license' }. We do NOT
 // leak which check failed (key not found vs. expired vs. revoked).
@@ -189,6 +197,14 @@ Deno.serve(async (req: Request) => {
         aud: "authenticated",
         role: "authenticated",
         sub: lic.business_id,
+        app_metadata: {
+          business_id: lic.business_id,
+          license_key: licenseKey,
+          machine_id: machineId,
+          provider: "license",
+        },
+        // Keep user_metadata populated for any legacy reader; RLS does not
+        // (and should not) trust it.
         user_metadata: {
           business_id: lic.business_id,
           license_key: licenseKey,
