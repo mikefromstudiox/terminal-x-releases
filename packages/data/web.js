@@ -3766,6 +3766,12 @@ export function createWebAPI(supabase, businessId) {
           const wid = r.empleado_supabase_id
           const e = empMap[wid] || {}
           if (!map[wid]) map[wid] = {
+            // 2026-04-30 — NominaEmpleados.jsx build() looks for
+            // `empleado_supabase_id` to bucket commissions per worker.
+            // Without this, the entire web liquidación / per-employee
+            // commission column reads as 0 because the field-name match
+            // fails (desktop SQL aliased it; web ESM port omitted it).
+            empleado_supabase_id: wid,
             washer_id: wid, washer_name: e.nombre || '—',
             commission_pct: e.comision_pct || r.commission_pct || 0,
             ticket_count: 0, ticket_count_paid: 0, ticket_count_total: 0,
@@ -3881,6 +3887,8 @@ export function createWebAPI(supabase, businessId) {
           const sid = r.empleado_supabase_id
           const s = sMap[sid] || {}
           if (!map[sid]) map[sid] = {
+            // 2026-04-30 — same fix as washer byPeriod above.
+            empleado_supabase_id: sid,
             seller_id: sid, seller_name: s.nombre || '—',
             commission_pct: s.comision_pct || r.commission_pct || 0,
             ticket_count: 0, ticket_count_paid: 0, ticket_count_total: 0,
@@ -3999,7 +4007,7 @@ export function createWebAPI(supabase, businessId) {
         for (const r of filtered) {
           const cid = r.empleado_supabase_id
           const u = cMap[cid] || {}
-          if (!map[cid]) map[cid] = { cajero_id: cid, cajero_name: u.nombre || '—', commission_pct: u.comision_pct || r.commission_pct || 0, ticket_count: 0, total_base: 0, total_commission: 0 }
+          if (!map[cid]) map[cid] = { empleado_supabase_id: cid, cajero_id: cid, cajero_name: u.nombre || '—', commission_pct: u.comision_pct || r.commission_pct || 0, ticket_count: 0, total_base: 0, total_commission: 0 }
           map[cid].ticket_count++; map[cid].total_base += r.base_amount || 0; map[cid].total_commission += r.commission_amount || 0
         }
         return Object.values(map).sort((a, b) => b.total_commission - a.total_commission)
