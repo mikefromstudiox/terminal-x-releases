@@ -67,3 +67,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_service_bays_name
 CREATE UNIQUE INDEX IF NOT EXISTS uq_modifier_groups_name
   ON modifier_groups (business_id, name)
   WHERE name IS NOT NULL AND name <> '';
+
+-- 2026-04-30 — Added after dedupe pass: clients(business_id, rnc) had 1
+-- dupe group ("JCS & FELIX SRL", RNC 132-13168-1, 5 rows created within
+-- a 22-second sync-retry flurry on 2026-04-24, zero ticket/credit
+-- references). Kept oldest row, deleted the other 4. Index ignores
+-- empty-string rnc (walk-in customers without RNC are not duplicates).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_clients_rnc
+  ON clients (business_id, rnc)
+  WHERE rnc IS NOT NULL AND rnc <> '';
