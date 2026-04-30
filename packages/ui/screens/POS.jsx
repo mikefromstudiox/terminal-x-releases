@@ -1983,6 +1983,15 @@ function RetailPOS() {
   const [svcCategory, setSvcCategory] = useState(null)
   useEffect(() => { if (serviceCategories.length && !svcCategory) setSvcCategory(serviceCategories[0]) }, [serviceCategories])
 
+  // v2.16.4 — Carnicería: pre-pack vs at-moment mode + prep notes + discounts.
+  // Active-discount map keyed by inventory item supabase_id. Declared BEFORE
+  // `applyCarniceriaDiscounts` and `finalLineItems` because the useMemo dep
+  // array on line ~2019 references it — terser hoists the init order in a
+  // way that triggers ReferenceError "Cannot access 'discountByItemSid'
+  // before initialization" if the useState declaration sits below.
+  // { [item_supabase_id]: { source, pct, label, banner_text, season_key } | null }
+  const [discountByItemSid, setDiscountByItemSid] = useState({})
+
   // v2.16.4 — fold carnicería active discounts into a list of lines.
   // Pure: same input → same output. Reused by `finalLineItems` AND by every
   // ticket-create call site so subtotal/ITBIS and the persisted ticket_items
@@ -2029,13 +2038,11 @@ function RetailPOS() {
     return cart.reduce((s, i) => s + Number(i.bottle_deposit || 0) * (i.qty || 1), 0)
   }, [cart, isLicoreria])
 
-  // v2.16.3/4 — Carnicería: pre-pack vs at-moment mode + prep notes + discounts.
+  // v2.16.3/4 — Carnicería: pre-pack vs at-moment mode + prep notes.
+  // (discountByItemSid moved above for TDZ — see ~2000 lines up.)
   const [carniceriaMode, setCarniceriaMode] = useState('at_moment') // 'prepacked' | 'at_moment'
   const [seasonalActive, setSeasonalActive] = useState([])
   const [seasonalDismissed, setSeasonalDismissed] = useState(false)
-  // Active-discount map keyed by inventory item supabase_id.
-  // { [item_supabase_id]: { source, pct, label, banner_text, season_key } | null }
-  const [discountByItemSid, setDiscountByItemSid] = useState({})
   useEffect(() => {
     if (!isCarniceria) return
     setSeasonalActive(activeSeasons(new Date()))
