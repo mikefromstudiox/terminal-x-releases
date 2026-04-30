@@ -4651,6 +4651,25 @@ async function reconcileDeletes() {
       })
       if (!Array.isArray(remote)) continue
       const remoteSet = new Set(remote.map(r => r.supabase_id).filter(Boolean))
+
+      // 2026-04-30 — DATA-LOSS HARD GUARD. The 04-26 RLS migration plus the
+      // license-scoped _userJwt path made some master tables return [] from
+      // SELECT under RLS while INSERT still succeeded via a permissive
+      // _ins_auth policy. Reconcile then deleted every local row "to match"
+      // the empty cloud and Mike re-imported all week to no avail. Even a
+      // single empty SELECT can drop hundreds of rows of master data.
+      //
+      // Refuse to reconcile-delete if cloud claims 0 but local has anything
+      // older than the cutoff. Same shape as "table never had data" — let
+      // bootstrap pull populate it instead. This only blocks DELETE; PUSH /
+      // PULL UPSERT continue normally.
+      if (remoteSet.size === 0) {
+        const localCnt = _db.rawPrepare(`SELECT count(*) AS n FROM ${table}`).get()?.n || 0
+        if (localCnt > 0) {
+          log.warn(`[sync] reconcile ${table}: cloud SELECT returned 0 but local has ${localCnt} row(s) — REFUSING to delete (likely RLS/JWT scope issue, not real cloud emptiness)`)
+          continue
+        }
+      }
       // Some pre-v2.1 tables (commission tables) don't have a `business_id`
       // column locally — legacy schema was single-tenant. Build the WHERE
       // clause from whichever columns actually exist so the query succeeds.
