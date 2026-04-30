@@ -56,7 +56,7 @@ export default defineConfig(({ mode }) => ({
   build: {
     outDir: '../dist-web',
     emptyOutDir: true,
-    sourcemap: false,
+    sourcemap: 'hidden', // emit .map files but no //# sourceMappingURL — stays out of browser, lets us resolve TDZ stacks locally via scripts/resolve-stack.mjs
     // Strip modulepreload hints for heavy lazy-only chunks (pdf, data, supabase,
     // services). Vite preloads every reachable chunk by default — including ones
     // gated behind React.lazy() — which forces the landing page to download

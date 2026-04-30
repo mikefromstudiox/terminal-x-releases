@@ -5399,7 +5399,7 @@ export function createWebAPI(supabase, businessId) {
         return { ...o, items: enriched, oferta_available: avail }
       }, null),
 
-      upsert: (data = {}) => tryOr(async () => {
+      upsert: (data = {}) => tryWrite(async () => {
         if (!data.name || data.price == null) {
           throw new Error('ofertas.upsert: name + price required')
         }

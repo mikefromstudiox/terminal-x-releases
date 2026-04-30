@@ -147,7 +147,16 @@ export default function OfertasTab() {
                       <Power size={11} /> {o.active ? (lang === 'en' ? 'Active' : 'Activa') : (lang === 'en' ? 'Inactive' : 'Inactiva')}
                     </button>
                     <div className="flex items-center gap-1">
-                      <button onClick={() => setEditing(o)}
+                      <button onClick={async () => {
+                        // Fetch the full record so the editor always sees the
+                        // latest items from DB, not a possibly-stale list-cached
+                        // version. Earlier list() returned ofertas without
+                        // items → editing then re-saving wiped the components.
+                        try {
+                          const full = await api.ofertas.get(o.supabase_id)
+                          setEditing(full || o)
+                        } catch { setEditing(o) }
+                      }}
                         className="px-2.5 py-1.5 text-[11px] border border-slate-200 dark:border-white/10 rounded-lg text-slate-500 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10">
                         <Pencil size={12} />
                       </button>

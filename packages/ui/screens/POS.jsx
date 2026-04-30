@@ -1806,7 +1806,13 @@ function RetailPOS() {
     ;(async () => {
       try {
         const rows = await api?.ofertas?.list?.({ activeOnly: true })
-        if (!cancelled) setOfertas(Array.isArray(rows) ? rows : [])
+        // Hide ofertas with zero components — they're half-built drafts and
+        // clicking them just flashes "Oferta sin componentes". They still
+        // appear in the admin Ofertas tab so the user can finish or delete them.
+        const usable = (Array.isArray(rows) ? rows : []).filter(o =>
+          Array.isArray(o.items) ? o.items.length > 0 : Number(o.components_count || 0) > 0
+        )
+        if (!cancelled) setOfertas(usable)
       } catch { if (!cancelled) setOfertas([]) }
     })()
     return () => { cancelled = true }
@@ -2128,7 +2134,12 @@ function RetailPOS() {
     // v2.16.10 — refresh ofertas availability after each ticket close.
     if (ofertasEnabled) {
       api?.ofertas?.list?.({ activeOnly: true })
-        .then(rows => setOfertas(Array.isArray(rows) ? rows : []))
+        .then(rows => {
+          const usable = (Array.isArray(rows) ? rows : []).filter(o =>
+            Array.isArray(o.items) ? o.items.length > 0 : Number(o.components_count || 0) > 0
+          )
+          setOfertas(usable)
+        })
         .catch(() => {})
     }
   }
