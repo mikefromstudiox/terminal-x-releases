@@ -255,10 +255,51 @@ function getDgiiEnv() {
 }
 
 // dgii:submit — full flow: build XML → sign → authenticate → submit → poll status
+// Parent-acceptance gate for Notas de Crédito (E33 / E34) — see
+// ecfSubmissionGetByEncf comment in database.js. Returns null if this
+// invoice is not an NC (no gate needed) or if the parent has been
+// accepted by DGII (dgii_status === 1 ACEPTADO or 4 ACEPTADO_CONDICIONAL).
+// Returns a structured error otherwise so callers can surface a clear
+// "Esperando aceptación de la factura padre" message to the cashier.
+function checkParentAccepted(invoiceData) {
+  const tipo = String(invoiceData?.tipoECF || invoiceData?.payload?.ECF?.Encabezado?.IdDoc?.TipoECF || '')
+  // Only E33 (Nota de Débito) and E34 (Nota de Crédito) reference a parent.
+  if (tipo !== '33' && tipo !== '34') return null
+  const parentEncf = invoiceData?.payload?.ECF?.Encabezado?.InformacionReferencia?.NCFModificado
+                  || invoiceData?.referencia?.ncfModificado
+                  || null
+  if (!parentEncf) {
+    // NC without a parent reference is malformed — DGII would reject anyway.
+    return { ok: false, error: 'parent_missing', message: 'Esta nota requiere referenciar la factura padre (NCFModificado).', code: 'parent_missing' }
+  }
+  const parent = db?.ecfSubmissionGetByEncf?.(parentEncf)
+  if (!parent) {
+    return { ok: false, error: 'parent_unknown', code: 'parent_unknown', parentEncf,
+             message: `Esperando que la factura ${parentEncf} sea registrada antes de enviar esta nota.` }
+  }
+  // dgii_status: 1=ACEPTADO, 2=RECHAZADO, 3=EN_PROCESO, 4=ACEPTADO_CONDICIONAL
+  if (parent.dgii_status === 1 || parent.dgii_status === 4) return null
+  if (parent.dgii_status === 2) {
+    return { ok: false, error: 'parent_rejected', code: 'parent_rejected', parentEncf,
+             message: `La factura padre ${parentEncf} fue RECHAZADA por DGII. Resuelva esa factura antes de emitir nota de crédito sobre ella.` }
+  }
+  // EN_PROCESO or unknown — wait for resolution.
+  return { ok: false, error: 'parent_pending', code: 'parent_pending', parentEncf,
+           message: `La factura padre ${parentEncf} sigue en proceso en DGII. La nota se enviará automáticamente cuando sea aceptada.` }
+}
+
 ipcMain.handle('dgii:submit', async (_, invoiceData) => {
   try {
     const { privateKeyPem, certificatePem } = certManager.loadCert()
     const dgiiEnv = getDgiiEnv()
+
+    // 0. Parent-acceptance gate. Block any NC (E33/E34) submission whose
+    // parent factura is not yet ACEPTADO on DGII. Without this, a fast
+    // void can race the parent's DGII registration and corrupt the 607
+    // mensual. Caller (CobrarModal / queue) gets a structured error with
+    // the parent eNCF so it can show "esperando…" and retry.
+    const gateResult = checkParentAccepted(invoiceData)
+    if (gateResult) return gateResult
 
     // 1. Build the JSON payload (same shape as ecf.js buildEXX())
     // invoiceData.payload is the pre-built ECF payload from the renderer
@@ -883,6 +924,18 @@ async function processDgiiQueue() {
       if (item.body_json && item.encf) {
         // DGII direct path — rebuild XML with IndicadorEnvioDiferido=1, re-sign, submit
         const invoiceData = JSON.parse(item.body_json)
+
+        // Parent-acceptance gate (re-check on every queue tick). If this
+        // queued item is an NC and its parent factura isn't ACEPTADO yet,
+        // skip and try again next tick. Increment attempts so eventually
+        // the user gets surfaced if the parent stays rejected/missing for
+        // too long.
+        const queueGate = checkParentAccepted(invoiceData)
+        if (queueGate) {
+          db.ecfQueueIncrAttempts(item.id, `parent_gate: ${queueGate.code}`)
+          continue
+        }
+
         const { privateKeyPem, certificatePem } = certManager.loadCert()
         const env = item.environment || getDgiiEnv()
 

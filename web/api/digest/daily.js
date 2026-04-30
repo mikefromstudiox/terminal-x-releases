@@ -236,8 +236,8 @@ async function runForBusiness(supabase, business, window) {
   // an in-app notification feed can surface it).
   const nowIso = new Date().toISOString()
   await supabase.from('app_settings').upsert(
-    { business_id: bid, key: 'last_digest_sent', value: nowIso, supabase_id: crypto.randomUUID() },
-    { onConflict: 'business_id,key', ignoreDuplicates: false }
+    { business_id: bid, key: 'last_digest_sent', value: nowIso, device_hwid: null, supabase_id: crypto.randomUUID() },
+    { onConflict: 'business_id,key,device_hwid', ignoreDuplicates: false }
   )
 
   await supabase.from('activity_log').insert({

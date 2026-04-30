@@ -773,7 +773,14 @@ function buildLines(data) {
   if (data.descuento > 0) cols('Descuento', '-' + fmtRD(data.descuento), { size: SMALL })
   if (isFiscal) {
     cols('Subtotal',    fmtRD(data.subtotal), { size: SMALL })
-    cols('ITBIS',       fmtRD(data.itbis),    { size: SMALL })
+    // Mirror printer.js: optional ITBIS percentage label ("ITBIS 18%") driven
+    // by the receipt_show_itbis_pct toggle, and use the configured itbis_pct
+    // (defaults to 18) instead of a hardcoded label. data.cfg is threaded
+    // through ticketData → buildPDF.
+    const showItbisPct = data.cfg?.receipt_show_itbis_pct === '1' || data.cfg?.receipt_show_itbis_pct === true
+    const itbisPct = String(data.cfg?.itbis_pct || '18').replace(/[^0-9.]/g, '') || '18'
+    const itbisLabel = showItbisPct ? `ITBIS ${itbisPct}%` : 'ITBIS'
+    cols(itbisLabel,    fmtRD(data.itbis),    { size: SMALL })
   }
   if (data.ley > 0) cols('Ley 10%', fmtRD(data.ley), { size: SMALL })
 

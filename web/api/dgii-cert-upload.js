@@ -99,6 +99,12 @@ export default async function handler(req, res) {
 
   const businessId = fields.business_id
   const passphrase = fields.passphrase ?? ''
+  // 2026-04-30 — `validate_only=1` parses the .p12 + passphrase and returns
+  // metadata (subject, expiry, expired) WITHOUT persisting PEMs. UI uses
+  // this on the passphrase blur so a wrong password gives instant feedback
+  // before the user clicks "Instalar". Same auth + same parse path so the
+  // contract matches the real install.
+  const validateOnly = fields.validate_only === '1' || fields.validate_only === 'true'
   if (!businessId) return json(res, 400, { ok: false, error: 'Missing business_id' })
   if (!fileBuf || fileBuf.length === 0) return json(res, 400, { ok: false, error: 'Falta el archivo .p12' })
 
@@ -151,6 +157,16 @@ export default async function handler(req, res) {
   } finally {
     // Best-effort scrub of sensitive bytes from memory
     if (fileBuf) fileBuf.fill(0)
+  }
+
+  // Validation-only short circuit: return metadata, skip persistence.
+  // Surfaces wrong-passphrase + expired-cert states before the user commits.
+  if (validateOnly) {
+    return json(res, 200, {
+      ok: true, validated: true,
+      subject, expiry: expiryISO, expired,
+      issuedAt: issuedISO, serial: certSerial, sha256: sha256Fp,
+    })
   }
 
   // 5. Merge into businesses.settings without clobbering existing keys

@@ -373,21 +373,39 @@ export async function buildVarianceReportPDF({ count, biz }) {
 
 // ── Save helpers (electron IPC → disk, or browser download) ─────────────────
 
+function bytesToBase64(bytes) {
+  // Chunked to avoid "Maximum call stack size exceeded" — spreading a large
+  // Uint8Array into String.fromCharCode crashes on PDFs >~100KB (Ranoza's
+  // 976-product count sheet hit this and silently aborted the print flow).
+  let bin = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(bin)
+}
+
 async function persistPDF({ pdfBytes, filename }, api) {
-  const base64 = btoa(String.fromCharCode(...pdfBytes))
-  const pdfApi = api?.pdf || (typeof window !== 'undefined' ? window.electronAPI?.pdf : null)
-  if (pdfApi?.save) {
-    const result = await pdfApi.save({ filename, base64 })
+  // Electron-only: route through IPC so the file lands on disk via dialog.
+  // Web's api.pdf.save also exists but its contract is { buffer, filename }
+  // (browser Blob download), NOT { base64, filename } — passing the wrong
+  // shape silently returned "No buffer provided" and nothing happened on
+  // screen. Detect Electron specifically to avoid that contract mismatch.
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.pdf?.save
+  if (isElectron) {
+    const base64 = bytesToBase64(pdfBytes)
+    const result = await window.electronAPI.pdf.save({ filename, base64 })
     return result || { ok: false, error: 'IPC unavailable' }
   }
+  // Browser: trigger a direct download via Blob URL. No base64 round-trip.
   try {
-    const byteChars = atob(base64)
-    const byteArray = new Uint8Array(byteChars.length)
-    for (let i = 0; i < byteChars.length; i++) byteArray[i] = byteChars.charCodeAt(i)
-    const blob = new Blob([byteArray], { type: 'application/pdf' })
+    const blob = new Blob([pdfBytes], { type: 'application/pdf' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = filename; a.click()
+    a.href = url; a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
     setTimeout(() => URL.revokeObjectURL(url), 5000)
     return { ok: true, filePath: filename }
   } catch (err) {

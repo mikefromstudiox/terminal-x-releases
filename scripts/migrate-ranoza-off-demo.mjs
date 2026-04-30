@@ -103,7 +103,7 @@ async function main() {
     { business_id: newBizId, key: 'biz_phone', value: NEW_PHONE },
     { business_id: newBizId, key: 'itbis_pct', value: '18' },
   ]
-  await SB.from('app_settings').upsert(kv, { onConflict: 'business_id,key' })
+  await SB.from('app_settings').upsert(kv.map(r => ({ ...r, device_hwid: null })), { onConflict: 'business_id,key,device_hwid' })
 
   console.log('5/6  Migrating inventory_items from demo slot to new Ranoza biz…')
   const { data: moved, error: movErr } = await SB.from('inventory_items')

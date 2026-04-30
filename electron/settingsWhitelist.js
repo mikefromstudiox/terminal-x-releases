@@ -60,6 +60,10 @@ const BUSINESS_SETTING_KEYS = new Set([
   // the hardcoded RD$ 500 in WorkOrders. Cloud-synced so every register sees
   // the same fee the moment Sistema is saved.
   'mechanic_tow_fee_default',
+  // Fiscal mode — 'ecf' (E-series) vs 'legacy' (B01/B02). Business-wide,
+  // cloud-synced so a flip on web/desktop is instantly authoritative for
+  // CobrarModal's NCF type defaults across every register.
+  'fiscal_mode', 'facturacion_mode',
   // v2.16.17 — sync engine feature flags. Owner toggles cloud-side via
   // app_settings; flag must propagate to every desktop register so the
   // sync upsert path switches uniformly. Without whitelisting these,

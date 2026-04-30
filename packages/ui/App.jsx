@@ -32,6 +32,7 @@ import UpdateBanner from './components/UpdateBanner'
 import KioskLock from './components/KioskLock'
 import ErrorBoundary from './components/ErrorBoundary'
 import PlanGate from './components/PlanGate'
+import OnboardingWizard from './components/OnboardingWizard'
 
 // Eager — auth/gate screens only (shown on startup)
 import LicenseGate from './screens/LicenseGate'
@@ -271,6 +272,7 @@ export default function App() {
   return (
     <>
     <UpdateBanner />
+    <OnboardingWizard />
     <Layout>
       <ErrorBoundary>
       <Suspense fallback={

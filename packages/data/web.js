@@ -2468,17 +2468,20 @@ export function createWebAPI(supabase, businessId) {
         // Fetch items — by ticket_supabase_id only
         const tSids  = [...new Set(rows.map(r => r.supabase_id).filter(Boolean))]
         const itemsMap = {}
-        if (tSids.length)  { const { data: ir } = await supabase.from('ticket_items').select('ticket_supabase_id, name, price, cost, is_wash, is_deposit, quantity, sku, inventory_item_id, inventory_item_supabase_id, aplica_itbis').in('ticket_supabase_id', tSids); for (const i of (ir || [])) { if (!itemsMap[i.ticket_supabase_id]) itemsMap[i.ticket_supabase_id] = []; itemsMap[i.ticket_supabase_id].push(i) } }
+        if (tSids.length)  { const { data: ir } = await supabase.from('ticket_items').select('ticket_supabase_id, name, price, cost, is_wash, is_deposit, quantity, sku, inventory_item_id, inventory_item_supabase_id, aplica_itbis').eq('business_id', bid).in('ticket_supabase_id', tSids); for (const i of (ir || [])) { if (!itemsMap[i.ticket_supabase_id]) itemsMap[i.ticket_supabase_id] = []; itemsMap[i.ticket_supabase_id].push(i) } }
 
-        // Fetch client names — supabase_id only
+        // Fetch client names — supabase_id only. Defense-in-depth: redundant
+        // .eq('business_id', bid) so a future RLS migration that drops the
+        // legacy my_business_ids() policies cannot silently expose other
+        // tenants' clients matched by colliding supabase_ids.
         const clientSids = [...new Set(rows.map(r => r.client_supabase_id).filter(Boolean))]
         let clientMap = {}
-        if (clientSids.length) { const { data: cls } = await supabase.from('clients').select('supabase_id, name, rnc').in('supabase_id', clientSids); for (const c of (cls || [])) clientMap[c.supabase_id] = c }
+        if (clientSids.length) { const { data: cls } = await supabase.from('clients').select('supabase_id, name, rnc').eq('business_id', bid).in('supabase_id', clientSids); for (const c of (cls || [])) clientMap[c.supabase_id] = c }
 
         // Fetch cajero names — supabase_id only
         const cajeroSids = [...new Set(rows.map(r => r.cajero_supabase_id).filter(Boolean))]
         let cajeroMap = {}
-        if (cajeroSids.length) { const { data: ur } = await supabase.from('staff').select('supabase_id, name').in('supabase_id', cajeroSids); for (const u of (ur || [])) cajeroMap[u.supabase_id] = u }
+        if (cajeroSids.length) { const { data: ur } = await supabase.from('staff').select('supabase_id, name').eq('business_id', bid).in('supabase_id', cajeroSids); for (const u of (ur || [])) cajeroMap[u.supabase_id] = u }
 
         return rows.map(r => {
           const items = (itemsMap[r.supabase_id] || []).filter(i => i.name != null)
@@ -3501,17 +3504,17 @@ export function createWebAPI(supabase, businessId) {
         // Fetch items — by ticket_supabase_id only
         const tSids  = [...new Set(rows.map(r => r.supabase_id).filter(Boolean))]
         const itemsMap = {}
-        if (tSids.length)  { const { data: ir } = await supabase.from('ticket_items').select('ticket_supabase_id, name, price, cost, is_wash, is_deposit, quantity, sku, inventory_item_id, inventory_item_supabase_id, aplica_itbis').in('ticket_supabase_id', tSids); for (const i of (ir || [])) { if (!itemsMap[i.ticket_supabase_id]) itemsMap[i.ticket_supabase_id] = []; itemsMap[i.ticket_supabase_id].push(i) } }
+        if (tSids.length)  { const { data: ir } = await supabase.from('ticket_items').select('ticket_supabase_id, name, price, cost, is_wash, is_deposit, quantity, sku, inventory_item_id, inventory_item_supabase_id, aplica_itbis').eq('business_id', bid).in('ticket_supabase_id', tSids); for (const i of (ir || [])) { if (!itemsMap[i.ticket_supabase_id]) itemsMap[i.ticket_supabase_id] = []; itemsMap[i.ticket_supabase_id].push(i) } }
 
-        // Fetch client names — supabase_id only
+        // Fetch client names — supabase_id only. Defense-in-depth business_id filter.
         const clientSids = [...new Set(rows.map(r => r.client_supabase_id).filter(Boolean))]
         let clientMap = {}
-        if (clientSids.length) { const { data: cls } = await supabase.from('clients').select('supabase_id, name, rnc').in('supabase_id', clientSids); for (const c of (cls || [])) clientMap[c.supabase_id] = c }
+        if (clientSids.length) { const { data: cls } = await supabase.from('clients').select('supabase_id, name, rnc').eq('business_id', bid).in('supabase_id', clientSids); for (const c of (cls || [])) clientMap[c.supabase_id] = c }
 
         // Fetch cajero names — supabase_id only
         const cajeroSids = [...new Set(rows.map(r => r.cajero_supabase_id).filter(Boolean))]
         let cajeroMap = {}
-        if (cajeroSids.length) { const { data: ur } = await supabase.from('staff').select('supabase_id, name').in('supabase_id', cajeroSids); for (const u of (ur || [])) cajeroMap[u.supabase_id] = u }
+        if (cajeroSids.length) { const { data: ur } = await supabase.from('staff').select('supabase_id, name').eq('business_id', bid).in('supabase_id', cajeroSids); for (const u of (ur || [])) cajeroMap[u.supabase_id] = u }
 
         // Fetch washer names — empleados.supabase_id only
         const allWasherIds = new Set()
@@ -4860,6 +4863,50 @@ export function createWebAPI(supabase, businessId) {
         }
       },
 
+      // 2026-04-30 — public-ish sandbox demo. Anyone signed in can hit
+      // /api/ecf-sign?action=sandbox-try to see what a real e-CF emission
+      // response looks like — uses the configured SANDBOX_BUSINESS_ID's
+      // cert if installed, otherwise returns a synthetic-but-realistic
+      // response clearly marked _demo: true. Rate-limited 10/user/hour.
+      sandboxTry: async ({ amount } = {}) => {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) return { ok: false, error: 'No hay sesión activa' }
+        try {
+          const res = await fetch('/api/ecf-sign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+            body: JSON.stringify({ business_id: bid, action: 'sandbox-try', amount: amount ?? 1000 }),
+          })
+          return await res.json()
+        } catch (err) {
+          return { ok: false, error: err.message || 'Error de red' }
+        }
+      },
+
+      // Pre-validate a .p12 + passphrase pair WITHOUT persisting PEMs. UI
+      // calls this on passphrase blur so a wrong password produces instant
+      // red feedback instead of waiting for the full install. Returns the
+      // same shape as uploadCert (subject, expiry, expired) when ok.
+      validateCert: async ({ file, passphrase }) => {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) return { ok: false, error: 'No hay sesión activa' }
+        const fd = new FormData()
+        fd.append('cert', file)
+        fd.append('passphrase', passphrase || '')
+        fd.append('business_id', bid)
+        fd.append('validate_only', '1')
+        try {
+          const res = await fetch('/api/dgii-cert-upload', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${session.access_token}` },
+            body: fd,
+          })
+          return await res.json()
+        } catch (err) {
+          return { ok: false, error: err.message || 'Error de red' }
+        }
+      },
+
       // Flip env between 'certecf' (Pruebas) and 'ecf' (Producción) — owner only.
       setEnvironment: (env) => tryWrite(async () => {
         if (env !== 'certecf' && env !== 'ecf') throw new Error('Entorno inválido')
@@ -5591,7 +5638,7 @@ export function createWebAPI(supabase, businessId) {
         const rows = throwSupaError(await supabase.from('vehicles').select('*').eq('business_id', bid).order('created_at', { ascending: false }))
         const sids = [...new Set((rows || []).map(r => r.client_supabase_id).filter(Boolean))]
         let cmap = {}
-        if (sids.length) { const { data: cs } = await supabase.from('clients').select('supabase_id, name').in('supabase_id', sids); for (const c of (cs || [])) cmap[c.supabase_id] = c }
+        if (sids.length) { const { data: cs } = await supabase.from('clients').select('supabase_id, name').eq('business_id', bid).in('supabase_id', sids); for (const c of (cs || [])) cmap[c.supabase_id] = c }
         return (rows || []).map(r => ({ ...r, clients: cmap[r.client_supabase_id] ? { name: cmap[r.client_supabase_id].name } : null }))
       }, []),
       getById: (id) => tryOr(async () => {

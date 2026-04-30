@@ -23,8 +23,8 @@ async function main() {
 
   console.log('3/3  Upserting app_settings row (business_id,key=tienda_subtype)…')
   const { error: kErr } = await SB.from('app_settings').upsert(
-    { business_id: BUSINESS_ID, key: 'tienda_subtype', value: 'licoreria' },
-    { onConflict: 'business_id,key' },
+    { business_id: BUSINESS_ID, key: 'tienda_subtype', value: 'licoreria', device_hwid: null },
+    { onConflict: 'business_id,key,device_hwid' },
   )
   if (kErr) throw kErr
 

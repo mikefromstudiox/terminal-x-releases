@@ -131,7 +131,7 @@ async function cleanup() {
     } else {
       await svc.from('app_settings').upsert(
         [{ business_id: BID, key: 'salon_public_booking_slug', value: fx.prevSlug }],
-        { onConflict: 'business_id,key' }
+        { onConflict: 'business_id,key,device_hwid' }
       )
     }
     if (fx.prevEnabled == null) {
@@ -139,7 +139,7 @@ async function cleanup() {
     } else {
       await svc.from('app_settings').upsert(
         [{ business_id: BID, key: 'salon_public_booking_enabled', value: fx.prevEnabled }],
-        { onConflict: 'business_id,key' }
+        { onConflict: 'business_id,key,device_hwid' }
       )
     }
   } catch (e) { console.warn('cleanup warning:', e?.message || e) }
@@ -176,7 +176,7 @@ async function run() {
     { business_id: BID, key: 'salon_require_deposit',        value: 'true' },
     { business_id: BID, key: 'salon_deposit_amount_dop',     value: '300' },
     { business_id: BID, key: 'salon_no_show_fee_dop',        value: '500' },
-  ], { onConflict: 'business_id,key' })
+  ], { onConflict: 'business_id,key,device_hwid' })
   log('1. admin: salon settings + public booking enabled', !e1, e1?.message)
 
   // ============================================================

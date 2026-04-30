@@ -302,6 +302,14 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
           signatureDate: ecfResult?.signatureDate || null,
           securityCode:  ecfResult?.securityCode || null,
           qrLink:        ecfResult?.qrLink || null,
+          // Thread the receipt-customization toggles (ITBIS %, etc.) so the
+          // WhatsApp-sent PDF honors Sistema → Personalización de Recibo just
+          // like the printed thermal receipt does.
+          cfg: {
+            itbis_pct: bizSettings?.itbis_pct,
+            receipt_show_itbis_pct: bizSettings?.receipt_show_itbis_pct,
+            receipt_show_commission: bizSettings?.receipt_show_commission,
+          },
         }
         const { base64, filename } = await buildReceiptPDFBase64(pdfData)
         await api.whatsapp.sendDocument({ to, base64, filename, caption: `${bName} - Recibo #${docNo}` })
@@ -1408,6 +1416,17 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
       // back to the local stub and emit fake e-CFs.
       const result = await signAndSubmitECF(invoiceData, api)
       clearTimeout(t1); clearTimeout(t2)
+      // 2026-04-30 — parent-acceptance gate. If the desktop dgii:submit IPC
+      // or web /api/ecf-sign returned ok=false with a parent_* code, this
+      // is a Nota de Crédito whose factura padre is not yet ACEPTADA on
+      // DGII. Show the cashier a clear message and DO NOT mark the ticket
+      // confirmed — they can retry once the parent settles.
+      if (result?.ok === false && (result.code === 'parent_pending' || result.code === 'parent_unknown' || result.code === 'parent_rejected' || result.code === 'parent_missing')) {
+        setEcfResult(result)
+        setEcfState('error')
+        setEcfError(result.error || 'Esperando aceptación de la factura padre antes de enviar la nota de crédito.')
+        return
+      }
       setEcfResult(result)
       setEcfState('success')
       if (!confirmedRef.current) {

@@ -1,7 +1,13 @@
-// Bump this on every deploy that changes chunk references or SW strategy.
+// Bump CACHE_NAME on every deploy that changes chunk references or SW strategy.
 // A new CACHE_NAME forces the SW to purge old caches on activate.
-const CACHE_NAME       = 'terminal-x-v3'
-const SUPABASE_CACHE   = 'terminal-x-supabase-v3'
+//
+// SECURITY (v4): the previous SUPABASE_CACHE that cached /rest/v1/* GETs across
+// users was a cross-tenant exposure vector — a stale response cached during
+// User A's session could be served to User B after sign-out + sign-in in the
+// same browser. Every Supabase REST request now goes network-only; no cross-
+// user response can survive in this Service Worker. Static assets (HTML, JS,
+// fonts, images) are still cached per their pre-existing strategy.
+const CACHE_NAME = 'terminal-x-v4'
 
 const PRECACHE_URLS = [
   '/',
@@ -19,14 +25,14 @@ self.addEventListener('install', (event) => {
 })
 
 // ---------------------------------------------------------------------------
-// Activate — purge old caches, claim clients
+// Activate — purge ALL old caches (including legacy SUPABASE_CACHE), claim clients
 // ---------------------------------------------------------------------------
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
         keys
-          .filter((k) => k !== CACHE_NAME && k !== SUPABASE_CACHE)
+          .filter((k) => k !== CACHE_NAME)
           .map((k) => caches.delete(k))
       )
     )
@@ -41,35 +47,10 @@ self.addEventListener('fetch', (event) => {
   const { request } = event
   const url = new URL(request.url)
 
-  // Supabase — network-first for GET /rest/v1/*, never cache auth or writes.
-  // Safe to cache: read-only REST responses (inventory list, settings, etc.)
-  // so the UI can render stale data when offline. Writes bubble through to
-  // the offline-queue module in packages/services/offline-queue.js which
-  // retries on reconnect.
+  // Supabase — NEVER cache. Per-user RLS-scoped responses cannot be safely
+  // shared across sessions in the same browser. Pass through to network.
   if (url.hostname.includes('supabase')) {
-    // NEVER cache auth / functions / realtime
-    if (url.pathname.includes('/auth/')       ||
-        url.pathname.includes('/functions/')  ||
-        url.pathname.includes('/realtime/')   ||
-        url.pathname.includes('/storage/')) {
-      return // default network fetch, no SW interference
-    }
-    if (request.method !== 'GET') return // only cache reads
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response && response.ok) {
-            const clone = response.clone()
-            caches.open(SUPABASE_CACHE).then((cache) => cache.put(request, clone))
-          }
-          return response
-        })
-        .catch(() => caches.match(request).then(r => r || new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json', 'X-From-Cache': 'miss' },
-        })))
-    )
-    return
+    return // default network fetch, no SW interference
   }
 
   // Skip non-GET requests from here on

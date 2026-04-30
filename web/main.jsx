@@ -478,9 +478,21 @@ function SupabaseAuthGate({ children, supabase, createWebAPI, createWebPrinterAP
   // Need to import DataProvider from the lazy-loaded module
   const DataProvider = React.lazy(() => import('@/context/DataContext').then(m => ({ default: m.DataProvider })))
 
+  // Tenant-isolation: keying the entire DataProvider subtree on
+  // `effectiveBid:user.id` forces a full unmount + remount whenever the
+  // active business OR auth user changes. Every descendant useState resets,
+  // every useEffect re-fires against the new api closure. This is the
+  // primary defense against the 2026-04-29 cross-tenant exposure incident
+  // where stale React state from a previous user's session leaked into the
+  // next user's session in the same tab. Defense-in-depth on the hook deps
+  // arrays (useDB.js) covers in-tab impersonation switches, but THIS key is
+  // what guarantees no React component can ever render the previous
+  // tenant's data after a tenant change.
+  const treeKey = `${effectiveBid || 'no-biz'}:${session?.user?.id || 'no-user'}`
+
   return (
     <React.Suspense fallback={<PageLoader />}>
-      <DataProvider api={api} printerApi={printerApi}>
+      <DataProvider key={treeKey} api={api} printerApi={printerApi}>
         {children}
       </DataProvider>
     </React.Suspense>

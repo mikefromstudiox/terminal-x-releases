@@ -431,8 +431,8 @@ async function seedManagerOverrides(biz) {
 async function ensureAppSetting(businessId, key, value) {
   // Try insert; on conflict update value.  The natural unique is (business_id, key).
   const { error: insErr } = await sb.from('app_settings')
-    .upsert({ business_id: businessId, key, value, updated_at: new Date().toISOString() },
-            { onConflict: 'business_id,key' })
+    .upsert({ business_id: businessId, key, value, device_hwid: null, updated_at: new Date().toISOString() },
+            { onConflict: 'business_id,key,device_hwid' })
   if (insErr) console.log(`    [warn] app_settings ${key}: ${insErr.message}`)
 }
 

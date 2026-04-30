@@ -86,11 +86,23 @@ export default async function handler(req, res) {
     if (bizType) {
       try {
         await supabase.from('app_settings').upsert({
-          business_id: biz.id, key: 'business_type', value: bizType,
+          business_id: biz.id, key: 'business_type', value: bizType, device_hwid: null,
           updated_at: new Date().toISOString(),
-        }, { onConflict: 'business_id,key' })
+        }, { onConflict: 'business_id,key,device_hwid' })
       } catch (_) { /* non-fatal */ }
     }
+
+    // Seed sync engine feature flags so every new business gets the modern
+    // sync path from day one. sync_use_merge_v17 collapses N per-cycle
+    // PostgREST GETs into 1 RPC; was opt-in until 2026-04-29 when verified
+    // safe under load. New signups inherit it ON.
+    try {
+      await supabase.from('app_settings').upsert({
+        business_id: biz.id, key: 'sync_use_merge_v17', value: '1', device_hwid: null,
+        is_device_local: false, supabase_id: crypto.randomUUID(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'business_id,key,device_hwid' })
+    } catch (_) { /* non-fatal */ }
 
     // CRM lead row — non-fatal. Admin panel uses this for sales follow-up.
     // If an anonymous lead with the same email already exists (created on

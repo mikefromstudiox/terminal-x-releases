@@ -1314,6 +1314,10 @@ function ScreenCert() {
   const [busy, setBusy]           = useState(false)
   const [toast, setToast]         = useState(null) // {kind:'ok'|'err', msg}
   const [envBusy, setEnvBusy]     = useState(false)
+  // 2026-04-30 — drag-drop + on-blur pre-validation state.
+  const [dragHover, setDragHover] = useState(false)
+  const [preview, setPreview]     = useState(null) // {subject, expiry, expired} | null
+  const [validating, setValidating] = useState(false)
   const fileRef = useRef(null)
 
   const refresh = useCallback(async () => {
@@ -1341,7 +1345,35 @@ function ScreenCert() {
       return
     }
     setFile(f)
+    setPreview(null)  // reset previous validation when file changes
     setToast(null)
+  }
+
+  // 2026-04-30 — pre-validate the .p12 + passphrase via /api/dgii-cert-upload
+  // with validate_only=1. Triggered on passphrase blur. Surfaces wrong
+  // password / expired cert before the user commits the install.
+  async function validateNow() {
+    if (!file || !passphrase) return
+    setValidating(true)
+    setToast(null)
+    try {
+      const res = await api.dgii_ecf.validateCert({ file, passphrase })
+      if (res?.ok) {
+        setPreview({ subject: res.subject, expiry: res.expiry, expired: !!res.expired })
+        if (res.expired) {
+          setToast({ kind: 'err', msg: L('El certificado esta VENCIDO. Renueve con Viafirma antes de instalar.',
+                                          'The certificate is EXPIRED. Renew with Viafirma before installing.') })
+        }
+      } else {
+        setPreview(null)
+        setToast({ kind: 'err', msg: res?.error || L('No se pudo validar el certificado', 'Could not validate certificate') })
+      }
+    } catch (err) {
+      setPreview(null)
+      setToast({ kind: 'err', msg: err.message || L('Error de red', 'Network error') })
+    } finally {
+      setValidating(false)
+    }
   }
 
   async function handleUpload() {
@@ -1517,30 +1549,50 @@ function ScreenCert() {
         </h3>
 
         <div className="space-y-4">
-          {/* File picker */}
+          {/* File picker — drag-and-drop dropzone (2026-04-30) */}
           <div>
             <label className="block text-xs font-semibold text-slate-600 dark:text-white/60 uppercase tracking-wider mb-1.5">
               {L('Archivo .p12 / .pfx', '.p12 / .pfx file')}
             </label>
-            <div className="relative">
+            <div
+              onClick={() => fileRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setDragHover(true) }}
+              onDragLeave={() => setDragHover(false)}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDragHover(false)
+                const dropped = e.dataTransfer?.files?.[0]
+                if (dropped) pickFile(dropped)
+              }}
+              className={`cursor-pointer rounded-xl border-2 border-dashed px-4 py-6 text-center transition
+                ${dragHover
+                  ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                  : file
+                  ? 'border-emerald-300 dark:border-emerald-500/40 bg-white dark:bg-white/5'
+                  : 'border-slate-300 dark:border-white/15 bg-slate-50 dark:bg-white/[0.03] hover:border-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-500/5'}`}
+            >
               <input ref={fileRef} type="file" accept=".p12,.pfx,application/x-pkcs12"
                 onChange={e => pickFile(e.target.files?.[0])}
-                className="block w-full text-sm text-slate-600 dark:text-white/70
-                  file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0
-                  file:text-xs file:font-semibold
-                  file:bg-slate-100 dark:file:bg-white/10
-                  file:text-slate-700 dark:file:text-white/80
-                  hover:file:bg-slate-200 dark:hover:file:bg-white/20
-                  cursor-pointer
-                  border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2
-                  bg-white dark:bg-white/5"
-              />
+                className="hidden" />
+              {file ? (
+                <div className="text-sm">
+                  <p className="font-semibold text-slate-700 dark:text-white/90 truncate">{file.name}</p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-white/50 font-mono">
+                    {(file.size / 1024).toFixed(1)} KB · {L('Click para cambiar', 'Click to replace')}
+                  </p>
+                </div>
+              ) : (
+                <div className="text-sm">
+                  <Upload size={20} className="mx-auto mb-2 text-slate-400 dark:text-white/40" />
+                  <p className="font-semibold text-slate-700 dark:text-white/80">
+                    {L('Arrastre su .p12 aqui', 'Drop your .p12 here')}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-white/50">
+                    {L('o haga click para seleccionar el archivo', 'or click to select the file')}
+                  </p>
+                </div>
+              )}
             </div>
-            {file && (
-              <p className="mt-1.5 text-xs text-slate-500 dark:text-white/50 font-mono">
-                {file.name} · {(file.size / 1024).toFixed(1)} KB
-              </p>
-            )}
           </div>
 
           {/* Passphrase */}
@@ -1550,7 +1602,9 @@ function ScreenCert() {
             </label>
             <div className="relative">
               <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 pointer-events-none" />
-              <input type={showPass ? 'text' : 'password'} value={passphrase} onChange={e => setPass(e.target.value)}
+              <input type={showPass ? 'text' : 'password'} value={passphrase}
+                onChange={e => { setPass(e.target.value); setPreview(null) }}
+                onBlur={validateNow}
                 placeholder={L('Su contraseña Viafirma', 'Your Viafirma password')}
                 autoComplete="new-password"
                 className="w-full border border-slate-200 dark:border-white/10 dark:bg-white/5 dark:text-white rounded-xl pl-10 pr-16 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 placeholder:text-slate-300 dark:placeholder:text-white/20" />
@@ -1563,6 +1617,30 @@ function ScreenCert() {
               {L('Su contraseña no se guarda. Solo se usa para extraer la llave.',
                  'Your passphrase is never stored. It is only used to extract the key.')}
             </p>
+            {/* 2026-04-30 — pre-validation feedback. Green = parsed cleanly,
+                shows subject + expiry. Red goes through the existing toast. */}
+            {validating && (
+              <p className="mt-2 text-[11px] text-slate-500 dark:text-white/50 flex items-center gap-1.5">
+                <RefreshCw size={11} className="animate-spin" />
+                {L('Validando contrasena...', 'Validating passphrase...')}
+              </p>
+            )}
+            {preview && !validating && (
+              <div className={`mt-2 flex items-start gap-2 px-3 py-2 rounded-lg text-xs border ${
+                preview.expired
+                  ? 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30 text-red-800 dark:text-red-300'
+                  : 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
+              }`}>
+                <CheckCircle2 size={13} className="mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="font-semibold">{L('Certificado valido — listo para instalar', 'Certificate valid — ready to install')}</p>
+                  <p className="font-mono mt-0.5 truncate">{preview.subject}</p>
+                  {preview.expiry && (
+                    <p className="text-[10px] opacity-70">{L('Vence:', 'Expires:')} {new Date(preview.expiry).toLocaleDateString('es-DO')}</p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Submit */}
@@ -1606,6 +1684,120 @@ function ScreenCert() {
         <a href="https://studioxrdtech.com/ecf-certification" target="_blank" rel="noreferrer"
           className="text-[#b3001e] hover:underline font-medium">studioxrdtech.com/ecf-certification</a>
       </div>
+
+      {/* Sandbox demo card — visible always so trial users can preview the e-CF flow */}
+      <SandboxDemoCard />
+    </div>
+  )
+}
+
+// ── SandboxDemoCard: anyone can preview the e-CF acceptance shape ──────────
+function SandboxDemoCard() {
+  const api = useAPI()
+  const { lang } = useLang()
+  const L = (es, en) => lang === 'es' ? es : en
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
+
+  async function tryDemo() {
+    setBusy(true); setError(null); setResult(null)
+    try {
+      const r = await api.dgii_ecf?.sandboxTry?.({ amount: 1000 })
+      if (r?.ok) setResult(r.data || r)
+      else setError(r?.error || L('Error en demo', 'Demo error'))
+    } catch (err) {
+      setError(err?.message || L('Error de red', 'Network error'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="bg-white dark:bg-white/5 rounded-2xl border border-[#b3001e]/20 dark:border-[#b3001e]/30 p-6">
+      <div className="flex items-start gap-3 mb-3">
+        <div className="w-10 h-10 rounded-xl bg-[#b3001e]/10 flex items-center justify-center flex-shrink-0">
+          <Receipt size={20} className="text-[#b3001e]" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-bold text-slate-700 dark:text-white/80 uppercase tracking-wider">
+            {L('Probar emision (demo)', 'Try emission (demo)')}
+          </h3>
+          <p className="text-[12px] text-slate-500 dark:text-white/50 mt-1">
+            {L('Genere una factura de prueba para ver como funciona el flujo de e-CF de Terminal X — sin instalar nada.',
+               'Generate a test invoice to see how the Terminal X e-CF flow works — no install needed.')}
+          </p>
+        </div>
+      </div>
+
+      <button onClick={tryDemo} disabled={busy}
+        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#b3001e] text-white text-sm font-semibold hover:bg-[#8f0018] disabled:opacity-50 transition">
+        {busy ? <RefreshCw size={15} className="animate-spin" /> : <Receipt size={15} />}
+        {busy ? L('Generando...', 'Generating...') : L('Generar factura demo (RD$ 1,180)', 'Generate demo invoice (RD$ 1,180)')}
+      </button>
+
+      {error && (
+        <div className="mt-3 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-800 dark:text-red-300 text-sm">
+          <div className="flex items-start gap-2">
+            <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+            <p>{error}</p>
+          </div>
+        </div>
+      )}
+
+      {result && (
+        <div className="mt-4 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-sm">
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400" />
+            <span className="font-bold text-emerald-800 dark:text-emerald-300">
+              {result._demo === false
+                ? L('e-CF aceptado por DGII', 'e-CF accepted by DGII')
+                : L('Demo: e-CF aceptado', 'Demo: e-CF accepted')}
+            </span>
+            {result._demo !== false && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 uppercase">
+                {L('Modo demo', 'Demo mode')}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs font-mono text-emerald-900 dark:text-emerald-100/90">
+            <div>
+              <span className="opacity-60 block text-[10px] uppercase tracking-wider">eNCF</span>
+              {result.eNCF}
+            </div>
+            <div>
+              <span className="opacity-60 block text-[10px] uppercase tracking-wider">Track ID</span>
+              {result.trackId}
+            </div>
+            <div>
+              <span className="opacity-60 block text-[10px] uppercase tracking-wider">{L('Codigo DGII', 'DGII code')}</span>
+              {result.dgiiCodigo} {result.status ? `· ${result.status}` : ''}
+            </div>
+            <div>
+              <span className="opacity-60 block text-[10px] uppercase tracking-wider">{L('Codigo seguridad', 'Security code')}</span>
+              {result.securityCode}
+            </div>
+            <div className="col-span-2">
+              <span className="opacity-60 block text-[10px] uppercase tracking-wider">{L('Total', 'Total')}</span>
+              RD$ {Number(result.totales?.total || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+            </div>
+          </div>
+          {result.qrLink && (
+            <div className="mt-3 pt-3 border-t border-emerald-200 dark:border-emerald-500/30">
+              <span className="opacity-60 block text-[10px] uppercase tracking-wider mb-1">QR DGII</span>
+              <a href={result.qrLink} target="_blank" rel="noreferrer"
+                className="text-[11px] text-emerald-700 dark:text-emerald-300 hover:underline break-all font-mono">
+                {result.qrLink}
+              </a>
+            </div>
+          )}
+          {result._note && (
+            <p className="mt-3 pt-3 border-t border-emerald-200 dark:border-emerald-500/30 text-[11px] text-emerald-700/80 dark:text-emerald-300/70 italic">
+              {result._note}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

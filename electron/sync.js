@@ -117,6 +117,7 @@ function setJwtRefreshHook(fn) {
 }
 let _businessId = null
 let _intervalId = null
+let _jitterTimeoutId = null
 let _syncing = false
 let _pendingSync = false
 let _status = { state: 'idle', lastSync: null, tables: {}, error: null }
@@ -1225,6 +1226,10 @@ const SYNC_TABLES = [
   },
   {
     name: 'ecf_submissions',
+    // 2026-04-30 — push the numeric dgii_status + dgii_message + confirmed_at
+    // so the cloud parent-acceptance gate (web/api/ecf-sign.js) and any
+    // contadora dashboard can see the same DGII verdict the desktop has.
+    // The legacy text `status` column is kept in sync for backward compat.
     cols: r => ({
       supabase_id: r.supabase_id,
       ticket_supabase_id: r.ticket_supabase_id,
@@ -1232,6 +1237,12 @@ const SYNC_TABLES = [
       tipo_ecf: r.tipo_ecf,
       track_id: r.track_id,
       status: typeof r.dgii_status === 'number' ? String(r.dgii_status) : (r.status || null),
+      dgii_status: typeof r.dgii_status === 'number' ? r.dgii_status : null,
+      dgii_message: r.dgii_message || null,
+      confirmed_at: r.confirmed_at || null,
+      security_code: r.security_code || null,
+      signature_date: r.signature_date || null,
+      xml_hash: r.xml_hash || null,
       environment: r.environment,
       submitted_at: r.submitted_at || new Date().toISOString(),
       created_at: r.submitted_at || new Date().toISOString(),
@@ -4370,14 +4381,30 @@ async function syncNow() {
 }
 
 // -- Auto sync interval -------------------------------------------------------
+// Phase C scaling fix (2026-04-29): replace setInterval with a self-rescheduling
+// setTimeout that adds ±10% jitter per cycle. Without jitter, every desktop in
+// the fleet wakes near the minute boundary (because intervalMs is a round
+// number and machines sync clocks via NTP) and Supavisor's transaction pool
+// queues spike. Jittering each tick by up to ±10% breaks the convoy and keeps
+// aggregate RPS smooth even at 1000+ desktops.
 function startAutoSync(intervalMs = 30 * 60 * 1000) {
   if (_intervalId) clearInterval(_intervalId)
+  if (_jitterTimeoutId) { clearTimeout(_jitterTimeoutId); _jitterTimeoutId = null }
   // First sync after 5 seconds (let DB + window settle, then pull cloud
   // settings so Preferencias/Sistema/Admin screens see the current printer,
   // staff, etc. on first render instead of the 60s-old local snapshot).
   setTimeout(() => syncNow().catch(() => {}), 5 * 1000)
-  _intervalId = setInterval(() => syncNow().catch(() => {}), intervalMs)
-  log.info(`[sync] Auto-sync every ${Math.round(intervalMs / 60000)} min`)
+  function scheduleNext() {
+    // ±10% jitter per cycle, computed fresh each time. min 60s floor.
+    const jitter = (Math.random() * 0.2 - 0.1) * intervalMs
+    const next = Math.max(60_000, intervalMs + jitter)
+    _jitterTimeoutId = setTimeout(() => {
+      syncNow().catch(() => {})
+      scheduleNext()
+    }, next)
+  }
+  scheduleNext()
+  log.info(`[sync] Auto-sync every ~${Math.round(intervalMs / 60000)} min (±10% jitter)`)
   // Kick off realtime listener so web writes land on desktop within seconds
   // instead of waiting up to intervalMs. Fires in the background; failures
   // degrade gracefully to the polling interval.
@@ -4388,6 +4415,7 @@ function startAutoSync(intervalMs = 30 * 60 * 1000) {
 
 function stopAutoSync() {
   if (_intervalId) { clearInterval(_intervalId); _intervalId = null }
+  if (_jitterTimeoutId) { clearTimeout(_jitterTimeoutId); _jitterTimeoutId = null }
   stopRealtime()
 }
 

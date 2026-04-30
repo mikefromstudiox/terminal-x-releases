@@ -57,6 +57,10 @@ export const BUSINESS_SETTING_KEYS = new Set([
   // Mecánica vertical (v2.16.x FIX-HIGH-7) — owner-configurable tow fee
   // (replaces the hardcoded RD$ 500 in WorkOrders). Cloud-synced.
   'mechanic_tow_fee_default',
+  // Fiscal mode — 'ecf' (E-series) vs 'legacy' (B01/B02). Business-wide,
+  // cloud-synced so a flip on web/desktop is instantly authoritative for
+  // CobrarModal's NCF type defaults across every register.
+  'fiscal_mode', 'facturacion_mode',
   // v2.16.17 — sync engine feature flags. See electron/settingsWhitelist.js
   // for the matching CommonJS entry. Both files MUST stay in lockstep.
   'sync_use_merge_v17',

@@ -186,8 +186,8 @@ function createWebAPI(supabase, businessId) {
       update: (obj) => tryOr(async () => {
         for (const [key, value] of Object.entries(obj)) {
           throwSupaError(await supabase.from('app_settings').upsert(
-            { business_id: bid, key, value: String(value) },
-            { onConflict: 'business_id,key' }
+            { business_id: bid, key, value: String(value), device_hwid: null },
+            { onConflict: 'business_id,key,device_hwid' }
           ))
         }
       }),

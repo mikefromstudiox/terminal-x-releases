@@ -158,6 +158,120 @@ export default async function handler(req, res) {
     }
   }
 
+  // ── Action: 'sandbox-try' — public-ish demo of the e-CF emission flow ──
+  // Anyone signed in (even on free trial / Pro base) can hit this to see a
+  // realistic e-CF acceptance response. If the configured SANDBOX_BUSINESS_ID
+  // has a cert installed, we sign + submit to DGII certecf for real.
+  // Otherwise we return a synthetic-but-realistic response with a clear
+  // _demo: true flag so the UI labels it accordingly.
+  // Rate-limited to 10 calls / user / hour via api_rate_limits table.
+  if (body.action === 'sandbox-try') {
+    // Rate limit via the existing api_rate_limits bucket pattern. Bucket key
+    // groups by user; window is top-of-hour; cap is 10 / user / hour.
+    try {
+      const hourStart = new Date(); hourStart.setMinutes(0, 0, 0)
+      const bucket = `sandbox-try:${user.id}`
+      const { data: rl } = await supabase.from('api_rate_limits')
+        .select('count').eq('bucket', bucket).eq('window_start', hourStart.toISOString()).maybeSingle()
+      const used = rl?.count || 0
+      if (used >= 10) {
+        return json(res, 200, { ok: false, error: 'Limite de pruebas alcanzado (10 por hora). Intente de nuevo en unos minutos.' })
+      }
+      // Increment best-effort.
+      if (rl) {
+        await supabase.from('api_rate_limits').update({ count: used + 1, updated_at: new Date().toISOString() })
+          .eq('bucket', bucket).eq('window_start', hourStart.toISOString())
+      } else {
+        await supabase.from('api_rate_limits').insert({ bucket, window_start: hourStart.toISOString(), count: 1, updated_at: new Date().toISOString() })
+      }
+    } catch { /* non-fatal — better to allow than block on RL infra issue */ }
+
+    const sandboxBid = process.env.SANDBOX_BUSINESS_ID || '1e14fdf4-eaf9-4a8e-abaf-deb81dc25b79' // Studio X SRL fallback
+    const { data: sandboxBiz } = await supabase.from('businesses').select('settings,rnc,name').eq('id', sandboxBid).single()
+    const sandboxSettings = parseSettingsIfString(sandboxBiz?.settings)
+    const hasCert = !!(sandboxSettings.ecf_private_key_pem && sandboxSettings.ecf_certificate_pem)
+
+    // Build a deterministic "demo factura" — caller can pass an amount, we
+    // default to RD$ 1,180 (RD$ 1,000 + 18% ITBIS).
+    const demoAmount = Math.max(50, Math.min(50000, Number(body.amount) || 1000))
+    const demoItbis = +(demoAmount * 0.18).toFixed(2)
+    const demoTotal = +(demoAmount + demoItbis).toFixed(2)
+    const demoEncf = `E32${String(Math.floor(Math.random() * 9999000000) + 1000000000).slice(-10)}`
+    const fakeTrackId = `DEMO-${Date.now().toString(36).toUpperCase()}`
+    const securityCode = Math.random().toString(36).slice(2, 8).toUpperCase()
+    const fechaEmision = (() => {
+      const d = new Date()
+      return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`
+    })()
+
+    if (!hasCert) {
+      // Synthetic response — clearly marked. Same shape as a real DGII accept.
+      return json(res, 200, {
+        ok: true,
+        _sandbox: true,
+        _demo: true,
+        data: {
+          eNCF: demoEncf,
+          trackId: fakeTrackId,
+          dgiiCodigo: 1,
+          status: 'aceptado',
+          mensajes: ['Comprobante aceptado'],
+          securityCode,
+          signatureDate: new Date().toISOString(),
+          totales: { subtotal: demoAmount, itbis: demoItbis, total: demoTotal },
+          emisor: { rnc: sandboxBiz?.rnc || '133410321', razon_social: sandboxBiz?.name || 'STUDIO X SRL' },
+          fechaEmision,
+          qrLink: `https://ecf.dgii.gov.do/certecf/ConsultaTimbre?RncEmisor=${sandboxBiz?.rnc || '133410321'}&ENCF=${demoEncf}&MontoTotal=${demoTotal}&CodigoSeguridad=${securityCode}`,
+          _note: 'Modo demo: ningun e-CF fue enviado a DGII. Para ver la respuesta real de DGII, instale su certificado en /pos/dgii.',
+        },
+      })
+    }
+
+    // Real path: cert IS installed on the sandbox biz. Sign + submit to certecf.
+    try {
+      const env = 'certecf'
+      const payload = {
+        ECF: {
+          Encabezado: {
+            Version: '1.0',
+            IdDoc: { TipoECF: '32', eNCF: demoEncf, FechaEmision: fechaEmision, IndicadorEnvioDiferido: '0', TipoIngresos: '01', TipoPago: '1' },
+            Emisor: { RNCEmisor: (sandboxBiz?.rnc || '').replace(/\D/g, ''), RazonSocialEmisor: (sandboxBiz?.name || 'STUDIO X SRL').toUpperCase(), DireccionEmisor: 'Santo Domingo' },
+            Totales: { MontoGravadoTotal: demoAmount, MontoGravadoI1: demoAmount, ITBIS1: demoItbis, TotalITBIS: demoItbis, TotalITBIS1: demoItbis, MontoTotal: demoTotal },
+          },
+          DetallesItems: { Item: [{ NumeroLinea: 1, IndicadorFacturacion: '1', NombreItem: 'Demo Terminal X', IndicadorBienoServicio: '2', CantidadItem: 1, UnidadMedida: '43', PrecioUnitarioItem: demoAmount, MontoItem: demoAmount }] },
+        },
+      }
+      const xml = buildRFCEXml({
+        emisor: payload.ECF.Encabezado.Emisor,
+        totales: { montoGravadoTotal: demoAmount, montoGravadoI1: demoAmount, totalITBIS: demoItbis, totalITBIS1: demoItbis, montoTotal: demoTotal },
+        eNCF: demoEncf, tipoIngresos: '01', tipoPago: '1', fechaEmision, securityCode,
+      })
+      const { signedXml } = signXML(xml, sandboxSettings.ecf_private_key_pem, sandboxSettings.ecf_certificate_pem)
+      const dgiiToken = await authenticate(env, sandboxSettings.ecf_private_key_pem, sandboxSettings.ecf_certificate_pem)
+      const result = await submitRFCE(signedXml, dgiiToken, env, { rncEmisor: sandboxBiz?.rnc, eNCF: demoEncf })
+      return json(res, 200, {
+        ok: true, _sandbox: true, _demo: false,
+        data: {
+          eNCF: demoEncf,
+          trackId: result.trackId || fakeTrackId,
+          dgiiCodigo: result.codigo === 0 ? 1 : result.codigo,
+          status: result.estado || 'aceptado',
+          mensajes: result.mensajes || ['Comprobante aceptado'],
+          securityCode,
+          signatureDate: new Date().toISOString(),
+          totales: { subtotal: demoAmount, itbis: demoItbis, total: demoTotal },
+          emisor: { rnc: sandboxBiz?.rnc, razon_social: sandboxBiz?.name },
+          fechaEmision,
+          qrLink: buildQRUrl({ env, rncEmisor: sandboxBiz?.rnc, rncComprador: '', eNCF: demoEncf, fechaEmision, montoTotal: String(demoTotal), fechaFirma: new Date().toISOString(), codigoSeguridad: securityCode, isRFCE: true }),
+          _note: 'Respuesta real de DGII (entorno de pruebas certecf).',
+        },
+      })
+    } catch (err) {
+      clearTokenCache()
+      return json(res, 200, { ok: false, _sandbox: true, error: err.message || 'Error en demo de DGII' })
+    }
+  }
+
   // Auth test mode — just verify cert is configured and DGII auth works
   if (body.test) {
     const bid = body.business_id
@@ -192,6 +306,49 @@ export default async function handler(req, res) {
   const certificatePem = bizSettings.ecf_certificate_pem
   const dgiiEnv = bizSettings.dgii_environment || 'certecf'
 
+  // Parent-acceptance gate for Notas de Crédito (E33/E34). Mirrors the
+  // desktop checkParentAccepted() logic. Without this, a fast void on the
+  // web POS can submit the NC before its parent factura's eNCF is
+  // registered on DGII's side, the NC gets rejected with "comprobante no
+  // encontrado", and the 607 mensual ends up out of sync with what DGII
+  // actually has on file. We refuse to sign+submit until the parent
+  // factura shows ecf_submissions.dgii_status IN (1, 4).
+  {
+    const tipo = String(body.tipoECF || body.payload?.ECF?.Encabezado?.IdDoc?.TipoECF || '')
+    if (tipo === '33' || tipo === '34') {
+      const parentEncf = body.payload?.ECF?.Encabezado?.InformacionReferencia?.NCFModificado
+                       || body.referencia?.ncfModificado
+                       || null
+      if (!parentEncf) {
+        return json(res, 200, { ok: false, code: 'parent_missing',
+          error: 'Esta nota requiere referenciar la factura padre (NCFModificado).' })
+      }
+      const { data: parentRow } = await supabase
+        .from('ecf_submissions')
+        .select('dgii_status')
+        .eq('business_id', bid)
+        .eq('encf', String(parentEncf))
+        .order('submitted_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const ps = parentRow?.dgii_status
+      if (ps !== 1 && ps !== 4) {
+        const code = !parentRow ? 'parent_unknown'
+                   : ps === 2   ? 'parent_rejected'
+                                : 'parent_pending'
+        const msg = code === 'parent_unknown'
+          ? `Esperando que la factura ${parentEncf} sea registrada antes de enviar esta nota.`
+          : code === 'parent_rejected'
+          ? `La factura padre ${parentEncf} fue RECHAZADA por DGII. Resuelva esa factura antes de emitir nota de crédito sobre ella.`
+          : `La factura padre ${parentEncf} sigue en proceso en DGII. Reintente en unos segundos.`
+        return json(res, 200, { ok: false, code, parentEncf, error: msg })
+      }
+    }
+  }
+
+  // Cert presence check — runs AFTER the parent-acceptance gate so a
+  // cashier emitting a too-early NC sees the gate message even on a
+  // tenant whose cert isn't installed yet.
   if (!privateKeyPem || !certificatePem) {
     return json(res, 400, { ok: false, error: 'Certificado e-CF no configurado. Instale el .p12 desde el escritorio.' })
   }

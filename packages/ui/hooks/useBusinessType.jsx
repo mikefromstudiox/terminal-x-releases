@@ -84,6 +84,14 @@ const DEALERSHIP_SUBTYPE_KEY = 'dealership_subtype'
 // Hybrid components — CSV in app_settings (e.g. "restaurant,retail").
 const HYBRID_COMPONENTS_KEY = 'hybrid_components'
 
+// SECURITY (2026-04-29): an earlier patch added a per-business localStorage
+// cache to avoid the 'carwash' default flashing on web reload. That cache was
+// the wrong shape — it relied on `tx_business_id` (set by LicenseContext, not
+// SupabaseAuthGate, so it didn't seed reliably on web), and it persisted UI
+// vertical state across logouts on shared computers. Removed in favor of a
+// loading-state render gate (see end of provider). No flash, no cache, no
+// cross-tenant UI leak surface.
+
 export function BusinessTypeProvider({ children }) {
   const api = useAPI()
   const [businessType, setType] = useState('carwash')
@@ -224,6 +232,23 @@ export function BusinessTypeProvider({ children }) {
     return false
   }, [featureOverrides, subtypeConfig, tiendaSubtype, flags.isLicoreria, flags.isCarniceria,
       flags.isCarWash, flags.isMechanic, flags.isSalon, flags.isHybrid, flags.isDealership, flags.isRestaurant, flags.isService])
+
+  // SECURITY: while settings.get() is in flight, do NOT render children. Until
+  // we know the actual business_type / tienda_subtype, every screen below
+  // would render against the 'carwash' default — exactly the flash that
+  // tipped Mike off to the underlying cross-tenant exposure incident on
+  // 2026-04-29. A small loader is acceptable; rendering the wrong vertical
+  // is not.
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white dark:bg-black flex items-center justify-center">
+        <div className="relative w-10 h-10">
+          <div className="absolute inset-0 rounded-full border-2 border-black/10 dark:border-white/10" />
+          <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#b3001e] animate-spin" />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <BusinessTypeContext.Provider value={{

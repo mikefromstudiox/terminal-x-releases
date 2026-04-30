@@ -214,12 +214,15 @@ async function run() {
   })
   log('activity log: manager_override_failed write', !e11, e11?.message)
 
-  // 12. app_settings write test (tienda_subtype + POS tab order)
+  // 12. app_settings write test (tienda_subtype + POS tab order).
+  // Real onConflict target is now available after migration
+  // 20260429000300_app_settings_unique_constraint.sql replaced the partial
+  // indexes with `UNIQUE NULLS NOT DISTINCT (business_id, key, device_hwid)`.
   const { error: e12 } = await anon.from('app_settings')
     .upsert([
-      { business_id: BID, key: 'tienda_subtype', value: 'licoreria' },
-      { business_id: BID, key: 'pos_tab_order', value: JSON.stringify(['Rones','Cervezas','Whiskey','Vinos']) },
-    ], { onConflict: 'business_id,key' })
+      { business_id: BID, key: 'tienda_subtype', value: 'licoreria',  device_hwid: null, is_device_local: false, supabase_id: uid() },
+      { business_id: BID, key: 'pos_tab_order',  value: JSON.stringify(['Rones','Cervezas','Whiskey','Vinos']), device_hwid: null, is_device_local: false, supabase_id: uid() },
+    ], { onConflict: 'business_id,key,device_hwid', ignoreDuplicates: false })
   log('settings: upsert tienda_subtype + pos_tab_order', !e12, e12?.message)
 
   // 13. Check Ranoza's license status + trial

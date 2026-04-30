@@ -157,7 +157,7 @@ async function globalSeed() {
     { business_id: BID, key: 'salon_public_booking_enabled', value: 'true' },
     { business_id: BID, key: 'salon_require_deposit',        value: 'true' },
     { business_id: BID, key: 'salon_deposit_amount_dop',     value: '300' },
-  ], { onConflict: 'business_id,key' })
+  ], { onConflict: 'business_id,key,device_hwid' })
   return { tomorrow, dateISO: tomorrow.toISOString().slice(0,10) }
 }
 
@@ -191,7 +191,7 @@ async function globalCleanup() {
     // Restore settings
     const restore = async (key, prev) => {
       if (prev == null) await svc.from('app_settings').delete().eq('business_id', BID).eq('key', key)
-      else await svc.from('app_settings').upsert([{ business_id: BID, key, value: prev }], { onConflict: 'business_id,key' })
+      else await svc.from('app_settings').upsert([{ business_id: BID, key, value: prev }], { onConflict: 'business_id,key,device_hwid' })
     }
     await restore('salon_public_booking_slug', prevSlug)
     await restore('salon_public_booking_enabled', prevEnabled)

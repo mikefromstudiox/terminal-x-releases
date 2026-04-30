@@ -64,8 +64,8 @@ async function run() {
 
   // 1) business_type = mechanic (idempotent)
   await svc.from('app_settings').upsert(
-    { business_id: bid, key: 'business_type', value: 'mechanic', supabase_id: uuid(), updated_at: new Date().toISOString() },
-    { onConflict: 'business_id,key' }
+    { business_id: bid, key: 'business_type', value: 'mechanic', device_hwid: null, supabase_id: uuid(), updated_at: new Date().toISOString() },
+    { onConflict: 'business_id,key,device_hwid' }
   )
   log('✓', 'app_settings.business_type=mechanic')
 

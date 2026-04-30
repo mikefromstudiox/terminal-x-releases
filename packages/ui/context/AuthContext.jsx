@@ -257,6 +257,19 @@ export function AuthProvider({ children }) {
       try { sessionStorage.setItem(LOGOUT_FLAG, '1') } catch {}
     } catch {}
 
+    // SECURITY: wipe Service Worker caches before redirect. The legacy
+    // sw.js used to cache Supabase REST responses keyed by URL alone; that
+    // cache could survive logout and serve a previous tenant's response to
+    // the next tenant. v4 sw.js no longer caches Supabase, but other caches
+    // (HTML, asset chunks) might hold authenticated responses too — wipe
+    // everything on logout. Idempotent and cheap.
+    try {
+      if (typeof caches !== 'undefined' && caches.keys) {
+        const keys = await caches.keys()
+        await Promise.all(keys.map(k => caches.delete(k).catch(() => {})))
+      }
+    } catch {}
+
     // Drop the cached client reference so that if, for any reason, the SPA
     // reuses the module cache (e.g. redirect blocked by a beforeunload), the
     // next auth call forces a fresh createClient instead of reusing a client

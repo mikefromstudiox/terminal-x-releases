@@ -693,6 +693,11 @@ export async function signAndSubmitECF(invoiceData, api) {
     ok:            result.ok !== false,           // true unless explicitly false
     queued:        result.queued === true,
     error:         result.error || null,
+    // 2026-04-30 — surface parent-acceptance gate codes so CobrarModal can
+    // render an actionable "Esperando aceptación de la factura padre…"
+    // banner with retry, instead of a generic error toast.
+    code:          result.code || null,
+    parentEncf:    result.parentEncf || null,
   }
 }
 

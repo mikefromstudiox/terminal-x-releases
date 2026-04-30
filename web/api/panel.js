@@ -1570,7 +1570,7 @@ async function handleClientConfig(req, res) {
       if (appSettings) {
         for (const [key, value] of Object.entries(appSettings)) {
           if (value === undefined || value === null) continue
-          await auth.supabase.from('app_settings').upsert({ business_id: id, key, value: String(value) }, { onConflict: 'business_id,key' })
+          await auth.supabase.from('app_settings').upsert({ business_id: id, key, value: String(value) }, { onConflict: 'business_id,key,device_hwid' })
         }
       }
       if (notes !== undefined) {
@@ -2164,7 +2164,7 @@ async function handleBulkAction(req, res) {
         await auth.supabase.from('app_settings').upsert({
           business_id: bid, key: 'announcement',
           value: JSON.stringify({ title, message, date: new Date().toISOString() }),
-        }, { onConflict: 'business_id,key' })
+        }, { onConflict: 'business_id,key,device_hwid' })
       }
       return res.json({ ok: true, affected: targets.length })
     }
@@ -3954,7 +3954,7 @@ async function handleUltramsgSave(req, res) {
       { business_id, key: 'whatsapp_token',    value: String(token).trim(),    updated_at: now },
     ]
     const { error } = await auth.supabase.from('app_settings')
-      .upsert(rows, { onConflict: 'business_id,key' })
+      .upsert(rows, { onConflict: 'business_id,key,device_hwid' })
     if (error) throw error
     return res.json({ ok: true })
   } catch (e) { return res.status(500).json({ error: e.message }) }

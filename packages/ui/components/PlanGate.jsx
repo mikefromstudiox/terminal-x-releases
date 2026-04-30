@@ -76,6 +76,30 @@ const FEATURE_DESCRIPTIONS = {
     es: 'Disponible en Pro PLUS — Catalogo de cortes, ventas al mayoreo, alertas de frescura.',
     en: 'Available on Pro PLUS — Cuts catalog, wholesale orders, freshness alerts.',
   },
+  // 2026-04-30 — e-CF / DGII tier upsell. Targets web-only clients who
+  // signed up on the base Pro plan and try to open the DGII tab. Replaces
+  // the generic "esta funcion requiere..." with a concrete sell that
+  // bundles the Tech X certification service.
+  dgii: {
+    es: 'e-CF en Terminal X: emisor electronico CERTIFICADO por DGII (RNC 133410321), instalacion del .p12 en 30 segundos via web, gate automatico contra duplicados y notas huerfanas. La certificacion DGII completa la incluye Tech X dentro del precio (RD$ 15K-55K segun el caso).',
+    en: 'e-CF on Terminal X: DGII-CERTIFIED Electronic Issuer (RNC 133410321), .p12 install in 30 seconds via web, automatic gate against duplicates and orphan credit notes. DGII certification process bundled via Tech X (RD$ 15K-55K depending on the case).',
+  },
+  ecf: {
+    es: 'e-CF en Terminal X: emisor electronico CERTIFICADO por DGII (RNC 133410321), instalacion del .p12 en 30 segundos via web, gate automatico contra duplicados y notas huerfanas. La certificacion DGII completa la incluye Tech X dentro del precio.',
+    en: 'e-CF on Terminal X: DGII-CERTIFIED Electronic Issuer (RNC 133410321), .p12 install in 30 seconds via web, automatic gate against duplicates and orphan credit notes. DGII certification process bundled via Tech X.',
+  },
+  invoicing: {
+    es: 'Facturacion electronica con Terminal X: emite facturas y notas de credito DGII-validas desde la web. Cada e-CF firmado con su .p12, gate de aceptacion automatico, exportes 606/607 listos. Plan Facturacion incluye certificacion DGII via Tech X.',
+    en: 'Electronic invoicing with Terminal X: issue DGII-valid invoices and credit notes from the web. Every e-CF signed with your .p12, automatic acceptance gate, 606/607 exports ready. Facturacion plan bundles DGII certification via Tech X.',
+  },
+  credit_notes: {
+    es: 'Notas de credito con proteccion automatica: Terminal X bloquea la nota hasta que la factura padre este ACEPTADA por DGII. Cero duplicados, cero 607 roto. Disponible desde el plan Facturacion.',
+    en: 'Credit notes with automatic protection: Terminal X blocks the note until the parent invoice is ACCEPTED by DGII. Zero duplicates, zero broken 607. Available from the Facturacion plan.',
+  },
+  dgii_606_607: {
+    es: 'Exportes 606 y 607 mensuales en TXT formato DGII, generados directamente desde sus ventas y compras del periodo. Disponible desde el plan Facturacion.',
+    en: '606 and 607 monthly TXT exports in DGII format, generated directly from your sales and purchases. Available from the Facturacion plan.',
+  },
 }
 
 export default function PlanGate({ feature, children }) {

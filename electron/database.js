@@ -9031,6 +9031,23 @@ function ecfSubmissionGetByTicket(ticketId) {
   return db.prepare('SELECT * FROM ecf_submissions WHERE ticket_id=? ORDER BY submitted_at DESC LIMIT 1').get(ticketId)
 }
 
+// 2026-04-30 — parent-acceptance gate for Notas de Crédito (E33/E34).
+// Other DR POS systems hit a known DGII race: when an NC is submitted
+// before its parent factura's eNCF is registered on DGII's side, the NC
+// is rejected with "comprobante no encontrado", the factura then arrives
+// and gets accepted, and the books permanently disagree with DGII (607
+// breaks). Terminal X gates this by refusing to submit any NC until its
+// parent eNCF shows dgii_status=1 (ACEPTADO) here. Lookup is keyed on the
+// eNCF string (which is unique per business + emisor by DGII contract).
+function ecfSubmissionGetByEncf(encf) {
+  if (!db || !encf) return null
+  // Latest accepted record wins if there are duplicates (shouldn't happen
+  // post-supabase_id idempotency but defensive).
+  return db.prepare(
+    'SELECT * FROM ecf_submissions WHERE encf=? ORDER BY submitted_at DESC LIMIT 1'
+  ).get(String(encf))
+}
+
 function ecfSubmissionGetPending(env) {
   if (!db) return []
   return db.prepare('SELECT * FROM ecf_submissions WHERE dgii_status=3 AND environment=? ORDER BY submitted_at ASC LIMIT 20')
@@ -13898,7 +13915,7 @@ module.exports = {
   anecfQueueCount, anecfQueueList, isECF,
   // e-CF submissions log
   ecfSubmissionAdd, ecfSubmissionUpdate, ecfSubmissionGetByTrackId, ecfSubmissionGetByTicket,
-  ecfSubmissionGetPending, ecfSubmissionGetAll,
+  ecfSubmissionGetByEncf, ecfSubmissionGetPending, ecfSubmissionGetAll,
   // Activity log (owner audit feed)
   setActiveUser, getActiveUser, activityLogRecord, activityLogList, activityLogSelfHeal, setActivityErrorSink, activityLogDrainFallback,
   // e-CF certificate rotation history (audit trail — append-only, synced)
