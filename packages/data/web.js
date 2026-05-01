@@ -2288,15 +2288,21 @@ export function createWebAPI(supabase, businessId) {
       }, null),
 
       create: (data) => tryOr(async () => {
+        // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §2.13). Quick-add
+        // client returned only {id} — caller mapped client.supabase_id=null,
+        // first credit ticket landed orphaned, loyaltyAward early-returned.
+        // Now returns full id+supabase_id for downstream linkage.
+        const sid = data.supabase_id || crypto.randomUUID()
         const row = throwSupaError(await supabase.from('clients').insert({
-          supabase_id: crypto.randomUUID(),
+          supabase_id: sid,
           name: data.name, rnc: data.rnc || null, phone: data.phone || null,
           email: data.email || null, address: data.address || null,
           credit_limit: data.credit_limit || 0, balance: 0, business_id: bid,
           loyalty_points: 0,
+          notes: data.notes || null,
           allergies: data.allergies || null,
           preferred_stylist_supabase_id: data.preferred_stylist_supabase_id || null,
-        }).select('id').single())
+        }).select('id, supabase_id').single())
         return row
       }),
 
@@ -2380,12 +2386,13 @@ export function createWebAPI(supabase, businessId) {
       }, []),
 
       openTickets: (clientId) => tryOr(async () => {
-        // clientId is a Supabase row UUID — match either the row id or supabase_id
-        // to remain backward compatible with both call sites.
+        // v2.16.10 — clientId is a Supabase UUID. The legacy `.or()` clause
+        // referenced tickets.client_id which does NOT exist on Supabase
+        // (audit 2026-04-30). Filter on client_supabase_id only.
         const { data: tickets } = await supabase.from('tickets')
           .select('*')
           .eq('business_id', bid)
-          .or(`client_supabase_id.eq.${clientId},client_id.eq.${clientId}`)
+          .eq('client_supabase_id', clientId)
           .eq('tipo_venta', 'credito').eq('status', 'pendiente')
           .order('created_at', { ascending: true })
         if (!tickets?.length) return []
@@ -2415,13 +2422,45 @@ export function createWebAPI(supabase, businessId) {
           if (existing) return { id: existing.id, supabase_id: existing.supabase_id, idempotent: true }
         }
 
-        // 1. Mark each ticket as 'cobrado' with the payment method.
-        // v2.10.3 — bump rev so Supabase trg_tickets_rev_guard accepts the status change.
-        for (const tid of (ticketIds || [])) {
-          const { data: cur } = await supabase.from('tickets').select('rev').eq('id', tid).eq('business_id', bid).maybeSingle()
-          const nextRev = Number(cur?.rev || 0) + 1
-          await supabase.from('tickets').update({ status: 'cobrado', payment_method: paymentMethod, rev: nextRev })
-            .eq('id', tid).eq('business_id', bid)
+        // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §2.18). Partial credit
+        // payment used to flip ALL ticket_ids to cobrado regardless of the
+        // payment amount. A RD$500 abono on RD$3000 of debt closed everything.
+        // Now: only flip cobrado if the cumulative paid (existing credit_payments
+        // applied to that ticket + this new amount) covers ticket.total. Else
+        // leave pendiente, just decrement balance.
+        const idsArray = ticketIds || []
+        // Pull totals + prior partial amounts for these tickets
+        const { data: targetTickets } = await supabase.from('tickets')
+          .select('id, supabase_id, total, rev').in('id', idsArray).eq('business_id', bid)
+        const ticketsMap = new Map((targetTickets || []).map(t => [t.id, t]))
+        const { data: priorPays } = await supabase.from('credit_payments')
+          .select('amount, ticket_ids').eq('business_id', bid).contains('ticket_ids', idsArray.length ? [idsArray[0]] : [])
+        // Build prior-paid sums per ticket
+        const priorByTicket = {}
+        for (const p of (priorPays || [])) {
+          const tids = Array.isArray(p.ticket_ids) ? p.ticket_ids : []
+          if (tids.length === 0) continue
+          const share = Number(p.amount || 0) / tids.length
+          for (const t of tids) priorByTicket[t] = (priorByTicket[t] || 0) + share
+        }
+        // Allocate this amount across the requested tickets in oldest-first order
+        let remaining = Number(amount) || 0
+        for (const tid of idsArray) {
+          const t = ticketsMap.get(tid)
+          if (!t) continue
+          const total = Number(t.total) || 0
+          const priorPaid = priorByTicket[tid] || 0
+          const stillOwed = Math.max(0, total - priorPaid)
+          const applied = Math.min(remaining, stillOwed)
+          remaining -= applied
+          const newPaidTotal = priorPaid + applied
+          const fullyPaid = newPaidTotal + 0.01 >= total // 1-cent tolerance
+          const nextRev = Number(t.rev || 0) + 1
+          const patch = { rev: nextRev, payment_method: fullyPaid ? paymentMethod : undefined }
+          if (fullyPaid) patch.status = 'cobrado'
+          // Strip undefined keys so Supabase doesn't NULL them
+          for (const k of Object.keys(patch)) if (patch[k] === undefined) delete patch[k]
+          await supabase.from('tickets').update(patch).eq('id', tid).eq('business_id', bid)
         }
 
         // 2. Decrease client balance
@@ -2648,6 +2687,13 @@ export function createWebAPI(supabase, businessId) {
             const washerSidsResolved = await resolveEmpleadoSidsRaw(data.washer_ids || data.washer_empleado_supabase_ids || [])
             const sellerRefRaw = data.seller_supabase_id || data.seller_id || null
             const sellerSidResolved = sellerRefRaw ? (await resolveEmpleadoSidsRaw([sellerRefRaw]))[0] || null : null
+            // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §2.12). POS sends
+            // cajero_id as numeric (or 'web' string for web sessions). Without
+            // this resolution every web ticket lands with cajero_supabase_id=NULL,
+            // breaking cajero_commissions + cuadre-by-cashier reports.
+            const cajeroRefRaw = data.cajero_supabase_id || data.cajero_id || null
+            const cajeroSidResolved = cajeroRefRaw && cajeroRefRaw !== 'web'
+              ? (await resolveEmpleadoSidsRaw([cajeroRefRaw]))[0] || null : null
 
             // Insert ticket
             const ticketSid = crypto.randomUUID()
@@ -2656,11 +2702,28 @@ export function createWebAPI(supabase, businessId) {
               business_id:     bid,
               doc_number:      docNum,
               client_supabase_id: data.client_supabase_id || null,
+              client_name:        data.client_name || null,
+              // v2.16.10 — schema-drift sweep. Supabase migration 2026-04-30
+              // added these. Previously the code wrote them but PostgREST
+              // silently dropped the keys.
+              appointment_supabase_id: data.appointment_supabase_id || null,
+              mesa_supabase_id:    data.mesa_supabase_id || null,
+              servicio_pct:        data.servicio_pct != null ? Number(data.servicio_pct) : null,
+              servicio_amount:     data.servicio_amount != null ? Number(data.servicio_amount) : null,
               washer_empleado_supabase_ids: washerSidsResolved,
               seller_empleado_supabase_id: sellerSidResolved,
-              cajero_supabase_id: data.cajero_supabase_id || null,
+              cajero_supabase_id: cajeroSidResolved,
               subtotal:        data.subtotal || 0,
               descuento:       data.descuento || 0,
+              // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §2.12).
+              // Audit confirmed POS sent these but PostgREST silently dropped
+              // them because columns either didn't exist or weren't in payload.
+              // Persist now: ncf (eNCF stamp), descuento_reason (manager-auth
+              // discount audit), mac_jti (anti-replay), notes (cashier comments).
+              ncf:             data.ncf || null,
+              ncf_type:        data.ncf_type || data.comprobante_type || null,
+              descuento_reason: data.descuento_reason || null,
+              mac_jti:         data.mac_jti || null,
               itbis:           data.itbis || 0,
               ley:             data.ley || 0,
               total:           data.total || 0,
@@ -2670,7 +2733,10 @@ export function createWebAPI(supabase, businessId) {
               tipo_venta:      data.tipo_venta || 'contado',
               status,
               vehicle_plate:   data.vehicle_plate || null,
-              notes:           data.notes || null,
+              // POS sends free-form cashier notes as `comentario`; schema column is `notes`.
+              notes:           data.notes || data.comentario || null,
+              mode:            data.mode || null,
+              beverage_subtotal: Number(data.beverage_subtotal || 0) || null,
               order_source:    data.order_source || 'pos',
               // v2.10.4 — restaurant split-bill persistence. JSONB column, so
               // pass the array as-is (no stringify). NULL = single-method
@@ -2699,6 +2765,14 @@ export function createWebAPI(supabase, businessId) {
                 inventory_item_supabase_id: i.inventory_item_supabase_id || null,
                 // v2.16.1 patch (#2) — per-line stylist credit (commission split)
                 empleado_supabase_id: i.empleado_supabase_id || null,
+                // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §2.12).
+                // Bundle promo attribution. Without this, on-void reversal can
+                // leak inventory because oferta-grouped lines aren't unwound
+                // as a unit.
+                oferta_supabase_id: i.oferta_supabase_id || null,
+                course:             i.course || null,
+                guest_number:       i.guest_number || null,
+                preparation_notes:  i.preparation_notes || null,
                 name:               i.name,
                 price:              i.price,
                 cost:               i.cost != null ? Number(i.cost) : (i.service_id ? (svcCostById.get(i.service_id) || 0) : 0),
@@ -3072,24 +3146,26 @@ export function createWebAPI(supabase, businessId) {
       transferToMesa: (ticketSupabaseId, newMesaId) => tryOr(async () => {
         if (!ticketSupabaseId || !newMesaId) throw new Error('Faltan parámetros')
 
-        // Resolve current ticket + new mesa
+        // v2.16.10 — schema-drift fix: tickets.mesa_id does NOT exist on Supabase
+        // (only mesa_supabase_id). Prior code selected mesa_id → always NULL →
+        // same-mesa guard fell open, old mesa never freed. Audit 2026-04-30.
         const { data: ticket } = await supabase.from('tickets')
-          .select('id, supabase_id, mesa_id, mesa_supabase_id, guests, waiter_empleado_supabase_id, doc_number, status')
+          .select('id, supabase_id, mesa_supabase_id, guests, waiter_empleado_supabase_id, doc_number, status, created_at')
           .eq('business_id', bid).eq('supabase_id', ticketSupabaseId).maybeSingle()
         if (!ticket) throw new Error('Ticket no encontrado')
         if (['cobrado','nula','anulado','voided'].includes(ticket.status)) throw new Error('Ticket ya cerrado')
-        if (ticket.mesa_id === newMesaId) throw new Error('La mesa destino es la misma')
 
         const { data: newMesa } = await supabase.from('mesas')
           .select('id, supabase_id, name, status').eq('id', newMesaId).eq('business_id', bid).maybeSingle()
         if (!newMesa) throw new Error('Mesa destino no existe')
+        if (ticket.mesa_supabase_id === newMesa.supabase_id) throw new Error('La mesa destino es la misma')
         if (!['libre','sucia','reservada'].includes(newMesa.status)) {
           throw new Error('Mesa destino no está disponible')
         }
 
-        const { data: oldMesa } = ticket.mesa_id ? await supabase.from('mesas')
+        const { data: oldMesa } = ticket.mesa_supabase_id ? await supabase.from('mesas')
           .select('id, supabase_id, name, guests_count, waiter_empleado_supabase_id, seated_at')
-          .eq('id', ticket.mesa_id).eq('business_id', bid).maybeSingle() : { data: null }
+          .eq('supabase_id', ticket.mesa_supabase_id).eq('business_id', bid).maybeSingle() : { data: null }
 
         // Rebump rev for tickets.rev_guard trigger (matches markPaid pattern).
         const { data: cur } = await supabase.from('tickets').select('rev').eq('id', ticket.id).maybeSingle()
@@ -3097,7 +3173,6 @@ export function createWebAPI(supabase, businessId) {
 
         // 1. Move the ticket
         throwSupaError(await supabase.from('tickets').update({
-          mesa_id: newMesa.id,
           mesa_supabase_id: newMesa.supabase_id,
           rev: nextRev,
         }).eq('id', ticket.id).eq('business_id', bid))
@@ -3152,13 +3227,13 @@ export function createWebAPI(supabase, businessId) {
         if (targetTicketSupabaseId === sourceTicketSupabaseId) throw new Error('No se puede juntar consigo mismo')
 
         const { data: target } = await supabase.from('tickets')
-          .select('id, supabase_id, mesa_id, mesa_supabase_id, guests, doc_number, status, rev')
+          .select('id, supabase_id, mesa_supabase_id, guests, doc_number, status, rev')
           .eq('business_id', bid).eq('supabase_id', targetTicketSupabaseId).maybeSingle()
         if (!target) throw new Error('Ticket destino no encontrado')
         if (['cobrado','nula','anulado','voided','merged'].includes(target.status)) throw new Error('Ticket destino ya cerrado')
 
         const { data: source } = await supabase.from('tickets')
-          .select('id, supabase_id, mesa_id, mesa_supabase_id, guests, doc_number, status, rev')
+          .select('id, supabase_id, mesa_supabase_id, guests, doc_number, status, rev')
           .eq('business_id', bid).eq('supabase_id', sourceTicketSupabaseId).maybeSingle()
         if (!source) throw new Error('Ticket origen no encontrado')
         if (['cobrado','nula','anulado','voided','merged'].includes(source.status)) throw new Error('Ticket origen ya cerrado')
@@ -3184,21 +3259,22 @@ export function createWebAPI(supabase, businessId) {
           rev: sNextRev,
         }).eq('id', source.id).eq('business_id', bid))
 
-        // 4. Free the source mesa to 'sucia'.
-        if (source.mesa_id) {
+        // 4. Free the source mesa to 'sucia'. Lookup by supabase_id (mesa_id
+        //    column on tickets does not exist — schema-drift fix v2.16.10).
+        if (source.mesa_supabase_id) {
           throwSupaError(await supabase.from('mesas').update({
             status: 'sucia',
             guests_count: null,
             waiter_empleado_supabase_id: null,
             seated_at: null,
             bill_requested_at: null,
-          }).eq('id', source.mesa_id).eq('business_id', bid))
+          }).eq('supabase_id', source.mesa_supabase_id).eq('business_id', bid))
         }
 
         // 5. Update target mesa guests count (best-effort).
-        if (target.mesa_id && totalGuests) {
+        if (target.mesa_supabase_id && totalGuests) {
           await supabase.from('mesas').update({ guests_count: totalGuests })
-            .eq('id', target.mesa_id).eq('business_id', bid)
+            .eq('supabase_id', target.mesa_supabase_id).eq('business_id', bid)
         }
 
         await logActivity({
@@ -3211,8 +3287,8 @@ export function createWebAPI(supabase, businessId) {
             target_ticket_id: target.id,
             source_ticket_id: source.id,
             source_doc_number: source.doc_number,
-            target_mesa_id: target.mesa_id,
-            source_mesa_id: source.mesa_id,
+            target_mesa_supabase_id: target.mesa_supabase_id,
+            source_mesa_supabase_id: source.mesa_supabase_id,
             total_guests: totalGuests,
           },
         })
@@ -3345,7 +3421,7 @@ export function createWebAPI(supabase, businessId) {
           .order('created_at', { ascending: false })
           .limit(1)
         if (mesaSid) q = q.eq('mesa_supabase_id', mesaSid)
-        else q = q.eq('mesa_id', mesaId)
+        else return null  // v2.16.10 — no mesa_id column on tickets; fail closed if mesa lookup didn't resolve a supabase_id.
         const { data: rows } = await q
         const ticket = rows && rows[0]
         if (!ticket) return null
@@ -3641,9 +3717,21 @@ export function createWebAPI(supabase, businessId) {
         const { id, status, washerId } = data
         const now = new Date().toISOString()
         const patch = { status }
-        // washerId is the lavador's empleados.supabase_id (UUID). Save it
-        // regardless of status so a later listo→ready transition keeps the assignee.
-        if (washerId) patch.washer_supabase_id = washerId
+        // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §2.16). The Queue UI
+        // passes `washer.id` which on web is the integer empleados.id, not the
+        // UUID supabase_id. Writing it directly into a UUID column threw 22P02
+        // and the reassign silently failed. Resolve to UUID first.
+        if (washerId) {
+          let resolvedSid = null
+          if (typeof washerId === 'string' && washerId.length === 36) {
+            resolvedSid = washerId
+          } else {
+            const { data: emp } = await supabase.from('empleados')
+              .select('supabase_id').eq('id', washerId).eq('business_id', bid).maybeSingle()
+            resolvedSid = emp?.supabase_id || null
+          }
+          if (resolvedSid) patch.washer_supabase_id = resolvedSid
+        }
         if (status === 'in_progress') {
           patch.assigned_at = now
         } else if (status === 'done') {
@@ -4352,7 +4440,24 @@ export function createWebAPI(supabase, businessId) {
 
       updateStatus: (data) => tryOr(async () => {
         const { id, status, approvedBy } = data
-        throwSupaError(await supabase.from('caja_chica').update({ status, approved_by: approvedBy }).eq('id', id).eq('business_id', bid))
+        // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §2.20). The .all() join
+        // reads approved_by_supabase_id (line 4379). Without resolving the
+        // numeric to a UUID + writing both columns, the approver name never
+        // resolves on the web caja-chica list after approval.
+        let approvedSid = null
+        if (approvedBy) {
+          if (typeof approvedBy === 'string' && approvedBy.length === 36) {
+            approvedSid = approvedBy
+          } else {
+            const { data: emp } = await supabase.from('staff').select('supabase_id').eq('id', approvedBy).eq('business_id', bid).maybeSingle()
+            approvedSid = emp?.supabase_id || null
+          }
+        }
+        throwSupaError(await supabase.from('caja_chica').update({
+          status,
+          approved_by: approvedBy || null,
+          approved_by_supabase_id: approvedSid,
+        }).eq('id', id).eq('business_id', bid))
       }),
     },
 
@@ -6042,7 +6147,7 @@ export function createWebAPI(supabase, businessId) {
       productivityForPeriod: ({ period_start, period_end }) => tryOr(async () => {
         if (!period_start || !period_end) return []
         const wos = throwSupaError(await supabase.from('work_orders').select('id, technician_empleado_supabase_id, started_at, finished_at, completed_date, labor_total, total').eq('business_id', bid).gte('completed_date', period_start).lte('completed_date', period_end)) || []
-        const emps = throwSupaError(await supabase.from('empleados').select('id, supabase_id, nombre, commission_pct').eq('business_id', bid).eq('active', true)) || []
+        const emps = throwSupaError(await supabase.from('empleados').select('id, supabase_id, nombre, comision_pct').eq('business_id', bid).eq('active', true)) || []
         const byEmp = new Map(emps.map(e => [e.supabase_id, { ...e, wo_count: 0, hours_total: 0, labor_total: 0, revenue_total: 0 }]))
         for (const w of wos) {
           const sid = w.technician_empleado_supabase_id; if (!sid || !byEmp.has(sid)) continue

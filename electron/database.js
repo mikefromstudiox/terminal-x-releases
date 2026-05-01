@@ -4919,9 +4919,16 @@ function empleadoUpdate(id, data) {
 }
 function empleadoDelete(id) {
   if (!db) return
-  const row = db.prepare('SELECT supabase_id, business_id FROM empleados WHERE id=?').get(id)
+  // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §3.3). Soft-delete + tombstone
+  // was silent. Audit log is mandatory on owner-visible destructive ops.
+  const row = db.prepare('SELECT id, supabase_id, business_id, nombre FROM empleados WHERE id=?').get(id)
   db.prepare('UPDATE empleados SET active=0 WHERE id=?').run(id)
   if (row?.supabase_id) tombstoneAdd('empleados', row.supabase_id, row.business_id)
+  if (row) {
+    activityLogRecord({ event_type: 'empleado_deleted', severity: 'warn',
+      target_type: 'empleado', target_id: row.id, target_name: row.nombre || '',
+      reason: 'Soft-deleted via empleadoDelete' })
+  }
 }
 function empleadoHardDelete(id) {
   if (!db) return { ok: false, reason: 'no-db' }
@@ -4940,6 +4947,17 @@ function empleadoHardDelete(id) {
     return { ok: true, softDeleted: true, reason: 'has-history', runs, commissions: commCount }
   }
   // No history — fully erase the employee + their salary_changes log.
+  // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §3.3). Hard delete drops
+  // financial paper trail. MUST emit a critical audit row first so the
+  // destruction is provable post-hoc.
+  const empRow = db.prepare('SELECT id, supabase_id, business_id, nombre FROM empleados WHERE id=?').get(id)
+  const salaryRowsCount = db.prepare('SELECT COUNT(*) AS n FROM salary_changes WHERE empleado_id=?').get(id)?.n || 0
+  if (empRow) {
+    activityLogRecord({ event_type: 'empleado_hard_deleted', severity: 'critical',
+      target_type: 'empleado', target_id: empRow.id, target_name: empRow.nombre || '',
+      reason: 'Hard delete — no payroll/commission history',
+      metadata: { salary_changes_dropped: salaryRowsCount, supabase_id: empRow.supabase_id || null } })
+  }
   db.prepare('DELETE FROM salary_changes WHERE empleado_id=?').run(id)
   db.prepare('DELETE FROM empleados WHERE id=?').run(id)
   return { ok: true, softDeleted: false }
@@ -5811,11 +5829,28 @@ function clientGetOpenTickets(clientId) {
 function collectCredit({ clientId, ticketIds, amount, paymentMethod, ncf, notes, cajeroId }) {
   if (!db) return null
   return db.transaction(() => {
-    // v2.10.3 — bump rev alongside status so Supabase trg_tickets_rev_guard accepts.
-    // v2.14.23 — bump updated_at so sync push cursor picks this up
-    // (audit: without it, pull's statusSync reverts the status within seconds)
-    const updTicket = db.prepare("UPDATE tickets SET status='cobrado', payment_method=?, rev=COALESCE(rev,0)+1, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?")
-    for (const tid of ticketIds) updTicket.run(paymentMethod, tid)
+    // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §3.2). Previous code
+    // flipped ALL ticket_ids to cobrado regardless of cumulative paid. A
+    // RD$500 abono on RD$3000 of debt closed everything. Now: only flip
+    // cobrado when cumulative paid covers ticket.total. Else leave pendiente,
+    // just decrement balance + insert credit_payments row for traceability.
+    const updFull = db.prepare("UPDATE tickets SET status='cobrado', payment_method=?, rev=COALESCE(rev,0)+1, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?")
+    const updRev  = db.prepare("UPDATE tickets SET rev=COALESCE(rev,0)+1, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?")
+    const tInfo   = db.prepare('SELECT id,total FROM tickets WHERE id=?')
+    const priorPaidStmt = db.prepare("SELECT COALESCE(SUM(amount),0) AS paid FROM credit_payments WHERE ticket_ids LIKE '%' || ? || '%'")
+    let remaining = Number(amount) || 0
+    for (const tid of ticketIds) {
+      const t = tInfo.get(tid)
+      if (!t) continue
+      const total = Number(t.total) || 0
+      const prior = Number(priorPaidStmt.get(String(tid))?.paid || 0)
+      const stillOwed = Math.max(0, total - prior)
+      const applied = Math.min(remaining, stillOwed)
+      remaining -= applied
+      const fullyPaid = (prior + applied) + 0.01 >= total
+      if (fullyPaid) updFull.run(paymentMethod, tid)
+      else updRev.run(tid)
+    }
     db.prepare('UPDATE clients SET balance=MAX(0,balance-?) WHERE id=?').run(amount, clientId)
     const sid = crypto.randomUUID()
     const clientRow = clientId ? db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(clientId) : null
@@ -7839,24 +7874,53 @@ function cajeroCommissionCreate({ cajero_id, empleado_supabase_id, ticket_id, ti
 // ── CUADRE DE CAJA ────────────────────────────────────────────────────────────
 function cuadreCreate(data) {
   if (!db) return null
-  const sid = crypto.randomUUID()
-  const r = db.prepare(`INSERT INTO cuadre_caja
-    (cajero_id,date,fondo,efectivo_conteo,efectivo_sistema,tarjeta,transferencia,
-     cheque,creditos,salidas,total_vendido,total_cobrado,cierre_total,diferencia,
-     comentario,denominaciones,supabase_id)
-    VALUES(@cajero_id,@date,@fondo,@efectivo_conteo,@efectivo_sistema,@tarjeta,
-           @transferencia,@cheque,@creditos,@salidas,@total_vendido,@total_cobrado,
-           @cierre_total,@diferencia,@comentario,@denominaciones,@supabase_id)`).run({
-    ...data,
-    denominaciones: JSON.stringify(data.denominaciones || {}),
-    supabase_id: sid,
-  })
+  // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §3.1). Previous code did
+  // unconditional INSERT — left `status='abierto'` shift row orphaned forever
+  // because cuadreOpenShift creates a separate row. Now: if an open shift
+  // exists for (cajero_id, date), UPGRADE that row to status='cerrado' and
+  // stamp the closing values. Else INSERT new (closed) row.
+  const existing = db.prepare(
+    `SELECT id, supabase_id FROM cuadre_caja
+       WHERE cajero_id=@cajero_id AND date=@date AND status='abierto' LIMIT 1`
+  ).get({ cajero_id: data.cajero_id, date: data.date })
+  let sid, lastId
+  if (existing) {
+    sid = existing.supabase_id
+    lastId = existing.id
+    db.prepare(`UPDATE cuadre_caja SET
+      fondo=@fondo, efectivo_conteo=@efectivo_conteo, efectivo_sistema=@efectivo_sistema,
+      tarjeta=@tarjeta, transferencia=@transferencia, cheque=@cheque, creditos=@creditos,
+      salidas=@salidas, total_vendido=@total_vendido, total_cobrado=@total_cobrado,
+      cierre_total=@cierre_total, diferencia=@diferencia, comentario=@comentario,
+      denominaciones=@denominaciones, status='cerrado', closed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+      updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE id=@id`).run({
+      ...data,
+      denominaciones: JSON.stringify(data.denominaciones || {}),
+      id: existing.id,
+    })
+  } else {
+    sid = crypto.randomUUID()
+    const ins = db.prepare(`INSERT INTO cuadre_caja
+      (cajero_id,date,fondo,efectivo_conteo,efectivo_sistema,tarjeta,transferencia,
+       cheque,creditos,salidas,total_vendido,total_cobrado,cierre_total,diferencia,
+       comentario,denominaciones,supabase_id,status,closed_at)
+      VALUES(@cajero_id,@date,@fondo,@efectivo_conteo,@efectivo_sistema,@tarjeta,
+             @transferencia,@cheque,@creditos,@salidas,@total_vendido,@total_cobrado,
+             @cierre_total,@diferencia,@comentario,@denominaciones,@supabase_id,'cerrado',
+             strftime('%Y-%m-%dT%H:%M:%fZ','now'))`).run({
+      ...data,
+      denominaciones: JSON.stringify(data.denominaciones || {}),
+      supabase_id: sid,
+    })
+    lastId = ins.lastInsertRowid
+  }
   const diff = Number(data.diferencia || 0)
   if (Math.abs(diff) > 50) {
     activityLogRecord({ event_type: 'cuadre_discrepancy',
       severity: Math.abs(diff) >= 500 ? 'critical' : 'warn',
       actor_user_id: data.cajero_id || null,
-      target_type: 'cuadre_caja', target_id: r.lastInsertRowid,
+      target_type: 'cuadre_caja', target_id: lastId,
       target_name: `Cuadre ${data.date || ''}`.trim(),
       amount: diff,
       old_value: String(data.efectivo_sistema || 0),
@@ -7864,7 +7928,7 @@ function cuadreCreate(data) {
       reason: data.comentario || (diff > 0 ? 'Sobrante' : 'Faltante'),
       metadata: { cierre_total: data.cierre_total, total_cobrado: data.total_cobrado } })
   }
-  return { id: r.lastInsertRowid, supabase_id: sid }
+  return { id: lastId, supabase_id: sid }
 }
 // v2.6.2 — Apertura de Turno
 // Returns the currently-open shift row for `cajero_id` (today), or null.
@@ -8395,9 +8459,17 @@ function inventoryBulkUpdate(ids, patch) {
 }
 function inventoryDelete(id) {
   if (!db) return
-  const row = db.prepare('SELECT supabase_id, business_id FROM inventory_items WHERE id=?').get(id)
+  // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §3.3). Soft-delete was
+  // silent. Ley 32-23 traceability requires audit row on inventory removal.
+  const row = db.prepare('SELECT id, supabase_id, business_id, name, sku, quantity FROM inventory_items WHERE id=?').get(id)
   db.prepare('UPDATE inventory_items SET active=0 WHERE id=?').run(id)
   if (row?.supabase_id) tombstoneAdd('inventory_items', row.supabase_id, row.business_id)
+  if (row) {
+    activityLogRecord({ event_type: 'inventory_deleted', severity: 'warn',
+      target_type: 'inventory_item', target_id: row.id, target_name: row.name || '',
+      reason: 'Soft-deleted via inventoryDelete',
+      metadata: { sku: row.sku || null, quantity_at_delete: Number(row.quantity || 0) } })
+  }
 }
 function inventoryAdjust(id, delta, notes, userId) {
   if (!db) return null

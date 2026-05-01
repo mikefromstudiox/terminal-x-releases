@@ -402,6 +402,12 @@ export function buildClientReceipt(data, logoBytes = '') {
   lines.push(LF)
 
   // ── Line items — clean, no per-item separators
+  // v2.16.10 — Optional per-line ITBIS sub-line. Owner toggles via Mi Empresa
+  // → ITBIS por producto. INFORMATIONAL only — totals block remains
+  // authoritative (per-line sum can diverge from bottom-line ITBIS by
+  // rounding cents; that's the same gotcha called out in v2.14.34).
+  const itbisPctNum = Number(String(data.cfg?.itbis_pct || '18').replace(/[^0-9.]/g, '')) || 18
+  const showItbisPerLine = data.cfg?.receipt_itbis_per_line === '1' || data.cfg?.receipt_itbis_per_line === true
   const services = data.services || []
   services.forEach(s => {
     const qty = s.qty || s.quantity || 1
@@ -425,11 +431,15 @@ export function buildClientReceipt(data, logoBytes = '') {
       lines.push(LF)
     }
     // Per-item secondary info (weight pricing only) — indented, muted.
-    // v2.14.34 — per-item "incl. ITBIS" line removed: ITBIS is shown ONCE in
-    // the totals block. Per-line ITBIS confused customers and rounding made
-    // the per-line sum diverge from the bottom-line ITBIS on reprints.
     if (weight != null && unit && ppu != null) {
       lines.push(`  ${weight.toFixed(3)} ${unit} x ${fmt(ppu)}/${unit}`)
+      lines.push(LF)
+    }
+    // v2.16.10 — Optional per-line ITBIS. Only when item is taxable
+    // (aplica_itbis !== false/0). Computed from the gross line total.
+    if (showItbisPerLine && (s.aplica_itbis === undefined || s.aplica_itbis === null || (s.aplica_itbis !== false && Number(s.aplica_itbis) !== 0))) {
+      const lineItbis = lineTotal - (lineTotal / (1 + itbisPctNum / 100))
+      lines.push(cols(`  ITBIS ${itbisPctNum}%`, fmt(lineItbis), COL_WIDTH))
       lines.push(LF)
     }
   })

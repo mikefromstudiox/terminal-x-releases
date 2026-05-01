@@ -221,6 +221,12 @@ export function BusinessTypeProvider({ children }) {
       if (featureName === 'bottle_deposit')   return true
     }
     if (flags.isCarniceria && featureName === 'pricing_by_weight') return true
+    // v2.16.10 — Per-business customizable defaults (Mi Empresa toggles).
+    // Discounts at cobro: ON globally. Owner can flip OFF per-business
+    // (Ranoza opted out — no discount field at checkout).
+    if (featureName === 'discounts') return true
+    // Receipt ITBIS per line: OFF globally. Returns false via the final
+    // fall-through, no special case needed — listed here for inventory.
     // v2.14.36 — Comisiones default. Service-based verticals run commissions
     // (lavadores/vendedores/cajeros), tienda subtypes opt-in via the preset
     // map above. Owner override always wins.

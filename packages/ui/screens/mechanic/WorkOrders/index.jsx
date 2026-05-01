@@ -293,9 +293,23 @@ function WorkOrdersScreen() {
     const wo = cobrarWO
     if (!wo) return
     try {
+      // v2.16.10 — Hydrate inventory_item_supabase_id for any item that has
+      // an integer inventory_item_id but no supabase_id. Required for web
+      // auto-deduct (audit 2026-04-30: every prior WO with parts leaked stock).
+      const partLines = (wo.items || []).filter(li => li.inventory_item_id && !li.inventory_item_supabase_id)
+      const sidByIntId = {}
+      if (partLines.length) {
+        try {
+          const allInv = await api.inventory.all()
+          for (const inv of (allInv || [])) {
+            if (inv?.id != null) sidByIntId[inv.id] = inv.supabase_id || null
+          }
+        } catch {}
+      }
       const items = (wo.items || []).map(li => ({
         service_id:        null,
         inventory_item_id: li.inventory_item_id || null,
+        inventory_item_supabase_id: li.inventory_item_supabase_id || sidByIntId[li.inventory_item_id] || null,
         name:              li.name,
         price:             Number(li.unit_price) || 0,
         cost:              0,

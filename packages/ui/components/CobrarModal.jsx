@@ -482,8 +482,12 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
 export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType = null }) {
   const api = useAPI()
   const { lang } = useLang()
-  const { businessType } = useBusinessType()
+  const { businessType, hasFeature: hasBizFeature } = useBusinessType()
   const { hasFeature } = usePlan()
+  // v2.16.10 — Owner toggle (Mi Empresa). When OFF, the descuento input is
+  // hidden and any pending value is ignored in totals/handleConfirm so a
+  // stored value can't sneak through.
+  const discountsEnabled = hasBizFeature('discounts')
   const isSalon = businessType === 'salon'
   const upsellTip = useMemo(() => isSalon ? salonUpsellSuggestion(ticket, lang) : null, [isSalon, ticket, lang])
 
@@ -776,7 +780,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
   const baseGross  = ticket.services.reduce((s, svc) => s + svc.price * (svc.qty || 1), 0)
   const extraGross = extraLines.reduce((s, svc) => s + svc.price * (svc.qty || 1), 0)
   const totalGross = baseGross + extraGross
-  const manualDescuento   = Math.max(0, parseFloat(descuentoInput) || 0)
+  const manualDescuento   = discountsEnabled ? Math.max(0, parseFloat(descuentoInput) || 0) : 0
   const loyaltyDiscount   = Math.max(0, Number(loyaltyRedemption?.discount || 0))
   const membershipDescuento = Math.max(0, Number(membershipDiscount || 0))
   const descuento         = Math.min(manualDescuento + loyaltyDiscount + membershipDescuento, totalGross)
@@ -1260,6 +1264,13 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           ticketId:  ticket.id,
           ticketNo:  ticket.ticketNo,
           clientId:  selectedClient?.id || null,
+          // v2.16.10 — Supabase tickets table has NO client_id column. Web
+          // path MUST send client_supabase_id + client_name snapshot or the
+          // ticket lands orphaned (clients.balance never updates → Credits
+          // screen empty). Audited 2026-04-30 — every Ranoza ticket prior
+          // had client_supabase_id=NULL.
+          clientSupabaseId: selectedClient?.supabase_id || null,
+          clientName: selectedClient?.name || null,
           ncfType, rnc, rncName, tipo,
           formaPago: tipo === 'credito' ? 'credit' : dominantMethod,
           payment_parts: mixtoPayload,
@@ -1442,6 +1453,13 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           ticketId:  ticket.id,
           ticketNo:  ticket.ticketNo,
           clientId:  selectedClient?.id || null,
+          // v2.16.10 — Supabase tickets table has NO client_id column. Web
+          // path MUST send client_supabase_id + client_name snapshot or the
+          // ticket lands orphaned (clients.balance never updates → Credits
+          // screen empty). Audited 2026-04-30 — every Ranoza ticket prior
+          // had client_supabase_id=NULL.
+          clientSupabaseId: selectedClient?.supabase_id || null,
+          clientName: selectedClient?.name || null,
           ncfType, rnc, rncName, tipo,
           formaPago: tipo === 'credito' ? 'credit' : dominantMethod,
           payment_parts: mixtoPayload,
@@ -2469,36 +2487,38 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
                 </div>
               )}
 
-              {/* Descuento */}
-              <div>
-                <SectionLabel>{lang === 'es' ? 'Descuento (RD$)' : 'Discount (RD$)'}</SectionLabel>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={descuentoInput}
-                  onChange={e => { setDescuentoInput(e.target.value); setDescuentoError('') }}
-                  placeholder="0.00"
-                  className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-[13px] text-slate-700 dark:text-white focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/30 placeholder:text-slate-400 dark:placeholder:text-white/40"
-                />
-                {descuento > 0 && (
-                  <>
-                    <p className="mt-1 text-[11px] text-slate-500 dark:text-white/60">
-                      {lang === 'es' ? 'Bruto' : 'Gross'}: RD${totalGross.toFixed(2)} · {lang === 'es' ? 'Neto' : 'Net'}: RD${total.toFixed(2)}
-                    </p>
-                    <input
-                      type="text"
-                      value={descuentoReason}
-                      onChange={e => { setDescuentoReason(e.target.value); setDescuentoError('') }}
-                      placeholder={lang === 'es' ? 'Razón del descuento (obligatorio)' : 'Discount reason (required)'}
-                      className={`mt-2 w-full bg-slate-50 dark:bg-white/5 border rounded-xl px-3.5 py-2.5 text-[13px] text-slate-700 dark:text-white focus:outline-none focus:ring-1 placeholder:text-slate-400 dark:placeholder:text-white/40 ${descuentoError ? 'border-red-400 focus:border-red-500 focus:ring-red-400/30' : 'border-slate-200 dark:border-white/10 focus:border-sky-400 focus:ring-sky-400/30'}`}
-                    />
-                    {descuentoError && (
-                      <p className="mt-1 text-[11px] text-red-500 font-medium">{descuentoError}</p>
-                    )}
-                  </>
-                )}
-              </div>
+              {/* Descuento — gated by Mi Empresa → Descuentos al cobrar */}
+              {discountsEnabled && (
+                <div>
+                  <SectionLabel>{lang === 'es' ? 'Descuento (RD$)' : 'Discount (RD$)'}</SectionLabel>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={descuentoInput}
+                    onChange={e => { setDescuentoInput(e.target.value); setDescuentoError('') }}
+                    placeholder="0.00"
+                    className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-[13px] text-slate-700 dark:text-white focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/30 placeholder:text-slate-400 dark:placeholder:text-white/40"
+                  />
+                  {descuento > 0 && (
+                    <>
+                      <p className="mt-1 text-[11px] text-slate-500 dark:text-white/60">
+                        {lang === 'es' ? 'Bruto' : 'Gross'}: RD${totalGross.toFixed(2)} · {lang === 'es' ? 'Neto' : 'Net'}: RD${total.toFixed(2)}
+                      </p>
+                      <input
+                        type="text"
+                        value={descuentoReason}
+                        onChange={e => { setDescuentoReason(e.target.value); setDescuentoError('') }}
+                        placeholder={lang === 'es' ? 'Razón del descuento (obligatorio)' : 'Discount reason (required)'}
+                        className={`mt-2 w-full bg-slate-50 dark:bg-white/5 border rounded-xl px-3.5 py-2.5 text-[13px] text-slate-700 dark:text-white focus:outline-none focus:ring-1 placeholder:text-slate-400 dark:placeholder:text-white/40 ${descuentoError ? 'border-red-400 focus:border-red-500 focus:ring-red-400/30' : 'border-slate-200 dark:border-white/10 focus:border-sky-400 focus:ring-sky-400/30'}`}
+                      />
+                      {descuentoError && (
+                        <p className="mt-1 text-[11px] text-red-500 font-medium">{descuentoError}</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* Comentario */}
               <div>

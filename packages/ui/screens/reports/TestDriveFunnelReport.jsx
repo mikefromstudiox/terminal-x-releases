@@ -107,13 +107,17 @@ export default function TestDriveFunnelReport() {
       if (!acc.has(k)) acc.set(k, { key: k, name: name || '—', leads: 0, drives: 0, deals: 0 })
       return acc.get(k)
     }
+    // v2.16.10 — schema-drift fix. leads has salesperson_supabase_id (no
+    // assigned_to_supabase_id). test_drives has staff_supabase_id (no
+    // salesperson_supabase_id). Audit 2026-04-30 — every funnel row was
+    // bucketing into __none__.
     for (const lead of leads) {
-      const k = lead.assigned_to_supabase_id || lead.salesperson_supabase_id || (lead.assigned_to_id ? `int:${lead.assigned_to_id}` : '__none__')
+      const k = lead.salesperson_supabase_id || (lead.salesperson_id ? `int:${lead.salesperson_id}` : '__none__')
       const e = empleados.find(x => x.supabase_id === k || `int:${x.id}` === k)
       pick(k, e?.nombre).leads += 1
     }
     for (const td of testDrives) {
-      const k = td.salesperson_supabase_id || (td.salesperson_id ? `int:${td.salesperson_id}` : '__none__')
+      const k = td.staff_supabase_id || (td.staff_id ? `int:${td.staff_id}` : '__none__')
       const e = empleados.find(x => x.supabase_id === k || `int:${x.id}` === k)
       pick(k, e?.nombre).drives += 1
     }

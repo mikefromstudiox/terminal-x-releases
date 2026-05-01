@@ -681,7 +681,10 @@ export default function Appointments() {
         ncf: payload?.ecf?.eNCF || null,
         is_consumer_final: true,
         appointment_supabase_id: apptSid,
-        client_id: payload?.clientId || null,
+        // v2.16.10 — Supabase tickets has no client_id col; use *_supabase_id
+        // + name snapshot (audit 2026-04-30 — same bug class as Ranoza credit).
+        client_supabase_id: pendingFee?.client_supabase_id || payload?.clientSupabaseId || null,
+        client_name:        payload?.clientName || null,
         payment_method: payload?.formaPago || 'efectivo',
         payment_parts: payload?.payment_parts || null,
         tipo_venta: payload?.tipo || 'contado',

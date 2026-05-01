@@ -1596,6 +1596,27 @@ function promptExit(win) {
   }
 }
 
+// v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §3.4). Without this, two
+// electron instances on the same machine each run their own ANECF + DGII queue
+// drainers in parallel — they SELECT-then-UPDATE the same `anecf_queue` rows
+// without row locks, so DGII receives duplicate ANECF submissions, rejects the
+// second with a duplicate-comprobante error, and our `attempts` counter climbs
+// to 500 → row flips to status='failed' silently. Lock the second instance out
+// and forward its argv to the primary so the user gets a window-focus instead
+// of a corrupt drainer race.
+const _gotPrimaryLock = app.requestSingleInstanceLock()
+if (!_gotPrimaryLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    try {
+      const all = require('electron').BrowserWindow.getAllWindows()
+      const w = all && all[0]
+      if (w) { if (w.isMinimized()) w.restore(); w.focus() }
+    } catch {}
+  })
+}
+
 app.whenReady().then(async () => {
   // Clear renderer cache when app version changes (prevents stale UI after update)
   const versionPath = path.join(app.getPath('userData'), '.last-version')

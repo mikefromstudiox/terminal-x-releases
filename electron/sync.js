@@ -779,6 +779,23 @@ const SYNC_TABLES = [
         // a desktop-opened ticket pushed to the cloud stays 'open' until the
         // close-with-payment write flips it to 'closed'.
         open_status: r.open_status || 'closed',
+        // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §3.5). Audit confirmed
+        // these 9 columns exist on Supabase tickets but desktop push descriptor
+        // didn't include them. Every desktop ticket pushed to cloud was missing
+        // 10% Servicio (Ley 16-92), multi-currency context, salón appointment
+        // linkage, project linkage, device attribution, and the is_test flag.
+        servicio_pct: r.servicio_pct != null ? Number(r.servicio_pct) : null,
+        servicio_amount: r.servicio_amount != null ? Number(r.servicio_amount) : null,
+        currency: r.currency || null,
+        fx_rate: r.fx_rate != null ? Number(r.fx_rate) : null,
+        appointment_supabase_id: r.appointment_supabase_id || null,
+        project_id: r.project_id || null,
+        project_supabase_id: r.project_supabase_id || null,
+        origin_hwid: r.origin_hwid || null,
+        origin_device_label: r.origin_device_label || null,
+        is_test: !!(r.is_test || 0),
+        descuento_reason: r.descuento_reason || null,
+        mac_jti: r.mac_jti || null,
         created_at: r.created_at || new Date().toISOString(),
         updated_at: r.updated_at || null,
       }
@@ -1077,6 +1094,12 @@ const SYNC_TABLES = [
       comentario: r.comentario,
       denominaciones: r.denominaciones,
       closed_at: r.closed_at,
+      // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §3.7). Cloud now has
+      // shift lifecycle columns (migration 1.6). Pushing them lets multi-device
+      // cashiers see each other's open shifts.
+      status: r.status || 'cerrado',
+      opened_at: r.opened_at || null,
+      opening_cash: r.opening_cash != null ? Number(r.opening_cash) : null,
       updated_at: r.updated_at || null,
     }),
   },
@@ -2508,7 +2531,31 @@ const SYNC_TIMEOUT_MS = 30_000
 // else = legacy PostgREST upsert). Default: OFF. Cached for 5s so flipping
 // the flag takes effect on the next sync cycle without a restart.
 const SYNC_USE_MERGE_V17_KEY = 'sync_use_merge_v17'
-const APPEND_ONLY_TABLES = new Set(['activity_log'])
+// v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §3.6). Audit verified each
+// of these tables has NO Supabase UPDATE policy. Pushing with merge-duplicates
+// triggers an UPDATE branch that gets RLS-rejected (42501) → silent re-queue
+// loop → 'Liquidación shows 0' recurrence. Append-only push uses
+// resolution=ignore-duplicates which skips conflicts cleanly.
+const APPEND_ONLY_TABLES = new Set([
+  'activity_log',
+  'washer_commissions',
+  'seller_commissions',
+  'cajero_commissions',
+  'credit_payments',
+  'payroll_runs',
+  'salary_changes',
+  'loyalty_transactions',
+  'anecf_queue',
+  'ecf_cert_history',
+  'ecf_submissions',
+  'membership_redemptions',
+  'inventory_discards',
+  'inventory_freshness_log',
+  'loan_payments',
+  'loan_renewals',
+  'queue_deletions',
+  'collections_attempts',
+])
 // `users` is a VIEW on `staff` — MERGE on the view requires INSTEAD OF
 // triggers; not worth the complexity. Stay on legacy PostgREST path.
 const MERGE_INELIGIBLE = new Set(['users'])

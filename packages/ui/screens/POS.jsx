@@ -699,6 +699,8 @@ function CarWashPOS() {
           _isInventory:      true,
           id:                svc.id,
           inventory_item_id: svc.id,
+          // v2.16.10 — required for web inventory auto-deduct.
+          inventory_item_supabase_id: svc.supabase_id || null,
           name:              svc.name,
           price:             svc.price,   // unit price — calcTotals does price * qty
           cost:              svc.cost || 0,
@@ -779,6 +781,10 @@ function CarWashPOS() {
       const result = await api.tickets.create({
         vehicle_plate:     vehicle.trim() || null,
         client_id:         selectedClient?.id || null,
+        // v2.16.10 — Supabase tickets has NO client_id col; web path REQUIRES
+        // client_supabase_id + client_name snapshot or balance never updates.
+        client_supabase_id: selectedClient?.supabase_id || null,
+        client_name:       selectedClient?.name || null,
         washer_ids:        workers.map(w => w.id),
         washer_commission_overrides: washerOverrides,
         seller_id:         salesperson || null,
@@ -795,6 +801,8 @@ function CarWashPOS() {
         items:             allOrderItems.map(s => ({
           service_id:        s._isInventory ? null : (typeof s.id === 'number' ? s.id : null),
           inventory_item_id: s.inventory_item_id || null,
+          // v2.16.10 — required for web inventory auto-deduct (web.js gates on this).
+          inventory_item_supabase_id: s.inventory_item_supabase_id || null,
           name:              s.name,
           price:             s.price,  // always unit price
           cost:              s.cost || 0,
@@ -854,6 +862,9 @@ function CarWashPOS() {
       const result = await api.tickets.create({
         vehicle_plate:    pending.vehicle,
         client_id:        pending.clientId || null,
+        // v2.16.10 — required for web. CobrarModal sets these in onConfirm payload.
+        client_supabase_id: paymentData.clientSupabaseId || pending.client?.supabase_id || null,
+        client_name:        paymentData.clientName || pending.client?.name || null,
         washer_ids:       pending.workers.map(w => w.id),
         washer_commission_overrides: washerOverridesCb,
         seller_id:        pending.salesperson || null,
@@ -885,6 +896,8 @@ function CarWashPOS() {
           return {
             service_id:        s._isInventory ? null : (typeof s.id === 'number' ? s.id : null),
             inventory_item_id: s.inventory_item_id || null,
+            // v2.16.10 — required for web inventory auto-deduct.
+            inventory_item_supabase_id: s.inventory_item_supabase_id || s._clientOverrideKey || null,
             name:              s.name,
             price:             s.price,  // always unit price
             cost:              s.cost || 0,
@@ -2255,6 +2268,13 @@ function RetailPOS() {
 
   // ── Cart operations ────────────────────────────────────────────────────────
   function addToCart(product) {
+    // v2.16.10 — Hard stock-zero block. Covers every entry path (grid tap,
+    // barcode scan, search-result click). Grid already disables the button;
+    // this guards the scan/search paths that bypass the visual disable.
+    if (product && product.tracks_stock !== false && Number(product.quantity ?? 0) <= 0) {
+      flash(lang === 'es' ? `Sin stock — ${product.name}` : `Out of stock — ${product.name}`)
+      return
+    }
     // Licorería — if this item is age-restricted and we haven't verified yet
     // for this ticket, park it and pop the modal. The cashier either confirms
     // (we then add the item) or cancels (we drop it).
@@ -2290,6 +2310,9 @@ function RetailPOS() {
       return [...prev, {
         id: `inv-${product.id}`,
         inventory_item_id: product.id,
+        // v2.16.10 — UUID FK that web.js gates inventory deduction on. Without
+        // this every retail sale on web leaves stock untouched.
+        inventory_item_supabase_id: product.supabase_id || null,
         service_id: null,
         sku: product.sku || product.barcode || '',
         name: product.name,
@@ -2488,6 +2511,8 @@ function RetailPOS() {
     setCart(prev => [...prev, {
       id: unique,
       inventory_item_id: product.id,
+      // v2.16.10 — required for web inventory auto-deduct.
+      inventory_item_supabase_id: product.supabase_id || null,
       service_id: null,
       sku: product.sku || product.barcode || '',
       // Receipt-friendly label (peso × precio ya embebido en price/qty=1).
@@ -2536,6 +2561,19 @@ function RetailPOS() {
     setCart(prev => prev.map(i => {
       if (i.id !== cartId) return i
       const newQty = Math.min(i.stock || Infinity, Math.max(1, i.qty + delta))
+      return { ...i, qty: newQty }
+    }))
+  }
+
+  // v2.16.10 — Direct qty entry on the cart line. Replaces the click-N-times
+  // +/- pattern when the cashier knows the count up front (Ranoza ask). Bound
+  // by stock cap and ≥1 (zero deletes via removeFromCart).
+  function setQty(cartId, raw) {
+    const n = Math.floor(Number(raw) || 0)
+    if (n <= 0) { removeFromCart(cartId); return }
+    setCart(prev => prev.map(i => {
+      if (i.id !== cartId) return i
+      const newQty = Math.min(i.stock || Infinity, n)
       return { ...i, qty: newQty }
     }))
   }
@@ -2634,6 +2672,10 @@ function RetailPOS() {
       const result = await api.tickets.create({
         vehicle_plate:    null,
         client_id:        pending.clientId || null,
+        // v2.16.10 — required for web (audit 2026-04-30 confirmed every prior
+        // Ranoza ticket landed orphaned because we sent client_id only).
+        client_supabase_id: paymentData.clientSupabaseId || pending.client?.supabase_id || null,
+        client_name:        paymentData.clientName || pending.client?.name || null,
         washer_ids:       [],
         seller_id:        pending.salesperson || null,
         cajero_id:        (user?.id && user.id !== 'web') ? user.id : null,
@@ -2657,6 +2699,9 @@ function RetailPOS() {
         items:            pending.items.map(i => ({
           service_id:        i.service_id || null,
           inventory_item_id: i.inventory_item_id || null,
+          // v2.16.10 — required for web inventory auto-deduct (the gate at
+          // web.js:2731 reads this column; without it stock never moves).
+          inventory_item_supabase_id: i.inventory_item_supabase_id || i._clientOverrideKey || null,
           name:              i.name,
           price:             i.price,
           cost:              i.cost || 0,
@@ -3220,7 +3265,18 @@ function RetailPOS() {
                           title={item.qty <= 1 ? (lang === 'es' ? 'Quitar' : 'Remove') : '-1'}>
                           {item.qty <= 1 ? <X size={14} /> : <Minus size={14} />}
                         </button>
-                        <span className="w-10 text-center text-[15px] font-black text-slate-800 dark:text-white tabular-nums border-x border-slate-200 dark:border-white/10 py-1.5">{item.qty}</span>
+                        {/* v2.16.10 — editable qty: tap → keypad → type number → blur/Enter commits */}
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min="1"
+                          value={item.qty}
+                          onFocus={e => e.target.select()}
+                          onChange={e => setQty(item.id, e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                          className="w-12 h-9 text-center text-[15px] font-black text-slate-800 dark:text-white tabular-nums border-x border-slate-200 dark:border-white/10 bg-transparent focus:outline-none focus:bg-[#b3001e]/5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          aria-label={lang === 'es' ? 'Cantidad' : 'Quantity'}
+                        />
                         <button onClick={() => updateQty(item.id, 1)}
                           className="w-9 h-9 flex items-center justify-center text-[#b3001e] hover:bg-[#b3001e] hover:text-white active:scale-95 transition-all"
                           title="+1">

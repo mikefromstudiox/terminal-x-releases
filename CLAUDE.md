@@ -217,6 +217,7 @@ Hosts DGII e-CF Receiver (`fe.terminalxpos.com`, Express:3100) and Content X. Cl
 - Server: `curl http://localhost:<port>` after dev start.
 - Electron: `npm run dev`, watch exit codes + Vite output.
 - Ranoza E2E smoke: `node scripts/ranoza-e2e-smoke.mjs` (22 scenarios, ~10s).
+- Tier 1 audit-flows harness: `node scripts/audit-flows.mjs` — schema-payload contract + side-effect rules + LWW sync + RLS. See `scripts/audit-flows.README.md`. Three-script release gate alongside `rls-policy-audit.mjs` and `ranoza-e2e-smoke.mjs`.
 - Skip verification ONLY for: doc-only edits, git ops, single-line obvious fixes on a passing build.
 
 ## Current Release — v2.16.9 (2026-04-27)

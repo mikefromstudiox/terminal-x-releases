@@ -158,20 +158,18 @@ export default function Returns() {
       const settings = (typeof biz?.settings === 'string') ? (() => { try { return JSON.parse(biz.settings) } catch { return {} } })() : (biz?.settings || {})
       const isECF    = settings.facturacion_mode === 'ecf'
 
-      // 2. Issue NCF — for returns we prefer a simple B04 sequence. If the
-      //    business is ECF-live, fire off the E34 e-CF through the existing
-      //    CreditNotes path later; for now the nota stores the local sequence.
+      // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §2.17). On ECF-live
+      // businesses returns MUST be routed to E33 (parcial) or E34 (anulación),
+      // not B04 (paper credit). DGII rejects B04 against an electronic factura
+      // padre. Decision rule: full-ticket return → E34, partial → E33.
       let assignedNCF = null
+      let ncfType = 'B04'
       try {
         if (isECF) {
-          // Delegate to the signAndSubmitECF helper by calling api.ncf.next('B04')
-          // fallback if the ECF chain is unavailable in this context. Keeping
-          // the return flow synchronous with a plain B04 keeps cashiers moving;
-          // the business can void/reissue via CreditNotes if needed.
-          assignedNCF = await api.ncf.next('B04')
-        } else {
-          assignedNCF = await api.ncf.next('B04')
+          const isFullReturn = (refundSummary?.lines?.length || 0) >= (ticket?.items?.length || 0)
+          ncfType = isFullReturn ? 'E34' : 'E33'
         }
+        assignedNCF = await api.ncf.next(ncfType)
       } catch {
         assignedNCF = null
       }

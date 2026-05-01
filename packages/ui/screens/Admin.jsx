@@ -1977,47 +1977,89 @@ function MiEmpresa() {
 function BusinessFeatureToggles() {
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
-  const { hasFeature, setFeatureOverride, businessType } = useBusinessType()
-  const commissionsOn = hasFeature('commissions')
-  const [busy, setBusy] = useState(false)
+  const { hasFeature, setFeatureOverride, businessType, isLicoreria } = useBusinessType()
+  const [busy, setBusy] = useState(null)
 
-  async function toggleCommissions() {
-    setBusy(true)
-    try { await setFeatureOverride('commissions', !commissionsOn) } finally { setBusy(false) }
+  async function toggle(name) {
+    setBusy(name)
+    try { await setFeatureOverride(name, !hasFeature(name)) } finally { setBusy(null) }
   }
 
+  // v2.16.10 — Per-business customizable toggles. Each row reads a feature
+  // flag from useBusinessType().hasFeature() and writes back through
+  // setFeatureOverride(). Defaults live in useBusinessType.jsx (commissions,
+  // discounts → true; age_verification → true for licorería; receipt_itbis_per_line → false).
+  const toggles = [
+    {
+      name: 'commissions',
+      title: L('Comisiones de empleados', 'Employee commissions'),
+      desc: L(
+        'Si tu negocio paga comisiones a vendedores, lavadores o cajeros, deja esto encendido. Si no, apágalo y el tab de Comisiones se ocultará en Reportes.',
+        'If your business pays commissions to salespeople, washers, or cashiers, keep this on. Otherwise turn it off and the Commissions tab will be hidden from Reports.',
+      ),
+    },
+    {
+      name: 'discounts',
+      title: L('Descuentos al cobrar', 'Discounts at checkout'),
+      desc: L(
+        'Permite a la cajera aplicar descuentos en el modal de cobro. Apágalo si no quieres que se modifique el precio en la caja.',
+        'Lets the cashier apply discounts in the payment modal. Turn off if you do not want price modifications at checkout.',
+      ),
+    },
+    {
+      name: 'receipt_itbis_per_line',
+      title: L('ITBIS por producto en el recibo', 'Per-line ITBIS on receipt'),
+      desc: L(
+        'Imprime el ITBIS incluido en cada producto debajo del precio. El total del ticket no cambia — es solo informativo para el cliente.',
+        'Prints the ITBIS amount included in each product below its price. Ticket total stays the same — informational for the customer.',
+      ),
+    },
+  ]
+
+  // Verificación de edad — relevant only for licorería (or businesses that
+  // sell alcohol). Surfaced unconditionally so any owner can opt in/out.
+  toggles.push({
+    name: 'age_verification',
+    title: L('Verificación de edad (licorería)', 'Age verification (liquor)'),
+    desc: L(
+      'Muestra el modal "Confirmar mayor de edad" cuando se agregan productos restringidos al ticket. Apágalo si tu local no requiere este aviso.',
+      'Shows the age-confirmation modal when restricted items are added to a ticket. Turn off if your store does not need this warning.',
+    ),
+  })
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4 py-2">
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-semibold text-slate-700 dark:text-white">
-            {L('Comisiones de empleados', 'Employee commissions')}
-          </p>
-          <p className="text-[11px] text-slate-500 dark:text-white/60 mt-0.5 leading-snug">
-            {L(
-              'Si tu negocio paga comisiones a vendedores, lavadores o cajeros, deja esto encendido. Si no, apágalo y el tab de Comisiones se ocultará en Reportes.',
-              'If your business pays commissions to salespeople, washers, or cashiers, keep this on. Otherwise turn it off and the Commissions tab will be hidden from Reports.',
-            )}
-          </p>
-          <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1 uppercase tracking-wider">
-            {L('Tipo de negocio actual', 'Current business type')}: {businessType || '—'}
-          </p>
-        </div>
-        <button
-          onClick={toggleCommissions}
-          disabled={busy}
-          aria-pressed={commissionsOn}
-          className={`shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-            commissionsOn ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-white/20'
-          } disabled:opacity-50`}
-        >
-          <span
-            className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
-              commissionsOn ? 'translate-x-5' : 'translate-x-0.5'
-            }`}
-          />
-        </button>
-      </div>
+    <div className="space-y-2">
+      {toggles.map((t, i) => {
+        const on = hasFeature(t.name)
+        const isBusy = busy === t.name
+        return (
+          <div key={t.name} className={`flex items-start justify-between gap-4 py-3 ${i > 0 ? 'border-t border-slate-100 dark:border-white/5' : ''}`}>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-semibold text-slate-700 dark:text-white">{t.title}</p>
+              <p className="text-[11px] text-slate-500 dark:text-white/60 mt-0.5 leading-snug">{t.desc}</p>
+              {i === 0 && (
+                <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1 uppercase tracking-wider">
+                  {L('Tipo de negocio actual', 'Current business type')}: {businessType || '—'}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => toggle(t.name)}
+              disabled={isBusy}
+              aria-pressed={on}
+              className={`shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                on ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-white/20'
+              } disabled:opacity-50`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                  on ? 'translate-x-5' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </div>
+        )
+      })}
     </div>
   )
 }

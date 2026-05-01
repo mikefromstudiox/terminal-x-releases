@@ -365,23 +365,16 @@ export default function CashReconciliation() {
   })
   const [loadingDay, setLoadingDay] = useState(true)
 
-  // Denomination qtys
-  const [qty, setQty]             = useState({ ...EMPTY_QTY })
-  const [usdQty, setUsdQty]       = useState(0)
-  const [usdRate, setUsdRate]     = useState(59.50)
-
-  // Right column inputs
-  const [vAzul, setVAzul]             = useState(0)
-  const [vCarnet, setVCarnet]         = useState(0)
-  const [vVisanet, setVVisanet]       = useState(0)
-  const [cheque, setCheque]           = useState(0)
-  const [transferencia, setTrans]     = useState(0)
-  const [documento, setDoc]           = useState(0)
-  const [fACreditos, setFACreditos]   = useState(0)
-  const [avances, setAvances]         = useState(0)
-  const [devoluciones, setDevoluciones] = useState(0)
-  const [desembolsos, setDesembolsos] = useState(0)
-  const [comision, setComision]       = useState(0)
+  // v2.16.10 — Modern Cuadre. Replaces the legacy denomination grid + 4
+  // outflow inputs + 3-card breakdown with a 3-step flow: (1) auto resumen,
+  // (2) single counted-cash input, (3) optional salidas + notes + close.
+  // The api.cuadre.create payload contract is preserved (denominaciones={},
+  // tarjeta/transferencia auto-pulled from daily summary).
+  const [efectivoConteo, setEfectivoConteo] = useState('')   // RD$ counted in drawer (single number)
+  const [tarjetaConteo, setTarjetaConteo] = useState('')     // RD$ tarjeta total (single number, prefilled)
+  const [transferConteo, setTransferConteo] = useState('')   // RD$ transferencia total (single number, prefilled)
+  const [salidas, setSalidas] = useState(0)                  // RD$ paid out from drawer (avances+desembolsos)
+  const [showSalidas, setShowSalidas] = useState(false)
 
   // Load business info for print header
   useEffect(() => {
@@ -394,36 +387,38 @@ export default function CashReconciliation() {
     return () => clearInterval(id)
   }, [])
 
-  // Load daily summary on mount
+  // Load daily summary on mount + prefill tarjeta/transfer with system totals
   useEffect(() => {
     api.cuadre.daily(todayISO())
       .then(data => {
-        if (data) setDaySummary(data)
-        // Pre-fill transferencia and tarjeta from DB summary
-        if (data?.tarjeta)      setVAzul(data.tarjeta)
-        if (data?.transferencia) setTrans(data.transferencia)
-        if (data?.cheque)       setCheque(data.cheque)
-        if (data?.credito)      setFACreditos(data.credito)
+        if (data) {
+          setDaySummary(data)
+          if (data.tarjeta != null)       setTarjetaConteo(String(data.tarjeta || 0))
+          // Transferencia + cheque combined into a single transfer bucket.
+          const trans = Number(data.transferencia || 0) + Number(data.cheque || 0)
+          setTransferConteo(String(trans))
+        }
       })
-      .catch(() => flash(L('Error al cargar resumen del dia', 'Error loading daily summary')))
+      .catch(() => flash(L('Error al cargar resumen del día', 'Error loading daily summary')))
       .finally(() => setLoadingDay(false))
   }, [])
 
   // ── Derived totals ────────────────────────────────────────────────────────
-  const efectivoBills  = BILLS.reduce((s, b) => s + b.value * (qty[b.value] || 0), 0)
-  const efectivoUSD    = usdQty * usdRate
-  const efectivoNeto   = efectivoBills + efectivoUSD - fondo
+  // System-side expected (read-only, auto-pulled).
+  const tarjetaSistema   = Number(daySummary.tarjeta || 0)
+  const transSistema     = Number(daySummary.transferencia || 0) + Number(daySummary.cheque || 0)
+  const creditosTotal    = Number(daySummary.credito || 0)
 
-  const tarjetasTotal  = vAzul + vCarnet + vVisanet
-  const transTotal     = cheque + transferencia + documento
-  const salidasTotal   = avances + devoluciones + desembolsos + comision
+  // Cashier-counted (what they actually have).
+  const efectivoConteoNum = Number(efectivoConteo) || 0
+  const tarjetaConteoNum  = Number(tarjetaConteo)  || 0
+  const transferConteoNum = Number(transferConteo) || 0
 
-  // cierreTotal = what was PHYSICALLY collected (cash + cards + transfers - outflows).
-  // Credits are NOT included — they're receivables, not cash in the drawer.
-  // diferencia compares against totalCobrado which also excludes credits.
-  const cierreTotal    = efectivoNeto + tarjetasTotal + transTotal - salidasTotal
-  const diferencia     = cierreTotal - (daySummary.totalCobrado || 0)
-  const cuadrada       = Math.abs(diferencia) < 1
+  const efectivoNeto      = efectivoConteoNum - fondo - salidas
+  const cierreTotal       = efectivoNeto + tarjetaConteoNum + transferConteoNum
+  const diferencia        = cierreTotal - (daySummary.totalCobrado || 0)
+  const cuadrada          = Math.abs(diferencia) < 1
+  const efectivoEsperado  = Number(daySummary.efectivo || 0) - salidas
 
   function buildPrintPayload() {
     return {
@@ -431,17 +426,21 @@ export default function CashReconciliation() {
       cajero: user?.name || '—',
       day: {
         efectivo:      daySummary.efectivo     || 0,
-        tarjeta:       tarjetasTotal,
-        documento:     documento,
-        cheque:        cheque,
-        transferencia: transferencia,
+        tarjeta:       tarjetaConteoNum,
+        documento:     0,
+        cheque:        0,
+        transferencia: transferConteoNum,
         totalVendido:  daySummary.totalVendido || 0,
         totalCobrado:  daySummary.totalCobrado || 0,
       },
-      denominaciones: BILLS.map(b => ({ label: b.label, qty: qty[b.value] || 0, label_val: b.value })),
+      // Modern flow: no denomination breakdown. Empty array preserves the
+      // print-builder contract; reprint side reads from c.denominaciones JSON
+      // (legacy cierres still render their bill rows).
+      denominaciones: [],
       efectivoNeto,
       cierreTotal,
       diferencia,
+      comentario: comentario || null,
     }
   }
 
@@ -453,13 +452,7 @@ export default function CashReconciliation() {
     setLoadingDay(true)
     try {
       const data = await api.cuadre.daily(todayISO())
-      if (data) {
-        setDaySummary(data)
-        if (data.tarjeta)       setVAzul(data.tarjeta)
-        if (data.transferencia) setTrans(data.transferencia)
-        if (data.cheque)        setCheque(data.cheque)
-        if (data.credito)       setFACreditos(data.credito)
-      }
+      if (data) setDaySummary(data)
       flash(L('Datos actualizados ✓', 'Data refreshed ✓'))
     } catch {
       flash(L('Error al recalcular', 'Error recalculating'))
@@ -469,16 +462,16 @@ export default function CashReconciliation() {
   }
 
   function handleCancel() {
-    setQty({ ...EMPTY_QTY })
-    setUsdQty(0)
-    setVAzul(0); setVCarnet(0); setVVisanet(0)
-    setCheque(0); setTrans(0); setDoc(0)
-    setFACreditos(0)
-    setAvances(0); setDevoluciones(0); setDesembolsos(0); setComision(0)
+    setEfectivoConteo('')
+    setTarjetaConteo(String(daySummary.tarjeta || 0))
+    setTransferConteo(String(Number(daySummary.transferencia || 0) + Number(daySummary.cheque || 0)))
+    setSalidas(0)
+    setShowSalidas(false)
     setComentario('')
   }
 
   function handleCuadrar() {
+    if (efectivoConteo === '') { flash(L('Ingrese el efectivo contado en gaveta', 'Enter the cash counted in drawer')); return }
     if (user?.role === 'cashier') { setShowPin(true) }
     else { doClose(null) }
   }
@@ -490,19 +483,19 @@ export default function CashReconciliation() {
       cajero_id:        user?.id ?? 1,
       date:             todayISO(),
       fondo:            fondo,
-      efectivo_conteo:  efectivoBills + efectivoUSD,
+      efectivo_conteo:  efectivoConteoNum,
       efectivo_sistema: daySummary.efectivo || 0,
-      tarjeta:          tarjetasTotal,
-      transferencia:    transTotal,
-      cheque:           cheque,
-      creditos:         fACreditos,
-      salidas:          salidasTotal,
+      tarjeta:          tarjetaConteoNum,
+      transferencia:    transferConteoNum,
+      cheque:           0,
+      creditos:         creditosTotal,
+      salidas:          Number(salidas) || 0,
       total_vendido:    daySummary.totalVendido || 0,
       total_cobrado:    daySummary.totalCobrado || 0,
       cierre_total:     cierreTotal,
       diferencia:       diferencia,
       comentario:       comentario || null,
-      denominaciones:   qty,
+      denominaciones:   {},
     }
     try {
       await api.cuadre.create(closeData)
@@ -590,221 +583,205 @@ export default function CashReconciliation() {
         </div>
       </div>
 
-      {/* ── Two-column layout ── */}
-      <div className="flex-1 overflow-hidden p-2 md:p-4 flex flex-col md:flex-row gap-3 md:gap-4 min-h-0 overflow-y-auto md:overflow-hidden">
+      {/* ── v2.16.10 Modern Cuadre — 3 stacked cards ───────────────────── */}
+      <div className="flex-1 overflow-y-auto p-3 md:p-6">
+        <div className="max-w-2xl mx-auto space-y-4">
 
-        {/* LEFT: Day summary + Cash count */}
-        <div className="flex flex-col gap-3 md:w-[48%] md:overflow-y-auto min-h-0 shrink-0">
-
-          {/* Resumen del día */}
-          <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-4 shadow-sm flex-shrink-0">
-            <SectionLabel>{L('Resumen del día', "Day's Summary")}</SectionLabel>
-            {/* v2.11.2 — explicit note: split-bill tickets already distribute
-                each part into its own bucket below (handled in cuadreDailySummary). */}
-            <p
-              className="text-[10px] text-slate-400 dark:text-white/40 -mt-1 mb-2"
-              title={L(
-                'Las facturas con pago mixto se reparten automáticamente entre Efectivo / Tarjeta / Transferencia según las partes registradas al cobrar.',
-                'Split-payment invoices are automatically distributed across Cash / Card / Transfer based on the parts recorded at checkout.'
-              )}
-            >
-              {L('Pagos mixtos distribuidos automáticamente', 'Split payments auto-distributed')}
-            </p>
+          {/* STEP 1 — Resumen del día (auto, read-only) */}
+          <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#b3001e] text-white text-[11px] font-black mr-2">1</span>
+                <span className="text-[15px] font-bold text-slate-800 dark:text-white">{L('Resumen del día', "Day's Summary")}</span>
+              </div>
+              <button onClick={handleRecalc} disabled={loadingDay}
+                className="text-[11px] text-slate-500 dark:text-white/60 hover:text-[#b3001e] inline-flex items-center gap-1 disabled:opacity-40">
+                <Calculator size={12} />
+                {loadingDay ? L('…', '…') : L('Recalcular', 'Refresh')}
+              </button>
+            </div>
             {loadingDay ? (
               <div className="flex items-center gap-2 text-slate-400 dark:text-white/40 text-sm py-4">
                 <Loader2 size={14} className="animate-spin" />
                 {L('Cargando…', 'Loading…')}
               </div>
             ) : (
-              <>
-                <ResumeRow label={L('Efectivo', 'Cash')}                 value={fmt(daySummary.efectivo)} />
-                <ResumeRow label={L('Tarjeta', 'Card')}                  value={fmt(daySummary.tarjeta)} />
-                <ResumeRow label={L('Transferencia', 'Transfer')}        value={fmt(daySummary.transferencia)} />
-                <ResumeRow label={L('Cheque', 'Check')}                  value={fmt(daySummary.cheque)} />
-                <ResumeRow divider />
-                <ResumeRow label={L('Créditos', 'Credits')}              value={fmt(daySummary.credito)} muted />
-                {/* v2.6 — Licoreria: bottle/envase deposit reconciliation.
-                    `depositos_cobrados` is *already* part of totalVendido (a
-                    deposit line is a regular paid ticket line) — we surface
-                    the breakdown here so cuadre shows what portion of cash
-                    is a deferred liability rather than revenue. */}
+              <div className="space-y-0.5">
+                <ResumeRow label={L('Efectivo esperado', 'Expected cash')} value={fmt(daySummary.efectivo)} />
+                <ResumeRow label={L('Tarjeta esperada', 'Expected card')}  value={fmt(tarjetaSistema)} />
+                <ResumeRow label={L('Transferencia esperada', 'Expected transfer')} value={fmt(transSistema)} />
+                {creditosTotal > 0 && (
+                  <ResumeRow label={L('Créditos otorgados', 'Credits issued')} value={fmt(creditosTotal)} muted />
+                )}
                 {(Number(daySummary.depositos_cobrados) > 0 || Number(daySummary.depositos_devueltos) > 0) && (
                   <>
                     <ResumeRow divider />
-                    <ResumeRow label={L('Depósitos cobrados', 'Deposits collected')}
-                               value={fmt(daySummary.depositos_cobrados || 0)} indent />
-                    <ResumeRow label={L('Depósitos devueltos', 'Deposits refunded')}
-                               value={fmt(daySummary.depositos_devueltos || 0)} indent />
-                    <ResumeRow label={L('Depósitos neto (pasivo)', 'Deposits net (liability)')}
-                               value={fmt((daySummary.depositos_cobrados || 0) - (daySummary.depositos_devueltos || 0))} bold />
+                    <ResumeRow label={L('Depósitos netos (envases)', 'Deposits net (bottles)')}
+                               value={fmt((daySummary.depositos_cobrados || 0) - (daySummary.depositos_devueltos || 0))} muted />
                   </>
                 )}
                 <ResumeRow divider />
-                <ResumeRow label={L('Total Vendido', 'Total Sold')}      value={fmt(daySummary.totalVendido)} bold />
-                <ResumeRow label={L('Total Cobrado', 'Total Collected')} value={fmt(daySummary.totalCobrado)} bold />
-              </>
+                <ResumeRow label={L('Total vendido', 'Total sold')}      value={fmt(daySummary.totalVendido)} bold />
+                <ResumeRow label={L('Total cobrado', 'Total collected')} value={fmt(daySummary.totalCobrado)} bold />
+              </div>
             )}
           </div>
 
-          {/* Conteo de Efectivo */}
-          <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-4 shadow-sm flex-shrink-0">
-            <SectionLabel>{L('Conteo de Efectivo', 'Cash Count')}</SectionLabel>
-
-            <div className="flex items-center justify-between mb-1 pb-1 border-b border-slate-100 dark:border-white/10">
-              <span className="text-xs text-slate-400 dark:text-white/40 flex-1">{L('Denominación', 'Denomination')}</span>
-              <span className="text-xs text-slate-400 dark:text-white/40 w-14 text-right">{L('Cant.', 'Qty.')}</span>
-              <span className="text-xs text-slate-400 dark:text-white/40 w-24 text-right">{L('Monto', 'Amount')}</span>
+          {/* STEP 2 — Conteo (efectivo + tarjeta + transferencia) */}
+          <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-5 shadow-sm">
+            <div className="mb-4">
+              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#b3001e] text-white text-[11px] font-black mr-2">2</span>
+              <span className="text-[15px] font-bold text-slate-800 dark:text-white">{L('Conteo', 'Count')}</span>
             </div>
 
-            {BILLS.map(b => {
-              const amount = b.value * (qty[b.value] || 0)
-              return (
-                <div key={b.value} className="flex items-center justify-between py-0.5">
-                  <span className="text-lg font-bold text-slate-800 dark:text-white flex-1 tabular-nums">{b.label}</span>
-                  <SmallInput
-                    value={qty[b.value] || 0}
-                    onChange={v => setQty(q => ({ ...q, [b.value]: v }))}
-                    className="w-14"
+            {/* Efectivo — primary input, biggest field */}
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/40 mb-2">
+              {L('Efectivo en gaveta (RD$)', 'Cash in drawer (RD$)')}
+            </label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[14px] text-slate-400 dark:text-white/40 font-semibold">RD$</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                value={efectivoConteo}
+                onChange={e => setEfectivoConteo(e.target.value)}
+                onFocus={e => e.target.select()}
+                placeholder="0.00"
+                disabled={closed}
+                className="w-full pl-14 pr-4 py-4 text-2xl md:text-3xl font-black tabular-nums text-right rounded-xl border-2 border-slate-200 dark:border-white/10 bg-white dark:bg-black text-slate-800 dark:text-white focus:outline-none focus:border-[#b3001e] focus:ring-2 focus:ring-[#b3001e]/20 disabled:opacity-50"
+              />
+            </div>
+
+            {/* Tarjeta + Transferencia — secondary inputs, prefilled from system */}
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/40 mb-2">
+                  {L('Tarjeta (RD$)', 'Card (RD$)')}
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-slate-400 dark:text-white/40 font-semibold">RD$</span>
+                  <input
+                    type="number" inputMode="decimal" step="0.01" min="0"
+                    value={tarjetaConteo}
+                    onChange={e => setTarjetaConteo(e.target.value)}
+                    onFocus={e => e.target.select()}
+                    placeholder="0.00"
+                    disabled={closed}
+                    className="w-full pl-12 pr-3 py-2.5 text-[15px] font-bold tabular-nums text-right rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-black text-slate-800 dark:text-white focus:outline-none focus:border-[#b3001e] disabled:opacity-50"
                   />
-                  <span className="text-sm tabular-nums text-slate-700 dark:text-white w-24 text-right">
-                    {amount > 0 ? fmt(amount) : <span className="text-slate-300 dark:text-white/20">—</span>}
-                  </span>
                 </div>
-              )
-            })}
-
-            {/* USD row */}
-            <div className="mt-2 pt-2 border-t border-slate-100 dark:border-white/10">
-              <div className="flex items-center justify-between py-0.5">
-                <span className="text-sm text-slate-700 dark:text-white flex-1">USD</span>
-                <SmallInput value={usdQty} onChange={setUsdQty} className="w-14" />
-                <span className="text-sm tabular-nums text-slate-700 dark:text-white w-24 text-right">
-                  {usdQty > 0 ? fmtUSD(usdQty) : <span className="text-slate-300 dark:text-white/20">—</span>}
-                </span>
+                {tarjetaSistema > 0 && Math.abs(tarjetaConteoNum - tarjetaSistema) >= 1 && (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
+                    {L('Sistema', 'System')}: {fmt(tarjetaSistema)}
+                  </p>
+                )}
               </div>
-              <div className="flex items-center justify-between mt-0.5">
-                <span className="text-xs text-slate-400 dark:text-white/40">{L('Tasa', 'Rate')}: {fmt(usdRate)}</span>
-                <span className="text-xs tabular-nums text-slate-500 dark:text-white/60">
-                  {usdQty > 0 ? `≈ ${fmt(efectivoUSD)}` : ''}
-                </span>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-white/40 mb-2">
+                  {L('Transferencia (RD$)', 'Transfer (RD$)')}
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-slate-400 dark:text-white/40 font-semibold">RD$</span>
+                  <input
+                    type="number" inputMode="decimal" step="0.01" min="0"
+                    value={transferConteo}
+                    onChange={e => setTransferConteo(e.target.value)}
+                    onFocus={e => e.target.select()}
+                    placeholder="0.00"
+                    disabled={closed}
+                    className="w-full pl-12 pr-3 py-2.5 text-[15px] font-bold tabular-nums text-right rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-black text-slate-800 dark:text-white focus:outline-none focus:border-[#b3001e] disabled:opacity-50"
+                  />
+                </div>
+                {transSistema > 0 && Math.abs(transferConteoNum - transSistema) >= 1 && (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
+                    {L('Sistema', 'System')}: {fmt(transSistema)}
+                  </p>
+                )}
               </div>
             </div>
 
-            {/* Blue summary box */}
-            <div className="mt-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 p-3 space-y-1">
-              <div className="flex justify-between">
-                <span className="text-sm text-blue-700 dark:text-blue-400">{L('Efectivo RD$', 'Cash RD$')}</span>
-                <span className="text-sm font-bold text-blue-800 dark:text-blue-300 tabular-nums">{fmt(efectivoBills)}</span>
-              </div>
-              {usdQty > 0 && (
-                <div className="flex justify-between">
-                  <span className="text-sm text-blue-700 dark:text-blue-400">{L('Efectivo USD', 'Cash USD')}</span>
-                  <span className="text-sm font-bold text-blue-800 dark:text-blue-300 tabular-nums">{fmtUSD(usdQty)} ≈ {fmt(efectivoUSD)}</span>
+            {/* Salidas — collapsible disclosure */}
+            <div className="mt-4">
+              {!showSalidas ? (
+                <button onClick={() => setShowSalidas(true)} disabled={closed}
+                  className="text-[12px] text-slate-500 dark:text-white/60 hover:text-[#b3001e] underline underline-offset-2 disabled:opacity-40">
+                  {L('¿Hubo retiros o desembolsos hoy?', 'Were there cash payouts today?')}
+                </button>
+              ) : (
+                <div className="rounded-xl border border-slate-200 dark:border-white/10 p-3 bg-slate-50 dark:bg-white/5">
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-white/60 mb-1.5">
+                    {L('Salidas en efectivo (RD$)', 'Cash payouts (RD$)')}
+                  </label>
+                  <p className="text-[10px] text-slate-400 dark:text-white/40 mb-2">
+                    {L('Suma de avances, devoluciones, comisiones o desembolsos pagados de la gaveta.', 'Sum of advances, refunds, commissions or disbursements paid from drawer.')}
+                  </p>
+                  <input
+                    type="number" min="0" step="0.01"
+                    value={salidas || ''}
+                    onChange={e => setSalidas(Number(e.target.value) || 0)}
+                    placeholder="0.00"
+                    disabled={closed}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 text-right text-[14px] tabular-nums dark:bg-black dark:text-white focus:outline-none focus:border-[#b3001e]"
+                  />
                 </div>
               )}
-              <hr className="border-blue-200 dark:border-blue-500/20" />
-              <div className="flex justify-between">
-                <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">{L('Total efectivo', 'Total cash')}</span>
-                <span className="text-sm font-bold text-blue-900 dark:text-blue-300 tabular-nums">{fmt(efectivoBills + efectivoUSD)}</span>
+            </div>
+
+            {/* Live breakdown */}
+            {efectivoConteo !== '' && !loadingDay && (
+              <div className="mt-4 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 p-3 space-y-1">
+                <ResumeRow label={L('Efectivo contado', 'Cash counted')}  value={fmt(efectivoConteoNum)} />
+                <ResumeRow label={`− ${L('Fondo de caja', 'Opening float')}`} value={fmt(fondo)} muted />
+                {salidas > 0 && (
+                  <ResumeRow label={`− ${L('Salidas', 'Payouts')}`} value={fmt(salidas)} muted />
+                )}
+                <ResumeRow label={L('Efectivo neto', 'Net cash')}         value={fmt(efectivoNeto)} bold />
+                <ResumeRow divider />
+                <ResumeRow label={L('+ Tarjeta', '+ Card')}                value={fmt(tarjetaConteoNum)} />
+                <ResumeRow label={L('+ Transferencia', '+ Transfer')}      value={fmt(transferConteoNum)} />
+                <ResumeRow divider />
+                <ResumeRow label={L('Total cierre', 'Closing total')}      value={fmt(cierreTotal)} bold />
+                <ResumeRow label={L('Total cobrado (sistema)', 'Total collected (system)')} value={fmt(daySummary.totalCobrado)} muted />
               </div>
-              <div className="flex justify-between">
-                <span className="text-xs text-blue-500 dark:text-blue-400/60">− {L('Fondo de caja', 'Opening float')}</span>
-                <span className="text-xs text-blue-500 dark:text-blue-400/60 tabular-nums">− {fmt(fondo)}</span>
-              </div>
-              <div className="flex justify-between pt-0.5 border-t border-blue-200 dark:border-blue-500/20">
-                <span className="text-sm font-bold text-blue-800 dark:text-blue-300">{L('Efectivo neto', 'Net cash')}</span>
-                <span className="text-sm font-bold text-blue-900 dark:text-blue-300 tabular-nums">{fmt(efectivoNeto)}</span>
-              </div>
-            </div>
-          </div>
-
-        </div>
-
-        {/* RIGHT: Cards + Transfers + Outflows + Closing + Comment */}
-        <div className="flex flex-col gap-3 flex-1 md:overflow-y-auto min-h-0">
-
-          {/* Tarjetas */}
-          <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-4 shadow-sm flex-shrink-0">
-            <SectionLabel>{L('Tarjetas', 'Cards')}</SectionLabel>
-            <RightInput label="V. Azul"    value={vAzul}    onChange={setVAzul} />
-            <RightInput label="V. Carnet"  value={vCarnet}  onChange={setVCarnet} />
-            <RightInput label="V. Visanet" value={vVisanet} onChange={setVVisanet} />
-            <div className="flex justify-between pt-2 mt-1 border-t border-slate-100 dark:border-white/10">
-              <span className="text-sm font-semibold text-slate-700 dark:text-white">{L('Total tarjetas', 'Total cards')}</span>
-              <span className="text-sm font-bold text-slate-800 dark:text-white tabular-nums">{fmt(tarjetasTotal)}</span>
-            </div>
-          </div>
-
-          {/* Documentos y Transferencias */}
-          <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-4 shadow-sm flex-shrink-0">
-            <SectionLabel>{L('Documentos y Transferencias', 'Documents & Transfers')}</SectionLabel>
-            <RightInput label={L('Cheque', 'Check')}           value={cheque}        onChange={setCheque} />
-            <RightInput label={L('Transferencia', 'Transfer')} value={transferencia} onChange={setTrans} />
-            <RightInput label={L('Documento', 'Document')}     value={documento}     onChange={setDoc} />
-            <RightInput label={L('F. A Créditos', 'Credits')}  value={fACreditos}    onChange={setFACreditos} />
-            <div className="flex justify-between pt-2 mt-1 border-t border-slate-100 dark:border-white/10">
-              <span className="text-sm font-semibold text-slate-700 dark:text-white">Subtotal</span>
-              <span className="text-sm font-bold text-slate-800 dark:text-white tabular-nums">{fmt(transTotal + fACreditos)}</span>
-            </div>
-          </div>
-
-          {/* Salidas de Caja */}
-          <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-4 shadow-sm flex-shrink-0">
-            <SectionLabel>{L('Salidas de Caja', 'Cash Outflows')}</SectionLabel>
-            <RightInput label={L('Avances', 'Advances')}          value={avances}      onChange={setAvances} />
-            <RightInput label={L('Devoluciones', 'Refunds')}      value={devoluciones} onChange={setDevoluciones} />
-            <RightInput label={L('Desembolsos', 'Disbursements')} value={desembolsos}  onChange={setDesembolsos} />
-            <RightInput label={L('Comisión', 'Commission')}       value={comision}     onChange={setComision} />
-            <div className="flex justify-between pt-2 mt-1 border-t border-slate-100 dark:border-white/10">
-              <span className="text-sm font-semibold text-slate-700 dark:text-white">{L('Total salidas', 'Total outflows')}</span>
-              <span className="text-sm font-bold text-red-600 dark:text-red-400 tabular-nums">{fmt(salidasTotal)}</span>
-            </div>
-          </div>
-
-          {/* Cierre */}
-          <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-4 shadow-sm flex-shrink-0">
-            <SectionLabel>{L('Cierre', 'Closing')}</SectionLabel>
-            <ResumeRow label={L('Efectivo neto', 'Net cash')}        value={fmt(efectivoNeto)} />
-            <ResumeRow label={L('Tarjetas', 'Cards')}                value={fmt(tarjetasTotal)} />
-            <ResumeRow label={L('Transferencias', 'Transfers')}      value={fmt(transTotal)} />
-            <ResumeRow label={L('Salidas', 'Outflows')}              value={fmt(salidasTotal)} muted />
-            <ResumeRow divider />
-            <ResumeRow label={L('Total Cobrado', 'Total Collected')} value={fmt(cierreTotal)} bold />
-            {fACreditos > 0 && (
-              <ResumeRow label={L('Créditos del día (no cobrados)', 'Credits today (not collected)')} value={fmt(fACreditos)} muted />
             )}
 
-            <div className={`mt-3 rounded-xl p-3 flex items-center gap-2 ${cuadrada ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20' : 'bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20'}`}>
-              {cuadrada
-                ? <CheckCircle2 size={18} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-                : <AlertCircle  size={18} className="text-red-500 dark:text-red-400 flex-shrink-0" />
-              }
-              <div>
-                <p className={`text-sm font-bold ${cuadrada ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                  {cuadrada
-                    ? L('Caja cuadrada', 'Balanced')
-                    : `${L('Descuadre', 'Difference')} ${fmt(Math.abs(diferencia))}`}
-                </p>
-                <p className={`text-xs ${cuadrada ? 'text-emerald-500 dark:text-emerald-400/60' : 'text-red-400 dark:text-red-400/60'}`}>
-                  {cuadrada
-                    ? 'RD$0.00'
-                    : diferencia > 0
-                    ? L('Sobrante en caja', 'Cash over')
-                    : L('Faltante en caja', 'Cash short')}
-                </p>
+            {/* Diferencia banner */}
+            {efectivoConteo !== '' && !loadingDay && (
+              <div className={`mt-4 rounded-xl p-4 flex items-center gap-3 ${cuadrada ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30' : 'bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30'}`}>
+                {cuadrada
+                  ? <CheckCircle2 size={22} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  : <AlertCircle size={22} className="text-red-500 dark:text-red-400 shrink-0" />}
+                <div className="flex-1">
+                  <p className={`text-[15px] font-black ${cuadrada ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {cuadrada ? L('Caja cuadrada', 'Balanced') : `${L('Descuadre', 'Off by')} ${fmt(Math.abs(diferencia))}`}
+                  </p>
+                  <p className={`text-[11px] ${cuadrada ? 'text-emerald-600/80 dark:text-emerald-400/70' : 'text-red-500/80 dark:text-red-400/70'}`}>
+                    {cuadrada
+                      ? L('El efectivo coincide con lo cobrado.', 'Cash matches collected.')
+                      : diferencia > 0
+                        ? L('Sobrante — hay más efectivo del esperado.', 'Cash over — more in drawer than expected.')
+                        : L('Faltante — falta efectivo en gaveta.', 'Cash short — drawer below expected.')}
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
-          {/* Comentario */}
-          <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-4 shadow-sm flex-shrink-0">
-            <SectionLabel>{L('Comentario', 'Comments')}</SectionLabel>
+          {/* STEP 3 — Notas y cierre */}
+          <div className="bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/10 p-5 shadow-sm">
+            <div className="mb-3">
+              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#b3001e] text-white text-[11px] font-black mr-2">3</span>
+              <span className="text-[15px] font-bold text-slate-800 dark:text-white">{L('Notas y cierre', 'Notes & close')}</span>
+            </div>
             <textarea
               value={comentario}
               onChange={e => setComentario(e.target.value)}
-              placeholder={L('Observaciones del cierre…', 'Closing observations…')}
+              placeholder={L('Observaciones opcionales del cierre…', 'Optional closing notes…')}
               rows={2}
-              className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+              disabled={closed}
+              className="w-full border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm dark:bg-white/5 dark:text-white focus:outline-none focus:border-[#b3001e] resize-none disabled:opacity-50"
             />
           </div>
 

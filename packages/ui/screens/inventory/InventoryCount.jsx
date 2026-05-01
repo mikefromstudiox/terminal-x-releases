@@ -492,8 +492,9 @@ function DetailView({ count, onBack, onReload, biz }) {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={printSheet}
+            title="Imprime una lista con todos los productos y un espacio en blanco para anotar la cantidad contada a mano"
             className="px-3 py-2 rounded-lg text-sm font-semibold border border-black/15 dark:border-white/15 text-black dark:text-white hover:border-[#b3001e] inline-flex items-center gap-1.5">
-            <Printer size={14} /> Hoja de conteo
+            <Printer size={14} /> Imprimir lista para contar
           </button>
           {count.status === 'completado' && (
             <>
@@ -711,7 +712,7 @@ function ListView({ rows, onNew, onOpen }) {
             <ClipboardList size={22} className="text-[#b3001e]" /> Conteo Fisico
           </h1>
           <p className="text-sm text-black/60 dark:text-white/60 mt-1">
-            Audita el inventario, detecta mermas y genera reportes de varianza.
+            Audita el inventario producto por producto. Imprime la lista, cuenta cada artículo a mano, luego ingresa la cantidad real para detectar mermas.
           </p>
         </div>
         <button onClick={onNew}
