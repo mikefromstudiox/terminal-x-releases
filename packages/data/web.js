@@ -3754,11 +3754,21 @@ export function createWebAPI(supabase, businessId) {
         const dateTo   = params?.dateTo   ?? params?.to
         // Filter by real sale date (paid_at) when available, else insert time.
         // Guards against imported historical rows whose created_at = import time.
-        // v2.14.22 — exclude voided tickets. Previously byDateRange returned
-        // status='nula' rows which counted in DailyReport + RemoteDashboard
-        // totals (Audit D9). DailyReport filters estado separately for its
-        // UI but the summary cards + CSV exports leaked void rows through.
-        let q = supabase.from('tickets').select('*').eq('business_id', bid).neq('status', 'nula')
+        // v2.16.31 — RETURN nula rows so DailyReport's "Anuladas" tab can
+        // populate. Previously v2.14.22 dropped them at the data layer to
+        // protect summary totals — but DailyReport's totals already filter
+        // estado!='nula' explicitly (see active = baseFiltered.filter(...)
+        // and the cxc/total/count reducers in the totals useMemo). Stripping
+        // them at the SQL layer hid them from the UI's "Anuladas" tab too,
+        // making voided tickets invisible everywhere AND making it look
+        // like the screen "didn't refresh" after a void (the row vanished
+        // entirely instead of moving to the Anuladas tab).
+        //
+        // For RemoteDashboard / CSV exports that consume this same query,
+        // those callers also filter status downstream. If a future caller
+        // is added that needs nula-stripped rows, do the filter there, not
+        // here.
+        let q = supabase.from('tickets').select('*').eq('business_id', bid)
         if (dateFrom) q = q.or(`paid_at.gte.${dateFrom},and(paid_at.is.null,created_at.gte.${dateFrom})`)
         if (dateTo)   q = q.or(`paid_at.lte.${dateTo},and(paid_at.is.null,created_at.lte.${dateTo})`)
         q = q.order('paid_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false }).limit(500)
@@ -3839,8 +3849,14 @@ export function createWebAPI(supabase, businessId) {
         const tSids = [...new Set(rows.map(r => r.supabase_id).filter(Boolean))]
         const itemsMap = {}
         if (tSids.length) {
+          // v2.16.31 — `aplica_itbis` is NOT a column on ticket_items
+          // (verified 2026-05-01 against information_schema). The earlier
+          // sweep that removed it from the main byDateRange SELECT missed
+          // this BottleDepositReport variant because the column list was
+          // slightly different (no is_wash). PostgREST 400's on unknown
+          // columns. Removed.
           const { data: ir } = await supabase.from('ticket_items')
-            .select('ticket_supabase_id, name, price, cost, is_deposit, quantity, sku, inventory_item_id, inventory_item_supabase_id, aplica_itbis')
+            .select('ticket_supabase_id, name, price, cost, is_deposit, quantity, sku, inventory_item_id, inventory_item_supabase_id')
             .in('ticket_supabase_id', tSids)
           for (const i of (ir || [])) {
             if (!itemsMap[i.ticket_supabase_id]) itemsMap[i.ticket_supabase_id] = []
