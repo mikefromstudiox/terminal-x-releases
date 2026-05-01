@@ -3241,11 +3241,21 @@ export function createWebAPI(supabase, businessId) {
             }
           }
         } catch (e) { console.error('[web.js] void stock reversal failed:', e.message) }
-        // v2.16.31 — Notify Ventas/Inventory screens to re-fetch. Without
-        // this the Ventas list stays stale until manual refresh (the void
-        // succeeded server-side but the UI still showed the cobrado state
-        // or showed nothing because of a default filter).
-        try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('tx:tickets-refresh')) } catch {}
+        // v2.16.31 — Inventory refresh broadcast: ProductGrid/POS-side
+        // displays should re-fetch since stock returned. Only fire that
+        // event; do NOT broadcast tx:tickets-refresh from the void path.
+        //
+        // Why no tickets-refresh dispatch on void: DailyReport's handleVoid
+        // already does an optimistic setTransactions that flips the affected
+        // row's estado to 'nula' in place. If we ALSO dispatched a refresh,
+        // the listener-triggered byDateRange round-trip races against the
+        // optimistic update — observed live: list briefly empties and
+        // re-populates, sometimes with the loading spinner masking the row
+        // long enough that the user sees a blank list and loses confidence
+        // ("ventas disappeared after anular"). Cobrar from POS still
+        // dispatches tx:tickets-refresh because that's a different tab
+        // pattern (cross-tab propagation, no in-tab optimistic update to
+        // race against). Keep this dispatch removed.
         try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('tx:inventory-refresh')) } catch {}
       }),
 
