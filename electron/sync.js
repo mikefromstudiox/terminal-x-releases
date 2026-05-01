@@ -4299,6 +4299,15 @@ function uploadToStorage(bucket, objectPath, buffer, contentType) {
 
 // -- Full sync cycle ----------------------------------------------------------
 async function syncNow() {
+  // v2.16.26 — DO NOT REVERT (FIX-LEDGER §Batch6). The push and pull phases
+  // are serialized inside this function (push for-loop at line ~4334, then
+  // pull for-loop at ~4346). The `_syncing` flag is the per-process mutex
+  // that prevents concurrent invocations from interleaving push/pull rounds
+  // and corrupting state. If a concurrent caller arrives while we're busy,
+  // it sets `_pendingSync=true` and returns; the current run picks that up
+  // in the finally section (line ~4422) and re-dispatches once. This pattern
+  // covers the race the audit flagged on 2026-04-30. Multi-device coordination
+  // is server-side via the sync_upsert_counter_row CAS RPC (Batch 5).
   if (_syncing) {
     _pendingSync = true
     return _status

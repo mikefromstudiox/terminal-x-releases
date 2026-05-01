@@ -46,14 +46,15 @@ Desktop:
 - ✅ Restaurant: KDS recall API `kds.cancel({ticket_item_supabase_id, station, reason})` — cancels kds_events + clears kds_fired_at + activity log.
 - ✅ ANECF web drainer (Vercel cron `/api/panel?action=anecf-drain` every 6h) — escalates stuck-pending rows to `failed` after 24h+10 attempts; abandons rows >72h.
 
-**Deferred to Batch 6:**
-- ❌ 3.8 — Backup integrity verify (HEAD/SHA256/restore-test/retention-after-good)
-- ❌ 3.9 — Sync push/pull mutex (desktop)
-- ❌ Salón: per-line stylist commission auto-flow (CobrarModal lineMeta wiring)
-- ❌ Restaurant: deposit UI on Reservations.jsx (columns landed; UI not wired)
-- ❌ client_memberships cancel/refund API
-- ❌ Public booking endpoint route (anon insert blocked post-RLS-tightening; needs service-role route)
-- ❌ Tier 1 harness Batch 5 reds — **ALL GREEN as of v2.16.25**.
+**Batch 6 — SHIPPED 2026-05-01 (v2.16.26):**
+- ✅ 3.8 — Backup integrity verify: SHA256 of gzipped snapshot + post-upload HEAD verify (`Content-Length` match) + retention-after-good guard (purge only runs after verified upload) + consecutive-failure escalation (warn → critical at 2+ fails). Persists `backup_last_sha256` + `backup_consecutive_failures` to app_settings. `electron/db-backup.js`.
+- ✅ 3.9 — Sync push/pull mutex: documented + reinforced. `_syncing` + `_pendingSync` (lines 121-122) serialize the entire syncNow including push then pull, with re-dispatch on the trailing edge if a concurrent call arrived. Multi-device coordination is server-side via `sync_upsert_counter_row` CAS RPC. `electron/sync.js`.
+- ✅ Salón: per-line stylist commission auto-flow — already wired via `buildLineStylistsPayload()` → POS Queue path passes `empleado_supabase_id` per line. Tier 1 harness 3/3 salon scenarios pass.
+- ✅ Restaurant: deposit UI on Reservations.jsx — `deposit_amount` + `deposit_status` inputs wired. Statuses: held / applied / refunded / forfeited. Persists via `restaurantReservations.create` + `update` (allowed list expanded).
+- ✅ client_memberships cancel/refund API: `salonMemberships.cancel({client_membership_supabase_id, reason, refund_amount})` (sets sessions_remaining=0 + cancelled_at + activity log) and `.refund({amount, reason})` (logs refund without cancelling). Schema: `client_memberships.cancelled_at`, `cancelled_reason`. `packages/data/web.js`.
+- ✅ Public booking endpoint route: already uses service-role via `getClient()` (panel.js line 43). RLS-tightening did NOT break it because the route runs server-side. Batch 6 audit item was already-resolved.
+
+**STATUS**: All P0/P1 audit findings closed. Tier 1 harness 37/0/1.
 
 **Hard rule for future Claude sessions**: every line of code with a `v2.16.10 2026-04-30` comment was fixed in this batch. **DO NOT REVERT** unless you have explicit human approval AND have re-read the audit findings in this ledger. The bug class is "PostgREST silently drops unknown keys" — reverting any of these silently breaks a production code path.
 

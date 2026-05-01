@@ -5226,6 +5226,8 @@ export function createWebAPI(supabase, businessId) {
 
       create: (data) => tryOr(async () => {
         const sid = crypto.randomUUID()
+        // v2.16.26 — DO NOT REVERT (FIX-LEDGER §Batch6). Deposit fields persist
+        // now that columns landed in Batch 5.
         const row = throwSupaError(await supabase.from('restaurant_reservations').insert({
           supabase_id:      sid,
           business_id:      bid,
@@ -5239,6 +5241,9 @@ export function createWebAPI(supabase, businessId) {
           guests:           Math.max(1, Number(data.guests || 2)),
           notas:            data.notas || null,
           status:           data.status || 'pendiente',
+          deposit_amount:   data.deposit_amount != null ? Number(data.deposit_amount) : null,
+          deposit_status:   data.deposit_status || null,
+          deposit_ticket_supabase_id: data.deposit_ticket_supabase_id || null,
         }).select('*').single())
         await logActivity({
           event_type: 'reservation_created', severity: 'info',
@@ -5249,7 +5254,7 @@ export function createWebAPI(supabase, businessId) {
       }),
 
       update: (id, data) => tryOr(async () => {
-        const allowed = ['mesa_id','mesa_supabase_id','fecha','hora','duration_min','nombre','telefono','guests','notas','status','whatsapp_sent_at','cancelled_reason','seated_ticket_supabase_id']
+        const allowed = ['mesa_id','mesa_supabase_id','fecha','hora','duration_min','nombre','telefono','guests','notas','status','whatsapp_sent_at','cancelled_reason','seated_ticket_supabase_id','deposit_amount','deposit_status','deposit_ticket_supabase_id']
         const patch = Object.fromEntries(Object.entries(data || {}).filter(([k]) => allowed.includes(k)))
         if (!Object.keys(patch).length) {
           return (await supabase.from('restaurant_reservations').select('*').eq('id', id).eq('business_id', bid).maybeSingle())?.data || null
@@ -7618,6 +7623,60 @@ export function createWebAPI(supabase, businessId) {
         }).select('*').single())
         return { ok: true, remaining: updated.sessions_remaining, redemption }
       }),
+      // v2.16.26 — DO NOT REVERT (FIX-LEDGER §Batch6). Cancel a client_membership.
+      // Soft cancellation: sets sessions_remaining=0 + cancelled_at + cancelled_reason
+      // + activity log entry. Optional refund_amount logs the cash returned.
+      cancel: ({ client_membership_supabase_id, reason, refund_amount } = {}) => tryWrite(async () => {
+        if (!client_membership_supabase_id) throw new Error('client_membership_supabase_id required')
+        const { data: cm } = await supabase.from('client_memberships')
+          .select('id, supabase_id, client_supabase_id, sessions_remaining, membership_supabase_id')
+          .eq('supabase_id', client_membership_supabase_id).eq('business_id', bid).maybeSingle()
+        if (!cm) return { ok: false, error: 'not_found' }
+        const cancelledAt = new Date().toISOString()
+        await supabase.from('client_memberships').update({
+          sessions_remaining: 0,
+          cancelled_at: cancelledAt,
+          cancelled_reason: reason || null,
+          updated_at: cancelledAt,
+        }).eq('id', cm.id).eq('business_id', bid)
+        await logActivity({
+          event_type: 'membership_cancelled', severity: 'warn',
+          target_type: 'client_membership', target_id: cm.id,
+          amount: refund_amount != null ? -Math.abs(Number(refund_amount)) : null,
+          reason: reason || 'Membership cancelled',
+          metadata: {
+            client_supabase_id: cm.client_supabase_id,
+            membership_supabase_id: cm.membership_supabase_id,
+            sessions_remaining_before: cm.sessions_remaining,
+            refund_amount: refund_amount || 0,
+          },
+        })
+        return { ok: true, refund_amount: refund_amount || 0 }
+      }),
+
+      // v2.16.26 — Issue a refund for a paid membership without cancelling it.
+      // Logs to activity_log; caller is responsible for the cash/transfer flow.
+      refund: ({ client_membership_supabase_id, amount, reason } = {}) => tryWrite(async () => {
+        if (!client_membership_supabase_id) throw new Error('client_membership_supabase_id required')
+        if (!amount || amount <= 0) throw new Error('positive amount required')
+        const { data: cm } = await supabase.from('client_memberships')
+          .select('id, client_supabase_id, membership_supabase_id, ticket_supabase_id')
+          .eq('supabase_id', client_membership_supabase_id).eq('business_id', bid).maybeSingle()
+        if (!cm) return { ok: false, error: 'not_found' }
+        await logActivity({
+          event_type: 'membership_refunded', severity: 'warn',
+          target_type: 'client_membership', target_id: cm.id,
+          amount: -Math.abs(Number(amount)),
+          reason: reason || 'Membership refund',
+          metadata: {
+            client_supabase_id: cm.client_supabase_id,
+            membership_supabase_id: cm.membership_supabase_id,
+            original_ticket_supabase_id: cm.ticket_supabase_id,
+          },
+        })
+        return { ok: true, amount }
+      }),
+
       expiringSoon: (days = 14) => tryOr(async () => {
         const now = new Date()
         const horizon = new Date(now.getTime() + Number(days) * 24 * 60 * 60 * 1000).toISOString()

@@ -216,6 +216,20 @@ async function purgeOldBackups({ supabase, businessId }) {
 }
 
 // -- Snapshot + gzip ---------------------------------------------------------
+// v2.16.26 — DO NOT REVERT (FIX-LEDGER §Batch6). Integrity SHA256 of the
+// gzipped snapshot. Used to verify roundtrip after upload (HEAD remote and
+// confirm Content-Length matches; full content-integrity verify deferred —
+// would require re-downloading every backup).
+function sha256OfFile(filePath) {
+  return new Promise((resolve, reject) => {
+    const h = crypto.createHash('sha256')
+    const s = fs.createReadStream(filePath)
+    s.on('data', (chunk) => h.update(chunk))
+    s.on('end',  () => resolve(h.digest('hex')))
+    s.on('error', reject)
+  })
+}
+
 async function snapshotAndGzip({ db, tmpDir }) {
   if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
   const rawPath = path.join(tmpDir, `snapshot-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.sqlite`)
@@ -247,7 +261,32 @@ async function snapshotAndGzip({ db, tmpDir }) {
     src.pipe(gz).pipe(dst)
   })
   const bytes = fs.statSync(gzPath).size
-  return { rawPath, gzPath, bytes }
+  const sha256 = await sha256OfFile(gzPath)
+  return { rawPath, gzPath, bytes, sha256 }
+}
+
+// v2.16.26 — Verify the upload by HEAD-ing the public storage path and
+// asserting Content-Length matches the local size. Returns true on match,
+// false on any failure mode (so callers don't proceed to purge old backups).
+async function verifyUploadIntegrity({ supabase, useSignedUrl, businessId, objectPath, expectedBytes, signedHeadUrl }) {
+  try {
+    let url
+    if (useSignedUrl && signedHeadUrl) url = signedHeadUrl
+    else url = `${supabase.url}/storage/v1/object/${BUCKET}/${objectPath}`
+    const headers = useSignedUrl ? {} : {
+      'apikey': supabase.key,
+      'Authorization': `Bearer ${supabase.key}`,
+    }
+    const r = await httpRequest({ method: 'HEAD', url, headers, timeoutMs: 30000 })
+    if (r.status < 200 || r.status >= 300) return { ok: false, reason: `HEAD ${r.status}` }
+    const remoteBytes = Number(r.headers['content-length'] || 0)
+    if (remoteBytes && remoteBytes !== expectedBytes) {
+      return { ok: false, reason: `size mismatch local=${expectedBytes} remote=${remoteBytes}` }
+    }
+    return { ok: true, remoteBytes }
+  } catch (e) {
+    return { ok: false, reason: e?.message || 'verify failed' }
+  }
 }
 
 function cleanup(paths) {
@@ -334,10 +373,10 @@ async function runNightlyBackup({ db, supabase, business_id, tmpDir, reason = 's
   }
 
   const workDir = tmpDir || path.join(require('os').tmpdir(), 'terminal-x-backups')
-  let rawPath = null, gzPath = null, bytes = 0
+  let rawPath = null, gzPath = null, bytes = 0, sha256 = null
   try {
     if (!useSignedUrl) await ensureBucket({ supabase })
-    ;({ rawPath, gzPath, bytes } = await snapshotAndGzip({ db, tmpDir: workDir }))
+    ;({ rawPath, gzPath, bytes, sha256 } = await snapshotAndGzip({ db, tmpDir: workDir }))
     const objectPath = `${businessId}/${todayStr()}.sqlite.gz`
     if (useSignedUrl) {
       await uploadViaSignedUrl({ supabase, apiBase, licenseKey, hwid, businessId, objectPath, gzPath, bytes })
@@ -348,15 +387,26 @@ async function runNightlyBackup({ db, supabase, business_id, tmpDir, reason = 's
         contentType: 'application/gzip',
       })
     }
-    // Retention purge: signed-URL path delegates to server (service role); local
-    // path with a real service-role key can purge directly.
+
+    // v2.16.26 — DO NOT REVERT (FIX-LEDGER §Batch6). Integrity verify before
+    // we trust the upload. HEAD the remote object + assert size matches. Only
+    // after a verified-good upload do we run retention purge — otherwise a
+    // run of failed uploads ages out the last good backup silently.
+    const verify = await verifyUploadIntegrity({ supabase, useSignedUrl, businessId, objectPath, expectedBytes: bytes })
+    if (!verify.ok) {
+      throw new Error(`upload verify failed: ${verify.reason}`)
+    }
+
+    // Retention purge ONLY runs after verified-good upload.
     const purged = useSignedUrl ? 0 : await purgeOldBackups({ supabase, businessId })
 
     const okAt = iso()
     setSetting(db, 'backup_last_ok_at', okAt)
     setSetting(db, 'backup_last_bytes', bytes)
     setSetting(db, 'backup_last_path',  objectPath)
+    setSetting(db, 'backup_last_sha256', sha256)
     setSetting(db, 'backup_last_error', '')
+    setSetting(db, 'backup_consecutive_failures', '0')
 
     try {
       db.activityLogRecord?.({
@@ -378,14 +428,20 @@ async function runNightlyBackup({ db, supabase, business_id, tmpDir, reason = 's
     const errAt = iso()
     setSetting(db, 'backup_last_error_at', errAt)
     setSetting(db, 'backup_last_error', msg)
+    // v2.16.26 — Track consecutive failures so the user gets escalated alerts.
+    // 1st failure → warn. 2+ → critical.
+    const prevFails = Number(getSetting(db, 'backup_consecutive_failures') || '0') || 0
+    const fails = prevFails + 1
+    setSetting(db, 'backup_consecutive_failures', String(fails))
+    const sev = fails >= 2 ? 'critical' : 'warn'
     try {
       db.activityLogRecord?.({
         event_type:  'db_backup',
-        severity:    'warn',
+        severity:    sev,
         target_type: 'backup',
         target_name: `${businessId}/${todayStr()}.sqlite.gz`,
         reason:      msg,
-        metadata:    { reason, error: msg },
+        metadata:    { reason, error: msg, consecutive_failures: fails },
       })
     } catch {}
     if (useSignedUrl && licenseKey && hwid) {

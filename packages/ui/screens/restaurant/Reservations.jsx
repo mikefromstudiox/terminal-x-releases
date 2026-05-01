@@ -53,16 +53,20 @@ const STATUS_META = {
 
 // ── New / Edit Modal ────────────────────────────────────────────────────────
 function ReservationModal({ open, onClose, onSubmit, initial, mesas }) {
+  // v2.16.26 — DO NOT REVERT (FIX-LEDGER §Batch6). Deposit fields wired to
+  // the schema columns (deposit_amount/deposit_status) that were added in
+  // Batch 5. Operators can now collect a forfeit-able deposit at booking.
   const [form, setForm] = useState(() => initial || {
     nombre: '', telefono: '', fecha: todayISO(), hora: '19:00',
     duration_min: 90, guests: 2, mesa_id: '', notas: '',
+    deposit_amount: 0, deposit_status: null,
   })
   const [busy, setBusy] = useState(false)
   const [err,  setErr]  = useState(null)
 
   useEffect(() => {
     if (open) {
-      setForm(initial || { nombre: '', telefono: '', fecha: todayISO(), hora: '19:00', duration_min: 90, guests: 2, mesa_id: '', notas: '' })
+      setForm(initial || { nombre: '', telefono: '', fecha: todayISO(), hora: '19:00', duration_min: 90, guests: 2, mesa_id: '', notas: '', deposit_amount: 0, deposit_status: null })
       setErr(null)
     }
   }, [open, initial])
@@ -75,6 +79,7 @@ function ReservationModal({ open, onClose, onSubmit, initial, mesas }) {
     if (!form.fecha || !form.hora) { setErr('Fecha y hora requeridas'); return }
     setBusy(true)
     try {
+      const dep = Math.max(0, Number(form.deposit_amount || 0))
       await onSubmit({
         ...form,
         nombre: form.nombre.trim(),
@@ -82,6 +87,8 @@ function ReservationModal({ open, onClose, onSubmit, initial, mesas }) {
         guests: Math.max(1, Number(form.guests || 1)),
         duration_min: Math.max(15, Number(form.duration_min || 90)),
         mesa_id: form.mesa_id || null,
+        deposit_amount: dep || null,
+        deposit_status: dep > 0 ? (form.deposit_status || 'held') : null,
       })
       onClose()
     } catch (e) {
@@ -157,6 +164,28 @@ function ReservationModal({ open, onClose, onSubmit, initial, mesas }) {
                 <option key={m.id} value={m.id}>{m.name} {m.zone ? `· ${m.zone}` : ''} ({m.capacity || '?'})</option>
               ))}
             </select>
+          </div>
+          {/* v2.16.26 — Depósito de reserva */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-white/60 font-bold mb-1.5 block">Depósito (RD$)</label>
+              <input type="number" min="0" step="100"
+                value={form.deposit_amount || ''}
+                onChange={e => setForm(f => ({ ...f, deposit_amount: e.target.value }))}
+                placeholder="0"
+                className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-[#b3001e]" />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-white/60 font-bold mb-1.5 block">Estado depósito</label>
+              <select value={form.deposit_status || ''} onChange={e => setForm(f => ({ ...f, deposit_status: e.target.value || null }))}
+                className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-[#b3001e]">
+                <option value="">— Sin depósito —</option>
+                <option value="held">Retenido</option>
+                <option value="applied">Aplicado al ticket</option>
+                <option value="refunded">Reembolsado</option>
+                <option value="forfeited">Confiscado (no-show)</option>
+              </select>
+            </div>
           </div>
           <div>
             <label className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-white/60 font-bold mb-1.5 block">Notas</label>
