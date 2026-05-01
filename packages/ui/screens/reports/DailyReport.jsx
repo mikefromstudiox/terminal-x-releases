@@ -801,6 +801,7 @@ export default function DailyReport() {
   async function handleVoid({ ticketId, reason, voidedBy, voidedAt, mac_jti }) {
     try {
       await api.tickets.void({ id: ticketId, reason, voidById: currentUser?.id, mac_jti })
+      // 1. Optimistic in-place mutation: keep the row visible, flip estado.
       setTransactions(ts => ts.map(t =>
         t.id === ticketId
           ? { ...t, estado: 'nula', voidReason: reason, voidedBy, voidedAt }
@@ -809,6 +810,20 @@ export default function DailyReport() {
       setAnularModal(null)
       setSelectedId(null)
       flash(lang === 'es' ? 'Factura anulada correctamente.' : 'Invoice voided successfully.')
+      // 2. v2.16.31 — Belt-and-suspenders refetch from DB. Earlier version
+      // relied on a window event + listener path that raced with the
+      // optimistic update and observably emptied the list mid-render. Now
+      // the refetch runs INSIDE handleVoid (after the optimistic state is
+      // already on screen), so even if the API call is slow the user sees
+      // the row stay visible the whole time. If the refetch fails, the
+      // optimistic state stands. This replaces the dispatch->listener
+      // pattern for the void case only; Cobrar still uses the event
+      // because that's a cross-tab scenario.
+      try {
+        const range = getDateRange(datePill)
+        const rows = await api.tickets.byDateRange(range)
+        if (Array.isArray(rows)) setTransactions(rows.map(dbToTxn))
+      } catch (_) { /* keep optimistic state */ }
     } catch {
       flash(lang === 'es' ? 'Error al anular la factura.' : 'Error voiding the invoice.')
     }
