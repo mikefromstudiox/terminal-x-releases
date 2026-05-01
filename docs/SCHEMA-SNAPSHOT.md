@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-01T20:36:20.019Z
+- **Snapshot taken:** 2026-05-01T22:20:42.405Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -1494,7 +1494,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `api_rate_limits`
 
-- Rough row count (n_live_tup): **543**
+- Rough row count (n_live_tup): **551**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1522,7 +1522,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `app_settings`
 
-- Rough row count (n_live_tup): **173**
+- Rough row count (n_live_tup): **176**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1828,7 +1828,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `businesses`
 
-- Rough row count (n_live_tup): **31**
+- Rough row count (n_live_tup): **32**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3689,7 +3689,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `inventory_count_items`
 
-- Rough row count (n_live_tup): **1603**
+- Rough row count (n_live_tup): **1606**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4171,7 +4171,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `license_events`
 
-- Rough row count (n_live_tup): **2065**
+- Rough row count (n_live_tup): **2074**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4210,7 +4210,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `license_jwt_audit`
 
-- Rough row count (n_live_tup): **31**
+- Rough row count (n_live_tup): **32**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6967,7 +6967,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `ticket_items`
 
-- Rough row count (n_live_tup): **997**
+- Rough row count (n_live_tup): **999**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7084,7 +7084,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `tickets`
 
-- Rough row count (n_live_tup): **383**
+- Rough row count (n_live_tup): **385**
 - RLS enabled: **YES**
 
 **Columns**
@@ -14574,25 +14574,51 @@ END;
 ```plpgsql
 DECLARE
   seq RECORD;
-  next_num INT;
+  next_num int;
+  pad_width int;
+  jwt_business_id uuid;
+  caller_role text;
 BEGIN
-  IF business_uuid NOT IN (SELECT my_business_ids()) THEN
-    RAISE EXCEPTION 'Access denied';
+  caller_role := coalesce(auth.role(), '');
+  IF caller_role = 'service_role' THEN
+    NULL;
+  ELSE
+    jwt_business_id := ((auth.jwt() -> 'app_metadata') ->> 'business_id')::uuid;
+    IF jwt_business_id IS NULL OR jwt_business_id <> business_uuid THEN
+      RAISE EXCEPTION 'atomic_next_ncf: caller business_id mismatch (jwt=% arg=%)',
+        coalesce(jwt_business_id::text, '<null>'), business_uuid;
+    END IF;
   END IF;
 
-  SELECT * INTO seq FROM ncf_sequences
-  WHERE business_id = business_uuid AND type = ncf_type AND active = true AND enabled = true
-  FOR UPDATE;
+  SELECT id, current_number, limit_number, active, enabled
+    INTO seq
+    FROM public.ncf_sequences
+   WHERE business_id = business_uuid
+     AND type = ncf_type
+   FOR UPDATE;
 
-  IF NOT FOUND THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'atomic_next_ncf: no ncf_sequence row for business=% type=% - owner must create one in Sistema -> DGII',
+      business_uuid, ncf_type;
+  END IF;
+  IF NOT seq.active OR NOT seq.enabled THEN
+    RAISE EXCEPTION 'atomic_next_ncf: sequence (% %) is not enabled - owner must enable it in Sistema -> DGII',
+      business_uuid, ncf_type;
+  END IF;
 
   next_num := seq.current_number + 1;
   IF next_num > seq.limit_number THEN
-    RAISE EXCEPTION 'NCF sequence % reached limit', ncf_type;
+    RAISE EXCEPTION 'atomic_next_ncf: sequence (% %) exhausted (current=% limit=%) - owner must request a new range from DGII',
+      business_uuid, ncf_type, seq.current_number, seq.limit_number;
   END IF;
 
-  UPDATE ncf_sequences SET current_number = next_num WHERE id = seq.id;
-  RETURN seq.prefix || lpad(next_num::text, 8, '0');
+  UPDATE public.ncf_sequences
+     SET current_number = next_num,
+         updated_at = now()
+   WHERE id = seq.id;
+
+  pad_width := CASE WHEN upper(ncf_type) LIKE 'E%' THEN 10 ELSE 8 END;
+  RETURN upper(ncf_type) || lpad(next_num::text, pad_width, '0');
 END;
 ```
 
