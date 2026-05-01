@@ -681,16 +681,44 @@ export default function DailyReport() {
   // Load tickets from DB whenever datePill changes
   useEffect(() => {
     let cancelled = false
+    let isInitial = true
     const reload = () => {
-      setLoading(true)
+      // v2.16.32 — Only show spinner on initial load for this datePill.
+      // Listener-triggered reloads (tx:tickets-refresh) must NOT flash the
+      // spinner: when reload is invoked while transactions has data and the
+      // fetch returns [] (auth glitch, network hiccup), the spinner masked
+      // the list and setTransactions([]) wiped it — Mike repro'd ≥3 times.
+      if (isInitial) setLoading(true)
       setSelectedId(null)
       const range = getDateRange(datePill)
       api.tickets.byDateRange(range)
         .then(rows => {
-          if (!cancelled) setTransactions((rows || []).map(dbToTxn))
+          if (cancelled) return
+          // Defensive: if a refresh fetch returns empty but we already had
+          // data on screen, keep what we have rather than blanking. Initial
+          // load (transactions still []) accepts the empty result so the
+          // empty-state copy can render.
+          if (!isInitial && Array.isArray(rows) && rows.length === 0) {
+            // eslint-disable-next-line no-console
+            console.warn('[DailyReport] refresh returned [] — keeping current state')
+            return
+          }
+          setTransactions((rows || []).map(dbToTxn))
         })
-        .catch(() => { if (!cancelled) setTransactions([]) })
-        .finally(() => { if (!cancelled) setLoading(false) })
+        .catch((e) => {
+          if (cancelled) return
+          if (!isInitial) {
+            // eslint-disable-next-line no-console
+            console.warn('[DailyReport] refresh threw — keeping current state', e?.message)
+            return
+          }
+          setTransactions([])
+        })
+        .finally(() => {
+          if (cancelled) return
+          if (isInitial) setLoading(false)
+          isInitial = false
+        })
     }
     setCashier('all')
     reload()
@@ -801,7 +829,15 @@ export default function DailyReport() {
   async function handleVoid({ ticketId, reason, voidedBy, voidedAt, mac_jti }) {
     try {
       await api.tickets.void({ id: ticketId, reason, voidById: currentUser?.id, mac_jti })
-      // 1. Optimistic in-place mutation: keep the row visible, flip estado.
+      // v2.16.32 — Optimistic in-place mutation ONLY. Do NOT refetch.
+      // Earlier versions tried a post-void byDateRange refetch (or a
+      // tx:tickets-refresh broadcast that triggered the same path) to
+      // reconcile state with DB. Both observably wiped the list under
+      // edge conditions Mike reproduced ≥3 times — even with empty-array
+      // safety checks the list still went blank. The optimistic update
+      // already produces correct UI (the row flips to estado='nula' and
+      // moves to the Anuladas tab via baseFiltered). Reconciliation
+      // happens naturally on the next datePill change or page navigation.
       setTransactions(ts => ts.map(t =>
         t.id === ticketId
           ? { ...t, estado: 'nula', voidReason: reason, voidedBy, voidedAt }
@@ -810,33 +846,6 @@ export default function DailyReport() {
       setAnularModal(null)
       setSelectedId(null)
       flash(lang === 'es' ? 'Factura anulada correctamente.' : 'Invoice voided successfully.')
-      // 2. v2.16.31 — Belt-and-suspenders refetch from DB. Earlier version
-      // relied on a window event + listener path that raced with the
-      // optimistic update and observably emptied the list mid-render. Now
-      // the refetch runs INSIDE handleVoid (after the optimistic state is
-      // already on screen), so even if the API call is slow the user sees
-      // the row stay visible the whole time. If the refetch fails, the
-      // optimistic state stands. This replaces the dispatch->listener
-      // pattern for the void case only; Cobrar still uses the event
-      // because that's a cross-tab scenario.
-      // Belt-and-suspenders refetch — but ONLY accept the result if it
-      // returns at least 1 row. An empty-array response from byDateRange
-      // would silently wipe the list (we just optimistically marked one
-      // row nula; a [] response wouldn't reflect that). Treat empty as
-      // "fetch was inconclusive, keep optimistic state."
-      try {
-        const range = getDateRange(datePill)
-        const rows = await api.tickets.byDateRange(range)
-        if (Array.isArray(rows) && rows.length > 0) {
-          setTransactions(rows.map(dbToTxn))
-        } else {
-          // eslint-disable-next-line no-console
-          console.warn('[DailyReport] post-void refetch returned empty; keeping optimistic state. Range:', range)
-        }
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('[DailyReport] post-void refetch threw; keeping optimistic state.', e?.message)
-      }
     } catch {
       flash(lang === 'es' ? 'Error al anular la factura.' : 'Error voiding the invoice.')
     }
