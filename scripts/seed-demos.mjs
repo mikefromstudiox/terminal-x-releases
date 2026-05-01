@@ -683,7 +683,7 @@ async function seedCarwash(b, summary) {
   await insertChunked('ncf_sequences', ncf)
   await insertChunked('app_settings', settings)
 
-  const { tickets, items } = buildTickets({ bid, count: 30, services, clients, empleados, vertical: 'carwash' })
+  const { tickets, items } = buildTickets({ bid, count: 60, services, clients, empleados, vertical: 'carwash' })
   // Mark 3 voided
   for (let i = 0; i < 3; i++) {
     tickets[i].status = 'anulado'
@@ -771,7 +771,7 @@ async function seedTienda(b, summary, vertical) {
   await insertChunked('ncf_sequences', ncf)
   await insertChunked('app_settings', settings)
 
-  const { tickets, items } = buildTickets({ bid, count: 40, services, clients, empleados, vertical, includeInventory: true, inventory })
+  const { tickets, items } = buildTickets({ bid, count: 80, services, clients, empleados, vertical, includeInventory: true, inventory })
   await insertChunked('tickets', tickets)
   await insertChunked('ticket_items', items)
 
@@ -887,7 +887,7 @@ async function seedSalon(b, summary) {
   }
   await insertChunked('client_memberships', cmems)
 
-  const { tickets, items } = buildTickets({ bid, count: 25, services, clients, empleados, vertical: 'salon' })
+  const { tickets, items } = buildTickets({ bid, count: 50, services, clients, empleados, vertical: 'salon' })
   await insertChunked('tickets', tickets)
   await insertChunked('ticket_items', items)
 
@@ -992,7 +992,7 @@ async function seedRestaurante(b, summary) {
   await insertChunked('ticket_items', openItems)
 
   // 15 cobrado restaurant tickets
-  const { tickets, items } = buildTickets({ bid, count: 15, services: services.filter(s => s.is_menu_item), clients, empleados, vertical: 'restaurante' })
+  const { tickets, items } = buildTickets({ bid, count: 40, services: services.filter(s => s.is_menu_item), clients, empleados, vertical: 'restaurante' })
   // Add servicio_pct to each
   tickets.forEach(t => {
     t.servicio_pct = 10
@@ -1394,7 +1394,7 @@ async function seedServiciosProfesionales(b, summary) {
   await insertChunked('ncf_sequences', ncf)
   await insertChunked('app_settings', settings)
 
-  const { tickets, items } = buildTickets({ bid, count: 20, services, clients, empleados, vertical: 'servicios' })
+  const { tickets, items } = buildTickets({ bid, count: 40, services, clients, empleados, vertical: 'servicios' })
   await insertChunked('tickets', tickets)
   await insertChunked('ticket_items', items)
 

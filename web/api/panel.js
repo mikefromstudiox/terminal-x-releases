@@ -142,6 +142,9 @@ export default async function handler(req, res) {
   if (action === 'salon-membership-purchase')   return handleSalonMembershipPurchase(req, res)
   if (action === 'salon-membership-consume')    return handleSalonMembershipConsume(req, res)
 
+  // ── v2.16.25 ANECF web drainer (cron-triggered every 60s) ─────────────────
+  if (action === 'anecf-drain')                 return handleAnecfDrain(req, res)
+
   // ── v2.16.7 — Lending collections reminders (24h + 2h windows) ──────────
   // Hourly cron tick + license-JWT mark/list paths. WABA is NOT live —
   // wa.me deep links only. UI must reflect "pendiente" until WABA approved.
@@ -4158,4 +4161,64 @@ async function handleVaultDelete(req, res) {
   if (delErr) return res.status(500).json({ error: delErr.message || 'delete_failed' })
 
   return res.json({ ok: true, filename: row.filename, size: row.size, r2_key: key || null })
+}
+
+// ── v2.16.25 ANECF drainer (Vercel cron via vercel.json) ─────────────────────
+// DO NOT REVERT (FIX-LEDGER §Batch5). Web-only emisores had no ANECF drainer
+// — every void left DGII's record unupdated. This endpoint:
+//   1) escalates rows older than 24h with attempts>=10 to status='failed'
+//      (alerting surface for admin)
+//   2) marks rows pending>72h (3 days) status='abandoned' so they don't keep
+//      counting against retry budget
+// Actual DGII submission still happens on desktop (per-biz cert dependency).
+// This endpoint just guards against silent dead-letter accumulation.
+async function handleAnecfDrain(req, res) {
+  // Cron header check — Vercel cron passes Authorization: Bearer <CRON_SECRET>
+  const cronSecret = process.env.CRON_SECRET
+  const auth = req.headers['authorization'] || ''
+  if (cronSecret && auth !== `Bearer ${cronSecret}`) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  try {
+    const sb = (await import('@supabase/supabase-js')).createClient(
+      process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { persistSession: false } }
+    )
+    const now = new Date()
+    const dayAgo = new Date(now.getTime() - 24 * 3600 * 1000).toISOString()
+    const threeDaysAgo = new Date(now.getTime() - 72 * 3600 * 1000).toISOString()
+
+    // 1) Escalate stuck-pending with attempts>=10 to 'failed' (alert state)
+    const { data: escalated, error: e1 } = await sb.from('anecf_queue')
+      .update({ status: 'failed', error: 'auto-escalated by cron — desktop drainer not running' })
+      .eq('status', 'pending')
+      .gte('attempts', 10)
+      .lt('voided_at', dayAgo)
+      .select('id, business_id, ncf')
+    if (e1) console.error('[anecf-drain] escalate error', e1.message)
+
+    // 2) Abandon rows pending >3 days (no realistic chance of late success)
+    const { data: abandoned, error: e2 } = await sb.from('anecf_queue')
+      .update({ status: 'abandoned', error: 'auto-abandoned >72h pending without successful submit' })
+      .eq('status', 'pending')
+      .lt('voided_at', threeDaysAgo)
+      .select('id, business_id, ncf')
+    if (e2) console.error('[anecf-drain] abandon error', e2.message)
+
+    // 3) Snapshot current pending count for monitoring
+    const { count: pendingCount } = await sb.from('anecf_queue')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending')
+
+    return res.json({
+      ok: true,
+      escalated: escalated?.length || 0,
+      abandoned: abandoned?.length || 0,
+      pending_remaining: pendingCount || 0,
+      ran_at: now.toISOString(),
+    })
+  } catch (err) {
+    console.error('[anecf-drain] fatal', err)
+    return res.status(500).json({ error: err.message || 'drain_failed' })
+  }
 }

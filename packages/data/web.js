@@ -3363,6 +3363,50 @@ export function createWebAPI(supabase, businessId) {
         return { id: row?.id || null, supabase_id: itemSid }
       }, null),
 
+      // v2.16.25 — Manager-gated mid-wash price edit on a queued ticket.
+      // Updates ticket_items.price for the given line + bumps the parent
+      // ticket's totals (subtotal/itbis/total). Used by Queue.jsx:617.
+      // DO NOT REVERT (FIX-LEDGER §2.14).
+      updateItemPrice: (data = {}) => tryOr(async () => {
+        const itemSid = data.ticket_item_supabase_id
+        const itemId = data.ticket_item_id
+        const newPrice = Math.max(0, Number(data.price) || 0)
+        if (!itemSid && !itemId) throw new Error('updateItemPrice: id required')
+        const sel = supabase.from('ticket_items').select('id, supabase_id, ticket_supabase_id, ticket_id, price, quantity, aplica_itbis').eq('business_id', bid)
+        const { data: row, error: e1 } = await (itemSid
+          ? sel.eq('supabase_id', itemSid).maybeSingle()
+          : sel.eq('id', itemId).maybeSingle())
+        if (e1 || !row) throw new Error(e1?.message || 'item not found')
+        // Update item price
+        await supabase.from('ticket_items').update({ price: newPrice }).eq('id', row.id).eq('business_id', bid)
+        // Recompute ticket totals
+        const tSid = row.ticket_supabase_id
+        const { data: items } = await supabase.from('ticket_items')
+          .select('price, quantity, aplica_itbis').eq('ticket_supabase_id', tSid).eq('business_id', bid)
+        const itbisFrac = (Number((data.itbisRate ?? 18))) / 100
+        let subtotal = 0, itbis = 0
+        for (const it of (items || [])) {
+          const lineGross = Number(it.price || 0) * Number(it.quantity || 1)
+          subtotal += lineGross
+          if (it.aplica_itbis !== 0) itbis += lineGross * itbisFrac / (1 + itbisFrac)
+        }
+        const total = parseFloat(subtotal.toFixed(2))
+        const itbisRounded = parseFloat(itbis.toFixed(2))
+        const { data: cur } = await supabase.from('tickets').select('rev').eq('supabase_id', tSid).single()
+        await supabase.from('tickets').update({
+          subtotal: total, itbis: itbisRounded, total,
+          rev: Number(cur?.rev || 0) + 1,
+        }).eq('supabase_id', tSid).eq('business_id', bid)
+        await logActivity({
+          event_type: 'ticket_item_price_changed', severity: 'warn',
+          target_type: 'ticket_item', target_id: row.id,
+          old_value: String(row.price), new_value: String(newPrice),
+          reason: data.reason || 'Manager-authorized price edit',
+          metadata: { ticket_supabase_id: tSid, mac_jti: data.mac_jti || null },
+        })
+        return { id: row.id, supabase_id: row.supabase_id, price: newPrice }
+      }, null),
+
       updateItemQty: (data = {}) => tryOr(async () => {
         const safeQty = Math.max(0, parseInt(data.qty || 0, 10))
         if (safeQty === 0) {
@@ -3781,6 +3825,37 @@ export function createWebAPI(supabase, businessId) {
     // ── Commissions ──────────────────────────────────────────────────────────
 
     commissions: {
+      // v2.16.25 — DO NOT REVERT (FIX-LEDGER §2.15). Multi-washer cobrar from
+      // queue needs to know per-washer commission breakdown for the conduce
+      // print + factura "Comisión" line. Pulls from all 3 commission tables
+      // (washer/seller/cajero) keyed on ticket.
+      byTicket: ({ ticketId, ticket_supabase_id } = {}) => tryOr(async () => {
+        let tSid = ticket_supabase_id || null
+        if (!tSid && ticketId) {
+          const { data: t } = await supabase.from('tickets').select('supabase_id').eq('id', ticketId).eq('business_id', bid).maybeSingle()
+          tSid = t?.supabase_id || null
+        }
+        if (!tSid) return []
+        const cols = 'empleado_supabase_id, base_amount, commission_pct, commission_amount, paid, created_at'
+        const [w, s, c] = await Promise.all([
+          supabase.from('washer_commissions').select(cols).eq('business_id', bid).eq('ticket_supabase_id', tSid),
+          supabase.from('seller_commissions').select(cols).eq('business_id', bid).eq('ticket_supabase_id', tSid),
+          supabase.from('cajero_commissions').select(cols).eq('business_id', bid).eq('ticket_supabase_id', tSid),
+        ])
+        const out = []
+        for (const r of (w.data || [])) out.push({ ...r, kind: 'washer' })
+        for (const r of (s.data || [])) out.push({ ...r, kind: 'seller' })
+        for (const r of (c.data || [])) out.push({ ...r, kind: 'cajero' })
+        // Hydrate empleado names
+        const sids = [...new Set(out.map(r => r.empleado_supabase_id).filter(Boolean))]
+        if (sids.length) {
+          const { data: emps } = await supabase.from('empleados').select('supabase_id, nombre').in('supabase_id', sids).eq('business_id', bid)
+          const map = new Map((emps || []).map(e => [e.supabase_id, e.nombre]))
+          for (const r of out) r.name = map.get(r.empleado_supabase_id) || '—'
+        }
+        return out
+      }, []),
+
       byWasher: (params) => tryOr(async () => {
         const washerId = params.washerId
         const dateFrom = params.from || params.dateFrom
@@ -5689,6 +5764,34 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(
           await supabase.from('kds_events').update(patch).eq('id', id).eq('business_id', bid).select('*').single()
         )
+      }),
+
+      // v2.16.25 — DO NOT REVERT (FIX-LEDGER §Batch5). Recall fired-to-kitchen
+      // item: cancels the kds_events row + clears ticket_items.kds_fired_at so
+      // the line can be voided cleanly. Required ManagerAuthGate at UI; this
+      // RPC stays auth-agnostic.
+      cancel: ({ ticket_item_supabase_id, station, reason } = {}) => tryOr(async () => {
+        if (!ticket_item_supabase_id) throw new Error('ticket_item_supabase_id required')
+        const sel = supabase.from('kds_events').select('id').eq('business_id', bid)
+          .eq('ticket_item_supabase_id', ticket_item_supabase_id)
+          .in('status', ['fired','in_progress','ready'])
+        const q = station ? sel.eq('station', station) : sel
+        const { data: rows } = await q
+        const ids = (rows || []).map(r => r.id)
+        if (ids.length) {
+          await supabase.from('kds_events').update({
+            status: 'cancelled', cancelled_at: new Date().toISOString(),
+          }).in('id', ids).eq('business_id', bid)
+        }
+        await supabase.from('ticket_items').update({ kds_fired_at: null })
+          .eq('supabase_id', ticket_item_supabase_id).eq('business_id', bid)
+        await logActivity({
+          event_type: 'kds_item_recalled', severity: 'warn',
+          target_type: 'ticket_item', target_id: ticket_item_supabase_id,
+          reason: reason || 'Manager-authorized recall',
+          metadata: { kds_events_cancelled: ids.length, station: station || null },
+        })
+        return { ok: true, cancelled: ids.length }
       }),
     },
 

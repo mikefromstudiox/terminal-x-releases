@@ -34,21 +34,26 @@ Desktop:
 - ✅ 3.6 — APPEND_ONLY_TABLES expanded from 1 to 18 (every table verified to have no UPDATE policy on Supabase)
 - ✅ 3.7 — cuadre_caja push descriptor adds status, opened_at, opening_cash
 
-**Deferred to Batch 5 (sync hardening) + Batch 6 (depth):**
-- ❌ 2.14 — `api.tickets.updateItemPrice` impl (medium, needs handler design)
-- ❌ 2.15 — `api.commissions.byTicket` impl
-- ❌ 2.19 — NCF decrement on void E-prefix path
-- ❌ 4.1 — sync per-table merge strategies (the existential LWW fix; needs server RPC creation)
+**Batch 5 — SHIPPED 2026-04-30 (v2.16.25):**
+- ✅ 4.1 — Server-side CAS via `sync_upsert_counter_row` RPC (LWW counter guard).
+- ✅ Server-side trigger `trg_credit_ticket_bump_balance` — auto-bumps clients.balance on credit ticket insert.
+- ✅ Server-side trigger `trg_ticket_item_decrement_inventory` — auto-decrements inventory_items.quantity when ticket_items inserted under a cobrado ticket. Logs to inventory_oversells when stock<qty.
+- ✅ Server-side trigger `trg_ticket_complete_appointment` — auto-flips appointments.status='completed' when linked ticket reaches cobrado.
+- ✅ Server-side RPC `ticket_void_with_side_effects(ticket_supabase_id, reason, void_by)` — atomic void: inventory restore + commission reversal + NCF decrement (B-prefix) or ANECF enqueue (E-prefix) + client balance reversal + status flip + activity log.
+- ✅ 2.14 — `api.tickets.updateItemPrice` on web.js (manager-gated price edit + ticket totals recalc + activity log).
+- ✅ 2.15 — `api.commissions.byTicket` on web.js (washer + seller + cajero unified).
+- ✅ 2.19 — NCF decrement on void E-prefix → ANECF enqueue (handled in `ticket_void_with_side_effects`).
+- ✅ Restaurant: KDS recall API `kds.cancel({ticket_item_supabase_id, station, reason})` — cancels kds_events + clears kds_fired_at + activity log.
+- ✅ ANECF web drainer (Vercel cron `/api/panel?action=anecf-drain` every 6h) — escalates stuck-pending rows to `failed` after 24h+10 attempts; abandons rows >72h.
+
+**Deferred to Batch 6:**
 - ❌ 3.8 — Backup integrity verify (HEAD/SHA256/restore-test/retention-after-good)
-- ❌ 3.9 — Sync push/pull mutex
-- ❌ Salón pipeline: auto-flip appointment.status='completed' on linked ticket
-- ❌ Salón: per-line stylist commission auto-flow (currently empleado_supabase_id NULL on most live rows — needs CobrarModal lineMeta wiring)
-- ❌ Restaurant: KDS recall API (cancel kds_events on void)
-- ❌ Restaurant: deposit UI on Reservations.jsx (column landed; UI not wired)
+- ❌ 3.9 — Sync push/pull mutex (desktop)
+- ❌ Salón: per-line stylist commission auto-flow (CobrarModal lineMeta wiring)
+- ❌ Restaurant: deposit UI on Reservations.jsx (columns landed; UI not wired)
 - ❌ client_memberships cancel/refund API
-- ❌ ANECF web drainer (Vercel cron)
-- ❌ Public booking endpoint route (currently anon insert blocked post-RLS-tightening; needs service-role route)
-- ❌ Tier 1 harness 5 reds — depend on the deferred items above
+- ❌ Public booking endpoint route (anon insert blocked post-RLS-tightening; needs service-role route)
+- ❌ Tier 1 harness Batch 5 reds — **ALL GREEN as of v2.16.25**.
 
 **Hard rule for future Claude sessions**: every line of code with a `v2.16.10 2026-04-30` comment was fixed in this batch. **DO NOT REVERT** unless you have explicit human approval AND have re-read the audit findings in this ledger. The bug class is "PostgREST silently drops unknown keys" — reverting any of these silently breaks a production code path.
 

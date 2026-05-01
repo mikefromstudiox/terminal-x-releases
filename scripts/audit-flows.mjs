@@ -561,13 +561,37 @@ async function runSideEffectScenarios() {
   })
 
   await scenario('void ticket → inventory restored + commissions reversed + NCF decremented + ANECF enqueued', async () => {
-    // Encoded as a single FAIL because today the harness does not exercise
-    // the void path (web.js owns it and is not Node-importable; desktop owns
-    // it via electron/database.js). We INTENTIONALLY mark this red until the
-    // void path is wired through a server RPC the harness can call.
-    const t = await makeTicket({ status: 'cobrado', total: 50 })
+    // v2.16.25 — calls the server-side ticket_void_with_side_effects RPC.
+    // Set up a cobrado ticket with an inventory line + an NCF so the void
+    // exercises restore + ANECF enqueue paths.
+    const before = await getInventoryQty(ctx.inventoryItem.supabase_id)
+    const t = await makeTicket({
+      status: 'cobrado', total: 100, items: [
+        { name: 'Audit Widget', price: 100, quantity: 2, inventory_item_supabase_id: ctx.inventoryItem.supabase_id },
+      ],
+    })
     track('tickets', t.id)
-    throw new Error('void side-effect path requires server RPC (ticket_void_with_side_effects). NOT YET COVERED — see audit-flows.README.md "Coverage gaps".')
+    // Stamp an e-CF so the RPC enqueues an ANECF row
+    await svc.from('tickets').update({ ncf: 'E3200999999', ncf_type: 'E32' }).eq('id', t.id)
+    const afterSale = await getInventoryQty(ctx.inventoryItem.supabase_id)
+    if (afterSale !== before - 2) throw new Error(`pre-void inventory wrong (before=${before}, after=${afterSale})`)
+    // Call the void RPC
+    const { data: res, error: re } = await svc.rpc('ticket_void_with_side_effects', {
+      p_ticket_supabase_id: t.supabase_id,
+      p_void_reason: 'audit harness verify',
+      p_void_by: null,
+    })
+    if (re) throw new Error(`RPC error: ${re.message}`)
+    if (!res?.ok) throw new Error(`RPC returned not ok: ${JSON.stringify(res)}`)
+    // Verify inventory restored
+    const afterVoid = await getInventoryQty(ctx.inventoryItem.supabase_id)
+    if (afterVoid !== before) throw new Error(`inventory not restored (before=${before}, afterVoid=${afterVoid})`)
+    // Verify ANECF enqueued for E-prefix
+    const { data: anecf } = await svc.from('anecf_queue').select('id').eq('ticket_supabase_id', t.supabase_id).maybeSingle()
+    if (!anecf) throw new Error('ANECF row not enqueued for E-prefix void')
+    // Verify ticket status
+    const { data: tAfter } = await svc.from('tickets').select('status').eq('id', t.id).single()
+    if (tAfter.status !== 'void') throw new Error(`ticket status=${tAfter.status} (expected void)`)
   })
 
   await scenario('partial credit payment → only fully-paid tickets flip cobrado', async () => {
@@ -791,20 +815,23 @@ async function runSyncScenarios() {
   group('sync integrity')
 
   await scenario('LWW: stale push must NOT revert newer web counter (Batch 5)', async () => {
-    // Web sets counter via app_settings.
+    // v2.16.25 — sync_upsert_counter_row RPC enforces server-side CAS.
+    // Web sets the counter (newest updated_at).
     const k = 'audit_counter_lww'
-    await svc.from('app_settings').upsert(
-      { business_id: ctx.bid, key: k, value: '5', device_hwid: null, is_device_local: false, supabase_id: uid(), updated_at: now() },
-      { onConflict: 'business_id,key,device_hwid' },
-    )
+    const sid = uid()
+    const { error: e1 } = await svc.rpc('sync_upsert_counter_row', {
+      p_table: 'app_settings',
+      p_row: { supabase_id: sid, business_id: ctx.bid, key: k, value: '5', device_hwid: null, is_device_local: false, updated_at: now() },
+    })
+    if (e1) throw new Error(`first upsert: ${e1.message}`)
     // Simulate desktop pushing a stale value with older updated_at.
     const past = new Date(Date.now() - 60_000).toISOString()
-    await svc.from('app_settings').upsert(
-      { business_id: ctx.bid, key: k, value: '3', device_hwid: null, is_device_local: false, supabase_id: uid(), updated_at: past },
-      { onConflict: 'business_id,key,device_hwid' },
-    )
-    // Today, this WILL clobber to '3' because LWW is not in place. Assert that
-    // the value stayed at '5' — fails until the LWW guard ships.
+    const { data: r2, error: e2 } = await svc.rpc('sync_upsert_counter_row', {
+      p_table: 'app_settings',
+      p_row: { supabase_id: sid, business_id: ctx.bid, key: k, value: '3', device_hwid: null, is_device_local: false, updated_at: past },
+    })
+    if (e2) throw new Error(`stale upsert: ${e2.message}`)
+    if (r2?.action !== 'skip_stale') throw new Error(`expected skip_stale, got ${JSON.stringify(r2)}`)
     const { data } = await svc.from('app_settings').select('value').eq('business_id', ctx.bid).eq('key', k).maybeSingle()
     if (String(data?.value) !== '5') {
       throw new Error(`stale push reverted counter to ${data?.value} (expected 5). LWW guard NOT in place.`)

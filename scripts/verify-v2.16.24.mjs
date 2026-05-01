@@ -320,9 +320,8 @@ await step('5.2 cobrado ticket with inventory_item_supabase_id → quantity decr
     name: item.name, price: 100, quantity: 3,
     inventory_item_supabase_id: item.supabase_id,
   })
-  // Web.js auto-deduct flow: read qty, write qty - 3
-  const { data: cur } = await sb.from('inventory_items').select('quantity').eq('supabase_id', item.supabase_id).single()
-  await sb.from('inventory_items').update({ quantity: Math.max(0, Number(cur.quantity) - 3) }).eq('supabase_id', item.supabase_id)
+  // v2.16.25 — server-side trigger trg_ticket_items_decrement_inventory fires
+  // on insert. No manual decrement needed (was double-decrementing).
   const { data: after } = await sb.from('inventory_items').select('quantity').eq('supabase_id', item.supabase_id).single()
   // Restore + cleanup
   await sb.from('inventory_items').update({ quantity: beforeQty }).eq('supabase_id', item.supabase_id)
@@ -371,11 +370,13 @@ await step('5.4 mesa transfer: ticket.mesa_supabase_id swaps + old mesa frees', 
   const mesas = r.data
   if (!mesas || mesas.length < 2) throw new Error(`demo resto needs 2+ mesas (got ${mesas?.length || 0})`)
   const [a, b] = mesas
-  // Set a=ocupada with a fake ticket pointing at it. Bump rev to satisfy
-  // mesas rev-advance trigger (every status change must increment rev).
-  const ar = await sb.from('mesas').update({ status: 'ocupada', rev: 99999 }).eq('id', a.id).select('id').single()
+  // Read current rev so increments always advance (mesas rev-advance trigger).
+  const { data: aCur } = await sb.from('mesas').select('rev').eq('id', a.id).single()
+  const { data: bCur } = await sb.from('mesas').select('rev').eq('id', b.id).single()
+  let aRev = Number(aCur?.rev || 0), bRev = Number(bCur?.rev || 0)
+  const ar = await sb.from('mesas').update({ status: 'ocupada', rev: ++aRev }).eq('id', a.id).select('id').single()
   if (ar.error) throw new Error(`mesa A occupy: ${ar.error.message}`)
-  const br = await sb.from('mesas').update({ status: 'libre', rev: 99998 }).eq('id', b.id).select('id').single()
+  const br = await sb.from('mesas').update({ status: 'libre', rev: ++bRev }).eq('id', b.id).select('id').single()
   if (br.error) throw new Error(`mesa B free: ${br.error.message}`)
   const tSid = crypto.randomUUID()
   const tr = await sb.from('tickets').insert({
@@ -387,17 +388,17 @@ await step('5.4 mesa transfer: ticket.mesa_supabase_id swaps + old mesa frees', 
   // Mimic web.js transferToMesa: update ticket.mesa_supabase_id → b, free a → sucia, occupy b → ocupada
   const u1 = await sb.from('tickets').update({ mesa_supabase_id: b.supabase_id }).eq('supabase_id', tSid).select('mesa_supabase_id').single()
   if (u1.error) throw new Error(`ticket move: ${u1.error.message}`)
-  const u2 = await sb.from('mesas').update({ status: 'sucia', rev: 100001 }).eq('id', a.id).select('status').single()
+  const u2 = await sb.from('mesas').update({ status: 'sucia', rev: ++aRev }).eq('id', a.id).select('status').single()
   if (u2.error) throw new Error(`mesa A free: ${u2.error.message}`)
-  const u3 = await sb.from('mesas').update({ status: 'ocupada', rev: 100002 }).eq('id', b.id).select('status').single()
+  const u3 = await sb.from('mesas').update({ status: 'ocupada', rev: ++bRev }).eq('id', b.id).select('status').single()
   if (u3.error) throw new Error(`mesa B occupy: ${u3.error.message}`)
   const tAfter = u1.data
   const aAfter = u2.data
   const bAfter = u3.data
   // Restore
   await sb.from('tickets').delete().eq('supabase_id', tSid)
-  await sb.from('mesas').update({ status: 'libre', rev: 100003 }).eq('id', a.id)
-  await sb.from('mesas').update({ status: 'libre', rev: 100004 }).eq('id', b.id)
+  await sb.from('mesas').update({ status: 'libre', rev: ++aRev }).eq('id', a.id)
+  await sb.from('mesas').update({ status: 'libre', rev: ++bRev }).eq('id', b.id)
   if (tAfter.mesa_supabase_id !== b.supabase_id) throw new Error('ticket.mesa_supabase_id did not move')
   if (aAfter.status !== 'sucia') throw new Error(`old mesa not freed: status=${aAfter.status}`)
   if (bAfter.status !== 'ocupada') throw new Error(`new mesa not seated: status=${bAfter.status}`)
