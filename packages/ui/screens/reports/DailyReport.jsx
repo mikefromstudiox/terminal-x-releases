@@ -819,11 +819,24 @@ export default function DailyReport() {
       // optimistic state stands. This replaces the dispatch->listener
       // pattern for the void case only; Cobrar still uses the event
       // because that's a cross-tab scenario.
+      // Belt-and-suspenders refetch — but ONLY accept the result if it
+      // returns at least 1 row. An empty-array response from byDateRange
+      // would silently wipe the list (we just optimistically marked one
+      // row nula; a [] response wouldn't reflect that). Treat empty as
+      // "fetch was inconclusive, keep optimistic state."
       try {
         const range = getDateRange(datePill)
         const rows = await api.tickets.byDateRange(range)
-        if (Array.isArray(rows)) setTransactions(rows.map(dbToTxn))
-      } catch (_) { /* keep optimistic state */ }
+        if (Array.isArray(rows) && rows.length > 0) {
+          setTransactions(rows.map(dbToTxn))
+        } else {
+          // eslint-disable-next-line no-console
+          console.warn('[DailyReport] post-void refetch returned empty; keeping optimistic state. Range:', range)
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[DailyReport] post-void refetch threw; keeping optimistic state.', e?.message)
+      }
     } catch {
       flash(lang === 'es' ? 'Error al anular la factura.' : 'Error voiding the invoice.')
     }
