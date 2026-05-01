@@ -3095,7 +3095,12 @@ export function createWebAPI(supabase, businessId) {
 
       void: (data) => tryOr(async () => {
         const { id, reason, voidBy } = typeof data === 'object' ? data : { id: data }
-        const priorRow = (await supabase.from('tickets').select('supabase_id, doc_number, total, descuento, payment_method, tipo_venta, client_supabase_id, ncf, rev').eq('id', id).eq('business_id', bid).maybeSingle())?.data
+        // v2.16.31 — also pull ecf_result so the NCF-decrement-on-void path
+        // can fall back when the top-level `ncf` column is null. Legacy
+        // tickets store the assigned NCF inside ecf_result.eNCF (set by
+        // CobrarModal isLegacy branch); only certified e-CF tickets that
+        // round-tripped to DGII end up with a non-null tickets.ncf column.
+        const priorRow = (await supabase.from('tickets').select('supabase_id, doc_number, total, descuento, payment_method, tipo_venta, client_supabase_id, ncf, ecf_result, rev').eq('id', id).eq('business_id', bid).maybeSingle())?.data
         // v2.10.3 — bump rev so Supabase trg_tickets_rev_guard accepts the status change.
         throwSupaError(await supabase.from('tickets').update({
           status: 'nula',
@@ -3114,38 +3119,62 @@ export function createWebAPI(supabase, businessId) {
           // Legacy (B01/B02) only: decrement if last-issued so next ticket reuses.
           // e-CF (E3x): enqueue ANECF so DGII is notified. Both paths best-effort;
           // void has already succeeded above.
-          if (priorRow.ncf) {
+          // v2.16.31 — fall back to ecf_result.eNCF when the top-level
+          // tickets.ncf column is null (legacy/local stub path leaves
+          // tickets.ncf NULL and writes the NCF to ecf_result.eNCF only).
+          // Without this fallback, every legacy void silently skipped the
+          // decrement and the sequence stayed inflated.
+          let priorNcf = priorRow.ncf
+          if (!priorNcf) {
             try {
-              const m = String(priorRow.ncf).trim().match(/^([A-Z]\d{2})(\d+)$/)
+              const er = priorRow.ecf_result
+              const erObj = typeof er === 'string' ? JSON.parse(er) : er
+              priorNcf = erObj?.eNCF || null
+            } catch { priorNcf = null }
+          }
+          if (priorNcf) {
+            try {
+              const m = String(priorNcf).trim().match(/^([A-Z]\d{2})(\d+)$/)
               if (m) {
                 const prefix = m[1]
                 const num = parseInt(m[2], 10)
                 const isEcf = prefix.startsWith('E')
                 if (!isEcf && Number.isFinite(num) && num > 0) {
                   // Legacy: decrement if it matches current_number for this prefix.
+                  // v2.16.31 — `active` is BOOLEAN in live schema (per
+                  // SCHEMA-SNAPSHOT.md). The `.eq('active', 1)` previously
+                  // worked because PostgREST coerces 1→true on a boolean
+                  // column, but make it explicit + match the by-type lookup
+                  // pattern used elsewhere (the `prefix` column historically
+                  // had stray values like 'E320' from sync corruption — see
+                  // electron/database.js:8100-8104; type is the canonical
+                  // 3-char prefix, so match by that).
                   const { data: seq } = await supabase.from('ncf_sequences')
-                    .select('type, current_number').eq('business_id', bid).eq('prefix', prefix).eq('active', 1).maybeSingle()
+                    .select('type, current_number').eq('business_id', bid).eq('type', prefix).eq('active', true).maybeSingle()
                   if (seq && Number(seq.current_number) === num) {
                     await supabase.from('ncf_sequences').update({ current_number: num - 1 })
                       .eq('business_id', bid).eq('type', seq.type)
                   }
                 } else if (isEcf) {
                   // e-CF: insert (idempotent) into anecf_queue; UNIQUE(business_id,ncf).
+                  // v2.16.31 — use the resolved priorNcf (top-level ncf or
+                  // ecf_result.eNCF fallback) so this path also fires for
+                  // tickets where only ecf_result captured the NCF.
                   const tipoEcf = prefix.substring(1, 3)
                   await supabase.from('anecf_queue').insert({
                     business_id: bid,
                     ticket_id: id,
                     ticket_supabase_id: priorRow.supabase_id || null,
-                    ncf: priorRow.ncf,
+                    ncf: priorNcf,
                     tipo_ecf: tipoEcf,
-                    rango_desde: priorRow.ncf,
-                    rango_hasta: priorRow.ncf,
+                    rango_desde: priorNcf,
+                    rango_hasta: priorNcf,
                     environment: 'certecf',
                     supabase_id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : undefined,
                   })
                   await logActivity({ event_type: 'ncf_auto_anecf', severity: 'warn',
-                    target_type: 'ticket', target_id: id, target_name: priorRow.ncf,
-                    metadata: { ncf: priorRow.ncf, tipo_ecf: tipoEcf, ticket_supabase_id: priorRow.supabase_id || null } })
+                    target_type: 'ticket', target_id: id, target_name: priorNcf,
+                    metadata: { ncf: priorNcf, tipo_ecf: tipoEcf, ticket_supabase_id: priorRow.supabase_id || null } })
                 }
               }
             } catch (e) { try { console.warn('[web.js] ncf/anecf post-void skip:', e.message) } catch {} }
@@ -3212,6 +3241,12 @@ export function createWebAPI(supabase, businessId) {
             }
           }
         } catch (e) { console.error('[web.js] void stock reversal failed:', e.message) }
+        // v2.16.31 — Notify Ventas/Inventory screens to re-fetch. Without
+        // this the Ventas list stays stale until manual refresh (the void
+        // succeeded server-side but the UI still showed the cobrado state
+        // or showed nothing because of a default filter).
+        try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('tx:tickets-refresh')) } catch {}
+        try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('tx:inventory-refresh')) } catch {}
       }),
 
       // C2/v2.16.4 — `getActiveByMesa` superseded by the open_status-based

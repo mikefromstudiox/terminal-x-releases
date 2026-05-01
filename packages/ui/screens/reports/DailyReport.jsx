@@ -681,17 +681,33 @@ export default function DailyReport() {
   // Load tickets from DB whenever datePill changes
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
+    const reload = () => {
+      setLoading(true)
+      setSelectedId(null)
+      const range = getDateRange(datePill)
+      api.tickets.byDateRange(range)
+        .then(rows => {
+          if (!cancelled) setTransactions((rows || []).map(dbToTxn))
+        })
+        .catch(() => { if (!cancelled) setTransactions([]) })
+        .finally(() => { if (!cancelled) setLoading(false) })
+    }
     setCashier('all')
-    setSelectedId(null)
-    const range = getDateRange(datePill)
-    api.tickets.byDateRange(range)
-      .then(rows => {
-        if (!cancelled) setTransactions((rows || []).map(dbToTxn))
-      })
-      .catch(() => { if (!cancelled) setTransactions([]) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
+    reload()
+    // v2.16.31 — Refresh after voids / cobros so the list never goes stale.
+    // Mike reported on 2026-05-01: after voiding T-0028, Ventas screen showed
+    // ZERO tickets even though 4 cobrado tickets remained in DB. Manual
+    // refresh recovered. Listener sources:
+    //   - web.js api.tickets.void → dispatches tx:tickets-refresh
+    //   - POS.jsx handlePaymentConfirm → dispatches tx:tickets-refresh
+    //     (added in same patch so a successful Cobrar shows up immediately
+    //      if the cashier is on the Reports tab in another window).
+    const onRefresh = () => { if (!cancelled) reload() }
+    if (typeof window !== 'undefined') window.addEventListener('tx:tickets-refresh', onRefresh)
+    return () => {
+      cancelled = true
+      if (typeof window !== 'undefined') window.removeEventListener('tx:tickets-refresh', onRefresh)
+    }
   }, [datePill])
 
   // Unique cashier names from loaded data

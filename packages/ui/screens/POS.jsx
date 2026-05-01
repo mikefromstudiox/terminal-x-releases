@@ -2166,6 +2166,10 @@ function RetailPOS() {
     // stock counts stay in sync with the DB after a sale (was lagging by
     // a full page reload).
     try { window.dispatchEvent(new CustomEvent('tx:inventory-refresh')) } catch {}
+    // v2.16.31 — Notify DailyReport / Ventas list to re-fetch so a fresh
+    // Cobrar shows up immediately if the cashier has Reports open in
+    // another tab. Symmetric with the void-side dispatch in web.js void().
+    try { window.dispatchEvent(new CustomEvent('tx:tickets-refresh')) } catch {}
   }
 
   // ── Licorería quick-sells: load top-N active products ────────────────────
