@@ -342,10 +342,14 @@ function WorkOrdersScreen() {
       })
 
       // Stamp ticket link on the WO + flip to facturado.
+      // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §6.1). work_orders had
+      // both ticket_id (integer, mistakenly added) and ticket_supabase_id
+      // (UUID, the canonical FK). Verifier round 3 confirmed ticket.id is UUID
+      // → integer ticket_id rejected with 22P02. The integer column was
+      // dropped 2026-04-30; ticket_supabase_id is the only ticket FK now.
       try {
         await api.workOrders.update(wo.id, {
           status:             'facturado',
-          ticket_id:          result?.id || null,
           ticket_supabase_id: result?.supabase_id || null,
         })
       } catch (updErr) {
