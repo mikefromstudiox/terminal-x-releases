@@ -1828,6 +1828,10 @@ function MiEmpresa() {
     { k: 'biz_address', label: L('Dirección', 'Address'),                     ph: 'Av. Winston Churchill 1099' },
     { k: 'biz_city',    label: L('Ciudad', 'City'),                           ph: 'Santo Domingo'             },
     { k: 'biz_phone',   label: L('Teléfono', 'Phone'),                        ph: '809-555-0123'              },
+    // v2.16.27 — already cloud-synced via BUSINESS_SETTING_KEYS, already
+    // rendered on receipts/PDFs when present. The form just never asked.
+    { k: 'biz_email',   label: L('Correo electrónico', 'Email'),              ph: 'contacto@minegocio.do',     type: 'email' },
+    { k: 'biz_website', label: L('Sitio web', 'Website'),                     ph: 'https://minegocio.do',      type: 'url' },
   ]
 
   if (loading) return <div className="py-16 flex justify-center"><Loader2 className="animate-spin text-slate-300 dark:text-white/30" size={22} /></div>
@@ -1872,7 +1876,7 @@ function MiEmpresa() {
         {fields.map(f => (
           <div key={f.k}>
             <label className="block text-[11px] font-semibold text-slate-500 dark:text-white/60 mb-1">{f.label}</label>
-            <input type="text" value={form[f.k]} onChange={e => set(f.k, e.target.value)} placeholder={f.ph}
+            <input type={f.type || 'text'} value={form[f.k] || ''} onChange={e => set(f.k, e.target.value)} placeholder={f.ph}
               className="w-full px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[13px] text-slate-700 dark:text-white focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/20" />
           </div>
         ))}

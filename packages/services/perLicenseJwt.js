@@ -35,15 +35,27 @@ function lsAvailable() {
  * @returns {Promise<{access_token: string, expires_at: number, business_id: string, plan_id: string|null}>}
  * @throws if the network call fails or the function returns non-2xx.
  */
-export async function mintJwt({ licenseKey, machineId, supabaseFunctionsUrl }) {
+export async function mintJwt({ licenseKey, machineId, supabaseFunctionsUrl, anonKey }) {
   if (!licenseKey)            throw new Error('mintJwt: licenseKey required')
   if (!machineId)             throw new Error('mintJwt: machineId required')
   if (!supabaseFunctionsUrl)  throw new Error('mintJwt: supabaseFunctionsUrl required')
 
   const url = supabaseFunctionsUrl.replace(/\/+$/, '') + '/mint-license-jwt'
+  // v2.16.27 — Supabase Edge Function gateway requires the anon apikey on
+  // every request (verify_jwt default), even for endpoints that authenticate
+  // via custom payload. Without these headers the gateway returns 401 BEFORE
+  // the function code runs, so Mike's tab can never mint a license JWT and
+  // every RLS-protected write 401s. Fall back to import.meta.env when caller
+  // didn't pass the key explicitly so the existing call sites keep working.
+  const key = anonKey
+    || (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_SUPABASE_ANON_KEY)
+    || (typeof globalThis !== 'undefined' && globalThis?.__TX_SUPABASE_ANON_KEY)
+    || null
+  const headers = { 'content-type': 'application/json' }
+  if (key) { headers.apikey = key; headers.authorization = `Bearer ${key}` }
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify({ license_key: licenseKey, machine_id: machineId }),
   })
   if (!res.ok) {
@@ -99,12 +111,12 @@ export function isExpiringSoon(jwtBundle, bufferMs = JWT_REFRESH_BUFFER_MS) {
  * Throws on mint failure — caller decides whether to fall back to a
  * different auth path (e.g. signInWithPassword) or surface the error.
  */
-export async function getOrMintJwt({ licenseKey, machineId, supabaseFunctionsUrl, force = false }) {
+export async function getOrMintJwt({ licenseKey, machineId, supabaseFunctionsUrl, anonKey, force = false }) {
   if (!force) {
     const cached = loadCachedJwt()
     if (cached) return cached
   }
-  const fresh = await mintJwt({ licenseKey, machineId, supabaseFunctionsUrl })
+  const fresh = await mintJwt({ licenseKey, machineId, supabaseFunctionsUrl, anonKey })
   saveCachedJwt(fresh)
   return fresh
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import logoImg from '../assets/logo.webp'
 import xMark from '../assets/x-mark.webp'
 import { Delete } from 'lucide-react'
@@ -121,6 +121,11 @@ export default function Login() {
 
   const [mode, setMode]         = useState('pin')
   const [pin, setPin]           = useState('')
+  // v2.16.27 — pinRef tracks the latest pin so the auto-submit timer can
+  // detect "user kept typing while we awaited login()" and suppress the
+  // stale "PIN incorrecto" toast for a length-4/5 attempt that's already
+  // been superseded by a length-5/6 attempt in flight.
+  const pinRef = useRef('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError]       = useState(null)
@@ -152,13 +157,27 @@ export default function Login() {
   // user typed their correct PIN and it wasn't in the local DB (unsynced user,
   // hash mismatch, etc). Only reset + shake at max length so users can keep
   // typing a longer PIN without losing their input.
+  // Keep pinRef in lockstep with pin state so the timer closure can read
+  // the LATEST value (closures capture the snapshot at schedule-time only).
+  useEffect(() => { pinRef.current = pin }, [pin])
+
   useEffect(() => {
     if (pin.length < 4) return
     const delay = pin.length === 6 ? 100 : 600 // wait a bit longer at 4-5 so fast typists can extend
+    const submittedPin = pin
     const timer = setTimeout(async () => {
-      const res = await login(pin)
+      const res = await login(submittedPin)
       // Back-compat: old return was a boolean; new return is { ok, lockedUntil }.
       const ok = res === true || res?.ok === true
+      // v2.16.27 — Two guards against the "PIN incorrecto" flicker:
+      //   1. If the user kept typing while login() was awaiting, the PIN is
+      //      now longer than what we submitted — a fresher attempt is in
+      //      flight. Suppress THIS attempt's error entirely so the user
+      //      never sees red for a length-4 fail when their real PIN is
+      //      length-5 or length-6.
+      //   2. On success, clear any stale error from a prior mid-PIN attempt.
+      if (pinRef.current !== submittedPin) return
+      if (ok) { setError(null); return }
       if (!ok) {
         // Sprint 10 — if any row is currently locked, surface it explicitly
         // so the cashier knows to wait instead of pounding the pad.

@@ -84,6 +84,7 @@ function _schedulePeriodicRefresh(supabase, supabaseUrl) {
         licenseKey,
         machineId: _getOrCreateMachineId(),
         supabaseFunctionsUrl: _resolveFunctionsUrl(supabaseUrl),
+        anonKey: (typeof globalThis !== 'undefined' && globalThis.__TX_SUPABASE_ANON_KEY) || null,
         force: true,
       })
       await _attachJwt(supabase, fresh)
@@ -102,15 +103,22 @@ function _schedulePeriodicRefresh(supabase, supabaseUrl) {
  * @param {string} supabaseUrl  e.g. https://xxx.supabase.co (used to derive functions URL)
  * @returns {Promise<boolean>} true if a JWT was attached, false if skipped/failed
  */
-export async function bootLicenseJwt(supabase, supabaseUrl) {
+export async function bootLicenseJwt(supabase, supabaseUrl, supabaseAnonKey) {
   if (!supabase || typeof localStorage === 'undefined') return false
   const licenseKey = localStorage.getItem(LICENSE_KEY_LS)
   if (!licenseKey) return false // demo / unprovisioned tab — leave session alone
+  // v2.16.27 — Edge Function gateway requires the anon apikey on every call
+  // (verify_jwt default). Stash on globalThis so the periodic refresher and
+  // the mintJwt fallback chain can read it without prop-drilling.
+  if (supabaseAnonKey && typeof globalThis !== 'undefined') {
+    globalThis.__TX_SUPABASE_ANON_KEY = supabaseAnonKey
+  }
   try {
     const bundle = await _getOrMintJwt({
       licenseKey,
       machineId: _getOrCreateMachineId(),
       supabaseFunctionsUrl: _resolveFunctionsUrl(supabaseUrl),
+      anonKey: supabaseAnonKey,
     })
     const ok = await _attachJwt(supabase, bundle)
     if (!ok) return false
@@ -2507,7 +2515,7 @@ export function createWebAPI(supabase, businessId) {
         // Fetch items — by ticket_supabase_id only
         const tSids  = [...new Set(rows.map(r => r.supabase_id).filter(Boolean))]
         const itemsMap = {}
-        if (tSids.length)  { const { data: ir } = await supabase.from('ticket_items').select('ticket_supabase_id, name, price, cost, is_wash, is_deposit, quantity, sku, inventory_item_id, inventory_item_supabase_id, aplica_itbis').eq('business_id', bid).in('ticket_supabase_id', tSids); for (const i of (ir || [])) { if (!itemsMap[i.ticket_supabase_id]) itemsMap[i.ticket_supabase_id] = []; itemsMap[i.ticket_supabase_id].push(i) } }
+        if (tSids.length)  { const { data: ir } = await supabase.from('ticket_items').select('ticket_supabase_id, name, price, cost, is_wash, is_deposit, quantity, sku, inventory_item_id, inventory_item_supabase_id').eq('business_id', bid).in('ticket_supabase_id', tSids); for (const i of (ir || [])) { if (!itemsMap[i.ticket_supabase_id]) itemsMap[i.ticket_supabase_id] = []; itemsMap[i.ticket_supabase_id].push(i) } }
 
         // Fetch client names — supabase_id only. Defense-in-depth: redundant
         // .eq('business_id', bid) so a future RLS migration that drops the
@@ -2594,6 +2602,19 @@ export function createWebAPI(supabase, businessId) {
       }, null),
 
       create: async (data) => {
+        // v2.16.27 — DUPLICATE-PREVENTION. Pre-mint supabase_id at the top so
+        // any retry path (offline-queue replay, double-click, etc.) re-uses
+        // the SAME id. Combined with the idempotency check in
+        // syncPendingTickets, this guarantees one logical sale = one ticket
+        // row regardless of network flakiness or post-insert side-effect
+        // failures. Root cause: the prior outer catch enqueued the payload
+        // even when the real ticket already inserted but a downstream
+        // side-effect (ticket_items / queue / balance) threw. The 60s sync
+        // timer then replayed the queued payload and minted a fresh
+        // supabase_id every cycle, producing T-0017…T-0021 duplicates.
+        if (!data.supabase_id) {
+          try { data.supabase_id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `web-${Date.now()}-${Math.random().toString(36).slice(2)}` } catch {}
+        }
         try {
           return await tryOr(async () => {
             // v2.16.10 — Go-Live gate (web mirror). Read go_live_date from
@@ -2695,9 +2716,19 @@ export function createWebAPI(supabase, businessId) {
             const cajeroSidResolved = cajeroRefRaw && cajeroRefRaw !== 'web'
               ? (await resolveEmpleadoSidsRaw([cajeroRefRaw]))[0] || null : null
 
-            // Insert ticket
-            const ticketSid = crypto.randomUUID()
-            const ticket = throwSupaError(await supabase.from('tickets').insert({
+            // Insert ticket — re-use the pre-minted supabase_id so retries
+            // (offline-queue replay, double-submit) collide on the UNIQUE
+            // (business_id, supabase_id) and never produce duplicate rows.
+            //
+            // v2.16.27 — Use Prefer:return=minimal (no ?select=*). The
+            // representation read-back was throwing PGRST116/HTTP 400 on
+            // some payload variations even though the row landed
+            // successfully — kicking the offline-queue replay on every
+            // credit+oferta sale and cluttering the console with red.
+            // Insert minimally, then fetch the row by supabase_id (a
+            // separate, decoupled SELECT that fails clean if RLS denies).
+            const ticketSid = data.supabase_id
+            throwSupaError(await supabase.from('tickets').insert({
               supabase_id:     ticketSid,
               business_id:     bid,
               doc_number:      docNum,
@@ -2736,7 +2767,13 @@ export function createWebAPI(supabase, businessId) {
               // POS sends free-form cashier notes as `comentario`; schema column is `notes`.
               notes:           data.notes || data.comentario || null,
               mode:            data.mode || null,
-              beverage_subtotal: Number(data.beverage_subtotal || 0) || null,
+              // v2.16.27 — NOT NULL column. The legacy `Number(x || 0) || null`
+              // pattern coerced a real 0 (e.g. retail / Ranoza with no beverage
+              // line) into null and tripped 23502. Use Number directly + explicit
+              // 0 fallback. THIS is the bug that was returning HTTP 400 on every
+              // credit+oferta sale (DB rejected, offline-queue replay then
+              // produced a duplicate via syncPendingTickets which sets a default).
+              beverage_subtotal: Number(data.beverage_subtotal) || 0,
               order_source:    data.order_source || 'pos',
               // v2.10.4 — restaurant split-bill persistence. JSONB column, so
               // pass the array as-is (no stringify). NULL = single-method
@@ -2744,7 +2781,18 @@ export function createWebAPI(supabase, businessId) {
               payment_parts:   (Array.isArray(data.payment_parts) && data.payment_parts.length) ? data.payment_parts : null,
               split_bill:      (data.split === true || (Array.isArray(data.payment_parts) && data.payment_parts.length > 1)) || false,
               is_test:         !_liveWeb,
-            }).select().single())
+            }, { returning: 'minimal' }))
+
+            // v2.16.27 — Decoupled read-back. Fetch the just-inserted row
+            // by (business_id, supabase_id) so downstream side-effects
+            // (queue, balance, items, commissions) keep getting the int
+            // ticket.id they need — but a SELECT-RLS denial here just
+            // returns null instead of cluttering the console with 400.
+            const { data: ticket } = await supabase.from('tickets')
+              .select('id, doc_number')
+              .eq('business_id', bid)
+              .eq('supabase_id', ticketSid)
+              .maybeSingle()
 
             // Insert ticket items — try with business_id first, fall back without
             // Snapshot each item's cost at sale time for historical profit accuracy.
@@ -3372,7 +3420,7 @@ export function createWebAPI(supabase, businessId) {
         const itemId = data.ticket_item_id
         const newPrice = Math.max(0, Number(data.price) || 0)
         if (!itemSid && !itemId) throw new Error('updateItemPrice: id required')
-        const sel = supabase.from('ticket_items').select('id, supabase_id, ticket_supabase_id, ticket_id, price, quantity, aplica_itbis').eq('business_id', bid)
+        const sel = supabase.from('ticket_items').select('id, supabase_id, ticket_supabase_id, ticket_id, price, quantity').eq('business_id', bid)
         const { data: row, error: e1 } = await (itemSid
           ? sel.eq('supabase_id', itemSid).maybeSingle()
           : sel.eq('id', itemId).maybeSingle())
@@ -3382,7 +3430,7 @@ export function createWebAPI(supabase, businessId) {
         // Recompute ticket totals
         const tSid = row.ticket_supabase_id
         const { data: items } = await supabase.from('ticket_items')
-          .select('price, quantity, aplica_itbis').eq('ticket_supabase_id', tSid).eq('business_id', bid)
+          .select('price, quantity').eq('ticket_supabase_id', tSid).eq('business_id', bid)
         const itbisFrac = (Number((data.itbisRate ?? 18))) / 100
         let subtotal = 0, itbis = 0
         for (const it of (items || [])) {
@@ -3624,7 +3672,7 @@ export function createWebAPI(supabase, businessId) {
         // Fetch items — by ticket_supabase_id only
         const tSids  = [...new Set(rows.map(r => r.supabase_id).filter(Boolean))]
         const itemsMap = {}
-        if (tSids.length)  { const { data: ir } = await supabase.from('ticket_items').select('ticket_supabase_id, name, price, cost, is_wash, is_deposit, quantity, sku, inventory_item_id, inventory_item_supabase_id, aplica_itbis').eq('business_id', bid).in('ticket_supabase_id', tSids); for (const i of (ir || [])) { if (!itemsMap[i.ticket_supabase_id]) itemsMap[i.ticket_supabase_id] = []; itemsMap[i.ticket_supabase_id].push(i) } }
+        if (tSids.length)  { const { data: ir } = await supabase.from('ticket_items').select('ticket_supabase_id, name, price, cost, is_wash, is_deposit, quantity, sku, inventory_item_id, inventory_item_supabase_id').eq('business_id', bid).in('ticket_supabase_id', tSids); for (const i of (ir || [])) { if (!itemsMap[i.ticket_supabase_id]) itemsMap[i.ticket_supabase_id] = []; itemsMap[i.ticket_supabase_id].push(i) } }
 
         // Fetch client names — supabase_id only. Defense-in-depth business_id filter.
         const clientSids = [...new Set(rows.map(r => r.client_supabase_id).filter(Boolean))]
@@ -4686,9 +4734,9 @@ export function createWebAPI(supabase, businessId) {
         const { count } = await supabase.from('rnc_cache')
           .select('*', { count: 'exact', head: true }).eq('business_id', bid)
         const { data: lastRow } = await supabase.from('rnc_cache')
-          .select('updated_at').eq('business_id', bid)
-          .order('updated_at', { ascending: false }).limit(1).maybeSingle()
-        return { count: count || 0, lastSync: lastRow?.updated_at || null }
+          .select('synced_at').eq('business_id', bid)
+          .order('synced_at', { ascending: false }).limit(1).maybeSingle()
+        return { count: count || 0, lastSync: lastRow?.synced_at || null }
       }, { count: 0, lastSync: null }),
 
       // No real event emitter in web — consumers should poll or use Supabase Realtime

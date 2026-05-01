@@ -455,6 +455,14 @@ function useSettings() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
+  // v2.16.27 — QZ Tray availability tracker. On web, listPrinters bridges
+  // through the qz-tray.js WebSocket on localhost:8181-8484. If the daemon
+  // isn't installed, every connection times out and `printers` stays []
+  // — historically that left the cashier staring at "Predeterminada" with
+  // no explanation. We surface a friendly help block instead.
+  const [qzStatus, setQzStatus] = useState('checking')   // 'checking' | 'ok' | 'unreachable'
+  const isWebPwa = typeof window !== 'undefined' && !window.electronAPI
+
   useEffect(() => {
     const loadSettings = () => api.settings.get().then(s => {
       if (!s) return
@@ -462,8 +470,13 @@ function useSettings() {
     }).catch(() => {})
     loadSettings()
     printerApi?.listPrinters().then(res => {
-      if (res?.ok && Array.isArray(res.data)) setPrinters(res.data)
-    }).catch(() => {})
+      if (res?.ok && Array.isArray(res.data) && res.data.length > 0) {
+        setPrinters(res.data)
+        setQzStatus('ok')
+      } else {
+        setQzStatus(isWebPwa ? 'unreachable' : 'ok')
+      }
+    }).catch(() => { setQzStatus(isWebPwa ? 'unreachable' : 'ok') })
     // Re-fetch after cloud sync pull completes so a freshly-launched app
     // picks up the latest printer/drawer/POS config without requiring a
     // manual page reload. preload.js re-emits sync:pull-complete from main
@@ -654,7 +667,7 @@ export function Preferencias() {
         </SettingRow>
       </SettingSection>
 
-      {isMechanic && (
+      {(isMechanic || hasFeature?.('mecanica_workorders')) && (
         <SettingSection title={L('Mecánica', 'Mechanic')}>
           <SettingRow
             label={L('Tarifa de remolque', 'Tow fee')}
@@ -761,6 +774,46 @@ export function Preferencias() {
       )}
 
       <SettingSection title={L('Impresora', 'Printer')}>
+        {qzStatus === 'unreachable' && (
+          <div className="mb-3 p-3 rounded-lg border border-[#b3001e]/30 bg-[#b3001e]/5">
+            <p className="text-[12px] font-bold text-[#b3001e] mb-1">
+              {L('QZ Tray no detectado', 'QZ Tray not detected')}
+            </p>
+            <p className="text-[11px] text-slate-700 dark:text-white/70 leading-snug mb-2">
+              {L(
+                'Para imprimir recibos térmicos desde el navegador, instala QZ Tray en esta computadora y abre la aplicación. Luego refresca esta página.',
+                'To print thermal receipts from the browser, install QZ Tray on this computer and launch the app. Then refresh this page.',
+              )}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <a
+                href="https://qz.io/download/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#b3001e] text-white text-[11px] font-bold hover:bg-[#8a0017] transition-colors"
+              >
+                {L('Descargar QZ Tray', 'Download QZ Tray')}
+              </a>
+              <button
+                onClick={() => {
+                  setQzStatus('checking')
+                  printerApi?.listPrinters().then(res => {
+                    if (res?.ok && Array.isArray(res.data) && res.data.length > 0) {
+                      setPrinters(res.data); setQzStatus('ok')
+                      show(L('QZ Tray conectado ✓', 'QZ Tray connected ✓'))
+                    } else { setQzStatus('unreachable') }
+                  }).catch(() => setQzStatus('unreachable'))
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/10 dark:border-white/10 text-[11px] font-semibold text-black dark:text-white hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+              >
+                {L('Reintentar', 'Retry')}
+              </button>
+              <span className="text-[10px] text-slate-500 dark:text-white/40">
+                {L('o usa el diálogo del navegador para impresoras láser/inkjet.', 'or use the browser print dialog for laser/inkjet.')}
+              </span>
+            </div>
+          </div>
+        )}
         <SettingRow settingKey="printer" label={L('Impresora del sistema', 'System Printer')} hint={L('Se guarda al seleccionar', 'Saves on selection')}>
           <div className="flex items-center gap-2">
             <select value={cfg.printer} onChange={async (e) => {

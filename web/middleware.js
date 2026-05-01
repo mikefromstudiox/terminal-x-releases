@@ -54,7 +54,12 @@ function buildCsp(nonce) {
     // Tailwind + injected styles still need unsafe-inline for now.
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://*.supabase.co https://www.google-analytics.com https://www.googletagmanager.com",
-    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://www.google-analytics.com https://www.googletagmanager.com https://region1.google-analytics.com",
+    // v2.16.27 — QZ Tray (USB/ESC-POS printer bridge) auto-discovers via
+    // WebSocket on localhost:8181-8484 (signed) and localhost.qz.io:*
+    // (the .qz.io domain resolves to 127.0.0.1 with valid certs). Without
+    // these origins, Sistema → Preferencias → "Listar impresoras" CSP-blocks
+    // every connect attempt and the cashier can't bind a printer on web.
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://www.google-analytics.com https://www.googletagmanager.com https://region1.google-analytics.com wss://localhost:8181 wss://localhost:8282 wss://localhost:8383 wss://localhost:8484 wss://localhost.qz.io:8181 wss://localhost.qz.io:8282 wss://localhost.qz.io:8383 wss://localhost.qz.io:8484 https://localhost.qz.io:8181 https://localhost.qz.io:8282 https://localhost.qz.io:8383 https://localhost.qz.io:8484",
     "font-src 'self' data:",
     "frame-src 'none'",
     "object-src 'none'",

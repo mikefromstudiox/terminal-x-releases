@@ -1149,6 +1149,12 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
       qty: line.qty || 1,
       sku: line.sku || null,
       inventory_item_id: line.inventory_item_id || null,
+      // v2.16.27 — propagate the canonical UUID so oferta/upsell extras
+      // also drive the auto-deduct gate at web.js:2820 + offline-queue.
+      // Without this, every extra-line sale leaked inventory.
+      inventory_item_supabase_id: line.inventory_item_supabase_id || null,
+      service_supabase_id: line.service_supabase_id || null,
+      oferta_supabase_id: line.oferta_supabase_id || null,
       supabase_id: line.supabase_id || null,
       empleado_supabase_id: emp?.supabase_id || null,
       commission_pct: line.commission_pct ?? meta.commissionPct ?? 10,
@@ -1250,7 +1256,13 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         _legacy:     true,
       }
       setEcfResult(legacyResult)
-      setEcfState('success')
+      // v2.16.27 — Show "submitting" while the parent persists to DB. We
+      // used to flip to 'success' BEFORE awaiting onConfirm, so a tickets
+      // INSERT 400/401 left the SuccessView/factura on screen for a write
+      // that actually failed in the database. Now: stay submitting → only
+      // flip to success if onConfirm resolves cleanly; flip to error if it
+      // throws so the cashier sees the failure and can retry.
+      setEcfState('submitting')
       if (!confirmedRef.current) {
         confirmedRef.current = true
         const mixtoPayload = (formaPago === 'mixto')
@@ -1260,7 +1272,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           ? mixtoPayload.slice().sort((a, b) => b.amount - a.amount)[0].method
           : formaPago
         const effectiveItems = buildEffectiveItems()
-        onConfirm({
+        try {
+          await onConfirm({
           ticketId:  ticket.id,
           ticketNo:  ticket.ticketNo,
           clientId:  selectedClient?.id || null,
@@ -1289,7 +1302,19 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           lineStylists: buildLineStylistsPayload(),
           redemptions:  buildRedemptionsPayload(),
           ecf:       legacyResult,
-        })
+          })
+          // onConfirm resolved → ticket landed in DB. Now show the success
+          // screen + receipt actions.
+          setEcfState('success')
+        } catch (persistErr) {
+          // tickets.create threw (RLS, validation, network) — surface to the
+          // cashier with the real message and unlatch confirmedRef so they
+          // can fix and retry without reopening the modal.
+          confirmedRef.current = false
+          setEcfState('error')
+          setEcfError(persistErr?.message || (lang === 'es' ? 'Error al guardar el ticket. Revisa la consola.' : 'Failed to save ticket. Check console.'))
+          return
+        }
         awardLoyaltyPoints(selectedClient, total, ticket?.supabase_id || null)
         // v2.7.1 — commit staged redemption (burn points + ledger row)
         // SAFETY: ticket + descuento already booked. If burn fails, customer
@@ -1439,7 +1464,10 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         return
       }
       setEcfResult(result)
-      setEcfState('success')
+      // v2.16.27 — keep showing "submitting" until the parent persists to
+      // DB. The e-CF was accepted by DGII but if our tickets.create rejects
+      // (RLS, validation, network) the cashier should see the failure, not
+      // a green checkmark for a row that never landed.
       if (!confirmedRef.current) {
         confirmedRef.current = true
         const mixtoPayload = (formaPago === 'mixto')
@@ -1449,7 +1477,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           ? mixtoPayload.slice().sort((a, b) => b.amount - a.amount)[0].method
           : formaPago
         const effectiveItems = buildEffectiveItems()
-        onConfirm({
+        try {
+          await onConfirm({
           ticketId:  ticket.id,
           ticketNo:  ticket.ticketNo,
           clientId:  selectedClient?.id || null,
@@ -1478,7 +1507,14 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           lineStylists: buildLineStylistsPayload(),
           redemptions:  buildRedemptionsPayload(),
           ecf:       result,
-        })
+          })
+          setEcfState('success')
+        } catch (persistErr) {
+          confirmedRef.current = false
+          setEcfState('error')
+          setEcfError(persistErr?.message || (lang === 'es' ? 'Error al guardar el ticket. Revisa la consola.' : 'Failed to save ticket. Check console.'))
+          return
+        }
         awardLoyaltyPoints(selectedClient, total, ticket?.supabase_id || null)
         // v2.7.1 — commit staged redemption (burn points + ledger row)
         // SAFETY: e-CF + ticket already booked. If burn fails, surface a
@@ -1526,7 +1562,6 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
       // the cashier the POS isn't live.
       if (err?.code === 'TEST_MODE_NO_DGII' || /TEST_MODE_NO_DGII/.test(err?.message || '')) {
         setEcfResult(null)
-        setEcfState('success')
         if (!confirmedRef.current) {
           confirmedRef.current = true
           const mixtoPayload = (formaPago === 'mixto')
@@ -1536,7 +1571,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
             ? mixtoPayload.slice().sort((a, b) => b.amount - a.amount)[0].method
             : formaPago
           const effectiveItems = buildEffectiveItems()
-          onConfirm({
+          try {
+            await onConfirm({
             ticketId:  ticket.id,
             ticketNo:  ticket.ticketNo,
             clientId:  selectedClient?.id || null,
@@ -1553,7 +1589,14 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
             redemptions:  buildRedemptionsPayload(),
             ecf:       null,
             testMode:  true,
-          })
+            })
+            // v2.16.27 — only flip to success after parent persists.
+            setEcfState('success')
+          } catch (persistErr) {
+            confirmedRef.current = false
+            setEcfState('error')
+            setEcfError(persistErr?.message || (lang === 'es' ? 'Error al guardar el ticket. Revisa la consola.' : 'Failed to save ticket. Check console.'))
+          }
         }
         return
       }

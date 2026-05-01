@@ -36,6 +36,21 @@ const BUSINESS_SETTING_KEYS = new Set([
   // Hybrid components (CSV) — owner-picked list of business types that
   // make up a hybrid setup (e.g. "restaurant,retail" or "carwash,salon").
   'hybrid_components',
+  // v2.16.27 — discounts-at-cobrar + ITBIS-per-line on receipt. Toggles
+  // existed in Admin but the keys were missing here, so per-business
+  // overrides never synced cloud-side and reverted on next reload.
+  'feature_discounts_enabled',
+  'feature_receipt_itbis_per_line_enabled',
+  // v2.16.27 — Manager Authorization gates. All five toggles in
+  // Sistema.jsx 575-588 must sync cloud-side per business.
+  'mgr_gate_enabled_discount_big',
+  'mgr_gate_enabled_void',
+  'mgr_gate_enabled_credit_note',
+  'mgr_gate_enabled_inv_adjust',
+  'mgr_gate_enabled_price_edit',
+  // v2.16.27 — Onboarding wizard completion + first-run flag.
+  'onboarding_state',
+  'setup_complete',
   'feature_age_verification_enabled',
   'feature_pedidos_ya_enabled',
   'feature_bottle_deposit_enabled',

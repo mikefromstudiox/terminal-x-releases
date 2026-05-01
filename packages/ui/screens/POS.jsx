@@ -2774,6 +2774,10 @@ function RetailPOS() {
       } catch (e) { console.error('post-sale side-effect failed', e) }
     } catch (err) {
       flash(`Error: ${err.message}`)
+      // v2.16.27 — re-throw so CobrarModal can switch from "submitting" to
+      // "error" state instead of optimistically showing the success screen
+      // for a write that never landed in the DB.
+      throw err
     }
   }, [cobrarModal, lang])
 

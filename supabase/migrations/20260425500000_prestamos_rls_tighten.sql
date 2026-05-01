@@ -1,3 +1,13 @@
+-- ⚠️  SUPERSEDED 2026-04-27 by 20260427000001_per_license_jwt_lockdown.sql
+-- ⚠️  Every `<tbl>_anon_select` / `<tbl>_anon_modify` policy this file
+-- ⚠️  creates was DROPPED in the 20260427000001 lockdown and replaced by
+-- ⚠️  the per-license JWT family reading app_metadata.business_id.
+-- ⚠️  Also: this file's body references user_metadata as the claim path —
+-- ⚠️  that is OBSOLETE. Live policies read app_metadata. See
+-- ⚠️  docs/MIGRATION-AUDIT-2026-05-01.md and 20260429000050_jwt_metadata_path_swap.sql.
+-- ⚠️  DO NOT trust this file as a description of current RLS posture.
+-- ⚠️  Audited 2026-05-01.
+--
 -- ════════════════════════════════════════════════════════════════════════════
 -- C2 — Prestamos RLS tightening (anon JWT-claim scoping)
 --

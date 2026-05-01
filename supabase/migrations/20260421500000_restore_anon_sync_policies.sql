@@ -1,3 +1,11 @@
+-- ⚠️  SUPERSEDED 2026-04-27 by 20260427000001_per_license_jwt_lockdown.sql
+-- ⚠️  Every `rls_anon_sync_*` policy this file creates was DROPPED inside
+-- ⚠️  the policy-rebuild loop in 20260427000001 and replaced by the
+-- ⚠️  per-license JWT family (`<tbl>_jwt_select` / `<tbl>_jwt_modify` etc).
+-- ⚠️  DO NOT trust this file as a description of current RLS posture.
+-- ⚠️  Cross-check with `pg_policies` or docs/MIGRATION-AUDIT-2026-05-01.md
+-- ⚠️  before reasoning about anon access. Audited 2026-05-01.
+--
 -- HOTFIX: Sprint 5 hardening (20260419200000) dropped every anon policy but
 -- desktop sync ships with the anon key and relies on tenant-scoped writes.
 -- my_business_ids() requires auth.uid() so anon got zero rows back. Every

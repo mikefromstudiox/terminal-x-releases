@@ -33,6 +33,27 @@ export const BUSINESS_SETTING_KEYS = new Set([
   // Hybrid components (CSV) — owner-picked list of business types that
   // make up a hybrid setup (e.g. "restaurant,retail" or "carwash,salon").
   'hybrid_components',
+  // v2.16.27 — discounts-at-cobrar + ITBIS-per-line on receipt. The Admin
+  // toggles existed but the keys were missing here, so the override never
+  // synced — flipping "Descuentos al cobrar" off for a client in one tab
+  // bounced back on next reload.
+  'feature_discounts_enabled',
+  'feature_receipt_itbis_per_line_enabled',
+  // v2.16.27 — Manager Authorization gates. Sistema.jsx 575-588 writes
+  // these but they were absent from the whitelist, so flipping a gate on
+  // web never reached desktop registers (silent data loss). All five must
+  // sync per-business cloud-side.
+  'mgr_gate_enabled_discount_big',
+  'mgr_gate_enabled_void',
+  'mgr_gate_enabled_credit_note',
+  'mgr_gate_enabled_inv_adjust',
+  'mgr_gate_enabled_price_edit',
+  // v2.16.27 — Onboarding wizard completion + first-run setup flag.
+  // Without these in the whitelist the wizard re-fired on every new
+  // device/browser an owner logged into, even though setup was actually
+  // done. Per-business cloud-synced now.
+  'onboarding_state',
+  'setup_complete',
   'feature_age_verification_enabled',
   'feature_pedidos_ya_enabled',
   'feature_bottle_deposit_enabled',

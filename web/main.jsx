@@ -63,7 +63,7 @@ function getSupabaseReady() {
           window.__txResetSupabase = () => { _supabase = null; _supabaseReadyPromise = null }
         }
         import('@terminal-x/data/web').then(({ bootLicenseJwt }) => {
-          bootLicenseJwt(_supabase, import.meta.env.VITE_SUPABASE_URL).catch(() => {})
+          bootLicenseJwt(_supabase, import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY).catch(() => {})
         }).catch(() => {})
         return _supabase
       })

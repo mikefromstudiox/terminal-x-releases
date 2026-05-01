@@ -411,9 +411,29 @@ export async function syncPendingTickets(supabase, businessId) {
     if (!navigator.onLine || !supabase || !businessId) return
 
     const pending = await getPendingTickets()
+    const db = await getDB()
     for (const item of pending) {
       try {
         const data = item.payload
+
+        // v2.16.27 — DUPLICATE-PREVENTION. Two-stage idempotency:
+        //  1. Orphan items enqueued by the pre-fix code lack supabase_id.
+        //     Discard them — replaying with a fresh UUID would create a
+        //     phantom ticket. The original POS click already inserted the
+        //     real row; this queued row was the bug.
+        //  2. If supabase_id is set, check whether the ticket already exists
+        //     in DB (prior cycle inserted it but mark-synced was skipped due
+        //     to a side-effect failure). If yes, just markSynced and skip.
+        if (!data.supabase_id) {
+          await markTicketSynced(item.id)
+          continue
+        }
+        const { data: existing } = await supabase.from('tickets')
+          .select('id').eq('business_id', businessId).eq('supabase_id', data.supabase_id).maybeSingle()
+        if (existing) {
+          await markTicketSynced(item.id)
+          continue
+        }
 
         // Generate doc_number
         const { count } = await supabase.from('tickets')
@@ -423,9 +443,28 @@ export async function syncPendingTickets(supabase, businessId) {
 
         const status = data.tipo_venta === 'credito' || data.payment_method === 'credit' ? 'pendiente' : 'cobrado'
 
+        // v2.16.27 — Go-Live gate parity. The direct INSERT path used to
+        // omit `is_test`, so Postgres column DEFAULT FALSE turned every
+        // queued/replayed ticket into a "live" row regardless of whether
+        // the business had flipped go_live_date. Replicate the same lookup
+        // web.js:2603-2613 does so a queued credit-sale during pre-launch
+        // replays as is_test=true.
+        let _liveWeb = false
+        try {
+          const { data: gl } = await supabase.from('app_settings')
+            .select('value').eq('business_id', businessId).eq('key', 'go_live_date').maybeSingle()
+          const v = gl?.value
+          if (v) {
+            const today = new Date(); today.setHours(0,0,0,0)
+            const d = new Date(`${v}T00:00:00`)
+            if (!Number.isNaN(d.getTime())) _liveWeb = d.getTime() <= today.getTime()
+          }
+        } catch {}
+
         const { data: ticket, error: ticketErr } = await supabase.from('tickets').insert({
           business_id:                  businessId,
-          supabase_id:                  data.supabase_id || crypto.randomUUID(),
+          supabase_id:                  data.supabase_id,
+          is_test:                      !_liveWeb,
           doc_number:                   docNum,
           client_supabase_id:           data.client_supabase_id || null,
           washer_empleado_supabase_ids: data.washer_empleado_supabase_ids || data.washer_ids || [],
@@ -447,43 +486,105 @@ export async function syncPendingTickets(supabase, businessId) {
 
         if (ticketErr) throw ticketErr
 
-        // Insert items
+        // v2.16.27 — Mark synced IMMEDIATELY after the ticket lands. Any
+        // downstream side-effect (items / queue / balance) that throws must
+        // NOT trigger another replay cycle on this row — that's exactly what
+        // was producing the T-0017…T-0021 duplicates. Side-effects are
+        // best-effort from here.
+        await markTicketSynced(item.id)
+
+        // v2.16.27 — Insert items via the canonical supabase_id-architecture
+        // shape. Replay used to write a v2.10 fossil row (only ticket_id +
+        // service_id, no ticket_supabase_id, no oferta_supabase_id, no
+        // quantity/cost/empleado_supabase_id/inventory_item_supabase_id),
+        // so every web read (filtered on ticket_supabase_id) saw zero items
+        // even though the rows existed. Mirror web.js:2784-2812 exactly.
         const items = data.items || []
         if (items.length && ticket?.id) {
-          await supabase.from('ticket_items').insert(
-            items.map(i => ({
-              business_id: businessId,
-              ticket_id:   ticket.id,
-              service_id:  i.service_id || null,
-              name:        i.name,
-              price:       i.price,
-              itbis:       i.itbis || 0,
-              is_wash:     i.is_wash ?? true,
-            }))
-          )
+          const itbisFactor = Number.isFinite(Number(data.itbis_rate))
+            ? Number(data.itbis_rate) / 100
+            : 0.18
+          try {
+            await supabase.from('ticket_items').insert(items.map(i => ({
+              supabase_id:                  crypto.randomUUID(),
+              business_id:                  businessId,
+              ticket_id:                    ticket.id,
+              ticket_supabase_id:           data.supabase_id,
+              service_supabase_id:          i.service_supabase_id || null,
+              inventory_item_supabase_id:   i.inventory_item_supabase_id || null,
+              empleado_supabase_id:         i.empleado_supabase_id || null,
+              oferta_supabase_id:           i.oferta_supabase_id || null,
+              course:                       i.course || null,
+              guest_number:                 i.guest_number || null,
+              preparation_notes:            i.preparation_notes || null,
+              name:                         i.name,
+              price:                        i.price,
+              cost:                         i.cost != null ? Number(i.cost) : 0,
+              itbis:                        i.itbis != null
+                                              ? Number(i.itbis)
+                                              : ((i.aplica_itbis !== 0)
+                                                  ? parseFloat((i.price * itbisFactor).toFixed(2))
+                                                  : 0),
+              is_wash:                      i.is_wash ?? true,
+              quantity:                     i.quantity || 1,
+              sku:                          i.sku || null,
+              weight:                       i.weight != null ? Number(i.weight) : null,
+              unit:                         i.unit || null,
+              price_per_unit:               i.price_per_unit != null ? Number(i.price_per_unit) : null,
+            })))
+          } catch (e) { console.warn('[offline-queue] ticket_items insert failed (non-fatal)', e?.message) }
+
+          // v2.16.27 — Auto-deduct inventory + record oversells. Mirror of
+          // web.js:2815-2844. Replay path used to skip this entirely, so
+          // every queued sale of an inventory item left stock untouched
+          // and let two registers oversell the same unit. Best-effort
+          // wrapper — failure logs but doesn't kill the replay.
+          for (const item of items) {
+            const invSid = item.inventory_item_supabase_id
+            if (!invSid) continue
+            const qty = item.quantity || 1
+            try {
+              const { data: inv } = await supabase.from('inventory_items')
+                .select('quantity, name').eq('supabase_id', invSid).eq('business_id', businessId).single()
+              if (!inv) continue
+              const available = Math.max(0, Number(inv.quantity || 0))
+              await supabase.from('inventory_items')
+                .update({ quantity: Math.max(0, available - qty) })
+                .eq('supabase_id', invSid).eq('business_id', businessId)
+              if (qty > available) {
+                try {
+                  await supabase.from('inventory_oversells').insert({
+                    supabase_id:        crypto.randomUUID(),
+                    business_id:        businessId,
+                    ticket_supabase_id: data.supabase_id,
+                    item_supabase_id:   invSid,
+                    item_name:          inv.name || item.name || null,
+                    requested_qty:      qty,
+                    actual_qty:         available,
+                  })
+                } catch (e2) { console.warn('[offline-queue] oversell insert failed', e2?.message) }
+              }
+            } catch (e) { console.warn('[offline-queue] stock deduction failed', e?.message) }
+          }
         }
 
-        // Add to queue
+        // Add to queue (best-effort)
         if (ticket?.id) {
-          const firstWasher = Array.isArray(data.washer_ids) && data.washer_ids[0] ? data.washer_ids[0] : null
-          // v2.1: queue.washer_id (legacy INT FK to washers) replaced by
-          // empleado_supabase_id (UUID FK to empleados.supabase_id, tipo='lavador'/'hybrid').
-          // ticket.id here is the Supabase UUID returned by the tickets insert above,
-          // so it goes into ticket_supabase_id. business_id is the Supabase business UUID.
-          await supabase.from('queue').insert({
-            business_id:           businessId,
-            ticket_supabase_id:    ticket.id,
-            status:                'waiting',
-            empleado_supabase_id:  firstWasher,
-          })
+          try {
+            const firstWasher = Array.isArray(data.washer_ids) && data.washer_ids[0] ? data.washer_ids[0] : null
+            await supabase.from('queue').insert({
+              business_id:           businessId,
+              ticket_supabase_id:    ticket.id,
+              status:                'waiting',
+              empleado_supabase_id:  firstWasher,
+            })
+          } catch (e) { console.warn('[offline-queue] queue insert failed (non-fatal)', e?.message) }
         }
 
-        // Update client balance for credit
+        // Update client balance for credit (best-effort)
         if (status === 'pendiente' && data.client_id) {
           await supabase.rpc('increment_client_balance', { cid: data.client_id, delta: data.total }).catch(() => {})
         }
-
-        await markTicketSynced(item.id)
       } catch {
         // Individual ticket failed — leave in queue for next cycle
       }

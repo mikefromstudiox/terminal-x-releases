@@ -52,6 +52,7 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
   const [loyalty, setLoyalty] = useState(null)
   const [recentErrors, setRecentErrors] = useState([])
   const [errorsLoading, setErrorsLoading] = useState(false)
+  const [showResolvedErrors, setShowResolvedErrors] = useState(false)
   const [tierFilter, setTierFilter] = useState(null)   // null | 'gold' | 'silver' | 'bronze'
   const [digest, setDigest] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -60,6 +61,7 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
 
   useEffect(() => { load() }, [])
   useEffect(() => { reloadLoyalty() }, [tierFilter])
+  useEffect(() => { reloadErrors() }, [showResolvedErrors])
 
   async function reloadLoyalty() {
     try {
@@ -101,7 +103,8 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
     try {
       let token = await refreshToken()
       if (!token) token = getToken()
-      const r = await fetch('/api/panel?action=errors_list&unresolved=1&limit=50', { headers: { 'Authorization': `Bearer ${token}` } })
+      const url = `/api/panel?action=errors_list&limit=50${showResolvedErrors ? '' : '&unresolved=1'}`
+      const r = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } })
       if (r.ok) setRecentErrors(((await r.json()).data) || [])
     } catch {}
     setErrorsLoading(false)
@@ -331,17 +334,28 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
               </span>
             )}
           </p>
-          <button
-            onClick={reloadErrors}
-            disabled={errorsLoading}
-            className={`text-[11px] font-bold px-3 py-1 rounded-full transition-colors ${isDark ? 'text-white/50 hover:text-white hover:bg-white/5' : 'text-black/50 hover:text-black hover:bg-black/5'}`}
-          >
-            {errorsLoading ? L('Cargando...', 'Loading...') : L('Refrescar', 'Refresh')}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowResolvedErrors(s => !s)}
+              className={`text-[11px] font-bold px-3 py-1 rounded-full border transition-colors ${showResolvedErrors ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : (isDark ? 'border-white/10 text-white/60 hover:bg-white/5' : 'border-black/10 text-black/60 hover:bg-black/5')}`}
+              title={L('Alternar entre todos y sin resolver', 'Toggle between all and unresolved')}
+            >
+              {showResolvedErrors ? L('Mostrando todos', 'Showing all') : L('Solo sin resolver', 'Unresolved only')}
+            </button>
+            <button
+              onClick={reloadErrors}
+              disabled={errorsLoading}
+              className={`text-[11px] font-bold px-3 py-1 rounded-full transition-colors ${isDark ? 'text-white/50 hover:text-white hover:bg-white/5' : 'text-black/50 hover:text-black hover:bg-black/5'}`}
+            >
+              {errorsLoading ? L('Cargando...', 'Loading...') : L('Refrescar', 'Refresh')}
+            </button>
+          </div>
         </div>
         {recentErrors.length === 0 ? (
           <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>
-            {L('Sin errores sin resolver. Todo limpio.', 'No unresolved errors. All clean.')}
+            {showResolvedErrors
+              ? L('Sin errores registrados.', 'No errors logged.')
+              : L('Sin errores sin resolver. Todo limpio.', 'No unresolved errors. All clean.')}
           </p>
         ) : (
           <div className="space-y-2 max-h-[420px] overflow-y-auto">
@@ -361,6 +375,11 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
                       </button>
                       <span className={`text-[10px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{when}</span>
                       {e.app_version && <span className={`text-[10px] font-mono ${isDark ? 'text-white/30' : 'text-black/30'}`}>v{e.app_version}</span>}
+                      {e.resolved_at && (
+                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 rounded-full px-2 py-0.5">
+                          {L('Resuelto', 'Resolved')} · {new Date(e.resolved_at).toLocaleString('es-DO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
                     </div>
                     <p className={`text-[12px] font-mono break-words ${isDark ? 'text-red-300' : 'text-red-700'}`}>
                       {e.message}
@@ -368,6 +387,11 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
                     {e.route && (
                       <p className={`text-[10px] font-mono mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
                         {e.route}
+                      </p>
+                    )}
+                    {e.resolution && (
+                      <p className={`text-[10px] mt-1 italic ${isDark ? 'text-emerald-300/80' : 'text-emerald-700'}`}>
+                        {L('Nota', 'Note')}: {e.resolution}
                       </p>
                     )}
                   </div>
