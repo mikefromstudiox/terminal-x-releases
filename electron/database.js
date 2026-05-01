@@ -8109,8 +8109,28 @@ function ncfUpdateSequence(type, data) {
   const allowed = ['prefix', 'current_number', 'limit_number', 'active', 'enabled', 'valid_until']
   const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
   if (!Object.keys(patch).length) return
-  const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
-  db.prepare(`UPDATE ncf_sequences SET ${fields} WHERE type=@type`).run({ ...patch, type })
+  // v2.16.28 (L1) — Desktop parity port of the v2.16.27 web UPSERT fix.
+  // The original UPDATE-only path matched 0 rows on a fresh client (or any
+  // type the user hadn't pre-seeded) and silently succeeded. Now: read
+  // existing first, INSERT if missing, UPDATE if present. Same shape +
+  // defaults as the web side at packages/data/web.js::updateSequence.
+  const existing = db.prepare(`SELECT id FROM ncf_sequences WHERE type=?`).get(type)
+  if (existing) {
+    const fields = Object.keys(patch).map(k => `${k}=@${k}`).join(',')
+    db.prepare(`UPDATE ncf_sequences SET ${fields} WHERE type=@type`).run({ ...patch, type })
+  } else {
+    const insert = {
+      type,
+      prefix:         patch.prefix         ?? type,
+      current_number: patch.current_number ?? 0,
+      limit_number:   patch.limit_number   ?? 500,
+      enabled:        patch.enabled        ?? 0,
+      active:         patch.active         ?? 1,
+      valid_until:    patch.valid_until    ?? null,
+    }
+    db.prepare(`INSERT INTO ncf_sequences (type, prefix, current_number, limit_number, enabled, active, valid_until)
+                VALUES (@type, @prefix, @current_number, @limit_number, @enabled, @active, @valid_until)`).run(insert)
+  }
 }
 
 // ── CAJA CHICA ────────────────────────────────────────────────────────────────

@@ -1733,7 +1733,7 @@ function MiEmpresa() {
   const api                   = useAPI()
   const { lang }              = useLang()
   const L                     = (es, en) => lang === 'es' ? es : en
-  const [form,    setForm]    = useState({ biz_name: '', biz_rnc: '', biz_address: '', biz_phone: '', biz_city: '', biz_type: '', mora_pct: '' })
+  const [form,    setForm]    = useState({ biz_name: '', biz_rnc: '', biz_address: '', biz_phone: '', biz_city: '', biz_email: '', biz_website: '', biz_type: '', mora_pct: '' })
   const [logo,    setLogo]    = useState('')
   const [loading, setLoading] = useState(false)
   const [loadErr, setLoadErr] = useState('')
@@ -1757,6 +1757,15 @@ function MiEmpresa() {
           biz_address: extra.biz_address || extra.direccion || row.address || '',
           biz_phone:   row.phone   || '',
           biz_city:    extra.biz_city  || extra.ciudad || '',
+          // v2.16.28 (B3+B4 follow-up) — load biz_email / biz_website on
+          // mount. Save path was wired in earlier today but the read-back
+          // never copied these into form state, so the inputs stayed
+          // empty after reload. extra.biz_* (settings JSONB) takes
+          // precedence over row.email (column) for parity with the
+          // dual-write target order. biz_website has no column so it
+          // only lives in settings JSONB / app_settings KV.
+          biz_email:   extra.biz_email   || row.email || '',
+          biz_website: extra.biz_website || '',
           biz_type:    extra.biz_type  || '',
           // C7 — mora_rate_daily is decimal in DB (0.005 = 0.5%/día); UI shows percent.
           mora_pct:    row.mora_rate_daily != null
@@ -1795,21 +1804,75 @@ function MiEmpresa() {
     setSaving(true); setError('')
     try {
       const current = await api?.admin?.getEmpresa?.()
-      let existing = {}
-      try { existing = current?.settings ? (typeof current.settings === 'string' ? JSON.parse(current.settings) : current.settings) : {} } catch {}
+      // v2.16.28 — Defensive parse. Older saves double-stringified the
+      // jsonb (settings = JSON.stringify(JSON.stringify(obj))). When this
+      // round-trips, parsing the outer string yields a plain string, and
+      // a downstream `{ ...string, ...patch }` spread produced the
+      // character-indexed key explosion ("0":"{","1":"\"",...) we saw on
+      // Ranoza's settings. Guard: parse up to 3 times until we have a
+      // real object; if the result is anything else (string, array, null,
+      // number), fall back to {} rather than spreading garbage.
+      let existing = current?.settings ?? {}
+      for (let i = 0; i < 3 && typeof existing === 'string'; i++) {
+        try { existing = JSON.parse(existing) } catch { existing = {}; break }
+      }
+      if (!existing || typeof existing !== 'object' || Array.isArray(existing)) existing = {}
+      // Also strip stale character-indexed keys ('0','1','2',…) from prior
+      // damage so the row eventually heals on next save.
+      for (const k of Object.keys(existing)) {
+        if (/^\d+$/.test(k) && (existing[k]?.length ?? 0) <= 1) delete existing[k]
+      }
       const city = form.biz_city.trim()
       const addr = form.biz_address.trim()
-      const mergedSettings = { ...existing, biz_city: city, ciudad: city, biz_address: addr, direccion: addr, biz_type: form.biz_type }
+      const email = (form.biz_email || '').trim()
+      const website = (form.biz_website || '').trim()
+      // v2.16.28 (B3 + B4) — biz_website + biz_city + biz_email all lived
+      // in the form but were silently dropped on save: handleSave never
+      // copied them into payload, AND saveEmpresa's allowed-list didn't
+      // accept biz_website. Owner edits were a no-op. Now include
+      // everything in mergedSettings (jsonb) AND on the top-level
+      // payload where a real businesses column exists (email is a real
+      // column, biz_website / biz_city aren't — those go in jsonb).
+      const mergedSettings = {
+        ...existing,
+        biz_city: city,
+        ciudad: city,
+        biz_address: addr,
+        direccion: addr,
+        biz_type: form.biz_type,
+        biz_email: email,
+        biz_website: website,
+      }
       const payload = {
         name:     form.biz_name.trim(),
         rnc:      form.biz_rnc.trim(),
         address:  form.biz_address.trim(),
         phone:    form.biz_phone.trim(),
+        email:    email || null,
         logo:     logo || null,
         settings: JSON.stringify(mergedSettings),
       }
       if (moraDecimal != null) payload.mora_rate_daily = moraDecimal
       await api.admin.saveEmpresa(payload)
+      // v2.16.28 (B3) — Mirror canonical biz_* keys to app_settings KV so
+      // receipts / e-CF / CobrarModal (which read from KV via bizSettings)
+      // see the latest values immediately. Without this mirror, owner
+      // edits to Mi Empresa landed in `businesses` but the receipt
+      // builder kept printing whatever was in KV at first-run migration
+      // time. Full reconciliation is queued for v2.17 (Option A); this is
+      // the targeted fix that closes the user-visible drift now.
+      try {
+        await api?.settings?.update?.({
+          biz_name:    form.biz_name.trim(),
+          biz_rnc:     form.biz_rnc.trim(),
+          biz_address: addr,
+          biz_city:    city,
+          biz_phone:   form.biz_phone.trim(),
+          biz_email:   email,
+          biz_website: website,
+          biz_logo:    logo || '',
+        })
+      } catch (e) { console.warn('[saveEmpresa] app_settings mirror failed:', e?.message) }
       // Clear the warning gate so the loans screen stops nagging.
       try { sessionStorage.removeItem('prestamos_mora_warned') } catch {}
       show(L('Empresa guardada ✓', 'Business saved ✓'))

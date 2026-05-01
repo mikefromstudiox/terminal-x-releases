@@ -197,6 +197,14 @@ export default function Returns() {
 
       // 4. Reverse inventory for each returned SKU line. Services (no
       //    inventory_item_id) are skipped — nothing to restock.
+      // v2.16.29 (C3) — Pre-fix the silent failure: failures used to
+      // log to console only and the loop carried on, leaving notas_credito
+      // committed but stock un-restored. The customer got refunded, the
+      // SKU never came back into stock, admin found out at next conteo.
+      // Now: collect failures, surface a critical alert + activity_log
+      // row so the discrepancy is visible immediately. Full transactional
+      // rollback (server-side RPC) is queued for v2.17.0 (audit C3).
+      const failedLines = []
       for (const line of refundSummary.lines) {
         const invId = line.item.inventory_item_id
         if (!invId) continue
@@ -209,7 +217,37 @@ export default function Returns() {
           })
         } catch (ex) {
           console.error('[Returns] inventory.adjust failed', ex)
+          failedLines.push({
+            inventory_item_id: invId,
+            sku: line.item.sku || null,
+            name: line.item.name,
+            qty: line.qty,
+            error: ex?.message || String(ex),
+          })
         }
+      }
+      if (failedLines.length > 0) {
+        try {
+          await api?.activity?.record?.({
+            event_type: 'return_inventory_drift',
+            severity:   'critical',
+            target_type: 'ticket',
+            target_id:   ticket.id != null ? String(ticket.id) : null,
+            target_name: ticket.doc_number || ticket.ncf || null,
+            reason:      `Devolución NCF ${assignedNCF || '?'} — ${failedLines.length} línea(s) NO restituidas en inventario. Ajusta manualmente.`,
+            metadata: { ncf: assignedNCF, ticket_id: ticket.id, failed_lines: failedLines },
+          })
+        } catch (_) {}
+        try {
+          window.alert(L(
+            `⚠️ Devolución completada y reembolso emitido, pero ${failedLines.length} línea(s) NO se restituyeron en inventario:\n\n` +
+              failedLines.map(f => `• ${f.name} (${f.qty})`).join('\n') +
+              '\n\nAjusta el inventario manualmente desde Inventario → Conteo. Esto quedó registrado en Actividad.',
+            `⚠️ Return completed and refund issued, but ${failedLines.length} line(s) were NOT restocked:\n\n` +
+              failedLines.map(f => `• ${f.name} (${f.qty})`).join('\n') +
+              '\n\nAdjust inventory manually from Inventory → Count. Logged in Activity.'
+          ))
+        } catch (_) {}
       }
 
       // 5. Audit log — return_processed, severity=critical so it surfaces in

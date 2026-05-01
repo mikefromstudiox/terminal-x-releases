@@ -1845,8 +1845,19 @@ export default function FirstTimeSetup({ onComplete }) {
   const t = k => COPY[lang][k] || k
 
   async function markSetupComplete() {
+    // v2.16.28 (B5) — write to BOTH the legacy `configuracion` blob (so
+    // older readers that haven't been migrated still see it) AND the
+    // canonical `app_settings` KV that OnboardingChecklist + the
+    // OnboardingWizard read from. The wizard re-fired on every fresh
+    // device login because only the legacy table got the value while
+    // every reader had been ported to KV. Belt-and-suspenders writes
+    // here close the gap; the legacy write can drop in v2.17 once we
+    // confirm no downstream still reads from `configuracion`.
     try {
-      await api?.admin?.saveConfiguracion?.({ setup_complete: '1' })
+      await Promise.all([
+        api?.admin?.saveConfiguracion?.({ setup_complete: '1' }),
+        api?.settings?.update?.({ setup_complete: '1' }),
+      ])
     } catch {}
     onComplete()
   }

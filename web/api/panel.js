@@ -1453,10 +1453,28 @@ async function handleClients(req, res) {
         business_id: biz.id, plan_id: planRow?.id || null, license_key: licenseKey, status: 'active',
         platform: plat, activated_at: new Date().toISOString(), max_users: planRow?.max_users || 3,
       })
+      // v2.16.28 (B1) — schema columns are `current_number` + `limit_number`,
+      // NOT `next_number` + `max_number`. PostgREST silently drops unknown
+      // keys, so the row landed with NULL on a NOT NULL column → INSERT
+      // failed silently OR landed broken. Result: every fresh client got
+      // ncf_sequences in a state where `atomic_next_ncf` returned null and
+      // every receipt printed `B0200000001` forever (Ranoza root cause).
+      // Use canonical schema + supabase_id so future cloud-sync ops
+      // upsert cleanly. enabled=false by default — owner flips it when
+      // they enter their DGII-assigned range. Only the legacy B-series
+      // are mandatory; e-CF series (E31-E34) get seeded too but stay
+      // disabled until cert + range are configured.
       const ncfTypes = ['B01', 'B02', 'B14', 'B15', 'E31', 'E32', 'E33', 'E34']
       for (const type of ncfTypes) {
         await auth.supabase.from('ncf_sequences').upsert({
-          business_id: biz.id, type, prefix: type, next_number: 1, max_number: 999999999,
+          supabase_id: crypto.randomUUID(),
+          business_id: biz.id,
+          type,
+          prefix: type,
+          current_number: 0,
+          limit_number: 500,
+          enabled: false,
+          active: true,
         }, { onConflict: 'business_id,type', ignoreDuplicates: true })
       }
       return res.json({ data: { business_id: biz.id, email, license_key: licenseKey } })
@@ -1613,10 +1631,19 @@ async function handleRegister(req, res) {
       business_id: biz.id, license_key: key, hardware_id: hwid,
       status: 'pending', platform: 'desktop', max_users: 3,
     })
+    // v2.16.28 (B1) — see admin create_business above for full rationale.
+    // Same column-name drift fix on the self-serve provisioning path.
     const ncfTypes = ['B01', 'B02', 'B14', 'B15', 'E31', 'E32', 'E33', 'E34']
     for (const type of ncfTypes) {
       await supabase.from('ncf_sequences').upsert({
-        business_id: biz.id, type, prefix: type, next_number: 1, max_number: 999999999,
+        supabase_id: crypto.randomUUID(),
+        business_id: biz.id,
+        type,
+        prefix: type,
+        current_number: 0,
+        limit_number: 500,
+        enabled: false,
+        active: true,
       }, { onConflict: 'business_id,type', ignoreDuplicates: true })
     }
     return res.json({ data: { business_id: biz.id, license_key: key } })

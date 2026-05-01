@@ -534,12 +534,12 @@ export async function syncPendingTickets(supabase, businessId) {
             })))
           } catch (e) { console.warn('[offline-queue] ticket_items insert failed (non-fatal)', e?.message) }
 
-          // v2.16.27 — Auto-deduct inventory + record oversells. Mirror of
-          // web.js:2815-2844. Replay path used to skip this entirely, so
-          // every queued sale of an inventory item left stock untouched
-          // and let two registers oversell the same unit. Best-effort
-          // wrapper — failure logs but doesn't kill the replay.
-          for (const item of items) {
+          // v2.16.28 (P1) — DOUBLE-DEDUCT FIX (replay parity). The DB
+          // trigger trg_ticket_items_decrement_inventory handles cobrado
+          // tickets at INSERT time. For replayed credit sales
+          // (status='pendiente') we keep deducting in JS. See web.js
+          // tickets.create for the full rationale.
+          for (const item of (status === 'cobrado' ? [] : items)) {
             const invSid = item.inventory_item_supabase_id
             if (!invSid) continue
             const qty = item.quantity || 1
@@ -572,9 +572,18 @@ export async function syncPendingTickets(supabase, businessId) {
         if (ticket?.id) {
           try {
             const firstWasher = Array.isArray(data.washer_ids) && data.washer_ids[0] ? data.washer_ids[0] : null
+            // v2.16.29 (C4) — queue.ticket_supabase_id is a UUID column.
+            // Pre-fix code passed `ticket.id` (the INT PK from the just-
+            // inserted tickets row), which Postgres rejects with a type
+            // cast error. The catch logged a warning but the queue row
+            // never existed — every replayed sale produced an orphan
+            // pendiente ticket with no queue entry, breaking the carwash
+            // queue display + cuadre. Use data.supabase_id (the
+            // pre-minted UUID consistent with the ticket row).
             await supabase.from('queue').insert({
+              supabase_id:           crypto.randomUUID(),
               business_id:           businessId,
-              ticket_supabase_id:    ticket.id,
+              ticket_supabase_id:    data.supabase_id,
               status:                'waiting',
               empleado_supabase_id:  firstWasher,
             })

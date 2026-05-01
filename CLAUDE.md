@@ -3,6 +3,28 @@
 ## Mission
 Desktop + web POS for the Dominican Republic, resold to multiple verticals. Flagship: **CERTIFIED DGII Emisor Electrónico** (e-CF, Ley 32-23). RNC 133410321, Viafirma .p12.
 
+## ⚠️ READ FIRST — verification-before-claim protocol
+
+This codebase has been bitten multiple times by code-grep-only diagnoses that turned out to be wrong about the deployed schema. Examples shipped, then reverted:
+- A "partial unique index" that didn't exist (constraint was 3-col NULLS NOT DISTINCT).
+- An `app_metadata`-vs-`user_metadata` RLS migration that was already applied via Management API.
+- An `atomic_next_ncf` "broken signature" that was actually correct.
+
+**Before you claim a bug that depends on schema, RLS, function signature, trigger, or constraint shape: VERIFY against live `pg_catalog`.** Code-grep + migration files lie. The deployed DB is the only truth.
+
+How:
+1. Open `docs/SCHEMA-SNAPSHOT.md` first. That file is the snapshot of every public table, constraint, RLS policy, function, trigger, and the realtime publication. Re-generate via `node scripts/schema-snapshot.mjs` if it looks stale.
+2. If a finding still requires a live check, query via Management API:
+   - `POST https://api.supabase.com/v1/projects/csppjsoirjflumaiipqw/database/query` with body `{"query": "SELECT ..."}` and `Authorization: Bearer $SUPABASE_ACCESS_TOKEN` (in `.env`).
+   - Examples: `pg_constraint` for UNIQUE/CHECK shapes, `pg_policies` for RLS bodies, `pg_proc` for function signatures, `information_schema.columns` for column types.
+3. Every audit finding that names a constraint / policy / function MUST paste-and-run the verification query and capture the output as evidence. No exceptions.
+4. Before writing a migration: run the verification query, confirm the targeted object exists in the claimed shape. If it doesn't, your bug isn't real.
+
+This rule applies to:
+- Spawned audit agents (include the verification clause in every prompt)
+- Code-review of proposed migrations
+- Any "fix" that reshapes a constraint, RLS policy, function signature, or trigger
+
 ## Stack
 - **Electron 41** + **React 19 + Vite 5** (JSX, no TS) + **Tailwind 4** (`@tailwindcss/vite` — no PostCSS)
 - **better-sqlite3** at-rest encrypted with **SQLCipher** (HKDF/HWID + safeStorage). Use `better-sqlite3-multiple-ciphers` + derived key for any local-DB script.

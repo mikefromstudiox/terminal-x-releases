@@ -762,13 +762,22 @@ export function createWebAPI(supabase, businessId) {
         return data
       }, null),
 
-      saveEmpresa: (data) => tryOr(async () => {
+      saveEmpresa: (data) => tryWrite(async () => {
+        // v2.16.28 (B4) — `website` was silently dropped: caller passed
+        // `biz_website` but allowed-list only accepted unprefixed `website`,
+        // and even then `businesses` table has no website column (lives in
+        // settings.biz_website). The Admin handleSave now folds it into
+        // settings JSONB before calling here, so this allowed-list just
+        // needs to mirror the real columns of `businesses` + the catch-all
+        // `settings`. Switched from tryOr → tryWrite so a 0-row UPDATE
+        // (RLS denial, wrong business id) surfaces as a thrown error
+        // instead of silent success.
         const allowed = ['name', 'rnc', 'address', 'phone', 'email', 'logo', 'logo_url', 'settings', 'mora_rate_daily']
         const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
         // Map `logo` → `logo_url` (Supabase column name differs from desktop)
         if ('logo' in patch) { patch.logo_url = patch.logo; delete patch.logo }
         if (!Object.keys(patch).length) return null
-        throwSupaError(await supabase.from('businesses').update(patch).eq('id', bid))
+        throwSupaError(await supabase.from('businesses').update(patch).eq('id', bid).select('id'))
       }),
 
       getUsuarios: () => tryOr(async () => {
@@ -2615,8 +2624,17 @@ export function createWebAPI(supabase, businessId) {
         if (!data.supabase_id) {
           try { data.supabase_id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `web-${Date.now()}-${Math.random().toString(36).slice(2)}` } catch {}
         }
+        // v2.16.28 (B2) — was wrapped in tryOr which swallowed every
+        // throw and returned null. RLS denial, FK violation, NOT NULL
+        // violation, CHECK constraint failure: all caught silently → POS
+        // saw "success" → CobrarModal showed the factura → cashier took
+        // money for a row that never landed in DB. THE root reason
+        // beverage_subtotal v2.16.27 took half a day to surface. Now the
+        // inner business logic runs raw; only NETWORK errors fall through
+        // to the offline-queue. Real DB errors throw to the modal which
+        // surfaces them in red (success-after-DB-lands fix from v2.16.27).
         try {
-          return await tryOr(async () => {
+          return await (async () => {
             // v2.16.10 — Go-Live gate (web mirror). Read go_live_date from
             // app_settings; if empty/future, mark the ticket is_test=true and
             // skip commission writes + credit grant. Cloud sync push filters
@@ -2845,34 +2863,46 @@ export function createWebAPI(supabase, businessId) {
                 if (err2) console.error('[ticket_items insert]', err2.message)
               }
 
-              // Auto-deduct inventory stock for product items (by supabase_id).
-              // RPT-H4: when requested > available, record a shortage row in
-              // inventory_oversells so void-time reversal restores only what was
-              // actually deducted (fulfilled), never phantom stock.
-              for (const item of items) {
-                const invSid = item.inventory_item_supabase_id
-                if (invSid) {
-                  const qty = item.quantity || 1
-                  try {
-                    const { data: inv } = await supabase.from('inventory_items').select('quantity, name').eq('supabase_id', invSid).eq('business_id', bid).single()
-                    if (inv) {
-                      const available = Math.max(0, Number(inv.quantity || 0))
-                      await supabase.from('inventory_items').update({ quantity: Math.max(0, available - qty) }).eq('supabase_id', invSid).eq('business_id', bid)
-                      if (qty > available) {
-                        try {
-                          await supabase.from('inventory_oversells').insert({
-                            supabase_id:        crypto.randomUUID(),
-                            business_id:        bid,
-                            ticket_supabase_id: ticketSid,
-                            item_supabase_id:   invSid,
-                            item_name:          inv.name || item.name || null,
-                            requested_qty:      qty,
-                            actual_qty:         available,
-                          })
-                        } catch (e2) { console.error('[web.js] oversell insert failed:', e2.message) }
+              // v2.16.28 (P1) — DOUBLE-DEDUCT FIX. The DB has a Postgres
+              // trigger `trg_ticket_items_decrement_inventory` that fires
+              // on every ticket_items INSERT and decrements inventory ONLY
+              // when the parent ticket's status='cobrado'. For cash sales
+              // (status='cobrado' at insert), the trigger handles the
+              // deduct + oversell record perfectly. The JS loop below was
+              // the SECOND deduct, producing the -2 per qty=1 sale Mike
+              // saw on Bacardi (3 → 1 instead of 3 → 2).
+              //
+              // Credit sales (status='pendiente') are NOT touched by the
+              // trigger — for those the JS loop below is the ONLY deduct
+              // path and we keep firing it. When the credit gets paid
+              // later, status flips to 'cobrado' via UPDATE which doesn't
+              // re-fire the INSERT trigger, so no second deduct.
+              if (status !== 'cobrado') {
+                for (const item of items) {
+                  const invSid = item.inventory_item_supabase_id
+                  if (invSid) {
+                    const qty = item.quantity || 1
+                    try {
+                      const { data: inv } = await supabase.from('inventory_items').select('quantity, name').eq('supabase_id', invSid).eq('business_id', bid).single()
+                      if (inv) {
+                        const available = Math.max(0, Number(inv.quantity || 0))
+                        await supabase.from('inventory_items').update({ quantity: Math.max(0, available - qty) }).eq('supabase_id', invSid).eq('business_id', bid)
+                        if (qty > available) {
+                          try {
+                            await supabase.from('inventory_oversells').insert({
+                              supabase_id:        crypto.randomUUID(),
+                              business_id:        bid,
+                              ticket_supabase_id: ticketSid,
+                              item_supabase_id:   invSid,
+                              item_name:          inv.name || item.name || null,
+                              requested_qty:      qty,
+                              actual_qty:         available,
+                            })
+                          } catch (e2) { console.error('[web.js] oversell insert failed:', e2.message) }
+                        }
                       }
-                    }
-                  } catch (e) { console.error('[web.js] stock deduction failed:', e.message) }
+                    } catch (e) { console.error('[web.js] stock deduction failed:', e.message) }
+                  }
                 }
               }
             }
@@ -3017,11 +3047,23 @@ export function createWebAPI(supabase, businessId) {
                 metadata: { subtotal: subt, total: data.total, pct: Math.round(pct * 10) / 10, payment_method: data.payment_method } })
             }
             return { id: ticket.id, supabase_id: ticketSid, docNumber: docNum, ncf: null, queueError }
-          })
+          })()
         } catch (err) {
-          // Supabase unreachable — save to offline queue
-          const offlineId = await enqueueTicket(data)
-          return { id: `offline-${offlineId}`, docNumber: 'OFFLINE', ncf: null, offline: true, offlineReason: err?.message || String(err) }
+          // v2.16.28 (B2) — ONLY enqueue offline on actual network failure.
+          // Database errors (RLS, FK, NOT NULL, CHECK) must throw all the
+          // way to the cobrar modal so the cashier sees the real problem
+          // and the row doesn't lie about being "saved offline" when it
+          // was actually rejected by the schema.
+          const msg = err?.message || ''
+          const isNetwork = (typeof navigator !== 'undefined' && navigator.onLine === false)
+            || /Failed to fetch|NetworkError|TypeError: fetch|ERR_INTERNET_DISCONNECTED/i.test(msg)
+          if (isNetwork) {
+            const offlineId = await enqueueTicket(data)
+            return { id: `offline-${offlineId}`, docNumber: 'OFFLINE', ncf: null, offline: true, offlineReason: msg || String(err) }
+          }
+          // Real DB / validation error — throw to caller (POS handlePaymentConfirm
+          // re-throws, CobrarModal catches and renders red error state).
+          throw err
         }
       },
 
@@ -3429,14 +3471,33 @@ export function createWebAPI(supabase, businessId) {
         await supabase.from('ticket_items').update({ price: newPrice }).eq('id', row.id).eq('business_id', bid)
         // Recompute ticket totals
         const tSid = row.ticket_supabase_id
+        // v2.16.29 (C1) — `ticket_items` has NO `aplica_itbis` column (verified
+        // 2026-05-01 against information_schema). Pre-fix code read
+        // `it.aplica_itbis` which was always undefined → `!== 0` truthy →
+        // ITBIS got applied to EVERY line, double-taxing exempt items on
+        // every Queue-side price edit. Derive taxable from the stored
+        // `itbis` value: if the row's saved itbis is non-zero, the source
+        // service/inventory item's aplica_itbis was 1 at sale time. If the
+        // saved itbis is zero AND price is non-zero, the line was exempt.
+        // For zero-price lines (like oferta discount markers) default to
+        // taxable=false so the recompute leaves them alone.
         const { data: items } = await supabase.from('ticket_items')
-          .select('price, quantity').eq('ticket_supabase_id', tSid).eq('business_id', bid)
+          .select('price, quantity, itbis, supabase_id').eq('ticket_supabase_id', tSid).eq('business_id', bid)
         const itbisFrac = (Number((data.itbisRate ?? 18))) / 100
         let subtotal = 0, itbis = 0
         for (const it of (items || [])) {
           const lineGross = Number(it.price || 0) * Number(it.quantity || 1)
           subtotal += lineGross
-          if (it.aplica_itbis !== 0) itbis += lineGross * itbisFrac / (1 + itbisFrac)
+          // The line being EDITED has the new price but the OLD itbis still
+          // saved (we didn't update itbis on the row above). The taxable
+          // determination still holds because aplica_itbis is a property of
+          // the source item, not the price.
+          const oldItbis = Number(it.itbis || 0)
+          const oldPrice = Number(it.price || 0)
+          const wasTaxable = oldItbis > 0 || oldPrice === 0
+            ? oldItbis > 0
+            : false
+          if (wasTaxable) itbis += lineGross * itbisFrac / (1 + itbisFrac)
         }
         const total = parseFloat(subtotal.toFixed(2))
         const itbisRounded = parseFloat(itbis.toFixed(2))
@@ -4530,7 +4591,41 @@ export function createWebAPI(supabase, businessId) {
         const { type, ...rest } = data
         if ('enabled' in rest) rest.enabled = !!rest.enabled
         if ('active'  in rest) rest.active  = !!rest.active
-        throwSupaError(await supabase.from('ncf_sequences').update(rest).eq('business_id', bid).eq('type', type))
+        // v2.16.27 — Coerce form values that PostgREST rejects:
+        //   - `valid_until` is a DATE column; empty string '' is invalid →
+        //     coerce to null.
+        //   - `current_number` and `limit_number` are integers; the form
+        //     emits strings ("500") that PostgREST does accept but Number()
+        //     keeps the contract clean.
+        //   - The legacy `end_number` field name (this file used to write
+        //     it on insert) is NOT a column — schema uses `limit_number`.
+        //     PostgREST silently dropped it, harmless but worth removing.
+        if ('valid_until' in rest) rest.valid_until = rest.valid_until ? rest.valid_until : null
+        if ('current_number' in rest) rest.current_number = Number(rest.current_number) || 0
+        if ('limit_number' in rest) rest.limit_number = Number(rest.limit_number) || 500
+        // v2.16.27 — UPSERT. Original UPDATE-only path matched 0 rows on
+        // fresh clients and silently succeeded, leaving the user wondering
+        // why every receipt printed B0200000001. Now: read existing, INSERT
+        // if missing, UPDATE if present.
+        const { data: existing } = await supabase.from('ncf_sequences')
+          .select('id').eq('business_id', bid).eq('type', type).maybeSingle()
+        if (existing) {
+          throwSupaError(await supabase.from('ncf_sequences').update(rest).eq('business_id', bid).eq('type', type))
+        } else {
+          const insertRow = {
+            supabase_id:    (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `web-${Date.now()}`,
+            business_id:    bid,
+            type,
+            prefix:         rest.prefix ?? type,
+            current_number: rest.current_number ?? 0,
+            limit_number:   rest.limit_number ?? 500,
+            valid_until:    rest.valid_until ?? null,
+            enabled:        rest.enabled ?? false,
+            active:         rest.active  ?? true,
+            ...rest,
+          }
+          throwSupaError(await supabase.from('ncf_sequences').insert(insertRow))
+        }
       }),
     },
 
@@ -5153,6 +5248,17 @@ export function createWebAPI(supabase, businessId) {
         s.dgii_environment = env
         const { error } = await supabase.from('businesses').update({ settings: s }).eq('id', bid)
         if (error) throw error
+        // v2.16.28 (B7) — Post-write verify. A 0-row UPDATE (RLS denial,
+        // wrong bid in JWT, etc.) returns no `error` from PostgREST but
+        // also no row-changed signal. Without this read-back, an admin
+        // could click "Producción" and have it silently no-op — the next
+        // e-CF would go to Pruebas and DGII would reject. Read the row
+        // back and assert the env actually persisted.
+        const { data: verify } = await supabase.from('businesses').select('settings').eq('id', bid).single()
+        let vs = verify?.settings
+        for (let i = 0; i < 3 && typeof vs === 'string'; i++) { try { vs = JSON.parse(vs) } catch { vs = {} } }
+        const persisted = (vs && typeof vs === 'object') ? vs.dgii_environment : null
+        if (persisted !== env) throw new Error(`DGII env did not persist (wanted ${env}, got ${persisted ?? 'null'}). Check RLS / business_id.`)
         return { ok: true, environment: env }
       }),
     },
@@ -6483,10 +6589,32 @@ export function createWebAPI(supabase, businessId) {
           }).select('*').single())
         }
         if (row?.status === 'active' && row?.vehicle_inventory_supabase_id) {
-          try {
-            await supabase.from('vehicle_inventory').update({ status: 'reserved', updated_at: new Date().toISOString() })
-              .eq('business_id', bid).eq('supabase_id', row.vehicle_inventory_supabase_id).eq('status', 'available')
-          } catch {}
+          // v2.16.29 (C2) — surface the failure. The empty `catch {}` swallowed
+          // every error including RLS denial, leaving the reservation row
+          // landed but `vehicle_inventory.status` still 'available' →
+          // double-reservation possible. Now: write returns the affected
+          // row (.select), and if 0 rows changed (vehicle wasn't actually
+          // available, or RLS denied), throw so the parent reservation
+          // INSERT can roll back. The caller (UI) will see a real error
+          // instead of a phantom-success reservation.
+          const { data: flipped, error: flipErr } = await supabase.from('vehicle_inventory')
+            .update({ status: 'reserved', updated_at: new Date().toISOString() })
+            .eq('business_id', bid).eq('supabase_id', row.vehicle_inventory_supabase_id).eq('status', 'available')
+            .select('id, status')
+          if (flipErr) {
+            // Roll back the just-created reservation so we don't leave the
+            // pair in an inconsistent state.
+            await supabase.from('vehicle_reservations').update({ status: 'released', active: false, released_reason: 'vehicle_status_flip_failed', released_at: new Date().toISOString() })
+              .eq('id', row.id).eq('business_id', bid).then(() => {}, () => {})
+            throw new Error(`No se pudo reservar la unidad: ${flipErr.message}`)
+          }
+          if (!flipped || flipped.length === 0) {
+            // Race: another register reserved it first OR the unit isn't
+            // available anymore. Roll back so the user sees "ya no disponible".
+            await supabase.from('vehicle_reservations').update({ status: 'released', active: false, released_reason: 'vehicle_unavailable', released_at: new Date().toISOString() })
+              .eq('id', row.id).eq('business_id', bid).then(() => {}, () => {})
+            throw new Error('La unidad ya no está disponible (otra caja la reservó o cambió de estado).')
+          }
         }
         return row
       })),
@@ -6500,10 +6628,11 @@ export function createWebAPI(supabase, businessId) {
           const { count } = await supabase.from('vehicle_reservations').select('id', { count: 'exact', head: true })
             .eq('business_id', bid).eq('active', true).eq('status', 'active').eq('vehicle_inventory_supabase_id', veh)
           if ((count || 0) === 0) {
-            try {
-              await supabase.from('vehicle_inventory').update({ status: 'available', updated_at: new Date().toISOString() })
-                .eq('business_id', bid).eq('supabase_id', veh).eq('status', 'reserved')
-            } catch {}
+            // v2.16.29 (C2 follow-on) — log the failure so it's visible in the
+            // console + activity log if it ever happens, instead of swallowing.
+            const { error: relErr } = await supabase.from('vehicle_inventory').update({ status: 'available', updated_at: new Date().toISOString() })
+              .eq('business_id', bid).eq('supabase_id', veh).eq('status', 'reserved')
+            if (relErr) console.error('[vehicleReservation_release] inventory flip failed:', relErr.message, '— vehicle stuck in "reserved" state for', veh)
           }
         }
         return { id }
@@ -6514,10 +6643,13 @@ export function createWebAPI(supabase, businessId) {
           status: 'converted', converted_deal_supabase_id: deal_supabase_id || null, updated_at: new Date().toISOString(),
         }).eq('id', id).eq('business_id', bid))
         if (cur?.vehicle_inventory_supabase_id) {
-          try {
-            await supabase.from('vehicle_inventory').update({ status: 'sold', sold_date: new Date().toISOString(), updated_at: new Date().toISOString() })
-              .eq('business_id', bid).eq('supabase_id', cur.vehicle_inventory_supabase_id)
-          } catch {}
+          // v2.16.29 (C2 follow-on) — log the failure. Deal is already closed,
+          // so we don't throw, but inventory marker MUST eventually become
+          // 'sold'. If flip fails, the row reads as still-reserved/available
+          // and a duplicate sale becomes possible.
+          const { error: convErr } = await supabase.from('vehicle_inventory').update({ status: 'sold', sold_date: new Date().toISOString(), updated_at: new Date().toISOString() })
+            .eq('business_id', bid).eq('supabase_id', cur.vehicle_inventory_supabase_id)
+          if (convErr) console.error('[vehicleReservation_convert] inventory flip to "sold" failed:', convErr.message, '— vehicle', cur.vehicle_inventory_supabase_id, 'must be marked sold manually')
         }
         return { id }
       })),
@@ -6537,10 +6669,12 @@ export function createWebAPI(supabase, businessId) {
           const { count } = await supabase.from('vehicle_reservations').select('id', { count: 'exact', head: true })
             .eq('business_id', bid).eq('active', true).eq('status', 'active').eq('vehicle_inventory_supabase_id', veh)
           if ((count || 0) === 0) {
-            try {
-              await supabase.from('vehicle_inventory').update({ status: 'available', updated_at: new Date().toISOString() })
-                .eq('business_id', bid).eq('supabase_id', veh).eq('status', 'reserved')
-            } catch {}
+            // v2.16.29 (C2 follow-on) — log instead of swallow. Expire is a
+            // batch cleanup; partial success is acceptable but we want
+            // visibility into the failure mode.
+            const { error: expErr } = await supabase.from('vehicle_inventory').update({ status: 'available', updated_at: new Date().toISOString() })
+              .eq('business_id', bid).eq('supabase_id', veh).eq('status', 'reserved')
+            if (expErr) console.error('[vehicleReservation_expire] inventory flip failed:', expErr.message, '— vehicle stuck in "reserved":', veh)
           }
         }
         return { expired: due.length }

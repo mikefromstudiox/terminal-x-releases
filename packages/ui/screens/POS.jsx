@@ -2162,6 +2162,10 @@ function RetailPOS() {
         })
         .catch(() => {})
     }
+    // v2.16.27 — Notify ProductGrid to re-fetch inventory so the on-screen
+    // stock counts stay in sync with the DB after a sale (was lagging by
+    // a full page reload).
+    try { window.dispatchEvent(new CustomEvent('tx:inventory-refresh')) } catch {}
   }
 
   // ── Licorería quick-sells: load top-N active products ────────────────────
@@ -3536,10 +3540,11 @@ function ProductGrid({ api, lang, gridCols, onAdd, pyMode, overrides = {} }) {
   const [dragIdx, setDragIdx] = useState(null)
 
   useEffect(() => {
-    api.inventory?.all?.().then(items => {
+    const reload = () => api.inventory?.all?.().then(items => {
       setProducts(items || [])
       setLoading(false)
     }).catch(() => setLoading(false))
+    reload()
     // Load saved tab preferences (fall through gracefully if not set).
     ;(async () => {
       try {
@@ -3553,6 +3558,14 @@ function ProductGrid({ api, lang, gridCols, onAdd, pyMode, overrides = {} }) {
         setHiddenCats(parseArr(s?.pos_tab_hidden))
       } catch {}
     })()
+    // v2.16.27 — Refresh the grid whenever a sale completes so the cashier
+    // never sees stale stock counts ("UI says 7, DB says 3"). POS.jsx
+    // dispatches `tx:inventory-refresh` after each successful Cobrar +
+    // after returns/voids/conteo close. Cheap re-fetch — same query the
+    // mount path already runs.
+    const onRefresh = () => reload()
+    window.addEventListener('tx:inventory-refresh', onRefresh)
+    return () => window.removeEventListener('tx:inventory-refresh', onRefresh)
   }, [api])
 
   if (loading) {
