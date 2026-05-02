@@ -1046,14 +1046,18 @@ export function createWebAPI(supabase, businessId) {
         throwSupaError(await supabase.from('inventory_items').update({ active: false }).eq('id', id).eq('business_id', bid))
       }),
 
-      adjust: ({ id, delta, notes, userId }) => tryOr(async () => {
-        // Direct UPDATE + INSERT instead of a non-existent RPC.
-        // Fetch current qty, compute new, update, log the transaction.
-        const current = throwSupaError(await supabase.from('inventory_items').select('quantity, supabase_id, name').eq('id', id).eq('business_id', bid).single())
+      adjust: ({ id, supabase_id, delta, notes, userId }) => tryWrite(async () => {
+        // Accept either integer id or uuid supabase_id — web-created tickets
+        // store inventory_item_supabase_id but leave inventory_item_id null,
+        // so callers like Returns.jsx need both lookup paths.
+        if (!id && !supabase_id) throw new Error('inventory.adjust: missing id and supabase_id')
+        const lookupCol = id ? 'id' : 'supabase_id'
+        const lookupVal = id || supabase_id
+        const current = throwSupaError(await supabase.from('inventory_items').select('id, quantity, supabase_id, name').eq(lookupCol, lookupVal).eq('business_id', bid).single())
         const newQty = Math.max(0, (current.quantity || 0) + delta)
-        throwSupaError(await supabase.from('inventory_items').update({ quantity: newQty }).eq('id', id).eq('business_id', bid))
+        throwSupaError(await supabase.from('inventory_items').update({ quantity: newQty }).eq('id', current.id).eq('business_id', bid))
         await logActivity({ event_type: 'inventory_adjusted', severity: 'info',
-          target_type: 'inventory_item', target_id: id, target_name: current?.name || `#${id}`,
+          target_type: 'inventory_item', target_id: current.id, target_name: current?.name || `#${current.id}`,
           amount: delta,
           old_value: current?.quantity != null ? String(current.quantity) : null,
           new_value: String(newQty),
@@ -1062,7 +1066,7 @@ export function createWebAPI(supabase, businessId) {
         try {
           await supabase.from('inventory_transactions').insert({
             supabase_id: crypto.randomUUID(),
-            item_id: id,
+            item_id: current.id,
             item_supabase_id: current.supabase_id || null,
             type: delta > 0 ? 'adjustment_in' : 'adjustment_out',
             delta,

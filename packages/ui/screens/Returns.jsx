@@ -206,19 +206,26 @@ export default function Returns() {
       // rollback (server-side RPC) is queued for v2.17.0 (audit C3).
       const failedLines = []
       for (const line of refundSummary.lines) {
-        const invId = line.item.inventory_item_id
-        if (!invId) continue
+        const invId  = line.item.inventory_item_id || null
+        const invSid = line.item.inventory_item_supabase_id || null
+        // Only skip true services (no inventory link at all). Web-synced
+        // ticket items often have inventory_item_id=null but a valid
+        // inventory_item_supabase_id; the prior code skipped those silently
+        // and the customer's refund went through without restocking.
+        if (!invId && !invSid) continue
         try {
           await api.inventory.adjust({
-            id:     invId,
-            delta:  Number(line.qty || 0),
-            notes:  L(`Devolución ${ticket.doc_number || ''}`, `Return ${ticket.doc_number || ''}`).trim(),
-            userId: (user?.id && user.id !== 'web') ? user.id : null,
+            id:           invId,
+            supabase_id:  invSid,
+            delta:        Number(line.qty || 0),
+            notes:        L(`Devolución ${ticket.doc_number || ''}`, `Return ${ticket.doc_number || ''}`).trim(),
+            userId:       (user?.id && user.id !== 'web') ? user.id : null,
           })
         } catch (ex) {
           console.error('[Returns] inventory.adjust failed', ex)
           failedLines.push({
             inventory_item_id: invId,
+            inventory_item_supabase_id: invSid,
             sku: line.item.sku || null,
             name: line.item.name,
             qty: line.qty,
