@@ -4766,12 +4766,35 @@ export function createWebAPI(supabase, businessId) {
         }))
       }, []),
 
-      create: (data) => tryOr(async () => {
-        throwSupaError(await supabase.from('notas_credito').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }))
+      create: (data) => tryWrite(async () => {
+        // Whitelist real notas_credito columns. Returns.jsx passes
+        // denormalized fields (client_name, client_rnc, mac_jti) for
+        // logging/UX which the table doesn't have — Postgres 400's
+        // ('Could not find the X column') so the nota never lands.
+        // Drop them silently here; the auth/log metadata captures them.
+        const sid = (data.supabase_id) || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : undefined)
+        const row = {
+          supabase_id: sid,
+          business_id: bid,
+          ncf:                          data.ncf ?? null,
+          client_id:                    data.client_id ?? null,
+          client_supabase_id:           data.client_supabase_id ?? null,
+          original_ticket_id:           data.original_ticket_id ?? null,
+          original_ticket_supabase_id:  data.original_ticket_supabase_id ?? null,
+          motivo:                       data.motivo ?? null,
+          amount:                       data.amount ?? 0,
+          itbis_revertido:              data.itbis_revertido ?? 0,
+          forma_devolucion:             data.forma_devolucion ?? null,
+          comentario:                   data.comentario ?? null,
+          cajero_id:                    data.cajero_id ?? null,
+          cajero_supabase_id:           data.cajero_supabase_id ?? null,
+        }
+        throwSupaError(await supabase.from('notas_credito').insert(row))
         await logActivity({ event_type: 'nota_credito_created', severity: 'critical',
           target_type: 'nota_credito', target_name: data.ncf || 'NC',
           amount: data.amount, reason: data.motivo || null,
-          metadata: { original_ticket_id: data.original_ticket_id || null, itbis_revertido: data.itbis_revertido, forma_devolucion: data.forma_devolucion } })
+          metadata: { original_ticket_id: data.original_ticket_id || null, itbis_revertido: data.itbis_revertido, forma_devolucion: data.forma_devolucion, client_name: data.client_name || null, client_rnc: data.client_rnc || null, mac_jti: data.mac_jti || null } })
+        return { ok: true, supabase_id: sid }
       }),
     },
 
