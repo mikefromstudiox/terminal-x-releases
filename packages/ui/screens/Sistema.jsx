@@ -1317,8 +1317,8 @@ function Actualizaciones() {
           <p className="text-[11px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1">
             {L('Versión instalada', 'Installed version')}
           </p>
-          <p className="text-[22px] font-bold text-slate-800 dark:text-white font-mono">v{version}</p>
-          <p className="text-[12px] text-slate-500 dark:text-white/60 mt-0.5">Terminal X · Studio X Tech</p>
+          <p className="text-[22px] font-bold text-slate-800 dark:text-white">Terminal X <span className="text-[#b3001e]">V1</span></p>
+          <p className="text-[12px] text-slate-500 dark:text-white/60 mt-0.5 font-mono">build v{version} · Studio X Tech</p>
         </div>
         <div className="text-right">
           <p className={`text-[12px] font-semibold ${s.color}`}>{s.label}</p>
