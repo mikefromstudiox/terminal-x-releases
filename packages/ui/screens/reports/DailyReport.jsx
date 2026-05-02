@@ -846,6 +846,13 @@ export default function DailyReport() {
       ))
       setAnularModal(null)
       setSelectedId(null)
+      // Defense-in-depth against browser autofill: ManagerAuthGate's password
+      // input triggers Chrome to autofill the saved login email into nearby
+      // text inputs. Even with autoComplete=off + ignore attrs, some browsers
+      // do it anyway. If the search field was filled, the row filter would
+      // hide every ticket. Reset it once the void completes so the user
+      // never sees a blank list.
+      setSearch('')
       flash(lang === 'es' ? 'Factura anulada correctamente.' : 'Invoice voided successfully.')
     } catch {
       flash(lang === 'es' ? 'Error al anular la factura.' : 'Error voiding the invoice.')

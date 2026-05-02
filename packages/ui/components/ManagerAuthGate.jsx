@@ -220,11 +220,22 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
             <label className="block text-[10px] font-bold text-slate-500 dark:text-white/60 uppercase tracking-wider mb-1.5">
               {mode === 'scan' ? L('Tarjeta', 'Card') : 'PIN'}
             </label>
+            {/* Hidden absorber: Chrome / 1Password / LastPass detect the
+                password input below and try to autofill the saved login
+                email into the NEAREST text input (e.g. DailyReport search
+                box), which then filters every row out and the list goes
+                blank with no error. The hidden username input gives
+                autofill a target to write to instead, so it never leaks
+                into the visible page. Confirmed bug 2026-05-02. */}
+            <input type="text" name="username" autoComplete="username" tabIndex={-1}
+              aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0 }} />
             <input
               ref={inputRef}
               type="password"
               inputMode={mode === 'pin' ? 'numeric' : 'text'}
-              autoComplete="off"
+              autoComplete="new-password"
+              data-lpignore="true"
+              data-1p-ignore="true"
               value={value}
               onChange={e => {
                 setErr('')
