@@ -553,6 +553,7 @@ export default function DailyReport() {
 
   const [transactions, setTransactions] = useState([])
   const [loading,      setLoading]      = useState(false)
+
   const [tab,          setTab]          = useState('todas')
   const [datePill,     setDatePill]     = useState('mes')
   const [cashier,      setCashier]      = useState('all')
@@ -700,7 +701,7 @@ export default function DailyReport() {
           // empty-state copy can render.
           if (!isInitial && Array.isArray(rows) && rows.length === 0) {
             // eslint-disable-next-line no-console
-            console.warn('[DailyReport] refresh returned [] — keeping current state')
+            console.error('[DailyReport] refresh returned [] — keeping current state')
             return
           }
           setTransactions((rows || []).map(dbToTxn))
@@ -709,7 +710,7 @@ export default function DailyReport() {
           if (cancelled) return
           if (!isInitial) {
             // eslint-disable-next-line no-console
-            console.warn('[DailyReport] refresh threw — keeping current state', e?.message)
+            console.error('[DailyReport] refresh threw — keeping current state', e?.message)
             return
           }
           setTransactions([])
@@ -886,7 +887,12 @@ export default function DailyReport() {
             <div className="flex items-center gap-2 px-3 py-2 min-h-[44px] md:min-h-0 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus-within:border-sky-400 flex-1 md:flex-none w-full md:w-56">
               <Search size={13} className="text-slate-400 dark:text-white/40 shrink-0" />
               <input
-                type="text"
+                type="search"
+                name="dailyreport-search"
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-form-type="other"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder={lang === 'es' ? 'Buscar cliente o # factura...' : 'Search client or invoice #...'}
