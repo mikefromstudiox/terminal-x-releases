@@ -107,7 +107,16 @@ function ItemModal({ item, onSave, onClose }) {
           salon_upsell:       !!form.salon_upsell,
           salon_upsell_order: form.salon_upsell_order === '' || form.salon_upsell_order == null
             ? null : (parseInt(form.salon_upsell_order, 10) || null),
-        } : {}),
+        } : {
+          // Non-salon: scrub the upsell_order value the spread copied from
+          // the form's '' default. Postgres 400's on '' against integer.
+          salon_upsell_order: null,
+        }),
+      }
+      // Last-mile sanitize: any value that's '' on a known integer column
+      // becomes null. Catches future schema fields the form might pick up.
+      for (const k of ['quantity','min_quantity','reorder_quantity','salon_upsell_order','aplica_itbis']) {
+        if (k in data && (data[k] === '' || data[k] === undefined)) data[k] = null
       }
       if (item?.id) await api.inventory.update({ id: item.id, ...data })
       else          await api.inventory.create(data)
