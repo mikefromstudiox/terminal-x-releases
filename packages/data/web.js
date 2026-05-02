@@ -1291,9 +1291,11 @@ export function createWebAPI(supabase, businessId) {
 
       complete: ({ id, apply_to_inventory = true, signature_dataurl = null } = {}) => tryOr(async () => {
         if (!id) throw new Error('missing_id')
+        // inventory_counts.id and supabase_id are BOTH uuid — match either.
+        const sval = typeof id === 'string' ? id : String(id)
         const header = throwSupaError(await supabase.from('inventory_counts').select('*').eq('business_id', bid)
-          .eq(typeof id === 'string' && id.includes('-') ? 'supabase_id' : 'id', typeof id === 'string' && id.includes('-') ? id : Number(id))
-          .single())
+          .or(`id.eq.${sval},supabase_id.eq.${sval}`)
+          .maybeSingle())
         if (!header) throw new Error('count_not_found')
         if (header.status !== 'abierto') throw new Error('count_not_open')
         const countSid = header.supabase_id
@@ -1385,17 +1387,19 @@ export function createWebAPI(supabase, businessId) {
 
       cancel: (id) => tryOr(async () => {
         const nowIso = new Date().toISOString()
-        const key = (typeof id === 'string' && id.includes('-')) ? 'supabase_id' : 'id'
-        const val = key === 'id' ? Number(id) : id
+        // inventory_counts.id and supabase_id are BOTH uuid — match either.
+        const sval = typeof id === 'string' ? id : String(id)
         throwSupaError(await supabase.from('inventory_counts').update({
           status: 'cancelado', completed_at: nowIso, updated_at: nowIso,
-        }).eq('business_id', bid).eq(key, val).eq('status', 'abierto'))
+        }).eq('business_id', bid).or(`id.eq.${sval},supabase_id.eq.${sval}`).eq('status', 'abierto'))
         return true
       }),
 
       delete: (id) => tryOr(async () => {
+        // inventory_counts.id and supabase_id are BOTH uuid — match either.
+        const sval = typeof id === 'string' ? id : String(id)
         const header = throwSupaError(await supabase.from('inventory_counts').select('supabase_id').eq('business_id', bid)
-          .eq(typeof id === 'string' && id.includes('-') ? 'supabase_id' : 'id', typeof id === 'string' && id.includes('-') ? id : Number(id))
+          .or(`id.eq.${sval},supabase_id.eq.${sval}`)
           .maybeSingle())
         if (!header) return false
         // Delete items first — no ON DELETE CASCADE on Supabase to avoid

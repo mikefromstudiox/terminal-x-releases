@@ -894,7 +894,7 @@ export default function DailyReport() {
             <div className="flex items-center gap-2 px-3 py-2 min-h-[44px] md:min-h-0 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus-within:border-sky-400 flex-1 md:flex-none w-full md:w-56">
               <Search size={13} className="text-slate-400 dark:text-white/40 shrink-0" />
               <input
-                type="search"
+                type="text"
                 name="dailyreport-search"
                 autoComplete="off"
                 data-lpignore="true"
