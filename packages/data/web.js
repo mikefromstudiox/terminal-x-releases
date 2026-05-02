@@ -5031,6 +5031,140 @@ export function createWebAPI(supabase, businessId) {
 
     version: () => Promise.resolve('0.0.0-web'),
 
+    // ── App / production gate ──────────────────────────────────────────────
+    // Web mirror of electron/database.js {isProductionLive, testDataCount,
+    // goLiveCommit}. Until 2026-05-02 this namespace was missing on web —
+    // Sistema.jsx's "Activar producción" button optional-chained against
+    // undefined so the cutover silently no-op'd, and the customer's test
+    // tickets stayed in DGII reports + commissions forever.
+    //
+    // What goLiveCommit does (test data only — never touches masters):
+    //   - tickets.is_test = true → DELETE
+    //   - ticket_items / ticket_item_modificadores / ticket_payments tied
+    //     to those tickets → DELETE
+    //   - washer_commissions / seller_commissions / cajero_commissions
+    //     tied to those tickets → DELETE
+    //   - notas_credito with original_ticket_supabase_id pointing at a
+    //     wiped ticket → DELETE
+    //   - anecf_queue rows for wiped tickets → DELETE
+    //   - inventory_oversells for wiped tickets → DELETE
+    //   - ncf_sequences.current_number reset to 0 (so the first real sale
+    //     starts at #1, matching DGII paper book expectations)
+    //   - app_settings.go_live_committed_at = now
+    //
+    // What it explicitly does NOT touch (preserves all configuration):
+    //   - inventory_items (product master + stock — owner ran a real conteo)
+    //   - clients (customer master)
+    //   - staff / empleados / users
+    //   - services (catalog)
+    //   - app_settings (Mi Empresa + preferences)
+    //   - businesses (RNC, address, cert)
+    //   - licenses
+    //   - inventory_counts (audit history; owner can delete manually)
+    //   - activity_log (audit history)
+    app: {
+      isProductionLive: () => tryOr(async () => {
+        const { data } = await supabase.from('app_settings')
+          .select('value').eq('business_id', bid).eq('key', 'go_live_date').maybeSingle()
+        const v = data?.value
+        if (!v) return false
+        const today = new Date(); today.setHours(0,0,0,0)
+        const d = new Date(`${v}T00:00:00`)
+        if (Number.isNaN(d.getTime())) return false
+        return d.getTime() <= today.getTime()
+      }, false),
+
+      testDataCount: () => tryOr(async () => {
+        const { count: tickets } = await supabase.from('tickets')
+          .select('id', { count: 'exact', head: true })
+          .eq('business_id', bid).eq('is_test', true)
+        return { tickets: tickets || 0 }
+      }, { tickets: 0 }),
+
+      goLiveCommit: () => tryWrite(async () => {
+        // 1) Find all is_test ticket supabase_ids for this business.
+        const { data: testTickets } = await supabase.from('tickets')
+          .select('id, supabase_id').eq('business_id', bid).eq('is_test', true)
+        const tIds  = (testTickets || []).map(t => t.id).filter(Boolean)
+        const tSids = (testTickets || []).map(t => t.supabase_id).filter(Boolean)
+
+        if (tSids.length) {
+          // 2) Delete child rows by ticket_supabase_id (uuid-only path —
+          //    integer ticket_id may be null on web-created rows).
+          // Verified 2026-05-02 against pg_catalog FK references to tickets:
+          //   ticket_items, ecf_queue, queue, washer/seller/cajero_commissions
+          // ticket_item_modificadores keys on ticket_item_supabase_id (cascades
+          // via FK on ticket_items). ticket_payments table doesn't exist on
+          // Supabase — payment splits live in tickets.payment_parts JSON.
+          const childTablesBySid = [
+            'ticket_items',
+            'washer_commissions',
+            'seller_commissions',
+            'cajero_commissions',
+            'inventory_oversells',
+            'ecf_queue',
+            'queue',
+          ]
+          for (const t of childTablesBySid) {
+            try {
+              await supabase.from(t).delete()
+                .eq('business_id', bid).in('ticket_supabase_id', tSids)
+            } catch (e) { console.error(`[goLiveCommit] ${t} cleanup failed:`, e?.message) }
+          }
+          // 3) Notas de crédito tied to wiped tickets (Devolución test).
+          try {
+            await supabase.from('notas_credito').delete()
+              .eq('business_id', bid).in('original_ticket_supabase_id', tSids)
+          } catch (e) { console.error('[goLiveCommit] notas_credito cleanup failed:', e?.message) }
+          // 4) ANECF queue rows for wiped tickets.
+          try {
+            await supabase.from('anecf_queue').delete()
+              .eq('business_id', bid).in('ticket_supabase_id', tSids)
+          } catch (e) { console.error('[goLiveCommit] anecf_queue cleanup failed:', e?.message) }
+          // 5) Finally delete the tickets themselves.
+          throwSupaError(await supabase.from('tickets').delete()
+            .eq('business_id', bid).in('supabase_id', tSids))
+        }
+
+        // 6) Reset NCF sequences so the first real sale is #1. Per-business
+        //    only; never touches other tenants. NCF reclaim during void had
+        //    decremented some already, but if Mike voided then re-cobrar'd,
+        //    current_number could be > 0. Reset all active types.
+        try {
+          await supabase.from('ncf_sequences').update({
+            current_number: 0,
+            updated_at: new Date().toISOString(),
+          }).eq('business_id', bid)
+        } catch (e) { console.error('[goLiveCommit] ncf reset failed:', e?.message) }
+
+        // 7) Stamp commit time.
+        try {
+          const stamp = new Date().toISOString()
+          await supabase.from('app_settings').upsert({
+            business_id: bid,
+            key: 'go_live_committed_at',
+            value: stamp,
+            updated_at: stamp,
+          }, { onConflict: 'business_id,key' })
+        } catch (e) { console.error('[goLiveCommit] stamp failed:', e?.message) }
+
+        // 8) Audit trail — single critical row so the owner can see when
+        //    the cutover ran + what was wiped.
+        await logActivity({
+          event_type: 'go_live_committed',
+          severity: 'critical',
+          target_type: 'business', target_id: bid,
+          reason: 'Producción activada — datos de prueba eliminados',
+          metadata: {
+            tickets_wiped: tSids.length,
+            ticket_ids: tIds,
+          },
+        })
+
+        return { ok: true, ticketsWiped: tSids.length }
+      }),
+    },
+
     // ── WhatsApp (direct UltraMsg API) ──────────────────────────────────────
     // Reads instance + token from app_settings (synced from desktop).
     // Long-term: move to a server-side proxy to avoid token exposure in browser.
