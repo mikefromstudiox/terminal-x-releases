@@ -577,10 +577,12 @@ function DetailView({ count, onBack, onReload, biz }) {
       {/* Toolbar — search + category filter + scan mode */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[220px] max-w-md">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-black/40 dark:text-white/40 pointer-events-none" />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-black/40 dark:text-white/40 pointer-events-none z-10" />
           <input value={q} onChange={e => setQ(e.target.value)}
+            type="text" name="conteo-search" autoComplete="off"
+            data-lpignore="true" data-1p-ignore="true" data-form-type="other"
             placeholder="Buscar por nombre, SKU o categoria…"
-            className="w-full pl-9 pr-3 py-2 rounded-lg border border-black/15 dark:border-white/15 bg-white dark:bg-white/5 text-sm text-black dark:text-white focus:outline-none focus:border-[#b3001e]" />
+            className="w-full pl-10 pr-3 py-2 rounded-lg border border-black/15 dark:border-white/15 bg-white dark:bg-white/5 text-sm text-black dark:text-white focus:outline-none focus:border-[#b3001e]" />
         </div>
         {categories.length > 1 && (
           <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
@@ -862,7 +864,8 @@ export default function InventoryCount() {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="h-full overflow-y-auto">
+      <div className="p-6 max-w-7xl mx-auto">
       {loading && !active ? (
         <div className="p-12 text-center">
           <Loader2 size={32} className="mx-auto animate-spin text-[#b3001e]" />
@@ -888,6 +891,7 @@ export default function InventoryCount() {
           onClose={() => setShowStart(false)}
         />
       )}
+      </div>
     </div>
   )
 }
