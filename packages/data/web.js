@@ -8849,6 +8849,18 @@ export function createWebAPI(supabase, businessId) {
         return () => supabase.removeChannel(channel)
       },
 
+      subscribeInventory: (callback) => {
+        const channel = supabase.channel('inventory-changes-' + bid)
+          .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'inventory_items',
+            filter: `business_id=eq.${bid}`,
+          }, (payload) => callback(payload))
+          .subscribe()
+        return () => supabase.removeChannel(channel)
+      },
+
       unsubscribeAll: () => {
         supabase.removeAllChannels()
       },
