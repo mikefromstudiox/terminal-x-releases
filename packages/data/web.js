@@ -405,10 +405,15 @@ async function markCommissionsPaidForEmpleado(supabase, businessId, empleadoId, 
 // future consumers (e.g. scheduled variance-report jobs) can reuse them.
 
 async function fetchCount(supabase, bid, idOrSid) {
-  const key = (typeof idOrSid === 'string' && idOrSid.includes('-')) ? 'supabase_id' : 'id'
-  const val = key === 'id' ? Number(idOrSid) : idOrSid
+  // inventory_counts has BOTH id (uuid) and supabase_id (uuid) as separate
+  // values — the simple "has dash → supabase_id else id" heuristic breaks
+  // because both are UUIDs with dashes. Query OR-matching either column so
+  // the helper works regardless of which the caller passes.
+  const sval = typeof idOrSid === 'string' ? idOrSid : String(idOrSid)
   const { data: header } = await supabase.from('inventory_counts')
-    .select('*').eq('business_id', bid).eq(key, val).maybeSingle()
+    .select('*').eq('business_id', bid)
+    .or(`id.eq.${sval},supabase_id.eq.${sval}`)
+    .maybeSingle()
   if (!header) return null
   const { data: itemsRaw = [] } = await supabase.from('inventory_count_items')
     .select('*').eq('business_id', bid).eq('count_supabase_id', header.supabase_id)
