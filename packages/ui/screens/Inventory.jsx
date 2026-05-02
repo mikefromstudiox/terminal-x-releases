@@ -82,8 +82,11 @@ function ItemModal({ item, onSave, onClose }) {
         ...form,
         name:           form.name.trim(),
         sku:            form.sku.trim() || null,
-        quantity:       Number(form.quantity)     || 0,
-        min_quantity:   Number(form.min_quantity) || 0,
+        // quantity + min_quantity are INTEGER columns in Supabase. Use
+        // parseInt to floor any decimal so Postgres doesn't reject the
+        // whole UPDATE with 'invalid input syntax for type integer'.
+        quantity:       Number.isFinite(parseInt(form.quantity, 10)) ? parseInt(form.quantity, 10) : 0,
+        min_quantity:   Number.isFinite(parseInt(form.min_quantity, 10)) ? parseInt(form.min_quantity, 10) : 0,
         // For weighted products we mirror price_per_unit → price so legacy
         // reports (which only understand `price`) still see a sane number.
         price:          sold_by_weight ? ppu : (parseFloat(form.price) || 0),
