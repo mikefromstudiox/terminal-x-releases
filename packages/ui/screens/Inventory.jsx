@@ -1350,19 +1350,16 @@ export default function Inventory() {
 
   useEffect(() => { load() }, [])
 
-  // v2.16.32 — Realtime: any UPDATE/INSERT/DELETE on inventory_items for
-  // this business reloads the list within ~1s. Lets the user see another
-  // tab / cashier's price change without manual refresh. Server already
-  // publishes inventory_items on the supabase_realtime publication;
-  // subscribeInventory wraps the client-side channel and returns the
-  // unsubscriber so we tear down on unmount.
+  // v2.16.32 — Realtime auto-refresh of inventory_items. Plan-gated to
+  // Pro MAX (multi-cashier setups) — Pro / Pro PLUS still get the manual
+  // refresh button. Coalesces burst events (bulkUpdate emits one per row)
+  // into a single reload throttled to once per 1000ms.
   useEffect(() => {
+    if (!hasFeature('inventory_realtime')) return
     if (!api?.realtime?.subscribeInventory) return
     let lastReload = 0
     let pending    = null
     const reload = () => {
-      // Coalesce bursts of changes into a single reload — e.g. a bulkUpdate
-      // emits one event per row. Throttle to one fetch per 1000ms.
       const now = Date.now()
       const wait = Math.max(0, 1000 - (now - lastReload))
       if (pending) clearTimeout(pending)
@@ -1370,7 +1367,7 @@ export default function Inventory() {
     }
     const off = api.realtime.subscribeInventory(reload)
     return () => { if (pending) clearTimeout(pending); off?.() }
-  }, [api])
+  }, [api, hasFeature])
 
   async function handleDelete(item) {
     await api.inventory.delete({ id: item.id })

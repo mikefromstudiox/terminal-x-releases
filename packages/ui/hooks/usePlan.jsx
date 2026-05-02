@@ -91,7 +91,7 @@ const PLAN_FEATURES = {
     // v2.16.10 — bundle promos, gated Pro PLUS+
     'ofertas',
     'whatsapp_receipts', 'whatsapp_automation', 'custom_receipt_design',
-    'remote_dashboard', 'multi_location',
+    'remote_dashboard', 'multi_location', 'inventory_realtime',
     'nomina_basic', 'nomina_advanced',
     // Slice 4 — contabilidad Phase 2 keys exposed to existing Pro MAX tenants
     // who want to opt into the firm-side suite without buying Pro CTB.
