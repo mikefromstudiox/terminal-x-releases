@@ -800,6 +800,26 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/sales-pipeline" element={<Navigate to="/pos/sales-pipeline" replace />} />
             <Route path="/test-drives" element={<Navigate to="/pos/test-drives" replace />} />
             <Route path="/deal-builder" element={<Navigate to="/pos/deal-builder" replace />} />
+            {/* 2026-05-03 (vertical wiring audit) — fill the same routing gap
+                we hit for restaurant, this time for mecanica/salon/prestamos/
+                carniceria/dealership. Each Sidebar entry must have a redirect
+                here or its tab silently bounces to LandingPage via the catch-all. */}
+            <Route path="/matriculas" element={<Navigate to="/pos/matriculas" replace />} />
+            <Route path="/cotizaciones" element={<Navigate to="/pos/cotizaciones" replace />} />
+            <Route path="/suministros" element={<Navigate to="/pos/suministros" replace />} />
+            <Route path="/aseguradoras" element={<Navigate to="/pos/aseguradoras" replace />} />
+            <Route path="/mecanica/resumen" element={<Navigate to="/pos/mecanica/resumen" replace />} />
+            <Route path="/mecanica/productividad" element={<Navigate to="/pos/mecanica/productividad" replace />} />
+            <Route path="/whatsapp-log" element={<Navigate to="/pos/whatsapp-log" replace />} />
+            <Route path="/collections" element={<Navigate to="/pos/collections" replace />} />
+            <Route path="/carniceria/cortes" element={<Navigate to="/pos/carniceria/cortes" replace />} />
+            <Route path="/carniceria/frescura" element={<Navigate to="/pos/carniceria/frescura" replace />} />
+            <Route path="/carniceria/mayoreo" element={<Navigate to="/pos/carniceria/mayoreo" replace />} />
+            <Route path="/carniceria/resumen" element={<Navigate to="/pos/carniceria/resumen" replace />} />
+            <Route path="/concesionario" element={<Navigate to="/pos/concesionario" replace />} />
+            <Route path="/reservations" element={<Navigate to="/pos/reservations" replace />} />
+            <Route path="/warranties" element={<Navigate to="/pos/warranties" replace />} />
+            <Route path="/preapprovals" element={<Navigate to="/pos/preapprovals" replace />} />
 
             {/* Catch-all */}
             <Route path="*" element={<RouteNotFound />} />

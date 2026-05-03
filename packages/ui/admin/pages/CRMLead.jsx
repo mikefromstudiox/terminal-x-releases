@@ -106,7 +106,11 @@ export default function CRMLead({ getToken, isDark, lang }) {
       email: lead?.email || '',
       phone: lead?.phone || '',
       password: '',
-      plan: lead?.requested_plan || 'pro',
+      // Default to pro_max so the activated client gets the full 7-day-trial
+      // experience that self-signup gives. Mike can downgrade later if needed.
+      // Falling back to 'pro' silently locks Pro PLUS+ vertical features
+      // (KDS, Reservas, Concesionario, etc.) per the 2026-05-03 audit.
+      plan: lead?.requested_plan || 'pro_max',
       platform: 'web',
     })
     setActivateErr('')
