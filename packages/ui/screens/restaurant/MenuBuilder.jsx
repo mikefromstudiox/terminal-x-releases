@@ -360,13 +360,13 @@ function ItemsTab() {
 
       {/* Filters */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <div className="relative flex-1 min-w-[220px]">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+        <div className="flex-1 min-w-[220px] flex items-center gap-2.5 px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 focus-within:border-red-600">
+          <Search size={14} className="shrink-0 text-white/40" />
           <input
             value={q}
             onChange={e => setQ(e.target.value)}
             placeholder="Buscar por nombre…"
-            className="w-full pl-9 pr-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-red-600"
+            className="flex-1 min-w-0 bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none"
           />
         </div>
         <select
@@ -597,13 +597,13 @@ function RecipeModal({ service, onClose }) {
         {/* Add ingredient */}
         <div className="rounded-lg border border-zinc-800 bg-black/40 p-3">
           <label className="block text-xs font-semibold text-white/70 mb-2">Agregar ingrediente</label>
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+          <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 focus-within:border-[#b3001e]">
+            <Search size={14} className="shrink-0 text-white/40" />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Buscar producto del inventario…"
-              className="w-full pl-9 pr-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-[#b3001e]"
+              className="flex-1 min-w-0 bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none"
             />
           </div>
           {searching && <div className="mt-2 text-xs text-white/40">Buscando…</div>}
@@ -1154,13 +1154,13 @@ function AssignModifierModal({ modifier, onClose }) {
   return (
     <ModalShell title={`Asignar "${modifier.name}"`} onClose={onClose} width="max-w-lg">
       <div className="space-y-3">
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+        <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-black border border-zinc-800 focus-within:border-red-600">
+          <Search size={14} className="shrink-0 text-white/40" />
           <input
             value={q}
             onChange={e => setQ(e.target.value)}
             placeholder="Buscar item…"
-            className="w-full pl-9 pr-3 py-2 rounded-lg bg-black border border-zinc-800 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-red-600"
+            className="flex-1 min-w-0 bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none"
           />
         </div>
 

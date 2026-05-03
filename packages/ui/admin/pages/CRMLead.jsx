@@ -102,7 +102,13 @@ export default function CRMLead({ getToken, isDark, lang }) {
 
   function openActivate() {
     const lead = data?.lead
-    setActivateForm({ email: lead?.email || '', password: '', plan: lead?.requested_plan || 'pro', platform: 'web' })
+    setActivateForm({
+      email: lead?.email || '',
+      phone: lead?.phone || '',
+      password: '',
+      plan: lead?.requested_plan || 'pro',
+      platform: 'web',
+    })
     setActivateErr('')
     setActivatedKey('')
     setShowActivate(true)
@@ -119,7 +125,8 @@ export default function CRMLead({ getToken, isDark, lang }) {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
         body: JSON.stringify({
           business_name: lead?.business_name || lead?.contact_name || '',
-          rnc: lead?.rnc || '', phone: lead?.phone || '',
+          rnc: lead?.rnc || '',
+          phone: activateForm.phone.trim() || lead?.phone || '',
           email: activateForm.email.trim(), password: activateForm.password,
           plan: activateForm.plan, platform: activateForm.platform,
         }),
@@ -282,7 +289,7 @@ export default function CRMLead({ getToken, isDark, lang }) {
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {[{ k: 'email', label: 'Email', type: 'email' }, { k: 'password', label: L('Contraseña', 'Password'), type: 'password' }].map(f => (
+                  {[{ k: 'email', label: 'Email', type: 'email' }, { k: 'phone', label: L('Teléfono (opcional)', 'Phone (optional)'), type: 'tel' }, { k: 'password', label: L('Contraseña', 'Password'), type: 'password' }].map(f => (
                     <div key={f.k}>
                       <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{f.label}</label>
                       <input type={f.type} value={activateForm[f.k]} onChange={e => setActivateForm({ ...activateForm, [f.k]: e.target.value })} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${inputBase}`} />

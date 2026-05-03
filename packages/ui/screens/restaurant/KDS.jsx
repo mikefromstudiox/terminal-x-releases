@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import { Slash, X, Loader2 } from 'lucide-react'
+import { Slash, X, Loader2, ArrowLeft } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 
 /**
@@ -545,6 +545,14 @@ export default function KDS() {
       )}
       {/* top bar */}
       <div className="sticky top-0 z-10 h-12 bg-black/95 backdrop-blur border-b border-zinc-800 flex items-center gap-4 px-4">
+        <a
+          href="/pos"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-sm font-bold text-zinc-300 hover:text-white hover:bg-zinc-800 border border-zinc-700"
+          title="Volver al POS"
+        >
+          <ArrowLeft size={16} />
+          Salir
+        </a>
         <div className="text-xl font-black tracking-widest text-white">KDS</div>
         <div className="text-lg font-mono tabular-nums text-zinc-300">
           {formatClock(clockNow)}

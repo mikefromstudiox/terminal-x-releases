@@ -136,8 +136,18 @@ function handleChunkLoadError(err) {
     /ChunkLoadError/i.test(msg)
   if (isChunkError && !_reloading) {
     _reloading = true
-    // One-shot guard in sessionStorage so we don't loop forever if something
-    // else is genuinely broken
+    // Report BEFORE reload so the admin panel sees how often / which chunks fail.
+    // Even if the reload "fixes" it, we still want the breadcrumb. Severity is
+    // 'warning' since silent recovery is the expected path.
+    try {
+      const chunkUrl = (msg.match(/https?:\/\/[^\s'")]+\.js/) || [])[0] || null
+      reportClientError(err || msg, {
+        severity: 'warning',
+        category: 'chunk_load',
+        extra: { chunk_url: chunkUrl, will_reload: true },
+        force: true, // bypass dedup — every chunk failure is signal
+      })
+    } catch {}
     try {
       const last = Number(sessionStorage.getItem('tx_chunk_reload') || 0)
       if (Date.now() - last > 30000) {
@@ -181,27 +191,62 @@ function isChunkMsg(x) {
 // admin panel can show errors per-business without users having to send
 // screenshots. Anonymous, fire-and-forget; runs in parallel with Sentry.
 // Throttled to avoid flooding from error storms.
+//
+// 2026-05-03 amplification (peppy-greeting-popcorn plan):
+//   - signature is reportClientError(err, optsOrSeverity)
+//   - opts: { severity, category, extra, force }  (force bypasses dedup)
+//   - metadata now includes platform, business_type, plan, last_routes ring,
+//     and any caller-supplied `extra` fields. All optional.
+//   - last_routes ring is filled by the route history hooks below.
 // ---------------------------------------------------------------------------
 const _errReportRecent = new Set()
-function reportClientError(err, severity = 'error') {
-  try {
-    const message = String((err && err.message) || err || 'unknown error')
-    if (isChunkMsg(message)) return // chunk reloads handled separately
-    const sig = message.slice(0, 200)
-    if (_errReportRecent.has(sig)) return
-    _errReportRecent.add(sig)
-    setTimeout(() => _errReportRecent.delete(sig), 60000) // 1-min dedupe window
+const _routeHistory = []
+function pushRoute(p) {
+  if (!p) return
+  if (_routeHistory[_routeHistory.length - 1] === p) return
+  _routeHistory.push(p)
+  if (_routeHistory.length > 5) _routeHistory.shift()
+}
+// Seed initial route + monkey-patch pushState/replaceState so SPA navs land here.
+try {
+  pushRoute(window.location.pathname)
+  ;['pushState', 'replaceState'].forEach((m) => {
+    const orig = history[m]
+    history[m] = function (...args) {
+      const r = orig.apply(this, args)
+      try { pushRoute(window.location.pathname) } catch {}
+      return r
+    }
+  })
+  window.addEventListener('popstate', () => pushRoute(window.location.pathname))
+} catch {}
 
-    const businessId = (() => {
-      try { return localStorage.getItem('tx_business_id') || null } catch { return null }
-    })()
-    const userId = (() => {
-      try { return localStorage.getItem('tx_user_id') || null } catch { return null }
-    })()
-    const userRole = (() => {
-      try { return localStorage.getItem('tx_user_role') || null } catch { return null }
-    })()
+function reportClientError(err, optsOrSeverity = 'error') {
+  try {
+    const opts = (typeof optsOrSeverity === 'string')
+      ? { severity: optsOrSeverity }
+      : (optsOrSeverity || {})
+    const severity = opts.severity || 'error'
+    const category = opts.category || null
+    const extra    = opts.extra || null
+    const force    = !!opts.force
+
+    const message = String((err && err.message) || err || 'unknown error')
+    if (!force && isChunkMsg(message)) return // chunk reloads handled separately
+    const sig = message.slice(0, 200)
+    if (!force) {
+      if (_errReportRecent.has(sig)) return
+      _errReportRecent.add(sig)
+      setTimeout(() => _errReportRecent.delete(sig), 60000)
+    }
+
+    const get = (k) => { try { return localStorage.getItem(k) || null } catch { return null } }
+    const businessId = get('tx_business_id')
+    const userId = get('tx_user_id')
+    const userRole = get('tx_user_role')
     const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : null
+    const businessType = (typeof window !== 'undefined' && window.__txBusinessType) || null
+    const plan = (typeof window !== 'undefined' && window.__txPlan) || null
 
     fetch('/api/panel?action=report_error', {
       method: 'POST',
@@ -217,6 +262,14 @@ function reportClientError(err, severity = 'error') {
         user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
         app_version: appVersion,
         severity,
+        metadata: {
+          platform: 'web',
+          ...(category ? { category } : {}),
+          ...(businessType ? { business_type: businessType } : {}),
+          ...(plan ? { plan } : {}),
+          ...(_routeHistory.length ? { last_routes: _routeHistory.slice() } : {}),
+          ...(extra || {}),
+        },
       }),
     }).catch(() => {})
   } catch {}
@@ -528,6 +581,26 @@ const SignupRoute = React.lazy(() =>
   }))
 )
 
+// 2026-05-03 (peppy-greeting-popcorn) — route-mismatch sentinel for the
+// outer BrowserRouter. Replaces the silent `<Navigate to="/">` catch-all so we
+// see in /admin Errores when a sidebar tab points to a path the routing layer
+// can't reach (the same class of bug as today's /reservas, /salon-dashboard,
+// /catalogo gaps before they got their redirects).
+function RouteNotFound() {
+  const location = useLocation()
+  useEffect(() => {
+    try {
+      const fn = (typeof window !== 'undefined') && window.__txReportError
+      if (fn) fn(`route_not_found: ${location.pathname}${location.search || ''}`, {
+        severity: 'warning',
+        category: 'routing',
+        force: true,
+      })
+    } catch {}
+  }, [location.pathname])
+  return <Navigate to="/" replace />
+}
+
 function ContabilidadRedirect() {
   const { tab } = useParams()
   const target = tab ? `/pos/contabilidad/${tab}` : '/pos/contabilidad'
@@ -698,7 +771,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/deal-builder" element={<Navigate to="/pos/deal-builder" replace />} />
 
             {/* Catch-all */}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<RouteNotFound />} />
           </Routes>
         </React.Suspense>
       </BrowserRouter>

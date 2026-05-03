@@ -138,6 +138,26 @@ function HomeRoute() {
   return <POS />
 }
 
+// 2026-05-03 (peppy-greeting-popcorn) — route-mismatch sentinel.
+// Replaces the silent `<Navigate to="/">` catch-all so missing routes get
+// reported to /admin Errores. severity=warning (not critical), category=routing,
+// force=true (every distinct unhandled path is signal). Bypasses Login flow:
+// only reaches this fiber after auth gates have passed.
+function RouteNotFound() {
+  const location = useLocation()
+  useEffect(() => {
+    try {
+      const fn = (typeof window !== 'undefined') && window.__txReportError
+      if (fn) fn(`route_not_found: ${location.pathname}${location.search || ''}`, {
+        severity: 'warning',
+        category: 'routing',
+        force: true,
+      })
+    } catch {}
+  }, [location.pathname])
+  return <Navigate to="/" replace />
+}
+
 // ── Startup spinner ───────────────────────────────────────────────────────────
 function Spinner() {
   return (
@@ -358,7 +378,7 @@ export default function App() {
         <Route path="/workers"               element={<Navigate to="/reports/workers" replace />} />
         <Route path="/services"              element={<Navigate to="/admin" replace />} />
         <Route path="/settings"              element={<Navigate to="/admin" replace />} />
-        <Route path="*"                      element={<Navigate to="/" replace />} />
+        <Route path="*"                      element={<RouteNotFound />} />
       </Routes>
       </Suspense>
       </ErrorBoundary>

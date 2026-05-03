@@ -1900,15 +1900,15 @@ export default function RestaurantPOS() {
         {/* Menú */}
         <div className="text-[11px] font-extrabold tracking-[2px] text-slate-400 dark:text-white/40 mb-3 uppercase">Menú</div>
 
-        {/* Search */}
-        <div className="relative mb-4">
-          <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40 pointer-events-none" />
+        {/* Search — flex layout guarantees no icon/placeholder overlap */}
+        <div className="mb-4 flex items-center gap-2.5 px-4 py-3.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 focus-within:border-[#b3001e]">
+          <Search size={16} className="shrink-0 text-slate-400 dark:text-white/40" />
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Buscar plato, bebida o categoría..."
-            className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-[#b3001e]"
+            className="flex-1 min-w-0 bg-transparent text-slate-900 dark:text-white text-sm focus:outline-none placeholder:text-slate-400 dark:placeholder:text-white/40"
             autoComplete="off"
             spellCheck="false"
           />

@@ -23,6 +23,23 @@ const TONE = {
   bad:   { ic: 'text-[#b3001e]',     bg: 'bg-[#b3001e]/10',   br: 'border-[#b3001e]/25' },
 }
 
+// 2026-05-03 (peppy-greeting-popcorn) — color palette per error category so
+// the Recent Errors list scans visually. Brand-aligned (red/amber/sky/zinc).
+const CATEGORY_COLORS = {
+  chunk_load:      { bg: 'bg-amber-500/10',   text: 'text-amber-400',   border: 'border-amber-500/30',   activeBg: 'bg-amber-500',   activeText: 'text-black', activeBorder: 'border-amber-500' },
+  lazy_resolution: { bg: 'bg-amber-500/10',   text: 'text-amber-400',   border: 'border-amber-500/30',   activeBg: 'bg-amber-500',   activeText: 'text-black', activeBorder: 'border-amber-500' },
+  react_invariant: { bg: 'bg-[#b3001e]/15',   text: 'text-[#b3001e]',   border: 'border-[#b3001e]/40',   activeBg: 'bg-[#b3001e]',   activeText: 'text-white', activeBorder: 'border-[#b3001e]' },
+  api_shape:       { bg: 'bg-[#b3001e]/15',   text: 'text-[#b3001e]',   border: 'border-[#b3001e]/40',   activeBg: 'bg-[#b3001e]',   activeText: 'text-white', activeBorder: 'border-[#b3001e]' },
+  tdz:             { bg: 'bg-[#b3001e]/15',   text: 'text-[#b3001e]',   border: 'border-[#b3001e]/40',   activeBg: 'bg-[#b3001e]',   activeText: 'text-white', activeBorder: 'border-[#b3001e]' },
+  tdz_or_undefined:{ bg: 'bg-[#b3001e]/15',   text: 'text-[#b3001e]',   border: 'border-[#b3001e]/40',   activeBg: 'bg-[#b3001e]',   activeText: 'text-white', activeBorder: 'border-[#b3001e]' },
+  rls_denial:      { bg: 'bg-[#b3001e]/15',   text: 'text-[#b3001e]',   border: 'border-[#b3001e]/40',   activeBg: 'bg-[#b3001e]',   activeText: 'text-white', activeBorder: 'border-[#b3001e]' },
+  routing:         { bg: 'bg-sky-500/15',     text: 'text-sky-400',     border: 'border-sky-500/30',     activeBg: 'bg-sky-500',     activeText: 'text-white', activeBorder: 'border-sky-500' },
+  network:         { bg: 'bg-amber-500/10',   text: 'text-amber-400',   border: 'border-amber-500/30',   activeBg: 'bg-amber-500',   activeText: 'text-black', activeBorder: 'border-amber-500' },
+  auth:            { bg: 'bg-amber-500/10',   text: 'text-amber-400',   border: 'border-amber-500/30',   activeBg: 'bg-amber-500',   activeText: 'text-black', activeBorder: 'border-amber-500' },
+  other:           { bg: 'bg-zinc-500/10',    text: 'text-zinc-400',    border: 'border-zinc-500/30',    activeBg: 'bg-zinc-500',    activeText: 'text-white', activeBorder: 'border-zinc-500' },
+}
+function categoryStyle(cat) { return CATEGORY_COLORS[cat] || CATEGORY_COLORS.other }
+
 function timeAgo(dateStr, lang) {
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
@@ -53,6 +70,7 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
   const [recentErrors, setRecentErrors] = useState([])
   const [errorsLoading, setErrorsLoading] = useState(false)
   const [showResolvedErrors, setShowResolvedErrors] = useState(false)
+  const [catFilter, setCatFilter] = useState(null) // null | category string
   const [tierFilter, setTierFilter] = useState(null)   // null | 'gold' | 'silver' | 'bronze'
   const [digest, setDigest] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -62,6 +80,15 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
   useEffect(() => { load() }, [])
   useEffect(() => { reloadLoyalty() }, [tierFilter])
   useEffect(() => { reloadErrors() }, [showResolvedErrors])
+  // 2026-05-03 (peppy-greeting-popcorn) — auto-refresh errors every 30s so Mike
+  // sees client problems without F5. Tab visibility-aware: pauses when the
+  // dashboard is in a background tab.
+  useEffect(() => {
+    let stopped = false
+    const tick = () => { if (!stopped && document.visibilityState === 'visible') reloadErrors() }
+    const id = setInterval(tick, 30_000)
+    return () => { stopped = true; clearInterval(id) }
+  }, [showResolvedErrors])
 
   async function reloadLoyalty() {
     try {
@@ -351,62 +378,126 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
             </button>
           </div>
         </div>
-        {recentErrors.length === 0 ? (
-          <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>
-            {showResolvedErrors
-              ? L('Sin errores registrados.', 'No errors logged.')
-              : L('Sin errores sin resolver. Todo limpio.', 'No unresolved errors. All clean.')}
-          </p>
-        ) : (
-          <div className="space-y-2 max-h-[420px] overflow-y-auto">
-            {recentErrors.map(e => {
-              const bizName = e.businesses?.name || L('(sin negocio)', '(no business)')
-              const when = new Date(e.created_at).toLocaleString('es-DO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-              const copyText = `[${bizName}] ${e.message}${e.route ? ` @ ${e.route}` : ''}${e.app_version ? ` (v${e.app_version})` : ''}`
-              return (
-                <div key={e.id} className={`flex items-start gap-3 p-3 rounded-lg ${isDark ? 'bg-white/[0.03] hover:bg-white/[0.06]' : 'bg-black/[0.02] hover:bg-black/[0.05]'} transition-colors`}>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                      <button
-                        onClick={() => e.business_id && navigate(`/admin/clients/${e.business_id}`)}
-                        className={`text-[12px] font-bold ${e.business_id ? 'hover:text-[#b3001e]' : 'cursor-default'} ${isDark ? 'text-white' : 'text-black'}`}
-                      >
-                        {bizName}
-                      </button>
-                      <span className={`text-[10px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{when}</span>
-                      {e.app_version && <span className={`text-[10px] font-mono ${isDark ? 'text-white/30' : 'text-black/30'}`}>v{e.app_version}</span>}
-                      {e.resolved_at && (
-                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 rounded-full px-2 py-0.5">
-                          {L('Resuelto', 'Resolved')} · {new Date(e.resolved_at).toLocaleString('es-DO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                        </span>
+        {/* 2026-05-03 (peppy-greeting-popcorn) — last-24h category breakdown.
+            Click a chip to filter the list to that category. */}
+        {recentErrors.length > 0 && (() => {
+          const since = Date.now() - 24 * 60 * 60 * 1000
+          const last24 = recentErrors.filter(e => new Date(e.created_at).getTime() >= since)
+          const counts = {}
+          last24.forEach(e => {
+            const cat = e.metadata?.category || 'other'
+            counts[cat] = (counts[cat] || 0) + 1
+          })
+          const ordered = Object.entries(counts).sort((a, b) => b[1] - a[1])
+          if (!ordered.length) return null
+          return (
+            <div className="flex items-center gap-1.5 flex-wrap mb-3">
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-white/40' : 'text-black/40'}`}>{L('Últimas 24h', 'Last 24h')}:</span>
+              {ordered.map(([cat, n]) => {
+                const active = catFilter === cat
+                return (
+                  <button key={cat} onClick={() => setCatFilter(active ? null : cat)}
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-colors ${active
+                      ? `${categoryStyle(cat).activeBg} ${categoryStyle(cat).activeText} ${categoryStyle(cat).activeBorder}`
+                      : `${categoryStyle(cat).bg} ${categoryStyle(cat).text} ${categoryStyle(cat).border}`}`}>
+                    {cat} · {n}
+                  </button>
+                )
+              })}
+              {catFilter && (
+                <button onClick={() => setCatFilter(null)}
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'text-white/50 hover:text-white' : 'text-black/50 hover:text-black'}`}>
+                  {L('Limpiar filtro', 'Clear filter')}
+                </button>
+              )}
+            </div>
+          )
+        })()}
+
+        {(() => {
+          const filtered = catFilter
+            ? recentErrors.filter(e => (e.metadata?.category || 'other') === catFilter)
+            : recentErrors
+          if (filtered.length === 0) return (
+            <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>
+              {showResolvedErrors
+                ? L('Sin errores registrados.', 'No errors logged.')
+                : L('Sin errores sin resolver. Todo limpio.', 'No unresolved errors. All clean.')}
+            </p>
+          )
+          return (
+            <div className="space-y-2 max-h-[420px] overflow-y-auto">
+              {filtered.map(e => {
+                const bizName = e.businesses?.name || L('(sin negocio)', '(no business)')
+                const when = new Date(e.created_at).toLocaleString('es-DO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+                const copyText = `[${bizName}] ${e.message}${e.route ? ` @ ${e.route}` : ''}${e.app_version ? ` (v${e.app_version})` : ''}`
+                const cat = e.metadata?.category || null
+                const meta = e.metadata || {}
+                const catSty = cat ? categoryStyle(cat) : null
+                return (
+                  <div key={e.id} className={`flex items-start gap-3 p-3 rounded-lg ${isDark ? 'bg-white/[0.03] hover:bg-white/[0.06]' : 'bg-black/[0.02] hover:bg-black/[0.05]'} transition-colors`}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                        <button
+                          onClick={() => e.business_id && navigate(`/admin/clients/${e.business_id}`)}
+                          className={`text-[12px] font-bold ${e.business_id ? 'hover:text-[#b3001e]' : 'cursor-default'} ${isDark ? 'text-white' : 'text-black'}`}
+                        >
+                          {bizName}
+                        </button>
+                        {cat && catSty && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${catSty.bg} ${catSty.text} ${catSty.border}`}>
+                            {cat}
+                          </span>
+                        )}
+                        {e.severity && e.severity !== 'error' && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            e.severity === 'warning' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' :
+                            e.severity === 'critical' ? 'bg-[#b3001e]/15 text-[#b3001e] border border-[#b3001e]/40' :
+                            'bg-sky-500/15 text-sky-400 border border-sky-500/30'
+                          }`}>{e.severity}</span>
+                        )}
+                        <span className={`text-[10px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{when}</span>
+                        {e.app_version && <span className={`text-[10px] font-mono ${isDark ? 'text-white/30' : 'text-black/30'}`}>v{e.app_version}</span>}
+                        {meta.business_type && <span className={`text-[10px] font-mono ${isDark ? 'text-white/30' : 'text-black/30'}`}>· {meta.business_type}</span>}
+                        {meta.plan && <span className={`text-[10px] font-mono ${isDark ? 'text-white/30' : 'text-black/30'}`}>· {meta.plan}</span>}
+                        {e.resolved_at && (
+                          <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 rounded-full px-2 py-0.5">
+                            {L('Resuelto', 'Resolved')} · {new Date(e.resolved_at).toLocaleString('es-DO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </div>
+                      <p className={`text-[12px] font-mono break-words ${isDark ? 'text-red-300' : 'text-red-700'}`}>
+                        {e.message}
+                      </p>
+                      {e.route && (
+                        <p className={`text-[10px] font-mono mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                          {e.route}
+                        </p>
+                      )}
+                      {Array.isArray(meta.last_routes) && meta.last_routes.length > 1 && (
+                        <p className={`text-[10px] font-mono mt-0.5 ${isDark ? 'text-white/30' : 'text-black/30'}`}>
+                          {L('Ruta', 'Route')}: {meta.last_routes.join(' → ')}
+                        </p>
+                      )}
+                      {e.resolution && (
+                        <p className={`text-[10px] mt-1 italic ${isDark ? 'text-emerald-300/80' : 'text-emerald-700'}`}>
+                          {L('Nota', 'Note')}: {e.resolution}
+                        </p>
                       )}
                     </div>
-                    <p className={`text-[12px] font-mono break-words ${isDark ? 'text-red-300' : 'text-red-700'}`}>
-                      {e.message}
-                    </p>
-                    {e.route && (
-                      <p className={`text-[10px] font-mono mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-                        {e.route}
-                      </p>
-                    )}
-                    {e.resolution && (
-                      <p className={`text-[10px] mt-1 italic ${isDark ? 'text-emerald-300/80' : 'text-emerald-700'}`}>
-                        {L('Nota', 'Note')}: {e.resolution}
-                      </p>
-                    )}
+                    <button
+                      onClick={() => { try { navigator.clipboard?.writeText(copyText) } catch {} }}
+                      className={`shrink-0 px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${isDark ? 'bg-white/5 hover:bg-white/10 text-white/70' : 'bg-black/5 hover:bg-black/10 text-black/70'}`}
+                      title={L('Copiar al portapapeles', 'Copy to clipboard')}
+                    >
+                      {L('Copiar', 'Copy')}
+                    </button>
                   </div>
-                  <button
-                    onClick={() => { try { navigator.clipboard?.writeText(copyText) } catch {} }}
-                    className={`shrink-0 px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${isDark ? 'bg-white/5 hover:bg-white/10 text-white/70' : 'bg-black/5 hover:bg-black/10 text-black/70'}`}
-                    title={L('Copiar al portapapeles', 'Copy to clipboard')}
-                  >
-                    {L('Copiar', 'Copy')}
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        )}
+                )
+              })}
+            </div>
+          )
+        })()}
       </motion.div>
 
       {/* Digest Health */}

@@ -721,6 +721,28 @@ async function handleCrmNote(req, res) {
 // auth is broken (chunk-load failures, signed-out states). Admin reads via
 // service role behind requireAdmin.
 // ─────────────────────────────────────────────────────────────────────────────
+// 2026-05-03 (peppy-greeting-popcorn) — auto-classify errors by stack/message
+// pattern. Stored in metadata.category so the admin Dashboard can group + color
+// without rewriting old rows. Categories chosen to match real bug families
+// we've hit (chunk_load, lazy_resolution, react_invariant, api_shape, tdz, RLS,
+// routing). Falls through to 'other' if nothing matches.
+function classifyError(message, stack) {
+  const m = String(message || '')
+  const s = String(stack || '')
+  const blob = m + '\n' + s
+  if (/Loading chunk|Failed to fetch dynamically imported module|Importing a module script failed|ChunkLoadError/i.test(blob)) return 'chunk_load'
+  if (/Cannot read propert(?:y|ies) of undefined.*['"`]?default['"`]?/i.test(blob)) return 'lazy_resolution'
+  if (/Minified React error #\d+/i.test(blob)) return 'react_invariant'
+  if (/^route_not_found:|route_not_found/i.test(m)) return 'routing'
+  if (/is not a function/i.test(m)) return 'api_shape'
+  if (/Cannot access ['"`]\w+['"`] before initialization/i.test(m)) return 'tdz'
+  if (/is not defined/i.test(m)) return 'tdz_or_undefined'
+  if (/(?:row-level security|RLS|42501|new row violates row-level security)/i.test(blob)) return 'rls_denial'
+  if (/Network request failed|Failed to fetch|TypeError: fetch/i.test(blob)) return 'network'
+  if (/Permission denied|403|401/i.test(m)) return 'auth'
+  return 'other'
+}
+
 async function handleReportError(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
   try {
@@ -733,18 +755,24 @@ async function handleReportError(req, res) {
     const body = req.body || {}
     const trim = (s, n=8000) => typeof s === 'string' ? s.slice(0, n) : null
     const businessId = typeof body.business_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.business_id) ? body.business_id : null
-    const severity = ['error','warning','info'].includes(body.severity) ? body.severity : 'error'
+    const severity = ['error','warning','info','critical'].includes(body.severity) ? body.severity : 'error'
+    const message = trim(body.message || 'unknown', 2000) || 'unknown'
+    const stack = trim(body.stack, 8000)
+    // Server-side classification: respect caller-provided metadata.category if
+    // present (e.g. routing sentinel passes 'routing' explicitly), else derive.
+    const incomingMeta = (typeof body.metadata === 'object' && body.metadata !== null) ? body.metadata : {}
+    const category = (typeof incomingMeta.category === 'string' && incomingMeta.category) || classifyError(message, stack)
+    const metadata = { ...incomingMeta, category }
     const insertRow = {
       business_id: businessId,
-      message: trim(body.message || 'unknown', 2000) || 'unknown',
-      stack: trim(body.stack, 8000),
+      message, stack,
       route: trim(body.route, 500),
       user_agent: trim(body.user_agent, 500),
       app_version: trim(body.app_version, 60),
       user_id: typeof body.user_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.user_id) ? body.user_id : null,
       user_role: trim(body.user_role, 60),
       severity,
-      metadata: typeof body.metadata === 'object' && body.metadata !== null ? body.metadata : null,
+      metadata,
     }
     const { error } = await supabase.from('client_errors').insert(insertRow)
     if (error) throw error
@@ -1441,7 +1469,8 @@ async function handleClients(req, res) {
       const { data: planRow } = await auth.supabase.from('plans').select('id, name, max_users').eq('name', planName).maybeSingle()
       const { data: biz, error: bizErr } = await auth.supabase.from('businesses').insert({
         owner_id: userId, name: business_name.trim(), rnc: (rnc || '').trim(),
-        phone: (phone || '').trim(), plan: planName,
+        phone: (phone || '').trim(), email: email.trim(),
+        plan: planName, is_demo: false,
         settings: { itbis_pct: 18, ley_pct: 10, language: 'es', facturacion_mode: ['pro_plus', 'pro_max'].includes(planName) ? 'ecf' : 'b_series' },
       }).select('id').single()
       if (bizErr) throw bizErr

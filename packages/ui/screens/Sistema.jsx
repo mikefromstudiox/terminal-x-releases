@@ -503,13 +503,13 @@ function useSettings() {
     finally { setSaving(false) }
   }
 
-  return { cfg, set, on, handleSave, saving, saved, printers, toast, show, api, printerApi }
+  return { cfg, set, on, handleSave, saving, saved, printers, toast, show, api, printerApi, qzStatus, isWebPwa }
 }
 
 // ── Preferencias (General settings: language, taxes, POS toggles, printing) ──
 
 export function Preferencias() {
-  const { cfg, set, on, handleSave, saving, saved, printers, toast, show, printerApi, api } = useSettings()
+  const { cfg, set, on, handleSave, saving, saved, printers, toast, show, printerApi, api, qzStatus } = useSettings()
   const { lang, setLang } = useLang()
   const { businessType, isMechanic } = useBusinessType()
   const { plan, hasFeature } = usePlan()
@@ -958,7 +958,7 @@ export function Preferencias() {
 // ── Impresion (Printing settings only) ────────────────────────────────────
 
 export function ImpresionSettings() {
-  const { cfg, set, on, handleSave, saving, saved, printers, toast, show, printerApi, api } = useSettings()
+  const { cfg, set, on, handleSave, saving, saved, printers, toast, show, printerApi, api, qzStatus } = useSettings()
   const { lang } = useLang()
   const { businessType } = useBusinessType()
   const showPreTicket = hasVehicles(businessType)

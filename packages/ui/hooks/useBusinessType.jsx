@@ -101,6 +101,13 @@ export function BusinessTypeProvider({ children }) {
   const [featureOverrides, setFeatureOverrides] = useState({})  // { [featureName]: 'true'|'false' }
   const [loading, setLoading] = useState(true)
 
+  // 2026-05-03 (peppy-greeting-popcorn) — expose current businessType to the
+  // global error reporter so /admin Errores rows include business_type in
+  // metadata. Single line, no perf cost.
+  useEffect(() => {
+    try { if (typeof window !== 'undefined') window.__txBusinessType = businessType || null } catch {}
+  }, [businessType])
+
   useEffect(() => {
     let cancelled = false
     async function load() {

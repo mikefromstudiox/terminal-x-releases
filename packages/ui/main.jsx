@@ -21,20 +21,50 @@ initSentryRenderer({ release: __release })
 // ── Per-client error reporter — POSTs to admin panel so errors land in
 // `client_errors` and surface in /admin Errores tab. Mirror of web/main.jsx so
 // desktop crashes (TDZ etc) are visible without screenshots. Fire-and-forget.
+//
+// 2026-05-03 amplification (peppy-greeting-popcorn plan): accept opts object
+// with severity/category/extra/force; capture business_type, plan, and last 5
+// routes. Mirror of web/main.jsx — keep them in sync.
 const REPORT_ENDPOINT = 'https://www.terminalxpos.com/api/panel?action=report_error'
 const _errReportRecent = new Set()
-function reportClientError(err, severity = 'error') {
+const _routeHistory = []
+function pushRoute(p) {
+  if (!p) return
+  if (_routeHistory[_routeHistory.length - 1] === p) return
+  _routeHistory.push(p)
+  if (_routeHistory.length > 5) _routeHistory.shift()
+}
+try {
+  pushRoute(window.location.hash || window.location.pathname)
+  // HashRouter only updates window.location.hash, no pushState calls — listen
+  // for hashchange instead to keep the ring buffer fresh on route navs.
+  window.addEventListener('hashchange', () => pushRoute(window.location.hash || window.location.pathname))
+} catch {}
+
+function reportClientError(err, optsOrSeverity = 'error') {
   try {
+    const opts = (typeof optsOrSeverity === 'string')
+      ? { severity: optsOrSeverity }
+      : (optsOrSeverity || {})
+    const severity = opts.severity || 'error'
+    const category = opts.category || null
+    const extra    = opts.extra || null
+    const force    = !!opts.force
+
     const message = String((err && err.message) || err || 'unknown error')
     const sig = message.slice(0, 200)
-    if (_errReportRecent.has(sig)) return
-    _errReportRecent.add(sig)
-    setTimeout(() => _errReportRecent.delete(sig), 60000)
+    if (!force) {
+      if (_errReportRecent.has(sig)) return
+      _errReportRecent.add(sig)
+      setTimeout(() => _errReportRecent.delete(sig), 60000)
+    }
     const get = (k) => { try { return localStorage.getItem(k) || null } catch { return null } }
     const businessId = get('tx_business_id')
     const userId = get('tx_user_id')
     const userRole = get('tx_user_role')
     const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : null
+    const businessType = (typeof window !== 'undefined' && window.__txBusinessType) || null
+    const plan = (typeof window !== 'undefined' && window.__txPlan) || null
     fetch(REPORT_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -49,7 +79,14 @@ function reportClientError(err, severity = 'error') {
         user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
         app_version: appVersion,
         severity,
-        metadata: { platform: 'desktop' },
+        metadata: {
+          platform: 'desktop',
+          ...(category ? { category } : {}),
+          ...(businessType ? { business_type: businessType } : {}),
+          ...(plan ? { plan } : {}),
+          ...(_routeHistory.length ? { last_routes: _routeHistory.slice() } : {}),
+          ...(extra || {}),
+        },
       }),
     }).catch(() => {})
   } catch {}

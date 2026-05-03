@@ -3377,7 +3377,7 @@ function RetailPOS() {
                 <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                 <input value={clientSearch} onChange={e => setClientSearch(e.target.value)} autoFocus
                   placeholder={lang === 'es' ? 'Buscar cliente...' : 'Search client...'}
-                  className="w-full pl-11 pr-3 py-2 text-sm bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
+                  className="w-full pl-12 pr-3 py-2 text-sm bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#b3001e]/30" />
               </div>
             </div>
             <div className="flex-1 overflow-y-auto">

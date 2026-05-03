@@ -209,6 +209,12 @@ export function PlanProvider({ children }) {
     setOfflineQueuePlanGate((key) => features.includes(key))
   }, [features])
 
+  // 2026-05-03 (peppy-greeting-popcorn) — expose current plan to the global
+  // error reporter so /admin Errores rows include plan in metadata.
+  useEffect(() => {
+    try { if (typeof window !== 'undefined') window.__txPlan = plan || null } catch {}
+  }, [plan])
+
   const value = { plan, displayName, features, hasFeature, loading }
 
   return (
