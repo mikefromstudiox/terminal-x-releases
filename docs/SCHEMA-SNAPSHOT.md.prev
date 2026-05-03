@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-03T03:22:31.424Z
+- **Snapshot taken:** 2026-05-01T22:20:42.405Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -305,7 +305,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `accounting_clients`
 
-- Rough row count (n_live_tup): **8**
+- Rough row count (n_live_tup): **0**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1494,7 +1494,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `api_rate_limits`
 
-- Rough row count (n_live_tup): **631**
+- Rough row count (n_live_tup): **551**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1522,7 +1522,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `app_settings`
 
-- Rough row count (n_live_tup): **190**
+- Rough row count (n_live_tup): **176**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1828,7 +1828,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `businesses`
 
-- Rough row count (n_live_tup): **36**
+- Rough row count (n_live_tup): **32**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2088,7 +2088,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `categorias_servicio`
 
-- Rough row count (n_live_tup): **8**
+- Rough row count (n_live_tup): **4**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2193,7 +2193,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `client_errors`
 
-- Rough row count (n_live_tup): **32**
+- Rough row count (n_live_tup): **8**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2806,7 +2806,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `crm_leads`
 
-- Rough row count (n_live_tup): **2**
+- Rough row count (n_live_tup): **1**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2872,7 +2872,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `cuadre_caja`
 
-- Rough row count (n_live_tup): **21**
+- Rough row count (n_live_tup): **20**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3520,7 +3520,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `empleados`
 
-- Rough row count (n_live_tup): **100**
+- Rough row count (n_live_tup): **92**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3689,7 +3689,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `inventory_count_items`
 
-- Rough row count (n_live_tup): **1650**
+- Rough row count (n_live_tup): **1606**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3746,7 +3746,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `inventory_counts`
 
-- Rough row count (n_live_tup): **16**
+- Rough row count (n_live_tup): **12**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4012,7 +4012,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `inventory_transactions`
 
-- Rough row count (n_live_tup): **1**
+- Rough row count (n_live_tup): **0**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4171,7 +4171,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `license_events`
 
-- Rough row count (n_live_tup): **2218**
+- Rough row count (n_live_tup): **2074**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4210,7 +4210,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `license_jwt_audit`
 
-- Rough row count (n_live_tup): **41**
+- Rough row count (n_live_tup): **32**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4287,7 +4287,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `licenses`
 
-- Rough row count (n_live_tup): **15**
+- Rough row count (n_live_tup): **13**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4842,7 +4842,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `mesas`
 
-- Rough row count (n_live_tup): **18**
+- Rough row count (n_live_tup): **12**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5049,7 +5049,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `ncf_sequences`
 
-- Rough row count (n_live_tup): **73**
+- Rough row count (n_live_tup): **72**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5152,7 +5152,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `notas_credito`
 
-- Rough row count (n_live_tup): **10**
+- Rough row count (n_live_tup): **8**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6474,7 +6474,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `service_recipe_items`
 
-- Rough row count (n_live_tup): **7**
+- Rough row count (n_live_tup): **5**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6522,7 +6522,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `services`
 
-- Rough row count (n_live_tup): **180**
+- Rough row count (n_live_tup): **159**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6600,7 +6600,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `staff`
 
-- Rough row count (n_live_tup): **22**
+- Rough row count (n_live_tup): **20**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6967,7 +6967,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `ticket_items`
 
-- Rough row count (n_live_tup): **1114**
+- Rough row count (n_live_tup): **999**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7046,7 +7046,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `ticket_locks`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **1**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7084,7 +7084,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `tickets`
 
-- Rough row count (n_live_tup): **446**
+- Rough row count (n_live_tup): **385**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7865,7 +7865,7 @@ Total policies: **408**
 
 ### Claim-path audit (post-2026-04-29 swap to `app_metadata`)
 
-- Policies referencing `app_metadata`: **260** (CORRECT)
+- Policies referencing `app_metadata`: **202** (CORRECT)
 - Policies referencing `user_metadata`: **0** (none — clean)
 
 ### `accounting_bank_accounts`
@@ -7875,12 +7875,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_ba_write`
@@ -7888,18 +7888,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_bank_statement_lines`
@@ -7909,12 +7909,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_bsl_write`
@@ -7922,18 +7922,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_billing_invoices`
@@ -7943,12 +7943,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_inv_write`
@@ -7956,18 +7956,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_billing_plans`
@@ -7977,12 +7977,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_bp_write`
@@ -7990,18 +7990,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_chart_of_accounts`
@@ -8011,12 +8011,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_coa_write`
@@ -8024,18 +8024,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_clients`
@@ -8045,12 +8045,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_clients_write`
@@ -8058,18 +8058,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_coa_auto_post_rules`
@@ -8079,12 +8079,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_apr_write`
@@ -8092,18 +8092,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_comprobantes`
@@ -8167,12 +8167,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_csv_write`
@@ -8180,18 +8180,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_documents`
@@ -8201,12 +8201,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_docs_write`
@@ -8214,18 +8214,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_fixed_assets`
@@ -8235,12 +8235,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_fa_write`
@@ -8248,18 +8248,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_foreign_payments`
@@ -8269,12 +8269,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_fp_write`
@@ -8282,18 +8282,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_inbox`
@@ -8303,12 +8303,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_inbox_write`
@@ -8316,18 +8316,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_journal_entries`
@@ -8337,12 +8337,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_je_write`
@@ -8350,18 +8350,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_journal_lines`
@@ -8371,12 +8371,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_jl_write`
@@ -8384,18 +8384,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_obligations_calendar`
@@ -8405,12 +8405,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_obl_write`
@@ -8418,18 +8418,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_payroll_employee_bank`
@@ -8439,12 +8439,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_pl_emp_bank_write`
@@ -8452,18 +8452,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_payroll_lines`
@@ -8473,12 +8473,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_pl_write`
@@ -8486,18 +8486,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_payroll_periods`
@@ -8507,12 +8507,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_pp_write`
@@ -8520,18 +8520,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_retentions_emitidas`
@@ -8541,12 +8541,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_re_write`
@@ -8554,18 +8554,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_retentions_recibidas`
@@ -8575,12 +8575,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_rr_write`
@@ -8588,18 +8588,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_tasks`
@@ -8609,12 +8609,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_tk_write`
@@ -8622,18 +8622,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `accounting_tss_filings`
@@ -8643,12 +8643,12 @@ Total policies: **408**
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 #### `p_acc_tss_write`
@@ -8656,18 +8656,18 @@ Total policies: **408**
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {authenticated}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 **WITH CHECK**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+((business_id IS NOT NULL) AND ((business_id)::text = COALESCE(((current_setting('request.jwt.claims'::text, true))::jsonb ->> 'business_id'::text), ''::text)))
 ```
 
 ### `activity_log`
@@ -9395,12 +9395,12 @@ true
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {public}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+(business_id = (COALESCE(((current_setting('request.jwt.claims'::text, true))::json ->> 'business_id'::text), ((current_setting('request.headers'::text, true))::json ->> 'x-business-id'::text)))::uuid)
 ```
 
 #### `business_write_carniceria_corte_categories`
@@ -9408,18 +9408,12 @@ true
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {public}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
-```
-
-**WITH CHECK**
-
-```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+(business_id = (COALESCE(((current_setting('request.jwt.claims'::text, true))::json ->> 'business_id'::text), ((current_setting('request.headers'::text, true))::json ->> 'x-business-id'::text)))::uuid)
 ```
 
 #### `carniceria_corte_categories_jwt_modify`
@@ -9461,12 +9455,12 @@ true
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {public}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+(business_id = (COALESCE(((current_setting('request.jwt.claims'::text, true))::json ->> 'business_id'::text), ((current_setting('request.headers'::text, true))::json ->> 'x-business-id'::text)))::uuid)
 ```
 
 #### `business_write_carniceria_scales`
@@ -9474,18 +9468,12 @@ true
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {public}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
-```
-
-**WITH CHECK**
-
-```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+(business_id = (COALESCE(((current_setting('request.jwt.claims'::text, true))::json ->> 'business_id'::text), ((current_setting('request.headers'::text, true))::json ->> 'x-business-id'::text)))::uuid)
 ```
 
 #### `carniceria_scales_jwt_modify`
@@ -10853,12 +10841,12 @@ true
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {public}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+(business_id = (COALESCE(((current_setting('request.jwt.claims'::text, true))::json ->> 'business_id'::text), ((current_setting('request.headers'::text, true))::json ->> 'x-business-id'::text)))::uuid)
 ```
 
 #### `business_write_inventory_discards`
@@ -10866,18 +10854,12 @@ true
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {public}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
-```
-
-**WITH CHECK**
-
-```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+(business_id = (COALESCE(((current_setting('request.jwt.claims'::text, true))::json ->> 'business_id'::text), ((current_setting('request.headers'::text, true))::json ->> 'x-business-id'::text)))::uuid)
 ```
 
 #### `inventory_discards_jwt_modify`
@@ -10919,12 +10901,12 @@ true
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {public}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+(business_id = (COALESCE(((current_setting('request.jwt.claims'::text, true))::json ->> 'business_id'::text), ((current_setting('request.headers'::text, true))::json ->> 'x-business-id'::text)))::uuid)
 ```
 
 #### `business_write_inventory_freshness_log`
@@ -10932,18 +10914,12 @@ true
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {public}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
-```
-
-**WITH CHECK**
-
-```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+(business_id = (COALESCE(((current_setting('request.jwt.claims'::text, true))::json ->> 'business_id'::text), ((current_setting('request.headers'::text, true))::json ->> 'x-business-id'::text)))::uuid)
 ```
 
 #### `inventory_freshness_log_jwt_modify`
@@ -12654,12 +12630,12 @@ true
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {public}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+(business_id = (COALESCE(((current_setting('request.jwt.claims'::text, true))::json ->> 'business_id'::text), ((current_setting('request.headers'::text, true))::json ->> 'x-business-id'::text)))::uuid)
 ```
 
 #### `business_write_promotion_items`
@@ -12667,18 +12643,12 @@ true
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {public}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
-```
-
-**WITH CHECK**
-
-```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+(business_id = (COALESCE(((current_setting('request.jwt.claims'::text, true))::json ->> 'business_id'::text), ((current_setting('request.headers'::text, true))::json ->> 'x-business-id'::text)))::uuid)
 ```
 
 #### `promotion_items_jwt_modify`
@@ -12720,12 +12690,12 @@ true
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {public}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+(business_id = (COALESCE(((current_setting('request.jwt.claims'::text, true))::json ->> 'business_id'::text), ((current_setting('request.headers'::text, true))::json ->> 'x-business-id'::text)))::uuid)
 ```
 
 #### `business_write_promotions`
@@ -12733,18 +12703,12 @@ true
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {public}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
-```
-
-**WITH CHECK**
-
-```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+(business_id = (COALESCE(((current_setting('request.jwt.claims'::text, true))::json ->> 'business_id'::text), ((current_setting('request.headers'::text, true))::json ->> 'x-business-id'::text)))::uuid)
 ```
 
 #### `promotions_jwt_modify`
@@ -12880,12 +12844,12 @@ true
 - cmd: **SELECT**
 - permissive: PERMISSIVE
 - roles: {public}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+(business_id = (COALESCE(((current_setting('request.jwt.claims'::text, true))::json ->> 'business_id'::text), ((current_setting('request.headers'::text, true))::json ->> 'x-business-id'::text)))::uuid)
 ```
 
 #### `business_write_recurring_orders`
@@ -12893,18 +12857,12 @@ true
 - cmd: **ALL**
 - permissive: PERMISSIVE
 - roles: {public}
-- claim path: app_metadata
+- claim path: —
 
 **USING**
 
 ```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
-```
-
-**WITH CHECK**
-
-```sql
-((business_id IS NOT NULL) AND (business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid))
+(business_id = (COALESCE(((current_setting('request.jwt.claims'::text, true))::json ->> 'business_id'::text), ((current_setting('request.headers'::text, true))::json ->> 'x-business-id'::text)))::uuid)
 ```
 
 #### `recurring_orders_jwt_modify`
@@ -18242,7 +18200,7 @@ These have all bitten Terminal X in production. Future readers — check this li
 - Columns: **2987**
 - Constraints: **740** (PK: 182, UNIQUE: 278, FK: 153, CHECK: 125)
 - Indexes: **939** (partial: 129)
-- Policies: **408** (`app_metadata`: 260, `user_metadata`: 0)
+- Policies: **408** (`app_metadata`: 202, `user_metadata`: 0)
 - Functions: **244**
 - Triggers: **273**
 - Realtime members: **24**
@@ -18253,4 +18211,4 @@ When re-running this script, append a brief entry below describing the diff. Use
 
 | date | who | summary |
 |------|-----|---------|
-| 2026-05-03 | dataLEAKS | initial snapshot |
+| 2026-05-01 | dataLEAKS | initial snapshot |
