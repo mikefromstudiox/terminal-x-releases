@@ -67,8 +67,19 @@ export default function SignupPage({ supabase }) {
       if (!form.email.trim()) { setError(L('Email requerido', 'Email required')); return }
       const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
       if (!emailRe.test(form.email.trim())) { setError(L('Email invalido', 'Invalid email')); return }
-      // Fire-and-forget early lead capture so we keep the lead even if the
-      // user bails before finishing signup. Failures are silent.
+      const cfg = BUSINESS_TYPES[businessType]
+      if (!cfg || cfg.enabled === false) {
+        setError(L('Selecciona un tipo de negocio disponible', 'Select an available business type'))
+        return
+      }
+      if (businessType === 'hybrid' && normalizeHybridComponents(hybridComps).length < 2) {
+        setError(L('Para Híbrido, elige al menos 2 tipos de negocio.', 'For Hybrid, pick at least 2 business types.'))
+        return
+      }
+      // Fire-and-forget lead capture WITH the chosen business_type so CRM has
+      // the correct vertical from the very first interaction. We don't await:
+      // even if the request hasn't finished by the time we navigate, keepalive
+      // ensures it completes.
       try {
         fetch('/api/signup/lead', {
           method: 'POST',
@@ -88,28 +99,17 @@ export default function SignupPage({ supabase }) {
           keepalive: true,
         }).catch(() => {})
       } catch (_) { /* non-fatal */ }
-      setStep(2)
-      return
-    }
-
-    if (step === 2) {
-      // Business type selection → open the interactive demo for that vertical.
-      // The demo's "Crear cuenta" CTA brings them back to /signup?step=3 to
-      // finish creating the account (lead is already captured at step 1).
-      const cfg = BUSINESS_TYPES[businessType]
-      if (!cfg || cfg.enabled === false) {
-        setError(L('Selecciona un tipo de negocio disponible', 'Select an available business type'))
-        return
-      }
+      // Recommend pro_plus for verticals that need it before launching demo.
       const suggested = recommendedPlanFor(businessType)
       if (suggested === 'pro_plus' && plan === 'pro') setPlan('pro_plus')
-      if (businessType === 'hybrid' && normalizeHybridComponents(hybridComps).length < 2) {
-        setError(L('Para Híbrido, elige al menos 2 tipos de negocio.', 'For Hybrid, pick at least 2 business types.'))
-        return
-      }
+      // Stash form state so the demo's "Crear cuenta" CTA can resume the user
+      // at step 3 (password) without losing what they typed.
       try {
         sessionStorage.setItem('tx_signup_resume', JSON.stringify({ ...form, plan, businessType, hybridComps }))
       } catch (_) { /* non-fatal */ }
+      // Skip the old step 2 entirely — type picker is now in step 1, so we go
+      // straight to the demo for the chosen vertical. From there the demo's
+      // CTA brings them to step 3 (password) on /signup?step=3.
       navigate(`/probar/${businessType}`)
       return
     }
@@ -191,10 +191,8 @@ export default function SignupPage({ supabase }) {
           </div>
           <p className="text-slate-400 text-sm mt-3">
             {step === 1
-              ? L('Datos del negocio', 'Business details')
-              : step === 2
-                ? L('Cuentanos de tu negocio', 'Tell us about your business')
-                : L('Crear cuenta', 'Create account')}
+              ? L('Cuentanos de tu negocio', 'Tell us about your business')
+              : L('Crear cuenta', 'Create account')}
           </p>
           <div className="inline-block mt-2 px-3 py-1 bg-[#b3001e]/20 text-white text-xs font-bold rounded-full">
             {L('7 dias gratis — Plan Pro MAX', '7 days free — Pro MAX Plan')}
@@ -205,6 +203,73 @@ export default function SignupPage({ supabase }) {
 
         {step === 1 && (
           <>
+            {/* 2026-05-03 — business type picker moved to step 1 so the CRM
+                lead row carries the correct vertical from the very first
+                interaction (was: defaulted to 'carwash' until step 2). */}
+            <div>
+              <label className="block text-xs font-bold text-white uppercase tracking-wider mb-2">
+                {L('Tipo de negocio', 'Business type')} *
+              </label>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                {BUSINESS_TYPE_KEYS.map((key) => {
+                  const cfg = BUSINESS_TYPES[key]
+                  const Icon = TYPE_ICONS[cfg.icon] || LayoutGrid
+                  const disabled = cfg.enabled === false
+                  const selected = businessType === key && !disabled
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => !disabled && setBusinessType(key)}
+                      title={cfg.description[lang] || cfg.description.es}
+                      className={`relative flex flex-col items-center gap-1 px-1.5 py-2 rounded-lg border text-center transition-all
+                        ${disabled
+                          ? 'border-slate-800 bg-slate-900/40 opacity-50 cursor-not-allowed'
+                          : selected
+                            ? 'border-[#b3001e] bg-[#b3001e]/10'
+                            : 'border-slate-700 bg-slate-800/50 hover:border-slate-500'
+                        }`}
+                    >
+                      {disabled && (
+                        <span className="absolute top-0.5 right-0.5 text-[7px] uppercase tracking-wider text-slate-400 bg-slate-800 px-1 py-0.5 rounded">
+                          {lang === 'en' ? 'Soon' : 'Prox.'}
+                        </span>
+                      )}
+                      <Icon size={14} className={selected ? 'text-[#b3001e]' : 'text-slate-300'} />
+                      <p className={`text-[10px] font-semibold leading-tight ${selected ? 'text-white' : 'text-slate-200'}`}>
+                        {cfg.label[lang] || cfg.label.es}
+                      </p>
+                    </button>
+                  )
+                })}
+              </div>
+              {businessType === 'hybrid' && (
+                <div className="mt-2.5">
+                  <label className="block text-[10px] font-bold text-white/70 uppercase tracking-wider mb-1.5">
+                    {L('Combinar cuáles?', 'Combine which?')}
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {HYBRID_COMPONENT_KEYS.map(key => {
+                      const cfg = BUSINESS_TYPES[key]
+                      if (!cfg || cfg.enabled === false) return null
+                      const checked = hybridComps.includes(key)
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setHybridComps(prev => checked ? prev.filter(k => k !== key) : [...prev, key])}
+                          className={`px-2 py-1.5 rounded-lg border text-[10px] font-semibold transition-all
+                            ${checked ? 'border-[#b3001e] bg-[#b3001e]/10 text-white' : 'border-slate-700 bg-slate-800/50 text-slate-300 hover:border-slate-500'}`}
+                        >
+                          {cfg.label[lang] || cfg.label.es}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
             <div>
               <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">{L('Nombre del negocio', 'Business name')} *</label>
               <input value={form.business_name} onChange={e => set('business_name', e.target.value)}
