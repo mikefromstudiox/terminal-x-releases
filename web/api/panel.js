@@ -165,6 +165,7 @@ export default async function handler(req, res) {
   if (action === 'report_error')   return handleReportError(req, res)
   if (action === 'errors_list')    return handleErrorsList(req, res)
   if (action === 'errors_resolve') return handleErrorsResolve(req, res)
+  if (action === 'errors_decode')  return handleErrorsDecode(req, res)
   if (action === 'client_health_snapshot') return handleClientHealthSnapshot(req, res)
 
   // DGII Mis Comprobantes auto-pull — credential vault + status + manual trigger
@@ -744,6 +745,81 @@ function classifyError(message, stack) {
   return 'other'
 }
 
+// 2026-05-03 (peppy-greeting-popcorn Phase 3) — sourcemap decode + critical
+// alerting hooks. _mapCache is module-level so warm Vercel instances reuse
+// fetched .map files (hashed → immutable per deploy → infinite TTL fine).
+const _mapCache = new Map() // url → consumer | null (null = fetch failed, don't retry)
+async function decodeMinifiedStack(stack) {
+  if (!stack || typeof stack !== 'string') return null
+  // Match patterns like: at fnName (https://terminalxpos.com/assets/POS-Bya8deFD.js:2:80534)
+  // Or:                  at https://terminalxpos.com/assets/POS-Bya8deFD.js:2:80534
+  const FRAME_RE = /(?:at\s+(?:async\s+)?(?:(?<name>[^\s(]+)\s+\()?(?:(?<url>https?:\/\/[^\s):]+\.js)):(?<line>\d+):(?<col>\d+)\)?)/g
+  const frames = []
+  let m, count = 0
+  while ((m = FRAME_RE.exec(stack)) && count < 10) {
+    frames.push({ name: m.groups.name || null, url: m.groups.url, line: Number(m.groups.line), col: Number(m.groups.col) })
+    count++
+  }
+  if (!frames.length) return null
+  let SourceMapConsumer
+  try {
+    const sm = await import('source-map')
+    SourceMapConsumer = sm.SourceMapConsumer
+  } catch { return null }
+  const decoded = []
+  for (const f of frames) {
+    try {
+      let consumer = _mapCache.get(f.url)
+      if (consumer === undefined) {
+        const r = await fetch(f.url + '.map')
+        if (!r.ok) { _mapCache.set(f.url, null); decoded.push({ ...f, decoded: null }); continue }
+        const raw = await r.json()
+        consumer = await new SourceMapConsumer(raw)
+        _mapCache.set(f.url, consumer)
+      }
+      if (consumer === null) { decoded.push({ ...f, decoded: null }); continue }
+      const orig = consumer.originalPositionFor({ line: f.line, column: f.col })
+      decoded.push({
+        ...f,
+        decoded: orig.source ? { source: orig.source, line: orig.line, column: orig.column, name: orig.name || null } : null,
+      })
+    } catch (e) {
+      decoded.push({ ...f, decoded: null, decode_error: String(e?.message || e).slice(0, 100) })
+    }
+  }
+  return decoded
+}
+
+// 2026-05-03 (peppy-greeting-popcorn Phase 3) — Slack webhook for critical
+// errors. Configure by setting SLACK_ALERT_WEBHOOK_URL env var in Vercel
+// project settings. If unset, this is a no-op. Receives only severity===
+// 'critical' rows so it stays signal-rich.
+async function fireCriticalAlert(row, decodedStack) {
+  const url = process.env.SLACK_ALERT_WEBHOOK_URL
+  if (!url) return
+  try {
+    const lines = [
+      `🔴 *Critical error* @ \`${row.message?.slice(0, 200)}\``,
+      `Business: \`${row.business_id || 'unknown'}\` · Route: \`${row.route || 'unknown'}\` · v${row.app_version || '?'}`,
+      `Category: \`${row.metadata?.category || 'other'}\` · Plan: \`${row.metadata?.plan || '?'}\` · Type: \`${row.metadata?.business_type || '?'}\``,
+    ]
+    if (decodedStack && decodedStack.length) {
+      lines.push('```\n' + decodedStack.slice(0, 5).map(f => {
+        if (f.decoded) return `${f.decoded.name || '(anonymous)'} at ${f.decoded.source}:${f.decoded.line}`
+        return `${f.name || '?'} at ${f.url.split('/').pop()}:${f.line}`
+      }).join('\n') + '\n```')
+    } else if (row.stack) {
+      lines.push('```\n' + row.stack.split('\n').slice(0, 5).join('\n') + '\n```')
+    }
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: lines.join('\n') }),
+      keepalive: true,
+    })
+  } catch {} // never let alerting fail the parent request
+}
+
 async function handleReportError(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
   try {
@@ -759,15 +835,14 @@ async function handleReportError(req, res) {
     const severity = ['error','warning','info','critical'].includes(body.severity) ? body.severity : 'error'
     const message = trim(body.message || 'unknown', 2000) || 'unknown'
     const stack = trim(body.stack, 8000)
-    // Server-side classification: respect caller-provided metadata.category if
-    // present (e.g. routing sentinel passes 'routing' explicitly), else derive.
     const incomingMeta = (typeof body.metadata === 'object' && body.metadata !== null) ? body.metadata : {}
     const category = (typeof incomingMeta.category === 'string' && incomingMeta.category) || classifyError(message, stack)
     const metadata = { ...incomingMeta, category }
+    const route = trim(body.route, 500)
     const insertRow = {
       business_id: businessId,
       message, stack,
-      route: trim(body.route, 500),
+      route,
       user_agent: trim(body.user_agent, 500),
       app_version: trim(body.app_version, 60),
       user_id: typeof body.user_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.user_id) ? body.user_id : null,
@@ -775,9 +850,51 @@ async function handleReportError(req, res) {
       severity,
       metadata,
     }
-    const { error } = await supabase.from('client_errors').insert(insertRow)
+    const { data: inserted, error } = await supabase.from('client_errors').insert(insertRow).select('id').single()
     if (error) throw error
-    return res.json({ ok: true })
+
+    // Fire-and-forget: decode stack + maybe alert. We respond immediately so
+    // the client isn't blocked. Vercel warm instance will hold the promise
+    // long enough in most cases; if it doesn't, the row is still saved with
+    // raw stack and the dashboard's lazy-decode endpoint can fill it later.
+    res.json({ ok: true, id: inserted?.id })
+    if (stack) {
+      decodeMinifiedStack(stack).then(async (decoded) => {
+        if (!decoded || !decoded.length) return
+        const newMeta = { ...metadata, decoded_stack: decoded }
+        await supabase.from('client_errors').update({ metadata: newMeta }).eq('id', inserted.id)
+        if (severity === 'critical') {
+          await fireCriticalAlert({ ...insertRow, id: inserted.id }, decoded)
+        }
+      }).catch(() => {})
+    } else if (severity === 'critical') {
+      fireCriticalAlert({ ...insertRow, id: inserted?.id }, null).catch(() => {})
+    }
+    return
+  } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// 2026-05-03 (peppy-greeting-popcorn Phase 3) — on-demand decode for older
+// rows that were inserted before the lazy decoder, OR rows whose async
+// decode didn't finish before Vercel shut the instance. Idempotent — re-runs
+// safely. Frontend can call this when user expands an error in the dashboard.
+async function handleErrorsDecode(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const { id } = req.body || {}
+  if (!id) return res.status(400).json({ error: 'id required' })
+  try {
+    const { data: row, error: fetchErr } = await auth.supabase.from('client_errors').select('id, stack, metadata').eq('id', id).maybeSingle()
+    if (fetchErr) throw fetchErr
+    if (!row) return res.status(404).json({ error: 'not found' })
+    if (row.metadata?.decoded_stack) return res.json({ data: { decoded_stack: row.metadata.decoded_stack, cached: true } })
+    if (!row.stack) return res.json({ data: { decoded_stack: null, reason: 'no_stack' } })
+    const decoded = await decodeMinifiedStack(row.stack)
+    if (!decoded) return res.json({ data: { decoded_stack: null, reason: 'no_minified_frames' } })
+    const newMeta = { ...(row.metadata || {}), decoded_stack: decoded }
+    await auth.supabase.from('client_errors').update({ metadata: newMeta }).eq('id', id)
+    return res.json({ data: { decoded_stack: decoded, cached: false } })
   } catch (err) { return res.status(500).json({ error: err.message }) }
 }
 

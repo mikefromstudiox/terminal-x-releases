@@ -138,6 +138,30 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
     setErrorsLoading(false)
   }
 
+  // 2026-05-03 (peppy-greeting-popcorn Phase 3) — on-demand sourcemap decode.
+  // The async decode in handleReportError sometimes loses to Vercel cold-shut;
+  // this lets Mike click 'Decodificar' on any error to fill the gap.
+  async function decodeStack(errorId) {
+    try {
+      let token = await refreshToken()
+      if (!token) token = getToken()
+      const r = await fetch('/api/panel?action=errors_decode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ id: errorId }),
+      })
+      if (!r.ok) return
+      const j = await r.json()
+      if (!j.data?.decoded_stack) return
+      // Mutate the in-memory list so the row re-renders with the decoded frames.
+      setRecentErrors(prev => prev.map(e =>
+        e.id === errorId
+          ? { ...e, metadata: { ...(e.metadata || {}), decoded_stack: j.data.decoded_stack } }
+          : e
+      ))
+    } catch {}
+  }
+
   async function runBulkAction(type, actionData = {}) {
     setBulkLoading(true)
     setBulkResult(null)
@@ -480,19 +504,39 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
                           {L('Ruta', 'Route')}: {meta.last_routes.join(' → ')}
                         </p>
                       )}
+                      {Array.isArray(meta.decoded_stack) && meta.decoded_stack.length > 0 && (
+                        <pre className={`text-[10px] font-mono mt-1 p-2 rounded whitespace-pre-wrap break-all ${isDark ? 'bg-white/5 text-white/70' : 'bg-black/5 text-black/70'}`}>
+                          {meta.decoded_stack.slice(0, 5).map((f, i) =>
+                            f.decoded
+                              ? `${f.decoded.name || '(anonymous)'} at ${f.decoded.source}:${f.decoded.line}:${f.decoded.column}`
+                              : `${f.name || '?'} at ${(f.url || '').split('/').pop()}:${f.line}:${f.col}`
+                          ).join('\n')}
+                        </pre>
+                      )}
                       {e.resolution && (
                         <p className={`text-[10px] mt-1 italic ${isDark ? 'text-emerald-300/80' : 'text-emerald-700'}`}>
                           {L('Nota', 'Note')}: {e.resolution}
                         </p>
                       )}
                     </div>
-                    <button
-                      onClick={() => { try { navigator.clipboard?.writeText(copyText) } catch {} }}
-                      className={`shrink-0 px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${isDark ? 'bg-white/5 hover:bg-white/10 text-white/70' : 'bg-black/5 hover:bg-black/10 text-black/70'}`}
-                      title={L('Copiar al portapapeles', 'Copy to clipboard')}
-                    >
-                      {L('Copiar', 'Copy')}
-                    </button>
+                    <div className="shrink-0 flex flex-col gap-1">
+                      {!meta.decoded_stack && e.stack && /\/assets\/[A-Za-z0-9_-]+\.js:\d+:\d+/.test(e.stack) && (
+                        <button
+                          onClick={() => decodeStack(e.id)}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${isDark ? 'bg-sky-500/15 hover:bg-sky-500/25 text-sky-400 border border-sky-500/30' : 'bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 border border-sky-500/30'}`}
+                          title={L('Decodificar stack minificado', 'Decode minified stack')}
+                        >
+                          {L('Decodificar', 'Decode')}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => { try { navigator.clipboard?.writeText(copyText) } catch {} }}
+                        className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${isDark ? 'bg-white/5 hover:bg-white/10 text-white/70' : 'bg-black/5 hover:bg-black/10 text-black/70'}`}
+                        title={L('Copiar al portapapeles', 'Copy to clipboard')}
+                      >
+                        {L('Copiar', 'Copy')}
+                      </button>
+                    </div>
                   </div>
                 )
               })}

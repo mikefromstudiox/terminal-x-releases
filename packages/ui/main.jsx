@@ -93,6 +93,33 @@ function reportClientError(err, optsOrSeverity = 'error') {
 }
 if (typeof window !== 'undefined') window.__txReportError = reportClientError
 
+// 2026-05-03 (peppy-greeting-popcorn Phase 3) — console.error proxy. Mirror of
+// web/main.jsx so desktop console errors land in client_errors too.
+let _consoleProxyActive = false
+;(() => {
+  if (typeof console === 'undefined' || console.__txWrapped) return
+  const orig = console.error.bind(console)
+  console.__txWrapped = true
+  console.error = function (...args) {
+    orig(...args)
+    if (_consoleProxyActive) return
+    try {
+      _consoleProxyActive = true
+      const msg = args.map(a => {
+        if (a == null) return String(a)
+        if (typeof a === 'string') return a
+        if (a instanceof Error) return a.message
+        try { return JSON.stringify(a).slice(0, 400) } catch { return String(a) }
+      }).join(' ').slice(0, 1000)
+      if (/HMR|\[vite\]|sourcemap|Sentry Logger|deprecated.*will be removed in a future version|Warning:.*key.*prop/i.test(msg)) return
+      if (msg.startsWith('[renderer]')) return
+      if (msg.includes('[ErrorBoundary]')) return
+      const firstErr = args.find(a => a instanceof Error)
+      reportClientError(firstErr || msg, { severity: 'info', category: 'console_error' })
+    } catch {} finally { _consoleProxyActive = false }
+  }
+})()
+
 // ── Global error handlers — catch unhandled errors outside React tree ────────
 window.addEventListener('error', (e) => {
   console.error('[renderer] Uncaught error:', e.error || e.message)
