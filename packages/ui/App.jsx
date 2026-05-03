@@ -138,6 +138,42 @@ function HomeRoute() {
   return <POS />
 }
 
+// 2026-05-03 (peppy-greeting-popcorn Phase 2) — boot beacon.
+// Fires once per session after the user is authenticated and the POS app
+// renders, capturing timing + a "we got here" signal. If a client logs in and
+// we never see a beacon for their business in admin Errores, we know they got
+// stuck before reaching POS — actionable signal even without a thrown error.
+// Stored as severity='info' so it doesn't pollute the unresolved-error count.
+function BootBeacon() {
+  useEffect(() => {
+    try {
+      // Single-fire per browser session
+      if (sessionStorage.getItem('tx_boot_beacon_sent') === '1') return
+      sessionStorage.setItem('tx_boot_beacon_sent', '1')
+      const fn = (typeof window !== 'undefined') && window.__txReportError
+      if (!fn) return
+      const navTime = (() => {
+        try {
+          const nt = performance?.getEntriesByType?.('navigation')?.[0]
+          if (nt) return Math.round(nt.domContentLoadedEventEnd || nt.duration || 0)
+        } catch {}
+        return null
+      })()
+      fn('boot_complete', {
+        severity: 'info',
+        category: 'boot',
+        force: true,
+        extra: {
+          dom_ready_ms: navTime,
+          screen: typeof window !== 'undefined' ? `${window.screen?.width}x${window.screen?.height}` : null,
+          viewport: typeof window !== 'undefined' ? `${window.innerWidth}x${window.innerHeight}` : null,
+        },
+      })
+    } catch {}
+  }, [])
+  return null
+}
+
 // 2026-05-03 (peppy-greeting-popcorn) — route-mismatch sentinel.
 // Replaces the silent `<Navigate to="/">` catch-all so missing routes get
 // reported to /admin Errores. severity=warning (not critical), category=routing,
@@ -294,6 +330,7 @@ export default function App() {
     <>
     <UpdateBanner />
     <OnboardingWizard />
+    <BootBeacon />
     <Layout>
       <ErrorBoundary>
       <Suspense fallback={

@@ -34,6 +34,7 @@ const CATEGORY_COLORS = {
   tdz_or_undefined:{ bg: 'bg-[#b3001e]/15',   text: 'text-[#b3001e]',   border: 'border-[#b3001e]/40',   activeBg: 'bg-[#b3001e]',   activeText: 'text-white', activeBorder: 'border-[#b3001e]' },
   rls_denial:      { bg: 'bg-[#b3001e]/15',   text: 'text-[#b3001e]',   border: 'border-[#b3001e]/40',   activeBg: 'bg-[#b3001e]',   activeText: 'text-white', activeBorder: 'border-[#b3001e]' },
   routing:         { bg: 'bg-sky-500/15',     text: 'text-sky-400',     border: 'border-sky-500/30',     activeBg: 'bg-sky-500',     activeText: 'text-white', activeBorder: 'border-sky-500' },
+  boot:            { bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/30', activeBg: 'bg-emerald-500', activeText: 'text-black', activeBorder: 'border-emerald-500' },
   network:         { bg: 'bg-amber-500/10',   text: 'text-amber-400',   border: 'border-amber-500/30',   activeBg: 'bg-amber-500',   activeText: 'text-black', activeBorder: 'border-amber-500' },
   auth:            { bg: 'bg-amber-500/10',   text: 'text-amber-400',   border: 'border-amber-500/30',   activeBg: 'bg-amber-500',   activeText: 'text-black', activeBorder: 'border-amber-500' },
   other:           { bg: 'bg-zinc-500/10',    text: 'text-zinc-400',    border: 'border-zinc-500/30',    activeBg: 'bg-zinc-500',    activeText: 'text-white', activeBorder: 'border-zinc-500' },

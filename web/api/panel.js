@@ -165,6 +165,7 @@ export default async function handler(req, res) {
   if (action === 'report_error')   return handleReportError(req, res)
   if (action === 'errors_list')    return handleErrorsList(req, res)
   if (action === 'errors_resolve') return handleErrorsResolve(req, res)
+  if (action === 'client_health_snapshot') return handleClientHealthSnapshot(req, res)
 
   // DGII Mis Comprobantes auto-pull — credential vault + status + manual trigger
   if (action === 'dgii_creds_save')   return handleDgiiCredsSave(req, res)
@@ -813,6 +814,125 @@ async function handleErrorsResolve(req, res) {
     if (error) throw error
     return res.json({ ok: true })
   } catch (err) { return res.status(500).json({ error: err.message }) }
+}
+
+// 2026-05-03 (peppy-greeting-popcorn Phase 2) — client health snapshot.
+// Bundled diagnostic for /admin ClientDetail "Diagnóstico" card. Surfaces the
+// "is this client provisioned correctly + has data + recent errors" view in
+// one call. Replaces the manual ad-hoc queries we ran on Crokao 2026-05-02
+// when DGII/Salon were locked + business_type defaulting to carwash.
+async function handleClientHealthSnapshot(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const bid = req.query?.business_id || req.query?.id
+  if (!bid || !/^[0-9a-f-]{36}$/i.test(bid)) return res.status(400).json({ error: 'business_id required' })
+  try {
+    const sb = auth.supabase
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const since30d = new Date(Date.now() - 30 * 86_400_000).toISOString()
+
+    const [bizRes, licRes, asRes, errRes,
+           mesasRes, servicesRes, empleadosRes,
+           ticketsRes, ticketItemsRes,
+           lastTicketRes, ownerRes] = await Promise.all([
+      sb.from('businesses').select('id, name, plan, is_demo, settings, owner_id, created_at').eq('id', bid).maybeSingle(),
+      sb.from('licenses').select('id, license_key, status, plan_id, platform, activated_at, expires_at').eq('business_id', bid).order('activated_at', { ascending: false }).limit(1),
+      sb.from('app_settings').select('key, value, is_device_local').eq('business_id', bid),
+      sb.from('client_errors').select('id, severity, metadata, created_at').eq('business_id', bid).gte('created_at', since24h).order('created_at', { ascending: false }).limit(200),
+      sb.from('mesas').select('id', { count: 'exact', head: true }).eq('business_id', bid).eq('active', true),
+      sb.from('services').select('id, is_menu_item', { count: 'exact' }).eq('business_id', bid).eq('active', true),
+      sb.from('empleados').select('id', { count: 'exact', head: true }).eq('business_id', bid).eq('active', true),
+      sb.from('tickets').select('id', { count: 'exact', head: true }).eq('business_id', bid).gte('created_at', since30d),
+      sb.from('ticket_items').select('id', { count: 'exact', head: true }).eq('business_id', bid).gte('created_at', since30d),
+      sb.from('tickets').select('created_at').eq('business_id', bid).order('created_at', { ascending: false }).limit(1),
+      sb.from('businesses').select('owner_id').eq('id', bid).maybeSingle(),
+    ])
+
+    if (!bizRes.data) return res.status(404).json({ error: 'business not found' })
+    const biz = bizRes.data
+    const settings = parseSettingsIfString(biz.settings) || {}
+    const lic = (licRes.data || [])[0] || null
+    const appSettingsRows = asRes.data || []
+    const businessTypeRow = appSettingsRows.find(r => r.key === 'business_type' && r.is_device_local === false)
+    const businessTypeFromAppSettings = businessTypeRow?.value || null
+    const businessTypeFromSettings = settings.business_type || settings.biz_type || null
+
+    // Plan_id ↔ plan-name match check
+    let planNameForLic = null
+    if (lic?.plan_id) {
+      const { data: planRow } = await sb.from('plans').select('name').eq('id', lic.plan_id).maybeSingle()
+      planNameForLic = planRow?.name || null
+    }
+
+    // Errors by category
+    const errsByCategory = {}
+    let critCount = 0
+    for (const e of errRes.data || []) {
+      const cat = e.metadata?.category || 'other'
+      errsByCategory[cat] = (errsByCategory[cat] || 0) + 1
+      if (e.severity === 'critical') critCount++
+    }
+
+    // owner email lookup
+    let ownerEmail = null
+    if (ownerRes.data?.owner_id) {
+      try {
+        const { data: { user: ownerUser } } = await sb.auth.admin.getUserById(ownerRes.data.owner_id)
+        ownerEmail = ownerUser?.email || null
+      } catch {}
+    }
+
+    const services = servicesRes.data || []
+    const menuItemCount = services.filter(s => s.is_menu_item === true || s.is_menu_item === 1).length
+
+    return res.json({
+      business: {
+        id: biz.id,
+        name: biz.name,
+        plan: biz.plan,
+        is_demo: biz.is_demo === true,
+        business_type_app_settings: businessTypeFromAppSettings,
+        business_type_settings_json: businessTypeFromSettings,
+        business_type_in_sync: !!(businessTypeFromAppSettings && businessTypeFromAppSettings === businessTypeFromSettings),
+        owner_email: ownerEmail,
+        created_at: biz.created_at,
+      },
+      license: lic ? {
+        license_key: lic.license_key,
+        status: lic.status,
+        platform: lic.platform,
+        activated_at: lic.activated_at,
+        expires_at: lic.expires_at,
+        plan_name: planNameForLic,
+        plan_matches_business: planNameForLic === biz.plan,
+        is_active: lic.status === 'active' && (!lic.expires_at || new Date(lic.expires_at).getTime() > Date.now()),
+        days_until_expiry: lic.expires_at ? Math.floor((new Date(lic.expires_at).getTime() - Date.now()) / 86_400_000) : null,
+      } : null,
+      app_settings: {
+        total_rows: appSettingsRows.length,
+        cloud_synced_count: appSettingsRows.filter(r => r.is_device_local === false).length,
+        business_type_present_and_synced: !!businessTypeRow,
+      },
+      data_counts: {
+        mesas: mesasRes.count ?? 0,
+        services_active: servicesRes.count ?? 0,
+        services_menu_items: menuItemCount,
+        empleados: empleadosRes.count ?? 0,
+        tickets_30d: ticketsRes.count ?? 0,
+        ticket_items_30d: ticketItemsRes.count ?? 0,
+      },
+      recent_errors_24h: {
+        total: errRes.data?.length ?? 0,
+        critical: critCount,
+        by_category: errsByCategory,
+      },
+      last_ticket_at: lastTicketRes.data?.[0]?.created_at || null,
+    })
+  } catch (err) {
+    console.error('[client_health_snapshot]', err)
+    return res.status(500).json({ error: err.message })
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

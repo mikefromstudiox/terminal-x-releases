@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Save, X, ShieldCheck, ShieldAlert, Lock, Pencil, Calendar, MapPin, Plus, Trash2, Gift, Mail, Send, CheckCircle2, XCircle, MessageCircle, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Save, X, ShieldCheck, ShieldAlert, Lock, Pencil, Calendar, MapPin, Plus, Trash2, Gift, Mail, Send, CheckCircle2, XCircle, MessageCircle, RefreshCw, AlertTriangle, AlertCircle, Activity } from 'lucide-react'
 import { useLang } from '../../i18n'
 import OnboardingChecklist from '../components/OnboardingChecklist'
 import QuickActions from '../components/QuickActions'
@@ -753,6 +753,16 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
             transition={{ duration: 0.25 }}
             className="space-y-5"
           >
+            {/* 2026-05-03 (peppy-greeting-popcorn Phase 2) — Diagnóstico card */}
+            <DiagnosticoCard
+              businessId={biz.id}
+              businessType={biz.business_type}
+              isDark={isDark}
+              getToken={getToken}
+              refreshToken={refreshToken}
+              L={L}
+            />
+
             <motion.div
               variants={listContainer}
               initial="initial"
@@ -1306,6 +1316,183 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+// 2026-05-03 (peppy-greeting-popcorn Phase 2) — per-client health diagnostic.
+// Bundled call to /api/panel?action=client_health_snapshot. Color-codes each
+// row green/amber/red so Mike sees provisioning gaps + recent errors at a
+// glance instead of running ad-hoc queries.
+function DiagnosticoCard({ businessId, businessType, isDark, getToken, refreshToken, L }) {
+  const [snap, setSnap] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState('')
+
+  const load = async () => {
+    setLoading(true); setErr('')
+    try {
+      let token = await refreshToken()
+      if (!token) token = getToken()
+      const r = await fetch(`/api/panel?action=client_health_snapshot&business_id=${encodeURIComponent(businessId)}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      const j = await r.json()
+      if (!r.ok) throw new Error(j.error || 'Error')
+      setSnap(j)
+    } catch (e) { setErr(e.message || 'Error') }
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [businessId])
+
+  const card = `rounded-2xl border p-5 ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-white border-black/8'}`
+
+  if (loading && !snap) return (
+    <div className={card}>
+      <div className="flex items-center gap-2 text-sm text-slate-400">
+        <Loader2 size={14} className="animate-spin" />
+        {L('Cargando diagnóstico…', 'Loading diagnostic…')}
+      </div>
+    </div>
+  )
+  if (err) return (
+    <div className={card}>
+      <p className="text-sm text-[#b3001e]">{L('No se pudo cargar', 'Could not load')}: {err}</p>
+    </div>
+  )
+  if (!snap) return null
+
+  // Vertical-aware heuristics: a restaurant with 0 mesas/services is amber,
+  // a carwash with 0 mesas is fine. Returns 'ok'|'warn'|'bad'.
+  const bt = businessType || snap.business?.business_type_app_settings || 'carwash'
+  const restaurantLike = ['restaurant', 'hybrid'].includes(bt)
+  const retailLike = ['retail', 'tienda', 'licoreria', 'carniceria', 'dealership', 'mechanic'].includes(bt)
+  const serviceLike = ['carwash', 'salon', 'barberia', 'service'].includes(bt)
+
+  const rows = []
+
+  // Business type sync
+  rows.push({
+    label: L('Tipo de negocio', 'Business type'),
+    value: snap.business.business_type_app_settings || L('(no definido)', '(not set)'),
+    status: snap.business.business_type_in_sync ? 'ok'
+      : snap.business.business_type_app_settings ? 'warn'
+      : 'bad',
+    hint: snap.business.business_type_in_sync ? null
+      : !snap.business.business_type_app_settings ? L('Falta business_type en app_settings — POS cargará como car wash', 'business_type missing in app_settings — POS loads as carwash')
+      : L('app_settings y settings.json no coinciden', 'app_settings and settings.json mismatch'),
+  })
+
+  // License
+  if (!snap.license) {
+    rows.push({ label: 'License', value: L('Sin licencia', 'No license'), status: 'bad',
+      hint: L('Sin licencia → DGII y Pro PLUS+ verticals quedarán bloqueados', 'No license → DGII + Pro PLUS+ verticals will be locked') })
+  } else {
+    const days = snap.license.days_until_expiry
+    rows.push({
+      label: 'License',
+      value: `${snap.license.plan_name || '?'} · ${snap.license.status}${days != null ? ` · ${days}d` : ''}`,
+      status: !snap.license.is_active ? 'bad'
+        : !snap.license.plan_matches_business ? 'warn'
+        : (days != null && days < 3) ? 'warn'
+        : 'ok',
+      hint: !snap.license.plan_matches_business
+        ? L(`Plan no coincide: license=${snap.license.plan_name}, business=${snap.business.plan}`, `Plan mismatch: license=${snap.license.plan_name}, business=${snap.business.plan}`)
+        : (days != null && days < 3) ? L(`Vence en ${days} días`, `Expires in ${days} days`)
+        : null,
+    })
+  }
+
+  // Owner email
+  rows.push({
+    label: L('Cuenta del dueño', 'Owner account'),
+    value: snap.business.owner_email || L('(no vinculada)', '(not linked)'),
+    status: snap.business.owner_email ? 'ok' : 'bad',
+  })
+
+  // Data counts (vertical-aware)
+  const dc = snap.data_counts
+  if (restaurantLike) {
+    rows.push({ label: 'Mesas', value: dc.mesas, status: dc.mesas === 0 ? 'warn' : 'ok',
+      hint: dc.mesas === 0 ? L('Restaurante sin mesas — el cliente debe crearlas', 'Restaurant with no mesas — client needs to create them') : null })
+  }
+  rows.push({ label: L('Servicios activos', 'Active services'), value: dc.services_active, status: dc.services_active === 0 ? 'warn' : 'ok' })
+  if (restaurantLike) {
+    rows.push({ label: L('Items del menú', 'Menu items'), value: dc.services_menu_items, status: dc.services_menu_items === 0 ? 'warn' : 'ok',
+      hint: dc.services_menu_items === 0 ? L('Sin items con is_menu_item — la pantalla de menú se ve vacía', 'No services flagged is_menu_item — menu screen will be empty') : null })
+  }
+  rows.push({ label: 'Empleados', value: dc.empleados, status: dc.empleados === 0 ? (serviceLike || restaurantLike ? 'warn' : 'ok') : 'ok' })
+  rows.push({ label: L('Tickets (30d)', 'Tickets (30d)'), value: dc.tickets_30d, status: 'ok' })
+
+  // Recent errors
+  const errs = snap.recent_errors_24h
+  rows.push({
+    label: L('Errores 24h', 'Errors 24h'),
+    value: errs.total === 0 ? '0' : `${errs.total}${errs.critical > 0 ? ` (${errs.critical} críticos)` : ''}`,
+    status: errs.critical > 0 ? 'bad' : errs.total > 5 ? 'warn' : 'ok',
+    hint: errs.total > 0 ? Object.entries(errs.by_category).map(([k,v]) => `${k}=${v}`).join(' · ') : null,
+  })
+
+  // Last activity
+  const lastT = snap.last_ticket_at
+  rows.push({
+    label: L('Último ticket', 'Last ticket'),
+    value: lastT ? new Date(lastT).toLocaleString('es-DO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : L('Ninguno', 'None'),
+    status: lastT ? 'ok' : 'warn',
+  })
+
+  const dotCls = (s) => s === 'ok' ? 'bg-emerald-500'
+    : s === 'warn' ? 'bg-amber-500'
+    : 'bg-[#b3001e]'
+
+  const summary = rows.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc }, {})
+  const overall = summary.bad > 0 ? 'bad' : summary.warn > 0 ? 'warn' : 'ok'
+  const overallIcon = overall === 'bad' ? AlertCircle : overall === 'warn' ? AlertTriangle : CheckCircle2
+  const OverallIcon = overallIcon
+  const overallLabel = overall === 'bad' ? L('Problemas críticos', 'Critical issues')
+    : overall === 'warn' ? L('Atención requerida', 'Needs attention')
+    : L('Todo en orden', 'All clear')
+  const overallTone = overall === 'bad' ? 'text-[#b3001e]' : overall === 'warn' ? 'text-amber-500' : 'text-emerald-500'
+
+  return (
+    <div className={card}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Activity size={14} className="text-[#b3001e]" />
+          <p className={`text-[14px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+            {L('Diagnóstico', 'Diagnostic')}
+          </p>
+          <div className={`flex items-center gap-1 ${overallTone}`}>
+            <OverallIcon size={12} />
+            <span className="text-[11px] font-bold">{overallLabel}</span>
+          </div>
+        </div>
+        <button
+          onClick={load}
+          disabled={loading}
+          className={`flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg transition-colors ${isDark ? 'text-white/50 hover:text-white hover:bg-white/5' : 'text-black/50 hover:text-black hover:bg-black/5'}`}
+        >
+          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+          {L('Refrescar', 'Refresh')}
+        </button>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-x-4 gap-y-2">
+        {rows.map((r, i) => (
+          <div key={i} className="flex items-start gap-2.5 py-1">
+            <div className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${dotCls(r.status)}`} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                <span className={`text-[11px] font-semibold uppercase tracking-wide ${isDark ? 'text-white/50' : 'text-black/50'}`}>{r.label}</span>
+                <span className={`text-[12px] font-mono break-all ${isDark ? 'text-white/90' : 'text-black/90'}`}>{r.value}</span>
+              </div>
+              {r.hint && (
+                <p className={`text-[10px] mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>{r.hint}</p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
