@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { motion } from 'framer-motion'
-import { Loader2, ArrowLeft, Save, MessageSquare, Phone, Mail, Calendar, UserCircle2, ExternalLink, Building2, Clock, Send, MessageCircle, Trash2 } from 'lucide-react'
-import { listItem, buttonTap } from '../motion'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Loader2, ArrowLeft, Save, MessageSquare, Phone, Mail, Calendar, UserCircle2, ExternalLink, Building2, Clock, Send, MessageCircle, Trash2, UserPlus, CheckCircle2, X, Check, Copy } from 'lucide-react'
+import { listItem, buttonTap, modalBackdrop, modalPanel } from '../motion'
 
 const STATUSES = ['new', 'contacted', 'qualified', 'demo_scheduled', 'proposal', 'won', 'lost']
 const STATUS_LABEL = {
@@ -48,6 +48,12 @@ export default function CRMLead({ getToken, isDark, lang }) {
   const [noteBody, setNoteBody] = useState('')
   const [noteKind, setNoteKind] = useState('note')
   const [posting, setPosting] = useState(false)
+  const [showActivate, setShowActivate] = useState(false)
+  const [activateForm, setActivateForm] = useState({ email: '', password: '', plan: 'pro', platform: 'web' })
+  const [activating, setActivating] = useState(false)
+  const [activateErr, setActivateErr] = useState('')
+  const [activatedKey, setActivatedKey] = useState('')
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => { load() }, [id])
 
@@ -92,6 +98,43 @@ export default function CRMLead({ getToken, isDark, lang }) {
       if (resp.ok) navigate('/admin/crm')
       else window.alert(L('No se pudo eliminar.', 'Could not delete.'))
     } catch (_) { window.alert(L('No se pudo eliminar.', 'Could not delete.')) }
+  }
+
+  function openActivate() {
+    const lead = data?.lead
+    setActivateForm({ email: lead?.email || '', password: '', plan: lead?.requested_plan || 'pro', platform: 'web' })
+    setActivateErr('')
+    setActivatedKey('')
+    setShowActivate(true)
+  }
+
+  async function activateAccount() {
+    const lead = data?.lead
+    if (!activateForm.email.trim() || !activateForm.password.trim()) { setActivateErr('Email y contraseña requeridos'); return }
+    if (activateForm.password.length < 6) { setActivateErr('Contraseña mínimo 6 caracteres'); return }
+    setActivating(true); setActivateErr('')
+    try {
+      const resp = await fetch('/api/panel?action=clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          business_name: lead?.business_name || lead?.contact_name || '',
+          rnc: lead?.rnc || '', phone: lead?.phone || '',
+          email: activateForm.email.trim(), password: activateForm.password,
+          plan: activateForm.plan, platform: activateForm.platform,
+        }),
+      })
+      const result = await resp.json()
+      if (!resp.ok) { setActivateErr(result.error || 'Error'); setActivating(false); return }
+      await fetch('/api/panel?action=crm_update', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
+        body: JSON.stringify({ id, status: 'won' }),
+      })
+      setActivatedKey(result.data?.license_key || 'web_only')
+      load()
+    } catch (_) { setActivateErr('Error de red') }
+    setActivating(false)
   }
 
   async function addNote() {
@@ -178,13 +221,21 @@ export default function CRMLead({ getToken, isDark, lang }) {
                 <Mail size={14} /> Email
               </motion.a>
             )}
-            {business && (
+            {business ? (
               <motion.button
                 onClick={() => navigate(`/admin/clients/${business.id}`)}
                 {...buttonTap}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#b3001e]/15 hover:bg-[#b3001e]/25 text-[#b3001e] border border-[#b3001e]/30 text-[12px] font-bold transition-colors"
               >
                 <Building2 size={14} /> {L('Ver cliente', 'View client')}
+              </motion.button>
+            ) : (
+              <motion.button
+                onClick={openActivate}
+                {...buttonTap}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#b3001e] hover:bg-[#8c0017] text-white text-[12px] font-bold transition-colors"
+              >
+                <UserPlus size={14} /> {L('Activar cuenta', 'Activate account')}
               </motion.button>
             )}
             <motion.button
@@ -197,7 +248,75 @@ export default function CRMLead({ getToken, isDark, lang }) {
             </motion.button>
           </div>
         </div>
+        {business && (
+          <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[12px] font-semibold">
+            <CheckCircle2 size={14} className="shrink-0" />
+            {L('Cuenta activa — el cliente puede acceder a terminalxpos.com con su email y contraseña.', 'Account active — client can sign in to terminalxpos.com with their email and password.')}
+          </div>
+        )}
       </div>
+
+      <AnimatePresence>
+        {showActivate && (
+          <motion.div variants={modalBackdrop} initial="initial" animate="animate" exit="exit" className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !activatedKey && setShowActivate(false)}>
+            <motion.div variants={modalPanel} onClick={e => e.stopPropagation()} className={`w-full max-w-md rounded-2xl border p-5 ${cardBase}`}>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{L('Activar cuenta', 'Activate account')}</h2>
+                {!activatedKey && <button onClick={() => setShowActivate(false)} className={isDark ? 'text-white/40 hover:text-white' : 'text-slate-400 hover:text-slate-700'}><X size={18} /></button>}
+              </div>
+              {activatedKey ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-[13px]"><CheckCircle2 size={16} /> {L('Cuenta creada y estado actualizado a Ganado', 'Account created and status set to Won')}</div>
+                  {activatedKey !== 'web_only' && (
+                    <div>
+                      <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{L('Clave de licencia', 'License key')}</p>
+                      <div className={`flex items-center gap-2 rounded-xl px-3.5 py-3 border ${isDark ? 'bg-white/5 border-white/10' : 'bg-black/[0.03] border-black/10'}`}>
+                        <span className={`font-mono text-[14px] font-bold flex-1 select-all ${isDark ? 'text-white' : 'text-black'}`}>{activatedKey}</span>
+                        <button onClick={() => { navigator.clipboard.writeText(activatedKey); setCopied(true); setTimeout(() => setCopied(false), 2000) }} className={`p-1.5 rounded-lg ${isDark ? 'text-white/40 hover:text-[#b3001e]' : 'text-slate-400 hover:text-[#b3001e]'}`}>
+                          {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <button onClick={() => { setShowActivate(false); navigate(`/admin/clients`) }} className="w-full py-2.5 rounded-lg bg-[#b3001e] hover:bg-[#8c0017] text-white font-bold text-[13px] transition-colors">{L('Ir a Clientes', 'Go to Clients')}</button>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {[{ k: 'email', label: 'Email', type: 'email' }, { k: 'password', label: L('Contraseña', 'Password'), type: 'password' }].map(f => (
+                    <div key={f.k}>
+                      <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{f.label}</label>
+                      <input type={f.type} value={activateForm[f.k]} onChange={e => setActivateForm({ ...activateForm, [f.k]: e.target.value })} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${inputBase}`} />
+                    </div>
+                  ))}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Plan</label>
+                      <select value={activateForm.plan} onChange={e => setActivateForm({ ...activateForm, plan: e.target.value })} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none ${inputBase}`}>
+                        <option value="pro">Pro</option>
+                        <option value="pro_plus">Pro PLUS</option>
+                        <option value="pro_max">Pro MAX</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{L('Plataforma', 'Platform')}</label>
+                      <select value={activateForm.platform} onChange={e => setActivateForm({ ...activateForm, platform: e.target.value })} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none ${inputBase}`}>
+                        <option value="web">{L('Solo Web', 'Web only')}</option>
+                        <option value="both">Desktop + Web</option>
+                        <option value="desktop">Desktop</option>
+                      </select>
+                    </div>
+                  </div>
+                  {activateErr && <p className="text-[11px] text-[#b3001e] font-semibold">{activateErr}</p>}
+                  <button onClick={activateAccount} disabled={activating} className="w-full py-2.5 rounded-lg bg-[#b3001e] hover:bg-[#8c0017] text-white font-bold text-[13px] disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
+                    {activating && <Loader2 size={13} className="animate-spin" />}
+                    {L('Crear cuenta', 'Create account')}
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="grid lg:grid-cols-[320px_1fr] gap-4">
         {/* Sidebar — controls */}

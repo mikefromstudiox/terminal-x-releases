@@ -74,12 +74,12 @@ function ClientPicker({ clients, value, onChange, lang }) {
   return (
     <div>
       <div className="relative">
-        <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-black/40" />
+        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-black/40" />
         <input
           value={q}
           onChange={e => setQ(e.target.value)}
           placeholder={L('Buscar cliente por nombre, telefono o cedula…', 'Search client by name, phone or ID…')}
-          className="w-full border border-black pl-7 pr-2 py-1.5 text-sm"
+          className="w-full border border-black pl-9 pr-2 py-1.5 text-sm"
         />
       </div>
       <div className="mt-1 max-h-36 overflow-y-auto border border-black/20">

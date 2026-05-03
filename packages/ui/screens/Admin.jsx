@@ -582,8 +582,22 @@ function Servicios() {
   const api                         = useAPI()
   const { lang }                    = useLang()
   const { user }                    = useAuth()
+  const { businessType }            = useBusinessType()
   const canDelete                   = user?.role === 'owner' || user?.role === 'manager'
   const L                           = (es, en) => lang === 'es' ? es : en
+  // Vertical-aware label for the "washer" commission slot.
+  // Carwash: Lavadores. Restaurant: Meseros. Salon/Barberia: Estilistas. Mechanic: Técnicos.
+  // For everything else (retail/dealership/etc) the slot has no natural worker — hide it.
+  const washerSlot = (
+    businessType === 'carwash'    ? { es: 'Lavadores',  en: 'Washers',     show: true } :
+    businessType === 'restaurant' ? { es: 'Meseros',    en: 'Waiters',     show: true } :
+    businessType === 'salon'      ? { es: 'Estilistas', en: 'Stylists',    show: true } :
+    businessType === 'barberia'   ? { es: 'Barberos',   en: 'Barbers',     show: true } :
+    businessType === 'mechanic'   ? { es: 'Técnicos',   en: 'Technicians', show: true } :
+    businessType === 'service'    ? { es: 'Personal',   en: 'Staff',       show: true } :
+    businessType === 'hybrid'     ? { es: 'Lavadores',  en: 'Washers',     show: true } :
+    { es: 'Lavadores', en: 'Washers', show: false }
+  )
   const [list,       setList]       = useState([])
   const [loading,    setLoading]    = useState(false)
   const [loadErr,    setLoadErr]    = useState('')
@@ -928,7 +942,7 @@ function Servicios() {
               <p className="text-[10px] text-slate-400 dark:text-white/40 mb-2 -mt-0.5">{L('Apague los 3 para servicios sin comisión (ej: parqueo, ambientadores).', 'Turn all 3 off for no-commission items (e.g. parking, air fresheners).')}</p>
               <div className="space-y-1.5">
                 {[
-                  { key: 'commission_washer',  es: 'Lavadores',  en: 'Washers', hint: null },
+                  ...(washerSlot.show ? [{ key: 'commission_washer', es: washerSlot.es, en: washerSlot.en, hint: null }] : []),
                   { key: 'commission_seller',  es: 'Vendedores', en: 'Salespeople', hint: null },
                   { key: 'commission_cashier', es: 'Cajeras',    en: 'Cashiers', hint: form.is_wash !== '0' ? L('Solo cuando no hay vendedor en el ticket', 'Only when no seller is on the ticket') : L('Siempre (es un producto)', 'Always (it is a product)') },
                 ].map(role => (

@@ -854,7 +854,7 @@ export default function RestaurantPOS() {
     try {
       const [mList, sList, eList, settings] = await Promise.all([
         api.mesas?.list?.() || [],
-        api.services?.getAll?.() || [],
+        api.services?.all?.() || [],
         api.empleados?.list?.() || api.empleados?.getAll?.() || [],
         api.settings?.get?.() || Promise.resolve({}),
       ])
@@ -961,7 +961,10 @@ export default function RestaurantPOS() {
       it => !it.kds_fired_at && itemCourseTag(it, services) === pacingState.next_course
     )
     if (!stillNeeded) cancelPacing(sid)
-  }, [activeTicket, pacingState, services, cancelPacing])
+    // cancelPacing is a stable useCallback declared lower in the file — listing
+    // it in deps causes a TDZ on first render in the minified prod bundle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTicket, pacingState, services])
 
   // Derived
   const courseGroups = useMemo(() => {
@@ -1824,7 +1827,10 @@ export default function RestaurantPOS() {
   }
 
   // v2.16.3 — Pacing banner data (label + countdown). Refreshes on pacingTick.
-  const pacingForBanner = useMemo(() => {
+  // NOTE: was useMemo, converted to plain derivation 2026-05-02 because the
+  // minified prod bundle was throwing React #310 at this hook position. The
+  // body is dirt-cheap (a Date parse + arithmetic) — memoization adds zero value.
+  const pacingForBanner = (() => {
     if (!pacingState) return null
     const fireAt = new Date(pacingState.fire_at_iso).getTime()
     const remainSec = Math.max(0, Math.floor((fireAt - pacingTick) / 1000))
@@ -1833,7 +1839,7 @@ export default function RestaurantPOS() {
       mins: Math.floor(remainSec / 60),
       secs: remainSec % 60,
     }
-  }, [pacingState, pacingTick])
+  })()
 
   // Total per mesa for the grid card. Live ticket total wins for the active mesa.
   const totalForMesa = (m) => {
@@ -1902,7 +1908,7 @@ export default function RestaurantPOS() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Buscar plato, bebida o categoría..."
-            className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-[#b3001e]"
+            className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-[#b3001e]"
             autoComplete="off"
             spellCheck="false"
           />

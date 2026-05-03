@@ -641,8 +641,8 @@ export default function WorkerReport() {
             <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800 dark:text-white">{lang === 'es' ? 'Comisiones' : 'Commissions'}</h2>
             <p className="text-[11px] text-slate-400 dark:text-white/40 mt-0.5">
               {lang === 'es'
-                ? (showWashers ? 'Calculado sobre base pre-ITBIS. Bebidas y snacks excluidos para lavadores/vendedores.' : 'Calculado sobre base pre-ITBIS.')
-                : (showWashers ? 'Calculated on pre-ITBIS base. Beverages excluded for washers/sellers.' : 'Calculated on pre-ITBIS base.')}
+                ? (showWashers ? `Calculado sobre base pre-ITBIS. Bebidas y snacks excluidos para ${(workerSet.plural.es || 'lavadores').toLowerCase()}/vendedores.` : 'Calculado sobre base pre-ITBIS.')
+                : (showWashers ? `Calculated on pre-ITBIS base. Beverages excluded for ${(workerSet.plural.en || 'washers').toLowerCase()}/sellers.` : 'Calculated on pre-ITBIS base.')}
             </p>
           </div>
           <div className="flex gap-2">

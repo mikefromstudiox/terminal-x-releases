@@ -44,7 +44,7 @@ export default async function handler(req, res) {
     const bizType = (business_type || '').trim() || null
     const { data: biz, error: bizErr } = await supabase.from('businesses').insert({
       owner_id: user.id, name: business_name.trim(), rnc: (rnc || '').trim(),
-      phone: (phone || '').trim(), plan: trialPlan,
+      phone: (phone || '').trim(), plan: trialPlan, is_demo: false,
       settings: {
         itbis_pct: 18, ley_pct: 10, language: 'es', facturacion_mode: 'ecf',
         trial_end: trialEnd, requested_plan: requestedPlan,
@@ -87,6 +87,7 @@ export default async function handler(req, res) {
       try {
         await supabase.from('app_settings').upsert({
           business_id: biz.id, key: 'business_type', value: bizType, device_hwid: null,
+          is_device_local: false, supabase_id: crypto.randomUUID(),
           updated_at: new Date().toISOString(),
         }, { onConflict: 'business_id,key,device_hwid' })
       } catch (_) { /* non-fatal */ }

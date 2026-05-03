@@ -237,7 +237,7 @@ export default function App() {
   // empleados.role enum — TODO add it; for now manager|owner|cfo|accountant|
   // cashier may open KDS (cashier is included so a single-station bar can
   // also see the queue from a POS).
-  if (window.location.pathname === '/kds') {
+  if (window.location.pathname === '/kds' || window.location.pathname === '/pos/kds') {
     const KDS_ROLES = ['owner', 'manager', 'cfo', 'accountant', 'cashier', 'kitchen']
     if (!KDS_ROLES.includes(user?.role)) {
       return (
@@ -264,6 +264,7 @@ export default function App() {
       }>
         <Routes>
           <Route path="/kds" element={<PlanGate feature="restaurant_mode"><KDS /></PlanGate>} />
+          <Route path="/pos/kds" element={<PlanGate feature="restaurant_mode"><KDS /></PlanGate>} />
         </Routes>
       </Suspense>
     )

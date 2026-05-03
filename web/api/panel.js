@@ -1382,9 +1382,11 @@ async function handleClients(req, res) {
     if (auth.error) return res.status(auth.status).json({ error: auth.error })
     const showDemos = req.query?.demo === '1' || req.query?.demo === 'true'
     try {
-      const { data: businesses, error } = await auth.supabase.from('businesses')
+      let bizQuery = auth.supabase.from('businesses')
         .select('id, name, rnc, phone, email, plan, logo_url, settings, created_at, is_demo')
-        .eq('is_demo', showDemos).order('created_at', { ascending: false }).limit(500)
+        .order('created_at', { ascending: false }).limit(500)
+      bizQuery = showDemos ? bizQuery.eq('is_demo', true) : bizQuery.or('is_demo.eq.false,is_demo.is.null')
+      const { data: businesses, error } = await bizQuery
       if (error) throw error
       const bids = (businesses || []).map(b => b.id)
       if (!bids.length) return res.json({ data: [] })
@@ -1703,11 +1705,13 @@ async function handleClientDetail(req, res) {
       setup_complete: configRes.data?.valor === '1',
     }
     // Strip non-primitive fields to prevent React #310
+    const bizSettings = parseSettingsIfString(biz.settings) || {}
     const bizSafe = {
       id: biz.id, name: biz.name || '', rnc: biz.rnc || '', phone: biz.phone || '',
       email: biz.email || '', address: biz.address || '', plan: biz.plan || '',
       logo_url: biz.logo_url || null, owner_id: biz.owner_id || null,
       created_at: biz.created_at,
+      business_type: bizSettings.business_type || bizSettings.biz_type || null,
     }
     const licSafe = licRes.data ? {
       ...licRes.data,
@@ -1748,7 +1752,7 @@ async function handleUpdateBusiness(req, res) {
   if (req.method !== 'PATCH') return res.status(405).json({ error: 'Method not allowed' })
   const auth = await requireAdmin(req)
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
-  const { id, name, rnc, phone, email, address } = req.body || {}
+  const { id, name, rnc, phone, email, address, business_type } = req.body || {}
   if (!id) return res.status(400).json({ error: 'id required' })
   const patch = {}
   if (name !== undefined) patch.name = name.trim()
@@ -1756,10 +1760,24 @@ async function handleUpdateBusiness(req, res) {
   if (phone !== undefined) patch.phone = phone.trim()
   if (email !== undefined) patch.email = email.trim()
   if (address !== undefined) patch.address = address.trim()
-  if (Object.keys(patch).length === 0) return res.status(400).json({ error: 'No fields to update' })
+  const validTypes = ['carwash', 'tienda', 'retail', 'restaurant', 'salon', 'barberia', 'mecanica', 'mechanic', 'concesionario', 'dealership', 'carniceria', 'licoreria', 'service', 'prestamos', 'otro']
+  const newBizType = business_type && validTypes.includes(business_type) ? business_type : null
   try {
+    if (newBizType) {
+      const { data: bizRow } = await auth.supabase.from('businesses').select('settings').eq('id', id).single()
+      const existing = parseSettingsIfString(bizRow?.settings) || {}
+      patch.settings = { ...existing, business_type: newBizType, biz_type: newBizType, biz_business_type: newBizType }
+    }
+    if (Object.keys(patch).length === 0) return res.status(400).json({ error: 'No fields to update' })
     const { error } = await auth.supabase.from('businesses').update(patch).eq('id', id)
     if (error) throw error
+    if (newBizType) {
+      await auth.supabase.from('app_settings').upsert({
+        business_id: id, key: 'business_type', value: newBizType, device_hwid: null,
+        is_device_local: false, supabase_id: crypto.randomUUID(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'business_id,key,device_hwid' })
+    }
     return res.json({ ok: true })
   } catch (err) { return res.status(500).json({ error: err.message }) }
 }

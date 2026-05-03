@@ -15,13 +15,34 @@ import {
 } from 'lucide-react'
 import { useAPI } from '../../../context/DataContext'
 import { useLang } from '../../../i18n'
+import { useBusinessType } from '../../../hooks/useBusinessType.jsx'
 import { fmtRD, MetricCard, TYPE_COLORS } from './shared'
 import { currentQuincena, currentMonth, nextPayDate } from './lib/payPeriod'
+
+// Vertical-aware label for the "lavador" commission bucket. Empleados.tipo
+// in the data model is unchanged ('lavador' for the primary worker); this
+// only relabels the UI per business vertical.
+function primaryWorkerLabel(businessType, lang) {
+  const map = {
+    carwash:    { es: 'Lavadores',  en: 'Washers' },
+    restaurant: { es: 'Meseros',    en: 'Servers' },
+    hybrid:     { es: 'Meseros',    en: 'Servers' },
+    salon:      { es: 'Estilistas', en: 'Stylists' },
+    barberia:   { es: 'Barberos',   en: 'Barbers' },
+    mechanic:   { es: 'Mecánicos',  en: 'Mechanics' },
+    dealership: { es: 'Vendedores', en: 'Salespeople' },
+    service:    { es: 'Prestadores', en: 'Providers' },
+  }
+  const entry = map[businessType] || { es: 'Lavadores', en: 'Washers' }
+  return lang === 'es' ? entry.es : entry.en
+}
 
 export default function NominaDashboard({ onNavigate }) {
   const api = useAPI()
   const { lang } = useLang()
+  const { businessType } = useBusinessType()
   const L = (es, en) => lang === 'es' ? es : en
+  const lavadorLabel = primaryWorkerLabel(businessType, lang)
 
   const [empleados,  setEmpleados]  = useState([])
   const [settings,   setSettings]   = useState(null)
@@ -202,7 +223,7 @@ export default function NominaDashboard({ onNavigate }) {
                 {L('Tendencia de comisiones (6 meses)', 'Commission trends (6 months)')}
               </h3>
             </div>
-            <TrendChart data={trendData} max={maxTrend} lang={lang} />
+            <TrendChart data={trendData} max={maxTrend} lang={lang} lavadorLabel={lavadorLabel} />
           </div>
 
           {/* Activity feed */}
@@ -248,7 +269,7 @@ export default function NominaDashboard({ onNavigate }) {
 }
 
 // ── Trend chart (inline SVG, no external library) ─────────────────────────────
-function TrendChart({ data, max, lang }) {
+function TrendChart({ data, max, lang, lavadorLabel }) {
   const L = (es, en) => lang === 'es' ? es : en
   const width = 100
   const height = 140
@@ -284,7 +305,7 @@ function TrendChart({ data, max, lang }) {
         })}
       </svg>
       <div className="flex items-center justify-center gap-4 mt-1 text-[10px]">
-        <span className="flex items-center gap-1 text-slate-500 dark:text-white/60"><span className="w-2 h-2 rounded-full bg-sky-500" />Lavadores</span>
+        <span className="flex items-center gap-1 text-slate-500 dark:text-white/60"><span className="w-2 h-2 rounded-full bg-sky-500" />{lavadorLabel || 'Lavadores'}</span>
         <span className="flex items-center gap-1 text-slate-500 dark:text-white/60"><span className="w-2 h-2 rounded-full bg-violet-500" />Vendedores</span>
         <span className="flex items-center gap-1 text-slate-500 dark:text-white/60"><span className="w-2 h-2 rounded-full bg-emerald-500" />Cajeros</span>
       </div>

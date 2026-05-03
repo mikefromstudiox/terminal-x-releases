@@ -99,13 +99,13 @@ function CategoryTab() {
     setLoading(true)
     setErr('')
     try {
-      if (api?.categorias?.getAll) {
-        const list = await api.categorias.getAll()
+      if (api?.categorias?.all) {
+        const list = await api.categorias.all()
         setRows(Array.isArray(list) ? list : [])
         setFallback(false)
       } else {
         // Fallback: distinct categories from services
-        const services = await api.services.getAll()
+        const services = await api.services.all()
         const names = Array.from(new Set((services || []).map(s => s.category).filter(Boolean))).sort()
         setRows(names.map((n, i) => ({ id: `virt-${i}`, nombre: n, orden: i, _virtual: true })))
         setFallback(true)
@@ -279,8 +279,8 @@ function ItemsTab() {
     setErr('')
     try {
       const [svcs, cats] = await Promise.all([
-        api.services.getAll(),
-        api.categorias?.getAll ? api.categorias.getAll() : Promise.resolve([]),
+        api.services.all(),
+        api.categorias?.all ? api.categorias.all() : Promise.resolve([]),
       ])
       setServices(Array.isArray(svcs) ? svcs : [])
       setCategorias(Array.isArray(cats) ? cats : [])
@@ -1102,11 +1102,11 @@ function AssignModifierModal({ modifier, onClose }) {
     setErr('')
     try {
       const [svcs, attachedList] = await Promise.all([
-        api.services.getAll(),
+        api.services.all(),
         // Walk services and ask per-service — simplest contract; data-layer may
         // wire a reverse listener later.
         (async () => {
-          const all = await api.services.getAll()
+          const all = await api.services.all()
           const menu = (all || []).filter(s => s.is_menu_item === 1 || s.is_menu_item === true)
           const out = new Set()
           for (const s of menu) {

@@ -72,7 +72,7 @@ const NAV = [
   // v2.16.3 — Restaurante H5: Resumen del Salón (manager-only).
   {
     id: 'restaurant_salon_dashboard', to: '/salon-dashboard', icon: BarChart3,
-    es: 'Resumen Salón', en: 'Floor Overview',
+    es: 'Resumen Comedor', en: 'Dining Room',
     feature: 'restaurant_salon_dashboard',
     businessTypes: ['restaurant'],
     roles: ['owner','manager','cfo','accountant'],

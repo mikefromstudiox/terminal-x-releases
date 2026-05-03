@@ -687,6 +687,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/menu" element={<Navigate to="/pos/menu" replace />} />
             <Route path="/menu-builder" element={<Navigate to="/pos/menu-builder" replace />} />
             <Route path="/kds" element={<Navigate to="/pos/kds" replace />} />
+            {/* v2.16.3 — Restaurante: Reservas + Salón Comedor were missing
+                redirects, sending restaurant clients to LandingPage on click. */}
+            <Route path="/reservas" element={<Navigate to="/pos/reservas" replace />} />
+            <Route path="/salon-dashboard" element={<Navigate to="/pos/salon-dashboard" replace />} />
+            <Route path="/catalogo" element={<Navigate to="/pos/catalogo" replace />} />
             <Route path="/vehicle-inventory" element={<Navigate to="/pos/vehicle-inventory" replace />} />
             <Route path="/sales-pipeline" element={<Navigate to="/pos/sales-pipeline" replace />} />
             <Route path="/test-drives" element={<Navigate to="/pos/test-drives" replace />} />

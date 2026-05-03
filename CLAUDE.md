@@ -54,6 +54,7 @@ vite.config.mjs (desktop), vite.web.config.mjs (PWA)
 scripts/
   rls-policy-audit.mjs       MUST RUN before every release
   ranoza-e2e-smoke.mjs       22-scenario web E2E harness (~10s)
+  restaurant-e2e-smoke.mjs   21-scenario restaurant POS harness against Crokao (~3s)
 ```
 
 ## Hard Rules
@@ -71,6 +72,10 @@ scripts/
 12. All user-facing text Spanish (es-DO).
 13. Never add `Co-Authored-By: Claude` or any Anthropic attribution to commits.
 14. PR commits to `main` must be signed (branch protection). Mike pushes, not Claude.
+15. **`mesas` and `tickets` status changes need `rev: OLD_REV + 1`** — `trg_*_rev_guard()` triggers reject status updates that don't strictly advance `rev`. Web/desktop sync handle this; ad-hoc scripts must too.
+16. **New sidebar route = new web/main.jsx redirect.** Adding `to: '/X'` in `Sidebar.jsx` requires a matching `<Route path="/X" element={<Navigate to="/pos/X" replace />} />` in `web/main.jsx` or the tab bounces to LandingPage via the catch-all. Fullscreen routes (KDS) also need `if (window.location.pathname === '/pos/X')` in App.jsx.
+17. **Use `api.services.all()` — `getAll()` does not exist** on either web or electron. Same for `api.categorias.all()`. Optional-chain (`?.()`) hides this as silent empty results.
+18. **Provisioning a new business** must include: `businesses.is_demo: false`, a `licenses` row, and `app_settings` upserts with `is_device_local: false` + `supabase_id: crypto.randomUUID()` + `device_hwid: null`. Skip any one and the client gets locked-feature surprises.
 
 ## supabase_id Architecture (MANDATORY for every synced table)
 - SQLite: `id INTEGER PRIMARY KEY` + `supabase_id TEXT` (UUID v4 from `crypto.randomUUID()` at insert).
@@ -239,7 +244,8 @@ Hosts DGII e-CF Receiver (`fe.terminalxpos.com`, Express:3100) and Content X. Cl
 - Server: `curl http://localhost:<port>` after dev start.
 - Electron: `npm run dev`, watch exit codes + Vite output.
 - Ranoza E2E smoke: `node scripts/ranoza-e2e-smoke.mjs` (22 scenarios, ~10s).
-- Tier 1 audit-flows harness: `node scripts/audit-flows.mjs` — schema-payload contract + side-effect rules + LWW sync + RLS. See `scripts/audit-flows.README.md`. Three-script release gate alongside `rls-policy-audit.mjs` and `ranoza-e2e-smoke.mjs`.
+- Restaurant E2E smoke: `node scripts/restaurant-e2e-smoke.mjs` (21 scenarios against Crokao, ~3s) — covers mesas/tickets/KDS/cobro/reservas/BOM + rev-guard trigger pattern + RLS denial check.
+- Tier 1 audit-flows harness: `node scripts/audit-flows.mjs` — schema-payload contract + side-effect rules + LWW sync + RLS. See `scripts/audit-flows.README.md`. Four-script release gate alongside `rls-policy-audit.mjs`, `ranoza-e2e-smoke.mjs`, and `restaurant-e2e-smoke.mjs`.
 - Skip verification ONLY for: doc-only edits, git ops, single-line obvious fixes on a passing build.
 
 ## Current Release — v2.16.9 (2026-04-27)

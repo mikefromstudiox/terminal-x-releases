@@ -291,7 +291,7 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
     : 'bg-white border-black/10 text-black placeholder-black/30 focus:border-[#b3001e] focus:ring-[#b3001e]/25'
 
   function startEdit() {
-    setEditForm({ name: biz.name || '', rnc: biz.rnc || '', phone: biz.phone || '', email: biz.email || '', address: biz.address || '' })
+    setEditForm({ name: biz.name || '', rnc: biz.rnc || '', phone: biz.phone || '', email: biz.email || '', address: biz.address || '', business_type: biz.business_type || '' })
     setEditing(true)
   }
 
@@ -791,6 +791,25 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                           className={`w-full px-3 py-2 rounded-xl text-[13px] border outline-none transition-all focus:ring-2 ${inputBase}`} />
                       </div>
                     ))}
+                    <div>
+                      <p className={lbl + ' mb-1'}>{L('Tipo de negocio', 'Business type')}</p>
+                      <select value={editForm.business_type || ''} onChange={e => setEditForm(p => ({ ...p, business_type: e.target.value }))}
+                        className={`w-full px-3 py-2 rounded-xl text-[13px] border outline-none transition-all focus:ring-2 ${inputBase}`}>
+                        <option value="">— {L('Sin definir', 'Not set')}</option>
+                        <option value="carwash">Car Wash</option>
+                        <option value="retail">Tienda / Retail</option>
+                        <option value="restaurant">Restaurante</option>
+                        <option value="salon">Salón de Belleza</option>
+                        <option value="barberia">Barbería</option>
+                        <option value="mechanic">Mecánica / Taller</option>
+                        <option value="dealership">Concesionario</option>
+                        <option value="carniceria">Carnicería</option>
+                        <option value="licoreria">Licorería</option>
+                        <option value="service">Servicio</option>
+                        <option value="prestamos">Préstamos</option>
+                        <option value="otro">Otro</option>
+                      </select>
+                    </div>
                     <div className="flex gap-2 pt-1">
                       <motion.button
                         whileTap={{ scale: 0.97 }}
@@ -818,6 +837,7 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                     <div><p className={lbl}>Email</p><p className={val}>{String(biz.email || '—')}</p></div>
                     <div><p className={lbl}>{L('Direccion', 'Address')}</p><p className={val}>{String(biz.address || '—')}</p></div>
                     <div><p className={lbl}>Plan</p><p className={val}>{planDisplay}</p></div>
+                    <div><p className={lbl}>{L('Tipo de negocio', 'Business type')}</p><p className={val}>{biz.business_type ? biz.business_type.charAt(0).toUpperCase() + biz.business_type.slice(1) : <span className="opacity-40">—</span>}</p></div>
                   </div>
                 )}
               </motion.div>
