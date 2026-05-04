@@ -1,9 +1,72 @@
 User-agent: *
 Allow: /
+
+# Public marketing pages — explicitly allowed (Spanish + English)
+Allow: /pricing
+Allow: /signup
+Allow: /blog
+Allow: /blog/
+Allow: /industrias/
+Allow: /en
+Allow: /en/
+Allow: /en/pricing
+Allow: /en/signup
+Allow: /en/blog
+Allow: /en/blog/
+Allow: /en/industries/
+
+# SPA / app routes — not indexable, force-redirect to /pos behind auth
 Disallow: /pos
+Disallow: /pos/
 Disallow: /admin
+Disallow: /admin/
 Disallow: /api/
-Disallow: /demo-login
 Disallow: /fe/
+Disallow: /demo
+Disallow: /demo/
+Disallow: /demo-login
+Disallow: /probar
+Disallow: /probar/
+
+# Top-level app aliases (redirect to /pos/* behind auth)
+Disallow: /queue
+Disallow: /clients
+Disallow: /credits
+Disallow: /reports
+Disallow: /reports/
+Disallow: /inventory
+Disallow: /conteo-fisico
+Disallow: /dgii
+Disallow: /cash-recon
+Disallow: /petty-cash
+Disallow: /credit-notes
+Disallow: /returns
+Disallow: /empleados
+Disallow: /sistema
+Disallow: /config
+Disallow: /config/
+Disallow: /remote
+Disallow: /kds
+Disallow: /work-orders
+Disallow: /vehicles
+Disallow: /service-bays
+Disallow: /mecanica
+Disallow: /mecanica/
+Disallow: /cotizaciones
+Disallow: /suministros
+Disallow: /aseguradoras
+Disallow: /mesas
+Disallow: /reservas
+Disallow: /salon-dashboard
+Disallow: /menu-builder
+Disallow: /catalogo
+Disallow: /invoicing
+Disallow: /invoicing/
+
+# Per-customer / token URLs (private, no SEO value)
+Disallow: /wo/
+Disallow: /cert/
+Disallow: /agendar/
+Disallow: /tienda-empenos/
 
 Sitemap: https://terminalxpos.com/sitemap.xml

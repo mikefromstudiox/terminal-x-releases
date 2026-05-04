@@ -1,7 +1,28 @@
 {
     "redirects": [
     { "source": "/demo/:vertical", "destination": "/", "permanent": true },
-    { "source": "/demo-login", "destination": "/", "permanent": true }
+    { "source": "/demo-login", "destination": "/", "permanent": true },
+    { "source": "/precios", "destination": "/pricing", "permanent": true },
+    { "source": "/planes", "destination": "/pricing", "permanent": true },
+    { "source": "/registro", "destination": "/signup", "permanent": true },
+    { "source": "/industries", "destination": "/", "permanent": true },
+    { "source": "/industries/:slug", "destination": "/industrias/:slug", "permanent": true },
+
+    { "source": "/en/industries/invoicing",        "destination": "/en/industries/facturacion",   "permanent": true },
+    { "source": "/en/industries/e-invoicing",      "destination": "/en/industries/facturacion",   "permanent": true },
+    { "source": "/en/industries/dgii",             "destination": "/en/industries/facturacion",   "permanent": true },
+    { "source": "/en/industries/retail",           "destination": "/en/industries/tiendas",       "permanent": true },
+    { "source": "/en/industries/stores",           "destination": "/en/industries/tiendas",       "permanent": true },
+    { "source": "/en/industries/restaurants",      "destination": "/en/industries/restaurantes",  "permanent": true },
+    { "source": "/en/industries/auto-repair",      "destination": "/en/industries/mecanica",      "permanent": true },
+    { "source": "/en/industries/mechanic",         "destination": "/en/industries/mecanica",      "permanent": true },
+    { "source": "/en/industries/dealership",       "destination": "/en/industries/concesionario", "permanent": true },
+    { "source": "/en/industries/auto-dealership",  "destination": "/en/industries/concesionario", "permanent": true },
+    { "source": "/en/industries/loans",            "destination": "/en/industries/prestamos",     "permanent": true },
+    { "source": "/en/industries/pawnshop",         "destination": "/en/industries/prestamos",     "permanent": true },
+    { "source": "/en/industries/services",         "destination": "/en/industries/servicios",     "permanent": true },
+    { "source": "/en/industries/payroll",          "destination": "/en/industries/empresas",      "permanent": true },
+    { "source": "/en/industries/barber",           "destination": "/en/industries/salon",         "permanent": true }
   ],
   "rewrites": [
     { "source": "/fe/autenticacion/api/semilla", "destination": "/api/fe?action=semilla" },

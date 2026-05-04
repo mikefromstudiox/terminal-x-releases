@@ -40,11 +40,11 @@ function resolveBlogLang() {
   } catch { return 'es' }
 }
 
-function BlogIndexRoute() {
-  return <BlogIndex lang={resolveBlogLang()} />
+function BlogIndexRoute({ lang }) {
+  return <BlogIndex lang={lang || resolveBlogLang()} />
 }
-function BlogPostRoute() {
-  return <BlogPost lang={resolveBlogLang()} />
+function BlogPostRoute({ lang }) {
+  return <BlogPost lang={lang || resolveBlogLang()} />
 }
 
 // Lazy load Supabase — fetched only when a route that needs it (POS / Admin /
@@ -606,8 +606,8 @@ const SignupRoute = React.lazy(() =>
     import('@/landing/SignupPage'),
     getSupabaseReady(),
   ]).then(([SignupPage]) => ({
-    default: function SignupShell() {
-      return <SignupPage.default supabase={_supabase} />
+    default: function SignupShell({ lang }) {
+      return <SignupPage.default supabase={_supabase} forceLang={lang} />
     }
   }))
 )
@@ -650,11 +650,13 @@ function ConfigRedirect() {
 // Skips app/private routes (/pos, /admin, /invoicing, /cert, /wo, /tienda-empenos, /agendar)
 // since those are noindex by intent.
 function RouteCanonical() {
-  const { pathname, search } = useLocation()
+  const { pathname } = useLocation()
   React.useEffect(() => {
     const PRIVATE = /^\/(pos|admin|invoicing|cert|wo|tienda-empenos|agendar|queue|clients|credits|reports|inventory|conteo-fisico|dgii|cash-recon|petty-cash|credit-notes|returns|empleados|config|remote|sistema|license-admin|settings|memberships|resumen|work-orders|vehicles|service-bays|appointments|stylist-schedules|loans|pawn-items|lending|mesas|menu|menu-builder|kds|vehicle-inventory|sales-pipeline|test-drives|deal-builder|probar|demo)(\/|$)/
     const isPrivate = PRIVATE.test(pathname)
-    const url = `https://terminalxpos.com${pathname}${search || ''}`
+    // Canonical = pathname only (drop query: lang/utm/etc are parameter
+    // variants of the same canonical page).
+    const url = `https://terminalxpos.com${pathname}`
     let link = document.querySelector('link[rel="canonical"]')
     if (!link) {
       link = document.createElement('link')
@@ -693,6 +695,17 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             {/* Public landing pages — no Supabase needed */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/pricing" element={<LandingPage section="pricing" />} />
+
+            {/* English mirror — same components, lang="en" forced. The /en/
+                path prefix is Google's preferred bilingual URL pattern (over
+                ?lang=en). Hreflang in middleware pairs each ES↔EN URL. */}
+            <Route path="/en" element={<LandingPage forceLang="en" />} />
+            <Route path="/en/pricing" element={<LandingPage section="pricing" forceLang="en" />} />
+            <Route path="/en/signup" element={<SignupRoute lang="en" />} />
+            <Route path="/en/blog" element={<BlogIndexRoute lang="en" />} />
+            <Route path="/en/blog/:slug" element={<BlogPostRoute lang="en" />} />
+            <Route path="/en/industries" element={<Navigate to="/en/#vertical-features" replace />} />
+            <Route path="/en/industries/:slug" element={<IndustryPage forceLang="en" />} />
 
             {/* Signup — lazy loads Supabase */}
             <Route path="/signup" element={<SignupRoute />} />

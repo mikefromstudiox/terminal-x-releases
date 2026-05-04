@@ -19,15 +19,43 @@ import copy from './data/copy.json'
 // Analytics helpers
 import { trackCtaClick } from './lib/analytics'
 
-function useBrowserLang() {
+function useBrowserLang(forced) {
   const [lang, setLang] = useState(() => {
-    const stored = localStorage.getItem('tx_landing_lang')
+    if (forced === 'en' || forced === 'es') return forced
+    // URL pathname trumps localStorage so /en/ and / always render the
+    // language Google indexed for that URL — no flash of stored lang.
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/en')) return 'en'
+    const stored = (typeof localStorage !== 'undefined') ? localStorage.getItem('tx_landing_lang') : null
     if (stored === 'en' || stored === 'es') return stored
     return navigator.language?.startsWith('en') ? 'en' : 'es'
   })
+  // If forced changes (route change), follow it.
+  useEffect(() => {
+    if (forced === 'en' || forced === 'es') setLang(forced)
+  }, [forced])
   function toggle() {
+    // URL-based switch — navigate to the sibling-language page so the URL,
+    // canonical, hreflang and indexable content all stay coherent. Falls back
+    // to localStorage toggle for routes without a language pair.
+    if (typeof window !== 'undefined') {
+      const p = window.location.pathname
+      let target = null
+      if (p === '/' || p === '') target = '/en'
+      else if (p === '/en' || p === '/en/') target = '/'
+      else if (p === '/pricing') target = '/en/pricing'
+      else if (p === '/en/pricing') target = '/pricing'
+      else if (p === '/signup') target = '/en/signup'
+      else if (p === '/en/signup') target = '/signup'
+      else if (p === '/blog') target = '/en/blog'
+      else if (p === '/en/blog') target = '/blog'
+      else if (p.startsWith('/blog/')) target = '/en' + p
+      else if (p.startsWith('/en/blog/')) target = p.slice(3)
+      else if (p.startsWith('/industrias/')) target = '/en/industries/' + p.slice('/industrias/'.length)
+      else if (p.startsWith('/en/industries/')) target = '/industrias/' + p.slice('/en/industries/'.length)
+      if (target) { window.location.assign(target + window.location.search + window.location.hash); return }
+    }
     const next = lang === 'es' ? 'en' : 'es'
-    localStorage.setItem('tx_landing_lang', next)
+    if (typeof localStorage !== 'undefined') localStorage.setItem('tx_landing_lang', next)
     setLang(next)
   }
   return { lang, toggle }
@@ -341,11 +369,11 @@ function FaqItem({ q, a }) {
   )
 }
 
-export default function LandingPage({ section }) {
+export default function LandingPage({ section, forceLang }) {
   const navigate = useNavigate()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showScrollTop, setShowScrollTop] = useState(false)
-  const { lang, toggle: toggleLang } = useBrowserLang()
+  const { lang, toggle: toggleLang } = useBrowserLang(forceLang)
   const L = (es, en) => lang === 'es' ? es : en
 
   useEffect(() => {
@@ -1370,6 +1398,30 @@ export default function LandingPage({ section }) {
       {/* Footer — BLACK */}
       <footer className="bg-black border-t border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
+          {/* Industrias row — internal linking + anchor-text SEO to vertical pages */}
+          <div className="border-b border-white/10 pb-10 mb-10">
+            <p className="text-sm font-bold uppercase tracking-wider text-white/50 mb-4">{L('Industrias que servimos en RD', 'Industries we serve in the Dominican Republic')}</p>
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+              {(() => {
+                const base = lang === 'en' ? '/en/industries/' : '/industrias/'
+                const items = [
+                  ['facturacion',   L('Facturación electrónica DGII',     'DGII e-invoicing')],
+                  ['carwash',       L('POS para carwash',                  'Carwash POS')],
+                  ['tiendas',       L('POS para tiendas y retail',         'Retail POS')],
+                  ['restaurantes',  L('POS para restaurantes',             'Restaurant POS')],
+                  ['mecanica',      L('POS para talleres y mecánica',      'Auto repair POS')],
+                  ['salon',         L('POS para salones y barberías',      'Salon & barber POS')],
+                  ['concesionario', L('POS para concesionarios',           'Auto dealership POS')],
+                  ['prestamos',     L('Sistema de préstamos y empeños',    'Loans & pawnshop')],
+                  ['servicios',     L('POS para servicios profesionales',  'Professional services POS')],
+                  ['empresas',      L('Nómina TSS / INFOTEP / ISR',        'Payroll TSS / INFOTEP / ISR')],
+                ]
+                return items.map(([slug, label]) => (
+                  <Link key={slug} to={`${base}${slug}`} className="text-sm text-white/70 hover:text-white transition-colors">{label}</Link>
+                ))
+              })()}
+            </div>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
             {/* Logo + subtitle */}
             <div className="md:col-span-1">

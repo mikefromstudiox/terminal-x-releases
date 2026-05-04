@@ -88,22 +88,35 @@ async function ensureContabilidadDemo() {
 }
 
 // ============================================================================
-// CLEANUP
+// CLEANUP — uses stable markers (specific cedulas, RNCs, ticket-notes-tag)
+// rather than name-prefix LIKE because we strip the prefix off every visible
+// field so screenshots don't show '__videoseed_'. Empleados use unique
+// cedula prefixes per demo (00100xxx for restaurant, 00200xxx for carwash).
+// accounting_clients uses RNC prefix 101234xxx. Tickets retain notes tag.
 // ============================================================================
 async function clearAll() {
   console.log('Clearing video-seed rows...')
   CONTAB_BID = await findDemoBidByEmail('admin@contabilidad.demo.terminalxpos.com')
-  for (const bid of [RESTAURANT_BID, CARWASH_BID, CONTAB_BID].filter(Boolean)) {
-    await sb.from('ticket_items').delete().eq('business_id', bid).like('name', `${TAG}%`)
-    await sb.from('payments').delete().eq('business_id', bid).like('notes', `${TAG}%`).then(() => {}, () => {})
+
+  for (const bid of [RESTAURANT_BID, CARWASH_BID].filter(Boolean)) {
+    // Tickets still carry the notes tag — easiest anchor for the joined cleanup.
+    const { data: ticketRows } = await sb.from('tickets').select('id').eq('business_id', bid).like('notes', `${TAG}%`)
+    const ticketIds = (ticketRows || []).map(t => t.id)
+    if (ticketIds.length) await sb.from('ticket_items').delete().in('ticket_id', ticketIds)
     await sb.from('tickets').delete().eq('business_id', bid).like('notes', `${TAG}%`)
-    await sb.from('mesas').delete().eq('business_id', bid).like('name', `${TAG}%`)
-    await sb.from('services').delete().eq('business_id', bid).like('name', `${TAG}%`)
-    await sb.from('categorias_servicio').delete().eq('business_id', bid).like('nombre', `${TAG}%`)
-    await sb.from('empleados').delete().eq('business_id', bid).like('nombre', `${TAG}%`)
-    await sb.from('inventory_items').delete().eq('business_id', bid).like('name', `${TAG}%`)
-    await sb.from('clients').delete().eq('business_id', bid).like('nombre', `${TAG}%`).then(() => {}, () => {})
-    await sb.from('accounting_clients').delete().eq('business_id', bid).like('client_name', `${TAG}%`).then(() => {}, () => {})
+    // Empleados: cedulas 001000000xx and 002000000xx are seed-only.
+    await sb.from('empleados').delete().eq('business_id', bid).like('cedula', '001000000%')
+    await sb.from('empleados').delete().eq('business_id', bid).like('cedula', '002000000%')
+    // Mesas + services + categorias_servicio + inventory: full wipe in demo
+    // BIDs since these accounts have no real data we'd ever want to keep.
+    await sb.from('mesas').delete().eq('business_id', bid)
+    await sb.from('services').delete().eq('business_id', bid)
+    await sb.from('categorias_servicio').delete().eq('business_id', bid)
+    await sb.from('inventory_items').delete().eq('business_id', bid)
+  }
+  if (CONTAB_BID) {
+    // accounting_clients: RNC prefix 101234 unique to seed.
+    await sb.from('accounting_clients').delete().eq('business_id', CONTAB_BID).like('rnc', '101234%')
   }
   console.log('✅ Cleared')
 }
@@ -128,7 +141,7 @@ async function seedRestaurant() {
   for (const m of mesaStates) {
     const { data: mesa } = await sb.from('mesas').insert({
       supabase_id: uid(), business_id: bid, active: true,
-      name: `${TAG}${m.name}`, sort_order: m.sort, status: m.status, capacity: 4,
+      name: m.name, sort_order: m.sort, status: m.status, capacity: 4,
       guests_count: m.guests,
       seated_at: m.status !== 'libre' ? new Date(Date.now() - (Math.random() * 60 + 10) * 60000).toISOString() : null,
       bill_requested_at: m.status === 'acuenta' ? new Date(Date.now() - 5 * 60000).toISOString() : null,
@@ -143,7 +156,7 @@ async function seedRestaurant() {
   for (let i = 0; i < cats.length; i++) {
     await sb.from('categorias_servicio').insert({
       supabase_id: uid(), business_id: bid, active: true,
-      nombre: `${TAG}${cats[i]}`, orden: i,
+      nombre: cats[i], orden: i,
     })
   }
 
@@ -168,7 +181,7 @@ async function seedRestaurant() {
     const it = items[i]
     const { data: svc } = await sb.from('services').insert({
       supabase_id: uid(), business_id: bid, active: true,
-      name: `${TAG}${it.name}`, category: `${TAG}${it.cat}`,
+      name: it.name, category: it.cat,
       price: it.price, cost: it.cost, aplica_itbis: 1, is_wash: 0,
       no_commission: false, commission_washer: true, commission_seller: true, commission_cashier: true,
       is_menu_item: true, course: it.course, sort_order: i,
@@ -187,7 +200,7 @@ async function seedRestaurant() {
   for (const s of staff) {
     await sb.from('empleados').insert({
       supabase_id: uid(), business_id: bid, active: true,
-      nombre: `${TAG}${s.nombre}`, tipo: s.tipo, role: s.role,
+      nombre: s.nombre, tipo: s.tipo, role: s.role,
       cedula: s.cedula, start_date: new Date().toISOString().slice(0, 10),
     })
   }
@@ -220,7 +233,7 @@ async function seedRestaurant() {
         supabase_id: uid(), business_id: bid,
         ticket_id: ticket.id, ticket_supabase_id: ticketSid,
         service_id: svc.id, service_supabase_id: svc.supabase_id,
-        name: `${TAG}${itName}`, price: it.price, quantity: 1, itbis: Math.round(it.price * 0.18),
+        name: itName, price: it.price, quantity: 1, itbis: Math.round(it.price * 0.18),
         course: it.course, is_wash: false, cost: it.cost,
         kds_fired_at: fired ? new Date(Date.now() - 10 * 60000).toISOString() : null,
       })
@@ -251,7 +264,7 @@ async function seedRestaurant() {
         supabase_id: uid(), business_id: bid,
         ticket_id: ticket.id, ticket_supabase_id: ticketSid,
         service_id: svc.id, service_supabase_id: svc.supabase_id,
-        name: `${TAG}${it.name}`, price: it.price, quantity: 1, itbis: Math.round(it.price * 0.18),
+        name: it.name, price: it.price, quantity: 1, itbis: Math.round(it.price * 0.18),
         course: it.course, is_wash: false, cost: it.cost,
         kds_fired_at: new Date(Date.now() - (i * 90 + 12) * 60000).toISOString(),
       })
@@ -285,7 +298,7 @@ async function seedCarwash() {
     const s = services[i]
     const { data: svc } = await sb.from('services').insert({
       supabase_id: uid(), business_id: bid, active: true,
-      name: `${TAG}${s.name}`, category: '__videoseed_Servicios',
+      name: s.name, category: 'Servicios',
       price: s.price, cost: s.cost, aplica_itbis: 1, is_wash: 1,
       no_commission: false, commission_washer: true, commission_seller: true, commission_cashier: true,
       is_menu_item: false, sort_order: i,
@@ -303,7 +316,7 @@ async function seedCarwash() {
   for (const s of staff) {
     await sb.from('empleados').insert({
       supabase_id: uid(), business_id: bid, active: true,
-      nombre: `${TAG}${s.nombre}`, tipo: s.tipo, role: s.role,
+      nombre: s.nombre, tipo: s.tipo, role: s.role,
       cedula: s.cedula, start_date: new Date().toISOString().slice(0, 10),
     })
   }
@@ -341,7 +354,7 @@ async function seedCarwash() {
       supabase_id: uid(), business_id: bid,
       ticket_id: ticket.id, ticket_supabase_id: ticketSid,
       service_id: svc.id, service_supabase_id: svc.supabase_id,
-      name: `${TAG}${s.name}`,
+      name: s.name,
       price: s.price, quantity: 1, itbis: Math.round(s.price * 0.18),
       is_wash: true, cost: s.cost,
     })
@@ -374,7 +387,7 @@ async function seedContabilidad() {
     try {
       await sb.from('accounting_clients').insert({
         supabase_id: uid(), business_id: bid,
-        client_name: `${TAG}${c.name}`, client_rnc: c.rnc,
+        client_name: c.name, client_rnc: c.rnc,
         sector: c.sector, monthly_fee: c.monthly_fee,
         status: 'active', active: true,
       })

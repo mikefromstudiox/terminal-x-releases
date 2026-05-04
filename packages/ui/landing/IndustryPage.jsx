@@ -6,37 +6,89 @@
  */
 
 import { useEffect, useMemo } from 'react'
-import { useParams, Link, Navigate } from 'react-router-dom'
+import { useParams, Link, Navigate, useLocation } from 'react-router-dom'
 import { ArrowRight, Check, Phone, ChevronLeft } from 'lucide-react'
 import { INDUSTRIES, INDUSTRIES_INDEX } from './data/industries'
+import { INDUSTRIES_EN } from './data/industries-en'
 
 const CRIMSON = '#b3001e'
 const WA = '+18098282971'
 
-function setSEO(title, description) {
+// Merge ES base + EN overrides at field level. Anything missing in EN falls
+// back to ES — so SEO-critical fields stay in English while long-form Spanish
+// copy keeps appearing for verticals not yet fully translated. For arrays of
+// objects (subtypes), we merge by index so language-specific text overrides
+// while structural metadata (e.g. lucide icons) stays from the ES base.
+function localize(data, lang) {
+  if (lang !== 'en') return data
+  const en = INDUSTRIES_EN[data.slug] || {}
+  const merged = { ...data, ...en, _lang: 'en' }
+  if (Array.isArray(en.subtypes) && Array.isArray(data.subtypes)) {
+    merged.subtypes = data.subtypes.map((s, i) => ({ ...s, ...(en.subtypes[i] || {}) }))
+  }
+  return merged
+}
+
+function upsertMeta(selector, attrName, attrValue, contentAttr, content) {
+  let el = document.head.querySelector(selector)
+  if (!el) {
+    el = document.createElement('meta')
+    el.setAttribute(attrName, attrValue)
+    document.head.appendChild(el)
+  }
+  el.setAttribute(contentAttr, content)
+}
+
+function setSEO(title, description, canonical) {
   if (typeof document === 'undefined') return
   document.title = title
-  let m = document.querySelector('meta[name="description"]')
-  if (!m) { m = document.createElement('meta'); m.setAttribute('name', 'description'); document.head.appendChild(m) }
-  m.setAttribute('content', description || '')
+  upsertMeta('meta[name="description"]', 'name', 'description', 'content', description || '')
+  if (canonical) {
+    let link = document.head.querySelector('link[rel="canonical"]')
+    if (!link) {
+      link = document.createElement('link')
+      link.setAttribute('rel', 'canonical')
+      document.head.appendChild(link)
+    }
+    link.setAttribute('href', canonical)
+    upsertMeta('meta[property="og:url"]',         'property', 'og:url',         'content', canonical)
+  }
+  upsertMeta('meta[property="og:title"]',         'property', 'og:title',       'content', title)
+  upsertMeta('meta[property="og:description"]',   'property', 'og:description', 'content', description || '')
+  upsertMeta('meta[name="twitter:title"]',        'name',     'twitter:title',  'content', title)
+  upsertMeta('meta[name="twitter:description"]',  'name',     'twitter:description', 'content', description || '')
 }
 
 function waLink(text) {
   return `https://wa.me/${WA.replace(/\D/g, '')}?text=${encodeURIComponent(text)}`
 }
 
-export default function IndustryPage() {
+export default function IndustryPage({ forceLang }) {
   const { slug } = useParams()
-  const data = INDUSTRIES[slug]
+  const location = useLocation()
+  const lang = forceLang === 'en' || location.pathname.startsWith('/en/') ? 'en' : 'es'
+  const baseData = INDUSTRIES[slug]
+  const data = baseData ? localize(baseData, lang) : null
 
   useEffect(() => {
     if (data) {
-      setSEO(`Terminal X · ${data.eyebrow.replace(/·/g, '|')}`, data.lede)
+      const canonicalPath = lang === 'en'
+        ? `/en/industries/${data.slug}`
+        : `/industrias/${data.slug}`
+      setSEO(
+        `Terminal X · ${data.eyebrow.replace(/·/g, '|')}`,
+        data.lede,
+        `https://terminalxpos.com${canonicalPath}`,
+      )
       window.scrollTo({ top: 0, behavior: 'instant' })
     }
   }, [slug, data])
 
-  if (!data) return <Navigate to="/" replace />
+  if (!data) return <Navigate to={lang === 'en' ? '/en' : '/'} replace />
+  const T = (es, en) => (lang === 'en' ? en : es)
+  const homeHref = lang === 'en' ? '/en' : '/'
+  const signupHref = lang === 'en' ? '/en/signup' : '/signup'
+  const industryHrefBase = lang === 'en' ? '/en/industries/' : '/industrias/'
 
   const Icon = data.icon
   const screenshotSrc = `/screenshots/${data.slug === 'salon' || data.slug === 'mecanica' || data.slug === 'prestamos' ? 'tiendas' : data.slug}.png`
@@ -46,19 +98,19 @@ export default function IndustryPage() {
       {/* Top nav */}
       <nav className="sticky top-0 z-40 bg-black text-white border-b border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-3 group">
+          <Link to={homeHref} className="flex items-center gap-3 group">
             <ChevronLeft size={18} className="opacity-60 group-hover:opacity-100 transition" />
             <span className="font-black tracking-tight">TERMINAL X</span>
           </Link>
           <div className="flex items-center gap-2">
             <Link
-              to="/signup"
+              to={signupHref}
               className="hidden sm:inline-flex items-center gap-2 bg-[#b3001e] hover:brightness-110 text-white font-bold px-4 py-2 rounded-lg text-sm"
             >
-              Empezar gratis 7 días
+              {T('Empezar gratis 7 días', 'Start free 7-day trial')}
             </Link>
             <a
-              href={waLink(`Hola, quiero saber más de Terminal X para ${data.eyebrow}`)}
+              href={waLink(T(`Hola, quiero saber más de Terminal X para ${data.eyebrow}`, `Hi, I'd like to know more about Terminal X for ${data.eyebrow}`))}
               target="_blank" rel="noreferrer"
               className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white font-bold px-4 py-2 rounded-lg text-sm"
             >
@@ -95,22 +147,22 @@ export default function IndustryPage() {
 
           <div className="mt-10 flex flex-col sm:flex-row gap-3">
             <Link
-              to={`/signup?utm_source=industria_${data.slug}`}
+              to={`${signupHref}?utm_source=industria_${data.slug}`}
               className="inline-flex items-center justify-center gap-2 bg-[#b3001e] hover:brightness-110 text-white font-bold px-7 py-4 rounded-xl text-sm sm:text-base"
             >
-              Probar 7 días gratis <ArrowRight size={16} />
+              {T('Probar 7 días gratis', 'Try free for 7 days')} <ArrowRight size={16} />
             </Link>
             <a
-              href={waLink(`Hola, quiero ver una demo de Terminal X para ${data.eyebrow}`)}
+              href={waLink(T(`Hola, quiero ver una demo de Terminal X para ${data.eyebrow}`, `Hi, I'd like a demo of Terminal X for ${data.eyebrow}`))}
               target="_blank" rel="noreferrer"
               className="inline-flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold px-7 py-4 rounded-xl text-sm sm:text-base"
             >
-              <Phone size={16} /> Pedir demo por WhatsApp
+              <Phone size={16} /> {T('Pedir demo por WhatsApp', 'Request a WhatsApp demo')}
             </a>
           </div>
 
           <p className="mt-6 text-xs text-white/40 font-semibold tracking-wide uppercase">
-            Plan recomendado: {data.plan.name} · {data.plan.price}
+            {T('Plan recomendado', 'Recommended plan')}: {data.plan.name} · {data.plan.price}
           </p>
         </div>
       </section>
@@ -118,8 +170,8 @@ export default function IndustryPage() {
       {/* HOW IT WORKS */}
       <section className="bg-white py-20 md:py-28 px-4 sm:px-6 lg:px-8">
         <div className="max-w-6xl mx-auto">
-          <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">CÓMO FUNCIONA</p>
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight text-black">El flujo, paso a paso</h2>
+          <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">{T('CÓMO FUNCIONA', 'HOW IT WORKS')}</p>
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight text-black">{T('El flujo, paso a paso', 'The flow, step by step')}</h2>
           <div className="mt-12 grid gap-8 md:gap-10 md:grid-cols-2">
             {data.howItWorks.map(step => (
               <div key={step.n} className="flex gap-5">
@@ -140,9 +192,9 @@ export default function IndustryPage() {
       {data.subtypes && (
         <section className="bg-black text-white py-20 md:py-28 px-4 sm:px-6 lg:px-8 border-t border-white/5">
           <div className="max-w-6xl mx-auto">
-            <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">SUB-VERTICALES</p>
-            <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight">8 plantillas, una sola plataforma</h2>
-            <p className="mt-4 text-white/60 max-w-3xl">Cada sub-vertical arranca con sus categorías, validaciones y reglas activadas — no tienes que configurarlas tú.</p>
+            <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">{T('SUB-VERTICALES', 'SUB-VERTICALS')}</p>
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight">{T('8 plantillas, una sola plataforma', '8 templates, one platform')}</h2>
+            <p className="mt-4 text-white/60 max-w-3xl">{T('Cada sub-vertical arranca con sus categorías, validaciones y reglas activadas — no tienes que configurarlas tú.', 'Each sub-vertical ships with its own categories, validation rules and behaviors enabled — you do not have to configure them.')}</p>
             <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {data.subtypes.map(s => (
                 <div key={s.name} className="rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition p-5">
@@ -161,8 +213,8 @@ export default function IndustryPage() {
       {/* FEATURES */}
       <section className="bg-white py-20 md:py-28 px-4 sm:px-6 lg:px-8 border-t border-black/5">
         <div className="max-w-6xl mx-auto">
-          <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">QUÉ INCLUYE</p>
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight text-black">Funcionalidades específicas para tu vertical</h2>
+          <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">{T('QUÉ INCLUYE', "WHAT'S INCLUDED")}</p>
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight text-black">{T('Funcionalidades específicas para tu vertical', 'Vertical-specific features built for you')}</h2>
           <ul className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-4">
             {data.features.map((f, i) => (
               <li key={i} className="flex items-start gap-3 rounded-xl border border-black/5 bg-black/[0.02] p-4">
@@ -180,8 +232,8 @@ export default function IndustryPage() {
       {data.screens?.length > 0 && (
         <section className="bg-black text-white py-20 md:py-28 px-4 sm:px-6 lg:px-8 border-t border-white/5">
           <div className="max-w-6xl mx-auto">
-            <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">PANTALLAS QUE USARÁS</p>
-            <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight">Diseñado para el día a día</h2>
+            <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">{T('PANTALLAS QUE USARÁS', "SCREENS YOU'LL USE")}</p>
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight">{T('Diseñado para el día a día', 'Designed for everyday operation')}</h2>
             <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {data.screens.map(s => (
                 <div key={s.name} className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
@@ -198,8 +250,8 @@ export default function IndustryPage() {
       {data.faq?.length > 0 && (
         <section className="bg-white py-20 md:py-28 px-4 sm:px-6 lg:px-8 border-t border-black/5">
           <div className="max-w-4xl mx-auto">
-            <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">PREGUNTAS FRECUENTES</p>
-            <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight text-black">Lo que más nos preguntan</h2>
+            <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">{T('PREGUNTAS FRECUENTES', 'FREQUENTLY ASKED QUESTIONS')}</p>
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight text-black">{T('Lo que más nos preguntan', 'What we get asked most')}</h2>
             <div className="mt-12 divide-y divide-black/10">
               {data.faq.map((f, i) => (
                 <details key={i} className="group py-5">
@@ -218,15 +270,15 @@ export default function IndustryPage() {
       {/* RELATED VERTICALS */}
       <section className="bg-black text-white py-20 px-4 sm:px-6 lg:px-8 border-t border-white/5">
         <div className="max-w-6xl mx-auto">
-          <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">OTROS SECTORES</p>
-          <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tight">Terminal X funciona también para…</h2>
+          <p className="text-[11px] font-extrabold tracking-[3px] text-[#b3001e] mb-3">{T('OTROS SECTORES', 'OTHER INDUSTRIES')}</p>
+          <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tight">{T('Terminal X funciona también para…', 'Terminal X also works for…')}</h2>
           <div className="mt-10 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {INDUSTRIES_INDEX.filter(i => i.slug !== data.slug).map(i => {
               const RIcon = i.icon
               return (
                 <Link
                   key={i.slug}
-                  to={`/industrias/${i.slug}`}
+                  to={`${industryHrefBase}${i.slug}`}
                   className="group rounded-2xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] hover:border-[#b3001e]/40 transition p-4 flex items-center gap-3"
                 >
                   <RIcon size={18} className="text-[#b3001e]" />
@@ -241,19 +293,19 @@ export default function IndustryPage() {
       {/* FINAL CTA */}
       <section className="bg-[#b3001e] text-white py-20 md:py-24 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight">¿Listo para arrancar?</h2>
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight">{T('¿Listo para arrancar?', 'Ready to get started?')}</h2>
           <p className="mt-5 text-white/85 text-base md:text-lg max-w-2xl mx-auto">
-            Prueba Terminal X 7 días gratis con tu Pro MAX desbloqueado. Sin tarjeta, sin compromisos.
+            {T('Prueba Terminal X 7 días gratis con tu Pro MAX desbloqueado. Sin tarjeta, sin compromisos.', 'Try Terminal X free for 7 days with full Pro MAX unlocked. No card, no commitment.')}
           </p>
           <div className="mt-10 flex flex-col sm:flex-row gap-3 justify-center">
             <Link
-              to={`/signup?utm_source=industria_${data.slug}_cta`}
+              to={`${signupHref}?utm_source=industria_${data.slug}_cta`}
               className="inline-flex items-center justify-center gap-2 bg-black hover:bg-white hover:text-black text-white font-bold px-8 py-4 rounded-xl"
             >
-              Empezar gratis <ArrowRight size={16} />
+              {T('Empezar gratis', 'Start free')} <ArrowRight size={16} />
             </Link>
             <a
-              href={waLink(`Hola, quiero info de Terminal X para ${data.eyebrow}`)}
+              href={waLink(T(`Hola, quiero info de Terminal X para ${data.eyebrow}`, `Hi, I'd like info about Terminal X for ${data.eyebrow}`))}
               target="_blank" rel="noreferrer"
               className="inline-flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 border border-white/30 text-white font-bold px-8 py-4 rounded-xl"
             >
@@ -265,8 +317,8 @@ export default function IndustryPage() {
 
       {/* Footer */}
       <footer className="bg-black text-white/40 text-xs py-10 px-4 sm:px-6 lg:px-8 text-center border-t border-white/5">
-        © {new Date().getFullYear()} Terminal X · Studio X · Santo Domingo, RD ·{' '}
-        <Link to="/" className="hover:text-white">terminalxpos.com</Link>
+        © {new Date().getFullYear()} Terminal X · Studio X · Santo Domingo, {T('RD', 'Dominican Republic')} ·{' '}
+        <Link to={homeHref} className="hover:text-white">terminalxpos.com</Link>
       </footer>
     </div>
   )

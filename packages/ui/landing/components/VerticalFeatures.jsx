@@ -445,7 +445,7 @@ export default function VerticalFeatures({ lang = 'es' }) {
                 <ArrowRight size={16} className="group-hover:translate-x-0.5 transition-transform" />
               </a>
               <a
-                href={`/industrias/${active}`}
+                href={`${lang === 'en' ? '/en/industries/' : '/industrias/'}${active}`}
                 className="group inline-flex items-center gap-2 bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold px-6 py-3 rounded-xl transition"
               >
                 {lang === 'es' ? 'Ver pagina completa' : 'See full page'}

@@ -1,49 +1,284 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:xhtml="http://www.w3.org/1999/xhtml">
+
+  <!-- ─── Spanish (primary market: Dominican Republic) ─── -->
   <url>
     <loc>https://terminalxpos.com/</loc>
-    <lastmod>2026-04-27</lastmod>
+    <lastmod>2026-05-03</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
     <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://terminalxpos.com/?lang=en"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://terminalxpos.com/en"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/"/>
   </url>
   <url>
     <loc>https://terminalxpos.com/pricing</loc>
-    <lastmod>2026-04-27</lastmod>
+    <lastmod>2026-05-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/pricing"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://terminalxpos.com/en/pricing"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/pricing"/>
   </url>
   <url>
     <loc>https://terminalxpos.com/signup</loc>
-    <lastmod>2026-04-27</lastmod>
+    <lastmod>2026-05-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/signup"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://terminalxpos.com/en/signup"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/signup"/>
   </url>
-  <url>
-    <loc>https://terminalxpos.com/blog</loc>
-    <lastmod>2026-04-27</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
+
+  <url><loc>https://terminalxpos.com/industrias/facturacion</loc>   <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.95</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/facturacion"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/facturacion"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/facturacion"/>
   </url>
-  <url>
-    <loc>https://terminalxpos.com/blog/migrar-facturador-gratuito-dgii</loc>
-    <lastmod>2026-04-27</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+  <url><loc>https://terminalxpos.com/industrias/carwash</loc>       <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/carwash"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/carwash"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/carwash"/>
   </url>
-  <url>
-    <loc>https://terminalxpos.com/blog/ley-32-23-explicada</loc>
-    <lastmod>2026-04-27</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+  <url><loc>https://terminalxpos.com/industrias/tiendas</loc>       <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/tiendas"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/tiendas"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/tiendas"/>
   </url>
-  <url>
-    <loc>https://terminalxpos.com/blog/10-cosas-facturador-gratuito-no-dice</loc>
-    <lastmod>2026-04-27</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+  <url><loc>https://terminalxpos.com/industrias/restaurantes</loc>  <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/restaurantes"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/restaurantes"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/restaurantes"/>
+  </url>
+  <url><loc>https://terminalxpos.com/industrias/mecanica</loc>      <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/mecanica"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/mecanica"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/mecanica"/>
+  </url>
+  <url><loc>https://terminalxpos.com/industrias/salon</loc>         <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/salon"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/salon"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/salon"/>
+  </url>
+  <url><loc>https://terminalxpos.com/industrias/concesionario</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/concesionario"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/concesionario"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/concesionario"/>
+  </url>
+  <url><loc>https://terminalxpos.com/industrias/prestamos</loc>     <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/prestamos"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/prestamos"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/prestamos"/>
+  </url>
+  <url><loc>https://terminalxpos.com/industrias/servicios</loc>     <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/servicios"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/servicios"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/servicios"/>
+  </url>
+  <url><loc>https://terminalxpos.com/industrias/empresas</loc>      <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/empresas"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/empresas"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/empresas"/>
+  </url>
+
+  <url><loc>https://terminalxpos.com/blog</loc> <lastmod>2026-05-03</lastmod><changefreq>weekly</changefreq><priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/migrar-facturador-gratuito-dgii</loc>  <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/migrar-facturador-gratuito-dgii"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/migrar-facturador-gratuito-dgii"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/migrar-facturador-gratuito-dgii"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/ley-32-23-explicada</loc>              <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/ley-32-23-explicada"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/ley-32-23-explicada"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/ley-32-23-explicada"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/10-cosas-facturador-gratuito-no-dice</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/10-cosas-facturador-gratuito-no-dice"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/10-cosas-facturador-gratuito-no-dice"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/10-cosas-facturador-gratuito-no-dice"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/mejor-alternativa-facturador-gratuito-dgii-2026</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/mejor-alternativa-facturador-gratuito-dgii-2026"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/mejor-alternativa-facturador-gratuito-dgii-2026"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/mejor-alternativa-facturador-gratuito-dgii-2026"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/cuanto-cuesta-sistema-pos-republica-dominicana</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/cuanto-cuesta-sistema-pos-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/cuanto-cuesta-sistema-pos-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/cuanto-cuesta-sistema-pos-republica-dominicana"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/mejor-pos-restaurante-republica-dominicana</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/mejor-pos-restaurante-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/mejor-pos-restaurante-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/mejor-pos-restaurante-republica-dominicana"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/como-funciona-facturador-gratuito-dgii</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/como-funciona-facturador-gratuito-dgii"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/como-funciona-facturador-gratuito-dgii"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/como-funciona-facturador-gratuito-dgii"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/calendario-ley-32-23-15-mayo-2026</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/calendario-ley-32-23-15-mayo-2026"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/calendario-ley-32-23-15-mayo-2026"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/calendario-ley-32-23-15-mayo-2026"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/como-ser-emisor-electronico-dgii-paso-a-paso</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/como-ser-emisor-electronico-dgii-paso-a-paso"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/como-ser-emisor-electronico-dgii-paso-a-paso"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/como-ser-emisor-electronico-dgii-paso-a-paso"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/tipos-de-ecf-e31-e32-e33-e34-e43</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/tipos-de-ecf-e31-e32-e33-e34-e43"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/tipos-de-ecf-e31-e32-e33-e34-e43"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/tipos-de-ecf-e31-e32-e33-e34-e43"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/mejor-pos-carwash-republica-dominicana</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/mejor-pos-carwash-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/mejor-pos-carwash-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/mejor-pos-carwash-republica-dominicana"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/mejor-pos-tienda-colmado-republica-dominicana</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/mejor-pos-tienda-colmado-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/mejor-pos-tienda-colmado-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/mejor-pos-tienda-colmado-republica-dominicana"/>
+  </url>
+
+  <!-- ─── English mirror (secondary market: expat / English-speaking businesses in DR) ─── -->
+  <url><loc>https://terminalxpos.com/en</loc>          <lastmod>2026-05-03</lastmod><changefreq>weekly</changefreq><priority>0.95</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/pricing</loc>  <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/pricing"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/pricing"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/pricing"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/signup</loc>   <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/signup"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/signup"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/signup"/>
+  </url>
+
+  <url><loc>https://terminalxpos.com/en/industries/facturacion</loc>   <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/facturacion"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/facturacion"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/facturacion"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/industries/carwash</loc>       <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/carwash"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/carwash"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/carwash"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/industries/tiendas</loc>       <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/tiendas"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/tiendas"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/tiendas"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/industries/restaurantes</loc>  <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/restaurantes"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/restaurantes"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/restaurantes"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/industries/mecanica</loc>      <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/mecanica"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/mecanica"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/mecanica"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/industries/salon</loc>         <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/salon"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/salon"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/salon"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/industries/concesionario</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/concesionario"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/concesionario"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/concesionario"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/industries/prestamos</loc>     <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/prestamos"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/prestamos"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/prestamos"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/industries/servicios</loc>     <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/servicios"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/servicios"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/servicios"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/industries/empresas</loc>      <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/industrias/empresas"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/industries/empresas"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/industrias/empresas"/>
+  </url>
+
+  <url><loc>https://terminalxpos.com/en/blog</loc> <lastmod>2026-05-03</lastmod><changefreq>weekly</changefreq><priority>0.65</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/blog/migrar-facturador-gratuito-dgii</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.75</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/migrar-facturador-gratuito-dgii"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/migrar-facturador-gratuito-dgii"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/migrar-facturador-gratuito-dgii"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/blog/ley-32-23-explicada</loc>             <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.75</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/ley-32-23-explicada"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/ley-32-23-explicada"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/ley-32-23-explicada"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/blog/10-cosas-facturador-gratuito-no-dice</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.75</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/10-cosas-facturador-gratuito-no-dice"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/10-cosas-facturador-gratuito-no-dice"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/10-cosas-facturador-gratuito-no-dice"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/blog/mejor-alternativa-facturador-gratuito-dgii-2026</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/mejor-alternativa-facturador-gratuito-dgii-2026"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/mejor-alternativa-facturador-gratuito-dgii-2026"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/mejor-alternativa-facturador-gratuito-dgii-2026"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/blog/cuanto-cuesta-sistema-pos-republica-dominicana</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/cuanto-cuesta-sistema-pos-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/cuanto-cuesta-sistema-pos-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/cuanto-cuesta-sistema-pos-republica-dominicana"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/blog/mejor-pos-restaurante-republica-dominicana</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/mejor-pos-restaurante-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/mejor-pos-restaurante-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/mejor-pos-restaurante-republica-dominicana"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/blog/como-funciona-facturador-gratuito-dgii</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/como-funciona-facturador-gratuito-dgii"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/como-funciona-facturador-gratuito-dgii"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/como-funciona-facturador-gratuito-dgii"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/blog/calendario-ley-32-23-15-mayo-2026</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/calendario-ley-32-23-15-mayo-2026"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/calendario-ley-32-23-15-mayo-2026"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/calendario-ley-32-23-15-mayo-2026"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/blog/como-ser-emisor-electronico-dgii-paso-a-paso</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/como-ser-emisor-electronico-dgii-paso-a-paso"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/como-ser-emisor-electronico-dgii-paso-a-paso"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/como-ser-emisor-electronico-dgii-paso-a-paso"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/blog/tipos-de-ecf-e31-e32-e33-e34-e43</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/tipos-de-ecf-e31-e32-e33-e34-e43"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/tipos-de-ecf-e31-e32-e33-e34-e43"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/tipos-de-ecf-e31-e32-e33-e34-e43"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/blog/mejor-pos-carwash-republica-dominicana</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/mejor-pos-carwash-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/mejor-pos-carwash-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/mejor-pos-carwash-republica-dominicana"/>
+  </url>
+  <url><loc>https://terminalxpos.com/en/blog/mejor-pos-tienda-colmado-republica-dominicana</loc> <lastmod>2026-05-03</lastmod><changefreq>monthly</changefreq><priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/mejor-pos-tienda-colmado-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="en"     href="https://terminalxpos.com/en/blog/mejor-pos-tienda-colmado-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/mejor-pos-tienda-colmado-republica-dominicana"/>
   </url>
 </urlset>

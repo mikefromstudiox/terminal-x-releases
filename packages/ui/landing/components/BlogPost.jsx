@@ -48,7 +48,8 @@ export default function BlogPost({ lang = 'es' }) {
   const [copied, setCopied] = useState(false)
 
   const post = useMemo(() => posts.find(p => p.slug === slug), [slug])
-  const toc = useMemo(() => post ? extractToc(post.body_html) : [], [post])
+  const bodyHtml = post ? (lang === 'en' && post.body_html_en ? post.body_html_en : post.body_html) : ''
+  const toc = useMemo(() => post ? extractToc(bodyHtml) : [], [post, bodyHtml])
 
   useEffect(() => { window.scrollTo(0, 0) }, [slug])
 
@@ -56,7 +57,7 @@ export default function BlogPost({ lang = 'es' }) {
     return (
       <section className="bg-white py-24 px-4 min-h-screen flex flex-col items-center justify-center">
         <h1 className="text-2xl font-black text-black">{t.notFound}</h1>
-        <Link to="/blog" className="mt-4 inline-flex items-center gap-2 text-[#b3001e] font-bold">
+        <Link to={lang === 'en' ? '/en/blog' : '/blog'} className="mt-4 inline-flex items-center gap-2 text-[#b3001e] font-bold">
           <ArrowLeft size={16} />{t.backToBlog}
         </Link>
       </section>
@@ -78,7 +79,7 @@ export default function BlogPost({ lang = 'es' }) {
   return (
     <article className="bg-white py-20 md:py-24 px-4 sm:px-6 lg:px-8 min-h-screen">
       <div className="max-w-5xl mx-auto">
-        <Link to="/blog" className="inline-flex items-center gap-2 text-sm font-bold text-black/50 hover:text-[#b3001e] mb-8 transition-colors">
+        <Link to={lang === 'en' ? '/en/blog' : '/blog'} className="inline-flex items-center gap-2 text-sm font-bold text-black/50 hover:text-[#b3001e] mb-8 transition-colors">
           <ArrowLeft size={14} />{t.backToBlog}
         </Link>
 
@@ -149,7 +150,7 @@ export default function BlogPost({ lang = 'es' }) {
                 [&_li]:text-base [&_li]:leading-relaxed
                 [&_a]:text-[#b3001e] [&_a]:font-semibold [&_a]:underline"
               // body_html is hand-authored content from blogPosts.json — safe.
-              dangerouslySetInnerHTML={{ __html: post.body_html }}
+              dangerouslySetInnerHTML={{ __html: bodyHtml }}
             />
 
             {/* CTA card */}
@@ -157,7 +158,7 @@ export default function BlogPost({ lang = 'es' }) {
               <h3 className="text-2xl md:text-3xl font-black tracking-tight">{t.ctaTitle}</h3>
               <p className="mt-2 text-white/65 max-w-xl">{t.ctaBody}</p>
               <button
-                onClick={() => navigate('/signup?plan=facturacion')}
+                onClick={() => navigate(`${lang === 'en' ? '/en/signup' : '/signup'}?plan=facturacion`)}
                 className="mt-6 group inline-flex items-center gap-2 bg-[#b3001e] hover:bg-[#d4002a] text-white font-bold px-6 py-3 rounded-xl transition-colors"
               >
                 {t.ctaBtn}<ArrowRight size={16} className="group-hover:translate-x-0.5 transition-transform" />

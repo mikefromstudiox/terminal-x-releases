@@ -29,7 +29,7 @@ export default function BlogIndex({ lang = 'es' }) {
           {posts.map(p => (
             <Link
               key={p.slug}
-              to={`/blog/${p.slug}`}
+              to={`${lang === 'en' ? '/en/blog/' : '/blog/'}${p.slug}`}
               className="group block rounded-2xl border border-black/10 bg-white hover:border-[#b3001e]/40 hover:shadow-xl hover:-translate-y-0.5 transition-all p-6"
             >
               <div className="flex flex-wrap gap-2 mb-3">

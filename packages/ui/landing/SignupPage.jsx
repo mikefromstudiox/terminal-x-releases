@@ -4,7 +4,10 @@ import { Loader2, ArrowLeft, Check, Car, Store, Briefcase, UtensilsCrossed, CarF
 import logoImg from '../assets/logo.webp'
 import { BUSINESS_TYPES, BUSINESS_TYPE_KEYS, HYBRID_COMPONENT_KEYS, normalizeHybridComponents } from '@terminal-x/config/businessTypes'
 
-function detectLang() {
+function detectLang(forced) {
+  if (forced === 'en' || forced === 'es') return forced
+  // /en/* URL trumps localStorage so SEO-indexed URLs render their indexed lang.
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/en')) return 'en'
   const stored = localStorage.getItem('tx_landing_lang')
   if (stored === 'en' || stored === 'es') return stored
   return navigator.language?.startsWith('en') ? 'en' : 'es'
@@ -18,7 +21,7 @@ function recommendedPlanFor(type) {
   return ['restaurant', 'hybrid'].includes(type) ? 'pro_plus' : 'pro'
 }
 
-export default function SignupPage({ supabase }) {
+export default function SignupPage({ supabase, forceLang }) {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   // Resume from /probar/* demo — when the user comes back to /signup after
@@ -53,7 +56,7 @@ export default function SignupPage({ supabase }) {
   )
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
-  const lang = detectLang()
+  const lang = detectLang(forceLang)
   const L = (es, en) => lang === 'es' ? es : en
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })) }
