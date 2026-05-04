@@ -74,9 +74,11 @@
   <body>
     <main id="root"></main>
 
+    <!-- SEO: H1 visible to crawlers (incl. Bingbot static HTML pass) but visually hidden for users; React hero renders its own H1 inside #root -->
+    <h1 style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">Terminal X — Sistema POS y Facturacion Electronica e-CF certificado DGII</h1>
+
     <!-- SEO: Static content for crawlers that don't execute JS -->
     <noscript>
-      <h1>Terminal X — Sistema POS y Facturacion Electronica e-CF</h1>
       <p>El sistema de punto de venta para Republica Dominicana con facturacion electronica e-CF certificado por DGII (Ley 32-23). Para car wash, tiendas, retail y servicios profesionales.</p>
       <h2>Funciones Principales</h2>
       <ul>
