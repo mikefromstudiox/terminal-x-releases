@@ -522,11 +522,13 @@ function SupabaseAuthGate({ children, supabase, createWebAPI, createWebPrinterAP
           <div>
             <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">Email</label>
             <input type="email" placeholder="tu@email.com" value={email} onChange={e => setEmail(e.target.value)}
+              autoComplete="username"
               className="w-full px-4 py-3 rounded-lg bg-slate-800 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-[#b3001e]" required />
           </div>
           <div>
             <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">Contrasena</label>
             <input type="password" placeholder="Tu contrasena" value={password} onChange={e => setPassword(e.target.value)}
+              autoComplete="current-password"
               className="w-full px-4 py-3 rounded-lg bg-slate-800 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-[#b3001e]" required />
           </div>
           <button type="submit" disabled={submitting}

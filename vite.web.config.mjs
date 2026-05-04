@@ -88,8 +88,13 @@ export default defineConfig(({ mode }) => ({
           if (id.includes('node_modules/lucide-react')) return 'lucide'
           if (id.includes('node_modules/@supabase')) return 'supabase'
           if (id.includes('node_modules/pdf-lib') || id.includes('node_modules/qrcode')) return 'pdf'
-          if (id.includes('packages/services/ecf') || id.includes('packages/services/printer') || id.includes('packages/services/pdf')) return 'services'
-          if (id.includes('packages/data/web')) return 'data'
+          // NOTE: do NOT manual-chunk `packages/data/web` or `packages/services/{ecf,printer,pdf}`.
+          // Vite emits its runtime preload helper into the FIRST manual chunk that
+          // contains dynamic imports — when those packages had their own chunks,
+          // the entry's preload helper lived in `data-*.js`, which forced landing
+          // to fetch ~330 KiB of data + services + pdf code it never executed.
+          // Letting Vite split them naturally puts the helper in vendor and limits
+          // those modules to the lazy routes that actually import them. (2026-05-04)
         },
       },
     },

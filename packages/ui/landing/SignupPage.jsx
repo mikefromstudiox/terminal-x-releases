@@ -399,6 +399,7 @@ export default function SignupPage({ supabase, forceLang }) {
             <div>
               <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">{L('Contrasena', 'Password')} *</label>
               <input type="password" value={form.password} onChange={e => set('password', e.target.value)}
+                autoComplete="new-password"
                 placeholder={L('Minimo 6 caracteres', 'Minimum 6 characters')} className="w-full px-4 py-3 rounded-lg bg-slate-800 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-[#b3001e]" required />
             </div>
           </>

@@ -845,7 +845,7 @@ export default function LandingPage({ section, forceLang }) {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12 max-w-5xl mx-auto">
             {(FACTURACION_PLANS[lang] || FACTURACION_PLANS.es).map((fp, idx) => (
-              <div key={idx} className={`rounded-2xl p-7 sm:p-8 relative ${fp.highlight ? 'border-2 border-[#b3001e] bg-[#b3001e]/5' : 'border border-black/10 bg-white'}`}>
+              <div key={idx} className={`rounded-2xl p-7 sm:p-8 relative transition-all ${fp.highlight ? 'border-2 border-[#b3001e] bg-[#b3001e]/5 scale-[1.02] hover:bg-[#b3001e]/10 shadow-lg shadow-[#b3001e]/10 hover:shadow-xl hover:shadow-[#b3001e]/20' : 'border border-black/10 bg-white hover:border-[#b3001e]/30 hover:bg-[#b3001e]/[0.02] hover:shadow-lg hover:shadow-black/5'}`}>
                 {fp.badge && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-[#b3001e] text-white text-[10px] font-bold rounded-full uppercase tracking-wider whitespace-nowrap">
                     {fp.badge}

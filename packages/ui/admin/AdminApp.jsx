@@ -234,6 +234,7 @@ export default function AdminApp({ supabase }) {
                 placeholder="tu@email.com"
                 value={loginEmail}
                 onChange={e => setLoginEmail(e.target.value)}
+                autoComplete="username"
                 className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/30 outline-none transition-all focus:border-[#b3001e] focus:bg-white/[0.07] focus:ring-2 focus:ring-[#b3001e]/30"
                 required
               />
@@ -249,6 +250,7 @@ export default function AdminApp({ supabase }) {
                 placeholder="Tu contrasena"
                 value={loginPw}
                 onChange={e => setLoginPw(e.target.value)}
+                autoComplete="current-password"
                 className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/30 outline-none transition-all focus:border-[#b3001e] focus:bg-white/[0.07] focus:ring-2 focus:ring-[#b3001e]/30"
                 required
               />
