@@ -678,7 +678,7 @@ function RouteCanonical() {
       document.head.appendChild(robots)
     }
     robots.setAttribute('content', isPrivate ? 'noindex, nofollow' : 'index, follow, max-image-preview:large')
-  }, [pathname, search])
+  }, [pathname])
   return null
 }
 

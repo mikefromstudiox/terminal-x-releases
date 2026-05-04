@@ -139,13 +139,13 @@ const FACTURACION_PLANS = {
     {
       name: 'Facturacion', key: 'facturacion', price: 'RD$995', annual: 'RD$846/mes facturado anual (15% OFF)',
       sub: '/mes', desc: '50 facturas/mes', overage: 'RD$15 por factura adicional',
-      features: ['50 facturas e-CF al mes', 'Directo a DGII', 'PDF con QR verificable', 'Envio por WhatsApp', 'Base de clientes', 'Viafirma incluido', '100% web'],
+      features: ['50 facturas e-CF al mes', 'Directo a DGII', 'PDF con QR verificable', 'Envio por WhatsApp', 'Base de clientes', '100% web'],
       cta: 'Probar 7 dias gratis', highlight: false,
     },
     {
       name: 'Facturacion Plus', key: 'facturacion_plus', price: 'RD$1,990', annual: 'RD$1,692/mes facturado anual (15% OFF)',
       sub: '/mes', badge: 'Mas popular', desc: '200 facturas/mes', overage: 'RD$10 por factura adicional',
-      features: ['200 facturas e-CF al mes', 'Directo a DGII', 'PDF con QR verificable', 'Envio por WhatsApp', 'Base de clientes', 'Reportes avanzados', 'Viafirma incluido', '100% web'],
+      features: ['200 facturas e-CF al mes', 'Directo a DGII', 'PDF con QR verificable', 'Envio por WhatsApp', 'Base de clientes', 'Reportes avanzados', '100% web'],
       cta: 'Probar 7 dias gratis', highlight: true,
     },
     {
@@ -159,13 +159,13 @@ const FACTURACION_PLANS = {
     {
       name: 'Invoicing', key: 'facturacion', price: 'RD$995', annual: 'RD$846/mo billed annually (15% OFF)',
       sub: '/mo', desc: '50 invoices/mo', overage: 'RD$15 per extra invoice',
-      features: ['50 e-CF invoices/month', 'Direct to DGII', 'PDF with QR', 'Send via WhatsApp', 'Client database', 'Viafirma included', '100% web'],
+      features: ['50 e-CF invoices/month', 'Direct to DGII', 'PDF with QR', 'Send via WhatsApp', 'Client database', '100% web'],
       cta: 'Try 7 days free', highlight: false,
     },
     {
       name: 'Invoicing Plus', key: 'facturacion_plus', price: 'RD$1,990', annual: 'RD$1,692/mo billed annually (15% OFF)',
       sub: '/mo', badge: 'Most popular', desc: '200 invoices/mo', overage: 'RD$10 per extra invoice',
-      features: ['200 e-CF invoices/month', 'Direct to DGII', 'PDF with QR', 'Send via WhatsApp', 'Client database', 'Advanced reports', 'Viafirma included', '100% web'],
+      features: ['200 e-CF invoices/month', 'Direct to DGII', 'PDF with QR', 'Send via WhatsApp', 'Client database', 'Advanced reports', '100% web'],
       cta: 'Try 7 days free', highlight: true,
     },
     {
@@ -287,7 +287,7 @@ const COMPARISON = {
 const FAQ = {
   es: [
     // ── Facturación tier (RD$995/mes) — Q&A ───────────────────────────────
-    { q: 'Que incluye el plan Facturacion de RD$995/mes?', a: 'Es el plan de solo facturacion electronica para negocios que ya usan otro POS o no necesitan cobrar en mostrador. Incluye: emision directa de e-CF E31 y E32 a DGII, notas de credito E33/E34, exportacion de los formatos 606 y 607 cada mes para tu contador, base de clientes con busqueda por nombre/RNC/telefono, y el certificado Viafirma incluido en el precio. Sin intermediarios PSFE.' },
+    { q: 'Que incluye el plan Facturacion de RD$995/mes?', a: 'Es el plan de solo facturacion electronica para negocios que ya usan otro POS o no necesitan cobrar en mostrador. Incluye: emision directa de e-CF E31 y E32 a DGII, notas de credito E33/E34, exportacion de los formatos 606 y 607 cada mes para tu contador, y base de clientes con busqueda por nombre/RNC/telefono. Sin intermediarios PSFE. El certificado Viafirma se incluye solo en el plan Facturacion Ilimitado.' },
     { q: 'Que pasa si emito una factura sin internet?', a: 'Terminal X la guarda en una cola local cifrada y la firma con IndicadorEnvioDiferido=1 cuando vuelva la conexion — exactamente como permite la DGII bajo la regla de 72 horas diferidas. La factura nunca se pierde y el comprobante sigue siendo valido.' },
     { q: 'Puedo emitir notas de credito (E33/E34) con el plan Facturacion?', a: 'Si. El plan Facturacion incluye emision de notas de credito E33 y E34 referenciando el e-NCF original. Las facturas anuladas se envian automaticamente a la cola de ANECF para que DGII las reciba como anuladas.' },
     { q: 'Puedo exportar 606 y 607 con el plan Facturacion?', a: 'Si — y es la razon principal por la que un plan de solo facturacion sirve en Republica Dominicana. Cada mes generas el TXT formato 606 (Compras) y 607 (Ventas) listo para subir al portal DGII. Tu contador no necesita armar nada a mano.' },
@@ -308,7 +308,7 @@ const FAQ = {
   ],
   en: [
     // ── Facturación tier (RD$995/mo) — Q&A ────────────────────────────────
-    { q: 'What does the RD$995/mo Facturación plan include?', a: 'It is the invoicing-only tier for businesses that already use another POS or do not need a counter checkout. Included: direct E31 and E32 e-CF issuance with DGII, E33/E34 credit notes, monthly 606 and 607 TXT export for your accountant, client database with name/RNC/phone search, and the Viafirma certificate bundled in the price. Zero PSFE middlemen.' },
+    { q: 'What does the RD$995/mo Facturación plan include?', a: 'It is the invoicing-only tier for businesses that already use another POS or do not need a counter checkout. Included: direct E31 and E32 e-CF issuance with DGII, E33/E34 credit notes, monthly 606 and 607 TXT export for your accountant, and a client database with name/RNC/phone search. Zero PSFE middlemen. The Viafirma certificate is bundled only in the Facturación Unlimited plan.' },
     { q: 'What happens if I issue an invoice without internet?', a: 'Terminal X stores it in an encrypted local queue and signs it with IndicadorEnvioDiferido=1 once the connection returns — exactly the way DGII allows under the 72-hour deferred-emission rule. The invoice is never lost and the receipt stays valid.' },
     { q: 'Can I issue credit notes (E33/E34) on the Facturación plan?', a: 'Yes. The Facturación plan includes E33 and E34 credit notes that reference the original e-NCF. Voided invoices are auto-routed to the ANECF queue so DGII receives them as cancelled.' },
     { q: 'Can I export 606 and 607 reports on the Facturación plan?', a: 'Yes — and this is the main reason an invoicing-only plan even works in the Dominican Republic. Every month you generate the 606 (Purchases) and 607 (Sales) TXT files ready to upload to the DGII portal. Your accountant does not have to assemble anything by hand.' },
@@ -869,6 +869,10 @@ export default function LandingPage({ section, forceLang }) {
                 <button onClick={() => { try { trackCtaClick('pricing_card', fp.key) } catch {}; navigate(`/signup?plan=${fp.key}`) }}
                   className={`w-full py-3 rounded-lg text-sm font-bold transition-colors ${fp.highlight ? 'bg-[#b3001e] hover:bg-[#d4002a] text-white shadow-lg shadow-red-500/25' : 'bg-black hover:bg-black/80 text-white'}`}>
                   {fp.cta} <ArrowRight size={14} className="inline ml-1" />
+                </button>
+                <button onClick={() => { try { trackCtaClick('pricing_card_demo', fp.key) } catch {}; navigate(`/signup?plan=${fp.key}&type=contabilidad`) }}
+                  className="w-full mt-2 py-2.5 rounded-lg text-[12px] font-bold text-black/70 hover:text-[#b3001e] border border-black/10 hover:border-[#b3001e]/40 transition-colors">
+                  {L('Ver demo interactivo', 'Try interactive demo')} <ArrowRight size={12} className="inline ml-1" />
                 </button>
               </div>
             ))}

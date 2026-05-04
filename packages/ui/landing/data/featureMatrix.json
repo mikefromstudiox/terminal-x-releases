@@ -27,7 +27,7 @@
   { "category": "Fiscal", "feature_es": "Validar Certificado nonce gate", "feature_en": "Validar Certificado nonce gate", "tiers": { "facturacion": true, "facturacion_plus": true, "facturacion_unlimited": true, "pro": false, "pro_plus": true, "pro_max": true } },
   { "category": "Fiscal", "feature_es": "Formato 606 / 607 export TXT", "feature_en": "Format 606/607 TXT export", "tiers": { "facturacion": false, "facturacion_plus": false, "facturacion_unlimited": false, "pro": false, "pro_plus": true, "pro_max": true } },
   { "category": "Fiscal", "feature_es": "RNC lookup 900K", "feature_en": "RNC lookup 900K", "tiers": { "facturacion": true, "facturacion_plus": true, "facturacion_unlimited": true, "pro": true, "pro_plus": true, "pro_max": true } },
-  { "category": "Fiscal", "feature_es": "Certificado Viafirma incluido", "feature_en": "Viafirma cert included", "tiers": { "facturacion": true, "facturacion_plus": true, "facturacion_unlimited": true, "pro": false, "pro_plus": true, "pro_max": true } },
+  { "category": "Fiscal", "feature_es": "Certificado Viafirma incluido", "feature_en": "Viafirma cert included", "tiers": { "facturacion": false, "facturacion_plus": false, "facturacion_unlimited": true, "pro": false, "pro_plus": true, "pro_max": true } },
   { "category": "Fiscal", "feature_es": "Multi-moneda DOP + USD", "feature_en": "Multi-currency DOP + USD", "tiers": { "facturacion": true, "facturacion_plus": true, "facturacion_unlimited": true, "pro": false, "pro_plus": true, "pro_max": true } },
   { "category": "Fiscal", "feature_es": "Alertas vencimiento certificado", "feature_en": "Cert expiry alerts", "tiers": { "facturacion": true, "facturacion_plus": true, "facturacion_unlimited": true, "pro": true, "pro_plus": true, "pro_max": true } },
 

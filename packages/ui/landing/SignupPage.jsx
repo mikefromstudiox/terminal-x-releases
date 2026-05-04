@@ -48,7 +48,13 @@ export default function SignupPage({ supabase, forceLang }) {
     email:         resume?.email         || '',
     password:      '',
   })
-  const [businessType, setBusinessType] = useState(resume?.businessType || 'carwash')
+  const initialType = (() => {
+    const t = params.get('type')
+    if (resume?.businessType) return resume.businessType
+    if (t && BUSINESS_TYPE_KEYS.includes(t)) return t
+    return 'carwash'
+  })()
+  const [businessType, setBusinessType] = useState(initialType)
   const [hybridComps, setHybridComps] = useState(
     Array.isArray(resume?.hybridComps) && resume.hybridComps.length >= 2
       ? resume.hybridComps

@@ -19,6 +19,7 @@ const VERTICAL_LOADERS = {
   prestamos:    () => import('./verticals/prestamos'),
   dealership:   () => import('./verticals/dealership'),
   contabilidad: () => import('./verticals/contabilidad'),
+  facturacion:  () => import('./verticals/contabilidad'),
   hybrid:       () => import('./verticals/hybrid'),
 }
 

@@ -301,6 +301,11 @@ const SCREENSHOTS = {
   restaurantes: '/screenshots/restaurantes.png',
   servicios:    '/screenshots/servicios.png',
   empresas:     '/screenshots/empresas.png',
+  contabilidad: '/screenshots/contabilidad.png',
+}
+
+const SCREENSHOTS_EXTRA = {
+  contabilidad: '/screenshots/contabilidad-2.png',
 }
 
 function PreviewShot({ vertical, alt }) {
@@ -309,18 +314,32 @@ function PreviewShot({ vertical, alt }) {
   // facturacion has a generated -sm.png variant. Other verticals fall back to
   // single-source until -sm variants are generated for them too.
   const smSrc = vertical === 'facturacion' ? src.replace('.png', '-sm.png') : null
+  const extra = SCREENSHOTS_EXTRA[vertical]
   return (
-    <img
-      src={src}
-      srcSet={smSrc ? `${smSrc} 800w, ${src} 1280w` : undefined}
-      sizes={smSrc ? '(max-width: 768px) 100vw, 800px' : undefined}
-      alt={alt}
-      width={1280}
-      height={720}
-      loading="lazy"
-      decoding="async"
-      className="w-full h-auto rounded-2xl"
-    />
+    <>
+      <img
+        src={src}
+        srcSet={smSrc ? `${smSrc} 800w, ${src} 1280w` : undefined}
+        sizes={smSrc ? '(max-width: 768px) 100vw, 800px' : undefined}
+        alt={alt}
+        width={1280}
+        height={720}
+        loading="lazy"
+        decoding="async"
+        className="w-full h-auto rounded-2xl"
+      />
+      {extra && (
+        <img
+          src={extra}
+          alt={alt}
+          width={1280}
+          height={720}
+          loading="lazy"
+          decoding="async"
+          className="w-full h-auto rounded-2xl mt-3"
+        />
+      )}
+    </>
   )
 }
 
