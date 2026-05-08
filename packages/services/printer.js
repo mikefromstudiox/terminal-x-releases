@@ -347,6 +347,10 @@ export function buildClientReceipt(data, logoBytes = '') {
   ]
   if (data.cajero)  docRows.push(['CAJERO',  data.cajero])
   if (data.lavador) docRows.push(['LAVADOR', data.lavador])
+  // v2.17 — Food Truck: parking spot + active-event banner on the receipt.
+  // Both fields are nullable; only print when present.
+  if (data.foodTruckLocationName) docRows.push(['UBICACION', String(data.foodTruckLocationName).toUpperCase()])
+  if (data.foodTruckEventLabel)   docRows.push(['EVENTO',    String(data.foodTruckEventLabel).toUpperCase()])
   docRows.forEach(([k, v]) => {
     lines.push(cols(k, String(v), COL_WIDTH))
     lines.push(LF)

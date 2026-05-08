@@ -2008,6 +2008,52 @@ function init(userDataPath, options = {}) {
     // ticket_items.oferta_supabase_id — tag each cart line with the parent
     // oferta so a single bundle sale can be reported / undone as a unit.
     "ALTER TABLE ticket_items ADD COLUMN oferta_supabase_id TEXT",
+
+    // Food Truck (v2.17) — favorite stops + waste log + cuadre/ticket
+    // breadcrumbs. All columns nullable so non-foodtruck tenants are untouched.
+    `CREATE TABLE IF NOT EXISTS food_truck_locations (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id  TEXT UNIQUE,
+      name         TEXT NOT NULL,
+      lat          REAL,
+      lng          REAL,
+      notes        TEXT,
+      active       INTEGER NOT NULL DEFAULT 1,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_food_truck_locations_active ON food_truck_locations(active)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_food_truck_locations_updated_at
+       AFTER UPDATE ON food_truck_locations FOR EACH ROW
+       BEGIN UPDATE food_truck_locations SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    `CREATE TABLE IF NOT EXISTS waste_log (
+      id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id                 TEXT UNIQUE,
+      inventory_item_id           INTEGER REFERENCES inventory_items(id),
+      inventory_item_supabase_id  TEXT,
+      qty                         REAL NOT NULL,
+      unit                        TEXT,
+      reason                      TEXT NOT NULL,
+      photo_url                   TEXT,
+      occurred_at                 TEXT NOT NULL DEFAULT (datetime('now')),
+      cuadre_id                   INTEGER,
+      cuadre_supabase_id          TEXT,
+      created_by                  TEXT,
+      created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_waste_log_occurred ON waste_log(occurred_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_waste_log_item ON waste_log(inventory_item_supabase_id)`,
+    `CREATE TRIGGER IF NOT EXISTS trg_waste_log_updated_at
+       AFTER UPDATE ON waste_log FOR EACH ROW
+       BEGIN UPDATE waste_log SET updated_at = datetime('now') WHERE id = NEW.id; END`,
+
+    "ALTER TABLE cuadre_caja ADD COLUMN start_location_supabase_id TEXT",
+    "ALTER TABLE cuadre_caja ADD COLUMN start_lat REAL",
+    "ALTER TABLE cuadre_caja ADD COLUMN start_lng REAL",
+    "ALTER TABLE cuadre_caja ADD COLUMN start_notes TEXT",
+    "ALTER TABLE tickets ADD COLUMN food_truck_location_supabase_id TEXT",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -6379,6 +6425,121 @@ function reservationsStampWhatsapp(id) {
   db.prepare(`UPDATE restaurant_reservations SET whatsapp_sent_at=?,
               updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).run(new Date().toISOString(), id)
   return db.prepare('SELECT * FROM restaurant_reservations WHERE id=?').get(id) || null
+}
+
+// ── v2.17 — Food Truck: favorite stops ─────────────────────────────────────
+function foodTruckLocationsList({ activeOnly } = {}) {
+  if (!db) return []
+  try {
+    const where = activeOnly ? 'WHERE active=1' : ''
+    return db.prepare(`SELECT * FROM food_truck_locations ${where} ORDER BY name ASC`).all()
+  } catch { return [] }
+}
+
+function foodTruckLocationsCreate(data = {}) {
+  if (!db) throw new Error('DB no inicializada')
+  if (!data.name || !String(data.name).trim()) throw new Error('Nombre requerido')
+  const sid = crypto.randomUUID()
+  const result = db.prepare(`INSERT INTO food_truck_locations
+    (supabase_id, name, lat, lng, notes, active)
+    VALUES (?,?,?,?,?,?)`).run(
+    sid,
+    String(data.name).trim(),
+    data.lat != null ? Number(data.lat) : null,
+    data.lng != null ? Number(data.lng) : null,
+    data.notes || null,
+    data.active === false ? 0 : 1,
+  )
+  return db.prepare('SELECT * FROM food_truck_locations WHERE id=?').get(result.lastInsertRowid)
+}
+
+function foodTruckLocationsUpdate(id, patch = {}) {
+  if (!db || !id) return null
+  const allowed = ['name','lat','lng','notes','active']
+  const sets = []
+  const params = []
+  for (const k of allowed) {
+    if (k in (patch || {})) {
+      sets.push(`${k} = ?`)
+      params.push(k === 'active' ? (patch[k] ? 1 : 0) : patch[k])
+    }
+  }
+  if (!sets.length) return db.prepare('SELECT * FROM food_truck_locations WHERE id=?').get(id) || null
+  params.push(id)
+  db.prepare(`UPDATE food_truck_locations SET ${sets.join(', ')},
+              updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).run(...params)
+  return db.prepare('SELECT * FROM food_truck_locations WHERE id=?').get(id) || null
+}
+
+function foodTruckLocationsDelete(id) {
+  if (!db || !id) return null
+  db.prepare('DELETE FROM food_truck_locations WHERE id=?').run(id)
+  return { ok: true }
+}
+
+// ── v2.17 — Food Truck: waste log ──────────────────────────────────────────
+function wasteLogList({ dateFrom, dateTo, limit = 200 } = {}) {
+  if (!db) return []
+  const conds = []
+  const params = []
+  if (dateFrom) { conds.push('occurred_at >= ?'); params.push(dateFrom) }
+  if (dateTo)   { conds.push('occurred_at <= ?'); params.push(dateTo) }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  try {
+    return db.prepare(
+      `SELECT w.*, i.name AS item_name
+         FROM waste_log w
+    LEFT JOIN inventory_items i ON i.id = w.inventory_item_id
+        ${where}
+     ORDER BY w.occurred_at DESC
+        LIMIT ?`
+    ).all(...params, Math.max(1, Math.min(1000, Number(limit) || 200)))
+  } catch { return [] }
+}
+
+function wasteLogCreate(data = {}) {
+  if (!db) throw new Error('DB no inicializada')
+  if (data.qty == null || !Number.isFinite(Number(data.qty))) throw new Error('Cantidad requerida')
+  if (!data.reason || !String(data.reason).trim()) throw new Error('Motivo requerido')
+  const sid = crypto.randomUUID()
+  let invItemSid = data.inventory_item_supabase_id || null
+  if (data.inventory_item_id && !invItemSid) {
+    try {
+      const it = db.prepare('SELECT supabase_id FROM inventory_items WHERE id=?').get(data.inventory_item_id)
+      invItemSid = it?.supabase_id || null
+    } catch {}
+  }
+  const result = db.prepare(`INSERT INTO waste_log
+    (supabase_id, inventory_item_id, inventory_item_supabase_id, qty, unit, reason, photo_url,
+     occurred_at, cuadre_id, cuadre_supabase_id, created_by)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+    sid,
+    data.inventory_item_id || null,
+    invItemSid,
+    Number(data.qty),
+    data.unit || null,
+    String(data.reason).trim(),
+    data.photo_url || null,
+    data.occurred_at || new Date().toISOString(),
+    data.cuadre_id || null,
+    data.cuadre_supabase_id || null,
+    data.created_by || null,
+  )
+  const row = db.prepare('SELECT * FROM waste_log WHERE id=?').get(result.lastInsertRowid)
+  activityLogRecord({
+    event_type: 'food_truck_waste_logged', severity: 'warn',
+    target_type: 'waste_log', target_id: row.id, target_name: data.item_name || null,
+    amount: Number(data.qty),
+    reason: row.reason,
+    metadata: { unit: row.unit, inventory_item_supabase_id: invItemSid },
+  })
+  return row
+}
+
+function wasteLogDelete(id) {
+  if (!db || !id) return null
+  db.prepare('DELETE FROM waste_log WHERE id=?').run(id)
+  return { ok: true }
 }
 
 function ticketCloseWithPayment({ ticket_id, ticket_supabase_id, payload } = {}) {
@@ -14040,6 +14201,9 @@ module.exports = {
   reservationsList, reservationsCreate, reservationsUpdate,
   reservationsConfirm, reservationsCancel, reservationsMarkNoShow,
   reservationsSeat, reservationsStampWhatsapp,
+  // v2.17 — Food Truck: favorite stops + waste log
+  foodTruckLocationsList, foodTruckLocationsCreate, foodTruckLocationsUpdate, foodTruckLocationsDelete,
+  wasteLogList, wasteLogCreate, wasteLogDelete,
   // Price changes
   ticketItemUpdatePrice, priceChangesGetByTicket, priceChangesGetAll,
   // Queue

@@ -114,6 +114,18 @@ export function createElectronAPI() {
     seat:         async () => { throw new Error('Reservas requiere actualización del Terminal X') },
     stampWhatsapp: async () => { throw new Error('Reservas requiere actualización del Terminal X') },
   }
+  // v2.17 — Food Truck namespaces. Stub fallback for older preloads.
+  const foodTruckLocationsAugmented = raw.foodTruckLocations || {
+    list:   async () => [],
+    create: async () => { throw new Error('Food Truck requiere actualización del Terminal X') },
+    update: async () => { throw new Error('Food Truck requiere actualización del Terminal X') },
+    delete: async () => { throw new Error('Food Truck requiere actualización del Terminal X') },
+  }
+  const wasteLogAugmented = raw.wasteLog || {
+    list:   async () => [],
+    create: async () => { throw new Error('Mermas requiere actualización del Terminal X') },
+    delete: async () => { throw new Error('Mermas requiere actualización del Terminal X') },
+  }
   // Phase 1B — Contabilidad firm-side suite. Mirrors the API surface of
   // packages/data/contabilidad.js (web/Supabase) so the screens shipped in
   // Phase 1A consume `api.contabilidad.*` identically on either platform.
@@ -236,6 +248,8 @@ export function createElectronAPI() {
     appointmentReminders:  appointmentRemindersFlat,
     tickets:  ticketsAugmented,
     restaurantReservations: restReservationsAugmented,
+    foodTruckLocations: foodTruckLocationsAugmented,
+    wasteLog: wasteLogAugmented,
     clients: raw.clients ? { ...raw.clients, ...loyalty } : raw.clients,
     mesas: {
       list:        ()                   => raw.mesas.list(),

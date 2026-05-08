@@ -16,6 +16,7 @@ import {
   Wrench, Scissors, Car, Calendar, Warehouse, Banknote, Clock, Briefcase,
   Beef, Leaf, Truck, Tag, Shield, ShieldCheck,
   Inbox, BookOpen, FolderArchive,
+  MapPin, Trash2,
 } from 'lucide-react'
 import { usePlan } from '../hooks/usePlan.jsx'
 import { useLang } from '../i18n'
@@ -52,7 +53,7 @@ const NAV = [
   {
     id: 'menu_builder', to: '/menu-builder', icon: UtensilsCrossed,
     es: 'Menu', en: 'Menu',
-    businessTypes: ['restaurant'],
+    businessTypes: ['restaurant', 'food_truck'],
     roles: ['owner','manager'],
   },
   {
@@ -66,8 +67,24 @@ const NAV = [
   {
     id: 'kds', to: '/kds', icon: ChefHat,
     es: 'Cocina (KDS)', en: 'Kitchen (KDS)',
-    businessTypes: ['restaurant', 'hybrid'],
+    businessTypes: ['restaurant', 'food_truck', 'hybrid'],
     roles: ['owner','manager','cashier','waiter'],
+  },
+  // Food Truck — favorite stops + waste log. KDS + Menu reuse the restaurant
+  // entries above (food_truck added to their businessTypes whitelist).
+  {
+    id: 'food_truck_locations', to: '/ubicaciones', icon: MapPin,
+    es: 'Ubicaciones', en: 'Stops',
+    feature: 'food_truck_locations',
+    businessTypes: ['food_truck'],
+    roles: ['owner','manager','cashier'],
+  },
+  {
+    id: 'food_truck_waste', to: '/mermas', icon: Trash2,
+    es: 'Mermas', en: 'Waste Log',
+    feature: 'food_truck_waste_log',
+    businessTypes: ['food_truck'],
+    roles: ['owner','manager','cashier'],
   },
   // v2.16.3 — Restaurante H5: Resumen del Salón (manager-only).
   {

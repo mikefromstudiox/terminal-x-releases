@@ -27,6 +27,7 @@ import LoyaltyTierBadge from '../components/LoyaltyTierBadge'
 import { NewClientForm } from './Clients'
 import { printClientReceipt, printWasherConduce, printKitchenPrepSlip } from '@terminal-x/services/printer'
 import RestaurantPOS from './restaurant/RestaurantPOS'
+import FoodTruckPOS from './foodtruck/FoodTruckPOS'
 import { getBusinessId } from '@terminal-x/services/supabase'
 import { getDeviceId, acquireLock, releaseLock, releaseAll, activeLocksQty, sweepExpired, subscribeLocks } from '@terminal-x/services/inventoryLock'
 const saveReceiptPDF = (...args) => import('@terminal-x/services/pdf').then(m => m.saveReceiptPDF(...args))
@@ -4059,15 +4060,17 @@ function AperturaTurnoGate({ children }) {
 }
 
 export default function POS() {
-  const { isRetail, isRestaurant, isHybrid, isPrestamos } = useBusinessType()
+  const { isRetail, isRestaurant, isFoodTruck, isHybrid, isPrestamos } = useBusinessType()
   const { plan } = usePlan()
   if (plan === 'facturacion') return <Navigate to="/invoicing" replace />
   const inner = isHybrid
     ? <HybridPOS />
-    : isRestaurant
-      ? <RestaurantPOS />
-      : isPrestamos
-        ? <LendingDashboard />
-        : isRetail ? <RetailPOS /> : <CarWashPOS />
+    : isFoodTruck
+      ? <FoodTruckPOS />
+      : isRestaurant
+        ? <RestaurantPOS />
+        : isPrestamos
+          ? <LendingDashboard />
+          : isRetail ? <RetailPOS /> : <CarWashPOS />
   return <AperturaTurnoGate>{inner}</AperturaTurnoGate>
 }

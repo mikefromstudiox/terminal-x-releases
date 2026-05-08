@@ -48,7 +48,7 @@ function flagsFor(type, hybridComponents) {
     : new Set([type])
   const has = (k) => members.has(k)
 
-  const stockTracked  = has('retail') || has('dealership') || has('restaurant') || has('mechanic') || has('licoreria') || has('carniceria')
+  const stockTracked  = has('retail') || has('dealership') || has('restaurant') || has('food_truck') || has('mechanic') || has('licoreria') || has('carniceria')
   const serviceBased  = has('carwash') || has('service') || has('salon') || has('mechanic')
   const priceByWeight = has('carniceria')
   const scaleEnabled  = priceByWeight
@@ -59,6 +59,7 @@ function flagsFor(type, hybridComponents) {
     isService:    has('service'),
     isDealership: has('dealership'),
     isRestaurant: has('restaurant'),
+    isFoodTruck:  has('food_truck'),
     isMechanic:   has('mechanic'),
     isSalon:      has('salon'),
     isPrestamos:  has('prestamos'),
@@ -240,11 +241,11 @@ export function BusinessTypeProvider({ children }) {
     if (featureName === 'commissions') {
       return !!(flags.isCarWash || flags.isMechanic || flags.isSalon ||
                 flags.isHybrid  || flags.isDealership || flags.isRestaurant ||
-                flags.isService)
+                flags.isFoodTruck || flags.isService)
     }
     return false
   }, [featureOverrides, subtypeConfig, tiendaSubtype, flags.isLicoreria, flags.isCarniceria,
-      flags.isCarWash, flags.isMechanic, flags.isSalon, flags.isHybrid, flags.isDealership, flags.isRestaurant, flags.isService])
+      flags.isCarWash, flags.isMechanic, flags.isSalon, flags.isHybrid, flags.isDealership, flags.isRestaurant, flags.isFoodTruck, flags.isService])
 
   // SECURITY: while settings.get() is in flight, do NOT render children. Until
   // we know the actual business_type / tienda_subtype, every screen below

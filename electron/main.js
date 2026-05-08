@@ -2665,6 +2665,15 @@ handleMut('reservations:markNoShow', ({ id })       => db.reservationsMarkNoShow
 handleMut('reservations:seat',       ({ id, mesa_id }) => db.reservationsSeat(id, mesa_id))
 handleMut('reservations:stampWhatsapp', ({ id })    => db.reservationsStampWhatsapp(id))
 
+// ── v2.17 — Food Truck: favorite stops + waste log ───────────────────────────
+handle   ('food-truck-locations:list',   (params)               => db.foodTruckLocationsList(params || {}))
+handleMut('food-truck-locations:create', (data)                 => db.foodTruckLocationsCreate(data || {}))
+handleMut('food-truck-locations:update', ({ id, ...patch } = {}) => db.foodTruckLocationsUpdate(id, patch))
+handleMut('food-truck-locations:delete', ({ id } = {})          => db.foodTruckLocationsDelete(id))
+handle   ('waste-log:list',              (params)               => db.wasteLogList(params || {}))
+handleMut('waste-log:create',            (data)                 => db.wasteLogCreate(data || {}))
+handleMut('waste-log:delete',            ({ id } = {})          => db.wasteLogDelete(id))
+
 // ── Phase 1B — Contabilidad (firm-side suite) ────────────────────────────────
 handleMut('contabilidad:client-create',  (payload)               => db.accountingClientCreate(payload || {}))
 handleMut('contabilidad:client-update',  ({ id, ...patch } = {}) => db.accountingClientUpdate(id, patch))

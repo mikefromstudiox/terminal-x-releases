@@ -40,6 +40,8 @@ const PLAN_FEATURES = {
     'carniceria_resumen',
     // Slice 5 — every plan can share read-only data with their contador.
     'share_with_accountant',
+    // Food Truck — basic event-mode price multiplier ships at every paid tier.
+    'food_truck_event_mode',
   ],
   pro_plus: [
     'pos', 'queue', 'clients', 'credits', 'reports',
@@ -73,6 +75,9 @@ const PLAN_FEATURES = {
     // FIX-HIGH-6 — carnicería vertical (Pro PLUS+)
     'carniceria_resumen', 'carniceria_corte_catalog',
     'carniceria_mayoreo', 'carniceria_freshness_alerts',
+    // Food Truck — savings/loss tools + favorite stops + event mode (Pro PLUS+).
+    // KDS access rides the existing `restaurant_mode` key already in this list.
+    'food_truck_locations', 'food_truck_waste_log', 'food_truck_event_mode',
     // 2026-04-27 — contabilidad Pro PLUS bundle (single-firm + multi-firm up
     // to 10 clients). Pro MAX adds portfolio cockpit + auto-pull + AI.
     'contabilidad_inbox', 'contabilidad_cartera', 'contabilidad_calendario',
@@ -133,6 +138,8 @@ const PLAN_FEATURES = {
     // FIX-HIGH-6 — carnicería vertical (inherited from Pro PLUS)
     'carniceria_resumen', 'carniceria_corte_catalog',
     'carniceria_mayoreo', 'carniceria_freshness_alerts',
+    // Food Truck — inherited from Pro PLUS (no Pro MAX exclusives in Phase 1).
+    'food_truck_locations', 'food_truck_waste_log', 'food_truck_event_mode',
     'share_with_accountant',
   ],
   // Pro CTB — firm-side accounting suite (Phase 1 ship). Bundles every

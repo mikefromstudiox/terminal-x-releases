@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Loader2, ArrowLeft, Check, Car, Store, Briefcase, UtensilsCrossed, CarFront, LayoutGrid, Sparkles } from 'lucide-react'
+import { Loader2, ArrowLeft, Check, Car, Store, Briefcase, UtensilsCrossed, CarFront, LayoutGrid, Sparkles, Truck } from 'lucide-react'
 import logoImg from '../assets/logo.webp'
 import { BUSINESS_TYPES, BUSINESS_TYPE_KEYS, HYBRID_COMPONENT_KEYS, normalizeHybridComponents } from '@terminal-x/config/businessTypes'
 
@@ -15,10 +15,10 @@ function detectLang(forced) {
 
 const VALID_PLANS = { facturacion: 'Facturacion', pro: 'Pro', pro_plus: 'Pro PLUS', pro_max: 'Pro MAX' }
 
-const TYPE_ICONS = { Car, Store, Briefcase, UtensilsCrossed, CarFront, LayoutGrid }
+const TYPE_ICONS = { Car, Store, Briefcase, UtensilsCrossed, CarFront, LayoutGrid, Truck }
 
 function recommendedPlanFor(type) {
-  return ['restaurant', 'hybrid'].includes(type) ? 'pro_plus' : 'pro'
+  return ['restaurant', 'food_truck', 'hybrid'].includes(type) ? 'pro_plus' : 'pro'
 }
 
 export default function SignupPage({ supabase, forceLang }) {

@@ -8971,6 +8971,86 @@ export function createWebAPI(supabase, businessId) {
       }, []),
     },
 
+    // ── v2.17 — Food Truck: favorite stops + waste log ───────────────────────
+    foodTruckLocations: {
+      list: ({ activeOnly } = {}) => tryOr(async () => {
+        let q = supabase.from('food_truck_locations').select('*').eq('business_id', bid)
+        if (activeOnly) q = q.eq('active', true)
+        q = q.order('name', { ascending: true })
+        return throwSupaError(await q) || []
+      }, []),
+
+      create: (data) => tryOr(async () => {
+        if (!data?.name || !String(data.name).trim()) throw new Error('Nombre requerido')
+        const sid = crypto.randomUUID()
+        return throwSupaError(await supabase.from('food_truck_locations').insert({
+          supabase_id: sid,
+          business_id: bid,
+          name:        String(data.name).trim(),
+          lat:         data.lat != null ? Number(data.lat) : null,
+          lng:         data.lng != null ? Number(data.lng) : null,
+          notes:       data.notes || null,
+          active:      data.active === false ? false : true,
+        }).select('*').single())
+      }),
+
+      update: (id, patch) => tryOr(async () => {
+        const allowed = ['name','lat','lng','notes','active']
+        const body = Object.fromEntries(Object.entries(patch || {}).filter(([k]) => allowed.includes(k)))
+        if (!Object.keys(body).length) {
+          return (await supabase.from('food_truck_locations').select('*').eq('id', id).eq('business_id', bid).maybeSingle())?.data || null
+        }
+        return throwSupaError(
+          await supabase.from('food_truck_locations').update(body).eq('id', id).eq('business_id', bid).select('*').single()
+        )
+      }),
+
+      delete: (id) => tryOr(async () => {
+        await supabase.from('food_truck_locations').delete().eq('id', id).eq('business_id', bid)
+        return { ok: true }
+      }),
+    },
+
+    wasteLog: {
+      list: ({ dateFrom, dateTo, limit = 200 } = {}) => tryOr(async () => {
+        let q = supabase.from('waste_log').select('*').eq('business_id', bid)
+        if (dateFrom) q = q.gte('occurred_at', dateFrom)
+        if (dateTo)   q = q.lte('occurred_at', dateTo)
+        q = q.order('occurred_at', { ascending: false }).limit(Math.max(1, Math.min(1000, Number(limit) || 200)))
+        return throwSupaError(await q) || []
+      }, []),
+
+      create: (data) => tryOr(async () => {
+        if (data?.qty == null || !Number.isFinite(Number(data.qty))) throw new Error('Cantidad requerida')
+        if (!data?.reason || !String(data.reason).trim()) throw new Error('Motivo requerido')
+        const sid = crypto.randomUUID()
+        const row = throwSupaError(await supabase.from('waste_log').insert({
+          supabase_id:                sid,
+          business_id:                bid,
+          inventory_item_supabase_id: data.inventory_item_supabase_id || null,
+          qty:                        Number(data.qty),
+          unit:                       data.unit || null,
+          reason:                     String(data.reason).trim(),
+          photo_url:                  data.photo_url || null,
+          occurred_at:                data.occurred_at || new Date().toISOString(),
+          cuadre_supabase_id:         data.cuadre_supabase_id || null,
+          created_by:                 data.created_by || null,
+        }).select('*').single())
+        await logActivity({
+          event_type: 'food_truck_waste_logged', severity: 'warn',
+          target_type: 'waste_log', target_id: row.id, target_name: data.item_name || null,
+          amount: Number(data.qty), reason: row.reason,
+          metadata: { unit: row.unit, inventory_item_supabase_id: row.inventory_item_supabase_id },
+        })
+        return row
+      }),
+
+      delete: (id) => tryOr(async () => {
+        await supabase.from('waste_log').delete().eq('id', id).eq('business_id', bid)
+        return { ok: true }
+      }),
+    },
+
     // ── Realtime subscriptions (Supabase Realtime) ───────────────────────────
 
     realtime: {

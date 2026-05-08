@@ -82,4 +82,52 @@ export const SAMPLE_MENUS = {
       kds_stale_order_seconds: 600,
     },
   },
+
+  food_truck: {
+    categorias: [
+      { nombre: 'Frituras',    orden: 1 },
+      { nombre: 'Sandwiches',  orden: 2 },
+      { nombre: 'Platos',      orden: 3 },
+      { nombre: 'Bebidas',     orden: 4 },
+    ],
+    items: [
+      // Frituras (course=principal, todo a cocina)
+      { name: 'Chimi de res',         category: 'Frituras',   course: 'principal', printer_route: 'kitchen', price: 220, cost:  85, aplica_itbis: 1 },
+      { name: 'Chimi de pollo',       category: 'Frituras',   course: 'principal', printer_route: 'kitchen', price: 200, cost:  75, aplica_itbis: 1 },
+      { name: 'Yaroa de pollo',       category: 'Frituras',   course: 'principal', printer_route: 'kitchen', price: 280, cost: 110, aplica_itbis: 1 },
+      { name: 'Yaroa mixta',          category: 'Frituras',   course: 'principal', printer_route: 'kitchen', price: 320, cost: 130, aplica_itbis: 1 },
+      { name: 'Pica pollo (4 pzs)',   category: 'Frituras',   course: 'principal', printer_route: 'kitchen', price: 250, cost: 100, aplica_itbis: 1 },
+      { name: 'Tostones con queso',   category: 'Frituras',   course: 'principal', printer_route: 'kitchen', price: 150, cost:  55, aplica_itbis: 1 },
+
+      // Sandwiches
+      { name: 'Sandwich cubano',      category: 'Sandwiches', course: 'principal', printer_route: 'kitchen', price: 240, cost:  95, aplica_itbis: 1 },
+      { name: 'Sandwich de pernil',   category: 'Sandwiches', course: 'principal', printer_route: 'kitchen', price: 260, cost: 105, aplica_itbis: 1 },
+      { name: 'Hot Dog',              category: 'Sandwiches', course: 'principal', printer_route: 'kitchen', price: 140, cost:  50, aplica_itbis: 1 },
+      { name: 'Hamburguesa',          category: 'Sandwiches', course: 'principal', printer_route: 'kitchen', price: 280, cost: 110, aplica_itbis: 1 },
+
+      // Platos (mañana / desayuno)
+      { name: 'Mangú con los 3 golpes', category: 'Platos', course: 'principal', printer_route: 'kitchen', price: 280, cost: 100, aplica_itbis: 1 },
+      { name: 'Sancocho del día',       category: 'Platos', course: 'principal', printer_route: 'kitchen', price: 350, cost: 140, aplica_itbis: 1 },
+
+      // Bebidas
+      { name: 'Refresco lata',        category: 'Bebidas',    course: 'bebida',    printer_route: 'bar',     price:  60, cost:  20, aplica_itbis: 1 },
+      { name: 'Agua',                 category: 'Bebidas',    course: 'bebida',    printer_route: 'bar',     price:  40, cost:  10, aplica_itbis: 1 },
+      { name: 'Morir Soñando',        category: 'Bebidas',    course: 'bebida',    printer_route: 'bar',     price: 120, cost:  35, aplica_itbis: 1 },
+      { name: 'Batida de chinola',    category: 'Bebidas',    course: 'bebida',    printer_route: 'bar',     price: 140, cost:  40, aplica_itbis: 1 },
+      { name: 'Presidente',           category: 'Bebidas',    course: 'bebida',    printer_route: 'bar',     price: 150, cost:  60, aplica_itbis: 1 },
+    ],
+    modificadores: [
+      { name: 'Sin cebolla',     group_name: 'Notas',  price_delta:  0, min_select: 0, max_select: 1, default_selected: 0, sort_order: 1 },
+      { name: 'Sin ají',         group_name: 'Notas',  price_delta:  0, min_select: 0, max_select: 1, default_selected: 0, sort_order: 2 },
+      { name: 'Sin mayonesa',    group_name: 'Notas',  price_delta:  0, min_select: 0, max_select: 1, default_selected: 0, sort_order: 3 },
+      { name: 'Para llevar',     group_name: 'Notas',  price_delta:  0, min_select: 0, max_select: 1, default_selected: 1, sort_order: 4 },
+      { name: 'Extra queso',     group_name: 'Extras', price_delta: 50, min_select: 0, max_select: 3, default_selected: 0, sort_order: 1 },
+      { name: 'Extra salsa',     group_name: 'Extras', price_delta: 20, min_select: 0, max_select: 5, default_selected: 0, sort_order: 2 },
+      { name: 'Extra pernil',    group_name: 'Extras', price_delta: 80, min_select: 0, max_select: 2, default_selected: 0, sort_order: 3 },
+    ],
+    kds: {
+      kds_sound_enabled: true,
+      kds_stale_order_seconds: 480,
+    },
+  },
 }
