@@ -1234,16 +1234,21 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
       const isSin = ncfType === 'SIN'
       let eNCF = null
       if (!isSin) {
+        // NCF allocator MUST be atomic — the in-memory fallback this used to
+        // have produced duplicate NCFs across two terminals (Ranoza dual-POS
+        // concurrency audit, 2026-05-08). If the RPC errors, surface it to the
+        // cashier and abort the sale; never mint locally.
         try {
-          // Use real DGII-assigned sequence from DB (increments current_number)
-          eNCF = await api?.ncf?.next?.(ncfType) || null
-        } catch { /* fallback below */ }
+          eNCF = await api?.ncf?.next?.(ncfType)
+        } catch (err) {
+          throw new Error(lang === 'es'
+            ? `No se pudo reservar el NCF ${ncfType}. Intenta de nuevo. (${err?.message || err})`
+            : `Could not reserve NCF ${ncfType}. Retry. (${err?.message || err})`)
+        }
         if (!eNCF) {
-          // Fallback: generate from current seq in memory
-          const seq = ncfSeqs.find(s => s.type === ncfType)
-          const next = (seq?.current_number || 0) + 1
-          const prefix = seq?.prefix || ncfType
-          eNCF = `${prefix}${String(next).padStart(8, '0')}`
+          throw new Error(lang === 'es'
+            ? `No se pudo reservar el NCF ${ncfType}. Intenta de nuevo.`
+            : `Could not reserve NCF ${ncfType}. Retry.`)
         }
       }
       const legacyResult = {
@@ -1382,17 +1387,18 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
       // invoiceData.eNCF is undefined, main.js dgii:submit eventually tries
       // ecfSubmissionAdd({ encf: undefined, ... }) and SQLite rejects with
       // 'NOT NULL constraint failed: ecf_submissions.encf'.
+      // NCF allocator must be atomic — no in-memory fallback. Two terminals
+      // both falling through to a local synth produces duplicate NCFs and a
+      // DGII fiscal violation. If the RPC errors or returns null, abort the
+      // submission and let the cashier retry.
       let eNCF = null
       try {
-        eNCF = await api?.ncf?.next?.(ncfType) || null
+        eNCF = await api?.ncf?.next?.(ncfType)
       } catch (err) {
         throw new Error(`No se pudo reservar el NCF ${ncfType}: ${err?.message || err}`)
       }
       if (!eNCF) {
-        // Last-ditch fallback: synthesise from the in-memory sequence.
-        const next = (seq?.current_number || 0) + 1
-        const prefix = seq?.prefix || ncfType
-        eNCF = `${prefix}${String(next).padStart(8, '0')}`
+        throw new Error(`No se pudo reservar el NCF ${ncfType}. Intenta de nuevo.`)
       }
 
       // DGII requires a valid 9-digit emisor RNC that matches the installed

@@ -153,12 +153,12 @@ export default function CRM({ getToken, isDark, lang }) {
       {/* Search + plan filter */}
       <div className="flex gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[240px]">
-          <Search size={14} className={`absolute left-3 top-1/2 -translate-y-1/2 ${isDark ? 'text-white/40' : 'text-slate-400'}`} />
+          <Search size={14} className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 ${isDark ? 'text-white/40' : 'text-slate-400'}`} />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder={L('Buscar por nombre, email, teléfono, RNC…', 'Search by name, email, phone, RNC…')}
-            className={`w-full pl-9 pr-3 py-2 rounded-lg border text-sm outline-none transition-colors ${inputBase}`}
+            className={`w-full pl-10 pr-3 py-2 rounded-lg border text-sm outline-none transition-colors ${inputBase}`}
           />
         </div>
         <select

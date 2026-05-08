@@ -6393,10 +6393,30 @@ function ticketCloseWithPayment({ ticket_id, ticket_supabase_id, payload } = {})
   const itbisPct = Number(itbisPctRow?.value)
   const itbisFactor = (Number.isFinite(itbisPct) && itbisPct >= 0 ? itbisPct : 18) / 100
 
+  // v2.3 — multi-POS NCF block dispatch. Mirrors ticketCreate so close-time
+  // NCF assignment also runs through the HWID-scoped block consumer when
+  // multi_pos_enabled='1'. Without this, dual-desktop installs that close a
+  // credit ticket fall through to the legacy ncf_sequences UPDATE and can
+  // mint duplicate NCFs across terminals.
+  const _multiPos = multiPosEnabled()
+  const _bizIdLocal = _bizId()
+  const _hwidLocal  = (() => {
+    try { return db.prepare("SELECT value FROM app_settings WHERE key='hwid'").get()?.value || null }
+    catch { return null }
+  })()
+
   const tx = db.transaction(() => {
     let ncf = (data.ncf && String(data.ncf).trim()) ? String(data.ncf).trim().toUpperCase() : (row.ncf || null)
     const ncfType = data.comprobante_type || row.comprobante_type || 'B02'
-    if (!ncf) {
+    let ncfFromBlock = false
+    if (!ncf && _multiPos && _bizIdLocal && _hwidLocal) {
+      const blk = ncfBlockConsumeNext({ businessId: _bizIdLocal, hwid: _hwidLocal, ncfType })
+      if (blk?.ncf) {
+        ncf = blk.ncf
+        ncfFromBlock = true
+      }
+    }
+    if (!ncf && !ncfFromBlock) {
       const ncfRow = db.prepare('SELECT * FROM ncf_sequences WHERE type=? AND active=1').get(ncfType)
       if (ncfRow) {
         const nextNCF = ncfRow.current_number + 1
@@ -6795,6 +6815,8 @@ function ticketCreate(data) {
     // seller. Default null → existing roll-up commission paths still apply.
     const insItem = db.prepare(`INSERT INTO ticket_items(ticket_id,service_id,name,price,cost,itbis,is_wash,quantity,sku,inventory_item_id,weight,unit,price_per_unit,is_deposit,preparation_notes,empleado_supabase_id,supabase_id,ticket_supabase_id,service_supabase_id,inventory_item_supabase_id)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    // v2.3 multi-POS — collected per-item deduct payloads enqueued at end of loop.
+    const _pendingDeductItems = []
     for (const item of (data.items || [])) {
       const svcId = (item.service_id && validSvcIds.has(item.service_id)) ? item.service_id : null
       const qty = item.quantity || 1
@@ -6824,27 +6846,57 @@ function ticketCreate(data) {
       // RPT-H4: when requested > available, record a shortage row in
       // inventory_oversells so void-time reversal can restore only the
       // fulfilled amount (not the requested qty), preventing phantom stock.
+      //
+      // v2.3 multi-POS: when multi_pos_enabled='1' the local decrement is
+      // SKIPPED and the deduct is enqueued in pending_inventory_deducts for
+      // sync.js processPendingDeducts() to apply server-side via the atomic
+      // RPC. This is the single-source-of-truth fix for dual-desktop: cloud
+      // quantity is authoritative, local refreshes on next pull. Without
+      // this skip, both desktops decrement local + push LWW + RPC = triple
+      // decrement.
       if (item.inventory_item_id) {
         const invRow = db.prepare('SELECT supabase_id, quantity, name FROM inventory_items WHERE id=?').get(item.inventory_item_id)
-        const available = Math.max(0, Number(invRow?.quantity || 0))
-        const fulfilled = Math.min(qty, available)
-        db.prepare('UPDATE inventory_items SET quantity = MAX(0, quantity - ?) WHERE id = ?')
-          .run(qty, item.inventory_item_id)
-        if (qty > available) {
-          const osSid = crypto.randomUUID()
-          try {
-            db.prepare(`INSERT INTO inventory_oversells
-              (supabase_id, business_id, ticket_supabase_id, item_supabase_id, item_name, requested_qty, actual_qty)
-              VALUES (?,?,?,?,?,?,?)`).run(
-                osSid, _bizId(), ticketSid, invRow?.supabase_id || null,
-                invRow?.name || item.name || null, qty, available)
-          } catch (e) { /* non-fatal: shortage ledger is audit, never blocks sale */ }
+        if (multiPos) {
+          // Track for the pending-deduct enqueue collected outside the loop.
+          // Local quantity stays put — pull will refresh it post-RPC.
+          if (invRow?.supabase_id) {
+            _pendingDeductItems.push({
+              item_supabase_id: invRow.supabase_id,
+              qty,
+              name: invRow.name || item.name || null,
+            })
+          }
+        } else {
+          const available = Math.max(0, Number(invRow?.quantity || 0))
+          const fulfilled = Math.min(qty, available)
+          db.prepare('UPDATE inventory_items SET quantity = MAX(0, quantity - ?) WHERE id = ?')
+            .run(qty, item.inventory_item_id)
+          if (qty > available) {
+            const osSid = crypto.randomUUID()
+            try {
+              db.prepare(`INSERT INTO inventory_oversells
+                (supabase_id, business_id, ticket_supabase_id, item_supabase_id, item_name, requested_qty, actual_qty)
+                VALUES (?,?,?,?,?,?,?)`).run(
+                  osSid, _bizId(), ticketSid, invRow?.supabase_id || null,
+                  invRow?.name || item.name || null, qty, available)
+            } catch (e) { /* non-fatal: shortage ledger is audit, never blocks sale */ }
+          }
+          const txSid = crypto.randomUUID()
+          db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id) VALUES(?,?,?,?,?,?,?)')
+            .run(item.inventory_item_id, 'sale', -fulfilled, `Ticket #${ticketId}`, data.cajero_id || null,
+                 txSid, invRow?.supabase_id || null)
         }
-        const txSid = crypto.randomUUID()
-        db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id) VALUES(?,?,?,?,?,?,?)')
-          .run(item.inventory_item_id, 'sale', -fulfilled, `Ticket #${ticketId}`, data.cajero_id || null,
-               txSid, invRow?.supabase_id || null)
       }
+    }
+
+    // v2.3 multi-POS — enqueue all collected items into pending_inventory_deducts.
+    // sync.js processPendingDeducts() picks this up on the next refill tick
+    // (every 30s after boot, then every 10min), calls deduct_inventory_atomic
+    // server-side with FOR UPDATE locks on each row. Oversells get written to
+    // inventory_oversells by the RPC. Local SQLite refreshes via phase-1 pull.
+    if (multiPos && _pendingDeductItems.length) {
+      try { pendingDeductEnqueue({ ticketSupabaseId: ticketSid, items: _pendingDeductItems }) }
+      catch (e) { /* non-fatal — sync will retry on next tick if the row landed */ }
     }
 
     // H2 — Restaurant Servicio (Ley 16-92) tip distribution. v2.16.3 ships

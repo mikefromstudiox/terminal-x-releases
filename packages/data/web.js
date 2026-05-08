@@ -2891,31 +2891,29 @@ export function createWebAPI(supabase, businessId) {
               // later, status flips to 'cobrado' via UPDATE which doesn't
               // re-fire the INSERT trigger, so no second deduct.
               if (status !== 'cobrado') {
-                for (const item of items) {
-                  const invSid = item.inventory_item_supabase_id
-                  if (invSid) {
-                    const qty = item.quantity || 1
-                    try {
-                      const { data: inv } = await supabase.from('inventory_items').select('quantity, name').eq('supabase_id', invSid).eq('business_id', bid).single()
-                      if (inv) {
-                        const available = Math.max(0, Number(inv.quantity || 0))
-                        await supabase.from('inventory_items').update({ quantity: Math.max(0, available - qty) }).eq('supabase_id', invSid).eq('business_id', bid)
-                        if (qty > available) {
-                          try {
-                            await supabase.from('inventory_oversells').insert({
-                              supabase_id:        crypto.randomUUID(),
-                              business_id:        bid,
-                              ticket_supabase_id: ticketSid,
-                              item_supabase_id:   invSid,
-                              item_name:          inv.name || item.name || null,
-                              requested_qty:      qty,
-                              actual_qty:         available,
-                            })
-                          } catch (e2) { console.error('[web.js] oversell insert failed:', e2.message) }
-                        }
-                      }
-                    } catch (e) { console.error('[web.js] stock deduction failed:', e.message) }
-                  }
+                // Credit-sale path. The server INSERT trigger only fires for
+                // status='cobrado', so we deduct here. MUST be atomic — the
+                // old SELECT-then-UPDATE had a 30-300ms race window that
+                // dual-terminal Ranoza would exploit (lost-update on last
+                // bottle, no oversell row created). RPC FOR-UPDATE-locks each
+                // row, deducts in one statement, and inserts inventory_oversells
+                // when stock can't cover the request.
+                const rpcItems = items
+                  .filter(it => it.inventory_item_supabase_id)
+                  .map(it => ({
+                    item_supabase_id: it.inventory_item_supabase_id,
+                    qty:              it.quantity || 1,
+                    name:             it.name || null,
+                  }))
+                if (rpcItems.length) {
+                  try {
+                    await supabase.rpc('deduct_inventory_atomic', {
+                      p_business_id:        bid,
+                      p_ticket_supabase_id: ticketSid,
+                      p_hwid:               'web',
+                      p_items:              rpcItems,
+                    })
+                  } catch (e) { console.error('[web.js] deduct_inventory_atomic failed:', e.message) }
                 }
               }
             }
@@ -4621,23 +4619,18 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(await supabase.from('ncf_sequences').select('*').eq('business_id', bid).order('type'))
       }, []),
 
-      next: (type) => tryOr(async () => {
-        // Atomic NCF increment via RPC to prevent race conditions.
-        // v2.16.2 — deployed signature is `atomic_next_ncf(business_uuid UUID, ncf_type TEXT)`
-        // (supabase/migrations/20260301000001_upgrade_existing.sql:469).
-        // The earlier `p_business_id`/`p_type` names matched the original
-        // 20260301000000_initial.sql definition, but the upgrade redefinition
-        // shipped to prod with `business_uuid`/`ncf_type` and never updated
-        // this caller. Latent: web NCF reservation has been failing with
-        // "function not found in schema cache" — desktop reservation via
-        // SQLite has masked it because all real e-CF emission flows through
-        // electron/database.js. Fixed to match the live signature.
+      next: (type) => tryWrite(async () => {
+        // Atomic NCF increment via RPC. MUST use tryWrite — wrapping in tryOr
+        // swallows transient RPC errors (RLS, JWT path, schema-cache miss) as
+        // null, which lets CobrarModal fall through to its in-memory fallback
+        // and mint duplicate NCFs across two terminals. Surface the error so
+        // the cashier sees "NCF allocator unavailable, retry" instead.
         const result = throwSupaError(await supabase.rpc('atomic_next_ncf', {
           business_uuid: bid,
           ncf_type: type,
         }))
         return result // returns formatted NCF string like "E3100000001"
-      }, null),
+      }),
 
       // Pre-submit rollback: an eNCF was reserved via .next() but the e-CF
       // submission failed before reaching DGII. If still the last issued

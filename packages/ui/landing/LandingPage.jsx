@@ -1480,6 +1480,16 @@ export default function LandingPage({ section, forceLang }) {
           </div>
           <div className="border-t border-white/10 mt-12 pt-8 text-center">
             <p className="text-xs text-white/50">&copy; {new Date().getFullYear()} Terminal X SRL. {L('Todos los derechos reservados.', 'All rights reserved.')}</p>
+            <p className="text-[10px] text-white/30 mt-3">
+              <a
+                href="https://github.com/mikefromstudiox/terminal-x-releases/releases/latest"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-white/70 transition-colors"
+              >
+                {L('Clientes existentes: descargar última versión de escritorio (Windows) — v2.17.0', 'Existing customers: download latest desktop build (Windows) — v2.17.0')}
+              </a>
+            </p>
           </div>
         </div>
       </footer>

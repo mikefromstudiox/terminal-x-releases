@@ -25,7 +25,7 @@ export default function Team({ getToken, refreshToken, isDark, lang }) {
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState('')
   const [showAdd, setShowAdd] = useState(false)
-  const [form, setForm] = useState({ email: '', name: '', role: 'support' })
+  const [form, setForm] = useState({ email: '', name: '', role: 'support', password: '' })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -54,7 +54,7 @@ export default function Team({ getToken, refreshToken, isDark, lang }) {
       const data = await resp.json()
       if (!resp.ok) throw new Error(data.error || 'Error')
       setShowAdd(false)
-      setForm({ email: '', name: '', role: 'support' })
+      setForm({ email: '', name: '', role: 'support', password: '' })
       load()
     } catch (err) { setError(err.message) }
     setSaving(false)
@@ -109,10 +109,12 @@ export default function Team({ getToken, refreshToken, isDark, lang }) {
             className={`rounded-2xl p-5 space-y-3 overflow-hidden ${tableBase}`}
           >
             {error && <div className="bg-[#b3001e]/10 text-[#b3001e] text-[12px] p-2.5 rounded-lg border border-[#b3001e]/25">{error}</div>}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <input placeholder="Email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
                 className={`px-3.5 py-2.5 border rounded-xl text-[12px] outline-none transition-all focus:ring-2 ${inputBase}`} />
               <input placeholder={L('Nombre', 'Name')} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                className={`px-3.5 py-2.5 border rounded-xl text-[12px] outline-none transition-all focus:ring-2 ${inputBase}`} />
+              <input type="password" placeholder={L('Contraseña (mín 8) — solo si es nuevo', 'Password (min 8) — only if new')} value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                 className={`px-3.5 py-2.5 border rounded-xl text-[12px] outline-none transition-all focus:ring-2 ${inputBase}`} />
               <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
                 className={`px-3.5 py-2.5 border rounded-xl text-[12px] outline-none transition-all focus:ring-2 ${inputBase}`}>
@@ -123,6 +125,9 @@ export default function Team({ getToken, refreshToken, isDark, lang }) {
                 <option value="super_admin">Super Admin</option>
               </select>
             </div>
+            <p className={`text-[11px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+              {L('Si el email no tiene cuenta auth, se creará con la contraseña ingresada.', 'If the email has no auth account, one will be created with the entered password.')}
+            </p>
             <div className="flex gap-2">
               <motion.button
                 whileTap={{ scale: 0.97 }}

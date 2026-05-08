@@ -1788,12 +1788,17 @@ async function handleUsers(req, res) {
   if (req.method === 'POST') {
     const auth = await requireAdmin(req, 'super_admin')
     if (auth.error) return res.status(auth.status).json({ error: auth.error })
-    const { email, name, role } = req.body || {}
+    const { email, name, role, password } = req.body || {}
     if (!email || !name) return res.status(400).json({ error: 'email and name required' })
     const { data: { users }, error: listErr } = await auth.supabase.auth.admin.listUsers()
     if (listErr) return res.status(500).json({ error: listErr.message })
-    const authUser = (users || []).find(u => u.email === email)
-    if (!authUser) return res.status(404).json({ error: 'No auth user with that email.' })
+    let authUser = (users || []).find(u => u.email === email)
+    if (!authUser) {
+      if (!password || password.length < 8) return res.status(400).json({ error: 'Password (min 8 chars) required to create new auth user.' })
+      const { data: created, error: createErr } = await auth.supabase.auth.admin.createUser({ email, password, email_confirm: true })
+      if (createErr) return res.status(500).json({ error: createErr.message })
+      authUser = created.user
+    }
     const VALID_ROLES = ['super_admin', 'admin', 'sales_manager', 'sales', 'support']
     const safeRole = VALID_ROLES.includes(role) ? role : 'support'
     const { data, error } = await auth.supabase.from('admin_users').insert({ auth_user_id: authUser.id, name, role: safeRole }).select().single()

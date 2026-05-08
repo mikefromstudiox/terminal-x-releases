@@ -1763,8 +1763,18 @@ function MiEmpresa() {
     api?.admin?.getEmpresa?.()
       .then(row => {
         if (!row) return
+        // Supabase jsonb arrives parsed; desktop (SQLite) gives a string.
+        // Old code unconditionally JSON.parse'd → threw on object → catch
+        // swallowed → extra={} → biz_city/biz_website/biz_type silently lost
+        // on web reload. Fields with column fallbacks (address/phone/name)
+        // masked the bug; biz_city has no column so the placeholder showed
+        // up grey and Mike thought the save was broken.
         let extra = {}
-        try { extra = JSON.parse(row.settings || '{}') } catch {}
+        if (row.settings && typeof row.settings === 'object' && !Array.isArray(row.settings)) {
+          extra = row.settings
+        } else if (typeof row.settings === 'string') {
+          try { extra = JSON.parse(row.settings || '{}') } catch {}
+        }
         setForm({
           biz_name:    row.name    || '',
           biz_rnc:     row.rnc     || '',

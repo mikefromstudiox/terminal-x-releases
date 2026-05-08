@@ -205,7 +205,13 @@ const SYNC_TABLES = [
       price: r.price,
       price_pedidos_ya: r.price_pedidos_ya != null ? r.price_pedidos_ya : null,
       cost: r.cost,
-      quantity: r.quantity,
+      // v2.3 multi-POS — when multi_pos_enabled='1', cloud quantity is
+      // authoritative (mutated only by deduct_inventory_atomic RPC and admin
+      // restock paths). LWW-pushing local quantity from desktop here would
+      // overwrite the RPC's truth on every sync tick — exactly the bug we're
+      // closing for dual-desktop. Spread conditionally so the field is
+      // omitted (not set to undefined → null) when multi_pos is on.
+      ...(_mpEnabled() ? {} : { quantity: r.quantity }),
       min_quantity: r.min_quantity,
       aplica_itbis: r.aplica_itbis,
       sold_by_weight: !!(r.sold_by_weight || 0),
