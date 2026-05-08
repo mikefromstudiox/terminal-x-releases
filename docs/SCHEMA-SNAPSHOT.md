@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-03T03:22:31.424Z
+- **Snapshot taken:** 2026-05-08T21:02:36.828Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -45,7 +45,7 @@ SELECT c.relname AS table_name,
   ORDER BY c.relname;
 ```
 
-Total tables: **150** (RLS enabled: **150**)
+Total tables: **152** (RLS enabled: **152**)
 
 ### `accounting_bank_accounts`
 
@@ -841,7 +841,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `accounting_obligations_calendar`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **196**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1397,7 +1397,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `admin_users`
 
-- Rough row count (n_live_tup): **1**
+- Rough row count (n_live_tup): **3**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1494,7 +1494,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `api_rate_limits`
 
-- Rough row count (n_live_tup): **631**
+- Rough row count (n_live_tup): **686**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1522,7 +1522,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `app_settings`
 
-- Rough row count (n_live_tup): **190**
+- Rough row count (n_live_tup): **206**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1828,7 +1828,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `businesses`
 
-- Rough row count (n_live_tup): **36**
+- Rough row count (n_live_tup): **15**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2088,7 +2088,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `categorias_servicio`
 
-- Rough row count (n_live_tup): **8**
+- Rough row count (n_live_tup): **10**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2193,7 +2193,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `client_errors`
 
-- Rough row count (n_live_tup): **32**
+- Rough row count (n_live_tup): **56**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2448,7 +2448,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `clients`
 
-- Rough row count (n_live_tup): **131**
+- Rough row count (n_live_tup): **132**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2806,7 +2806,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `crm_leads`
 
-- Rough row count (n_live_tup): **2**
+- Rough row count (n_live_tup): **6**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2906,6 +2906,10 @@ Total tables: **150** (RLS enabled: **150**)
 | 25 | `status` | text | YES | 'cerrado'::text |  |
 | 26 | `opened_at` | timestamp with time zone | YES |  |  |
 | 27 | `opening_cash` | numeric | YES |  |  |
+| 28 | `start_location_supabase_id` | uuid | YES |  |  |
+| 29 | `start_lat` | double precision | YES |  |  |
+| 30 | `start_lng` | double precision | YES |  |  |
+| 31 | `start_notes` | text | YES |  |  |
 
 **Primary Key**
 
@@ -2931,6 +2935,8 @@ Total tables: **150** (RLS enabled: **150**)
   `CREATE INDEX idx_cuadre_business ON public.cuadre_caja USING btree (business_id)`
 - `uq_cuadre_caja_biz_sid` (btree)
   `CREATE UNIQUE INDEX uq_cuadre_caja_biz_sid ON public.cuadre_caja USING btree (business_id, supabase_id)`
+- `uq_cuadre_caja_one_open_per_day` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE UNIQUE INDEX uq_cuadre_caja_one_open_per_day ON public.cuadre_caja USING btree (business_id, date) WHERE (status = 'abierto'::text)`
 - `uq_cuadre_caja_sid` (btree)
   `CREATE UNIQUE INDEX uq_cuadre_caja_sid ON public.cuadre_caja USING btree (business_id, supabase_id)`
 - `uq_cuadre_local` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
@@ -3520,7 +3526,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `empleados`
 
-- Rough row count (n_live_tup): **100**
+- Rough row count (n_live_tup): **99**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3634,6 +3640,50 @@ Total tables: **150** (RLS enabled: **150**)
 - `firm_memberships_supabase_id_key` (btree)
   `CREATE UNIQUE INDEX firm_memberships_supabase_id_key ON public.firm_memberships USING btree (supabase_id)`
 
+### `food_truck_locations`
+
+- Rough row count (n_live_tup): **0**
+- RLS enabled: **YES**
+
+**Columns**
+
+| # | column | type | nullable | default | generated |
+|---|--------|------|----------|---------|-----------|
+| 1 | `id` | uuid | NO | gen_random_uuid() |  |
+| 2 | `supabase_id` | uuid | NO | gen_random_uuid() |  |
+| 3 | `business_id` | uuid | NO |  |  |
+| 4 | `name` | text | NO |  |  |
+| 5 | `lat` | double precision | YES |  |  |
+| 6 | `lng` | double precision | YES |  |  |
+| 7 | `notes` | text | YES |  |  |
+| 8 | `active` | boolean | NO | true |  |
+| 9 | `created_at` | timestamp with time zone | NO | now() |  |
+| 10 | `updated_at` | timestamp with time zone | NO | now() |  |
+
+**Primary Key**
+
+- `food_truck_locations_pkey` — PRIMARY KEY (id)
+
+**Unique Constraints** _(usable as PostgREST on_conflict targets — these are real CONSTRAINTs, not partial indexes)_
+
+- `food_truck_locations_supabase_id_key` — UNIQUE (supabase_id)
+- `uq_food_truck_locations_biz_sid` — UNIQUE (business_id, supabase_id)
+
+**Foreign Keys**
+
+- `food_truck_locations_business_id_fkey` — FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE  _(ON DELETE CASCADE, ON UPDATE NO ACTION)_
+
+**Indexes**
+
+- `food_truck_locations_pkey` (btree)
+  `CREATE UNIQUE INDEX food_truck_locations_pkey ON public.food_truck_locations USING btree (id)`
+- `food_truck_locations_supabase_id_key` (btree)
+  `CREATE UNIQUE INDEX food_truck_locations_supabase_id_key ON public.food_truck_locations USING btree (supabase_id)`
+- `idx_food_truck_locations_biz_active` (btree)
+  `CREATE INDEX idx_food_truck_locations_biz_active ON public.food_truck_locations USING btree (business_id, active)`
+- `uq_food_truck_locations_biz_sid` (btree)
+  `CREATE UNIQUE INDEX uq_food_truck_locations_biz_sid ON public.food_truck_locations USING btree (business_id, supabase_id)`
+
 ### `insurance_batches`
 
 - Rough row count (n_live_tup): **0**
@@ -3689,7 +3739,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `inventory_count_items`
 
-- Rough row count (n_live_tup): **1650**
+- Rough row count (n_live_tup): **1678**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3746,7 +3796,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `inventory_counts`
 
-- Rough row count (n_live_tup): **16**
+- Rough row count (n_live_tup): **17**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3885,7 +3935,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `inventory_items`
 
-- Rough row count (n_live_tup): **1167**
+- Rough row count (n_live_tup): **1171**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4171,7 +4221,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `license_events`
 
-- Rough row count (n_live_tup): **2218**
+- Rough row count (n_live_tup): **2297**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4210,7 +4260,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `license_jwt_audit`
 
-- Rough row count (n_live_tup): **41**
+- Rough row count (n_live_tup): **53**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4287,7 +4337,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `licenses`
 
-- Rough row count (n_live_tup): **15**
+- Rough row count (n_live_tup): **16**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4309,6 +4359,7 @@ Total tables: **150** (RLS enabled: **150**)
 | 13 | `created_at` | timestamp with time zone | NO | now() |  |
 | 14 | `updated_at` | timestamp with time zone | NO | now() |  |
 | 15 | `prior_hardware_id` | text | YES |  |  |
+| 16 | `label` | text | YES |  |  |
 
 **Primary Key**
 
@@ -4842,7 +4893,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `mesas`
 
-- Rough row count (n_live_tup): **18**
+- Rough row count (n_live_tup): **20**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4992,7 +5043,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `ncf_blocks`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **3**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5111,7 +5162,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `ncf_sequences_master`
 
-- Rough row count (n_live_tup): **1**
+- Rough row count (n_live_tup): **5**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5210,7 +5261,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `oferta_items`
 
-- Rough row count (n_live_tup): **2**
+- Rough row count (n_live_tup): **12**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5260,7 +5311,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `ofertas`
 
-- Rough row count (n_live_tup): **2**
+- Rough row count (n_live_tup): **7**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6009,7 +6060,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `rnc_cache`
 
-- Rough row count (n_live_tup): **2**
+- Rough row count (n_live_tup): **3**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6074,7 +6125,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `salary_changes`
 
-- Rough row count (n_live_tup): **4**
+- Rough row count (n_live_tup): **5**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6474,7 +6525,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `service_recipe_items`
 
-- Rough row count (n_live_tup): **7**
+- Rough row count (n_live_tup): **10**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6600,7 +6651,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `staff`
 
-- Rough row count (n_live_tup): **22**
+- Rough row count (n_live_tup): **19**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6967,7 +7018,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `ticket_items`
 
-- Rough row count (n_live_tup): **1114**
+- Rough row count (n_live_tup): **1120**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7046,7 +7097,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `ticket_locks`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **1**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7084,7 +7135,7 @@ Total tables: **150** (RLS enabled: **150**)
 
 ### `tickets`
 
-- Rough row count (n_live_tup): **446**
+- Rough row count (n_live_tup): **450**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7161,6 +7212,7 @@ Total tables: **150** (RLS enabled: **150**)
 | 70 | `descuento_reason` | text | YES |  |  |
 | 71 | `mac_jti` | text | YES |  |  |
 | 72 | `open_status` | text | YES | 'closed'::text |  |
+| 73 | `food_truck_location_supabase_id` | uuid | YES |  |  |
 
 **Primary Key**
 
@@ -7191,6 +7243,8 @@ Total tables: **150** (RLS enabled: **150**)
   `CREATE INDEX idx_tickets_created ON public.tickets USING btree (business_id, created_at DESC)`
 - `idx_tickets_ecf_result_gin` (gin)  **(PARTIAL — NOT usable as on_conflict target)**
   `CREATE INDEX idx_tickets_ecf_result_gin ON public.tickets USING gin (ecf_result jsonb_path_ops) WHERE (ecf_result IS NOT NULL)`
+- `idx_tickets_food_truck_location` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE INDEX idx_tickets_food_truck_location ON public.tickets USING btree (business_id, food_truck_location_supabase_id) WHERE (food_truck_location_supabase_id IS NOT NULL)`
 - `idx_tickets_is_test_per_biz` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
   `CREATE INDEX idx_tickets_is_test_per_biz ON public.tickets USING btree (business_id) WHERE (is_test = true)`
 - `idx_tickets_legacy_code` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
@@ -7213,6 +7267,8 @@ Total tables: **150** (RLS enabled: **150**)
   `CREATE UNIQUE INDEX tickets_pkey ON public.tickets USING btree (id)`
 - `tickets_supabase_id_uniq` (btree)
   `CREATE UNIQUE INDEX tickets_supabase_id_uniq ON public.tickets USING btree (supabase_id)`
+- `uq_tickets_biz_ncf` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE UNIQUE INDEX uq_tickets_biz_ncf ON public.tickets USING btree (business_id, ncf) WHERE (ncf IS NOT NULL)`
 - `uq_tickets_biz_sid` (btree)
   `CREATE UNIQUE INDEX uq_tickets_biz_sid ON public.tickets USING btree (business_id, supabase_id)`
 - `uq_tickets_local` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
@@ -7657,6 +7713,57 @@ Total tables: **150** (RLS enabled: **150**)
 - `washer_commissions_supabase_id_uniq` (btree)
   `CREATE UNIQUE INDEX washer_commissions_supabase_id_uniq ON public.washer_commissions USING btree (supabase_id)`
 
+### `waste_log`
+
+- Rough row count (n_live_tup): **0**
+- RLS enabled: **YES**
+
+**Columns**
+
+| # | column | type | nullable | default | generated |
+|---|--------|------|----------|---------|-----------|
+| 1 | `id` | uuid | NO | gen_random_uuid() |  |
+| 2 | `supabase_id` | uuid | NO | gen_random_uuid() |  |
+| 3 | `business_id` | uuid | NO |  |  |
+| 4 | `inventory_item_supabase_id` | uuid | YES |  |  |
+| 5 | `qty` | numeric | NO |  |  |
+| 6 | `unit` | text | YES |  |  |
+| 7 | `reason` | text | NO |  |  |
+| 8 | `photo_url` | text | YES |  |  |
+| 9 | `occurred_at` | timestamp with time zone | NO | now() |  |
+| 10 | `cuadre_supabase_id` | uuid | YES |  |  |
+| 11 | `created_by` | text | YES |  |  |
+| 12 | `created_at` | timestamp with time zone | NO | now() |  |
+| 13 | `updated_at` | timestamp with time zone | NO | now() |  |
+
+**Primary Key**
+
+- `waste_log_pkey` — PRIMARY KEY (id)
+
+**Unique Constraints** _(usable as PostgREST on_conflict targets — these are real CONSTRAINTs, not partial indexes)_
+
+- `uq_waste_log_biz_sid` — UNIQUE (business_id, supabase_id)
+- `waste_log_supabase_id_key` — UNIQUE (supabase_id)
+
+**Foreign Keys**
+
+- `waste_log_business_id_fkey` — FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE  _(ON DELETE CASCADE, ON UPDATE NO ACTION)_
+
+**Indexes**
+
+- `brin_waste_log_created` (brin)
+  `CREATE INDEX brin_waste_log_created ON public.waste_log USING brin (created_at)`
+- `idx_waste_log_biz_occurred` (btree)
+  `CREATE INDEX idx_waste_log_biz_occurred ON public.waste_log USING btree (business_id, occurred_at DESC)`
+- `idx_waste_log_item` (btree)
+  `CREATE INDEX idx_waste_log_item ON public.waste_log USING btree (business_id, inventory_item_supabase_id)`
+- `uq_waste_log_biz_sid` (btree)
+  `CREATE UNIQUE INDEX uq_waste_log_biz_sid ON public.waste_log USING btree (business_id, supabase_id)`
+- `waste_log_pkey` (btree)
+  `CREATE UNIQUE INDEX waste_log_pkey ON public.waste_log USING btree (id)`
+- `waste_log_supabase_id_key` (btree)
+  `CREATE UNIQUE INDEX waste_log_supabase_id_key ON public.waste_log USING btree (supabase_id)`
+
 ### `work_order_items`
 
 - Rough row count (n_live_tup): **43**
@@ -7861,11 +7968,11 @@ SELECT schemaname, tablename, policyname, permissive, roles, cmd,
   ORDER BY tablename, policyname;
 ```
 
-Total policies: **408**
+Total policies: **414**
 
 ### Claim-path audit (post-2026-04-29 swap to `app_metadata`)
 
-- Policies referencing `app_metadata`: **260** (CORRECT)
+- Policies referencing `app_metadata`: **264** (CORRECT)
 - Policies referencing `user_metadata`: **0** (none — clean)
 
 ### `accounting_bank_accounts`
@@ -10671,6 +10778,53 @@ true
 
 ```sql
 (firm_business_id IS NOT NULL)
+```
+
+### `food_truck_locations`
+
+#### `food_truck_locations_insert`
+
+- cmd: **INSERT**
+- permissive: PERMISSIVE
+- roles: {public}
+- claim path: —
+
+**WITH CHECK**
+
+```sql
+(business_id IN ( SELECT my_business_ids() AS my_business_ids))
+```
+
+#### `food_truck_locations_jwt_modify`
+
+- cmd: **ALL**
+- permissive: PERMISSIVE
+- roles: {anon,authenticated}
+- claim path: app_metadata
+
+**USING**
+
+```sql
+(business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid)
+```
+
+**WITH CHECK**
+
+```sql
+(business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid)
+```
+
+#### `food_truck_locations_jwt_select`
+
+- cmd: **SELECT**
+- permissive: PERMISSIVE
+- roles: {anon,authenticated}
+- claim path: app_metadata
+
+**USING**
+
+```sql
+((business_id = (NULLIF(((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text), ''::text))::uuid) OR (business_id IN ( SELECT my_business_ids() AS my_business_ids)))
 ```
 
 ### `insurance_batches`
@@ -14302,6 +14456,53 @@ true
 ((business_id = (NULLIF(((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text), ''::text))::uuid) OR (business_id IN ( SELECT my_business_ids() AS my_business_ids)))
 ```
 
+### `waste_log`
+
+#### `waste_log_insert`
+
+- cmd: **INSERT**
+- permissive: PERMISSIVE
+- roles: {public}
+- claim path: —
+
+**WITH CHECK**
+
+```sql
+(business_id IN ( SELECT my_business_ids() AS my_business_ids))
+```
+
+#### `waste_log_jwt_modify`
+
+- cmd: **ALL**
+- permissive: PERMISSIVE
+- roles: {anon,authenticated}
+- claim path: app_metadata
+
+**USING**
+
+```sql
+(business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid)
+```
+
+**WITH CHECK**
+
+```sql
+(business_id = (((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text))::uuid)
+```
+
+#### `waste_log_jwt_select`
+
+- cmd: **SELECT**
+- permissive: PERMISSIVE
+- roles: {anon,authenticated}
+- claim path: app_metadata
+
+**USING**
+
+```sql
+((business_id = (NULLIF(((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text), ''::text))::uuid) OR (business_id IN ( SELECT my_business_ids() AS my_business_ids)))
+```
+
 ### `work_order_items`
 
 #### `work_order_items_jwt_modify`
@@ -14450,7 +14651,7 @@ SELECT n.nspname  AS schema,
   ORDER BY p.proname;
 ```
 
-Total functions: **244**
+Total functions: **246**
 
 ### `_touch_updated_at()`
 
@@ -17307,6 +17508,26 @@ BEGIN
 -- … (133 more lines truncated)
 ```
 
+### `sync_role_empleados_to_staff()`
+
+- returns: `trigger`
+- security: **DEFINER**
+- language: plpgsql
+
+```plpgsql
+BEGIN IF NEW.role IS DISTINCT FROM OLD.role THEN UPDATE staff SET role = NEW.role, updated_at = now() WHERE business_id = NEW.business_id AND lower(name) = lower(NEW.nombre) AND role IS DISTINCT FROM NEW.role; END IF; RETURN NEW; END;
+```
+
+### `sync_role_staff_to_empleados()`
+
+- returns: `trigger`
+- security: **DEFINER**
+- language: plpgsql
+
+```plpgsql
+BEGIN IF NEW.role IS DISTINCT FROM OLD.role THEN UPDATE empleados SET role = NEW.role, updated_at = now() WHERE business_id = NEW.business_id AND lower(nombre) = lower(NEW.name) AND role IS DISTINCT FROM NEW.role; END IF; RETURN NEW; END;
+```
+
 ### `sync_upsert_counter_row(p_table text, p_row jsonb)`
 
 - returns: `jsonb`
@@ -17867,7 +18088,7 @@ SELECT event_object_table AS table_name,
   ORDER BY event_object_table, trigger_name;
 ```
 
-Total triggers: **273**
+Total triggers: **277**
 
 | table | trigger | timing | events | action | condition |
 |-------|---------|--------|--------|--------|-----------|
@@ -18017,9 +18238,11 @@ Total triggers: **273**
 | `ecf_queue` | `trg_ecf_queue_touch` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `ecf_submissions` | `trg_ecf_submissions_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `ecf_submissions` | `trg_ecf_submissions_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION set_updated_at() |  |
+| `empleados` | `trg_empleados_role_to_staff` | AFTER | UPDATE | EXECUTE FUNCTION sync_role_empleados_to_staff() |  |
 | `empleados` | `trg_empleados_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `empleados` | `trg_empleados_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
 | `empleados` | `trg_empleados_updated_at_insert` | BEFORE | INSERT | EXECUTE FUNCTION trg_set_updated_at_insert() |  |
+| `food_truck_locations` | `trg_food_truck_locations_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION set_updated_at() |  |
 | `insurance_batches` | `insurance_batches_set_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_insurance_batches_set_updated_at() |  |
 | `inventory_count_items` | `trg_icitems_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
 | `inventory_count_items` | `trg_inventory_count_items_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
@@ -18051,7 +18274,7 @@ Total triggers: **273**
 | `loyalty_transactions` | `trg_lt_updated` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
 | `marketing_leads` | `trg_marketing_leads_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION set_updated_at() |  |
 | `mechanic_commissions` | `mechanic_commissions_set_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_mechanic_commissions_set_updated_at() |  |
-| `mechanic_commissions` | `trg_mechanic_comm_employment_window` | BEFORE | UPDATE,INSERT | EXECUTE FUNCTION guard_commission_employment_window() |  |
+| `mechanic_commissions` | `trg_mechanic_comm_employment_window` | BEFORE | INSERT,UPDATE | EXECUTE FUNCTION guard_commission_employment_window() |  |
 | `membership_redemptions` | `trg_membership_redemptions_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `memberships` | `memberships_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION set_updated_at() |  |
 | `memberships` | `trg_memberships_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
@@ -18105,7 +18328,8 @@ Total triggers: **273**
 | `services` | `trg_services_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `services` | `trg_services_updated` | BEFORE | UPDATE | EXECUTE FUNCTION update_updated_at() |  |
 | `services` | `trg_services_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
-| `staff` | `staff_sync_user_metadata` | AFTER | UPDATE,INSERT | EXECUTE FUNCTION tg_staff_sync_user_metadata() |  |
+| `staff` | `staff_sync_user_metadata` | AFTER | INSERT,UPDATE | EXECUTE FUNCTION tg_staff_sync_user_metadata() |  |
+| `staff` | `trg_staff_role_to_empleados` | AFTER | UPDATE | EXECUTE FUNCTION sync_role_staff_to_empleados() |  |
 | `staff` | `trg_staff_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `staff` | `trg_staff_updated` | BEFORE | UPDATE | EXECUTE FUNCTION update_updated_at() |  |
 | `staff` | `trg_staff_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
@@ -18120,7 +18344,7 @@ Total triggers: **273**
 | `ticket_items` | `trg_ticket_items_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `ticket_items` | `trg_ticket_items_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
 | `ticket_items` | `trg_ticket_items_updated_at_insert` | BEFORE | INSERT | EXECUTE FUNCTION trg_set_updated_at_insert() |  |
-| `tickets` | `trg_tickets_complete_appointment` | AFTER | UPDATE,INSERT | EXECUTE FUNCTION trg_ticket_complete_appointment() |  |
+| `tickets` | `trg_tickets_complete_appointment` | AFTER | INSERT,UPDATE | EXECUTE FUNCTION trg_ticket_complete_appointment() |  |
 | `tickets` | `trg_tickets_credit_balance` | AFTER | INSERT | EXECUTE FUNCTION trg_credit_ticket_bump_balance() |  |
 | `tickets` | `trg_tickets_rev_guard` | BEFORE | UPDATE | EXECUTE FUNCTION trg_tickets_rev_guard() |  |
 | `tickets` | `trg_tickets_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
@@ -18135,10 +18359,11 @@ Total triggers: **273**
 | `vehicles` | `trg_vehicles_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
 | `wash_combos` | `trg_wash_combos_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `wash_combos` | `wash_combos_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION set_updated_at() |  |
-| `washer_commissions` | `trg_washer_comm_employment_window` | BEFORE | INSERT,UPDATE | EXECUTE FUNCTION guard_commission_employment_window() |  |
+| `washer_commissions` | `trg_washer_comm_employment_window` | BEFORE | UPDATE,INSERT | EXECUTE FUNCTION guard_commission_employment_window() |  |
 | `washer_commissions` | `trg_washer_commissions_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `washer_commissions` | `trg_washer_commissions_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
 | `washer_commissions` | `trg_washer_commissions_updated_at_insert` | BEFORE | INSERT | EXECUTE FUNCTION trg_set_updated_at_insert() |  |
+| `waste_log` | `trg_waste_log_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION set_updated_at() |  |
 | `work_order_items` | `trg_work_order_items_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `work_order_items` | `trg_work_order_items_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
 | `work_order_photos` | `work_order_photos_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION _touch_updated_at() |  |
@@ -18238,13 +18463,13 @@ These have all bitten Terminal X in production. Future readers — check this li
 
 ## Snapshot Stats
 
-- Tables: **150** (RLS-enabled: 150)
-- Columns: **2987**
-- Constraints: **740** (PK: 182, UNIQUE: 278, FK: 153, CHECK: 125)
-- Indexes: **939** (partial: 129)
-- Policies: **408** (`app_metadata`: 260, `user_metadata`: 0)
-- Functions: **244**
-- Triggers: **273**
+- Tables: **152** (RLS-enabled: 152)
+- Columns: **3016**
+- Constraints: **748** (PK: 184, UNIQUE: 282, FK: 155, CHECK: 125)
+- Indexes: **952** (partial: 132)
+- Policies: **414** (`app_metadata`: 264, `user_metadata`: 0)
+- Functions: **246**
+- Triggers: **277**
 - Realtime members: **24**
 
 ## Changelog
@@ -18253,4 +18478,4 @@ When re-running this script, append a brief entry below describing the diff. Use
 
 | date | who | summary |
 |------|-----|---------|
-| 2026-05-03 | dataLEAKS | initial snapshot |
+| 2026-05-08 | dataLEAKS | initial snapshot |
