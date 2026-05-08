@@ -71,6 +71,22 @@ export default function ProductsReport() {
     return m
   }, [inventoryItems])
 
+  // Cost fallback index. Some legacy/free-form ticket_items were saved with
+  // cost=0 because the line was typed by name instead of resolved to an
+  // inventory row (sku + inventory_item_id NULL). When that happens, fall
+  // back to the CURRENT inventory cost so margin/profit aren't silently 0.
+  const costByKey = useMemo(() => {
+    const m = {}
+    for (const it of inventoryItems) {
+      const c = Number(it?.cost)
+      if (!Number.isFinite(c) || c <= 0) continue
+      if (it.id != null) m[`id:${it.id}`] = c
+      if (it.sku)        m[`sku:${it.sku}`] = c
+      if (it.name)       m[`name:${it.name}`] = c
+    }
+    return m
+  }, [inventoryItems])
+
   const allCategories = useMemo(() => {
     return [...new Set(inventoryItems.map(i => i.category).filter(Boolean))].sort()
   }, [inventoryItems])
@@ -132,7 +148,17 @@ export default function ProductsReport() {
         }
         const qty = item.quantity || 1
         const lineTotal = (item.price || 0) * qty
-        const lineCost = (item.cost || 0) * qty
+        // Discount/promo lines (negative price) never carry a cost — leave them at 0.
+        // Otherwise, prefer the cost snapshotted on the ticket; if that's 0, fall
+        // back to the current inventory cost matched by inventory_item_id, sku, or name.
+        let unitCost = Number(item.cost) || 0
+        if (unitCost === 0 && (item.price || 0) > 0) {
+          unitCost = costByKey[`id:${item.inventory_item_id}`]
+                  || costByKey[`sku:${item.sku}`]
+                  || costByKey[`name:${item.name}`]
+                  || 0
+        }
+        const lineCost = unitCost * qty
         const aplica = item.aplica_itbis === 1 || item.aplica_itbis === true
         const lineNet = aplica ? lineTotal / itbisFactor : lineTotal
         map[key].unitsSold += qty
@@ -149,8 +175,23 @@ export default function ProductsReport() {
       p.marginPct = p.revenueNet > 0 ? ((p.revenueNet - p.cost) / p.revenueNet) * 100 : 0
       p.mostlyTaxed = p.revenue > 0 && (p.taxedRevenue / p.revenue) >= 0.5
     }
+    // Surface zero-cost products to client_errors so the admin Errores panel
+    // shows when sales are landing without a captured cost AND no inventory
+    // fallback is available (i.e. the product row itself has cost=0).
+    // Skips negative-price lines (discounts/promos) which legitimately have
+    // no cost. Throttled to one report per session per product.
+    if (typeof window !== 'undefined' && window.__txReportError) {
+      const offenders = Object.values(map)
+        .filter(p => p.revenue > 0 && p.cost === 0 && p.unitsSold > 0)
+        .slice(0, 5)
+      for (const p of offenders) {
+        window.__txReportError(new Error(`ProductsReport: cost=0 for "${p.name}" (${p.unitsSold} units, RD$${p.revenue.toFixed(2)})`),
+          { severity: 'info', category: 'products_report_zero_cost',
+            extra: { product: p.name, sku: p.sku || null, units: p.unitsSold, revenue: p.revenue } })
+      }
+    }
     return Object.values(map)
-  }, [tickets, itbisFactor, categoryByKey])
+  }, [tickets, itbisFactor, categoryByKey, costByKey])
 
   // Attach shortage counts to each product after aggregation so the column
   // reflects true quiebres even when the product was sold from stock fine

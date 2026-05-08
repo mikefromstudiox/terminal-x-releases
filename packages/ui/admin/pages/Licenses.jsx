@@ -19,7 +19,7 @@ const STATUS_BADGE_DARK = {
   cancelled: 'bg-white/5 text-white/30 border-white/10',
 }
 
-const EMPTY_FORM = { business_id: '', platform: 'web', max_users: '5', notes: '' }
+const EMPTY_FORM = { business_id: '', platform: 'web', max_users: '5', notes: '', label: '' }
 
 export default function Licenses({ getToken, refreshToken, isDark, lang }) {
   const L = (es, en) => lang === 'es' ? es : en
@@ -87,12 +87,24 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
   }
 
   async function updateLicense(id, patch) {
-    const token = getToken()
-    await fetch('/api/panel?action=licenses', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ id, ...patch }),
-    })
+    try {
+      const token = getToken()
+      const resp = await fetch('/api/panel?action=licenses', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ id, ...patch }),
+      })
+      if (!resp.ok) {
+        const r = await resp.json().catch(() => ({}))
+        throw new Error(r.error || `License update failed (${resp.status})`)
+      }
+    } catch (e) {
+      try {
+        window.__txReportError?.(e, { severity: 'warn', category: 'admin_license_update',
+          extra: { license_id: id, fields: Object.keys(patch) } })
+      } catch {}
+      alert(`Error: ${e.message}`)
+    }
     load()
   }
 
@@ -109,6 +121,7 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
           platform: addForm.platform,
           max_users: parseInt(addForm.max_users, 10) || 5,
           notes: addForm.notes.trim() || null,
+          label: addForm.label.trim() || null,
         }),
       })
       if (!resp.ok) {
@@ -349,7 +362,20 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
                   <div className="hidden lg:flex items-center px-5 py-3.5">
                     <div className="flex-1 min-w-0">
                       <p className={`text-[13px] font-semibold truncate ${isDark ? 'text-white' : 'text-black'}`}>{l.businesses?.name || '—'}</p>
-                      <p className={`text-[11px] uppercase tracking-wide ${isDark ? 'text-white/40' : 'text-black/40'}`}>{l.platform}</p>
+                      <p className={`text-[11px] tracking-wide flex items-center gap-1.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                        <span className="uppercase">{l.platform}</span>
+                        <span className={isDark ? 'text-white/20' : 'text-black/20'}>·</span>
+                        <button
+                          onClick={() => {
+                            const v = prompt(L('Etiqueta del terminal (ej: Caja 1):', 'Terminal label (e.g. Caja 1):'), l.label || '')
+                            if (v !== null) updateLicense(l.id, { label: v.trim() || null })
+                          }}
+                          className={`truncate hover:underline ${l.label ? (isDark ? 'text-white/70' : 'text-black/70') : 'italic opacity-60'}`}
+                          title={L('Editar etiqueta', 'Edit label')}
+                        >
+                          {l.label || L('sin etiqueta', 'no label')}
+                        </button>
+                      </p>
                     </div>
                     <span className={`w-28 text-[12px] ${isDark ? 'text-white/50' : 'text-black/50'}`}>{l.businesses?.rnc || '—'}</span>
                     <span className={`w-40 text-[11px] font-mono ${isDark ? 'text-white/70' : 'text-black/70'}`}>{l.license_key || L('Solo web', 'Web only')}</span>
@@ -402,6 +428,15 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
                       <div className="min-w-0">
                         <p className={`text-[13px] font-semibold truncate ${isDark ? 'text-white' : 'text-black'}`}>{l.businesses?.name || '—'}</p>
                         <p className={`text-[11px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>{l.businesses?.rnc || '—'} / {l.platform}</p>
+                        <button
+                          onClick={() => {
+                            const v = prompt(L('Etiqueta del terminal (ej: Caja 1):', 'Terminal label (e.g. Caja 1):'), l.label || '')
+                            if (v !== null) updateLicense(l.id, { label: v.trim() || null })
+                          }}
+                          className={`text-[11px] mt-0.5 ${l.label ? (isDark ? 'text-white/70' : 'text-black/70') : 'italic opacity-60'}`}
+                        >
+                          {l.label || L('sin etiqueta', 'no label')}
+                        </button>
                       </div>
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${STATUS_BADGE[l.status] || STATUS_BADGE.cancelled}`}>
                         {l.status}
@@ -502,6 +537,13 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
                   <input type="number" min="1" max="50" value={addForm.max_users}
                     onChange={e => setAddForm(f => ({ ...f, max_users: e.target.value }))}
                     className={`w-full px-3.5 py-2.5 border rounded-xl text-[13px] outline-none transition-all focus:ring-2 ${inputBase}`} />
+                </div>
+                <div>
+                  <label className={`block text-[10px] font-bold uppercase tracking-[1.2px] mb-1.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>{L('Etiqueta de Terminal', 'Terminal Label')}</label>
+                  <input value={addForm.label} onChange={e => setAddForm(f => ({ ...f, label: e.target.value }))}
+                    placeholder={L('Ej: Caja 1, iPad mostrador', 'e.g. Caja 1, iPad mostrador')}
+                    className={`w-full px-3.5 py-2.5 border rounded-xl text-[13px] outline-none transition-all focus:ring-2 ${inputBase}`} />
+                  <p className={`text-[10px] mt-1 ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Para identificar este terminal en el panel.', 'Used to identify this terminal in the panel.')}</p>
                 </div>
                 <div>
                   <label className={`block text-[10px] font-bold uppercase tracking-[1.2px] mb-1.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>{L('Notas', 'Notes')}</label>

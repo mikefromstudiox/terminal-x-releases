@@ -1611,14 +1611,16 @@ async function handleLicenses(req, res) {
   if (req.method === 'POST') {
     const auth = await requireAdmin(req, 'admin')
     if (auth.error) return res.status(auth.status).json({ error: auth.error })
-    const { business_id, plan_id, platform, expires_at, max_users, notes } = req.body || {}
+    const { business_id, plan_id, platform, expires_at, max_users, notes, label } = req.body || {}
     if (!business_id) return res.status(400).json({ error: 'business_id required' })
     try {
       const key = (platform === 'desktop' || platform === 'both') ? generateKey() : null
       const { data, error } = await auth.supabase.from('licenses').insert({
         business_id, plan_id: plan_id || null, license_key: key, status: 'active',
         platform: platform || 'web', expires_at: expires_at || null,
-        max_users: max_users || 3, notes: notes || null, activated_at: new Date().toISOString(),
+        max_users: max_users || 3, notes: notes || null,
+        label: (label || '').trim() || null,
+        activated_at: new Date().toISOString(),
       }).select().single()
       if (error) throw error
       return res.json({ data })
@@ -1629,7 +1631,7 @@ async function handleLicenses(req, res) {
     if (auth.error) return res.status(auth.status).json({ error: auth.error })
     const { id, ...updates } = req.body || {}
     if (!id) return res.status(400).json({ error: 'id required' })
-    const allowed = ['status', 'plan_id', 'expires_at', 'max_users', 'notes', 'hardware_id', 'platform']
+    const allowed = ['status', 'plan_id', 'expires_at', 'max_users', 'notes', 'hardware_id', 'platform', 'label']
     const patch = Object.fromEntries(Object.entries(updates).filter(([k]) => allowed.includes(k)))
     patch.updated_at = new Date().toISOString()
     try {
@@ -1936,7 +1938,7 @@ async function handleClientDetail(req, res) {
     const yearStart  = new Date(Date.UTC(now.getUTCFullYear(), 0, 1)).toISOString()
     const [bizRes, licRes, staffRes, svcRes, clientRes, ticketRes, ticketCountAllRes, ticketCountYearRes, ticketCountMonthRes, configRes] = await Promise.all([
       auth.supabase.from('businesses').select('*').eq('id', id).single(),
-      auth.supabase.from('licenses').select('*, plans(name, display_name)').eq('business_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      auth.supabase.from('licenses').select('*, plans(name, display_name)').eq('business_id', id).order('created_at', { ascending: false }),
       auth.supabase.from('staff').select('id, name, username, role, auth_user_id, active, pin_hash, created_at').eq('business_id', id).order('created_at'),
       auth.supabase.from('services').select('id', { count: 'exact', head: true }).eq('business_id', id).eq('active', true),
       auth.supabase.from('clients').select('id', { count: 'exact', head: true }).eq('business_id', id).eq('active', true),
@@ -1984,12 +1986,11 @@ async function handleClientDetail(req, res) {
       created_at: biz.created_at,
       business_type: bizSettings.business_type || bizSettings.biz_type || null,
     }
-    const licSafe = licRes.data ? {
-      ...licRes.data,
-      plans: licRes.data.plans || null,
-    } : null
+    const licList = Array.isArray(licRes.data) ? licRes.data : (licRes.data ? [licRes.data] : [])
+    const licensesSafe = licList.map(l => ({ ...l, plans: l.plans || null }))
+    const licSafe = licensesSafe[0] || null
     return res.json({
-      business: bizSafe, license: licSafe, staff, onboarding,
+      business: bizSafe, license: licSafe, licenses: licensesSafe, staff, onboarding,
       metrics: { ticketCount, ticketCountYear, ticketCountMonth, totalRevenue, totalRevenueYear, totalRevenueMonth, lastSaleDate, serviceCount, clientCount },
     })
   } catch (err) { return res.status(500).json({ error: err.message }) }

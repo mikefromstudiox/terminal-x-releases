@@ -2418,17 +2418,36 @@ function RetailPOS() {
       const lineSub = basePrice * qty
       subtotal += lineSub
       if (aplica) taxableSub += lineSub
+      // Surface oferta misconfiguration to client_errors so admin sees it.
+      // A component with NO FK and NO cost will silently degrade ProductsReport
+      // margins to 0 — exactly the bug we just fixed. Log it once per session.
+      const hasFk   = !!(c.inventory_item_id || c.service_id || c.inventory_item_supabase_id || c.service_supabase_id)
+      const hasCost = Number(c.cost) > 0
+      if (typeof window !== 'undefined' && window.__txReportError) {
+        if (!hasFk) {
+          window.__txReportError(new Error(`Oferta component missing FK: ${oferta.name} → ${c.name || '?'}`),
+            { severity: 'warn', category: 'oferta_missing_fk',
+              extra: { oferta: oferta.name, oferta_supabase_id: oferta.supabase_id, component: c.name } })
+        } else if (!hasCost && Number(c.base_price) > 0) {
+          window.__txReportError(new Error(`Oferta component has no cost: ${oferta.name} → ${c.name || '?'}`),
+            { severity: 'info', category: 'oferta_zero_cost',
+              extra: { oferta: oferta.name, component: c.name, inventory_item_supabase_id: c.inventory_item_supabase_id || null } })
+        }
+      }
       newLines.push({
         id: `oferta-${groupId}-${c.service_supabase_id || c.inventory_item_supabase_id || newLines.length}`,
-        inventory_item_id: null,
+        // Capture the integer FKs hydrated by ofertas.list so reports / inventory
+        // deduction / commission joins resolve correctly. NULLs here were the
+        // root cause of "cost = 0" on combo sales in ProductsReport.
+        inventory_item_id: c.inventory_item_id || null,
         inventory_item_supabase_id: c.inventory_item_supabase_id || null,
-        service_id: null,
+        service_id: c.service_id || null,
         service_supabase_id: c.service_supabase_id || null,
         _clientOverrideKey: c.inventory_item_supabase_id || null,
-        sku: '',
+        sku: c.sku || '',
         name: c.name,
         price: basePrice,
-        cost: 0,
+        cost: Number(c.cost) || 0,
         qty,
         aplica_itbis: aplica,
         is_wash: 0,

@@ -5901,13 +5901,13 @@ export function createWebAPI(supabase, businessId) {
         const svcMap = {}
         if (svcSids.length) {
           const { data: svcs } = await supabase.from('services')
-            .select('supabase_id,name,price,in_stock,aplica_itbis').eq('business_id', bid).in('supabase_id', svcSids)
+            .select('id,supabase_id,name,price,cost,in_stock,aplica_itbis').eq('business_id', bid).in('supabase_id', svcSids)
           for (const s of (svcs || [])) svcMap[s.supabase_id] = s
         }
         const invMap = {}
         if (invSids.length) {
           const { data: invs } = await supabase.from('inventory_items')
-            .select('supabase_id,name,sku,unit,quantity,price,aplica_itbis').eq('business_id', bid).in('supabase_id', invSids)
+            .select('id,supabase_id,name,sku,unit,quantity,price,cost,aplica_itbis').eq('business_id', bid).in('supabase_id', invSids)
           for (const i of (invs || [])) invMap[i.supabase_id] = i
         }
         const itemsByOferta = {}
@@ -5944,8 +5944,10 @@ export function createWebAPI(supabase, businessId) {
               const s = svcMap[it.service_supabase_id] || {}
               return {
                 ...it,
+                service_id: s.id || null,
                 name: s.name || '',
                 base_price: Number(s.price || 0),
+                cost: Number(s.cost || 0),
                 aplica_itbis: s.aplica_itbis ?? 1,
                 available_units: (s.in_stock === false || s.in_stock === 0) ? 0 : Infinity,
               }
@@ -5953,8 +5955,11 @@ export function createWebAPI(supabase, businessId) {
             const i = invMap[it.inventory_item_supabase_id] || {}
             return {
               ...it,
+              inventory_item_id: i.id || null,
+              sku: i.sku || '',
               name: i.name || '',
               base_price: Number(i.price || 0),
+              cost: Number(i.cost || 0),
               aplica_itbis: i.aplica_itbis ?? 1,
               available_units: Number(i.quantity || 0),
             }

@@ -279,6 +279,7 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
 
   const biz = data.business
   const license = data.license
+  const licenses = Array.isArray(data.licenses) ? data.licenses : (license ? [license] : [])
   const staff = data.staff || []
   const onboarding = data.onboarding
   const metrics = data.metrics || {}
@@ -852,23 +853,63 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                 )}
               </motion.div>
 
-              {/* License */}
+              {/* Licenses (per-terminal) */}
               <motion.div variants={listItem} className={card}>
-                <p className={`text-[14px] font-bold mb-4 ${isDark ? 'text-white' : 'text-black'}`}>
-                  <KeyRound size={14} className="inline mr-1.5 text-[#b3001e]" />{L('Licencia', 'License')}
+                <p className={`text-[14px] font-bold mb-4 flex items-center justify-between ${isDark ? 'text-white' : 'text-black'}`}>
+                  <span><KeyRound size={14} className="inline mr-1.5 text-[#b3001e]" />{L('Licencias / Terminales', 'Licenses / Terminals')}</span>
+                  <span className={`text-[11px] font-medium ${isDark ? 'text-white/40' : 'text-black/40'}`}>{licenses.length}</span>
                 </p>
-                {license ? (
-                  <div className="grid grid-cols-2 gap-y-3.5 gap-x-4">
-                    <div><p className={lbl}>{L('Clave', 'Key')}</p><p className={`font-mono text-[11px] ${isDark ? 'text-white/70' : 'text-black/70'}`}>{String(license.license_key || 'Web only')}</p></div>
-                    <div><p className={lbl}>{L('Plataforma', 'Platform')}</p><p className={val}>{String(license.platform || '—')}</p></div>
-                    <div><p className={lbl}>Plan</p><p className={val}>{String(licPlanDisplay)}</p></div>
-                    <div><p className={lbl}>Status</p><p className={val}>{String(license.status || '—')}</p></div>
-                    <div><p className={lbl}>{L('Ultimo acceso', 'Last seen')}</p><p className={val}>{license.last_seen ? new Date(license.last_seen).toLocaleDateString('es-DO') : '—'}</p></div>
-                    <div><p className={lbl}>HWID</p><p className={`font-mono text-[10px] truncate ${isDark ? 'text-white/40' : 'text-black/40'}`}>{String(license.hardware_id || '—')}</p></div>
-                    {license.expires_at && <div className="col-span-2"><p className={lbl}>{L('Expira', 'Expires')}</p><p className={val}>{new Date(license.expires_at).toLocaleDateString('es-DO')}</p></div>}
-                  </div>
+                {licenses.length === 0 ? (
+                  <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin licencias.', 'No licenses.')}</p>
                 ) : (
-                  <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>{L('Sin licencia.', 'No license.')}</p>
+                  <div className="space-y-3">
+                    {licenses.map(lic => (
+                      <div key={lic.id} className={`rounded-xl p-3 border ${isDark ? 'border-white/10 bg-white/[0.02]' : 'border-black/10 bg-black/[0.02]'}`}>
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="min-w-0">
+                            <button
+                              onClick={async () => {
+                                const v = prompt(L('Etiqueta del terminal (ej: Caja 1):', 'Terminal label (e.g. Caja 1):'), lic.label || '')
+                                if (v === null) return
+                                try {
+                                  const token = await getToken()
+                                  const resp = await fetch('/api/panel?action=licenses', {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                    body: JSON.stringify({ id: lic.id, label: v.trim() || null }),
+                                  })
+                                  if (!resp.ok) {
+                                    const r = await resp.json().catch(() => ({}))
+                                    throw new Error(r.error || `License label update failed (${resp.status})`)
+                                  }
+                                  load()
+                                } catch (err) {
+                                  try {
+                                    window.__txReportError?.(err, { severity: 'warn', category: 'admin_license_label',
+                                      extra: { license_id: lic.id, business_id: id } })
+                                  } catch {}
+                                  alert(`Error: ${err.message}`)
+                                }
+                              }}
+                              className={`text-[13px] font-semibold text-left hover:underline ${lic.label ? (isDark ? 'text-white' : 'text-black') : 'italic opacity-60'}`}
+                              title={L('Editar etiqueta', 'Edit label')}
+                            >
+                              {lic.label || L('sin etiqueta — clic para editar', 'no label — click to edit')}
+                            </button>
+                            <p className={`text-[10px] uppercase tracking-wide ${isDark ? 'text-white/40' : 'text-black/40'}`}>{lic.platform || '—'}</p>
+                          </div>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${STATUS_CLS[lic.status] || STATUS_CLS.expired}`}>{lic.status}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-y-2 gap-x-3 text-[11px]">
+                          <div><p className={lbl}>{L('Clave', 'Key')}</p><p className={`font-mono ${isDark ? 'text-white/70' : 'text-black/70'}`}>{lic.license_key || L('Solo web', 'Web only')}</p></div>
+                          <div><p className={lbl}>Plan</p><p className={val}>{lic.plans?.display_name || '—'}</p></div>
+                          <div><p className={lbl}>{L('Ultimo acceso', 'Last seen')}</p><p className={val}>{lic.last_seen ? new Date(lic.last_seen).toLocaleDateString('es-DO') : '—'}</p></div>
+                          <div><p className={lbl}>HWID</p><p className={`font-mono text-[10px] truncate ${isDark ? 'text-white/40' : 'text-black/40'}`}>{lic.hardware_id || '—'}</p></div>
+                          {lic.expires_at && <div className="col-span-2"><p className={lbl}>{L('Expira', 'Expires')}</p><p className={val}>{new Date(lic.expires_at).toLocaleDateString('es-DO')}</p></div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </motion.div>
 
