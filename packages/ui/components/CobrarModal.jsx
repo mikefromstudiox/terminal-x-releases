@@ -831,6 +831,11 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
   // Set by the segmented toggle above the comprobante picker so the cashier
   // can emit a one-off e-CF on a legacy-configured biz (or vice versa).
   const [fiscalOverride, setFiscalOverride] = useState(null) // null | 'legacy' | 'ecf'
+  // e-CF cert presence — drives whether the legacy/e-CF segmented toggle
+  // is shown at all. Without an installed + detected cert, e-CF submission
+  // would fail at /api/ecf-sign, so we don't surface the choice. Studio X
+  // installs the cert server-side as part of e-CF activation onboarding.
+  const [hasEcfCert, setHasEcfCert] = useState(false)
   // If POS passed a pre-selected client with a saved RNC, inherit it so the
   // cashier doesn't have to re-type it when flipping to B01 / E31. Walk-ins
   // (no client) still get an empty, editable input. selectClient() + the
@@ -947,6 +952,12 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
 
   useEffect(() => {
     api?.clients?.all?.().then(list => setAllClients(list || [])).catch(() => setAllClients([]))
+    // Detect installed e-CF cert so we can show/hide the legacy↔e-CF toggle.
+    // Falls back to false on any error — safer to hide the e-CF pill than to
+    // expose it on a biz that would fail at submission.
+    api?.dgii_ecf?.certInfo?.().then(info => {
+      setHasEcfCert(!!info?.installed)
+    }).catch(() => setHasEcfCert(false))
     const loadBizSettings = () => api.settings.get().then(s => {
       const cfg = s || {}
       setBizSettings(cfg)
@@ -1984,18 +1995,29 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
                   {/* Mode toggle — flip between legacy NCF (B-series) and
                       e-CF (E-series) per-sale. Locked when caller forces a
                       specific type (dealership E31, work-order bridges). */}
-                  {!forceNcfType && (
+                  {!forceNcfType && hasEcfCert && (
                     <div className="inline-flex items-center gap-1 mb-2 p-0.5 bg-slate-100 dark:bg-white/5 rounded-lg text-[11px] font-semibold">
                       <button
                         type="button"
-                        onClick={() => { setFiscalOverride('legacy'); setNcfType('B02') }}
+                        onClick={() => {
+                          setFiscalOverride('legacy'); setNcfType('B02')
+                          // Persist as default so future tickets pick the same family.
+                          api?.dgii?.setFiscalMode?.('b_series')?.catch?.(err => {
+                            try { window.__txReportError?.(err, { severity: 'warn', category: 'fiscal_mode_persist' }) } catch {}
+                          })
+                        }}
                         className={`px-2.5 py-1 rounded-md transition-all ${isLegacy ? 'bg-white dark:bg-white/10 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 dark:text-white/50 hover:text-slate-700 dark:hover:text-white/80'}`}
                       >
                         NCF
                       </button>
                       <button
                         type="button"
-                        onClick={() => { setFiscalOverride('ecf'); setNcfType((enabledEcfTypes && enabledEcfTypes[0]?.code) || 'E32') }}
+                        onClick={() => {
+                          setFiscalOverride('ecf'); setNcfType((enabledEcfTypes && enabledEcfTypes[0]?.code) || 'E32')
+                          api?.dgii?.setFiscalMode?.('ecf')?.catch?.(err => {
+                            try { window.__txReportError?.(err, { severity: 'warn', category: 'fiscal_mode_persist' }) } catch {}
+                          })
+                        }}
                         className={`px-2.5 py-1 rounded-md transition-all ${!isLegacy ? 'bg-white dark:bg-white/10 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 dark:text-white/50 hover:text-slate-700 dark:hover:text-white/80'}`}
                       >
                         e-CF

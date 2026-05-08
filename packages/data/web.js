@@ -5485,6 +5485,23 @@ export function createWebAPI(supabase, businessId) {
         if (persisted !== env) throw new Error(`DGII env did not persist (wanted ${env}, got ${persisted ?? 'null'}). Check RLS / business_id.`)
         return { ok: true, environment: env }
       }),
+
+      // Persist the fiscal mode picked in CobrarModal so the next ticket
+      // defaults to the same family. Accepts 'b_series' | 'ecf' | 'legacy'.
+      // Treats anything not 'ecf' as legacy at read time, so 'b_series' and
+      // 'legacy' are interchangeable here — we standardize on 'b_series' to
+      // match signup/provision.
+      setFiscalMode: (mode) => tryWrite(async () => {
+        const norm = (mode === 'ecf') ? 'ecf' : 'b_series'
+        const { data } = await supabase.from('businesses').select('settings').eq('id', bid).single()
+        let s = data?.settings
+        for (let i = 0; i < 3 && typeof s === 'string'; i++) { try { s = JSON.parse(s) } catch { s = {} } }
+        if (!s || typeof s !== 'object') s = {}
+        s.facturacion_mode = norm
+        const { error } = await supabase.from('businesses').update({ settings: s }).eq('id', bid)
+        if (error) throw error
+        return { ok: true, mode: norm }
+      }),
     },
 
     // ── Auto-updater ─────────────────────────────────────────────────────────

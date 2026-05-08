@@ -241,6 +241,37 @@ function OfertaEditModal({ oferta, onClose, onSave }) {
   const [error, setError] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
 
+  // Resolve component name + base_price from inventory_items / services
+  // directly inside the modal. Belt-and-suspenders so the editor still shows
+  // names even if `api.ofertas.list()` enrichment ever returns stale rows
+  // (cache, RLS quirk, or unhydrated supabase_id). Loads once on open.
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      api?.inventory?.all?.() || Promise.resolve([]),
+      api?.services?.all?.() || Promise.resolve([]),
+    ]).then(([inv, svc]) => {
+      if (cancelled) return
+      const invMap = {}
+      for (const it of (inv || [])) if (it?.supabase_id) invMap[it.supabase_id] = it
+      const svcMap = {}
+      for (const it of (svc || [])) if (it?.supabase_id) svcMap[it.supabase_id] = it
+      setItems(prev => prev.map(c => {
+        if (c.name && Number(c.base_price) > 0) return c
+        if (c.inventory_item_supabase_id) {
+          const i = invMap[c.inventory_item_supabase_id]
+          if (i) return { ...c, name: i.name || c.name, base_price: Number(i.price || c.base_price || 0) }
+        }
+        if (c.service_supabase_id) {
+          const s = svcMap[c.service_supabase_id]
+          if (s) return { ...c, name: s.name || c.name, base_price: Number(s.price || c.base_price || 0) }
+        }
+        return c
+      }))
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [api])
+
   const subtotal = useMemo(() => items.reduce((s, c) => s + Number(c.base_price || 0) * Number(c.qty || 1), 0), [items])
   const ofertaPrice = Number(price || 0)
   const discount = subtotal - ofertaPrice
@@ -395,19 +426,25 @@ function OfertaEditModal({ oferta, onClose, onSave }) {
             ) : (
               <div className="rounded-lg border border-slate-200 dark:border-white/10 divide-y divide-slate-100 dark:divide-white/5 overflow-hidden">
                 {items.map(c => (
-                  <div key={c.key} className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-white/5">
+                  <div key={c.key} className="flex items-center gap-3 px-3 py-2.5 bg-white dark:bg-white/5">
                     <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">{c.name}</p>
+                      <p className={`text-[13px] font-semibold truncate ${c.name ? 'text-slate-800 dark:text-white' : 'italic text-slate-400 dark:text-white/40'}`}>
+                        {c.name || (lang === 'en' ? 'Loading product name...' : 'Cargando nombre...')}
+                      </p>
                       <p className="text-[10px] text-slate-400 dark:text-white/40 tabular-nums">{fmtRD(c.base_price)} c/u</p>
                     </div>
-                    <input type="number" inputMode="decimal" step="0.5" min="0"
-                      value={c.qty}
-                      onChange={e => updateQty(c.key, e.target.value)}
-                      className="w-16 px-2 py-1 bg-white dark:bg-black border border-slate-200 dark:border-white/10 rounded-md text-[13px] tabular-nums text-center text-slate-800 dark:text-white focus:outline-none focus:border-[#b3001e]" />
-                    <button onClick={() => removeComponent(c.key)}
-                      className="p-1.5 rounded-md text-slate-400 dark:text-white/40 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10">
-                      <X size={13} />
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[10px] text-slate-400 dark:text-white/40">{lang === 'en' ? 'Qty' : 'Cant.'}</span>
+                      <input type="number" inputMode="decimal" step="0.5" min="0"
+                        value={c.qty}
+                        onChange={e => updateQty(c.key, e.target.value)}
+                        style={{ width: 60, minWidth: 60 }}
+                        className="px-2 py-1 bg-white dark:bg-black border border-slate-200 dark:border-white/10 rounded-md text-[13px] tabular-nums text-center text-slate-800 dark:text-white focus:outline-none focus:border-[#b3001e]" />
+                      <button onClick={() => removeComponent(c.key)}
+                        className="p-1.5 rounded-md text-slate-400 dark:text-white/40 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10">
+                        <X size={13} />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -531,14 +568,11 @@ function ProductPicker({ onClose, onPick }) {
           </button>
         </div>
         <div className="px-4 py-3 border-b border-slate-100 dark:border-white/10">
-          <div className="relative">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/40" />
-            <input
-              ref={inputRef}
-              value={q} onChange={e => setQ(e.target.value)}
-              placeholder={lang === 'en' ? 'Search by name or SKU' : 'Buscar por nombre o SKU'}
-              className="w-full pl-8 pr-3 py-2 bg-white dark:bg-black border border-slate-200 dark:border-white/10 rounded-lg text-[13px] text-slate-800 dark:text-white focus:outline-none focus:border-[#b3001e]" />
-          </div>
+          <input
+            ref={inputRef}
+            value={q} onChange={e => setQ(e.target.value)}
+            placeholder={lang === 'en' ? 'Search by name or SKU' : 'Buscar por nombre o SKU'}
+            className="w-full px-3 py-2 bg-white dark:bg-black border border-slate-200 dark:border-white/10 rounded-lg text-[13px] text-slate-800 dark:text-white focus:outline-none focus:border-[#b3001e]" />
         </div>
         <div className="flex-1 overflow-y-auto">
           {loading ? (

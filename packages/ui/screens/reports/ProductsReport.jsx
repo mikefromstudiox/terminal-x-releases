@@ -125,6 +125,14 @@ export default function ProductsReport() {
       if (t.status === 'nula') continue
       const items = t.items || t.ticket_items || []
       for (const item of items) {
+        // Skip oferta discount adjustment lines — they're price modifiers, not
+        // products, and inflate the report with zero-cost zero-margin rows.
+        // Identified by negative price OR the "Descuento Oferta" / "Bundle
+        // discount" prefix used by addOfertaToCart.
+        const itemPrice = Number(item.price) || 0
+        const itemName  = String(item.name || '')
+        if (itemPrice < 0) continue
+        if (/^Descuento Oferta\b|^Bundle discount\b/i.test(itemName)) continue
         const key = item.inventory_item_id || item.sku || item.name
         if (!key) continue
         if (!map[key]) {

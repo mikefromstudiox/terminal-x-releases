@@ -227,7 +227,7 @@ async function run() {
 
   // 13. Check Ranoza's license status + trial
   const { data: lic } = await anon.from('licenses').select('license_key,status,expires_at,plan_id')
-    .eq('business_id', BID).eq('status','active').maybeSingle()
+    .eq('business_id', BID).eq('status','active').order('created_at', { ascending: false }).limit(1).maybeSingle()
   log('license: Ranoza active', lic?.status === 'active', `expires ${lic?.expires_at}`)
 
   // 14. Supabase schema integrity — loyalty RPCs visible as anon+JWT

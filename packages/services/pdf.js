@@ -759,10 +759,27 @@ function buildLines(data) {
   gap(4)
 
   // Items
+  // Mirrors printer.js: when receipt_itbis_per_line is enabled, render the
+  // ITBIS portion as a small sub-line under each taxed product so the customer
+  // sees the tax broken out. Lines with aplica_itbis === 0/false are skipped
+  // (services flagged as exempt).
+  const showItbisPerLine = data.cfg?.receipt_itbis_per_line === '1' || data.cfg?.receipt_itbis_per_line === true
+  const itbisRate = (() => {
+    const raw = String(data.cfg?.itbis_pct || '18').replace(/[^0-9.]/g, '')
+    const n = parseFloat(raw)
+    return Number.isFinite(n) && n >= 0 ? n / 100 : 0.18
+  })()
   for (const svc of data.services || []) {
     const qty = svc.qty || svc.quantity || 1
     const name = qty > 1 ? `${qty}x ${svc.name}` : svc.name
-    cols(name, fmtRD(svc.price * qty), { boldLeft: true, size: NORMAL })
+    const lineTotal = (Number(svc.price) || 0) * qty
+    cols(name, fmtRD(lineTotal), { boldLeft: true, size: NORMAL })
+    const lineTaxed = svc.aplica_itbis === undefined || svc.aplica_itbis === null
+      || (svc.aplica_itbis !== false && Number(svc.aplica_itbis) !== 0)
+    if (showItbisPerLine && lineTaxed && lineTotal > 0) {
+      const lineItbis = lineTotal - (lineTotal / (1 + itbisRate))
+      cols(`  ITBIS`, fmtRD(lineItbis), { size: SMALL })
+    }
   }
 
   rule()
