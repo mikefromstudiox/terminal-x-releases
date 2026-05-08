@@ -17,7 +17,10 @@ const get = (k) => env.match(new RegExp(`^${k}=(.+)$`, 'm'))?.[1].trim()
 const URL = get('SUPABASE_URL') || get('VITE_SUPABASE_URL')
 const SVC = get('SUPABASE_SERVICE_ROLE_KEY')
 
-const BID = '8ca2af1e-a0d4-4f97-b8f9-d9e481ca40f8' // Crokao
+// 2026-05-08 — Crokao reclassified as food_truck. Restaurant smoke now runs
+// against the Demo Restaurante seed tenant (is_demo=true) so production
+// food-truck data isn't polluted by mesa/reservation fixtures.
+const BID = 'b037c2a8-d8d2-45f6-ada1-f851cf0190a4' // Demo Restaurante
 const TAG = '__e2e_'
 
 const svc = createClient(URL, SVC, { auth: { persistSession: false } })

@@ -14,6 +14,7 @@ const VERTICAL_LOADERS = {
   carniceria:   () => import('./verticals/carniceria'),
   service:      () => import('./verticals/service'),
   restaurant:   () => import('./verticals/restaurant'),
+  food_truck:   () => import('./verticals/food_truck'),
   mechanic:     () => import('./verticals/mechanic'),
   salon:        () => import('./verticals/salon'),
   prestamos:    () => import('./verticals/prestamos'),

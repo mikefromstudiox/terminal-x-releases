@@ -23,7 +23,9 @@ const get = (k) => env.match(new RegExp(`^${k}=(.+)$`, 'm'))?.[1].trim()
 const URL = get('SUPABASE_URL') || get('VITE_SUPABASE_URL')
 const SVC = get('SUPABASE_SERVICE_ROLE_KEY')
 
-const BID = '8ca2af1e-a0d4-4f97-b8f9-d9e481ca40f8' // Crokao (POS-test tenant)
+// 2026-05-08 — moved off Crokao (real client) to Demo Food Truck seed tenant
+// so production data isn't churned by every smoke run.
+const BID = 'edbc8447-b574-43f9-9584-1d66f4ad2bcd' // Demo Food Truck (is_demo=true)
 const TAG = '__ftruck_'
 
 const svc = createClient(URL, SVC, { auth: { persistSession: false } })
@@ -77,7 +79,8 @@ async function run() {
     log('food_truck_locations.update', !upd.error && upd.data?.notes === 'actualizado', upd.error?.message)
   }
 
-  // ── 4. cuadre_caja with truck shift breadcrumbs ───────────────────────+  const cuadreSid = uid()
+  // ── 4. cuadre_caja with truck shift breadcrumbs ──────────────────────────
+  const cuadreSid = uid()
   const cuadreRes = await svc.from('cuadre_caja').insert({
     supabase_id: cuadreSid, business_id: BID,
     date: new Date().toISOString().slice(0, 10),
