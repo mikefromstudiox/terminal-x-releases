@@ -802,6 +802,9 @@ const SYNC_TABLES = [
         is_test: !!(r.is_test || 0),
         descuento_reason: r.descuento_reason || null,
         mac_jti: r.mac_jti || null,
+        // v2.17 — Food Truck: per-ticket location stamp. Nullable; only set
+        // by FoodTruckPOS, ignored elsewhere.
+        food_truck_location_supabase_id: r.food_truck_location_supabase_id || null,
         created_at: r.created_at || new Date().toISOString(),
         updated_at: r.updated_at || null,
       }
@@ -1106,6 +1109,12 @@ const SYNC_TABLES = [
       status: r.status || 'cerrado',
       opened_at: r.opened_at || null,
       opening_cash: r.opening_cash != null ? Number(r.opening_cash) : null,
+      // v2.17 — Food Truck shift breadcrumbs (location + GPS + free-text).
+      // All four columns are nullable so non-foodtruck cuadres are unaffected.
+      start_location_supabase_id: r.start_location_supabase_id || null,
+      start_lat:                  r.start_lat != null ? Number(r.start_lat) : null,
+      start_lng:                  r.start_lng != null ? Number(r.start_lng) : null,
+      start_notes:                r.start_notes || null,
       updated_at: r.updated_at || null,
     }),
   },

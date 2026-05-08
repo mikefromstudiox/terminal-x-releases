@@ -239,6 +239,25 @@ export const BUSINESS_TYPES = {
     enabled: true,
   },
 
+  food_truck: {
+    label:       { es: 'Food Truck', en: 'Food Truck' },
+    description: { es: 'Camión de comida móvil. Menú, KDS, propinas, take-out por defecto. Sin mesas.',
+                   en: 'Mobile food truck. Menu, KDS, tips, take-out by default. No tables.' },
+    icon: 'Truck',
+    modules: ['menu', 'modifiers', 'kds', 'tip', 'commissions', 'inventory', 'barcode',
+              'food_truck_locations', 'waste_log', 'event_mode'],
+    ui: {
+      showTableMap: false,
+      enableKDS: true,
+      showRetailCart: false,
+      showServiceGrid: false,
+      showInventory: true,
+      posSegmentToggle: false,
+      fulfillmentDefault: 'take_out',
+    },
+    enabled: true,
+  },
+
   carniceria: {
     label:       { es: 'Carnicería', en: 'Butcher / Meat Market' },
     description: { es: 'Venta de carnes por peso. Báscula integrada, cortes por libra/kg.',
@@ -312,7 +331,7 @@ export const BUSINESS_TYPES = {
 }
 
 // Components a hybrid setup can be built from. Excludes 'hybrid' itself.
-export const HYBRID_COMPONENT_KEYS = ['carwash', 'retail', 'licoreria', 'carniceria', 'service', 'restaurant', 'mechanic', 'salon', 'prestamos', 'dealership']
+export const HYBRID_COMPONENT_KEYS = ['carwash', 'retail', 'licoreria', 'carniceria', 'service', 'restaurant', 'food_truck', 'mechanic', 'salon', 'prestamos', 'dealership']
 
 // Validate + normalize a list of hybrid components. Always returns at least
 // the registry default (['restaurant','retail']) so the POS never renders
@@ -369,7 +388,7 @@ export function getHybridConfig(components) {
   }
 }
 
-export const BUSINESS_TYPE_KEYS = ['carwash', 'retail', 'licoreria', 'carniceria', 'service', 'restaurant', 'mechanic', 'salon', 'prestamos', 'dealership', 'contabilidad', 'hybrid']
+export const BUSINESS_TYPE_KEYS = ['carwash', 'retail', 'licoreria', 'carniceria', 'service', 'restaurant', 'food_truck', 'mechanic', 'salon', 'prestamos', 'dealership', 'contabilidad', 'hybrid']
 
 // Service-based verticals — where vehicle/worker/queue concepts apply.
 export const SERVICE_BASED_TYPES = ['carwash', 'service', 'mechanic', 'salon', 'hybrid']

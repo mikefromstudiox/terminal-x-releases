@@ -835,6 +835,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/reservations" element={<Navigate to="/pos/reservations" replace />} />
             <Route path="/warranties" element={<Navigate to="/pos/warranties" replace />} />
             <Route path="/preapprovals" element={<Navigate to="/pos/preapprovals" replace />} />
+            {/* v2.17 — Food Truck vertical */}
+            <Route path="/ubicaciones" element={<Navigate to="/pos/ubicaciones" replace />} />
+            <Route path="/mermas" element={<Navigate to="/pos/mermas" replace />} />
 
             {/* Catch-all */}
             <Route path="*" element={<RouteNotFound />} />

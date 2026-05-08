@@ -65,6 +65,9 @@ const KDS                 = lazy(() => import('./screens/restaurant/KDS'))
 // v2.16.3 — Restaurante H4 (Reservas) + H5 (Resumen del Salón)
 const RestaurantReservations = lazy(() => import('./screens/restaurant/Reservations'))
 const SalonDashboard         = lazy(() => import('./screens/restaurant/SalonDashboard'))
+// v2.17 — Food Truck vertical
+const FoodTruckLocations  = lazy(() => import('./screens/foodtruck/Locations'))
+const FoodTruckWasteLog   = lazy(() => import('./screens/foodtruck/WasteLog'))
 const WorkOrders          = lazy(() => import('./screens/mechanic/WorkOrders'))
 const Vehicles            = lazy(() => import('./screens/mechanic/Vehicles'))
 const ServiceBays         = lazy(() => import('./screens/mechanic/ServiceBays'))
@@ -352,6 +355,9 @@ export default function App() {
         <Route path="/inventory"             element={<ProtectedRoute element={<PlanGate feature="inventory"><Inventory /></PlanGate>} />} />
         <Route path="/conteo-fisico"         element={<ProtectedRoute element={<PlanGate feature="inventory"><InventoryCount /></PlanGate>} />} />
         <Route path="/mesas"                 element={<PlanGate feature="restaurant_mode"><Mesas /></PlanGate>} />
+        {/* v2.17 — Food Truck */}
+        <Route path="/ubicaciones"           element={<ProtectedRoute element={<PlanGate feature="food_truck_locations"><FoodTruckLocations /></PlanGate>} />} />
+        <Route path="/mermas"                element={<ProtectedRoute element={<PlanGate feature="food_truck_waste_log"><FoodTruckWasteLog /></PlanGate>} />} />
         {/* v2.16.3 — Restaurante H4 + H5 */}
         <Route path="/reservas"              element={<PlanGate feature="restaurant_reservations"><RestaurantReservations /></PlanGate>} />
         <Route path="/salon-dashboard"       element={<ProtectedRoute element={<PlanGate feature="restaurant_salon_dashboard"><SalonDashboard /></PlanGate>} />} />

@@ -678,6 +678,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     stampWhatsapp: (id)            => call('reservations:stampWhatsapp', { id }),
   },
 
+  // ── v2.17 — Food Truck: favorite stops + waste log ──────────────────────
+  foodTruckLocations: {
+    list:   (params)        => call('food-truck-locations:list', params),
+    create: (data)          => call('food-truck-locations:create', data),
+    update: (id, patch)     => call('food-truck-locations:update', { id, ...(patch || {}) }),
+    delete: (id)            => call('food-truck-locations:delete', { id }),
+  },
+  wasteLog: {
+    list:   (params)        => call('waste-log:list', params),
+    create: (data)          => call('waste-log:create', data),
+    delete: (id)            => call('waste-log:delete', { id }),
+  },
+
   // ── Phase 1B — Contabilidad (firm-side suite) ───────────────────────────
   contabilidad: {
     clientCreate:           (payload)        => call('contabilidad:client-create', payload),
