@@ -1331,6 +1331,10 @@ export default function Inventory() {
   const [search,   setSearch]   = useState('')
   const [filter,   setFilter]   = useState('all')   // 'all' | 'low'
   const [tab,      setTab]      = useState('items') // 'items' | 'ofertas' | 'shortages'
+  // PY (Pedidos Ya) split-margin config — read from app_settings so the column
+  // mirrors what /config/pedidosya is set to per-business. Default 15% matches
+  // the platform's standard cut.
+  const [pyCfg, setPyCfg] = useState({ enabled: false, commissionPct: 15 })
   const { hasFeature } = usePlan()
   const ofertasEnabled = hasFeature('ofertas')
   const [modal,    setModal]    = useState(null)     // null | { type: 'item'|'adjust'|'history'|'import', item }
@@ -1357,6 +1361,20 @@ export default function Inventory() {
   }
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        const s = await api?.settings?.get?.()
+        if (!alive || !s) return
+        const enabled = s.pedidos_ya_enabled === '1' || s.pedidos_ya_enabled === 1 || s.pedidos_ya_enabled === true
+        const pct = Number(s.pedidos_ya_commission_pct ?? 15)
+        setPyCfg({ enabled, commissionPct: Number.isFinite(pct) ? pct : 15 })
+      } catch {}
+    })()
+    return () => { alive = false }
+  }, [api])
 
   // v2.16.32 — Realtime auto-refresh of inventory_items. Plan-gated to
   // Pro MAX (multi-cashier setups) — Pro / Pro PLUS still get the manual
@@ -1553,6 +1571,12 @@ export default function Inventory() {
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">Precio</th>
                   <th className="px-4 py-3 text-xs font-semibold text-[#b3001e] uppercase tracking-wide text-right whitespace-nowrap">PY Precio</th>
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">Margen</th>
+                  {pyCfg.enabled && (
+                    <th className="px-4 py-3 text-xs font-semibold text-[#b3001e] uppercase tracking-wide text-right whitespace-nowrap"
+                        title={`Margen neto tuyo en PY (descontando ${pyCfg.commissionPct}% de comisión Pedidos Ya)`}>
+                      Margen PY
+                    </th>
+                  )}
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-white/60 uppercase tracking-wide text-right">Valor</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -1607,6 +1631,28 @@ export default function Inventory() {
                           )
                         })() : <span className="text-slate-300 dark:text-white/20">—</span>}
                       </td>
+                      {pyCfg.enabled && (
+                        <td className="px-4 py-3 text-right text-xs">
+                          {item.cost > 0 && item.price_pedidos_ya > 0 ? (() => {
+                            const aplica  = item.aplica_itbis === 1 || item.aplica_itbis === true
+                            const pyPrice = Number(item.price_pedidos_ya)
+                            const pyNet   = aplica ? pyPrice / 1.18 : pyPrice
+                            const pyComm  = pyPrice * (pyCfg.commissionPct / 100)
+                            const owner   = pyNet - item.cost - pyComm
+                            const pct     = (owner / pyNet) * 100
+                            const tooltip =
+                              `PY se lleva ${pyCfg.commissionPct}% (${fmtRD(pyComm)}) · ` +
+                              `Tú te quedas ${fmtRD(owner)}` +
+                              (aplica ? ' (sobre precio sin ITBIS)' : '')
+                            return (
+                              <span className={`font-semibold ${owner > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}
+                                title={tooltip}>
+                                {Math.round(pct)}%
+                              </span>
+                            )
+                          })() : <span className="text-slate-300 dark:text-white/20">—</span>}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-right text-slate-500 dark:text-white/60 text-xs">{fmtRD(item.quantity * item.price)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
@@ -1663,6 +1709,24 @@ export default function Inventory() {
                         <Bike size={11} /> <span className="font-semibold">PY: {fmtRD(item.price_pedidos_ya)}</span>
                       </div>
                     )}
+                    {pyCfg.enabled && item.cost > 0 && item.price_pedidos_ya > 0 && (() => {
+                      const aplica  = item.aplica_itbis === 1 || item.aplica_itbis === true
+                      const pyPrice = Number(item.price_pedidos_ya)
+                      const pyNet   = aplica ? pyPrice / 1.18 : pyPrice
+                      const pyComm  = pyPrice * (pyCfg.commissionPct / 100)
+                      const owner   = pyNet - item.cost - pyComm
+                      const pct     = (owner / pyNet) * 100
+                      return (
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-slate-500 dark:text-white/60">
+                            Margen PY: <span className={`font-semibold ${owner > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}>{Math.round(pct)}%</span>
+                          </span>
+                          <span className="text-slate-400 dark:text-white/40">
+                            PY {pyCfg.commissionPct}% · Tú {fmtRD(owner)}
+                          </span>
+                        </div>
+                      )
+                    })()}
                     <div className="flex gap-2">
                       <button onClick={() => setModal({ type: 'restock', item })}
                         className="flex-1 py-2 text-[11px] font-medium border border-emerald-200 dark:border-emerald-500/30 rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10">
