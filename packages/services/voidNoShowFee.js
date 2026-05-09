@@ -95,13 +95,11 @@ export async function voidNoShowFeeOrchestrator({ appointment_supabase_id }, api
     }]
   }
 
-  // 3. Reserve E34 NCF.
-  let eNCF = null
-  try { eNCF = await api.ncf?.next?.('E34') } catch {}
-  if (!eNCF || typeof eNCF !== 'string') return { ok: false, error: 'ncf_reserve_failed' }
-
-  // 4. Resolve emisor + bizSettings for the e-CF payload.
-  // A throw here used to silently emit an E34 with empty RNC / razonsocial,
+  // 3. Resolve emisor + bizSettings BEFORE reserving NCF.
+  // Order matters: a settings throw used to bail AFTER NCF was reserved,
+  // orphaning the sequence (DGII expects strictly sequential NCFs). Loading
+  // settings first means a failure here just returns — no fiscal hole.
+  // A throw also used to silently emit an E34 with empty RNC / razonsocial,
   // which DGII rejects on receipt. Report and abort early so the cashier
   // sees a real error rather than a queued-but-broken receipt.
   let bizSettings = {}
@@ -111,6 +109,11 @@ export async function voidNoShowFeeOrchestrator({ appointment_supabase_id }, api
     try { window.__txReportError?.(err, { severity: 'critical', category: 'ecf', extra: { stage: 'voidNoShowFee.settings' } }) } catch {}
     return { ok: false, error: 'settings_unavailable' }
   }
+
+  // 4. Reserve E34 NCF (only after settings are confirmed loadable).
+  let eNCF = null
+  try { eNCF = await api.ncf?.next?.('E34') } catch {}
+  if (!eNCF || typeof eNCF !== 'string') return { ok: false, error: 'ncf_reserve_failed' }
   const emisorRncRaw = String(bizSettings.biz_rnc || bizSettings.rnc || '').replace(/[-\s]/g, '')
   // 5. Build invoice payload + sign.
   const totalAmt   = Number(originalTicket.total)    || 0
