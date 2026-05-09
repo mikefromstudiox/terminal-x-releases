@@ -1084,7 +1084,9 @@ export function createWebAPI(supabase, businessId) {
             user_id: userId || null,
             business_id: bid,
           })
-        } catch {}
+        } catch (err) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'warn', category: 'web.inventory.adjustment_log', extra: { item_id: current?.id, delta, business_id: bid } }) } catch {}
+        }
         return newQty
       }),
 
@@ -1516,7 +1518,9 @@ export function createWebAPI(supabase, businessId) {
               const patch = { pin_failed_attempts: next, updated_at: nowIso }
               if (next >= PIN_MAX_FAILED_ATTEMPTS) patch.pin_locked_until = lockAt
               await supabase.from('staff').update(patch).eq('id', rid).eq('business_id', bid)
-            } catch {}
+            } catch (err) {
+              try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'web.staff.pin_lockout_patch', extra: { staff_id: rid, business_id: bid } }) } catch {}
+            }
           }))
         }
 
@@ -2059,14 +2063,16 @@ export function createWebAPI(supabase, businessId) {
         const name = snap?.data?.nombre || `#${id}`
         const empSid = snap?.data?.supabase_id
         if (empSid) {
-          try { await supabase.from('salary_changes').delete().eq('business_id', bid).eq('empleado_supabase_id', empSid) } catch {}
+          try { await supabase.from('salary_changes').delete().eq('business_id', bid).eq('empleado_supabase_id', empSid) }
+          catch (err) { try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'web.empleados.salary_changes_delete', extra: { empSid, business_id: bid } }) } catch {} }
         }
         const { error } = await supabase.from('empleados').delete().eq('id', id).eq('business_id', bid)
         if (!error) {
           await logActivity({ event_type: 'empleado_deleted', severity: 'warn', target_type: 'empleado', target_id: id, target_name: name })
           return { deleted: true }
         }
-        try { throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid)) } catch {}
+        try { throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid)) }
+        catch (err) { try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'web.empleados.soft_delete_fallback', extra: { empleado_id: id, business_id: bid, original_error: error?.message } }) } catch {} }
         await logActivity({ event_type: 'empleado_deactivated', severity: 'warn', target_type: 'empleado', target_id: id, target_name: name, reason: error.message })
         return { softDeleted: true, reason: error.message }
       }, 'web.empleados.hardDelete'),
@@ -3829,7 +3835,9 @@ export function createWebAPI(supabase, businessId) {
                   target_type: 'ticket', target_id: row.id, target_name: row.doc_number || `#${row.id}`,
                   reason: e?.message || 'recipe deduction batch failed',
                   metadata: { ticket_supabase_id: row.supabase_id } })
-              } catch {}
+              } catch (err2) {
+                try { (typeof window !== 'undefined') && window.__txReportError?.(err2, { severity: 'warn', category: 'web.recipe_inventory_skip.activity_log', extra: { ticket_id: row?.id, ticket_supabase_id: row?.supabase_id } }) } catch {}
+              }
             }
 
             const desc = Number(data.descuento || 0)
@@ -4687,7 +4695,9 @@ export function createWebAPI(supabase, businessId) {
             target_name: `Turno ${today}`,
             amount: fondo, reason: 'Apertura de turno',
             metadata: { opening_cash: fondo, opened_at: when } })
-        } catch {}
+        } catch (err) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'warn', category: 'web.cuadre.shift_opened.activity_log', extra: { cuadre_id: row?.id, fondo, today } }) } catch {}
+        }
         return { id: row?.id || null, supabase_id: sid, existed: false }
       }),
     },
@@ -4734,7 +4744,7 @@ export function createWebAPI(supabase, businessId) {
         return { decremented: true, prefix, number: num }
       }, { decremented: false, reason: 'error' }),
 
-      updateSequence: (data) => tryOr(async () => {
+      updateSequence: (data) => tryWrite(async () => {
         const { type, ...rest } = data
         if ('enabled' in rest) rest.enabled = !!rest.enabled
         if ('active'  in rest) rest.active  = !!rest.active
@@ -4773,7 +4783,7 @@ export function createWebAPI(supabase, businessId) {
           }
           throwSupaError(await supabase.from('ncf_sequences').insert(insertRow))
         }
-      }),
+      }, 'web.ncf.updateSequence'),
     },
 
     // ── Caja Chica ───────────────────────────────────────────────────────────
@@ -6180,7 +6190,9 @@ export function createWebAPI(supabase, businessId) {
             amount: Number(data.price) || 0,
             metadata: { components: items.length },
           })
-        } catch {}
+        } catch (err) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'warn', category: 'web.ofertas.save.activity_log', extra: { oferta_supabase_id: sid, isNew, name: data?.name } }) } catch {}
+        }
 
         return { supabase_id: sid }
       }),
@@ -6203,7 +6215,9 @@ export function createWebAPI(supabase, businessId) {
             target_id: supabase_id,
             target_name: o?.name || null,
           })
-        } catch {}
+        } catch (err) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'warn', category: 'web.ofertas.delete.activity_log', extra: { oferta_supabase_id: supabase_id, name: o?.name || null } }) } catch {}
+        }
         return { deleted: true }
       }),
     },
@@ -6559,7 +6573,9 @@ export function createWebAPI(supabase, businessId) {
         try {
           const m = url.match(/vehicle-photos\/(.+)$/)
           if (m) await supabase.storage.from('vehicle-photos').remove([m[1]])
-        } catch {}
+        } catch (err) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'warn', category: 'web.vehicle.removePhoto.storage_orphan', extra: { vehicleId, url } }) } catch {}
+        }
       }),
       bulkImport: (rows) => tryOr(async () => {
         if (!Array.isArray(rows) || rows.length === 0) return { inserted: 0 }

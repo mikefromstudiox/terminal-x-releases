@@ -585,7 +585,9 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
       try {
         const emps = await (api?.empleados?.all?.() || Promise.resolve([]))
         if (!cancel) setSalonEmpleados((emps || []).filter(e => e.active !== 0))
-      } catch {}
+      } catch (err) {
+        try { window.__txReportError?.(err, { severity: 'warn', category: 'cobro.salon.empleados.load' }) } catch {}
+      }
       try {
         const inv = await (api?.inventory?.all?.() || Promise.resolve([]))
         // v2.16.1 patch (#4) — column now exists in both schemas. Sort by
@@ -605,7 +607,9 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         const pool = flagged.length ? flagged : list.filter(i => i.featured)
         const final = (pool.length ? pool : list).slice(0, 6)
         if (!cancel) setSalonUpsellItems(final)
-      } catch {}
+      } catch (err) {
+        try { window.__txReportError?.(err, { severity: 'warn', category: 'cobro.salon.upsell.load' }) } catch {}
+      }
     })()
     return () => { cancel = true }
   }, [isSalon, api])
@@ -1471,6 +1475,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
       try {
         eNCF = await api?.ncf?.next?.(ncfType)
       } catch (err) {
+        try { window.__txReportError?.(err, { severity: 'critical', category: 'cobro.ncf.reserve.ecf', extra: { ncfType } }) } catch {}
         throw new Error(`No se pudo reservar el NCF ${ncfType}: ${err?.message || err}`)
       }
       if (!eNCF) {
@@ -1593,6 +1598,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           })
           setEcfState('success')
         } catch (persistErr) {
+          try { window.__txReportError?.(persistErr, { severity: 'critical', category: 'cobro.ticket.persist.ecf', extra: { ncfType, eNCF: result?.eNCF, total, ticketSid: ticket?.supabase_id } }) } catch {}
           confirmedRef.current = false
           setEcfState('error')
           setEcfError(persistErr?.message || (lang === 'es' ? 'Error al guardar el ticket. Revisa la consola.' : 'Failed to save ticket. Check console.'))
@@ -1611,6 +1617,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
               points: loyaltyRedemption.points,
               notes: `redeem_ticket:${ticket?.id ?? ''}`,
             })).catch(err => {
+              try { window.__txReportError?.(err, { severity: 'warn', category: 'cobro.loyalty.redeem.ecf', extra: { clientId: selectedClient?.id, points: loyaltyRedemption?.points } }) } catch {}
               console.error('[loyalty] redeem failed after sale (e-CF path)', err)
               const redeemFailEvt = {
                 event_type: 'loyalty_redeem_failed', severity: 'critical',
@@ -1677,6 +1684,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
             // v2.16.27 — only flip to success after parent persists.
             setEcfState('success')
           } catch (persistErr) {
+            try { window.__txReportError?.(persistErr, { severity: 'error', category: 'cobro.ticket.persist.test_mode', extra: { ncfType, total, ticketSid: ticket?.supabase_id } }) } catch {}
             confirmedRef.current = false
             setEcfState('error')
             setEcfError(persistErr?.message || (lang === 'es' ? 'Error al guardar el ticket. Revisa la consola.' : 'Failed to save ticket. Check console.'))
@@ -1684,6 +1692,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         }
         return
       }
+      try { window.__txReportError?.(err, { severity: 'critical', category: 'cobro.dgii.submit', extra: { ncfType, total, ticketSid: ticket?.supabase_id } }) } catch {}
       setEcfError(err?.message || 'Error al enviar e-CF a DGII')
       setEcfState('error')
     }

@@ -1092,7 +1092,9 @@ function CarWashPOS() {
             if (r?.fallback === 'inline') {
               flash(lang === 'es' ? 'Notas de cocina impresas en recibo principal' : 'Kitchen notes printed on main receipt')
             }
-          } catch {}
+          } catch (err) {
+            try { window.__txReportError?.(err, { severity: 'warn', category: 'pos.print.kitchen_prep', extra: { docNo: ticketData?.docNo, items: ticketData?.items?.length } }) } catch {}
+          }
         }
         // v2.14.20 — when a ticket has 2+ washers, print one conduce per
         // washer so each worker walks away with their own dispatch slip.
@@ -2390,7 +2392,9 @@ function RetailPOS() {
                 : `⚠️ Another register is charging this item. Only ${remaining} left.`)
             }
             await acquireLock(bid, product.supabase_id, did, nextQty)
-          } catch {}
+          } catch (err) {
+            try { window.__txReportError?.(err, { severity: 'error', category: 'pos.inventory.acquireLock', extra: { product_supabase_id: product?.supabase_id, business_id: bid, device_id: did, qty: nextQty } }) } catch {}
+          }
         })()
       }
     }
@@ -2549,7 +2553,9 @@ function RetailPOS() {
         target_name:item?.name || 'Licorería — producto 18+',
         metadata:   verification,
       })
-    } catch {}
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'error', category: 'pos.licoreria.age_verified.activity_log', extra: { item_name: item?.name, verification } }) } catch {}
+    }
     if (item) addToCart(item)  // re-runs, now verified, falls through to push
   }
 

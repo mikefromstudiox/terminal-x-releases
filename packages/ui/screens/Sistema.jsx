@@ -29,7 +29,7 @@ function useToast() {
   return { toast, show }
 }
 
-function Toast({ toast }) {
+export function Toast({ toast }) {
   if (!toast) return null
   return (
     <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-xl text-[13px] font-semibold ${
@@ -41,7 +41,7 @@ function Toast({ toast }) {
   )
 }
 
-function Toggle({ enabled, onChange, disabled = false }) {
+export function Toggle({ enabled, onChange, disabled = false }) {
   return (
     <button
       type="button"
@@ -59,7 +59,7 @@ function Toggle({ enabled, onChange, disabled = false }) {
   )
 }
 
-function SettingRow({ label, hint, children, settingKey }) {
+export function SettingRow({ label, hint, children, settingKey }) {
   // Auto-hint when the key is whitelisted as device-local (printer, print_*, etc.)
   // Keeps the UI honest: Mike and clients see at a glance what's cloud-synced
   // vs what lives on this POS only.
@@ -229,7 +229,7 @@ function GoLiveSection({ api, goLiveDate, committedAt, set, show, L }) {
 // scroll-to-hash effect on Preferencias picks these up.  scroll-mt-20 keeps
 // the section title visible below the modal header when the browser
 // auto-scrolls to it.
-function SettingSection({ id, title, children }) {
+export function SettingSection({ id, title, children }) {
   return (
     <div className="mb-5 scroll-mt-20" {...(id ? { id } : {})}>
       <p className="text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-2">{title}</p>
@@ -240,7 +240,7 @@ function SettingSection({ id, title, children }) {
   )
 }
 
-function Input({ className = '', ...props }) {
+export function Input({ className = '', ...props }) {
   return (
     <input
       {...props}
@@ -250,7 +250,7 @@ function Input({ className = '', ...props }) {
   )
 }
 
-function SaveBtn({ saving, saved, label, onClick }) {
+export function SaveBtn({ saving, saved, label, onClick }) {
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
   const lbl = label ?? L('Guardar', 'Save')
@@ -457,7 +457,7 @@ const SISTEMA_DEFAULTS = {
 }
 
 // Shared settings hook — loads cfg from DB once, provides set/save
-function useSettings() {
+export function useSettings() {
   const api = useAPI()
   const printerApi = usePrinterAPI()
   const { lang } = useLang()

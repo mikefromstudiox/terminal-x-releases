@@ -133,7 +133,9 @@ export function AuthProvider({ children }) {
       const emps = await api.empleados.all()
       const emp = emps?.find(e => e.id === u.employee_id)
       if (emp?.role && emp.role !== 'none') return { ...u, role: emp.role }
-    } catch {}
+    } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'critical', category: 'auth.resolveRole.empleados_load_failed', extra: { user_id: u?.id, employee_id: u?.employee_id } }) } catch {}
+    }
     return u
   }
 
