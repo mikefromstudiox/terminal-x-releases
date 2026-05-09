@@ -5470,7 +5470,12 @@ export function createWebAPI(supabase, businessId) {
             })
             const r = await res.json()
             verdict = r.ok ? r.data : null
-          } catch { /* network — try next tick */ }
+          } catch (err) {
+            // Most failures here ARE network — but auth/RLS/JSON.parse can
+            // masquerade as "network" if we silently swallow. Report at warn
+            // so we can spot non-network failure patterns in admin Errores.
+            try { window.__txReportError?.(err, { severity: 'warn', category: 'ecf.reconcile_en_proceso', extra: { trackId: ecf?.trackId || null, ticket_id: row?.id || null } }) } catch {}
+          }
           if (!verdict) { stillPending++; continue }
           const finalCodes = [1, 2, 4]
           if (finalCodes.includes(Number(verdict.codigo))) {
