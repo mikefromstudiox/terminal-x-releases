@@ -463,9 +463,10 @@ export default function Mesas() {
 
   async function loadEmpleados() {
     try {
-      const list = await api.empleados.getAll()
+      const list = await api.empleados.all()
       setEmpleados(Array.isArray(list) ? list : [])
-    } catch {
+    } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'mesa.load_empleados' }) } catch {}
       setEmpleados([])
     }
   }

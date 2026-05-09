@@ -263,7 +263,7 @@ export default function Memberships() {
       // the page silently render the empty state.
       const [cat, svc, cli] = await Promise.all([
         api?.salonMemberships?.list?.() ?? Promise.resolve([]),
-        api?.services?.getAll?.() ?? Promise.resolve([]),
+        api?.services?.all?.() ?? Promise.resolve([]),
         api?.clients?.all?.() ?? Promise.resolve([]),
       ])
       setCatalog(cat || [])

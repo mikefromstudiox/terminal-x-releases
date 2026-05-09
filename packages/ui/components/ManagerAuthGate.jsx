@@ -111,7 +111,9 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
         try {
           const issued = await api.mac.issue({ scan_token: raw, action, target_id: context?.target_id ?? null })
           mac_jti = issued?.jti || null
-        } catch {}
+        } catch (err) {
+          try { window.__txReportError?.(err, { severity: 'critical', category: 'manager_auth.mac.issue', extra: { action, target_id: context?.target_id ?? null } }) } catch {}
+        }
         if (!mac_jti) { flashError(L('No se pudo autorizar en el servidor', 'Server authorization failed')); return }
       }
       const approval = {
@@ -122,7 +124,12 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
         metadata: { method: 'card', action, approved_by: match.name, approved_by_role: match.role, ...(context || {}) },
       }
       try { await api.activity.record(approval) }
-      catch { try { await enqueueActivity(approval) } catch {} }
+      catch (recErr) {
+        try { window.__txReportError?.(recErr, { severity: 'warn', category: 'manager_auth.activity.record', extra: { action, target_id: context?.target_id ?? null } }) } catch {}
+        try { await enqueueActivity(approval) } catch (enqErr) {
+          try { window.__txReportError?.(enqErr, { severity: 'warn', category: 'manager_auth.activity.enqueue', extra: { action } }) } catch {}
+        }
+      }
       onApprove?.({ staff_id: match.id, staff_name: match.name, role: match.role, method: 'card', mac_jti })
     } catch (e) {
       flashError(e?.message || L('Error al verificar', 'Verify error'))
@@ -165,7 +172,12 @@ export default function ManagerAuthGate({ action, actionLabel, context, onApprov
         metadata: { method: 'pin_fallback', action, approved_by: manager.name, approved_by_role: manager.role, ...(context || {}) },
       }
       try { await api.activity.record(approval) }
-      catch { try { await enqueueActivity(approval) } catch {} }
+      catch (recErr) {
+        try { window.__txReportError?.(recErr, { severity: 'warn', category: 'manager_auth.activity.record', extra: { action, target_id: context?.target_id ?? null } }) } catch {}
+        try { await enqueueActivity(approval) } catch (enqErr) {
+          try { window.__txReportError?.(enqErr, { severity: 'warn', category: 'manager_auth.activity.enqueue', extra: { action } }) } catch {}
+        }
+      }
       onApprove?.({ staff_id: manager.id, staff_name: manager.name, role: manager.role, method: 'pin', mac_jti })
     } catch (e) {
       flashError(e?.message || L('Error al verificar PIN', 'PIN verify error'))

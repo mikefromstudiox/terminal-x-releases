@@ -162,6 +162,7 @@ export default function DepositReturnModal({ open, onClose, onDone }) {
         // Reverse the balance debit if the refund ticket failed to persist.
         if (method === 'credito' && client?.id) {
           try { await api.clients.updateBalance({ id: client.id, delta: +amount }) } catch (revErr) {
+            try { window.__txReportError?.(revErr, { severity: 'critical', category: 'deposit_refund.balance_reversal_failed', extra: { clientId: client?.id, clientSupabaseId: client?.supabase_id, amount, method } }) } catch {}
             console.error('[DepositReturn] CRITICAL: balance debited but ticket failed AND reversal failed', revErr)
             try { window.alert(L(
               `URGENTE: Balance del cliente ${client?.name || ''} ajustado en RD$${amount} pero la devolución no quedó registrada. Ajusta manualmente.`,
@@ -200,7 +201,9 @@ export default function DepositReturnModal({ open, onClose, onDone }) {
             cashier_name:       user?.name || null,
           },
         }) || Promise.resolve())
-      } catch {}
+      } catch (err) {
+        try { window.__txReportError?.(err, { severity: 'warn', category: 'deposit_refund.activity.record', extra: { itemId: picked?.id, amount, method } }) } catch {}
+      }
 
       setSaving(false)
       onDone?.({ qty: q, amount, method, client })

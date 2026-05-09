@@ -6371,12 +6371,12 @@ export function createWebAPI(supabase, businessId) {
         }
         return row
       }),
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('vehicles').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
         return row
       }),
-      update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('vehicles').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
-      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('vehicles').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('vehicles').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('vehicles').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
       byClient: (clientId) => tryOr(async () => throwSupaError(await supabase.from('vehicles').select('*').eq('business_id', bid).eq('client_id', clientId).eq('active', true).order('created_at', { ascending: false })), []),
     },
 
@@ -6384,13 +6384,13 @@ export function createWebAPI(supabase, businessId) {
 
     serviceBays: {
       list: () => tryOr(async () => throwSupaError(await supabase.from('service_bays').select('*').eq('business_id', bid).eq('active', true).order('name')), []),
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('service_bays').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
         return row
       }),
-      update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('service_bays').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
-      setStatus: (id, status, workOrderId) => tryOr(async () => { throwSupaError(await supabase.from('service_bays').update({ status, current_work_order_id: workOrderId || null, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
-      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('service_bays').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('service_bays').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      setStatus: (id, status, workOrderId) => tryWrite(async () => { throwSupaError(await supabase.from('service_bays').update({ status, current_work_order_id: workOrderId || null, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('service_bays').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
     },
 
     // ── Work Orders ─────────────────────────────────────────────────────────
@@ -6433,17 +6433,17 @@ export function createWebAPI(supabase, businessId) {
         row.work_order_items = items || []
         return row
       }),
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('work_orders').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }).select('id').single())
         return row
       }),
-      update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('work_orders').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('work_orders').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
       updateStatus: ({ id, status }) => tryWrite(async () => {
         const patch = { status, updated_at: new Date().toISOString() }
         if (status === 'completed' || status === 'closed' || status === 'facturado') patch.completed_date = new Date().toISOString()
         throwSupaError(await supabase.from('work_orders').update(patch).eq('id', id).eq('business_id', bid))
       }),
-      setStatus: (id, status) => tryOr(async () => {
+      setStatus: (id, status) => tryWrite(async () => {
         const patch = { status, updated_at: new Date().toISOString() }
         if (status === 'completed' || status === 'closed') patch.completed_date = new Date().toISOString()
         throwSupaError(await supabase.from('work_orders').update(patch).eq('id', id).eq('business_id', bid))
@@ -6517,19 +6517,19 @@ export function createWebAPI(supabase, businessId) {
           }
         }
       }),
-      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('work_orders').delete().eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('work_orders').delete().eq('id', id).eq('business_id', bid)) }),
     },
 
     // ── Work Order Items ────────────────────────────────────────────────────
 
     workOrderItems: {
       byOrder: (workOrderId) => tryOr(async () => throwSupaError(await supabase.from('work_order_items').select('*').eq('business_id', bid).eq('work_order_id', workOrderId).order('created_at')), []),
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('work_order_items').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }).select('id').single())
         return row
       }),
-      update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('work_order_items').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
-      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('work_order_items').delete().eq('id', id).eq('business_id', bid)) }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('work_order_items').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('work_order_items').delete().eq('id', id).eq('business_id', bid)) }),
     },
 
     // ── Dealership: Vehicle Inventory (units for sale) ──────────────────────
@@ -6541,18 +6541,18 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(await q.order('listing_date', { ascending: false }))
       }, []),
       getById: (id) => tryOr(async () => throwSupaError(await supabase.from('vehicle_inventory').select('*').eq('id', id).eq('business_id', bid).single())),
-      create: (data) => withDealershipQ('vehicleInventory_create', data, () => tryOr(async () => {
+      create: (data) => withDealershipQ('vehicleInventory_create', data, () => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('vehicle_inventory').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id, supabase_id').single())
         return row
       })),
-      update: (id, data) => withDealershipQ('vehicleInventory_update', { id, data }, () => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('vehicle_inventory').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } })),
-      setStatus: (id, status) => withDealershipQ('vehicleInventory_setStatus', { id, status }, () => tryOr(async () => {
+      update: (id, data) => withDealershipQ('vehicleInventory_update', { id, data }, () => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('vehicle_inventory').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } })),
+      setStatus: (id, status) => withDealershipQ('vehicleInventory_setStatus', { id, status }, () => tryWrite(async () => {
         const patch = { status, updated_at: new Date().toISOString() }
         if (status === 'sold') patch.sold_date = new Date().toISOString()
         throwSupaError(await supabase.from('vehicle_inventory').update(patch).eq('id', id).eq('business_id', bid))
       })),
-      delete: (id) => withDealershipQ('vehicleInventory_delete', { id }, () => tryOr(async () => { throwSupaError(await supabase.from('vehicle_inventory').update({ active: false }).eq('id', id).eq('business_id', bid)) })),
-      uploadPhoto: (vehicleId, file) => tryOr(async () => {
+      delete: (id) => withDealershipQ('vehicleInventory_delete', { id }, () => tryWrite(async () => { throwSupaError(await supabase.from('vehicle_inventory').update({ active: false }).eq('id', id).eq('business_id', bid)) })),
+      uploadPhoto: (vehicleId, file) => tryWrite(async () => {
         if (!vehicleId || !file) return null
         const ext = (file.name?.split('.').pop() || 'jpg').toLowerCase()
         const path = `${bid}/${vehicleId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
@@ -6566,7 +6566,7 @@ export function createWebAPI(supabase, businessId) {
         throwSupaError(await supabase.from('vehicle_inventory').update({ photo_urls: next, updated_at: new Date().toISOString() }).eq('id', vehicleId).eq('business_id', bid))
         return url
       }),
-      removePhoto: (vehicleId, url) => tryOr(async () => {
+      removePhoto: (vehicleId, url) => tryWrite(async () => {
         const cur = throwSupaError(await supabase.from('vehicle_inventory').select('photo_urls').eq('id', vehicleId).eq('business_id', bid).single())
         const next = Array.isArray(cur?.photo_urls) ? cur.photo_urls.filter(u => u !== url) : []
         throwSupaError(await supabase.from('vehicle_inventory').update({ photo_urls: next, updated_at: new Date().toISOString() }).eq('id', vehicleId).eq('business_id', bid))
@@ -6577,7 +6577,7 @@ export function createWebAPI(supabase, businessId) {
           try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'warn', category: 'web.vehicle.removePhoto.storage_orphan', extra: { vehicleId, url } }) } catch {}
         }
       }),
-      bulkImport: (rows) => tryOr(async () => {
+      bulkImport: (rows) => tryWrite(async () => {
         if (!Array.isArray(rows) || rows.length === 0) return { inserted: 0 }
         const payload = rows.map(r => ({ ...r, supabase_id: crypto.randomUUID(), business_id: bid, active: true }))
         throwSupaError(await supabase.from('vehicle_inventory').insert(payload))
@@ -6596,7 +6596,7 @@ export function createWebAPI(supabase, businessId) {
         const cutoff = new Date(Date.now() + days * 86400000).toISOString()
         return throwSupaError(await supabase.from('vehicle_documents').select('*').eq('business_id', bid).eq('active', true).not('expires_at', 'is', null).lte('expires_at', cutoff).order('expires_at'))
       }, []),
-      upload: ({ vehicleSupabaseId, file, docType, expiresAt, notes }) => tryOr(async () => {
+      upload: ({ vehicleSupabaseId, file, docType, expiresAt, notes }) => tryWrite(async () => {
         if (!vehicleSupabaseId || !file) return null
         const ext = (file.name?.split('.').pop() || 'pdf').toLowerCase()
         const path = `${bid}/${vehicleSupabaseId}/${docType}-${Date.now()}.${ext}`
@@ -6617,7 +6617,7 @@ export function createWebAPI(supabase, businessId) {
         }).select('id, supabase_id').single())
         return row
       }),
-      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('vehicle_documents').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('vehicle_documents').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
     },
 
     // ── v2.16.0 Taller Mecánico hardening ───────────────────────────────────
@@ -6826,7 +6826,7 @@ export function createWebAPI(supabase, businessId) {
         await attachRel(supabase, [row], { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name,phone,rnc', asKey: 'clients', businessId: bid })
         return row
       }),
-      create: (data) => withDealershipQ('salesDeals_create', data, () => tryOr(async () => {
+      create: (data) => withDealershipQ('salesDeals_create', data, () => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('sales_deals').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id, supabase_id').single())
         if (data?.status === 'closed') {
           await logActivity({
@@ -6838,14 +6838,14 @@ export function createWebAPI(supabase, businessId) {
         }
         return row
       })),
-      update: (id, data) => withDealershipQ('salesDeals_update', { id, data }, () => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('sales_deals').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } })),
-      close: (id, ticketInfo) => withDealershipQ('salesDeals_close', { id, ticketInfo }, () => tryOr(async () => {
+      update: (id, data) => withDealershipQ('salesDeals_update', { id, data }, () => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('sales_deals').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } })),
+      close: (id, ticketInfo) => withDealershipQ('salesDeals_close', { id, ticketInfo }, () => tryWrite(async () => {
         const patch = { status: 'closed', closed_at: new Date().toISOString(), updated_at: new Date().toISOString() }
         if (ticketInfo?.ticket_id) patch.ticket_id = ticketInfo.ticket_id
         if (ticketInfo?.ticket_supabase_id) patch.ticket_supabase_id = ticketInfo.ticket_supabase_id
         throwSupaError(await supabase.from('sales_deals').update(patch).eq('id', id).eq('business_id', bid))
       })),
-      markCommissionPaid: (id) => tryOr(async () => {
+      markCommissionPaid: (id) => tryWrite(async () => {
         const cur = throwSupaError(await supabase.from('sales_deals').select('commission_amount, salesperson_supabase_id').eq('id', id).eq('business_id', bid).single())
         throwSupaError(await supabase.from('sales_deals').update({ commission_paid: true, commission_paid_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
         await logActivity({
@@ -6862,7 +6862,7 @@ export function createWebAPI(supabase, businessId) {
         if (salespersonSupabaseId) q = q.eq('salesperson_supabase_id', salespersonSupabaseId)
         return throwSupaError(await q.order('closed_at', { ascending: false }))
       }, []),
-      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('sales_deals').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('sales_deals').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
     },
 
     // ── Dealership: Vehicle Titulo (INTRANT matricula / traspaso) ───────────
@@ -7170,20 +7170,20 @@ export function createWebAPI(supabase, businessId) {
         await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name,phone', asKey: 'clients', businessId: bid })
         return rows
       }, []),
-      create: (data) => withDealershipQ('testDrives_create', data, () => tryOr(async () => {
+      create: (data) => withDealershipQ('testDrives_create', data, () => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('test_drives').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
         return row
       })),
-      update: (id, data) => withDealershipQ('testDrives_update', { id, data }, () => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('test_drives').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } })),
-      complete: (id, notes) => withDealershipQ('testDrives_complete', { id, notes }, () => tryOr(async () => { throwSupaError(await supabase.from('test_drives').update({ completed_at: new Date().toISOString(), notes, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) })),
-      setOutcome: (id, opts) => withDealershipQ('testDrives_setOutcome', { id, opts }, () => tryOr(async () => {
+      update: (id, data) => withDealershipQ('testDrives_update', { id, data }, () => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('test_drives').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } })),
+      complete: (id, notes) => withDealershipQ('testDrives_complete', { id, notes }, () => tryWrite(async () => { throwSupaError(await supabase.from('test_drives').update({ completed_at: new Date().toISOString(), notes, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) })),
+      setOutcome: (id, opts) => withDealershipQ('testDrives_setOutcome', { id, opts }, () => tryWrite(async () => {
         const { outcome, outcomeNotes, dealSupabaseId } = opts || {}
         const patch = { outcome, outcome_notes: outcomeNotes || null, updated_at: new Date().toISOString() }
         if (dealSupabaseId) patch.deal_supabase_id = dealSupabaseId
         if (outcome && !patch.completed_at) patch.completed_at = new Date().toISOString()
         throwSupaError(await supabase.from('test_drives').update(patch).eq('id', id).eq('business_id', bid))
       })),
-      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('test_drives').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('test_drives').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
     },
 
     // ── Dealership: Leads / Sales Pipeline ──────────────────────────────────
@@ -7194,12 +7194,12 @@ export function createWebAPI(supabase, businessId) {
         if (params?.stage) q = q.eq('stage', params.stage)
         return throwSupaError(await q.order('updated_at', { ascending: false }))
       }, []),
-      create: (data) => withDealershipQ('leads_create', data, () => tryOr(async () => {
+      create: (data) => withDealershipQ('leads_create', data, () => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('leads').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
         return row
       })),
-      update: (id, data) => withDealershipQ('leads_update', { id, data }, () => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('leads').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } })),
-      setStage: (id, stage, extra) => withDealershipQ('leads_setStage', { id, stage, extra }, () => tryOr(async () => {
+      update: (id, data) => withDealershipQ('leads_update', { id, data }, () => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('leads').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } })),
+      setStage: (id, stage, extra) => withDealershipQ('leads_setStage', { id, stage, extra }, () => tryWrite(async () => {
         const cur = throwSupaError(await supabase.from('leads').select('stage, name').eq('id', id).eq('business_id', bid).single())
         throwSupaError(await supabase.from('leads').update({ stage, ...(extra || {}), updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
         if (cur && cur.stage !== stage) {
@@ -7210,7 +7210,7 @@ export function createWebAPI(supabase, businessId) {
           })
         }
       })),
-      logContact: (id, opts) => withDealershipQ('leads_logContact', { id, opts }, () => tryOr(async () => {
+      logContact: (id, opts) => withDealershipQ('leads_logContact', { id, opts }, () => tryWrite(async () => {
         const { nextFollowupAt, notes } = opts || {}
         const cur = throwSupaError(await supabase.from('leads').select('name').eq('id', id).eq('business_id', bid).single())
         const patch = { last_contacted_at: new Date().toISOString(), updated_at: new Date().toISOString() }
@@ -7226,7 +7226,7 @@ export function createWebAPI(supabase, businessId) {
       overdue: () => tryOr(async () => {
         return throwSupaError(await supabase.from('leads').select('*').eq('business_id', bid).eq('active', true).not('next_followup_at', 'is', null).lte('next_followup_at', new Date().toISOString()).not('stage', 'in', '(closed,lost)').order('next_followup_at'))
       }, []),
-      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('leads').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('leads').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
     },
 
     // ── Appointments ────────────────────────────────────────────────────────
@@ -7253,7 +7253,7 @@ export function createWebAPI(supabase, businessId) {
         await attachRel(supabase, rows, { fkCol: 'client_supabase_id', targetTable: 'clients', selectCols: 'name,phone', asKey: 'clients', businessId: bid })
         return rows
       }, []),
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const sid = crypto.randomUUID()
         // v2.16.1 patch (#9) — fail closed if no stylist resolves. Caller may
         // pass empleado_supabase_id (canonical) OR empleado_id (legacy local
@@ -7292,9 +7292,9 @@ export function createWebAPI(supabase, businessId) {
         } catch (e) { console.warn('[appointments.create] reminder schedule failed:', e?.message || e) }
         return row
       }),
-      update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('appointments').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
-      setStatus: (id, status) => tryOr(async () => { throwSupaError(await supabase.from('appointments').update({ status, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
-      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('appointments').delete().eq('id', id).eq('business_id', bid)) }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('appointments').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      setStatus: (id, status) => tryWrite(async () => { throwSupaError(await supabase.from('appointments').update({ status, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('appointments').delete().eq('id', id).eq('business_id', bid)) }),
 
       // v2.16.1 — mark a salon appointment as no-show. Bumps the client's
       // no_show_count + stamps last_no_show_at. If a deposit was held, returns
@@ -7424,12 +7424,12 @@ export function createWebAPI(supabase, businessId) {
         return rows
       }, []),
       byEmpleado: (empleadoId) => tryOr(async () => throwSupaError(await supabase.from('stylist_schedules').select('*').eq('business_id', bid).eq('empleado_id', empleadoId).eq('active', true).order('day_of_week')), []),
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('stylist_schedules').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
         return row
       }),
-      update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('stylist_schedules').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
-      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('stylist_schedules').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('stylist_schedules').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('stylist_schedules').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
     },
 
     // ── Loans ───────────────────────────────────────────────────────────────
@@ -7569,7 +7569,7 @@ export function createWebAPI(supabase, businessId) {
           async () => { throwSupaError(await supabase.from('loans').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } },
         )
       },
-      setStatus: (id, status) => tryOr(async () => { throwSupaError(await supabase.from('loans').update({ status, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
+      setStatus: (id, status) => tryWrite(async () => { throwSupaError(await supabase.from('loans').update({ status, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
     },
 
     // ── Loan Payments ───────────────────────────────────────────────────────
@@ -7592,7 +7592,7 @@ export function createWebAPI(supabase, businessId) {
           },
         )
       },
-      update: (id, data) => tryOr(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('loan_payments').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('loan_payments').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
     },
 
     // ── Pawn Items ──────────────────────────────────────────────────────────
@@ -7635,7 +7635,7 @@ export function createWebAPI(supabase, businessId) {
           async () => { throwSupaError(await supabase.from('pawn_items').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } },
         )
       },
-      setStatus: (id, status) => tryOr(async () => {
+      setStatus: (id, status) => tryWrite(async () => {
         const patch = { status, updated_at: new Date().toISOString() }
         if (status === 'redeemed')  patch.redemption_date = new Date().toISOString()
         throwSupaError(await supabase.from('pawn_items').update(patch).eq('id', id).eq('business_id', bid))
@@ -7661,7 +7661,7 @@ export function createWebAPI(supabase, businessId) {
       // replay it via flushPendingPhotos() on reconnect. UI surfaces
       // toast: "Subir fotos requiere conexión. La prenda se guardó,
       // las fotos se subirán cuando vuelva el wifi."
-      uploadPhoto: ({ pawnSupabaseId, file }) => tryOr(async () => {
+      uploadPhoto: ({ pawnSupabaseId, file }) => tryWrite(async () => {
         if (!pawnSupabaseId || !file) return null
         const offline = typeof navigator !== 'undefined' && navigator.onLine === false
         if (offline) {
@@ -7693,7 +7693,7 @@ export function createWebAPI(supabase, businessId) {
           throw err
         }
       }),
-      uploadPrivate: ({ pawnSupabaseId, file, docType }) => tryOr(async () => {
+      uploadPrivate: ({ pawnSupabaseId, file, docType }) => tryWrite(async () => {
         if (!pawnSupabaseId || !file || !docType) return null
         const offline = typeof navigator !== 'undefined' && navigator.onLine === false
         if (offline) {
@@ -7742,7 +7742,7 @@ export function createWebAPI(supabase, businessId) {
           async () => throwSupaError(await supabase.from('pawn_documents').insert(payload).select('id, supabase_id').single()),
         )
       },
-      delete: (id) => tryOr(async () => { throwSupaError(await supabase.from('pawn_documents').delete().eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('pawn_documents').delete().eq('id', id).eq('business_id', bid)) }),
     },
 
     // ── Pawn Listings (publicar prenda decomisada para venta) ────────────────
@@ -7781,13 +7781,13 @@ export function createWebAPI(supabase, businessId) {
       list: ({ loan_id }) => tryOr(async () => throwSupaError(
         await supabase.from('loan_schedule').select('*').eq('business_id', bid).eq('loan_id', loan_id).order('installment_no', { ascending: true })
       ), []),
-      bulkCreate: (rows) => tryOr(async () => {
+      bulkCreate: (rows) => tryWrite(async () => {
         if (!Array.isArray(rows) || !rows.length) return { count: 0 }
         const payload = rows.map(r => ({ ...r, supabase_id: r.supabase_id || crypto.randomUUID(), business_id: bid }))
         throwSupaError(await supabase.from('loan_schedule').insert(payload))
         return { count: payload.length }
       }),
-      markPaid: ({ id, paid_amount }) => tryOr(async () => {
+      markPaid: ({ id, paid_amount }) => tryWrite(async () => {
         throwSupaError(await supabase.from('loan_schedule').update({ paid_amount, paid_at: new Date().toISOString(), status: 'paid', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
       }),
     },
@@ -7934,7 +7934,7 @@ export function createWebAPI(supabase, businessId) {
           .order('created_at', { ascending: false }))
         return rows || []
       }, []),
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('memberships').insert({
           supabase_id: crypto.randomUUID(),
           business_id: bid,
@@ -7950,12 +7950,12 @@ export function createWebAPI(supabase, businessId) {
         }).select('id,supabase_id').single())
         return row
       }),
-      update: (data) => tryOr(async () => {
+      update: (data) => tryWrite(async () => {
         const { id, ...rest } = data
         throwSupaError(await supabase.from('memberships').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
         return { id }
       }),
-      consume: ({ id }) => tryOr(async () => {
+      consume: ({ id }) => tryWrite(async () => {
         const { data: m } = await supabase.from('memberships').select('washes_used_this_period,wash_quota_per_month').eq('id', id).eq('business_id', bid).single()
         if (!m) return { ok: false, error: 'not_found' }
         if (m.washes_used_this_period >= m.wash_quota_per_month) return { ok: false, error: 'quota_exceeded', remaining: 0 }
@@ -7963,7 +7963,7 @@ export function createWebAPI(supabase, businessId) {
         throwSupaError(await supabase.from('memberships').update({ washes_used_this_period: newUsed, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
         return { ok: true, remaining: m.wash_quota_per_month - newUsed }
       }),
-      delete: ({ id }) => tryOr(async () => {
+      delete: ({ id }) => tryWrite(async () => {
         throwSupaError(await supabase.from('memberships').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
         return true
       }),
@@ -8004,7 +8004,7 @@ export function createWebAPI(supabase, businessId) {
           .order('purchased_at', { ascending: true }))
         return (rows || []).filter(r => r.used_washes < r.total_washes)
       }, []),
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('wash_combos').insert({
           supabase_id: crypto.randomUUID(),
           business_id: bid,
@@ -8019,7 +8019,7 @@ export function createWebAPI(supabase, businessId) {
         }).select('id,supabase_id').single())
         return row
       }),
-      consume: ({ id }) => tryOr(async () => {
+      consume: ({ id }) => tryWrite(async () => {
         const { data: c } = await supabase.from('wash_combos').select('used_washes,total_washes').eq('id', id).eq('business_id', bid).single()
         if (!c) return { ok: false, error: 'not_found' }
         if (c.used_washes >= c.total_washes) return { ok: false, error: 'combo_exhausted' }
@@ -8028,7 +8028,7 @@ export function createWebAPI(supabase, businessId) {
         throwSupaError(await supabase.from('wash_combos').update({ used_washes: newUsed, status: newStatus, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
         return { ok: true, remaining: c.total_washes - newUsed }
       }),
-      delete: ({ id }) => tryOr(async () => {
+      delete: ({ id }) => tryWrite(async () => {
         throwSupaError(await supabase.from('wash_combos').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
         return true
       }),
@@ -9083,7 +9083,7 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(await q) || []
       }, []),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         if (!data?.name || !String(data.name).trim()) throw new Error('Nombre requerido')
         const sid = crypto.randomUUID()
         return throwSupaError(await supabase.from('food_truck_locations').insert({
@@ -9097,7 +9097,7 @@ export function createWebAPI(supabase, businessId) {
         }).select('*').single())
       }),
 
-      update: (id, patch) => tryOr(async () => {
+      update: (id, patch) => tryWrite(async () => {
         const allowed = ['name','lat','lng','notes','active']
         const body = Object.fromEntries(Object.entries(patch || {}).filter(([k]) => allowed.includes(k)))
         if (!Object.keys(body).length) {
@@ -9108,7 +9108,7 @@ export function createWebAPI(supabase, businessId) {
         )
       }),
 
-      delete: (id) => tryOr(async () => {
+      delete: (id) => tryWrite(async () => {
         await supabase.from('food_truck_locations').delete().eq('id', id).eq('business_id', bid)
         return { ok: true }
       }),
@@ -9123,7 +9123,7 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(await q) || []
       }, []),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         if (data?.qty == null || !Number.isFinite(Number(data.qty))) throw new Error('Cantidad requerida')
         if (!data?.reason || !String(data.reason).trim()) throw new Error('Motivo requerido')
         const sid = crypto.randomUUID()
@@ -9148,7 +9148,7 @@ export function createWebAPI(supabase, businessId) {
         return row
       }),
 
-      delete: (id) => tryOr(async () => {
+      delete: (id) => tryWrite(async () => {
         await supabase.from('waste_log').delete().eq('id', id).eq('business_id', bid)
         return { ok: true }
       }),

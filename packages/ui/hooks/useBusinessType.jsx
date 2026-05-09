@@ -139,19 +139,19 @@ export function BusinessTypeProvider({ children }) {
   const setBusinessType = useCallback(async (type) => {
     const norm = normalise(type)
     setType(norm)
-    try { await api?.settings?.update?.({ business_type: norm }) } catch {}
+    try { await api?.settings?.update?.({ business_type: norm }) } catch (err) { try { window.__txReportError?.(err, { severity: 'warn', category: 'businessType.set', extra: { type: norm } }) } catch {} }
   }, [api])
 
   const setHybridComponents = useCallback(async (next) => {
     const norm = normalizeHybridComponents(next)
     setHybridComponentsState(norm)
-    try { await api?.settings?.update?.({ [HYBRID_COMPONENTS_KEY]: norm.join(',') }) } catch {}
+    try { await api?.settings?.update?.({ [HYBRID_COMPONENTS_KEY]: norm.join(',') }) } catch (err) { try { window.__txReportError?.(err, { severity: 'warn', category: 'businessType.hybridComponents.set', extra: { components: norm } }) } catch {} }
   }, [api])
 
   const setTiendaSubtype = useCallback(async (subtype) => {
     const key = TIENDA_SUBTYPES[subtype] ? subtype : 'otro'
     setTiendaSubtypeState(key)
-    try { await api?.settings?.update?.({ [SUBTYPE_SETTING_KEY]: key }) } catch {}
+    try { await api?.settings?.update?.({ [SUBTYPE_SETTING_KEY]: key }) } catch (err) { try { window.__txReportError?.(err, { severity: 'warn', category: 'businessType.tiendaSubtype.set', extra: { subtype: key } }) } catch {} }
   }, [api])
 
   const setFeatureOverride = useCallback(async (featureName, value) => {
@@ -163,7 +163,7 @@ export function BusinessTypeProvider({ children }) {
     try {
       const payload = { [featureOverrideKey(featureName)]: value === null || value === undefined ? '' : (value ? 'true' : 'false') }
       await api?.settings?.update?.(payload)
-    } catch {}
+    } catch (err) { try { window.__txReportError?.(err, { severity: 'warn', category: 'businessType.featureOverride.set', extra: { featureName, value } }) } catch {} }
   }, [api, featureOverrides])
 
   const clearFeatureOverrides = useCallback(async () => {
@@ -173,7 +173,7 @@ export function BusinessTypeProvider({ children }) {
       const payload = {}
       for (const k of keys) payload[featureOverrideKey(k)] = ''
       if (keys.length) await api?.settings?.update?.(payload)
-    } catch {}
+    } catch (err) { try { window.__txReportError?.(err, { severity: 'warn', category: 'businessType.featureOverrides.clear', extra: { keys } }) } catch {} }
   }, [api, featureOverrides])
 
   const flags = flagsFor(businessType, hybridComponents)

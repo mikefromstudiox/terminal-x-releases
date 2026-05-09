@@ -248,7 +248,9 @@ export default function InvoiceList() {
           reason: voidReason || null,
           metadata: { eNCF: t._ecf?.eNCF || null, comprobante_type: t.comprobante_type || null },
         })
-      } catch {}
+      } catch (err) {
+        try { window.__txReportError?.(err, { severity: 'warn', category: 'invoice.void.activity_log', extra: { ticketId: t.id, eNCF: t._ecf?.eNCF || null } }) } catch {}
+      }
       setDetail(null)
       setVoidCandidate(null)
     } catch (err) {

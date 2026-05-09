@@ -114,7 +114,11 @@ async function handler(req, res) {
       return json(res, 200, { ok: true, data: { codigo: result.codigo, mensajes: result.mensajes || [], nombre: result.nombre, signedXml } })
     } catch (err) {
       clearTokenCache()
-      return json(res, 200, { ok: false, error: err.message || 'Error anulando rango' })
+      // 2026-05-09 — return 502 (DGII upstream error) instead of 200+ok:false.
+      // All callers inspect body.ok — purely additive (correct HTTP status for
+      // monitoring + CDN + Vercel logs). Verified: zero callers check res.ok.
+      console.error('[ecf-sign] void/ANECF DGII error:', err?.message)
+      return json(res, 502, { ok: false, error: err.message || 'Error anulando rango' })
     }
   }
 
@@ -135,7 +139,8 @@ async function handler(req, res) {
       const { signedXml, securityCode, signatureDate } = signXML(xml, ctx.settings.ecf_private_key_pem, ctx.settings.ecf_certificate_pem)
       return json(res, 200, { ok: true, data: { signedXml, securityCode, signatureDate } })
     } catch (err) {
-      return json(res, 200, { ok: false, error: err.message || 'Error firmando ARECF' })
+      console.error('[ecf-sign] ARECF sign error:', err?.message)
+      return json(res, 502, { ok: false, error: err.message || 'Error firmando ARECF' })
     }
   }
 
@@ -155,7 +160,8 @@ async function handler(req, res) {
       const { signedXml, securityCode, signatureDate } = signXML(xml, ctx.settings.ecf_private_key_pem, ctx.settings.ecf_certificate_pem)
       return json(res, 200, { ok: true, data: { signedXml, securityCode, signatureDate } })
     } catch (err) {
-      return json(res, 200, { ok: false, error: err.message || 'Error firmando ACECF' })
+      console.error('[ecf-sign] ACECF sign error:', err?.message)
+      return json(res, 502, { ok: false, error: err.message || 'Error firmando ACECF' })
     }
   }
 

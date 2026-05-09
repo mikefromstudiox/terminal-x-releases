@@ -1310,7 +1310,7 @@ function ScreenANECF() {
 // ─────────────────────────────────────────────────────────────────────────────
 // ── ScreenCert — web-only Viafirma .p12 installer ───────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-function ScreenCert() {
+export function ScreenCert() {
   const api = useAPI()
   const { lang } = useLang()
   const { user } = useAuth()
@@ -1826,17 +1826,17 @@ export default function DGII() {
   const initialTab = (() => {
     if (typeof window === 'undefined') return '606'
     const t = new URLSearchParams(window.location.search).get('tab')
-    return ['606', '607', 'anecf', 'cert'].includes(t) ? t : '606'
+    if (t === 'cert') return '606'  // legacy deep-link → cert lives in /config/ncf now
+    return ['606', '607', 'anecf'].includes(t) ? t : '606'
   })()
   const [screen, setScreen] = useState(initialTab)
   const { lang } = useLang()
   const { user } = useAuth()
   const L = (es, en) => lang === 'es' ? es : en
 
-  // Cert tab is web-only (desktop has its own installer in Settings) and owner-only.
-  const isWeb       = typeof window !== 'undefined' && !window.electronAPI
-  const isOwner     = String(user?.role || '').toLowerCase() === 'owner'
-  const showCertTab = isWeb && isOwner
+  // 2026-05-09 — Cert tab moved to /config/ncf alongside fiscal mode toggle
+  // and sequences. DGII shell now keeps only 606 / 607 / Anular.
+  const showCertTab = false
 
   return (
     <div className="h-full flex flex-col bg-slate-50 dark:bg-black overflow-hidden">

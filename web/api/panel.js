@@ -1275,6 +1275,7 @@ async function handleCronDgiiPull(req, res) {
     }
     return res.json({ ok: true, processed: results.length, results })
   } catch (err) {
+    console.error('[panel] dgii-pull-tick', err?.message, err?.stack)
     return res.status(500).json({ error: err.message })
   }
 }

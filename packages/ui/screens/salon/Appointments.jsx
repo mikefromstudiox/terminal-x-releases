@@ -505,7 +505,7 @@ export default function Appointments() {
         api?.appointments?.list?.({ date: selectedDate }) || [],
         api?.clients?.all?.() || [],
         api?.empleados?.all?.() || [],
-        api?.services?.getAll?.() || [],
+        api?.services?.all?.() || [],
         api?.stylistSchedules?.list?.() || [],
       ])
       setAppointments(appts || [])

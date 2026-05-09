@@ -682,7 +682,9 @@ function SupportTicketButton({ collapsed, lang, businessId }) {
       })
       setSent(true)
       setTimeout(() => { setOpen(false); setSent(false); setSubject(''); setMessage('') }, 2000)
-    } catch {}
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'sidebar.support_ticket.create', extra: { businessId, subjectLen: subject.length } }) } catch {}
+    }
     setSending(false)
   }
 

@@ -69,6 +69,8 @@ async function handler(req, res) {
     if (insErr) throw insErr
     return res.json({ ok: true, lead_id: row.id, mode: 'created' })
   } catch (err) {
+    console.error('[signup/lead]', err?.message, err?.stack)
+    try { (await import('../../lib/report-server-error.js')).reportServerError?.(err, { route: '/api/signup/lead' }) } catch {}
     return res.status(500).json({ error: 'Lead capture failed' })
   }
 }

@@ -149,6 +149,8 @@ async function handler(req, res) {
 
     return res.json({ ok: true, business_id: biz.id })
   } catch (err) {
+    console.error('[signup/provision]', err?.message, err?.stack)
+    try { (await import('../../lib/report-server-error.js')).reportServerError?.(err, { route: '/api/signup/provision' }) } catch {}
     return res.status(500).json({ error: 'Provisioning failed' })
   }
 }

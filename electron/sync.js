@@ -717,7 +717,7 @@ const SYNC_TABLES = [
       try {
         const items = _db.rawPrepare('SELECT name, price, quantity FROM ticket_items WHERE ticket_id = ?').all(r.id)
         if (items.length) services_json = items.map(i => ({ name: i.name, price: i.price, qty: i.quantity || 1 }))
-      } catch {}
+      } catch (e) { try { log.warn('[sync] tickets enrich services_json:', e?.message); _reportSyncError && _reportSyncError(e, 'sync.push.tickets.services_json') } catch {} }
       // Resolve cajero name for dashboard display
       let cajero_name = null
       try {
@@ -725,7 +725,7 @@ const SYNC_TABLES = [
           const u = _db.rawPrepare('SELECT name FROM users WHERE id = ?').get(r.cajero_id)
           if (u) cajero_name = u.name
         }
-      } catch {}
+      } catch (e) { try { log.warn('[sync] tickets enrich cajero_name:', e?.message); _reportSyncError && _reportSyncError(e, 'sync.push.tickets.cajero_name') } catch {} }
       // Resolve client name
       let client_name = null
       try {
@@ -733,7 +733,7 @@ const SYNC_TABLES = [
           const c = _db.rawPrepare('SELECT name FROM clients WHERE id = ?').get(r.client_id)
           if (c) client_name = c.name
         }
-      } catch {}
+      } catch (e) { try { log.warn('[sync] tickets enrich client_name:', e?.message); _reportSyncError && _reportSyncError(e, 'sync.push.tickets.client_name') } catch {} }
       return {
         supabase_id: r.supabase_id,
         doc_number: r.doc_number,
@@ -922,7 +922,10 @@ const SYNC_TABLES = [
         if (!r.ticket_id) return true
         const t = _db.rawPrepare('SELECT is_test FROM tickets WHERE id=?').get(r.ticket_id)
         return !(t && t.is_test)
-      } catch { return true }
+      } catch (e) {
+        try { log.warn('[sync] ticket_items rowFilter parent lookup:', e?.message); _reportSyncError && _reportSyncError(e, 'sync.push.ticket_items.parent_lookup') } catch {}
+        return true
+      }
     },
     cols: r => ({
       supabase_id: r.supabase_id,
@@ -1358,13 +1361,13 @@ const SYNC_TABLES = [
           const row = _db.rawPrepare('SELECT supabase_id FROM queue WHERE id = ?').get(r.queue_id)
           queue_sid = row?.supabase_id || null
         }
-      } catch {}
+      } catch (e) { try { log.warn('[sync] queue_deletions resolve queue_sid:', e?.message); _reportSyncError && _reportSyncError(e, 'sync.push.queue_deletions.queue_sid') } catch {} }
       try {
         if (r.ticket_id) {
           const row = _db.rawPrepare('SELECT supabase_id FROM tickets WHERE id = ?').get(r.ticket_id)
           ticket_sid = row?.supabase_id || null
         }
-      } catch {}
+      } catch (e) { try { log.warn('[sync] queue_deletions resolve ticket_sid:', e?.message); _reportSyncError && _reportSyncError(e, 'sync.push.queue_deletions.ticket_sid') } catch {} }
       return {
         supabase_id: r.supabase_id,
         queue_id: queue_sid,
@@ -2864,7 +2867,8 @@ function updateSyncLog(tableName, lastId, rowCount, error) {
   // users / support without having to query sync_log. Silent sync failures
   // cost us hours on the activity_log RLS bug.
   if (error && _errorLogSink) {
-    try { _errorLogSink(`sync-push:${tableName}`, new Error(String(error).slice(0, 500)), [{ lastId, rowCount }]) } catch {}
+    try { _errorLogSink(`sync-push:${tableName}`, new Error(String(error).slice(0, 500)), [{ lastId, rowCount }]) }
+    catch (e) { try { log.error('[sync] errorLogSink failed:', e?.message) } catch {} }
   }
   try {
     // v2.0.2 — use ISO 8601 UTC format so last_synced_at is lexicographically
@@ -3656,7 +3660,8 @@ async function pullTable(tableConfig) {
         ? new Date(ms + 1).toISOString()
         : latestUpdatedAt
       updatePullLog(name, advanced)
-    } catch {
+    } catch (e) {
+      try { log.warn(`[sync-pull] ${name} cursor advance fallback:`, e?.message); _reportSyncError && _reportSyncError(e, `sync.pull.${name}.cursor_advance`) } catch {}
       updatePullLog(name, latestUpdatedAt)
     }
   }
@@ -3771,7 +3776,8 @@ async function pullAppSettings(bizId) {
         : String(latestUpdatedAt).replace(' ', 'T') + 'Z'
       const ms = Date.parse(iso)
       updatePullLog('app_settings', Number.isFinite(ms) ? new Date(ms + 1).toISOString() : latestUpdatedAt)
-    } catch {
+    } catch (e) {
+      try { log.warn('[sync-pull] app_settings cursor advance fallback:', e?.message); _reportSyncError && _reportSyncError(e, 'sync.pull.app_settings.cursor_advance') } catch {}
       updatePullLog('app_settings', latestUpdatedAt)
     }
   }

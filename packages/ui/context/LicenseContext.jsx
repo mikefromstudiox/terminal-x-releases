@@ -190,10 +190,14 @@ export function LicenseProvider({ children }) {
                 bizSync.ecf_private_key_pem = pemResult.data.privateKeyPem
                 bizSync.ecf_certificate_pem = pemResult.data.certificatePem
               }
-            } catch {}
+            } catch (err) {
+              try { window.__txReportError?.(err, { severity: 'critical', category: 'license.certPem.load' }) } catch {}
+            }
           }
         }
-      } catch {}
+      } catch (err) {
+        try { window.__txReportError?.(err, { severity: 'warn', category: 'license.bizSync.cert.metadata' }) } catch {}
+      }
       const res = await validateLicense(k, h, r, bizSync)
       // Track last successful online validation for offline grace
       if (res.valid) {
@@ -272,7 +276,9 @@ export function LicenseProvider({ children }) {
         try {
           const { printer, print_preticket, print_factura_auto, print_conduce_auto, ...safeConfig } = res.remoteConfig
           await api.settings.update(safeConfig)
-        } catch {}
+        } catch (err) {
+          try { window.__txReportError?.(err, { severity: 'warn', category: 'license.remoteConfig.persist' }) } catch {}
+        }
       }
       // Sync business settings (logo, name, etc.) from server.
       // validate.js spreads `biz.settings` flat into bizSettings, so we must

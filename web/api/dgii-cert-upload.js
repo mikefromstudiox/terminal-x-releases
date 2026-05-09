@@ -260,11 +260,15 @@ async function handler(req, res) {
   }
 
   // Persist serial into settings so the next upload can diff against it.
+  // Silent failure here mis-classifies the next upload as "initial" instead
+  // of "renewal" in the audit history — must log so we can debug.
   try {
     await supabase.from('businesses').update({
       settings: { ...merged, ecf_cert_serial: certSerial }
     }).eq('id', businessId)
-  } catch {}
+  } catch (e) {
+    console.error('[dgii-cert-upload] serial persist failed:', e?.message)
+  }
 
   return json(res, 200, { ok: true, subject, expiry: expiryISO, expired })
 }

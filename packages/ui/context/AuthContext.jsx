@@ -76,7 +76,7 @@ export function AuthProvider({ children }) {
       try {
         const [empresa, kv] = await Promise.all([
           api?.admin?.getEmpresa?.().catch(() => null),
-          api?.settings?.getAll?.().catch(() => null),
+          api?.settings?.get?.().catch(() => null),
         ])
         if (cancelled) return
         const businessId   = empresa?.business_id || empresa?.id || empresa?.supabase_id || null

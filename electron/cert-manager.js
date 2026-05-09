@@ -105,7 +105,7 @@ function installCert(sourcePath, passphrase, opts = {}) {
   // disk. This is the whole point of the audit trail — we must record the
   // rotation event while we still have both old and new cert in hand.
   let prevInfo = null
-  try { prevInfo = getCertInfo() } catch {}
+  try { prevInfo = getCertInfo() } catch (e) { console.warn('[cert-manager] prevInfo lookup failed (rotation will mark as initial):', e?.message) }
   const hadPrev = prevInfo && prevInfo.installed && prevInfo.serialNumber
   let rotationReason = 'initial'
   if (hadPrev) {

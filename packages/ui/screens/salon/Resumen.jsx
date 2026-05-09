@@ -65,7 +65,7 @@ export default function Resumen() {
         api?.appointments?.byDate?.(today).catch(() => []) || api?.appointments?.list?.({ date: today }).catch(() => []) || [],
         api?.tickets?.byDateRange?.({ from: monthStart, to: monthEnd }).catch(() => []) || [],
         api?.empleados?.all?.() || [],
-        api?.services?.getAll?.() || [],
+        api?.services?.all?.() || [],
         api?.appointmentReminders?.pendingDue?.(next24).catch(() => []) || [],
         api?.appointments?.upcomingBetween?.(new Date().toISOString(), next24).catch(() => null),
         api?.stylistSchedules?.list?.().catch(() => []) || [],

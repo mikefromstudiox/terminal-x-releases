@@ -1538,7 +1538,7 @@ export function FiscalNCF() {
 // Cloud-synced via api.settings.update(). Keys are whitelisted in
 // `packages/services/settingsWhitelist.js` under BUSINESS_SETTING_KEYS so the
 // values land in `app_settings` and propagate across devices.
-function SalonSettings() {
+export function SalonSettings() {
   const api          = useAPI()
   const { lang }     = useLang()
   const L            = (es, en) => lang === 'es' ? es : en
@@ -2055,36 +2055,6 @@ function MiEmpresa() {
         </div>
       )}
 
-      {/* ── Collapsible sub-sections ── */}
-      <div className="mt-6 space-y-3">
-        <p className="text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider">{L('Configuracion Avanzada', 'Advanced Settings')}</p>
-
-        <CollapsibleSection title="WhatsApp" icon={ExternalLink}>
-          <WhatsAppSettings embedded />
-        </CollapsibleSection>
-
-        <CollapsibleSection title={L('Fiscal / NCF', 'Fiscal / NCF')} icon={FileText}>
-          <FiscalNCF />
-        </CollapsibleSection>
-
-        <CollapsibleSection title={L('Respaldo / Nube', 'Backup / Cloud')} icon={Wifi}>
-          <Respaldo />
-        </CollapsibleSection>
-
-        <CollapsibleSection title={L('Respaldo en la Nube', 'Cloud Backup')} icon={CloudUpload}>
-          <CloudBackup />
-        </CollapsibleSection>
-
-        <CollapsibleSection title={L('Funciones del Negocio', 'Business Features')} icon={ToggleLeft}>
-          <BusinessFeatureToggles />
-        </CollapsibleSection>
-
-        {businessType === 'salon' && (
-          <CollapsibleSection title={L('Salón / Barbería', 'Salon / Barbershop')} icon={Scissors}>
-            <SalonSettings />
-          </CollapsibleSection>
-        )}
-      </div>
     </div>
   )
 }
@@ -2094,7 +2064,7 @@ function MiEmpresa() {
 // (currently: Comisiones tab in Reportes). Reads + writes through
 // useBusinessType().setFeatureOverride which persists to app_settings as
 // `feature_<name>_enabled` and syncs to Supabase like every other setting.
-function BusinessFeatureToggles() {
+export function BusinessFeatureToggles() {
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
   const { hasFeature, setFeatureOverride, businessType, isLicoreria } = useBusinessType()

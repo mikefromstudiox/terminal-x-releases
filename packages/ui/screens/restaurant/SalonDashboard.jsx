@@ -116,7 +116,7 @@ export default function SalonDashboard() {
       const [mesas, todayTickets, empleados] = await Promise.all([
         api.mesas?.list?.() || [],
         api.tickets?.all?.({ dateFrom: todayStart, dateTo: todayEnd, limit: 5000 }) || [],
-        api.empleados?.list?.() || api.empleados?.getAll?.() || [],
+        api.empleados?.list?.() || api.empleados?.all?.() || [],
       ])
 
       // Flatten ticket_items already present on each ticket (web.js attaches them).

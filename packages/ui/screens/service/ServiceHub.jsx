@@ -260,7 +260,7 @@ function PackagesTab() {
 
   async function reload() {
     setLoading(true)
-    try { setRows((await api?.servicePackages?.list?.({})) || []) } catch {}
+    try { setRows((await api?.servicePackages?.list?.({})) || []) } catch (err) { try { window.__txReportError?.(err, { severity: 'warn', category: 'service.servicePackages.list' }) } catch {} }
     setLoading(false)
   }
   useEffect(() => { reload() }, [])
@@ -362,7 +362,7 @@ function ProjectsTab() {
 
   async function reload() {
     setLoading(true)
-    try { setRows((await api?.projects?.list?.({})) || []) } catch {}
+    try { setRows((await api?.projects?.list?.({})) || []) } catch (err) { try { window.__txReportError?.(err, { severity: 'warn', category: 'service.projects.list' }) } catch {} }
     setLoading(false)
   }
   useEffect(() => { reload() }, [])
@@ -465,7 +465,7 @@ function RatesTab() {
 
   async function reload() {
     setLoading(true)
-    try { setRows((await api?.clientRates?.list?.({})) || []) } catch {}
+    try { setRows((await api?.clientRates?.list?.({})) || []) } catch (err) { try { window.__txReportError?.(err, { severity: 'warn', category: 'service.clientRates.list' }) } catch {} }
     setLoading(false)
   }
   useEffect(() => { reload() }, [])

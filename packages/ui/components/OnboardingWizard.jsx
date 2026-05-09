@@ -74,11 +74,15 @@ export default function OnboardingWizard() {
         const certInstalled = !!(c?.installed)
         const hasTicket = Array.isArray(t) ? t.length > 0 : false
         if (bizFilled && certInstalled && hasTicket) {
-          try { await api.settings?.update?.({ [STATE_KEY]: 'completed' }) } catch {}
+          try { await api.settings?.update?.({ [STATE_KEY]: 'completed' }) } catch (err) {
+            try { window.__txReportError?.(err, { severity: 'warn', category: 'onboarding.autoComplete.persist' }) } catch {}
+          }
           return
         }
         setOpen(true)
-      } catch {}
+      } catch (err) {
+        try { window.__txReportError?.(err, { severity: 'warn', category: 'onboarding.bootstrap.load' }) } catch {}
+      }
     })()
     return () => { cancelled = true }
   }, [api, isWeb, isOwner, user?.id])
@@ -150,7 +154,9 @@ export default function OnboardingWizard() {
     setPersisting(true)
     try {
       await api.settings?.update?.({ [STATE_KEY]: state })
-    } catch {}
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'onboarding.persistState', extra: { state } }) } catch {}
+    }
     setPersisting(false)
     setOpen(false)
   }

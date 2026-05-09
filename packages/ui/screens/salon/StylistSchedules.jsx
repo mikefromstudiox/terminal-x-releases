@@ -68,7 +68,7 @@ export default function StylistSchedules() {
         api?.stylistSchedules?.list?.() || [],
         // Best-effort: list today's tickets so we can compute commissions inline.
         api?.tickets?.list?.({ from: today, to: today }) || api?.tickets?.list?.({ date: today }) || [],
-        api?.services?.getAll?.() || [],
+        api?.services?.all?.() || [],
       ])
       // Salon schedules only make sense for stylists (tipo lavador or hybrid) or any active empleado.
       const activeEmps = (emps || []).filter(e => e.active !== 0)

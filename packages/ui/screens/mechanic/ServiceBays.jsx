@@ -297,7 +297,7 @@ export default function ServiceBays() {
   }
 
   async function handleStatusChange(bayId, newStatus) {
-    await api.serviceBays.updateStatus({ id: bayId, status: newStatus })
+    await api.serviceBays.setStatus(bayId, newStatus)
     await loadBays()
     flash(L('Estado actualizado', 'Status updated'))
   }

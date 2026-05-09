@@ -235,8 +235,14 @@ export default function FoodTruckPOS() {
     setBusy('Cargando orden…')
     try {
       // Fetch full ticket + items so we can rebuild the cart shape.
-      const ticket = await api.tickets?.getById?.(pendingTicketRow.id) || pendingTicketRow
-      const lines = Array.isArray(ticket.items) ? ticket.items : []
+      // NOTE: the method is `byId`, NOT `getById` — typo'd optional-chain
+      // returned undefined and we silently fell back to the listOpen row
+      // (which has no price field) → cart rendered at $0.
+      const ticket = await api.tickets.byId(pendingTicketRow.id)
+      if (!ticket) throw new Error('Orden no encontrada en el servidor')
+      const lines = Array.isArray(ticket.items) && ticket.items.length
+        ? ticket.items
+        : (Array.isArray(pendingTicketRow.items) ? pendingTicketRow.items : [])
       setItems(lines.map(it => ({
         local_id: uuidv4(),
         service_id:           it.service_id || null,

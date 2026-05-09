@@ -855,7 +855,7 @@ export default function RestaurantPOS() {
       const [mList, sList, eList, settings] = await Promise.all([
         api.mesas?.list?.() || [],
         api.services?.all?.() || [],
-        api.empleados?.list?.() || api.empleados?.getAll?.() || [],
+        api.empleados?.list?.() || api.empleados?.all?.() || [],
         api.settings?.get?.() || Promise.resolve({}),
       ])
       const hhFlag = settings?.restaurant_happy_hour_enabled

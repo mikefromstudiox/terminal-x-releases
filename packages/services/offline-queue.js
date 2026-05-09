@@ -594,12 +594,19 @@ export async function syncPendingTickets(supabase, businessId) {
         if (status === 'pendiente' && data.client_id) {
           await supabase.rpc('increment_client_balance', { cid: data.client_id, delta: data.total }).catch(() => {})
         }
-      } catch {
-        // Individual ticket failed — leave in queue for next cycle
+      } catch (err) {
+        // Individual ticket failed — leave in queue for next cycle.
+        // Report so the dead-letter doesn't rot silently across cycles.
+        try { window.__txReportError?.(err, { severity: 'warn', category: 'sync', extra: { stage: 'syncPendingTickets.row', queueId: item.id, ticketSupabaseId: item.payload?.supabase_id } }) } catch {}
+        // eslint-disable-next-line no-console
+        console.warn('[offline-queue] ticket replay failed (retained):', err?.message || err)
       }
     }
-  } catch {
-    // Never throw from sync
+  } catch (err) {
+    // Never throw from sync (caller is a polling loop), but do report.
+    try { window.__txReportError?.(err, { severity: 'warn', category: 'sync', extra: { stage: 'syncPendingTickets.outer' } }) } catch {}
+    // eslint-disable-next-line no-console
+    console.warn('[offline-queue] syncPendingTickets failed:', err?.message || err)
   }
 }
 
@@ -623,8 +630,12 @@ export async function syncPendingECFs(supabase, businessId) {
         await markECFFailed(item.id, err)
       }
     }
-  } catch {
-    // Never throw from sync
+  } catch (err) {
+    // Never throw from sync, but DO report — fiscal queue silence is the
+    // exact bug class that hides 72h-deferral overflows.
+    try { window.__txReportError?.(err, { severity: 'critical', category: 'ecf', extra: { stage: 'syncPendingECFs.outer' } }) } catch {}
+    // eslint-disable-next-line no-console
+    console.error('[offline-queue] syncPendingECFs failed:', err?.message || err)
   }
 }
 

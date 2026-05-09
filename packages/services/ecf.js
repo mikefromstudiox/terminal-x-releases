@@ -654,11 +654,18 @@ export async function signAndSubmitECF(invoiceData, api) {
     return signAndSubmitECFStub(invoiceData)
   }
 
-  // Check if certificate is installed
+  // Check if certificate is installed.
+  // A throw here used to silently fall through to the STUB path, which
+  // mints a fake e-CF response and breaks fiscal compliance. Report and
+  // surface so the caller knows the cert layer is unhealthy.
   let certInfo
   try {
     certInfo = await dgiiApi.certInfo()
-  } catch {}
+  } catch (err) {
+    try { window.__txReportError?.(err, { severity: 'critical', category: 'ecf', extra: { stage: 'certInfo' } }) } catch {}
+    // eslint-disable-next-line no-console
+    console.error('[ecf] certInfo failed — falling back to stub:', err?.message || err)
+  }
 
   if (!certInfo?.installed) {
     return signAndSubmitECFStub(invoiceData)

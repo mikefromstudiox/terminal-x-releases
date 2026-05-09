@@ -82,7 +82,7 @@ export default function WhatsAppLog() {
         recent = await api.appointmentReminders.pendingDue() || []
       }
       const [clients, emps, appts] = await Promise.all([
-        api?.clients?.getAll?.().catch(() => []) || [],
+        api?.clients?.all?.().catch(() => []) || [],
         api?.empleados?.all?.().catch(() => []) || [],
         api?.appointments?.list?.().catch(() => []) || [],
       ])

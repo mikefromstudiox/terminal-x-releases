@@ -57,7 +57,14 @@ async function exportLocalDB() {
     if (window.electronAPI?.db?.exportAll) {
       return await window.electronAPI.db.exportAll()
     }
-  } catch {}
+  } catch (err) {
+    // Loud-fail: a silent empty backup is worse than no backup at all because
+    // it overwrites the previous good snapshot with `tables: {}`. Bubble.
+    try { window.__txReportError?.(err, { severity: 'critical', category: 'backup', extra: { stage: 'exportAll' } }) } catch {}
+    // eslint-disable-next-line no-console
+    console.error('[backup] exportAll failed:', err?.message || err)
+    throw err
+  }
   return {
     exported_at: new Date().toISOString(),
     version:     '1.0.0',
@@ -293,7 +300,15 @@ export async function syncToCloud() {
       if (window.electronAPI?.db?.exportSince) {
         changes = await window.electronAPI.db.exportSince(since)
       }
-    } catch {}
+    } catch (err) {
+      // Same hazard as exportAll — silent empty delta = lost rows on remote.
+      // Surface and abort this incremental cycle; setStatus('error') below.
+      try { window.__txReportError?.(err, { severity: 'critical', category: 'backup', extra: { stage: 'exportSince', since } }) } catch {}
+      // eslint-disable-next-line no-console
+      console.error('[backup] exportSince failed:', err?.message || err)
+      setStatus('error')
+      return
+    }
 
     const biz = getBusinessId()
 
