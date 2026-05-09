@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-08T21:02:36.828Z
+- **Snapshot taken:** 2026-05-09T03:48:58.599Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -1494,7 +1494,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `api_rate_limits`
 
-- Rough row count (n_live_tup): **686**
+- Rough row count (n_live_tup): **764**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1522,7 +1522,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `app_settings`
 
-- Rough row count (n_live_tup): **206**
+- Rough row count (n_live_tup): **214**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1828,7 +1828,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `businesses`
 
-- Rough row count (n_live_tup): **15**
+- Rough row count (n_live_tup): **19**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2088,7 +2088,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `categorias_servicio`
 
-- Rough row count (n_live_tup): **10**
+- Rough row count (n_live_tup): **22**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2193,7 +2193,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `client_errors`
 
-- Rough row count (n_live_tup): **56**
+- Rough row count (n_live_tup): **71**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2448,7 +2448,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `clients`
 
-- Rough row count (n_live_tup): **132**
+- Rough row count (n_live_tup): **133**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2806,7 +2806,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `crm_leads`
 
-- Rough row count (n_live_tup): **6**
+- Rough row count (n_live_tup): **8**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3642,7 +3642,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `food_truck_locations`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **4**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3739,7 +3739,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `inventory_count_items`
 
-- Rough row count (n_live_tup): **1678**
+- Rough row count (n_live_tup): **1714**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3935,7 +3935,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `inventory_items`
 
-- Rough row count (n_live_tup): **1171**
+- Rough row count (n_live_tup): **1185**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4114,7 +4114,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `kds_events`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **1**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4221,7 +4221,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `license_events`
 
-- Rough row count (n_live_tup): **2297**
+- Rough row count (n_live_tup): **2437**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4260,7 +4260,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `license_jwt_audit`
 
-- Rough row count (n_live_tup): **53**
+- Rough row count (n_live_tup): **60**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4337,7 +4337,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `licenses`
 
-- Rough row count (n_live_tup): **16**
+- Rough row count (n_live_tup): **17**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5100,7 +5100,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `ncf_sequences`
 
-- Rough row count (n_live_tup): **73**
+- Rough row count (n_live_tup): **81**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5261,7 +5261,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `oferta_items`
 
-- Rough row count (n_live_tup): **12**
+- Rough row count (n_live_tup): **44**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5311,7 +5311,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `ofertas`
 
-- Rough row count (n_live_tup): **7**
+- Rough row count (n_live_tup): **16**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6525,7 +6525,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `service_recipe_items`
 
-- Rough row count (n_live_tup): **10**
+- Rough row count (n_live_tup): **22**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6573,7 +6573,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `services`
 
-- Rough row count (n_live_tup): **180**
+- Rough row count (n_live_tup): **217**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6651,7 +6651,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `staff`
 
-- Rough row count (n_live_tup): **19**
+- Rough row count (n_live_tup): **20**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7018,7 +7018,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `ticket_items`
 
-- Rough row count (n_live_tup): **1120**
+- Rough row count (n_live_tup): **1124**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7135,7 +7135,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `tickets`
 
-- Rough row count (n_live_tup): **450**
+- Rough row count (n_live_tup): **454**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7715,7 +7715,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `waste_log`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **7**
 - RLS enabled: **YES**
 
 **Columns**
@@ -18478,4 +18478,4 @@ When re-running this script, append a brief entry below describing the diff. Use
 
 | date | who | summary |
 |------|-----|---------|
-| 2026-05-08 | dataLEAKS | initial snapshot |
+| 2026-05-09 | dataLEAKS | initial snapshot |
