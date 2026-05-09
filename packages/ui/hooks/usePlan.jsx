@@ -138,8 +138,9 @@ const PLAN_FEATURES = {
     // FIX-HIGH-6 — carnicería vertical (inherited from Pro PLUS)
     'carniceria_resumen', 'carniceria_corte_catalog',
     'carniceria_mayoreo', 'carniceria_freshness_alerts',
-    // Food Truck — inherited from Pro PLUS (no Pro MAX exclusives in Phase 1).
+    // Food Truck — inherited from Pro PLUS + Pro MAX exclusive: Pickup Display.
     'food_truck_locations', 'food_truck_waste_log', 'food_truck_event_mode',
+    'food_truck_pickup_display',
     'share_with_accountant',
   ],
   // Pro CTB — firm-side accounting suite (Phase 1 ship). Bundles every

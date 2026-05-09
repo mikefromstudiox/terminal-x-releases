@@ -1,6 +1,21 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import LoyaltyTierBadge, { tierMultiplier } from './LoyaltyTierBadge'
-import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, AlertCircle, Loader2, QrCode, User, MessageSquare, Split, Plus, Minus, Scissors, Award } from 'lucide-react'
+import { X, Search, Banknote, CreditCard, ArrowRightLeft, Landmark, CheckCircle2, AlertTriangle, AlertCircle, Loader2, QrCode, User, MessageSquare, Split, Plus, Minus, Scissors, Award, Phone, Bike, Smartphone, Store, ClipboardPaste } from 'lucide-react'
+
+// 2026-05-09 — order-source pill row. Vertical-gated: only shown for
+// food_truck / restaurant / salon. Other verticals don't get a picker.
+const SOURCE_PILL_OPTIONS = [
+  { id: 'mostrador',       label: 'Mostrador',       icon: Store },
+  { id: 'telefono',        label: 'Teléfono',        icon: Phone },
+  { id: 'pedidos_ya',      label: 'Pedidos Ya',      icon: ClipboardPaste },
+  { id: 'uber_eats',       label: 'Uber Eats',       icon: ClipboardPaste },
+  { id: 'delivery_propio', label: 'Delivery propio', icon: Bike },
+]
+const SOURCE_VISIBILITY = {
+  food_truck: ['mostrador','telefono','pedidos_ya','uber_eats','delivery_propio'],
+  restaurant: ['mostrador','telefono','pedidos_ya','uber_eats','delivery_propio'],
+  salon:      ['mostrador','telefono'],
+}
 import { useLang } from '../i18n'
 import { useAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -490,6 +505,13 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
   const discountsEnabled = hasBizFeature('discounts')
   const isSalon = businessType === 'salon'
   const upsellTip = useMemo(() => isSalon ? salonUpsellSuggestion(ticket, lang) : null, [isSalon, ticket, lang])
+
+  // 2026-05-09 — order-source pill row. The cashier (or upstream POS) can
+  // tag the channel of this sale: walk-up, phone, Pedidos Ya, Uber Eats,
+  // own delivery. Vertical-gated below to food_truck/restaurant/salon. The
+  // chosen value flows through onConfirm payload as `order_source`.
+  const sourceVisible = SOURCE_VISIBILITY[businessType] || null
+  const [orderSource, setOrderSource] = useState(ticket?.order_source || 'mostrador')
 
   // ── v2.16.1 — Salon-only POS extensions ───────────────────────────────────
   // Per-line stylist picker (defaults to client.preferred_stylist_supabase_id),
@@ -1308,6 +1330,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           comentario, total, descuento, descuentoReason: descuentoReason.trim() || null, subtotal, itbis,
           mac_jti:   _macJtiRef.current || null,
           paidAt:    new Date(),
+          order_source: orderSource,
           // v2.16.1 hotfix — merged base + upsell-tile lines. Downstream
           // tickets.create auto-deducts inventory, logs retail commission,
           // and the printer/e-CF builder iterate from this single source.
@@ -1514,6 +1537,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           comentario, total, descuento, descuentoReason: descuentoReason.trim() || null, subtotal, itbis,
           mac_jti:   _macJtiRef.current || null,
           paidAt:    new Date(),
+          order_source: orderSource,
           // v2.16.1 hotfix — merged base + upsell-tile lines. Downstream
           // tickets.create auto-deducts inventory, logs retail commission,
           // and the printer/e-CF builder iterate from this single source.
@@ -1601,6 +1625,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
             comentario, total, descuento, descuentoReason: descuentoReason.trim() || null, subtotal, itbis,
             mac_jti:   _macJtiRef.current || null,
             paidAt:    new Date(),
+            order_source: orderSource,
             items:     effectiveItems,
             lineStylists: buildLineStylistsPayload(),
             redemptions:  buildRedemptionsPayload(),
@@ -1635,7 +1660,10 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-0 md:p-6"
       onMouseDown={e => { if (e.target === e.currentTarget && !isSubmitting) ecfState === 'success' ? handleSuccessClose() : onClose() }}
     >
-      <div className="bg-white dark:bg-zinc-900 shadow-2xl w-full h-full md:w-auto md:h-auto md:max-w-[660px] md:rounded-2xl flex flex-col md:max-h-[93vh]">
+      {/* 2026-05-09 — widened from 660px → 960px on md:+ to accommodate the
+          Origen pill row + give the existing fields more horizontal breathing
+          room. Mobile (<md) is unchanged: full-screen panel as before. */}
+      <div className="bg-white dark:bg-zinc-900 shadow-2xl w-full h-full md:w-auto md:h-auto md:max-w-[960px] md:rounded-2xl flex flex-col md:max-h-[93vh]">
 
         {/* v2.7.1 — offline banner (web PWA only) */}
         {offlineBlock && (
@@ -1665,6 +1693,38 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
             <X size={18} />
           </button>
         </div>
+
+        {/* ── Origen del pedido (vertical-gated) ─────────────────────────────
+            Lets the cashier tag walk-up vs phone vs aggregator. Hidden for
+            verticals that don't have an off-channel revenue stream
+            (carwash, retail, mechanic, dealership, etc.). */}
+        {sourceVisible && ecfState !== 'success' && (
+          <div className="px-4 py-2.5 md:px-6 md:py-3 border-b border-slate-100 dark:border-white/10 shrink-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-extrabold tracking-[1.5px] text-slate-500 dark:text-white/50 uppercase mr-1">Origen</span>
+              {SOURCE_PILL_OPTIONS.filter(p => sourceVisible.includes(p.id)).map(p => {
+                const Icon = p.icon
+                const active = orderSource === p.id
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setOrderSource(p.id)}
+                    disabled={isSubmitting}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border transition-colors disabled:opacity-40 ${active
+                      ? 'bg-[#b3001e] text-white border-[#b3001e] shadow'
+                      : 'border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300 dark:hover:border-white/20'}`}
+                  >
+                    <Icon size={12} /> {p.label}
+                  </button>
+                )
+              })}
+              {ticket?.order_source && ticket.order_source !== 'mostrador' && ticket.order_source === orderSource && (
+                <span className="text-[10px] text-slate-400 dark:text-white/30 italic ml-1">de pendientes</span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── Prerequisites warning banner ────────────────────────────────── */}
         {!prereqs.loading && prereqs.missing.length > 0 && ecfState !== 'success' && (

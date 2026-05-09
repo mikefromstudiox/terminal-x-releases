@@ -1,36 +1,100 @@
-// ConfigDemo — faithful copy of Config.jsx render. Section grid that opens
-// detail panels for: Negocio, NCF/e-CF, Impresora, WhatsApp, Comisiones,
-// Sincronización, Membresías, Pedidos Ya, Plan & Facturación, Equipo.
+// ConfigDemo — vertical-aware config sections grid. Accepts a `vertical` prop
+// and `business` prop. The list of cards (Membresías, Pedidos Ya, Mesas,
+// Bancos, etc.) is filtered by vertical, and the Negocio panel pre-fills with
+// real business data instead of hardcoded carwash defaults.
 
 import { useState } from 'react'
-import { Building2, Receipt, Printer, MessageSquare, PiggyBank, Cloud, Crown, Truck, Package as PackageIcon, KeyRound, Users, Settings, ChevronRight, Check, X, Edit2, Upload, AlertCircle, Shield } from 'lucide-react'
+import { Building2, Receipt, Printer, MessageSquare, PiggyBank, Cloud, Crown, Truck, KeyRound, Users, Settings, ChevronRight, Check, Upload, AlertCircle, Shield, MapPin, Trash2, ChefHat, Utensils, Banknote, FileText, Scissors, Wallet, ClipboardList, Tag } from 'lucide-react'
 
-const SECTIONS = [
-  { id: 'business',  icon: Building2,    title: 'Negocio',         desc: 'RNC, dirección, teléfono, logo, horario, ciudad, ITBIS' },
-  { id: 'ncf',       icon: Receipt,      title: 'NCF / e-CF',      desc: 'Secuencias, certificado Viafirma, ANECF, ambiente DGII' },
-  { id: 'printer',   icon: Printer,      title: 'Impresora',       desc: 'Impresora térmica 80mm + cajón de dinero + variantes drawer-kick' },
-  { id: 'whatsapp',  icon: MessageSquare, title: 'WhatsApp',       desc: 'Plantillas de recibo, recordatorios, listo para servir, vencimientos' },
-  { id: 'commissions',icon: PiggyBank,    title: 'Comisiones',      desc: 'Por servicio, por lavador/cajera/vendedor, reglas de split' },
-  { id: 'sync',      icon: Cloud,        title: 'Sincronización',  desc: 'Cada 5 min · cola offline 72h · backup nightly 3 AM' },
-  { id: 'memberships', icon: Crown,      title: 'Membresías',      desc: '3 planes activos · débito automático · 27 miembros' },
-  { id: 'pedidosya', icon: Truck,        title: 'Pedidos Ya',      desc: 'Canal pink toggle · precios PY · comisión 15% deducida' },
-  { id: 'plan',      icon: Crown,        title: 'Plan & Facturación', desc: 'Pro MAX · próximo cobro 15 may · 7 días gratis activo' },
-  { id: 'team',      icon: Users,        title: 'Equipo',          desc: 'Acceso admin remoto · roles · auditoría' },
-  { id: 'security',  icon: Shield,       title: 'Seguridad',       desc: 'PINs, Manager Auth Card, sesiones activas, 2FA' },
-  { id: 'license',   icon: KeyRound,     title: 'Licencia',        desc: 'TXL-XXXX-XXXX-XXXX · vinculada a este equipo · transferir' },
+// Master section catalog. Each entry can list which verticals it applies to.
+// `verticals: '*'` = always show; otherwise an array of vertical keys.
+const SECTION_CATALOG = [
+  { id: 'business',    icon: Building2,   title: 'Negocio',           desc: 'RNC, dirección, teléfono, logo, horario, ciudad, ITBIS', verticals: '*' },
+  { id: 'ncf',         icon: Receipt,     title: 'NCF / e-CF',        desc: 'Secuencias, certificado Viafirma, ANECF, ambiente DGII', verticals: '*' },
+  { id: 'printer',     icon: Printer,     title: 'Impresora',         desc: 'Impresora térmica 80mm + cajón de dinero + variantes drawer-kick', verticals: '*' },
+  { id: 'whatsapp',    icon: MessageSquare,title:'WhatsApp',          desc: 'Plantillas de recibo, recordatorios y notificaciones', verticals: '*' },
+  { id: 'commissions', icon: PiggyBank,   title: 'Comisiones',        desc: 'Reglas por servicio/producto · split · porcentajes', verticals: ['carwash','retail','licoreria','carniceria','service','restaurant','food_truck','mechanic','salon','dealership','hybrid'] },
+  { id: 'sync',        icon: Cloud,       title: 'Sincronización',    desc: 'Cada 5 min · cola offline 72h · backup nightly 3 AM', verticals: '*' },
+
+  // Vertical-specific
+  { id: 'memberships', icon: Crown,       title: 'Membresías',        desc: 'Planes recurrentes · débito automático', verticals: ['carwash','salon','restaurant','service','hybrid'] },
+  { id: 'pedidosya',   icon: Truck,       title: 'Pedidos Ya',        desc: 'Canal pink toggle · precios PY · comisión 15% deducida', verticals: ['restaurant','food_truck','retail','licoreria'] },
+  { id: 'mesas',       icon: Utensils,    title: 'Salón / Mesas',     desc: 'Layout, capacidad, servicio 10% Ley 16-92', verticals: ['restaurant','hybrid'] },
+  { id: 'kitchen',     icon: ChefHat,     title: 'Cocina / KDS',      desc: 'Estaciones, course pacing, lista 86', verticals: ['restaurant','food_truck'] },
+  { id: 'locations',   icon: MapPin,      title: 'Ubicaciones',       desc: 'Paradas favoritas, eventos privados, modo evento', verticals: ['food_truck'] },
+  { id: 'mermas',      icon: Trash2,      title: 'Mermas',            desc: 'Registro de descartes y costo estimado', verticals: ['food_truck','restaurant','carniceria'] },
+  { id: 'banks',       icon: Banknote,    title: 'Bancos pre-aprobados', desc: 'Tasas, cuotas iniciales, requisitos por banco', verticals: ['dealership'] },
+  { id: 'matriculas',  icon: FileText,    title: 'Matriculas / INTRANT', desc: 'Lookup de placas, traspaso, expediente vehicular', verticals: ['dealership'] },
+  { id: 'stylists',    icon: Scissors,    title: 'Estilistas / Horarios', desc: 'Turnos, especialidades, no-show deposit', verticals: ['salon'] },
+  { id: 'cortes',      icon: ClipboardList,title:'Cortes / Mayoreo',  desc: 'Catálogo de cortes, precios mayoreo, frescura', verticals: ['carniceria'] },
+  { id: 'licorrules',  icon: Tag,         title: 'Reglas de licorería', desc: 'Verificación de edad, depósito de envases, brand suggestions', verticals: ['licoreria'] },
+  { id: 'loans',       icon: Wallet,      title: 'Reglas de préstamos', desc: 'Tasas, plazos, mora, alertas a cobradores', verticals: ['prestamos'] },
+
+  // Always-on tail
+  { id: 'plan',        icon: Crown,       title: 'Plan & Facturación', desc: 'Pro MAX · próximo cobro · 7 días gratis activo', verticals: '*' },
+  { id: 'team',        icon: Users,       title: 'Equipo',            desc: 'Acceso admin remoto · roles · auditoría', verticals: '*' },
+  { id: 'security',    icon: Shield,      title: 'Seguridad',         desc: 'PINs, Manager Auth Card, sesiones activas, 2FA', verticals: '*' },
+  { id: 'license',     icon: KeyRound,    title: 'Licencia',          desc: 'TXL-XXXX-XXXX-XXXX · vinculada a este equipo · transferir', verticals: '*' },
 ]
 
-function BusinessPanel() {
+function sectionsFor(vertical) {
+  return SECTION_CATALOG.filter(s => s.verticals === '*' || s.verticals.includes(vertical))
+}
+
+// Per-vertical commission category presets.
+const COMMISSION_PRESETS = {
+  carwash:    [{ name: 'Lavados', pct: 30 }, { name: 'Detallado', pct: 35 }, { name: 'Interior', pct: 35 }, { name: 'Especial', pct: 30 }, { name: 'Productos', pct: 10 }],
+  retail:     [{ name: 'Productos', pct: 3 }, { name: 'Servicios', pct: 5 }, { name: 'Mayoreo', pct: 1.5 }],
+  licoreria:  [{ name: 'Licores', pct: 3 }, { name: 'Cervezas', pct: 2 }, { name: 'Cigarrillos', pct: 1.5 }, { name: 'Snacks', pct: 4 }],
+  carniceria: [{ name: 'Cortes premium', pct: 4 }, { name: 'Cortes regulares', pct: 3 }, { name: 'Mayoreo', pct: 1.5 }, { name: 'Productos', pct: 4 }],
+  service:    [{ name: 'Mano de obra', pct: 15 }, { name: 'Repuestos', pct: 5 }, { name: 'Diagnóstico', pct: 10 }],
+  restaurant: [{ name: 'Comida', pct: 10 }, { name: 'Bebidas', pct: 8 }, { name: 'Postres', pct: 12 }, { name: 'Servicio (Ley 16-92)', pct: 10 }],
+  food_truck: [{ name: 'Combos', pct: 5 }, { name: 'Bebidas', pct: 6 }, { name: 'Delivery', pct: 8 }],
+  mechanic:   [{ name: 'Mano de obra', pct: 25 }, { name: 'Repuestos', pct: 5 }, { name: 'Diagnóstico', pct: 15 }],
+  salon:      [{ name: 'Corte', pct: 40 }, { name: 'Color', pct: 35 }, { name: 'Tratamientos', pct: 35 }, { name: 'Productos', pct: 10 }],
+  dealership: [{ name: 'Vehículos nuevos', pct: 2 }, { name: 'Vehículos usados', pct: 3 }, { name: 'Accesorios', pct: 5 }, { name: 'Financiamiento', pct: 1 }],
+  prestamos:  [{ name: 'Cobros', pct: 5 }, { name: 'Originación', pct: 2 }],
+  hybrid:     [{ name: 'Servicios', pct: 30 }, { name: 'Productos', pct: 5 }, { name: 'Mayoreo', pct: 1.5 }],
+  contabilidad:[{ name: 'Servicios contables', pct: 10 }],
+  facturacion: [{ name: 'Servicios contables', pct: 10 }],
+}
+
+// WhatsApp template hints per vertical (the ready-template label).
+const WA_TEMPLATES = {
+  carwash:    { ready: 'Vehículo listo', readyText: '¡{{cliente}}, tu {{vehiculo}} ({{placa}}) está listo! Te esperamos en {{negocio}}.' },
+  mechanic:   { ready: 'Reparación lista', readyText: '{{cliente}}, tu {{vehiculo}} ya está listo en {{negocio}}. Pasa a buscarlo.' },
+  restaurant: { ready: 'Reserva confirmada', readyText: 'Hola {{cliente}}, tu reserva del {{fecha}} {{hora}} en {{negocio}} está confirmada.' },
+  food_truck: { ready: 'Pedido listo', readyText: '{{cliente}}, tu pedido #{{ticket}} ya está listo en {{ubicacion}}. ¡Buen provecho!' },
+  salon:      { ready: 'Cita recordatorio', readyText: 'Hola {{cliente}}, te esperamos {{fecha}} {{hora}} para tu cita en {{negocio}}.' },
+  dealership: { ready: 'Test drive confirmado', readyText: '{{cliente}}, tu test drive del {{vehiculo}} es {{fecha}} {{hora}} en {{negocio}}.' },
+  retail:     { ready: 'Pedido listo', readyText: '{{cliente}}, tu pedido #{{ticket}} está listo para retirar en {{negocio}}.' },
+  licoreria:  { ready: 'Pedido listo', readyText: '{{cliente}}, tu pedido #{{ticket}} está listo para retirar en {{negocio}}.' },
+  carniceria: { ready: 'Pedido listo', readyText: '{{cliente}}, tu pedido de carne #{{ticket}} está listo en {{negocio}}.' },
+  service:    { ready: 'Servicio listo', readyText: '{{cliente}}, tu servicio en {{negocio}} ya está listo. Pasa cuando puedas.' },
+  prestamos:  { ready: 'Recordatorio de cuota', readyText: '{{cliente}}, tu cuota #{{cuota}} de {{monto}} vence el {{fecha}}.' },
+  contabilidad:{ ready: 'Comprobante enviado', readyText: '{{cliente}}, tu comprobante {{ncf}} por {{total}} está disponible.' },
+  facturacion: { ready: 'Comprobante enviado', readyText: '{{cliente}}, tu comprobante {{ncf}} por {{total}} está disponible.' },
+  hybrid:     { ready: 'Listo para servir', readyText: '{{cliente}}, tu pedido en {{negocio}} ya está listo.' },
+}
+
+function BusinessPanel({ business }) {
+  const name   = business?.name || 'Mi Negocio SRL'
+  const rnc    = business?.rnc  || '131-00000-1'
+  const razon  = business?.razon_social || name
+  const addr   = business?.address || 'Av. Principal #1, Santo Domingo'
+  const phone  = business?.phone || '809-555-0000'
+  const email  = business?.email || 'contacto@negocio.do'
+  const ciudad = business?.ciudad || 'Santo Domingo'
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3">
-        <label className="block col-span-2"><span className="text-xs font-semibold text-slate-500">Nombre comercial</span><input defaultValue="Studio X Car Wash" className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 outline-none" /></label>
-        <label className="block"><span className="text-xs font-semibold text-slate-500">RNC</span><input defaultValue="133-41032-1" className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:border-sky-400 outline-none" /></label>
-        <label className="block"><span className="text-xs font-semibold text-slate-500">Razón Social</span><input defaultValue="Studio X SRL" className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 outline-none" /></label>
-        <label className="block col-span-2"><span className="text-xs font-semibold text-slate-500">Dirección</span><input defaultValue="Av. 27 de Febrero #245, Santo Domingo" className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 outline-none" /></label>
-        <label className="block"><span className="text-xs font-semibold text-slate-500">Teléfono</span><input defaultValue="809-555-0123" className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 outline-none" /></label>
-        <label className="block"><span className="text-xs font-semibold text-slate-500">Email</span><input defaultValue="contacto@studioxcw.do" className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 outline-none" /></label>
-        <label className="block"><span className="text-xs font-semibold text-slate-500">Ciudad</span><input defaultValue="Santo Domingo" className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 outline-none" /></label>
+        <label className="block col-span-2"><span className="text-xs font-semibold text-slate-500">Nombre comercial</span><input defaultValue={name} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 outline-none" /></label>
+        <label className="block"><span className="text-xs font-semibold text-slate-500">RNC</span><input defaultValue={rnc} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:border-sky-400 outline-none" /></label>
+        <label className="block"><span className="text-xs font-semibold text-slate-500">Razón Social</span><input defaultValue={razon} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 outline-none" /></label>
+        <label className="block col-span-2"><span className="text-xs font-semibold text-slate-500">Dirección</span><input defaultValue={addr} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 outline-none" /></label>
+        <label className="block"><span className="text-xs font-semibold text-slate-500">Teléfono</span><input defaultValue={phone} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 outline-none" /></label>
+        <label className="block"><span className="text-xs font-semibold text-slate-500">Email</span><input defaultValue={email} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 outline-none" /></label>
+        <label className="block"><span className="text-xs font-semibold text-slate-500">Ciudad</span><input defaultValue={ciudad} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 outline-none" /></label>
         <label className="block"><span className="text-xs font-semibold text-slate-500">ITBIS %</span><input type="number" defaultValue={18} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 outline-none" /></label>
       </div>
       <div>
@@ -107,47 +171,39 @@ function PrinterPanel() {
       </div>
       <div className="border-t border-slate-200 pt-4 space-y-2">
         <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" defaultChecked className="accent-[#b3001e]" /> Imprimir factura automático al cobrar</label>
-        <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" defaultChecked className="accent-[#b3001e]" /> Imprimir conduce de servicio a lavadores</label>
-        <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" className="accent-[#b3001e]" /> Imprimir copia para el negocio</label>
+        <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" defaultChecked className="accent-[#b3001e]" /> Imprimir copia para el negocio</label>
       </div>
     </div>
   )
 }
 
-function WhatsappPanel() {
+function WhatsappPanel({ vertical }) {
+  const tpl = WA_TEMPLATES[vertical] || WA_TEMPLATES.carwash
   return (
     <div className="space-y-4">
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-2"><AlertCircle size={14} className="text-amber-700 mt-0.5" /><span className="text-xs text-amber-900">Pro MAX requiere aprobación WABA. Mientras tanto, los enlaces wa.me funcionan inmediatamente.</span></div>
       <label className="block"><span className="text-xs font-semibold text-slate-500">Plantilla recibo de cobro</span>
         <textarea rows={3} defaultValue="Hola {{cliente}}, gracias por tu visita a {{negocio}}. Tu factura {{ncf}} por {{total}} ya está disponible: {{link}}" className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:border-sky-400 outline-none resize-none" />
       </label>
-      <label className="block"><span className="text-xs font-semibold text-slate-500">Plantilla "Vehículo listo"</span>
-        <textarea rows={3} defaultValue="¡{{cliente}}, tu {{vehiculo}} ({{placa}}) está listo! Te esperamos en {{negocio}}." className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:border-sky-400 outline-none resize-none" />
-      </label>
-      <label className="block"><span className="text-xs font-semibold text-slate-500">Plantilla recordatorio cita</span>
-        <textarea rows={3} defaultValue="Hola {{cliente}}, te recordamos tu cita {{fecha}} {{hora}} en {{negocio}}. Confirma con un mensaje." className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:border-sky-400 outline-none resize-none" />
+      <label className="block"><span className="text-xs font-semibold text-slate-500">Plantilla "{tpl.ready}"</span>
+        <textarea rows={3} defaultValue={tpl.readyText} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:border-sky-400 outline-none resize-none" />
       </label>
     </div>
   )
 }
 
-function CommissionsPanel() {
+function CommissionsPanel({ vertical }) {
+  const rows = COMMISSION_PRESETS[vertical] || COMMISSION_PRESETS.carwash
   return (
     <div className="space-y-3">
-      <p className="text-[13px] text-slate-700">Reglas de comisión por categoría de servicio. Aplica a todos los lavadores activos.</p>
+      <p className="text-[13px] text-slate-700">Reglas de comisión por categoría. Aplica a todos los empleados activos.</p>
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400">
             <tr><th className="text-left px-3 py-2 font-bold">Categoría</th><th className="text-right px-3 py-2 font-bold">% Default</th><th className="text-right px-3 py-2 font-bold">Override</th></tr>
           </thead>
           <tbody>
-            {[
-              { name: 'Lavados',    pct: 30 },
-              { name: 'Detallado',  pct: 35 },
-              { name: 'Interior',   pct: 35 },
-              { name: 'Especial',   pct: 30 },
-              { name: 'Productos',  pct: 10 },
-            ].map((c, i) => (
+            {rows.map((c, i) => (
               <tr key={i} className="border-t border-slate-100">
                 <td className="px-3 py-2.5 font-semibold text-slate-800">{c.name}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{c.pct}%</td>
@@ -157,9 +213,9 @@ function CommissionsPanel() {
           </tbody>
         </table>
       </div>
-      <label className="flex items-center gap-2 text-sm text-slate-700 pt-2"><input type="checkbox" defaultChecked className="accent-[#b3001e]" /> Permitir split entre múltiples lavadores</label>
+      <label className="flex items-center gap-2 text-sm text-slate-700 pt-2"><input type="checkbox" defaultChecked className="accent-[#b3001e]" /> Permitir split entre múltiples empleados</label>
       <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" defaultChecked className="accent-[#b3001e]" /> Aplicar % sobre subtotal (ex-ITBIS)</label>
-      <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" className="accent-[#b3001e]" /> Cajera autorizada a sobreescribir comisión por ticket</label>
+      <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" className="accent-[#b3001e]" /> Cajero autorizado a sobreescribir comisión por ticket</label>
     </div>
   )
 }
@@ -184,19 +240,20 @@ function SyncPanel() {
 }
 
 const PANEL_BY_ID = {
-  business: BusinessPanel,
-  ncf: NcfPanel,
-  printer: PrinterPanel,
-  whatsapp: WhatsappPanel,
+  business:    BusinessPanel,
+  ncf:         NcfPanel,
+  printer:     PrinterPanel,
+  whatsapp:    WhatsappPanel,
   commissions: CommissionsPanel,
-  sync: SyncPanel,
+  sync:        SyncPanel,
 }
 
-export default function ConfigDemo() {
+export default function ConfigDemo({ vertical = 'carwash', business }) {
   const [active, setActive] = useState(null)
+  const sections = sectionsFor(vertical)
 
   if (active) {
-    const section = SECTIONS.find(s => s.id === active)
+    const section = sections.find(s => s.id === active) || SECTION_CATALOG.find(s => s.id === active)
     const Panel = PANEL_BY_ID[active]
     return (
       <div className="p-6 max-w-4xl mx-auto h-full overflow-y-auto bg-white">
@@ -208,7 +265,7 @@ export default function ConfigDemo() {
             <p className="text-sm text-slate-500">{section.desc}</p>
           </div>
         </div>
-        {Panel ? <Panel /> : (
+        {Panel ? <Panel vertical={vertical} business={business} /> : (
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-10 text-center">
             <Settings size={36} className="mx-auto text-slate-300 mb-3" />
             <p className="text-sm text-slate-500">Panel detallado disponible en el sistema completo.</p>
@@ -229,7 +286,7 @@ export default function ConfigDemo() {
         <p className="text-sm text-slate-500 mt-1">Tu equipo lo configura por ti remotamente con Pro PLUS y Pro MAX</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-        {SECTIONS.map(s => {
+        {sections.map(s => {
           const Icon = s.icon
           return (
             <button key={s.id} onClick={() => setActive(s.id)} className="bg-white rounded-2xl border border-slate-200 p-5 text-left hover:border-[#b3001e] hover:shadow-md transition-all group">

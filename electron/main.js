@@ -2631,7 +2631,10 @@ handleMut('tickets:void',        ({id,reason,voidById}) => db.ticketVoid(id, rea
 })
 handle('tickets:byDateRange', ({from,to}) => db.ticketGetByDateRange(from, to))
 // v2.16.4 — Restaurant open-ticket lifecycle (persist at seat-time, not cobro).
+// 2026-05-09 — Generalized to any fulfillment (food_truck reuses).
+handleMut('tickets:openForFulfillment', (data) => db.ticketOpenForFulfillment(data || {}))
 handleMut('tickets:openForMesa',     (data) => db.ticketOpenForMesa(data || {}))
+handle('tickets:listOpen',           (data) => db.ticketsListOpen(data || {}))
 handleMut('tickets:addItem',         (data) => db.ticketAddItem(data || {}))
 handleMut('tickets:updateItemQty',   (data) => db.ticketUpdateItemQty(data || {}))
 handleMut('tickets:removeItem',      (data) => db.ticketRemoveItem(data || {}))

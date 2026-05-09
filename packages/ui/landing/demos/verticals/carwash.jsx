@@ -196,7 +196,7 @@ export default {
     if (view === 'memb')    return <MembershipsDemo />
     if (view === 'empl')    return <EmpleadosView />
     if (view === 'dgii')    return <DGIIDemo ecfTodayCount={TODAY.ecf_emitidos} />
-    if (view === 'config') return <ConfigDemo />
+    if (view === 'config') return <ConfigDemo vertical="carwash" business={BUSINESS} />
     return <SoonView title={NAV.find(n => n.id === view)?.label || 'Proximamente'} desc="Esta seccion esta disponible en el sistema completo." navigate={ctx.navigate} />
   },
 }

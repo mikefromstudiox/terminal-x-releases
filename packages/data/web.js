@@ -3445,7 +3445,12 @@ export function createWebAPI(supabase, businessId) {
       // Persist tickets at mesa-seat time so a refresh / power loss mid-dinner
       // doesn't drop in-flight items + KDS rows. The `open_status` column
       // ('open' | 'closed') is orthogonal to financial `status`.
-      openForMesa: (data = {}) => tryOr(async () => {
+      //
+      // 2026-05-09 — generalized to openForFulfillment so food_truck (and
+      // any future fire-then-pay vertical) can reuse the lifecycle. The
+      // legacy openForMesa stays as a thin wrapper so RestaurantPOS and the
+      // restaurant smoke harness keep working unchanged.
+      openForFulfillment: (data = {}) => tryOr(async () => {
         const ticketSid = data.supabase_id || crypto.randomUUID()
         const { data: lastDoc } = await supabase.from('tickets')
           .select('doc_number').eq('business_id', bid)
@@ -3456,22 +3461,60 @@ export function createWebAPI(supabase, businessId) {
           if (m) nextNum = parseInt(m[1], 10) + 1
         }
         const docNum = `T-${String(nextNum).padStart(4, '0')}`
+        const fulfillment = data.fulfillment_type
+          || (data.mesa_supabase_id ? 'dine_in' : 'take_out')
+        const mode = data.mode || (data.mesa_supabase_id ? 'mesa' : 'take_out')
         const row = throwSupaError(await supabase.from('tickets').insert({
           supabase_id:      ticketSid,
           business_id:      bid,
           doc_number:       docNum,
           mesa_supabase_id: data.mesa_supabase_id || null,
-          fulfillment_type: 'dine_in',
-          mode:             'mesa',
+          food_truck_location_supabase_id: data.food_truck_location_supabase_id || null,
+          fulfillment_type: fulfillment,
+          mode:             mode,
           subtotal: 0, descuento: 0, itbis: 0, ley: 0, total: 0,
           payment_method:   'pending',
           status:           'pendiente',
           open_status:      'open',
           tipo_venta:       'contado',
-          order_source:     'pos',
+          order_source:     data.order_source || 'pos',
+          notes:            data.notes || null,
         }).select().single())
         return { id: row?.id || null, supabase_id: ticketSid, doc_number: docNum }
       }, null),
+
+      // Thin wrapper retained for restaurant compatibility — same signature.
+      openForMesa: function (data = {}) {
+        return this.openForFulfillment({
+          ...data,
+          fulfillment_type: 'dine_in',
+          mode: 'mesa',
+        })
+      },
+
+      // Pendientes — every open ticket for the active business, plus item
+      // count + running subtotal so the Pendientes UI can render a card
+      // without a second round-trip per row. Keeps RLS happy because it
+      // filters on business_id (anon JWT path) + open_status (existing
+      // index idx_tickets_open_by_mesa covers the partial scan).
+      listOpen: ({ source = null } = {}) => tryOr(async () => {
+        let q = supabase.from('tickets')
+          .select('id, supabase_id, doc_number, mesa_supabase_id, food_truck_location_supabase_id, order_source, notes, fulfillment_type, mode, created_at, updated_at, ticket_items(price, quantity)')
+          .eq('business_id', bid)
+          .eq('open_status', 'open')
+          .neq('status', 'nula')
+          .order('created_at', { ascending: false })
+          .limit(100)
+        if (source) q = q.eq('order_source', source)
+        const rows = throwSupaError(await q)
+        return (rows || []).map(t => {
+          const items = Array.isArray(t.ticket_items) ? t.ticket_items : []
+          const item_count   = items.reduce((s, i) => s + (Number(i.quantity) || 0), 0)
+          const running_total = items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0)
+          const { ticket_items, ...rest } = t
+          return { ...rest, item_count, running_total }
+        })
+      }, []),
 
       addItem: (data = {}) => tryOr(async () => {
         const itemSid = crypto.randomUUID()

@@ -73,6 +73,13 @@ const NAV = [
   // Food Truck — favorite stops + waste log. KDS + Menu reuse the restaurant
   // entries above (food_truck added to their businessTypes whitelist).
   {
+    id: 'food_truck_pendientes', to: '/pendientes', icon: Clock,
+    es: 'Pendientes', en: 'Pending',
+    businessTypes: ['food_truck'],
+    roles: ['owner','manager','cashier'],
+    badgeKey: 'foodTruckPendientes',
+  },
+  {
     id: 'food_truck_locations', to: '/ubicaciones', icon: MapPin,
     es: 'Ubicaciones', en: 'Stops',
     feature: 'food_truck_locations',
@@ -460,17 +467,14 @@ const NAV = [
     roles: ['owner','manager','cfo','accountant'],
     hasBadge: true,
   },
+  // 2026-05-09 — collapsed from 5 sub-entries to a single landing card grid.
+  // The grid lives at /config (no section) and renders ConfigGrid.jsx, which
+  // links into the legacy section routes — bookmarks + deep links to
+  // /config/empresa, /config/usuarios, etc. all keep working unchanged.
   {
-    id: 'config', icon: Settings,
+    id: 'config', to: '/config', icon: Settings,
     es: 'Configuracion', en: 'Settings',
     roles: ['owner','manager'],
-    children: [
-      { to: '/config/empresa',       es: 'Mi Empresa',      en: 'Business',        icon: Building2 },
-      { to: '/config/servicios',     es: 'Servicios',       en: 'Services',        icon: LayoutGrid },
-      { to: '/config/usuarios',      es: 'Usuarios',        en: 'Users',           icon: KeyRound },
-      { to: '/config/preferencias',  es: 'Preferencias',    en: 'Preferences',     icon: Settings,       roles: ['owner'] },
-      { to: '/config/updates',       es: 'Actualizaciones', en: 'Updates',         icon: Download,       roles: ['owner'] },
-    ],
   },
 ]
 
@@ -485,7 +489,7 @@ function isChildActive(children, pathname) {
 
 // ── Desktop Nav Item ────────────────────────────────────────────────────────
 
-function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowStock, unreadActivity, pathname, businessType }) {
+function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowStock, unreadActivity, foodTruckPendientes, pathname, businessType }) {
   const isGroup = !!item.children
   const locked = item.feature && !hasFeature(item.feature)
   const active = isGroup
@@ -500,7 +504,10 @@ function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowSto
 
   const label = lang === 'es' ? item.es : item.en
   const Icon = item.icon
-  const badge = item.hasBadge === 'lowStock' ? lowStock : item.hasBadge ? ecfQueue : 0
+  const badge = item.badgeKey === 'foodTruckPendientes' ? foodTruckPendientes
+    : item.hasBadge === 'lowStock' ? lowStock
+    : item.hasBadge ? ecfQueue
+    : 0
   // Group-level roll-up: Reportes shows the unread activity badge so owners
   // see new manager overrides at a glance even while the group is collapsed.
   const groupBadge = item.id === 'reports' ? unreadActivity : 0
@@ -941,6 +948,7 @@ export default function Sidebar() {
   const [ecfQueue, setEcfQueue] = useState(0)
   const [lowStock, setLowStock] = useState(0)
   const [unreadActivity, setUnreadActivity] = useState(0)
+  const [foodTruckPendientes, setFoodTruckPendientes] = useState(0)
   // v2.16.2 (item #13) — dead-letter WhatsApp reminders surface
   const [waFailed, setWaFailed] = useState(0)
   const [waFailedOpen, setWaFailedOpen] = useState(false)
@@ -968,6 +976,20 @@ export default function Sidebar() {
     }
     poll()
     const id = setInterval(poll, 60_000)
+    return () => clearInterval(id)
+  }, [businessType, api, user?.id])
+
+  // 2026-05-09 — food_truck Pendientes count (open-ticket lifecycle).
+  useEffect(() => {
+    if (businessType !== 'food_truck' || !user?.id) return
+    async function poll() {
+      try {
+        const list = await api?.tickets?.listOpen?.({})
+        setFoodTruckPendientes(Array.isArray(list) ? list.length : 0)
+      } catch { /* RLS / offline → keep last good count */ }
+    }
+    poll()
+    const id = setInterval(poll, 20_000)
     return () => clearInterval(id)
   }, [businessType, api, user?.id])
 
@@ -1105,6 +1127,7 @@ export default function Sidebar() {
               ecfQueue={ecfQueue}
               lowStock={lowStock}
               unreadActivity={unreadActivity}
+              foodTruckPendientes={foodTruckPendientes}
               pathname={location.pathname}
               businessType={businessType}
             />

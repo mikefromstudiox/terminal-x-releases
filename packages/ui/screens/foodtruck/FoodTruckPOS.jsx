@@ -1,12 +1,27 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Plus, Minus, Trash2, ChefHat, X, AlertCircle, Loader2, Search,
-  Truck, MapPin, ShoppingCart, Sparkles,
+  Truck, MapPin, ShoppingCart, Sparkles, Phone, ClipboardPaste,
+  DollarSign, Clock, Send, Bike, Smartphone, Store,
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useAPI } from '../../context/DataContext'
 import CobrarModal from '../../components/CobrarModal'
 import PaymentErrorBoundary from '../../components/PaymentErrorBoundary'
 import EventModeBanner from './EventModeBanner'
+import PhoneOrderCaptureModal from '../../components/PhoneOrderCaptureModal'
+import AggregatorPasteModal from '../../components/AggregatorPasteModal'
+import useFoodTruckHotkeys from '../../hooks/useFoodTruckHotkeys'
+
+// Order-source pill options. Tracked on tickets.order_source. Drives later
+// reporting (Cuadre por canal) and the aggregator paste flow.
+const SOURCE_PILLS = [
+  { id: 'mostrador',       label: 'Mostrador',     icon: Store,      capture: false },
+  { id: 'telefono',        label: 'Teléfono',      icon: Phone,      capture: 'phone' },
+  { id: 'pedidos_ya',      label: 'Pedidos Ya',    icon: ClipboardPaste, capture: 'paste',  channel: 'pedidos_ya' },
+  { id: 'uber_eats',       label: 'Uber Eats',     icon: ClipboardPaste, capture: 'paste',  channel: 'uber_eats' },
+  { id: 'delivery_propio', label: 'Delivery propio', icon: Bike,     capture: 'phone' },
+]
 
 function fmtRD(n) {
   return new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 2 }).format(Number(n || 0))
@@ -33,6 +48,8 @@ function uuidv4() {
 //   - Optional Modo Evento (price multiplier + receipt label).
 export default function FoodTruckPOS() {
   const api = useAPI()
+  const navigate = useNavigate()
+  const searchInputRef = useRef(null)
 
   // Data
   const [services, setServices]   = useState([])
@@ -49,6 +66,17 @@ export default function FoodTruckPOS() {
   const [items, setItems]         = useState([])  // { local_id, service_id, service_supabase_id, name, price, qty, course, printer_route }
   const [cobrarModal, setCobrarModal] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
+
+  // 2026-05-09 — order source (channel) + pending-ticket lifecycle.
+  // When the cart is loaded from a Pendientes row, pendingTicket holds
+  // { supabase_id, doc_number, source } and Cobrar finalizes via
+  // closeWithPayment instead of create.
+  const [orderSource, setOrderSource]     = useState('mostrador')
+  const [phoneInfo, setPhoneInfo]         = useState(null)  // { name, phone, eta_minutes, notes } | null
+  const [pendingTicket, setPendingTicket] = useState(null)  // { supabase_id, doc_number, source, opened_at } | null
+  const [phoneModal, setPhoneModal]       = useState(null)  // pending source selection awaiting capture
+  const [pasteModal, setPasteModal]       = useState(null)  // { channel: 'pedidos_ya'|'uber_eats' }
+  const [postKitchenToast, setPostKitchenToast] = useState(null)  // { docNumber, phone, name } after successful send
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -74,6 +102,22 @@ export default function FoodTruckPOS() {
     }
   }, [api])
   useEffect(() => { reload() }, [reload])
+
+  // Pendientes hand-off — when user clicks "Cargar / Cobrar" on the
+  // Pendientes screen, it stashes the ticket row in sessionStorage and
+  // navigates here. Pull it on mount, load into the cart, then clear.
+  useEffect(() => {
+    let cancelled = false
+    try {
+      const raw = sessionStorage.getItem('foodtruck_load_pending')
+      if (!raw) return
+      sessionStorage.removeItem('foodtruck_load_pending')
+      const row = JSON.parse(raw)
+      if (!cancelled && row?.supabase_id) loadPending(row)
+    } catch {}
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const filteredServices = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -132,6 +176,166 @@ export default function FoodTruckPOS() {
     try { await api.settings?.update?.({ food_truck_active_location_supabase_id: sid || '' }) } catch {}
   }
 
+  // ── Source pill row ─────────────────────────────────────────────────────
+  // Tapping a non-walk-up pill captures customer info (phone capture for
+  // Teléfono / Delivery propio) or opens the aggregator paste modal
+  // (Pedidos Ya / Uber Eats). Switching channels mid-cart is allowed —
+  // we just rewrite the source state.
+  const pickSource = (pillId) => {
+    const pill = SOURCE_PILLS.find(p => p.id === pillId)
+    if (!pill) return
+    if (pill.capture === 'phone') {
+      setPhoneModal({ pendingSource: pill.id })
+    } else if (pill.capture === 'paste') {
+      setPasteModal({ channel: pill.channel || pill.id })
+    } else {
+      setOrderSource(pill.id)
+      setPhoneInfo(null)
+    }
+  }
+  const handlePhoneCaptured = (info, pendingSource) => {
+    setPhoneInfo(info)
+    setOrderSource(pendingSource)
+    setPhoneModal(null)
+  }
+  const handlePasteParsed = (parsed, channel) => {
+    // parsed: { items: [{name, qty, price}], customer_name, customer_phone, eta_minutes, total, raw }
+    const cartLines = (parsed.items || []).map(it => {
+      // Try to match a real service by name (case-insensitive); unmatched
+      // → free-form line with no service_id (will skip inventory deduction).
+      const match = services.find(s => (s.name || '').toLowerCase() === (it.name || '').toLowerCase())
+      return {
+        local_id: uuidv4(),
+        service_id: match?.id || null,
+        service_supabase_id: match?.supabase_id || null,
+        name: match?.name || it.name,
+        price: Number(it.price) || Number(match?.price) || 0,
+        qty: Number(it.qty) || 1,
+        course: match?.course || 'principal',
+        printer_route: match?.printer_route || 'kitchen',
+        modifiers: [],
+      }
+    })
+    setItems(cartLines)
+    setOrderSource(channel)
+    if (parsed.customer_phone || parsed.customer_name) {
+      setPhoneInfo({
+        name:  parsed.customer_name  || '',
+        phone: parsed.customer_phone || '',
+        eta_minutes: parsed.eta_minutes || null,
+        notes: parsed.raw ? `Importado de ${channel}` : null,
+      })
+    }
+    setPasteModal(null)
+  }
+
+  // ── Pendientes — load a previously-fired ticket back into the cart ──────
+  const loadPending = async (pendingTicketRow) => {
+    setBusy('Cargando orden…')
+    try {
+      // Fetch full ticket + items so we can rebuild the cart shape.
+      const ticket = await api.tickets?.getById?.(pendingTicketRow.id) || pendingTicketRow
+      const lines = Array.isArray(ticket.items) ? ticket.items : []
+      setItems(lines.map(it => ({
+        local_id: uuidv4(),
+        service_id:           it.service_id || null,
+        service_supabase_id:  it.service_supabase_id || null,
+        ticket_item_supabase_id: it.supabase_id || null,
+        name:    it.name,
+        price:   Number(it.price) || 0,
+        qty:     Number(it.quantity || it.qty) || 1,
+        course:  it.course || 'principal',
+        printer_route: 'kitchen',
+        modifiers: [],
+      })))
+      setPendingTicket({
+        supabase_id: ticket.supabase_id || pendingTicketRow.supabase_id,
+        doc_number:  ticket.doc_number  || pendingTicketRow.doc_number,
+        source:      ticket.order_source || pendingTicketRow.order_source || 'mostrador',
+        opened_at:   ticket.created_at  || pendingTicketRow.created_at,
+        notes:       ticket.notes || pendingTicketRow.notes,
+      })
+      setOrderSource(ticket.order_source || pendingTicketRow.order_source || 'mostrador')
+    } catch (e) {
+      setError(e?.message || 'No se pudo cargar la orden pendiente.')
+    } finally {
+      setBusy(null)
+    }
+  }
+  const releasePending = () => {
+    setPendingTicket(null)
+    clearCart?.()
+    setOrderSource('mostrador')
+    setPhoneInfo(null)
+  }
+
+  // ── Send to Kitchen — fire-then-pay flow ─────────────────────────────────
+  const sendToKitchen = async () => {
+    if (!items.length) return
+    setBusy('Enviando a cocina…')
+    try {
+      const phoneNotes = phoneInfo
+        ? `📞 ${phoneInfo.name}${phoneInfo.phone ? ' · ' + phoneInfo.phone : ''}${phoneInfo.eta_minutes ? ' · ETA ' + phoneInfo.eta_minutes + 'min' : ''}${phoneInfo.notes ? ' · ' + phoneInfo.notes : ''}`
+        : null
+      let opened = pendingTicket
+      if (!opened) {
+        opened = await api.tickets?.openForFulfillment?.({
+          fulfillment_type: 'take_out',
+          mode: 'take_out',
+          food_truck_location_supabase_id: activeLocationSid || null,
+          order_source: orderSource,
+          notes: phoneNotes,
+        })
+        if (!opened?.supabase_id) throw new Error('No se pudo abrir la orden')
+        // Persist each cart line so KDS has supabase_ids to fire against.
+        for (const it of items) {
+          try {
+            await api.tickets?.addItem?.({
+              ticket_supabase_id: opened.supabase_id,
+              service_supabase_id: it.service_supabase_id || null,
+              service_id: it.service_id || null,
+              name: it.name,
+              price: it.price,
+              qty: it.qty,
+              course: it.course || 'principal',
+            })
+          } catch (e) {
+            console.warn('[FoodTruckPOS] addItem failed', it.name, e?.message)
+          }
+        }
+      }
+      // Fire to KDS for every line (best-effort).
+      const station = (it) => (it.printer_route || 'kitchen').toLowerCase() === 'bar' ? 'bar' : 'kitchen'
+      for (const it of items) {
+        try {
+          await api.kds?.fire?.({
+            ticket_item_supabase_id: it.ticket_item_supabase_id || null,
+            station: station(it),
+            name: it.name,
+            qty: it.qty,
+            modifiers: it.modifiers || [],
+          })
+        } catch (e) {
+          console.warn('[FoodTruckPOS] kds.fire failed', it.name, e?.message)
+        }
+      }
+      setPostKitchenToast({
+        docNumber: opened.doc_number,
+        phone: phoneInfo?.phone || null,
+        name:  phoneInfo?.name  || null,
+      })
+      // Reset cart for the next order. Keep source on Mostrador for walk-up.
+      setItems([])
+      setPendingTicket(null)
+      setPhoneInfo(null)
+      setOrderSource('mostrador')
+    } catch (e) {
+      setError(e?.message || 'No se pudo enviar a cocina')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const clearEvent = async () => {
     setEvent({ active: false, label: '', multiplier: 1 })
     try {
@@ -142,6 +346,22 @@ export default function FoodTruckPOS() {
       })
     } catch {}
   }
+
+  // ── Desktop hotkeys ────────────────────────────────────────────────────
+  // F2 = focus search · F3 = Send to Kitchen · F4 = Cobrar · F8 = Pendientes
+  // Esc = close any open modal. Disabled while typing into an input.
+  useFoodTruckHotkeys({
+    onSearchFocus: () => searchInputRef.current?.focus(),
+    onSendKitchen: () => { if (items.length && !pendingTicket) sendToKitchen() },
+    onCobrar:      () => { if (items.length) openCobro() },
+    onPendientes:  () => navigate('/pendientes'),
+    onCancel:      () => {
+      if (cobrarModal) setCobrarModal(null)
+      else if (phoneModal) setPhoneModal(null)
+      else if (pasteModal) setPasteModal(null)
+      else if (postKitchenToast) setPostKitchenToast(null)
+    },
+  })
 
   // Build the cobro payload mirror of RestaurantPOS but mesa-free.
   const openCobro = () => {
@@ -186,9 +406,13 @@ export default function FoodTruckPOS() {
   const handleTicketPaid = async (payload = {}) => {
     if (!items.length) { setCobrarModal(null); return }
     setBusy('Registrando ticket...')
-    const ticketSid = uuidv4()
+    const ticketSid = pendingTicket?.supabase_id || uuidv4()
     const tipAmount = Number(payload?.tip_amount ?? 0) || 0
     const total = Number(payload?.total ?? (ticketSubtotal + tipAmount))
+    const sourceFromPayload = payload?.order_source || pendingTicket?.source || orderSource
+    const phoneNotes = phoneInfo
+      ? `📞 ${phoneInfo.name}${phoneInfo.phone ? ' · ' + phoneInfo.phone : ''}${phoneInfo.eta_minutes ? ' · ETA ' + phoneInfo.eta_minutes + 'min' : ''}${phoneInfo.notes ? ' · ' + phoneInfo.notes : ''}`
+      : null
     const cobroPayload = {
       supabase_id: ticketSid,
       items: items.map(it => ({
@@ -219,22 +443,40 @@ export default function FoodTruckPOS() {
       client_supabase_id: payload?.client_supabase_id || null,
       cajero_id: payload?.cajero_id || null,
       comentario: payload?.comentario || (event.active ? `EVENTO: ${event.label}` : null),
+      notes: pendingTicket?.notes || phoneNotes || null,
+      order_source: sourceFromPayload,
       mac_jti: payload?.mac_jti || null,
       ecf: payload?.ecf || null,
     }
     try {
-      await api.tickets.create(cobroPayload)
+      if (pendingTicket?.supabase_id && api.tickets?.closeWithPayment) {
+        // Pending ticket already exists in DB → finalize via closeWithPayment.
+        // Items were already added on Send-to-Kitchen; closeWithPayment only
+        // updates totals + payment + flips open_status to 'closed'.
+        await api.tickets.closeWithPayment({
+          ticket_supabase_id: pendingTicket.supabase_id,
+          payload: cobroPayload,
+        })
+      } else {
+        await api.tickets.create(cobroPayload)
+      }
     } catch (e) {
-      console.error('[FoodTruckPOS] ticket create failed', e)
+      console.error('[FoodTruckPOS] ticket persist failed', e)
       setError(e?.message || 'No se pudo registrar el ticket.')
       setCobrarModal(null)
       setBusy(null)
       return
     }
-    // Best-effort fire-to-KDS after persistence.
-    try { await fireKitchen(ticketSid) } catch (e) { console.warn('[FoodTruckPOS] fireKitchen failed', e) }
+    // Best-effort fire-to-KDS after persistence (skip if items were already
+    // fired during Send-to-Kitchen — pending tickets don't need a re-fire).
+    if (!pendingTicket) {
+      try { await fireKitchen(ticketSid) } catch (e) { console.warn('[FoodTruckPOS] fireKitchen failed', e) }
+    }
     setCobrarModal(null)
     clearCart()
+    setPendingTicket(null)
+    setPhoneInfo(null)
+    setOrderSource('mostrador')
     setBusy(null)
   }
 
@@ -267,6 +509,91 @@ export default function FoodTruckPOS() {
 
         {event.active && (
           <EventModeBanner label={event.label} multiplier={event.multiplier} onClear={clearEvent} />
+        )}
+
+        {/* Source pill row — channel/origin of this order. Stamped on the
+            ticket so end-of-shift reports break revenue down by channel. */}
+        <div className="mb-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-extrabold tracking-[1.5px] text-slate-500 dark:text-white/50 uppercase mr-1">Origen</span>
+            {SOURCE_PILLS.map(p => {
+              const Icon = p.icon
+              const active = orderSource === p.id
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => pickSource(p.id)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border transition-colors ${active
+                    ? 'bg-[#b3001e] text-white border-[#b3001e] shadow'
+                    : 'border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300 dark:hover:border-white/20'}`}
+                >
+                  <Icon size={12} /> {p.label}
+                </button>
+              )
+            })}
+            {phoneInfo && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] text-slate-700 dark:text-white/70 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10">
+                <Phone size={11} className="text-[#b3001e]" /> {phoneInfo.name}{phoneInfo.phone ? ' · ' + phoneInfo.phone : ''}{phoneInfo.eta_minutes ? ` · ETA ${phoneInfo.eta_minutes}m` : ''}
+                <button onClick={() => setPhoneInfo(null)} className="ml-1 opacity-60 hover:opacity-100"><X size={10} /></button>
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Pending-ticket banner. Shown when cart was loaded from /pendientes
+            so the cashier knows Cobrar will close that ticket (vs creating
+            a new one). [Liberar] disconnects without closing the ticket. */}
+        {pendingTicket && (
+          <div className="mb-4 flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+            <Clock size={16} className="text-amber-600 dark:text-amber-400" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-bold text-amber-900 dark:text-amber-200">
+                Editando orden <span className="font-mono">{pendingTicket.doc_number}</span>
+              </p>
+              <p className="text-[11px] text-amber-700 dark:text-amber-300/80">
+                pendiente desde {pendingTicket.opened_at ? new Date(pendingTicket.opened_at).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' }) : '—'} · {pendingTicket.source}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={releasePending}
+              className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-amber-300 dark:border-amber-500/30 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-500/15"
+            >Liberar</button>
+          </div>
+        )}
+
+        {/* Post-Send-to-Kitchen toast with WhatsApp deep-link if customer
+            phone was captured. One-tap from cashier; no auto-send. */}
+        {postKitchenToast && (
+          <div className="mb-4 flex items-center gap-3 px-4 py-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
+            <ChefHat size={16} className="text-emerald-600 dark:text-emerald-400" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-bold text-emerald-900 dark:text-emerald-200">
+                Orden <span className="font-mono">{postKitchenToast.docNumber}</span> enviada a cocina
+              </p>
+              {postKitchenToast.name && (
+                <p className="text-[11px] text-emerald-700 dark:text-emerald-300/80">
+                  Para {postKitchenToast.name}{postKitchenToast.phone ? ' · ' + postKitchenToast.phone : ''}
+                </p>
+              )}
+            </div>
+            {postKitchenToast.phone && (() => {
+              const cleanPhone = String(postKitchenToast.phone).replace(/\D/g, '')
+              const e164 = cleanPhone.length === 10 ? '1' + cleanPhone : cleanPhone
+              const txt = encodeURIComponent(`¡Hola ${postKitchenToast.name || ''}! Tu orden ${postKitchenToast.docNumber} está confirmada. Te avisamos cuando esté lista. Gracias!`)
+              return (
+                <a
+                  href={`https://wa.me/${e164}?text=${txt}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-lg bg-[#25D366] text-white hover:bg-[#1da851]"
+                >
+                  <Smartphone size={12} /> WhatsApp
+                </a>
+              )
+            })()}
+            <button onClick={() => setPostKitchenToast(null)} className="text-emerald-600 dark:text-emerald-400 hover:opacity-80"><X size={14} /></button>
+          </div>
         )}
 
         {/* Location selector */}
@@ -302,10 +629,11 @@ export default function FoodTruckPOS() {
         <div className="mb-4 flex items-center gap-2.5 px-4 py-3.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 focus-within:border-[#b3001e]">
           <Search size={16} className="shrink-0 text-slate-400 dark:text-white/40" />
           <input
+            ref={searchInputRef}
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Buscar plato o categoría..."
+            placeholder="Buscar plato o categoría... (F2)"
             className="flex-1 min-w-0 bg-transparent text-slate-900 dark:text-white text-sm focus:outline-none placeholder:text-slate-400 dark:placeholder:text-white/40"
             autoComplete="off"
           />
@@ -412,13 +740,25 @@ export default function FoodTruckPOS() {
               <Sparkles size={10} /> Precios con multiplicador de evento aplicado
             </div>
           )}
-          <button
-            disabled={!items.length}
-            onClick={openCobro}
-            className="w-full py-3.5 rounded-xl bg-[#b3001e] hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-extrabold tracking-wide flex items-center justify-center gap-2"
-          >
-            <ChefHat size={16} /> Cobrar
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              disabled={!items.length || !!pendingTicket}
+              onClick={sendToKitchen}
+              title={pendingTicket ? 'Esta orden ya fue enviada a cocina' : 'Enviar a cocina sin cobrar'}
+              className="py-3.5 rounded-xl border-2 border-[#b3001e] text-[#b3001e] hover:bg-[#b3001e]/5 dark:hover:bg-[#b3001e]/10 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-extrabold tracking-wide flex items-center justify-center gap-2"
+            >
+              <Send size={16} /> Cocina
+            </button>
+            <button
+              type="button"
+              disabled={!items.length}
+              onClick={openCobro}
+              className="py-3.5 rounded-xl bg-[#b3001e] hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-extrabold tracking-wide flex items-center justify-center gap-2"
+            >
+              <DollarSign size={16} /> Cobrar
+            </button>
+          </div>
         </div>
       </div>
 
@@ -430,6 +770,23 @@ export default function FoodTruckPOS() {
             onConfirm={handleTicketPaid}
           />
         </PaymentErrorBoundary>
+      )}
+
+      {phoneModal && (
+        <PhoneOrderCaptureModal
+          pendingSource={phoneModal.pendingSource}
+          onConfirm={handlePhoneCaptured}
+          onClose={() => setPhoneModal(null)}
+        />
+      )}
+
+      {pasteModal && (
+        <AggregatorPasteModal
+          channel={pasteModal.channel}
+          services={services}
+          onConfirm={handlePasteParsed}
+          onClose={() => setPasteModal(null)}
+        />
       )}
     </div>
   )

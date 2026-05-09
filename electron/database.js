@@ -6003,7 +6003,14 @@ function _selfHealOpenTicketsCols() {
   for (const sql of cols) { try { db.exec(sql) } catch {} }
 }
 
-function ticketOpenForMesa({ mesa_id, mesa_supabase_id, waiter_empleado_id, guests, supabase_id } = {}) {
+// 2026-05-09 — generalized to ticketOpenForFulfillment so food_truck (and any
+// future fire-then-pay vertical) shares the same lifecycle as restaurant. The
+// legacy ticketOpenForMesa is now a thin wrapper.
+function ticketOpenForFulfillment({
+  fulfillment_type, mode, mesa_id, mesa_supabase_id,
+  food_truck_location_supabase_id, order_source, notes,
+  supabase_id,
+} = {}) {
   if (!db) return null
   _selfHealOpenTicketsCols()
   const ticketSid = supabase_id || crypto.randomUUID()
@@ -6014,19 +6021,55 @@ function ticketOpenForMesa({ mesa_id, mesa_supabase_id, waiter_empleado_id, gues
     if (m) nextNum = parseInt(m[1], 10) + 1
   }
   const docNumber = `T-${String(nextNum).padStart(4, '0')}`
+  const ff = fulfillment_type || (mesa_supabase_id ? 'dine_in' : 'take_out')
+  const md = mode || (mesa_supabase_id ? 'mesa' : 'take_out')
+  const src = order_source || 'pos'
   const tx = db.transaction(() => {
     const result = db.prepare(`INSERT INTO tickets
       (doc_number, supabase_id, mesa_id, mesa_supabase_id,
+       food_truck_location_supabase_id,
        fulfillment_type, mode, subtotal, descuento, itbis, ley, total,
        payment_method, status, open_status, tipo_venta, order_source,
-       created_at)
-      VALUES(?,?,?,?,?,?,0,0,0,0,0,?,?,?,?,?,datetime('now'))`).run(
+       notes, created_at)
+      VALUES(?,?,?,?,?,?,?,0,0,0,0,0,?,?,?,?,?,?,datetime('now'))`).run(
       docNumber, ticketSid, mesa_id || null, mesa_supabase_id || null,
-      'dine_in', 'mesa', 'pending', 'pendiente', 'open', 'contado', 'pos',
+      food_truck_location_supabase_id || null,
+      ff, md, 'pending', 'pendiente', 'open', 'contado', src,
+      notes || null,
     )
     return { id: result.lastInsertRowid, supabase_id: ticketSid, doc_number: docNumber }
   })
   return tx()
+}
+
+function ticketOpenForMesa(args = {}) {
+  return ticketOpenForFulfillment({ ...args, fulfillment_type: 'dine_in', mode: 'mesa' })
+}
+
+// listOpen — every ticket with open_status='open' for the active business +
+// item count + running subtotal (pre-aggregated so the UI doesn't fetch
+// ticket_items per row).
+function ticketsListOpen({ source = null, limit = 100 } = {}) {
+  if (!db) return []
+  try { _selfHealOpenTicketsCols() } catch {}
+  const params = []
+  let where = `WHERE open_status='open' AND status<>'nula'`
+  if (source) { where += ' AND order_source=?'; params.push(source) }
+  params.push(Math.max(1, Math.min(500, Number(limit) || 100)))
+  const rows = db.prepare(`
+    SELECT t.id, t.supabase_id, t.doc_number, t.mesa_supabase_id,
+           t.food_truck_location_supabase_id, t.order_source, t.notes,
+           t.fulfillment_type, t.mode, t.created_at, t.updated_at,
+           COALESCE(SUM(ti.quantity), 0)            AS item_count,
+           COALESCE(SUM(ti.price * ti.quantity), 0) AS running_total
+      FROM tickets t
+ LEFT JOIN ticket_items ti ON ti.ticket_id = t.id
+       ${where}
+     GROUP BY t.id
+     ORDER BY t.created_at DESC
+     LIMIT ?
+  `).all(...params)
+  return rows
 }
 
 function ticketAddItem({ ticket_id, ticket_supabase_id, service_id, service_supabase_id, name, price, qty, modifiers, course, happy_hour_applied, guest_number, preparation_notes, empleado_supabase_id } = {}) {

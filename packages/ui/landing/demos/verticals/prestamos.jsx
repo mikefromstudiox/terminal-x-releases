@@ -175,8 +175,8 @@ export default {
     if (view === 'clients') return <ClientsDemo clients={toClientsDemoShape(CLIENTS)} />
     if (view === 'reports') return <ReportesDemo transactions={toReportesTxSeed({ today: { ventasTotal: TODAY.intereses_cobrados * 4, ventasCash: TODAY.intereses_cobrados, ventasTarjeta: 0, ventasTransfer: TODAY.intereses_cobrados * 3, ticketsCount: TODAY.prestamos_activos }, clients: CLIENTS })} reportTitle="Cobros e intereses" />
     if (view === 'dgii')    return <DGIIDemo ecfTodayCount={0} />
-    if (view === 'empl')   return <EmpleadosDemo />
-    if (view === 'config') return <ConfigDemo />
+    if (view === 'empl')   return <EmpleadosDemo vertical="prestamos" />
+    if (view === 'config') return <ConfigDemo vertical="prestamos" business={BUSINESS} />
     return <SoonView title={NAV.find(n => n.id === view)?.label} desc="Disponible en el sistema completo." navigate={ctx.navigate} />
   },
 }

@@ -155,8 +155,8 @@ export default {
     if (view === '606')       return <FormatoView tipo="606" />
     if (view === '607')       return <FormatoView tipo="607" />
     if (view === 'dgii')      return <DGIIDemo ecfTodayCount={TODAY.ecf_emitidos} />
-    if (view === 'empl')   return <EmpleadosDemo />
-    if (view === 'config') return <ConfigDemo />
+    if (view === 'empl')   return <EmpleadosDemo vertical="contabilidad" />
+    if (view === 'config') return <ConfigDemo vertical="contabilidad" business={BUSINESS} />
     return <SoonView title={NAV.find(n => n.id === view)?.label} desc="Disponible en el sistema completo." navigate={ctx.navigate} />
   },
 }

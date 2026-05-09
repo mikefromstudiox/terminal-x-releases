@@ -648,7 +648,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     allPriceChanges: (data) => call('tickets:allPriceChanges', data),
     // v2.16.4 — Restaurant open-ticket lifecycle. Persist a ticket at mesa-seat
     // time so a power loss mid-dinner doesn't drop in-flight items.
+    // 2026-05-09 — generalized open-ticket entry point (food_truck shares).
+    openForFulfillment:(data) => call('tickets:openForFulfillment', data),
     openForMesa:       (data) => call('tickets:openForMesa', data),
+    listOpen:          (data) => call('tickets:listOpen', data || {}),
     addItem:           (data) => call('tickets:addItem', data),
     updateItemQty:     (data) => call('tickets:updateItemQty', data),
     removeItem:        (data) => call('tickets:removeItem', data),

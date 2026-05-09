@@ -184,8 +184,8 @@ export default {
     if (view === 'reports') return <ReportesDemo transactions={toReportesTxSeed({ today: TODAY, clients: CLIENTS, items: Object.values(SERVICES).flat() })} />
     if (view === 'cuadre')  return <CashReconciliationDemo ventasCash={TODAY.ventasCash} ticketsCount={TODAY.ticketsCount} />
     if (view === 'dgii')    return <DGIIDemo ecfTodayCount={TODAY.ecf_emitidos} />
-    if (view === 'empl')   return <EmpleadosDemo />
-    if (view === 'config') return <ConfigDemo />
+    if (view === 'empl')   return <EmpleadosDemo vertical="mechanic" />
+    if (view === 'config') return <ConfigDemo vertical="mechanic" business={BUSINESS} />
     return <SoonView title={NAV.find(n => n.id === view)?.label} desc="Disponible en el sistema completo." navigate={ctx.navigate} />
   },
 }

@@ -200,8 +200,8 @@ export default {
     if (view === 'clients')  return <ClientsDemo clients={toClientsDemoShape(CLIENTS)} />
     if (view === 'reports')  return <ReportesDemo transactions={toReportesTxSeed({ today: { ventasTotal: 6580000, ventasCash: 0, ventasTarjeta: 1580000, ventasTransfer: 5000000, ticketsCount: 4 }, clients: CLIENTS, items: VEHICLES.map(v => ({ name: `${v.make} ${v.model}` })) })} reportTitle="Ventas de vehiculos" />
     if (view === 'dgii')     return <DGIIDemo ecfTodayCount={4} />
-    if (view === 'empl')   return <EmpleadosDemo />
-    if (view === 'config') return <ConfigDemo />
+    if (view === 'empl')   return <EmpleadosDemo vertical="dealership" />
+    if (view === 'config') return <ConfigDemo vertical="dealership" business={BUSINESS} />
     return <SoonView title={NAV.find(n => n.id === view)?.label} desc="Disponible en el sistema completo." navigate={ctx.navigate} />
   },
 }
