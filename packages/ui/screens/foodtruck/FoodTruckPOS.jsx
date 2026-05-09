@@ -330,6 +330,19 @@ export default function FoodTruckPOS() {
       setPhoneInfo(null)
       setOrderSource('mostrador')
     } catch (e) {
+      console.error('[FoodTruckPOS] sendToKitchen failed', e)
+      try {
+        window.__txReportError?.(e, {
+          severity: 'error',
+          category: 'foodtruck_send_kitchen',
+          extra: {
+            order_source: orderSource,
+            item_count: items.length,
+            had_pending: !!pendingTicket?.supabase_id,
+            had_phone_info: !!phoneInfo,
+          },
+        })
+      } catch {}
       setError(e?.message || 'No se pudo enviar a cocina')
     } finally {
       setBusy(null)
@@ -363,9 +376,15 @@ export default function FoodTruckPOS() {
     },
   })
 
+  // Track whether the current cobrar flow actually persisted. Reset every
+  // time we open the modal. closeCobrarModal reads this to decide whether
+  // to clear the cart (success → clear) or keep it (Esc/cancel → keep).
+  const cobroSucceededRef = useRef(false)
+
   // Build the cobro payload mirror of RestaurantPOS but mesa-free.
   const openCobro = () => {
     if (!items.length) return
+    cobroSucceededRef.current = false
     setCobrarModal({
       ticket: {
         ticketNo: 'FT',
@@ -462,6 +481,18 @@ export default function FoodTruckPOS() {
       }
     } catch (e) {
       console.error('[FoodTruckPOS] ticket persist failed', e)
+      try {
+        window.__txReportError?.(e, {
+          severity: 'error',
+          category: 'foodtruck_cobrar_persist',
+          extra: {
+            had_pending_ticket: !!pendingTicket?.supabase_id,
+            order_source: sourceFromPayload,
+            item_count: items.length,
+            total,
+          },
+        })
+      } catch {}
       setError(e?.message || 'No se pudo registrar el ticket.')
       setCobrarModal(null)
       setBusy(null)
@@ -470,14 +501,42 @@ export default function FoodTruckPOS() {
     // Best-effort fire-to-KDS after persistence (skip if items were already
     // fired during Send-to-Kitchen — pending tickets don't need a re-fire).
     if (!pendingTicket) {
-      try { await fireKitchen(ticketSid) } catch (e) { console.warn('[FoodTruckPOS] fireKitchen failed', e) }
+      try { await fireKitchen(ticketSid) } catch (e) {
+        console.warn('[FoodTruckPOS] fireKitchen failed', e)
+        // Non-fatal — ticket persisted, just kitchen didn't get pinged.
+        // Surface so admin Errores panel can flag chronic KDS failures.
+        try {
+          window.__txReportError?.(e, {
+            severity: 'warn',
+            category: 'foodtruck_kds_fire',
+            extra: { ticket_sid: ticketSid, item_count: items.length },
+          })
+        } catch {}
+      }
     }
-    setCobrarModal(null)
-    clearCart()
-    setPendingTicket(null)
-    setPhoneInfo(null)
-    setOrderSource('mostrador')
+    // 2026-05-09 — DO NOT close the modal here. CobrarModal flips to its
+    // SuccessView (NCF + QR + WhatsApp send) AFTER onConfirm resolves.
+    // Closing the modal eagerly from the parent unmounts it before the
+    // success view paints — exact symptom: receipt pop never appears.
+    // The modal's "Cerrar" button calls onClose which routes through
+    // closeCobrarModal() below to clear cart + reset state.
+    cobroSucceededRef.current = true
     setBusy(null)
+  }
+
+  // Called when the user dismisses CobrarModal (success "Cerrar" button OR
+  // X / backdrop dismiss). Single source of truth for cart reset.
+  // If cobrar didn't succeed (Esc / X mid-flow), keep the cart so the
+  // cashier can resume; only success path clears the cart.
+  const closeCobrarModal = () => {
+    setCobrarModal(null)
+    if (cobroSucceededRef.current) {
+      clearCart()
+      setPendingTicket(null)
+      setPhoneInfo(null)
+      setOrderSource('mostrador')
+    }
+    cobroSucceededRef.current = false
   }
 
   return (
@@ -763,10 +822,10 @@ export default function FoodTruckPOS() {
       </div>
 
       {cobrarModal && (
-        <PaymentErrorBoundary onClose={() => setCobrarModal(null)}>
+        <PaymentErrorBoundary onClose={closeCobrarModal}>
           <CobrarModal
             ticket={cobrarModal.ticket}
-            onClose={() => setCobrarModal(null)}
+            onClose={closeCobrarModal}
             onConfirm={handleTicketPaid}
           />
         </PaymentErrorBoundary>
