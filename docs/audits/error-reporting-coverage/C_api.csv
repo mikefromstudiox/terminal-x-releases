@@ -1,0 +1,51 @@
+layer,file,line,action_id,has_try_catch,has_report,report_kind,severity,category,gap_type,fix_recommendation
+C,web/api/panel.js,1569,api.panel.stats,yes,no,none,low,admin_dashboard,client_caller_reports_only,Client must call __txReportError on non-2xx
+C,web/api/panel.js,1599,api.panel.licenses,yes,no,none,low,license_management,client_caller_reports_only,GET/POST/PATCH wrapped; client-side reporting only
+C,web/api/panel.js,1646,api.panel.clients,yes,no,none,medium,crm,client_caller_reports_only,Validation failures (400) not logged
+C,web/api/panel.js,1782,api.panel.users,yes,no,none,low,admin_users,client_caller_reports_only,All error branches rely on client-side reporting
+C,web/api/panel.js,1928,api.panel.client_detail,yes,no,none,medium,crm,client_caller_reports_only,Some validation 400s not logged
+C,web/api/panel.js,2004,api.panel.cert_history,yes,no,none,low,cert_audit,client_caller_reports_only,GET only; returns 500 on error
+C,web/api/panel.js,2023,api.panel.update_business,yes,no,none,low,admin_business,client_caller_reports_only,PATCH wrapped; returns 400/500
+C,web/api/panel.js,2057,api.panel.link_web_account,yes,no,none,medium,auth,client_caller_reports_only,Auth errors (401) not logged
+C,web/api/panel.js,2090,api.panel.reset_password,yes,no,none,medium,auth,client_caller_reports_only,Returns 400/500
+C,web/api/panel.js,2105,api.panel.activity_feed,yes,no,none,low,admin_audit,client_caller_reports_only,GET wrapped; client reports
+C,web/api/panel.js,1881,api.panel.register,yes,no,none,medium,auth,client_caller_reports_only,Returns 400/409/500
+C,web/api/panel.js,1838,api.panel.client_config,yes,no,none,low,admin_config,client_caller_reports_only,GET/POST wrapped
+C,web/api/panel.js,1826,api.panel.push_service,yes,no,none,low,push_notifications,client_caller_reports_only,GET/POST wrapped
+C,web/api/panel.js,2254,api.panel.cert_list,yes,no,none,low,cert_management,client_caller_reports_only,GET wrapped
+C,web/api/panel.js,2268,api.panel.cert_detail,yes,no,none,low,cert_detail,client_caller_reports_only,GET wrapped
+C,web/api/panel.js,2287,api.panel.cert_create,yes,no,none,medium,cert_workflow,client_caller_reports_only,POST wrapped
+C,web/api/panel.js,2309,api.panel.cert_update,yes,no,none,medium,cert_workflow,client_caller_reports_only,PATCH wrapped
+C,web/api/panel.js,2328,api.panel.cert_step,yes,no,none,medium,cert_workflow,client_caller_reports_only,POST/PATCH wrapped
+C,web/api/panel.js,2352,api.panel.cert_notes,yes,no,none,low,cert_audit,client_caller_reports_only,GET/POST wrapped
+C,web/api/panel.js,585,api.panel.crm_list,yes,no,none,low,crm,client_caller_reports_only,GET wrapped
+C,web/api/panel.js,637,api.panel.crm_detail,yes,no,none,low,crm,client_caller_reports_only,GET wrapped
+C,web/api/panel.js,659,api.panel.crm_update,yes,no,none,medium,crm,client_caller_reports_only,PATCH wrapped
+C,web/api/panel.js,699,api.panel.crm_note,yes,no,none,low,crm_audit,client_caller_reports_only,POST/GET wrapped
+C,web/api/panel.js,1473,api.panel.crm_create,yes,no,none,medium,crm,client_caller_reports_only,POST wrapped
+C,web/api/panel.js,1459,api.panel.crm_delete,yes,no,none,low,crm,client_caller_reports_only,DELETE wrapped
+C,web/api/panel.js,823,api.panel.report_error,yes,yes,write_client_errors,low,error_reporting,ok,Server-side write to client_errors table
+C,web/api/panel.js,901,api.panel.errors_list,yes,no,none,low,admin_error_review,client_caller_reports_only,GET wrapped
+C,web/api/panel.js,919,api.panel.errors_resolve,yes,no,none,low,admin_error_management,client_caller_reports_only,POST wrapped
+C,web/api/panel.js,881,api.panel.errors_decode,yes,no,none,low,admin_error_review,client_caller_reports_only,POST wrapped
+C,web/api/panel.js,941,api.panel.client_health_snapshot,yes,no,none,low,admin_monitoring,client_caller_reports_only,GET wrapped
+C,web/api/panel.js,1060,api.panel.dgii_creds_save,yes,no,none,high,dgii_integration,client_caller_reports_only,Credential failures not logged
+C,web/api/panel.js,1096,api.panel.dgii_creds_status,yes,no,none,medium,dgii_integration,client_caller_reports_only,GET wrapped
+C,web/api/panel.js,1112,api.panel.dgii_creds_delete,yes,no,none,medium,dgii_integration,client_caller_reports_only,DELETE wrapped
+C,web/api/panel.js,1129,api.panel.dgii_pull_run,yes,no,none,high,dgii_integration,client_caller_reports_only,Manual pull failures not logged
+C,web/api/panel.js,1246,api.panel.cron_dgii_pull,yes,no,none,high,dgii_integration,client_caller_reports_only,Batch failures may be silent
+C,web/api/panel.js,1173,api.panel.dgii_creds_save_plaintext,yes,no,none,high,dgii_integration,client_caller_reports_only,Plaintext upload failures not logged
+C,web/api/panel.js,1197,api.panel.dgii_login_test,yes,no,none,medium,dgii_integration,client_caller_reports_only,Auth test failures not logged
+C,web/api/fe.js,141,api.fe.semilla,no,no,none,low,dgii_seed,no_try_catch,No try-catch; nonce persist swallowed
+C,web/api/fe.js,179,api.fe.validarcertificado,yes,no,none,high,dgii_auth,partial_server_no_log,Seed verification failures caught but not logged
+C,web/api/fe.js,266,api.fe.recepcion,yes,no,none,high,dgii_reception,partial_server_no_log,XML signing failures caught but not logged
+C,web/api/fe.js,321,api.fe.aprobacion,yes,no,none,high,dgii_approval,partial_server_no_log,XML signing failures caught but not logged
+C,web/api/validate.js,82,api.validate.validate,yes,no,none,high,license_validation,partial_server_no_log,Rate limit failures not logged; audit() errors swallowed
+C,web/api/rnc.js,13,api.rnc.lookup,yes,no,none,medium,rnc_lookup,partial_server_no_log,External API failures caught but not logged
+C,web/api/ecf-sign.js,39,api.ecf-sign.sign,yes,no,none,high,ecf_signing,partial_server_no_log,DGII/signing failures caught but not logged
+C,web/api/dgii-cert-upload.js,76,api.dgii-cert-upload.install,yes,no,none,high,cert_installation,partial_server_no_log,.p12 parsing failures caught but not logged
+C,web/api/staff-verify-auth.js,29,api.staff-verify-auth.verify,no,no,none,medium,staff_auth,no_try_catch,No try-catch wrapper; Supabase errors bubble up
+C,web/api/signup/lead.js,19,api.signup.lead,yes,no,none,low,crm_lead_capture,partial_server_no_log,Lead failures caught but not logged
+C,web/api/signup/provision.js,9,api.signup.provision,yes,no,none,high,account_provisioning,partial_server_no_log,Non-fatal blocks swallow errors at 87-147
+C,web/api/digest/daily.js,274,api.digest.daily.cron,yes,no,none,high,digest_automation,partial_server_no_log,Per-business errors caught but not logged at 342-346
+# summary,101 endpoints across 9 files,,,,,,,,,Only report_error logs server-side (1 of 101). 50 have try-catch but no logging (partial). 1 has no try-catch. 50 rely on client __txReportError. Implement centralized error logging in all catch blocks before production.

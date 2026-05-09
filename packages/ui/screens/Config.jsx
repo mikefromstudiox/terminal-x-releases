@@ -12,6 +12,8 @@ import { useAuth } from '../context/AuthContext'
 import Admin from './Admin'
 import Sistema, { Preferencias } from './Sistema'
 import ConfigGrid from './ConfigGrid'
+import ConfigPlan from './ConfigPlan'
+import ConfigTerminales from './ConfigTerminales'
 
 const ADMIN_SECTIONS = ['empresa', 'usuarios', 'servicios']
 
@@ -45,6 +47,11 @@ export default function Config() {
   if (section === 'updates') {
     return <Sistema initialTab="actualizaciones" hideHeader />
   }
+
+  // 2026-05-09 — ConfigGrid mini-pages (Plan + Terminales). Replaced
+  // /admin/clients deep-links that non-admin roles couldn't reach.
+  if (section === 'plan')        return <ConfigPlan />
+  if (section === 'terminales')  return <ConfigTerminales />
 
   return <Navigate to="/config/empresa" replace />
 }

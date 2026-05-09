@@ -1,0 +1,52 @@
+layer,file,line,action_id,has_try_catch,has_report,report_kind,severity,category,gap_type,fix_recommendation
+A,main.js,99,safe:set,yes,no,none,,ipc.safe.set,swallowed_catch,Add reportMainProcessError or __txReportError on catch
+A,main.js,112,safe:get,yes,no,none,,ipc.safe.get,swallowed_catch,Add reportMainProcessError or __txReportError on catch
+A,main.js,127,env:get,no,no,none,,ipc.env.get,ok,Simple passthrough no error path
+A,main.js,132,app:version,no,no,none,,ipc.app.version,ok,Simple passthrough no error path
+A,main.js,134,app:resetLocalDatabase,yes,no,none,,ipc.app.resetLocalDatabase,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,164,whatsapp:send,yes,no,none,,ipc.whatsapp.send,ipc_no_renderer_report,Verify renderer handles rejection with __txReportError
+A,main.js,201,whatsapp:sendDocument,yes,no,none,,ipc.whatsapp.send,ipc_no_renderer_report,Verify renderer handles rejection with __txReportError
+A,main.js,242,ecf:queue-count,no,no,none,,ipc.ecf.queue-count,ok,Simple query no error path
+A,main.js,291,dgii:submit,yes,no,none,,ipc.dgii.submit,swallowed_catch,Add reportMainProcessError(err 'critical' dgii.submit) on catch
+A,main.js,494,dgii:void-sequence,yes,no,none,,ipc.dgii.void,swallowed_catch,Add reportMainProcessError(err 'critical' dgii.void)
+A,main.js,554,dgii:install-cert,yes,no,none,,ipc.dgii.cert.install,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,581,dgii:cert-info,yes,no,none,,ipc.dgii.cert.info,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,692,cert:expiry-check,yes,no,none,,ipc.cert.expiry,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,719,dgii:cert-pem,yes,yes,activityLog_only,critical,ipc.dgii.cert.pem,partial_no_client_errors,Ensure renderer caller reports via __txReportError on load failure
+A,main.js,777,dgii:restore-from-pem,yes,yes,activityLog_only,critical,ipc.dgii.cert.restore,partial_no_client_errors,Ensure renderer caller reports via __txReportError on failure
+A,main.js,839,dgii:auth-test,yes,no,none,,ipc.dgii.auth,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,856,dgii:queue-anecf-void,yes,no,none,,ipc.dgii.anecf.void,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,872,dgii:check-status,yes,no,none,,ipc.dgii.status,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,885,dgii:get-env,no,no,none,,ipc.dgii.env,ok,Simple passthrough no error path
+A,main.js,888,dgii:generate-test-set,yes,no,none,,ipc.dgii.test,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,903,dgii:submissions,no,no,none,,ipc.dgii.submissions,ok,Simple query no error path
+A,main.js,1164,dgii:reconcile-now,yes,no,none,,ipc.dgii.reconcile,swallowed_catch,Add reportMainProcessError or handle internally
+A,main.js,1248,dgii:process-anecf-queue,yes,no,none,,ipc.dgii.anecf.process,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,1252,dgii:anecf-queue-count,no,no,none,,ipc.dgii.anecf.count,ok,Simple query no error path
+A,main.js,1253,dgii:anecf-queue-list,no,no,none,,ipc.dgii.anecf.list,ok,Simple query no error path
+A,main.js,1299,license:hwid,no,no,none,,ipc.license.hwid,ok,Simple function call no error path
+A,main.js,1387,license:set-key,yes,no,none,,ipc.license.set-key,swallowed_catch,Add reportMainProcessError on _wireLicenseJwt fail
+A,main.js,1395,license:clear-jwt,yes,no,none,,ipc.license.clear-jwt,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,1408,license:status,yes,no,none,,ipc.license.status,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,1427,license:is-master,no,no,none,,ipc.license.is-master,ok,Simple comparison no error path
+A,main.js,1437,remote:register,yes,no,none,,ipc.remote.register,ipc_no_renderer_report,Verify renderer handles rejection with __txReportError
+A,main.js,1448,remote:validate,yes,no,none,,ipc.remote.validate,ipc_no_renderer_report,Verify renderer handles rejection with __txReportError
+A,main.js,1852,backup:runNow,yes,yes,sentry_only,error,ipc.backup.run,partial_no_client_errors,Add __txReportError call in catch or wrap reportMainProcessError
+A,main.js,1862,backup:lastStatus,yes,no,none,,ipc.backup.status,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3023,rnc:status,yes,no,none,,ipc.rnc.status,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3031,rnc:sync,yes,no,none,,ipc.rnc.sync,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3041,rnc:lookup,yes,no,none,,ipc.rnc.lookup,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3145,db:exportToSupabase,yes,no,none,,ipc.db.export,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3155,print:list-usb-printers,yes,no,none,,ipc.print.list,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3190,print:receipt,yes,no,none,,ipc.print.receipt,ipc_no_renderer_report,Verify renderer handles rejection with __txReportError
+A,main.js,3215,print:open-drawer,yes,no,none,,ipc.print.drawer.open,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3274,print:fire-drawer-variant,yes,no,none,,ipc.print.drawer.fire,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3297,print:test-drawer-variants,no,no,none,,ipc.print.drawer.test,ok,No error handling but no critical path
+A,main.js,3328,fs:save-file,yes,no,none,,ipc.fs.save,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3346,pdf:save,yes,no,none,,ipc.pdf.save,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3360,backup:local,yes,no,none,,ipc.backup.local,swallowed_catch,Add reportMainProcessError on catch
+A,updater.js,68,updater:install,no,no,none,,ipc.updater.install,ok,Electron built-in may handle errors
+A,updater.js,73,updater:get-channel,yes,no,none,,ipc.updater.get-channel,swallowed_catch,Add error handling on catch
+A,updater.js,81,updater:set-channel,yes,no,none,,ipc.updater.set-channel,swallowed_catch,Add reportMainProcessError on catch
+A,updater.js,98,updater:check,yes,no,none,,ipc.updater.check,swallowed_catch,Add reportMainProcessError on catch
+# summary,52,2,8,42

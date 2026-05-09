@@ -75,7 +75,7 @@ const ALL_CARDS = [
     title: { es: 'Impresora y caja', en: 'Printer & drawer' },
     desc:  { es: 'Impresora térmica 80mm, cajón de dinero, variantes drawer-kick.',
              en: 'Thermal 80mm printer, cash drawer, drawer-kick variants.' },
-    to: '/config/preferencias',
+    to: '/config/preferencias#printer',
     roles: ['owner'],
   },
   {
@@ -84,7 +84,7 @@ const ALL_CARDS = [
     title: { es: 'WhatsApp', en: 'WhatsApp' },
     desc:  { es: 'Plantillas de recibo, recordatorios, vencimientos y eventos.',
              en: 'Receipt templates, reminders, due dates and event triggers.' },
-    to: '/config/preferencias',
+    to: '/config/preferencias#whatsapp',
     feature: 'whatsapp_receipts',
     roles: ['owner'],
   },
@@ -94,7 +94,7 @@ const ALL_CARDS = [
     title: { es: 'Comisiones', en: 'Commissions' },
     desc:  { es: 'Reglas por servicio, por empleado, splits y excepciones.',
              en: 'Per-service, per-employee, split and exception rules.' },
-    to: '/config/preferencias',
+    to: '/config/preferencias#commissions',
     feature: 'commissions',
     roles: ['owner'],
   },
@@ -104,7 +104,7 @@ const ALL_CARDS = [
     title: { es: 'Sincronización', en: 'Sync' },
     desc:  { es: 'Cada 5 min · cola offline 72h · backup nightly 3 AM.',
              en: 'Every 5 min · 72h offline queue · nightly 3 AM backup.' },
-    to: '/config/preferencias',
+    to: '/config/preferencias#sync',
     roles: ['owner'],
   },
   {
@@ -123,7 +123,7 @@ const ALL_CARDS = [
     title: { es: 'Pedidos Ya', en: 'Pedidos Ya' },
     desc:  { es: 'Canal pink toggle · precios PY · comisión 15% deducida.',
              en: 'Pink channel toggle · PY prices · 15% commission stripped.' },
-    to: '/config/preferencias',
+    to: '/config/preferencias#pedidosya',
     when: ({ isLicoreria, isRetail, isCarniceria, isFoodTruck }, hasFeature) =>
       hasFeature('pedidos_ya') || isLicoreria || isRetail || isCarniceria || isFoodTruck,
   },
@@ -153,7 +153,7 @@ const ALL_CARDS = [
     title: { es: 'Modo Evento', en: 'Event mode' },
     desc:  { es: 'Multiplica precios para eventos privados temporalmente.',
              en: 'Temporarily multiply prices for private events.' },
-    to: '/config/preferencias',
+    to: '/config/preferencias#event',
     feature: 'food_truck_event_mode',
     when: ({ isFoodTruck }) => isFoodTruck,
   },
@@ -193,8 +193,7 @@ const ALL_CARDS = [
     title: { es: 'Plan y facturación', en: 'Plan & billing' },
     desc:  { es: 'Plan activo, próximo cobro, historial de pagos.',
              en: 'Active plan, next charge, payment history.' },
-    to: '/admin/clients',
-    roles: ['owner'],
+    to: '/config/plan',
   },
   {
     id: 'security',
@@ -202,7 +201,7 @@ const ALL_CARDS = [
     title: { es: 'Seguridad', en: 'Security' },
     desc:  { es: 'PINs, Manager Auth Card, sesiones activas, auditoría.',
              en: 'PINs, Manager Auth Card, active sessions, audit log.' },
-    to: '/config/usuarios',
+    to: '/config/preferencias#manager',
     roles: ['owner'],
   },
   {
@@ -211,7 +210,7 @@ const ALL_CARDS = [
     title: { es: 'Licencia', en: 'License' },
     desc:  { es: 'TXL-XXXX-XXXX-XXXX · vincular o transferir terminal.',
              en: 'TXL-XXXX-XXXX-XXXX · bind or transfer terminal.' },
-    to: '/config/preferencias',
+    to: '/config/preferencias#license',
     roles: ['owner'],
   },
   {
@@ -237,8 +236,7 @@ const ALL_CARDS = [
     title: { es: 'Terminales', en: 'Terminals' },
     desc:  { es: 'Cajas activas, etiquetas por equipo, último acceso.',
              en: 'Active POS terminals, per-device labels, last seen.' },
-    to: '/admin/clients',
-    roles: ['owner'],
+    to: '/config/terminales',
   },
 ]
 

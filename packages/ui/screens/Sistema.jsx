@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   Settings, KeyRound, CheckCircle2, Loader2, AlertCircle, Printer,
   RefreshCw, Download, ArrowDownToLine, FileText, HardDrive,
@@ -219,9 +220,14 @@ function GoLiveSection({ api, goLiveDate, committedAt, set, show, L }) {
   )
 }
 
-function SettingSection({ title, children }) {
+// 2026-05-09 — `id` prop drives the new ConfigGrid hash-anchored deep links
+// (/config/preferencias#printer, #whatsapp, #commissions, etc.). The
+// scroll-to-hash effect on Preferencias picks these up.  scroll-mt-20 keeps
+// the section title visible below the modal header when the browser
+// auto-scrolls to it.
+function SettingSection({ id, title, children }) {
   return (
-    <div className="mb-5">
+    <div className="mb-5 scroll-mt-20" {...(id ? { id } : {})}>
       <p className="text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-2">{title}</p>
       <div className="border border-slate-200 dark:border-white/10 rounded-xl px-4 divide-y divide-slate-100 dark:divide-white/10">
         {children}
@@ -511,7 +517,7 @@ function useSettings() {
 export function Preferencias() {
   const { cfg, set, on, handleSave, saving, saved, printers, toast, show, printerApi, api, qzStatus } = useSettings()
   const { lang, setLang } = useLang()
-  const { businessType, isMechanic } = useBusinessType()
+  const { businessType, isMechanic, isFoodTruck } = useBusinessType()
   const { plan, hasFeature } = usePlan()
   const { user } = useAuth()
   const isOwner = user?.role === 'owner'
@@ -519,6 +525,32 @@ export function Preferencias() {
   const showPreTicket = hasVehicles(businessType)
   const multiPosAllowed = plan === 'pro_max' || hasFeature?.('multi_pos')
   const L = (es, en) => lang === 'es' ? es : en
+
+  // 2026-05-09 — Scroll-to-hash on mount + on hash change. ConfigGrid cards
+  // use /config/preferencias#printer, #whatsapp, etc. so each card lands at
+  // the relevant SettingSection instead of dumping the user at the top.
+  const { hash } = useLocation()
+  useEffect(() => {
+    if (!hash) return
+    const id = hash.replace(/^#/, '')
+    if (!id) return
+    // Wait one frame so the DOM is mounted (Preferencias is a long page).
+    const t = setTimeout(() => {
+      try {
+        const el = document.getElementById(id)
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      } catch (e) {
+        try {
+          window.__txReportError?.(e, {
+            severity: 'warn',
+            category: 'preferencias_scroll_to_hash',
+            extra: { hash: id },
+          })
+        } catch {}
+      }
+    }, 80)
+    return () => clearTimeout(t)
+  }, [hash])
 
   async function testPrint() {
     // Build a minimal ESC/POS test receipt. Must be a binary string, not an
@@ -577,7 +609,7 @@ export function Preferencias() {
         </SettingRow>
       </SettingSection>
 
-      <SettingSection title={L('Autorización de Gerente', 'Manager Authorization')}>
+      <SettingSection id="manager" title={L('Autorización de Gerente', 'Manager Authorization')}>
         <div className="text-[11px] text-slate-500 dark:text-white/60 mb-2">
           {L(
             'Exige tarjeta de autorización (o PIN de emergencia) para acciones sensibles. El gerente escanea su tarjeta; el cajero nunca ve el token.',
@@ -602,7 +634,7 @@ export function Preferencias() {
       </SettingSection>
 
       {hasFeature?.('loyalty') && (
-        <SettingSection title={L('Programa de Lealtad', 'Loyalty Program')}>
+        <SettingSection id="loyalty" title={L('Programa de Lealtad', 'Loyalty Program')}>
           <SettingRow
             label={L('Activar programa', 'Enable program')}
             hint={L('Acumula puntos por compra y permite canjear en cobro', 'Earn points per sale and redeem at checkout')}
@@ -773,7 +805,7 @@ export function Preferencias() {
         </SettingSection>
       )}
 
-      <SettingSection title={L('Impresora', 'Printer')}>
+      <SettingSection id="printer" title={L('Impresora', 'Printer')}>
         {qzStatus === 'unreachable' && (
           <div className="mb-3 p-3 rounded-lg border border-[#b3001e]/30 bg-[#b3001e]/5">
             <p className="text-[12px] font-bold text-[#b3001e] mb-1">
@@ -947,6 +979,117 @@ export function Preferencias() {
           )}
         </SettingSection>
       )}
+
+      {/* 2026-05-09 — ConfigGrid hash-anchor sections. Lightweight read +
+          edit panels for the cards on /config that previously dumped at
+          the top of this page. Keeping them inside Preferencias means
+          legacy bookmarks (/config/preferencias) keep showing every
+          available setting in one place. */}
+
+      {/* Comisiones — read-only summary + drill-down to Empleados. */}
+      <SettingSection id="commissions" title={L('Comisiones', 'Commissions')}>
+        <SettingRow settingKey="commissions_overview"
+          label={L('Reglas activas', 'Active rules')}
+          hint={L('Configura por empleado en /pos/empleados o por servicio en /config/servicios.',
+                  'Configure per-employee in /pos/empleados or per-service in /config/servicios.')}>
+          <span className="text-[12px] text-slate-500 dark:text-white/50">{businessType}</span>
+        </SettingRow>
+        <SettingRow settingKey="comm_round_to_peso"
+          label={L('Redondear a peso entero', 'Round to whole peso')}
+          hint={L('Aplica al cálculo final por liquidación', 'Applies to final per-period payout')}>
+          <Toggle enabled={on('comm_round_to_peso')} onChange={v => set('comm_round_to_peso', v ? '1' : '0')} />
+        </SettingRow>
+      </SettingSection>
+
+      {/* Sincronización — info only. */}
+      <SettingSection id="sync" title={L('Sincronización', 'Sync')}>
+        <SettingRow settingKey="sync_freq" label={L('Frecuencia automática', 'Auto frequency')} hint="">
+          <span className="text-[12px] font-bold text-slate-700 dark:text-white">Cada 5 min</span>
+        </SettingRow>
+        <SettingRow settingKey="sync_offline" label={L('Cola offline máxima', 'Max offline queue')} hint="">
+          <span className="text-[12px] font-bold text-slate-700 dark:text-white">72 horas</span>
+        </SettingRow>
+        <SettingRow settingKey="sync_backup" label={L('Backup nocturno', 'Nightly backup')} hint="">
+          <span className="text-[12px] font-bold text-slate-700 dark:text-white">3:00 AM · 14d retención</span>
+        </SettingRow>
+        <SettingRow settingKey="sync_now" label={L('Sincronizar ahora', 'Sync now')} hint={L('Fuerza un push pendiente.', 'Force pending push.')}>
+          <button
+            type="button"
+            onClick={async () => {
+              try { await api.sync?.runOnce?.(); show(L('Sync iniciado', 'Sync started')) }
+              catch (e) {
+                try {
+                  window.__txReportError?.(e, { severity: 'warn', category: 'preferencias_sync_now' })
+                } catch {}
+                show(L('Error: ' + (e?.message || 'sync falló'), 'Error: ' + (e?.message || 'sync failed')))
+              }
+            }}
+            className="px-3 py-1.5 rounded-lg bg-black text-white text-[12px] font-bold hover:bg-slate-800"
+          >{L('Sincronizar', 'Sync')}</button>
+        </SettingRow>
+      </SettingSection>
+
+      {/* Pedidos Ya — toggle + commission %. Read by RetailPOS / FoodTruckPOS
+          to flip the channel pricing. */}
+      <SettingSection id="pedidosya" title={L('Pedidos Ya', 'Pedidos Ya')}>
+        <SettingRow settingKey="pedidos_ya_enabled" label={L('Canal activo', 'Channel enabled')} hint={L('Activa precios y comisión PY.', 'Enables PY pricing + commission.')}>
+          <Toggle enabled={on('pedidos_ya_enabled')} onChange={v => set('pedidos_ya_enabled', v ? '1' : '0')} />
+        </SettingRow>
+        <SettingRow settingKey="pedidos_ya_commission_pct" label={L('Comisión PY %', 'PY commission %')} hint={L('Se descuenta del total al cobrar.', 'Stripped off the total at cobro.')}>
+          <Input type="number" min="0" max="100" step="0.1"
+            value={cfg.pedidos_ya_commission_pct ?? '15'}
+            onChange={e => set('pedidos_ya_commission_pct', e.target.value)}
+            className="w-20 text-center" />
+        </SettingRow>
+      </SettingSection>
+
+      {/* Modo Evento — food_truck only. Toggle + price multiplier. The
+          FoodTruckPOS banner reads these same keys. */}
+      {isFoodTruck && (
+        <SettingSection id="event" title={L('Modo Evento', 'Event Mode')}>
+          <SettingRow settingKey="food_truck_event_active" label={L('Activo', 'Active')} hint={L('Multiplica precios para eventos privados.', 'Multiplies prices for private events.')}>
+            <Toggle enabled={on('food_truck_event_active')} onChange={v => set('food_truck_event_active', v ? '1' : '0')} />
+          </SettingRow>
+          <SettingRow settingKey="food_truck_event_label" label={L('Etiqueta', 'Label')} hint={L('Aparece en el recibo del evento.', 'Shows on the event receipt.')}>
+            <Input type="text" value={cfg.food_truck_event_label ?? ''}
+              onChange={e => set('food_truck_event_label', e.target.value)}
+              placeholder="Boda Plaza Naco"
+              className="w-48 text-left" />
+          </SettingRow>
+          <SettingRow settingKey="food_truck_event_multiplier" label={L('Multiplicador', 'Multiplier')} hint={L('1.0 = sin cambio · 1.25 = +25%', '1.0 = no change · 1.25 = +25%')}>
+            <Input type="number" min="0.5" max="5" step="0.05"
+              value={cfg.food_truck_event_multiplier ?? '1'}
+              onChange={e => set('food_truck_event_multiplier', e.target.value)}
+              className="w-24 text-center" />
+          </SettingRow>
+        </SettingSection>
+      )}
+
+      {/* Licencia — masked key + last seen. Owner can re-validate. */}
+      <SettingSection id="license" title={L('Licencia', 'License')}>
+        <SettingRow settingKey="license_key" label={L('Clave', 'Key')} hint={L('Vinculada a este equipo.', 'Bound to this terminal.')}>
+          <span className="font-mono text-[11px] text-slate-700 dark:text-white">
+            {(cfg.license_key || cfg.tx_license_key || '').replace(/(.{4})(.{4})(.{4})(.{4})/, '$1-$2-$3-$4') || '—'}
+          </span>
+        </SettingRow>
+        <SettingRow settingKey="license_validate" label={L('Re-validar', 'Re-validate')} hint={L('Fuerza una verificación contra el servidor.', 'Forces a server-side check.')}>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await api.license?.validate?.()
+                show(L('Licencia re-validada ✓', 'License re-validated ✓'))
+              } catch (e) {
+                try {
+                  window.__txReportError?.(e, { severity: 'warn', category: 'preferencias_license_revalidate' })
+                } catch {}
+                show(L('Error: ' + (e?.message || 'fallo'), 'Error: ' + (e?.message || 'failed')))
+              }
+            }}
+            className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 text-slate-700 dark:text-white/70 text-[12px] font-bold hover:bg-slate-50 dark:hover:bg-white/5"
+          >{L('Re-validar', 'Re-validate')}</button>
+        </SettingRow>
+      </SettingSection>
 
       <div className="flex justify-end mt-2">
         <SaveBtn saving={saving} saved={saved} label={L('Guardar', 'Save')} onClick={handleSave} />
@@ -1122,7 +1265,7 @@ export function WhatsAppSettings() {
   return (
     <div className="max-w-2xl">
       <Toast toast={toast} />
-      <SettingSection title="WhatsApp (UltraMsg)">
+      <SettingSection id="whatsapp" title="WhatsApp (UltraMsg)">
         <SettingRow label="Instance ID" hint={L('ID de instancia UltraMsg', 'UltraMsg instance ID')}>
           <Input type="text" value={cfg.whatsapp_instance} onChange={e => set('whatsapp_instance', e.target.value)} placeholder="instance166620" className="w-44" />
         </SettingRow>
