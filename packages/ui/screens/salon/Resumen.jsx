@@ -89,7 +89,8 @@ export default function Resumen() {
           .slice(0, 6)
         setUpcoming(t)
       }
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'resumen.fmtrd' }) } catch {}}
     setLoading(false)
   })() }, []) // eslint-disable-line
 

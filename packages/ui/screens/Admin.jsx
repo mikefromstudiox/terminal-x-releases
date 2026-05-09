@@ -230,7 +230,8 @@ function Usuarios() {
       if (r?.softDeleted) show(L('Usuario desactivado (tiene historial)', 'User deactivated (has history)'))
       else                show(L('Usuario eliminado ✓', 'User deleted ✓'))
       setConfirmDelete(false); closePanel(); load()
-    } catch (err) { setError(err.message || L('Error al eliminar.', 'Error deleting.')) }
+    } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'admin.settingrow' }) } catch {} setError(err.message || L('Error al eliminar.', 'Error deleting.')) }
     finally { setDeleting(false) }
   }
 
@@ -246,7 +247,8 @@ function Usuarios() {
       if (r?.deleted) show(L('Usuario eliminado ✓', 'User deleted ✓'))
       else            show(L('No se pudo eliminar.', 'Could not delete.'), 'error')
       load()
-    } catch (err) { show(err.message || L('Error al eliminar.', 'Error deleting.'), 'error') }
+    } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'admin.rolebadge' }) } catch {} show(err.message || L('Error al eliminar.', 'Error deleting.'), 'error') }
   }
 
   useEffect(() => { load() }, [])
@@ -262,7 +264,8 @@ function Usuarios() {
       setList(users)
       setEmpleados(emps)
       if (emp?.name) setBizName(emp.name)
-    } catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.rolebadge' }) } catch {} setLoadErr(e.message || L('Error al cargar', 'Load error')) }
     finally { setLoading(false) }
   }
 
@@ -276,7 +279,8 @@ function Usuarios() {
       await api.staff.revokeAuthCard(u.id)
       show(L('Tarjeta revocada ✓', 'Card revoked ✓'))
       load()
-    } catch (e) { show(e?.message || L('Error al revocar', 'Revoke error'), 'error') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.canacton' }) } catch {} show(e?.message || L('Error al revocar', 'Revoke error'), 'error') }
   }
 
   // Employees that don't already have a user account
@@ -350,7 +354,8 @@ function Usuarios() {
       setSaved(true)
       show(panel === 'add' ? L('Usuario creado ✓', 'User created ✓') : L('Usuario actualizado ✓', 'User updated ✓'))
       setTimeout(() => { closePanel(); load() }, 1000)
-    } catch (err) { setError(err.message || L('Error al guardar.', 'Error saving.')) }
+    } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'admin.getemployee' }) } catch {} setError(err.message || L('Error al guardar.', 'Error saving.')) }
     finally { setSaving(false) }
   }
 
@@ -359,7 +364,8 @@ function Usuarios() {
       await api.users.update({ id: u.id, active: u.active ? 0 : 1 })
       show(u.active ? L('Usuario desactivado', 'User deactivated') : L('Usuario activado', 'User activated'))
       load()
-    } catch { show(L('Error al cambiar estado', 'Error toggling status'), 'error') }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'admin.closepanel' }) } catch {} show(L('Error al cambiar estado', 'Error toggling status'), 'error') }
   }
 
   return (
@@ -625,7 +631,8 @@ function Servicios() {
       cats.forEach(c => { order[c.nombre] = c.orden ?? 999 })
       setCatOrder(order)
     }
-    catch (e) { setLoadErr(e.message || L('Error al cargar', 'Load error')) }
+    catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.servicios' }) } catch {} setLoadErr(e.message || L('Error al cargar', 'Load error')) }
     finally { setLoading(false) }
   }
 
@@ -648,7 +655,8 @@ function Servicios() {
       if (catB) await api.categorias.update({ id: catB.id, orden: catOrderA })
       else await api.categorias.create({ nombre: other, orden: catOrderA })
       setCatOrder(prev => ({ ...prev, [cat]: catOrderB, [other]: catOrderA }))
-    } catch { show(L('Error al reordenar', 'Error reordering'), 'error') }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'admin.servicios' }) } catch {} show(L('Error al reordenar', 'Error reordering'), 'error') }
   }
 
   function renameCat(oldName) {
@@ -672,6 +680,7 @@ function Servicios() {
           if (activeTab === oldName) setActiveTab(newName)
           load()
         } catch (e) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.onsave' }) } catch {}
           show(e?.message || L('Error al renombrar', 'Rename error'), 'error')
         }
       },
@@ -695,6 +704,7 @@ function Servicios() {
       if (activeTab === catName) setActiveTab('all')
       load()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.onsave' }) } catch {}
       show(e?.message || L('Error al eliminar', 'Delete error'), 'error')
     }
   }
@@ -712,7 +722,8 @@ function Servicios() {
           show(L('Categoría creada ✓', 'Category created ✓'))
           setActiveTab(nombre)
           load()
-        } catch (e) { show(e?.message || L('Error', 'Error'), 'error') }
+        } catch (e) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.onsave' }) } catch {} show(e?.message || L('Error', 'Error'), 'error') }
       },
     })
   }
@@ -740,7 +751,8 @@ function Servicios() {
       setSaved(true)
       show(panel === 'add' ? L('Servicio agregado ✓', 'Service added ✓') : L('Servicio actualizado ✓', 'Service updated ✓'))
       setTimeout(() => { closePanel(); load() }, 1000)
-    } catch (err) { setError(err.message || L('Error al guardar.', 'Error saving.')) }
+    } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'admin.onsave' }) } catch {} setError(err.message || L('Error al guardar.', 'Error saving.')) }
     finally { setSaving(false) }
   }
 
@@ -749,7 +761,8 @@ function Servicios() {
       await api.services.update({ id: s.id, active: s.active ? 0 : 1 })
       show(s.active ? L('Desactivado — no aparece en POS', 'Deactivated — hidden from POS') : L('Activado en POS ✓', 'Activated in POS ✓'))
       load()
-    } catch { show(L('Error al cambiar estado', 'Error toggling status'), 'error') }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'admin.onsave' }) } catch {} show(L('Error al cambiar estado', 'Error toggling status'), 'error') }
   }
 
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -768,7 +781,8 @@ function Servicios() {
       setConfirmDelete(false)
       closePanel()
       load()
-    } catch (err) { setError(err.message || L('Error al eliminar.', 'Error deleting.')) }
+    } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'admin.openadd' }) } catch {} setError(err.message || L('Error al eliminar.', 'Error deleting.')) }
     finally { setDeleting(false) }
   }
 
@@ -783,7 +797,8 @@ function Servicios() {
       if (r?.softDeleted) show(L('Servicio desactivado (tiene ventas históricas)', 'Service deactivated (has historical sales)'))
       else show(L('Servicio eliminado ✓', 'Service deleted ✓'))
       load()
-    } catch (err) { show(err.message || L('Error al eliminar.', 'Error deleting.'), 'error') }
+    } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'admin.openadd' }) } catch {} show(err.message || L('Error al eliminar.', 'Error deleting.'), 'error') }
   }
 
   function fmtRD(n) { return `RD$ ${Number(n).toLocaleString('en-US', { minimumFractionDigits: 0 })}` }
@@ -1011,7 +1026,8 @@ function Servicios() {
           onSave={async (v) => {
             const cb = promptModal.onSave
             setPromptModal(null)
-            try { await cb?.(v) } catch {}
+            try { await cb?.(v) } catch (_aetherErr) {
+              try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'admin.handler' }) } catch {}}
           }}
           onClose={() => setPromptModal(null)}
           lang={lang}
@@ -1161,7 +1177,8 @@ export function FiscalNCF() {
     try {
       const rows = await api?.ncf?.sequences?.()
       setSequences(rows || [])
-    } catch { show(L('Error al cargar secuencias NCF', 'Error loading NCF sequences'), 'error') }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'admin.fiscalncf' }) } catch {} show(L('Error al cargar secuencias NCF', 'Error loading NCF sequences'), 'error') }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -1178,7 +1195,8 @@ export function FiscalNCF() {
     try {
       await api.settings.update({ fiscal_mode: mode })
       show(L('Modo de comprobantes actualizado ✓', 'Receipt mode updated ✓'))
-    } catch {
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'admin.fiscalncf' }) } catch {}
       show(L('Error al guardar', 'Error saving'), 'error')
     }
   }
@@ -1201,7 +1219,8 @@ export function FiscalNCF() {
     updateLocal(type, { enabled: enabled ? 1 : 0 })
     try {
       await api.ncf.updateSequence({ type, enabled: enabled ? 1 : 0 })
-    } catch {
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'admin.fiscalncf' }) } catch {}
       show(L('Error al actualizar', 'Error updating'), 'error')
     }
   }
@@ -1219,7 +1238,8 @@ export function FiscalNCF() {
       setSaved(s => ({ ...s, [type]: true }))
       show(L('Secuencia guardada ✓', 'Sequence saved ✓'))
       setTimeout(() => setSaved(s => ({ ...s, [type]: false })), 2500)
-    } catch {
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'admin.fiscalncf' }) } catch {}
       show(L('Error al guardar', 'Error saving'), 'error')
     } finally {
       setSaving(s => ({ ...s, [type]: false }))
@@ -1235,6 +1255,7 @@ export function FiscalNCF() {
       setTestMsg(L('Conectado a DGII ✓', 'Connected to DGII ✓'))
       show(L('Conectado a DGII ✓', 'Connected to DGII ✓'))
     } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'admin.fiscalncf' }) } catch {}
       setTestResult('error')
       setTestMsg(err.message || L('Error de conexión', 'Connection error'))
       show(err.message || L('Error de conexión', 'Connection error'), 'error')
@@ -1257,6 +1278,7 @@ export function FiscalNCF() {
         setCertMsg({ type: 'error', text: result?.error || L('Error al instalar certificado', 'Error installing certificate') })
       }
     } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'admin.savefiscalmode' }) } catch {}
       const msg = err.message?.includes('isEncryptionAvailable') || err.message?.includes('safeStorage')
         ? L('Error de cifrado del sistema. Reinicie la aplicación e intente de nuevo.', 'System encryption error. Restart the app and try again.')
         : err.message?.includes('Cancelado') ? L('Operación cancelada', 'Cancelled') : (err.message || L('Error desconocido', 'Unknown error'))
@@ -1570,6 +1592,7 @@ function SalonSettings() {
       setSlugDirty(false)
       show(L('Configuración guardada ✓', 'Settings saved ✓'))
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.salonsettings' }) } catch {}
       show(e?.message || L('Error al guardar', 'Save error'), 'error')
     } finally { setSaving(false) }
   }
@@ -1599,7 +1622,8 @@ function SalonSettings() {
     try {
       navigator.clipboard.writeText(previewUrl)
       show(L('Copiado ✓', 'Copied ✓'))
-    } catch { show(L('No se pudo copiar', 'Could not copy'), 'error') }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'admin.salonsettings' }) } catch {} show(L('No se pudo copiar', 'Could not copy'), 'error') }
   }
 
   if (!loaded) return <div className="py-6 flex justify-center"><Loader2 className="animate-spin text-slate-300 dark:text-white/30" size={18} /></div>
@@ -1773,7 +1797,8 @@ function MiEmpresa() {
         if (row.settings && typeof row.settings === 'object' && !Array.isArray(row.settings)) {
           extra = row.settings
         } else if (typeof row.settings === 'string') {
-          try { extra = JSON.parse(row.settings || '{}') } catch {}
+          try { extra = JSON.parse(row.settings || '{}') } catch (_aetherErr) {
+            try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'admin.miempresa' }) } catch {}}
         }
         setForm({
           biz_name:    row.name    || '',
@@ -1838,7 +1863,8 @@ function MiEmpresa() {
       // number), fall back to {} rather than spreading garbage.
       let existing = current?.settings ?? {}
       for (let i = 0; i < 3 && typeof existing === 'string'; i++) {
-        try { existing = JSON.parse(existing) } catch { existing = {}; break }
+        try { existing = JSON.parse(existing) } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'admin.set' }) } catch {} existing = {}; break }
       }
       if (!existing || typeof existing !== 'object' || Array.isArray(existing)) existing = {}
       // Also strip stale character-indexed keys ('0','1','2',…) from prior
@@ -1896,13 +1922,16 @@ function MiEmpresa() {
           biz_website: website,
           biz_logo:    logo || '',
         })
-      } catch (e) { console.warn('[saveEmpresa] app_settings mirror failed:', e?.message) }
+      } catch (e) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.for' }) } catch {} console.warn('[saveEmpresa] app_settings mirror failed:', e?.message) }
       // Clear the warning gate so the loans screen stops nagging.
-      try { sessionStorage.removeItem('prestamos_mora_warned') } catch {}
+      try { sessionStorage.removeItem('prestamos_mora_warned') } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'admin.for' }) } catch {}}
       show(L('Empresa guardada ✓', 'Business saved ✓'))
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'admin.for' }) } catch {}
       setError(err.message || L('Error al guardar.', 'Error saving.'))
     } finally {
       setSaving(false)
@@ -2233,6 +2262,7 @@ export function Respaldo() {
         setMessage(res?.error || 'No se pudo conectar')
       }
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.admin' }) } catch {}
       setStatus('error')
       setMessage(e?.message || 'No se pudo conectar')
     }
@@ -2315,6 +2345,7 @@ export function CloudBackup() {
       const s = await window.electronAPI.backup.lastStatus()
       setStatus(s || null)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.respaldo' }) } catch {}
       setStatus({ last_error: e?.message || 'N/A' })
     } finally {
       setLoading(false)
@@ -2331,6 +2362,7 @@ export function CloudBackup() {
       setFlash({ kind: 'ok', msg: L(`Respaldo subido (${formatBytes(res?.bytes || 0)})`,
                                     `Backup uploaded (${formatBytes(res?.bytes || 0)})`) })
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.cloudbackup' }) } catch {}
       setFlash({ kind: 'err', msg: e?.message || L('Error', 'Error') })
     } finally {
       setRunning(false)
@@ -2448,7 +2480,8 @@ function ShareWithAccountant() {
     try {
       const r = await callCtbPanel('ctb_my_accountant', null, 'GET')
       setGrants(r?.grants || [])
-    } catch (e) { setMsg({ kind: 'error', text: e?.message || String(e) }) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.callctbpanel' }) } catch {} setMsg({ kind: 'error', text: e?.message || String(e) }) }
     finally { setLoading(false) }
   }, [])
   useEffect(() => { reload() }, [reload])
@@ -2463,6 +2496,7 @@ function ShareWithAccountant() {
       setCode('')
       await reload()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.callctbpanel' }) } catch {}
       const m = e?.message || ''
       const friendly = m.includes('expired') ? 'El código venció. Pide uno nuevo a tu contador.'
                     : m.includes('consumed') ? 'Ese código ya fue usado o no existe.'
@@ -2479,7 +2513,8 @@ function ShareWithAccountant() {
       await callCtbPanel('ctb_revoke_access', { accounting_client_id: grant.accounting_client_id })
       setMsg({ kind: 'ok', text: 'Acceso revocado.' })
       await reload()
-    } catch (e) { setMsg({ kind: 'error', text: e?.message || String(e) }) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.callctbpanel' }) } catch {} setMsg({ kind: 'error', text: e?.message || String(e) }) }
     finally { setBusy(false) }
   }
 

@@ -30,7 +30,8 @@ export default function Clients({ getToken, refreshToken, isDark, lang, demoMode
       const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${getToken()}` } })
       if (resp.ok) setList((await resp.json()).data || [])
       else setLoadErr(L('Error al cargar clientes', 'Error loading clients'))
-    } catch { setLoadErr(L('Error al cargar clientes', 'Error loading clients')) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'clients.clients' }) } catch {} setLoadErr(L('Error al cargar clientes', 'Error loading clients')) }
     setLoading(false)
   }
 
@@ -54,7 +55,8 @@ export default function Clients({ getToken, refreshToken, isDark, lang, demoMode
         setShowAdd(false); setForm(EMPTY_FORM)
       }
       load()
-    } catch (e) { setAddErr(e.message) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'clients.clients' }) } catch {} setAddErr(e.message) }
     finally { setAdding(false) }
   }
 
@@ -67,7 +69,8 @@ export default function Clients({ getToken, refreshToken, isDark, lang, demoMode
         body: JSON.stringify({ id, action: 'delete' }),
       })
       load()
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'clients.clients' }) } catch {}}
   }
 
   const filtered = list.filter(b => {

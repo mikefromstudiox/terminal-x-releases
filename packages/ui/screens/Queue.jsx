@@ -502,6 +502,7 @@ export default function Queue() {
       setQueue(q => q.filter(t => t.id !== ticket.id))
       flash(`${ticket.ticketNo} · ${lang === 'es' ? 'Eliminado de cola' : 'Removed from queue'}`)
     } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'queue.delete', extra: { id: ticket.id, ticketNo: ticket.ticketNo } }) } catch {}
       flash(err.message || (lang === 'es' ? 'Error al eliminar' : 'Delete error'))
     }
     setDeleteConfirm(null)
@@ -527,6 +528,7 @@ export default function Queue() {
     } catch (err) {
       // Revert on error
       setQueue(q => q.map(t => t.id === id ? { ...t, status: ticket.status } : t))
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'queue.cycle_status', extra: { id, from: ticket.status, to: nextUI } }) } catch {}
       flash(`Error: ${err.message}`)
     }
   }
@@ -542,6 +544,7 @@ export default function Queue() {
         washerId: washer.id,
       })
     } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'queue.assign_worker', extra: { queueId, washerId: washer?.id } }) } catch {}
       flash(`Error: ${err.message}`)
     }
   }
@@ -570,7 +573,10 @@ export default function Queue() {
       const r = await api?.whatsapp?.send?.({ to, body })
       if (r?.success || r === true || r?.ok) flash(lang === 'es' ? 'WhatsApp enviado ✓' : 'WhatsApp sent ✓')
       else flash(lang === 'es' ? 'No se pudo enviar WhatsApp' : 'Could not send WhatsApp')
-    } catch (e) { flash(`Error: ${e.message || e}`) }
+    } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'queue.notify_whatsapp', extra: { ticketNo: ticket?.ticketNo } }) } catch {}
+      flash(`Error: ${e.message || e}`)
+    }
   }
 
   async function cobrar(ticket) {
@@ -587,7 +593,8 @@ export default function Queue() {
                   ?? [{ name: ticket.servicesStr, price: ticket.amount }],
         client:   full?.client_id ? { id: full.client_id, name: full.client_name || '', rnc: full.client_rnc || '' } : null,
       })
-    } catch {
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'queue.cobrar.load_ticket', extra: { ticketId: ticket?.ticketId } }) } catch {}
       setCobrarModal({
         id:       ticket.ticketId,
         queueId:  ticket.id,
@@ -630,6 +637,7 @@ export default function Queue() {
         flash(`${ticket.ticketNo} · ${lang === 'es' ? 'Precio actualizado' : 'Price updated'} → ${fmtRD(newPrice)}`)
       }
     } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'queue.price_change', extra: { ticketId: ticket?.ticketId, newPrice } }) } catch {}
       flash(err.message || (lang === 'es' ? 'Error al cambiar precio' : 'Price change error'))
     }
     setPriceChangeModal(null)
@@ -659,6 +667,7 @@ export default function Queue() {
         })
         if (queueId) await api.queue.updateStatus({ id: queueId, status: 'done' })
       } catch (err) {
+        try { window.__txReportError?.(err, { severity: 'error', category: 'queue.payment.confirm', extra: { ticketId, queueId, tipo: data?.tipo, formaPago: data?.formaPago } }) } catch {}
         console.error('[Queue] markPaid error:', err)
         flash(lang === 'es' ? 'Error al cobrar — intente de nuevo' : 'Payment error — try again')
         setCobrarModal(null)
@@ -719,7 +728,10 @@ export default function Queue() {
       // FACTURA first then CONDUCE. Previously fire-and-forget reversed the
       // order on physical paper.
       if (cfg.print_factura_auto === '1') {
-        await printClientReceipt(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice'))
+        await printClientReceipt(ticketData).catch(err => {
+          try { window.__txReportError?.(err, { severity: 'warn', category: 'queue.print.factura', extra: { ticketId } }) } catch {}
+          flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice')
+        })
       }
       // v2.14.24 — Cobrar-from-Cola must print one conduce per washer, same
       // as POS direct-Cobrar. queue.empleado_supabase_id stores ONLY the
@@ -753,7 +765,10 @@ export default function Queue() {
             }
           })
           await printWasherConduce({ ...ticketData, services: scaledServices, lavador: w.name, commAmount: w.commAmount })
-            .catch(() => flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce'))
+            .catch(err => {
+              try { window.__txReportError?.(err, { severity: 'warn', category: 'queue.print.conduce', extra: { ticketId, washer: w?.name } }) } catch {}
+              flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce')
+            })
         }
       }
       // Kick drawer for cash/check payments

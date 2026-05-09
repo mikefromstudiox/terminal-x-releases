@@ -96,6 +96,7 @@ export default function AppraisalChecklist({
       }
       setPhotos(p => [...p, ...out])
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'appraisalchecklist.calcsuggested' }) } catch {}
       setUploadError(e?.message || String(e))
     } finally {
       setUploading(false)

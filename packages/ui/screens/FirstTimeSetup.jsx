@@ -564,7 +564,8 @@ function StepReconnect({ t, onBack, onComplete }) {
           supabase_auth_email: email.trim(),
           supabase_user_id: userId,
         })
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'firsttimesetup.stepreconnect' }) } catch {}}
 
       // 5. Seed local database with business info
       await api?.admin?.saveEmpresa?.({
@@ -610,7 +611,8 @@ function StepReconnect({ t, onBack, onComplete }) {
               start_date: u.start_date || null,
               employee_id: u.employee_id || null,
             })
-          } catch {} // skip duplicates
+          } catch (_aetherErr) {
+            try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'firsttimesetup.if' }) } catch {}} // skip duplicates
         }
       } else {
         // F11 — no hardcoded PIN='0000' fallback. Remote has zero staff →
@@ -628,11 +630,13 @@ function StepReconnect({ t, onBack, onComplete }) {
       // 8. Trigger sync
       try {
         await window.electronAPI?.sync?.now?.()
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'firsttimesetup.if' }) } catch {}}
 
       setStatus('done')
       setTimeout(() => onComplete(), 1500)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'firsttimesetup.if' }) } catch {}
       console.error('[reconnect]', e)
       setError(humanizeNetworkError(e, { context: 'reconnect' }))
       setStatus('error')
@@ -798,6 +802,7 @@ function StepEmpresa({ t, lang, onNext, onBack }) {
       await api?.settings?.update?.(payload)
       onNext({ rnc: rnc.trim(), nombre: nombre.trim() })
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'firsttimesetup.stepempresa' }) } catch {}
       setErr(e?.message || 'Error al guardar.')
     } finally {
       setSaving(false)
@@ -1038,7 +1043,8 @@ function StepCuenta({ t, onNext, onBack, empresaNombre, empresaRnc }) {
           supabase_auth_email: email.trim(),
           supabase_user_id:    userId,
         })
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'firsttimesetup.stepcuenta' }) } catch {}}
 
       // 3. Create/update business row with owner_id
       // First check if business exists from desktop sync
@@ -1074,6 +1080,7 @@ function StepCuenta({ t, onNext, onBack, empresaNombre, empresaRnc }) {
 
       setSuccess(true)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'firsttimesetup.stepcuenta' }) } catch {}
       setErr(e?.message || 'Error al crear la cuenta')
     } finally {
       setSaving(false)
@@ -1209,6 +1216,7 @@ function StepUsuario({ t, onNext, onBack }) {
       if (!users || users.length === 0) throw new Error('No se pudo crear el usuario. Intenta de nuevo.')
       onNext()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'firsttimesetup.stepusuario' }) } catch {}
       setErr(e?.message || 'Error al guardar usuario.')
     } finally {
       setSaving(false)
@@ -1351,7 +1359,8 @@ function StepActivation({ t, onNext, onBack, empresaNombre, empresaRnc, hwid }) 
           if (result.data?.license_key) setLicenseKey(result.data.license_key)
           setPhase('waiting')
         }
-      } catch {
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'firsttimesetup.stepactivation' }) } catch {}
         if (!cancelled) { setErr(t('s3_err_register')); setPhase('error') }
       }
     }
@@ -1374,9 +1383,11 @@ function StepActivation({ t, onNext, onBack, empresaNombre, empresaRnc, hwid }) 
             }).then(r => r.json())
         if (!cancelled && data.valid && data.status === 'active') {
           setPhase('activated')
-          try { await activate(licenseKey, (empresaRnc || '').replace(/\D/g, '')) } catch {}
+          try { await activate(licenseKey, (empresaRnc || '').replace(/\D/g, '')) } catch (_aetherErr) {
+            try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'firsttimesetup.poll' }) } catch {}}
         }
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'firsttimesetup.poll' }) } catch {}}
     }
     poll()
     const id = setInterval(poll, 10000)
@@ -1518,6 +1529,7 @@ function StepFiscal({ t, onNext, onBack }) {
         })
         onNext()
       } catch (e) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'firsttimesetup.stepfiscal' }) } catch {}
         setErr(e?.message || t('s4_err_ncf_save'))
       } finally {
         setSaving(false)
@@ -1535,6 +1547,7 @@ function StepFiscal({ t, onNext, onBack }) {
       })
       onNext()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'firsttimesetup.stepfiscal' }) } catch {}
       setErr(e?.message || 'Error al guardar.')
     } finally {
       setSaving(false)
@@ -1704,7 +1717,8 @@ function StepDoneDrawerPanel({ lang }) {
     const { hex } = ctlRef.current?.getCurrent?.() || {}
     ctlRef.current?.cancel()
     if (hex) {
-      try { await api?.settings?.update?.({ drawer_pulse_hex: hex }) } catch {}
+      try { await api?.settings?.update?.({ drawer_pulse_hex: hex }) } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'firsttimesetup.onexhausted' }) } catch {}}
       setPhase('saved')
     } else {
       setPhase('idle')
@@ -1858,7 +1872,8 @@ export default function FirstTimeSetup({ onComplete }) {
         api?.admin?.saveConfiguracion?.({ setup_complete: '1' }),
         api?.settings?.update?.({ setup_complete: '1' }),
       ])
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'firsttimesetup.stepdone' }) } catch {}}
     onComplete()
   }
 

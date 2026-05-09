@@ -43,6 +43,7 @@ export default function WasteLog() {
       setItems(Array.isArray(inv) ? inv : [])
       setError(null)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'wastelog.fmtrd' }) } catch {}
       setError(e?.message || 'Error cargando mermas')
     } finally {
       setLoading(false)
@@ -83,6 +84,7 @@ export default function WasteLog() {
       setError(null)
       await reload()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'wastelog.startcreate' }) } catch {}
       setError(e?.message || 'No se pudo registrar la merma')
     } finally {
       setBusy(false)
@@ -95,6 +97,7 @@ export default function WasteLog() {
       await api.wasteLog.delete(id)
       await reload()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'wastelog.startcreate' }) } catch {}
       setError(e?.message || 'No se pudo eliminar')
     }
   }

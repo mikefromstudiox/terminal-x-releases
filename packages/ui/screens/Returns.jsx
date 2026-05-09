@@ -99,6 +99,7 @@ export default function Returns() {
       }
       setTicket(hydrated)
     } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'returns.fmt' }) } catch {}
       console.error('[Returns] lookup error', ex)
       setErr(ex?.message || L('Error al buscar', 'Lookup error'))
     } finally { setLoadingT(false) }
@@ -155,7 +156,8 @@ export default function Returns() {
 
       // 1. Pull empresa settings to decide ECF vs B04 sequence.
       const biz      = await api.admin.getEmpresa()
-      const settings = (typeof biz?.settings === 'string') ? (() => { try { return JSON.parse(biz.settings) } catch { return {} } })() : (biz?.settings || {})
+      const settings = (typeof biz?.settings === 'string') ? (() => { try { return JSON.parse(biz.settings) } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'returns.runsearch' }) } catch {} return {} } })() : (biz?.settings || {})
       const isECF    = settings.facturacion_mode === 'ecf'
 
       // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §2.17). On ECF-live
@@ -170,7 +172,8 @@ export default function Returns() {
           ncfType = isFullReturn ? 'E34' : 'E33'
         }
         assignedNCF = await api.ncf.next(ncfType)
-      } catch {
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'returns.setlineqty' }) } catch {}
         assignedNCF = null
       }
 
@@ -222,6 +225,7 @@ export default function Returns() {
             userId:       (user?.id && user.id !== 'web') ? user.id : null,
           })
         } catch (ex) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'returns.tryprocess' }) } catch {}
           console.error('[Returns] inventory.adjust failed', ex)
           failedLines.push({
             inventory_item_id: invId,
@@ -244,7 +248,8 @@ export default function Returns() {
             reason:      `Devolución NCF ${assignedNCF || '?'} — ${failedLines.length} línea(s) NO restituidas en inventario. Ajusta manualmente.`,
             metadata: { ncf: assignedNCF, ticket_id: ticket.id, failed_lines: failedLines },
           })
-        } catch (_) {}
+        } catch (_) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'returns.if' }) } catch {}}
         try {
           window.alert(L(
             `⚠️ Devolución completada y reembolso emitido, pero ${failedLines.length} línea(s) NO se restituyeron en inventario:\n\n` +
@@ -254,7 +259,8 @@ export default function Returns() {
               failedLines.map(f => `• ${f.name} (${f.qty})`).join('\n') +
               '\n\nAdjust inventory manually from Inventory → Count. Logged in Activity.'
           ))
-        } catch (_) {}
+        } catch (_) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'returns.for' }) } catch {}}
       }
 
       // 5. Audit log — return_processed, severity=critical so it surfaces in
@@ -285,11 +291,13 @@ export default function Returns() {
           },
         })
       } catch (logErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(logErr, { severity: 'error', category: 'returns.for' }) } catch {}
         console.error('[Returns] activity_log write failed', logErr)
         try { window.alert(L(
           'Devolución completada pero el registro de actividad falló',
           'Return completed but activity log write failed'
-        )) } catch {}
+        )) } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'returns.for' }) } catch {}}
       }
 
       setToast(L('Devolución procesada ✓', 'Return processed ✓'))
@@ -298,6 +306,7 @@ export default function Returns() {
       setTimeout(() => setToast(null), 3500)
       searchRef.current?.focus()
     } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'returns.catch' }) } catch {}
       console.error('[Returns] process error', ex)
       setErr(ex?.message || L('Error al procesar devolución', 'Process error'))
     } finally {

@@ -37,7 +37,8 @@ export default function Team({ getToken, refreshToken, isDark, lang }) {
       const resp = await fetch('/api/panel?action=users', { headers: { 'Authorization': `Bearer ${getToken()}` } })
       if (resp.ok) setList((await resp.json()).data || [])
       else setLoadErr(L('Error al cargar equipo', 'Error loading team'))
-    } catch { setLoadErr(L('Error al cargar equipo', 'Error loading team')) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'team.team' }) } catch {} setLoadErr(L('Error al cargar equipo', 'Error loading team')) }
     setLoading(false)
   }
 
@@ -56,7 +57,8 @@ export default function Team({ getToken, refreshToken, isDark, lang }) {
       setShowAdd(false)
       setForm({ email: '', name: '', role: 'support', password: '' })
       load()
-    } catch (err) { setError(err.message) }
+    } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'team.team' }) } catch {} setError(err.message) }
     setSaving(false)
   }
 

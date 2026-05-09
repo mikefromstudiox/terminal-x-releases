@@ -22,6 +22,7 @@ export default function Locations() {
       setLocations(Array.isArray(list) ? list : [])
       setError(null)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'locations.locations' }) } catch {}
       setError(e?.message || 'Error cargando ubicaciones')
     } finally {
       setLoading(false)
@@ -79,6 +80,7 @@ export default function Locations() {
       setError(null)
       await reload()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'locations.capturecurrentposition' }) } catch {}
       setError(e?.message || 'No se pudo guardar')
     } finally {
       setBusy(false)
@@ -91,6 +93,7 @@ export default function Locations() {
       await api.foodTruckLocations.delete(id)
       await reload()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'locations.capturecurrentposition' }) } catch {}
       setError(e?.message || 'No se pudo eliminar')
     }
   }

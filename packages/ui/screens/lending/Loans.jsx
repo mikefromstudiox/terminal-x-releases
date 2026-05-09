@@ -276,6 +276,7 @@ function NewLoanModal({ onClose, onSave }) {
       })
       onSave()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'loans.summarycard' }) } catch {}
       setErr(e?.message || 'Error al crear el prestamo.')
     } finally {
       setSaving(false)
@@ -529,6 +530,7 @@ function PaymentModal({ loan, onClose, onSave }) {
       })
       onSave()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'loans.paymentmodal' }) } catch {}
       setErr(e?.message || 'Error al registrar pago.')
     } finally {
       setSaving(false)
@@ -669,7 +671,8 @@ function ContractSigner({ loan, schedule, onClose, onSaved }) {
         await Promise.allSettled(
           uploaded.map(({ bucket, path }) => sb.storage.from(bucket).remove([path]))
         )
-      } catch (_) { /* never throws — best-effort */ }
+      } catch (_) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'loans.handledpi' }) } catch {} /* never throws — best-effort */ }
     }
 
     try {
@@ -680,7 +683,8 @@ function ContractSigner({ loan, schedule, onClose, onSaved }) {
 
       // Fetch business + client info BEFORE we validate, so we can read RNC/legal_name.
       let business = {}
-      try { business = (await api?.admin?.getEmpresa?.()) || {} } catch {}
+      try { business = (await api?.admin?.getEmpresa?.()) || {} } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'loans.handledpi' }) } catch {}}
       if (!business?.legal_name || !business?.rnc) {
         setErr('Falta RNC o razón social del negocio. Configure en Ajustes antes de generar contratos.')
         setSaving(false)
@@ -701,7 +705,8 @@ function ContractSigner({ loan, schedule, onClose, onSaved }) {
             .select('name,phone,rnc,address').eq('id', loan.client_id).eq('business_id', bid).maybeSingle()
           if (data) client = data
         }
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'loans.handledpi' }) } catch {}}
       const clientForPdf = {
         full_name: client?.name || loan.client_name || `Cliente #${loan.client_id}`,
         name:      client?.name || loan.client_name,
@@ -773,13 +778,15 @@ function ContractSigner({ loan, schedule, onClose, onSaved }) {
         a.download = `contrato-prestamo-${loan.id}.pdf`
         a.click()
         setTimeout(() => URL.revokeObjectURL(url), 5000)
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'loans.if' }) } catch {}}
 
       onSaved(inserted || row)
     } catch (e) {
       console.error('[ContractSigner]', e)
       // Rollback every uploaded file before surfacing the error. Modal stays open.
-      try { await rollbackUploads(getSupabaseClient()) } catch (_) {}
+      try { await rollbackUploads(getSupabaseClient()) } catch (_) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'loans.if' }) } catch {}}
       setErr(`Error generando contrato: ${e?.message || 'desconocido'}. Archivos subidos fueron eliminados.`)
     } finally {
       setSaving(false)
@@ -971,7 +978,8 @@ function RenewalModal({ loan, balance, onClose, onSaved }) {
           status: 'on_time',
           notes: `Renovación — interés pagado`,
         })
-      } catch (e) { console.warn('[Renewal] payment insert', e?.message) }
+      } catch (e) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'loans.renewalmodal' }) } catch {} console.warn('[Renewal] payment insert', e?.message) }
 
       // 2. Update loans row — bump next_due_date and renewal_count
       const newRenewalCount = (Number(loan.renewal_count) || 0) + 1
@@ -981,7 +989,8 @@ function RenewalModal({ loan, balance, onClose, onSaved }) {
           next_due_date: newDueDate,
           renewal_count: newRenewalCount,
         })
-      } catch {
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'loans.renewalmodal' }) } catch {}
         // Fallback to direct supabase update if api.loans.update signature differs
         if (loan.supabase_id) {
           await sb.from('loans').update({
@@ -1009,6 +1018,7 @@ function RenewalModal({ loan, balance, onClose, onSaved }) {
 
       onSaved()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'loans.renewalmodal' }) } catch {}
       console.error('[RenewalModal]', e)
       setErr(e?.message || 'Error al renovar el préstamo.')
     } finally {
@@ -1149,7 +1159,8 @@ function LoanDetail({ loan, onClose, onReload }) {
           .select('*').eq('business_id', bid).eq('loan_supabase_id', loan.supabase_id)
           .order('renewal_count', { ascending: false })
         setRenewals(ren || [])
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'loans.loandetail' }) } catch {}}
     })()
   }, [loan.id, loan.supabase_id])
 
@@ -1163,8 +1174,10 @@ function LoanDetail({ loan, onClose, onReload }) {
       setToast('Prestamo marcado en mora')
       setTimeout(() => { setToast(null); onReload() }, 1500)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'loans.loandetail' }) } catch {}
       console.error('[Loans] markDefaulted failed', e)
-      try { window.alert('No se pudo marcar el préstamo en mora: ' + (e?.message || e)) } catch {}
+      try { window.alert('No se pudo marcar el préstamo en mora: ' + (e?.message || e)) } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'loans.loandetail' }) } catch {}}
     }
   }
 
@@ -1175,8 +1188,10 @@ function LoanDetail({ loan, onClose, onReload }) {
       setToast('Prestamo cancelado')
       setTimeout(() => { setToast(null); onReload() }, 1500)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'loans.loandetail' }) } catch {}
       console.error('[Loans] cancel failed', e)
-      try { window.alert('No se pudo cancelar el préstamo: ' + (e?.message || e)) } catch {}
+      try { window.alert('No se pudo cancelar el préstamo: ' + (e?.message || e)) } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'loans.loandetail' }) } catch {}}
     }
   }
 
@@ -1495,7 +1510,8 @@ export default function Loans() {
     try {
       const rows = await api?.loans?.list?.({})
       setLoans(rows || [])
-    } catch { setLoans([]) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'loans.loans' }) } catch {} setLoans([]) }
     finally { setLoading(false) }
   }, [])
 
@@ -1513,9 +1529,11 @@ export default function Loans() {
         if (biz && (biz.mora_rate_daily == null || Number(biz.mora_rate_daily) <= 0)) {
           setToast('Configura tasa de mora en Ajustes → Negocio → Mora diaria')
           setTimeout(() => setToast(null), 6000)
-          try { sessionStorage.setItem('prestamos_mora_warned', '1') } catch {}
+          try { sessionStorage.setItem('prestamos_mora_warned', '1') } catch (_aetherErr) {
+            try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'loans.loans' }) } catch {}}
         }
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'loans.loans' }) } catch {}}
     })()
     return () => { cancelled = true }
   }, [api])

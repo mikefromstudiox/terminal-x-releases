@@ -86,7 +86,9 @@ export default function DealBuilder() {
   // an IDB fallback queue (FIX-HIGH-8) so the trail survives a Supabase blip.
   async function safeAudit(payload) {
     try { await api.activity?.log?.(payload) }
-    catch { try { await enqueueActivity(payload) } catch {} }
+    catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dealbuilder.fmtrd' }) } catch {} try { await enqueueActivity(payload) } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dealbuilder.fmtrd' }) } catch {}} }
   }
 
   const [vehicleId, setVehicleId] = useState('')
@@ -187,6 +189,7 @@ export default function DealBuilder() {
       const rows = await api.bankPreapproval?.activeByClient?.(client.supabase_id)
       setPreapprovalOptions(Array.isArray(rows) ? rows : [])
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'dealbuilder.resetall' }) } catch {}
       console.warn('[DealBuilder] preapproval fetch failed', e)
       setPreapprovalOptions([])
     } finally {
@@ -225,7 +228,8 @@ export default function DealBuilder() {
         if (cancelled) return
         const first = Array.isArray(rows) ? rows[0] : (rows || null)
         setActiveReservation(first || null)
-      } catch { if (!cancelled) setActiveReservation(null) }
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dealbuilder.resetall' }) } catch {} if (!cancelled) setActiveReservation(null) }
     })()
     return () => { cancelled = true }
   }, [selectedUnit?.supabase_id]) // eslint-disable-line
@@ -274,9 +278,11 @@ export default function DealBuilder() {
       }
       let auditOk = true
       try { await api.activity?.log?.(overridePayload) }
-      catch {
+      catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dealbuilder.closedeal' }) } catch {}
         auditOk = false
-        try { await enqueueActivity(overridePayload) } catch {}
+        try { await enqueueActivity(overridePayload) } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dealbuilder.closedeal' }) } catch {}}
       }
       if (!auditOk) {
         flashToast('No se pudo aplicar la anulación de reservación. Reintenta.', 'error')
@@ -404,6 +410,7 @@ export default function DealBuilder() {
         },
       })
     } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'dealbuilder.if' }) } catch {}
       setResult({ ok: false, err: ex?.message || 'Error' })
     } finally {
       setSaving(false)
@@ -466,6 +473,7 @@ export default function DealBuilder() {
           try {
             await api.vehicleReservation?.convert?.({ id: activeReservation.id, deal_supabase_id: ctx.dealSupabaseId || null })
           } catch (rcErr) {
+            try { (typeof window !== 'undefined') && window.__txReportError?.(rcErr, { severity: 'error', category: 'dealbuilder.handledealcobrarconfirm' }) } catch {}
             flashToast('No se pudo aplicar la anulación de reservación. Reintenta.', 'error')
             await safeAudit({
               event_type:  'reservation_conflict_silent_catch_recovered',
@@ -499,6 +507,7 @@ export default function DealBuilder() {
               status:                        'active',
             })
           } catch (wErr) {
+            try { (typeof window !== 'undefined') && window.__txReportError?.(wErr, { severity: 'error', category: 'dealbuilder.if' }) } catch {}
             try {
               await api.activity?.log?.({
                 event_type:  'warranty_create_failed',
@@ -507,7 +516,8 @@ export default function DealBuilder() {
                 target_id:   ctx.dealId,
                 metadata:    { error: String(wErr?.message || wErr), deal_supabase_id: ctx.dealSupabaseId },
               })
-            } catch {}
+            } catch (_aetherErr) {
+              try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dealbuilder.if' }) } catch {}}
           }
         }
         // v2.16.4 Sprint 2C H5 — flip the chosen pre-approval to 'utilizada' so
@@ -534,8 +544,10 @@ export default function DealBuilder() {
                   term_months:           usedPreapproval.term_months || null,
                 },
               })
-            } catch {}
+            } catch (_aetherErr) {
+              try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dealbuilder.catch' }) } catch {}}
           } catch (paErr) {
+            try { (typeof window !== 'undefined') && window.__txReportError?.(paErr, { severity: 'error', category: 'dealbuilder.catch' }) } catch {}
             console.warn('[DealBuilder] preapproval setStatus utilizada failed', paErr)
           }
         }
@@ -550,7 +562,8 @@ export default function DealBuilder() {
             target_id:   ctx.dealId,
             metadata:    { eNCF, ticket_id: result?.id || null, error: String(e?.message || e) },
           })
-        } catch {}
+        } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dealbuilder.if' }) } catch {}}
         if (eNCF) {
           try {
             await window.electronAPI?.dgii?.queueAnecfVoid?.({
@@ -559,17 +572,21 @@ export default function DealBuilder() {
               ticketSupabaseId: result?.supabase_id || null,
               reason: 'deal_close_failed',
             })
-          } catch {}
+          } catch (_aetherErr) {
+            try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dealbuilder.if' }) } catch {}}
         }
         // Re-open the deal so the cashier can retry. Status reset is best-effort.
         try {
           await api.salesDeals.update(ctx.dealId, { status: 'open', closed_at: null, ticket_id: null, ticket_supabase_id: null })
-        } catch {}
-        try { await api.vehicleInventory.setStatus(vehicleId, 'available') } catch {}
+        } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dealbuilder.if' }) } catch {}}
+        try { await api.vehicleInventory.setStatus(vehicleId, 'available') } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dealbuilder.if' }) } catch {}}
         const msg = `Error al cerrar el trato. Se encolo anulacion automatica del e-CF ${eNCF || '(sin eNCF)'}. Contacte soporte: +1 809-828-2971`
         setResult({ ok: false, err: msg })
       }
     } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'dealbuilder.catch' }) } catch {}
       setResult({ ok: false, err: ex?.message || 'Error' })
     } finally {
       setSaving(false)
@@ -716,7 +733,8 @@ export default function DealBuilder() {
                   vehicle_id: vehicleId || null,
                 },
               })
-            } catch {}
+            } catch (_aetherErr) {
+              try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dealbuilder.handler' }) } catch {}}
             setShowAppraisalModal(false)
           }}
           onClose={() => setShowAppraisalModal(false)}

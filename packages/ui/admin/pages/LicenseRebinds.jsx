@@ -37,7 +37,8 @@ export default function LicenseRebinds({ getToken, isDark, lang }) {
       })
       if (resp.ok) setRows((await resp.json()).data || [])
       else setLoadErr(L('Error al cargar solicitudes', 'Error loading requests'))
-    } catch {
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'licenserebinds.licenserebinds' }) } catch {}
       setLoadErr(L('Error al cargar solicitudes', 'Error loading requests'))
     }
     if (!silent) setLoading(false)

@@ -173,7 +173,8 @@ export default function FoodTruckPOS() {
 
   const setLocation = async (sid) => {
     setActiveLocationSid(sid || null)
-    try { await api.settings?.update?.({ food_truck_active_location_supabase_id: sid || '' }) } catch {}
+    try { await api.settings?.update?.({ food_truck_active_location_supabase_id: sid || '' }) }
+    catch (e) { try { window.__txReportError?.(e, { severity: 'warn', category: 'foodtruck.location.set', extra: { sid } }) } catch {} }
   }
 
   // ── Source pill row ─────────────────────────────────────────────────────
@@ -257,6 +258,7 @@ export default function FoodTruckPOS() {
       })
       setOrderSource(ticket.order_source || pendingTicketRow.order_source || 'mostrador')
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'foodtruck.pending.load', extra: { id: pendingTicketRow?.id } }) } catch {}
       setError(e?.message || 'No se pudo cargar la orden pendiente.')
     } finally {
       setBusy(null)
@@ -278,6 +280,10 @@ export default function FoodTruckPOS() {
         ? `📞 ${phoneInfo.name}${phoneInfo.phone ? ' · ' + phoneInfo.phone : ''}${phoneInfo.eta_minutes ? ' · ETA ' + phoneInfo.eta_minutes + 'min' : ''}${phoneInfo.notes ? ' · ' + phoneInfo.notes : ''}`
         : null
       let opened = pendingTicket
+      // Per-item prep notes — phone-order doneness ("bien cocinado",
+      // "sin cebolla") is captured at order level; copy onto every line so
+      // the chef sees it on each KDS tile, not buried in the ticket header.
+      const orderPrepNote = (phoneInfo?.notes || '').trim() || null
       if (!opened) {
         opened = await api.tickets?.openForFulfillment?.({
           fulfillment_type: 'take_out',
@@ -289,8 +295,9 @@ export default function FoodTruckPOS() {
         if (!opened?.supabase_id) throw new Error('No se pudo abrir la orden')
         // Persist each cart line so KDS has supabase_ids to fire against.
         for (const it of items) {
+          const lineNote = [it.preparation_notes, orderPrepNote].filter(Boolean).join(' · ') || null
           try {
-            await api.tickets?.addItem?.({
+            const added = await api.tickets?.addItem?.({
               ticket_supabase_id: opened.supabase_id,
               service_supabase_id: it.service_supabase_id || null,
               service_id: it.service_id || null,
@@ -298,26 +305,48 @@ export default function FoodTruckPOS() {
               price: it.price,
               qty: it.qty,
               course: it.course || 'principal',
+              preparation_notes: lineNote,
             })
+            // Wire the new ticket_item_supabase_id back onto the cart line
+            // so the kds.fire loop below can satisfy the NOT NULL FK.
+            if (added?.supabase_id) it.ticket_item_supabase_id = added.supabase_id
+            else throw new Error('addItem returned null (RLS?)')
           } catch (e) {
             console.warn('[FoodTruckPOS] addItem failed', it.name, e?.message)
+            try { window.__txReportError?.(e, { severity: 'warn', category: 'foodtruck_add_item', extra: { name: it.name } }) } catch {}
           }
         }
-      }
-      // Fire to KDS for every line (best-effort).
-      const station = (it) => (it.printer_route || 'kitchen').toLowerCase() === 'bar' ? 'bar' : 'kitchen'
-      for (const it of items) {
+        // Recompute ticket totals — openForFulfillment seeds 0/0/0 and never
+        // updates them, so without this the ticket shows total=0 in
+        // Pendientes / Cobrar / KDS aging until cobro time.
         try {
-          await api.kds?.fire?.({
-            ticket_item_supabase_id: it.ticket_item_supabase_id || null,
-            station: station(it),
-            name: it.name,
-            qty: it.qty,
-            modifiers: it.modifiers || [],
+          const subtotal = items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.qty) || 0), 0)
+          const itbisRate = 0.18
+          const subBase   = +(subtotal / (1 + itbisRate)).toFixed(2)
+          const itbis     = +(subtotal - subBase).toFixed(2)
+          await api.tickets?.updateTotals?.({
+            ticket_supabase_id: opened.supabase_id,
+            subtotal: subBase,
+            itbis,
+            total: subtotal,
           })
         } catch (e) {
-          console.warn('[FoodTruckPOS] kds.fire failed', it.name, e?.message)
+          try { window.__txReportError?.(e, { severity: 'warn', category: 'foodtruck.update_totals', extra: { ticketSid: opened?.supabase_id } }) } catch {}
+          console.warn('[FoodTruckPOS] updateTotals failed', e?.message)
         }
+      }
+      // Fire to KDS. Skip lines without a sid — kds_events.ticket_item_supabase_id
+      // is NOT NULL, so a null fire silently failed (the original bug).
+      const station = (it) => (it.printer_route || 'kitchen').toLowerCase() === 'bar' ? 'bar' : 'kitchen'
+      for (const it of items) {
+        if (!it.ticket_item_supabase_id) continue
+        await api.kds?.fire?.({
+          ticket_item_supabase_id: it.ticket_item_supabase_id,
+          station: station(it),
+          name: it.name,
+          qty: it.qty,
+          modifiers: it.modifiers || [],
+        })
       }
       setPostKitchenToast({
         docNumber: opened.doc_number,
@@ -357,7 +386,9 @@ export default function FoodTruckPOS() {
         food_truck_event_label: '',
         food_truck_event_multiplier: '1',
       })
-    } catch {}
+    } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'foodtruck.event.clear' }) } catch {}
+    }
   }
 
   // ── Desktop hotkeys ────────────────────────────────────────────────────
@@ -417,6 +448,7 @@ export default function FoodTruckPOS() {
           modifiers: it.modifiers || [],
         })
       } catch (e) {
+        try { window.__txReportError?.(e, { severity: 'warn', category: 'foodtruck.kds_fire.loop', extra: { name: it?.name, ticketSid } }) } catch {}
         console.warn('[FoodTruckPOS] kds.fire failed for', it.name, e?.message)
       }
     }

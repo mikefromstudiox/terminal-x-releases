@@ -136,7 +136,8 @@ export default function Resumen() {
   const load = async () => {
     setRefreshing(true)
     try {
-      try { await (api?.collections?.computeMora?.() ?? Promise.resolve()) } catch {}
+      try { await (api?.collections?.computeMora?.() ?? Promise.resolve()) } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'resumen.load' }) } catch {}}
       const [allLoans, allPawn, ren] = await Promise.all([
         (api?.loans?.list?.({}) ?? Promise.resolve([])),
         (api?.pawnItems?.list?.({}) ?? Promise.resolve([])),
@@ -145,7 +146,8 @@ export default function Resumen() {
       setLoans(Array.isArray(allLoans) ? allLoans : [])
       setPawn(Array.isArray(allPawn) ? allPawn : [])
       setRenewals(Array.isArray(ren) ? ren : [])
-    } catch {
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'resumen.load' }) } catch {}
       setLoans([]); setPawn([]); setRenewals([])
     } finally { setLoading(false); setRefreshing(false) }
   }

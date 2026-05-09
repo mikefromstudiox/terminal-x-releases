@@ -94,6 +94,7 @@ function Editor({ row, onClose, onSaved }) {
       else         await api.aseguradoras?.create?.(form)
       onSaved?.()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'aseguradoras.editor' }) } catch {}
       setErr(e?.message || 'Error guardando aseguradora')
     } finally {
       setSaving(false)

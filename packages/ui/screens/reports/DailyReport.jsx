@@ -44,7 +44,8 @@ function payLabel(pm, lang) {
 function normalizeParts(raw) {
   if (!raw) return null
   let arr = raw
-  if (typeof raw === 'string') { try { arr = JSON.parse(raw) } catch { return null } }
+  if (typeof raw === 'string') { try { arr = JSON.parse(raw) } catch (_aetherErr) {
+    try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dailyreport.fmtrd' }) } catch {} return null } }
   if (!Array.isArray(arr) || arr.length === 0) return null
   const out = arr.map(p => ({
     method: String(p?.method ?? p?.type ?? p?.payment_method ?? 'cash').toLowerCase(),
@@ -586,7 +587,8 @@ export default function DailyReport() {
       try {
         const full = await api.tickets.byId(t.id)
         if (full?.items?.length) fullItems = full.items
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dailyreport.dailyreport' }) } catch {}}
       // v2.14.34 — preserve `is_wash` and DO NOT map to a hard `c: false` on
       // reprint. Live print path leaves `c` undefined on pending.items so
       // buildWasherConduce's `s.c !== false` filter includes everything.
@@ -631,7 +633,8 @@ export default function DailyReport() {
           if (Array.isArray(commRows) && commRows.length) {
             commWashers = commRows.map(r => ({ name: r.nombre || r.name || '-', commAmount: Number(r.commission_amount) || 0 }))
           }
-        } catch {}
+        } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dailyreport.flash' }) } catch {}}
         const washers = commWashers.length
           ? commWashers
           : ((t.washerNames && t.washerNames.length)
@@ -659,6 +662,7 @@ export default function DailyReport() {
         flash(lang === 'es' ? 'Factura reimpresa ✓' : 'Invoice reprinted ✓')
       }
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'dailyreport.if' }) } catch {}
       flash(lang === 'es' ? 'Error al reimprimir' : 'Reprint error')
     }
   }
@@ -854,7 +858,8 @@ export default function DailyReport() {
       // never sees a blank list.
       setSearch('')
       flash(lang === 'es' ? 'Factura anulada correctamente.' : 'Invoice voided successfully.')
-    } catch {
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dailyreport.handlevoid' }) } catch {}
       flash(lang === 'es' ? 'Error al anular la factura.' : 'Error voiding the invoice.')
     }
   }

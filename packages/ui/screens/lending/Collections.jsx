@@ -132,6 +132,7 @@ function AttemptModal({ loan, onClose, onSaved, onShowToast }) {
       })
       onSaved()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'collections.fmtrd' }) } catch {}
       setErr(e?.message || 'Error al registrar intento')
     } finally { setSaving(false) }
   }
@@ -349,7 +350,8 @@ export default function Collections() {
   const loadAll = useCallback(async () => {
     setLoading(true)
     try {
-      try { await (api?.collections?.computeMora?.() ?? Promise.resolve()) } catch {}
+      try { await (api?.collections?.computeMora?.() ?? Promise.resolve()) } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'collections.sortbtn' }) } catch {}}
       const [o, l, la] = await Promise.all([
         (api?.collections?.overdue?.() ?? Promise.resolve([])),
         (api?.collections?.logList?.({}) ?? api?.collectionsLog?.list?.({}) ?? Promise.resolve([])),
@@ -359,6 +361,7 @@ export default function Collections() {
       setLogs(Array.isArray(l) ? l : [])
       setLastAttempts(la && typeof la === 'object' ? la : {})
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'collections.sortbtn' }) } catch {}
       setLoans([]); setLogs([]); setLastAttempts({})
     } finally { setLoading(false) }
   }, [api])

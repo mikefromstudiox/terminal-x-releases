@@ -92,6 +92,15 @@ function _jwtIsExpiringSoon(jwt) {
   }
 }
 
+// Shared sync-error reporter: routes to admin Errores via the main-process
+// reporter installed in main.js (`global.__txMainReport`). Optional-chained
+// because in unit tests / detached scripts the reporter isn't installed.
+// Source must be a stable namespaced string (e.g. 'sync.pull.tickets') so
+// dedup in main.js works correctly across ticks.
+function _reportSyncError(err, source) {
+  try { global.__txMainReport?.(err instanceof Error ? err : new Error(String(err)), source) } catch {}
+}
+
 let _jwtHookMissingWarned = false
 async function _maybeRefreshJwt() {
   if (!_userJwt) return
@@ -99,12 +108,17 @@ async function _maybeRefreshJwt() {
     if (!_jwtHookMissingWarned && _jwtIsExpiringSoon(_userJwt)) {
       _jwtHookMissingWarned = true
       try { log.error('[sync] JWT is set but setJwtRefreshHook() was never installed — sync will start failing with 401 once the token expires. Wire sync.setJwtRefreshHook() in main.js.') } catch {}
+      _reportSyncError(new Error('setJwtRefreshHook not installed before JWT expiry'), 'sync.jwt.refresh_hook_missing')
     }
     return
   }
   if (!_jwtIsExpiringSoon(_userJwt)) return
   try { await _refreshUserJwt() } catch (e) {
     try { log.warn('[sync] JWT refresh failed:', e.message) } catch {}
+    // High-severity: a JWT refresh failure means the next push/pull will 401
+    // and silently stall sync until restart. Surface to admin Errores so the
+    // outage shows up before customers report missing reports.
+    _reportSyncError(e, 'sync.jwt.refresh_failed')
   }
 }
 
@@ -3585,6 +3599,7 @@ async function pullTable(tableConfig) {
       rows = await supabaseFetch(fetchTable, params)
     } catch (e) {
       log.error(`[sync-pull] ${name}: fetch failed:`, e.message)
+      _reportSyncError(e, `sync.pull.${name}.fetch_failed`)
       break
     }
 
@@ -3602,6 +3617,7 @@ async function pullTable(tableConfig) {
         ok = true
       } catch (e) {
         log.error(`[sync-pull] ${name}: upsert failed for ${row.supabase_id}:`, e.message)
+        _reportSyncError(e, `sync.pull.${name}.upsert_failed:supabase_id=${row.supabase_id}`)
       }
       if (ok && row.updated_at) {
         if (!latestUpdatedAt) {
@@ -3703,7 +3719,7 @@ async function pullAppSettings(bizId) {
 
     let rows
     try { rows = await supabaseFetch('app_settings', params) }
-    catch (e) { log.error('[sync-pull] app_settings: fetch failed:', e.message); break }
+    catch (e) { log.error('[sync-pull] app_settings: fetch failed:', e.message); _reportSyncError(e, 'sync.pull.app_settings.fetch_failed'); break }
     if (!rows.length) break
 
     let skippedForeignDevice = 0
@@ -3846,6 +3862,7 @@ async function pullNow() {
       totalPulled += count
     } catch (e) {
       log.error(`[sync-pull] ${pt.name}:`, e.message)
+      _reportSyncError(e, `sync.pullNow.${pt.name}`)
     }
     sendProgress({ stage: 'pulling', done: step, total: totalSteps, table: pt.name })
   }
@@ -3858,12 +3875,13 @@ async function pullNow() {
     await pullBusinessMeta(bizId)
   } catch (e) {
     log.error('[sync-pull] businesses:', e.message)
+    _reportSyncError(e, 'sync.pullNow.businesses')
   }
   sendProgress({ stage: 'pulling', done: step, total: totalSteps, table: 'businesses' })
 
   // Reconcile deletes: owner-deletable tables. If a row was deleted in
   // Supabase (from web or another device), mirror the delete locally.
-  try { await reconcileDeletes() } catch (e) { log.warn('[sync-pull] reconcile failed:', e.message) }
+  try { await reconcileDeletes() } catch (e) { log.warn('[sync-pull] reconcile failed:', e.message); _reportSyncError(e, 'sync.pullNow.reconcileDeletes') }
 
   log.info(`[sync-pull] Manual pull complete — ${totalPulled} rows`)
 
@@ -4333,7 +4351,7 @@ async function syncNow() {
   }
   await _maybeRefreshJwt()
   let bizId
-  try { bizId = await resolveBusinessId() } catch (e) { log.error('[sync] resolveBusinessId failed:', e.message) }
+  try { bizId = await resolveBusinessId() } catch (e) { log.error('[sync] resolveBusinessId failed:', e.message); _reportSyncError(e, 'sync.syncNow.resolveBusinessId') }
   if (!bizId) {
     _status.state = 'no_business_id'
     log.error('[sync] No business_id found')
@@ -4349,11 +4367,11 @@ async function syncNow() {
 
   try {
     // Phase 0 — push business meta (name, logo, etc.) before anything else
-    try { await pushBusinessMeta(bizId) } catch (e) { log.error('[sync] pushBusinessMeta:', e.message) }
+    try { await pushBusinessMeta(bizId) } catch (e) { log.error('[sync] pushBusinessMeta:', e.message); _reportSyncError(e, 'sync.push.businesses_meta') }
 
     // Phase 0.5 — flush tombstones (local hard-deletes → Supabase DELETE).
     // Without this, a desktop-side delete gets resurrected on the next pull.
-    try { await flushTombstones(bizId) } catch (e) { log.error('[sync] flushTombstones:', e.message) }
+    try { await flushTombstones(bizId) } catch (e) { log.error('[sync] flushTombstones:', e.message); _reportSyncError(e, 'sync.push.tombstones') }
 
     for (const table of SYNC_TABLES) {
       try {
@@ -4363,6 +4381,7 @@ async function syncNow() {
         log.error(`[sync] ${table.name}:`, e.message)
         updateSyncLog(table.name, getLastSyncedId(table.name), 0, e.message)
         _status.tables[table.name] = { synced: false, error: e.message }
+        _reportSyncError(e, `sync.push.${table.name}`)
       }
     }
     // ── Pull phase: Supabase → SQLite ────────────────────────────────────
@@ -4373,10 +4392,11 @@ async function syncNow() {
         totalPulled += count
       } catch (e) {
         log.error(`[sync-pull] ${pt.name}:`, e.message)
+        _reportSyncError(e, `sync.pull.${pt.name}`)
       }
     }
     // F15 — also pull business meta so multi-device edits propagate
-    try { await pullBusinessMeta(bizId) } catch (e) { log.error('[sync-pull] businesses:', e.message) }
+    try { await pullBusinessMeta(bizId) } catch (e) { log.error('[sync-pull] businesses:', e.message); _reportSyncError(e, 'sync.pull.businesses_meta') }
     if (totalPulled > 0) log.info(`[sync] Pull complete — ${totalPulled} rows pulled`)
 
     // Mirror cloud-side deletes to local. Without this, rows removed on the
@@ -4384,7 +4404,7 @@ async function syncNow() {
     // every desktop forever because LWW pull only touches rows with matching
     // supabase_ids. Only runs for tables in RECONCILE_TABLES and respects
     // the 10-min age guard so freshly-created local rows aren't wiped.
-    try { await reconcileDeletes() } catch (e) { log.warn('[sync] reconcileDeletes failed:', e.message) }
+    try { await reconcileDeletes() } catch (e) { log.warn('[sync] reconcileDeletes failed:', e.message); _reportSyncError(e, 'sync.syncNow.reconcileDeletes') }
 
     // ── Anti-resurrection: advance last_synced_at to NOW (post-pull) ───
     // Without this, last_synced_at is set during the push phase (BEFORE
@@ -4405,8 +4425,8 @@ async function syncNow() {
     // v2.3 — multi-POS: drain pending inventory deducts (oversell detect)
     // and refill NCF/doc blocks whenever they dip below threshold. Both are
     // no-ops when multi_pos_enabled=0.
-    try { await processPendingDeducts() } catch (e) { log.warn('[multipos] processPendingDeducts:', e.message) }
-    try { await ensureBlocks()          } catch (e) { log.warn('[multipos] ensureBlocks:', e.message) }
+    try { await processPendingDeducts() } catch (e) { log.warn('[multipos] processPendingDeducts:', e.message); _reportSyncError(e, 'sync.multipos.processPendingDeducts') }
+    try { await ensureBlocks()          } catch (e) { log.warn('[multipos] ensureBlocks:', e.message); _reportSyncError(e, 'sync.multipos.ensureBlocks') }
 
     // FIX-HIGH-8 — drain activity_log fallback queue (audit rows whose
     // canonical INSERT failed). Runs every cycle so transient SQLite
@@ -4420,7 +4440,7 @@ async function syncNow() {
           log.info(`[sync] activity_log fallback: drained=${r.drained} dead=${r.dead} remaining=${r.remaining}`)
         }
       }
-    } catch (e) { log.warn('[sync] activityLogDrainFallback:', e.message) }
+    } catch (e) { log.warn('[sync] activityLogDrainFallback:', e.message); _reportSyncError(e, 'sync.activityLogDrainFallback') }
 
     _status.state = 'idle'
     _status.lastSync = new Date().toISOString()
@@ -4431,6 +4451,9 @@ async function syncNow() {
     _status.state = 'error'
     _status.error = e.message
     log.error('[sync] Fatal:', e.message)
+    // Fatal sync error = entire cycle failed (push + pull). High severity:
+    // operator needs to know before the next 5-min tick masks it.
+    _reportSyncError(e, 'sync.syncNow.fatal')
   } finally {
     _syncing = false
   }
@@ -4464,13 +4487,15 @@ function startAutoSync(intervalMs = 30 * 60 * 1000) {
   // First sync after 5 seconds (let DB + window settle, then pull cloud
   // settings so Preferencias/Sistema/Admin screens see the current printer,
   // staff, etc. on first render instead of the 60s-old local snapshot).
-  setTimeout(() => syncNow().catch(() => {}), 5 * 1000)
+  setTimeout(() => syncNow().catch(e => _reportSyncError(e, 'sync.startAutoSync.first_run')), 5 * 1000)
   function scheduleNext() {
     // ±10% jitter per cycle, computed fresh each time. min 60s floor.
     const jitter = (Math.random() * 0.2 - 0.1) * intervalMs
     const next = Math.max(60_000, intervalMs + jitter)
     _jitterTimeoutId = setTimeout(() => {
-      syncNow().catch(() => {})
+      // syncNow() has its own try/catch that reports fatals. The outer .catch
+      // here is only for synchronous throws that escape the function entry.
+      syncNow().catch(e => _reportSyncError(e, 'sync.startAutoSync.tick'))
       scheduleNext()
     }, next)
   }

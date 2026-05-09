@@ -17,6 +17,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
+import { withReporting } from '../../lib/report-server-error.js'
 
 // ── DR timezone math (UTC-4 year-round, no DST) ────────────────────────────
 // Dominican Republic observes AST without DST. "Yesterday" = the 24h window
@@ -271,7 +272,7 @@ async function runForBusiness(supabase, business, window) {
 }
 
 // ── Entry point ─────────────────────────────────────────────────────────────
-export default async function handler(req, res) {
+async function handler(req, res) {
   // Auth gate — Vercel Cron sends `authorization: Bearer <CRON_SECRET>` when set.
   // Allow unauthenticated GET only if CRON_SECRET is unset (dev).
   // Admin-triggered manual sends (business_id+force) authenticate via Supabase
@@ -351,3 +352,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ ok: false, error: e?.message || 'digest_failed' })
   }
 }
+
+export default withReporting(handler, { route: '/api/digest/daily' })

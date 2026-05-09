@@ -74,7 +74,8 @@ export default function NominaDashboard({ onNavigate }) {
       setRecentRuns((runs || []).slice(0, 10))
       // We'd need per-month queries for true trends; for now aggregate by month on what we have
       setCommTrends({ washers: wc || [], sellers: sc || [], cajeros: cc || [] })
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'nominadashboard.primaryworkerlabel' }) } catch {}}
     setLoading(false)
   }
 

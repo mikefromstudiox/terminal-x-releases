@@ -63,7 +63,8 @@ function TDModal({ lang, onSave, onClose, clients, units, staff }) {
         staff_supabase_id: emp?.supabase_id || null,
       })
       onClose()
-    } catch { setSaving(false) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'testdrives.fmtdt' }) } catch {} setSaving(false) }
   }
 
   return (
@@ -161,6 +162,7 @@ export default function TestDrives() {
           next_followup_at: new Date(Date.now() + 3 * 86400000).toISOString(),
         })
       } catch (e) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'testdrives.testdrives' }) } catch {}
         alert(L('No se pudo crear el prospecto de seguimiento. La prueba NO se marco completada. ', 'Lead create failed. The test drive was NOT marked completed. ') + (e?.message || ''))
         return
       }

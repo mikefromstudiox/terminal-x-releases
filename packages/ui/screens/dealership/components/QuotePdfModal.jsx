@@ -69,7 +69,8 @@ export default function QuotePdfModal({
       try {
         const e = await api?.admin?.getEmpresa?.()
         if (!cancelled) setEmpresa(e || null)
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'quotepdfmodal.safefile' }) } catch {}}
     })()
     return () => { cancelled = true }
   }, [api])

@@ -231,7 +231,8 @@ function PeriodosList({ api, clientId, year, periods, reload, onSelect, currentM
     try {
       await api.contabilidad.payrollPeriodCreate({ accounting_client_id: clientId, year, month, status: 'draft' })
       await reload()
-    } catch (e) { alert(`Error: ${e?.message || e}`) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nomina.periodoslist' }) } catch {} alert(`Error: ${e?.message || e}`) }
     finally    { setBusy(false) }
   }
 
@@ -239,7 +240,8 @@ function PeriodosList({ api, clientId, year, periods, reload, onSelect, currentM
     if (!confirm('¿Eliminar este período y sus empleados?')) return
     setBusy(true)
     try { await api.contabilidad.payrollPeriodDelete(id); await reload() }
-    catch (e) { alert(`Error: ${e?.message || e}`) }
+    catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nomina.periodoslist' }) } catch {} alert(`Error: ${e?.message || e}`) }
     finally   { setBusy(false) }
   }
 
@@ -398,12 +400,14 @@ function PeriodDetail({ api, clientId, period, accounts, onChange, onClose, clie
           })
           const r = await api.contabilidad.payrollEmpBankList({ accountingClientId: clientId })
           setRoster(r || [])
-        } catch { /* non-fatal: período saved, roster will retry next save */ }
+        } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'nomina.loadroster' }) } catch {} /* non-fatal: período saved, roster will retry next save */ }
       }
 
       setEditing(null)
       await reload()
-    } catch (e) { alert(`Error: ${e?.message || e}`) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nomina.loadroster' }) } catch {} alert(`Error: ${e?.message || e}`) }
     finally    { setBusy(false) }
   }
 
@@ -428,6 +432,7 @@ function PeriodDetail({ api, clientId, period, accounts, onChange, onClose, clie
       else if (bank === 'banreservas') res = genBanreservasNomina(lines, opts)
       else                             res = genGenericCsvNomina(lines, opts)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nomina.saveemployee' }) } catch {}
       alert(`Error generando archivo: ${e?.message || e}`)
       return
     }
@@ -442,7 +447,8 @@ function PeriodDetail({ api, clientId, period, accounts, onChange, onClose, clie
         disbursement_generated_at: new Date().toISOString(),
         disbursement_bank: bank,
       })
-    } catch { /* column may be absent on legacy desktop; non-fatal */ }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'nomina.generatedisbursement' }) } catch {} /* column may be absent on legacy desktop; non-fatal */ }
     setDisbursementOpen(false)
     const warn = res.warnings?.length ? `\n\nAdvertencias:\n${res.warnings.join('\n')}` : ''
     alert(`Archivo generado: ${res.filename}\n${res.count} empleados · RD$ ${fmtRD(res.totalAmount)}${warn}`)
@@ -452,7 +458,8 @@ function PeriodDetail({ api, clientId, period, accounts, onChange, onClose, clie
     if (!confirm('¿Eliminar empleado del período?')) return
     setBusy(true)
     try { await api.contabilidad.payrollLineDelete(id); await reload() }
-    catch (e) { alert(`Error: ${e?.message || e}`) }
+    catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nomina.generatedisbursement' }) } catch {} alert(`Error: ${e?.message || e}`) }
     finally   { setBusy(false) }
   }
 
@@ -509,7 +516,8 @@ function PeriodDetail({ api, clientId, period, accounts, onChange, onClose, clie
       setPostOpen(false)
       await onChange?.()
       alert('Período posteado al diario contable.')
-    } catch (e) { alert(`Error al postear: ${e?.message || e}`) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nomina.removeemployee' }) } catch {} alert(`Error al postear: ${e?.message || e}`) }
     finally    { setBusy(false) }
   }
 
@@ -523,7 +531,8 @@ function PeriodDetail({ api, clientId, period, accounts, onChange, onClose, clie
       // Trigger download
       const mod = await import('@terminal-x/services/dgii-reports.js')
       mod.downloadTxt(r.content || '', r.filename || `DGII_IR3_${period.year}${String(period.month).padStart(2,'0')}.txt`)
-    } catch (e) { alert(`Error IR-3: ${e?.message || e}`) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nomina.removeemployee' }) } catch {} alert(`Error IR-3: ${e?.message || e}`) }
     finally    { setBusy(false) }
   }
 

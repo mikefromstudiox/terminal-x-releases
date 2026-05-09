@@ -68,7 +68,8 @@ export default function VehicleForm({ open, unit, lang, onSave, onClose, onReloa
         if (url) setPhotos(p => [...p, url])
       }
       onReload?.()
-    } catch (ex) { setErr(ex?.message || L('Subida falló', 'Upload failed')) }
+    } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'vehicleform.vehicleform' }) } catch {} setErr(ex?.message || L('Subida falló', 'Upload failed')) }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
   }
   async function handleRemovePhoto(url) {
@@ -92,7 +93,8 @@ export default function VehicleForm({ open, unit, lang, onSave, onClose, onReloa
         listing_price: Number(form.listing_price) || 0,
       })
       onClose()
-    } catch (ex) { setErr(ex?.message || L('Error al guardar.', 'Save failed.')); setSaving(false) }
+    } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'vehicleform.vehicleform' }) } catch {} setErr(ex?.message || L('Error al guardar.', 'Save failed.')); setSaving(false) }
   }
 
   return (

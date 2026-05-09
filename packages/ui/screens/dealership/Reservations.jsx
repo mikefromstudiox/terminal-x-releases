@@ -151,6 +151,7 @@ function ReservationModal({ initial, units, clients, staff, lang, onSave, onClos
       })
       onClose()
     } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'reservations.reservationmodal' }) } catch {}
       setErr(ex?.message || 'Error')
       setSaving(false)
     }
@@ -267,7 +268,8 @@ function ReleaseModal({ row, lang, onConfirm, onClose }) {
           onSubmit={async e => {
             e.preventDefault()
             setBusy(true)
-            try { await onConfirm(reason.trim() || null); onClose() } catch { setBusy(false) }
+            try { await onConfirm(reason.trim() || null); onClose() } catch (_aetherErr) {
+              try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'reservations.releasemodal' }) } catch {} setBusy(false) }
           }}
           className="p-5 space-y-3 text-sm"
         >

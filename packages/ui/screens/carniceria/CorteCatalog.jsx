@@ -38,7 +38,8 @@ export default function CorteCatalog() {
     try {
       const list = await api?.carniceria?.cortes?.list?.() || []
       setRows(list)
-    } catch { setRows([]) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'cortecatalog.newsid' }) } catch {} setRows([]) }
     setLoading(false)
   }
   useEffect(() => { load() }, [])
@@ -57,6 +58,7 @@ export default function CorteCatalog() {
       else          await api?.carniceria?.cortes?.create?.(clean)
       setEdit(null); load()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'cortecatalog.newsid' }) } catch {}
       if (uploadedThisSave) {
         await removePhoto(uploadedBucket, uploadedThisSave).catch(() => {})
       }
@@ -287,4 +289,5 @@ function Field({ label, value, onChange, placeholder }) {
   )
 }
 
-function safeParse(s) { try { return JSON.parse(s) } catch { return {} } }
+function safeParse(s) { try { return JSON.parse(s) } catch (_aetherErr) {
+  try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'cortecatalog.field' }) } catch {} return {} } }

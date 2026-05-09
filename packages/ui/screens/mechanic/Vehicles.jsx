@@ -68,6 +68,7 @@ function VehicleModal({ vehicle, clients, lang, onSave, onClose }) {
       if (vehicle?.id) data.id = vehicle.id
       await onSave(data)
     } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'vehicles.fmtrd' }) } catch {}
       setErr(ex?.message || L('Error al guardar', 'Error saving'))
     } finally {
       setSaving(false)
@@ -357,7 +358,8 @@ export default function Vehicles() {
       ])
       setVehicles(v || [])
       setClients(c || [])
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'vehicles.infopill' }) } catch {}}
     setLoading(false)
   }
 

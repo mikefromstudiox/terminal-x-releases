@@ -744,8 +744,12 @@ function CarWashPOS() {
 
   async function handleRncLookup() {
     if (rnc.replace(/\D/g, '').length < 9) return
-    const res = await rncLookup(rnc)
-    if (res?.ok && res.nombre) setRncName(res.nombre)
+    try {
+      const res = await rncLookup(rnc)
+      if (res?.ok && res.nombre) setRncName(res.nombre)
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'pos.rnc.lookup', extra: { rnc } }) } catch {}
+    }
   }
 
   async function handleEncolar() {
@@ -827,6 +831,7 @@ function CarWashPOS() {
         flash(`${result?.docNumber || 'Ticket'} · ${lang === 'es' ? 'Puesto en cola ✓' : 'Added to queue ✓'}`)
       }
     } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'error', category: 'pos.queue.enqueue', extra: { itemCount: allOrderItems?.length, vehicle: !!vehicle } }) } catch {}
       flash(`Error: ${err.message}`)
     }
   }
@@ -937,6 +942,7 @@ function CarWashPOS() {
               })
               if (res && res.ok === false) throw new Error(res.error || 'consume_failed')
             } catch (err) {
+              try { window.__txReportError?.(err, { severity: 'error', category: 'pos.membership.consume', extra: { client_membership_supabase_id: r?.client_membership_supabase_id, ticketSid: tsid } }) } catch {}
               console.error('[membership.consume] failed for', r, err)
               flash(lang === 'es'
                 ? 'Membresía no se pudo descontar — anótalo manualmente'
@@ -979,6 +985,7 @@ function CarWashPOS() {
               })
               if (res && res.ok === false) throw new Error(res.error || 'purchase_failed')
             } catch (err) {
+              try { window.__txReportError?.(err, { severity: 'error', category: 'pos.membership.purchase', extra: { membership_supabase_id: p?.membership_supabase_id, ticketSid: tsid, clientSid } }) } catch {}
               console.error('[membership.purchase] failed for', p, err)
               flash(lang === 'es'
                 ? 'Saldo de membresía no creado — créalo manualmente'
@@ -1071,7 +1078,10 @@ function CarWashPOS() {
         // FACTURA first then CONDUCE. Previously fire-and-forget meant the
         // sequential conduce awaits hit the queue first.
         if (cfg.print_factura_auto === '1') {
-          await printClientReceipt(ticketData).catch(() => flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice'))
+          await printClientReceipt(ticketData).catch(err => {
+            try { window.__txReportError?.(err, { severity: 'warn', category: 'pos.print.factura', extra: { docNo: ticketData?.docNo } }) } catch {}
+            flash(lang === 'es' ? 'Error al imprimir factura' : 'Print error: invoice')
+          })
         }
         // v2.16.3 carnicería — kitchen prep slip if any line carries notes.
         // Falls back to inline COCINA block on the same receipt when no
@@ -1131,11 +1141,17 @@ function CarWashPOS() {
               }
             })
             await printWasherConduce({ ...ticketData, services: scaledServices, lavador: w.name || '-', commAmount })
-              .catch(() => flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce'))
+              .catch(err => {
+                try { window.__txReportError?.(err, { severity: 'warn', category: 'pos.print.conduce', extra: { docNo: ticketData?.docNo, washer: w?.name } }) } catch {}
+                flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce')
+              })
           }
         }
         // Save PDF copy to userData/receipts/
-        saveReceiptPDF(ticketData).catch(() => flash(lang === 'es' ? 'Error al guardar PDF' : 'PDF save error'))
+        saveReceiptPDF(ticketData).catch(err => {
+          try { window.__txReportError?.(err, { severity: 'warn', category: 'pos.pdf.save', extra: { docNo: ticketData?.docNo } }) } catch {}
+          flash(lang === 'es' ? 'Error al guardar PDF' : 'PDF save error')
+        })
         // Kick drawer for cash/check payments — also fires when a Mixto split
         // contains a cash or cheque part (cashier still receives bills).
         const fm = paymentData.formaPago || ''
@@ -1144,8 +1160,12 @@ function CarWashPOS() {
         if (paymentData.tipo !== 'credito' && hasCashLike) {
           printerApi?.openDrawer?.().catch?.(() => {})
         }
-      } catch { /* print errors never block the POS flow */ }
+      } catch (err) {
+        try { window.__txReportError?.(err, { severity: 'warn', category: 'pos.post_sale_print', extra: { docNo: result?.docNumber } }) } catch {}
+        /* print errors never block the POS flow */
+      }
     } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'error', category: 'pos.payment.confirm.carwash', extra: { itemCount: pending?.items?.length, tipo: paymentData?.tipo } }) } catch {}
       flash(`Error: ${err.message}`)
     }
   }, [cobrarModal, queue.length, lang])
@@ -1221,6 +1241,7 @@ function CarWashPOS() {
                         ))
                         const failed = results.filter(r => !r.ok)
                         if (failed.length) {
+                          try { window.__txReportError?.(failed[0]?.err, { severity: 'warn', category: 'pos.reorder.save', extra: { failedCount: failed.length, total: results.length } }) } catch {}
                           console.error('[reorder] failed writes:', failed)
                           flash(lang === 'es' ? `Error al guardar (${failed.length} servicios)` : `Error saving (${failed.length} services)`)
                         } else {
@@ -1229,6 +1250,7 @@ function CarWashPOS() {
                           setReorderMode(false)
                         }
                       } catch (e) {
+                        try { window.__txReportError?.(e, { severity: 'warn', category: 'pos.reorder.save' }) } catch {}
                         console.error('[reorder] save error:', e)
                         flash(lang === 'es' ? 'Error al guardar orden' : 'Error saving order')
                       }
@@ -2271,7 +2293,9 @@ function RetailPOS() {
         setSearchResults([])
         return
       }
-    } catch {}
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'pos.barcode.scan', extra: { sku: val } }) } catch {}
+    }
     handleSearchInput(val)
   }
 
@@ -2799,8 +2823,12 @@ function RetailPOS() {
         if (paymentData.tipo !== 'credito' && hasCashLike) {
           printerApi?.openDrawer?.().catch?.(() => {})
         }
-      } catch (e) { console.error('post-sale side-effect failed', e) }
+      } catch (e) {
+        try { window.__txReportError?.(e, { severity: 'warn', category: 'pos.post_sale_print.retail', extra: { docNo: result?.docNumber } }) } catch {}
+        console.error('post-sale side-effect failed', e)
+      }
     } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'critical', category: 'pos.payment.confirm.retail', extra: { itemCount: pending?.items?.length, tipo: paymentData?.tipo, total: paymentData?.total } }) } catch {}
       flash(`Error: ${err.message}`)
       // v2.16.27 — re-throw so CobrarModal can switch from "submitting" to
       // "error" state instead of optimistically showing the success screen
@@ -3657,7 +3685,9 @@ function ProductGrid({ api, lang, gridCols, onAdd, pyMode, overrides = {} }) {
       })
       setTabOrder(draftOrder)
       setHiddenCats(draftHidden)
-    } catch {}
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'pos.grid.save_edit', extra: { orderCount: draftOrder?.length, hiddenCount: draftHidden?.length } }) } catch {}
+    }
     setEditMode(false); setDragIdx(null)
   }
   function toggleHidden(cat) {
@@ -4036,6 +4066,7 @@ function AperturaTurnoGate({ children }) {
       await api?.cuadre?.openShift?.({ user_id: user.id, cajero_id: user.id, opening_cash, opened_at: new Date().toISOString() })
       setNeedsOpen(false)
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'error', category: 'pos.cash.apertura', extra: { user_id: user?.id, opening_cash } }) } catch {}
       // Surface the error by re-prompting; keep modal open.
       console.error('[apertura]', e)
     } finally {

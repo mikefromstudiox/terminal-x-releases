@@ -118,7 +118,13 @@ function initUpdater(mainWindow) {
 
   autoUpdater.on('checking-for-update',  ()    => send('checking'))
   autoUpdater.on('update-not-available', ()    => send('up-to-date'))
-  autoUpdater.on('error',                (err) => send('error', err.message))
+  autoUpdater.on('error',                (err) => {
+    send('error', err.message)
+    // Surface to admin Errores so silent auto-update breakage (cert chain,
+    // GH 5xx, blockmap mismatch) shows up before users complain about being
+    // stuck on an old build.
+    try { global.__txMainReport?.(err instanceof Error ? err : new Error(String(err)), 'updater.error') } catch {}
+  })
 
   autoUpdater.on('update-available', info => {
     send('available', { version: info.version, releaseDate: info.releaseDate })
@@ -133,10 +139,14 @@ function initUpdater(mainWindow) {
   })
 
   // Check on startup (delay 5s to let the app settle)
-  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000)
+  setTimeout(() => autoUpdater.checkForUpdates().catch(err => {
+    try { global.__txMainReport?.(err instanceof Error ? err : new Error(String(err)), 'updater.startup_check') } catch {}
+  }), 5000)
 
   // Re-check every 6 hours
-  setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000)
+  setInterval(() => autoUpdater.checkForUpdates().catch(err => {
+    try { global.__txMainReport?.(err instanceof Error ? err : new Error(String(err)), 'updater.6h_tick') } catch {}
+  }), 6 * 60 * 60 * 1000)
 }
 
 module.exports = { initUpdater }

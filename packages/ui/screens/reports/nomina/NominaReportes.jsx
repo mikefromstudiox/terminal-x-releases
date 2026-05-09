@@ -80,7 +80,8 @@ export default function NominaReportes() {
         sellers: build(sc, 'seller_supabase_id', 'seller_id'),
         cajeros: build(cc, 'cajero_supabase_id', 'cajero_id'),
       })
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'nominareportes.build' }) } catch {}}
     setLoading(false)
   }
 

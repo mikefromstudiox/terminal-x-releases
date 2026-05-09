@@ -51,7 +51,8 @@ export default function ProductsReport() {
           const pct = Number(cfg?.itbis_pct)
           setItbisFactor(Number.isFinite(pct) && pct >= 0 ? 1 + pct / 100 : 1.18)
         }
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'productsreport.fmtrd' }) } catch {}}
       if (!cancelled) setLoading(false)
     }
     load()

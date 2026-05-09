@@ -71,7 +71,8 @@ export default function VehicleDocumentManager({ open, vehicle, onClose, embedde
       setExpiresAt(''); setNotes('')
       if (fileRef.current) fileRef.current.value = ''
       await load()
-    } catch (ex) { setErr(ex?.message || L('Subida falló', 'Upload failed')) }
+    } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'vehicledocumentmanager.fmtdate' }) } catch {} setErr(ex?.message || L('Subida falló', 'Upload failed')) }
     finally { setUploading(false) }
   }
 

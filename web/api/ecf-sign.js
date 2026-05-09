@@ -14,6 +14,7 @@ import { createClient } from '@supabase/supabase-js'
 import { buildECFXml, buildRFCEXml, buildARECFXml, buildACECFXml, buildANECFXml } from '../lib/xml-builder.js'
 import { signXML } from '../lib/xml-signer.js'
 import { authenticate, submitECF, submitRFCE, submitANECF, pollStatus, checkStatus, buildQRUrl, clearTokenCache } from '../lib/dgii-client.js'
+import { withReporting } from '../lib/report-server-error.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://xbmhtrdhbnkgdliuxcha.supabase.co'
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -36,7 +37,7 @@ function parseSettingsIfString(raw) {
   return (s && typeof s === 'object' && !Array.isArray(s)) ? s : {}
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (req.method === 'OPTIONS') return json(res, 200, { ok: true })
   if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'POST only' })
 
@@ -446,3 +447,5 @@ export default async function handler(req, res) {
     return json(res, 500, { ok: false, error: err.message || 'Error signing e-CF' })
   }
 }
+
+export default withReporting(handler, { route: '/api/ecf-sign' })

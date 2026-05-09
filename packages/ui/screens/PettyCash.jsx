@@ -119,7 +119,8 @@ function PinModal({ title, onConfirm, onClose, lang }) {
       } else {
         setErr(true); setPin('')
       }
-    } catch {
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'petty_cash.pin.verify' }) } catch {}
       setErr(true); setPin('')
     } finally {
       setLoading(false)
@@ -227,7 +228,10 @@ export default function PettyCash() {
     setLoading(true)
     api.cajaChica.all()
       .then(rows => setTxns((rows || []).map(normalizeRow)))
-      .catch(() => setTxns([]))
+      .catch(err => {
+        try { window.__txReportError?.(err, { severity: 'warn', category: 'petty_cash.load' }) } catch {}
+        setTxns([])
+      })
       .finally(() => setLoading(false))
   }
 
@@ -264,7 +268,10 @@ export default function PettyCash() {
     try {
       await api.cajaChica.updateStatus({ id, status: 'approved', approvedBy: approvedBy ?? user?.id })
       loadTxns()
-    } catch { loadTxns() }
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'error', category: 'petty_cash.approve', extra: { id } }) } catch {}
+      loadTxns()
+    }
     showToast(L('Gasto aprobado', 'Expense approved'))
   }
 
@@ -272,7 +279,10 @@ export default function PettyCash() {
     try {
       await api.cajaChica.updateStatus({ id, status: 'rejected', approvedBy: approvedBy ?? user?.id })
       loadTxns()
-    } catch { loadTxns() }
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'error', category: 'petty_cash.reject', extra: { id } }) } catch {}
+      loadTxns()
+    }
     showToast(L('Gasto rechazado', 'Expense rejected'))
   }
 
@@ -307,7 +317,10 @@ export default function PettyCash() {
     try {
       await api.cajaChica.create(data)
       loadTxns()
-    } catch { loadTxns() }
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'error', category: 'petty_cash.create', extra: { type: dbType, amount: montoNum } }) } catch {}
+      loadTxns()
+    }
 
     setDesc(''); setMonto(''); setRecibo('')
     showToast(canApprove

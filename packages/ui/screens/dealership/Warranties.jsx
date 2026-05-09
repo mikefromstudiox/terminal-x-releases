@@ -85,6 +85,7 @@ function DetailModal({ row, deal, vehicle, client, lang, onClose, onAddClaim }) 
       })
       setShowForm(false); setDescription(''); setCost(0); setStatus('open'); setDate(new Date().toISOString().slice(0, 10))
     } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'warranties.fmtrd' }) } catch {}
       setErr(ex?.message || 'Error')
     } finally { setBusy(false) }
   }
@@ -203,7 +204,8 @@ function VoidModal({ row, lang, onConfirm, onClose }) {
           onSubmit={async e => {
             e.preventDefault()
             setBusy(true)
-            try { await onConfirm(reason.trim() || null); onClose() } catch { setBusy(false) }
+            try { await onConfirm(reason.trim() || null); onClose() } catch (_aetherErr) {
+              try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'warranties.voidmodal' }) } catch {} setBusy(false) }
           }}
           className="p-5 space-y-3 text-sm"
         >

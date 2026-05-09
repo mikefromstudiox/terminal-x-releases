@@ -103,7 +103,8 @@ export default function Bandeja() {
               })
               continue
             }
-          } catch (_) { /* fall through to OCR path */ }
+          } catch (_) {
+            try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'bandeja.pill' }) } catch {} /* fall through to OCR path */ }
         }
         const classified = heuristicClassify(f)
         const ocr = await ocrDocument(f)

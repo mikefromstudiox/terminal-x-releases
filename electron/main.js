@@ -19,6 +19,20 @@ try { pkgVersion = require('../package.json').version } catch {}
 const { initSentryMain, captureSentryException: captureMainException } = require('./sentry-init')
 initSentryMain({ release: pkgVersion ? `terminal-x@${pkgVersion}` : undefined })
 
+// ── Auto-instrument every ipcMain.handle() so failures POST to /api/panel
+// ?action=report_error via reportMainProcessError. Must run BEFORE any module
+// that calls ipcMain.handle (updater.js, sync.js, etc.). reportMainProcessError
+// is referenced lazily (only invoked at runtime), so its definition can live
+// further down without breaking this hoist.
+const _origIpcHandle = ipcMain.handle.bind(ipcMain)
+ipcMain.handle = (channel, fn) => _origIpcHandle(channel, async (...args) => {
+  try { return await fn(...args) }
+  catch (err) {
+    try { reportMainProcessError(err instanceof Error ? err : new Error(String(err)), 'ipc:' + channel) } catch {}
+    throw err
+  }
+})
+
 const { initUpdater } = require('./updater')
 const sync = require('./sync')
 const guard = require('./auth-guard')
@@ -76,6 +90,10 @@ function reportMainProcessError(err, source) {
     req.end()
   } catch {}
 }
+// Expose to other electron/* modules (sync.js, updater.js, db-backup.js) without
+// re-importing main.js (would crash on cyclic require). Callers MUST optional-chain:
+//   try { global.__txMainReport?.(err, 'src') } catch {}
+try { global.__txMainReport = reportMainProcessError } catch {}
 
 // ── Env-var accessors (with safe fallbacks) ───────────────────────────────────
 // Anon key is SAFE TO SHIP: it's the public client key, and Supabase RLS
@@ -1046,7 +1064,11 @@ async function processDgiiQueue() {
     } catch (e) {
       console.error('[ecf-queue] Item', item.id, 'failed:', e.message)
       try { db.ecfQueueIncrAttempts(item.id, e.message) } catch {}
-      // Alert on items approaching DGII 72h contingency limit (attempts > 100 ~ 50min at 30s interval)
+      // Surface to admin Errores so DGII outages don't sit silently for 72h.
+      // Critical-tier when we're past the 100-attempt waterline because that's
+      // ~50 min from the 72h contingency cliff.
+      const severity = (item.attempts || 0) >= 100 ? 'critical' : 'high'
+      reportMainProcessError(e, `background.dgii.queue.item_failed:${severity}:item_id=${item.id}`)
       if ((item.attempts || 0) >= 100) {
         console.error('[ecf-queue] CRITICAL: Item', item.id, 'has', item.attempts, 'failed attempts — risk of exceeding DGII 72h contingency window')
       }
@@ -1141,6 +1163,8 @@ async function processDgiiPendingQueue() {
         errored++
         console.warn('[dgii-reconcile] row', row.id, 'trackId', row.track_id, 'failed:', e.message)
         // No attempt bump — transient DGII/network fault isn't the row's fault.
+        // Surface to admin Errores so a multi-hour DGII outage is visible.
+        reportMainProcessError(e, `background.dgii.reconcile.row_failed:track_id=${row.track_id}`)
       }
     }
 
@@ -1237,6 +1261,7 @@ async function processAnecfQueue() {
       } catch (e) {
         console.error('[anecf-queue] item', item.id, 'failed:', e.message)
         try { db.anecfQueueMarkFailed(item.id, e.message) } catch {}
+        reportMainProcessError(e, `background.anecf.queue.item_failed:item_id=${item.id}:ncf=${item.ncf || ''}`)
       }
     }
   } finally {
@@ -1685,27 +1710,42 @@ app.whenReady().then(async () => {
   }
 
   // Retry any queued e-CF submissions every 30s (DGII 72h contingency compliance)
-  setInterval(processDgiiQueue, 30_000)
+  // Each tick is fire-and-forget and may reject async — wrap so an unhandled
+  // rejection (network, DGII 5xx, signer crash) lands in admin Errores instead
+  // of bubbling to process.on('unhandledRejection') and getting deduped away.
+  setInterval(() => {
+    try { Promise.resolve(processDgiiQueue()).catch(e => reportMainProcessError(e, 'background.dgii.queue_30s_tick')) }
+    catch (e) { reportMainProcessError(e, 'background.dgii.queue_30s_tick') }
+  }, 30_000)
 
   // v2.11.2 — DGII cert expiry proactive alerts (90/60/30-day tiers).
   // First check fires 15s after boot (gives DB + window time to settle),
   // then every 12h. Safe no-op when no cert is installed.
   setTimeout(() => {
-    checkCertExpiry().catch(() => {})
-    setInterval(() => { checkCertExpiry().catch(() => {}) }, 12 * 60 * 60 * 1000)
+    checkCertExpiry().catch(e => reportMainProcessError(e, 'background.dgii.cert_expiry_first'))
+    setInterval(() => {
+      try { Promise.resolve(checkCertExpiry()).catch(e => reportMainProcessError(e, 'background.dgii.cert_expiry_12h')) }
+      catch (e) { reportMainProcessError(e, 'background.dgii.cert_expiry_12h') }
+    }, 12 * 60 * 60 * 1000)
   }, 15_000)
   // v2.10.4 — flush ANECF queue (auto-void of e-CFs) every 60s. Offset from
   // processDgiiQueue so they don't fight for the same DGII auth window.
   setTimeout(() => {
-    processAnecfQueue().catch(() => {})
-    setInterval(processAnecfQueue, 60_000)
+    processAnecfQueue().catch(e => reportMainProcessError(e, 'background.anecf.queue_first'))
+    setInterval(() => {
+      try { Promise.resolve(processAnecfQueue()).catch(e => reportMainProcessError(e, 'background.anecf.queue_60s_tick')) }
+      catch (e) { reportMainProcessError(e, 'background.anecf.queue_60s_tick') }
+    }, 60_000)
   }, 45_000)
   // DGII EN_PROCESO reconciler — 5-min tick, offset so it never collides with
   // processDgiiQueue (30s) or processAnecfQueue (60s) spikes. First run 90s
   // after boot (license + cert + network should all be settled).
   setTimeout(() => {
-    processDgiiPendingQueue().catch(() => {})
-    setInterval(() => { processDgiiPendingQueue().catch(() => {}) }, 5 * 60_000)
+    processDgiiPendingQueue().catch(e => reportMainProcessError(e, 'background.dgii.reconcile_first'))
+    setInterval(() => {
+      try { Promise.resolve(processDgiiPendingQueue()).catch(e => reportMainProcessError(e, 'background.dgii.reconcile_5m_tick')) }
+      catch (e) { reportMainProcessError(e, 'background.dgii.reconcile_5m_tick') }
+    }, 5 * 60_000)
   }, 90_000)
 
   // v2.16.4 — Concesionario reservation auto-expire. First sweep on boot, then
@@ -1726,9 +1766,9 @@ app.whenReady().then(async () => {
           })
         } catch {}
       }
-    } catch (e) { console.warn('[main] reservation expire failed:', e?.message) }
+    } catch (e) { console.warn('[main] reservation expire failed:', e?.message); reportMainProcessError(e, 'background.concession.reservation_expire') }
   }
-  try { _runReservationExpire() } catch {}
+  try { _runReservationExpire() } catch (e) { reportMainProcessError(e, 'background.concession.reservation_expire_boot') }
   setInterval(_runReservationExpire, 15 * 60_000)
 
   // v2.16.4 Sprint 2B H3 — Concesionario warranty auto-expire. Same cadence as
@@ -1749,9 +1789,9 @@ app.whenReady().then(async () => {
           })
         } catch {}
       }
-    } catch (e) { console.warn('[main] warranty expire failed:', e?.message) }
+    } catch (e) { console.warn('[main] warranty expire failed:', e?.message); reportMainProcessError(e, 'background.concession.warranty_expire') }
   }
-  try { _runWarrantyExpire() } catch {}
+  try { _runWarrantyExpire() } catch (e) { reportMainProcessError(e, 'background.concession.warranty_expire_boot') }
   setInterval(_runWarrantyExpire, 15 * 60_000)
 
   // v2.16.4 Sprint 2C — Concesionario bank pre-approval auto-expire. Same
@@ -1774,9 +1814,9 @@ app.whenReady().then(async () => {
           })
         } catch {}
       }
-    } catch (e) { console.warn('[main] preapproval expire failed:', e?.message) }
+    } catch (e) { console.warn('[main] preapproval expire failed:', e?.message); reportMainProcessError(e, 'background.concession.preapproval_expire') }
   }
-  try { _runPreapprovalExpire() } catch {}
+  try { _runPreapprovalExpire() } catch (e) { reportMainProcessError(e, 'background.concession.preapproval_expire_boot') }
   setInterval(_runPreapprovalExpire, 15 * 60_000)
 
   // Nightly SQLite → Supabase Storage backup (3:00 AM local, 24h cadence).

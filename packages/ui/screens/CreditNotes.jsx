@@ -173,6 +173,7 @@ export default function CreditNotes() {
       setNotes(notasData || [])
       setTickets(ticketsData || [])
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'creditnotes.toast' }) } catch {}
       console.error('CreditNotes load error:', e)
     } finally {
       setLoading(false)
@@ -309,6 +310,7 @@ export default function CreditNotes() {
       setFactLookup(null)
       showToast(L('Nota de crédito emitida', 'Credit note issued'))
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'creditnotes.handlefactblur' }) } catch {}
       console.error('notaCreate error:', e)
       showToast(e.message || L('Error al emitir nota', 'Error issuing note'))
     } finally {

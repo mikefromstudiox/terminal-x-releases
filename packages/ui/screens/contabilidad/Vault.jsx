@@ -86,6 +86,7 @@ export default function Vault() {
       setDocs(d || [])
       setClients(c || [])
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'vault.callpanel' }) } catch {}
       setError(errLabel(e?.message))
     }
   }, [api])
@@ -164,7 +165,8 @@ export default function Vault() {
           accounting_client_id: accountingClientId === 'firma' ? null : accountingClientId,
         },
       })
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'vault.onprogress' }) } catch {}}
   }
 
   async function onUpload(e, accountingClientId) {
@@ -207,9 +209,11 @@ export default function Vault() {
           target_name: d.filename,
           metadata: { filename: d.filename, size: d.size || 0, r2_key: d.r2_key },
         })
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'vault.onprogress' }) } catch {}}
       window.open(r.signedUrl, '_blank', 'noopener,noreferrer')
     } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'vault.onprogress' }) } catch {}
       setError(errLabel(err?.message))
     }
   }
@@ -232,9 +236,11 @@ export default function Vault() {
           target_name: d.filename,
           metadata: { filename: d.filename, size: d.size || 0, r2_key: d.r2_key },
         })
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'vault.onupload' }) } catch {}}
       await reload()
     } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'vault.onupload' }) } catch {}
       setError(errLabel(err?.message))
     }
   }

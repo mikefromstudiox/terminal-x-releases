@@ -63,7 +63,8 @@ export default function BottleDepositReport() {
           }
         }
         if (!cancelled) setRows(out)
-      } catch {
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'bottledepositreport.fmtrd' }) } catch {}
         if (!cancelled) setRows([])
       }
       if (!cancelled) setLoading(false)

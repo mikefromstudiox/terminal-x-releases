@@ -372,6 +372,7 @@ export default function KDS() {
         setError(null)
       } catch (e) {
         if (!alive) return
+        try { window.__txReportError?.(e, { severity: 'warn', category: 'kds.refresh' }) } catch {}
         setError(e?.message || 'Error al cargar órdenes')
         setLoading(false)
       }
@@ -429,6 +430,7 @@ export default function KDS() {
     try {
       await api.kds.setStatus(evt.id, nextStatus)
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'error', category: 'kds.advance', extra: { id: evt?.id, from: evt?.status, to: nextStatus, station: evt?.station } }) } catch {}
       setError(e?.message || 'No se pudo actualizar el estado')
       // refetch to reconcile
       try {
@@ -684,6 +686,7 @@ function EightySixModal({ onClose }) {
     } catch (e) {
       // Revert on failure
       setServices(prev => prev.map(r => r.id === svc.id ? { ...r, in_stock: svc.in_stock } : r))
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'kds.86_list.toggle', extra: { id: svc?.id, name: svc?.name, target: (svc.in_stock === 0 || svc.in_stock === false) ? 1 : 0 } }) } catch {}
       alert(e?.message || 'Error al actualizar.')
     } finally {
       setBusy(null)

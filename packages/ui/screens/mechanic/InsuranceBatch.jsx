@@ -37,11 +37,14 @@ export default function InsuranceBatch() {
     const errors = []
     let aseg = null, wos = [], list = []
     try { aseg = await api.aseguradoras?.bySupabaseId?.(aseguradoraId) }
-    catch (e) { errors.push(L('Aseguradora','Insurer') + ': ' + (e?.message || 'error')) }
+    catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'insurancebatch.fmtrd' }) } catch {} errors.push(L('Aseguradora','Insurer') + ': ' + (e?.message || 'error')) }
     try { wos = (await api.insuranceBatches?.workOrdersFor?.(aseguradoraId, period)) || [] }
-    catch (e) { errors.push('WO: ' + (e?.message || 'error')) }
+    catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'insurancebatch.fmtrd' }) } catch {} errors.push('WO: ' + (e?.message || 'error')) }
     try { list = (await api.insuranceBatches?.listByPeriod?.({ aseguradora_supabase_id: aseguradoraId })) || [] }
-    catch (e) { errors.push(L('Lotes','Batches') + ': ' + (e?.message || 'error')) }
+    catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'insurancebatch.fmtrd' }) } catch {} errors.push(L('Lotes','Batches') + ': ' + (e?.message || 'error')) }
     setAseguradora(aseg)
     setPeriodWOs(wos)
     setBatches(list)
@@ -156,10 +159,12 @@ export default function InsuranceBatch() {
           : `Emitido ${formatDGIIDate(result?.signatureDate || new Date()).slice(0, 10)}. Track ${result?.trackId || '—'}.`,
       }
       try { await api.insuranceBatches?.update?.(batch.id, batchPatch) }
-      catch (e) { console.warn('[InsuranceBatch] update failed', e?.message || e) }
+      catch (e) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'insurancebatch.generate' }) } catch {} console.warn('[InsuranceBatch] update failed', e?.message || e) }
 
       await refresh()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'insurancebatch.generate' }) } catch {}
       setErr(e?.message || 'Error generando lote')
     } finally {
       setGenerating(false)

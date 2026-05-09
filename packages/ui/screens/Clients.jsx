@@ -256,7 +256,8 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
         preferredStylistId: 'preferred_stylist_id' in patch ? patch.preferred_stylist_id : client.preferredStylistId,
         preferredStylistSupabaseId: body.preferred_stylist_supabase_id ?? client.preferredStylistSupabaseId,
       })
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'clients.clientdetail' }) } catch {}}
     setSavingSalon(false)
   }
 
@@ -503,6 +504,7 @@ function ClientDetail({ client, onClose, onUpdateClient, onDelete, lang }) {
           }).catch(err => console.error('[Clients] print ticket failed:', err))
         }
       } catch (printErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(printErr, { severity: 'error', category: 'clients.flash' }) } catch {}
         console.error('[Clients] printClientReceipt failed:', printErr)
       }
     } catch (err) {
@@ -1043,7 +1045,8 @@ function ClientItemPricesPanel({ client, api, lang }) {
         : { clientId: client.id }
       const list = await api?.clientItemPrices?.list?.(params)
       setRows(list || [])
-    } catch { setRows([]) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'clients.clientitempricespanel' }) } catch {} setRows([]) }
     setLoading(false)
   }
 
@@ -1468,6 +1471,7 @@ export function NewClientForm({ onClose, onSave, lang }) {
         ...mapClient({ ...newClientData, id: newId, supabase_id: newSid, visits: 0, total_spent: 0, balance: 0, last_service_date: null }),
       })
     } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'clients.newclientform' }) } catch {}
       console.error('[clientCreate]', err)
     } finally {
       setSaving(false)

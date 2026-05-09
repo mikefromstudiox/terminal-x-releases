@@ -77,7 +77,9 @@ function WorkOrdersScreen() {
       metadata:   { scope, error: msg, ...extra },
     }
     try { await api?.activity?.log?.(evt) }
-    catch { try { await enqueueActivity(evt) } catch {} }
+    catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'index.workordersscreen' }) } catch {} try { await enqueueActivity(evt) } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'index.workordersscreen' }) } catch {}} }
   }
 
   async function loadAll() {
@@ -99,6 +101,7 @@ function WorkOrdersScreen() {
       const fee = Number(s?.mechanic_tow_fee_default)
       setTowFee(Number.isFinite(fee) && fee > 0 ? fee : DEFAULT_TOW_FEE_DOP)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'index.workordersscreen' }) } catch {}
       // Non-blocking: empty lists render the empty state. Surface to the
       // toast so a failed initial load doesn't masquerade as "no orders".
       console.warn('[WorkOrders] loadAll failed', e?.message || e)
@@ -116,6 +119,7 @@ function WorkOrdersScreen() {
       await loadAll()
       flash(L('Orden de trabajo creada', 'Work order created'))
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'index.workordersscreen' }) } catch {}
       await reportMutationFailure('create', e)
       throw e // CreateModal surfaces its own inline error too
     }
@@ -132,11 +136,13 @@ function WorkOrdersScreen() {
     try {
       if (Object.keys(timingPatch).length) {
         try { await api.workOrders.update(id, { status: newStatus, ...timingPatch }) }
-        catch { await api.workOrders.updateStatus({ id, status: newStatus }) }
+        catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'index.flash' }) } catch {} await api.workOrders.updateStatus({ id, status: newStatus }) }
       } else {
         await api.workOrders.updateStatus({ id, status: newStatus })
       }
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'index.flash' }) } catch {}
       await reportMutationFailure('status_change', e, { id, newStatus })
       return
     }
@@ -160,7 +166,8 @@ function WorkOrdersScreen() {
           metadata: { work_order_supabase_id: wo?.supabase_id, vehicle_plate: wo?.plate, delivery: !!wo?.delivery_required },
         })
       }
-    } catch (e) { console.warn('[WorkOrders] activity log emit failed', e?.message || e) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'index.reportmutationfailure' }) } catch {} console.warn('[WorkOrders] activity log emit failed', e?.message || e) }
     await loadAll()
     if (detail?.id === id) {
       const updated = (await api.workOrders.list())?.find(o => o.id === id)
@@ -176,6 +183,7 @@ function WorkOrdersScreen() {
       const updated = (await api.workOrders.list())?.find(o => o.id === orderId)
       if (updated) setDetail(updated)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'index.loadall' }) } catch {}
       await reportMutationFailure('add_item', e, { orderId, item_name: item?.name })
     }
   }
@@ -187,6 +195,7 @@ function WorkOrdersScreen() {
       const updated = (await api.workOrders.list())?.find(o => o.id === orderId)
       if (updated) setDetail(updated)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'index.handlecreate' }) } catch {}
       await reportMutationFailure('delete_item', e, { orderId, itemId })
     }
   }
@@ -197,6 +206,7 @@ function WorkOrdersScreen() {
       await loadAll()
       flash(L('Inspeccion guardada', 'Inspection saved'))
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'index.handlecreate' }) } catch {}
       await reportMutationFailure('save_inspection', e, { orderId })
     }
   }
@@ -207,6 +217,7 @@ function WorkOrdersScreen() {
       await loadAll()
       return r
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'index.handlecreate' }) } catch {}
       await reportMutationFailure('generate_approval_link', e, { orderId })
       return null
     }
@@ -269,11 +280,13 @@ function WorkOrdersScreen() {
           })
           out.push({ phase: p.phase, base64: b64, caption: p.caption || null })
         } catch (e) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'index.handleadditem' }) } catch {}
           console.warn('[fetchPhotoEvidenceForWO] photo skipped', e?.message || e)
         }
       }
       return out
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'index.handledeleteitem' }) } catch {}
       console.warn('[fetchPhotoEvidenceForWO] list failed', e?.message || e)
       return []
     }
@@ -285,7 +298,8 @@ function WorkOrdersScreen() {
       return
     }
     let photoEvidence = []
-    try { photoEvidence = await fetchPhotoEvidenceForWO(wo) } catch {}
+    try { photoEvidence = await fetchPhotoEvidenceForWO(wo) } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'index.handlesaveinspection' }) } catch {}}
     setCobrarWO({ ...wo, photoEvidence })
   }
 
@@ -304,7 +318,8 @@ function WorkOrdersScreen() {
           for (const inv of (allInv || [])) {
             if (inv?.id != null) sidByIntId[inv.id] = inv.supabase_id || null
           }
-        } catch {}
+        } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'index.buildticketfromwo' }) } catch {}}
       }
       const items = (wo.items || []).map(li => ({
         service_id:        null,
@@ -353,8 +368,10 @@ function WorkOrdersScreen() {
           ticket_supabase_id: result?.supabase_id || null,
         })
       } catch (updErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(updErr, { severity: 'error', category: 'index.opencobrarforwo' }) } catch {}
         try { await api.workOrders.updateStatus({ id: wo.id, status: 'facturado' }) }
         catch (statErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(statErr, { severity: 'error', category: 'index.opencobrarforwo' }) } catch {}
           await reportMutationFailure('wo_facturado_finalize', statErr, { wo_id: wo.id, ticket_id: result?.id })
         }
       }
@@ -362,6 +379,7 @@ function WorkOrdersScreen() {
       flash(L('Orden facturada ✓', 'Work order invoiced ✓'))
       await loadAll()
     } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'index.opencobrarforwo' }) } catch {}
       await reportMutationFailure('wo_cobrar_confirm', err, { wo_id: wo.id })
     }
   }
@@ -374,6 +392,7 @@ function WorkOrdersScreen() {
       if (updated) setDetail(updated)
       flash(L('Marcado: esperando repuestos', 'Marked: awaiting parts'))
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'index.handlesetpartsorder' }) } catch {}
       await reportMutationFailure('set_parts_order', e, { orderId })
     }
   }

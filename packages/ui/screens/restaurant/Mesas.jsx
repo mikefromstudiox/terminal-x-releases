@@ -132,6 +132,7 @@ function NuevaMesaModal({ onClose, onCreate }) {
       })
       onClose()
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'mesa.create.modal', extra: { name: form?.name } }) } catch {}
       setErr(e?.message || 'Error al crear la mesa.')
     } finally {
       setSaving(false)
@@ -218,6 +219,7 @@ function EditMesaModal({ mesa, onClose, onSave }) {
       })
       onClose()
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'mesa.update.modal', extra: { id: mesa?.id } }) } catch {}
       setErr(e?.message || 'Error al guardar.')
     } finally {
       setSaving(false)
@@ -296,6 +298,7 @@ function SeatGuestsModal({ mesa, empleados, onClose, onConfirm }) {
       await onConfirm({ guests_count: g, waiter_empleado_id: waiter || null })
       onClose()
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'mesa.seat.modal', extra: { id: mesa?.id, guests: g } }) } catch {}
       setErr(e?.message || 'Error al sentar comensales.')
     } finally {
       setSaving(false)
@@ -453,6 +456,7 @@ export default function Mesas() {
       setMesas(Array.isArray(list) ? list.filter(m => m.active !== false) : [])
       setErr('')
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'mesa.load' }) } catch {}
       setErr(e?.message || 'Error al cargar mesas.')
     }
   }
@@ -511,24 +515,44 @@ export default function Mesas() {
   // ── Handlers ────────────────────────────────────────────────────────────────
 
   async function handleCreate(payload) {
-    await api.mesas.create(payload)
-    await loadMesas()
+    try {
+      await api.mesas.create(payload)
+      await loadMesas()
+    } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'mesa.create' }) } catch {}
+      throw e
+    }
   }
 
   async function handleUpdate(id, patch) {
-    await api.mesas.update(id, patch)
-    await loadMesas()
+    try {
+      await api.mesas.update(id, patch)
+      await loadMesas()
+    } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'mesa.update', extra: { id } }) } catch {}
+      throw e
+    }
   }
 
   async function handleStatus(mesa, status, extra = {}) {
-    await api.mesas.setStatus(mesa.id, status, extra)
-    await loadMesas()
+    try {
+      await api.mesas.setStatus(mesa.id, status, extra)
+      await loadMesas()
+    } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'error', category: 'mesa.status_change', extra: { id: mesa?.id, status } }) } catch {}
+      throw e
+    }
   }
 
   async function handleDelete(mesa) {
-    await api.mesas.delete(mesa.id)
-    setActionOn(null)
-    await loadMesas()
+    try {
+      await api.mesas.delete(mesa.id)
+      setActionOn(null)
+      await loadMesas()
+    } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'mesa.delete', extra: { id: mesa?.id } }) } catch {}
+      throw e
+    }
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────

@@ -30,7 +30,8 @@ export default function Support({ getToken, refreshToken, isDark }) {
       if (!token) token = getToken()
       const resp = await fetch('/api/panel?action=support_tickets', { headers: { 'Authorization': `Bearer ${token}` } })
       if (resp.ok) { const { data } = await resp.json(); setTickets(data || []) }
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'support.support' }) } catch {}}
     setLoading(false)
   }
 
@@ -44,7 +45,8 @@ export default function Support({ getToken, refreshToken, isDark }) {
       })
       await load()
       if (selected?.id === id) setSelected(prev => ({ ...prev, ...updates }))
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'support.support' }) } catch {}}
     setSaving(false)
   }
 

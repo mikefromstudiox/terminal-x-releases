@@ -109,6 +109,7 @@ export default function StylistSchedules() {
       }
       setTodayStats(stats)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'stylistschedules.stylistschedules' }) } catch {}
       flash(e?.message || L('Error cargando', 'Error loading'), false)
     }
     setLoading(false)
@@ -144,6 +145,7 @@ export default function StylistSchedules() {
       }
       await load()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'stylistschedules.load' }) } catch {}
       flash(e?.message || L('Error al guardar', 'Save error'), false)
     }
     setSaving(null)
@@ -169,6 +171,7 @@ export default function StylistSchedules() {
       await load()
       flash(L('Horario por defecto aplicado', 'Default schedule applied'))
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'stylistschedules.setslot' }) } catch {}
       flash(e?.message || L('Error al aplicar', 'Apply error'), false)
     }
     setApplying(false)

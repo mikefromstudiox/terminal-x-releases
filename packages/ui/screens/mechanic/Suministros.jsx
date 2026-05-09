@@ -53,7 +53,8 @@ export default function Suministros() {
           if (wo && phone) {
             const body = `Su vehículo ${wo.plate || wo.vehicle_plate || ''} ya tiene las piezas. Lo contactaremos cuando esté listo. — ${wo.business_name || 'Taller'}`
             try { await api.whatsapp?.send?.({ to: phone.replace(/\D/g, ''), body }); waMsg = ' ✓ WhatsApp enviado.' }
-            catch { waMsg = ' (WhatsApp no enviado)' }
+            catch (_aetherErr) {
+              try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'suministros.fmtrd' }) } catch {} waMsg = ' (WhatsApp no enviado)' }
           }
           try {
             await api.activity?.log?.({
@@ -62,9 +63,11 @@ export default function Suministros() {
               target_name: found.part_name,
               metadata: { work_order_supabase_id: found.work_order_supabase_id, barcode: code },
             })
-          } catch {}
+          } catch (_aetherErr) {
+            try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'suministros.fmtrd' }) } catch {}}
         }
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'suministros.fmtrd' }) } catch {}}
       setToast({ kind: 'ok', msg: L(`Recibido: ${found.part_name}.${waMsg}`, `Received: ${found.part_name}.${waMsg}`) })
       await refresh()
     }

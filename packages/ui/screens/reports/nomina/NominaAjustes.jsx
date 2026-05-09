@@ -59,10 +59,12 @@ export default function NominaAjustes() {
             // Ensure isr_brackets is always an array (may arrive as JSON string or parsed)
             isr_brackets: Array.isArray(settings.isr_brackets)
               ? settings.isr_brackets
-              : (() => { try { return JSON.parse(settings.isr_brackets || '[]') } catch { return DEFAULTS.isr_brackets } })(),
+              : (() => { try { return JSON.parse(settings.isr_brackets || '[]') } catch (_aetherErr) {
+                try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'nominaajustes.isr_brackets' }) } catch {} return DEFAULTS.isr_brackets } })(),
           })
         }
       } catch (e) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nominaajustes.isr_brackets' }) } catch {}
         if (!cancelled) setError(e?.message || L('Error al cargar', 'Error loading'))
       } finally {
         if (!cancelled) setLoading(false)
@@ -92,6 +94,7 @@ export default function NominaAjustes() {
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nominaajustes.isr_brackets' }) } catch {}
       setError(e?.message || L('Error al guardar', 'Error saving'))
     } finally {
       setSaving(false)

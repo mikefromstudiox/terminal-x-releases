@@ -230,7 +230,8 @@ async function autoTagRetencion(row, rncLookup) {
     } else {
       row.retencion_pct = 100
     }
-  } catch { row.retencion_pct = 30 } // network fail → conservative default
+  } catch (_aetherErr) {
+    try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'comprobantes.autotagretencion' }) } catch {} row.retencion_pct = 30 } // network fail → conservative default
   return row
 }
 
@@ -402,6 +403,7 @@ export default function Comprobantes() {
       })
       setReconcile(result)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'comprobantes.buildit1' }) } catch {}
       setReconcile({ error: e.message || String(e) })
     } finally { setReconcileBusy(false) }
   }
@@ -760,7 +762,8 @@ export default function Comprobantes() {
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => {
                 const text = Object.entries(it1.casillas).map(([k, v]) => `${k}\t${v}`).join('\n')
-                try { navigator.clipboard?.writeText(text) } catch {}
+                try { navigator.clipboard?.writeText(text) } catch (_aetherErr) {
+                  try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'comprobantes.handler' }) } catch {}}
               }} className="px-3 py-2 rounded-lg border border-black/10 dark:border-white/10 text-black dark:text-white text-sm font-bold">Copiar TSV</button>
               <button onClick={() => setIt1(null)}
                 className="px-4 py-2 rounded-lg bg-[#b3001e] text-white text-sm font-bold">Cerrar</button>

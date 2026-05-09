@@ -26,7 +26,8 @@ export default function MayoreoOrders() {
         api?.business?.get?.() || api?.businesses?.get?.() || {},
       ])
       setRows(list); setClients(cs); setBusinessName(biz?.name || '')
-    } catch { setRows([]) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'mayoreoorders.mayoreoorders' }) } catch {} setRows([]) }
     setLoading(false)
   }
   useEffect(() => { load() }, [])
@@ -41,7 +42,8 @@ export default function MayoreoOrders() {
   }
 
   function preArm(order) {
-    try { localStorage.setItem('tx_prearm_cart', JSON.stringify(order.items_json || [])) } catch {}
+    try { localStorage.setItem('tx_prearm_cart', JSON.stringify(order.items_json || [])) } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'mayoreoorders.mayoreoorders' }) } catch {}}
     nav('/pos')
   }
 

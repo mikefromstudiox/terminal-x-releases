@@ -11,6 +11,17 @@
 export const BUSINESS_SETTING_KEYS = new Set([
   'itbis_pct', 'usd_rate', 'rnc_verify', 'sucursales',
   'whatsapp_instance', 'whatsapp_token',
+  // 2026-05-09 — WhatsApp end-to-end keys (Preferencias #whatsapp section).
+  // Auto-send toggles per event + message templates. Read by CobrarModal
+  // (auto-receipt), foodtruck Pendientes (auto-kds-ready), salon
+  // Appointments cron (auto-appointment), Clients balance cron (auto-balance).
+  'whatsapp_auto_receipt', 'whatsapp_auto_kds_ready',
+  'whatsapp_auto_appointment', 'whatsapp_auto_balance',
+  'wa_receipt_template', 'wa_kds_ready_template',
+  'wa_appointment_template',
+  // Existing pre-2026-05 keys: 'wa_listo_template', 'wa_balance_template'
+  'wa_listo_template', 'wa_balance_template',
+  'biz_bank_accounts',
   'biz_name', 'biz_rnc', 'biz_address', 'biz_phone', 'biz_city', 'biz_type',
   'biz_email', 'biz_logo', 'biz_website',
   'direccion',

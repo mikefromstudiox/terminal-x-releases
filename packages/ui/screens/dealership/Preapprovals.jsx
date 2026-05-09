@@ -154,6 +154,7 @@ function PreapprovalModal({ initial, clients, lang, onSave, onClose }) {
       })
       onClose()
     } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'preapprovals.preapprovalmodal' }) } catch {}
       setErr(ex?.message || 'Error')
       setBusy(false)
     }
@@ -269,7 +270,8 @@ function ReasonModal({ title, label, lang, onConfirm, onClose, confirmLabel }) {
           <h2 className="font-bold">{title}</h2>
           <button onClick={onClose} className="p-1 hover:bg-black hover:text-white"><X size={16} /></button>
         </div>
-        <form onSubmit={async e => { e.preventDefault(); setBusy(true); try { await onConfirm(val.trim() || null); onClose() } catch { setBusy(false) } }} className="p-4 space-y-3 text-sm">
+        <form onSubmit={async e => { e.preventDefault(); setBusy(true); try { await onConfirm(val.trim() || null); onClose() } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'preapprovals.reasonmodal' }) } catch {} setBusy(false) } }} className="p-4 space-y-3 text-sm">
           <label className="block">
             <span className="text-xs font-semibold">{label}</span>
             <textarea value={val} onChange={e => setVal(e.target.value)} rows={3} className="mt-1 w-full border border-black px-2 py-1.5" />

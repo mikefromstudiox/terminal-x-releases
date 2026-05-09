@@ -55,7 +55,8 @@ export default function FreshnessAlerts() {
     try {
       const list = await api?.carniceria?.freshness?.list?.() || []
       setBatches(list)
-    } catch { setBatches([]) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'freshnessalerts.newsid' }) } catch {} setBatches([]) }
     setLoading(false)
   }
   useEffect(() => { load() }, [])
@@ -222,6 +223,7 @@ function DiscardModal({ batch, businessId, onClose, onSaved, api, lang }) {
         onSaved(); onClose()
       }
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'freshnessalerts.discardmodal' }) } catch {}
       // H4: rollback the orphan photo blob if the DB row failed.
       if (photoPath && photoBucket) {
         await removePhoto(photoBucket, photoPath).catch(() => {})

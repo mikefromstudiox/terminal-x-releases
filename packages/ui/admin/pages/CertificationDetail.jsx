@@ -61,7 +61,8 @@ export default function CertificationDetail({ getToken, refreshToken, isDark, la
         const tr = await testResp.json()
         setTestResults(tr?.results || tr || [])
       }
-    } catch (e) { console.error('CertDetail load:', e) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'certificationdetail.certificationdetail' }) } catch {} console.error('CertDetail load:', e) }
     setLoading(false)
   }
 
@@ -76,7 +77,8 @@ export default function CertificationDetail({ getToken, refreshToken, isDark, la
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ id, step, data: fieldData }),
       })
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'certificationdetail.certificationdetail' }) } catch {}}
   }
 
   async function uploadFile(file, step, fieldKey) {
@@ -94,7 +96,8 @@ export default function CertificationDetail({ getToken, refreshToken, isDark, la
         load()
       }
       reader.readAsDataURL(file)
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'certificationdetail.onload' }) } catch {}}
   }
 
   async function runTests(step, poll = false) {
@@ -112,7 +115,8 @@ export default function CertificationDetail({ getToken, refreshToken, isDark, la
         const tr = await resp.json()
         setTestResults(tr?.results || tr || [])
       }
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'certificationdetail.onload' }) } catch {}}
   }
 
   function copyPortalUrl() {
@@ -134,7 +138,8 @@ export default function CertificationDetail({ getToken, refreshToken, isDark, la
         body: JSON.stringify({ id, step, action, note }),
       })
       load()
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'certificationdetail.onload' }) } catch {}}
   }
 
   async function changeStatus(newStatus) {
@@ -148,7 +153,8 @@ export default function CertificationDetail({ getToken, refreshToken, isDark, la
       })
       setStatusDropdown(false)
       load()
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'certificationdetail.onload' }) } catch {}}
   }
 
   async function markPaid() {
@@ -161,7 +167,8 @@ export default function CertificationDetail({ getToken, refreshToken, isDark, la
         body: JSON.stringify({ id, payment_status: 'paid', amount_paid: data?.certification?.price || 0 }),
       })
       load()
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'certificationdetail.onload' }) } catch {}}
   }
 
   async function addDocument() {
@@ -178,7 +185,8 @@ export default function CertificationDetail({ getToken, refreshToken, isDark, la
       setDocForm({ name: '', file_path: '', file_type: '', step: '' })
       setShowDocForm(false)
       load()
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'certificationdetail.onload' }) } catch {}}
     setDocSubmitting(false)
   }
 

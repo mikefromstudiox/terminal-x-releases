@@ -1,0 +1,107 @@
+layer,file,line,action_id,has_try_catch,has_report,report_kind,severity,category,gap_type,fix_recommendation
+D1,packages/ui/screens/POS.jsx,745,handleRncLookup,no,no,none,partial,pos.rnc.lookup,no_try_catch,Wrap api.rnc.lookup in try/catch + __txReportError on failure
+D1,packages/ui/screens/POS.jsx,751,handleEncolar,yes,no,flash,high,pos.queue.enqueue,toast_only,Add __txReportError before flash so admin sees enqueue failures
+D1,packages/ui/screens/POS.jsx,834,handlePaymentConfirm_carwash,yes,no,flash,critical,pos.payment.confirm.carwash,toast_only,Add __txReportError(err category pos_payment_carwash severity error)
+D1,packages/ui/screens/POS.jsx,938,membership_consume,yes,no,flash+console_error,high,pos.membership.consume,toast_only,Add __txReportError on consume failure (silent debit drift)
+D1,packages/ui/screens/POS.jsx,980,membership_purchase,yes,no,flash+console_error,high,pos.membership.purchase,toast_only,Add __txReportError on purchase failure (saldo not created)
+D1,packages/ui/screens/POS.jsx,1074,print_factura_auto,yes,no,flash,partial,pos.print.factura,toast_only,Already non-blocking but add __txReportError(severity warn) for chronic printer failures
+D1,packages/ui/screens/POS.jsx,1134,print_washer_conduce,yes,no,flash,partial,pos.print.conduce,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/POS.jsx,1138,save_receipt_pdf,yes,no,flash,partial,pos.pdf.save,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/POS.jsx,1147,post_sale_side_effects,yes,no,swallowed,partial,pos.post_sale_print,swallowed_catch,Replace bare swallow with __txReportError severity warn
+D1,packages/ui/screens/POS.jsx,1213,reorder_save_writes,yes,no,console_error,high,pos.reorder.save,console_only,Add __txReportError on bulk save failures (display order drift)
+D1,packages/ui/screens/POS.jsx,1231,reorder_save_outer,yes,no,flash+console_error,high,pos.reorder.save,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/POS.jsx,2262,handleBarcodeScan,no,no,none,high,pos.barcode.scan,no_try_catch,Wrap scan resolve+update in try/catch + __txReportError
+D1,packages/ui/screens/POS.jsx,2687,handlePaymentConfirm_retail,yes,no,flash+console_error,critical,pos.payment.confirm.retail,toast_only,Add __txReportError(category pos_payment_retail severity error) — re-throw stays
+D1,packages/ui/screens/POS.jsx,2802,post_sale_side_effects_retail,yes,no,console_error,partial,pos.post_sale_print.retail,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/POS.jsx,3652,saveEdit_grid,no,no,none,high,pos.grid.save_edit,no_try_catch,Wrap saveEdit in try/catch + __txReportError
+D1,packages/ui/screens/POS.jsx,4032,handleOpen_apertura,yes,no,console_error,high,pos.cash.apertura,console_only,Add __txReportError(category pos_apertura severity error)
+D1,packages/ui/screens/Queue.jsx,489,deleteFromQueue,yes,no,flash,high,queue.delete,toast_only,Add __txReportError(category queue_delete severity warn)
+D1,packages/ui/screens/Queue.jsx,511,cycleStatus,yes,no,flash,high,queue.cycle_status,toast_only,Add __txReportError on revert (lost status churn)
+D1,packages/ui/screens/Queue.jsx,534,assignWorker,yes,no,flash,high,queue.assign_worker,toast_only,Add __txReportError(category queue_assign_worker severity warn)
+D1,packages/ui/screens/Queue.jsx,553,notifyReady_whatsapp,yes,no,flash,partial,queue.notify_whatsapp,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/Queue.jsx,576,cobrar_load_ticket,yes,no,swallowed,high,queue.cobrar.load_ticket,swallowed_catch,Replace silent fallback with __txReportError severity warn — fallback path still ok
+D1,packages/ui/screens/Queue.jsx,604,handlePriceChange,yes,no,flash,high,queue.price_change,toast_only,Add __txReportError(category queue_price_change severity warn)
+D1,packages/ui/screens/Queue.jsx,638,handlePaymentConfirm_queue,yes,no,flash+console_error,critical,queue.payment.confirm,toast_only,Add __txReportError(category queue_payment severity error) — top-level cobro path
+D1,packages/ui/screens/Queue.jsx,722,print_factura_queue,yes,no,flash,partial,queue.print.factura,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/Queue.jsx,756,print_conduce_queue,yes,no,flash,partial,queue.print.conduce,toast_only,Add __txReportError severity warn
+D1,packages/ui/components/CobrarModal.jsx,271,sendWhatsApp,yes,no,alert+setState,high,cobro.whatsapp.send,alert_only,Replace alert() with __txReportError + visible banner
+D1,packages/ui/components/CobrarModal.jsx,668,consumeMembershipForLine,yes,no,alert+console_error,critical,cobro.membership.consume,alert_only,Add __txReportError severity error — silent debit drift
+D1,packages/ui/components/CobrarModal.jsx,736,awardLoyaltyPoints,yes,no,alert+console_error,high,cobro.loyalty.award,alert_only,Add __txReportError severity warn (legacy path missing point credits)
+D1,packages/ui/components/CobrarModal.jsx,762,salon_addLoyaltyPoints,yes,no,alert+console_error,high,cobro.loyalty.salon_award,alert_only,Add __txReportError severity warn
+D1,packages/ui/components/CobrarModal.jsx,952,consumeMembership_outer,no,no,none,high,cobro.membership.outer,no_try_catch,Wrap and report
+D1,packages/ui/components/CobrarModal.jsx,963,consumeCombo,no,no,none,high,cobro.combo.consume,no_try_catch,Wrap and report
+D1,packages/ui/components/CobrarModal.jsx,1153,lookupRnc_modal,no,no,none,partial,cobro.rnc.lookup,no_try_catch,Wrap with __txReportError
+D1,packages/ui/components/CobrarModal.jsx,1246,handleConfirm_legacy_ncf_reserve,yes,no,throw,critical,cobro.ncf.reserve.legacy,toast_only,Add __txReportError before re-throw (NCF reservation = fiscal-critical)
+D1,packages/ui/components/CobrarModal.jsx,1348,handleConfirm_legacy_persist,yes,no,setState,critical,cobro.ticket.persist.legacy,setState,Add __txReportError(category cobro_persist_legacy severity critical)
+D1,packages/ui/components/CobrarModal.jsx,1370,loyalty_redeem_legacy,yes,no,console_error+activityLog,partial,cobro.loyalty.redeem.legacy,partial_no_client_errors,Add __txReportError alongside activityLogRecord
+D1,packages/ui/components/CobrarModal.jsx,1431,handleConfirm_ecf_ncf_reserve,yes,no,throw,critical,cobro.ncf.reserve.ecf,toast_only,Add __txReportError before re-throw
+D1,packages/ui/components/CobrarModal.jsx,1553,handleConfirm_ecf_persist,yes,no,setState,critical,cobro.ticket.persist.ecf,setState,Add __txReportError(category cobro_persist_ecf severity critical)
+D1,packages/ui/components/CobrarModal.jsx,1571,loyalty_redeem_ecf,yes,no,console_error+activityLog,partial,cobro.loyalty.redeem.ecf,partial_no_client_errors,Add __txReportError alongside activityLogRecord
+D1,packages/ui/components/CobrarModal.jsx,1597,handleConfirm_outer_dgii,yes,no,setState,critical,cobro.dgii.submit,setState,Add __txReportError(category cobro_dgii severity critical) for non-TEST_MODE branch
+D1,packages/ui/components/CobrarModal.jsx,1637,handleConfirm_test_mode_persist,yes,no,setState,high,cobro.ticket.persist.test_mode,setState,Add __txReportError severity error
+D1,packages/ui/components/CobrarModal.jsx,2066,fiscal_mode_persist_b,yes,yes,txReportError,ok,cobro.fiscal_mode.b_series,ok,
+D1,packages/ui/components/CobrarModal.jsx,2078,fiscal_mode_persist_ecf,yes,yes,txReportError,ok,cobro.fiscal_mode.ecf,ok,
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,174,setLocation,yes,no,swallowed,partial,foodtruck.location.set,swallowed_catch,Replace bare swallow with __txReportError severity warn
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,233,loadPending,yes,no,setState,high,foodtruck.pending.load,setState,Add __txReportError severity warn
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,273,sendToKitchen_outer,yes,yes,txReportError,ok,foodtruck.send_kitchen,ok,
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,311,sendToKitchen_addItem,yes,yes,txReportError,ok,foodtruck.add_item,ok,
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,331,sendToKitchen_updateTotals,yes,no,console_only,partial,foodtruck.update_totals,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,351,sendToKitchen_kds_fire,yes,yes,txReportError,ok,foodtruck.kds_fire,ok,
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,378,clearEvent,no,no,none,partial,foodtruck.event.clear,no_try_catch,Wrap and report severity warn
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,430,fireKitchen_loop,yes,no,console_only,partial,foodtruck.kds_fire.loop,console_only,Add __txReportError severity warn (chronic KDS fail signal)
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,451,handleTicketPaid_persist,yes,yes,txReportError,ok,foodtruck.cobrar.persist,ok,
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,541,handleTicketPaid_post_fire,yes,yes,txReportError,ok,foodtruck.kds_fire.post_cobro,ok,
+D1,packages/ui/screens/foodtruck/Pendientes.jsx,80,reload_pendientes,yes,no,setState,high,foodtruck.pending.reload,setState,Add __txReportError severity warn
+D1,packages/ui/screens/foodtruck/Pendientes.jsx,108,cobrarDirect,yes,no,swallowed,partial,foodtruck.pending.cobrar_direct,swallowed_catch,Add __txReportError on sessionStorage fail (rare but observable)
+D1,packages/ui/screens/CashReconciliation.jsx,104,PinModal_submit,yes,no,setState,partial,cuadre.pin.verify,swallowed_catch,Add __txReportError severity warn for byPin RPC failures
+D1,packages/ui/screens/CashReconciliation.jsx,183,handleReprint,yes,no,swallowed,partial,cuadre.reprint,swallowed_catch,Replace bare swallow with __txReportError severity warn
+D1,packages/ui/screens/CashReconciliation.jsx,381,getEmpresa_load,yes,no,flash,partial,cuadre.empresa.load,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/CashReconciliation.jsx,402,daily_summary_load,yes,no,flash,high,cuadre.daily.load,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/CashReconciliation.jsx,448,doPrint,yes,no,flash,partial,cuadre.print,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/CashReconciliation.jsx,451,handleRecalc,yes,no,flash,high,cuadre.recalc,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/CashReconciliation.jsx,479,doClose_create,yes,no,flash+console_error,critical,cuadre.close.create,toast_only,Add __txReportError(category cuadre_close severity critical) — closing the day is fiscal-load-bearing
+D1,packages/ui/screens/PettyCash.jsx,112,PinModal_submit,yes,no,setState,partial,petty_cash.pin.verify,swallowed_catch,Add __txReportError severity warn
+D1,packages/ui/screens/PettyCash.jsx,229,loadTxns,yes,no,swallowed,high,petty_cash.load,swallowed_catch,Add __txReportError severity warn — empty-list bug pattern
+D1,packages/ui/screens/PettyCash.jsx,263,doApprove,yes,no,swallowed,critical,petty_cash.approve,swallowed_catch,Add __txReportError severity error — silent approval failure
+D1,packages/ui/screens/PettyCash.jsx,271,doReject,yes,no,swallowed,critical,petty_cash.reject,swallowed_catch,Add __txReportError severity error — silent reject failure
+D1,packages/ui/screens/PettyCash.jsx,289,handleGuardar,yes,no,swallowed,critical,petty_cash.create,swallowed_catch,Add __txReportError severity error — UI shows toast saved even when create failed
+D1,packages/ui/screens/restaurant/Mesas.jsx,123,NewMesaModal_submit,yes,no,setState,high,mesa.create.modal,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Mesas.jsx,210,EditMesaModal_submit,yes,no,setState,high,mesa.update.modal,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Mesas.jsx,291,SeatMesaModal_submit,yes,no,setState,high,mesa.seat.modal,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Mesas.jsx,450,loadMesas,yes,no,setState,partial,mesa.load,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Mesas.jsx,513,handleCreate,no,no,none,high,mesa.create,no_try_catch,Wrap api.mesas.create + __txReportError severity warn
+D1,packages/ui/screens/restaurant/Mesas.jsx,518,handleUpdate,no,no,none,high,mesa.update,no_try_catch,Wrap api.mesas.update + __txReportError severity warn
+D1,packages/ui/screens/restaurant/Mesas.jsx,523,handleStatus,no,no,none,critical,mesa.status_change,no_try_catch,"Wrap api.mesas.setStatus + __txReportError severity error — rev_conflict trigger lives here"
+D1,packages/ui/screens/restaurant/Mesas.jsx,528,handleDelete,no,no,none,high,mesa.delete,no_try_catch,Wrap api.mesas.delete + __txReportError severity warn
+D1,packages/ui/screens/restaurant/Reservations.jsx,76,modal_submit_reservation,yes,no,setState,high,reservation.create_or_update.modal,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Reservations.jsx,368,reload_reservations,yes,no,setState+console_error,partial,reservation.load,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Reservations.jsx,377,onSubmit_reservation,no,no,none,high,reservation.submit,no_try_catch,Wrap and report — currently bubbles to nearest boundary
+D1,packages/ui/screens/restaurant/Reservations.jsx,388,onConfirm_reservation,yes,no,setState,high,reservation.confirm,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Reservations.jsx,393,onCancel_reservation,yes,no,setState,high,reservation.cancel,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Reservations.jsx,399,onMarkNoShow,yes,no,setState,high,reservation.no_show,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Reservations.jsx,406,confirmSeat_reservation,yes,no,setState,high,reservation.seat,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Reservations.jsx,422,onSendWhatsApp_stamp,yes,no,swallowed,partial,reservation.whatsapp.stamp,swallowed_catch,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/KDS.jsx,365,kds_refresh,yes,no,setState+console_error,partial,kds.refresh,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/KDS.jsx,422,kds_transition,yes,no,setState,critical,kds.advance,setState,Add __txReportError severity error — rev_conflict trigger and station-blind cooks
+D1,packages/ui/screens/restaurant/KDS.jsx,672,kds_toggle_in_stock,yes,no,alert,high,kds.86_list.toggle,alert_only,Replace alert() with __txReportError + setError banner
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,886,restaurant_load,yes,no,setState+console_error,partial,restaurant.load,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1043,openMesa,yes,no,setState+console_error,critical,mesa.open.ticket,setState,Add __txReportError severity error
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1108,openForMesa_failed_revert,yes,no,setState+console_error,critical,mesa.open_for_mesa.revert,setState,Add __txReportError severity error
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1114,mesa_revert_inner,yes,no,console_only,high,mesa.revert,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1084,handleSeat,yes,no,setState+console_error,high,mesa.seat,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1158,modificadores_load,yes,no,console_only,partial,restaurant.modificadores.load,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1225,addItem_persist,yes,no,setState+console_error,high,restaurant.add_item.persist,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1252,updateItemQty_persist,yes,no,console_only,high,restaurant.update_qty.persist,console_only,Add __txReportError severity warn — silent qty drift
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1281,removeItem_persist_a,yes,no,console_only,high,restaurant.remove_item.persist_a,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1301,removeItem_persist_b,yes,no,console_only,high,restaurant.remove_item.persist_b,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1330,onManagerApprove_void,yes,no,console_only,critical,restaurant.void_fired_item.activity_log,console_only,Add __txReportError severity warn — audit-trail gap
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1395,fireToKDS,yes,no,setState+console_error,critical,restaurant.fire_kds,setState,Add __txReportError(category restaurant_fire_kds severity error) — fiscal-and-operational
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1471,handleRequestBill_outer,yes,no,setState+console_error,high,restaurant.request_bill,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1507,pre_cuenta_print,yes,no,setState+console_only,partial,restaurant.pre_cuenta.print,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1562,handleTicketPaid_persist,yes,no,setState+console_error,critical,restaurant.cobrar.persist,setState,Add __txReportError(category restaurant_cobrar severity critical) — mesa stays ocupada
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1654,snapshot_modifier_legacy,yes,no,console_only,partial,restaurant.snapshot_mod.legacy,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1665,post_cobro_cleanup,yes,no,console_only,partial,restaurant.post_cobro.cleanup,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1687,handleSplitPay,yes,no,setState+console_error,critical,restaurant.split_pay,setState,Add __txReportError severity error
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1762,split_snapshot_mod,yes,no,console_only,partial,restaurant.split.snapshot_mod,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1766,split_snapshot_loop,yes,no,console_only,partial,restaurant.split.snapshot_loop,console_only,Add __txReportError severity warn
+# summary,total_rows=99,ok=8,partial_no_client_errors=2,swallowed_catch=10,no_try_catch=11,toast_only=20,console_only=14,setState=22,alert_only=4

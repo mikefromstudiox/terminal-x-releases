@@ -184,11 +184,16 @@ async function tryOr(fn, fallback) {
 }
 
 /** For write operations: log and re-throw so callers see failures. */
-async function tryWrite(fn) {
+async function tryWrite(fn, label = 'web.write') {
   try {
     return await fn()
   } catch (err) {
-    console.error('[web.js WRITE]', err.message || err)
+    console.error('[web.js WRITE]', label, err.message || err)
+    try {
+      if (typeof window !== 'undefined' && typeof window.__txReportError === 'function') {
+        window.__txReportError(err, { severity: 'error', category: label })
+      }
+    } catch {}
     throw err
   }
 }
@@ -226,7 +231,12 @@ async function tryWriteOrQueue({ table, op, payload, business_id, rpc_name = nul
         throw err  // surface the original network error
       }
     }
-    console.error('[web.js WRITE]', err.message || err)
+    console.error('[web.js WRITE]', `web.queue.${table}`, err.message || err)
+    try {
+      if (typeof window !== 'undefined' && typeof window.__txReportError === 'function') {
+        window.__txReportError(err, { severity: 'error', category: `web.queue.${table}` })
+      }
+    } catch {}
     throw err
   }
 }
@@ -789,7 +799,7 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(await supabase.from('staff').select('id,name,username,role,discount_pct,active').eq('business_id', bid).order('id'))
       }, []),
 
-      saveUsuario: (data) => tryOr(async () => {
+      saveUsuario: (data) => tryWrite(async () => {
         if (data.id) {
           const { pin, id, ...rest } = data
           if (pin) {
@@ -810,18 +820,18 @@ export function createWebAPI(supabase, businessId) {
           business_id: bid, active: rest.active !== false,
         }).select('id').single())
         return row
-      }),
+      }, 'web.admin.saveUsuario'),
 
-      deleteUsuario: ({ id }) => tryOr(async () => {
+      deleteUsuario: ({ id }) => tryWrite(async () => {
         throwSupaError(await supabase.from('staff').update({ active: false }).eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.admin.deleteUsuario'),
 
       getLavadores: () => tryOr(async () => {
         const rows = throwSupaError(await supabase.from('empleados').select('id, supabase_id, nombre, comision_pct, active, cedula, phone, start_date').eq('business_id', bid).in('tipo', ['lavador', 'hybrid']).eq('active', true).neq('role', 'owner').order('nombre'))
         return (rows || []).map(r => ({ ...r, name: r.nombre, commission_pct: r.comision_pct }))
       }, []),
 
-      saveLavador: (data) => tryOr(async () => {
+      saveLavador: (data) => tryWrite(async () => {
         const payload = {
           nombre: data.name ?? data.nombre,
           comision_pct: data.commission_pct ?? data.comision_pct ?? 20,
@@ -837,18 +847,18 @@ export function createWebAPI(supabase, businessId) {
         }
         const row = throwSupaError(await supabase.from('empleados').insert({ ...payload, supabase_id: crypto.randomUUID(), business_id: bid, role: 'none', active: true }).select('id').single())
         return row
-      }),
+      }, 'web.admin.saveLavador'),
 
-      deleteLavador: ({ id }) => tryOr(async () => {
+      deleteLavador: ({ id }) => tryWrite(async () => {
         throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.admin.deleteLavador'),
 
       getVendedores: () => tryOr(async () => {
         const rows = throwSupaError(await supabase.from('empleados').select('id, supabase_id, nombre, comision_pct, active, cedula, phone, start_date').eq('business_id', bid).in('tipo', ['vendedor', 'hybrid']).eq('active', true).neq('role', 'owner').order('nombre'))
         return (rows || []).map(r => ({ ...r, name: r.nombre, commission_pct: r.comision_pct }))
       }, []),
 
-      saveVendedor: (data) => tryOr(async () => {
+      saveVendedor: (data) => tryWrite(async () => {
         const payload = {
           nombre: data.name ?? data.nombre,
           comision_pct: data.commission_pct ?? data.comision_pct ?? 5,
@@ -862,17 +872,17 @@ export function createWebAPI(supabase, businessId) {
         }
         const row = throwSupaError(await supabase.from('empleados').insert({ ...payload, supabase_id: crypto.randomUUID(), business_id: bid, role: 'none', active: true }).select('id').single())
         return row
-      }),
+      }, 'web.admin.saveVendedor'),
 
-      deleteVendedor: ({ id }) => tryOr(async () => {
+      deleteVendedor: ({ id }) => tryWrite(async () => {
         throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.admin.deleteVendedor'),
 
       getServicios: () => tryOr(async () => {
         return throwSupaError(await supabase.from('services').select('*').eq('business_id', bid).order('category').order('sort_order').order('id'))
       }, []),
 
-      saveServicio: (data) => tryOr(async () => {
+      saveServicio: (data) => tryWrite(async () => {
         if (data.id) {
           const { id, ...rest } = data
           // Coerce booleans for bool columns
@@ -884,11 +894,11 @@ export function createWebAPI(supabase, businessId) {
         }
         const row = throwSupaError(await supabase.from('services').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
         return row
-      }),
+      }, 'web.admin.saveServicio'),
 
-      deleteServicio: ({ id }) => tryOr(async () => {
+      deleteServicio: ({ id }) => tryWrite(async () => {
         throwSupaError(await supabase.from('services').update({ active: false }).eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.admin.deleteServicio'),
 
       getCategorias: () => tryOr(async () => {
         return throwSupaError(await supabase.from('categorias_servicio').select('*').eq('business_id', bid).order('orden').order('nombre'))
@@ -898,20 +908,20 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(await supabase.from('ncf_sequences').select('*').eq('business_id', bid).order('type'))
       }, []),
 
-      saveSecuenciaNcf: (data) => tryOr(async () => {
+      saveSecuenciaNcf: (data) => tryWrite(async () => {
         if (data.type) {
           const row = { ...data, business_id: bid }
           if (!row.supabase_id) row.supabase_id = crypto.randomUUID()
           throwSupaError(await supabase.from('ncf_sequences').upsert(row, { onConflict: 'business_id,type' }))
         }
-      }),
+      }, 'web.admin.saveSecuenciaNcf'),
 
       getConfiguracion: () => tryOr(async () => {
         const rows = throwSupaError(await supabase.from('configuracion').select('clave,valor').eq('business_id', bid))
         return Object.fromEntries((rows || []).map(r => [r.clave, r.valor]))
       }, {}),
 
-      saveConfiguracion: (data) => tryOr(async () => {
+      saveConfiguracion: (data) => tryWrite(async () => {
         const entries = Object.entries(data)
         for (const [clave, valor] of entries) {
           throwSupaError(await supabase.from('configuracion').upsert(
@@ -919,7 +929,7 @@ export function createWebAPI(supabase, businessId) {
             { onConflict: 'business_id,clave' }
           ))
         }
-      }),
+      }, 'web.admin.saveConfiguracion'),
     },
 
     // ── Settings ─────────────────────────────────────────────────────────────
@@ -949,7 +959,7 @@ export function createWebAPI(supabase, businessId) {
       //                                    mirroring via desktop sync)
       //   - device-only keys            -> localStorage
       //   - unknown keys                -> localStorage (safe default)
-      update: (obj) => tryOr(async () => {
+      update: (obj) => tryWrite(async () => {
         const cloudUpserts = []
         for (const [key, value] of Object.entries(obj)) {
           if (isBusinessSetting(key)) {
@@ -994,7 +1004,7 @@ export function createWebAPI(supabase, businessId) {
             }
           }
         }
-      }),
+      }, 'web.settings.update'),
     },
 
     // ── Inventory ────────────────────────────────────────────────────────────
@@ -1004,12 +1014,12 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(await supabase.from('inventory_items').select('*').eq('business_id', bid).eq('active', true).order('name'))
       }, []),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('inventory_items').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }).select('id').single())
         return row.id
-      }),
+      }, 'web.inventory.create'),
 
-      update: (data) => tryOr(async () => {
+      update: (data) => tryWrite(async () => {
         const { id, ...rest } = data
         // v2.14.35 — strip `quantity` so stock changes can only flow through
         // inventory.adjust() (which writes the inventory_transactions ledger).
@@ -1024,9 +1034,9 @@ export function createWebAPI(supabase, businessId) {
         rest.updated_at = new Date().toISOString()
         if (!Object.keys(rest).filter(k => k !== 'updated_at').length) return
         throwSupaError(await supabase.from('inventory_items').update(rest).eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.inventory.update'),
 
-      bulkUpdate: (ids, patch) => tryOr(async () => {
+      bulkUpdate: (ids, patch) => tryWrite(async () => {
         if (!Array.isArray(ids) || !ids.length || !patch || !Object.keys(patch).length) return 0
         const clean = { ...patch }
         // v2.14.35 — same audit-trail rule as inventory.update(). Quantity
@@ -1039,12 +1049,12 @@ export function createWebAPI(supabase, businessId) {
         clean.updated_at = new Date().toISOString()
         throwSupaError(await supabase.from('inventory_items').update(clean).in('id', ids).eq('business_id', bid))
         return ids.length
-      }, 0),
+      }, 'web.inventory.bulkUpdate'),
 
-      delete: (data) => tryOr(async () => {
+      delete: (data) => tryWrite(async () => {
         const id = typeof data === 'object' ? data.id : data
         throwSupaError(await supabase.from('inventory_items').update({ active: false }).eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.inventory.delete'),
 
       adjust: ({ id, supabase_id, delta, notes, userId }) => tryWrite(async () => {
         // Accept either integer id or uuid supabase_id — web-created tickets
@@ -1197,7 +1207,7 @@ export function createWebAPI(supabase, businessId) {
     // variance_* columns — never send them in inserts/updates; always read them
     // back from SELECT so the UI renders the same numbers on web and desktop.
     inventoryCount: {
-      start: ({ title, counted_by_name, notes, categories } = {}) => tryOr(async () => {
+      start: ({ title, counted_by_name, notes, categories } = {}) => tryWrite(async () => {
         const sid = crypto.randomUUID()
         const nowIso = new Date().toISOString()
         const headerTitle = (title && String(title).trim()) ||
@@ -1250,7 +1260,7 @@ export function createWebAPI(supabase, businessId) {
         // Prime header rollup so the UI shows correct totals before any count.
         await refreshCountTotals(supabase, bid, sid)
         return await fetchCount(supabase, bid, header.id)
-      }),
+      }, 'web.inventoryCount.start'),
 
       list: ({ limit = 50 } = {}) => tryOr(async () => {
         const rows = throwSupaError(await supabase.from('inventory_counts')
@@ -1279,7 +1289,7 @@ export function createWebAPI(supabase, businessId) {
 
       get: (idOrSid) => tryOr(async () => fetchCount(supabase, bid, idOrSid)),
 
-      saveItem: ({ count_supabase_id, inventory_item_supabase_id, counted_qty, notes }) => tryOr(async () => {
+      saveItem: ({ count_supabase_id, inventory_item_supabase_id, counted_qty, notes }) => tryWrite(async () => {
         if (!count_supabase_id || !inventory_item_supabase_id) throw new Error('missing_key')
         const qty = (counted_qty === null || counted_qty === '' || counted_qty === undefined) ? null : Number(counted_qty)
         if (qty != null && (!Number.isFinite(qty) || qty < 0)) throw new Error('Cantidad invalida')
@@ -1291,9 +1301,9 @@ export function createWebAPI(supabase, businessId) {
           .eq('inventory_item_supabase_id', inventory_item_supabase_id))
         await refreshCountTotals(supabase, bid, count_supabase_id)
         return true
-      }),
+      }, 'web.inventoryCount.saveItem'),
 
-      complete: ({ id, apply_to_inventory = true, signature_dataurl = null } = {}) => tryOr(async () => {
+      complete: ({ id, apply_to_inventory = true, signature_dataurl = null } = {}) => tryWrite(async () => {
         if (!id) throw new Error('missing_id')
         // inventory_counts.id and supabase_id are BOTH uuid — match either.
         const sval = typeof id === 'string' ? id : String(id)
@@ -1387,9 +1397,9 @@ export function createWebAPI(supabase, businessId) {
           },
         })
         return { ok: true, totals, severity, topLosses }
-      }),
+      }, 'web.inventoryCount.complete'),
 
-      cancel: (id) => tryOr(async () => {
+      cancel: (id) => tryWrite(async () => {
         const nowIso = new Date().toISOString()
         // inventory_counts.id and supabase_id are BOTH uuid — match either.
         const sval = typeof id === 'string' ? id : String(id)
@@ -1397,9 +1407,9 @@ export function createWebAPI(supabase, businessId) {
           status: 'cancelado', completed_at: nowIso, updated_at: nowIso,
         }).eq('business_id', bid).or(`id.eq.${sval},supabase_id.eq.${sval}`).eq('status', 'abierto'))
         return true
-      }),
+      }, 'web.inventoryCount.cancel'),
 
-      delete: (id) => tryOr(async () => {
+      delete: (id) => tryWrite(async () => {
         // inventory_counts.id and supabase_id are BOTH uuid — match either.
         const sval = typeof id === 'string' ? id : String(id)
         const header = throwSupaError(await supabase.from('inventory_counts').select('supabase_id').eq('business_id', bid)
@@ -1413,7 +1423,7 @@ export function createWebAPI(supabase, businessId) {
         throwSupaError(await supabase.from('inventory_counts').delete()
           .eq('business_id', bid).eq('supabase_id', header.supabase_id))
         return true
-      }),
+      }, 'web.inventoryCount.delete'),
     },
 
     // ── Auth ─────────────────────────────────────────────────────────────────
@@ -1533,7 +1543,7 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(await supabase.from('staff').select('id,name,username,role,discount_pct,active').eq('business_id', bid).order('id'))
       }, []),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         await guardUserMutation('users:create', data)
         if (!data.pin) throw new Error('PIN requerido')
         const creds = await hashPin(data.pin)
@@ -1552,9 +1562,9 @@ export function createWebAPI(supabase, businessId) {
           discount_pct: rest.discount_pct || 0, business_id: bid, active: true,
         }).select('id').single())
         return row
-      }),
+      }, 'web.users.create'),
 
-      update: (data) => tryOr(async () => {
+      update: (data) => tryWrite(async () => {
         await guardUserMutation('users:update', data)
         const { id, pin, oldPin, actorId: _actorId, employee_id, ...rest } = data
         if (pin) {
@@ -1609,9 +1619,9 @@ export function createWebAPI(supabase, businessId) {
               old_value: before.role, new_value: rest.role })
           }
         }
-      }),
+      }, 'web.users.update'),
 
-      delete: ({ id }) => tryOr(async () => {
+      delete: ({ id }) => tryWrite(async () => {
         await guardUserMutation('users:delete', { id })
         // Soft-delete only — hard-delete resurrects after the next desktop
         // sync push (desktop still has the row locally and upserts it back).
@@ -1620,16 +1630,16 @@ export function createWebAPI(supabase, businessId) {
         throwSupaError(await supabase.from('staff').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
         await logActivity({ event_type: 'user_deleted', severity: 'warn', target_type: 'user', target_id: id, target_name: name })
         return { deleted: true }
-      }),
+      }, 'web.users.delete'),
 
-      deleteHard: ({ id }) => tryOr(async () => {
+      deleteHard: ({ id }) => tryWrite(async () => {
         await guardUserMutation('users:delete-hard', { id })
         const snap = await supabase.from('staff').select('name, username').eq('id', id).eq('business_id', bid).maybeSingle()
         const name = snap?.data ? `${snap.data.name} (@${snap.data.username})` : `#${id}`
         throwSupaError(await supabase.from('staff').delete().eq('id', id).eq('business_id', bid))
         await logActivity({ event_type: 'user_hard_deleted', severity: 'critical', target_type: 'user', target_id: id, target_name: name, reason: 'force delete from Admin → Usuarios' })
         return { deleted: true, hard: true }
-      }),
+      }, 'web.users.deleteHard'),
     },
 
     // ── Staff / Manager Authorization Card (v2.6) ────────────────────────────
@@ -1638,7 +1648,7 @@ export function createWebAPI(supabase, businessId) {
     // MUST go through the server endpoint because anon JWT can read the table
     // but we don't want the hash travelling over the wire.
     staff: {
-      generateAuthCard: (id) => tryOr(async () => {
+      generateAuthCard: (id) => tryWrite(async () => {
         const actor = await resolveActorRole()
         if (!actor || (actor.role !== 'owner' && actor.role !== 'manager')) {
           throw new Error('Solo dueño o gerente pueden emitir tarjetas')
@@ -1662,9 +1672,9 @@ export function createWebAPI(supabase, businessId) {
           reason: 'Tarjeta de autorización emitida/rotada' })
         return { ok: true, token, rotatedAt: now,
                  user: { id: target.id, name: target.name, username: target.username, role: target.role } }
-      }),
+      }, 'web.users.generateAuthCard'),
 
-      revokeAuthCard: (id) => tryOr(async () => {
+      revokeAuthCard: (id) => tryWrite(async () => {
         const actor = await resolveActorRole()
         if (!actor || (actor.role !== 'owner' && actor.role !== 'manager')) {
           throw new Error('Solo dueño o gerente pueden revocar tarjetas')
@@ -1680,7 +1690,7 @@ export function createWebAPI(supabase, businessId) {
           target_name: target ? `${target.name} (@${target.username})` : `#${id}`,
           reason: 'Tarjeta de autorización revocada' })
         return { ok: true, rotatedAt: now }
-      }),
+      }, 'web.users.revokeAuthCard'),
 
       /**
        * Verify a scanned token. Hits the server endpoint so the hash never
@@ -1726,29 +1736,29 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(await supabase.from('categorias_servicio').select('*').eq('business_id', bid).order('orden').order('nombre'))
       }, []),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('categorias_servicio').insert({
           supabase_id: crypto.randomUUID(),
           nombre: data.nombre, orden: data.orden || 0, business_id: bid,
         }).select('id').single())
         return { id: row.id }
-      }),
+      }, 'web.categorias.create'),
 
-      update: (data) => tryOr(async () => {
+      update: (data) => tryWrite(async () => {
         const { id, ...rest } = data
         const allowed = ['nombre', 'orden']
         const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
         throwSupaError(await supabase.from('categorias_servicio').update(patch).eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.categorias.update'),
 
-      delete: (id) => tryOr(async () => {
+      delete: (id) => tryWrite(async () => {
         const actualId = typeof id === 'object' ? id.id : id
         // Check if any services reference this category
         const { count } = await supabase.from('services').select('id', { count: 'exact', head: true })
           .eq('business_id', bid).eq('categoria_id', actualId)
         if (count > 0) throw new Error('Categoria tiene servicios asociados')
         throwSupaError(await supabase.from('categorias_servicio').delete().eq('id', actualId).eq('business_id', bid))
-      }),
+      }, 'web.categorias.delete'),
     },
 
     // ── Services ─────────────────────────────────────────────────────────────
@@ -1785,7 +1795,7 @@ export function createWebAPI(supabase, businessId) {
         )
       }, []),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         await requireOwnerOrManager('services:create')
         const row = throwSupaError(await supabase.from('services').insert({
           supabase_id: crypto.randomUUID(),
@@ -1808,9 +1818,9 @@ export function createWebAPI(supabase, businessId) {
           business_id: bid,
         }).select('id').single())
         return { id: row.id }
-      }),
+      }, 'web.services.create'),
 
-      update: (data) => tryOr(async () => {
+      update: (data) => tryWrite(async () => {
         await requireOwnerOrManager('services:update')
         const { id, ...rest } = data
         const allowed = ['name', 'name_en', 'category', 'categoria_id', 'price', 'cost', 'aplica_itbis', 'is_wash', 'no_commission', 'commission_washer', 'commission_seller', 'commission_cashier', 'active', 'sort_order', 'is_menu_item', 'course', 'station', 'printer_route', 'happy_hour_price', 'happy_hour_start', 'happy_hour_end', 'in_stock']
@@ -1833,7 +1843,7 @@ export function createWebAPI(supabase, businessId) {
             old_value: priorRow.price, new_value: patch.price,
             amount: Number(patch.price) - Number(priorRow.price) })
         }
-      }),
+      }, 'web.services.update'),
 
       // v2.16.3 — 86-list (sold-out plates). Polymorphic key (numeric id OR
       // supabase_id UUID). Logs activity under service_set_oos /
@@ -1898,7 +1908,7 @@ export function createWebAPI(supabase, businessId) {
         return (rows || []).map(r => ({ ...r, name: r.nombre, commission_pct: r.comision_pct }))
       }, []),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('empleados').insert({
           supabase_id: crypto.randomUUID(),
           nombre: data.name ?? data.nombre, phone: data.phone || null, cedula: data.cedula || null,
@@ -1908,9 +1918,9 @@ export function createWebAPI(supabase, businessId) {
           active: true, business_id: bid,
         }).select('id').single())
         return { id: row.id }
-      }),
+      }, 'web.washers.create'),
 
-      update: (data) => tryOr(async () => {
+      update: (data) => tryWrite(async () => {
         const { id, ...rest } = data
         const patch = {}
         if ('name' in rest)            patch.nombre = rest.name
@@ -1922,7 +1932,7 @@ export function createWebAPI(supabase, businessId) {
         if ('start_date' in rest)      patch.start_date = rest.start_date
         if ('active' in rest)          patch.active = !!rest.active
         throwSupaError(await supabase.from('empleados').update(patch).eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.washers.update'),
     },
 
     // ── Sellers ──────────────────────────────────────────────────────────────
@@ -1938,7 +1948,7 @@ export function createWebAPI(supabase, businessId) {
         return (rows || []).map(r => ({ ...r, name: r.nombre, commission_pct: r.comision_pct }))
       }, []),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('empleados').insert({
           supabase_id: crypto.randomUUID(),
           nombre: data.name ?? data.nombre,
@@ -1947,9 +1957,9 @@ export function createWebAPI(supabase, businessId) {
           active: true, business_id: bid,
         }).select('id').single())
         return { id: row.id }
-      }),
+      }, 'web.sellers.create'),
 
-      update: (data) => tryOr(async () => {
+      update: (data) => tryWrite(async () => {
         const { id, ...rest } = data
         const patch = {}
         if ('name' in rest)           patch.nombre = rest.name
@@ -1959,7 +1969,7 @@ export function createWebAPI(supabase, businessId) {
         if ('phone' in rest)          patch.phone = rest.phone
         if ('active' in rest)         patch.active = !!rest.active
         throwSupaError(await supabase.from('empleados').update(patch).eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.sellers.update'),
     },
 
     // ── Empleados (payroll) ────────────────────────────────────────────────
@@ -1973,7 +1983,7 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(await supabase.from('empleados').select('*').eq('business_id', bid).order('nombre'))
       }, []),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         await requireOwnerOrManager('empleados:create')
         const empSid = crypto.randomUUID()
         const row = throwSupaError(await supabase.from('empleados').insert({
@@ -2006,9 +2016,9 @@ export function createWebAPI(supabase, businessId) {
           }
         }
         return { id: row.id }
-      }),
+      }, 'web.empleados.create'),
 
-      update: (data) => tryOr(async () => {
+      update: (data) => tryWrite(async () => {
         await requireOwnerOrManager('empleados:update')
         const { id, salary_change_reason, changed_by, ...rest } = data
         const allowed = ['nombre','tipo','role','ref_id','salary','comision_pct','start_date','cedula','phone','puesto','email','bank_account','tss_id','active']
@@ -2034,17 +2044,17 @@ export function createWebAPI(supabase, businessId) {
           }
         }
         throwSupaError(await supabase.from('empleados').update(patch).eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.empleados.update'),
 
-      delete: (id) => tryOr(async () => {
+      delete: (id) => tryWrite(async () => {
         await requireOwnerOrManager('empleados:delete')
         throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.empleados.delete'),
 
       // Mirror of electron hard-delete: try to remove outright, fall back to
       // soft-delete if FKs (payroll_runs / salary_changes / commissions) block
       // the delete. Returns { deleted: true } or { softDeleted: true, reason }.
-      hardDelete: (id) => tryOr(async () => {
+      hardDelete: (id) => tryWrite(async () => {
         const snap = await supabase.from('empleados').select('nombre, supabase_id').eq('id', id).eq('business_id', bid).maybeSingle()
         const name = snap?.data?.nombre || `#${id}`
         const empSid = snap?.data?.supabase_id
@@ -2059,12 +2069,12 @@ export function createWebAPI(supabase, businessId) {
         try { throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid)) } catch {}
         await logActivity({ event_type: 'empleado_deactivated', severity: 'warn', target_type: 'empleado', target_id: id, target_name: name, reason: error.message })
         return { softDeleted: true, reason: error.message }
-      }),
+      }, 'web.empleados.hardDelete'),
     },
 
     // ── Payroll runs (paycheck history) ─────────────────────────────────────
     payrollRuns: {
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('payroll_runs').insert(
           buildPayrollRunRow(data, bid)
         ).select('id').single())
@@ -2073,8 +2083,8 @@ export function createWebAPI(supabase, businessId) {
           try { await markCommissionsPaidForEmpleado(supabase, bid, data.empleado_id, data.period_start, data.period_end) } catch (e) { console.error('[payrollRuns.create] markCommissionsPaid failed:', e.message) }
         }
         return { id: row.id }
-      }),
-      bulkCreate: (runs) => tryOr(async () => {
+      }, 'web.payrollRuns.create'),
+      bulkCreate: (runs) => tryWrite(async () => {
         if (!Array.isArray(runs) || runs.length === 0) return { created: 0, ids: [] }
         const rows = runs.map(r => buildPayrollRunRow(r, bid))
         const inserted = throwSupaError(await supabase.from('payroll_runs').insert(rows).select('id'))
@@ -2092,7 +2102,7 @@ export function createWebAPI(supabase, businessId) {
           amount: totalNet,
           metadata: { run_count: (inserted || []).length, run_ids: (inserted || []).map(x => x.id), period_start: runs[0]?.period_start, period_end: runs[0]?.period_end } })
         return { created: (inserted || []).length, ids: (inserted || []).map(x => x.id) }
-      }, { created: 0, ids: [] }),
+      }, 'web.payrollRuns.bulkCreate'),
       byEmpleado: (empleadoId, limit = 100) => tryOr(async () => {
         return throwSupaError(
           await supabase.from('payroll_runs').select('*')
@@ -2115,9 +2125,9 @@ export function createWebAPI(supabase, businessId) {
           empleado_tipo:   r.empleados?.tipo || null,
         }))
       }, []),
-      remove: (id) => tryOr(async () => {
+      remove: (id) => tryWrite(async () => {
         throwSupaError(await supabase.from('payroll_runs').delete().eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.payrollRuns.remove'),
     },
 
     // ── Payroll settings (per-business config) ──────────────────────────────
@@ -2128,7 +2138,7 @@ export function createWebAPI(supabase, businessId) {
         // Supabase returns isr_brackets already parsed (jsonb). Leave as-is.
         return data
       }, null),
-      update: (data) => tryOr(async () => {
+      update: (data) => tryWrite(async () => {
         const allowed = [
           'pay_cycle',
           'sfs_employee_rate','afp_employee_rate',
@@ -2144,12 +2154,12 @@ export function createWebAPI(supabase, businessId) {
         // Upsert: one row per business (UNIQUE constraint on business_id)
         throwSupaError(await supabase.from('payroll_settings')
           .upsert({ ...patch, business_id: bid, updated_at: new Date().toISOString() }, { onConflict: 'business_id' }))
-      }),
+      }, 'web.payrollSettings.update'),
     },
 
     // ── Adelantos de nomina (salary advances) ──────────────────────────────
     adelantos: {
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const sid = crypto.randomUUID()
         const { data: emp } = await supabase.from('empleados').select('supabase_id, nombre').eq('id', data.empleado_id).eq('business_id', bid).maybeSingle()
         const row = throwSupaError(await supabase.from('adelantos').insert({
@@ -2168,7 +2178,7 @@ export function createWebAPI(supabase, businessId) {
           target_name: `Adelanto #${row.id}`,
           amount: Number(data.amount) })
         return { id: row.id, supabase_id: sid }
-      }),
+      }, 'web.adelantos.create'),
       list: (params = {}) => tryOr(async () => {
         let q = supabase.from('adelantos').select('*').eq('business_id', bid)
         if (params.empleado_id) q = q.eq('empleado_id', params.empleado_id)
@@ -2194,14 +2204,14 @@ export function createWebAPI(supabase, businessId) {
           .eq('business_id', bid).eq('empleado_id', id).eq('status', 'pendiente'))
         return (rows || []).reduce((s, r) => s + Number(r.amount || 0), 0)
       }, 0),
-      deduct: (id, payrollRunId) => tryOr(async () => {
+      deduct: (id, payrollRunId) => tryWrite(async () => {
         throwSupaError(await supabase.from('adelantos').update({
           status: 'deducido',
           deducted_from_payroll_id: payrollRunId,
           deducted_at: new Date().toISOString(),
         }).eq('id', id).eq('business_id', bid))
-      }),
-      cancel: (id) => tryOr(async () => {
+      }, 'web.adelantos.deduct'),
+      cancel: (id) => tryWrite(async () => {
         const { data: row } = await supabase.from('adelantos').select('amount').eq('id', id).eq('business_id', bid).maybeSingle()
         throwSupaError(await supabase.from('adelantos').update({ status: 'cancelado' })
           .eq('id', id).eq('business_id', bid).eq('status', 'pendiente'))
@@ -2211,7 +2221,7 @@ export function createWebAPI(supabase, businessId) {
             target_name: `Adelanto #${id}`,
             amount: row.amount })
         }
-      }),
+      }, 'web.adelantos.cancel'),
       summary: () => tryOr(async () => {
         const rows = throwSupaError(await supabase.from('adelantos').select('empleado_id, empleado_supabase_id, amount')
           .eq('business_id', bid).eq('status', 'pendiente')) || []
@@ -2251,7 +2261,7 @@ export function createWebAPI(supabase, businessId) {
         if (row) return Number(row.new_salary)
         return Number(emp?.salary || 0)
       }, 0),
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         await requireOwnerOrManager('salary-changes:create')
         // The UI (NominaEmpleados.handleSaveSalaryChange) passes:
         //   { empleado_id, new_salary, effective_date, reason, changed_by }
@@ -2287,7 +2297,7 @@ export function createWebAPI(supabase, businessId) {
             .eq('id', emp.id).eq('business_id', bid)
         }
         return { id: inserted.id, supabase_id: sid }
-      }),
+      }, 'web.salaryChanges.create'),
       remove: (id) => tryWrite(async () => {
         await requireOwnerOrManager('salary-changes:delete')
         // Look up empleado_supabase_id before deleting so we can re-sync
@@ -2317,7 +2327,7 @@ export function createWebAPI(supabase, businessId) {
         return data || null
       }, null),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §2.13). Quick-add
         // client returned only {id} — caller mapped client.supabase_id=null,
         // first credit ticket landed orphaned, loyaltyAward early-returned.
@@ -2334,31 +2344,31 @@ export function createWebAPI(supabase, businessId) {
           preferred_stylist_supabase_id: data.preferred_stylist_supabase_id || null,
         }).select('id, supabase_id').single())
         return row
-      }),
+      }, 'web.clients.create'),
 
-      update: (data) => tryOr(async () => {
+      update: (data) => tryWrite(async () => {
         const { id, ...rest } = data
         const allowed = ['name', 'rnc', 'phone', 'email', 'address', 'credit_limit', 'balance', 'visits', 'total_spent', 'active', 'notes', 'loyalty_points', 'birthday_treat_available', 'allergies', 'preferred_stylist_supabase_id']
         const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
         if ('active' in patch) patch.active = !!patch.active
         throwSupaError(await supabase.from('clients').update(patch).eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.clients.update'),
 
       // v2.4 — Salon: atomic loyalty point mutation. Positive = earn, negative = redeem.
-      addLoyaltyPoints: ({ id, delta }) => tryOr(async () => {
+      addLoyaltyPoints: ({ id, delta }) => tryWrite(async () => {
         const { data: cl } = await supabase.from('clients').select('loyalty_points').eq('id', id).eq('business_id', bid).single()
         const next = Math.max(0, Number(cl?.loyalty_points || 0) + Number(delta || 0))
         throwSupaError(await supabase.from('clients').update({ loyalty_points: next }).eq('id', id).eq('business_id', bid))
         return next
-      }, 0),
+      }, 'web.clients.addLoyaltyPoints'),
 
-      updateBalance: ({ id, delta }) => tryOr(async () => {
+      updateBalance: ({ id, delta }) => tryWrite(async () => {
         const { data: cl } = await supabase.from('clients').select('balance').eq('id', id).eq('business_id', bid).single()
         if (cl) {
           const newBal = Math.max(0, (cl.balance || 0) + delta)
           throwSupaError(await supabase.from('clients').update({ balance: newBal }).eq('id', id).eq('business_id', bid))
         }
-      }),
+      }, 'web.clients.updateBalance'),
 
       // v2.7.1 — ledger-backed loyalty (calls SECURITY DEFINER RPCs)
       loyaltyAward: async ({ clientSupabaseId, ticketSupabaseId, points, notes }) => {
@@ -2437,7 +2447,7 @@ export function createWebAPI(supabase, businessId) {
     },
 
     credits: {
-      collect: (data) => tryOr(async () => {
+      collect: (data) => tryWrite(async () => {
         // Mirrors desktop collectCredit(): mark tickets paid, insert credit_payment,
         // decrease client balance. No RPC — done step-by-step.
         // Idempotency: caller can pass a precomputed supabase_id. If a row with
@@ -2515,7 +2525,7 @@ export function createWebAPI(supabase, businessId) {
         }, { onConflict: 'supabase_id' }).select('id').single())
 
         return { id: row.id, supabase_id: sid }
-      }),
+      }, 'web.credits.collect'),
     },
 
     // ── Tickets ──────────────────────────────────────────────────────────────
@@ -3078,7 +3088,7 @@ export function createWebAPI(supabase, businessId) {
         }
       },
 
-      markPaid: (data) => tryOr(async () => {
+      markPaid: (data) => tryWrite(async () => {
         const updates = { status: 'cobrado' }
         if (data.paymentMethod || data.payment_method) updates.payment_method = data.paymentMethod || data.payment_method
         if (data.ncf) updates.ncf = data.ncf
@@ -3102,9 +3112,9 @@ export function createWebAPI(supabase, businessId) {
         }
 
         return { id: ticketId }
-      }),
+      }, 'web.tickets.markPaid'),
 
-      void: (data) => tryOr(async () => {
+      void: (data) => tryWrite(async () => {
         const { id, reason, voidBy } = typeof data === 'object' ? data : { id: data }
         // v2.16.31 — also pull ecf_result so the NCF-decrement-on-void path
         // can fall back when the top-level `ncf` column is null. Legacy
@@ -3268,7 +3278,7 @@ export function createWebAPI(supabase, businessId) {
         // pattern (cross-tab propagation, no in-tab optimistic update to
         // race against). Keep this dispatch removed.
         try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('tx:inventory-refresh')) } catch {}
-      }),
+      }, 'web.tickets.void'),
 
       // C2/v2.16.4 — `getActiveByMesa` superseded by the open_status-based
       // implementation defined further down (open_status='open' filter +
@@ -3289,7 +3299,7 @@ export function createWebAPI(supabase, businessId) {
       //   - mesas[old].status='sucia', clears guests/seated_at/waiter
       //   - mesas[new].status='ocupada', copies guests/waiter/seated_at
       //   - activity_log row: restaurant_mesa_transfer (info)
-      transferToMesa: (ticketSupabaseId, newMesaId) => tryOr(async () => {
+      transferToMesa: (ticketSupabaseId, newMesaId) => tryWrite(async () => {
         if (!ticketSupabaseId || !newMesaId) throw new Error('Faltan parámetros')
 
         // v2.16.10 — schema-drift fix: tickets.mesa_id does NOT exist on Supabase
@@ -3358,7 +3368,7 @@ export function createWebAPI(supabase, businessId) {
           },
         })
         return { ok: true, ticket_id: ticket.id, new_mesa_id: newMesa.id }
-      }),
+      }, 'web.tickets.transferToMesa'),
 
       // v2.16.3 — Restaurante H3 "Juntar": merge two open tickets onto a single
       // target mesa. Source ticket items move to target, source guests count
@@ -3368,7 +3378,7 @@ export function createWebAPI(supabase, businessId) {
       // Inputs:
       //   targetTicketSupabaseId  string  ticket that survives
       //   sourceTicketSupabaseId  string  ticket whose items get absorbed
-      merge: (targetTicketSupabaseId, sourceTicketSupabaseId) => tryOr(async () => {
+      merge: (targetTicketSupabaseId, sourceTicketSupabaseId) => tryWrite(async () => {
         if (!targetTicketSupabaseId || !sourceTicketSupabaseId) throw new Error('Faltan parámetros')
         if (targetTicketSupabaseId === sourceTicketSupabaseId) throw new Error('No se puede juntar consigo mismo')
 
@@ -3439,7 +3449,7 @@ export function createWebAPI(supabase, businessId) {
           },
         })
         return { ok: true, target_ticket_id: target.id, source_ticket_id: source.id }
-      }),
+      }, 'web.tickets.merge'),
 
       // ── v2.16.4 — Restaurant open-ticket lifecycle ───────────────────────
       // Persist tickets at mesa-seat time so a refresh / power loss mid-dinner
@@ -3450,7 +3460,7 @@ export function createWebAPI(supabase, businessId) {
       // any future fire-then-pay vertical) can reuse the lifecycle. The
       // legacy openForMesa stays as a thin wrapper so RestaurantPOS and the
       // restaurant smoke harness keep working unchanged.
-      openForFulfillment: (data = {}) => tryOr(async () => {
+      openForFulfillment: (data = {}) => tryWrite(async () => {
         const ticketSid = data.supabase_id || crypto.randomUUID()
         const { data: lastDoc } = await supabase.from('tickets')
           .select('doc_number').eq('business_id', bid)
@@ -3481,7 +3491,7 @@ export function createWebAPI(supabase, businessId) {
           notes:            data.notes || null,
         }).select().single())
         return { id: row?.id || null, supabase_id: ticketSid, doc_number: docNum }
-      }, null),
+      }, 'web.tickets.openForFulfillment'),
 
       // Thin wrapper retained for restaurant compatibility — same signature.
       openForMesa: function (data = {}) {
@@ -3499,7 +3509,7 @@ export function createWebAPI(supabase, businessId) {
       // index idx_tickets_open_by_mesa covers the partial scan).
       listOpen: ({ source = null } = {}) => tryOr(async () => {
         let q = supabase.from('tickets')
-          .select('id, supabase_id, doc_number, mesa_supabase_id, food_truck_location_supabase_id, order_source, notes, fulfillment_type, mode, created_at, updated_at, ticket_items(price, quantity)')
+          .select('id, supabase_id, doc_number, mesa_supabase_id, food_truck_location_supabase_id, order_source, notes, fulfillment_type, mode, subtotal, total, created_at, updated_at, ticket_items!ticket_items_ticket_supabase_id_fkey(name, price, quantity, preparation_notes)')
           .eq('business_id', bid)
           .eq('open_status', 'open')
           .neq('status', 'nula')
@@ -3510,13 +3520,19 @@ export function createWebAPI(supabase, businessId) {
         return (rows || []).map(t => {
           const items = Array.isArray(t.ticket_items) ? t.ticket_items : []
           const item_count   = items.reduce((s, i) => s + (Number(i.quantity) || 0), 0)
-          const running_total = items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0)
+          const items_total  = items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0)
+          const running_total = Number(t.total) > 0 ? Number(t.total) : items_total
+          const items_brief = items.map(i => ({
+            name: i.name || '—',
+            quantity: Number(i.quantity) || 1,
+            preparation_notes: i.preparation_notes || null,
+          }))
           const { ticket_items, ...rest } = t
-          return { ...rest, item_count, running_total }
+          return { ...rest, item_count, running_total, items: items_brief }
         })
       }, []),
 
-      addItem: (data = {}) => tryOr(async () => {
+      addItem: (data = {}) => tryWrite(async () => {
         const itemSid = crypto.randomUUID()
         const safeQty = Math.max(1, parseInt(data.qty || data.quantity || 1, 10))
         const row = throwSupaError(await supabase.from('ticket_items').insert({
@@ -3550,13 +3566,34 @@ export function createWebAPI(supabase, businessId) {
             .eq('supabase_id', data.ticket_supabase_id).eq('business_id', bid)
         }
         return { id: row?.id || null, supabase_id: itemSid }
-      }, null),
+      }, 'web.tickets.addItem'),
+
+      // 2026-05-09 — Recompute ticket totals after addItem on open tickets.
+      // openForFulfillment seeds subtotal/itbis/total = 0; without this an
+      // open ticket shows RD$0 in Pendientes / KDS / Cobrar. Used by
+      // FoodTruckPOS sendToKitchen.
+      updateTotals: (data = {}) => tryWrite(async () => {
+        if (!data.ticket_supabase_id) throw new Error('ticket_supabase_id required')
+        const patch = {
+          subtotal: Number(data.subtotal) || 0,
+          itbis:    Number(data.itbis)    || 0,
+          total:    Number(data.total)    || 0,
+          updated_at: new Date().toISOString(),
+        }
+        if (data.descuento != null) patch.descuento = Number(data.descuento) || 0
+        if (data.ley       != null) patch.ley       = Number(data.ley)       || 0
+        return throwSupaError(
+          await supabase.from('tickets').update(patch)
+            .eq('supabase_id', data.ticket_supabase_id).eq('business_id', bid)
+            .select('supabase_id, subtotal, itbis, total').single()
+        )
+      }),
 
       // v2.16.25 — Manager-gated mid-wash price edit on a queued ticket.
       // Updates ticket_items.price for the given line + bumps the parent
       // ticket's totals (subtotal/itbis/total). Used by Queue.jsx:617.
       // DO NOT REVERT (FIX-LEDGER §2.14).
-      updateItemPrice: (data = {}) => tryOr(async () => {
+      updateItemPrice: (data = {}) => tryWrite(async () => {
         const itemSid = data.ticket_item_supabase_id
         const itemId = data.ticket_item_id
         const newPrice = Math.max(0, Number(data.price) || 0)
@@ -3613,9 +3650,9 @@ export function createWebAPI(supabase, businessId) {
           metadata: { ticket_supabase_id: tSid, mac_jti: data.mac_jti || null },
         })
         return { id: row.id, supabase_id: row.supabase_id, price: newPrice }
-      }, null),
+      }, 'web.tickets.updateItemPrice'),
 
-      updateItemQty: (data = {}) => tryOr(async () => {
+      updateItemQty: (data = {}) => tryWrite(async () => {
         const safeQty = Math.max(0, parseInt(data.qty || 0, 10))
         if (safeQty === 0) {
           if (data.ticket_item_id) {
@@ -3635,9 +3672,9 @@ export function createWebAPI(supabase, businessId) {
             .eq('supabase_id', data.ticket_item_supabase_id).eq('business_id', bid))
         }
         return { id: data.ticket_item_id, qty: safeQty }
-      }, null),
+      }, 'web.tickets.updateItemQty'),
 
-      removeItem: (data = {}) => tryOr(async () => {
+      removeItem: (data = {}) => tryWrite(async () => {
         if (data.ticket_item_supabase_id) {
           try {
             await supabase.from('ticket_item_modificadores').delete()
@@ -3652,7 +3689,7 @@ export function createWebAPI(supabase, businessId) {
             .eq('supabase_id', data.ticket_item_supabase_id).eq('business_id', bid))
         }
         return { removed: true }
-      }, null),
+      }, 'web.tickets.removeItem'),
 
       getActiveByMesa: (mesaId) => tryOr(async () => {
         if (!mesaId) return null
@@ -3666,7 +3703,7 @@ export function createWebAPI(supabase, businessId) {
         }
         let q = supabase.from('tickets').select(`
           *,
-          ticket_items(*, ticket_item_modificadores(*))
+          ticket_items!ticket_items_ticket_supabase_id_fkey(*, ticket_item_modificadores(*))
         `)
           .eq('business_id', bid)
           .eq('open_status', 'open')
@@ -3981,7 +4018,7 @@ export function createWebAPI(supabase, businessId) {
         })
       }, []),
 
-      updateStatus: (data) => tryOr(async () => {
+      updateStatus: (data) => tryWrite(async () => {
         const { id, status, washerId } = data
         const now = new Date().toISOString()
         const patch = { status }
@@ -4006,9 +4043,9 @@ export function createWebAPI(supabase, businessId) {
           patch.completed_at = now
         }
         throwSupaError(await supabase.from('queue').update(patch).eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.queue.updateStatus'),
 
-      delete: (data) => tryOr(async () => {
+      delete: (data) => tryWrite(async () => {
         const { id, deletedBy } = data
         const now = new Date().toISOString()
         const row = await supabase.from('queue').select('ticket_supabase_id').eq('id', id).single()
@@ -4043,7 +4080,7 @@ export function createWebAPI(supabase, businessId) {
         }
         await supabase.from('queue_deletions').insert({ supabase_id: crypto.randomUUID(), queue_id: id, ticket_supabase_id: tSid, deleted_by: deletedBy || 'unknown', deleted_at: now, reason: 'manual', business_id: bid })
         return { id }
-      }),
+      }, 'web.queue.delete'),
     },
 
     // ── Commissions ──────────────────────────────────────────────────────────
@@ -4178,16 +4215,16 @@ export function createWebAPI(supabase, businessId) {
         return Object.values(map).sort((a, b) => b.total_acumulado - a.total_acumulado)
       }, []),
 
-      markPaid: (ids) => tryOr(async () => {
+      markPaid: (ids) => tryWrite(async () => {
         const now = new Date().toISOString()
         throwSupaError(await supabase.from('washer_commissions')
           .update({ paid: true, paid_at: now }).in('id', ids).eq('business_id', bid))
-      }),
+      }, 'web.commissions.markPaid'),
 
       // Mark all unpaid commissions within a period for a set of empleados as paid.
       // Used by NominaPagos bulk save to prevent re-running the same period
       // from double-counting commissions already included in a payroll run.
-      markPaidByPeriod: ({ empleado_supabase_ids, from, to }) => tryOr(async () => {
+      markPaidByPeriod: ({ empleado_supabase_ids, from, to }) => tryWrite(async () => {
         if (!empleado_supabase_ids?.length) return { updated: 0 }
         const now = new Date().toISOString()
         const { data } = await supabase.from('washer_commissions')
@@ -4199,10 +4236,10 @@ export function createWebAPI(supabase, businessId) {
           .lte('created_at', to + ' 23:59:59')
           .select('id')
         return { updated: (data || []).length }
-      }, { updated: 0 }),
+      }, 'web.commissions.markPaidByPeriod'),
 
       // v2.14 — manual commission entry (no ticket FK).
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         if (!data.empleado_supabase_id || !data.manual_reason) throw new Error('empleado_supabase_id + manual_reason required')
         const sid = crypto.randomUUID()
         const payload = {
@@ -4219,7 +4256,7 @@ export function createWebAPI(supabase, businessId) {
         if (data.created_at) payload.created_at = data.created_at
         const row = throwSupaError(await supabase.from('washer_commissions').insert(payload).select('id').single())
         return { id: row.id, supabase_id: sid }
-      }),
+      }, 'web.commissions.create'),
     },
 
     // ── Seller Commissions ──────────────────────────────────────────────────
@@ -4289,13 +4326,13 @@ export function createWebAPI(supabase, businessId) {
         return Object.values(map).sort((a, b) => b.total_acumulado - a.total_acumulado)
       }, []),
 
-      markPaid: (ids) => tryOr(async () => {
+      markPaid: (ids) => tryWrite(async () => {
         const now = new Date().toISOString()
         throwSupaError(await supabase.from('seller_commissions')
           .update({ paid: true, paid_at: now }).in('id', ids).eq('business_id', bid))
-      }),
+      }, 'web.sellerCommissions.markPaid'),
 
-      markPaidByPeriod: ({ empleado_supabase_ids, from, to }) => tryOr(async () => {
+      markPaidByPeriod: ({ empleado_supabase_ids, from, to }) => tryWrite(async () => {
         if (!empleado_supabase_ids?.length) return { updated: 0 }
         const now = new Date().toISOString()
         const { data } = await supabase.from('seller_commissions')
@@ -4305,9 +4342,9 @@ export function createWebAPI(supabase, businessId) {
           .gte('created_at', from).lte('created_at', to + ' 23:59:59')
           .select('id')
         return { updated: (data || []).length }
-      }, { updated: 0 }),
+      }, 'web.sellerCommissions.markPaidByPeriod'),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const sid = crypto.randomUUID()
         let empSid = data.empleado_supabase_id || null
         if (!empSid && data.seller_supabase_id) {
@@ -4341,7 +4378,7 @@ export function createWebAPI(supabase, businessId) {
         if (data.created_at)    payload.created_at    = data.created_at
         const row = throwSupaError(await supabase.from('seller_commissions').insert(payload).select('id').single())
         return { id: row.id, supabase_id: sid }
-      }),
+      }, 'web.sellerCommissions.create'),
     },
 
     // ── Cajero Commissions ──────────────────────────────────────────────────
@@ -4400,13 +4437,13 @@ export function createWebAPI(supabase, businessId) {
         return Object.values(map).sort((a, b) => b.total_commission - a.total_commission)
       }, []),
 
-      markPaid: (ids) => tryOr(async () => {
+      markPaid: (ids) => tryWrite(async () => {
         const now = new Date().toISOString()
         throwSupaError(await supabase.from('cajero_commissions')
           .update({ paid: true, paid_at: now }).in('id', ids).eq('business_id', bid))
-      }),
+      }, 'web.cajeroCommissions.markPaid'),
 
-      markPaidByPeriod: ({ empleado_supabase_ids, from, to }) => tryOr(async () => {
+      markPaidByPeriod: ({ empleado_supabase_ids, from, to }) => tryWrite(async () => {
         if (!empleado_supabase_ids?.length) return { updated: 0 }
         const now = new Date().toISOString()
         const { data } = await supabase.from('cajero_commissions')
@@ -4416,9 +4453,9 @@ export function createWebAPI(supabase, businessId) {
           .gte('created_at', from).lte('created_at', to + ' 23:59:59')
           .select('id')
         return { updated: (data || []).length }
-      }, { updated: 0 }),
+      }, 'web.cajeroCommissions.markPaidByPeriod'),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const sid = crypto.randomUUID()
         const empSid = data.empleado_supabase_id || data.cajero_supabase_id || null
         // FIX-H9 idempotency — same dedupe pattern as sellerCommissions.
@@ -4445,13 +4482,13 @@ export function createWebAPI(supabase, businessId) {
         if (data.created_at)    payload.created_at    = data.created_at
         const row = throwSupaError(await supabase.from('cajero_commissions').insert(payload).select('id').single())
         return { id: row.id, supabase_id: sid }
-      }),
+      }, 'web.cajeroCommissions.create'),
     },
 
     // ── Cuadre de Caja ───────────────────────────────────────────────────────
 
     cuadre: {
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('cuadre_caja').insert({
           ...data,
           supabase_id: crypto.randomUUID(),
@@ -4471,7 +4508,7 @@ export function createWebAPI(supabase, businessId) {
             metadata: { cierre_total: data.cierre_total, total_cobrado: data.total_cobrado } })
         }
         return row
-      }),
+      }, 'web.cuadre.create'),
 
       history: () => tryOr(async () => {
         const { data } = await supabase.from('cuadre_caja')
@@ -4756,7 +4793,7 @@ export function createWebAPI(supabase, businessId) {
         }))
       }, []),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         throwSupaError(await supabase.from('caja_chica').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }))
         await logActivity({ event_type: 'caja_chica_withdrawal',
           severity: Number(data.amount) >= 2000 ? 'warn' : 'info',
@@ -4764,9 +4801,9 @@ export function createWebAPI(supabase, businessId) {
           target_name: data.description || data.category || 'Retiro',
           amount: data.amount, reason: data.category || null,
           metadata: { type: data.type, recibo: data.recibo || null, status: data.status } })
-      }),
+      }, 'web.cajaChica.create'),
 
-      updateStatus: (data) => tryOr(async () => {
+      updateStatus: (data) => tryWrite(async () => {
         const { id, status, approvedBy } = data
         // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §2.20). The .all() join
         // reads approved_by_supabase_id (line 4379). Without resolving the
@@ -4786,7 +4823,7 @@ export function createWebAPI(supabase, businessId) {
           approved_by: approvedBy || null,
           approved_by_supabase_id: approvedSid,
         }).eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.cajaChica.updateStatus'),
     },
 
     // ── Notas de Credito ─────────────────────────────────────────────────────
@@ -4872,7 +4909,7 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(await q)
       }, []),
 
-      addCompra: (data) => tryOr(async () => {
+      addCompra: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('compras_607').insert({
           supabase_id:      crypto.randomUUID(),
           rnc_proveedor:    data.rnc_proveedor    || '',
@@ -4893,11 +4930,11 @@ export function createWebAPI(supabase, businessId) {
           business_id: bid,
         }).select('id').single())
         return { id: row.id }
-      }),
+      }, 'web.dgii.addCompra'),
 
-      deleteCompra: ({ id }) => tryOr(async () => {
+      deleteCompra: ({ id }) => tryWrite(async () => {
         throwSupaError(await supabase.from('compras_607').delete().eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.dgii.deleteCompra'),
     },
 
     // ── RNC Lookup ───────────────────────────────────────────────────────────
@@ -5574,7 +5611,7 @@ export function createWebAPI(supabase, businessId) {
         )
       }, []),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('mesas').insert({
           supabase_id: crypto.randomUUID(),
           name: data.name, zone: data.zone || null,
@@ -5585,9 +5622,9 @@ export function createWebAPI(supabase, businessId) {
           business_id: bid,
         }).select('*').single())
         return row
-      }),
+      }, 'web.restaurant.mesas.create'),
 
-      update: (id, data) => tryOr(async () => {
+      update: (id, data) => tryWrite(async () => {
         const allowed = ['name','zone','capacity','status','waiter_empleado_supabase_id','guests_count','seated_at','sort_order','active','bill_requested_at']
         const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
         if ('active' in patch) patch.active = !!patch.active
@@ -5597,9 +5634,9 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(
           await supabase.from('mesas').update(patch).eq('id', id).eq('business_id', bid).select('*').single()
         )
-      }),
+      }, 'web.restaurant.mesas.update'),
 
-      setStatus: (id, status, opts = {}) => tryOr(async () => {
+      setStatus: (id, status, opts = {}) => tryWrite(async () => {
         // Fetch seated_at so we stamp only on first transition into 'ocupada'
         const { data: cur } = await supabase.from('mesas')
           .select('seated_at,waiter_empleado_supabase_id,guests_count')
@@ -5620,14 +5657,14 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(
           await supabase.from('mesas').update(patch).eq('id', id).eq('business_id', bid).select('*').single()
         )
-      }),
+      }, 'web.restaurant.mesas.setStatus'),
 
-      delete: (id) => tryOr(async () => {
+      delete: (id) => tryWrite(async () => {
         // Soft-delete — match services.delete() semantics (LWW-friendly + safe).
         throwSupaError(await supabase.from('mesas').update({ active: false })
           .eq('id', id).eq('business_id', bid))
         return { deleted: true }
-      }),
+      }, 'web.restaurant.mesas.delete'),
 
       // v2.16.3 — "Pedir cuenta": flip mesa into the amber 'acuenta' state and
       // stamp bill_requested_at = NOW() so the floor-plan card and any
@@ -5662,7 +5699,7 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(await q) || []
       }, []),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const sid = crypto.randomUUID()
         // v2.16.26 — DO NOT REVERT (FIX-LEDGER §Batch6). Deposit fields persist
         // now that columns landed in Batch 5.
@@ -5689,9 +5726,9 @@ export function createWebAPI(supabase, businessId) {
           metadata: { fecha: row.fecha, hora: row.hora, guests: row.guests, mesa_id: row.mesa_id },
         })
         return row
-      }),
+      }, 'web.restaurant.reservations.create'),
 
-      update: (id, data) => tryOr(async () => {
+      update: (id, data) => tryWrite(async () => {
         const allowed = ['mesa_id','mesa_supabase_id','fecha','hora','duration_min','nombre','telefono','guests','notas','status','whatsapp_sent_at','cancelled_reason','seated_ticket_supabase_id','deposit_amount','deposit_status','deposit_ticket_supabase_id']
         const patch = Object.fromEntries(Object.entries(data || {}).filter(([k]) => allowed.includes(k)))
         if (!Object.keys(patch).length) {
@@ -5700,9 +5737,9 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(
           await supabase.from('restaurant_reservations').update(patch).eq('id', id).eq('business_id', bid).select('*').single()
         )
-      }),
+      }, 'web.restaurant.reservations.update'),
 
-      confirm: (id) => tryOr(async () => {
+      confirm: (id) => tryWrite(async () => {
         const row = throwSupaError(
           await supabase.from('restaurant_reservations').update({ status: 'confirmada' })
             .eq('id', id).eq('business_id', bid).select('*').single()
@@ -5713,9 +5750,9 @@ export function createWebAPI(supabase, businessId) {
           metadata: { fecha: row.fecha, hora: row.hora, guests: row.guests },
         })
         return row
-      }),
+      }, 'web.restaurant.reservations.confirm'),
 
-      cancel: (id, reason) => tryOr(async () => {
+      cancel: (id, reason) => tryWrite(async () => {
         const row = throwSupaError(
           await supabase.from('restaurant_reservations').update({
             status: 'cancelada',
@@ -5729,9 +5766,9 @@ export function createWebAPI(supabase, businessId) {
           metadata: { fecha: row.fecha, hora: row.hora },
         })
         return row
-      }),
+      }, 'web.restaurant.reservations.cancel'),
 
-      markNoShow: (id) => tryOr(async () => {
+      markNoShow: (id) => tryWrite(async () => {
         const row = throwSupaError(
           await supabase.from('restaurant_reservations').update({ status: 'no_show' })
             .eq('id', id).eq('business_id', bid).select('*').single()
@@ -5742,11 +5779,11 @@ export function createWebAPI(supabase, businessId) {
           metadata: { fecha: row.fecha, hora: row.hora, guests: row.guests },
         })
         return row
-      }),
+      }, 'web.restaurant.reservations.markNoShow'),
 
       // Mark as 'sentada' and (best-effort) flip the assigned mesa to 'ocupada'.
       // Caller is expected to follow-up by opening the POS for the new mesa.
-      seat: (id, mesaId) => tryOr(async () => {
+      seat: (id, mesaId) => tryWrite(async () => {
         let mesaSid = null
         if (mesaId) {
           const { data: m } = await supabase.from('mesas').select('id, supabase_id, name')
@@ -5776,15 +5813,15 @@ export function createWebAPI(supabase, businessId) {
           metadata: { fecha: row.fecha, hora: row.hora, mesa_id: mesaId },
         })
         return row
-      }),
+      }, 'web.restaurant.reservations.seat'),
 
-      stampWhatsapp: (id) => tryOr(async () => {
+      stampWhatsapp: (id) => tryWrite(async () => {
         return throwSupaError(
           await supabase.from('restaurant_reservations')
             .update({ whatsapp_sent_at: new Date().toISOString() })
             .eq('id', id).eq('business_id', bid).select('*').single()
         )
-      }),
+      }, 'web.restaurant.reservations.stampWhatsapp'),
     },
 
     // ── Restaurant Mode — Modificadores (menu add-ons) ───────────────────────
@@ -5804,7 +5841,7 @@ export function createWebAPI(supabase, businessId) {
         )
       }, []),
 
-      create: (data) => tryOr(async () => {
+      create: (data) => tryWrite(async () => {
         const row = throwSupaError(await supabase.from('modificadores').insert({
           supabase_id: crypto.randomUUID(),
           name: data.name, group_name: data.group_name || null,
@@ -5817,9 +5854,9 @@ export function createWebAPI(supabase, businessId) {
           business_id: bid,
         }).select('*').single())
         return row
-      }),
+      }, 'web.restaurant.modificadores.create'),
 
-      update: (id, data) => tryOr(async () => {
+      update: (id, data) => tryWrite(async () => {
         const allowed = ['name','group_name','price_delta','min_select','max_select','default_selected','sort_order','active']
         const patch = Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)))
         if ('default_selected' in patch) patch.default_selected = !!patch.default_selected
@@ -5831,13 +5868,13 @@ export function createWebAPI(supabase, businessId) {
         return throwSupaError(
           await supabase.from('modificadores').update(patch).eq('id', id).eq('business_id', bid).select('*').single()
         )
-      }),
+      }, 'web.restaurant.modificadores.update'),
 
-      delete: (id) => tryOr(async () => {
+      delete: (id) => tryWrite(async () => {
         throwSupaError(await supabase.from('modificadores').update({ active: false })
           .eq('id', id).eq('business_id', bid))
         return { deleted: true }
-      }),
+      }, 'web.restaurant.modificadores.delete'),
 
       listForService: (serviceSupabaseId) => tryOr(async () => {
         // Two-step — service_modificadores stores supabase_id FKs, no SQL join
@@ -5854,7 +5891,7 @@ export function createWebAPI(supabase, businessId) {
         return (mods || []).map(m => ({ ...m, is_required: !!reqMap[m.supabase_id] }))
       }, []),
 
-      attachToService: (serviceSupabaseId, modificadorSupabaseId, isRequired = 0) => tryOr(async () => {
+      attachToService: (serviceSupabaseId, modificadorSupabaseId, isRequired = 0) => tryWrite(async () => {
         throwSupaError(await supabase.from('service_modificadores').insert({
           supabase_id: crypto.randomUUID(),
           service_supabase_id: serviceSupabaseId,
@@ -5862,14 +5899,14 @@ export function createWebAPI(supabase, businessId) {
           is_required: !!isRequired,
           business_id: bid,
         }))
-      }),
+      }, 'web.restaurant.service_mods.attachToService'),
 
-      detachFromService: (serviceSupabaseId, modificadorSupabaseId) => tryOr(async () => {
+      detachFromService: (serviceSupabaseId, modificadorSupabaseId) => tryWrite(async () => {
         throwSupaError(await supabase.from('service_modificadores').delete()
           .eq('business_id', bid)
           .eq('service_supabase_id', serviceSupabaseId)
           .eq('modificador_supabase_id', modificadorSupabaseId))
-      }),
+      }, 'web.restaurant.service_mods.detachFromService'),
     },
 
     // ── Restaurant Mode — Service recipes (Bill-of-Materials, v2.16.3) ─────
@@ -5912,7 +5949,7 @@ export function createWebAPI(supabase, businessId) {
         }).sort((a, b) => (a.inventory_item_name || '').localeCompare(b.inventory_item_name || ''))
       }, []),
 
-      add: ({ service_supabase_id, inventory_item_supabase_id, qty_per_unit } = {}) => tryOr(async () => {
+      add: ({ service_supabase_id, inventory_item_supabase_id, qty_per_unit } = {}) => tryWrite(async () => {
         if (!service_supabase_id || !inventory_item_supabase_id) {
           throw new Error('recipeItems.add: service_supabase_id + inventory_item_supabase_id required')
         }
@@ -5925,13 +5962,13 @@ export function createWebAPI(supabase, businessId) {
           qty_per_unit: Number(qty_per_unit) || 0,
         }).select('id,supabase_id').single())
         return { id: row.id, supabase_id: row.supabase_id }
-      }),
+      }, 'web.restaurant.recipes.add'),
 
-      update: (id, qty_per_unit) => tryOr(async () => {
+      update: (id, qty_per_unit) => tryWrite(async () => {
         throwSupaError(await supabase.from('service_recipe_items')
           .update({ qty_per_unit: Number(qty_per_unit) || 0 })
           .eq('id', id).eq('business_id', bid))
-      }),
+      }, 'web.restaurant.recipes.update'),
 
       remove: (id) => tryOr(async () => {
         throwSupaError(await supabase.from('service_recipe_items')
@@ -6182,7 +6219,7 @@ export function createWebAPI(supabase, businessId) {
         )
       }, []),
 
-      fire: (data) => tryOr(async () => {
+      fire: (data) => tryWrite(async () => {
         // Resolve ticket_item_supabase_id the same way desktop does, so the
         // FK stays intact even when the caller only hands us the integer id.
         let tiSid = data.ticket_item_supabase_id || null
@@ -6191,15 +6228,22 @@ export function createWebAPI(supabase, businessId) {
             .eq('id', data.ticket_item_id).eq('business_id', bid).maybeSingle()
           tiSid = ti?.supabase_id || null
         }
+        if (!tiSid) throw new Error('kds.fire: ticket_item_supabase_id required (NOT NULL FK)')
+        const firedAt = new Date().toISOString()
         const row = throwSupaError(await supabase.from('kds_events').insert({
           supabase_id: crypto.randomUUID(),
           ticket_item_supabase_id: tiSid,
           mesa_supabase_id: data.mesa_supabase_id || null,
           station: data.station || null,
           status: 'fired',
-          fired_at: new Date().toISOString(),
+          fired_at: firedAt,
           business_id: bid,
         }).select('*').single())
+        // Stamp ticket_items.kds_fired_at so KDS aging + recall stay coherent.
+        try {
+          await supabase.from('ticket_items').update({ kds_fired_at: firedAt })
+            .eq('supabase_id', tiSid).eq('business_id', bid).is('kds_fired_at', null)
+        } catch (e) { console.warn('[web.js] kds.fire stamp kds_fired_at failed', e?.message) }
         return row
       }),
 

@@ -74,6 +74,7 @@ export function CreateModal({ vehicles, clients, empleados, bays, lang, onSave, 
         notes: form.notes.trim() || null,
       })
     } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'womodal.fmtrd' }) } catch {}
       setErr(ex?.message || L('Error al crear orden', 'Error creating order'))
     } finally {
       setSaving(false)
@@ -287,8 +288,10 @@ function InspectionPanel({ inspection, lang, onChange, onSave, saving, workOrder
       const path = r?.storage_path || r?.signed_url || null
       if (path) set(itemId, { photo_url: path })
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'womodal.inspectionpanel' }) } catch {}
       console.warn('[InspectionPanel] photo upload failed', e?.message || e)
-      try { window.alert(L('No se pudo subir la foto. Verifique conexión.', 'Photo upload failed. Check connection.')) } catch {}
+      try { window.alert(L('No se pudo subir la foto. Verifique conexión.', 'Photo upload failed. Check connection.')) } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'womodal.inspectionpanel' }) } catch {}}
     } finally {
       setUploadingId(null)
     }
@@ -421,7 +424,8 @@ export function DetailModal({
   const [showInspection, setShowInspection] = useState(false)
   const [inspection, setInspection] = useState(() => {
     try { return typeof order.inspection_json === 'string' ? JSON.parse(order.inspection_json || '{}') : (order.inspection_json || {}) }
-    catch { return {} }
+    catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'womodal.totalsbreakdown' }) } catch {} return {} }
   })
   const [savingInsp, setSavingInsp] = useState(false)
   const [showParts, setShowParts] = useState(false)
@@ -458,11 +462,13 @@ export function DetailModal({
           antes: photos.filter(p => p.phase === 'antes').length,
           despues: photos.filter(p => p.phase === 'despues').length,
         })
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'womodal.inforow' }) } catch {}}
       try {
         const list = await apiRef.aseguradoras?.list?.() || []
         setAseguradoras(list)
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'womodal.inforow' }) } catch {}}
     })()
   }, [order?.supabase_id]) // eslint-disable-line
 
@@ -494,7 +500,8 @@ export function DetailModal({
           work_order_id: order.id, type: 'service',
           name: REMOLQUE_NAME, qty: 1, unit_price: effectiveTowFee,
         })
-      } catch (e) { console.warn('[Listo] addItem remolque failed', e?.message || e) }
+      } catch (e) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'womodal.detailmodal' }) } catch {} console.warn('[Listo] addItem remolque failed', e?.message || e) }
     } else if (!deliveryToggle && order.delivery_required) {
       // FIX-M3 — toggle off removes the auto-added remolque so the customer
       // doesn't pay double when the cashier changes their mind.
@@ -507,9 +514,11 @@ export function DetailModal({
         if (remolque?.id) {
           await apiRef.workOrders?.deleteItem?.({ work_order_id: order.id, item_id: remolque.id })
         }
-      } catch (e) { console.warn('[Listo] remolque cleanup failed', e?.message || e) }
+      } catch (e) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'womodal.handlephotoupload' }) } catch {} console.warn('[Listo] remolque cleanup failed', e?.message || e) }
     }
-    try { await apiRef.workOrders?.update?.(order.id, patch) } catch (e) { console.warn('[Listo] update failed', e?.message || e) }
+    try { await apiRef.workOrders?.update?.(order.id, patch) } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'womodal.handlephotoupload' }) } catch {} console.warn('[Listo] update failed', e?.message || e) }
     // FIX-WA — auto-dispatch the "vehicle ready" WhatsApp via the configured
     // UltraMsg instance when the client has a phone.
     try {
@@ -520,7 +529,8 @@ export function DetailModal({
           : `Su vehículo ${order.vehicle_plate} está LISTO para recoger. Gracias por su confianza.`
         await apiRef.whatsapp?.send?.({ to: phone, body })
       }
-    } catch (e) { console.warn('[Listo] WhatsApp send skipped', e?.message || e) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'womodal.handlephotoupload' }) } catch {} console.warn('[Listo] WhatsApp send skipped', e?.message || e) }
     setConfirmListo(false)
     onStatusChange(order.id, 'listo')
   }
@@ -546,11 +556,13 @@ export function DetailModal({
     const evt = (typeof window !== 'undefined' && window.event) ? window.event : null
     const overrideHeld = !!evt?.shiftKey
     if (next === 'en_progreso' && photoCount.antes === 0 && !overrideHeld) {
-      try { window.alert(L('Tome al menos una foto ANTES para iniciar (mantenga Shift al hacer clic para anular).', 'Take at least one BEFORE photo to start (hold Shift while clicking to override).')) } catch {}
+      try { window.alert(L('Tome al menos una foto ANTES para iniciar (mantenga Shift al hacer clic para anular).', 'Take at least one BEFORE photo to start (hold Shift while clicking to override).')) } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'womodal.handlephotoupload' }) } catch {}}
       return
     }
     if (next === 'completado' && photoCount.despues === 0 && !overrideHeld) {
-      try { window.alert(L('Tome al menos una foto DESPUÉS para completar (mantenga Shift al hacer clic para anular).', 'Take at least one AFTER photo to complete (hold Shift while clicking to override).')) } catch {}
+      try { window.alert(L('Tome al menos una foto DESPUÉS para completar (mantenga Shift al hacer clic para anular).', 'Take at least one AFTER photo to complete (hold Shift while clicking to override).')) } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'womodal.handlephotoupload' }) } catch {}}
       return
     }
     if (next === 'facturado') { setConfirmInvoice(true); return }
@@ -576,7 +588,8 @@ export function DetailModal({
   }
   async function handleCopy() {
     if (!approvalLink) return
-    try { await navigator.clipboard.writeText(approvalLink); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch {}
+    try { await navigator.clipboard.writeText(approvalLink); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'womodal.handleadditem' }) } catch {}}
   }
 
   return (
@@ -833,7 +846,8 @@ export function DetailModal({
                                 })
                                 photos.push({ phase: p.phase, base64: b64, caption: p.caption || null })
                               }
-                            } catch {}
+                            } catch (_aetherErr) {
+                              try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'womodal.for' }) } catch {}}
                             const { pdfBytes, filename } = await buildInspectionReportPdf({
                               wo: { ...order, items: order.items || [] },
                               business: empresa,
@@ -846,8 +860,10 @@ export function DetailModal({
                             a.href = URL.createObjectURL(blob); a.download = filename; a.click()
                             setTimeout(() => URL.revokeObjectURL(a.href), 1000)
                           } catch (e) {
+                            try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'womodal.for' }) } catch {}
                             console.warn('[hojaTecnica] failed', e?.message || e)
-                            try { window.alert(L('No se pudo generar la hoja técnica.','Could not generate inspection report.')) } catch {}
+                            try { window.alert(L('No se pudo generar la hoja técnica.','Could not generate inspection report.')) } catch (_aetherErr) {
+                              try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'womodal.for' }) } catch {}}
                           }
                         }}
                         className="w-full mt-2 py-1.5 bg-[#b3001e] text-white text-[11px] font-bold rounded hover:bg-black"

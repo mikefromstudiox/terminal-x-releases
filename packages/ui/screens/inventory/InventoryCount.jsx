@@ -97,6 +97,7 @@ function StartModal({ onStart, onClose, empleados, availableCategories }) {
         categories: cats,
       })
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'inventorycount.togglecat' }) } catch {}
       setErr(e?.message || 'Error al iniciar el conteo')
       setBusy(false)
     }
@@ -383,6 +384,7 @@ function DetailView({ count, onBack, onReload, biz }) {
       })
       await onReload()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'inventorycount.for' }) } catch {}
       setError(e?.message || 'Error al guardar')
     } finally {
       setSaving(null)
@@ -414,6 +416,7 @@ function DetailView({ count, onBack, onReload, biz }) {
       setConfirm(false)
       await onReload()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'inventorycount.handlekeydown' }) } catch {}
       setError(e?.message || 'Error al finalizar el conteo')
       setConfirm(false)
     }
@@ -425,7 +428,8 @@ function DetailView({ count, onBack, onReload, biz }) {
     try {
       await api.inventoryCount.cancel(count.id)
       await onReload()
-    } catch (e) { setError(e?.message || 'Error al cancelar') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'inventorycount.handlekeydown' }) } catch {} setError(e?.message || 'Error al cancelar') }
   }
 
   async function deleteCount() {
@@ -433,7 +437,8 @@ function DetailView({ count, onBack, onReload, biz }) {
     try {
       await api.inventoryCount.delete(count.id)
       onBack(true) // request list refresh
-    } catch (e) { setError(e?.message || 'Error al eliminar') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'inventorycount.handlekeydown' }) } catch {} setError(e?.message || 'Error al eliminar') }
   }
 
   // v2.14 — If a category filter is active, exports scope to that subset only
@@ -799,7 +804,8 @@ export default function InventoryCount() {
     try {
       const data = await api.inventoryCount.list({ limit: 100 })
       setRows(Array.isArray(data) ? data : [])
-    } catch (e) { setError(e?.message || 'Error al cargar conteos') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'inventorycount.inventorycount' }) } catch {} setError(e?.message || 'Error al cargar conteos') }
     finally { setLoading(false) }
   }, [api])
 
@@ -807,21 +813,24 @@ export default function InventoryCount() {
     try {
       const data = await api.inventoryCount.get(id)
       setActive(data || null)
-    } catch (e) { setError(e?.message || 'Error al cargar conteo') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'inventorycount.inventorycount' }) } catch {} setError(e?.message || 'Error al cargar conteo') }
   }, [api])
 
   useEffect(() => {
     if (!allowed) return
     loadList()
     ;(async () => {
-      try { const ee = await api.empleados?.all?.(); if (Array.isArray(ee)) setEmpleados(ee.filter(e => e.active !== 0)) } catch {}
+      try { const ee = await api.empleados?.all?.(); if (Array.isArray(ee)) setEmpleados(ee.filter(e => e.active !== 0)) } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'inventorycount.inventorycount' }) } catch {}}
       try {
         const s = await api.settings?.get?.()
         if (s) setBiz({
           name: s.biz_name || s.business_name || 'Empresa',
           rnc:  s.biz_rnc  || s.rnc           || '',
         })
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'inventorycount.inventorycount' }) } catch {}}
       // v2.14 — category list for the StartModal pre-scope selector. Uses
       // inventory.all() which every mode exposes. Grouping + "(sin
       // categoria)" bucket matches the filter logic in countStart.
@@ -839,7 +848,8 @@ export default function InventoryCount() {
             .sort((a, b) => a.name.localeCompare(b.name, 'es'))
           setAvailableCategories(list)
         }
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'inventorycount.inventorycount' }) } catch {}}
     })()
   }, [allowed, loadList, api])
 

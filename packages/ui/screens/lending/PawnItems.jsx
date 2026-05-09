@@ -42,7 +42,8 @@ async function rollbackStorage(sb, uploaded) {
     await Promise.allSettled(
       uploaded.map(({ bucket, path }) => sb.storage.from(bucket).remove([path]))
     )
-  } catch (_) { /* never throws */ }
+  } catch (_) {
+    try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'pawnitems.rollbackstorage' }) } catch {} /* never throws */ }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -401,6 +402,7 @@ function PawnModal({ item, onClose, onSave, showToast }) {
               mime_type: p.file.type || 'image/jpeg',
             })
           } catch (e) {
+            try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'pawnitems.if' }) } catch {}
             console.error('[PawnItems.uploadPhoto]', i, e)
             failed.push(i + 1)
           }
@@ -430,7 +432,8 @@ function PawnModal({ item, onClose, onSave, showToast }) {
           console.error('[PawnItems.uploadDpi]', e)
           await rollbackStorage(sb, uploaded)
           if (!isEdit && pawnSupabaseId) {
-            try { await sb.from('pawn_items').delete().eq('supabase_id', pawnSupabaseId).eq('business_id', bid) } catch (_) {}
+            try { await sb.from('pawn_items').delete().eq('supabase_id', pawnSupabaseId).eq('business_id', bid) } catch (_) {
+              try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'pawnitems.if' }) } catch {}}
           }
           throw new Error(`Error guardando empeño: ${e?.message || 'fallo subiendo DPI'}. Archivos subidos fueron eliminados.`)
         }
@@ -452,7 +455,8 @@ function PawnModal({ item, onClose, onSave, showToast }) {
           console.error('[PawnItems.saveSignature]', e)
           await rollbackStorage(sb, uploaded)
           if (!isEdit && pawnSupabaseId) {
-            try { await sb.from('pawn_items').delete().eq('supabase_id', pawnSupabaseId).eq('business_id', bid) } catch (_) {}
+            try { await sb.from('pawn_items').delete().eq('supabase_id', pawnSupabaseId).eq('business_id', bid) } catch (_) {
+              try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'pawnitems.if' }) } catch {}}
           }
           throw new Error(`Error guardando empeño: ${e?.message || 'fallo guardando firma'}. Archivos subidos fueron eliminados.`)
         }
@@ -475,7 +479,8 @@ function PawnModal({ item, onClose, onSave, showToast }) {
           const clientObj = clients.find(c => String(c.id) === form.client_id) || {}
           let loan = null
           if (form.loan_id) {
-            try { loan = await (api?.loans?.getById?.(Number(form.loan_id)) ?? api?.loans?.byId?.(Number(form.loan_id))) } catch {}
+            try { loan = await (api?.loans?.getById?.(Number(form.loan_id)) ?? api?.loans?.byId?.(Number(form.loan_id))) } catch (_aetherErr) {
+              try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'pawnitems.catch' }) } catch {}}
           }
           await printPawnTicket({
             biz,
@@ -499,12 +504,14 @@ function PawnModal({ item, onClose, onSave, showToast }) {
             prestamista_signature_dataurl: prestamistaSignature || null,
           }, api)
         } catch (e) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'pawnitems.catch' }) } catch {}
           showToast?.('Empeno guardado, pero fallo la impresion', 'error')
         }
       }
 
       onSave()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'pawnitems.catch' }) } catch {}
       setErr(e?.message || 'Error al guardar.')
     } finally {
       setSaving(false)
@@ -759,7 +766,8 @@ function DocumentsModal({ item, onClose, showToast }) {
     try {
       const rows = item?.supabase_id ? await api?.pawnDocuments?.byPawn?.(item.supabase_id) : []
       setDocs(rows || [])
-    } catch { setDocs([]) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'pawnitems.documentsmodal' }) } catch {} setDocs([]) }
     finally { setLoading(false) }
   }, [item])
 
@@ -779,6 +787,7 @@ function DocumentsModal({ item, onClose, showToast }) {
       await load()
       showToast?.('Documento subido')
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'pawnitems.handleupload' }) } catch {}
       showToast?.(e?.message || 'Error subiendo documento', 'error')
     } finally {
       setUploading(false)
@@ -792,6 +801,7 @@ function DocumentsModal({ item, onClose, showToast }) {
       await load()
       showToast?.('Documento eliminado')
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'pawnitems.handleupload' }) } catch {}
       showToast?.(e?.message || 'Error', 'error')
     }
   }
@@ -963,11 +973,13 @@ function PublishModal({ item, onClose, onPublished, showToast }) {
               override_price:   finalPrice,
             },
           })
-        } catch (e) { console.warn('[PublishModal] activity_log failed:', e?.message) }
+        } catch (e) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'pawnitems.publishmodal' }) } catch {} console.warn('[PublishModal] activity_log failed:', e?.message) }
       }
 
       onPublished({ slug: row?.slug || slug })
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'pawnitems.publishmodal' }) } catch {}
       showToast?.(e?.message || 'Error al publicar', 'error')
     } finally {
       setSaving(false)
@@ -1108,7 +1120,8 @@ function ListingCell({ item, listings, onPublish, onUnpublish, showToast }) {
   return (
     <div className="flex items-center gap-1">
       <button onClick={() => {
-          try { navigator.clipboard.writeText(window.location.origin + url); showToast?.('Link copiado') } catch {}
+          try { navigator.clipboard.writeText(window.location.origin + url); showToast?.('Link copiado') } catch (_aetherErr) {
+            try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'pawnitems.listingcell' }) } catch {}}
         }}
         title="Copiar link"
         className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold text-[#b3001e] border border-[#b3001e]/40 hover:bg-[#b3001e]/10 rounded-lg">
@@ -1147,10 +1160,12 @@ export default function PawnItems() {
       const forfeited = (rows || []).filter(r => r.status === 'forfeited' && r.supabase_id)
       const map = {}
       await Promise.all(forfeited.map(async r => {
-        try { map[r.supabase_id] = await api.pawnListings.byPawn(r.supabase_id) } catch { map[r.supabase_id] = [] }
+        try { map[r.supabase_id] = await api.pawnListings.byPawn(r.supabase_id) } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'pawnitems.listingcell' }) } catch {} map[r.supabase_id] = [] }
       }))
       setListingsByPawn(map)
-    } catch { setItems([]) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'pawnitems.listingcell' }) } catch {} setItems([]) }
     finally { setLoading(false) }
   }, [])
 
@@ -1216,6 +1231,7 @@ export default function PawnItems() {
       await loadItems()
       showToast('Articulo redimido')
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'pawnitems.pawnitems' }) } catch {}
       showToast(e?.message || 'Error al redimir', 'error')
     }
   }
@@ -1224,7 +1240,8 @@ export default function PawnItems() {
     try {
       let loan = null
       if (item.loan_id) {
-        try { loan = await (api?.loans?.getById?.(item.loan_id) ?? api?.loans?.byId?.(item.loan_id)) } catch {}
+        try { loan = await (api?.loans?.getById?.(item.loan_id) ?? api?.loans?.byId?.(item.loan_id)) } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'pawnitems.pawnitems' }) } catch {}}
       }
       const biz = (await (api?.empresa?.get?.() ?? api?.business?.get?.() ?? Promise.resolve({}))) || {}
       // C9 — papeleta is a legal contract: refuse to print without RNC.
@@ -1256,6 +1273,7 @@ export default function PawnItems() {
       }, api)
       showToast('Papeleta impresa')
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'pawnitems.showtoast' }) } catch {}
       showToast(e?.message || 'Error imprimiendo papeleta', 'error')
     }
   }
@@ -1267,6 +1285,7 @@ export default function PawnItems() {
       await loadItems()
       showToast('Articulo decomisado')
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'pawnitems.showtoast' }) } catch {}
       showToast(e?.message || 'Error al decomisar', 'error')
     }
   }
@@ -1278,6 +1297,7 @@ export default function PawnItems() {
       await loadItems()
       showToast('Despublicado')
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'pawnitems.showtoast' }) } catch {}
       showToast(e?.message || 'Error al despublicar', 'error')
     }
   }

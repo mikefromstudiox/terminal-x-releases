@@ -62,7 +62,8 @@ export default function CRMLead({ getToken, isDark, lang }) {
     try {
       const resp = await fetch(`/api/panel?action=crm_detail&id=${id}`, { headers: { 'Authorization': `Bearer ${getToken()}` } })
       if (resp.ok) setData((await resp.json()).data)
-    } catch (_) {}
+    } catch (_) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'crmlead.fmtdatetime' }) } catch {}}
     setLoading(false)
   }
 
@@ -75,7 +76,8 @@ export default function CRMLead({ getToken, isDark, lang }) {
         body: JSON.stringify({ id, ...patch }),
       })
       if (resp.ok) load()
-    } catch (_) {}
+    } catch (_) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'crmlead.fmtdatetime' }) } catch {}}
     setSaving(false)
   }
 
@@ -97,7 +99,8 @@ export default function CRMLead({ getToken, isDark, lang }) {
       })
       if (resp.ok) navigate('/admin/crm')
       else window.alert(L('No se pudo eliminar.', 'Could not delete.'))
-    } catch (_) { window.alert(L('No se pudo eliminar.', 'Could not delete.')) }
+    } catch (_) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'crmlead.fmtdatetime' }) } catch {} window.alert(L('No se pudo eliminar.', 'Could not delete.')) }
   }
 
   function openActivate() {
@@ -144,7 +147,8 @@ export default function CRMLead({ getToken, isDark, lang }) {
       })
       setActivatedKey(result.data?.license_key || 'web_only')
       load()
-    } catch (_) { setActivateErr('Error de red') }
+    } catch (_) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'crmlead.load' }) } catch {} setActivateErr('Error de red') }
     setActivating(false)
   }
 
@@ -158,7 +162,8 @@ export default function CRMLead({ getToken, isDark, lang }) {
         body: JSON.stringify({ lead_id: id, kind: noteKind, body: noteBody.trim() }),
       })
       if (resp.ok) { setNoteBody(''); load() }
-    } catch (_) {}
+    } catch (_) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'crmlead.patch' }) } catch {}}
     setPosting(false)
   }
 

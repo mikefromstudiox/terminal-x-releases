@@ -94,7 +94,8 @@ function LeadModal({ lead, lang, onSave, onClose }) {
         next_followup_at: form.next_followup_at ? new Date(form.next_followup_at).toISOString() : null,
       })
       onClose()
-    } catch { setSaving(false) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'salespipeline.isoverdue' }) } catch {} setSaving(false) }
   }
 
   return (

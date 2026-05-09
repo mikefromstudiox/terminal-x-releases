@@ -101,7 +101,8 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
         : '/api/panel?action=loyalty-overview'
       const r = await fetch(url, { headers })
       if (r.ok) setLoyalty(await r.json())
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dashboard.tick' }) } catch {}}
   }
 
   async function load() {
@@ -122,7 +123,8 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       if (loyaltyResp.ok) setLoyalty(await loyaltyResp.json())
       if (digestResp.ok) setDigest(await digestResp.json())
       if (errResp.ok) setRecentErrors(((await errResp.json()).data) || [])
-    } catch (e) { console.error('Dashboard load:', e) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'dashboard.tick' }) } catch {} console.error('Dashboard load:', e) }
     setLoading(false)
   }
 
@@ -134,7 +136,8 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       const url = `/api/panel?action=errors_list&limit=50${showResolvedErrors ? '' : '&unresolved=1'}`
       const r = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } })
       if (r.ok) setRecentErrors(((await r.json()).data) || [])
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dashboard.tick' }) } catch {}}
     setErrorsLoading(false)
   }
 
@@ -159,7 +162,8 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
           ? { ...e, metadata: { ...(e.metadata || {}), decoded_stack: j.data.decoded_stack } }
           : e
       ))
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dashboard.reloadloyalty' }) } catch {}}
   }
 
   async function runBulkAction(type, actionData = {}) {
@@ -176,7 +180,8 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       const result = await resp.json()
       setBulkResult(result)
       if (result.ok) load()
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dashboard.reloadloyalty' }) } catch {}}
     setBulkLoading(false)
   }
 
@@ -530,7 +535,8 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
                         </button>
                       )}
                       <button
-                        onClick={() => { try { navigator.clipboard?.writeText(copyText) } catch {} }}
+                        onClick={() => { try { navigator.clipboard?.writeText(copyText) } catch (_aetherErr) {
+                          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dashboard.handler' }) } catch {}} }}
                         className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${isDark ? 'bg-white/5 hover:bg-white/10 text-white/70' : 'bg-black/5 hover:bg-black/10 text-black/70'}`}
                         title={L('Copiar al portapapeles', 'Copy to clipboard')}
                       >

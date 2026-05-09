@@ -187,6 +187,7 @@ function AppointmentModal({
       if (appointment?.id) data.id = appointment.id
       await onSave(data)
     } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'appointments.todatestr' }) } catch {}
       setErr(ex?.message || L('Error al guardar', 'Error saving'))
     } finally {
       setSaving(false)
@@ -512,7 +513,8 @@ export default function Appointments() {
       setEmpleados(e || [])
       setServices(s || [])
       setSchedules(sch || [])
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'appointments.appointments' }) } catch {}}
     setLoading(false)
   }
 
@@ -597,6 +599,7 @@ export default function Appointments() {
       }
       setEditAppt(null)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'appointments.handlesave' }) } catch {}
       flash(e?.message || L('Error al anular', 'Void error'))
     }
   }
@@ -617,6 +620,7 @@ export default function Appointments() {
       }
       flash(L('Recordatorio enviado', 'Reminder sent'))
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'appointments.changedate' }) } catch {}
       flash(e?.message || L('Error al enviar', 'Send error'))
     }
   }
@@ -653,6 +657,7 @@ export default function Appointments() {
       }
       setEditAppt(null)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'appointments.handlesendreminder' }) } catch {}
       flash(e?.message || L('Error', 'Error'))
     }
   }
@@ -702,7 +707,8 @@ export default function Appointments() {
             deposit_status: 'forfeited',
             no_show_fee_ticket_supabase_id: ticketRes?.supabase_id || null,
           })
-        } catch (e) { console.warn('[no-show] appointment.update failed', e?.message || e) }
+        } catch (e) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'appointments.handlenoshowconfirm' }) } catch {} console.warn('[no-show] appointment.update failed', e?.message || e) }
       }
       setCobrarTicket(null)
       setPendingFee(null)
@@ -710,6 +716,7 @@ export default function Appointments() {
               `No-show charged · ${ticketRes?.docNumber || ''}`.trim()))
       await loadAll()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'appointments.handlenoshowconfirm' }) } catch {}
       flash(e?.message || L('Error al cobrar no-show', 'No-show charge error'))
     }
   }

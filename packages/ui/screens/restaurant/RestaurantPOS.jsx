@@ -885,6 +885,7 @@ export default function RestaurantPOS() {
       setEmpleados(Array.isArray(eList) ? eList : [])
       setError(null)
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'restaurant.load' }) } catch {}
       console.error('[RestaurantPOS] load failed', e)
       setError(e.message || 'Error cargando datos')
     } finally {
@@ -1074,6 +1075,7 @@ export default function RestaurantPOS() {
         startedAt: ticket.created_at || mesa.seated_at || new Date().toISOString(),
       })
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'error', category: 'mesa.open.ticket', extra: { mesaId: mesa?.id, mesaName: mesa?.name } }) } catch {}
       console.error(e)
       setError(e.message || 'Error cargando ticket')
     } finally {
@@ -1106,12 +1108,16 @@ export default function RestaurantPOS() {
           supabase_id: ticketSid,
         })
       } catch (e) {
+        try { window.__txReportError?.(e, { severity: 'error', category: 'mesa.open_for_mesa.revert', extra: { mesaId: mesa?.id } }) } catch {}
         console.error('[RestaurantPOS] openForMesa failed — reverting mesa to libre', e)
         try {
           await api.mesas.setStatus(mesa.id, 'libre', {
             guests: null, waiter_empleado_id: null, seated_at: null,
           })
-        } catch (e2) { console.warn('[RestaurantPOS] mesa revert failed', e2) }
+        } catch (e2) {
+          try { window.__txReportError?.(e2, { severity: 'warn', category: 'mesa.revert', extra: { mesaId: mesa?.id } }) } catch {}
+          console.warn('[RestaurantPOS] mesa revert failed', e2)
+        }
         setError(e?.message || 'No se pudo abrir el ticket de la mesa.')
         return
       }
@@ -1127,6 +1133,7 @@ export default function RestaurantPOS() {
       })
       await reload()
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'mesa.seat', extra: { mesaId: mesa?.id, guests, waiterId } }) } catch {}
       console.error(e)
       setError(e.message || 'Error sentando mesa')
     } finally {
@@ -1157,6 +1164,7 @@ export default function RestaurantPOS() {
       if (!svcKey) console.warn('[RestaurantPOS] service has no id/supabase_id', svc)
       groups = await (api.modificadores?.listForService?.(svcKey) || [])
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'restaurant.modificadores.load', extra: { svcId: svc?.id, name: svc?.name } }) } catch {}
       console.warn('[RestaurantPOS] modificadores load failed', e)
     }
     const hasRequired = groups.some(g => (g.min_select || 0) > 0)
@@ -1224,6 +1232,7 @@ export default function RestaurantPOS() {
           } : t)
         }
       } catch (e) {
+        try { window.__txReportError?.(e, { severity: 'warn', category: 'restaurant.add_item.persist', extra: { name: newItem?.name, ticketSid: snapshotTicket?.supabase_id } }) } catch {}
         console.error('[RestaurantPOS] addItem persist failed — reverting line', e)
         setActiveTicket(t => t ? { ...t, items: t.items.filter(it => it.local_id !== localId) } : t)
         setError(e?.message || 'No se pudo guardar el plato.')
@@ -1250,7 +1259,10 @@ export default function RestaurantPOS() {
     const timer = setTimeout(async () => {
       map.delete(ticketItemId)
       try { await api.tickets.updateItemQty({ ticket_item_id: ticketItemId, qty }) }
-      catch (e) { console.warn('[RestaurantPOS] updateItemQty persist failed', e) }
+      catch (e) {
+        try { window.__txReportError?.(e, { severity: 'warn', category: 'restaurant.update_qty.persist', extra: { ticketItemId, qty } }) } catch {}
+        console.warn('[RestaurantPOS] updateItemQty persist failed', e)
+      }
     }, 400)
     map.set(ticketItemId, { timer, qty })
   }
@@ -1278,7 +1290,10 @@ export default function RestaurantPOS() {
     if (touched?.ticket_item_id) {
       if (touched.qty <= 0) {
         api.tickets?.removeItem?.({ ticket_item_id: touched.ticket_item_id, ticket_item_supabase_id: touched.ticket_item_supabase_id })
-          ?.catch(e => console.warn('[RestaurantPOS] removeItem persist failed', e))
+          ?.catch(e => {
+            try { window.__txReportError?.(e, { severity: 'warn', category: 'restaurant.remove_item.persist_a', extra: { ticketItemId: touched?.ticket_item_id } }) } catch {}
+            console.warn('[RestaurantPOS] removeItem persist failed', e)
+          })
       } else {
         schedulePersistQty(touched.ticket_item_id, touched.qty)
       }
@@ -1298,7 +1313,10 @@ export default function RestaurantPOS() {
       api.tickets?.removeItem?.({
         ticket_item_id: removed.ticket_item_id || null,
         ticket_item_supabase_id: removed.ticket_item_supabase_id || null,
-      })?.catch(e => console.warn('[RestaurantPOS] removeItem persist failed', e))
+      })?.catch(e => {
+        try { window.__txReportError?.(e, { severity: 'warn', category: 'restaurant.remove_item.persist_b', extra: { ticketItemId: removed?.ticket_item_id } }) } catch {}
+        console.warn('[RestaurantPOS] removeItem persist failed', e)
+      })
     }
   }
 
@@ -1355,6 +1373,7 @@ export default function RestaurantPOS() {
         },
       })
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'restaurant.void_fired_item.activity_log', extra: { name: it?.name, qty: it?.qty } }) } catch {}
       console.warn('[RestaurantPOS] activity log restaurant_void_fired_item failed', e)
     }
     if (gate.op === 'remove') _removeApply(gate.localId)
@@ -1456,6 +1475,7 @@ export default function RestaurantPOS() {
         if (!next) cancelPacing(ticketSid)
       }
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'error', category: 'restaurant.fire_kds', extra: { courseId, mesaId: activeTicket?.mesa?.id, count: unfired?.length } }) } catch {}
       console.error(e)
       setError(e.message || 'Error enviando a cocina')
     } finally {
@@ -1506,11 +1526,13 @@ export default function RestaurantPOS() {
             servicioPct: restoSettings.servicio_auto_apply ? restoSettings.servicio_pct : 0,
           }, api)
         } catch (e) {
+          try { window.__txReportError?.(e, { severity: 'warn', category: 'restaurant.pre_cuenta.print', extra: { mesaId: activeTicket?.mesa?.id } }) } catch {}
           console.warn('[RestaurantPOS] pre-cuenta print failed', e)
           setError('Cuenta enviada. Impresora no disponible.')
         }
       }
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'restaurant.request_bill', extra: { mesaId: activeTicket?.mesa?.id } }) } catch {}
       console.error('[RestaurantPOS] requestBill failed', e)
       setError(e?.message || 'Error al pedir cuenta')
     } finally {
@@ -1633,6 +1655,7 @@ export default function RestaurantPOS() {
         await api.tickets.create(cobroPayload)
       }
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'critical', category: 'restaurant.cobrar.persist', extra: { mesaId: activeTicket?.mesa?.id, ticketSid: activeTicket?.supabase_id, total: payload?.total } }) } catch {}
       // Ticket persist failed — LEAVE mesa occupied, keep ticket loaded, surface error.
       console.error('[RestaurantPOS] ticket create failed — mesa left ocupada', e)
       setError(e?.message || 'No se pudo registrar el ticket. La mesa permanece ocupada.')
@@ -1652,7 +1675,10 @@ export default function RestaurantPOS() {
                 it.ticket_item_id,
                 it.modifiers
               )
-            } catch (e) { console.warn('[RestaurantPOS] snapshot mod failed', e) }
+            } catch (e) {
+              try { window.__txReportError?.(e, { severity: 'warn', category: 'restaurant.snapshot_mod.legacy', extra: { ticketItemId: it?.ticket_item_id } }) } catch {}
+              console.warn('[RestaurantPOS] snapshot mod failed', e)
+            }
           }
         }
       }
@@ -1663,6 +1689,7 @@ export default function RestaurantPOS() {
         bill_requested_at: null,
       })
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'restaurant.post_cobro.cleanup', extra: { mesaId: activeTicket?.mesa?.id } }) } catch {}
       console.error('[RestaurantPOS] post-cobro cleanup failed', e)
     } finally {
       // v2.16.3 — Cobro success → kill any pending pacing for this ticket.
@@ -1759,11 +1786,17 @@ export default function RestaurantPOS() {
                   it.ticket_item_id,
                   it.modifiers
                 )
-              } catch (e) { console.warn('[RestaurantPOS] split snapshot mod failed', e) }
+              } catch (e) {
+                try { window.__txReportError?.(e, { severity: 'warn', category: 'restaurant.split.snapshot_mod', extra: { ticketItemId: it?.ticket_item_id } }) } catch {}
+                console.warn('[RestaurantPOS] split snapshot mod failed', e)
+              }
             }
           }
         }
-      } catch (e) { console.warn('[RestaurantPOS] split snapshot loop failed', e) }
+      } catch (e) {
+        try { window.__txReportError?.(e, { severity: 'warn', category: 'restaurant.split.snapshot_loop' }) } catch {}
+        console.warn('[RestaurantPOS] split snapshot loop failed', e)
+      }
 
       setSplitModal(null)
       setCobrarModal(null)
@@ -1778,6 +1811,7 @@ export default function RestaurantPOS() {
       setActiveTicket(null)
       await reload()
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'error', category: 'restaurant.split_pay', extra: { mesaId: activeTicket?.mesa?.id, ticketSid: activeTicket?.supabase_id, partsCount: parts?.length } }) } catch {}
       console.error(e)
       setError(e.message || 'Error registrando pagos')
     } finally {

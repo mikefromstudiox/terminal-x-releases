@@ -45,7 +45,8 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
       const token = getToken()
       const resp = await fetch('/api/panel?action=rebind_requests', { headers: { 'Authorization': `Bearer ${token}` } })
       if (resp.ok) setRebinds((await resp.json()).data || [])
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'licenses.licenses' }) } catch {}}
   }
 
   async function actOnRebind(id, approve) {
@@ -71,7 +72,8 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
       const resp = await fetch('/api/panel?action=licenses', { headers: { 'Authorization': `Bearer ${token}` } })
       if (resp.ok) setList((await resp.json()).data || [])
       else setLoadErr(L('Error al cargar licencias', 'Error loading licenses'))
-    } catch { setLoadErr(L('Error al cargar licencias', 'Error loading licenses')) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'licenses.licenses' }) } catch {} setLoadErr(L('Error al cargar licencias', 'Error loading licenses')) }
     setLoading(false)
   }
 
@@ -83,7 +85,8 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
         const result = await resp.json()
         setBusinesses((result.data || []).map(b => ({ id: b.id, name: b.name, rnc: b.rnc })))
       }
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'licenses.licenses' }) } catch {}}
   }
 
   async function updateLicense(id, patch) {
@@ -102,7 +105,8 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
       try {
         window.__txReportError?.(e, { severity: 'warn', category: 'admin_license_update',
           extra: { license_id: id, fields: Object.keys(patch) } })
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'licenses.licenses' }) } catch {}}
       alert(`Error: ${e.message}`)
     }
     load()
@@ -131,7 +135,8 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
       setShowAdd(false)
       setAddForm(EMPTY_FORM)
       load()
-    } catch (e) { setAddErr(e.message) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'licenses.loadrebinds' }) } catch {} setAddErr(e.message) }
     finally { setAdding(false) }
   }
 

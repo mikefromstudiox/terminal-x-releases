@@ -61,6 +61,7 @@ function BayModal({ bay, lang, onSave, onClose }) {
       if (bay?.id) data.id = bay.id
       await onSave(data)
     } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'servicebays.baymodal' }) } catch {}
       setErr(ex?.message || L('Error al guardar', 'Error saving'))
     } finally {
       setSaving(false)
@@ -280,7 +281,8 @@ export default function ServiceBays() {
     try {
       const data = await api?.serviceBays?.list?.() || []
       setBays(data || [])
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'servicebays.baycard' }) } catch {}}
     setLoading(false)
   }
 

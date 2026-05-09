@@ -92,6 +92,7 @@ function ReservationModal({ open, onClose, onSubmit, initial, mesas }) {
       })
       onClose()
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'reservation.create_or_update.modal', extra: { id: initial?.id, fecha: form?.fecha } }) } catch {}
       setErr(e?.message || 'Error guardando reserva')
     } finally { setBusy(false) }
   }
@@ -367,6 +368,7 @@ export default function Reservations() {
       setBizName(settings?.business_name || settings?.biz_name || settings?.razon_social || '')
       setError(null)
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'reservation.load' }) } catch {}
       console.error('[Reservations] load failed', e)
       setError(e?.message || 'Error cargando reservas')
     } finally { setLoading(false) }
@@ -375,31 +377,45 @@ export default function Reservations() {
   useEffect(() => { reload() }, [reload])
 
   const onSubmit = async (form) => {
-    if (editing) {
-      await api.restaurantReservations.update(editing.id, form)
-    } else {
-      await api.restaurantReservations.create(form)
+    try {
+      if (editing) {
+        await api.restaurantReservations.update(editing.id, form)
+      } else {
+        await api.restaurantReservations.create(form)
+      }
+      setEditing(null)
+      setCreateOpen(false)
+      await reload()
+    } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'reservation.submit', extra: { editing: !!editing, id: editing?.id } }) } catch {}
+      throw e
     }
-    setEditing(null)
-    setCreateOpen(false)
-    await reload()
   }
 
   const onConfirm = async (r) => {
     try { await api.restaurantReservations.confirm(r.id); await reload() }
-    catch (e) { setError(e?.message || 'Error confirmando reserva') }
+    catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'reservation.confirm', extra: { id: r?.id } }) } catch {}
+      setError(e?.message || 'Error confirmando reserva')
+    }
   }
 
   const onCancel = async (r) => {
     const reason = window.prompt('Motivo de cancelación (opcional):') || null
     try { await api.restaurantReservations.cancel(r.id, reason); await reload() }
-    catch (e) { setError(e?.message || 'Error cancelando reserva') }
+    catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'reservation.cancel', extra: { id: r?.id } }) } catch {}
+      setError(e?.message || 'Error cancelando reserva')
+    }
   }
 
   const onMarkNoShow = async (r) => {
     if (!window.confirm(`Marcar como NO se presentó: ${r.nombre}?`)) return
     try { await api.restaurantReservations.markNoShow(r.id); await reload() }
-    catch (e) { setError(e?.message || 'Error registrando no-show') }
+    catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'reservation.no_show', extra: { id: r?.id } }) } catch {}
+      setError(e?.message || 'Error registrando no-show')
+    }
   }
 
   const onSeat = (r) => setSeating(r)
@@ -409,7 +425,10 @@ export default function Reservations() {
       await api.restaurantReservations.seat(seating.id, mesaId)
       setSeating(null)
       await reload()
-    } catch (e) { setError(e?.message || 'Error sentando reserva') }
+    } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'reservation.seat', extra: { id: seating?.id, mesaId } }) } catch {}
+      setError(e?.message || 'Error sentando reserva')
+    }
   }
 
   const onSendWhatsApp = async (r, biz) => {
@@ -419,7 +438,8 @@ export default function Reservations() {
     const text = `Hola ${r.nombre}, confirmamos su reserva en ${lugar} para ${fmtFecha(r.fecha)} a las ${fmtHora(r.hora)} para ${r.guests} ${r.guests === 1 ? 'persona' : 'personas'}. ¡Le esperamos!`
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
     window.open(url, '_blank', 'noopener')
-    try { await api.restaurantReservations.stampWhatsapp(r.id); await reload() } catch {}
+    try { await api.restaurantReservations.stampWhatsapp(r.id); await reload() }
+    catch (e) { try { window.__txReportError?.(e, { severity: 'warn', category: 'reservation.whatsapp.stamp', extra: { id: r?.id } }) } catch {} }
   }
 
   const sortedList = useMemo(() => {

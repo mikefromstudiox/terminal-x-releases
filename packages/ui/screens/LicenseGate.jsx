@@ -52,6 +52,7 @@ export default function LicenseGate() {
       setSuccess(true)
       setTimeout(() => setSuccess(false), 3000)
     } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'licensegate.licensegate' }) } catch {}
       setError(err.message || 'Error al verificar la licencia.')
     } finally {
       setActivating(false)

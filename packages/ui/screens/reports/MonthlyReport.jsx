@@ -118,7 +118,8 @@ function aggregateTickets(tickets, period) {
     }
     let cardPortion = 0
     let parts = t.payment_parts
-    if (typeof parts === 'string') { try { parts = JSON.parse(parts) } catch { parts = null } }
+    if (typeof parts === 'string') { try { parts = JSON.parse(parts) } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'monthlyreport.fmtrd' }) } catch {} parts = null } }
     if (Array.isArray(parts) && parts.length) {
       parts.forEach(p => {
         const m = String(p?.method ?? p?.type ?? p?.payment_method ?? '').toLowerCase()
@@ -403,6 +404,7 @@ export default function MonthlyReport() {
       setTickets(cur     ?? [])
       setPrevTickets(prev ?? [])
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'monthlyreport.period' }) } catch {}
       console.error('MonthlyReport load error:', e)
       setTickets([])
       setPrevTickets([])

@@ -121,7 +121,8 @@ export default function NominaEmpleados() {
         sellers: sellerBucket,
         cajeros: build(cajeroComm, 'cajero_supabase_id', 'cajero_id'),
       })
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'nominaempleados.build' }) } catch {}}
     setLoading(false)
   }
 
@@ -213,6 +214,7 @@ export default function NominaEmpleados() {
       await loadAll()
       showToast(L('Empleado guardado', 'Employee saved'))
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nominaempleados.getcommissiontotal' }) } catch {}
       showToast(e?.message || L('Error al guardar', 'Error saving'), 'error')
     }
   }
@@ -224,7 +226,8 @@ export default function NominaEmpleados() {
       if (String(selectedId) === String(emp.id)) setSelectedId(null)
       await loadAll()
       showToast(L('Empleado desactivado', 'Employee deactivated'))
-    } catch (e) { showToast(e?.message || L('Error', 'Error'), 'error') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nominaempleados.handlesave' }) } catch {} showToast(e?.message || L('Error', 'Error'), 'error') }
   }
 
   async function handleHardDelete(emp) {
@@ -241,7 +244,8 @@ export default function NominaEmpleados() {
       }
       if (String(selectedId) === String(emp.id)) setSelectedId(null)
       await loadAll()
-    } catch (e) { showToast(e?.message || L('Error al eliminar', 'Error deleting'), 'error') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nominaempleados.handlesave' }) } catch {} showToast(e?.message || L('Error al eliminar', 'Error deleting'), 'error') }
   }
 
   async function handleSaveSalaryChange(payload) {
@@ -260,6 +264,7 @@ export default function NominaEmpleados() {
       setShowSalaryModal(false)
       showToast(L('Cambio de salario registrado ✓', 'Salary change recorded ✓'))
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nominaempleados.handlesave' }) } catch {}
       showToast(e?.message || L('Error al guardar', 'Error saving'), 'error')
     }
   }
@@ -272,7 +277,8 @@ export default function NominaEmpleados() {
       setSalaryChanges(rows || [])
       await loadAll()
       showToast(L('Eliminado', 'Deleted'))
-    } catch (e) { showToast(e?.message || L('Error', 'Error'), 'error') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nominaempleados.handlesave' }) } catch {} showToast(e?.message || L('Error', 'Error'), 'error') }
   }
 
   async function handleRecordPayment(payload) {
@@ -287,6 +293,7 @@ export default function NominaEmpleados() {
       setShowPayModal(false)
       showToast(L('Nómina registrada ✓', 'Paycheck recorded ✓'))
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nominaempleados.handlesave' }) } catch {}
       showToast(e?.message || L('Error al guardar nómina', 'Error saving paycheck'), 'error')
     }
   }
@@ -297,7 +304,8 @@ export default function NominaEmpleados() {
       await api.payrollRuns.remove(runId)
       setRuns(runs.filter(r => r.id !== runId))
       showToast(L('Eliminado', 'Deleted'))
-    } catch { showToast(L('Error al eliminar', 'Error deleting'), 'error') }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'nominaempleados.handlesave' }) } catch {} showToast(L('Error al eliminar', 'Error deleting'), 'error') }
   }
 
   // ── Liquidación (current selection) ─────────────────────────────────────────
@@ -715,6 +723,7 @@ function AddCommissionModal({ emp, api, onSaved, onClose, lang }) {
       if (!res || res?.ok === false) throw new Error(res?.error || 'create failed')
       onSaved?.(true)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nominaempleados.addcommissionmodal' }) } catch {}
       console.error('[AddCommissionModal] save error', e)
       setErr(e?.message || String(e))
       savingRef.current = false
@@ -973,7 +982,8 @@ function SalaryChangeModal({ emp, onSave, onClose, lang }) {
     setSaving(true); setErr('')
     try {
       await onSave({ new_salary: n, effective_date: effectiveDate, reason: reason.trim() || null })
-    } catch (e) { setErr(e?.message || L('Error', 'Error')) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nominaempleados.salarychangemodal' }) } catch {} setErr(e?.message || L('Error', 'Error')) }
     finally { setSaving(false) }
   }
 

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { withReporting } from '../../lib/report-server-error.js'
 
 const ALLOWED_ORIGINS = ['https://terminalxpos.com', 'http://localhost:5173']
 
@@ -6,7 +7,7 @@ function getClient() {
   return createClient(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   const origin = req.headers.origin || ''
   if (ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin)
@@ -151,3 +152,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Provisioning failed' })
   }
 }
+
+export default withReporting(handler, { route: '/api/signup/provision' })

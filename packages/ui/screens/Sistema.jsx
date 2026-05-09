@@ -7,6 +7,7 @@ import {
   Laptop, Send, X as IconX,
 } from 'lucide-react'
 import { isDeviceSetting } from '@terminal-x/services/settingsWhitelist'
+import { defaultFor as waDefaultFor } from '@terminal-x/services/whatsappTemplates'
 import { useLang } from '../i18n'
 import { useAPI, usePrinterAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -109,7 +110,8 @@ function GoLiveSection({ api, goLiveDate, committedAt, set, show, L }) {
     try {
       const c = await api.app?.testDataCount?.()
       setTestCount(c?.tickets ?? 0)
-    } catch { setTestCount(0) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.usetoast' }) } catch {} setTestCount(0) }
     setConfirmOpen(true)
   }
 
@@ -123,10 +125,12 @@ function GoLiveSection({ api, goLiveDate, committedAt, set, show, L }) {
       await api.app?.goLiveCommit?.()
       // 3) reflect locally so the lock UI shows immediately.
       set('go_live_committed_at', new Date().toISOString())
-      try { window.dispatchEvent(new CustomEvent('tx:settings-changed')) } catch {}
+      try { window.dispatchEvent(new CustomEvent('tx:settings-changed')) } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.toggle' }) } catch {}}
       show(L('Producción activada', 'Production activated'))
       setConfirmOpen(false)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'sistema.toggle' }) } catch {}
       show(L('Error al activar producción', 'Failed to activate production'), 'error')
     } finally {
       setWorking(false)
@@ -282,7 +286,8 @@ function DrawerTester({ printerApi, cfg, set, persistKey, show, L, showAdvanced 
       const r = await printerApi?.openDrawer?.()
       if (r?.success || r === true) show(L('Pulso enviado ✓', 'Pulse sent ✓'))
       else show(L('Sin respuesta. Revisa conexion RJ11 impresora → gaveta.', 'No response. Check RJ11 cable printer → drawer.'), 'error')
-    } catch (e) { show(L('Error: ', 'Error: ') + (e?.message || ''), 'error') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'sistema.settingsection' }) } catch {} show(L('Error: ', 'Error: ') + (e?.message || ''), 'error') }
   }
 
   async function fireVariant(idx) {
@@ -293,7 +298,8 @@ function DrawerTester({ printerApi, cfg, set, persistKey, show, L, showAdvanced 
       if (r?.hex) set('drawer_pulse_hex', r.hex) // stage for the page-wide Guardar
       if (!r?.success) show(L('Error: ', 'Error: ') + (r?.error || 'desconocido'), 'error')
       return r
-    } catch (e) { show(L('Error: ', 'Error: ') + (e?.message || ''), 'error'); return null }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'sistema.settingsection' }) } catch {} show(L('Error: ', 'Error: ') + (e?.message || ''), 'error'); return null }
   }
 
   function startAutoDetect() {
@@ -501,11 +507,13 @@ function useSettings() {
       await api.settings.update(cfg)
       // Notify in-app listeners (e.g. KioskProvider) that settings changed so
       // they can reload without a full page refresh.
-      try { window.dispatchEvent(new CustomEvent('tx:settings-updated')) } catch {}
+      try { window.dispatchEvent(new CustomEvent('tx:settings-updated')) } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.usesettings' }) } catch {}}
       setSaved(true)
       show(lang === 'es' ? 'Guardado' : 'Saved')
       setTimeout(() => setSaved(false), 2500)
-    } catch { show(lang === 'es' ? 'Error al guardar' : 'Error saving', 'error') }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.usesettings' }) } catch {} show(lang === 'es' ? 'Error al guardar' : 'Error saving', 'error') }
     finally { setSaving(false) }
   }
 
@@ -546,11 +554,56 @@ export function Preferencias() {
             category: 'preferencias_scroll_to_hash',
             extra: { hash: id },
           })
-        } catch {}
+        } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.set' }) } catch {}}
       }
     }, 80)
     return () => clearTimeout(t)
   }, [hash])
+
+  // 2026-05-09 — WhatsApp test-send modal state. Owned by Preferencias so
+  // the #whatsapp section is fully self-contained (no shared component
+  // between Preferencias and the standalone WhatsAppSettings page — they
+  // are separate surfaces, simpler maintenance per Mike).
+  const [waTestOpen, setWaTestOpen]   = useState(false)
+  const [waTestPhone, setWaTestPhone] = useState('')
+  const [waTestSending, setWaTestSending] = useState(false)
+  async function sendTestWaPreferencias() {
+    const phone = String(waTestPhone || '').trim()
+    if (!phone) return
+    setWaTestSending(true)
+    try {
+      const r = await fetch('/api/panel?action=salon-whatsapp-send-now', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ test_message: true, test_phone: phone }),
+      })
+      if (r.status === 429) {
+        show(L('Espera 1 minuto e intenta de nuevo', 'Wait 1 minute and try again'), 'error')
+      } else if (!r.ok) {
+        const j = await r.json().catch(() => ({}))
+        if (j?.error === 'invalid_phone') show(L('Teléfono inválido', 'Invalid phone'), 'error')
+        else show(L('No se pudo enviar', 'Could not send'), 'error')
+        try {
+          window.__txReportError?.(new Error(j?.error || 'wa_test_send_failed'), {
+            severity: 'warn',
+            category: 'preferencias_whatsapp_test',
+            extra: { status: r.status, error_code: j?.error || null },
+          })
+        } catch {}
+      } else {
+        show(L(`Mensaje enviado a ${phone}`, `Message sent to ${phone}`))
+        setWaTestOpen(false); setWaTestPhone('')
+      }
+    } catch (e) {
+      show(L('Error de red', 'Network error'), 'error')
+      try {
+        window.__txReportError?.(e, { severity: 'warn', category: 'preferencias_whatsapp_test_network' })
+      } catch {}
+    }
+    setWaTestSending(false)
+  }
 
   async function testPrint() {
     // Build a minimal ESC/POS test receipt. Must be a binary string, not an
@@ -593,6 +646,7 @@ export function Preferencias() {
         show(L('Error: ', 'Error: ') + (result?.error || 'desconocido'), 'error')
       }
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'sistema.handlesave' }) } catch {}
       show(L('Error al imprimir: ', 'Print error: ') + (e?.message || ''), 'error')
     }
   }
@@ -852,7 +906,8 @@ export function Preferencias() {
                 const v = e.target.value
                 set('printer', v)
                 try { await api.settings.update({ printer: v }); show(L('Impresora guardada ✓', 'Printer saved ✓')) }
-                catch { show(L('Error al guardar impresora', 'Error saving printer'), 'error') }
+                catch (_aetherErr) {
+                  try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.handler' }) } catch {} show(L('Error al guardar impresora', 'Error saving printer'), 'error') }
               }}
               className="border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 max-w-[220px]">
               <option value="">{L('Predeterminada', 'Default')}</option>
@@ -866,7 +921,8 @@ export function Preferencias() {
           </div>
         </SettingRow>
         <SettingRow label={L('Probar Gaveta de Dinero', 'Test Cash Drawer')} hint={L('Envia pulso al cajon. Prueba si no abre al cobrar.', 'Sends pulse to drawer. Use if it does not open on cobro.')}>
-          <DrawerTester printerApi={printerApi} cfg={cfg} set={set} persistKey={async (k, v) => { set(k, v); try { await api.settings.update({ [k]: v }) } catch {} }} show={show} L={L} showAdvanced={tech} />
+          <DrawerTester printerApi={printerApi} cfg={cfg} set={set} persistKey={async (k, v) => { set(k, v); try { await api.settings.update({ [k]: v }) } catch (_aetherErr) {
+            try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.catch' }) } catch {}} }} show={show} L={L} showAdvanced={tech} />
         </SettingRow>
         {tech && (
           <>
@@ -1020,7 +1076,8 @@ export function Preferencias() {
               catch (e) {
                 try {
                   window.__txReportError?.(e, { severity: 'warn', category: 'preferencias_sync_now' })
-                } catch {}
+                } catch (_aetherErr) {
+                  try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.catch' }) } catch {}}
                 show(L('Error: ' + (e?.message || 'sync falló'), 'Error: ' + (e?.message || 'sync failed')))
               }
             }}
@@ -1082,7 +1139,8 @@ export function Preferencias() {
               } catch (e) {
                 try {
                   window.__txReportError?.(e, { severity: 'warn', category: 'preferencias_license_revalidate' })
-                } catch {}
+                } catch (_aetherErr) {
+                  try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.catch' }) } catch {}}
                 show(L('Error: ' + (e?.message || 'fallo'), 'Error: ' + (e?.message || 'failed')))
               }
             }}
@@ -1091,9 +1149,169 @@ export function Preferencias() {
         </SettingRow>
       </SettingSection>
 
+      {/* WhatsApp — end-to-end config: UltraMsg connection, auto-send
+          toggles per event, message templates with placeholders, bank
+          accounts list, test send. Self-contained — the standalone
+          WhatsAppSettings page used by Admin is intentionally separate. */}
+      <SettingSection id="whatsapp" title="WhatsApp (UltraMsg)">
+        <SettingRow label="Instance ID" hint={L('ID de instancia UltraMsg', 'UltraMsg instance ID')}>
+          <Input type="text" value={cfg.whatsapp_instance ?? ''} onChange={e => set('whatsapp_instance', e.target.value)} placeholder="instance166620" className="w-44" />
+        </SettingRow>
+        <SettingRow label="Token" hint={L('Token de autenticación', 'Auth token')}>
+          <Input type="text" value={cfg.whatsapp_token ?? ''} onChange={e => set('whatsapp_token', e.target.value)} placeholder="token..." className="w-44" />
+        </SettingRow>
+        <SettingRow label={L('Probar conexión', 'Test connection')} hint={L('Envía un mensaje de prueba a un número.', 'Sends a test message to a phone.')}>
+          <button
+            type="button"
+            onClick={() => setWaTestOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#b3001e] text-[#b3001e] hover:bg-[#b3001e] hover:text-white rounded-lg text-[12px] font-bold transition-colors"
+          >
+            <Send size={12}/> {L('Enviar prueba WhatsApp', 'Send WhatsApp test')}
+          </button>
+        </SettingRow>
+
+        <SettingRow settingKey="whatsapp_auto_receipt"
+          label={L('Auto-enviar recibo al cobrar', 'Auto-send receipt on cobro')}
+          hint={L('Tras cobrar, envía el recibo al teléfono del cliente.', 'After cobro, sends the receipt to the customer phone.')}>
+          <Toggle enabled={on('whatsapp_auto_receipt')} onChange={v => set('whatsapp_auto_receipt', v ? '1' : '0')} />
+        </SettingRow>
+        {(isFoodTruck || businessType === 'restaurant') && (
+          <SettingRow settingKey="whatsapp_auto_kds_ready"
+            label={L('Avisar "Orden lista"', 'Auto "Order ready" ping')}
+            hint={L('Cuando KDS marca la orden lista, envía aviso al cliente.', 'When KDS bumps to ready, pings the customer.')}>
+            <Toggle enabled={on('whatsapp_auto_kds_ready')} onChange={v => set('whatsapp_auto_kds_ready', v ? '1' : '0')} />
+          </SettingRow>
+        )}
+        {(businessType === 'salon' || isMechanic || businessType === 'restaurant' || businessType === 'service') && (
+          <SettingRow settingKey="whatsapp_auto_appointment"
+            label={L('Recordatorio de cita', 'Appointment reminder')}
+            hint={L('24h antes de la cita.', '24h before the appointment.')}>
+            <Toggle enabled={on('whatsapp_auto_appointment')} onChange={v => set('whatsapp_auto_appointment', v ? '1' : '0')} />
+          </SettingRow>
+        )}
+        <SettingRow settingKey="whatsapp_auto_balance"
+          label={L('Recordatorio de saldo', 'Balance reminder')}
+          hint={L('Recuerda saldos pendientes a clientes con crédito.', 'Reminds credit clients of pending balance.')}>
+          <Toggle enabled={on('whatsapp_auto_balance')} onChange={v => set('whatsapp_auto_balance', v ? '1' : '0')} />
+        </SettingRow>
+
+        {/* 2026-05-09 — placeholder text is vertical-specific. waDefaultFor()
+            returns the food_truck / restaurant / salon / etc. default for
+            this template so the operator sees a sensible example BEFORE
+            customizing. Empty cfg + render-time fallback is wired in
+            packages/services/whatsappTemplates.js renderTemplate(). */}
+        <SettingRow label={L('Plantilla "Recibo"', 'Receipt template')} hint={L('Placeholders: {cliente} {ticket} {total} {biz}', 'Placeholders: {cliente} {ticket} {total} {biz}')}>
+          <textarea
+            value={cfg.wa_receipt_template ?? ''}
+            onChange={e => set('wa_receipt_template', e.target.value)}
+            rows={3}
+            placeholder={waDefaultFor(businessType, 'receipt') || ''}
+            className="flex-1 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 resize-none"
+          />
+        </SettingRow>
+        {/* Order-ready (KDS) — only food_truck + restaurant. */}
+        {(isFoodTruck || businessType === 'restaurant') && (
+          <SettingRow label={L('Plantilla "Orden lista"', 'Order-ready template')} hint={L('Placeholders: {cliente} {ticket} {biz}', 'Placeholders: {cliente} {ticket} {biz}')}>
+            <textarea
+              value={cfg.wa_kds_ready_template ?? ''}
+              onChange={e => set('wa_kds_ready_template', e.target.value)}
+              rows={3}
+              placeholder={waDefaultFor(businessType, 'kds_ready') || ''}
+              className="flex-1 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 resize-none"
+            />
+          </SettingRow>
+        )}
+        {/* Vehicle ready — only carwash + mechanic. */}
+        {(businessType === 'carwash' || isMechanic) && (
+          <SettingRow label={L('Plantilla "Vehículo Listo"', 'Vehicle Ready template')} hint={L('Placeholders: {cliente} {vehiculo} {ticket} {biz}', 'Placeholders: {cliente} {vehiculo} {ticket} {biz}')}>
+            <textarea
+              value={cfg.wa_listo_template ?? ''}
+              onChange={e => set('wa_listo_template', e.target.value)}
+              rows={3}
+              placeholder={waDefaultFor(businessType, 'listo') || ''}
+              className="flex-1 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 resize-none"
+            />
+          </SettingRow>
+        )}
+        {/* Appointment — salon, mechanic, restaurant, service. */}
+        {(businessType === 'salon' || isMechanic || businessType === 'restaurant' || businessType === 'service') && (
+          <SettingRow label={L('Plantilla "Recordatorio de cita"', 'Appointment reminder template')} hint={L('Placeholders: {cliente} {fecha} {hora} {servicio} {estilista} {biz}', 'Placeholders: {cliente} {fecha} {hora} {servicio} {estilista} {biz}')}>
+            <textarea
+              value={cfg.wa_appointment_template ?? ''}
+              onChange={e => set('wa_appointment_template', e.target.value)}
+              rows={3}
+              placeholder={waDefaultFor(businessType, 'appointment') || ''}
+              className="flex-1 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 resize-none"
+            />
+          </SettingRow>
+        )}
+        {/* Balance — every vertical that does credit. */}
+        <SettingRow label={L('Plantilla "Saldo Pendiente"', 'Balance Reminder template')} hint={L('Placeholders: {cliente} {saldo} {cuentas} {biz}', 'Placeholders: {cliente} {saldo} {cuentas} {biz}')}>
+          <textarea
+            value={cfg.wa_balance_template ?? ''}
+            onChange={e => set('wa_balance_template', e.target.value)}
+            rows={4}
+            placeholder={waDefaultFor(businessType, 'balance') || ''}
+            className="flex-1 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 resize-none"
+          />
+        </SettingRow>
+        <SettingRow label={L('Cuentas Bancarias', 'Bank Accounts')} hint={L('Un banco/cuenta por línea. Usado como {cuentas} en los mensajes.', 'One bank/account per line. Used as {cuentas} in messages.')}>
+          <textarea
+            value={cfg.biz_bank_accounts ?? ''}
+            onChange={e => set('biz_bank_accounts', e.target.value)}
+            rows={3}
+            placeholder={L('Banco Popular 000-123456-7\nBanreservas 000-987654-3', 'Banco Popular 000-123456-7\nBanreservas 000-987654-3')}
+            className="flex-1 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 resize-none font-mono"
+          />
+        </SettingRow>
+      </SettingSection>
+
       <div className="flex justify-end mt-2">
         <SaveBtn saving={saving} saved={saved} label={L('Guardar', 'Save')} onClick={handleSave} />
       </div>
+
+      {/* WhatsApp test send modal — owned by Preferencias #whatsapp section. */}
+      {waTestOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="bg-white dark:bg-neutral-900 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl max-w-sm w-full p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[14px] font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                <Send size={14} className="text-[#b3001e]" />
+                {L('Enviar prueba WhatsApp', 'Send WhatsApp test')}
+              </h3>
+              <button onClick={() => setWaTestOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10">
+                <IconX size={14} className="text-slate-500 dark:text-white/50"/>
+              </button>
+            </div>
+            <p className="text-[12px] text-slate-500 dark:text-white/60 mb-3">
+              {L('Ingresa un número de teléfono para enviar un mensaje de prueba.', 'Enter a phone number to send a test message.')}
+            </p>
+            <input
+              type="tel"
+              autoFocus
+              value={waTestPhone}
+              onChange={e => setWaTestPhone(e.target.value)}
+              placeholder="809-555-0123"
+              className="w-full px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[13px] text-slate-700 dark:text-white focus:outline-none focus:border-[#b3001e] focus:ring-1 focus:ring-[#b3001e]/30"
+            />
+            <div className="flex gap-2 justify-end mt-4">
+              <button
+                onClick={() => setWaTestOpen(false)}
+                disabled={waTestSending}
+                className="px-3 py-1.5 text-[12px] rounded-lg border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/70 hover:bg-slate-100 dark:hover:bg-white/10"
+              >{L('Cancelar', 'Cancel')}</button>
+              <button
+                onClick={sendTestWaPreferencias}
+                disabled={waTestSending || !waTestPhone.trim()}
+                className="px-3 py-1.5 text-[12px] rounded-lg bg-[#b3001e] hover:bg-[#8c0017] text-white font-bold flex items-center gap-1.5 disabled:opacity-60"
+              >
+                {waTestSending && <Loader2 size={11} className="animate-spin" />}
+                {L('Enviar', 'Send')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1134,6 +1352,7 @@ export function ImpresionSettings() {
       if (result?.success) show(L('Prueba enviada ✓', 'Test sent ✓'))
       else show(L('Error: ', 'Error: ') + (result?.error || 'desconocido'), 'error')
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'sistema.impresionsettings' }) } catch {}
       show(L('Error al imprimir: ', 'Print error: ') + (e?.message || ''), 'error')
     }
   }
@@ -1148,7 +1367,8 @@ export function ImpresionSettings() {
                 const v = e.target.value
                 set('printer', v)
                 try { await api.settings.update({ printer: v }); show(L('Impresora guardada ✓', 'Printer saved ✓')) }
-                catch { show(L('Error al guardar impresora', 'Error saving printer'), 'error') }
+                catch (_aetherErr) {
+                  try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.impresionsettings' }) } catch {} show(L('Error al guardar impresora', 'Error saving printer'), 'error') }
               }}
               className="border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-white bg-white dark:bg-white/5 focus:outline-none focus:border-sky-400 max-w-[220px]">
               <option value="">{L('Predeterminada', 'Default')}</option>
@@ -1167,7 +1387,8 @@ export function ImpresionSettings() {
                   const r = await printerApi?.openDrawer?.()
                   if (r?.success || r === true) show(L('Pulso enviado ✓', 'Pulse sent ✓'))
                   else show(L('Sin respuesta. Revisa conexion RJ11 impresora → gaveta.', 'No response. Check RJ11 cable printer → drawer.'), 'error')
-                } catch (e) { show(L('Error: ', 'Error: ') + (e?.message || ''), 'error') }
+                } catch (e) {
+                  try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'sistema.impresionsettings' }) } catch {} show(L('Error: ', 'Error: ') + (e?.message || ''), 'error') }
               }}
               className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold border border-slate-200 dark:border-white/10 rounded-lg text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 whitespace-nowrap">
               {L('Abrir Gaveta', 'Open Drawer')}
@@ -1178,7 +1399,8 @@ export function ImpresionSettings() {
                   const r = await printerApi?.testDrawerVariants?.(cfg.printer || undefined)
                   if (r?.success) show(L('Variantes enviadas. Observa cual abre.', 'Variants sent. See which opens.'))
                   else show(L('Error: ', 'Error: ') + (r?.error || 'desconocido'), 'error')
-                } catch (e) { show(L('Error: ', 'Error: ') + (e?.message || ''), 'error') }
+                } catch (e) {
+                  try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'sistema.if' }) } catch {} show(L('Error: ', 'Error: ') + (e?.message || ''), 'error') }
               }}
               title={L('Envia 4 comandos distintos con retraso entre cada uno', 'Sends 4 different commands with delay between each')}
               className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold border border-slate-200 dark:border-white/10 rounded-lg text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 whitespace-nowrap">
@@ -1256,7 +1478,8 @@ export function WhatsAppSettings() {
         setTestOpen(false)
         setTestPhone('')
       }
-    } catch {
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.whatsappsettings' }) } catch {}
       show(L('Error de red', 'Network error'), 'error')
     }
     setTestSending(false)
@@ -1632,6 +1855,7 @@ async function testClockDrift() {
     if (driftMin > 5) return { status: 'fail', detail: `Desfase: ${driftMin.toFixed(1)} min` }
     return { status: 'pass', detail: `Desfase: ${driftMin.toFixed(1)} min` }
   } catch (e) {
+    try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'sistema.withtimeout' }) } catch {}
     return { status: 'fail', detail: e?.message === 'timeout' ? 'Timeout 5s' : 'No se pudo verificar' }
   }
 }
@@ -1640,7 +1864,8 @@ function getSupabaseHost() {
   try {
     const url = import.meta.env?.VITE_SUPABASE_URL
     if (url) return new URL(url).host
-  } catch {}
+  } catch (_aetherErr) {
+    try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.withtimeout' }) } catch {}}
   return 'csppjsoirjflumaiipqw.supabase.co'
 }
 
@@ -1654,6 +1879,7 @@ async function testDNS() {
     // Any resolution counts as DNS pass. If the fetch threw, DNS or TLS failed.
     return { status: 'pass', detail: host }
   } catch (e) {
+    try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'sistema.withtimeout' }) } catch {}
     return { status: 'fail', detail: `${host} — ${e?.message === 'timeout' ? 'Timeout' : 'No resuelve'}` }
   }
 }
@@ -1667,6 +1893,7 @@ async function testSupabaseReach() {
     }))
     return { status: 'pass', detail: 'Conexión TLS OK' }
   } catch (e) {
+    try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'sistema.withtimeout' }) } catch {}
     return { status: 'fail', detail: e?.message === 'timeout' ? 'Timeout 5s' : 'Firewall o antivirus' }
   }
 }
@@ -1679,7 +1906,8 @@ async function testIPv6() {
       return { status: 'pass', detail: `IPv6 OK · ${j.ip || ''}` }
     }
     return { status: 'warn', detail: 'IPv6 no disponible (informativo)' }
-  } catch {
+  } catch (_aetherErr) {
+    try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.withtimeout' }) } catch {}
     return { status: 'warn', detail: 'IPv6 no disponible (informativo)' }
   }
 }
@@ -1710,6 +1938,7 @@ async function testLicenseCache() {
     const expStr = expiresAt ? ` · vence ${expiresAt.toLocaleDateString('es-DO')}` : ''
     return { status: 'pass', detail: `Caché válida (${ageH.toFixed(0)}h)${expStr}` }
   } catch (e) {
+    try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'sistema.getsupabasehost' }) } catch {}
     return { status: 'fail', detail: 'Error leyendo caché' }
   }
 }
@@ -1725,6 +1954,7 @@ async function testInternet() {
     }
     return { status: 'fail', detail: `Cloudflare respondió ${res.status}` }
   } catch (e) {
+    try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'sistema.getsupabasehost' }) } catch {}
     return { status: 'fail', detail: e?.message === 'timeout' ? 'Timeout 5s' : 'Sin conexión' }
   }
 }
@@ -1979,7 +2209,8 @@ function CarniceriaScalesSection({ L, api, show }) {
       // Re-hydrate the runtime registry so POS picks up the change without
       // a restart. Active scale is the row with active_default=1.
       _ScaleRegistry.hydrate(rows)
-    } catch { setScales([]) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.sistema' }) } catch {} setScales([]) }
   }
   useEffect(() => { load() }, [])
 
@@ -1989,14 +2220,17 @@ function CarniceriaScalesSection({ L, api, show }) {
       else        await api?.carniceria?.scales?.create?.(row)
       show(L('Báscula guardada ✓', 'Scale saved ✓'))
       setEditing(null); load()
-    } catch (e) { show(L('Error al guardar', 'Error saving'), 'error') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'sistema.sistema' }) } catch {} show(L('Error al guardar', 'Error saving'), 'error') }
   }
   async function del(id) {
     if (!confirm(L('¿Eliminar esta báscula?', 'Delete this scale?'))) return
-    try { await api?.carniceria?.scales?.remove?.(id); load() } catch {}
+    try { await api?.carniceria?.scales?.remove?.(id); load() } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.sistema' }) } catch {}}
   }
   async function setActiveDefault(id) {
-    try { await api?.carniceria?.scales?.setActiveDefault?.(id); load() } catch {}
+    try { await api?.carniceria?.scales?.setActiveDefault?.(id); load() } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sistema.sistema' }) } catch {}}
   }
 
   return (

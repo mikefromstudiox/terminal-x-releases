@@ -122,6 +122,7 @@ function ItemModal({ item, onSave, onClose }) {
       else          await api.inventory.create(data)
       onSave()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'inventory.handlesave' }) } catch {}
       setErr(e?.message || 'Error al guardar.')
     } finally {
       setSaving(false)
@@ -367,6 +368,7 @@ function AdjustModal({ item, onSave, onClose, mode = 'ajustar' }) {
       macJtiRef.current = null
       onSave()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'inventory.adjustmodal' }) } catch {}
       setErr(e?.message || 'Error al ajustar.')
     } finally {
       setSaving(false)
@@ -597,7 +599,8 @@ function ImportModal({ onDone, onClose }) {
     let existing = []
     try {
       existing = await api.inventory.all()
-    } catch { existing = [] }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'inventory.parsecsv' }) } catch {} existing = [] }
     const skuMap = new Map()
     const barMap = new Map()
     for (const e of (existing || [])) {
@@ -643,7 +646,8 @@ function ImportModal({ onDone, onClose }) {
           })
           ok++
         }
-      } catch { fail++ }
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'inventory.importmodal' }) } catch {} fail++ }
       setProgress(Math.round(((i + 1) / rows.length) * 100))
     }
     setResults({ ok, fail, updated, skipped })
@@ -860,6 +864,7 @@ function OrganizeModal({ items, categories, onDone, onClose }) {
       setNewPY('')
       await onDone()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'inventory.escape' }) } catch {}
       setToast(e?.message || 'Error al aplicar cambios.')
     } finally {
       setSaving(false)
@@ -1090,6 +1095,7 @@ function ShortagesTab({ items }) {
       })
       load()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'inventory.inlinepyprice' }) } catch {}
       window.alert((e?.message || 'Error') + '')
     }
   }
@@ -1113,7 +1119,8 @@ function ShortagesTab({ items }) {
         itemId: itemId ? Number(itemId) : null,
       })
       setRows(Array.isArray(data) ? data : [])
-    } catch {
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'inventory.commit' }) } catch {}
       setRows([])
     } finally {
       setLoading(false)
@@ -1142,7 +1149,8 @@ function ShortagesTab({ items }) {
   const fmtDT = (s) => {
     if (!s) return '—'
     try { return new Date(s).toLocaleString('es-DO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) }
-    catch { return s }
+    catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'inventory.fmtdt' }) } catch {} return s }
   }
   const fmtQty = (n) => {
     const v = Number(n) || 0
@@ -1393,6 +1401,7 @@ export default function Inventory() {
       for (const it of items) {
         try { await api.inventory.delete({ id: it.id }) }
         catch (e) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'inventory.reload' }) } catch {}
           console.error('[Inventory] bulk delete failed for', it?.id, e)
           failures.push(it)
         }
@@ -1405,7 +1414,8 @@ export default function Inventory() {
           lang === 'en'
             ? `Could not delete ${failures.length} of ${items.length} items`
             : `No se pudieron eliminar ${failures.length} de ${items.length} productos`
-        ) } catch {}
+        ) } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'inventory.reload' }) } catch {}}
       }
     }
   }

@@ -111,7 +111,8 @@ function PinModal({ onConfirm, onClose, lang }) {
       } else {
         setErr(true); setPin('')
       }
-    } catch {
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'cashreconciliation.fmt' }) } catch {}
       setErr(true); setPin('')
     } finally {
       setLoading(false)
@@ -378,7 +379,7 @@ export default function CashReconciliation() {
 
   // Load business info for print header
   useEffect(() => {
-    api.admin.getEmpresa().then(setBiz).catch(() => flash(L('Error al cargar empresa', 'Error loading business')))
+    api.admin.getEmpresa().then(setBiz).catch(err => { try { window.__txReportError?.(err, { severity: 'warn', category: 'cuadre.empresa.load' }) } catch {} ; flash(L('Error al cargar empresa', 'Error loading business')) })
   }, [])
 
   // Clock tick
@@ -399,7 +400,7 @@ export default function CashReconciliation() {
           setTransferConteo(String(trans))
         }
       })
-      .catch(() => flash(L('Error al cargar resumen del día', 'Error loading daily summary')))
+      .catch(err => { try { window.__txReportError?.(err, { severity: 'warn', category: 'cuadre.daily.load' }) } catch {} ; flash(L('Error al cargar resumen del día', 'Error loading daily summary')) })
       .finally(() => setLoadingDay(false))
   }, [])
 
@@ -445,7 +446,7 @@ export default function CashReconciliation() {
   }
 
   function doPrint() {
-    printCuadreCaja(buildPrintPayload()).catch(() => flash(L('Error al imprimir cuadre', 'Error printing reconciliation')))
+    printCuadreCaja(buildPrintPayload()).catch(err => { try { window.__txReportError?.(err, { severity: 'warn', category: 'cuadre.print' }) } catch {} ; flash(L('Error al imprimir cuadre', 'Error printing reconciliation')) })
   }
 
   async function handleRecalc() {
@@ -454,7 +455,8 @@ export default function CashReconciliation() {
       const data = await api.cuadre.daily(todayISO())
       if (data) setDaySummary(data)
       flash(L('Datos actualizados ✓', 'Data refreshed ✓'))
-    } catch {
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'cashreconciliation.buildprintpayload' }) } catch {}
       flash(L('Error al recalcular', 'Error recalculating'))
     } finally {
       setLoadingDay(false)
@@ -503,6 +505,7 @@ export default function CashReconciliation() {
       setClosed(true)
       doPrint()
     } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'cashreconciliation.buildprintpayload' }) } catch {}
       console.error('cuadre:create error', err)
       flash(L('Error al cerrar caja', 'Error closing register'))
     } finally {

@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { checkRateLimit, callerIp } from '../lib/rate-limit.js'
+import { withReporting } from '../lib/report-server-error.js'
 
 function hashHwid(h) {
   if (!h) return null
@@ -51,7 +52,7 @@ function getClient() {
   return createClient(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   const origin = req.headers.origin || ''
   // Strict origin enforcement: if Origin header is present, it MUST be allow-listed.
   // Non-browser callers (desktop Electron IPC → remote.validate, server-to-server)
@@ -253,3 +254,5 @@ async function audit(supabase, licenseId, key, hwid, action, status, ip, extra) 
     await supabase.from('license_events').insert({ license_id: licenseId, action, status, ip, metadata })
   } catch (e) { console.warn('[audit]', e.message || e) }
 }
+
+export default withReporting(handler, { route: '/api/validate' })

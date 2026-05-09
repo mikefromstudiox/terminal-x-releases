@@ -228,7 +228,8 @@ function ClientDetail({ client, onReload }) {
     try {
       const rows = await api?.clients?.openTickets?.(client.id)
       setTickets(rows || [])
-    } catch { setTickets([]) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'credits.clientdetail' }) } catch {} setTickets([]) }
     finally  { setLoading(false) }
   }, [client.id])
 
@@ -312,9 +313,11 @@ function ClientDetail({ client, onReload }) {
           }).catch(err => console.error('[Credits] print ticket failed:', err))
         }
       } catch (printErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(printErr, { severity: 'error', category: 'credits.toggleall' }) } catch {}
         console.error('[Credits] printClientReceipt failed:', printErr)
       }
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'credits.toggleall' }) } catch {}
       setToast('Error: ' + (e.message || 'No se pudo registrar el cobro.'))
       setTimeout(() => setToast(null), 4000)
     } finally {
@@ -577,7 +580,8 @@ export default function Credits() {
         if (t.client_id != null) s.add(String(t.client_id))
       }
       setOpenClientIds(s)
-    } catch { setClients([]); setOpenClientIds(new Set()) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'credits.credits' }) } catch {} setClients([]); setOpenClientIds(new Set()) }
     finally  { setLoading(false) }
   }, [])
 

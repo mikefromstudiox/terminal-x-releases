@@ -3,6 +3,7 @@ import bcryptjs from 'bcryptjs'
 import { createClient } from '@supabase/supabase-js'
 import { checkRateLimit, callerIp } from '../lib/rate-limit.js'
 import { SALON_WA_TEMPLATES, fillTemplate } from '../lib/salon-wa-templates.js'
+import { withReporting, reportServerError } from '../lib/report-server-error.js'
 
 const ALLOWED_ORIGINS = ['https://terminalxpos.com', 'http://localhost:5173']
 
@@ -65,7 +66,7 @@ function generateKey() {
   return 'TXL-' + seg() + '-' + seg() + '-' + seg()
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (cors(req, res)) return
   const action = req.query.action || 'stats'
 
@@ -631,7 +632,7 @@ async function handleCrmList(req, res) {
           || (l.rnc || '').includes(s)
     }).map(l => ({ ...l, assigned_to_name: adminMap[l.assigned_to] || null }))
     return res.json({ data: filtered })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleCrmDetail(req, res) {
@@ -653,7 +654,7 @@ async function handleCrmDetail(req, res) {
         : Promise.resolve({ data: null }),
     ])
     return res.json({ data: { lead, activity: activity || [], admins: admins || [], business: biz?.data || null } })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleCrmUpdate(req, res) {
@@ -693,7 +694,7 @@ async function handleCrmUpdate(req, res) {
       })))
     }
     return res.json({ data })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleCrmNote(req, res) {
@@ -715,7 +716,7 @@ async function handleCrmNote(req, res) {
       await supabase.from('crm_leads').update({ last_contacted_at: new Date().toISOString() }).eq('id', lead_id)
     }
     return res.json({ data })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -871,7 +872,7 @@ async function handleReportError(req, res) {
       fireCriticalAlert({ ...insertRow, id: inserted?.id }, null).catch(() => {})
     }
     return
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // 2026-05-03 (peppy-greeting-popcorn Phase 3) — on-demand decode for older
@@ -895,7 +896,7 @@ async function handleErrorsDecode(req, res) {
     const newMeta = { ...(row.metadata || {}), decoded_stack: decoded }
     await auth.supabase.from('client_errors').update({ metadata: newMeta }).eq('id', id)
     return res.json({ data: { decoded_stack: decoded, cached: false } })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleErrorsList(req, res) {
@@ -913,7 +914,7 @@ async function handleErrorsList(req, res) {
     const { data, error } = await q
     if (error) throw error
     return res.json({ data: data || [] })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleErrorsResolve(req, res) {
@@ -930,7 +931,7 @@ async function handleErrorsResolve(req, res) {
     }).eq('id', id)
     if (error) throw error
     return res.json({ ok: true })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // 2026-05-03 (peppy-greeting-popcorn Phase 2) — client health snapshot.
@@ -1090,7 +1091,7 @@ async function handleDgiiCredsSave(req, res) {
     }).select().single()
     if (error) throw error
     return res.json({ data })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleDgiiCredsStatus(req, res) {
@@ -1106,7 +1107,7 @@ async function handleDgiiCredsStatus(req, res) {
       .order('updated_at', { ascending: false })
     if (error) throw error
     return res.json({ data: data || [] })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleDgiiCredsDelete(req, res) {
@@ -1119,7 +1120,7 @@ async function handleDgiiCredsDelete(req, res) {
     const { error } = await auth.supabase.from('client_dgii_credentials').delete().eq('id', id)
     if (error) throw error
     return res.json({ ok: true })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // Manual trigger for the DGII pull worker. The actual scraper lives in a
@@ -1140,7 +1141,7 @@ async function handleDgiiPullRun(req, res) {
       updated_at: new Date().toISOString(),
     }).eq('client_business_id', client_business_id)
     return res.json({ ok: true, status: 'queued', note: 'Scraper will run on the next Vercel cron tick once configured.' })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // ─── Server-side AES-256-GCM helpers for DGII passwords ───────────────────
@@ -1191,7 +1192,7 @@ async function handleDgiiCredsSavePlaintext(req, res) {
     }, { onConflict: 'client_business_id' }).select('id, rnc, status').single()
     if (error) throw error
     return res.json({ data, ok: true })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleDgiiLoginTest(req, res) {
@@ -1228,7 +1229,7 @@ async function handleDgiiLoginTest(req, res) {
       }).eq('id', cred.id)
     }
     return res.json({ ok: result.ok, error: result.error || null, hasSession: !!result.sessionCookie })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1467,7 +1468,7 @@ async function handleCrmDelete(req, res) {
     const { error } = await supabase.from('crm_leads').delete().eq('id', id)
     if (error) throw error
     return res.json({ ok: true })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleCrmCreate(req, res) {
@@ -1492,7 +1493,7 @@ async function handleCrmCreate(req, res) {
     }).select().single()
     if (error) throw error
     return res.json({ data })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1593,7 +1594,7 @@ async function handleStats(req, res) {
     const offlineCount = (scopedBiz || []).filter(b => { const lastSeen = b.updated_at; if (!lastSeen) return true; return (now - new Date(lastSeen)) > 7 * 24 * 60 * 60 * 1000 }).length
     const recentSignups = [...(scopedBiz || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 10).map(({ id, name, created_at }) => ({ id, name, created_at }))
     return res.json({ totalClients: scopedIds.length, activeLicenses: r2.count || 0, suspendedLicenses: r3.count || 0, expiredLicenses: r4.count || 0, recentSignups, byPlan, activeToday, offlineCount, validationsToday: r7.count || 0 })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleLicenses(req, res) {
@@ -1606,7 +1607,7 @@ async function handleLicenses(req, res) {
         .order('created_at', { ascending: false }).limit(500)
       if (error) throw error
       return res.json({ data: data || [] })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'POST') {
     const auth = await requireAdmin(req, 'admin')
@@ -1624,7 +1625,7 @@ async function handleLicenses(req, res) {
       }).select().single()
       if (error) throw error
       return res.json({ data })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'PATCH') {
     const auth = await requireAdmin(req, 'admin')
@@ -1638,7 +1639,7 @@ async function handleLicenses(req, res) {
       const { data, error } = await auth.supabase.from('licenses').update(patch).eq('id', id).select().single()
       if (error) throw error
       return res.json({ data })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   return res.status(405).json({ error: 'Method not allowed' })
 }
@@ -1690,7 +1691,7 @@ async function handleClients(req, res) {
         const { settings, ...bizSafe } = b
         return { ...bizSafe, license: licenseMap[b.id] || null, staffCount: staffMap[b.id] || 0, ticketCount: ticketMap[b.id] || 0, onboarding, onboardingScore: score }
       }) })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'POST') {
     const auth = await requireAdmin(req, 'admin')
@@ -1748,7 +1749,7 @@ async function handleClients(req, res) {
         }, { onConflict: 'business_id,type', ignoreDuplicates: true })
       }
       return res.json({ data: { business_id: biz.id, email, license_key: licenseKey } })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'PATCH' && req.body?.action === 'update_plan') {
     const auth = await requireAdmin(req, 'admin')
@@ -1762,7 +1763,7 @@ async function handleClients(req, res) {
         await auth.supabase.from('licenses').update({ plan_id: planRow.id, max_users: planRow.max_users, updated_at: new Date().toISOString() }).eq('business_id', id)
       }
       return res.json({ ok: true })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'DELETE' || (req.method === 'PATCH' && req.body?.action === 'delete')) {
     const auth = await requireAdmin(req, 'admin')
@@ -1774,7 +1775,7 @@ async function handleClients(req, res) {
       await auth.supabase.from('staff').delete().eq('business_id', id)
       await auth.supabase.from('businesses').delete().eq('id', id)
       return res.json({ ok: true })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   return res.status(405).json({ error: 'Method not allowed' })
 }
@@ -1832,7 +1833,7 @@ async function handlePushService(req, res) {
   try {
     await auth.supabase.from('services').insert({ business_id, name, name_en: name_en || '', price: price || 0, is_wash: is_wash ?? false, aplica_itbis: aplica_itbis ?? true, active: true })
     return res.json({ ok: true })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleClientConfig(req, res) {
@@ -1848,7 +1849,7 @@ async function handleClientConfig(req, res) {
       ])
       const appSettings = Object.fromEntries((cfgRows || []).map(r => [r.key, r.value]))
       return res.json({ data: { bizSettings: parseSettingsIfString(biz?.settings), appSettings, notes: biz?.notes || '', logo_url: biz?.logo_url || null } })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'PATCH') {
     const auth = await requireAdmin(req, 'admin')
@@ -1873,7 +1874,7 @@ async function handleClientConfig(req, res) {
         await auth.supabase.from('businesses').update({ notes, updated_at: new Date().toISOString() }).eq('id', id)
       }
       return res.json({ ok: true })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   return res.status(405).json({ error: 'Method not allowed' })
 }
@@ -1922,7 +1923,7 @@ async function handleRegister(req, res) {
       }, { onConflict: 'business_id,type', ignoreDuplicates: true })
     }
     return res.json({ data: { business_id: biz.id, license_key: key } })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleClientDetail(req, res) {
@@ -1993,7 +1994,7 @@ async function handleClientDetail(req, res) {
       business: bizSafe, license: licSafe, licenses: licensesSafe, staff, onboarding,
       metrics: { ticketCount, ticketCountYear, ticketCountMonth, totalRevenue, totalRevenueYear, totalRevenueMonth, lastSaleDate, serviceCount, clientCount },
     })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // handleCertHistory — DGII .p12 rotation audit trail for a single business.
@@ -2017,7 +2018,7 @@ async function handleCertHistory(req, res) {
       .limit(limit)
     if (error) throw error
     return res.json({ history: data || [] })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleUpdateBusiness(req, res) {
@@ -2051,7 +2052,7 @@ async function handleUpdateBusiness(req, res) {
       }, { onConflict: 'business_id,key,device_hwid' })
     }
     return res.json({ ok: true })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleLinkWebAccount(req, res) {
@@ -2084,7 +2085,7 @@ async function handleLinkWebAccount(req, res) {
       username: 'owner', role: 'owner', active: true,
     }, { onConflict: 'business_id,auth_user_id', ignoreDuplicates: true })
     return res.json({ ok: true, user_id: userId })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleResetPassword(req, res) {
@@ -2099,7 +2100,7 @@ async function handleResetPassword(req, res) {
     const { error: err } = await auth.supabase.auth.admin.updateUserById(user_id, { password })
     if (err) throw err
     return res.json({ ok: true })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleActivityFeed(req, res) {
@@ -2164,7 +2165,7 @@ async function handleActivityFeed(req, res) {
     // Sort by date desc, limit 30
     feed.sort((a, b) => new Date(b.date) - new Date(a.date))
     return res.json({ data: feed.slice(0, 30) })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // ── Set Staff PIN (admin sets POS PIN for client's staff member) ─────────────
@@ -2183,7 +2184,7 @@ async function handleDeleteStaff(req, res) {
     const { error: softErr } = await auth.supabase.from('staff').update({ active: false }).eq('id', staff_id)
     if (softErr) throw softErr
     return res.json({ ok: true, softDeleted: true, reason: error.message })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleSetStaffPin(req, res) {
@@ -2207,7 +2208,7 @@ async function handleSetStaffPin(req, res) {
     }).eq('id', staff_id)
     if (error) throw error
     return res.json({ ok: true })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // ── Logo Upload ─────────────────────────────────────────────────────────────
@@ -2228,7 +2229,7 @@ async function handleUploadLogo(req, res) {
     const url = urlData?.publicUrl
     await auth.supabase.from('businesses').update({ logo_url: url, updated_at: new Date().toISOString() }).eq('id', business_id)
     return res.json({ ok: true, url })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // ── e-CF Certification Service Handlers ──────────────────────────────────────
@@ -2248,7 +2249,7 @@ async function handleCertStats(req, res) {
     const byTier = { advisory: 0, full: 0, full_plus_terminal: 0 }
     for (const c of (certs || [])) byTier[c.package_tier] = (byTier[c.package_tier] || 0) + 1
     return res.json({ active, completed, paused, total: (certs || []).length, totalRevenue, pendingRevenue, byTier })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleCertList(req, res) {
@@ -2262,7 +2263,7 @@ async function handleCertList(req, res) {
       .order('created_at', { ascending: false })
     if (error) throw error
     return res.json({ data: data || [] })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleCertDetail(req, res) {
@@ -2281,7 +2282,7 @@ async function handleCertDetail(req, res) {
     if (certRes.error) throw certRes.error
     if (!certRes.data) return res.status(404).json({ error: 'Certification not found' })
     return res.json({ certification: certRes.data, notes: notesRes.data || [], documents: docsRes.data || [] })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleCertCreate(req, res) {
@@ -2303,7 +2304,7 @@ async function handleCertCreate(req, res) {
     if (error) throw error
     await supabase.from('ecf_cert_notes').insert({ certification_id: data.id, author_name: admin.name, type: 'system', content: `Certificacion creada — paquete ${tier}`, visible_to_client: true })
     return res.json({ data })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleCertUpdate(req, res) {
@@ -2322,7 +2323,7 @@ async function handleCertUpdate(req, res) {
     const { data, error } = await supabase.from('ecf_certifications').update(clean).eq('id', id).select().single()
     if (error) throw error
     return res.json({ data })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleCertStep(req, res) {
@@ -2346,7 +2347,7 @@ async function handleCertStep(req, res) {
     const STEP_NAMES = ['', 'Solicitud', 'Autorizacion', 'Configuracion', 'Pruebas Simulacion', 'Representacion Impresa', 'Revision DGII', 'URL Servicios Prueba', 'Inicio Prueba Recepcion', 'Recepcion e-CF', 'Inicio Prueba Aprobacion', 'Aprobacion Comercial', 'URL Servicios Produccion', 'Declaracion Jurada', 'Verificacion Estatus', 'Finalizado']
     await supabase.from('ecf_cert_notes').insert({ certification_id: id, author_name: admin.name, type: 'step_change', content: note || `Paso ${step} (${STEP_NAMES[step] || '?'}) ${stepAction === 'complete' ? 'completado' : 'desmarcado'}`, metadata: { step, action: stepAction }, visible_to_client: true })
     return res.json({ ok: true, steps_completed: steps, current_step: newCurrent })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleCertNotes(req, res) {
@@ -2400,7 +2401,7 @@ async function handleSupportTickets(req, res) {
       .select('*, businesses(name)')
       .order('created_at', { ascending: false }).limit(200)
     return res.json({ data: data || [] })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleCreateTicket(req, res) {
@@ -2415,7 +2416,7 @@ async function handleCreateTicket(req, res) {
       }).select().single()
       if (error) throw error
       return res.json({ ok: true, data })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'PATCH') {
     const auth = await requireAdmin(req, 'admin')
@@ -2429,7 +2430,7 @@ async function handleCreateTicket(req, res) {
     try {
       await auth.supabase.from('support_tickets').update(updates).eq('id', id)
       return res.json({ ok: true })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   return res.status(405).json({ error: 'Method not allowed' })
 }
@@ -2490,7 +2491,7 @@ async function handleBulkAction(req, res) {
     }
 
     return res.status(400).json({ error: 'Unknown bulk action type' })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // ── e-CF Cert Step Data (GET + POST) ────────────────────────────────────────
@@ -2507,7 +2508,7 @@ async function handleCertStepData(req, res) {
       const { data, error } = await supabase.from('ecf_cert_step_data').select('*').eq('certification_id', id).eq('step', step).maybeSingle()
       if (error) throw error
       return res.json({ ok: true, data: data || null })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'POST') {
     const { id, step, data: stepData } = req.body || {}
@@ -2518,7 +2519,7 @@ async function handleCertStepData(req, res) {
       }, { onConflict: 'certification_id,step' }).select().single()
       if (error) throw error
       return res.json({ ok: true, data })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   return res.status(405).json({ error: 'Method not allowed' })
 }
@@ -2536,7 +2537,7 @@ async function handleCertCommands(req, res) {
       const { data, error } = await supabase.from('ecf_cert_commands').select('*').eq('certification_id', id).order('created_at', { ascending: false })
       if (error) throw error
       return res.json({ ok: true, data: data || [] })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'POST') {
     const { id, command, params } = req.body || {}
@@ -2550,7 +2551,7 @@ async function handleCertCommands(req, res) {
       }).select().single()
       if (error) throw error
       return res.json({ ok: true, data })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   return res.status(405).json({ error: 'Method not allowed' })
 }
@@ -2570,7 +2571,7 @@ async function handleCertTestResults(req, res) {
     const { data, error } = await query.order('submitted_at', { ascending: false })
     if (error) throw error
     return res.json({ ok: true, data: data || [] })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // ── e-CF Cert Upload (POST) ─────────────────────────────────────────────────
@@ -2596,7 +2597,7 @@ async function handleCertUpload(req, res) {
     }).select().single()
     if (error) throw error
     return res.json({ ok: true, data, url })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // ── Public Cert Portal Actions (token-based, no admin auth) ─────────────────
@@ -2616,7 +2617,7 @@ async function handlePublicCertAction(action, req, res, supabase) {
         supabase.from('ecf_cert_test_results').select('id, step, test_number, test_name, encf, dgii_status, submitted_at').eq('certification_id', cert.id).order('submitted_at', { ascending: false }),
       ])
       return res.json({ ok: true, data: { ...cert, notes: notesRes.data || [], documents: docsRes.data || [], test_results: testsRes.data || [] } })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
 
   if (action === 'cert_portal_message') {
@@ -2632,7 +2633,7 @@ async function handlePublicCertAction(action, req, res, supabase) {
       }).select().single()
       if (insertErr) throw insertErr
       return res.json({ ok: true, data })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
 
   if (action === 'cert_portal_upload') {
@@ -2690,7 +2691,7 @@ async function handlePublicCertAction(action, req, res, supabase) {
       }).select().single()
       if (docErr) throw docErr
       return res.json({ ok: true, data, url })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
 
   return res.status(400).json({ error: 'Unknown portal action' })
@@ -2705,7 +2706,7 @@ async function handleClientVisits(req, res) {
     try {
       const { data: biz } = await auth.supabase.from('businesses').select('settings').eq('id', id).single()
       return res.json({ data: parseSettingsIfString(biz?.settings)?.visits || [] })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'POST') {
     const auth = await requireAdmin(req, 'admin')
@@ -2726,7 +2727,7 @@ async function handleClientVisits(req, res) {
       })
       await auth.supabase.from('businesses').update({ settings: { ...settings, visits }, updated_at: new Date().toISOString() }).eq('id', business_id)
       return res.json({ ok: true })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   if (req.method === 'PATCH') {
     const auth = await requireAdmin(req, 'admin')
@@ -2739,7 +2740,7 @@ async function handleClientVisits(req, res) {
       const visits = (settings.visits || []).map(v => v.id === visit_id ? { ...v, ...(completed !== undefined ? { completed } : {}), ...(notes !== undefined ? { notes } : {}), completed_at: completed ? new Date().toISOString() : v.completed_at } : v)
       await auth.supabase.from('businesses').update({ settings: { ...settings, visits }, updated_at: new Date().toISOString() }).eq('id', business_id)
       return res.json({ ok: true })
-    } catch (err) { return res.status(500).json({ error: err.message }) }
+    } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
   }
   return res.status(405).json({ error: 'Method not allowed' })
 }
@@ -2762,7 +2763,7 @@ async function handleRebindRequests(req, res) {
     const { data, error } = await q
     if (error) throw error
     return res.json({ data: data || [] })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleApproveRebind(req, res) {
@@ -2800,7 +2801,7 @@ async function handleApproveRebind(req, res) {
       status: 'rejected', updated_at: nowIso,
     }).eq('license_id', reqRow.license_id).eq('status', 'pending').neq('id', id)
     return res.json({ data: lic, ok: true })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleRejectRebind(req, res) {
@@ -2825,7 +2826,7 @@ async function handleRejectRebind(req, res) {
       metadata: { request_id: id, requested_hwid: reqRow.requested_hwid, admin_id: auth.admin.id, admin_name: auth.admin.name, reason: reason || null },
     })
     return res.json({ ok: true })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // ── Loyalty + Digest visibility (service-role queries, RLS bypassed) ────────
@@ -2901,7 +2902,7 @@ async function handleLoyaltyOverview(req, res) {
       tierBreakdown,
       topClients,
     })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleBusinessLoyalty(req, res) {
@@ -2965,7 +2966,7 @@ async function handleBusinessLoyalty(req, res) {
       top_clients:       topClients,
       transactions,
     })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleDigestHealth(req, res) {
@@ -3031,7 +3032,7 @@ async function handleDigestHealth(req, res) {
       missingYesterday,
       sent7d:            sent7d || 0,
     })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleBusinessDigest(req, res) {
@@ -3062,7 +3063,7 @@ async function handleBusinessDigest(req, res) {
       sent_30d:  count || 0,
       recent:    events || [],
     })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 async function handleDigestSendNow(req, res) {
@@ -3083,7 +3084,7 @@ async function handleDigestSendNow(req, res) {
     const body = await r.json().catch(() => ({}))
     if (!r.ok) return res.status(r.status).json(body?.error ? body : { error: 'digest_failed' })
     return res.json({ ok: true, result: body })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3365,7 +3366,7 @@ async function handleSalonPublicBookingInfo(req, res) {
       stylists: (stylists || []).map(e => ({ supabase_id: e.supabase_id, name: e.nombre, photo: e.foto_url || null })),
       available_slots: slots,
     })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // 2. salon-public-booking-create — POST, public, hCaptcha, 5/min/phone
@@ -3772,7 +3773,7 @@ async function handleSalonWhatsappSendNow(req, res) {
       }).eq('id', row.id)
       return res.status(502).json({ ok: false, error: e?.message || 'send_failed' })
     }
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // 5. salon-membership-purchase — license JWT authed
@@ -3803,7 +3804,7 @@ async function handleSalonMembershipPurchase(req, res) {
     }).select('*').single()
     if (insErr) throw insErr
     return res.json({ ok: true, data: row })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // 6. salon-membership-consume — license JWT authed
@@ -3849,7 +3850,7 @@ async function handleSalonMembershipConsume(req, res) {
     }).select('*').single()
     if (rErr) throw rErr
     return res.json({ ok: true, remaining: updated.sessions_remaining, data: redemption })
-  } catch (err) { return res.status(500).json({ error: err.message }) }
+  } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -4539,3 +4540,5 @@ async function handleAnecfDrain(req, res) {
     return res.status(500).json({ error: err.message || 'drain_failed' })
   }
 }
+
+export default withReporting(handler, { route: '/api/panel' })

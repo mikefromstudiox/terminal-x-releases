@@ -62,7 +62,8 @@ function CatalogModal({ row, services, lang, onSave, onClose }) {
         price_dop:           Number(form.price_dop),
         validity_days:       Number(form.validity_days) || 365,
       })
-    } catch (ex) { setErr(ex?.message || L('Error al guardar', 'Save error')) }
+    } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'memberships.fmtrd' }) } catch {} setErr(ex?.message || L('Error al guardar', 'Save error')) }
     finally { setSaving(false) }
   }
 
@@ -269,6 +270,7 @@ export default function Memberships() {
       setServices(svc || [])
       setClients(cli || [])
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'memberships.memberships' }) } catch {}
       // eslint-disable-next-line no-console
       console.error('[Memberships.loadAll]', e)
       setLoadError(e?.message || L('Error cargando membresías', 'Error loading memberships'))
@@ -289,6 +291,7 @@ export default function Memberships() {
       const rows = await api.clientMemberships.byClient(client.supabase_id) || []
       setClientBalances(rows)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'memberships.memberships' }) } catch {}
       // eslint-disable-next-line no-console
       console.error('[Memberships.loadBalances]', e)
       setClientBalances([])
@@ -306,7 +309,8 @@ export default function Memberships() {
       flash(L('Membresía creada', 'Membership created'))
       setShowNew(false)
       await loadAll()
-    } catch (e) { flash(e?.message || L('Error', 'Error'), 'error') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'memberships.memberships' }) } catch {} flash(e?.message || L('Error', 'Error'), 'error') }
     finally { setBusy(false) }
   }
 
@@ -318,7 +322,8 @@ export default function Memberships() {
       flash(L('Membresía actualizada', 'Membership updated'))
       setEditRow(null)
       await loadAll()
-    } catch (e) { flash(e?.message || L('Error', 'Error'), 'error') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'memberships.memberships' }) } catch {} flash(e?.message || L('Error', 'Error'), 'error') }
     finally { setBusy(false) }
   }
 
@@ -328,7 +333,8 @@ export default function Memberships() {
       await api.salonMemberships.archive(row.supabase_id)
       flash(L('Archivada', 'Archived'))
       await loadAll()
-    } catch (e) { flash(e?.message || L('Error', 'Error'), 'error') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'memberships.flash' }) } catch {} flash(e?.message || L('Error', 'Error'), 'error') }
   }
 
   async function handleRenovar(balance) {
@@ -341,7 +347,8 @@ export default function Memberships() {
       })
       flash(L('Renovada', 'Renewed'))
       await loadBalances(selectedClient)
-    } catch (e) { flash(e?.message || L('Error', 'Error'), 'error') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'memberships.flash' }) } catch {} flash(e?.message || L('Error', 'Error'), 'error') }
   }
 
   // Filter clients by query

@@ -115,6 +115,7 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
       setWaEditing(false)
       await loadWhatsapp()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'clientdetail.clientdetail' }) } catch {}
       alert('Error: ' + (e.message || e))
     } finally {
       setWaSaving(false)
@@ -133,8 +134,10 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
       try {
         const vResp = await fetch(`/api/panel?action=client_visits&id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } })
         if (vResp.ok) { const vData = await vResp.json(); setVisits(vData.data || []) }
-      } catch {}
-    } catch (e) { console.error('ClientDetail load:', e) }
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'clientdetail.loadwhatsapp' }) } catch {}}
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'clientdetail.loadwhatsapp' }) } catch {} console.error('ClientDetail load:', e) }
     setLoading(false)
   }
 
@@ -147,7 +150,8 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
       const url = `/api/panel?action=errors_list&business_id=${id}&limit=200${showResolved ? '' : '&unresolved=1'}`
       const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } })
       if (resp.ok) setErrors((await resp.json()).data || [])
-    } catch (e) { console.error('loadErrors:', e) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'clientdetail.loadwhatsapp' }) } catch {} console.error('loadErrors:', e) }
     setErrorsLoading(false)
   }
 
@@ -160,7 +164,8 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
         body: JSON.stringify({ id: errId, resolution: resolution || null }),
       })
       setErrors(null); loadErrors()
-    } catch (_) {}
+    } catch (_) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'clientdetail.loadwhatsapp' }) } catch {}}
   }
 
   async function loadLoyalty() {
@@ -169,7 +174,8 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
       let token = await refreshToken?.(); if (!token) token = getToken()
       const resp = await fetch(`/api/panel?action=business-loyalty&business_id=${id}`, { headers: { 'Authorization': `Bearer ${token}` } })
       if (resp.ok) setLoyalty(await resp.json())
-    } catch (e) { console.error('loadLoyalty:', e) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'clientdetail.loadwhatsapp' }) } catch {} console.error('loadLoyalty:', e) }
     setLoyaltyLoading(false)
   }
 
@@ -184,7 +190,8 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
       } else {
         setCertHistory([])
       }
-    } catch (e) { console.error('loadCertHistory:', e); setCertHistory([]) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'clientdetail.savewhatsapp' }) } catch {} console.error('loadCertHistory:', e); setCertHistory([]) }
     setCertHistoryLoading(false)
   }
 
@@ -201,7 +208,8 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
           recent:   d.recent || [],
         })
       }
-    } catch (e) { console.error('loadDigestStatus:', e) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'clientdetail.load' }) } catch {} console.error('loadDigestStatus:', e) }
   }
 
   async function sendDigestNow() {
@@ -218,6 +226,7 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
       setDigestMsg({ ok: true, text: L('Enviado.', 'Sent.') })
       await loadDigestStatus()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'clientdetail.load' }) } catch {}
       setDigestMsg({ ok: false, text: e.message || 'Error' })
     }
     setDigestSending(false)
@@ -244,7 +253,8 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
       })
       if (!resp.ok) { const j = await resp.json().catch(() => ({})); throw new Error(j.error || 'Failed') }
       await load()
-    } catch (e) { alert(e.message || 'Error') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'clientdetail.resolveerror' }) } catch {} alert(e.message || 'Error') }
     finally { setDeletingStaffId(null) }
   }
 
@@ -309,7 +319,8 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
       if (!resp.ok) throw new Error('Failed')
       setEditing(false)
       load()
-    } catch (e) { console.error('Save failed:', e) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'clientdetail.deletestaff' }) } catch {} console.error('Save failed:', e) }
     setEditSaving(false)
   }
 
@@ -326,7 +337,8 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
       })
       setShowVisitForm(false); setVisitDate(''); setVisitNotes('')
       load()
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'clientdetail.startedit' }) } catch {}}
     setSavingVisit(false)
   }
 
@@ -340,7 +352,8 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
         body: JSON.stringify({ business_id: id, visit_id: visitId, completed }),
       })
       load()
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'clientdetail.startedit' }) } catch {}}
   }
 
   const planDisplay = typeof biz.plan === 'string' ? biz.plan.replace('_', ' ').toUpperCase() : '—'
@@ -887,7 +900,8 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                                   try {
                                     window.__txReportError?.(err, { severity: 'warn', category: 'admin_license_label',
                                       extra: { license_id: lic.id, business_id: id } })
-                                  } catch {}
+                                  } catch (_aetherErr) {
+                                    try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'clientdetail.if' }) } catch {}}
                                   alert(`Error: ${err.message}`)
                                 }
                               }}
@@ -1335,7 +1349,8 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                                     if (!resp.ok) throw new Error(result.error || 'Failed')
                                     setPinOk(true); setPinValue('')
                                     setTimeout(() => { setPinStaffId(null); load() }, 1200)
-                                  } catch (e) { setPinErr(e.message) }
+                                  } catch (e) {
+                                    try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'clientdetail.handler' }) } catch {} setPinErr(e.message) }
                                   setPinSaving(false)
                                 }}
                                 className="px-3 py-2 bg-[#b3001e] hover:bg-[#c8002a] disabled:opacity-50 text-white text-[11px] font-bold rounded-lg flex items-center gap-1 shadow-md shadow-[#b3001e]/20"
@@ -1381,7 +1396,8 @@ function DiagnosticoCard({ businessId, businessType, isDark, getToken, refreshTo
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Error')
       setSnap(j)
-    } catch (e) { setErr(e.message || 'Error') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'clientdetail.load' }) } catch {} setErr(e.message || 'Error') }
     setLoading(false)
   }
   useEffect(() => { load() }, [businessId])

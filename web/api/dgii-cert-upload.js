@@ -25,6 +25,7 @@
 import { createClient } from '@supabase/supabase-js'
 import forge from 'node-forge'
 import Busboy from 'busboy'
+import { withReporting } from '../lib/report-server-error.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://xbmhtrdhbnkgdliuxcha.supabase.co'
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -73,7 +74,7 @@ function parseMultipart(req) {
   })
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (req.method === 'OPTIONS') return json(res, 200, { ok: true })
   if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'POST only' })
 
@@ -267,3 +268,5 @@ export default async function handler(req, res) {
 
   return json(res, 200, { ok: true, subject, expiry: expiryISO, expired })
 }
+
+export default withReporting(handler, { route: '/api/dgii-cert-upload' })

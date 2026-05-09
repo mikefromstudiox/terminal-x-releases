@@ -106,7 +106,8 @@ export default function NominaPagos() {
       const aMap = {}
       for (const s of (adelantoSummary || [])) aMap[s.id] = s.pending_total || 0
       setAdelantoTotals(aMap)
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'nominapagos.getperiodfrompreset' }) } catch {}}
     setLoading(false)
   }
 
@@ -161,7 +162,8 @@ export default function NominaPagos() {
         })
         const sum = inPeriod.reduce((s, a) => s + Number(a.amount || 0), 0)
         return [emp.id, sum]
-      } catch { return [emp.id, 0] }
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'nominapagos.showtoast' }) } catch {} return [emp.id, 0] }
     })).then(pairs => {
       if (!cancelled) setPeriodAdelantos(Object.fromEntries(pairs))
     })
@@ -341,9 +343,11 @@ export default function NominaPagos() {
             for (const a of (pending || [])) {
               const d = a.fecha_otorgado || a.created_at || ''
               if (d < period.start || d > period.end + ' 23:59:59') continue
-              try { await api.adelantos.deduct(a.id, result?.ids?.[0] || null) } catch {}
+              try { await api.adelantos.deduct(a.id, result?.ids?.[0] || null) } catch (_aetherErr) {
+                try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'nominapagos.toggleall' }) } catch {}}
             }
-          } catch {}
+          } catch (_aetherErr) {
+            try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'nominapagos.toggleall' }) } catch {}}
         }
       }
 
@@ -362,7 +366,8 @@ export default function NominaPagos() {
           if (api?.sellerCommissions?.markPaidByPeriod) await api.sellerCommissions.markPaidByPeriod(args)
           if (api?.cajeroCommissions?.markPaidByPeriod) await api.cajeroCommissions.markPaidByPeriod(args)
         }
-      } catch (e) { /* non-fatal; next reload refetches paid=false anyway */ }
+      } catch (e) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nominapagos.toggleall' }) } catch {} /* non-fatal; next reload refetches paid=false anyway */ }
       showToast(L(`${result.created || rows.length} pagos registrados`, `${result.created || rows.length} payments recorded`))
       setSelected({})
       setBonuses({})
@@ -380,6 +385,7 @@ export default function NominaPagos() {
       for (const s of (newAdelSummary || [])) aMap[s.id] = s.pending_total || 0
       setAdelantoTotals(aMap)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nominapagos.handlebulksave' }) } catch {}
       showToast(e?.message || L('Error al registrar pagos', 'Error recording payments'), 'error')
     } finally {
       setSaving(false)

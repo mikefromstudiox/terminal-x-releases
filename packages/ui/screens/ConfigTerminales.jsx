@@ -21,7 +21,8 @@ function CopyChip({ value }) {
         try {
           if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value)
           setCopied(true); setTimeout(() => setCopied(false), 1400)
-        } catch {}
+        } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'configterminales.copychip' }) } catch {}}
       }}
       title="Copiar"
       className="ml-1 p-0.5 rounded text-slate-400 hover:text-slate-700 dark:text-white/40 dark:hover:text-white"
@@ -54,7 +55,8 @@ export default function ConfigTerminales() {
     } catch (e) {
       try {
         window.__txReportError?.(e, { severity: 'warn', category: 'config_terminales_load' })
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'configterminales.reload' }) } catch {}}
       setError(e?.message || 'No se pudieron cargar los terminales')
     } finally {
       setLoading(false)
@@ -75,7 +77,8 @@ export default function ConfigTerminales() {
           category: 'config_terminales_label',
           extra: { license_id: id },
         })
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'configterminales.reload' }) } catch {}}
       setError(e?.message || 'No se pudo guardar la etiqueta')
     }
   }

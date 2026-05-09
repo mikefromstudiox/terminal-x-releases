@@ -57,7 +57,8 @@ export default function NominaAdelantos() {
       ])
       setAdelantos(list || [])
       setEmpleados(emps || [])
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'nominaadelantos.nominaadelantos' }) } catch {}}
     setLoading(false)
   }
 
@@ -93,7 +94,8 @@ export default function NominaAdelantos() {
       await api.adelantos.cancel(id)
       await loadAll()
       showToast(L('Adelanto cancelado', 'Advance cancelled'))
-    } catch (e) { showToast(e?.message || L('Error', 'Error'), 'error') }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nominaadelantos.nominaadelantos' }) } catch {} showToast(e?.message || L('Error', 'Error'), 'error') }
   }
 
   async function handleCreate(data) {
@@ -104,6 +106,7 @@ export default function NominaAdelantos() {
       showToast(L('Adelanto registrado', 'Advance recorded'))
       return true
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'nominaadelantos.nominaadelantos' }) } catch {}
       showToast(e?.message || L('Error al registrar', 'Error recording'), 'error')
       return false
     }

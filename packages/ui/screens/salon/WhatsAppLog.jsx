@@ -54,7 +54,8 @@ function fmtDR(iso) {
     const h = String(x.getUTCHours()).padStart(2, '0')
     const m = String(x.getUTCMinutes()).padStart(2, '0')
     return `${D}/${M}/${Y} ${h}:${m}`
-  } catch { return iso }
+  } catch (_aetherErr) {
+    try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'whatsapplog.fmtdr' }) } catch {} return iso }
 }
 
 export default function WhatsAppLog() {
@@ -104,6 +105,7 @@ export default function WhatsAppLog() {
       setApptsById(aMap)
       setRows(Array.isArray(recent) ? recent : [])
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'whatsapplog.fmtdr' }) } catch {}
       setError(e?.message || L('Error al cargar', 'Load error'))
     }
     setLoading(false)

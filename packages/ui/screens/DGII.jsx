@@ -242,6 +242,7 @@ function Screen606() {
       }))
       setTxns(normalized)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'dgii.screen606' }) } catch {}
       console.error('DGII 606 load error:', e)
       setTxns([])
     } finally {
@@ -329,6 +330,7 @@ function Screen606() {
       downloadTxt(content, filename607(rncEmisor, year, month))
       showToast(L('Archivo 607 (Ventas) generado', '607 Sales file generated'))
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'dgii.generatetxt' }) } catch {}
       showToast(L('Error al generar: ', 'Error generating: ') + (e?.message || ''))
     }
   }
@@ -515,7 +517,8 @@ function HistorialPanel({ showToast }) {
           months.map(m => api.dgii.get606({ dateFrom: m.from, dateTo: m.to }).then(r => ({ ...m, records: (r||[]).length, total: (r||[]).reduce((s,t)=>s+(t.total||0),0) })).catch(() => ({ ...m, records: 0, total: 0 })))
         )
         setRows(results)
-      } catch {
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dgii.historialpanel' }) } catch {}
         setRows([])
       } finally {
         setLoading(false)
@@ -602,7 +605,8 @@ function Screen607() {
       const { from, to } = periodToDateRange(period)
       const data = await api.dgii.get607({ dateFrom: from, dateTo: to })
       setRows(data || [])
-    } catch { setRows([]) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dgii.screen607' }) } catch {} setRows([]) }
     finally { setLoading(false) }
   }, [period])
 
@@ -616,7 +620,8 @@ function Screen607() {
     try {
       const res = await api.rnc.lookup(rnc)
       if (res?.nombre) setForm(f => ({ ...f, nombre_proveedor: res.nombre }))
-    } catch { /* silent */ }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dgii.screen607' }) } catch {} /* silent */ }
     finally { setRncLoading(false) }
   }
 
@@ -650,6 +655,7 @@ function Screen607() {
       showToast(L('Compra registrada', 'Purchase saved'))
       loadData()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'dgii.screen607' }) } catch {}
       showToast(L('Error al guardar', 'Save error'), 'red')
     } finally { setSaving(false) }
   }
@@ -659,7 +665,8 @@ function Screen607() {
       await api.dgii.deleteCompra({ id })
       setRows(r => r.filter(x => x.id !== id))
       showToast(L('Registro eliminado', 'Record deleted'))
-    } catch { showToast(L('Error al eliminar', 'Delete error'), 'red') }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dgii.screen607' }) } catch {} showToast(L('Error al eliminar', 'Delete error'), 'red') }
   }
 
   const q = search.trim().toLowerCase()
@@ -687,6 +694,7 @@ function Screen607() {
       downloadTxt(content, filename606(rncEmisor, year, month))
       showToast(L('Archivo 606 (Compras) generado', '606 Purchases file generated'))
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'dgii.showtoast' }) } catch {}
       showToast(L('Error al generar: ', 'Error generating: ') + (e?.message || ''))
     }
   }
@@ -981,7 +989,8 @@ function Historial607Panel({ showToast }) {
           )
         )
         setRows(results)
-      } catch { setRows([]) }
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dgii.historial607panel' }) } catch {} setRows([]) }
       finally { setLoading(false) }
     }
     load()
@@ -1121,8 +1130,10 @@ function ScreenANECF() {
           cajero: user?.name || '',
           dgiiResponse: res || {},
         }).catch(() => {})
-      } catch {}
+      } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dgii.screenanecf' }) } catch {}}
     } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'dgii.screenanecf' }) } catch {}
       setError(err.message || L('Error desconocido', 'Unknown error'))
     } finally {
       setSubmitting(false)
@@ -1325,7 +1336,8 @@ function ScreenCert() {
     try {
       const r = await api.dgii_ecf.certInfo()
       setInfo(r || { installed: false })
-    } catch {
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'dgii.screencert' }) } catch {}
       setInfo({ installed: false })
     } finally {
       setLoading(false)
@@ -1369,6 +1381,7 @@ function ScreenCert() {
         setToast({ kind: 'err', msg: res?.error || L('No se pudo validar el certificado', 'Could not validate certificate') })
       }
     } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'dgii.screencert' }) } catch {}
       setPreview(null)
       setToast({ kind: 'err', msg: err.message || L('Error de red', 'Network error') })
     } finally {
@@ -1399,6 +1412,7 @@ function ScreenCert() {
         setToast({ kind: 'err', msg: res?.error || L('Error al instalar el certificado', 'Failed to install certificate') })
       }
     } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'dgii.screencert' }) } catch {}
       setToast({ kind: 'err', msg: err.message || L('Error de red', 'Network error') })
     } finally {
       setBusy(false)
@@ -1419,6 +1433,7 @@ function ScreenCert() {
         setToast({ kind: 'err', msg: L('No se pudo cambiar el entorno', 'Could not switch environment') })
       }
     } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'dgii.pickfile' }) } catch {}
       setToast({ kind: 'err', msg: err.message || L('Error', 'Error') })
     } finally {
       setEnvBusy(false)
@@ -1706,6 +1721,7 @@ function SandboxDemoCard() {
       if (r?.ok) setResult(r.data || r)
       else setError(r?.error || L('Error en demo', 'Demo error'))
     } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'dgii.sandboxdemocard' }) } catch {}
       setError(err?.message || L('Error de red', 'Network error'))
     } finally {
       setBusy(false)

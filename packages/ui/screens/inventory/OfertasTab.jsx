@@ -155,7 +155,8 @@ export default function OfertasTab() {
                         try {
                           const full = await api.ofertas.get(o.supabase_id)
                           setEditing(full || o)
-                        } catch { setEditing(o) }
+                        } catch (_aetherErr) {
+                          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'ofertastab.handler' }) } catch {} setEditing(o) }
                       }}
                         className="px-2.5 py-1.5 text-[11px] border border-slate-200 dark:border-white/10 rounded-lg text-slate-500 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10">
                         <Pencil size={12} />
@@ -329,6 +330,7 @@ function OfertaEditModal({ oferta, onClose, onSave }) {
       })
       onSave?.()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'ofertastab.addcomponent' }) } catch {}
       setError(e?.message || (lang === 'en' ? 'Failed to save' : 'No se pudo guardar'))
     } finally { setSaving(false) }
   }

@@ -1,0 +1,392 @@
+layer,file,line,action_id,has_try_catch,has_report,report_kind,severity,category,gap_type,fix_recommendation
+A,main.js,99,safe:set,yes,no,none,,ipc.safe.set,swallowed_catch,Add reportMainProcessError or __txReportError on catch
+A,main.js,112,safe:get,yes,no,none,,ipc.safe.get,swallowed_catch,Add reportMainProcessError or __txReportError on catch
+A,main.js,127,env:get,no,no,none,,ipc.env.get,no_try_catch,Simple passthrough no error path
+A,main.js,132,app:version,no,no,none,,ipc.app.version,no_try_catch,Simple passthrough no error path
+A,main.js,134,app:resetLocalDatabase,yes,no,none,,ipc.app.resetLocalDatabase,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,164,whatsapp:send,yes,no,none,,ipc.whatsapp.send,ipc_no_renderer_report,Verify renderer handles rejection with __txReportError
+A,main.js,201,whatsapp:sendDocument,yes,no,none,,ipc.whatsapp.send,ipc_no_renderer_report,Verify renderer handles rejection with __txReportError
+A,main.js,242,ecf:queue-count,no,no,none,,ipc.ecf.queue-count,no_try_catch,Simple query no error path
+A,main.js,291,dgii:submit,yes,no,none,,ipc.dgii.submit,swallowed_catch,Add reportMainProcessError(err 'critical' dgii.submit) on catch
+A,main.js,494,dgii:void-sequence,yes,no,none,,ipc.dgii.void,swallowed_catch,Add reportMainProcessError(err 'critical' dgii.void)
+A,main.js,554,dgii:install-cert,yes,no,none,,ipc.dgii.cert.install,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,581,dgii:cert-info,yes,no,none,,ipc.dgii.cert.info,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,692,cert:expiry-check,yes,no,none,,ipc.cert.expiry,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,719,dgii:cert-pem,yes,yes,activityLog_only,critical,ipc.dgii.cert.pem,partial_no_client_errors,Ensure renderer caller reports via __txReportError on load failure
+A,main.js,777,dgii:restore-from-pem,yes,yes,activityLog_only,critical,ipc.dgii.cert.restore,partial_no_client_errors,Ensure renderer caller reports via __txReportError on failure
+A,main.js,839,dgii:auth-test,yes,no,none,,ipc.dgii.auth,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,856,dgii:queue-anecf-void,yes,no,none,,ipc.dgii.anecf.void,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,872,dgii:check-status,yes,no,none,,ipc.dgii.status,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,885,dgii:get-env,no,no,none,,ipc.dgii.env,no_try_catch,Simple passthrough no error path
+A,main.js,888,dgii:generate-test-set,yes,no,none,,ipc.dgii.test,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,903,dgii:submissions,no,no,none,,ipc.dgii.submissions,no_try_catch,Simple query no error path
+A,main.js,1164,dgii:reconcile-now,yes,no,none,,ipc.dgii.reconcile,swallowed_catch,Add reportMainProcessError or handle internally
+A,main.js,1248,dgii:process-anecf-queue,yes,no,none,,ipc.dgii.anecf.process,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,1252,dgii:anecf-queue-count,no,no,none,,ipc.dgii.anecf.count,no_try_catch,Simple query no error path
+A,main.js,1253,dgii:anecf-queue-list,no,no,none,,ipc.dgii.anecf.list,no_try_catch,Simple query no error path
+A,main.js,1299,license:hwid,no,no,none,,ipc.license.hwid,no_try_catch,Simple function call no error path
+A,main.js,1387,license:set-key,yes,no,none,,ipc.license.set-key,swallowed_catch,Add reportMainProcessError on _wireLicenseJwt fail
+A,main.js,1395,license:clear-jwt,yes,no,none,,ipc.license.clear-jwt,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,1408,license:status,yes,no,none,,ipc.license.status,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,1427,license:is-master,no,no,none,,ipc.license.is-master,no_try_catch,Simple comparison no error path
+A,main.js,1437,remote:register,yes,no,none,,ipc.remote.register,ipc_no_renderer_report,Verify renderer handles rejection with __txReportError
+A,main.js,1448,remote:validate,yes,no,none,,ipc.remote.validate,ipc_no_renderer_report,Verify renderer handles rejection with __txReportError
+A,main.js,1852,backup:runNow,yes,yes,sentry_only,error,ipc.backup.run,partial_no_client_errors,Add __txReportError call in catch or wrap reportMainProcessError
+A,main.js,1862,backup:lastStatus,yes,no,none,,ipc.backup.status,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3023,rnc:status,yes,no,none,,ipc.rnc.status,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3031,rnc:sync,yes,no,none,,ipc.rnc.sync,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3041,rnc:lookup,yes,no,none,,ipc.rnc.lookup,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3145,db:exportToSupabase,yes,no,none,,ipc.db.export,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3155,print:list-usb-printers,yes,no,none,,ipc.print.list,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3190,print:receipt,yes,no,none,,ipc.print.receipt,ipc_no_renderer_report,Verify renderer handles rejection with __txReportError
+A,main.js,3215,print:open-drawer,yes,no,none,,ipc.print.drawer.open,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3274,print:fire-drawer-variant,yes,no,none,,ipc.print.drawer.fire,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3297,print:test-drawer-variants,no,no,none,,ipc.print.drawer.test,no_try_catch,No error handling but no critical path
+A,main.js,3328,fs:save-file,yes,no,none,,ipc.fs.save,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3346,pdf:save,yes,no,none,,ipc.pdf.save,swallowed_catch,Add reportMainProcessError on catch
+A,main.js,3360,backup:local,yes,no,none,,ipc.backup.local,swallowed_catch,Add reportMainProcessError on catch
+A,updater.js,68,updater:install,no,no,none,,ipc.updater.install,no_try_catch,Electron built-in may handle errors
+A,updater.js,73,updater:get-channel,yes,no,none,,ipc.updater.get-channel,swallowed_catch,Add error handling on catch
+A,updater.js,81,updater:set-channel,yes,no,none,,ipc.updater.set-channel,swallowed_catch,Add reportMainProcessError on catch
+A,updater.js,98,updater:check,yes,no,none,,ipc.updater.check,swallowed_catch,Add reportMainProcessError on catch
+B,packages/data/web.js,770,web.admin.saveEmpresa,1,0,none,error,admin_settings,no_report,tryWrite + caller guards
+B,packages/data/web.js,792,web.admin.saveUsuario,0,0,none,error,admin_users,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,815,web.admin.deleteUsuario,0,0,none,error,admin_users,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,824,web.admin.saveLavador,0,0,none,error,admin_users,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,842,web.admin.deleteLavador,0,0,none,error,admin_users,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,851,web.admin.saveVendedor,0,0,none,error,admin_users,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,867,web.admin.deleteVendedor,0,0,none,error,admin_users,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,875,web.admin.saveServicio,0,0,none,error,admin_settings,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,889,web.admin.deleteServicio,0,0,none,error,admin_settings,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,901,web.admin.saveSecuenciaNcf,0,0,none,error,admin_settings,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,914,web.admin.saveConfiguracion,0,0,none,error,admin_settings,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,952,web.settings.update,0,0,none,error,app_settings,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1007,web.inventory.create,0,0,none,error,inventory,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1012,web.inventory.update,0,0,none,error,inventory,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1029,web.inventory.bulkUpdate,0,0,none,error,inventory,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1044,web.inventory.delete,0,0,none,error,inventory,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1049,web.inventory.adjust,1,0,none,error,inventory,no_report,tryWrite + verify caller
+B,packages/data/web.js,1179,web.inventory.oversells.resolve,1,0,none,error,inventory,no_report,tryWrite + verify caller
+B,packages/data/web.js,1200,web.inventoryCount.start,0,0,none,error,inventory,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1282,web.inventoryCount.saveItem,0,0,none,error,inventory,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1296,web.inventoryCount.complete,0,0,none,error,inventory,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1392,web.inventoryCount.cancel,0,0,none,error,inventory,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1402,web.inventoryCount.delete,0,0,none,error,inventory,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1536,web.users.create,0,0,none,error,users,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1557,web.users.update,0,0,none,error,users,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1614,web.users.delete,0,0,none,error,users,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1625,web.users.deleteHard,0,0,none,error,users,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1641,web.users.generateAuthCard,0,0,none,error,users,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1667,web.users.revokeAuthCard,0,0,none,error,users,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1729,web.categorias.create,0,0,none,error,admin_settings,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1737,web.categorias.update,0,0,none,error,admin_settings,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1744,web.categorias.delete,0,0,none,error,admin_settings,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1788,web.services.create,0,0,none,error,admin_settings,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1813,web.services.update,0,0,none,error,admin_settings,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1841,web.services.setInStock,1,0,none,error,admin_settings,no_report,tryWrite + verify caller
+B,packages/data/web.js,1866,web.services.delete,1,0,none,error,admin_settings,no_report,tryWrite + verify caller
+B,packages/data/web.js,1901,web.washers.create,0,0,none,error,admin_employees,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1913,web.washers.update,0,0,none,error,admin_employees,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1941,web.sellers.create,0,0,none,error,admin_employees,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1952,web.sellers.update,0,0,none,error,admin_employees,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,1976,web.empleados.create,0,0,none,error,admin_employees,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2011,web.empleados.update,0,0,none,error,admin_employees,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2039,web.empleados.delete,0,0,none,error,admin_employees,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2047,web.empleados.hardDelete,0,0,none,error,admin_employees,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2067,web.payrollRuns.create,0,0,none,error,payroll,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2077,web.payrollRuns.bulkCreate,0,0,none,error,payroll,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2118,web.payrollRuns.remove,0,0,none,error,payroll,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2131,web.payrollSettings.update,0,0,none,error,payroll,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2152,web.adelantos.create,0,0,none,error,payroll,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2197,web.adelantos.deduct,0,0,none,error,payroll,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2204,web.adelantos.cancel,0,0,none,error,payroll,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2254,web.salaryChanges.create,0,0,none,error,payroll,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2291,web.salaryChanges.remove,1,0,none,error,payroll,no_report,tryWrite + verify caller
+B,packages/data/web.js,2320,web.clients.create,0,0,none,error,clients,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2339,web.clients.update,0,0,none,error,clients,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2348,web.clients.addLoyaltyPoints,0,0,none,error,clients,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2355,web.clients.updateBalance,0,0,none,error,clients,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2367,web.clients.loyaltyAward,1,0,none,warn,clients,partial_no_client_errors,RPC error swallowed
+B,packages/data/web.js,2381,web.clients.loyaltyRedeem,1,0,none,warn,clients,partial_no_client_errors,RPC error swallowed
+B,packages/data/web.js,2397,web.clients.loyaltyAdjust,1,0,none,warn,clients,partial_no_client_errors,RPC error swallowed
+B,packages/data/web.js,2440,web.credits.collect,0,0,none,error,credits,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,2570,web.tickets.byId,0,0,none,error,tickets,no_try_catch,Has writes - use tryWrite
+B,packages/data/web.js,3081,web.tickets.markPaid,0,0,none,error,tickets,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,3107,web.tickets.void,0,0,none,error,tickets,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,3292,web.tickets.transferToMesa,0,0,none,error,tickets,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,3371,web.tickets.merge,0,0,none,error,tickets,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,3453,web.tickets.openForFulfillment,0,0,none,error,tickets,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,3519,web.tickets.addItem,0,0,none,error,tickets,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,3559,web.tickets.updateItemPrice,0,0,none,error,tickets,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,3618,web.tickets.updateItemQty,0,0,none,error,tickets,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,3640,web.tickets.removeItem,0,0,none,error,tickets,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,3984,web.queue.updateStatus,0,0,none,error,queue,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4011,web.queue.delete,0,0,none,error,queue,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4181,web.commissions.markPaid,0,0,none,error,commissions,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4190,web.commissions.markPaidByPeriod,0,0,none,error,commissions,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4205,web.commissions.create,0,0,none,error,commissions,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4292,web.sellerCommissions.markPaid,0,0,none,error,commissions,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4298,web.sellerCommissions.markPaidByPeriod,0,0,none,error,commissions,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4310,web.sellerCommissions.create,0,0,none,error,commissions,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4403,web.cajeroCommissions.markPaid,0,0,none,error,commissions,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4409,web.cajeroCommissions.markPaidByPeriod,0,0,none,error,commissions,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4421,web.cajeroCommissions.create,0,0,none,error,commissions,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4454,web.cuadre.create,0,0,none,error,cuadre,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4613,web.cuadre.openShift,1,0,none,error,cuadre,no_report,tryWrite + verify caller
+B,packages/data/web.js,4665,web.ncf.next,1,0,none,error,ncf,no_report,tryWrite + verify caller
+B,packages/data/web.js,4759,web.cajaChica.create,0,0,none,error,cajaChica,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4769,web.cajaChica.updateStatus,0,0,none,error,cajaChica,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4809,web.notas.create,1,0,none,error,notas,no_report,tryWrite + verify caller
+B,packages/data/web.js,4875,web.dgii.addCompra,0,0,none,error,dgii,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,4898,web.dgii.deleteCompra,0,0,none,error,dgii,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5120,web.app.goLiveCommit,1,0,none,error,app,no_report,tryWrite + verify caller
+B,packages/data/web.js,5307,web.app.submit,1,0,none,error,fiscal,no_report,tryWrite + verify caller
+B,packages/data/web.js,5509,web.app.setEnvironment,1,0,none,error,fiscal,no_report,tryWrite + verify caller
+B,packages/data/web.js,5537,web.app.setFiscalMode,1,0,none,error,fiscal,no_report,tryWrite + verify caller
+B,packages/data/web.js,5577,web.restaurant.mesas.create,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5590,web.restaurant.mesas.update,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5602,web.restaurant.mesas.setStatus,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5625,web.restaurant.mesas.delete,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5665,web.restaurant.reservations.create,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5694,web.restaurant.reservations.update,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5705,web.restaurant.reservations.confirm,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5718,web.restaurant.reservations.cancel,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5734,web.restaurant.reservations.markNoShow,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5749,web.restaurant.reservations.seat,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5781,web.restaurant.reservations.stampWhatsapp,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5807,web.restaurant.modificadores.create,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5822,web.restaurant.modificadores.update,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5836,web.restaurant.modificadores.delete,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5857,web.restaurant.service_mods.attachToService,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5867,web.restaurant.service_mods.detachFromService,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5915,web.restaurant.recipes.add,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+B,packages/data/web.js,5930,web.restaurant.recipes.update,0,0,none,error,restaurant,no_try_catch,Wrap with tryWrite
+C,web/api/panel.js,1569,api.panel.stats,yes,no,none,low,admin_dashboard,client_caller_reports_only,Client must call __txReportError on non-2xx
+C,web/api/panel.js,1599,api.panel.licenses,yes,no,none,low,license_management,client_caller_reports_only,GET/POST/PATCH wrapped; client-side reporting only
+C,web/api/panel.js,1646,api.panel.clients,yes,no,none,medium,crm,client_caller_reports_only,Validation failures (400) not logged
+C,web/api/panel.js,1782,api.panel.users,yes,no,none,low,admin_users,client_caller_reports_only,All error branches rely on client-side reporting
+C,web/api/panel.js,1928,api.panel.client_detail,yes,no,none,medium,crm,client_caller_reports_only,Some validation 400s not logged
+C,web/api/panel.js,2004,api.panel.cert_history,yes,no,none,low,cert_audit,client_caller_reports_only,GET only; returns 500 on error
+C,web/api/panel.js,2023,api.panel.update_business,yes,no,none,low,admin_business,client_caller_reports_only,PATCH wrapped; returns 400/500
+C,web/api/panel.js,2057,api.panel.link_web_account,yes,no,none,medium,auth,client_caller_reports_only,Auth errors (401) not logged
+C,web/api/panel.js,2090,api.panel.reset_password,yes,no,none,medium,auth,client_caller_reports_only,Returns 400/500
+C,web/api/panel.js,2105,api.panel.activity_feed,yes,no,none,low,admin_audit,client_caller_reports_only,GET wrapped; client reports
+C,web/api/panel.js,1881,api.panel.register,yes,no,none,medium,auth,client_caller_reports_only,Returns 400/409/500
+C,web/api/panel.js,1838,api.panel.client_config,yes,no,none,low,admin_config,client_caller_reports_only,GET/POST wrapped
+C,web/api/panel.js,1826,api.panel.push_service,yes,no,none,low,push_notifications,client_caller_reports_only,GET/POST wrapped
+C,web/api/panel.js,2254,api.panel.cert_list,yes,no,none,low,cert_management,client_caller_reports_only,GET wrapped
+C,web/api/panel.js,2268,api.panel.cert_detail,yes,no,none,low,cert_detail,client_caller_reports_only,GET wrapped
+C,web/api/panel.js,2287,api.panel.cert_create,yes,no,none,medium,cert_workflow,client_caller_reports_only,POST wrapped
+C,web/api/panel.js,2309,api.panel.cert_update,yes,no,none,medium,cert_workflow,client_caller_reports_only,PATCH wrapped
+C,web/api/panel.js,2328,api.panel.cert_step,yes,no,none,medium,cert_workflow,client_caller_reports_only,POST/PATCH wrapped
+C,web/api/panel.js,2352,api.panel.cert_notes,yes,no,none,low,cert_audit,client_caller_reports_only,GET/POST wrapped
+C,web/api/panel.js,585,api.panel.crm_list,yes,no,none,low,crm,client_caller_reports_only,GET wrapped
+C,web/api/panel.js,637,api.panel.crm_detail,yes,no,none,low,crm,client_caller_reports_only,GET wrapped
+C,web/api/panel.js,659,api.panel.crm_update,yes,no,none,medium,crm,client_caller_reports_only,PATCH wrapped
+C,web/api/panel.js,699,api.panel.crm_note,yes,no,none,low,crm_audit,client_caller_reports_only,POST/GET wrapped
+C,web/api/panel.js,1473,api.panel.crm_create,yes,no,none,medium,crm,client_caller_reports_only,POST wrapped
+C,web/api/panel.js,1459,api.panel.crm_delete,yes,no,none,low,crm,client_caller_reports_only,DELETE wrapped
+C,web/api/panel.js,823,api.panel.report_error,yes,yes,write_client_errors,low,error_reporting,ok,Server-side write to client_errors table
+C,web/api/panel.js,901,api.panel.errors_list,yes,no,none,low,admin_error_review,client_caller_reports_only,GET wrapped
+C,web/api/panel.js,919,api.panel.errors_resolve,yes,no,none,low,admin_error_management,client_caller_reports_only,POST wrapped
+C,web/api/panel.js,881,api.panel.errors_decode,yes,no,none,low,admin_error_review,client_caller_reports_only,POST wrapped
+C,web/api/panel.js,941,api.panel.client_health_snapshot,yes,no,none,low,admin_monitoring,client_caller_reports_only,GET wrapped
+C,web/api/panel.js,1060,api.panel.dgii_creds_save,yes,no,none,high,dgii_integration,client_caller_reports_only,Credential failures not logged
+C,web/api/panel.js,1096,api.panel.dgii_creds_status,yes,no,none,medium,dgii_integration,client_caller_reports_only,GET wrapped
+C,web/api/panel.js,1112,api.panel.dgii_creds_delete,yes,no,none,medium,dgii_integration,client_caller_reports_only,DELETE wrapped
+C,web/api/panel.js,1129,api.panel.dgii_pull_run,yes,no,none,high,dgii_integration,client_caller_reports_only,Manual pull failures not logged
+C,web/api/panel.js,1246,api.panel.cron_dgii_pull,yes,no,none,high,dgii_integration,client_caller_reports_only,Batch failures may be silent
+C,web/api/panel.js,1173,api.panel.dgii_creds_save_plaintext,yes,no,none,high,dgii_integration,client_caller_reports_only,Plaintext upload failures not logged
+C,web/api/panel.js,1197,api.panel.dgii_login_test,yes,no,none,medium,dgii_integration,client_caller_reports_only,Auth test failures not logged
+C,web/api/fe.js,141,api.fe.semilla,no,no,none,low,dgii_seed,no_try_catch,No try-catch; nonce persist swallowed
+C,web/api/fe.js,179,api.fe.validarcertificado,yes,no,none,high,dgii_auth,partial_server_no_log,Seed verification failures caught but not logged
+C,web/api/fe.js,266,api.fe.recepcion,yes,no,none,high,dgii_reception,partial_server_no_log,XML signing failures caught but not logged
+C,web/api/fe.js,321,api.fe.aprobacion,yes,no,none,high,dgii_approval,partial_server_no_log,XML signing failures caught but not logged
+C,web/api/validate.js,82,api.validate.validate,yes,no,none,high,license_validation,partial_server_no_log,Rate limit failures not logged; audit() errors swallowed
+C,web/api/rnc.js,13,api.rnc.lookup,yes,no,none,medium,rnc_lookup,partial_server_no_log,External API failures caught but not logged
+C,web/api/ecf-sign.js,39,api.ecf-sign.sign,yes,no,none,high,ecf_signing,partial_server_no_log,DGII/signing failures caught but not logged
+C,web/api/dgii-cert-upload.js,76,api.dgii-cert-upload.install,yes,no,none,high,cert_installation,partial_server_no_log,.p12 parsing failures caught but not logged
+C,web/api/staff-verify-auth.js,29,api.staff-verify-auth.verify,no,no,none,medium,staff_auth,no_try_catch,No try-catch wrapper; Supabase errors bubble up
+C,web/api/signup/lead.js,19,api.signup.lead,yes,no,none,low,crm_lead_capture,partial_server_no_log,Lead failures caught but not logged
+C,web/api/signup/provision.js,9,api.signup.provision,yes,no,none,high,account_provisioning,partial_server_no_log,Non-fatal blocks swallow errors at 87-147
+C,web/api/digest/daily.js,274,api.digest.daily.cron,yes,no,none,high,digest_automation,partial_server_no_log,Per-business errors caught but not logged at 342-346
+D1,packages/ui/screens/POS.jsx,745,handleRncLookup,no,no,none,partial,pos.rnc.lookup,no_try_catch,Wrap api.rnc.lookup in try/catch + __txReportError on failure
+D1,packages/ui/screens/POS.jsx,751,handleEncolar,yes,no,flash,high,pos.queue.enqueue,toast_only,Add __txReportError before flash so admin sees enqueue failures
+D1,packages/ui/screens/POS.jsx,834,handlePaymentConfirm_carwash,yes,no,flash,critical,pos.payment.confirm.carwash,toast_only,Add __txReportError(err category pos_payment_carwash severity error)
+D1,packages/ui/screens/POS.jsx,938,membership_consume,yes,no,flash+console_error,high,pos.membership.consume,toast_only,Add __txReportError on consume failure (silent debit drift)
+D1,packages/ui/screens/POS.jsx,980,membership_purchase,yes,no,flash+console_error,high,pos.membership.purchase,toast_only,Add __txReportError on purchase failure (saldo not created)
+D1,packages/ui/screens/POS.jsx,1074,print_factura_auto,yes,no,flash,partial,pos.print.factura,toast_only,Already non-blocking but add __txReportError(severity warn) for chronic printer failures
+D1,packages/ui/screens/POS.jsx,1134,print_washer_conduce,yes,no,flash,partial,pos.print.conduce,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/POS.jsx,1138,save_receipt_pdf,yes,no,flash,partial,pos.pdf.save,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/POS.jsx,1147,post_sale_side_effects,yes,no,swallowed,partial,pos.post_sale_print,swallowed_catch,Replace bare swallow with __txReportError severity warn
+D1,packages/ui/screens/POS.jsx,1213,reorder_save_writes,yes,no,console_error,high,pos.reorder.save,console_only,Add __txReportError on bulk save failures (display order drift)
+D1,packages/ui/screens/POS.jsx,1231,reorder_save_outer,yes,no,flash+console_error,high,pos.reorder.save,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/POS.jsx,2262,handleBarcodeScan,no,no,none,high,pos.barcode.scan,no_try_catch,Wrap scan resolve+update in try/catch + __txReportError
+D1,packages/ui/screens/POS.jsx,2687,handlePaymentConfirm_retail,yes,no,flash+console_error,critical,pos.payment.confirm.retail,toast_only,Add __txReportError(category pos_payment_retail severity error) — re-throw stays
+D1,packages/ui/screens/POS.jsx,2802,post_sale_side_effects_retail,yes,no,console_error,partial,pos.post_sale_print.retail,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/POS.jsx,3652,saveEdit_grid,no,no,none,high,pos.grid.save_edit,no_try_catch,Wrap saveEdit in try/catch + __txReportError
+D1,packages/ui/screens/POS.jsx,4032,handleOpen_apertura,yes,no,console_error,high,pos.cash.apertura,console_only,Add __txReportError(category pos_apertura severity error)
+D1,packages/ui/screens/Queue.jsx,489,deleteFromQueue,yes,no,flash,high,queue.delete,toast_only,Add __txReportError(category queue_delete severity warn)
+D1,packages/ui/screens/Queue.jsx,511,cycleStatus,yes,no,flash,high,queue.cycle_status,toast_only,Add __txReportError on revert (lost status churn)
+D1,packages/ui/screens/Queue.jsx,534,assignWorker,yes,no,flash,high,queue.assign_worker,toast_only,Add __txReportError(category queue_assign_worker severity warn)
+D1,packages/ui/screens/Queue.jsx,553,notifyReady_whatsapp,yes,no,flash,partial,queue.notify_whatsapp,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/Queue.jsx,576,cobrar_load_ticket,yes,no,swallowed,high,queue.cobrar.load_ticket,swallowed_catch,Replace silent fallback with __txReportError severity warn — fallback path still ok
+D1,packages/ui/screens/Queue.jsx,604,handlePriceChange,yes,no,flash,high,queue.price_change,toast_only,Add __txReportError(category queue_price_change severity warn)
+D1,packages/ui/screens/Queue.jsx,638,handlePaymentConfirm_queue,yes,no,flash+console_error,critical,queue.payment.confirm,toast_only,Add __txReportError(category queue_payment severity error) — top-level cobro path
+D1,packages/ui/screens/Queue.jsx,722,print_factura_queue,yes,no,flash,partial,queue.print.factura,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/Queue.jsx,756,print_conduce_queue,yes,no,flash,partial,queue.print.conduce,toast_only,Add __txReportError severity warn
+D1,packages/ui/components/CobrarModal.jsx,271,sendWhatsApp,yes,no,alert+setState,high,cobro.whatsapp.send,alert_only,Replace alert() with __txReportError + visible banner
+D1,packages/ui/components/CobrarModal.jsx,668,consumeMembershipForLine,yes,no,alert+console_error,critical,cobro.membership.consume,alert_only,Add __txReportError severity error — silent debit drift
+D1,packages/ui/components/CobrarModal.jsx,736,awardLoyaltyPoints,yes,no,alert+console_error,high,cobro.loyalty.award,alert_only,Add __txReportError severity warn (legacy path missing point credits)
+D1,packages/ui/components/CobrarModal.jsx,762,salon_addLoyaltyPoints,yes,no,alert+console_error,high,cobro.loyalty.salon_award,alert_only,Add __txReportError severity warn
+D1,packages/ui/components/CobrarModal.jsx,952,consumeMembership_outer,no,no,none,high,cobro.membership.outer,no_try_catch,Wrap and report
+D1,packages/ui/components/CobrarModal.jsx,963,consumeCombo,no,no,none,high,cobro.combo.consume,no_try_catch,Wrap and report
+D1,packages/ui/components/CobrarModal.jsx,1153,lookupRnc_modal,no,no,none,partial,cobro.rnc.lookup,no_try_catch,Wrap with __txReportError
+D1,packages/ui/components/CobrarModal.jsx,1246,handleConfirm_legacy_ncf_reserve,yes,no,throw,critical,cobro.ncf.reserve.legacy,toast_only,Add __txReportError before re-throw (NCF reservation = fiscal-critical)
+D1,packages/ui/components/CobrarModal.jsx,1348,handleConfirm_legacy_persist,yes,no,setState,critical,cobro.ticket.persist.legacy,state_only,Add __txReportError(category cobro_persist_legacy severity critical)
+D1,packages/ui/components/CobrarModal.jsx,1370,loyalty_redeem_legacy,yes,no,console_error+activityLog,partial,cobro.loyalty.redeem.legacy,partial_no_client_errors,Add __txReportError alongside activityLogRecord
+D1,packages/ui/components/CobrarModal.jsx,1431,handleConfirm_ecf_ncf_reserve,yes,no,throw,critical,cobro.ncf.reserve.ecf,toast_only,Add __txReportError before re-throw
+D1,packages/ui/components/CobrarModal.jsx,1553,handleConfirm_ecf_persist,yes,no,setState,critical,cobro.ticket.persist.ecf,state_only,Add __txReportError(category cobro_persist_ecf severity critical)
+D1,packages/ui/components/CobrarModal.jsx,1571,loyalty_redeem_ecf,yes,no,console_error+activityLog,partial,cobro.loyalty.redeem.ecf,partial_no_client_errors,Add __txReportError alongside activityLogRecord
+D1,packages/ui/components/CobrarModal.jsx,1597,handleConfirm_outer_dgii,yes,no,setState,critical,cobro.dgii.submit,state_only,Add __txReportError(category cobro_dgii severity critical) for non-TEST_MODE branch
+D1,packages/ui/components/CobrarModal.jsx,1637,handleConfirm_test_mode_persist,yes,no,setState,high,cobro.ticket.persist.test_mode,state_only,Add __txReportError severity error
+D1,packages/ui/components/CobrarModal.jsx,2066,fiscal_mode_persist_b,yes,yes,txReportError,ok,cobro.fiscal_mode.b_series,ok,
+D1,packages/ui/components/CobrarModal.jsx,2078,fiscal_mode_persist_ecf,yes,yes,txReportError,ok,cobro.fiscal_mode.ecf,ok,
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,174,setLocation,yes,no,swallowed,partial,foodtruck.location.set,swallowed_catch,Replace bare swallow with __txReportError severity warn
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,233,loadPending,yes,no,setState,high,foodtruck.pending.load,state_only,Add __txReportError severity warn
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,273,sendToKitchen_outer,yes,yes,txReportError,ok,foodtruck.send_kitchen,ok,
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,311,sendToKitchen_addItem,yes,yes,txReportError,ok,foodtruck.add_item,ok,
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,331,sendToKitchen_updateTotals,yes,no,console_only,partial,foodtruck.update_totals,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,351,sendToKitchen_kds_fire,yes,yes,txReportError,ok,foodtruck.kds_fire,ok,
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,378,clearEvent,no,no,none,partial,foodtruck.event.clear,no_try_catch,Wrap and report severity warn
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,430,fireKitchen_loop,yes,no,console_only,partial,foodtruck.kds_fire.loop,console_only,Add __txReportError severity warn (chronic KDS fail signal)
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,451,handleTicketPaid_persist,yes,yes,txReportError,ok,foodtruck.cobrar.persist,ok,
+D1,packages/ui/screens/foodtruck/FoodTruckPOS.jsx,541,handleTicketPaid_post_fire,yes,yes,txReportError,ok,foodtruck.kds_fire.post_cobro,ok,
+D1,packages/ui/screens/foodtruck/Pendientes.jsx,80,reload_pendientes,yes,no,setState,high,foodtruck.pending.reload,state_only,Add __txReportError severity warn
+D1,packages/ui/screens/foodtruck/Pendientes.jsx,108,cobrarDirect,yes,no,swallowed,partial,foodtruck.pending.cobrar_direct,swallowed_catch,Add __txReportError on sessionStorage fail (rare but observable)
+D1,packages/ui/screens/CashReconciliation.jsx,104,PinModal_submit,yes,no,setState,partial,cuadre.pin.verify,state_only,Add __txReportError severity warn for byPin RPC failures
+D1,packages/ui/screens/CashReconciliation.jsx,183,handleReprint,yes,no,swallowed,partial,cuadre.reprint,swallowed_catch,Replace bare swallow with __txReportError severity warn
+D1,packages/ui/screens/CashReconciliation.jsx,381,getEmpresa_load,yes,no,flash,partial,cuadre.empresa.load,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/CashReconciliation.jsx,402,daily_summary_load,yes,no,flash,high,cuadre.daily.load,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/CashReconciliation.jsx,448,doPrint,yes,no,flash,partial,cuadre.print,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/CashReconciliation.jsx,451,handleRecalc,yes,no,flash,high,cuadre.recalc,toast_only,Add __txReportError severity warn
+D1,packages/ui/screens/CashReconciliation.jsx,479,doClose_create,yes,no,flash+console_error,critical,cuadre.close.create,toast_only,Add __txReportError(category cuadre_close severity critical) — closing the day is fiscal-load-bearing
+D1,packages/ui/screens/PettyCash.jsx,112,PinModal_submit,yes,no,setState,partial,petty_cash.pin.verify,state_only,Add __txReportError severity warn
+D1,packages/ui/screens/PettyCash.jsx,229,loadTxns,yes,no,swallowed,high,petty_cash.load,swallowed_catch,Add __txReportError severity warn — empty-list bug pattern
+D1,packages/ui/screens/PettyCash.jsx,263,doApprove,yes,no,swallowed,critical,petty_cash.approve,swallowed_catch,Add __txReportError severity error — silent approval failure
+D1,packages/ui/screens/PettyCash.jsx,271,doReject,yes,no,swallowed,critical,petty_cash.reject,swallowed_catch,Add __txReportError severity error — silent reject failure
+D1,packages/ui/screens/PettyCash.jsx,289,handleGuardar,yes,no,swallowed,critical,petty_cash.create,swallowed_catch,Add __txReportError severity error — UI shows toast saved even when create failed
+D1,packages/ui/screens/restaurant/Mesas.jsx,123,NewMesaModal_submit,yes,no,setState,high,mesa.create.modal,state_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Mesas.jsx,210,EditMesaModal_submit,yes,no,setState,high,mesa.update.modal,state_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Mesas.jsx,291,SeatMesaModal_submit,yes,no,setState,high,mesa.seat.modal,state_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Mesas.jsx,450,loadMesas,yes,no,setState,partial,mesa.load,state_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Mesas.jsx,513,handleCreate,no,no,none,high,mesa.create,no_try_catch,Wrap api.mesas.create + __txReportError severity warn
+D1,packages/ui/screens/restaurant/Mesas.jsx,518,handleUpdate,no,no,none,high,mesa.update,no_try_catch,Wrap api.mesas.update + __txReportError severity warn
+D1,packages/ui/screens/restaurant/Mesas.jsx,523,handleStatus,no,no,none,critical,mesa.status_change,no_try_catch,Wrap api.mesas.setStatus + __txReportError severity error — rev_conflict trigger lives here
+D1,packages/ui/screens/restaurant/Mesas.jsx,528,handleDelete,no,no,none,high,mesa.delete,no_try_catch,Wrap api.mesas.delete + __txReportError severity warn
+D1,packages/ui/screens/restaurant/Reservations.jsx,76,modal_submit_reservation,yes,no,setState,high,reservation.create_or_update.modal,state_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Reservations.jsx,368,reload_reservations,yes,no,setState+console_error,partial,reservation.load,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Reservations.jsx,377,onSubmit_reservation,no,no,none,high,reservation.submit,no_try_catch,Wrap and report — currently bubbles to nearest boundary
+D1,packages/ui/screens/restaurant/Reservations.jsx,388,onConfirm_reservation,yes,no,setState,high,reservation.confirm,state_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Reservations.jsx,393,onCancel_reservation,yes,no,setState,high,reservation.cancel,state_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Reservations.jsx,399,onMarkNoShow,yes,no,setState,high,reservation.no_show,state_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Reservations.jsx,406,confirmSeat_reservation,yes,no,setState,high,reservation.seat,state_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/Reservations.jsx,422,onSendWhatsApp_stamp,yes,no,swallowed,partial,reservation.whatsapp.stamp,swallowed_catch,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/KDS.jsx,365,kds_refresh,yes,no,setState+console_error,partial,kds.refresh,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/KDS.jsx,422,kds_transition,yes,no,setState,critical,kds.advance,state_only,Add __txReportError severity error — rev_conflict trigger and station-blind cooks
+D1,packages/ui/screens/restaurant/KDS.jsx,672,kds_toggle_in_stock,yes,no,alert,high,kds.86_list.toggle,alert_only,Replace alert() with __txReportError + setError banner
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,886,restaurant_load,yes,no,setState+console_error,partial,restaurant.load,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1043,openMesa,yes,no,setState+console_error,critical,mesa.open.ticket,setState,Add __txReportError severity error
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1108,openForMesa_failed_revert,yes,no,setState+console_error,critical,mesa.open_for_mesa.revert,setState,Add __txReportError severity error
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1114,mesa_revert_inner,yes,no,console_only,high,mesa.revert,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1084,handleSeat,yes,no,setState+console_error,high,mesa.seat,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1158,modificadores_load,yes,no,console_only,partial,restaurant.modificadores.load,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1225,addItem_persist,yes,no,setState+console_error,high,restaurant.add_item.persist,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1252,updateItemQty_persist,yes,no,console_only,high,restaurant.update_qty.persist,console_only,Add __txReportError severity warn — silent qty drift
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1281,removeItem_persist_a,yes,no,console_only,high,restaurant.remove_item.persist_a,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1301,removeItem_persist_b,yes,no,console_only,high,restaurant.remove_item.persist_b,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1330,onManagerApprove_void,yes,no,console_only,critical,restaurant.void_fired_item.activity_log,console_only,Add __txReportError severity warn — audit-trail gap
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1395,fireToKDS,yes,no,setState+console_error,critical,restaurant.fire_kds,setState,Add __txReportError(category restaurant_fire_kds severity error) — fiscal-and-operational
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1471,handleRequestBill_outer,yes,no,setState+console_error,high,restaurant.request_bill,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1507,pre_cuenta_print,yes,no,setState+console_only,partial,restaurant.pre_cuenta.print,setState,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1562,handleTicketPaid_persist,yes,no,setState+console_error,critical,restaurant.cobrar.persist,setState,Add __txReportError(category restaurant_cobrar severity critical) — mesa stays ocupada
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1654,snapshot_modifier_legacy,yes,no,console_only,partial,restaurant.snapshot_mod.legacy,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1665,post_cobro_cleanup,yes,no,console_only,partial,restaurant.post_cobro.cleanup,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1687,handleSplitPay,yes,no,setState+console_error,critical,restaurant.split_pay,setState,Add __txReportError severity error
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1762,split_snapshot_mod,yes,no,console_only,partial,restaurant.split.snapshot_mod,console_only,Add __txReportError severity warn
+D1,packages/ui/screens/restaurant/RestaurantPOS.jsx,1766,split_snapshot_loop,yes,no,console_only,partial,restaurant.split.snapshot_loop,console_only,Add __txReportError severity warn
+D2,Admin.jsx,225,Admin.Usuarios.handleDelete,yes,yes,error_state,ok,data_deletion,state_only,setError state reports errors
+D2,Admin.jsx,237,Admin.Usuarios.handleRowDelete,yes,yes,toast_error,ok,data_deletion,toast_only,Toast via show() helper
+D2,Admin.jsx,306,Admin.Usuarios.handleSave,yes,yes,error_state,ok,data_save,state_only,setError state with toast on success
+D2,Admin.jsx,357,Admin.Usuarios.toggleActive,yes,yes,toast_error,ok,status_change,toast_only,Toast feedback on completion
+D2,Admin.jsx,359,Admin.revokeCard,yes,yes,toast_error,ok,data_write,toast_only,Toast on card revoke action
+D2,Admin.jsx,634,Admin.moveCat,yes,yes,toast_error,ok,reorder,toast_only,Toast on category reorder
+D2,Admin.jsx,658,Admin.renameCat,yes,yes,toast_error,ok,data_update,toast_only,Toast on rename category
+D2,Admin.jsx,681,Admin.deleteCat,yes,yes,toast_error,ok,data_deletion,toast_only,Toast on category delete
+D2,Admin.jsx,706,Admin.openCreateCatPrompt,yes,yes,toast_error,ok,data_creation,toast_only,Toast on category creation
+D2,Admin.jsx,728,Admin.Services.handleSave,yes,yes,error_state,ok,data_save,state_only,setError and toast feedback
+D2,Admin.jsx,747,Admin.Services.toggleActive,yes,yes,toast_error,ok,status_change,toast_only,Toast on service activation
+D2,Admin.jsx,758,Admin.Services.handleDelete,yes,yes,error_state,ok,data_deletion,state_only,setError state on delete
+D2,Admin.jsx,777,Admin.Services.quickDeleteService,yes,yes,toast_error,ok,data_deletion,toast_only,Toast on quick service delete
+D2,Admin.jsx,1179,Admin.DGII.saveFiscalMode,yes,yes,toast_error,ok,config_update,toast_only,Toast on fiscal mode change
+D2,Admin.jsx,1200,Admin.DGII.handleToggle,yes,yes,toast_error,ok,status_change,toast_only,Toast on DGII toggle
+D2,Admin.jsx,1213,Admin.DGII.handleSaveSeq,yes,yes,toast_error,ok,data_update,toast_only,Toast on NCF sequence save
+D2,Admin.jsx,1246,Admin.DGII.handleInstallCert,yes,yes,toast_error,ok,cert_upload,toast_only,Toast on certificate install
+D2,Admin.jsx,1558,Admin.MiEmpresa.save,yes,yes,toast_error,ok,company_settings,toast_only,Toast on company info save
+D2,DGII.jsx,635,DGII.Compras.handleSave,yes,yes,error_state,ok,data_save,state_only,setError on compra save
+D2,DGII.jsx,657,DGII.Compras.handleDelete,yes,yes,error_state,ok,data_deletion,state_only,setError on compra delete
+D2,DGII.jsx,1379,DGII.CertUpload.handleUpload,yes,yes,error_state,ok,cert_upload,state_only,setError on certificate upload
+D2,DGII.jsx,1408,DGII.CertUpload.flipEnv,yes,yes,error_state,ok,config_update,state_only,setError on environment flip
+D2,Inventory.jsx,75,Inventory.ItemModal.handleSave,yes,yes,error_state,ok,data_save,state_only,setErr state reporting
+D2,Inventory.jsx,615,Inventory.ImportCSV.handleImport,yes,no,none,high,csv_import,swallowed_catch,Silent catch per row
+D2,Inventory.jsx,851,Inventory.OrganizeModal.apply,yes,yes,toast_message,ok,bulk_update,toast_only,Toast with result summary
+D2,Inventory.jsx,1373,Inventory.handleDelete,no,no,none,critical,data_deletion,no_try_catch,CRITICAL gap: Unprotected delete
+D2,Inventory.jsx,1394,Inventory.quickDeleteItem,yes,no,none,high,data_deletion,swallowed_catch,Silent error catch
+D2,Dealership.VehicleInventory,66,VehicleInventory.save.update,no,no,none,critical,data_update,no_try_catch,CRITICAL: No try-catch wrapper
+D2,Dealership.VehicleInventory,67,VehicleInventory.save.create,no,no,none,critical,data_creation,no_try_catch,CRITICAL: No try-catch wrapper
+D2,Dealership.VehicleInventory,72,VehicleInventory.remove.delete,no,no,none,critical,data_deletion,no_try_catch,CRITICAL: No try-catch wrapper
+D2,Salon.Appointments,522,Salon.Appointments.handleSave.update,no,yes,flash_message,partial,data_update,toast_only,Toast only no try-catch
+D2,Salon.Appointments,523,Salon.Appointments.handleSave.create,no,yes,flash_message,partial,data_creation,toast_only,Toast only no try-catch
+D2,Salon.Appointments,569,Salon.Appointments.handleVoidNoShowFee,yes,yes,flash_message,ok,data_update,toast_only,Try-catch with detailed errors
+D2,Salon.Appointments,608,Salon.Appointments.handleSendReminder,yes,yes,flash_message,ok,data_send,toast_only,Try-catch with error reporting
+D2,Salon.Memberships,305,Salon.Memberships.create,yes,yes,toast_message,ok,data_creation,toast_only,Try-catch with toast
+D2,Salon.Memberships,317,Salon.Memberships.update,yes,yes,toast_message,ok,data_update,toast_only,Try-catch with toast
+D2,Lending.Loans,263,Lending.Loans.handleCreate,yes,yes,error_state,ok,data_creation,state_only,setError on loan create
+D2,Lending.Loans,520,Lending.Loans.handlePayment,yes,yes,error_state,ok,data_creation,state_only,setError on payment create
+D2,Lending.Loans,1162,Lending.Loans.handleDefault,yes,yes,toast_message,ok,status_change,toast_only,Toast on loan default
+D2,Lending.Loans,1174,Lending.Loans.handleCancel,yes,yes,toast_message,ok,status_change,toast_only,Toast on loan cancel
+D2,Lending.PawnItems,362,Lending.PawnItems.handleSave.update,yes,yes,error_state,ok,data_update,state_only,setError on pawn update
+D2,Lending.PawnItems,365,Lending.PawnItems.handleSave.create,yes,yes,error_state,ok,data_creation,state_only,setError on pawn create
+D2,Lending.PawnItems,791,Lending.PawnItems.handleDocDelete,yes,yes,toast_message,ok,data_deletion,toast_only,Toast on document delete
+D2,Lending.PawnItems,1215,Lending.PawnItems.handleRedeem,yes,yes,toast_message,ok,status_change,toast_only,Toast on redemption
+D2,Lending.PawnItems,1266,Lending.PawnItems.handleForfeit,yes,yes,toast_message,ok,status_change,toast_only,Toast on forfeiture
+D2,FoodTruck.Locations,63,FoodTruck.Locations.handleSave.update,no,yes,toast_message,partial,data_update,toast_only,ALERT ONLY: No try-catch
+D2,FoodTruck.Locations,70,FoodTruck.Locations.handleSave.create,no,yes,toast_message,partial,data_creation,toast_only,ALERT ONLY: No try-catch
+D2,FoodTruck.Locations,91,FoodTruck.Locations.handleDelete,no,yes,toast_message,partial,data_deletion,toast_only,ALERT ONLY: No try-catch
+D2,FoodTruck.WasteLog,72,FoodTruck.WasteLog.handleCreate,yes,yes,error_state,ok,data_creation,state_only,setErr state reporting
+D2,FoodTruck.WasteLog,95,FoodTruck.WasteLog.handleDelete,yes,yes,error_state,ok,data_deletion,state_only,setErr state reporting
+D2,Sistema.jsx,121,Sistema.saveLiveDate,yes,yes,toast_message,ok,config_update,toast_only,Toast on go-live date save
+D2,Sistema.jsx,501,Sistema.handleSettingsUpdate,yes,yes,toast_message,ok,bulk_config,toast_only,Toast with detailed errors
+D2,Sistema.jsx,854,Sistema.printerChange,yes,yes,toast_message,ok,config_update,toast_only,Try-catch on printer setting
+E,electron/sync.js,95,jwt.refresh,yes,partial,console_only,medium,auth,console_only,Wrap _maybeRefreshJwt with client_errors post on critical JWT failure
+E,electron/sync.js,3544,sync.pull.all_tables,yes,yes,console_only,low,data,console_only,Pull failures log only — catch and report each table miss to client_errors
+E,electron/sync.js,3817,sync.pull_now,yes,yes,console_only,low,data,console_only,pullNow() catches tables individually but silently swallows errors without client_errors
+E,electron/sync.js,3880,sync.push.all_tables,yes,yes,console_only,medium,data,console_only,Table push failures logged only to console — should post to client_errors with business_id
+E,electron/sync.js,4315,sync.syncNow_full,yes,yes,console_only,high,data,console_only,Fatal sync errors caught but only logged — post to client_errors(business_id)
+E,electron/sync.js,4461,sync.auto_interval,yes,yes,console_only,low,data,console_only,Auto-sync errors swallowed in .catch(() => {})
+E,electron/main.js,908,dgii.ecf_queue,yes,yes,console_only,high,financial,console_only,processDgiiQueue logs failures to console and activity_log but no client_errors post
+E,electron/main.js,1067,dgii.reconcile_pending,yes,yes,console_only,medium,financial,console_only,processDgiiPendingQueue logs errors and activity_log but misses client_errors
+E,electron/main.js,1178,anecf.queue_submit,yes,yes,console_only,high,financial,console_only,processAnecfQueue logs failures but doesn't post to client_errors
+E,electron/main.js,1688,dgii.queue_30s_tick,no,yes,console_only,high,financial,console_only,setInterval(processDgiiQueue) has no error boundary — fatal crash possible
+E,electron/main.js,1700,anecf.queue_60s_tick,no,yes,console_only,high,financial,console_only,setInterval(processAnecfQueue) unguarded — crash on exception
+E,electron/main.js,1707,dgii.reconcile_5m_tick,no,yes,console_only,high,financial,console_only,processDgiiPendingQueue scheduled without try/catch wrapper
+E,electron/main.js,1837,backup.nightly,yes,yes,console_only,high,operational,console_only,Backup errors call reportMainProcessError but not client_errors
+E,electron/main.js,1714,concession.reservation_expire,yes,yes,activity_log,low,operational,ok,Reservation expiry catches + logs to activity_log (acceptable)
+E,electron/main.js,1737,concession.warranty_expire,yes,yes,activity_log,low,operational,ok,Warranty expiry catches + logs to activity_log (acceptable)
+E,electron/main.js,1761,concession.bank_preapproval_expire,yes,yes,activity_log,low,operational,ok,Bank preapproval expiry catches + logs (acceptable)
+E,electron/updater.js,121,electron.updater_error,yes,yes,console_only,low,operational,console_only,Update errors logged only via electron-log event send
+E,electron/updater.js,136,electron.updater_startup_check,yes,yes,console_only,low,operational,console_only,Startup update check swallows errors in .catch(()=>{})
+E,web/api/digest/daily.js,274,digest.daily_cron,yes,yes,activity_log,medium,operational,ok,Daily digest wraps per-biz in try/catch and logs to activity_log
+E,web/api/panel.js,1246,cron.dgii_pull,yes,yes,console_only,high,financial,console_only,"handleCronDgiiPull catches individual failures, logs to console only"
+E,web/api/panel.js,3539,cron.salon_whatsapp_reminder,yes,yes,console_only,low,operational,console_only,Salon reminder tick logs errors to response but missing client_errors post
+E,web/api/panel.js,4492,cron.anecf_drain,yes,yes,console_only,high,operational,console_only,"ANECF drain cron logs errors to console, should post to client_errors"

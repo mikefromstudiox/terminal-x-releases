@@ -15,6 +15,14 @@
 const BUSINESS_SETTING_KEYS = new Set([
   'itbis_pct', 'usd_rate', 'rnc_verify', 'sucursales',
   'whatsapp_instance', 'whatsapp_token',
+  // 2026-05-09 — WhatsApp end-to-end keys (Preferencias #whatsapp section).
+  // Mirror of packages/services/settingsWhitelist.js — keep IDENTICAL.
+  'whatsapp_auto_receipt', 'whatsapp_auto_kds_ready',
+  'whatsapp_auto_appointment', 'whatsapp_auto_balance',
+  'wa_receipt_template', 'wa_kds_ready_template',
+  'wa_appointment_template',
+  'wa_listo_template', 'wa_balance_template',
+  'biz_bank_accounts',
   'biz_name', 'biz_rnc', 'biz_address', 'biz_phone', 'biz_city', 'biz_type',
   'biz_email', 'biz_logo', 'biz_website',
   'direccion',

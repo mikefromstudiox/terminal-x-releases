@@ -60,7 +60,8 @@ export default function CRM({ getToken, isDark, lang }) {
       if (filterAssigned) params.set('assigned_to', filterAssigned)
       const resp = await fetch(`/api/panel?${params}`, { headers: { 'Authorization': `Bearer ${getToken()}` } })
       if (resp.ok) setList((await resp.json()).data || [])
-    } catch (_) {}
+    } catch (_) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'crm.reltime' }) } catch {}}
     setLoading(false)
   }
 
@@ -78,7 +79,8 @@ export default function CRM({ getToken, isDark, lang }) {
         setForm(EMPTY_FORM)
         load()
       }
-    } catch (_) {}
+    } catch (_) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_, { severity: 'error', category: 'crm.reltime' }) } catch {}}
     setAdding(false)
   }
 

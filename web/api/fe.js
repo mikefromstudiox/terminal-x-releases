@@ -27,6 +27,7 @@ import {
   requireIssuedNonce,
   consumeNonce,
 } from '../lib/dgii-seed-verify.js'
+import { withReporting } from '../lib/report-server-error.js'
 
 export const config = { api: { bodyParser: false } }
 
@@ -370,7 +371,7 @@ async function handleAprobacion(req, res) {
 }
 
 // ── router ──────────────────────────────────────────────────────────────────
-export default async function handler(req, res) {
+async function handler(req, res) {
   // For POST bodies we don't want to parse, but we need to peek at ?action=
   // first. Vercel populates req.query from the URL regardless of bodyParser.
   const action = String(req.query?.action || '').toLowerCase()
@@ -383,3 +384,5 @@ export default async function handler(req, res) {
       res.status(404).json({ error: `Unknown fe action: ${action}` })
   }
 }
+
+export default withReporting(handler, { route: '/api/fe' })

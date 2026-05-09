@@ -142,7 +142,8 @@ export default function VehicleCsvImporter({ open, lang, onImported, onClose }) 
       const inserted = res?.inserted || 0
       setDone({ inserted, skipped: rows.length - inserted })
       onImported?.(inserted)
-    } catch (ex) { setErr(ex?.message || L('Importación falló.', 'Import failed.')) }
+    } catch (ex) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(ex, { severity: 'error', category: 'vehiclecsvimporter.split' }) } catch {} setErr(ex?.message || L('Importación falló.', 'Import failed.')) }
     finally { setBusy(false) }
   }
 

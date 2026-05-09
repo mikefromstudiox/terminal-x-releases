@@ -16,7 +16,8 @@ export default function Resumen() {
     try {
       const d = await api?.carniceria?.resumen?.get?.() || {}
       setData(d)
-    } catch { setData({}) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'resumen.fmtrd' }) } catch {} setData({}) }
     setLoading(false)
   }
   useEffect(() => { load() }, [])

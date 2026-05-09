@@ -17,6 +17,7 @@
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'node:crypto'
 import { checkRateLimit, callerIp } from '../lib/rate-limit.js'
+import { withReporting } from '../lib/report-server-error.js'
 
 const SUPABASE_URL         = process.env.SUPABASE_URL || 'https://xbmhtrdhbnkgdliuxcha.supabase.co'
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -26,7 +27,7 @@ function hashToken(token) {
   return crypto.createHash('sha256').update(raw, 'utf8').digest('hex')
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
     return res.status(405).json({ error: 'Method not allowed' })
@@ -108,3 +109,5 @@ export default async function handler(req, res) {
 }
 
 function safeJson(s) { try { return JSON.parse(s) } catch { return {} } }
+
+export default withReporting(handler, { route: '/api/staff-verify-auth' })

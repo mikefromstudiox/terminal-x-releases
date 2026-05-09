@@ -46,7 +46,7 @@ function statusColor(elapsed, kdsReady) {
 //   "📞 Juan Mendez · 809-555-0123 · ETA 15min"
 function parseNotes(notes) {
   if (!notes) return null
-  const m = String(notes).match(/^📞\s*([^·]+?)(?:\s*·\s*([\d\-+()\s]{8,}))?(?:\s*·\s*ETA\s*(\d+)\s*min)?/i)
+  const m = String(notes).match(/^📞\s*([^·]+)(?:·\s*([\d\-+()\s]{8,}))?(?:·\s*ETA\s*(\d+)\s*min)?/i)
   if (!m) return null
   return {
     name:  (m[1] || '').trim(),
@@ -83,6 +83,7 @@ export default function Pendientes() {
       setRows(Array.isArray(list) ? list : [])
       setError(null)
     } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'foodtruck.pending.reload' }) } catch {}
       setError(e?.message || 'No se pudieron cargar las órdenes pendientes')
     } finally {
       setLoading(false)
@@ -106,7 +107,9 @@ export default function Pendientes() {
   // hand-off (POS reads this on mount; same pattern as restaurant mesa
   // hand-offs).
   const cobrarDirect = (row) => {
-    try { sessionStorage.setItem('foodtruck_load_pending', JSON.stringify(row)) } catch {}
+    try { sessionStorage.setItem('foodtruck_load_pending', JSON.stringify(row)) } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'foodtruck.pending.cobrar_direct', extra: { id: row?.id } }) } catch {}
+    }
     navigate('/pos')
   }
   const loadToCart = cobrarDirect
@@ -164,26 +167,45 @@ export default function Pendientes() {
 
               return (
                 <div key={r.supabase_id} className={`rounded-2xl border ${status.border} ${status.bg} p-4 transition-shadow hover:shadow-md`}>
-                  <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-mono text-slate-400 dark:text-white/30 uppercase">{r.doc_number}</p>
-                      <p className="text-[15px] font-extrabold text-slate-900 dark:text-white mt-0.5 truncate">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider"
+                          style={{ color: meta.color, background: meta.color + '18' }}
+                        >
+                          <SrcIcon size={11} /> {meta.label}
+                        </span>
+                        <p className="text-[11px] font-mono text-slate-400 dark:text-white/30 uppercase">{r.doc_number}</p>
+                      </div>
+                      <p className="text-[15px] font-extrabold text-slate-900 dark:text-white truncate">
                         {phoneInfo?.name || L('Cliente sin nombre', 'Walk-up customer')}
                       </p>
                       {phoneInfo?.phone && (
                         <p className="text-[11px] font-mono text-slate-500 dark:text-white/50 mt-0.5">{phoneInfo.phone}</p>
                       )}
                     </div>
-                    <span className={`text-[10px] font-extrabold tracking-[1.5px] uppercase ${status.text}`}>{status.label}</span>
+                    <span className={`text-[10px] font-extrabold tracking-[1.5px] uppercase ${status.text} whitespace-nowrap`}>{status.label}</span>
                   </div>
 
+                  {Array.isArray(r.items) && r.items.length > 0 && (
+                    <ul className="mb-3 space-y-0.5 text-[12px] text-slate-700 dark:text-white/70">
+                      {r.items.slice(0, 4).map((it, idx) => (
+                        <li key={idx} className="truncate">
+                          <span className="font-bold tabular-nums">{it.quantity}×</span>{' '}
+                          <span className="font-semibold">{it.name}</span>
+                          {it.preparation_notes && (
+                            <span className="text-[11px] text-slate-500 dark:text-white/40 italic"> · {it.preparation_notes}</span>
+                          )}
+                        </li>
+                      ))}
+                      {r.items.length > 4 && (
+                        <li className="text-[11px] text-slate-400 dark:text-white/30">+{r.items.length - 4} más…</li>
+                      )}
+                    </ul>
+                  )}
+
                   <div className="flex items-center gap-2 flex-wrap mb-3">
-                    <span
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border"
-                      style={{ color: meta.color, borderColor: meta.color + '66', background: meta.color + '12' }}
-                    >
-                      <SrcIcon size={11} /> {meta.label}
-                    </span>
                     <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-white/50">
                       <Clock size={11} /> {elapsed} min
                     </span>

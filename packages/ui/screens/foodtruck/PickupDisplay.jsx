@@ -45,7 +45,8 @@ export default function PickupDisplay() {
       o.frequency.exponentialRampToValueAtTime(660, ctx.currentTime + 0.18)
       g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
       o.stop(ctx.currentTime + 0.42)
-    } catch {}
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'pickupdisplay.ding' }) } catch {}}
   }
 
   useEffect(() => {
@@ -65,6 +66,7 @@ export default function PickupDisplay() {
         setRows(next)
         setError(null)
       } catch (e) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'pickupdisplay.ding' }) } catch {}
         if (!cancelled) setError(e?.message || 'No se pudo cargar la pantalla')
       }
     }

@@ -135,7 +135,8 @@ export function EmployeePanel({ emp, onSave, onClose, lang, t, showWashers = tru
         bank_account: form.bank_account.trim() || null,
         tss_id:       form.tss_id.trim() || null,
       })
-    } catch (e) { setError(e.message || L('Error al guardar', 'Error saving')) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'shared.accessdenied' }) } catch {} setError(e.message || L('Error al guardar', 'Error saving')) }
     finally { setSaving(false) }
   }
 

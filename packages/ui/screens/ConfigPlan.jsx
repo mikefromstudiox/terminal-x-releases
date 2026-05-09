@@ -54,7 +54,8 @@ export default function ConfigPlan() {
       } catch (e) {
         try {
           window.__txReportError?.(e, { severity: 'warn', category: 'config_plan_load' })
-        } catch {}
+        } catch (_aetherErr) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'configplan.configplan' }) } catch {}}
       } finally {
         if (!cancelled) setLoading(false)
       }

@@ -75,7 +75,8 @@ export default function SBReport() {
   useEffect(() => { (async () => {
     setLoading(true)
     try {
-      try { await (api?.collections?.computeMora?.() ?? Promise.resolve()) } catch {}
+      try { await (api?.collections?.computeMora?.() ?? Promise.resolve()) } catch (_aetherErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sbreport.fmtrd' }) } catch {}}
       const [a, b, c, d] = await Promise.all([
         (api?.loans?.list?.({}) ?? Promise.resolve([])),
         (api?.pawnItems?.list?.({}) ?? Promise.resolve([])),
@@ -86,7 +87,8 @@ export default function SBReport() {
       setPawn(Array.isArray(b) ? b : [])
       setLogs(Array.isArray(c) ? c : [])
       setAttempts(d && typeof d === 'object' ? d : {})
-    } catch {
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'sbreport.fmtrd' }) } catch {}
       setLoans([]); setPawn([]); setLogs([]); setAttempts({})
     } finally { setLoading(false) }
   })() }, []) // eslint-disable-line

@@ -26,7 +26,8 @@ const INTRANT_STATUS = [
 
 function fmtDT(s) {
   if (!s) return '—'
-  try { return new Date(s).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' }) } catch { return '—' }
+  try { return new Date(s).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' }) } catch (_aetherErr) {
+    try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'matriculas.fmtdt' }) } catch {} return '—' }
 }
 
 function statusChip(status, lang) {
@@ -73,6 +74,7 @@ function EditModal({ lang, deal, units, current, onSave, onClose }) {
       })
       onClose()
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'matriculas.fmtdt' }) } catch {}
       setErr(e?.message || L('Error al guardar.', 'Save failed.'))
       setSaving(false)
     }

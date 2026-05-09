@@ -156,6 +156,7 @@ export default function Portfolio() {
         setBatchMsg(`Error guardando: ${err.error || resp.status}`)
       }
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'portfolio.portfolio' }) } catch {}
       setBatchMsg(`Error: ${e.message || e}`)
     }
   }
@@ -181,6 +182,7 @@ export default function Portfolio() {
       setBatchMsg('Login OK. Auto-pull se ejecutará en el próximo ciclo (03:00 AST).')
       setCredModal(null)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'portfolio.savedgiicreds' }) } catch {}
       setBatchMsg(`Error: ${e.message || e}`)
     } finally { setCredBusy(false) }
   }
@@ -228,6 +230,7 @@ export default function Portfolio() {
       URL.revokeObjectURL(url)
       setBatchMsg(`Listo — ${withData} clientes / ${totalRows} comprobantes en ZIP.`)
     } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'portfolio.testdgiipull' }) } catch {}
       setBatchMsg(`Error: ${e?.message || e}`)
     } finally { setBusy(false) }
   }

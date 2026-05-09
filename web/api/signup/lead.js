@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { withReporting } from '../../lib/report-server-error.js'
 
 const ALLOWED_ORIGINS = ['https://terminalxpos.com', 'http://localhost:5173']
 
@@ -16,7 +17,7 @@ function isValidEmail(s) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   const origin = req.headers.origin || ''
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0])
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS')
@@ -71,3 +72,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Lead capture failed' })
   }
 }
+
+export default withReporting(handler, { route: '/api/signup/lead' })

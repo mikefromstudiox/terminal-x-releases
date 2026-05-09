@@ -268,6 +268,35 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
   const [waPhone, setWaPhone] = useState(client?.phone || '')
   const [showWaInput, setShowWaInput] = useState(false)
 
+  // 2026-05-09 — Auto-receipt: when Preferencias #whatsapp toggle
+  // `whatsapp_auto_receipt` is ON AND we have a client phone AND the
+  // plan grants whatsapp_receipts, fire the send once on success-view mount.
+  // Errors surface through the normal waState='error' path + are reported
+  // via __txReportError.
+  const _autoReceiptFiredRef = useRef(false)
+  useEffect(() => {
+    if (_autoReceiptFiredRef.current) return
+    if (!canWhatsApp) return
+    const wantAuto = bizSettings?.whatsapp_auto_receipt === '1' || bizSettings?.whatsapp_auto_receipt === true
+    if (!wantAuto) return
+    const phone = (client?.phone || '').trim()
+    if (!phone) return
+    _autoReceiptFiredRef.current = true
+    setWaPhone(phone)
+    // Defer one tick so SuccessView paints before the network call kicks in.
+    const t = setTimeout(() => { sendWhatsApp().catch(e => {
+      try {
+        window.__txReportError?.(e, {
+          severity: 'warn',
+          category: 'cobrar_auto_whatsapp_receipt',
+          extra: { had_pdf: !!pdfUrl, ncf_type: ncfType },
+        })
+      } catch {}
+    }) }, 250)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function sendWhatsApp() {
     const phone = waPhone.trim()
     if (!phone) { setShowWaInput(true); return }
@@ -334,6 +363,7 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
       }
       setWaState('sent')
     } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'cobro.whatsapp.send', extra: { docNo: ticket?.ticketNo || ticket?.docNumber, hasPhone: !!waPhone } }) } catch {}
       setWaState('error')
       const msg = err?.message || err?.error || (lang === 'es' ? 'Error al enviar WhatsApp' : 'WhatsApp send failed')
       try { alert(msg) } catch {}
@@ -686,7 +716,9 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         // We zero by adding a synthetic discount line — handled in totals.
       }
       setShowMembershipPicker(false)
-    } catch {}
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'error', category: 'cobro.membership.consume', extra: { lineKind, lineIdx, membership_supabase_id: membership?.supabase_id } }) } catch {}
+    }
   }
 
   // Sum redemption discounts for base lines (extras are already mutated to price=0).
@@ -751,6 +783,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           })
         }
       } catch (e) {
+        try { window.__txReportError?.(e, { severity: 'warn', category: 'cobro.loyalty.award', extra: { clientId, ticketSupabaseId, points: pts } }) } catch {}
         console.error('[loyalty] award failed', e)
         try { window.alert('Puntos no acreditados — contacta soporte') } catch {}
       }
@@ -761,6 +794,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
       if (pts <= 0) return
       try { await api?.clients?.addLoyaltyPoints?.({ id: clientId, delta: pts }) }
       catch (e) {
+        try { window.__txReportError?.(e, { severity: 'warn', category: 'cobro.loyalty.salon_award', extra: { clientId, points: pts } }) } catch {}
         console.error('[loyalty] salon addLoyaltyPoints failed', e)
         try { window.alert('Puntos no acreditados — contacta soporte') } catch {}
       }
@@ -958,6 +992,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         setBenefitUsed({ kind: 'membership', remaining: r.remaining })
         setActiveMembership(m => m ? { ...m, washes_used_this_period: (m.washes_used_this_period || 0) + 1 } : m)
       }
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'cobro.membership.outer', extra: { id: activeMembership?.id } }) } catch {}
     } finally { setConsumingBenefit(false) }
   }
   async function consumeCombo() {
@@ -969,6 +1005,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         setBenefitUsed({ kind: 'combo', remaining: r.remaining })
         setActiveCombo(c => c ? { ...c, used_washes: (c.used_washes || 0) + 1 } : c)
       }
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'cobro.combo.consume', extra: { id: activeCombo?.id } }) } catch {}
     } finally { setConsumingBenefit(false) }
   }
 
@@ -1159,7 +1197,8 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
       if (res?.nombre) setRncName(res.nombre)
       else if (res?.name) setRncName(res.name)
       else setRncName('No encontrado')
-    } catch {
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'warn', category: 'cobro.rnc.lookup', extra: { rnc: clean } }) } catch {}
       setRncName('No encontrado')
     }
   }
@@ -1274,6 +1313,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         try {
           eNCF = await api?.ncf?.next?.(ncfType)
         } catch (err) {
+          try { window.__txReportError?.(err, { severity: 'critical', category: 'cobro.ncf.reserve.legacy', extra: { ncfType } }) } catch {}
           throw new Error(lang === 'es'
             ? `No se pudo reservar el NCF ${ncfType}. Intenta de nuevo. (${err?.message || err})`
             : `Could not reserve NCF ${ncfType}. Retry. (${err?.message || err})`)
@@ -1346,6 +1386,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           // screen + receipt actions.
           setEcfState('success')
         } catch (persistErr) {
+          try { window.__txReportError?.(persistErr, { severity: 'critical', category: 'cobro.ticket.persist.legacy', extra: { ncfType, total, ticketSid: ticket?.supabase_id } }) } catch {}
           // tickets.create threw (RLS, validation, network) — surface to the
           // cashier with the real message and unlatch confirmedRef so they
           // can fix and retry without reopening the modal.
@@ -1368,6 +1409,7 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
               points: loyaltyRedemption.points,
               notes: `redeem_ticket:${ticket?.id ?? ''}`,
             })).catch(err => {
+              try { window.__txReportError?.(err, { severity: 'warn', category: 'cobro.loyalty.redeem.legacy', extra: { clientId: selectedClient?.id, points: loyaltyRedemption?.points } }) } catch {}
               console.error('[loyalty] redeem failed after sale (legacy path)', err)
               const redeemFailEvt = {
                 event_type: 'loyalty_redeem_failed', severity: 'critical',

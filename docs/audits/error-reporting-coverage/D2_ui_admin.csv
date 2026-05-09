@@ -1,0 +1,55 @@
+layer,file,line,action_id,has_try_catch,has_report,report_kind,severity,category,gap_type,fix_recommendation
+D2,Admin.jsx,225,Admin.Usuarios.handleDelete,yes,yes,error_state,ok,data_deletion,ok,setError state reports errors
+D2,Admin.jsx,237,Admin.Usuarios.handleRowDelete,yes,yes,toast_error,ok,data_deletion,ok,Toast via show() helper
+D2,Admin.jsx,306,Admin.Usuarios.handleSave,yes,yes,error_state,ok,data_save,ok,setError state with toast on success
+D2,Admin.jsx,357,Admin.Usuarios.toggleActive,yes,yes,toast_error,ok,status_change,ok,Toast feedback on completion
+D2,Admin.jsx,359,Admin.revokeCard,yes,yes,toast_error,ok,data_write,ok,Toast on card revoke action
+D2,Admin.jsx,634,Admin.moveCat,yes,yes,toast_error,ok,reorder,ok,Toast on category reorder
+D2,Admin.jsx,658,Admin.renameCat,yes,yes,toast_error,ok,data_update,ok,Toast on rename category
+D2,Admin.jsx,681,Admin.deleteCat,yes,yes,toast_error,ok,data_deletion,ok,Toast on category delete
+D2,Admin.jsx,706,Admin.openCreateCatPrompt,yes,yes,toast_error,ok,data_creation,ok,Toast on category creation
+D2,Admin.jsx,728,Admin.Services.handleSave,yes,yes,error_state,ok,data_save,ok,setError and toast feedback
+D2,Admin.jsx,747,Admin.Services.toggleActive,yes,yes,toast_error,ok,status_change,ok,Toast on service activation
+D2,Admin.jsx,758,Admin.Services.handleDelete,yes,yes,error_state,ok,data_deletion,ok,setError state on delete
+D2,Admin.jsx,777,Admin.Services.quickDeleteService,yes,yes,toast_error,ok,data_deletion,ok,Toast on quick service delete
+D2,Admin.jsx,1179,Admin.DGII.saveFiscalMode,yes,yes,toast_error,ok,config_update,ok,Toast on fiscal mode change
+D2,Admin.jsx,1200,Admin.DGII.handleToggle,yes,yes,toast_error,ok,status_change,ok,Toast on DGII toggle
+D2,Admin.jsx,1213,Admin.DGII.handleSaveSeq,yes,yes,toast_error,ok,data_update,ok,Toast on NCF sequence save
+D2,Admin.jsx,1246,Admin.DGII.handleInstallCert,yes,yes,toast_error,ok,cert_upload,ok,Toast on certificate install
+D2,Admin.jsx,1558,Admin.MiEmpresa.save,yes,yes,toast_error,ok,company_settings,ok,Toast on company info save
+D2,DGII.jsx,635,DGII.Compras.handleSave,yes,yes,error_state,ok,data_save,ok,setError on compra save
+D2,DGII.jsx,657,DGII.Compras.handleDelete,yes,yes,error_state,ok,data_deletion,ok,setError on compra delete
+D2,DGII.jsx,1379,DGII.CertUpload.handleUpload,yes,yes,error_state,ok,cert_upload,ok,setError on certificate upload
+D2,DGII.jsx,1408,DGII.CertUpload.flipEnv,yes,yes,error_state,ok,config_update,ok,setError on environment flip
+D2,Inventory.jsx,75,Inventory.ItemModal.handleSave,yes,yes,error_state,ok,data_save,ok,setErr state reporting
+D2,Inventory.jsx,615,Inventory.ImportCSV.handleImport,yes,no,none,high,csv_import,swallowed_catch,Silent catch per row
+D2,Inventory.jsx,851,Inventory.OrganizeModal.apply,yes,yes,toast_message,ok,bulk_update,ok,Toast with result summary
+D2,Inventory.jsx,1373,Inventory.handleDelete,no,no,none,critical,data_deletion,no_try_catch,CRITICAL gap: Unprotected delete
+D2,Inventory.jsx,1394,Inventory.quickDeleteItem,yes,no,none,high,data_deletion,swallowed_catch,Silent error catch
+D2,Dealership.VehicleInventory,66,VehicleInventory.save.update,no,no,none,critical,data_update,no_try_catch,CRITICAL: No try-catch wrapper
+D2,Dealership.VehicleInventory,67,VehicleInventory.save.create,no,no,none,critical,data_creation,no_try_catch,CRITICAL: No try-catch wrapper
+D2,Dealership.VehicleInventory,72,VehicleInventory.remove.delete,no,no,none,critical,data_deletion,no_try_catch,CRITICAL: No try-catch wrapper
+D2,Salon.Appointments,522,Salon.Appointments.handleSave.update,no,yes,flash_message,partial,data_update,alert_only,Toast only no try-catch
+D2,Salon.Appointments,523,Salon.Appointments.handleSave.create,no,yes,flash_message,partial,data_creation,alert_only,Toast only no try-catch
+D2,Salon.Appointments,569,Salon.Appointments.handleVoidNoShowFee,yes,yes,flash_message,ok,data_update,ok,Try-catch with detailed errors
+D2,Salon.Appointments,608,Salon.Appointments.handleSendReminder,yes,yes,flash_message,ok,data_send,ok,Try-catch with error reporting
+D2,Salon.Memberships,305,Salon.Memberships.create,yes,yes,toast_message,ok,data_creation,ok,Try-catch with toast
+D2,Salon.Memberships,317,Salon.Memberships.update,yes,yes,toast_message,ok,data_update,ok,Try-catch with toast
+D2,Lending.Loans,263,Lending.Loans.handleCreate,yes,yes,error_state,ok,data_creation,ok,setError on loan create
+D2,Lending.Loans,520,Lending.Loans.handlePayment,yes,yes,error_state,ok,data_creation,ok,setError on payment create
+D2,Lending.Loans,1162,Lending.Loans.handleDefault,yes,yes,toast_message,ok,status_change,ok,Toast on loan default
+D2,Lending.Loans,1174,Lending.Loans.handleCancel,yes,yes,toast_message,ok,status_change,ok,Toast on loan cancel
+D2,Lending.PawnItems,362,Lending.PawnItems.handleSave.update,yes,yes,error_state,ok,data_update,ok,setError on pawn update
+D2,Lending.PawnItems,365,Lending.PawnItems.handleSave.create,yes,yes,error_state,ok,data_creation,ok,setError on pawn create
+D2,Lending.PawnItems,791,Lending.PawnItems.handleDocDelete,yes,yes,toast_message,ok,data_deletion,ok,Toast on document delete
+D2,Lending.PawnItems,1215,Lending.PawnItems.handleRedeem,yes,yes,toast_message,ok,status_change,ok,Toast on redemption
+D2,Lending.PawnItems,1266,Lending.PawnItems.handleForfeit,yes,yes,toast_message,ok,status_change,ok,Toast on forfeiture
+D2,FoodTruck.Locations,63,FoodTruck.Locations.handleSave.update,no,yes,toast_message,partial,data_update,alert_only,ALERT ONLY: No try-catch
+D2,FoodTruck.Locations,70,FoodTruck.Locations.handleSave.create,no,yes,toast_message,partial,data_creation,alert_only,ALERT ONLY: No try-catch
+D2,FoodTruck.Locations,91,FoodTruck.Locations.handleDelete,no,yes,toast_message,partial,data_deletion,alert_only,ALERT ONLY: No try-catch
+D2,FoodTruck.WasteLog,72,FoodTruck.WasteLog.handleCreate,yes,yes,error_state,ok,data_creation,ok,setErr state reporting
+D2,FoodTruck.WasteLog,95,FoodTruck.WasteLog.handleDelete,yes,yes,error_state,ok,data_deletion,ok,setErr state reporting
+D2,Sistema.jsx,121,Sistema.saveLiveDate,yes,yes,toast_message,ok,config_update,ok,Toast on go-live date save
+D2,Sistema.jsx,501,Sistema.handleSettingsUpdate,yes,yes,toast_message,ok,bulk_config,ok,Toast with detailed errors
+D2,Sistema.jsx,854,Sistema.printerChange,yes,yes,toast_message,ok,config_update,ok,Try-catch on printer setting
+# summary,48 unique write actions audited,4 critical gaps,5 high severity gaps,39 ok coverage,Critical: VehicleInventory 66-67-72 Inventory.handleDelete 1373. High: FoodTruck Locations 63-70-91 Inventory ImportCSV 615 quickDelete 1394

@@ -694,7 +694,8 @@ function fmtMetaValue(key, v, lang) {
   }
   if (typeof v === 'object') {
     // Skip nested objects (rare) — flatten to short JSON
-    try { return JSON.stringify(v) } catch { return '—' }
+    try { return JSON.stringify(v) } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'remotedashboard.eventlabel' }) } catch {} return '—' }
   }
   const num = Number(v)
   const isNum = !Number.isNaN(num) && v !== '' && typeof v !== 'boolean'
@@ -762,7 +763,8 @@ function ActivityFeed({ lang, onRefreshDashboard, sinceIso }) {
   // per tab-open; Sidebar stores the timestamp in localStorage per business.
   useEffect(() => {
     if (!bid) return
-    try { window.dispatchEvent(new CustomEvent('tx:actividad-seen', { detail: { businessId: bid } })) } catch {}
+    try { window.dispatchEvent(new CustomEvent('tx:actividad-seen', { detail: { businessId: bid } })) } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'remotedashboard.fmtrel' }) } catch {}}
   }, [bid])
   const [rows, setRows]       = useState([])
   const [loading, setLoading] = useState(true)
@@ -789,7 +791,8 @@ function ActivityFeed({ lang, onRefreshDashboard, sinceIso }) {
       const { data: r, error: e } = await q
       if (e) throw e
       setRows(r || [])
-    } catch (e) { setError(e?.message || String(e)) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'remotedashboard.fmtrel' }) } catch {} setError(e?.message || String(e)) }
     finally { setLoading(false) }
   }, [sb, bid, chip, sinceIso])
 

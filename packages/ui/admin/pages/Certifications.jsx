@@ -46,7 +46,8 @@ export default function Certifications({ getToken, refreshToken, isDark, lang })
       const resp = await fetch('/api/panel?action=cert_list', { headers: { 'Authorization': `Bearer ${getToken()}` } })
       if (resp.ok) setList((await resp.json()).data || [])
       else setLoadErr(L('Error al cargar certificaciones', 'Error loading certifications'))
-    } catch { setLoadErr(L('Error al cargar certificaciones', 'Error loading certifications')) }
+    } catch (_aetherErr) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'certifications.certifications' }) } catch {} setLoadErr(L('Error al cargar certificaciones', 'Error loading certifications')) }
     setLoading(false)
   }
 
@@ -64,7 +65,8 @@ export default function Certifications({ getToken, refreshToken, isDark, lang })
       if (!resp.ok) { const r = await resp.json(); throw new Error(r.error || 'Error') }
       setShowAdd(false); setForm(EMPTY_FORM)
       load()
-    } catch (e) { setAddErr(e.message) }
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'certifications.certifications' }) } catch {} setAddErr(e.message) }
     finally { setAdding(false) }
   }
 
