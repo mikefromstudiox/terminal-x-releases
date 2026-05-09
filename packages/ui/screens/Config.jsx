@@ -24,6 +24,9 @@ import ConfigPedidosYa from './config-sections/ConfigPedidosYa'
 import ConfigEvent from './config-sections/ConfigEvent'
 import ConfigLicense from './config-sections/ConfigLicense'
 import ConfigSecurity from './config-sections/ConfigSecurity'
+import ConfigFeatures from './config-sections/ConfigFeatures'
+import ConfigSalon from './config-sections/ConfigSalon'
+import ConfigNCF from './config-sections/ConfigNCF'
 
 const ADMIN_SECTIONS = ['empresa', 'usuarios', 'servicios']
 
@@ -35,7 +38,7 @@ export default function Config() {
   if (!section) return <ConfigGrid />
 
   // Owner-only sections
-  const ownerOnly = ['updates', 'preferencias', 'printer', 'whatsapp', 'commissions', 'sync', 'pedidosya', 'event', 'license']
+  const ownerOnly = ['updates', 'preferencias', 'printer', 'whatsapp', 'commissions', 'sync', 'pedidosya', 'event', 'license', 'funciones', 'salon']
   if (ownerOnly.includes(section) && user?.role !== 'owner') {
     return <Navigate to="/config/empresa" replace />
   }
@@ -74,6 +77,9 @@ export default function Config() {
   if (section === 'event')       return <ConfigEvent />
   if (section === 'license')     return <ConfigLicense />
   if (section === 'security')    return <ConfigSecurity />
+  if (section === 'funciones')   return <ConfigFeatures />
+  if (section === 'salon')       return <ConfigSalon />
+  if (section === 'ncf')         return <ConfigNCF />
 
   return <Navigate to="/config/empresa" replace />
 }

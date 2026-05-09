@@ -19,7 +19,7 @@ import {
   Building2, Receipt, Printer, MessageSquare, PiggyBank, Cloud, Crown,
   Truck, KeyRound, Users, Settings, ChevronRight, Shield, Download,
   LayoutGrid, MapPin, Trash2, Sparkles, Calendar, Banknote, FileText,
-  Tag, Smartphone,
+  Tag, Smartphone, ToggleLeft, Scissors,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { usePlan } from '../hooks/usePlan'
@@ -64,9 +64,9 @@ const ALL_CARDS = [
     id: 'ncf',
     icon: Receipt,
     title: { es: 'NCF / e-CF', en: 'NCF / e-CF' },
-    desc:  { es: 'Secuencias B-series, certificado Viafirma, ANECF, ambiente DGII.',
-             en: 'B-series sequences, Viafirma cert, ANECF, DGII environment.' },
-    to: '/pos/dgii',
+    desc:  { es: 'Certificado, modo fiscal (B-series vs e-CF) y secuencias autorizadas.',
+             en: 'Certificate, fiscal mode (B-series vs e-CF) and authorized sequences.' },
+    to: '/config/ncf',
     feature: 'dgii',
   },
   {
@@ -194,6 +194,25 @@ const ALL_CARDS = [
     desc:  { es: 'Plan activo, próximo cobro, historial de pagos.',
              en: 'Active plan, next charge, payment history.' },
     to: '/config/plan',
+  },
+  {
+    id: 'funciones',
+    icon: ToggleLeft,
+    title: { es: 'Funciones del Negocio', en: 'Business Features' },
+    desc:  { es: 'Comisiones, descuentos, ITBIS por línea, verificación de edad.',
+             en: 'Commissions, discounts, per-line ITBIS, age verification.' },
+    to: '/config/funciones',
+    roles: ['owner'],
+  },
+  {
+    id: 'salon_settings',
+    icon: Scissors,
+    title: { es: 'Salón / Barbería', en: 'Salon / Barbershop' },
+    desc:  { es: 'Depósito por reserva, multa no-show, página pública para agendar.',
+             en: 'Booking deposit, no-show fee, public booking page.' },
+    to: '/config/salon',
+    roles: ['owner'],
+    when: ({ isSalon }) => isSalon,
   },
   {
     id: 'security',
