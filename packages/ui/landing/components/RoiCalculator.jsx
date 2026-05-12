@@ -38,9 +38,9 @@ const TIER_PRICES = {
   facturacion: 995,
   facturacion_plus: 1990,
   facturacion_unlimited: 2990,
-  pro: 2990,
-  pro_plus: 5490,
-  pro_max: 9990,
+  pro: 2490,
+  pro_plus: 4490,
+  pro_max: 6990,
 }
 
 const TIER_LABELS = {

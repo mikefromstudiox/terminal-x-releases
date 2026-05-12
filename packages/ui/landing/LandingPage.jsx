@@ -64,19 +64,19 @@ function useBrowserLang(forced) {
 const PLANS = {
   es: [
     {
-      name: 'Pro', key: 'pro', price: 'RD$2,990', annual: 'RD$2,541/mes facturado anual (15% OFF)',
+      name: 'Pro', key: 'pro', price: 'RD$2,490', annual: 'RD$2,117/mes facturado anual (15% OFF)',
       sub: '/mes', desc: 'Ideal para negocios pequenos', users: '2 usuarios',
       features: ['POS completo + cobrar + imprimir', 'Directorio de clientes', 'NCF B01/B02 (papel)', 'Reportes diario y mensual', 'Cuadre de Caja + Caja Chica', 'Actualizaciones automaticas'],
       support: 'Autoservicio — tu configuras todo', cta: 'Comenzar con Pro', highlight: false,
     },
     {
-      name: 'Pro PLUS', key: 'pro_plus', price: 'RD$5,490', annual: 'RD$4,667/mes facturado anual (15% OFF)',
+      name: 'Pro PLUS', key: 'pro_plus', price: 'RD$4,490', annual: 'RD$3,817/mes facturado anual (15% OFF)',
       sub: '/mes', badge: 'Mas popular', desc: 'Para negocios que quieren crecer', users: '5 usuarios',
       features: ['Todo en Pro, mas:', 'Creditos + Notas de Credito', 'Inventario con alertas de stock', 'Comisiones por empleado/vendedor/cajera', 'e-CF DIRECTO A DGII — sin PSFE, sin costo por comprobante', 'Certificado digital Viafirma INCLUIDO (valor RD$2,360/ano)', 'Reportes avanzados + Nomina Ley 16-92', 'Soporte WhatsApp horario laboral', 'Configuracion remota por nuestro equipo'],
       support: 'Nuestro equipo te configura todo remoto', cta: 'Comenzar con Pro PLUS', highlight: true,
     },
     {
-      name: 'Pro MAX', key: 'pro_max', price: 'RD$9,990', annual: 'RD$8,491/mes facturado anual (15% OFF)',
+      name: 'Pro MAX', key: 'pro_max', price: 'RD$6,990', annual: 'RD$5,942/mes facturado anual (15% OFF)',
       sub: '/mes', desc: 'Para cadenas y alto volumen', users: 'Usuarios ilimitados',
       features: [
         'Todo en Pro PLUS, mas:',
@@ -99,19 +99,19 @@ const PLANS = {
   ],
   en: [
     {
-      name: 'Pro', key: 'pro', price: 'RD$2,990', annual: 'RD$2,541/mo billed annually (15% OFF)',
+      name: 'Pro', key: 'pro', price: 'RD$2,490', annual: 'RD$2,117/mo billed annually (15% OFF)',
       sub: '/mo', desc: 'Ideal for small businesses', users: '2 users',
       features: ['Full POS + charge + print', 'Client directory', 'NCF B01/B02 (paper)', 'Daily and monthly reports', 'Cash Recon + Petty Cash', 'Automatic updates'],
       support: 'Self-service — you configure everything', cta: 'Start with Pro', highlight: false,
     },
     {
-      name: 'Pro PLUS', key: 'pro_plus', price: 'RD$5,490', annual: 'RD$4,667/mo billed annually (15% OFF)',
+      name: 'Pro PLUS', key: 'pro_plus', price: 'RD$4,490', annual: 'RD$3,817/mo billed annually (15% OFF)',
       sub: '/mo', badge: 'Most popular', desc: 'For growing businesses', users: '5 users',
       features: ['Everything in Pro, plus:', 'Credits + Credit Notes', 'Inventory with stock alerts', 'Commissions per employee/seller/cashier', 'e-CF DIRECT TO DGII — no PSFE, no per-invoice fees', 'Viafirma digital certificate INCLUDED (RD$2,360/yr value)', 'Advanced reports + Payroll Law 16-92', 'WhatsApp support business hours', 'Remote config by our team'],
       support: 'Our team configures everything remotely', cta: 'Start with Pro PLUS', highlight: true,
     },
     {
-      name: 'Pro MAX', key: 'pro_max', price: 'RD$9,990', annual: 'RD$8,491/mo billed annually (15% OFF)',
+      name: 'Pro MAX', key: 'pro_max', price: 'RD$6,990', annual: 'RD$5,942/mo billed annually (15% OFF)',
       sub: '/mo', desc: 'For chains and high volume', users: 'Unlimited users',
       features: [
         'Everything in Pro PLUS, plus:',
@@ -300,7 +300,7 @@ const FAQ = {
     { q: 'Que es e-CF y por que lo necesito?', a: 'e-CF (Comprobante Fiscal Electronico) es el nuevo formato obligatorio de la DGII bajo la Ley 32-23. Todos los negocios deben migrar antes de mayo 2026. Terminal X es el unico POS que se conecta directo a la DGII, sin intermediarios ni costos adicionales.' },
     { q: 'Funciona para mi tipo de negocio?', a: 'Si. Terminal X tiene modo Car Wash (cola de servicios, lavadores, comisiones), modo Tienda/Retail (inventario con codigo de barras, carrito con cantidades, stock automatico), y modo Servicios (talleres, salones, barber shops). El sistema se adapta automaticamente.' },
     { q: 'Como funciona el soporte?', a: 'Pro: autoservicio con guias. Pro PLUS: nuestro equipo te configura todo remotamente y soporte por WhatsApp en horario laboral. Pro MAX: ejecutivo dedicado + soporte prioritario + visita tecnica mensual.' },
-    { q: 'Puedo manejar la nomina sin contratar un contador externo?', a: 'Si, y es una de las ventajas mas grandes de Pro MAX. Terminal X incluye nomina in-house completa: pagos quincenales o mensuales masivos en un click, calculo automatico de TSS (SFS + AFP con topes oficiales 2026), INFOTEP 1%, ISR progresivo (escalas DGII 2026), reportes listos para subir al portal TSS y DGII, recibos formales de pago, y log automatico de cambios de salario. Un contador externo en RD cobra entre RD$8,000 y RD$15,000/mes solo por esto — Pro MAX lo incluye por RD$9,990/mes.' },
+    { q: 'Puedo manejar la nomina sin contratar un contador externo?', a: 'Si, y es una de las ventajas mas grandes de Pro MAX. Terminal X incluye nomina in-house completa: pagos quincenales o mensuales masivos en un click, calculo automatico de TSS (SFS + AFP con topes oficiales 2026), INFOTEP 1%, ISR progresivo (escalas DGII 2026), reportes listos para subir al portal TSS y DGII, recibos formales de pago, y log automatico de cambios de salario. Un contador externo en RD cobra entre RD$8,000 y RD$15,000/mes solo por esto — Pro MAX lo incluye por RD$6,990/mes.' },
     { q: 'Soy contador y manejo varios clientes — Terminal X me sirve?', a: 'Si — Pro MAX esta especificamente disenado para tu flujo. Tienes un cockpit Portfolio que muestra los 32 clientes en una sola pantalla con semaforo de obligaciones (verde radicado, ambar listo, rojo vencido). El sistema baja automaticamente cada noche los e-CFs recibidos de cada cliente desde el portal DGII Oficina Virtual (auto-pull). Generas el 606, 607, 608, 609, IR-17 e IR-13 de TODOS tus clientes con UN click — descarga un ZIP listo para subir. Conciliacion automatica detecta NCFs que faltan grabar. IT-1 mensual calculado con casillas listas para copiar. Anticipos ISR PJ calculados por Art. 314. Activos fijos con flujo de venta. Pago masivo bancario para BHD Leon y Banreservas. Modo "Ver como cliente" auditado para soporte directo. Cada cliente extra es solo un RNC mas — sin limite. Perla, nuestra contadora piloto, paso de 3 dias por cierre a 4 horas.' },
     { q: 'Como funciona el auto-pull de DGII?', a: 'En el panel Portfolio configuras la sesion DGII de cada cliente (pegas el ASP.NET_SessionId desde DevTools — F12 → Application → Cookies — o usas usuario/contrasena que el sistema cifra con AES-256-GCM). Cada noche a las 03:00 AST, un cron worker se conecta al portal DGII Oficina Virtual de cada cliente, descarga la lista de e-CFs Recibidos via la pagina ConsultaRCF.aspx, exporta el XLS, lo parsea, y guarda los registros. La proxima manana ves todos los comprobantes nuevos listos para clasificar. Cuando un cliente no te ha enviado un comprobante que el portal DGII si tiene registrado, el boton "Conciliar con DGII" lo detecta y te ofrece importarlo con un click, o generar un mensaje WhatsApp con los NCFs exactos que faltan.' },
     { q: 'Puedo importar datos de mi sistema anterior?', a: 'Si. Nuestro equipo puede importar tu historial de ventas, clientes y productos desde Starsisa, WilPOS u otros sistemas.' },
@@ -321,7 +321,7 @@ const FAQ = {
     { q: 'What is e-CF and why do I need it?', a: 'e-CF (Electronic Fiscal Receipt) is the new mandatory DGII format under Law 32-23. All businesses must migrate before May 2026. Terminal X is the only POS that connects directly to DGII, with no middlemen or additional costs.' },
     { q: 'Does it work for my type of business?', a: 'Yes. Terminal X works for any service business in DR: Car Wash, auto shops, barber shops, dealers, stores, colmados, and more. The system adapts to your services and products.' },
     { q: 'How does support work?', a: 'Pro: self-service with guides. Pro PLUS: our team configures everything remotely + WhatsApp support during business hours. Pro MAX: dedicated executive + priority support + monthly on-site visit.' },
-    { q: 'Can I run payroll without hiring an external accountant?', a: 'Yes — this is one of the biggest Pro MAX advantages. Terminal X includes full in-house payroll: biweekly or monthly bulk runs in one click, auto TSS (SFS + AFP with official 2026 caps), INFOTEP 1%, progressive ISR (2026 DGII brackets), reports ready for the TSS and DGII portals, formal pay stubs, and automatic salary change logs. An external accountant in DR charges RD$8,000–15,000/month for this alone — Pro MAX includes it for RD$9,990/month.' },
+    { q: 'Can I run payroll without hiring an external accountant?', a: 'Yes — this is one of the biggest Pro MAX advantages. Terminal X includes full in-house payroll: biweekly or monthly bulk runs in one click, auto TSS (SFS + AFP with official 2026 caps), INFOTEP 1%, progressive ISR (2026 DGII brackets), reports ready for the TSS and DGII portals, formal pay stubs, and automatic salary change logs. An external accountant in DR charges RD$8,000–15,000/month for this alone — Pro MAX includes it for RD$6,990/month.' },
     { q: 'Can I import data from my previous system?', a: 'Yes. Our team can import your sales history, clients, and products from Starsisa, WilPOS, or other systems.' },
     { q: 'What happens if my e-invoicing provider (PSFE) goes down?', a: 'Nothing — because we don\'t use one. Terminal X is a direct Electronic Issuer with DGII. We don\'t depend on ef2.do, Indexa, or any other PSFE. Your system signs and transmits e-CFs directly to DGII\'s portal. If a PSFE goes down, your competitors stop invoicing. You don\'t.' },
   ],
@@ -579,7 +579,7 @@ export default function LandingPage({ section, forceLang }) {
                       </p>
                     </div>
                     <div className="sm:border-x sm:border-white/10 sm:px-6 pt-6 sm:pt-0 border-t sm:border-t-0 border-white/10">
-                      <p className="text-4xl sm:text-5xl font-extrabold text-white">RD$9,990</p>
+                      <p className="text-4xl sm:text-5xl font-extrabold text-white">RD$6,990</p>
                       <p className="mt-2 text-xs uppercase tracking-wider text-white/50">
                         {L('Pro MAX incluye TODO esto / mes', 'Pro MAX includes ALL this / mo')}
                       </p>
@@ -1234,7 +1234,7 @@ export default function LandingPage({ section, forceLang }) {
                     { f: L('Certificado digital incluido', 'Digital certificate included'),        g: L('Solo dentro del facturador', 'Only inside the tool'),    t: L('Viafirma en Pro PLUS y Pro MAX', 'Viafirma in Pro PLUS and Pro MAX'), tBold: true },
                     { f: L('Reportes avanzados (ventas, inventario, nomina)', 'Advanced reports (sales, inventory, payroll)'), g: false, t: true },
                     { f: L('Funciona offline', 'Works offline'),                                   g: false,                                                      t: L('Desktop', 'Desktop') },
-                    { f: L('Costo', 'Cost'),                                                       g: L('Gratis', 'Free'),                                        t: 'RD$5,490/mes' },
+                    { f: L('Costo', 'Cost'),                                                       g: L('Gratis', 'Free'),                                        t: 'RD$4,490/mes' },
                     { f: L('Ideal para', 'Ideal for'),                                             g: L('Profesionales liberales (3–5 facturas/mes)', 'Liberal professionals (3–5 invoices/mo)'), t: L('Negocios con 50+ ventas/dia', 'Businesses with 50+ sales/day') },
                   ].map((row, i) => (
                     <tr key={i} className={i % 2 === 0 ? 'bg-white/5' : ''}>
@@ -1282,8 +1282,8 @@ export default function LandingPage({ section, forceLang }) {
                 {
                   q: L('Necesito pagar para emitir e-CF?', 'Do I need to pay to issue e-CF?'),
                   a: L(
-                    'Si. Necesitas un certificado digital (RD$2,360/ano) + un sistema autorizado. Terminal X incluye ambos desde RD$2,990/mes.',
-                    'Yes. You need a digital certificate (RD$2,360/yr) + an authorized system. Terminal X includes both starting at RD$2,990/mo.'
+                    'Si. Necesitas un certificado digital (RD$2,360/ano) + un sistema autorizado. Terminal X incluye ambos desde RD$2,490/mes.',
+                    'Yes. You need a digital certificate (RD$2,360/yr) + an authorized system. Terminal X includes both starting at RD$2,490/mo.'
                   ),
                 },
                 {

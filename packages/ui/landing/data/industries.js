@@ -59,7 +59,7 @@ export const INDUSTRIES = {
     title: 'Tu carwash con cola en vivo, comisiones automáticas y memberships.',
     lede: 'El POS especializado para lavaderos dominicanos. Cola de servicios, asignación de lavadores, comisiones que se calculan solas, memberships con débito automático y dashboard en vivo del dueño.',
     heroBadges: ['Cola visual', 'Comisiones automáticas', 'Memberships'],
-    plan: { name: 'Pro', price: 'desde RD$2,990/mes', anchor: 'pro' },
+    plan: { name: 'Pro', price: 'desde RD$2,490/mes', anchor: 'pro' },
     pdf: null,
     howItWorks: [
       { n: 1, title: 'Entra el carro', body: 'Cajera busca por placa o crea cliente nuevo, selecciona servicios y asigna lavador. El ticket entra a la cola visual.' },
@@ -100,7 +100,7 @@ export const INDUSTRIES = {
     title: 'Una sola plataforma. Ocho tipos de tienda. Cada una con sus reglas.',
     lede: 'Licorería, farmacia, colmado, supermercado, ferretería, papelería, boutique o tienda genérica — Terminal X arranca con las categorías, reglas y validaciones correctas para tu sub-vertical.',
     heroBadges: ['Códigos de barra', 'Inventario en vivo', 'Lealtad Bronce/Plata/Oro'],
-    plan: { name: 'Pro PLUS', price: 'desde RD$5,490/mes', anchor: 'pro_plus' },
+    plan: { name: 'Pro PLUS', price: 'desde RD$4,490/mes', anchor: 'pro_plus' },
     pdf: null,
     subtypes: [
       { icon: Wine, name: 'Licorería', detail: 'Verificación de edad obligatoria · Depósito de envases (botellas retornables) · Sugerencias por marca · Descuento al cobro · Quick-Sell de marcas top' },
@@ -151,7 +151,7 @@ export const INDUSTRIES = {
     title: 'KDS, mesas, propinas, ruteo de impresoras — listo para servicio.',
     lede: 'POS de servicio diseñado para la realidad dominicana: mesas con cuenta abierta, modificadores por plato, ruteo a cocina/bar/cajero, split-bill, propinas y E43 para gastos menores.',
     heroBadges: ['KDS en cocina', 'Split-bill', 'Multi-impresora'],
-    plan: { name: 'Pro PLUS', price: 'desde RD$5,490/mes', anchor: 'pro_plus' },
+    plan: { name: 'Pro PLUS', price: 'desde RD$4,490/mes', anchor: 'pro_plus' },
     pdf: null,
     howItWorks: [
       { n: 1, title: 'Mesero abre la mesa', body: 'En el plano del salón toca una mesa libre. La cuenta queda abierta hasta cobrar.' },
@@ -192,7 +192,7 @@ export const INDUSTRIES = {
     title: 'Órdenes de trabajo, bahías, historial vehicular — el flujo del taller.',
     lede: 'Para talleres dominicanos: órdenes de trabajo con repuestos y mano de obra desglosados, bahías de servicio con capacidad, historial de cada vehículo del cliente, y el WO se convierte en ticket con E31 al cobrar.',
     heroBadges: ['WO → Ticket', 'Bahías de servicio', 'Historial por placa'],
-    plan: { name: 'Pro PLUS', price: 'desde RD$5,490/mes', anchor: 'pro_plus' },
+    plan: { name: 'Pro PLUS', price: 'desde RD$4,490/mes', anchor: 'pro_plus' },
     pdf: null,
     howItWorks: [
       { n: 1, title: 'Recibes el vehículo', body: 'Buscas por placa. Si es cliente nuevo, lo creas con su(s) vehículo(s). El historial completo aparece en pantalla.' },
@@ -233,7 +233,7 @@ export const INDUSTRIES = {
     title: 'Citas, estilistas, comisiones — el día corre solo.',
     lede: 'Para salones, barberías y spas dominicanos: agenda con horarios por estilista, citas con cliente preferido, comisiones por servicio, retail upsell de productos y recordatorios por WhatsApp.',
     heroBadges: ['Agenda por estilista', 'Comisiones por servicio', 'Recordatorios WhatsApp'],
-    plan: { name: 'Pro PLUS', price: 'desde RD$5,490/mes', anchor: 'pro_plus' },
+    plan: { name: 'Pro PLUS', price: 'desde RD$4,490/mes', anchor: 'pro_plus' },
     pdf: null,
     howItWorks: [
       { n: 1, title: 'Cliente agenda', body: 'Vía WhatsApp, llamada, walk-in o página pública de booking. Eliges estilista preferido o "el primero que esté libre".' },
@@ -274,7 +274,7 @@ export const INDUSTRIES = {
     title: 'Vende más autos con menos papel.',
     lede: 'El POS especializado para concesionarios dominicanos. Inventario con fotos, financiamiento al instante con cuota mensual en vivo, comprobantes E31 fiscales arriba de RD$250K, comisiones automatizadas — todo en una sola pantalla.',
     heroBadges: ['DealBuilder', 'E31 ≥ RD$250K', 'Pipeline kanban'],
-    plan: { name: 'Pro PLUS', price: 'desde RD$5,490/mes', anchor: 'pro_plus' },
+    plan: { name: 'Pro PLUS', price: 'desde RD$4,490/mes', anchor: 'pro_plus' },
     pdf: null,
     howItWorks: [
       { n: 1, title: 'Subes tu inventario', body: 'CSV o uno-a-uno. VIN, marca, modelo, año, kilometraje, costo, precio, condición, fotos múltiples, documentos (título, registro, seguro). Estado: disponible / reservado / vendido / en servicio.' },
@@ -317,7 +317,7 @@ export const INDUSTRIES = {
     title: 'Préstamos, empeños, cobranza — la operación financiera completa.',
     lede: 'Para prestamistas y casas de empeño: préstamos con amortización francesa o alemana, mora automática, empeños con regla de decomiso, cobranza priorizada, recibos formales y vitrina pública para venta de prendas vencidas.',
     heroBadges: ['Amortización francesa', 'Mora automática', 'Vitrina pública de empeños'],
-    plan: { name: 'Pro PLUS', price: 'desde RD$5,490/mes', anchor: 'pro_plus' },
+    plan: { name: 'Pro PLUS', price: 'desde RD$4,490/mes', anchor: 'pro_plus' },
     pdf: null,
     howItWorks: [
       { n: 1, title: 'Otorgas el préstamo', body: 'Cliente, monto, tasa, plazo, sistema de amortización (francés/alemán). Sistema genera tabla de pagos al instante. Recibo formal firmable.' },
@@ -358,7 +358,7 @@ export const INDUSTRIES = {
     title: 'Para consultores, IT, limpieza, contadores — facturas formales sin complicarse.',
     lede: 'Si vendes servicios (no productos), Terminal X te da el flujo limpio: catálogo de servicios, cotización, factura electrónica E31/E32, cobro flexible, recibos por WhatsApp y reportes claros.',
     heroBadges: ['Catálogo de servicios', 'Cotización formal', 'E31/E32 directo a DGII'],
-    plan: { name: 'Pro', price: 'desde RD$2,990/mes', anchor: 'pro' },
+    plan: { name: 'Pro', price: 'desde RD$2,490/mes', anchor: 'pro' },
     pdf: null,
     howItWorks: [
       { n: 1, title: 'Defines tu catálogo', body: 'Cada servicio con nombre, precio, descripción y modificadores. Quick-add desde el POS para los más vendidos.' },
@@ -398,7 +398,7 @@ export const INDUSTRIES = {
     title: 'Nómina TSS / INFOTEP / ISR DR-2026 + Ley 16-92, sin Excel.',
     lede: 'Para empresas con empleados formales: nómina quincenal y mensual masiva en un click, TSS con topes 2026, INFOTEP automático, ISR progresivo escala DGII 2026, cesantía Ley 16-92 con pasivo acumulado.',
     heroBadges: ['DR-2026', 'Ley 16-92', 'Pro MAX'],
-    plan: { name: 'Pro MAX', price: 'desde RD$9,990/mes', anchor: 'pro_max' },
+    plan: { name: 'Pro MAX', price: 'desde RD$6,990/mes', anchor: 'pro_max' },
     pdf: null,
     howItWorks: [
       { n: 1, title: 'Configuras empleados', body: 'Cada uno con cédula, fecha de inicio, salario, tipo (asalariado / comisión / híbrido), AFP, ARS y cuenta bancaria.' },

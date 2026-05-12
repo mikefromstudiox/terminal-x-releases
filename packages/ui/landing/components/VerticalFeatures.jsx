@@ -72,7 +72,7 @@ const VERTICALS = {
         'Tarjetas de autorización gerencial Code128',
         'Resumen diario al dueño por correo',
       ],
-      planLabel: 'Plan recomendado: Pro · desde RD$2,990/mes',
+      planLabel: 'Plan recomendado: Pro · desde RD$2,490/mes',
     },
     tiendas: {
       title: 'Para Tiendas',
@@ -95,7 +95,7 @@ const VERTICALS = {
         { icon: Shirt, name: 'Boutique', detail: 'Variantes (talla, color)' },
         { icon: Boxes, name: 'Otro', detail: 'Personalizable' },
       ],
-      planLabel: 'Plan recomendado: Pro PLUS · desde RD$5,490/mes',
+      planLabel: 'Plan recomendado: Pro PLUS · desde RD$4,490/mes',
     },
     restaurantes: {
       title: 'Para Restaurantes',
@@ -110,7 +110,7 @@ const VERTICALS = {
         'Reportes restaurante (rotación, mesa, hora)',
         'Ruteo multi-impresora (cocina/bar/cajero)',
       ],
-      planLabel: 'Plan recomendado: Pro PLUS · desde RD$5,490/mes',
+      planLabel: 'Plan recomendado: Pro PLUS · desde RD$4,490/mes',
     },
     servicios: {
       title: 'Para Servicios',
@@ -125,7 +125,7 @@ const VERTICALS = {
         'Calculadora de financiamiento',
         'Recibos formales con depreciación',
       ],
-      planLabel: 'Plan recomendado: Pro PLUS · desde RD$5,490/mes',
+      planLabel: 'Plan recomendado: Pro PLUS · desde RD$4,490/mes',
     },
     empresas: {
       title: 'Para Empresas con Empleados',
@@ -142,7 +142,7 @@ const VERTICALS = {
         'Multi-ubicación + ticket locks',
         'Dashboard remoto en tiempo real',
       ],
-      planLabel: 'Plan recomendado: Pro MAX · desde RD$9,990/mes',
+      planLabel: 'Plan recomendado: Pro MAX · desde RD$6,990/mes',
     },
     contabilidad: {
       title: 'Para Contadores',
@@ -164,7 +164,7 @@ const VERTICALS = {
         'WhatsApp doc-chase con NCFs faltantes específicos',
         '"Ver como cliente" para soporte directo (auditado en ambos lados)',
       ],
-      planLabel: 'Plan recomendado: Pro MAX · desde RD$9,990/mes',
+      planLabel: 'Plan recomendado: Pro MAX · desde RD$6,990/mes',
     },
   },
   en: {
@@ -196,7 +196,7 @@ const VERTICALS = {
         'Manager auth cards Code128',
         'Daily owner digest email',
       ],
-      planLabel: 'Recommended: Pro · from RD$2,990/mo',
+      planLabel: 'Recommended: Pro · from RD$2,490/mo',
     },
     tiendas: {
       title: 'For Retail',
@@ -219,7 +219,7 @@ const VERTICALS = {
         { icon: Shirt, name: 'Boutique', detail: 'Variants (size, color)' },
         { icon: Boxes, name: 'Other', detail: 'Customizable' },
       ],
-      planLabel: 'Recommended: Pro PLUS · from RD$5,490/mo',
+      planLabel: 'Recommended: Pro PLUS · from RD$4,490/mo',
     },
     restaurantes: {
       title: 'For Restaurants',
@@ -234,7 +234,7 @@ const VERTICALS = {
         'Restaurant reports (turnover, table, hour)',
         'Multi-printer routing (kitchen/bar/cashier)',
       ],
-      planLabel: 'Recommended: Pro PLUS · from RD$5,490/mo',
+      planLabel: 'Recommended: Pro PLUS · from RD$4,490/mo',
     },
     servicios: {
       title: 'For Services',
@@ -249,7 +249,7 @@ const VERTICALS = {
         'Financing calculator',
         'Formal receipts with depreciation',
       ],
-      planLabel: 'Recommended: Pro PLUS · from RD$5,490/mo',
+      planLabel: 'Recommended: Pro PLUS · from RD$4,490/mo',
     },
     empresas: {
       title: 'For Businesses with Employees',
@@ -266,7 +266,7 @@ const VERTICALS = {
         'Multi-location + ticket locks',
         'Real-time remote dashboard',
       ],
-      planLabel: 'Recommended: Pro MAX · from RD$9,990/mo',
+      planLabel: 'Recommended: Pro MAX · from RD$6,990/mo',
     },
     contabilidad: {
       title: 'For Accountants',
@@ -288,7 +288,7 @@ const VERTICALS = {
         'WhatsApp doc-chase with specific missing NCFs',
         '"View as client" support mode (audited on both tenants)',
       ],
-      planLabel: 'Recommended: Pro MAX · from RD$9,990/mo',
+      planLabel: 'Recommended: Pro MAX · from RD$6,990/mo',
     },
   },
 }
