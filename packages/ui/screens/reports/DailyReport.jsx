@@ -568,6 +568,25 @@ export default function DailyReport() {
   const [toast,        setToast]        = useState(null)
   const [biz,          setBiz]          = useState({})
   const [reprintMenu,  setReprintMenu]  = useState(false)
+  // v2.17.4 — Pedidos Ya breakdown visibility. When ON, the −15% PY and
+  // −5% card commissions render as their own line below "Ganancia Bruta"
+  // instead of being collapsed into a tiny sub-label.
+  const [pyCfg, setPyCfg] = useState({ commissionPct: 15, showBreakdown: true })
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        const s = await api?.settings?.get?.()
+        if (!alive || !s) return
+        const pct = Number(s.pedidos_ya_commission_pct ?? 15)
+        const showBreakdown = s.py_show_breakdown == null
+          ? true
+          : (s.py_show_breakdown === '1' || s.py_show_breakdown === 1 || s.py_show_breakdown === true)
+        setPyCfg({ commissionPct: Number.isFinite(pct) ? pct : 15, showBreakdown })
+      } catch {}
+    })()
+    return () => { alive = false }
+  }, [api])
 
   function flash(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
@@ -786,7 +805,7 @@ export default function DailyReport() {
     let pyFee = 0, cardFee = 0, pyRevenue = 0, cardRevenue = 0
     for (const t of active) {
       const total = Number(t.total) || 0
-      if (t.orderSource === 'pedidos_ya') { pyRevenue += total; pyFee += total * 0.15 }
+      if (t.orderSource === 'pedidos_ya') { pyRevenue += total; pyFee += total * (pyCfg.commissionPct / 100) }
       let cardPortion = 0
       if (Array.isArray(t.paymentParts) && t.paymentParts.length) {
         for (const p of t.paymentParts) {
@@ -811,7 +830,7 @@ export default function DailyReport() {
       pyFee, cardFee, pyRevenue, cardRevenue,
       hasAnyCost,
     }
-  }, [baseFiltered])
+  }, [baseFiltered, pyCfg.commissionPct])
 
   // Visible rows: base + tab + search
   const visible = useMemo(() => {
@@ -1008,12 +1027,63 @@ export default function DailyReport() {
         <MetricCard icon={ReceiptText}      label={lang === 'es' ? 'Total Facturas'      : 'Total Invoices'}   value={summary.count}            accent="sky"    />
         <MetricCard icon={TrendingUp}       label={lang === 'es' ? 'Total Facturado'     : 'Total Billed'}     value={fmtRD(summary.total)}     accent="green"  />
         {summary.hasAnyCost && (
-          <MetricCard icon={CircleDollarSign} label={lang === 'es' ? 'Ganancia Neta' : 'Net Profit'} value={fmtRD(summary.profitNet || 0)} sub={(summary.pyFee > 0 || summary.cardFee > 0) ? `−${fmtRD(summary.pyFee + summary.cardFee)} comisiones` : (summary.total > 0 ? `${Math.round(((summary.profitNet || 0) / summary.total) * 100)}% margen` : null)} accent="green" />
+          <MetricCard icon={CircleDollarSign}
+            label={lang === 'es' ? 'Ganancia Bruta' : 'Gross Profit'}
+            value={fmtRD(summary.profit || 0)}
+            sub={summary.total > 0 ? `${Math.round(((summary.profit || 0) / summary.total) * 100)}% margen bruto` : null}
+            accent="green" />
         )}
         <MetricCard icon={CircleDollarSign} label="ITBIS Generado"                                             value={fmtRD(summary.itbis)}     accent="violet" />
         <MetricCard icon={Clock}            label={lang === 'es' ? 'CxC Pendiente'       : 'Pending A/R'}      value={fmtRD(summary.cxc)}       accent="amber"  />
         <MetricCard icon={Ban}              label={lang === 'es' ? 'Facturas Nulas'      : 'Voided Invoices'}  value={summary.nulas}            accent="red"    />
       </div>
+
+      {/* ── PY / Card commission breakdown (v2.17.4) ────────────────────────── */}
+      {pyCfg.showBreakdown && summary.hasAnyCost && (summary.pyFee > 0 || summary.cardFee > 0) && (
+        <div className="shrink-0 mx-3 md:mx-6 mb-2 md:mb-3 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-4 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-white/50">
+              {lang === 'es' ? 'Desglose de Comisiones' : 'Commission Breakdown'}
+            </span>
+            <span className="text-[10px] text-slate-400 dark:text-white/30">
+              {lang === 'es' ? 'Apagar en Config → Pedidos Ya' : 'Hide in Config → Pedidos Ya'}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 text-[13px]">
+            <div className="flex flex-col">
+              <span className="text-[10px] uppercase text-slate-400 dark:text-white/40">{lang === 'es' ? 'Bruto' : 'Gross'}</span>
+              <span className="font-bold text-emerald-600 dark:text-emerald-400">{fmtRD(summary.profit || 0)}</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] uppercase text-[#b3001e]/80 dark:text-[#ff6b6b]/80">
+                {lang === 'es' ? `−${pyCfg.commissionPct}% Pedidos Ya` : `−${pyCfg.commissionPct}% Pedidos Ya`}
+              </span>
+              <span className="font-bold text-[#b3001e] dark:text-[#ff6b6b]">−{fmtRD(summary.pyFee)}</span>
+              <span className="text-[10px] text-slate-400 dark:text-white/40">
+                {lang === 'es' ? `sobre ${fmtRD(summary.pyRevenue)} PY` : `over ${fmtRD(summary.pyRevenue)} PY`}
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] uppercase text-[#b3001e]/80 dark:text-[#ff6b6b]/80">
+                {lang === 'es' ? '−5% Tarjeta' : '−5% Card'}
+              </span>
+              <span className="font-bold text-[#b3001e] dark:text-[#ff6b6b]">−{fmtRD(summary.cardFee)}</span>
+              <span className="text-[10px] text-slate-400 dark:text-white/40">
+                {lang === 'es' ? `sobre ${fmtRD(summary.cardRevenue)} tarjeta` : `over ${fmtRD(summary.cardRevenue)} card`}
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] uppercase text-slate-400 dark:text-white/40">{lang === 'es' ? 'Neto a tu bolsillo' : 'Net to you'}</span>
+              <span className="font-bold text-emerald-700 dark:text-emerald-300">{fmtRD(summary.profitNet || 0)}</span>
+              {summary.total > 0 && (
+                <span className="text-[10px] text-slate-400 dark:text-white/40">
+                  {Math.round(((summary.profitNet || 0) / summary.total) * 100)}% {lang === 'es' ? 'margen neto' : 'net margin'}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Table ──────────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col bg-white dark:bg-white/5 mx-2 md:mx-6 mb-3 rounded-2xl border border-slate-200 dark:border-white/10 overflow-hidden">

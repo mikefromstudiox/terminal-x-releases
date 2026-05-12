@@ -454,6 +454,16 @@ const SISTEMA_DEFAULTS = {
   // added to a WO when "Marcar Listo" toggles entrega a domicilio. Was hardcoded
   // RD$ 500. Cloud-synced (BUSINESS_SETTING_KEYS) so every register matches.
   mechanic_tow_fee_default: '500',
+  // v2.17.4 — Pedidos Ya channel: cloud-synced toggles + commission. Adding here
+  // ensures useSettings.loadSettings rehydrates them from app_settings on mount
+  // so the toggle state persists across reloads (filter on line 481 skips any
+  // key not in SISTEMA_DEFAULTS).
+  pedidos_ya_enabled:        '0',
+  pedidos_ya_commission_pct: '15',
+  // py_show_breakdown: when '1' (default) Inventory + Daily + Monthly reports
+  // render the −PY% and −5% card commission lines as visible breakdown rows
+  // alongside Ganancia Bruta. When '0' the breakdown collapses (gross only).
+  py_show_breakdown: '1',
 }
 
 // Shared settings hook — loads cfg from DB once, provides set/save

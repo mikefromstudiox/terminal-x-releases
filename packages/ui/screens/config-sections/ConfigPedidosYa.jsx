@@ -35,6 +35,13 @@ export default function ConfigPedidosYa() {
               onChange={e => set('pedidos_ya_commission_pct', e.target.value)}
               className="w-20 text-center" />
           </SettingRow>
+          <SettingRow settingKey="py_show_breakdown"
+            label={L('Mostrar desglose en reportes', 'Show breakdown in reports')}
+            hint={L('Muestra −15% PY y −5% tarjeta visiblemente en Inventario y Reportes. Apaga para ver solo ganancia bruta.',
+                    'Shows −15% PY and −5% card deductions visibly in Inventory and Reports. Off shows gross profit only.')}>
+            <Toggle enabled={cfg.py_show_breakdown == null ? true : on('py_show_breakdown')}
+                    onChange={v => set('py_show_breakdown', v ? '1' : '0')} />
+          </SettingRow>
         </SettingSection>
         <div className="flex justify-end mt-4">
           <SaveBtn saving={saving} saved={saved} label={L('Guardar', 'Save')} onClick={handleSave} />

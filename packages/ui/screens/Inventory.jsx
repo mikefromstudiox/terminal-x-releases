@@ -1334,7 +1334,7 @@ export default function Inventory() {
   // PY (Pedidos Ya) split-margin config — read from app_settings so the column
   // mirrors what /config/pedidosya is set to per-business. Default 15% matches
   // the platform's standard cut.
-  const [pyCfg, setPyCfg] = useState({ enabled: false, commissionPct: 15 })
+  const [pyCfg, setPyCfg] = useState({ enabled: false, commissionPct: 15, showBreakdown: true })
   const { hasFeature } = usePlan()
   const ofertasEnabled = hasFeature('ofertas')
   const [modal,    setModal]    = useState(null)     // null | { type: 'item'|'adjust'|'history'|'import', item }
@@ -1370,7 +1370,10 @@ export default function Inventory() {
         if (!alive || !s) return
         const enabled = s.pedidos_ya_enabled === '1' || s.pedidos_ya_enabled === 1 || s.pedidos_ya_enabled === true
         const pct = Number(s.pedidos_ya_commission_pct ?? 15)
-        setPyCfg({ enabled, commissionPct: Number.isFinite(pct) ? pct : 15 })
+        const showBreakdown = s.py_show_breakdown == null
+          ? true
+          : (s.py_show_breakdown === '1' || s.py_show_breakdown === 1 || s.py_show_breakdown === true)
+        setPyCfg({ enabled, commissionPct: Number.isFinite(pct) ? pct : 15, showBreakdown })
       } catch {}
     })()
     return () => { alive = false }
@@ -1637,18 +1640,25 @@ export default function Inventory() {
                             const aplica  = item.aplica_itbis === 1 || item.aplica_itbis === true
                             const pyPrice = Number(item.price_pedidos_ya)
                             const pyNet   = aplica ? pyPrice / 1.18 : pyPrice
+                            const gross   = pyNet - item.cost
+                            const pct     = (gross / pyNet) * 100
                             const pyComm  = pyPrice * (pyCfg.commissionPct / 100)
-                            const owner   = pyNet - item.cost - pyComm
-                            const pct     = (owner / pyNet) * 100
                             const tooltip =
-                              `PY se lleva ${pyCfg.commissionPct}% (${fmtRD(pyComm)}) · ` +
-                              `Tú te quedas ${fmtRD(owner)}` +
-                              (aplica ? ' (sobre precio sin ITBIS)' : '')
+                              `Margen bruto sobre precio PY${aplica ? ' (sin ITBIS)' : ''}: ${fmtRD(gross)}\n` +
+                              `PY cobra ${pyCfg.commissionPct}% (${fmtRD(pyComm)}) — descuéntalo aparte`
                             return (
-                              <span className={`font-semibold ${owner > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}
-                                title={tooltip}>
-                                {Math.round(pct)}%
-                              </span>
+                              <div className="flex flex-col items-end leading-tight">
+                                <span className={`font-semibold ${gross > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}
+                                  title={tooltip}>
+                                  {Math.round(pct)}%
+                                </span>
+                                {pyCfg.showBreakdown && (
+                                  <span className="text-[10px] text-[#b3001e]/80 dark:text-[#ff6b6b]/80 mt-0.5"
+                                    title={`PY se queda con ${pyCfg.commissionPct}% del precio PY`}>
+                                    −{pyCfg.commissionPct}% = {fmtRD(pyComm)}
+                                  </span>
+                                )}
+                              </div>
                             )
                           })() : <span className="text-slate-300 dark:text-white/20">—</span>}
                         </td>
@@ -1713,17 +1723,21 @@ export default function Inventory() {
                       const aplica  = item.aplica_itbis === 1 || item.aplica_itbis === true
                       const pyPrice = Number(item.price_pedidos_ya)
                       const pyNet   = aplica ? pyPrice / 1.18 : pyPrice
+                      const gross   = pyNet - item.cost
+                      const pct     = (gross / pyNet) * 100
                       const pyComm  = pyPrice * (pyCfg.commissionPct / 100)
-                      const owner   = pyNet - item.cost - pyComm
-                      const pct     = (owner / pyNet) * 100
                       return (
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="text-slate-500 dark:text-white/60">
-                            Margen PY: <span className={`font-semibold ${owner > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}>{Math.round(pct)}%</span>
+                            Margen PY: <span className={`font-semibold ${gross > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}>{Math.round(pct)}%</span>
                           </span>
-                          <span className="text-slate-400 dark:text-white/40">
-                            PY {pyCfg.commissionPct}% · Tú {fmtRD(owner)}
-                          </span>
+                          {pyCfg.showBreakdown ? (
+                            <span className="text-[#b3001e]/80 dark:text-[#ff6b6b]/80">
+                              −{pyCfg.commissionPct}% PY = {fmtRD(pyComm)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 dark:text-white/40">Bruto {fmtRD(gross)}</span>
+                          )}
                         </div>
                       )
                     })()}

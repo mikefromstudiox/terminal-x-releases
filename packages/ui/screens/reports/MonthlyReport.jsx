@@ -69,7 +69,7 @@ function prevPeriodOf(period) {
 }
 
 // ── Ticket aggregation ────────────────────────────────────────────────────────
-function aggregateTickets(tickets, period) {
+function aggregateTickets(tickets, period, pyPct = 15) {
   if (!tickets || !tickets.length) {
     return {
       metrics:     { facturado: 0, cobrado: 0, pendiente: 0, carros: tickets?.length ?? 0 },
@@ -114,7 +114,7 @@ function aggregateTickets(tickets, period) {
     const total = Number(t.total || 0)
     if (t.order_source === 'pedidos_ya') {
       pyRevenue += total
-      pyFee     += total * 0.15
+      pyFee     += total * (pyPct / 100)
     }
     let cardPortion = 0
     let parts = t.payment_parts
@@ -387,8 +387,26 @@ export default function MonthlyReport() {
   const [prevTickets, setPrevTickets] = useState(null)
   const [loading,     setLoading]     = useState(false)
   const [biz,         setBiz]         = useState({})
+  // v2.17.4 — PY commission breakdown visibility + configurable %.
+  const [pyCfg, setPyCfg] = useState({ commissionPct: 15, showBreakdown: true })
 
   useEffect(() => { api.admin?.getEmpresa?.().then(e => e && setBiz({ name: e.name || e.nombre, rnc: e.rnc, address: e.address || e.direccion, phone: e.phone || e.telefono, email: e.email, logo: e.logo, settings: e.settings })).catch(() => {}) }, [])
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        const s = await api?.settings?.get?.()
+        if (!alive || !s) return
+        const pct = Number(s.pedidos_ya_commission_pct ?? 15)
+        const showBreakdown = s.py_show_breakdown == null
+          ? true
+          : (s.py_show_breakdown === '1' || s.py_show_breakdown === 1 || s.py_show_breakdown === true)
+        setPyCfg({ commissionPct: Number.isFinite(pct) ? pct : 15, showBreakdown })
+      } catch {}
+    })()
+    return () => { alive = false }
+  }, [api])
 
   // ── Fetch tickets for current period and previous period ──────────────────
   const loadTickets = useCallback(async () => {
@@ -416,8 +434,8 @@ export default function MonthlyReport() {
   useEffect(() => { loadTickets() }, [loadTickets])
 
   // ── Aggregate data ─────────────────────────────────────────────────────────
-  const data     = useMemo(() => tickets     !== null ? aggregateTickets(tickets,     period)              : null, [tickets,     period])
-  const prevData = useMemo(() => prevTickets !== null ? aggregateTickets(prevTickets, prevPeriodOf(period)) : null, [prevTickets, period])
+  const data     = useMemo(() => tickets     !== null ? aggregateTickets(tickets,     period,              pyCfg.commissionPct) : null, [tickets,     period, pyCfg.commissionPct])
+  const prevData = useMemo(() => prevTickets !== null ? aggregateTickets(prevTickets, prevPeriodOf(period), pyCfg.commissionPct) : null, [prevTickets, period, pyCfg.commissionPct])
 
   function selectPill(pill) {
     setPill(pill.id)
@@ -617,40 +635,47 @@ export default function MonthlyReport() {
             </div>
 
             {/* ── Profit & Loss row (channel/processor fees) ─────────────────── */}
-            {(data.metrics.hasAnyCost || data.metrics.pyFee > 0 || data.metrics.cardFee > 0) && (
+            {(data.metrics.hasAnyCost || (pyCfg.showBreakdown && (data.metrics.pyFee > 0 || data.metrics.cardFee > 0))) && (
               <div className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-5">
-                <p className="text-[12px] font-bold text-slate-700 dark:text-white mb-4">
-                  {lang === 'es' ? 'Ganancias y Gastos' : 'Profit & Loss'}
-                </p>
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-[12px] font-bold text-slate-700 dark:text-white">
+                    {lang === 'es' ? 'Ganancias y Comisiones' : 'Profit & Commissions'}
+                  </p>
+                  {pyCfg.showBreakdown && (data.metrics.pyFee > 0 || data.metrics.cardFee > 0) && (
+                    <span className="text-[10px] text-slate-400 dark:text-white/30">
+                      {lang === 'es' ? 'Apagar desglose en Config → Pedidos Ya' : 'Hide breakdown in Config → Pedidos Ya'}
+                    </span>
+                  )}
+                </div>
                 <div className="space-y-2.5">
                   {data.metrics.hasAnyCost && (
                     <div className="flex items-center justify-between text-[13px]">
                       <span className="text-slate-600 dark:text-white/60">{lang === 'es' ? 'Ganancia bruta (precio − costo)' : 'Gross profit (price − cost)'}</span>
-                      <span className="font-semibold text-slate-800 dark:text-white">{fmtRD(data.metrics.profit || 0)}</span>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400">{fmtRD(data.metrics.profit || 0)}</span>
                     </div>
                   )}
-                  {data.metrics.pyFee > 0 && (
-                    <div className="flex items-center justify-between text-[13px]">
-                      <span className="text-slate-600 dark:text-white/60">
-                        {lang === 'es' ? 'Comisión Pedidos Ya (15% de ' : 'Pedidos Ya fee (15% of '}
-                        <span className="text-slate-400 dark:text-white/40">{fmtRD(data.metrics.pyRevenue)}</span>)
+                  {pyCfg.showBreakdown && data.metrics.pyFee > 0 && (
+                    <div className="flex items-center justify-between text-[13px] bg-[#b3001e]/5 dark:bg-[#b3001e]/10 -mx-2 px-2 py-1.5 rounded-lg">
+                      <span className="text-slate-700 dark:text-white/80">
+                        {lang === 'es' ? `Comisión Pedidos Ya (${pyCfg.commissionPct}% de ` : `Pedidos Ya fee (${pyCfg.commissionPct}% of `}
+                        <span className="text-slate-500 dark:text-white/50">{fmtRD(data.metrics.pyRevenue)}</span>)
                       </span>
-                      <span className="font-semibold text-rose-600">−{fmtRD(data.metrics.pyFee)}</span>
+                      <span className="font-bold text-[#b3001e] dark:text-[#ff6b6b]">−{fmtRD(data.metrics.pyFee)}</span>
                     </div>
                   )}
-                  {data.metrics.cardFee > 0 && (
-                    <div className="flex items-center justify-between text-[13px]">
-                      <span className="text-slate-600 dark:text-white/60">
+                  {pyCfg.showBreakdown && data.metrics.cardFee > 0 && (
+                    <div className="flex items-center justify-between text-[13px] bg-[#b3001e]/5 dark:bg-[#b3001e]/10 -mx-2 px-2 py-1.5 rounded-lg">
+                      <span className="text-slate-700 dark:text-white/80">
                         {lang === 'es' ? 'Comisión Tarjeta (5% de ' : 'Card processor fee (5% of '}
-                        <span className="text-slate-400 dark:text-white/40">{fmtRD(data.metrics.cardRevenue)}</span>)
+                        <span className="text-slate-500 dark:text-white/50">{fmtRD(data.metrics.cardRevenue)}</span>)
                       </span>
-                      <span className="font-semibold text-rose-600">−{fmtRD(data.metrics.cardFee)}</span>
+                      <span className="font-bold text-[#b3001e] dark:text-[#ff6b6b]">−{fmtRD(data.metrics.cardFee)}</span>
                     </div>
                   )}
-                  {data.metrics.hasAnyCost && (
+                  {data.metrics.hasAnyCost && pyCfg.showBreakdown && (data.metrics.pyFee > 0 || data.metrics.cardFee > 0) && (
                     <div className="flex items-center justify-between pt-2.5 border-t border-slate-200 dark:border-white/10">
-                      <span className="text-[13px] font-bold text-slate-800 dark:text-white">{lang === 'es' ? 'Ganancia Neta' : 'Net Profit'}</span>
-                      <span className="text-[15px] font-bold text-emerald-600">{fmtRD(data.metrics.profitNet || 0)}</span>
+                      <span className="text-[13px] font-bold text-slate-800 dark:text-white">{lang === 'es' ? 'Neto a tu bolsillo' : 'Net to you'}</span>
+                      <span className="text-[15px] font-bold text-emerald-700 dark:text-emerald-300">{fmtRD(data.metrics.profitNet || 0)}</span>
                     </div>
                   )}
                 </div>

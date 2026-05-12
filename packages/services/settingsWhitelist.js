@@ -67,6 +67,14 @@ export const BUSINESS_SETTING_KEYS = new Set([
   'setup_complete',
   'feature_age_verification_enabled',
   'feature_pedidos_ya_enabled',
+  // Pedidos Ya channel config + display preferences (v2.17.4). Previously
+  // unwhitelisted — saved as device-local so a flip on web never reached
+  // desktop. Now business-wide cloud-synced.
+  'pedidos_ya_enabled', 'pedidos_ya_commission_pct',
+  // py_show_breakdown: when ON (default) reports + inventory show the
+  // −15% PY and −5% card commission deductions as visible breakdown lines.
+  // When OFF, only gross profit shows. Owner preference, business-wide.
+  'py_show_breakdown',
   'feature_bottle_deposit_enabled',
   'feature_mamajuana_tracking_enabled',
   'feature_prescription_tracking_enabled',
