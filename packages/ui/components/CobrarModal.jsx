@@ -1365,7 +1365,12 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           // screen empty). Audited 2026-04-30 — every Ranoza ticket prior
           // had client_supabase_id=NULL.
           clientSupabaseId: selectedClient?.supabase_id || null,
-          clientName: selectedClient?.name || null,
+          // v2.17.5 — derive a final buyer-name + buyer-RNC from EITHER the
+          // saved-client pick OR the typed-in RNC's resolved DGII name. POS
+          // persists these onto the tickets row so reprints + Conduce show
+          // the right buyer even when no saved client was selected.
+          clientName: selectedClient?.name || rncName || null,
+          clientRnc:  selectedClient?.rnc  || rnc     || null,
           ncfType, rnc, rncName, tipo,
           formaPago: tipo === 'credito' ? 'credit' : dominantMethod,
           payment_parts: mixtoPayload,
@@ -1575,7 +1580,12 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           // screen empty). Audited 2026-04-30 — every Ranoza ticket prior
           // had client_supabase_id=NULL.
           clientSupabaseId: selectedClient?.supabase_id || null,
-          clientName: selectedClient?.name || null,
+          // v2.17.5 — derive a final buyer-name + buyer-RNC from EITHER the
+          // saved-client pick OR the typed-in RNC's resolved DGII name. POS
+          // persists these onto the tickets row so reprints + Conduce show
+          // the right buyer even when no saved client was selected.
+          clientName: selectedClient?.name || rncName || null,
+          clientRnc:  selectedClient?.rnc  || rnc     || null,
           ncfType, rnc, rncName, tipo,
           formaPago: tipo === 'credito' ? 'credit' : dominantMethod,
           payment_parts: mixtoPayload,
@@ -1666,6 +1676,10 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
             ticketId:  ticket.id,
             ticketNo:  ticket.ticketNo,
             clientId:  selectedClient?.id || null,
+            clientSupabaseId: selectedClient?.supabase_id || null,
+            // v2.17.5 — see comment at the legacy onConfirm site above.
+            clientName: selectedClient?.name || rncName || null,
+            clientRnc:  selectedClient?.rnc  || rnc     || null,
             ncfType, rnc, rncName, tipo,
             formaPago: tipo === 'credito' ? 'credit' : dominantMethod,
             payment_parts: mixtoPayload,

@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-09T03:48:58.599Z
+- **Snapshot taken:** 2026-05-14T20:59:10.258Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -1494,7 +1494,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `api_rate_limits`
 
-- Rough row count (n_live_tup): **764**
+- Rough row count (n_live_tup): **780**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1522,7 +1522,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `app_settings`
 
-- Rough row count (n_live_tup): **214**
+- Rough row count (n_live_tup): **233**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1828,7 +1828,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `businesses`
 
-- Rough row count (n_live_tup): **19**
+- Rough row count (n_live_tup): **20**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2193,7 +2193,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `client_errors`
 
-- Rough row count (n_live_tup): **71**
+- Rough row count (n_live_tup): **149**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2806,7 +2806,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `crm_leads`
 
-- Rough row count (n_live_tup): **8**
+- Rough row count (n_live_tup): **10**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2872,7 +2872,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `cuadre_caja`
 
-- Rough row count (n_live_tup): **21**
+- Rough row count (n_live_tup): **22**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3739,7 +3739,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `inventory_count_items`
 
-- Rough row count (n_live_tup): **1714**
+- Rough row count (n_live_tup): **1717**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4221,7 +4221,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `license_events`
 
-- Rough row count (n_live_tup): **2437**
+- Rough row count (n_live_tup): **2479**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4260,7 +4260,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `license_jwt_audit`
 
-- Rough row count (n_live_tup): **60**
+- Rough row count (n_live_tup): **78**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5856,7 +5856,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `queue`
 
-- Rough row count (n_live_tup): **8**
+- Rough row count (n_live_tup): **11**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6251,7 +6251,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `seller_commissions`
 
-- Rough row count (n_live_tup): **23**
+- Rough row count (n_live_tup): **25**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6525,7 +6525,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `service_recipe_items`
 
-- Rough row count (n_live_tup): **22**
+- Rough row count (n_live_tup): **23**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7018,7 +7018,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `ticket_items`
 
-- Rough row count (n_live_tup): **1124**
+- Rough row count (n_live_tup): **1127**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7135,7 +7135,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `tickets`
 
-- Rough row count (n_live_tup): **454**
+- Rough row count (n_live_tup): **457**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7213,6 +7213,7 @@ Total tables: **152** (RLS enabled: **152**)
 | 71 | `mac_jti` | text | YES |  |  |
 | 72 | `open_status` | text | YES | 'closed'::text |  |
 | 73 | `food_truck_location_supabase_id` | uuid | YES |  |  |
+| 74 | `client_rnc` | text | YES |  |  |
 
 **Primary Key**
 
@@ -7239,6 +7240,8 @@ Total tables: **152** (RLS enabled: **152**)
   `CREATE INDEX idx_tickets_appointment_sid ON public.tickets USING btree (appointment_supabase_id) WHERE (appointment_supabase_id IS NOT NULL)`
 - `idx_tickets_business` (btree)
   `CREATE INDEX idx_tickets_business ON public.tickets USING btree (business_id)`
+- `idx_tickets_client_rnc` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE INDEX idx_tickets_client_rnc ON public.tickets USING btree (client_rnc) WHERE (client_rnc IS NOT NULL)`
 - `idx_tickets_created` (btree)
   `CREATE INDEX idx_tickets_created ON public.tickets USING btree (business_id, created_at DESC)`
 - `idx_tickets_ecf_result_gin` (gin)  **(PARTIAL — NOT usable as on_conflict target)**
@@ -7656,7 +7659,7 @@ Total tables: **152** (RLS enabled: **152**)
 
 ### `washer_commissions`
 
-- Rough row count (n_live_tup): **70**
+- Rough row count (n_live_tup): **72**
 - RLS enabled: **YES**
 
 **Columns**
@@ -18464,9 +18467,9 @@ These have all bitten Terminal X in production. Future readers — check this li
 ## Snapshot Stats
 
 - Tables: **152** (RLS-enabled: 152)
-- Columns: **3016**
+- Columns: **3017**
 - Constraints: **748** (PK: 184, UNIQUE: 282, FK: 155, CHECK: 125)
-- Indexes: **952** (partial: 132)
+- Indexes: **953** (partial: 133)
 - Policies: **414** (`app_metadata`: 264, `user_metadata`: 0)
 - Functions: **246**
 - Triggers: **277**
@@ -18478,4 +18481,4 @@ When re-running this script, append a brief entry below describing the diff. Use
 
 | date | who | summary |
 |------|-----|---------|
-| 2026-05-09 | dataLEAKS | initial snapshot |
+| 2026-05-14 | dataLEAKS | initial snapshot |

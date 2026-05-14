@@ -726,19 +726,27 @@ const SYNC_TABLES = [
           if (u) cajero_name = u.name
         }
       } catch (e) { try { log.warn('[sync] tickets enrich cajero_name:', e?.message); _reportSyncError && _reportSyncError(e, 'sync.push.tickets.cajero_name') } catch {} }
-      // Resolve client name
-      let client_name = null
+      // Resolve client name + rnc. Prefer the stored snapshot on the ticket
+      // row (set at cobro from either selectedClient or typed RNC); fall back
+      // to the joined clients row when the cashier picked a saved client and
+      // the ticket pre-dates v2.17.5 client_name/client_rnc persistence.
+      let client_name = r.client_name || null
+      let client_rnc  = r.client_rnc  || null
       try {
-        if (r.client_id) {
-          const c = _db.rawPrepare('SELECT name FROM clients WHERE id = ?').get(r.client_id)
-          if (c) client_name = c.name
+        if ((!client_name || !client_rnc) && r.client_id) {
+          const c = _db.rawPrepare('SELECT name, rnc FROM clients WHERE id = ?').get(r.client_id)
+          if (c) {
+            if (!client_name) client_name = c.name
+            if (!client_rnc)  client_rnc  = c.rnc
+          }
         }
-      } catch (e) { try { log.warn('[sync] tickets enrich client_name:', e?.message); _reportSyncError && _reportSyncError(e, 'sync.push.tickets.client_name') } catch {} }
+      } catch (e) { try { log.warn('[sync] tickets enrich client_name/rnc:', e?.message); _reportSyncError && _reportSyncError(e, 'sync.push.tickets.client_name') } catch {} }
       return {
         supabase_id: r.supabase_id,
         doc_number: r.doc_number,
         client_supabase_id: r.client_supabase_id || null,
         client_name: client_name,
+        client_rnc: client_rnc,
         // v2.1: legacy washer_ids (INT array as JSON) replaced by JSON array of empleado UUIDs.
         // seller_supabase_id keeps its name on the wire but now resolves against empleados (tipo='vendedor').
         washer_empleado_supabase_ids: r.washer_empleado_supabase_ids || '[]',
@@ -3038,7 +3046,7 @@ const PULL_TABLES = [
     // v2.1: washer_ids legacy INT-array column dropped → washer_empleado_supabase_ids JSON of UUIDs.
     // seller_supabase_id is still the column name on the wire, but it now points at empleados.supabase_id
     // (tipo='vendedor'/'hybrid'); explicitly resolved against empleados below.
-    cols: ['doc_number','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','void_by','void_at','vehicle_plate','vehicle_color','vehicle_make','notes','washer_empleado_supabase_ids','tip_amount','fulfillment_type','mesa_supabase_id','mode','converted_from_mesa_supabase_id','converted_from_ticket_supabase_id','payment_parts','split_bill','order_source','rev','created_at','updated_at'],
+    cols: ['doc_number','client_name','client_rnc','subtotal','descuento','itbis','ley','total','beverage_subtotal','payment_method','comprobante_type','ncf','ecf_result','tipo_venta','status','void_reason','void_by','void_at','vehicle_plate','vehicle_color','vehicle_make','notes','washer_empleado_supabase_ids','tip_amount','fulfillment_type','mesa_supabase_id','mode','converted_from_mesa_supabase_id','converted_from_ticket_supabase_id','payment_parts','split_bill','order_source','rev','created_at','updated_at'],
     fkCols: { client_supabase_id: 'clients', seller_empleado_supabase_id: 'empleados', cajero_supabase_id: 'users' },
     // v2.10.3 — `rev` rides statusSync so both sides of a status flip stay in lockstep.
     statusSync: ['status', 'void_reason', 'void_by', 'void_at', 'rev', 'updated_at'] },

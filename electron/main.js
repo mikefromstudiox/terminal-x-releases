@@ -1246,9 +1246,15 @@ async function processAnecfQueue() {
     for (const item of pending) {
       try {
         const env = item.environment || getDgiiEnv()
+        // v2.17.5 — pass tipoECF. Without it the builder's normalizer pads an
+        // empty string to '00' and DGII rejects with "TipoeCF invalid". The
+        // anecf_queue row has tipo_ecf already; fall back to ncf.substring(1,3)
+        // (E31… → '31') if a legacy row predates the column.
+        const tipoEcf = item.tipo_ecf || (typeof item.ncf === 'string' ? item.ncf.substring(1, 3) : '')
         const xml = xmlBuilder.buildANECFXml({
           rncEmisor,
           cantidadNCF: 1,                      // single-NCF range per void
+          tipoECF:    tipoEcf,
           rangoDesde: item.rango_desde,
           rangoHasta: item.rango_hasta,
         })

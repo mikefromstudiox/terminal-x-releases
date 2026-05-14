@@ -870,7 +870,12 @@ function CarWashPOS() {
         client_id:        pending.clientId || null,
         // v2.16.10 — required for web. CobrarModal sets these in onConfirm payload.
         client_supabase_id: paymentData.clientSupabaseId || pending.client?.supabase_id || null,
-        client_name:        paymentData.clientName || pending.client?.name || null,
+        // v2.17.5 — persist buyer name + RNC on the ticket row. CobrarModal
+        // derives clientName/clientRnc from selectedClient OR typed RNC/rncName.
+        // Falls back to pending.client snapshot when CobrarModal pre-loaded a
+        // saved client from Queue. Reprints + Credits cobro reads these.
+        client_name:        paymentData.clientName || paymentData.rncName || pending.client?.name || null,
+        client_rnc:         paymentData.clientRnc  || paymentData.rnc     || pending.client?.rnc  || null,
         washer_ids:       pending.workers.map(w => w.id),
         washer_commission_overrides: washerOverridesCb,
         seller_id:        pending.salesperson || null,
@@ -2733,7 +2738,10 @@ function RetailPOS() {
         // v2.16.10 — required for web (audit 2026-04-30 confirmed every prior
         // Ranoza ticket landed orphaned because we sent client_id only).
         client_supabase_id: paymentData.clientSupabaseId || pending.client?.supabase_id || null,
-        client_name:        paymentData.clientName || pending.client?.name || null,
+        // v2.17.5 — see POS handlePaymentConfirm above. Direct-retail path also
+        // persists buyer name + RNC for reprint + Credits flows.
+        client_name:        paymentData.clientName || paymentData.rncName || pending.client?.name || null,
+        client_rnc:         paymentData.clientRnc  || paymentData.rnc     || pending.client?.rnc  || null,
         washer_ids:       [],
         seller_id:        pending.salesperson || null,
         cajero_id:        (user?.id && user.id !== 'web') ? user.id : null,

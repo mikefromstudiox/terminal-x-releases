@@ -2459,7 +2459,7 @@ export function createWebAPI(supabase, businessId) {
         // Idempotency: caller can pass a precomputed supabase_id. If a row with
         // that supabase_id already exists for this business, we skip steps 1-2
         // (they ran on a prior attempt) and return the existing row.
-        const { clientId, ticketIds, amount, paymentMethod, ncf, notes, cajeroId, supabase_id: callerSid } = data
+        const { clientId, ticketIds, amount, paymentMethod, ncf, notes, cajeroId, clientRnc, clientName, supabase_id: callerSid } = data
         const sid = callerSid || crypto.randomUUID()
 
         if (callerSid) {
@@ -2504,6 +2504,12 @@ export function createWebAPI(supabase, businessId) {
           const nextRev = Number(t.rev || 0) + 1
           const patch = { rev: nextRev, payment_method: fullyPaid ? paymentMethod : undefined }
           if (fullyPaid) patch.status = 'cobrado'
+          // v2.17.5 — stamp buyer name/RNC onto the ticket if the credit cobro
+          // captured them (cashier typed an RNC for E31 or the saved client has
+          // one). Prior tickets row may have NULLs from the original sale; this
+          // backfills at cobro time so the reprinted receipt carries the buyer.
+          if (clientName) patch.client_name = clientName
+          if (clientRnc)  patch.client_rnc  = clientRnc
           // Strip undefined keys so Supabase doesn't NULL them
           for (const k of Object.keys(patch)) if (patch[k] === undefined) delete patch[k]
           await supabase.from('tickets').update(patch).eq('id', tid).eq('business_id', bid)
@@ -2781,6 +2787,7 @@ export function createWebAPI(supabase, businessId) {
               doc_number:      docNum,
               client_supabase_id: data.client_supabase_id || null,
               client_name:        data.client_name || null,
+              client_rnc:         data.client_rnc || null,
               // v2.16.10 — schema-drift sweep. Supabase migration 2026-04-30
               // added these. Previously the code wrote them but PostgREST
               // silently dropped the keys.

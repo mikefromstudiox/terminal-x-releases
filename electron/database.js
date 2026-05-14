@@ -5917,7 +5917,7 @@ function ticketsGetAll({ dateFrom, dateTo, status, limit = 5000 } = {}) {
   // (7,557 tickets). Carwashes doing 500+/mo need to see the full month in one
   // view. 50k is the new hard cap — enough for any reasonable dateFrom/dateTo.
   const safeLimit = Math.min(limit || 5000, 50000)
-  let sql  = `SELECT t.*, c.name as client_name, c.rnc as client_rnc,
+  let sql  = `SELECT t.*, COALESCE(t.client_name, c.name) as client_name, COALESCE(t.client_rnc, c.rnc) as client_rnc,
                      u.name as cajero_name,
                      GROUP_CONCAT(ti.name, ' + ') as service_names
               FROM tickets t
@@ -5948,7 +5948,7 @@ function ticketsGetAll({ dateFrom, dateTo, status, limit = 5000 } = {}) {
 function ticketGetById(id) {
   if (!db) return null
   const ticket = db.prepare(
-    `SELECT t.*, c.name as client_name, c.rnc as client_rnc, u.name as cajero_name
+    `SELECT t.*, COALESCE(t.client_name, c.name) as client_name, COALESCE(t.client_rnc, c.rnc) as client_rnc, u.name as cajero_name
      FROM tickets t
      LEFT JOIN clients c ON c.id=t.client_id
      LEFT JOIN users u ON u.id=t.cajero_id
@@ -6817,6 +6817,8 @@ function ticketCreate(data) {
     // flagged is_test=1 so they're skipped by sync push, DGII, commissions,
     // and credit. Wiped on goLiveCommit().
     "ALTER TABLE tickets ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE tickets ADD COLUMN client_name TEXT",
+    "ALTER TABLE tickets ADD COLUMN client_rnc TEXT",
   ]
   for (const sql of SELF_HEAL_TICKETS_COLS) { try { db.exec(sql) } catch {} }
 
@@ -6950,14 +6952,16 @@ function ticketCreate(data) {
     const splitBillFlag = (data.split === true || (Array.isArray(data.payment_parts) && data.payment_parts.length > 1)) ? 1 : 0
 
     const result = db.prepare(`INSERT INTO tickets
-      (doc_number,client_id,washer_empleado_supabase_ids,seller_empleado_supabase_id,cajero_id,subtotal,descuento,itbis,ley,total,
+      (doc_number,client_id,client_name,client_rnc,washer_empleado_supabase_ids,seller_empleado_supabase_id,cajero_id,subtotal,descuento,itbis,ley,total,
        beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,supabase_id,client_supabase_id,seller_supabase_id,cajero_supabase_id,
        mesa_id,mesa_supabase_id,fulfillment_type,tip_amount,servicio_amount,servicio_pct,mode,converted_from_mesa_id,converted_from_mesa_supabase_id,converted_from_ticket_id,converted_from_ticket_supabase_id,
        origin_hwid,used_legacy_counter,notes,order_source,payment_parts,split_bill,is_test,
        created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
       docNumber,
       data.client_id || null,
+      data.client_name || null,
+      data.client_rnc || null,
       JSON.stringify(washerEmpSids),
       sellerEmpSid,
       data.cajero_id || null,
@@ -8550,7 +8554,7 @@ function get606Data(dateFrom, dateTo) {
   return db.prepare(
     `SELECT t.id, t.ncf, t.comprobante_type as tipo, t.created_at as fecha,
             t.subtotal, t.itbis, t.ley, t.total, t.status as estado,
-            c.name as client_name, c.rnc as client_rnc
+            COALESCE(t.client_name, c.name) as client_name, COALESCE(t.client_rnc, c.rnc) as client_rnc
      FROM tickets t
      LEFT JOIN clients c
             ON (c.id = t.client_id OR c.supabase_id = t.client_supabase_id)

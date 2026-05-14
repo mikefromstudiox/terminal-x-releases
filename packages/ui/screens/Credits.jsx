@@ -259,6 +259,11 @@ function ClientDetail({ client, onReload }) {
     if (amount <= 0) return
     setPaying(true)
     try {
+      // v2.17.5 — forward the buyer RNC + name so credits.collect stamps the
+      // tickets row (reprint receipt + Conduce show the right buyer). For E31
+      // credit-cobro, the cashier typed RNC overrides the saved client's RNC.
+      const effectiveRnc  = (rnc && rnc.trim()) || client.rnc || null
+      const effectiveName = client.name || null
       await api.credits.collect({
         clientId:      client.id,
         ticketIds,
@@ -267,6 +272,8 @@ function ClientDetail({ client, onReload }) {
         ncf:           ncfType,
         notes:         comentario,
         cajeroId:      null,
+        clientRnc:     effectiveRnc,
+        clientName:    effectiveName,
       })
       setToast(`Cobro registrado — ${fmtRD(amount)}`)
       setTimeout(() => setToast(null), 3000)
@@ -296,7 +303,7 @@ function ClientDetail({ client, onReload }) {
             lavador:      '',
             docNo:        ticket.doc_number || `T-${ticket.id}`,
             paidAt:       new Date(),
-            client:       { name: client.name, rnc: client.rnc, phone: client.phone },
+            client:       { name: client.name, rnc: effectiveRnc, phone: client.phone },
             vehiclePlate: ticket.vehicle_plate || '',
             tipo:         'credito',
             formaPago:    method,
