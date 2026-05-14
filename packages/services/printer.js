@@ -609,29 +609,36 @@ export function buildWasherConduce(data, logoBytes = '') {
     lines.push(LF)
   }
 
-  // v2.14.20 — show the discount on the conduce so the washer sees what
-  // the client actually paid. Matches the client receipt format.
+  // v2.14.20 / v2.17.7 — conduce always shows a TOTAL line for the
+  // commission-eligible services only (drinks/snacks/non-wash items are
+  // already filtered out of `washServices` above). When a discount applies
+  // the breakdown (Subtotal / Descuento / TOTAL) renders; otherwise just the
+  // single TOTAL line so the washer sees what's payable on this slip.
   const dscto = Number(data.descuento || 0)
+  const gross = washServices.reduce((s, x) => s + (Number(x.price) || 0), 0)
+  lines.push(SEP)
+  lines.push(LF)
   if (dscto > 0) {
-    lines.push(SEP)
-    lines.push(LF)
-    const gross = washServices.reduce((s, x) => s + (Number(x.price) || 0), 0)
     lines.push(cols('Subtotal',  fmt(gross)))
     lines.push(LF)
     lines.push(cols('Descuento', '- ' + fmt(dscto)))
     lines.push(LF)
-    lines.push(BOLD_ON)
-    lines.push(cols('TOTAL',     fmt(Math.max(0, gross - dscto))))
-    lines.push(LF)
-    lines.push(BOLD_OFF)
   }
+  lines.push(BOLD_ON)
+  lines.push(cols('TOTAL',     fmt(Math.max(0, gross - dscto))))
+  lines.push(LF)
+  lines.push(BOLD_OFF)
 
-  // v2.14.20 — show the commission earned by THIS specific lavador on THIS
-  // ticket. Caller passes `commAmount` (RD$) — either the per-washer override
-  // amount or the auto-calc (base × pct). Omitted when 0 so the conduce stays
-  // clean on fully exempt services.
+  // v2.17.7 — conduce commission line is now opt-in. Owners who hand the
+  // conduce to washers usually don't want the gross commission visible to
+  // the worker (it triggers haggling/disputes) — only the service total.
+  // Toggle: Sistema → Personalización de Recibo → "Mostrar comisión en conduce".
+  // Cloud-synced via BUSINESS_SETTING_KEYS so every register prints the same
+  // shape. Default OFF; legacy behaviour (always show) is reachable by flipping
+  // conduce_show_commission to '1'.
+  const conduceShowComm = data.cfg?.conduce_show_commission === '1' || data.cfg?.conduce_show_commission === true
   const commAmountVal = Number(data.commAmount || 0)
-  if (commAmountVal > 0) {
+  if (conduceShowComm && commAmountVal > 0) {
     lines.push(SEP)
     lines.push(LF)
     lines.push(BOLD_ON)

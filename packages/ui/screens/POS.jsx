@@ -1147,7 +1147,7 @@ function CarWashPOS() {
                 itbis: s.itbis != null ? parseFloat((Number(s.itbis || 0) * myShare).toFixed(2)) : s.itbis,
               }
             })
-            await printWasherConduce({ ...ticketData, services: scaledServices, lavador: w.name || '-', commAmount })
+            await printWasherConduce({ ...ticketData, services: scaledServices, lavador: w.name || '-', commAmount, cfg })
               .catch(err => {
                 try { window.__txReportError?.(err, { severity: 'warn', category: 'pos.print.conduce', extra: { docNo: ticketData?.docNo, washer: w?.name } }) } catch {}
                 flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce')

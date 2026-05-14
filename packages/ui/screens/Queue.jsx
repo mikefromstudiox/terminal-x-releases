@@ -764,7 +764,7 @@ export default function Queue() {
               itbis: s.itbis != null ? parseFloat((Number(s.itbis || 0) * myShare).toFixed(2)) : s.itbis,
             }
           })
-          await printWasherConduce({ ...ticketData, services: scaledServices, lavador: w.name, commAmount: w.commAmount })
+          await printWasherConduce({ ...ticketData, services: scaledServices, lavador: w.name, commAmount: w.commAmount, cfg })
             .catch(err => {
               try { window.__txReportError?.(err, { severity: 'warn', category: 'queue.print.conduce', extra: { ticketId, washer: w?.name } }) } catch {}
               flash(lang === 'es' ? 'Error al imprimir conduce' : 'Print error: conduce')

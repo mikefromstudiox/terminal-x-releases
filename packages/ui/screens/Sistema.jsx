@@ -450,6 +450,11 @@ const SISTEMA_DEFAULTS = {
   // customer-facing factura only (buildClientReceipt in services/printer.js).
   receipt_show_itbis_pct:  '0',
   receipt_show_commission: '0',
+  // v2.17.7 — conduce_show_commission gates the "Comision: $X" line on the
+  // washer dispatch slip. Default OFF (washers shouldn't see the gross
+  // commission to avoid disputes). Toggle flips behaviour back to the
+  // pre-v2.17.7 "always show" mode. Cloud-synced.
+  conduce_show_commission: '0',
   // v2.16.x FIX-HIGH-7 — Mecánica: owner-configurable tow/delivery fee auto-
   // added to a WO when "Marcar Listo" toggles entrega a domicilio. Was hardcoded
   // RD$ 500. Cloud-synced (BUSINESS_SETTING_KEYS) so every register matches.
@@ -1443,6 +1448,9 @@ export function ImpresionSettings() {
         </SettingRow>
         <SettingRow settingKey="receipt_show_commission" label={L('Mostrar comisión en factura', 'Show commission on invoice')} hint={L('Imprime una línea de Comisión en los totales (solo factura, no afecta el conduce)', 'Prints a Commission line in totals (invoice only, not the conduce)')}>
           <Toggle enabled={on('receipt_show_commission')} onChange={v => set('receipt_show_commission', v ? '1' : '0')} />
+        </SettingRow>
+        <SettingRow settingKey="conduce_show_commission" label={L('Mostrar comisión en conduce', 'Show commission on conduce')} hint={L('Imprime "Comisión: RD$X" al pie del conduce del lavador. Apagado por defecto para que el lavador solo vea los servicios.', 'Prints "Comisión: RD$X" at the foot of the washer conduce. Off by default so the washer only sees the services.')}>
+          <Toggle enabled={on('conduce_show_commission')} onChange={v => set('conduce_show_commission', v ? '1' : '0')} />
         </SettingRow>
       </SettingSection>
 

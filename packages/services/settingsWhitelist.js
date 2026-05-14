@@ -28,6 +28,7 @@ export const BUSINESS_SETTING_KEYS = new Set([
   // Per-business receipt customization (v1)
   'receipt_show_itbis_pct',
   'receipt_show_commission',
+  'conduce_show_commission',
   // Facturación tier custom branding (v2.16.5) — invoice footer string and a
   // logo URL (PNG/JPG) rendered on the crimson header band of every PDF.
   'invoice_footer',
