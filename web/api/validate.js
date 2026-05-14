@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import jwt from 'jsonwebtoken'
 import { checkRateLimit, callerIp } from '../lib/rate-limit.js'
 import { withReporting } from '../lib/report-server-error.js'
 
@@ -98,19 +99,75 @@ async function handler(req, res) {
     const isWebClient = hwid === 'web-client'
     if (isWebClient) {
       const authHeader = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
-      if (!authHeader) { await audit(supabase, license.id, key, hwid, 'validate', 'hardware_mismatch', ip); return res.json({ valid: false, status: 'hardware_mismatch' }) }
-      const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser(authHeader)
-      if (authErr || !authUser) { await audit(supabase, license.id, key, hwid, 'validate', 'hardware_mismatch', ip); return res.json({ valid: false, status: 'hardware_mismatch' }) }
-      if (license.business_id) {
-        // Accept if authUser is business owner OR a linked staff member.
+      if (!authHeader) { await audit(supabase, license.id, key, hwid, 'validate', 'hardware_mismatch', ip, { reason: 'no_auth_header' }); return res.json({ valid: false, status: 'hardware_mismatch' }) }
+
+      // v2.17.6 — DUAL-JWT AUTHENTICATION.
+      // Web sessions can hold either:
+      //   A) A real gotrue JWT (email/password sign-in path) — verified via
+      //      supabase.auth.getUser(), then checked against owner/staff linkage.
+      //   B) A per-license JWT (HS256, signed with SUPABASE_JWT_SECRET=TX_JWT_SECRET
+      //      by the mint-license-jwt edge function). app_metadata.business_id +
+      //      app_metadata.license_key are the source of truth — RLS already
+      //      trusts these because the signature was verified by PostgREST.
+      // Pre-v2.17.6 we only handled (A); when the per-license bootstrap put a
+      // license JWT into localStorage and license.js sent it as Bearer, every
+      // web validate returned hardware_mismatch even for legitimate owners.
+      // This was invisible in client_errors because the response was HTTP 200.
+      let authedVia = null
+      let authUserId = null
+      try {
+        const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser(authHeader)
+        if (!authErr && authUser?.id) {
+          authedVia = 'gotrue'
+          authUserId = authUser.id
+        }
+      } catch { /* fall through to license-JWT verification below */ }
+
+      if (!authedVia) {
+        // Try per-license JWT path. Signature MUST verify against the same
+        // secret that PostgREST trusts; otherwise this JWT couldn't have
+        // talked to RLS-protected tables anyway.
+        const secret = process.env.SUPABASE_JWT_SECRET
+        if (secret) {
+          try {
+            const payload = jwt.verify(authHeader, secret, { algorithms: ['HS256'] })
+            const claimBiz = payload?.app_metadata?.business_id
+            const claimKey = payload?.app_metadata?.license_key
+            const claimProvider = payload?.app_metadata?.provider
+            if (claimProvider === 'license'
+                && typeof claimKey === 'string' && claimKey.toUpperCase() === key.toUpperCase().trim()
+                && typeof claimBiz === 'string' && claimBiz === license.business_id) {
+              authedVia = 'license_jwt'
+              authUserId = `license:${claimKey}`
+            }
+          } catch (jwtErr) {
+            // Bad signature, expired, or malformed — leave authedVia null;
+            // the catch-all hardware_mismatch return below fires.
+          }
+        }
+      }
+
+      if (!authedVia) {
+        await audit(supabase, license.id, key, hwid, 'validate', 'hardware_mismatch', ip, { reason: 'auth_jwt_unverifiable' })
+        return res.json({ valid: false, status: 'hardware_mismatch' })
+      }
+
+      // For gotrue-authed users we still enforce owner/staff linkage so a
+      // signed-in user from a different business can't validate someone else's
+      // license_key. License-JWT path already proved the linkage via the
+      // signed app_metadata.business_id claim, so skip the extra hop.
+      if (authedVia === 'gotrue' && license.business_id) {
         const { data: biz } = await supabase.from('businesses').select('owner_id').eq('id', license.business_id).maybeSingle()
-        const isOwner = biz?.owner_id && biz.owner_id === authUser.id
+        const isOwner = biz?.owner_id && biz.owner_id === authUserId
         let staff = null
         if (!isOwner) {
-          const r = await supabase.from('staff').select('id').eq('business_id', license.business_id).eq('auth_user_id', authUser.id).maybeSingle()
+          const r = await supabase.from('staff').select('id').eq('business_id', license.business_id).eq('auth_user_id', authUserId).maybeSingle()
           staff = r.data
         }
-        if (!isOwner && !staff) { await audit(supabase, license.id, key, hwid, 'validate', 'hardware_mismatch', ip); return res.json({ valid: false, status: 'hardware_mismatch' }) }
+        if (!isOwner && !staff) {
+          await audit(supabase, license.id, key, hwid, 'validate', 'hardware_mismatch', ip, { reason: 'auth_user_not_linked', auth_user_id: authUserId })
+          return res.json({ valid: false, status: 'hardware_mismatch' })
+        }
       }
     }
     // S-H9: HWID rebind approval. If the license is already bound to a DIFFERENT

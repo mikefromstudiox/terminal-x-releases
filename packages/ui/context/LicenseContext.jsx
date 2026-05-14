@@ -341,6 +341,24 @@ export function LicenseProvider({ children }) {
           }
         } catch (saveErr) { console.warn('[LicenseContext] saveEmpresa from bizSettings failed:', saveErr?.message) }
       }
+      // v2.17.6 — surface non-ok validates to client_errors. Previously a
+      // 200-OK response with `valid:false` (hardware_mismatch / rebind_required
+      // / suspended / inactive / rnc_mismatch / not_found) was rendered as a
+      // banner but never written to the admin Errores panel because no throw
+      // ever occurred. That's how the Studio X dual-JWT regression sat hidden
+      // until a user complained out-of-band. Now every non-valid validate is
+      // reported with its status + license-event metadata so it shows up in
+      // the same feed as runtime exceptions.
+      try {
+        if (res && res.valid === false) {
+          const sev = (res.status === 'rebind_required' || res.status === 'pending') ? 'warn' : 'error'
+          window.__txReportError?.(new Error(`license_validate_${res.status || 'invalid'}`), {
+            severity: sev,
+            category: 'license.validate.invalid',
+            extra: { status: res.status, valid: res.valid, businessId: res.businessId || null, hwid: h, key_prefix: (k || '').slice(0, 8) }
+          })
+        }
+      } catch {}
       setResult(res)
     } catch (err) {
       console.error('[LicenseContext]', err)
