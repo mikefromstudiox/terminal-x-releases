@@ -1,8 +1,0 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "npm install --ignore-scripts --no-audit --no-fund",
-  "buildCommand": "npm run build:web && node scripts/prepare-vercel.mjs && cd dist-web && npm install --silent --no-audit --no-fund",
-  "outputDirectory": "dist-web",
-  "framework": null,
-  "git": { "deploymentEnabled": { "main": true } }
-}

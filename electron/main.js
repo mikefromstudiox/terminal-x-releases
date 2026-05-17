@@ -2685,8 +2685,6 @@ handleMut('tickets:addItem',         (data) => db.ticketAddItem(data || {}))
 handleMut('tickets:updateItemQty',   (data) => db.ticketUpdateItemQty(data || {}))
 handleMut('tickets:removeItem',      (data) => db.ticketRemoveItem(data || {}))
 handle('tickets:getActiveByMesa',    ({ mesa_id } = {}) => db.ticketGetActiveByMesa(mesa_id))
-handle('tickets:byMesa',             ({ mesa_supabase_id } = {}) => db.ticketGetActiveByMesaSupabaseId(mesa_supabase_id))
-handleMut('tickets:appendItems',     (data) => db.ticketAppendItems(data || {}))
 handleMut('tickets:closeWithPayment', (data) => db.ticketCloseWithPayment(data || {}), {
   // closeWithPayment nests the cobro fields under `payload`, so unwrap before
   // delegating to the shared big-discount gate.
