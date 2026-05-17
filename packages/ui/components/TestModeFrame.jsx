@@ -10,7 +10,7 @@ export default function TestModeFrame({ goLiveDate }) {
         className="pointer-events-none fixed inset-0 z-[9998] border-[6px] border-[#b3001e]"
       />
       <div
-        className="pointer-events-auto fixed bottom-0 left-0 right-0 z-[9999] flex flex-wrap items-center justify-center gap-2 px-4 py-2 bg-[#b3001e] text-white text-[12px] font-semibold shadow-[0_-2px_8px_rgba(0,0,0,.25)]"
+        className="pointer-events-auto fixed bottom-16 md:bottom-0 left-0 right-0 z-[9999] flex flex-wrap items-center justify-center gap-2 px-4 py-2 bg-[#b3001e] text-white text-[12px] font-semibold shadow-[0_-2px_8px_rgba(0,0,0,.25)]"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom,0) + 8px)' }}
       >
         <AlertTriangle size={14} className="shrink-0" />
