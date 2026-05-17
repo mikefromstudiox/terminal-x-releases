@@ -1006,3 +1006,116 @@ export async function buildContabilidadReportPDF({
   }
   return { ok: true, filename }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Estado de Resultados (P&L) — reads journal_entries (Phase 5 spine)
+// `data` matches EstadoResultadosReport.buildView output.
+// `label` is the human period label ("Mayo 2026", etc.) shown in header.
+// ─────────────────────────────────────────────────────────────────────────
+export async function buildEstadoResultadosPDF(biz, data, label, api = null) {
+  const pdf  = await PDFDocument.create()
+  const font = await pdf.embedFont(StandardFonts.Helvetica)
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
+  const PAGE_W_LTR = 612, PAGE_H_LTR = 792
+  const M = 36
+  let page = pdf.addPage([PAGE_W_LTR, PAGE_H_LTR])
+  let y = PAGE_H_LTR - M
+
+  function newPage() { page = pdf.addPage([PAGE_W_LTR, PAGE_H_LTR]); y = PAGE_H_LTR - M }
+  function ensure(h) { if (y - h < M) newPage() }
+  function text(t, x, opts = {}) {
+    const f = opts.bold ? bold : font
+    const s = opts.size || 10
+    const c = opts.color || INK
+    page.drawText(String(t ?? ''), { x, y, size: s, font: f, color: RGB(c) })
+  }
+  function rule(c = HAIRLINE) {
+    page.drawLine({ start: { x: M, y }, end: { x: PAGE_W_LTR - M, y }, thickness: 0.5, color: RGB(c) })
+  }
+  const WIDTHS = [240, 100, 100, 80]
+  const ALIGNS = ['left','right','right','right']
+  function row(cells, opts = {}) {
+    const h = opts.h || 14
+    ensure(h)
+    y -= h
+    let x = M
+    cells.forEach((c, i) => {
+      const align = ALIGNS[i] || 'left'
+      const w = WIDTHS[i]
+      const s = String(c ?? '')
+      const f = opts.bold ? bold : font
+      const sz = opts.size || 10
+      const tw = f.widthOfTextAtSize(s, sz)
+      const tx = align === 'right' ? x + w - tw - 2 : x + 2
+      page.drawText(s, { x: tx, y: y + 3, size: sz, font: f, color: RGB(opts.color || INK) })
+      x += w
+    })
+  }
+  function section(label) {
+    ensure(28); y -= 14
+    text(label, M, { bold: true, size: 12, color: CRIMSON })
+    y -= 4; rule(CRIMSON)
+  }
+  function fmtDelta(n) {
+    if (n == null || !isFinite(n)) return '—'
+    const sign = n >= 0 ? '+' : ''
+    return `${sign}${n.toFixed(1)}%`
+  }
+
+  // Header band
+  page.drawRectangle({ x: 0, y: PAGE_H_LTR - 60, width: PAGE_W_LTR, height: 60, color: RGB(CRIMSON) })
+  page.drawText('Estado de Resultados', { x: M, y: PAGE_H_LTR - 36, size: 18, font: bold, color: RGB(PAPER) })
+  page.drawText(biz?.name || '', { x: M, y: PAGE_H_LTR - 52, size: 9, font, color: RGB(PAPER) })
+  if (biz?.rnc) page.drawText(`RNC ${biz.rnc}`, { x: PAGE_W_LTR - M - 100, y: PAGE_H_LTR - 52, size: 9, font, color: RGB(PAPER) })
+  y = PAGE_H_LTR - 76
+  text(label || '', M, { size: 10, color: MUTED }); y -= 14
+
+  row(['Concepto', 'Mes Actual', 'Mes Anterior', 'Δ %'], { bold: true, h: 16 })
+  rule(INK)
+
+  section('Ingresos')
+  for (const r of data.rows.filter(r => r.group === 'ingresos')) {
+    row([r.label, fmtRD(r.cur), fmtRD(r.prev), fmtDelta(r.delta)])
+  }
+  row(['Total Ingresos', fmtRD(data.totals.ingresos), fmtRD(data.totals.ingresosPrev), fmtDelta(data.totals.ingresosDelta)], { bold: true })
+
+  section('Costos y Gastos')
+  for (const r of data.rows.filter(r => r.group === 'gastos')) {
+    row([r.label, fmtRD(r.cur), fmtRD(r.prev), fmtDelta(r.delta)])
+  }
+  row(['Total Gastos', fmtRD(data.totals.gastos), fmtRD(data.totals.gastosPrev), fmtDelta(data.totals.gastosDelta)], { bold: true })
+
+  ensure(40); y -= 18; rule(INK)
+  const util = data.totals.utilidad || 0
+  row(['Utilidad del Mes', fmtRD(util), fmtRD(data.totals.utilidadPrev || 0), ''], { bold: true, size: 12, color: CRIMSON, h: 20 })
+  row(['Margen Neto', `${(data.totals.margen || 0).toFixed(1)} %`, `${(data.totals.margenPrev || 0).toFixed(1)} %`, ''], { bold: true })
+
+  section('Informativo')
+  row(['ITBIS Cobrado', fmtRD(data.totals.itbisCobrado || 0), fmtRD(data.totals.itbisCobradoPrev || 0), ''])
+  row(['ITBIS Pagado',  fmtRD(data.totals.itbisPagado  || 0), fmtRD(data.totals.itbisPagadoPrev  || 0), ''])
+
+  ensure(20); y -= 16
+  text(`Generado: ${fmtDate(new Date())}`, M, { size: 8, color: MUTED })
+
+  const filename = `estado-resultados-${(label || 'periodo').replace(/\s+/g, '-').toLowerCase()}.pdf`
+  const pdfBytes = await pdf.save()
+  const base64 = btoa(String.fromCharCode(...pdfBytes))
+
+  const pdfApi = api?.pdf || (typeof window !== 'undefined' ? window.electronAPI?.pdf : null)
+  if (pdfApi?.save) {
+    try { return await pdfApi.save({ filename, base64 }) } catch (_e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(_e, { severity: 'warn', category: 'reportes_pyl_pdf_save' }) } catch {}
+    }
+  }
+  if (typeof window !== 'undefined') {
+    const byteChars = atob(base64)
+    const byteArray = new Uint8Array(byteChars.length)
+    for (let i = 0; i < byteChars.length; i++) byteArray[i] = byteChars.charCodeAt(i)
+    const blob = new Blob([byteArray], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = filename; a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+  return { ok: true, filename }
+}

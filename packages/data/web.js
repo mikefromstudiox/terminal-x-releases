@@ -9926,6 +9926,32 @@ export function createWebAPI(supabase, businessId) {
     },
 
     // ── Dashboard ────────────────────────────────────────────────────────────
+    // ── journal v1 read surface (Phase 5 — Estado de Resultados) ───────────
+    // Reads from journal_entries directly; debit-normal expense / credit-normal
+    // revenue. Returns flat { account, net } rows where net = sum(credit) - sum(debit).
+    // Caller (EstadoResultadosReport) does the display mapping + sign flip.
+    journal: {
+      flagEnabled: () => tryOr(async () => _jeEnabled(supabase, bid), false),
+      pnlByMonth: ({ from, to } = {}) => tryOr(async () => {
+        if (!from || !to || !bid) return []
+        const { data, error } = await supabase
+          .from('journal_entries')
+          .select('account,debit,credit')
+          .eq('business_id', bid)
+          .is('reversal_of_id', null)
+          .gte('effective_date', from)
+          .lte('effective_date', to)
+        if (error) throw error
+        const map = new Map()
+        for (const r of (data || [])) {
+          const acc = r.account || 'unknown'
+          const cur = map.get(acc) || 0
+          map.set(acc, cur + (Number(r.credit) || 0) - (Number(r.debit) || 0))
+        }
+        return Array.from(map, ([account, net]) => ({ account, net }))
+      }, []),
+    },
+
     // Auth-bound replacement for the legacy services/supabase.js
     // fetchDashboardData (which read business_id + creds from localStorage).
     dashboard: {

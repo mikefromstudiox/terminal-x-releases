@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { BarChart2, Calendar, DollarSign, Package, Wine, Clock } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { BarChart2, Calendar, DollarSign, Package, Wine, Clock, FileText } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
+import { useAPI } from '../context/DataContext'
 import DailyReport from './reports/DailyReport'
 import MonthlyReport from './reports/MonthlyReport'
 import WorkerReport from './reports/WorkerReport'
@@ -10,6 +11,7 @@ import BottleDepositReport from './reports/BottleDepositReport'
 import ConcesionarioCommissionsReport from './reports/ConcesionarioCommissionsReport'
 import InventoryAgingReport from './reports/InventoryAgingReport'
 import TestDriveFunnelReport from './reports/TestDriveFunnelReport'
+import EstadoResultadosReport from './reports/EstadoResultadosReport'
 
 const TABS = [
   { id: 'daily',      es: 'Diario',     en: 'Daily',       icon: BarChart2  },
@@ -32,9 +34,29 @@ const TABS = [
 export default function Reportes() {
   const { lang, t } = useLang()
   const { businessType, hasFeature } = useBusinessType()
+  const api = useAPI()
   const [tab, setTab] = useState('daily')
+  // Phase 5 spine — per-biz flag for Estado de Resultados (journal ledger).
+  // Read once at mount; default OFF. Tab stays hidden when the flag is falsy.
+  const [jeFlag, setJeFlag] = useState(false)
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        const on = await api?.journal?.flagEnabled?.()
+        if (alive) setJeFlag(!!on)
+      } catch (err) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'warn', category: 'reportes_pyl_flag' }) } catch {}
+      }
+    })()
+    return () => { alive = false }
+  }, [api])
 
-  const visibleTabs = TABS.filter(t => {
+  const dynamicTabs = jeFlag
+    ? [...TABS, { id: 'estado_resultados', es: 'Estado de Resultados', en: 'Income Statement', icon: FileText }]
+    : TABS
+
+  const visibleTabs = dynamicTabs.filter(t => {
     if (t.businessTypes && !t.businessTypes.includes(businessType)) return false
     if (t.feature && !hasFeature(t.feature)) return false
     return true
@@ -67,6 +89,7 @@ export default function Reportes() {
         {tab === 'comisiones_concesionario' && <ConcesionarioCommissionsReport />}
         {tab === 'aging_concesionario' && <InventoryAgingReport />}
         {tab === 'funnel_concesionario' && <TestDriveFunnelReport />}
+        {tab === 'estado_resultados' && <EstadoResultadosReport />}
       </div>
     </div>
   )
