@@ -237,8 +237,18 @@ export function createElectronAPI() {
     foreignPaymentDelete:   (id)            => raw.contabilidad.foreignPaymentDelete(id),
   } : undefined
 
+  // Phase 5 — journal v1 read surface. Desktop SQLite does not maintain the
+  // journal_entries ledger locally (cloud-only spine). Stubs return inert
+  // values so Estado de Resultados renders zeros offline; the tab is gated
+  // by the Supabase-backed flag, so it normally never surfaces on desktop.
+  const journalSurface = raw.journal || {
+    flagEnabled: async () => false,
+    pnlByMonth:  async () => [],
+  }
+
   return (augmentedRef = {
     ...raw,
+    journal: journalSurface,
     contabilidad: contabilidadAugmented,
     activity: activityAugmented,
     vehicleInventory: vehicleInventoryAugmented,

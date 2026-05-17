@@ -136,6 +136,37 @@ export function exportMonthlyReport(biz, data, label) {
   downloadCSV(rows, `reporte-mensual-${label.replace(/\s+/g, '-').toLowerCase()}.csv`)
 }
 
+// ── Estado de Resultados (P&L, Phase 5 spine) ─────────────────────────────
+// `data` shape produced by EstadoResultadosReport.buildView:
+//   { rows: [{ label, group, cur, prev, delta }], totals: { ingresos, gastos, utilidad, margen, … } }
+export function exportEstadoResultados(biz, data, label) {
+  const rows = [
+    ...buildHeader(biz, 'ESTADO DE RESULTADOS', label),
+    ['Concepto', 'Mes Actual RD$', 'Mes Anterior RD$', 'Variacion %'],
+    ['INGRESOS'],
+    ...data.rows.filter(r => r.group === 'ingresos').map(r => [
+      r.label, fmtMoney(r.cur), fmtMoney(r.prev), r.delta != null ? `${r.delta.toFixed(1)}%` : '—',
+    ]),
+    ['Total Ingresos', fmtMoney(data.totals.ingresos), fmtMoney(data.totals.ingresosPrev), data.totals.ingresosDelta != null ? `${data.totals.ingresosDelta.toFixed(1)}%` : '—'],
+    [],
+    ['COSTOS Y GASTOS'],
+    ...data.rows.filter(r => r.group === 'gastos').map(r => [
+      r.label, fmtMoney(r.cur), fmtMoney(r.prev), r.delta != null ? `${r.delta.toFixed(1)}%` : '—',
+    ]),
+    ['Total Gastos', fmtMoney(data.totals.gastos), fmtMoney(data.totals.gastosPrev), data.totals.gastosDelta != null ? `${data.totals.gastosDelta.toFixed(1)}%` : '—'],
+    [],
+    ['UTILIDAD DEL MES', fmtMoney(data.totals.utilidad), fmtMoney(data.totals.utilidadPrev)],
+    ['Margen Neto', `${(data.totals.margen || 0).toFixed(1)}%`, `${(data.totals.margenPrev || 0).toFixed(1)}%`],
+    [],
+    ['INFORMATIVO'],
+    ['ITBIS Cobrado', fmtMoney(data.totals.itbisCobrado), fmtMoney(data.totals.itbisCobradoPrev)],
+    ['ITBIS Pagado',  fmtMoney(data.totals.itbisPagado),  fmtMoney(data.totals.itbisPagadoPrev)],
+    [],
+    [`Generado: ${todayFormatted()}`],
+  ]
+  downloadCSV(rows, `estado-resultados-${label.replace(/\s+/g, '-').toLowerCase()}.csv`)
+}
+
 // ── Liquidacion ────────────────────────────────────────────────────────────
 export function exportLiquidacion(biz, emp, liq, tipo) {
   const tipoLabel = tipo === 'desahucio' ? 'Desahucio (Art. 87)' : 'Renuncia Voluntaria (Art. 85)'
