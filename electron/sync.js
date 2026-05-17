@@ -653,6 +653,38 @@ const SYNC_TABLES = [
     }),
   },
 
+  // v2.17.x — journal_entries push (Phase 3 wire-forward).
+  // Append-only ledger. Resolution: ignore-duplicates (APPEND_ONLY_TABLES).
+  // FK columns are TEXT supabase_ids — no resolution needed at push time
+  // because the helpers in packages/services/journal.js stamp the real UUIDs.
+  {
+    name: 'journal_entries',
+    cols: r => ({
+      supabase_id:    r.supabase_id,
+      location_id:    r.location_id || null,
+      tx_group_id:    r.tx_group_id,
+      posted_at:      r.posted_at || new Date().toISOString(),
+      effective_date: r.effective_date,
+      vertical:       r.vertical || null,
+      source_table:   r.source_table,
+      source_id:      r.source_id || null,
+      source_line_id: r.source_line_id || null,
+      account:        r.account,
+      category:       r.category || null,
+      employee_id:    r.employee_id || null,
+      client_id:      r.client_id || null,
+      debit:          Number(r.debit || 0),
+      credit:         Number(r.credit || 0),
+      currency:       r.currency || 'DOP',
+      description:    r.description || null,
+      metadata:       r.metadata ? (typeof r.metadata === 'string' ? (safeParseJson(r.metadata) || {}) : r.metadata) : {},
+      reversal_of_id: r.reversal_of_id || null,
+      created_by:     r.created_by || null,
+      created_at:     r.created_at || new Date().toISOString(),
+      updated_at:     r.updated_at || r.created_at || new Date().toISOString(),
+    }),
+  },
+
   // Phase 2 — depend on phase 1 entities
   {
     name: 'service_modificadores',
@@ -2595,6 +2627,9 @@ const APPEND_ONLY_TABLES = new Set([
   'loan_renewals',
   'queue_deletions',
   'collections_attempts',
+  // v2.17.x — journal_entries spine (Phase 3). Append-only by design;
+  // reversals are NEW rows linked via reversal_of_id. Anon has no UPDATE/DELETE.
+  'journal_entries',
 ])
 // `users` is a VIEW on `staff` — MERGE on the view requires INSTEAD OF
 // triggers; not worth the complexity. Stay on legacy PostgREST path.
@@ -3194,6 +3229,16 @@ const PULL_TABLES = [
   { name: 'activity_log', strategy: 'fww',
     cols: ['event_type','severity','actor_supabase_id','actor_name','actor_role','target_type','target_id','target_name','amount','old_value','new_value','reason','metadata','created_at','updated_at'],
     fkCols: { actor_supabase_id: 'users' } },
+
+  // v2.17.x — journal_entries pull (Phase 3 spine). FWW — append-only,
+  // reversals are new rows. No SQLite FKs declared (source_id/employee_id/
+  // client_id reference cross-vertical entities by supabase_id text).
+  { name: 'journal_entries', strategy: 'fww',
+    cols: ['location_id','tx_group_id','posted_at','effective_date','vertical',
+           'source_table','source_id','source_line_id','account','category',
+           'employee_id','client_id','debit','credit','currency','description',
+           'metadata','reversal_of_id','reversed_by_id','created_by',
+           'created_at','updated_at'] },
 
   // e-CF certificate rotation history — FWW (append-only audit trail).
   // Pushed to Supabase.ecf_cert_history. business_id stamped at push time.

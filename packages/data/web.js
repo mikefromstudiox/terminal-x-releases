@@ -33,6 +33,15 @@ import {
   isExpiringSoon as _jwtExpiringSoon,
   clearCachedJwt as _clearCachedJwt,
 } from '@terminal-x/services/perLicenseJwt'
+import {
+  buildSaleEntries as _jeBuildSale,
+  buildCreditPaymentEntries as _jeBuildCredit,
+  buildExpenseEntries as _jeBuildExpense,
+  buildRestockEntries as _jeBuildRestock,
+  buildPayrollEntries as _jeBuildPayroll,
+  buildCommissionEntries as _jeBuildCommission,
+  buildReversalEntries as _jeBuildReversal,
+} from '@terminal-x/services/journal'
 
 // ── Per-license JWT boot hook ─────────────────────────────────────────────────
 // At app boot, if a license_key is in localStorage (web user has been
@@ -295,6 +304,145 @@ function safeParseJSON(s) {
 function throwSupaError(res) {
   if (res.error) throw new Error(res.error.message || res.error.code || 'Supabase error')
   return res.data
+}
+
+// ── journal_entries v1 (Phase 3 wire-forward) ───────────────────────────────
+// Default OFF. Per-business flag at app_settings.journal_entries_v1.
+// When OFF every _je* helper short-circuits — smoke harnesses stay green.
+let _jeFlagAt = 0
+const _jeFlagByBiz = new Map()
+const _jeBizTypeByBiz = new Map()
+
+async function _jeEnabled(supabase, bid) {
+  if (!supabase || !bid) return false
+  const now = Date.now()
+  if (_jeFlagByBiz.has(bid) && (now - _jeFlagAt) < 5000) return _jeFlagByBiz.get(bid)
+  let v = false
+  try {
+    const { data } = await supabase.from('app_settings').select('value')
+      .eq('business_id', bid).eq('key', 'journal_entries_v1').maybeSingle()
+    const raw = (data?.value ?? '').toString().toLowerCase()
+    v = (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on')
+  } catch { v = false }
+  _jeFlagByBiz.set(bid, v); _jeFlagAt = now
+  return v
+}
+
+async function _jeBizType(supabase, bid) {
+  if (_jeBizTypeByBiz.has(bid)) return _jeBizTypeByBiz.get(bid)
+  let t = null
+  try {
+    const { data } = await supabase.from('app_settings').select('value')
+      .eq('business_id', bid).eq('key', 'business_type').maybeSingle()
+    t = data?.value || null
+  } catch {}
+  _jeBizTypeByBiz.set(bid, t)
+  return t
+}
+
+async function _jePost(supabase, label, rows) {
+  if (!Array.isArray(rows) || !rows.length) return
+  try {
+    await tryWrite(async () => {
+      throwSupaError(await supabase.from('journal_entries').insert(rows))
+    }, `web.journal.${label}`)
+  } catch (err) {
+    try {
+      if (typeof window !== 'undefined' && typeof window.__txReportError === 'function') {
+        window.__txReportError(err, { severity: 'error', category: `web.journal.${label}` })
+      }
+    } catch {}
+  }
+}
+
+async function _jeAlreadyPosted(supabase, bid, sourceTable, sourceId) {
+  if (!sourceId) return false
+  try {
+    const { data } = await supabase.from('journal_entries').select('id')
+      .eq('business_id', bid).eq('source_table', sourceTable).eq('source_id', sourceId)
+      .is('reversal_of_id', null).limit(1).maybeSingle()
+    return !!data
+  } catch { return false }
+}
+
+async function _jeSaleArgs(supabase, bid, ticketSid) {
+  const { data: t } = await supabase.from('tickets').select('*')
+    .eq('supabase_id', ticketSid).eq('business_id', bid).maybeSingle()
+  if (!t) return null
+  const { data: its } = await supabase.from('ticket_items').select('*')
+    .eq('ticket_supabase_id', ticketSid)
+  const items = its || []
+  const svcSids = [...new Set(items.map(i => i.service_supabase_id).filter(Boolean))]
+  let svcs = []
+  if (svcSids.length) {
+    const { data } = await supabase.from('services')
+      .select('supabase_id, is_wash, aplica_itbis, is_menu_item, category')
+      .eq('business_id', bid).in('supabase_id', svcSids)
+    svcs = data || []
+  }
+  const bizType = await _jeBizType(supabase, bid)
+  return {
+    ticket: {
+      supabase_id: t.supabase_id, business_id: bid,
+      total: Number(t.total || 0), itbis: Number(t.itbis || 0),
+      payment_method: t.tipo_venta === 'credito' ? 'credit' : (t.payment_method || 'cash'),
+      tipo_venta: t.tipo_venta,
+      client_id: t.client_supabase_id || null,
+      created_at: t.created_at, date: t.created_at,
+      created_by: t.cajero_supabase_id || null,
+      location_id: t.location_id || null,
+    },
+    items: items.map(i => ({
+      supabase_id: i.supabase_id, service_supabase_id: i.service_supabase_id,
+      qty: Number(i.quantity || 1), price: Number(i.price || 0), cost: Number(i.cost || 0),
+      itbis: i.itbis != null ? Number(i.itbis) : null,
+      name: i.name, is_wash: !!i.is_wash,
+    })),
+    services: svcs.map(s => ({
+      supabase_id: s.supabase_id, is_wash: !!s.is_wash,
+      aplica_itbis: s.aplica_itbis !== 0, is_menu_item: !!s.is_menu_item,
+      category: s.category || null,
+    })),
+    biz: { id: bid, business_type: bizType },
+  }
+}
+
+function _jeFireAndForget(promise, label) {
+  Promise.resolve(promise).catch(err => {
+    console.error('[journal fire]', label, err?.message || err)
+  })
+}
+
+async function _jePostCommissionPayout(supabase, bid, table, { ids }, label) {
+  if (!await _jeEnabled(supabase, bid)) return
+  if (!Array.isArray(ids) || !ids.length) return
+  // Fetch the rows that were just marked paid; sum into one payout per call.
+  const { data: rows } = await supabase.from(table)
+    .select('id, supabase_id, commission_amount, empleado_supabase_id, paid_at')
+    .eq('business_id', bid).in('id', ids)
+  if (!rows?.length) return
+  const totalAmount = rows.reduce((s, r) => s + Number(r.commission_amount || 0), 0)
+  if (totalAmount <= 0) return
+  // Use a deterministic payout id derived from the row supabase_ids so re-fires
+  // dedupe via UNIQUE(supabase_id) at the journal_entries level.
+  const sortedSids = rows.map(r => r.supabase_id).filter(Boolean).sort().join(':')
+  const payoutSid = crypto.randomUUID()
+  const bizType = await _jeBizType(supabase, bid)
+  const built = _jeBuildCommission({
+    payout: {
+      business_id: bid, supabase_id: payoutSid,
+      amount: totalAmount,
+      employee_id: rows[0]?.empleado_supabase_id || null,
+      date: rows[0]?.paid_at || new Date().toISOString(),
+      created_at: new Date().toISOString(),
+    },
+    biz: { id: bid, business_type: bizType },
+  })
+  // Stamp metadata so dedupe / audit knows which rows fed this payout.
+  for (const r of built) {
+    r.metadata = { ...(r.metadata || {}), source: table, commission_row_sids: rows.map(x => x.supabase_id), commission_row_sigs: sortedSids }
+  }
+  await _jePost(supabase, label, built)
 }
 
 // ── Embedded-join replacement helper ──────────────────────────────────────────
@@ -1106,14 +1254,14 @@ export function createWebAPI(supabase, businessId) {
         await assertAffected(supabase.from('inventory_items').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.inventory.softDelete')
       }, 'web.inventory.delete'),
 
-      adjust: ({ id, supabase_id, delta, notes, userId }) => tryWrite(async () => {
+      adjust: ({ id, supabase_id, delta, notes, userId, unitCost, paidInCash }) => tryWrite(async () => {
         // Accept either integer id or uuid supabase_id — web-created tickets
         // store inventory_item_supabase_id but leave inventory_item_id null,
         // so callers like Returns.jsx need both lookup paths.
         if (!id && !supabase_id) throw new Error('inventory.adjust: missing id and supabase_id')
         const lookupCol = id ? 'id' : 'supabase_id'
         const lookupVal = id || supabase_id
-        const current = throwSupaError(await supabase.from('inventory_items').select('id, quantity, supabase_id, name').eq(lookupCol, lookupVal).eq('business_id', bid).single())
+        const current = throwSupaError(await supabase.from('inventory_items').select('id, quantity, supabase_id, name, cost').eq(lookupCol, lookupVal).eq('business_id', bid).single())
         const newQty = Math.max(0, (current.quantity || 0) + delta)
         await assertAffected(supabase.from('inventory_items').update({ quantity: newQty }).eq('id', current.id).eq('business_id', bid).select('id'), 'web.inventory.adjustQty')
         await logActivity({ event_type: 'inventory_adjusted', severity: 'info',
@@ -1136,6 +1284,25 @@ export function createWebAPI(supabase, businessId) {
           })
         } catch (err) {
           try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'warn', category: 'web.inventory.adjustment_log', extra: { item_id: current?.id, delta, business_id: bid } }) } catch {}
+        }
+        // Phase 3 — restock posting (DR inventory / CR cash|payable). Only
+        // fires when delta > 0 (incoming stock) and a unit cost is known.
+        if (delta > 0) {
+          const u = Number(unitCost) > 0 ? Number(unitCost) : Number(current.cost || 0)
+          if (u > 0) {
+            _jeFireAndForget((async () => {
+              if (!await _jeEnabled(supabase, bid)) return
+              const bizType = await _jeBizType(supabase, bid)
+              const rows = _jeBuildRestock({
+                item: { business_id: bid, supabase_id: current.supabase_id, name: current.name },
+                qty: delta,
+                unitCostPaid: u,
+                paidInCash: paidInCash !== false,
+                biz: { id: bid, business_type: bizType },
+              })
+              await _jePost(supabase, 'restock', rows)
+            })(), 'restock')
+          }
         }
         return newQty
       }),
@@ -2160,6 +2327,25 @@ export function createWebAPI(supabase, businessId) {
         if ((Number(data.commissions) || 0) > 0) {
           try { await markCommissionsPaidForEmpleado(supabase, bid, data.empleado_id, data.period_start, data.period_end) } catch (e) { console.error('[payrollRuns.create] markCommissionsPaid failed:', e.message) }
         }
+        // Phase 3 — single payroll run posting.
+        _jeFireAndForget((async () => {
+          if (!await _jeEnabled(supabase, bid)) return
+          const { data: p } = await supabase.from('payroll_runs').select('*')
+            .eq('business_id', bid).eq('id', row.id).maybeSingle()
+          if (!p?.supabase_id) return
+          if (await _jeAlreadyPosted(supabase, bid, 'payroll_runs', p.supabase_id)) return
+          const bizType = await _jeBizType(supabase, bid)
+          const rows = _jeBuildPayroll({
+            run: {
+              business_id: bid, supabase_id: p.supabase_id,
+              total: Number(p.net || 0),
+              period_end: p.period_end, period_label: `${p.period_start || ''} → ${p.period_end || ''}`,
+              created_at: p.created_at,
+            },
+            biz: { id: bid, business_type: bizType },
+          })
+          await _jePost(supabase, 'payroll.create', rows)
+        })(), 'payroll.create')
         return { id: row.id }
       }, 'web.payrollRuns.create'),
       bulkCreate: (runs) => tryWrite(async () => {
@@ -2179,6 +2365,31 @@ export function createWebAPI(supabase, businessId) {
           target_name: `Nómina ${period}`.trim(),
           amount: totalNet,
           metadata: { run_count: (inserted || []).length, run_ids: (inserted || []).map(x => x.id), period_start: runs[0]?.period_start, period_end: runs[0]?.period_end } })
+        // Phase 3 — payroll cash-out (DR payroll_expense / CR cash). One
+        // tx_group per run so the bulk save still produces per-employee entries.
+        _jeFireAndForget((async () => {
+          if (!await _jeEnabled(supabase, bid)) return
+          const ids = (inserted || []).map(x => x.id)
+          if (!ids.length) return
+          const { data: persisted } = await supabase.from('payroll_runs').select('*')
+            .eq('business_id', bid).in('id', ids)
+          if (!persisted?.length) return
+          const bizType = await _jeBizType(supabase, bid)
+          for (const p of persisted) {
+            if (await _jeAlreadyPosted(supabase, bid, 'payroll_runs', p.supabase_id)) continue
+            const rows = _jeBuildPayroll({
+              run: {
+                business_id: bid, supabase_id: p.supabase_id,
+                total: Number(p.net || 0),
+                period_end: p.period_end, period_label: `${p.period_start || ''} → ${p.period_end || ''}`,
+                created_at: p.created_at,
+              },
+              biz: { id: bid, business_type: bizType },
+            })
+            await _jePost(supabase, 'payroll.bulkCreate', rows)
+          }
+        })(), 'payroll.bulkCreate')
+
         return { created: (inserted || []).length, ids: (inserted || []).map(x => x.id) }
       }, 'web.payrollRuns.bulkCreate'),
       byEmpleado: (empleadoId, limit = 100) => tryOr(async () => {
@@ -2610,6 +2821,24 @@ export function createWebAPI(supabase, businessId) {
           cajero_id: cajeroId || null,
           business_id: bid,
         }, { onConflict: 'supabase_id' }).select('id').single())
+
+        // Phase 3 — credit payment booking (DR cash / CR receivable).
+        _jeFireAndForget((async () => {
+          if (!await _jeEnabled(supabase, bid)) return
+          if (await _jeAlreadyPosted(supabase, bid, 'credit_payments', sid)) return
+          const bizType = await _jeBizType(supabase, bid)
+          const rows = _jeBuildCredit({
+            payment: {
+              business_id: bid, supabase_id: sid,
+              amount: Number(amount || 0),
+              client_id: cl?.supabase_id || null,
+              created_at: new Date().toISOString(),
+              created_by: cajeroId || null,
+            },
+            biz: { id: bid, business_type: bizType },
+          })
+          await _jePost(supabase, 'credit.collect', rows)
+        })(), 'credit.collect')
 
         return { id: row.id, supabase_id: sid }
       }, 'web.credits.collect'),
@@ -3213,6 +3442,20 @@ export function createWebAPI(supabase, businessId) {
                 amount: desc,
                 metadata: { subtotal: subt, total: data.total, pct: Math.round(pct * 10) / 10, payment_method: data.payment_method } })
             }
+            // Phase 3 — journal_entries posting (flag-gated, fire-and-forget).
+            // Post for cobrado tickets OR credit-grant (tipo_venta=credito);
+            // queued (pendiente+contado) tickets post at markPaid instead.
+            if (ticket?.id && (status === 'cobrado' || data.tipo_venta === 'credito' || data.payment_method === 'credit')) {
+              _jeFireAndForget((async () => {
+                if (!await _jeEnabled(supabase, bid)) return
+                if (await _jeAlreadyPosted(supabase, bid, 'tickets', ticketSid)) return
+                const args = await _jeSaleArgs(supabase, bid, ticketSid)
+                if (!args) return
+                const rows = _jeBuildSale(args)
+                await _jePost(supabase, 'sale.create', rows)
+              })(), 'sale.create')
+            }
+
             return { id: ticket.id, supabase_id: ticketSid, docNumber: docNum, ncf: null, queueError }
           })()
         } catch (err) {
@@ -3262,6 +3505,20 @@ export function createWebAPI(supabase, businessId) {
           await supabase.from('queue').update({ status: 'done', completed_at: new Date().toISOString() })
             .eq('ticket_supabase_id', t.supabase_id).eq('business_id', bid)
         }
+
+        // Phase 3 — queued ticket transitioning to cobrado is the actual
+        // sale event (ticketCreate skipped the journal post for pendiente+
+        // contado tickets). Idempotent guard prevents double-post if the
+        // ticket already journaled.
+        _jeFireAndForget((async () => {
+          if (!await _jeEnabled(supabase, bid)) return
+          if (!t?.supabase_id) return
+          if (await _jeAlreadyPosted(supabase, bid, 'tickets', t.supabase_id)) return
+          const args = await _jeSaleArgs(supabase, bid, t.supabase_id)
+          if (!args) return
+          const rows = _jeBuildSale(args)
+          await _jePost(supabase, 'sale.markPaid', rows)
+        })(), 'sale.markPaid')
 
         return { id: ticketId }
       }, 'web.tickets.markPaid'),
@@ -3452,6 +3709,19 @@ export function createWebAPI(supabase, businessId) {
         // pattern (cross-tab propagation, no in-tab optimistic update to
         // race against). Keep this dispatch removed.
         try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('tx:inventory-refresh')) } catch {}
+
+        // Phase 3 — reverse all original journal_entries rows for this ticket.
+        _jeFireAndForget((async () => {
+          if (!await _jeEnabled(supabase, bid)) return
+          const tSid = priorRow?.supabase_id
+          if (!tSid) return
+          const { data: origs } = await supabase.from('journal_entries').select('*')
+            .eq('business_id', bid).eq('source_table', 'tickets').eq('source_id', tSid)
+            .is('reversal_of_id', null)
+          if (!origs?.length) return
+          const rows = _jeBuildReversal({ originalRows: origs })
+          await _jePost(supabase, 'reversal.ticket', rows)
+        })(), 'reversal.ticket')
       }, 'web.tickets.void'),
 
       // C2/v2.16.4 — `getActiveByMesa` superseded by the open_status-based
@@ -4581,6 +4851,7 @@ export function createWebAPI(supabase, businessId) {
         const now = new Date().toISOString()
         throwSupaError(await supabase.from('washer_commissions')
           .update({ paid: true, paid_at: now }).in('id', ids).eq('business_id', bid))
+        _jeFireAndForget(_jePostCommissionPayout(supabase, bid, 'washer_commissions', { ids }, 'commission.washer.markPaid'), 'commission.washer.markPaid')
       }, 'web.commissions.markPaid'),
 
       // Mark all unpaid commissions within a period for a set of empleados as paid.
@@ -4597,6 +4868,10 @@ export function createWebAPI(supabase, businessId) {
           .gte('created_at', from)
           .lte('created_at', to + ' 23:59:59')
           .select('id')
+        const updatedIds = (data || []).map(r => r.id)
+        if (updatedIds.length) {
+          _jeFireAndForget(_jePostCommissionPayout(supabase, bid, 'washer_commissions', { ids: updatedIds }, 'commission.washer.markPaidByPeriod'), 'commission.washer.markPaidByPeriod')
+        }
         return { updated: (data || []).length }
       }, 'web.commissions.markPaidByPeriod'),
 
@@ -4692,6 +4967,7 @@ export function createWebAPI(supabase, businessId) {
         const now = new Date().toISOString()
         throwSupaError(await supabase.from('seller_commissions')
           .update({ paid: true, paid_at: now }).in('id', ids).eq('business_id', bid))
+        _jeFireAndForget(_jePostCommissionPayout(supabase, bid, 'seller_commissions', { ids }, 'commission.seller.markPaid'), 'commission.seller.markPaid')
       }, 'web.sellerCommissions.markPaid'),
 
       markPaidByPeriod: ({ empleado_supabase_ids, from, to }) => tryWrite(async () => {
@@ -4703,6 +4979,10 @@ export function createWebAPI(supabase, businessId) {
           .in('empleado_supabase_id', empleado_supabase_ids)
           .gte('created_at', from).lte('created_at', to + ' 23:59:59')
           .select('id')
+        const updatedIds = (data || []).map(r => r.id)
+        if (updatedIds.length) {
+          _jeFireAndForget(_jePostCommissionPayout(supabase, bid, 'seller_commissions', { ids: updatedIds }, 'commission.seller.markPaidByPeriod'), 'commission.seller.markPaidByPeriod')
+        }
         return { updated: (data || []).length }
       }, 'web.sellerCommissions.markPaidByPeriod'),
 
@@ -4803,6 +5083,7 @@ export function createWebAPI(supabase, businessId) {
         const now = new Date().toISOString()
         throwSupaError(await supabase.from('cajero_commissions')
           .update({ paid: true, paid_at: now }).in('id', ids).eq('business_id', bid))
+        _jeFireAndForget(_jePostCommissionPayout(supabase, bid, 'cajero_commissions', { ids }, 'commission.cajero.markPaid'), 'commission.cajero.markPaid')
       }, 'web.cajeroCommissions.markPaid'),
 
       markPaidByPeriod: ({ empleado_supabase_ids, from, to }) => tryWrite(async () => {
@@ -4814,6 +5095,10 @@ export function createWebAPI(supabase, businessId) {
           .in('empleado_supabase_id', empleado_supabase_ids)
           .gte('created_at', from).lte('created_at', to + ' 23:59:59')
           .select('id')
+        const updatedIds = (data || []).map(r => r.id)
+        if (updatedIds.length) {
+          _jeFireAndForget(_jePostCommissionPayout(supabase, bid, 'cajero_commissions', { ids: updatedIds }, 'commission.cajero.markPaidByPeriod'), 'commission.cajero.markPaidByPeriod')
+        }
         return { updated: (data || []).length }
       }, 'web.cajeroCommissions.markPaidByPeriod'),
 
@@ -5186,13 +5471,31 @@ export function createWebAPI(supabase, businessId) {
       }, []),
 
       create: (data) => tryWrite(async () => {
-        throwSupaError(await supabase.from('caja_chica').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }))
+        const sid = crypto.randomUUID()
+        throwSupaError(await supabase.from('caja_chica').insert({ ...data, supabase_id: sid, business_id: bid }))
         await logActivity({ event_type: 'caja_chica_withdrawal',
           severity: Number(data.amount) >= 2000 ? 'warn' : 'info',
           target_type: 'caja_chica',
           target_name: data.description || data.category || 'Retiro',
           amount: data.amount, reason: data.category || null,
           metadata: { type: data.type, recibo: data.recibo || null, status: data.status } })
+        // Phase 3 — expense posting.
+        _jeFireAndForget((async () => {
+          if (!await _jeEnabled(supabase, bid)) return
+          if (await _jeAlreadyPosted(supabase, bid, 'caja_chica', sid)) return
+          const bizType = await _jeBizType(supabase, bid)
+          const rows = _jeBuildExpense({
+            row: {
+              business_id: bid, supabase_id: sid,
+              amount: Number(data.amount || 0), type: data.category || data.type || null,
+              description: data.description || null,
+              date: data.date || null, created_at: new Date().toISOString(),
+              created_by: data.cajero_id || data.approved_by || null,
+            },
+            biz: { id: bid, business_type: bizType },
+          })
+          await _jePost(supabase, 'expense.create', rows)
+        })(), 'expense.create')
       }, 'web.cajaChica.create'),
 
       updateStatus: (data) => tryWrite(async () => {

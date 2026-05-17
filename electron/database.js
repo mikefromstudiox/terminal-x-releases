@@ -2059,6 +2059,41 @@ function init(userDataPath, options = {}) {
     // but Supabase has both that and the UUID FK original_ticket_supabase_id.
     // The local pullUpsertRow threw "no such column: original_ticket_supabase_id".
     "ALTER TABLE notas_credito ADD COLUMN original_ticket_supabase_id TEXT",
+
+    // v2.17.x — journal_entries financial spine (Phase 3 wire-forward).
+    // Local mirror of Supabase journal_entries (migration 2026_05_17_*).
+    // Append-only: never UPDATE or DELETE rows; reversals are new rows.
+    `CREATE TABLE IF NOT EXISTS journal_entries (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      supabase_id     TEXT NOT NULL UNIQUE,
+      business_id     TEXT,
+      location_id     TEXT,
+      tx_group_id     TEXT NOT NULL,
+      posted_at       TEXT NOT NULL DEFAULT (datetime('now')),
+      effective_date  TEXT NOT NULL,
+      vertical        TEXT,
+      source_table    TEXT NOT NULL,
+      source_id       TEXT,
+      source_line_id  TEXT,
+      account         TEXT NOT NULL,
+      category        TEXT,
+      employee_id     TEXT,
+      client_id       TEXT,
+      debit           REAL NOT NULL DEFAULT 0,
+      credit          REAL NOT NULL DEFAULT 0,
+      currency        TEXT NOT NULL DEFAULT 'DOP',
+      description     TEXT,
+      metadata        TEXT,
+      reversal_of_id  TEXT,
+      reversed_by_id  TEXT,
+      created_by      TEXT,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_je_biz_eff ON journal_entries(business_id, effective_date DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_je_tx_group ON journal_entries(tx_group_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_je_biz_account ON journal_entries(business_id, account, effective_date DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_je_biz_source ON journal_entries(business_id, source_table, source_id)`,
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -5490,6 +5525,25 @@ function payrollRunCreate(data) {
   if (row.commissions > 0) {
     try { markCommissionsPaidForEmpleado(row.empleado_id, row.period_start, row.period_end) } catch (e) { console.error('[payroll] markCommissionsPaid failed:', e.message) }
   }
+  // Phase 3 — payroll cash-out posting.
+  try {
+    if (_journalEnabled()) {
+      const p = db.prepare('SELECT supabase_id, net, period_start, period_end, created_at FROM payroll_runs WHERE id=?').get(r.lastInsertRowid)
+      if (p?.supabase_id && !_journalAlreadyPosted('payroll_runs', p.supabase_id)) {
+        const bizId = _bizId() || null
+        _postJournalAsync('buildPayrollEntries', {
+          run: {
+            business_id: bizId, supabase_id: p.supabase_id,
+            total: Number(p.net || 0),
+            period_end: p.period_end,
+            period_label: `${p.period_start || ''} → ${p.period_end || ''}`,
+            created_at: p.created_at,
+          },
+          biz: { id: bizId, business_type: _bizVerticalSnap() },
+        }, 'payroll.create')
+      }
+    }
+  } catch (err) { console.error('[journal] payroll.create wire failed:', err.message) }
   return { id: r.lastInsertRowid }
 }
 
@@ -5517,6 +5571,29 @@ function payrollRunsBulkCreate(runs) {
     target_name: `Nómina ${period}`.trim(),
     amount: totalNet,
     metadata: { run_count: ids.length, run_ids: ids, period_start: runs[0]?.period_start, period_end: runs[0]?.period_end } })
+  // Phase 3 — bulk payroll posting (one journal group per run).
+  try {
+    if (_journalEnabled() && ids.length) {
+      const bizId = _bizId() || null
+      const bizType = _bizVerticalSnap()
+      const placeholders = ids.map(() => '?').join(',')
+      const persisted = db.prepare(`SELECT id, supabase_id, net, period_start, period_end, created_at FROM payroll_runs WHERE id IN (${placeholders})`).all(...ids)
+      for (const p of persisted) {
+        if (!p.supabase_id) continue
+        if (_journalAlreadyPosted('payroll_runs', p.supabase_id)) continue
+        _postJournalAsync('buildPayrollEntries', {
+          run: {
+            business_id: bizId, supabase_id: p.supabase_id,
+            total: Number(p.net || 0),
+            period_end: p.period_end,
+            period_label: `${p.period_start || ''} → ${p.period_end || ''}`,
+            created_at: p.created_at,
+          },
+          biz: { id: bizId, business_type: bizType },
+        }, 'payroll.bulkCreate')
+      }
+    }
+  } catch (err) { console.error('[journal] payroll.bulkCreate wire failed:', err.message) }
   return { created: ids.length, ids }
 }
 function payrollRunsByEmpleado(empleadoId, limit = 100) {
@@ -6033,7 +6110,7 @@ function clientGetOpenTickets(clientId) {
 }
 function collectCredit({ clientId, ticketIds, amount, paymentMethod, ncf, notes, cajeroId }) {
   if (!db) return null
-  return db.transaction(() => {
+  const _result = db.transaction(() => {
     // v2.16.10 2026-04-30 — DO NOT REVERT (FIX-LEDGER §3.2). Previous code
     // flipped ALL ticket_ids to cobrado regardless of cumulative paid. A
     // RD$500 abono on RD$3000 of debt closed everything. Now: only flip
@@ -6067,6 +6144,25 @@ function collectCredit({ clientId, ticketIds, amount, paymentMethod, ncf, notes,
           sid, clientRow?.supabase_id||null, cajeroRow?.supabase_id||null)
     return { id: r.lastInsertRowid, supabase_id: sid }
   })()
+  // Phase 3 — credit payment posting (DR cash / CR receivable).
+  try {
+    if (_journalEnabled() && _result?.supabase_id && !_journalAlreadyPosted('credit_payments', _result.supabase_id)) {
+      const clientRow = clientId ? db.prepare('SELECT supabase_id FROM clients WHERE id=?').get(clientId) : null
+      const bizId = _bizId() || null
+      _postJournalAsync('buildCreditPaymentEntries', {
+        payment: {
+          business_id: bizId,
+          supabase_id: _result.supabase_id,
+          amount: Number(amount || 0),
+          client_id: clientRow?.supabase_id || null,
+          created_at: new Date().toISOString(),
+          created_by: cajeroId || null,
+        },
+        biz: { id: bizId, business_type: _bizVerticalSnap() },
+      }, 'credit.collect')
+    }
+  } catch (err) { console.error('[journal] credit.collect wire failed:', err.message) }
+  return _result
 }
 
 // ── TICKETS ───────────────────────────────────────────────────────────────────
@@ -7690,6 +7786,20 @@ function ticketCreate(data) {
       amount: desc,
       metadata: { subtotal: subt, total: data.total, pct: Math.round(pct * 10) / 10, payment_method: data.payment_method, reason: data.descuento_reason || null } })
   }
+  // Phase 3 — journal_entries posting. Skip queued (pendiente+contado) tickets:
+  // they post at markPaid. Post immediately for cobrado or any credit grant.
+  try {
+    if (_journalEnabled() && res?.ticketId) {
+      const t = db.prepare('SELECT status, tipo_venta, supabase_id FROM tickets WHERE id=?').get(res.ticketId)
+      const isCredit = t?.tipo_venta === 'credito'
+      if (t && (t.status === 'cobrado' || isCredit)) {
+        if (!_journalAlreadyPosted('tickets', t.supabase_id)) {
+          const args = _journalBuildSaleArgsForTicket(res.ticketId)
+          if (args) _postJournalAsync('buildSaleEntries', args, 'sale.create')
+        }
+      }
+    }
+  } catch (err) { console.error('[journal] sale-create wire failed:', err.message) }
   return res
 }
 function ticketMarkPaid(id, { paymentMethod, ncf, ecfResult, cajeroId, tipoVenta, clientId, comentario, notes, descuento, descuento_reason } = {}) {
@@ -7756,6 +7866,16 @@ function ticketMarkPaid(id, { paymentMethod, ncf, ecfResult, cajeroId, tipoVenta
         metadata: { subtotal: subt, total: row?.total, pct: Math.round(pct * 10) / 10, payment_method: row?.payment_method, source: 'markPaid', reason: descuento_reason || null } })
     }
   }
+  // Phase 3 — queued sale becomes cobrado here. Post if not already.
+  try {
+    if (_journalEnabled()) {
+      const t = db.prepare('SELECT supabase_id FROM tickets WHERE id=?').get(id)
+      if (t?.supabase_id && !_journalAlreadyPosted('tickets', t.supabase_id)) {
+        const args = _journalBuildSaleArgsForTicket(id)
+        if (args) _postJournalAsync('buildSaleEntries', args, 'sale.markPaid')
+      }
+    }
+  } catch (err) { console.error('[journal] markPaid wire failed:', err.message) }
   return { id }
 }
 function ticketVoid(id, reason, voidById) {
@@ -7837,6 +7957,9 @@ function ticketVoid(id, reason, voidById) {
     // Outside the transaction: never block the void on queue insertion.
     // Legacy B01/B02 NCFs are skipped inside anecfQueueEnqueue.
     anecfQueueEnqueue({ ncf: voidedTicket.ncf, ticketId: id, ticketSupabaseId: voidedTicket.supabase_id })
+    // Phase 3 — reverse journal entries for this ticket.
+    try { _journalPostReversalForTicket(voidedTicket.supabase_id) }
+    catch (err) { console.error('[journal] void reversal wire failed:', err.message) }
   }
 }
 function ticketGetByDateRange(dateFrom, dateTo) {
@@ -8175,16 +8298,29 @@ function commissionsMarkPaid(washerCommissionIds) {
   if (!db) return
   const stmt = db.prepare(`UPDATE washer_commissions SET paid=1,paid_at=datetime('now') WHERE id=?`)
   db.transaction(() => washerCommissionIds.forEach(id => stmt.run(id)))()
+  try { _journalPostCommissionPayout('washer_commissions', washerCommissionIds, 'commission.washer.markPaid') }
+  catch (err) { console.error('[journal] commission washer markPaid wire failed:', err.message) }
 }
 function commissionsMarkPaidByPeriod({ empleado_supabase_ids, from, to }) {
   if (!db || !empleado_supabase_ids?.length) return { updated: 0 }
   const placeholders = empleado_supabase_ids.map(() => '?').join(',')
+  // Capture the ids about to flip so we can build the payout journal entry
+  // against the exact set marked paid (avoids racing future markPaid calls).
+  let idsToPost = []
+  try {
+    idsToPost = db.prepare(`SELECT id FROM washer_commissions
+      WHERE COALESCE(paid,0)=0
+        AND empleado_supabase_id IN (${placeholders})
+        AND created_at BETWEEN ? AND ?`).all(...empleado_supabase_ids, from, to + ' 23:59:59').map(r => r.id)
+  } catch {}
   const res = db.prepare(
     `UPDATE washer_commissions SET paid=1, paid_at=datetime('now')
      WHERE COALESCE(paid,0)=0
        AND empleado_supabase_id IN (${placeholders})
        AND created_at BETWEEN ? AND ?`
   ).run(...empleado_supabase_ids, from, to + ' 23:59:59')
+  try { if (idsToPost.length) _journalPostCommissionPayout('washer_commissions', idsToPost, 'commission.washer.markPaidByPeriod') }
+  catch (err) { console.error('[journal] commission washer markPaidByPeriod wire failed:', err.message) }
   return { updated: res.changes }
 }
 
@@ -8254,16 +8390,27 @@ function sellerCommissionsMarkPaid(ids) {
   if (!db) return
   const stmt = db.prepare(`UPDATE seller_commissions SET paid=1,paid_at=datetime('now') WHERE id=?`)
   db.transaction(() => ids.forEach(id => stmt.run(id)))()
+  try { _journalPostCommissionPayout('seller_commissions', ids, 'commission.seller.markPaid') }
+  catch (err) { console.error('[journal] commission seller markPaid wire failed:', err.message) }
 }
 function sellerCommissionsMarkPaidByPeriod({ empleado_supabase_ids, from, to }) {
   if (!db || !empleado_supabase_ids?.length) return { updated: 0 }
   const placeholders = empleado_supabase_ids.map(() => '?').join(',')
+  let idsToPost = []
+  try {
+    idsToPost = db.prepare(`SELECT id FROM seller_commissions
+      WHERE COALESCE(paid,0)=0
+        AND empleado_supabase_id IN (${placeholders})
+        AND created_at BETWEEN ? AND ?`).all(...empleado_supabase_ids, from, to + ' 23:59:59').map(r => r.id)
+  } catch {}
   const res = db.prepare(
     `UPDATE seller_commissions SET paid=1, paid_at=datetime('now')
      WHERE COALESCE(paid,0)=0
        AND empleado_supabase_id IN (${placeholders})
        AND created_at BETWEEN ? AND ?`
   ).run(...empleado_supabase_ids, from, to + ' 23:59:59')
+  try { if (idsToPost.length) _journalPostCommissionPayout('seller_commissions', idsToPost, 'commission.seller.markPaidByPeriod') }
+  catch (err) { console.error('[journal] commission seller markPaidByPeriod wire failed:', err.message) }
   return { updated: res.changes }
 }
 // Standalone commission row insert — used by the invoicing flow where the
@@ -8420,16 +8567,27 @@ function cajeroCommissionsMarkPaid(ids) {
   if (!db) return
   const stmt = db.prepare(`UPDATE cajero_commissions SET paid=1,paid_at=datetime('now') WHERE id=?`)
   db.transaction(() => ids.forEach(id => stmt.run(id)))()
+  try { _journalPostCommissionPayout('cajero_commissions', ids, 'commission.cajero.markPaid') }
+  catch (err) { console.error('[journal] commission cajero markPaid wire failed:', err.message) }
 }
 function cajeroCommissionsMarkPaidByPeriod({ empleado_supabase_ids, from, to }) {
   if (!db || !empleado_supabase_ids?.length) return { updated: 0 }
   const placeholders = empleado_supabase_ids.map(() => '?').join(',')
+  let idsToPost = []
+  try {
+    idsToPost = db.prepare(`SELECT id FROM cajero_commissions
+      WHERE COALESCE(paid,0)=0
+        AND empleado_supabase_id IN (${placeholders})
+        AND created_at BETWEEN ? AND ?`).all(...empleado_supabase_ids, from, to + ' 23:59:59').map(r => r.id)
+  } catch {}
   const res = db.prepare(
     `UPDATE cajero_commissions SET paid=1, paid_at=datetime('now')
      WHERE COALESCE(paid,0)=0
        AND empleado_supabase_id IN (${placeholders})
        AND created_at BETWEEN ? AND ?`
   ).run(...empleado_supabase_ids, from, to + ' 23:59:59')
+  try { if (idsToPost.length) _journalPostCommissionPayout('cajero_commissions', idsToPost, 'commission.cajero.markPaidByPeriod') }
+  catch (err) { console.error('[journal] commission cajero markPaidByPeriod wire failed:', err.message) }
   return { updated: res.changes }
 }
 // v2.14 — supports both auto (cajero_id + ticket_id) and manual
@@ -8768,6 +8926,24 @@ function cajaChicaCreate(data) {
     target_name: data.description || data.category || 'Retiro',
     amount: data.amount, reason: data.category || null,
     metadata: { type: data.type, recibo: data.recibo || null, status: data.status } })
+  // Phase 3 — expense posting (DR expense.* / CR cash).
+  try {
+    if (_journalEnabled() && !_journalAlreadyPosted('caja_chica', sid)) {
+      const bizId = _bizId() || null
+      _postJournalAsync('buildExpenseEntries', {
+        row: {
+          business_id: bizId, supabase_id: sid,
+          amount: Number(data.amount || 0),
+          type: data.category || data.type || null,
+          description: data.description || null,
+          date: data.date || null,
+          created_at: new Date().toISOString(),
+          created_by: data.cajero_id || null,
+        },
+        biz: { id: bizId, business_type: _bizVerticalSnap() },
+      }, 'expense.create')
+    }
+  } catch (err) { console.error('[journal] expense wire failed:', err.message) }
   return { id: r.lastInsertRowid, supabase_id: sid }
 }
 function cajaChicaUpdateStatus(id, status, approvedBy) {
@@ -9108,7 +9284,7 @@ function inventoryDelete(id) {
 function inventoryAdjust(id, delta, notes, userId) {
   if (!db) return null
   const txSid = crypto.randomUUID()
-  const invRow = db.prepare('SELECT supabase_id, name, quantity FROM inventory_items WHERE id=?').get(id)
+  const invRow = db.prepare('SELECT supabase_id, name, quantity, cost FROM inventory_items WHERE id=?').get(id)
   const run = db.transaction(() => {
     db.prepare('UPDATE inventory_items SET quantity = quantity + ? WHERE id=?').run(delta, id)
     db.prepare('INSERT INTO inventory_transactions(item_id,type,delta,notes,user_id,supabase_id,item_supabase_id) VALUES(?,?,?,?,?,?,?)')
@@ -9123,6 +9299,22 @@ function inventoryAdjust(id, delta, notes, userId) {
     old_value: invRow?.quantity != null ? String(invRow.quantity) : null,
     new_value: newQty != null ? String(newQty) : null,
     reason: notes || null })
+  // Phase 3 — restock posting (delta > 0 only, requires a known unit cost).
+  try {
+    if (_journalEnabled() && delta > 0) {
+      const u = Number(invRow?.cost || 0)
+      if (u > 0) {
+        const bizId = _bizId() || null
+        _postJournalAsync('buildRestockEntries', {
+          item: { business_id: bizId, supabase_id: invRow?.supabase_id, name: invRow?.name },
+          qty: delta,
+          unitCostPaid: u,
+          paidInCash: true,
+          biz: { id: bizId, business_type: _bizVerticalSnap() },
+        }, 'restock')
+      }
+    }
+  } catch (err) { console.error('[journal] restock wire failed:', err.message) }
   return newQty
 }
 function inventoryTransactions(itemId) {
@@ -11624,6 +11816,210 @@ function multiPosEnabled() {
   if (!db) return false
   try { return (db.prepare("SELECT value FROM app_settings WHERE key='multi_pos_enabled'").get()?.value || '0') === '1' }
   catch { return false }
+}
+
+// ── Journal entries v1 (Phase 3 wire-forward) ────────────────────────────────
+// Default OFF. Per-business flag via app_settings.journal_entries_v1.
+// All builders live in packages/services/journal.js (pure ESM). We dynamic-
+// import once at module load; subsequent posts use the cached module.
+let _journalModP = null
+function _journalMod() {
+  if (!_journalModP) {
+    _journalModP = import('../packages/services/journal.js')
+      .catch(err => { console.error('[journal] import failed:', err.message); throw err })
+  }
+  return _journalModP
+}
+
+let _journalFlagCache = null
+let _journalFlagCacheAt = 0
+function _journalEnabled() {
+  if (!db) return false
+  if (_journalFlagCacheAt && (Date.now() - _journalFlagCacheAt < 5000)) return _journalFlagCache
+  let v = false
+  try {
+    const row = db.prepare("SELECT value FROM app_settings WHERE key='journal_entries_v1' LIMIT 1").get()
+    const raw = (row?.value ?? '').toString().toLowerCase()
+    v = (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on')
+  } catch {}
+  _journalFlagCache = v
+  _journalFlagCacheAt = Date.now()
+  return v
+}
+
+function _bizVerticalSnap() {
+  try { return db.prepare("SELECT value FROM app_settings WHERE key='business_type'").get()?.value || null }
+  catch { return null }
+}
+
+const _JE_INSERT_SQL = `INSERT OR IGNORE INTO journal_entries
+  (supabase_id, business_id, location_id, tx_group_id, posted_at, effective_date,
+   vertical, source_table, source_id, source_line_id, account, category,
+   employee_id, client_id, debit, credit, currency, description, metadata,
+   reversal_of_id, created_by)
+  VALUES (@supabase_id, @business_id, @location_id, @tx_group_id, @posted_at, @effective_date,
+          @vertical, @source_table, @source_id, @source_line_id, @account, @category,
+          @employee_id, @client_id, @debit, @credit, @currency, @description, @metadata,
+          @reversal_of_id, @created_by)`
+
+function _journalInsertRows(rows, label) {
+  if (!db || !Array.isArray(rows) || rows.length === 0) return
+  try {
+    const stmt = db.prepare(_JE_INSERT_SQL)
+    const bizId = _bizId() || null
+    const tx = db.transaction((list) => {
+      for (const r of list) {
+        stmt.run({
+          supabase_id: r.supabase_id,
+          business_id: r.business_id || bizId,
+          location_id: r.location_id ?? null,
+          tx_group_id: r.tx_group_id,
+          posted_at: r.posted_at,
+          effective_date: r.effective_date,
+          vertical: r.vertical ?? null,
+          source_table: r.source_table,
+          source_id: r.source_id ?? null,
+          source_line_id: r.source_line_id ?? null,
+          account: r.account,
+          category: r.category ?? null,
+          employee_id: r.employee_id ?? null,
+          client_id: r.client_id != null ? String(r.client_id) : null,
+          debit: Number(r.debit || 0),
+          credit: Number(r.credit || 0),
+          currency: r.currency || 'DOP',
+          description: r.description ?? null,
+          metadata: r.metadata ? JSON.stringify(r.metadata) : null,
+          reversal_of_id: r.reversal_of_id != null ? String(r.reversal_of_id) : null,
+          created_by: r.created_by ?? null,
+        })
+      }
+    })
+    tx(rows)
+  } catch (err) {
+    console.error('[journal] insert failed:', label, err.message)
+    try { (typeof global !== 'undefined' && global.__txMainReport) && global.__txMainReport(err, { source: `journal.${label}`, severity: 'error' }) } catch {}
+  }
+}
+
+function _journalAlreadyPosted(sourceTable, sourceId) {
+  if (!db || !sourceId) return false
+  try {
+    const row = db.prepare(`SELECT 1 FROM journal_entries WHERE source_table=? AND source_id=? AND reversal_of_id IS NULL LIMIT 1`).get(sourceTable, sourceId)
+    return !!row
+  } catch { return false }
+}
+
+function _postJournalAsync(builderName, args, label) {
+  if (!_journalEnabled()) return
+  _journalMod().then(mod => {
+    let rows
+    try { rows = mod[builderName](args) }
+    catch (err) {
+      console.error('[journal] build failed:', label, err.message)
+      try { global.__txMainReport && global.__txMainReport(err, { source: `journal.${label}`, severity: 'error' }) } catch {}
+      return
+    }
+    _journalInsertRows(rows, label)
+  }).catch(() => { /* import error already reported */ })
+}
+
+function _journalBuildSaleArgsForTicket(ticketId) {
+  if (!db || !ticketId) return null
+  const t = db.prepare('SELECT * FROM tickets WHERE id=?').get(ticketId)
+  if (!t || !t.supabase_id) return null
+  const its = db.prepare('SELECT * FROM ticket_items WHERE ticket_id=?').all(ticketId)
+  const bizId = _bizId() || null
+  const vertical = _bizVerticalSnap()
+  const svcSids = [...new Set(its.map(i => i.service_supabase_id).filter(Boolean))]
+  let svcRows = []
+  if (svcSids.length) {
+    const placeholders = svcSids.map(() => '?').join(',')
+    svcRows = db.prepare(`SELECT supabase_id, is_wash, aplica_itbis, is_menu_item, category
+      FROM services WHERE supabase_id IN (${placeholders})`).all(...svcSids)
+  }
+  return {
+    ticket: {
+      supabase_id: t.supabase_id,
+      business_id: bizId,
+      total: Number(t.total || 0),
+      itbis: Number(t.itbis || 0),
+      payment_method: t.tipo_venta === 'credito' ? 'credit' : (t.payment_method || 'cash'),
+      tipo_venta: t.tipo_venta,
+      client_id: t.client_supabase_id || (t.client_id != null ? String(t.client_id) : null),
+      created_at: t.created_at, date: t.created_at,
+      created_by: t.cajero_supabase_id || null,
+      location_id: null,
+    },
+    items: its.map(i => ({
+      supabase_id: i.supabase_id,
+      service_supabase_id: i.service_supabase_id,
+      qty: Number(i.quantity || 1),
+      price: Number(i.price || 0),
+      cost: Number(i.cost || 0),
+      itbis: i.itbis != null ? Number(i.itbis) : null,
+      name: i.name,
+      is_wash: !!i.is_wash,
+    })),
+    services: svcRows.map(s => ({
+      supabase_id: s.supabase_id,
+      is_wash: !!s.is_wash,
+      aplica_itbis: s.aplica_itbis !== 0,
+      is_menu_item: !!s.is_menu_item,
+      category: s.category || null,
+    })),
+    biz: { id: bizId, business_type: vertical },
+  }
+}
+
+function _journalPostReversalForTicket(ticketSid) {
+  if (!_journalEnabled() || !ticketSid) return
+  try {
+    const origs = db.prepare(`SELECT * FROM journal_entries
+      WHERE source_table='tickets' AND source_id=? AND reversal_of_id IS NULL`).all(ticketSid)
+    if (!origs.length) return
+    const rows = origs.map(r => ({
+      ...r,
+      metadata: r.metadata ? (() => { try { return JSON.parse(r.metadata) } catch { return {} } })() : {},
+    }))
+    _postJournalAsync('buildReversalEntries', { originalRows: rows }, 'reversal.ticket')
+  } catch (err) {
+    console.error('[journal] reversal lookup failed:', err.message)
+  }
+}
+
+function _journalPostCommissionPayout(table, ids, label) {
+  if (!_journalEnabled() || !Array.isArray(ids) || !ids.length) return
+  try {
+    const placeholders = ids.map(() => '?').join(',')
+    const rows = db.prepare(`SELECT id, supabase_id, commission_amount, empleado_supabase_id, paid_at FROM ${table} WHERE id IN (${placeholders})`).all(...ids)
+    if (!rows.length) return
+    const total = rows.reduce((s, r) => s + Number(r.commission_amount || 0), 0)
+    if (total <= 0) return
+    const bizId = _bizId() || null
+    const payoutSid = crypto.randomUUID()
+    const args = {
+      payout: {
+        business_id: bizId,
+        supabase_id: payoutSid,
+        amount: total,
+        employee_id: rows[0]?.empleado_supabase_id || null,
+        date: rows[0]?.paid_at || new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      },
+      biz: { id: bizId, business_type: _bizVerticalSnap() },
+    }
+    _journalMod().then(mod => {
+      let built
+      try { built = mod.buildCommissionEntries(args) }
+      catch (err) { console.error('[journal] commission build failed:', err.message); return }
+      for (const r of built) {
+        r.metadata = { ...(r.metadata || {}), source: table, commission_row_sids: rows.map(x => x.supabase_id) }
+      }
+      _journalInsertRows(built, label)
+    }).catch(() => {})
+  } catch (err) {
+    console.error('[journal] commission lookup failed:', err.message)
+  }
 }
 
 // ── NCF blocks ──────────────────────────────────────────────────────────────

@@ -13,7 +13,22 @@
  * persistence + FK resolution. This module never touches the DB.
  */
 
-import { randomUUID } from 'node:crypto'
+// Universal randomUUID — browser `crypto.randomUUID()` (web POS, dist-web)
+// and Node 19+ global crypto (electron main, scripts/, vercel functions) both
+// expose it on globalThis.crypto. No `node:crypto` import — that fails the
+// Vite browser bundle (see commit message Phase 3 wire-forward).
+function randomUUID() {
+  const g = (typeof globalThis !== 'undefined' ? globalThis : {})
+  if (g.crypto && typeof g.crypto.randomUUID === 'function') return g.crypto.randomUUID()
+  // Fallback for older Node — best-effort RFC4122 v4 from Math.random.
+  // Production targets all have crypto.randomUUID; this exists only so unit
+  // tests on legacy node never throw before they fail loudly elsewhere.
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
