@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-17T20:18:23.207Z
+- **Snapshot taken:** 2026-05-17T22:37:44.897Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -1502,7 +1502,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `api_rate_limits`
 
-- Rough row count (n_live_tup): **793**
+- Rough row count (n_live_tup): **797**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1530,7 +1530,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `app_settings`
 
-- Rough row count (n_live_tup): **300**
+- Rough row count (n_live_tup): **301**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3747,7 +3747,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `inventory_count_items`
 
-- Rough row count (n_live_tup): **1726**
+- Rough row count (n_live_tup): **1732**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4122,7 +4122,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `journal_entries`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **211**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4167,7 +4167,6 @@ Total tables: **153** (RLS enabled: **153**)
 
 - `journal_entries_business_id_fkey` — FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE  _(ON DELETE CASCADE, ON UPDATE NO ACTION)_
 - `journal_entries_client_id_fkey` — FOREIGN KEY (client_id) REFERENCES clients(id)  _(ON DELETE NO ACTION, ON UPDATE NO ACTION)_
-- `journal_entries_employee_id_fkey` — FOREIGN KEY (employee_id) REFERENCES staff(id)  _(ON DELETE NO ACTION, ON UPDATE NO ACTION)_
 - `journal_entries_reversal_of_id_fkey` — FOREIGN KEY (reversal_of_id) REFERENCES journal_entries(id)  _(ON DELETE NO ACTION, ON UPDATE NO ACTION)_
 - `journal_entries_reversed_by_id_fkey` — FOREIGN KEY (reversed_by_id) REFERENCES journal_entries(id)  _(ON DELETE NO ACTION, ON UPDATE NO ACTION)_
 
@@ -4306,7 +4305,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `license_events`
 
-- Rough row count (n_live_tup): **2495**
+- Rough row count (n_live_tup): **2497**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6610,7 +6609,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `service_recipe_items`
 
-- Rough row count (n_live_tup): **26**
+- Rough row count (n_live_tup): **28**
 - RLS enabled: **YES**
 
 **Columns**
@@ -18583,7 +18582,7 @@ These have all bitten Terminal X in production. Future readers — check this li
 
 - Tables: **153** (RLS-enabled: 153)
 - Columns: **3046**
-- Constraints: **759** (PK: 185, UNIQUE: 283, FK: 160, CHECK: 129)
+- Constraints: **758** (PK: 185, UNIQUE: 283, FK: 159, CHECK: 129)
 - Indexes: **963** (partial: 137)
 - Policies: **415** (`app_metadata`: 265, `user_metadata`: 0)
 - Functions: **247**
