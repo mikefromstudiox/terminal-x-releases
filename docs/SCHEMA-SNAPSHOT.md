@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-17T17:16:42.755Z
+- **Snapshot taken:** 2026-05-17T20:13:34.794Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -1502,7 +1502,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `api_rate_limits`
 
-- Rough row count (n_live_tup): **788**
+- Rough row count (n_live_tup): **793**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1530,7 +1530,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `app_settings`
 
-- Rough row count (n_live_tup): **236**
+- Rough row count (n_live_tup): **300**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1836,7 +1836,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `businesses`
 
-- Rough row count (n_live_tup): **21**
+- Rough row count (n_live_tup): **23**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2201,7 +2201,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `client_errors`
 
-- Rough row count (n_live_tup): **153**
+- Rough row count (n_live_tup): **167**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3747,7 +3747,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `inventory_count_items`
 
-- Rough row count (n_live_tup): **1720**
+- Rough row count (n_live_tup): **1726**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3943,7 +3943,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `inventory_items`
 
-- Rough row count (n_live_tup): **1185**
+- Rough row count (n_live_tup): **1249**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4186,6 +4186,10 @@ Total tables: **153** (RLS enabled: **153**)
   `CREATE INDEX ix_je_biz_eff_date_brin ON public.journal_entries USING brin (business_id, effective_date)`
 - `ix_je_biz_source` (btree)
   `CREATE INDEX ix_je_biz_source ON public.journal_entries USING btree (business_id, source_table, source_id)`
+- `ix_je_reversal_of_id` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE INDEX ix_je_reversal_of_id ON public.journal_entries USING btree (reversal_of_id) WHERE (reversal_of_id IS NOT NULL)`
+- `ix_je_reversed_by_id` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE INDEX ix_je_reversed_by_id ON public.journal_entries USING btree (reversed_by_id) WHERE (reversed_by_id IS NOT NULL)`
 - `ix_je_tx_group` (btree)
   `CREATE INDEX ix_je_tx_group ON public.journal_entries USING btree (tx_group_id)`
 - `journal_entries_pkey` (btree)
@@ -4302,7 +4306,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `license_events`
 
-- Rough row count (n_live_tup): **2492**
+- Rough row count (n_live_tup): **2495**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4341,7 +4345,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `license_jwt_audit`
 
-- Rough row count (n_live_tup): **89**
+- Rough row count (n_live_tup): **93**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4418,7 +4422,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `licenses`
 
-- Rough row count (n_live_tup): **18**
+- Rough row count (n_live_tup): **20**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4974,7 +4978,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `mesas`
 
-- Rough row count (n_live_tup): **20**
+- Rough row count (n_live_tup): **26**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5181,7 +5185,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `ncf_sequences`
 
-- Rough row count (n_live_tup): **81**
+- Rough row count (n_live_tup): **89**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6606,7 +6610,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `service_recipe_items`
 
-- Rough row count (n_live_tup): **24**
+- Rough row count (n_live_tup): **26**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6654,7 +6658,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `services`
 
-- Rough row count (n_live_tup): **217**
+- Rough row count (n_live_tup): **297**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6732,7 +6736,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `staff`
 
-- Rough row count (n_live_tup): **21**
+- Rough row count (n_live_tup): **23**
 - RLS enabled: **YES**
 
 **Columns**
@@ -18580,7 +18584,7 @@ These have all bitten Terminal X in production. Future readers — check this li
 - Tables: **153** (RLS-enabled: 153)
 - Columns: **3046**
 - Constraints: **759** (PK: 185, UNIQUE: 283, FK: 160, CHECK: 129)
-- Indexes: **961** (partial: 135)
+- Indexes: **963** (partial: 137)
 - Policies: **415** (`app_metadata`: 265, `user_metadata`: 0)
 - Functions: **247**
 - Triggers: **278**
