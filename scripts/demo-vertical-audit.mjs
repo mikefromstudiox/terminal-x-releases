@@ -75,7 +75,7 @@ function posScreenFor(type, plan) {
   if (f.isRestaurant)  return 'RestaurantPOS'
   if (f.isLoans)       return 'LendingDashboard'
   if (f.isRetail)      return 'RetailPOS'
-  return 'CarWashPOS'
+  return 'ServicePOS'
 }
 
 // ── Sidebar item expectations per businessType (extracted from Sidebar.jsx)

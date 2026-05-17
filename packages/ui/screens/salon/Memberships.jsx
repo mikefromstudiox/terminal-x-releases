@@ -151,7 +151,7 @@ function CatalogModal({ row, services, lang, onSave, onClose }) {
 //
 // Pick the client receiving the package, then route to /pos with state so the
 // POS preloads a cart line carrying `_membershipPurchase` markers. The
-// CarWashPOS handlePaymentConfirm reads those markers and calls
+// ServicePOS handlePaymentConfirm reads those markers and calls
 // `clientMemberships.purchase` after `tickets.create` resolves with a real
 // `ticket_supabase_id`. Result: paying RD$5,000 for "10 Cortes" creates the
 // e-CF AND the persistent client_memberships balance in one cobro.

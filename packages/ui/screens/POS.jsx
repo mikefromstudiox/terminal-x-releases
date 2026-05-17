@@ -431,7 +431,13 @@ function DeferredEcfBanner({ lang }) {
   )
 }
 
-function CarWashPOS() {
+// ServicePOS — service-based POS shell (carwash, salon, service, mechanic
+// fallback). Renders service grid + worker queue + cobrar. Originally named
+// CarWashPOS for the first vertical that shipped; renamed 2026-05-17 to
+// reflect what it actually does (every service-based vertical that isn't
+// caught earlier by isHybrid / isFoodTruck / isRestaurant / isLoans / isRetail
+// in the POS routing cascade below).
+function ServicePOS() {
   const api = useAPI()
   const printerApi = usePrinterAPI()
   const { t, lang } = useLang()
@@ -1172,7 +1178,11 @@ function CarWashPOS() {
         /* print errors never block the POS flow */
       }
     } catch (err) {
-      try { window.__txReportError?.(err, { severity: 'error', category: 'pos.payment.confirm.carwash', extra: { itemCount: pending?.items?.length, tipo: paymentData?.tipo } }) } catch {}
+      // Category renamed 2026-05-17 from 'pos.payment.confirm.carwash' to
+      // 'pos.payment.confirm.service' — this branch fires for every service-
+      // based vertical (carwash + salon + service + mechanic), not just
+      // carwash. Historical errors before the rename keep their old category.
+      try { window.__txReportError?.(err, { severity: 'error', category: 'pos.payment.confirm.service', extra: { itemCount: pending?.items?.length, tipo: paymentData?.tipo } }) } catch {}
       flash(`Error: ${err.message}`)
     }
   }, [cobrarModal, queue.length, lang])
@@ -4116,6 +4126,6 @@ export default function POS() {
         ? <RestaurantPOS />
         : isPrestamos
           ? <LendingDashboard />
-          : isRetail ? <RetailPOS /> : <CarWashPOS />
+          : isRetail ? <RetailPOS /> : <ServicePOS />
   return <AperturaTurnoGate>{inner}</AperturaTurnoGate>
 }
