@@ -1,6 +1,6 @@
 # FUTUREX — Terminal X Roadmap
 
-Updated: 2026-04-26
+Updated: 2026-05-17
 
 Shipped features live in CLAUDE.md §Architecture Notes. This file is forward-looking work only.
 
