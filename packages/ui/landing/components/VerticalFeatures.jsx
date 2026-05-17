@@ -57,7 +57,7 @@ const VERTICALS = {
         'Cola offline 72h con IndicadorEnvioDiferido',
         'Certificado Viafirma incluido y administrado',
       ],
-      planLabel: 'Plan recomendado: Facturación · desde RD$995/mes',
+      planLabel: 'Plan recomendado: Facturación · desde RD$490/mes',
     },
     carwash: {
       title: 'Para Carwash',
@@ -181,7 +181,7 @@ const VERTICALS = {
         '72h offline queue with IndicadorEnvioDiferido',
         'Viafirma cert included and managed',
       ],
-      planLabel: 'Recommended: Invoicing · from RD$995/mo',
+      planLabel: 'Recommended: Invoicing · from RD$490/mo',
     },
     carwash: {
       title: 'For Carwash',

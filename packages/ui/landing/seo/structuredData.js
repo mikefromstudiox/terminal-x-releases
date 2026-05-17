@@ -22,12 +22,12 @@ const OG_IMAGE_URL = `${SITE_URL}/og-image.png`
 /* -------------------------------------------------------------------------- */
 
 const TIERS = [
-  { name: 'Facturación',           price: '995',  desc: '50 e-CFs/mes incluidos · RD$15 por extra' },
-  { name: 'Facturación Plus',      price: '1990', desc: '200 e-CFs/mes incluidos · RD$10 por extra' },
-  { name: 'Facturación Ilimitado', price: '2990', desc: 'e-CFs ilimitados · sin tope' },
-  { name: 'Pro',                   price: '2490', desc: 'POS completo · NCF papel · 1 usuario' },
-  { name: 'Pro PLUS',              price: '4490', desc: 'POS + e-CF ilimitado · 5 usuarios · loyalty' },
-  { name: 'Pro MAX',               price: '6990', desc: 'Todo + nómina · ilimitados usuarios · digest diario' },
+  { name: 'Facturación Pro',       price: '490',  desc: '50 e-CFs/mes · directo a DGII sin PSFE · 1 usuario' },
+  { name: 'Facturación Pro PLUS',  price: '990',  desc: '250 e-CFs/mes · multi-usuario · multi-moneda · 606/607' },
+  { name: 'Facturación Pro MAX',   price: '1990', desc: 'e-CFs ilimitados · multi-sucursal · API · soporte prioritario' },
+  { name: 'POS Pro',               price: '2490', desc: 'POS completo · NCF papel · cuadre + caja chica · 2 usuarios' },
+  { name: 'POS Pro PLUS',          price: '4490', desc: 'POS + e-CF directo a DGII · Viafirma incluido · 5 usuarios · comisiones' },
+  { name: 'POS Pro MAX',           price: '6990', desc: 'Todo + nómina TSS/INFOTEP/ISR · usuarios ilimitados · dashboard remoto' },
 ]
 
 export function softwareApplicationLd() {
@@ -90,8 +90,8 @@ export function softwareApplicationLd() {
 /* -------------------------------------------------------------------------- */
 
 const FAQ_ES = [
-  // Facturación tier (RD$995/mo) — must mirror LandingPage.jsx FAQ.es
-  { q: 'Que incluye el plan Facturacion de RD$995/mes?', a: 'Es el plan de solo facturacion electronica para negocios que ya usan otro POS o no necesitan cobrar en mostrador. Incluye: emision directa de e-CF E31 y E32 a DGII, notas de credito E33/E34, exportacion de los formatos 606 y 607 cada mes para tu contador, y base de clientes con busqueda por nombre/RNC/telefono. Sin intermediarios PSFE. El certificado Viafirma se incluye solo en el plan Facturacion Ilimitado.' },
+  // Facturación tier (desde RD$490/mo) — must mirror LandingPage.jsx FAQ.es
+  { q: 'Que incluye el plan Facturacion desde RD$490/mes?', a: 'Es la linea de solo facturacion electronica para negocios que ya usan otro POS o no necesitan cobrar en mostrador. Tres planes: Pro RD$490/mes (50 e-CFs/mes), Pro PLUS RD$990/mes (250 e-CFs/mes, multi-usuario, multi-moneda) y Pro MAX RD$1,990/mes (e-CFs ilimitados, multi-sucursal, API). Todos incluyen: emision directa de e-CF E31/E32/E33/E34 a DGII sin intermediarios PSFE, exportacion 606/607 para tu contador, RNC lookup local y envio por WhatsApp. El certificado Viafirma se incluye en Pro PLUS y Pro MAX.' },
   { q: 'Que pasa si emito una factura sin internet?', a: 'Terminal X la guarda en una cola local cifrada y la firma con IndicadorEnvioDiferido=1 cuando vuelva la conexion — exactamente como permite la DGII bajo la regla de 72 horas diferidas. La factura nunca se pierde y el comprobante sigue siendo valido.' },
   { q: 'Puedo emitir notas de credito (E33/E34) con el plan Facturacion?', a: 'Si. El plan Facturacion incluye emision de notas de credito E33 y E34 referenciando el e-NCF original. Las facturas anuladas se envian automaticamente a la cola de ANECF para que DGII las reciba como anuladas.' },
   { q: 'Puedo exportar 606 y 607 con el plan Facturacion?', a: 'Si — y es la razon principal por la que un plan de solo facturacion sirve en Republica Dominicana. Cada mes generas el TXT formato 606 (Compras) y 607 (Ventas) listo para subir al portal DGII. Tu contador no necesita armar nada a mano.' },
@@ -190,7 +190,7 @@ export function localBusinessLd() {
     logo: LOGO_URL,
     image: OG_IMAGE_URL,
     telephone: SUPPORT_PHONE,
-    priceRange: 'RD$995–RD$6,990',
+    priceRange: 'RD$490–RD$6,990',
     taxID: ORG_RNC,
     address: {
       '@type': 'PostalAddress',

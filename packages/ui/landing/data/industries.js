@@ -19,7 +19,7 @@ export const INDUSTRIES = {
     title: 'Facturación electrónica DGII, sin sufrimiento.',
     lede: 'Reemplaza el Facturador Gratuito de DGII con un sistema que automatiza todo: certificado, RNC, comprobantes E31/E32/E33/E34/E43, formatos 606/607 y entrega por WhatsApp.',
     heroBadges: ['Emisor Electrónico DGII', 'Certificado Viafirma incluido', 'Cola offline 72h'],
-    plan: { name: 'Facturación', price: 'desde RD$995/mes', anchor: 'facturacion' },
+    plan: { name: 'Facturación', price: 'desde RD$490/mes', anchor: 'facturacion' },
     howItWorks: [
       { n: 1, title: 'Activamos tu certificado', body: 'Te entregamos el certificado Viafirma activado en tu cuenta. No tienes que comprarlo aparte ni renovarlo manualmente cada año.' },
       { n: 2, title: 'Conectamos a DGII', body: 'Postulamos tu RNC al ambiente de pre-certificación, corremos los 12 sets de pruebas y pasamos a producción.' },

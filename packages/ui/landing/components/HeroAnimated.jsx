@@ -12,7 +12,7 @@ const COPY = {
   es: {
     eyebrow: 'CUANDO 150 FACTURAS NO ALCANZAN',
     headline: 'Cuando el Facturador Gratuito de DGII no alcanza',
-    sub: 'Misma compliance Ley 32-23. API, móvil, WhatsApp y modo offline. Desde RD$995/mes.',
+    sub: 'Misma compliance Ley 32-23. API, móvil, WhatsApp y modo offline. Desde RD$490/mes.',
     primary: 'Empezar gratis 7 días',
     secondary: 'Ver comparación con Gratuito',
     trust: 'DGII Cert #42483 · RNC 133410321 · Viafirma · 7 días gratis · Sin tarjeta',
@@ -23,7 +23,7 @@ const COPY = {
   en: {
     eyebrow: 'WHEN 150 INVOICES ARE NOT ENOUGH',
     headline: 'When the DGII Free Invoicer is not enough',
-    sub: 'Same Law 32-23 compliance. API, mobile, WhatsApp and offline mode. From RD$995/mo.',
+    sub: 'Same Law 32-23 compliance. API, mobile, WhatsApp and offline mode. From RD$490/mo.',
     primary: 'Start 7-day free trial',
     secondary: 'See vs Free comparison',
     trust: 'DGII Cert #42483 · RNC 133410321 · Viafirma · 7 days free · No card required',

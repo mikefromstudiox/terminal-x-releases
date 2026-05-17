@@ -5,7 +5,7 @@
 
 import { useState, lazy, Suspense } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { DemoBanner, Sidebar, useDemoGate } from './_shared'
+import { DemoBanner, Sidebar, useDemoGate, ClaimAccountHost } from './_shared'
 
 const VERTICAL_LOADERS = {
   carwash:      () => import('./verticals/carwash'),
@@ -67,6 +67,7 @@ function Shell({ config, navigate, resume }) {
           {config.render(view, { navigate, business: config.business, setView })}
         </div>
       </div>
+      <ClaimAccountHost autoOpenAfterMs={45000} />
     </div>
   )
 }

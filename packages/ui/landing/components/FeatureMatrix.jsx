@@ -17,9 +17,9 @@ const TIER_LABELS = {
 }
 
 const TIER_PRICES = {
-  facturacion: 'RD$995',
-  facturacion_plus: 'RD$1,990',
-  facturacion_unlimited: 'RD$2,990',
+  facturacion: 'RD$490',
+  facturacion_plus: 'RD$990',
+  facturacion_unlimited: 'RD$1,990',
   pro: 'RD$2,490',
   pro_plus: 'RD$4,490',
   pro_max: 'RD$6,990',

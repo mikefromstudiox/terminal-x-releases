@@ -7,13 +7,13 @@
 //  - their main operational view (POS / mesas / inventory / loans / etc.)
 //  - their nav config
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft, ArrowRight, Sparkles, X, Check, ChevronLeft, ChevronRight,
   Moon, RefreshCw, LogOut, Bell, HelpCircle, Search, UserRound,
   CreditCard, Banknote, Smartphone, PiggyBank, Receipt, Printer,
-  MessageSquare, ShoppingCart, ChevronRight as Chevron,
+  MessageSquare, ShoppingCart, ChevronRight as Chevron, Loader2, Lock,
 } from 'lucide-react'
 import logoImg from '../../assets/logo.webp'
 import xMark from '../../assets/x-mark.webp'
@@ -43,6 +43,217 @@ export function useDemoGate(navigate) {
   return { allowed, resume }
 }
 
+// Global trigger so any CTA inside the demo (banner, sidebar, soon-view,
+// success-view) can open the claim-account modal without prop-drilling.
+export function openClaimAccount() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('tx:open-claim-account'))
+}
+
+// In-demo "create your account" popup. Reads the lead payload stashed at
+// /signup step 1 (tx_signup_resume), asks for a password, runs the EXACT same
+// supabase.auth.signUp + /api/signup/provision pair as SignupPage step 3, and
+// drops the user straight into /pos logged in as their real account.
+export function ClaimAccountModal({ onClose }) {
+  const [resume, setResume] = useState(null)
+  const [password, setPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('tx_signup_resume')
+      if (raw) setResume(JSON.parse(raw))
+    } catch (_) { /* ignore */ }
+  }, [])
+
+  async function submit(e) {
+    e.preventDefault()
+    setError(null)
+    if (!resume?.email) { setError('Falta el email del paso 1.'); return }
+    if (!password || password.length < 6) { setError('La contrasena debe tener al menos 6 caracteres.'); return }
+    setSubmitting(true)
+    try {
+      const url = import.meta.env.VITE_SUPABASE_URL
+      const key = import.meta.env.VITE_SUPABASE_ANON_KEY
+      if (!url || !key) throw new Error('Supabase no configurado')
+      // Prefer the canonical app auth client if it's already on the window
+      // (other parts of the SPA may have warmed it). Otherwise create a fresh
+      // one with the SAME options as web/main.jsx (no auth opts → persistSession
+      // defaults to true, localStorage key matches AuthContext's reader).
+      let sb = (typeof window !== 'undefined' && window.__txSupabase) || null
+      if (!sb) {
+        const { createClient } = await import('@supabase/supabase-js')
+        sb = createClient(url, key)
+        if (typeof window !== 'undefined') window.__txSupabase = sb
+      }
+
+      const { data: authData, error: authErr } = await sb.auth.signUp({
+        email: resume.email.trim(),
+        password,
+      })
+      if (authErr) {
+        try { window.__txReportError?.(authErr, { severity: 'error', category: 'claim.signup', extra: { email: resume.email } }) } catch (_) {}
+        throw authErr
+      }
+      if (!authData?.user) {
+        const e = new Error('No se pudo crear la cuenta')
+        try { window.__txReportError?.(e, { severity: 'error', category: 'claim.signup.noUser', extra: { email: resume.email } }) } catch (_) {}
+        throw e
+      }
+
+      const { data: { session } } = await sb.auth.getSession()
+      const token = session?.access_token || authData.session?.access_token
+      if (!token) {
+        const e = new Error('No se pudo obtener sesion')
+        try { window.__txReportError?.(e, { severity: 'error', category: 'claim.session.missing' }) } catch (_) {}
+        throw e
+      }
+
+      try {
+        localStorage.setItem('pending_business_type', resume.businessType || 'carwash')
+        localStorage.setItem('pending_plan_tier', resume.plan || 'pro')
+        if (resume.businessType === 'hybrid' && Array.isArray(resume.hybridComps)) {
+          localStorage.setItem('pending_hybrid_components', resume.hybridComps.join(','))
+        }
+      } catch (_) { /* non-fatal */ }
+
+      const resp = await fetch('/api/signup/provision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          business_name: (resume.business_name || '').trim() || 'Mi Negocio',
+          rnc: (resume.rnc || '').trim(),
+          phone: (resume.phone || '').trim(),
+          plan: resume.plan || 'pro',
+          business_type: resume.businessType || 'carwash',
+          hybrid_components: resume.businessType === 'hybrid' && Array.isArray(resume.hybridComps) ? resume.hybridComps.join(',') : null,
+          plan_tier: resume.plan || 'pro',
+        }),
+      })
+      const result = await resp.json().catch(() => ({}))
+      if (!resp.ok) {
+        const e = new Error(result.error || 'Error al crear negocio')
+        try { window.__txReportError?.(e, { severity: 'error', category: 'claim.provision', extra: { status: resp.status, body: result } }) } catch (_) {}
+        throw e
+      }
+
+      try { sessionStorage.removeItem('tx_signup_resume') } catch (_) { /* ignore */ }
+      try { sessionStorage.setItem('tx_claim_done', '1') } catch (_) { /* ignore */ }
+      window.location.replace('/pos')
+    } catch (err) {
+      try { window.__txReportError?.(err, { severity: 'error', category: 'claim.submit' }) } catch (_) {}
+      setError(err?.message || 'Error al crear tu cuenta')
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-tx-fade-in">
+      <form onSubmit={submit} className="bg-black rounded-2xl shadow-[0_24px_80px_-20px_rgba(179,0,30,0.55)] ring-1 ring-white/10 w-full max-w-md overflow-hidden animate-tx-pop-in">
+        <div className="relative bg-gradient-to-br from-[#b3001e] via-[#9a0019] to-[#7a0014] text-white px-6 pt-5 pb-5 overflow-hidden">
+          <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-white/[0.07] blur-2xl pointer-events-none" />
+          <div className="absolute -bottom-8 -left-6 w-28 h-28 rounded-full bg-white/[0.04] blur-xl pointer-events-none" />
+          <div className="relative flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-white/85 text-[10px] font-bold uppercase tracking-[3px]">
+                <Sparkles size={11} /> Te gusta lo que ves?
+              </div>
+              <h3 className="text-[22px] font-black leading-tight tracking-tight mt-1">Entra al POS real ahora</h3>
+              <p className="text-[11px] text-white/75 mt-1 leading-snug">
+                Asi como esta el demo, con tus datos · Plan Pro MAX por 7 dias gratis · sin tarjeta
+              </p>
+            </div>
+            <button type="button" onClick={onClose} aria-label="Cerrar"
+              className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/15 transition shrink-0">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {resume?.email ? (
+            <div className="rounded-xl bg-white/[0.04] ring-1 ring-white/10 px-4 py-3">
+              <p className="text-[9px] font-bold uppercase tracking-[2px] text-white/45">Tu cuenta</p>
+              <p className="text-[14px] font-bold text-white mt-0.5 truncate">{resume.email}</p>
+              {resume.business_name && <p className="text-[11px] text-white/55 truncate mt-0.5">{resume.business_name}</p>}
+            </div>
+          ) : (
+            <div className="rounded-xl bg-amber-500/10 ring-1 ring-amber-500/30 px-4 py-3 text-[11px] text-amber-200">
+              No encontramos tus datos del paso 1. <a href="/signup" className="underline font-bold">Volver al inicio</a>.
+            </div>
+          )}
+
+          <div>
+            <label className="block text-[10px] font-bold text-white uppercase tracking-[2px] mb-1.5">Crea tu contrasena</label>
+            <div className="relative">
+              <Lock size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40" />
+              <input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Minimo 6 caracteres"
+                autoComplete="new-password"
+                autoFocus
+                className="w-full pl-10 pr-3 py-3 rounded-xl bg-white/[0.05] text-white text-[14px] placeholder-white/30 outline-none focus:ring-2 focus:ring-[#b3001e] ring-1 ring-white/10 transition"
+              />
+            </div>
+            <p className="mt-1.5 text-[10px] text-white/40">Tu email + esta contrasena son tus credenciales.</p>
+          </div>
+
+          {error && <div className="bg-red-500/15 text-red-300 text-[12px] px-3 py-2.5 rounded-xl ring-1 ring-red-500/30">{error}</div>}
+
+          <button
+            type="submit"
+            disabled={submitting || !resume?.email}
+            className="w-full py-3.5 rounded-xl bg-[#b3001e] hover:bg-[#8c0017] text-white font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-[0.98] flex items-center justify-center gap-2 text-[14px] shadow-lg shadow-[#b3001e]/30"
+          >
+            {submitting
+              ? <><Loader2 size={16} className="animate-spin" /> Creando cuenta...</>
+              : <>Crear cuenta y entrar al POS <ArrowRight size={14} /></>}
+          </button>
+
+          <p className="text-center text-[10px] text-slate-500">
+            Al crear tu cuenta aceptas los terminos. Sin tarjeta requerida durante el trial.
+          </p>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+// Mount once at the demo shell level — listens for global open events and
+// renders the modal. Also auto-opens after `autoOpenAfterMs` so the prompt
+// surfaces while the user is still inside the demo, like Mike asked.
+export function ClaimAccountHost({ autoOpenAfterMs = 45000 }) {
+  const [open, setOpen] = useState(false)
+  const close = useCallback(() => setOpen(false), [])
+
+  useEffect(() => {
+    function onOpen() { setOpen(true) }
+    window.addEventListener('tx:open-claim-account', onOpen)
+    let t = null
+    try {
+      const dismissed = sessionStorage.getItem('tx_claim_dismissed') === '1'
+      const done      = sessionStorage.getItem('tx_claim_done')      === '1'
+      if (!dismissed && !done && autoOpenAfterMs > 0) {
+        t = setTimeout(() => setOpen(true), autoOpenAfterMs)
+      }
+    } catch (_) { /* ignore */ }
+    return () => {
+      window.removeEventListener('tx:open-claim-account', onOpen)
+      if (t) clearTimeout(t)
+    }
+  }, [autoOpenAfterMs])
+
+  function handleClose() {
+    try { sessionStorage.setItem('tx_claim_dismissed', '1') } catch (_) { /* ignore */ }
+    close()
+  }
+
+  if (!open) return null
+  return <ClaimAccountModal onClose={handleClose} />
+}
+
 export function Row({ label, value, muted }) {
   return (
     <div className="flex items-center justify-between text-[11px]">
@@ -70,7 +281,7 @@ export function DemoBanner({ navigate, resumeName, verticalLabel }) {
           <Sparkles size={11} /> Modo Demo {verticalLabel ? `· ${verticalLabel}` : ''} {resumeName ? `· ${resumeName}` : ''}
         </span>
       </div>
-      <button onClick={() => navigate('/signup?step=3')}
+      <button onClick={openClaimAccount}
         className="bg-white text-[#b3001e] hover:bg-white/95 px-3 py-1 rounded-md text-[11px] font-bold inline-flex items-center gap-1.5 shrink-0">
         Crear cuenta gratis 7 dias <ArrowRight size={11} />
       </button>
@@ -127,7 +338,7 @@ export function Sidebar({ navItems, view, setView, collapsed, setCollapsed, navi
           {!collapsed && <button title="Idioma" className="px-2 py-1 rounded text-[10px] font-bold text-white/70">ES</button>}
           <button title="Tema" className="p-2 rounded-lg text-white/40 hover:text-amber-400 hover:bg-white/5"><Moon size={15} /></button>
           <button title="Sincronizar" className="p-2 rounded-lg text-white/40 hover:text-white hover:bg-white/5"><RefreshCw size={15} /></button>
-          <button onClick={() => navigate('/signup?step=3')} title="Salir del demo" className="p-2 rounded-lg text-white/40 hover:text-[#b3001e] hover:bg-white/5"><LogOut size={15} /></button>
+          <button onClick={openClaimAccount} title="Crear cuenta" className="p-2 rounded-lg text-white/40 hover:text-[#b3001e] hover:bg-white/5"><LogOut size={15} /></button>
         </div>
         <a href="https://wa.me/18098282971" target="_blank" rel="noopener noreferrer"
           className={`flex items-center rounded-xl text-[#25D366] hover:bg-[#25D366]/10 transition-colors ${collapsed ? 'w-8 h-8 justify-center mx-auto' : 'w-full gap-2 px-3 py-2'}`}>
@@ -403,11 +614,11 @@ function SuccessView({ total, rnc, ecfType, emitirEcf, onClose }) {
         </div>
       )}
       <div className="mt-6 flex items-center justify-center gap-2">
-        <button onClick={onClose} className="bg-[#b3001e] hover:bg-[#8c0017] text-white font-bold px-5 py-2.5 rounded-xl text-[13px] inline-flex items-center gap-2">
-          Nuevo ticket <ArrowRight size={13} />
+        <button onClick={() => { onClose(); openClaimAccount() }} className="bg-[#b3001e] hover:bg-[#8c0017] text-white font-bold px-5 py-2.5 rounded-xl text-[13px] inline-flex items-center gap-2">
+          Crear mi cuenta real <ArrowRight size={13} />
         </button>
-        <button className="border border-slate-200 hover:border-slate-300 text-slate-700 font-bold px-5 py-2.5 rounded-xl text-[13px]">
-          Reimprimir
+        <button onClick={onClose} className="border border-slate-200 hover:border-slate-300 text-slate-700 font-bold px-5 py-2.5 rounded-xl text-[13px]">
+          Nuevo ticket
         </button>
       </div>
     </div>
@@ -423,7 +634,7 @@ export function SoonView({ title, desc, navigate }) {
         </div>
         <h2 className="text-[20px] font-black text-slate-900">{title}</h2>
         <p className="text-[13px] text-slate-600 mt-3 leading-relaxed">{desc}</p>
-        <button onClick={() => navigate('/signup?step=3')} className="mt-6 inline-flex items-center gap-2 bg-[#b3001e] hover:bg-[#8c0017] text-white font-bold px-5 py-2.5 rounded-xl text-[13px]">
+        <button onClick={openClaimAccount} className="mt-6 inline-flex items-center gap-2 bg-[#b3001e] hover:bg-[#8c0017] text-white font-bold px-5 py-2.5 rounded-xl text-[13px]">
           Crear cuenta gratis 7 dias <ArrowRight size={13} />
         </button>
       </div>

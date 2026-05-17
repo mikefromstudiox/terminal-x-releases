@@ -35,21 +35,21 @@ import { trackRoiCalcUsed, trackCtaClick } from '../lib/analytics'
 const HOURLY_COST_RD = 200
 
 const TIER_PRICES = {
-  facturacion: 995,
-  facturacion_plus: 1990,
-  facturacion_unlimited: 2990,
+  facturacion: 490,
+  facturacion_plus: 990,
+  facturacion_unlimited: 1990,
   pro: 2490,
   pro_plus: 4490,
   pro_max: 6990,
 }
 
 const TIER_LABELS = {
-  facturacion: 'Facturación',
-  facturacion_plus: 'Facturación Plus',
-  facturacion_unlimited: 'Facturación Ilimitado',
-  pro: 'Pro',
-  pro_plus: 'Pro PLUS',
-  pro_max: 'Pro MAX',
+  facturacion: 'Facturación Pro',
+  facturacion_plus: 'Facturación Pro PLUS',
+  facturacion_unlimited: 'Facturación Pro MAX',
+  pro: 'POS Pro',
+  pro_plus: 'POS Pro PLUS',
+  pro_max: 'POS Pro MAX',
 }
 
 const COPY = {

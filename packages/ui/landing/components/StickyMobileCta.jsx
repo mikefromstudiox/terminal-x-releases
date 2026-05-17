@@ -39,7 +39,7 @@ export default function StickyMobileCta({ lang = 'es' }) {
 
   if (dismissed) return null
 
-  const copy = lang === 'es' ? 'Desde RD$995/mes · 7 días gratis' : 'From RD$995/mo · 7 days free'
+  const copy = lang === 'es' ? 'Desde RD$490/mes · 7 días gratis' : 'From RD$490/mo · 7 days free'
 
   return (
     <div

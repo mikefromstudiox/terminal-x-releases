@@ -3,8 +3,8 @@
     "primary": {
       "headline_es": "Cuando el Facturador Gratuito de DGII no alcanza",
       "headline_en": "When DGII's Free Invoicer Falls Short",
-      "subhead_es": "Misma compliance Ley 32-23. API, móvil, WhatsApp y modo offline. Desde RD$995/mes.",
-      "subhead_en": "Same Ley 32-23 compliance. API, mobile, WhatsApp and offline mode. From RD$995/mo.",
+      "subhead_es": "Misma compliance Ley 32-23. API, móvil, WhatsApp y modo offline. Desde RD$490/mes.",
+      "subhead_en": "Same Ley 32-23 compliance. API, mobile, WhatsApp and offline mode. From RD$490/mo.",
       "cta_primary_es": "Empezar gratis 7 días",
       "cta_primary_en": "Start 7-day free trial",
       "cta_secondary_es": "Ver comparación con Gratuito",
@@ -159,8 +159,8 @@
     "facturacion": {
       "tab_label_es": "Facturación",
       "tab_label_en": "Invoicing",
-      "tier_es": "Plan Facturación · desde RD$995/mes",
-      "tier_en": "Facturación plan · from RD$995/mo",
+      "tier_es": "Plan Facturación Pro · desde RD$490/mes + endpoint",
+      "tier_en": "Facturación Pro plan · from RD$490/mo + endpoint",
       "headline_es": "Para quien solo necesita emitir e-CF",
       "headline_en": "For those who only need to issue e-CFs",
       "bullets_es": [
@@ -565,31 +565,31 @@
   "seo": {
     "title_es": "Terminal X · POS y Facturación Electrónica certificada DGII en RD",
     "title_en": "Terminal X · POS and Electronic Invoicing certified by DGII",
-    "meta_description_es": "POS y e-CF certificado por DGII (Cert #42483). Sin PSFE, sin costo por comprobante. Carwash, tiendas, restaurantes. Desde RD$995/mes. 7 días gratis.",
-    "meta_description_en": "POS and e-CF certified by DGII (Cert #42483). No PSFE, no per-invoice fee. Carwash, retail, restaurants. From RD$995/mo. 7 days free.",
+    "meta_description_es": "POS y e-CF certificado por DGII (Cert #42483). Sin PSFE, sin costo por comprobante. Carwash, tiendas, restaurantes. Desde RD$490/mes. 7 días gratis.",
+    "meta_description_en": "POS and e-CF certified by DGII (Cert #42483). No PSFE, no per-invoice fee. Carwash, retail, restaurants. From RD$490/mo. 7 days free.",
     "og_title_es": "Cuando el Facturador Gratuito de DGII no alcanza · Terminal X",
     "og_title_en": "When DGII's Free Invoicer falls short · Terminal X",
-    "og_description_es": "Misma compliance Ley 32-23. API, móvil, WhatsApp y modo offline. Desde RD$995/mes. Certificado DGII #42483.",
-    "og_description_en": "Same Ley 32-23 compliance. API, mobile, WhatsApp and offline mode. From RD$995/mo. DGII Cert #42483.",
+    "og_description_es": "Misma compliance Ley 32-23. API, móvil, WhatsApp y modo offline. Desde RD$490/mes. Certificado DGII #42483.",
+    "og_description_en": "Same Ley 32-23 compliance. API, mobile, WhatsApp and offline mode. From RD$490/mo. DGII Cert #42483.",
     "keywords_es": [
       "facturación electrónica República Dominicana",
       "e-CF DGII Ley 32-23",
       "POS certificado Emisor Electrónico",
       "alternativa Facturador Gratuito DGII",
-      "factura electrónica RD$995"
+      "factura electrónica RD$490"
     ],
     "keywords_en": [
       "electronic invoicing Dominican Republic",
       "e-CF DGII Ley 32-23",
       "certified Electronic Issuer POS",
       "DGII Free Invoicer alternative",
-      "electronic invoice RD$995"
+      "electronic invoice RD$490"
     ]
   },
   "sticky_mobile_cta": {
     "primary": {
-      "label_es": "Desde RD$995/mes · 7 días gratis",
-      "label_en": "From RD$995/mo · 7 days free",
+      "label_es": "Desde RD$490/mes · 7 días gratis",
+      "label_en": "From RD$490/mo · 7 days free",
       "cta_es": "Empezar →",
       "cta_en": "Start →"
     },

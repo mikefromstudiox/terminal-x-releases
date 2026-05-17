@@ -137,41 +137,41 @@ const PLANS = {
 const FACTURACION_PLANS = {
   es: [
     {
-      name: 'Facturacion', key: 'facturacion', price: 'RD$995', annual: 'RD$846/mes facturado anual (15% OFF)',
-      sub: '/mes', desc: '50 facturas/mes', overage: 'RD$15 por factura adicional',
-      features: ['50 facturas e-CF al mes', 'Directo a DGII', 'PDF con QR verificable', 'Envio por WhatsApp', 'Base de clientes', '100% web'],
+      name: 'Pro', key: 'facturacion_pro', price: 'RD$490',
+      sub: '/mes', desc: 'Hasta 50 e-CFs al mes', endpoint: '+ Endpoint DGII Basico RD$300/mes',
+      features: ['Hasta 50 facturas e-CF al mes', 'Directo a DGII (sin PSFE)', 'PDF con QR verificable', 'Envio por WhatsApp', 'Base de clientes', '1 usuario', '100% web (movil + tablet)'],
       cta: 'Probar 7 dias gratis', highlight: false,
     },
     {
-      name: 'Facturacion Plus', key: 'facturacion_plus', price: 'RD$1,990', annual: 'RD$1,692/mes facturado anual (15% OFF)',
-      sub: '/mes', badge: 'Mas popular', desc: '200 facturas/mes', overage: 'RD$10 por factura adicional',
-      features: ['200 facturas e-CF al mes', 'Directo a DGII', 'PDF con QR verificable', 'Envio por WhatsApp', 'Base de clientes', 'Reportes avanzados', '100% web'],
+      name: 'Pro PLUS', key: 'facturacion_plus', price: 'RD$990',
+      sub: '/mes', badge: 'Mas popular', desc: 'Hasta 250 e-CFs al mes', endpoint: '+ Endpoint DGII Pro RD$600/mes',
+      features: ['Hasta 250 facturas e-CF al mes', 'Directo a DGII (sin PSFE)', 'Multi-usuario (hasta 3)', 'Multi-moneda DOP + USD', 'Plantillas personalizadas con tu logo', 'Base de clientes', 'Reportes 606/607 automaticos', '100% web (movil + tablet)'],
       cta: 'Probar 7 dias gratis', highlight: true,
     },
     {
-      name: 'Facturacion Ilimitado', key: 'facturacion_unlimited', price: 'RD$2,990', annual: 'RD$2,542/mes facturado anual (15% OFF)',
-      sub: '/mes', desc: 'Facturas ilimitadas',
-      features: ['Facturas e-CF ILIMITADAS', 'Directo a DGII', 'PDF con QR verificable', 'Envio por WhatsApp', 'Base de clientes', 'Reportes avanzados', 'Viafirma incluido', '100% web', 'Soporte prioritario'],
+      name: 'Pro MAX', key: 'facturacion_max', price: 'RD$1,990',
+      sub: '/mes', desc: 'e-CFs ilimitados', endpoint: '+ Endpoint DGII Ilimitado RD$1,200/mes',
+      features: ['Facturas e-CF ILIMITADAS', 'Directo a DGII (sin PSFE)', 'Multi-usuario ilimitado', 'Multi-sucursal y multi-RNC', 'API para integrar con tu sistema', 'Multi-moneda DOP + USD', 'Plantillas personalizadas con tu logo', 'Reportes 606/607 automaticos', 'Soporte prioritario WhatsApp'],
       cta: 'Probar 7 dias gratis', highlight: false,
     },
   ],
   en: [
     {
-      name: 'Invoicing', key: 'facturacion', price: 'RD$995', annual: 'RD$846/mo billed annually (15% OFF)',
-      sub: '/mo', desc: '50 invoices/mo', overage: 'RD$15 per extra invoice',
-      features: ['50 e-CF invoices/month', 'Direct to DGII', 'PDF with QR', 'Send via WhatsApp', 'Client database', '100% web'],
+      name: 'Pro', key: 'facturacion_pro', price: 'RD$490',
+      sub: '/mo', desc: 'Up to 50 e-CFs/mo', endpoint: '+ DGII Endpoint Basic RD$300/mo',
+      features: ['Up to 50 e-CF invoices/month', 'Direct to DGII (no PSFE)', 'PDF with verifiable QR', 'Send via WhatsApp', 'Client database', '1 user', '100% web (mobile + tablet)'],
       cta: 'Try 7 days free', highlight: false,
     },
     {
-      name: 'Invoicing Plus', key: 'facturacion_plus', price: 'RD$1,990', annual: 'RD$1,692/mo billed annually (15% OFF)',
-      sub: '/mo', badge: 'Most popular', desc: '200 invoices/mo', overage: 'RD$10 per extra invoice',
-      features: ['200 e-CF invoices/month', 'Direct to DGII', 'PDF with QR', 'Send via WhatsApp', 'Client database', 'Advanced reports', '100% web'],
+      name: 'Pro PLUS', key: 'facturacion_plus', price: 'RD$990',
+      sub: '/mo', badge: 'Most popular', desc: 'Up to 250 e-CFs/mo', endpoint: '+ DGII Endpoint Pro RD$600/mo',
+      features: ['Up to 250 e-CF invoices/month', 'Direct to DGII (no PSFE)', 'Multi-user (up to 3)', 'Multi-currency DOP + USD', 'Custom templates with your logo', 'Client database', 'Auto 606/607 reports', '100% web (mobile + tablet)'],
       cta: 'Try 7 days free', highlight: true,
     },
     {
-      name: 'Invoicing Unlimited', key: 'facturacion_unlimited', price: 'RD$2,990', annual: 'RD$2,542/mo billed annually (15% OFF)',
-      sub: '/mo', desc: 'Unlimited invoices',
-      features: ['UNLIMITED e-CF invoices', 'Direct to DGII', 'PDF with QR', 'Send via WhatsApp', 'Client database', 'Advanced reports', 'Viafirma included', '100% web', 'Priority support'],
+      name: 'Pro MAX', key: 'facturacion_max', price: 'RD$1,990',
+      sub: '/mo', desc: 'Unlimited e-CFs', endpoint: '+ DGII Endpoint Unlimited RD$1,200/mo',
+      features: ['UNLIMITED e-CF invoices', 'Direct to DGII (no PSFE)', 'Unlimited users', 'Multi-location and multi-RNC', 'API for system integration', 'Multi-currency DOP + USD', 'Custom templates with your logo', 'Auto 606/607 reports', 'Priority WhatsApp support'],
       cta: 'Try 7 days free', highlight: false,
     },
   ],
@@ -180,36 +180,36 @@ const FACTURACION_PLANS = {
 const CERT_PACKAGES = {
   es: [
     {
-      name: 'Asesoria', price: 'RD$15,000', featured: false,
-      features: ['Guia paso a paso', 'Revision de documentos', 'Soporte por WhatsApp', '30 dias de acompanamiento'],
-      wa: 'Hola%2C%20quiero%20el%20servicio%20de%20Asesor%C3%ADa%20de%20certificaci%C3%B3n%20e-CF',
+      name: 'Asesoria DIY', price: 'RD$5,000', featured: false,
+      features: ['Guia paso a paso de los 15 pasos DGII', 'Scripts pre-construidos de generacion y envio', 'Soporte por WhatsApp durante el proceso', 'Documentacion de errores y soluciones'],
+      wa: 'Hola%2C%20quiero%20el%20servicio%20de%20Asesor%C3%ADa%20DIY%20de%20certificaci%C3%B3n%20e-CF',
     },
     {
-      name: 'Certificacion Completa', price: 'RD$45,000', featured: false,
-      features: ['Todo lo de Asesoria', 'Compra del certificado Viafirma', 'Configuracion completa', '15 pruebas obligatorias DGII', 'Paso a produccion', '90 dias de garantia'],
+      name: 'Certificacion Completa', price: 'RD$15,000', featured: false,
+      features: ['Todo lo de Asesoria DIY', 'Ejecutamos los 15 pasos por ti', 'Endpoints de recepcion hospedados', '21 e-CFs + 4 RFCEs generados y enviados', 'Pruebas DGII monitoreadas y depuradas', 'Asistencia para cambio a produccion', '90 dias de garantia'],
       wa: 'Hola%2C%20quiero%20el%20servicio%20de%20Certificaci%C3%B3n%20Completa%20e-CF',
     },
     {
-      name: 'Completa + Terminal X', price: 'RD$55,000', featured: true,
-      features: ['Todo lo anterior', 'Licencia Pro MAX (3 meses gratis)', 'Instalacion y entrenamiento', 'Soporte prioritario'],
-      wa: 'Hola%2C%20quiero%20Certificaci%C3%B3n%20Completa%20%2B%20Terminal%20X',
+      name: 'Certificacion + Facturacion de por Vida', price: 'RD$18,000', featured: true,
+      features: ['Todo lo de Certificacion Completa', 'Terminal X Facturacion Pro GRATIS de por vida (sin mensualidad)', 'Envio automatico de e-CF (E31, E32, E33, E34, E43, E47)', 'QR en cada factura + reportes 606/607 automaticos', 'Endpoint DGII a precio de costo (desde RD$300/mes)', 'Soporte prioritario WhatsApp 30 dias', 'Sesion de entrenamiento al personal'],
+      wa: 'Hola%2C%20quiero%20Certificaci%C3%B3n%20%2B%20Facturaci%C3%B3n%20de%20por%20Vida',
     },
   ],
   en: [
     {
-      name: 'Advisory', price: 'RD$15,000', featured: false,
-      features: ['Step-by-step guide', 'Document review', 'WhatsApp support', '30 days of guidance'],
-      wa: 'Hello%2C%20I%20want%20the%20e-CF%20certification%20Advisory%20service',
+      name: 'DIY Advisory', price: 'RD$5,000', featured: false,
+      features: ['Step-by-step guide for the 15 DGII steps', 'Pre-built generation and submission scripts', 'WhatsApp support during the process', 'Error and resolution documentation'],
+      wa: 'Hello%2C%20I%20want%20the%20DIY%20Advisory%20e-CF%20certification%20service',
     },
     {
-      name: 'Full Certification', price: 'RD$45,000', featured: false,
-      features: ['Everything in Advisory', 'Viafirma certificate purchase', 'Full configuration', '15 mandatory DGII tests', 'Go to production', '90-day warranty'],
+      name: 'Full Certification', price: 'RD$15,000', featured: false,
+      features: ['Everything in DIY Advisory', 'We run all 15 steps for you', 'Receiver endpoints hosted', '21 e-CFs + 4 RFCEs generated and submitted', 'DGII tests monitored and debugged', 'Production switch-over assistance', '90-day warranty'],
       wa: 'Hello%2C%20I%20want%20the%20Full%20e-CF%20Certification%20service',
     },
     {
-      name: 'Full + Terminal X', price: 'RD$55,000', featured: true,
-      features: ['Everything above', 'Pro MAX license (3 months free)', 'Installation and training', 'Priority support'],
-      wa: 'Hello%2C%20I%20want%20Full%20Certification%20%2B%20Terminal%20X',
+      name: 'Certification + Lifetime Invoicing', price: 'RD$18,000', featured: true,
+      features: ['Everything in Full Certification', 'Terminal X Facturacion Pro FREE for life (no monthly fee)', 'Automatic e-CF submission (E31, E32, E33, E34, E43, E47)', 'QR on every invoice + auto 606/607 reports', 'DGII endpoint at cost (from RD$300/mo)', '30-day priority WhatsApp support', 'Staff training session'],
+      wa: 'Hello%2C%20I%20want%20Certification%20%2B%20Lifetime%20Invoicing',
     },
   ],
 }
@@ -286,8 +286,8 @@ const COMPARISON = {
 
 const FAQ = {
   es: [
-    // ── Facturación tier (RD$995/mes) — Q&A ───────────────────────────────
-    { q: 'Que incluye el plan Facturacion de RD$995/mes?', a: 'Es el plan de solo facturacion electronica para negocios que ya usan otro POS o no necesitan cobrar en mostrador. Incluye: emision directa de e-CF E31 y E32 a DGII, notas de credito E33/E34, exportacion de los formatos 606 y 607 cada mes para tu contador, y base de clientes con busqueda por nombre/RNC/telefono. Sin intermediarios PSFE. El certificado Viafirma se incluye solo en el plan Facturacion Ilimitado.' },
+    // ── Facturación tier (desde RD$490/mes) — Q&A ─────────────────────────
+    { q: 'Que incluye el plan Facturacion desde RD$490/mes?', a: 'Es la linea de solo facturacion electronica para negocios que ya usan otro POS o no necesitan cobrar en mostrador. Tres planes: Pro RD$490/mes (50 e-CFs/mes), Pro PLUS RD$990/mes (250 e-CFs/mes, multi-usuario, multi-moneda) y Pro MAX RD$1,990/mes (e-CFs ilimitados, multi-sucursal, API). Todos incluyen: emision directa de e-CF E31/E32/E33/E34 a DGII sin intermediarios PSFE, exportacion 606/607 para tu contador, RNC lookup local y envio por WhatsApp. El certificado Viafirma se incluye en Pro PLUS y Pro MAX.' },
     { q: 'Que pasa si emito una factura sin internet?', a: 'Terminal X la guarda en una cola local cifrada y la firma con IndicadorEnvioDiferido=1 cuando vuelva la conexion — exactamente como permite la DGII bajo la regla de 72 horas diferidas. La factura nunca se pierde y el comprobante sigue siendo valido.' },
     { q: 'Puedo emitir notas de credito (E33/E34) con el plan Facturacion?', a: 'Si. El plan Facturacion incluye emision de notas de credito E33 y E34 referenciando el e-NCF original. Las facturas anuladas se envian automaticamente a la cola de ANECF para que DGII las reciba como anuladas.' },
     { q: 'Puedo exportar 606 y 607 con el plan Facturacion?', a: 'Si — y es la razon principal por la que un plan de solo facturacion sirve en Republica Dominicana. Cada mes generas el TXT formato 606 (Compras) y 607 (Ventas) listo para subir al portal DGII. Tu contador no necesita armar nada a mano.' },
@@ -307,8 +307,8 @@ const FAQ = {
     { q: 'Que pasa si mi proveedor de facturacion electronica (PSFE) se cae?', a: 'Nada — porque no usamos uno. Terminal X es Emisor Electronico directo ante DGII. No dependemos de ef2.do, Indexa, ni ningun otro PSFE. Tu sistema firma y transmite los e-CF directamente al portal de DGII. Si un PSFE se cae, tus competidores dejan de facturar. Tu no.' },
   ],
   en: [
-    // ── Facturación tier (RD$995/mo) — Q&A ────────────────────────────────
-    { q: 'What does the RD$995/mo Facturación plan include?', a: 'It is the invoicing-only tier for businesses that already use another POS or do not need a counter checkout. Included: direct E31 and E32 e-CF issuance with DGII, E33/E34 credit notes, monthly 606 and 607 TXT export for your accountant, and a client database with name/RNC/phone search. Zero PSFE middlemen. The Viafirma certificate is bundled only in the Facturación Unlimited plan.' },
+    // ── Facturación tier (from RD$490/mo) — Q&A ───────────────────────────
+    { q: 'What does the Facturación plan from RD$490/mo include?', a: 'It is the invoicing-only tier for businesses that already use another POS or do not need a counter checkout. Three plans: Pro RD$490/mo (50 e-CFs/mo), Pro PLUS RD$990/mo (250 e-CFs/mo, multi-user, multi-currency) and Pro MAX RD$1,990/mo (unlimited e-CFs, multi-location, API). All include direct E31/E32/E33/E34 e-CF issuance with DGII (zero PSFE middlemen), 606/607 export for your accountant, local RNC lookup and WhatsApp delivery. The Viafirma certificate is bundled in Pro PLUS and Pro MAX.' },
     { q: 'What happens if I issue an invoice without internet?', a: 'Terminal X stores it in an encrypted local queue and signs it with IndicadorEnvioDiferido=1 once the connection returns — exactly the way DGII allows under the 72-hour deferred-emission rule. The invoice is never lost and the receipt stays valid.' },
     { q: 'Can I issue credit notes (E33/E34) on the Facturación plan?', a: 'Yes. The Facturación plan includes E33 and E34 credit notes that reference the original e-NCF. Voided invoices are auto-routed to the ANECF queue so DGII receives them as cancelled.' },
     { q: 'Can I export 606 and 607 reports on the Facturación plan?', a: 'Yes — and this is the main reason an invoicing-only plan even works in the Dominican Republic. Every month you generate the 606 (Purchases) and 607 (Sales) TXT files ready to upload to the DGII portal. Your accountant does not have to assemble anything by hand.' },
@@ -855,7 +855,8 @@ export default function LandingPage({ section, forceLang }) {
                   <h3 className="text-lg font-bold text-black">{fp.name}</h3>
                   <p className="text-xs text-black/50 mt-1 font-medium">{fp.desc}</p>
                   <p className="text-3xl font-extrabold text-black mt-3">{fp.price}<span className="text-sm font-normal text-black/50">{fp.sub}</span></p>
-                  <p className="text-[11px] text-black/40 mt-1">{fp.annual}</p>
+                  {fp.annual && <p className="text-[11px] text-black/40 mt-1">{fp.annual}</p>}
+                  {fp.endpoint && <p className="text-[11px] text-black/60 font-medium mt-1">{fp.endpoint}</p>}
                   {fp.overage && <p className="text-[11px] text-[#b3001e] font-medium mt-1">{fp.overage}</p>}
                 </div>
                 <ul className="space-y-2.5 mb-6">
