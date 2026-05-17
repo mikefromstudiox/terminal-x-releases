@@ -1969,8 +1969,10 @@ async function handleClients(req, res) {
   if (req.method === 'POST') {
     const auth = await requireAdmin(req, 'admin')
     if (auth.error) return res.status(auth.status).json({ error: auth.error })
-    const { business_name, rnc, phone, email, password, plan, platform } = req.body || {}
+    const { business_name, rnc, phone, email, password, pin, plan, platform } = req.body || {}
     if (!business_name || !email || !password) return res.status(400).json({ error: 'business_name, email, password required' })
+    const ownerPin = (pin || '').trim()
+    if (ownerPin && (!/^\d{4,6}$/.test(ownerPin))) return res.status(400).json({ error: 'pin must be 4-6 digits' })
     try {
       const { data: authData, error: authErr } = await auth.supabase.auth.admin.createUser({
         email, password, email_confirm: true,
@@ -1988,10 +1990,17 @@ async function handleClients(req, res) {
       }).select('id').single()
       if (bizErr) throw bizErr
       await auth.supabase.auth.admin.updateUserById(userId, { app_metadata: { business_id: biz.id } })
-      await auth.supabase.from('staff').insert({
+      const staffRow = {
         business_id: biz.id, auth_user_id: userId, name: business_name.trim(),
         username: 'owner', role: 'owner', active: true,
-      })
+      }
+      if (ownerPin) {
+        const pinSalt = crypto.randomBytes(24).toString('base64')
+        staffRow.pin_hash = bcryptjs.hashSync(String(ownerPin) + pinSalt, 10)
+        staffRow.pin_salt = pinSalt
+        staffRow.pin_hash_algo = 'bcrypt'
+      }
+      await auth.supabase.from('staff').insert(staffRow)
       const licenseKey = (plat === 'desktop' || plat === 'both') ? generateKey() : null
       await auth.supabase.from('licenses').insert({
         business_id: biz.id, plan_id: planRow?.id || null, license_key: licenseKey, status: 'active',
