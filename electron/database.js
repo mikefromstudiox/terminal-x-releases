@@ -6787,7 +6787,10 @@ function ticketCloseWithPayment({ ticket_id, ticket_supabase_id, payload } = {})
     for (const it of items) {
       const cost = it.service_id ? (svcCostById.get(it.service_id) || 0) : 0
       const aplica = it.service_id ? (svcAplicaById.get(it.service_id) ?? 1) : 1
-      const itbis = aplica !== 0 ? parseFloat((Number(it.price) * itbisFactor).toFixed(2)) : 0
+      // DR retail convention: `it.price` is GROSS (price tag includes ITBIS).
+      // Extract embedded ITBIS: gross - gross/(1+factor). Was `price * factor`,
+      // which over-counted by ~18% on every line item.
+      const itbis = aplica !== 0 ? parseFloat((Number(it.price) - Number(it.price) / (1 + itbisFactor)).toFixed(2)) : 0
       updItem.run(cost, itbis, it.id)
     }
 
