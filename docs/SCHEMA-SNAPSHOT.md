@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-17T20:13:34.794Z
+- **Snapshot taken:** 2026-05-17T20:18:23.207Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -4182,8 +4182,8 @@ Total tables: **153** (RLS enabled: **153**)
 
 - `ix_je_biz_account_date` (btree)
   `CREATE INDEX ix_je_biz_account_date ON public.journal_entries USING btree (business_id, account, effective_date DESC)`
-- `ix_je_biz_eff_date_brin` (brin)
-  `CREATE INDEX ix_je_biz_eff_date_brin ON public.journal_entries USING brin (business_id, effective_date)`
+- `ix_je_biz_eff_date` (btree)
+  `CREATE INDEX ix_je_biz_eff_date ON public.journal_entries USING btree (business_id, effective_date DESC)`
 - `ix_je_biz_source` (btree)
   `CREATE INDEX ix_je_biz_source ON public.journal_entries USING btree (business_id, source_table, source_id)`
 - `ix_je_reversal_of_id` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
