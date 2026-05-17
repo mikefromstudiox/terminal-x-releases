@@ -86,7 +86,7 @@ const VERTICALS = [
     plates: true, queueRows: 3,
   },
   {
-    type: 'tienda',
+    type: 'retail',
     bizName: 'Demo Tienda',
     email: 'admin@retail.demo.terminalxpos.com',
     employees: [
@@ -106,7 +106,7 @@ const VERTICALS = [
     plates: false, queueRows: 0, retail: true,
   },
   {
-    type: 'restaurante',
+    type: 'restaurant',
     bizName: 'Demo Restaurante',
     email: 'admin@restaurant.demo.terminalxpos.com',
     employees: [
@@ -146,7 +146,7 @@ const VERTICALS = [
     plates: false, queueRows: 0,
   },
   {
-    type: 'hibrido',
+    type: 'hybrid',
     bizName: 'Demo Lavadero + Tienda',
     email: 'admin@hybrid.demo.terminalxpos.com',
     employees: [
@@ -168,7 +168,7 @@ const VERTICALS = [
     plates: true, queueRows: 2, retail: true,
   },
   {
-    type: 'mecanica',
+    type: 'mechanic',
     bizName: 'Demo Taller Mecanico',
     email: 'admin@mechanic.demo.terminalxpos.com',
     employees: [
@@ -188,7 +188,7 @@ const VERTICALS = [
     plates: true, queueRows: 3,
   },
   {
-    type: 'servicios',
+    type: 'service',
     bizName: 'Demo Servicios Profesionales',
     email: 'admin@service.demo.terminalxpos.com',
     employees: [
@@ -206,7 +206,7 @@ const VERTICALS = [
     plates: false, queueRows: 0,
   },
   {
-    type: 'prestamos',
+    type: 'loans',
     bizName: 'Demo Prestamos',
     email: 'admin@prestamos.demo.terminalxpos.com',
     employees: [
@@ -224,7 +224,7 @@ const VERTICALS = [
     plates: false, queueRows: 0,
   },
   {
-    type: 'concesionario',
+    type: 'dealership',
     bizName: 'Demo Concesionario',
     email: 'admin@dealership.demo.terminalxpos.com',
     employees: [
@@ -262,7 +262,12 @@ async function seedVertical(v, planId) {
     .select('id, settings')
     .eq('name', v.bizName)
     .limit(20)
-  const dupe = (existingBiz || []).find(b => (b.settings?.business_type || b.settings?.biz_business_type) === v.type)
+  // Normalize legacy Spanish keys when comparing against v.type so a seeder
+  // re-run after the 2026-05-17 type-key cleanup doesn't double-insert demos
+  // that still carry old values like 'tienda'/'mecanica'/'concesionario'.
+  const LEGACY = { tienda:'retail', mecanica:'mechanic', mecanico:'mechanic', servicios:'service', concesionario:'dealership', barberia:'salon', hibrido:'hybrid', restaurante:'restaurant', prestamo:'loans', prestamos:'loans', contabilidad:'accounting', carniceria:'meat_market' }
+  const norm = t => LEGACY[String(t || '').toLowerCase().trim()] || String(t || '').toLowerCase().trim()
+  const dupe = (existingBiz || []).find(b => norm(b.settings?.business_type || b.settings?.biz_business_type) === norm(v.type))
   if (dupe) {
     result.ok = true
     result.businessId = dupe.id
@@ -615,6 +620,27 @@ async function seedVertical(v, planId) {
     }
   }
 
+  // 14. Vertical-specific extras — wire surfaces the Sidebar promises but
+  //     that would otherwise render blank on a fresh demo.
+  if (v.type === 'mechanic') {
+    const { data: existingBays } = await sb.from('service_bays')
+      .select('id').eq('business_id', businessId).limit(1)
+    if (!existingBays?.length) {
+      const bays = [
+        { name: 'Bahía 1 — General', bay_type: 'general',     status: 'occupied', capacity: 1 },
+        { name: 'Bahía 2 — Frenos',  bay_type: 'brakes',      status: 'libre',    capacity: 1 },
+        { name: 'Bahía 3 — Alineación', bay_type: 'alignment', status: 'libre',    capacity: 1 },
+        { name: 'Bahía 4 — Diagnóstico', bay_type: 'diagnostic', status: 'libre',  capacity: 1 },
+      ]
+      const baysPayload = bays.map(b => ({
+        ...b, business_id: businessId, supabase_id: uuid(), active: true,
+      }))
+      const { error: bayErr } = await sb.from('service_bays').insert(baysPayload)
+      if (bayErr) console.log(`    [warn] service_bays: ${bayErr.message}`)
+      else console.log(`    [ok] service_bays seeded (${bays.length})`)
+    }
+  }
+
   console.log(`  [ok] ${v.bizName} | empleados=${empleados.length} svc=${svcRows.length} cli=${clientRows.length} tk=${createdTickets} queue=${v.queueRows}`)
   result.ok = true
   result.created = true
@@ -754,7 +780,7 @@ async function seedActivity(businessId, v) {
   }
 
   // ── 3. Cuadre de Caja (skip prestamos/dealership/service per Mike's rule) ─
-  const skipCuadreTypes = ['prestamos', 'concesionario', 'servicios']
+  const skipCuadreTypes = ['loans', 'dealership', 'service']
   if (!skipCuadreTypes.includes(v.type)) {
     const { data: existingCuadre } = await sb.from('cuadre_caja')
       .select('id').eq('business_id', businessId).limit(1)
@@ -845,7 +871,7 @@ async function seedActivity(businessId, v) {
   }
 
   // ── 5. Notas de credito (skip prestamos/salon/dealership) ──────────────
-  const skipNotaTypes = ['prestamos', 'salon', 'concesionario']
+  const skipNotaTypes = ['loans', 'salon', 'dealership']
   if (!skipNotaTypes.includes(v.type)) {
     const { data: existingNotas } = await sb.from('notas_credito')
       .select('id').eq('business_id', businessId).limit(1)

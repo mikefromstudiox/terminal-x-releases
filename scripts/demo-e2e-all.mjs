@@ -13,7 +13,10 @@ import { dirname, join } from 'node:path'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const SCRIPT = join(__dirname, 'demo-e2e-smoke.mjs')
 
-const VERTICALS = ['carwash', 'tienda', 'restaurante', 'salon', 'hibrido', 'mecanica', 'servicios', 'prestamos', 'concesionario', 'carniceria']
+// Canonical English keys (matches BUSINESS_TYPE_KEYS). demo-e2e-smoke.mjs
+// still accepts the old Spanish aliases via CLI_ALIASES, so any CI usage
+// passing 'tienda' / 'mecanica' / etc. still works during the migration.
+const VERTICALS = ['carwash', 'retail', 'restaurant', 'salon', 'hybrid', 'mechanic', 'service', 'prestamos', 'dealership', 'carniceria']
 
 function runOne(vertical) {
   return new Promise((resolve) => {

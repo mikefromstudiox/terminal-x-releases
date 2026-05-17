@@ -27,11 +27,11 @@ const normalise = normalizeBusinessType
 // Which business types are considered "tienda" for subtype purposes.
 // LEGACY_ALIASES maps Spanish "tienda" → canonical "retail", so `retail`
 // is the base type the subtype layer applies to. `licoreria` and
-// `carniceria` kept top-level verticals — a licorería owner who already
-// signed up as business_type=licoreria still benefits from the subtype
-// metadata (we set tienda_subtype=licoreria under the hood).
+// `meat_market` are kept top-level verticals — a licorería owner who
+// already signed up as business_type=licoreria still benefits from the
+// subtype metadata (we set tienda_subtype=licoreria under the hood).
 function isTiendaBaseType(type) {
-  return type === 'retail' || type === 'licoreria' || type === 'carniceria'
+  return type === 'retail' || type === 'licoreria' || type === 'meat_market'
 }
 
 // Group membership flags — how each type maps to POS behavior.
@@ -48,10 +48,13 @@ function flagsFor(type, hybridComponents) {
     : new Set([type])
   const has = (k) => members.has(k)
 
-  const stockTracked  = has('retail') || has('dealership') || has('restaurant') || has('food_truck') || has('mechanic') || has('licoreria') || has('carniceria')
+  const stockTracked  = has('retail') || has('dealership') || has('restaurant') || has('food_truck') || has('mechanic') || has('licoreria') || has('meat_market')
   const serviceBased  = has('carwash') || has('service') || has('salon') || has('mechanic')
-  const priceByWeight = has('carniceria')
+  const priceByWeight = has('meat_market')
   const scaleEnabled  = priceByWeight
+  const isLoansFlag      = has('loans')
+  const isMeatMarketFlag = has('meat_market')
+  const isAccountingFlag = has('accounting')
   return {
     isRetail:     stockTracked,   // kept for backward-compat with existing call sites
     isCarWash:    serviceBased,   // kept for backward-compat
@@ -62,9 +65,16 @@ function flagsFor(type, hybridComponents) {
     isFoodTruck:  has('food_truck'),
     isMechanic:   has('mechanic'),
     isSalon:      has('salon'),
-    isPrestamos:  has('prestamos'),
+    // Canonical flags (2026-05-17 vertical-key cleanup).
+    isLoans:      isLoansFlag,
+    isMeatMarket: isMeatMarketFlag,
+    isAccounting: isAccountingFlag,
+    // Back-compat aliases — older call sites still using the Spanish flag
+    // names. New code should prefer the canonical names above.
+    isPrestamos:  isLoansFlag,
+    isCarniceria: isMeatMarketFlag,
+    isContabilidad: isAccountingFlag,
     isLicoreria:  has('licoreria'),
-    isCarniceria: has('carniceria'),
     isTienda:     [...members].some(isTiendaBaseType),
     stockTracked, serviceBased, priceByWeight, scaleEnabled,
   }

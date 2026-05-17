@@ -151,7 +151,7 @@ function StylistsView() {
 }
 
 export default {
-  label: 'Salon / Barberia',
+  label: 'Salon / Barbershop',
   business: BUSINESS,
   navItems: NAV,
   defaultView: 'agenda',

@@ -165,7 +165,7 @@ async function bootstrap() {
     rnc: null,
     plan: 'PLUS',
     is_demo: true,
-    settings: { business_type: 'tienda', ciudad: 'Santo Domingo', biz_city: 'Santo Domingo' },
+    settings: { business_type: 'retail', ciudad: 'Santo Domingo', biz_city: 'Santo Domingo' },
   }).select('*').single()
   if (bizErr) throw new Error(`bootstrap business: ${bizErr.message}`)
   if (FORBIDDEN.has(biz.id)) throw new Error(`harness collided with prod biz ${biz.id} — abort`)

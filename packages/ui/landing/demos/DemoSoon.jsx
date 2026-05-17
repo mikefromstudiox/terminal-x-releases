@@ -12,7 +12,7 @@ const VERTICAL_LABELS = {
   service:       'Servicios',
   restaurant:    'Restaurante',
   mechanic:      'Mecanica / Taller',
-  salon:         'Salon / Barberia',
+  salon:         'Salon / Barbershop',
   prestamos:     'Prestamos / Empenos',
   dealership:    'Concesionario',
   hybrid:        'Hibrido (POS + Restaurant)',

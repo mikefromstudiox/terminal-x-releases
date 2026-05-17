@@ -30,7 +30,7 @@ for (const b of bizs) {
     if (lavadoSvcs.length) console.log(`  [BUG] ${lavadoSvcs.length} services with category='Lavado': ${lavadoSvcs.map(s=>s.name).join(', ')}`);
     if (isWashSvcs.length) console.log(`  [BUG] ${isWashSvcs.length} services with is_wash=1: ${isWashSvcs.map(s=>s.name).join(', ')}`);
   }
-  const nonServiceTypes = ['retail','restaurant','dealership','prestamos','licoreria','carniceria','tienda'];
+  const nonServiceTypes = ['retail','restaurant','dealership','loans','licoreria','meat_market'];
   if (nonServiceTypes.includes(bt)) {
     const lavs = (empleados.data||[]).filter(e=>e.tipo==='lavador');
     if (lavs.length) console.log(`  [BUG] ${lavs.length} empleados tipo=lavador: ${lavs.map(e=>e.nombre).join(', ')}`);
@@ -40,7 +40,7 @@ for (const b of bizs) {
   if (!types.includes('B02')) console.log(`  [WARN] Missing B02 NCF sequence`);
   if ((services.count||0) < 3) console.log(`  [SPARSE] services count ${services.count}`);
   if ((empleados.count||0) < 3) console.log(`  [SPARSE] empleados count ${empleados.count}`);
-  if ((inv.count||0) < 3 && ['retail','licoreria','carniceria','tienda'].includes(bt)) console.log(`  [SPARSE] inventory count ${inv.count}`);
+  if ((inv.count||0) < 3 && ['retail','licoreria','meat_market'].includes(bt)) console.log(`  [SPARSE] inventory count ${inv.count}`);
   if ((tickets.count||0) < 3) console.log(`  [SPARSE] tickets 7d count ${tickets.count}`);
   if (tickets.data?.length) console.log(`  sample doc_numbers: ${tickets.data.slice(0,3).map(t=>t.doc_number||'(null)').join(' | ')}`);
   const catCounts = {};

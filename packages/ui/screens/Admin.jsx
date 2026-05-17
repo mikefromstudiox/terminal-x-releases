@@ -5,7 +5,7 @@ import {
   Eye, EyeOff, AlertCircle, FileText, Wifi, WifiOff, ExternalLink,
   Check, Coffee, Lock, ChevronUp, ChevronDown, Trash2, CreditCard,
   CloudUpload, ToggleLeft, Scissors, Copy, QrCode, Download,
-  Briefcase, Link2, Unlink,
+  Briefcase, Link2, Unlink, ArrowRight,
 } from 'lucide-react'
 import QRCode from 'qrcode'
 import ManagerCardModal from '../components/ManagerCardModal'
@@ -592,13 +592,13 @@ function Servicios() {
   const canDelete                   = user?.role === 'owner' || user?.role === 'manager'
   const L                           = (es, en) => lang === 'es' ? es : en
   // Vertical-aware label for the "washer" commission slot.
-  // Carwash: Lavadores. Restaurant: Meseros. Salon/Barberia: Estilistas. Mechanic: Técnicos.
-  // For everything else (retail/dealership/etc) the slot has no natural worker — hide it.
+  // Carwash: Lavadores. Restaurant: Meseros. Salon (covers barbería via
+  // LEGACY_ALIASES): Estilistas. Mechanic: Técnicos. Service: Personal.
+  // Everything else (retail/dealership/etc) has no natural worker → hide.
   const washerSlot = (
     businessType === 'carwash'    ? { es: 'Lavadores',  en: 'Washers',     show: true } :
     businessType === 'restaurant' ? { es: 'Meseros',    en: 'Waiters',     show: true } :
     businessType === 'salon'      ? { es: 'Estilistas', en: 'Stylists',    show: true } :
-    businessType === 'barberia'   ? { es: 'Barberos',   en: 'Barbers',     show: true } :
     businessType === 'mechanic'   ? { es: 'Técnicos',   en: 'Technicians', show: true } :
     businessType === 'service'    ? { es: 'Personal',   en: 'Staff',       show: true } :
     businessType === 'hybrid'     ? { es: 'Lavadores',  en: 'Washers',     show: true } :
@@ -1767,7 +1767,68 @@ export function SalonSettings() {
   )
 }
 
-function MiEmpresa() {
+// AccountantPromoCard — dismissible CTA promoting cross-firm linkage to clients
+// who haven't connected an accountant yet. Hides when (a) user dismissed it or
+// (b) at least one accountant grant already exists.
+function AccountantPromoCard({ onSwitchTab, L }) {
+  const DISMISS_KEY = 'tx_accountant_promo_dismissed_v1'
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem(DISMISS_KEY) === '1' } catch { return false }
+  })
+  const [hasGrant, setHasGrant] = useState(null) // null = unknown, true/false
+
+  useEffect(() => {
+    if (dismissed) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const r = await callCtbPanel('ctb_my_accountant', null, 'GET')
+        if (cancelled) return
+        setHasGrant((r?.grants || []).length > 0)
+      } catch (_) { if (!cancelled) setHasGrant(false) }
+    })()
+    return () => { cancelled = true }
+  }, [dismissed])
+
+  if (dismissed || hasGrant === true || hasGrant === null) return null
+
+  function handleDismiss() {
+    try { localStorage.setItem(DISMISS_KEY, '1') } catch {}
+    setDismissed(true)
+  }
+
+  return (
+    <div className="relative rounded-2xl border-2 border-[#b3001e]/30 bg-gradient-to-br from-[#b3001e]/5 to-transparent p-5 dark:from-[#b3001e]/10">
+      <button onClick={handleDismiss}
+        className="absolute top-2 right-2 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:text-white/40 dark:hover:text-white"
+        aria-label="Cerrar">
+        <X size={14} />
+      </button>
+      <div className="flex items-start gap-3 pr-6">
+        <div className="shrink-0 w-10 h-10 rounded-full bg-[#b3001e] text-white flex items-center justify-center">
+          <Briefcase size={18} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[14px] font-bold text-slate-900 dark:text-white">
+            {L('¿Trabajas con un contador?', 'Do you work with an accountant?')}
+          </div>
+          <div className="text-[12px] text-slate-600 dark:text-white/70 mt-1 leading-relaxed">
+            {L(
+              'Conéctalo en 30 segundos. Verá tus ventas, e-CFs e inventario en vivo, sin que tengas que mandarle nada manualmente. Acceso solo lectura, lo puedes revocar cuando quieras.',
+              'Connect them in 30 seconds. They see your sales, e-CFs and inventory live, with nothing to send manually. Read-only access, revocable anytime.'
+            )}
+          </div>
+          <button onClick={() => onSwitchTab?.('contable')}
+            className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#b3001e] text-white text-[12px] font-bold hover:bg-[#8f0018]">
+            {L('Conectar contador', 'Connect accountant')} <ArrowRight size={12} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MiEmpresa({ onSwitchTab }) {
   const api                   = useAPI()
   const { lang }              = useLang()
   const L                     = (es, en) => lang === 'es' ? es : en
@@ -1956,6 +2017,7 @@ function MiEmpresa() {
   return (
     <div className="max-w-xl space-y-6">
       <Toast toast={toast} />
+      <AccountantPromoCard onSwitchTab={onSwitchTab} L={L} />
       {/* Business type is now picked in Config → Tipo de Negocio (canonical enum).
           The legacy biz_type dropdown used to live here but drove the e-CF
           checklist defaults — that logic still reads from `form.biz_type` under
@@ -2157,10 +2219,10 @@ export function BusinessFeatureToggles() {
 // ── MAIN ADMIN SCREEN ─────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'empresa',    es: 'Mi Empresa',    en: 'Business',          icon: Building2  },
-  { id: 'usuarios',   es: 'Usuarios',      en: 'Users',             icon: KeyRound   },
-  { id: 'servicios',  es: 'Servicios',     en: 'Services',          icon: LayoutGrid },
-  { id: 'contable',   es: 'Compartir con contador', en: 'Share with accountant', icon: Briefcase },
+  { id: 'empresa',    es: 'Mi Empresa',  en: 'Business',     icon: Building2  },
+  { id: 'contable',   es: 'Mi Contador', en: 'My Accountant', icon: Briefcase  },
+  { id: 'usuarios',   es: 'Usuarios',    en: 'Users',         icon: KeyRound   },
+  { id: 'servicios',  es: 'Servicios',   en: 'Services',      icon: LayoutGrid },
 ]
 
 export default function Admin({ initialTab, hideHeader }) {
@@ -2199,7 +2261,7 @@ export default function Admin({ initialTab, hideHeader }) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 md:py-6">
-        {tab === 'empresa'    && <MiEmpresa />}
+        {tab === 'empresa'    && <MiEmpresa onSwitchTab={setTab} />}
         {tab === 'usuarios'   && <Usuarios />}
         {tab === 'servicios'  && <Servicios />}
         {tab === 'contable'   && <ShareWithAccountant />}
@@ -2420,10 +2482,22 @@ export function CloudBackup() {
 
 // ── Share with accountant (Slice 5 — cross-firm wire) ──────────────────────
 async function callCtbPanel(action, payload, method = 'POST') {
-  const mod = await import('@terminal-x/services/supabase')
-  const sb = mod.getSupabaseClient?.()
-  const sess = (await sb?.auth?.getSession?.())?.data?.session
-  const token = sess?.access_token
+  // Read from window.__txSupabase (the persistent client) — services singleton
+  // creates a parallel non-persistent client that never holds the user session.
+  let token = null
+  try {
+    const sb = (typeof window !== 'undefined') ? window.__txSupabase : null
+    const sess = (await sb?.auth?.getSession?.())?.data?.session
+    token = sess?.access_token || null
+  } catch {}
+  if (!token) {
+    try {
+      const mod = await import('@terminal-x/services/supabase')
+      const sb2 = mod.getSupabaseClient?.()
+      const sess2 = (await sb2?.auth?.getSession?.())?.data?.session
+      token = sess2?.access_token || null
+    } catch {}
+  }
   if (!token) throw new Error('Sesión expirada — vuelve a iniciar sesión.')
   const isGet = method === 'GET'
   const qs = isGet

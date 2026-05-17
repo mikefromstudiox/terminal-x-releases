@@ -271,7 +271,7 @@ const NAV = [
     id: 'lending', icon: Banknote,
     es: 'Préstamos', en: 'Lending',
     feature: 'loans',
-    businessTypes: ['prestamos'],
+    businessTypes: ['loans'],
     roles: ['owner','manager','cfo','accountant'],
     children: [
       { to: '/loans', es: 'Préstamos', en: 'Loans', feature: 'loans' },
@@ -284,25 +284,25 @@ const NAV = [
   {
     id: 'carniceria_cortes', to: '/carniceria/cortes', icon: Beef,
     es: 'Cortes', en: 'Cuts',
-    businessTypes: ['carniceria'],
+    businessTypes: ['meat_market'],
     roles: ['owner','manager','cashier'],
   },
   {
     id: 'carniceria_frescura', to: '/carniceria/frescura', icon: Leaf,
     es: 'Frescura', en: 'Freshness',
-    businessTypes: ['carniceria'],
+    businessTypes: ['meat_market'],
     roles: ['owner','manager','cashier'],
   },
   {
     id: 'carniceria_mayoreo', to: '/carniceria/mayoreo', icon: Truck,
     es: 'Mayoreo', en: 'Wholesale',
-    businessTypes: ['carniceria'],
+    businessTypes: ['meat_market'],
     roles: ['owner','manager','cashier'],
   },
   {
     id: 'carniceria_resumen', to: '/carniceria/resumen', icon: BarChart3,
     es: 'Resumen', en: 'Overview',
-    businessTypes: ['carniceria'],
+    businessTypes: ['meat_market'],
     roles: ['owner','manager','cfo','accountant'],
   },
   {
@@ -314,79 +314,79 @@ const NAV = [
   {
     id: 'ctb_portfolio', to: '/contabilidad/portfolio', icon: LayoutGrid,
     es: 'Portfolio', en: 'Portfolio',
-    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    businessTypes: ['accounting'], roles: ['owner','manager','cfo','accountant'],
     feature: 'contabilidad_portfolio',
   },
   {
     id: 'ctb_bandeja', to: '/contabilidad/bandeja', icon: Inbox,
     es: 'Bandeja', en: 'Inbox',
-    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    businessTypes: ['accounting'], roles: ['owner','manager','cfo','accountant'],
     feature: 'contabilidad_inbox',
   },
   {
     id: 'ctb_cartera', to: '/contabilidad/cartera', icon: Building2,
     es: 'Cartera', en: 'Client Roster',
-    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    businessTypes: ['accounting'], roles: ['owner','manager','cfo','accountant'],
     feature: 'contabilidad_inbox',
   },
   {
     id: 'ctb_calendario', to: '/contabilidad/calendario', icon: Calendar,
     es: 'Calendario Fiscal', en: 'Tax Calendar',
-    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    businessTypes: ['accounting'], roles: ['owner','manager','cfo','accountant'],
     feature: 'contabilidad_inbox',
   },
   {
     id: 'ctb_tareas', to: '/contabilidad/tareas', icon: ClipboardList,
     es: 'Tareas', en: 'Tasks',
-    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    businessTypes: ['accounting'], roles: ['owner','manager','cfo','accountant'],
     feature: 'contabilidad_tareas',
   },
   {
     id: 'ctb_comprobantes', to: '/contabilidad/comprobantes', icon: FileText,
     es: 'Comprobantes', en: 'Receipts',
-    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    businessTypes: ['accounting'], roles: ['owner','manager','cfo','accountant'],
     feature: 'contabilidad_inbox',
   },
   {
     id: 'ctb_libro_mayor', to: '/contabilidad/libro_mayor', icon: BookOpen,
     es: 'Libro Mayor', en: 'General Ledger',
-    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    businessTypes: ['accounting'], roles: ['owner','manager','cfo','accountant'],
     feature: 'contabilidad_libro_mayor',
   },
   {
     id: 'ctb_banco', to: '/contabilidad/banco', icon: Landmark,
     es: 'Banco', en: 'Bank',
-    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    businessTypes: ['accounting'], roles: ['owner','manager','cfo','accountant'],
     feature: 'contabilidad_banco',
   },
   {
     id: 'ctb_nomina', to: '/contabilidad/nomina', icon: Users,
     es: 'Nómina', en: 'Payroll',
-    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    businessTypes: ['accounting'], roles: ['owner','manager','cfo','accountant'],
     feature: 'contabilidad_nomina',
   },
   {
     id: 'ctb_activos', to: '/contabilidad/activos', icon: Package,
     es: 'Activos', en: 'Fixed Assets',
-    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    businessTypes: ['accounting'], roles: ['owner','manager','cfo','accountant'],
     feature: 'contabilidad_activos',
   },
   {
     id: 'ctb_reportes', to: '/contabilidad/reportes', icon: BarChart3,
     es: 'Reportes', en: 'Reports',
-    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    businessTypes: ['accounting'], roles: ['owner','manager','cfo','accountant'],
     feature: 'contabilidad_reportes_ejecutivos',
   },
   {
     id: 'ctb_vault', to: '/contabilidad/vault', icon: FolderArchive,
     es: 'Vault', en: 'Vault',
-    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    businessTypes: ['accounting'], roles: ['owner','manager','cfo','accountant'],
     feature: 'contabilidad_inbox',
   },
   {
     id: 'ctb_honorarios', to: '/contabilidad/honorarios', icon: Banknote,
     es: 'Honorarios', en: 'Fees',
-    businessTypes: ['contabilidad'], roles: ['owner','manager','cfo','accountant'],
+    businessTypes: ['accounting'], roles: ['owner','manager','cfo','accountant'],
     feature: 'contabilidad_inbox',
   },
   {
@@ -422,7 +422,7 @@ const NAV = [
       // wash/salon/prestamos verticals have no SKUs to count, so hide it there
       // — the route itself stays routable for deep links.
       { to: '/conteo-fisico',  es: 'Conteo Fisico',   en: 'Physical Count',
-        businessTypes: ['retail','dealership','restaurant','hybrid','mechanic','licoreria','carniceria'] },
+        businessTypes: ['retail','dealership','restaurant','hybrid','mechanic','licoreria','meat_market'] },
     ],
   },
   {
@@ -1088,7 +1088,7 @@ export default function Sidebar() {
     'ctb_activos', 'ctb_reportes', 'ctb_vault', 'ctb_honorarios',
     'remote_dashboard', 'sistema', 'settings', 'activity', 'logout',
   ])
-  const isInvoicingOnly = businessType === 'contabilidad'
+  const isInvoicingOnly = businessType === 'accounting'
   const visibleNav = NAV.filter(item =>
     (!item.roles || item.roles.includes(user?.role)) &&
     (!item.businessTypes || item.businessTypes.includes(businessType)) &&

@@ -199,6 +199,11 @@ async function handler(req, res) {
   if (action === 'ctb_client_data')          return handleCtbClientData(req, res)
   if (action === 'ctb_my_accountant')        return handleCtbMyAccountant(req, res)
 
+  // ── Contabilidad email-invite wire (Slice 6) ──────────────────────────────
+  if (action === 'ctb_invite_by_email')      return handleCtbInviteByEmail(req, res)
+  if (action === 'ctb_invite_lookup')        return handleCtbInviteLookup(req, res)
+  if (action === 'ctb_accept_invite_token')  return handleCtbAcceptInviteToken(req, res)
+
   // ── Cross-firm impersonation ("Ver como cliente") — Pro MAX contadora ───
   if (action === 'firm_impersonate_check')   return handleFirmImpersonateCheck(req, res)
   if (action === 'firm_impersonate_end')     return handleFirmImpersonateEnd(req, res)
@@ -235,10 +240,28 @@ async function ctbAuthUser(req) {
     businessId = staff?.business_id || null
   }
   if (!businessId) return { error: 'no_business', status: 403 }
+  // NOTE: there is no `business_type` column on businesses — canonical location
+  // is settings.business_type (see panel.js handleClientDetail line ~980 for
+  // the same convention). Selecting a non-existent column produces PostgREST
+  // 42703 and returns null, which makes EVERY ctb_* endpoint return
+  // "firm_only" or crash. Read settings.business_type and surface it on the
+  // returned object for downstream guards.
   const { data: biz } = await supabase.from('businesses')
-    .select('id, name, business_type, settings').eq('id', businessId).maybeSingle()
+    .select('id, name, settings, owner_id').eq('id', businessId).maybeSingle()
   if (!biz) return { error: 'business_not_found', status: 403 }
-  return { supabase, user, businessId, business: biz }
+  // Normalize legacy values via the same alias table as the SPA's
+  // normalizeBusinessType(). Keeps the comparison `=== 'accounting'` working
+  // for businesses whose settings still hold the old 'contabilidad' key.
+  const PANEL_LEGACY_ALIASES = {
+    tienda: 'retail', restaurante: 'restaurant', hibrido: 'hybrid',
+    mecanica: 'mechanic', mecanico: 'mechanic', servicios: 'service',
+    otro: 'service', concesionario: 'dealership', barberia: 'salon',
+    prestamo: 'loans', prestamos: 'loans',
+    contabilidad: 'accounting', carniceria: 'meat_market',
+  }
+  const rawBt = String(biz.settings?.business_type || biz.settings?.biz_type || '').toLowerCase() || null
+  const business_type = rawBt ? (PANEL_LEGACY_ALIASES[rawBt] || rawBt) : null
+  return { supabase, user, businessId, business: { ...biz, business_type } }
 }
 
 function generateAccessCode() {
@@ -251,7 +274,7 @@ async function handleCtbGenerateAccessCode(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' })
   const auth = await ctbAuthUser(req)
   if (auth.error) return res.status(auth.status).json({ ok: false, error: auth.error })
-  if (auth.business.business_type !== 'contabilidad') {
+  if (auth.business.business_type !== 'accounting') {
     return res.status(403).json({ ok: false, error: 'firm_only' })
   }
   const body = req.body || {}
@@ -388,7 +411,7 @@ async function handleCtbClientData(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ ok: false, error: 'GET only' })
   const auth = await ctbAuthUser(req)
   if (auth.error) return res.status(auth.status).json({ ok: false, error: auth.error })
-  if (auth.business.business_type !== 'contabilidad') {
+  if (auth.business.business_type !== 'accounting') {
     return res.status(403).json({ ok: false, error: 'firm_only' })
   }
   const acId = Number(req.query.accounting_client_id)
@@ -450,6 +473,251 @@ async function handleCtbMyAccountant(req, res) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Contabilidad email-invite wire — Slice 6
+// ─────────────────────────────────────────────────────────────────────────────
+// Firm types client email → magic link emailed → client clicks → on accept
+// we grant BOTH cross-firm Portfolio view (Slice 5 mechanism) AND auto-create
+// staff row in client tenant with role='accountant' so the accountant can
+// log into the client's POS directly with their own credentials.
+
+// 32-byte url-safe token (~256 bits entropy)
+function generateInviteToken() {
+  const bytes = require('crypto').randomBytes(32)
+  return bytes.toString('base64url')
+}
+
+// POST { email, business_name?, rnc?, send_email? } — firm side.
+// Creates a pending accounting_clients row with invite_token, emails the link
+// via Resend (if RESEND_API_KEY set + send_email != false). Returns the magic
+// link in the response either way so the firm can copy/WhatsApp it manually.
+async function handleCtbInviteByEmail(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' })
+  const auth = await ctbAuthUser(req)
+  if (auth.error) return res.status(auth.status).json({ ok: false, error: auth.error })
+  if (auth.business.business_type !== 'accounting') {
+    return res.status(403).json({ ok: false, error: 'firm_only' })
+  }
+  const body = req.body || {}
+  const email = String(body.email || '').trim().toLowerCase()
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ ok: false, error: 'invalid_email' })
+  }
+  const businessName = (body.business_name || '').trim() || null
+  const rnc = (body.rnc || '').trim() || null
+  const sendEmail = body.send_email !== false
+
+  const token = generateInviteToken()
+  const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  const now = new Date().toISOString()
+
+  // Reuse an existing pending row (same firm + same email + still pending) if
+  // present — refresh the token instead of creating duplicates.
+  const { data: existing } = await auth.supabase.from('accounting_clients')
+    .select('id, nombre_comercial')
+    .eq('business_id', auth.businessId)
+    .ilike('invite_email', email)
+    .is('shared_business_id', null)
+    .eq('access_granted', false)
+    .limit(1)
+    .maybeSingle()
+
+  let acId
+  if (existing?.id) {
+    const { error } = await auth.supabase.from('accounting_clients')
+      .update({
+        invite_token: token,
+        invite_expires_at: expires,
+        invite_sent_at: sendEmail ? now : null,
+        invite_email: email,
+        nombre_comercial: businessName || existing.nombre_comercial,
+        rnc: rnc,
+        updated_at: now,
+      })
+      .eq('id', existing.id)
+    if (error) return res.status(500).json({ ok: false, error: error.message })
+    acId = existing.id
+  } else {
+    const { data: row, error } = await auth.supabase.from('accounting_clients')
+      .insert({
+        business_id: auth.businessId,
+        nombre_comercial: businessName || email,
+        rnc: rnc,
+        invite_email: email,
+        invite_token: token,
+        invite_expires_at: expires,
+        invite_sent_at: sendEmail ? now : null,
+        access_granted: false,
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+      })
+      .select('id').single()
+    if (error) return res.status(500).json({ ok: false, error: error.message })
+    acId = row.id
+  }
+
+  // Build magic link. Use the request origin as base URL fallback.
+  const origin = req.headers.origin || req.headers.referer?.replace(/\/[^/]*$/, '') || 'https://terminalxpos.com'
+  const baseUrl = (origin.startsWith('http') ? origin.replace(/\/$/, '') : 'https://terminalxpos.com')
+  const magicLink = `${baseUrl}/aceptar-contador?token=${encodeURIComponent(token)}`
+
+  // Send the invite email via Resend if configured. Non-fatal if Resend errors —
+  // firm can still copy the link from the response and share manually.
+  let emailResult = { sent: false, reason: 'not_attempted' }
+  if (sendEmail) {
+    const RESEND = process.env.RESEND_API_KEY
+    if (!RESEND) {
+      emailResult = { sent: false, reason: 'no_resend_key' }
+    } else {
+      const firmName = auth.business.name || 'Tu contador'
+      const safe = (s) => String(s ?? '').replace(/[<>&]/g, ch => ({ '<':'&lt;','>':'&gt;','&':'&amp;' }[ch]))
+      const html = `<!doctype html><html><body style="font-family:Inter,Arial,sans-serif;background:#fff;color:#000;padding:24px">
+        <div style="max-width:520px;margin:0 auto;border:1px solid #eee;border-radius:12px;overflow:hidden">
+          <div style="background:#000;color:#fff;padding:20px 24px"><strong style="color:#b3001e;font-size:18px">Terminal X</strong> · Invitación</div>
+          <div style="padding:24px">
+            <h2 style="margin:0 0 12px;color:#000">${safe(firmName)} quiere conectarse a tu negocio</h2>
+            <p style="margin:0 0 12px;line-height:1.5">Tu contador <strong>${safe(firmName)}</strong> usa <strong>Terminal X Contabilidad</strong> y te invita a conectar tu cuenta para que pueda ver tus ventas, e-CFs e inventario en vivo — sin que tengas que enviarle nada manualmente.</p>
+            <ul style="margin:12px 0 16px;padding-left:20px;color:#333;line-height:1.7">
+              <li>Acceso <strong>solo lectura</strong> a ventas, comprobantes e inventario</li>
+              <li>El contador puede entrar a tu POS como usuario rol <strong>Contador</strong></li>
+              <li>Lo puedes <strong>revocar cuando quieras</strong> desde Admin → Mi Contador</li>
+            </ul>
+            <p style="margin:24px 0"><a href="${safe(magicLink)}" style="background:#b3001e;color:#fff;text-decoration:none;padding:14px 24px;border-radius:8px;display:inline-block;font-weight:bold;font-size:14px">Aceptar invitación →</a></p>
+            <p style="margin:16px 0 0;font-size:12px;color:#999">Si no tienes una cuenta Terminal X, el link te llevará a crearla primero. La invitación vence en 7 días.</p>
+            <p style="margin:8px 0 0;font-size:11px;color:#bbb;word-break:break-all">Link: ${safe(magicLink)}</p>
+          </div>
+        </div></body></html>`
+      try {
+        const r = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${RESEND}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: process.env.RESEND_FROM || 'Terminal X <facturas@terminalxpos.com>',
+            to: [email],
+            subject: `${firmName} te invitó a conectar tu Terminal X`,
+            html,
+          }),
+        })
+        const result = await r.json().catch(() => ({}))
+        emailResult = r.ok ? { sent: true, id: result?.id } : { sent: false, reason: `resend_${r.status}`, detail: result?.message }
+      } catch (err) {
+        emailResult = { sent: false, reason: 'resend_exception', detail: err.message }
+      }
+    }
+  }
+
+  return res.status(200).json({
+    ok: true,
+    accounting_client_id: acId,
+    invite_email: email,
+    magic_link: magicLink,
+    expires_at: expires,
+    email: emailResult,
+  })
+}
+
+// GET ?token=XXX — public-ish (still needs auth). Resolves token → firm name
+// + accounting_client_id so the accept-screen can render confirmation copy.
+async function handleCtbInviteLookup(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ ok: false, error: 'GET only' })
+  const token = String(req.query?.token || '').trim()
+  if (!token) return res.status(400).json({ ok: false, error: 'missing_token' })
+
+  const { createClient } = await import('@supabase/supabase-js')
+  const supa = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+  const { data: ac } = await supa.from('accounting_clients')
+    .select('id, business_id, nombre_comercial, invite_email, invite_expires_at')
+    .eq('invite_token', token).maybeSingle()
+  if (!ac) return res.status(404).json({ ok: false, error: 'token_not_found' })
+  if (ac.invite_expires_at && new Date(ac.invite_expires_at) < new Date()) {
+    return res.status(410).json({ ok: false, error: 'token_expired' })
+  }
+  const { data: firm } = await supa.from('businesses').select('id, name').eq('id', ac.business_id).maybeSingle()
+  return res.status(200).json({
+    ok: true,
+    firm_name: firm?.name || '',
+    firm_business_id: ac.business_id,
+    invite_email: ac.invite_email,
+    nombre_comercial: ac.nombre_comercial,
+    expires_at: ac.invite_expires_at,
+  })
+}
+
+// POST { token } — client side. Consumes the magic-link token.
+// On accept: (A) sets shared_business_id + access_granted (Portfolio view) AND
+// (B) auto-creates staff row in client tenant tied to accountant's auth_user_id
+// with role='accountant'.
+async function handleCtbAcceptInviteToken(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' })
+  const auth = await ctbAuthUser(req)
+  if (auth.error) return res.status(auth.status).json({ ok: false, error: auth.error })
+  const token = String(req.body?.token || '').trim()
+  if (!token) return res.status(400).json({ ok: false, error: 'missing_token' })
+
+  const { data: ac } = await auth.supabase.from('accounting_clients')
+    .select('id, business_id, nombre_comercial, invite_token, invite_expires_at, access_granted, shared_business_id')
+    .eq('invite_token', token).maybeSingle()
+  if (!ac) return res.status(404).json({ ok: false, error: 'token_not_found_or_consumed' })
+  if (ac.invite_expires_at && new Date(ac.invite_expires_at) < new Date()) {
+    return res.status(410).json({ ok: false, error: 'token_expired' })
+  }
+  if (ac.access_granted && ac.shared_business_id && ac.shared_business_id !== auth.businessId) {
+    return res.status(409).json({ ok: false, error: 'already_granted_to_other_business' })
+  }
+
+  // Resolve the firm name + its owner auth_user_id so we can plant a staff
+  // row for them in the client tenant.
+  const { data: firm } = await auth.supabase.from('businesses').select('id, name, owner_id').eq('id', ac.business_id).maybeSingle()
+  if (!firm) return res.status(500).json({ ok: false, error: 'firm_not_found' })
+
+  // (A) Grant cross-firm Portfolio access — mirrors handleCtbAcceptAccessCode.
+  const { error: linkErr } = await auth.supabase.from('accounting_clients')
+    .update({
+      shared_business_id: auth.businessId,
+      access_granted: true,
+      access_granted_at: new Date().toISOString(),
+      invite_token: null,                 // single-use → null after consume
+      invite_expires_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', ac.id)
+  if (linkErr) return res.status(500).json({ ok: false, error: linkErr.message })
+
+  // (B) Auto-create staff row in client tenant with role='accountant'.
+  // Skip if one already exists for this auth_user_id (idempotent).
+  let staffCreated = false
+  if (firm.owner_id) {
+    const { data: existingStaff } = await auth.supabase.from('staff')
+      .select('id, role')
+      .eq('business_id', auth.businessId)
+      .eq('auth_user_id', firm.owner_id)
+      .maybeSingle()
+    if (!existingStaff) {
+      const username = `contador_${(firm.name || 'firma').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12) || 'firma'}`
+      const { error: staffErr } = await auth.supabase.from('staff').insert({
+        business_id: auth.businessId,
+        auth_user_id: firm.owner_id,
+        name: firm.name || 'Contador',
+        username,
+        role: 'accountant',
+        active: true,
+      })
+      if (!staffErr) staffCreated = true
+      // Non-fatal if staff insert fails (e.g. username collision) — Portfolio
+      // view (A) still works. Audit log will record what landed.
+    }
+  }
+
+  return res.status(200).json({
+    ok: true,
+    accounting_client_id: ac.id,
+    firm_name: firm?.name || '',
+    nombre_comercial: ac.nombre_comercial,
+    staff_user_created: staffCreated,
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Firm impersonation — "Ver como cliente"
 // ─────────────────────────────────────────────────────────────────────────────
 // Server-side authorization gate for the contadora's "log in as client" flow.
@@ -498,7 +766,7 @@ async function handleFirmImpersonateCheck(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' })
   const auth = await ctbAuthUser(req)
   if (auth.error) return res.status(auth.status).json({ ok: false, error: auth.error })
-  if (auth.business.business_type !== 'contabilidad') {
+  if (auth.business.business_type !== 'accounting') {
     return res.status(403).json({ ok: false, error: 'firm_only', message: 'Solo cuentas contables pueden impersonar.' })
   }
   const body = req.body || {}

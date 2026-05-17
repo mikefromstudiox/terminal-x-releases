@@ -91,7 +91,7 @@ export default function SignupPage({ supabase, forceLang }) {
       // need a POS plan, not facturacion.
       const suggested = recommendedPlanFor(businessType)
       let effectivePlan = plan
-      if (effectivePlan === 'facturacion' && businessType !== 'contabilidad') effectivePlan = suggested
+      if (effectivePlan === 'facturacion' && businessType !== 'accounting') effectivePlan = suggested
       if (suggested === 'pro_plus' && effectivePlan === 'pro') effectivePlan = 'pro_plus'
       if (effectivePlan !== plan) setPlan(effectivePlan)
 

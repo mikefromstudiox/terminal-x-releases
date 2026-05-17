@@ -202,18 +202,18 @@ function buildEmpleados(bid, vertical) {
     roleMix.push({ role: 'none', tipo: 'estilista', nombre: fullName(), puesto: 'Estilista', salary: 22000, comision_pct: 30 })
     roleMix.push({ role: 'none', tipo: 'estilista', nombre: fullName(), puesto: 'Estilista', salary: 22000, comision_pct: 30 })
     roleMix.push({ role: 'none', tipo: 'estilista', nombre: fullName(), puesto: 'Estilista', salary: 22000, comision_pct: 30 })
-  } else if (vertical === 'concesionario') {
+  } else if (vertical === 'dealership') {
     roleMix.push({ role: 'none', tipo: 'vendedor', nombre: fullName(), puesto: 'Vendedor', salary: 25000, comision_pct: 3 })
     roleMix.push({ role: 'none', tipo: 'vendedor', nombre: fullName(), puesto: 'Vendedor', salary: 25000, comision_pct: 3 })
     roleMix.push({ role: 'none', tipo: 'vendedor', nombre: fullName(), puesto: 'Vendedor', salary: 25000, comision_pct: 3 })
-  } else if (vertical === 'tienda' || vertical === 'carniceria' || vertical === 'licoreria') {
+  } else if (vertical === 'retail' || vertical === 'meat_market' || vertical === 'licoreria') {
     roleMix.push({ role: 'none', tipo: 'vendedor', nombre: fullName(), puesto: 'Vendedor',     salary: 18000, comision_pct: 5 })
     roleMix.push({ role: 'none', tipo: 'vendedor', nombre: fullName(), puesto: 'Vendedor',     salary: 18000, comision_pct: 5 })
-  } else if (vertical === 'restaurante') {
+  } else if (vertical === 'restaurant') {
     roleMix.push({ role: 'kitchen', tipo: 'cajero', nombre: fullName(), puesto: 'Cocina',  salary: 20000, comision_pct: 0 })
     roleMix.push({ role: 'none',    tipo: 'mesero', nombre: fullName(), puesto: 'Mesero',  salary: 16000, comision_pct: 8 })
     roleMix.push({ role: 'none',    tipo: 'mesero', nombre: fullName(), puesto: 'Mesero',  salary: 16000, comision_pct: 8 })
-  } else if (vertical === 'mecanica') {
+  } else if (vertical === 'mechanic') {
     roleMix.push({ role: 'none', tipo: 'tecnico', nombre: fullName(), puesto: 'Mecánico', salary: 28000, comision_pct: 5 })
     roleMix.push({ role: 'none', tipo: 'tecnico', nombre: fullName(), puesto: 'Mecánico', salary: 28000, comision_pct: 5 })
   } else {
@@ -303,13 +303,13 @@ function buildAppSettings(bid, vertical) {
     KV('dgii_environment', 'certecf'),
     KV('plan_tier', 'pro_max'),
   ]
-  if (vertical === 'tienda')      rows.push(KV('tienda_subtype', 'colmado'))
+  if (vertical === 'retail')      rows.push(KV('tienda_subtype', 'colmado'))
   if (vertical === 'licoreria')   { rows.push(KV('tienda_subtype', 'licoreria')); rows.push(KV('age_verification_enabled', 'true')); rows.push(KV('bottle_deposit_enabled', 'true')) }
-  if (vertical === 'carniceria')  { rows.push(KV('tienda_subtype', 'carniceria')); rows.push(KV('feature_freshness_alerts_enabled', 'true')) }
-  if (vertical === 'restaurante') { rows.push(KV('servicio_pct', '10')); rows.push(KV('feature_kds_enabled', 'true')); rows.push(KV('feature_reservas_enabled', 'true')) }
+  if (vertical === 'meat_market')  { rows.push(KV('tienda_subtype', 'otro')); rows.push(KV('feature_freshness_alerts_enabled', 'true')) }
+  if (vertical === 'restaurant') { rows.push(KV('servicio_pct', '10')); rows.push(KV('feature_kds_enabled', 'true')); rows.push(KV('feature_reservas_enabled', 'true')) }
   if (vertical === 'salon')       { rows.push(KV('feature_appointments_enabled', 'true')); rows.push(KV('feature_memberships_enabled', 'true')) }
-  if (vertical === 'concesionario') { rows.push(KV('feature_uaf_modal_enabled', 'true')); rows.push(KV('feature_lead_scoring_enabled', 'true')) }
-  if (vertical === 'mecanica')    rows.push(KV('feature_wo_to_ticket_enabled', 'true'))
+  if (vertical === 'dealership') { rows.push(KV('feature_uaf_modal_enabled', 'true')); rows.push(KV('feature_lead_scoring_enabled', 'true')) }
+  if (vertical === 'mechanic')    rows.push(KV('feature_wo_to_ticket_enabled', 'true'))
   return rows
 }
 
@@ -388,7 +388,7 @@ function buildServicesMecanica(bid) {
   return list.map((s, i) => svc(bid, s, i, false))
 }
 function buildServicesGeneric(bid, vertical) {
-  const list = vertical === 'concesionario' ? [
+  const list = vertical === 'dealership' ? [
     { name: 'Comisión Vendedor',     price: 0, cost: 0, category: 'Cargo' },
     { name: 'Gestión Matrícula',     price: 5500, cost: 0, category: 'Servicio' },
     { name: 'Inspección Técnica',    price: 1200, cost: 0, category: 'Servicio' },
@@ -524,7 +524,7 @@ function buildInventoryTienda(bid, vertical) {
   ]
   let products
   if (vertical === 'licoreria')   products = productsLicoreria
-  else if (vertical === 'carniceria') products = productsCarniceria
+  else if (vertical === 'meat_market') products = productsCarniceria
   else                            products = productsTienda
 
   return products.slice(0, 50).map((p, i) => {
@@ -601,7 +601,7 @@ function buildTickets({ bid, count, services, clients, empleados, vertical, days
     const tid = newId()
 
     // build line items
-    const numLines = vertical === 'restaurante' ? rndInt(2, 5) : (vertical === 'tienda' || vertical === 'licoreria' || vertical === 'carniceria') ? rndInt(2, 6) : rndInt(1, 3)
+    const numLines = vertical === 'restaurant' ? rndInt(2, 5) : (vertical === 'retail' || vertical === 'licoreria' || vertical === 'meat_market') ? rndInt(2, 6) : rndInt(1, 3)
     let subtotal = 0, itbis = 0
     const lineRows = []
     for (let j = 0; j < numLines; j++) {
@@ -1482,17 +1482,19 @@ async function main() {
     const before = { tickets: summary.tickets, items: summary.items, misc: summary.misc }
     console.log(`\n=== ${b.name} (${b.bt}) ===`)
     try {
+      // 2026-05-17 — canonical English keys; legacy aliases still recognized
+      // for unmigrated DB rows.
       switch (b.bt) {
-        case 'carwash':       await seedCarwash(b, summary); break
-        case 'tienda':        await seedTienda(b, summary, 'tienda'); break
-        case 'salon':         await seedSalon(b, summary); break
-        case 'restaurante':   await seedRestaurante(b, summary); break
-        case 'concesionario': await seedConcesionario(b, summary); break
-        case 'mecanica':      await seedMecanica(b, summary); break
-        case 'servicios':     await seedServiciosProfesionales(b, summary); break
-        case 'prestamos':     await seedServiciosProfesionales(b, summary); break
+        case 'carwash':                              await seedCarwash(b, summary); break
+        case 'retail':       case 'tienda':          await seedTienda(b, summary, 'tienda'); break
+        case 'salon':        case 'barberia':        await seedSalon(b, summary); break
+        case 'restaurant':   case 'restaurante':     await seedRestaurante(b, summary); break
+        case 'dealership':   case 'concesionario':   await seedConcesionario(b, summary); break
+        case 'mechanic':     case 'mecanica':        await seedMecanica(b, summary); break
+        case 'service':      case 'servicios':       await seedServiciosProfesionales(b, summary); break
+        case 'loans':        case 'prestamos':       await seedServiciosProfesionales(b, summary); break
         default:
-          console.warn(`  Unknown business_type ${b.bt}, treating as servicios`)
+          console.warn(`  Unknown business_type ${b.bt}, treating as service`)
           await seedServiciosProfesionales(b, summary)
       }
       const elapsed = ((Date.now() - tBiz) / 1000).toFixed(1)

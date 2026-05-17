@@ -69,9 +69,11 @@ async function handler(req, res) {
       expires_at: trialEnd, trial_end: trialEnd,
     })
 
-    // NCF set: contabilidad clients only need E-series (e-CF). POS verticals
-    // also get B01/B02 (legacy paper) + B14/B15 (gov/special) for fallback.
-    const ncfTypes = bizType === 'contabilidad'
+    // NCF set: accounting (firm-side) clients only need E-series (e-CF). POS
+    // verticals also get B01/B02 (legacy paper) + B14/B15 (gov/special) for
+    // fallback. Accepts the legacy 'contabilidad' key for any installer that
+    // still sends it pre-rename.
+    const ncfTypes = (bizType === 'accounting' || bizType === 'contabilidad')
       ? ['E31', 'E32', 'E33', 'E34']
       : ['B01', 'B02', 'B14', 'B15', 'E31', 'E32', 'E33', 'E34']
     // Live schema columns are `current_number` + `limit_number` (NOT

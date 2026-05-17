@@ -131,7 +131,7 @@ export const BUSINESS_TYPES = {
     enabled: true,
   },
 
-  prestamos: {
+  loans: {
     label:       { es: 'Préstamos / Empeño', en: 'Lending / Pawn' },
     description: { es: 'Préstamos personales, casa de empeño, cobranza y amortización.',
                    en: 'Personal loans, pawnshop, collections and amortization.' },
@@ -258,7 +258,7 @@ export const BUSINESS_TYPES = {
     enabled: true,
   },
 
-  carniceria: {
+  meat_market: {
     label:       { es: 'Carnicería', en: 'Butcher / Meat Market' },
     description: { es: 'Venta de carnes por peso. Báscula integrada, cortes por libra/kg.',
                    en: 'Meat sales by weight. Integrated scale, cuts priced by pound/kg.' },
@@ -281,7 +281,7 @@ export const BUSINESS_TYPES = {
   // Calendario, Comprobantes (606/607/608), Vault, Honorarios. Phase 2/3 add
   // libro mayor, banco, nomina, activos/retenciones, tareas, cross-firm wire.
   // No POS, no inventory — invoicingOnly stays true.
-  contabilidad: {
+  accounting: {
     label:       { es: 'Contabilidad', en: 'Accounting' },
     description: { es: 'Suite contable DGII completa: bandeja, cartera, calendario fiscal, libros, conciliación bancaria, nómina TSS y honorarios.',
                    en: 'Full DGII accounting suite: inbox, client roster, tax calendar, ledgers, bank reconciliation, payroll/TSS and fees.' },
@@ -331,7 +331,7 @@ export const BUSINESS_TYPES = {
 }
 
 // Components a hybrid setup can be built from. Excludes 'hybrid' itself.
-export const HYBRID_COMPONENT_KEYS = ['carwash', 'retail', 'licoreria', 'carniceria', 'service', 'restaurant', 'food_truck', 'mechanic', 'salon', 'prestamos', 'dealership']
+export const HYBRID_COMPONENT_KEYS = ['carwash', 'retail', 'licoreria', 'meat_market', 'service', 'restaurant', 'food_truck', 'mechanic', 'salon', 'loans', 'dealership']
 
 // Validate + normalize a list of hybrid components. Always returns at least
 // the registry default (['restaurant','retail']) so the POS never renders
@@ -388,7 +388,7 @@ export function getHybridConfig(components) {
   }
 }
 
-export const BUSINESS_TYPE_KEYS = ['carwash', 'retail', 'licoreria', 'carniceria', 'service', 'restaurant', 'food_truck', 'mechanic', 'salon', 'prestamos', 'dealership', 'contabilidad', 'hybrid']
+export const BUSINESS_TYPE_KEYS = ['carwash', 'retail', 'licoreria', 'meat_market', 'service', 'restaurant', 'food_truck', 'mechanic', 'salon', 'loans', 'dealership', 'accounting', 'hybrid']
 
 // Service-based verticals — where vehicle/worker/queue concepts apply.
 export const SERVICE_BASED_TYPES = ['carwash', 'service', 'mechanic', 'salon', 'hybrid']
@@ -396,11 +396,14 @@ export const SERVICE_BASED_TYPES = ['carwash', 'service', 'mechanic', 'salon', '
 // Verticals where Ventas should show the "Cliente / Vehículo" column.
 export const VEHICLE_TYPES = ['carwash', 'mechanic', 'dealership']
 
-// Legacy Spanish keys → canonical English keys. Existing demo tenants and
-// older installs stored the Spanish values directly in settings.business_type
-// before the registry was Englishized. Without this map they fall back to
-// `carwash` and see the wrong UI (Cola tab in a retail store, etc.).
+// Legacy keys → canonical keys. Two generations of legacy live here:
+//   1. Spanish v1 keys from before the registry was Englishized
+//      (tienda/mecanica/servicios/concesionario/hibrido/restaurante/barberia)
+//   2. v2 keys renamed 2026-05-17 for consistency
+//      (prestamos→loans, contabilidad→accounting, carniceria→meat_market)
+// Without this map old DB rows fall back to `carwash` and render the wrong UI.
 const LEGACY_ALIASES = {
+  // v1 — Spanish → English (registry Englishization)
   tienda:        'retail',
   restaurante:   'restaurant',
   hibrido:       'hybrid',
@@ -410,9 +413,12 @@ const LEGACY_ALIASES = {
   otro:          'service',
   concesionario: 'dealership',
   barberia:      'salon',
-  prestamo:      'prestamos',
+  prestamo:      'loans',
   licoreria:     'licoreria',
-  carniceria:    'carniceria',
+  // v2 — 2026-05-17 vertical-key consistency sweep
+  prestamos:     'loans',
+  contabilidad:  'accounting',
+  carniceria:    'meat_market',
 }
 
 export function normalizeBusinessType(type) {

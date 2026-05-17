@@ -23,15 +23,18 @@ if (!SUPABASE_URL || !ANON_KEY || !SERVICE_KEY) {
   process.exit(1)
 }
 
+// Vertical keys here are CANONICAL English (matches packages/config/businessTypes.js
+// BUSINESS_TYPE_KEYS). The smoke probes log in by email — the vertical field is
+// just a label for the report column.
 const DEMO_ACCOUNTS = [
   { vertical: 'carwash',      email: 'admin@carwash.demo.terminalxpos.com'      },
-  { vertical: 'tienda',       email: 'admin@retail.demo.terminalxpos.com'       },
-  { vertical: 'restaurante',  email: 'admin@restaurant.demo.terminalxpos.com'   },
+  { vertical: 'retail',       email: 'admin@retail.demo.terminalxpos.com'       },
+  { vertical: 'restaurant',   email: 'admin@restaurant.demo.terminalxpos.com'   },
   { vertical: 'salon',        email: 'admin@salon.demo.terminalxpos.com'        },
-  { vertical: 'mecanica',     email: 'admin@mechanic.demo.terminalxpos.com'     },
-  { vertical: 'servicios',    email: 'admin@service.demo.terminalxpos.com'      },
+  { vertical: 'mechanic',     email: 'admin@mechanic.demo.terminalxpos.com'     },
+  { vertical: 'service',      email: 'admin@service.demo.terminalxpos.com'      },
   { vertical: 'prestamos',    email: 'admin@prestamos.demo.terminalxpos.com'    },
-  { vertical: 'concesionario',email: 'admin@dealership.demo.terminalxpos.com'   },
+  { vertical: 'dealership',   email: 'admin@dealership.demo.terminalxpos.com'   },
   { vertical: 'food_truck',   email: 'foodtruck@demo.terminalxpos.com'          },
   { vertical: 'contabilidad', email: 'admin@contabilidad.demo.terminalxpos.com' },
   { vertical: 'carniceria',   email: 'admin@carniceria.demo.terminalxpos.com'   },

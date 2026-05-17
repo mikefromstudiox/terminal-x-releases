@@ -72,7 +72,7 @@ export async function setUp(s, { devices = 2 } = {}) {
     rnc: '000000000',
     phone: '+18090000000',
     email: 'sim@terminalxpos.test',
-    settings: { business_type: 'tienda', devices, sim: true }
+    settings: { business_type: 'retail', devices, sim: true }
   })
   if (bizErr) throw new Error('fixtures setUp(businesses): ' + bizErr.message)
 

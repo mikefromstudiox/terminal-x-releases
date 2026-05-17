@@ -1415,7 +1415,7 @@ export default function LandingPage({ section, forceLang }) {
                   ['tiendas',       L('POS para tiendas y retail',         'Retail POS')],
                   ['restaurantes',  L('POS para restaurantes',             'Restaurant POS')],
                   ['mecanica',      L('POS para talleres y mecánica',      'Auto repair POS')],
-                  ['salon',         L('POS para salones y barberías',      'Salon & barber POS')],
+                  ['salon',         L('POS para salones y barberías',      'Salon & barbershop POS')],
                   ['concesionario', L('POS para concesionarios',           'Auto dealership POS')],
                   ['prestamos',     L('Sistema de préstamos y empeños',    'Loans & pawnshop')],
                   ['servicios',     L('POS para servicios profesionales',  'Professional services POS')],

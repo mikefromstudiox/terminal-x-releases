@@ -823,15 +823,16 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
                         <option value="carwash">Car Wash</option>
                         <option value="retail">Tienda / Retail</option>
                         <option value="restaurant">Restaurante</option>
-                        <option value="salon">Salón de Belleza</option>
-                        <option value="barberia">Barbería</option>
+                        <option value="salon">Salón / Barbería</option>
                         <option value="mechanic">Mecánica / Taller</option>
                         <option value="dealership">Concesionario</option>
-                        <option value="carniceria">Carnicería</option>
+                        <option value="meat_market">Carnicería</option>
                         <option value="licoreria">Licorería</option>
-                        <option value="service">Servicio</option>
-                        <option value="prestamos">Préstamos</option>
-                        <option value="otro">Otro</option>
+                        <option value="food_truck">Food Truck</option>
+                        <option value="service">Servicios</option>
+                        <option value="loans">Préstamos</option>
+                        <option value="accounting">Contabilidad</option>
+                        <option value="hybrid">Híbrido</option>
                       </select>
                     </div>
                     <div className="flex gap-2 pt-1">

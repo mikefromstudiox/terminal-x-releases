@@ -31,24 +31,29 @@ import crypto from 'node:crypto'
 import dotenv from 'dotenv'
 dotenv.config({ path: 'A:/Studio X HUB/Terminal X/.env' })
 
-// VERTICAL key = CLI alias (Spanish). bizType = canonical app_settings.business_type
-// value (matches BUSINESS_TYPES key in packages/config/businessTypes.js).
+// 2026-05-17 — VERTICAL keys cleaned to canonical English (matches
+// BUSINESS_TYPES in packages/config/businessTypes.js). Legacy Spanish
+// CLI aliases still accepted via CLI_ALIASES below so old commands work.
 const VERTICALS = {
-  carwash:       { email: 'admin@carwash.demo.terminalxpos.com',       label: 'Carwash',           bizType: 'carwash' },
-  tienda:        { email: 'admin@retail.demo.terminalxpos.com',        label: 'Tienda / Retail',   bizType: 'tienda' },
-  restaurante:   { email: 'admin@restaurant.demo.terminalxpos.com',    label: 'Restaurante',       bizType: 'restaurant' },
-  salon:         { email: 'admin@salon.demo.terminalxpos.com',         label: 'Salón / Barbería',  bizType: 'salon' },
-  hibrido:       { email: 'admin@hybrid.demo.terminalxpos.com',        label: 'Híbrido',           bizType: 'hybrid' },
-  mecanica:      { email: 'admin@mechanic.demo.terminalxpos.com',      label: 'Mecánica',          bizType: 'mechanic' },
-  servicios:     { email: 'admin@service.demo.terminalxpos.com',       label: 'Servicios',         bizType: 'service' },
-  prestamos:     { email: 'admin@prestamos.demo.terminalxpos.com',     label: 'Préstamos',         bizType: 'prestamos' },
-  concesionario: { email: 'admin@dealership.demo.terminalxpos.com',    label: 'Concesionario',     bizType: 'dealership' },
-  carniceria:    { email: 'admin@carniceria.demo.terminalxpos.com',    label: 'Carnicería',        bizType: 'carniceria' },
+  carwash:    { email: 'admin@carwash.demo.terminalxpos.com',    label: 'Carwash',           bizType: 'carwash' },
+  retail:     { email: 'admin@retail.demo.terminalxpos.com',     label: 'Tienda / Retail',   bizType: 'retail' },
+  restaurant: { email: 'admin@restaurant.demo.terminalxpos.com', label: 'Restaurante',       bizType: 'restaurant' },
+  salon:      { email: 'admin@salon.demo.terminalxpos.com',      label: 'Salón / Barbería',  bizType: 'salon' },
+  hybrid:     { email: 'admin@hybrid.demo.terminalxpos.com',     label: 'Híbrido',           bizType: 'hybrid' },
+  mechanic:   { email: 'admin@mechanic.demo.terminalxpos.com',   label: 'Mecánica',          bizType: 'mechanic' },
+  service:    { email: 'admin@service.demo.terminalxpos.com',    label: 'Servicios',         bizType: 'service' },
+  prestamos:  { email: 'admin@prestamos.demo.terminalxpos.com',  label: 'Préstamos',         bizType: 'prestamos' },
+  dealership: { email: 'admin@dealership.demo.terminalxpos.com', label: 'Concesionario',     bizType: 'dealership' },
+  carniceria: { email: 'admin@carniceria.demo.terminalxpos.com', label: 'Carnicería',        bizType: 'carniceria' },
+}
+const CLI_ALIASES = {
+  tienda: 'retail', restaurante: 'restaurant', hibrido: 'hybrid',
+  mecanica: 'mechanic', servicios: 'service', concesionario: 'dealership', barberia: 'salon',
 }
 const PASS = 'Demo2026!'
 
 // Verticals where cuadre_caja is NOT part of the model (per memory:demo_accounts).
-const SKIP_CUADRE = new Set(['prestamos', 'concesionario', 'servicios'])
+const SKIP_CUADRE = new Set(['prestamos', 'dealership', 'service'])
 
 const URL  = process.env.SUPABASE_URL
 const ANON = process.env.SUPABASE_ANON_KEY
@@ -58,10 +63,12 @@ if (!URL || !ANON || !SVC) {
   process.exit(1)
 }
 
-const arg = (process.argv[2] || '').toLowerCase()
+const rawArg = (process.argv[2] || '').toLowerCase()
+const arg = CLI_ALIASES[rawArg] || rawArg
 if (!arg || !VERTICALS[arg]) {
   console.log('\nUsage: node scripts/demo-e2e-smoke.mjs <vertical>')
   console.log('Verticals:', Object.keys(VERTICALS).join(', '))
+  console.log('(Legacy Spanish aliases also accepted:', Object.keys(CLI_ALIASES).join(', ') + ')')
   process.exit(1)
 }
 const VERTICAL = arg
@@ -222,10 +229,10 @@ async function run() {
     log('tickets carry washer assignment', withWasher >= 1, `${withWasher}/${tickets?.length ?? 0}`)
     const washers = (empleados || []).filter(e => ['lavador', 'hybrid'].includes(e.tipo))
     log('washers: ≥1 active lavador', washers.length >= 1, `${washers.length} washers`)
-  } else if (VERTICAL === 'tienda') {
+  } else if (VERTICAL === 'retail') {
     const { data: inv } = await svc.from('inventory_items').select('id, name, quantity').eq('business_id', BID).eq('active', true).limit(5)
     log('inventory_items: ≥1 row', (inv || []).length >= 1, `${inv?.length ?? 0} products`)
-  } else if (VERTICAL === 'restaurante') {
+  } else if (VERTICAL === 'restaurant') {
     const { data: mesas } = await svc.from('mesas').select('id, name, status').eq('business_id', BID).eq('active', true)
     log('mesas: ≥1 active', (mesas || []).length >= 1, `${mesas?.length ?? 0} mesas`)
     const { data: mods } = await svc.from('modificadores').select('id').eq('business_id', BID).eq('active', true).limit(1)
@@ -233,12 +240,12 @@ async function run() {
   } else if (VERTICAL === 'salon') {
     const { data: sched } = await svc.from('stylist_schedules').select('id').eq('business_id', BID).limit(1)
     log('stylist_schedules: queryable', Array.isArray(sched), `${sched?.length ?? 0}`)
-  } else if (VERTICAL === 'mecanica') {
+  } else if (VERTICAL === 'mechanic') {
     const { data: wo } = await svc.from('work_orders').select('id, status').eq('business_id', BID).limit(5)
     log('work_orders: ≥0 rows', Array.isArray(wo), `${wo?.length ?? 0}`)
     const { data: veh } = await svc.from('vehicles').select('id, plate').eq('business_id', BID).limit(5)
     log('vehicles: ≥0 rows', Array.isArray(veh), `${veh?.length ?? 0}`)
-  } else if (VERTICAL === 'concesionario') {
+  } else if (VERTICAL === 'dealership') {
     const { data: vinv } = await svc.from('vehicle_inventory').select('id, vin, status').eq('business_id', BID).limit(5)
     log('vehicle_inventory: ≥0 rows', Array.isArray(vinv), `${vinv?.length ?? 0}`)
     const { data: deals } = await svc.from('sales_deals').select('id').eq('business_id', BID).limit(5)
@@ -414,7 +421,7 @@ async function run() {
       log('pawn-photos: public URL', !!pubUrl?.publicUrl, pubUrl?.publicUrl?.slice(0, 60))
       await svc.storage.from('pawn-photos').remove([photoPath])
     }
-  } else if (VERTICAL === 'servicios') {
+  } else if (VERTICAL === 'service') {
     // ── Servicios vertical — service_projects schema + CRUD round-trip ──
     const { data: proj, error: projErr } = await svc.from('service_projects').select('id').eq('business_id', BID).limit(5)
     log('service_projects: queryable', !projErr && Array.isArray(proj), projErr?.message || `${proj?.length ?? 0}`)
@@ -437,7 +444,7 @@ async function run() {
       log('service_projects: rejects bad billing_type', !!badErr, badErr?.message?.slice(0,60))
       await svc.from('service_projects').delete().eq('supabase_id', spSid)
     }
-  } else if (VERTICAL === 'hibrido') {
+  } else if (VERTICAL === 'hybrid') {
     const { data: inv } = await svc.from('inventory_items').select('id').eq('business_id', BID).eq('active', true).limit(1)
     log('inventory_items present (hybrid)', (inv || []).length >= 1, `${inv?.length ?? 0}`)
     log('services present (hybrid)', (activeSvcs || []).length >= 1, `${activeSvcs?.length ?? 0}`)

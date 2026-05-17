@@ -790,9 +790,9 @@ function StepEmpresa({ t, lang, onNext, onBack }) {
       // Seed tienda_subtype for any tienda-like vertical. For top-level
       // licoreria / carniceria we lock the subtype to match; for retail
       // the owner picked it explicitly above.
-      const tiendaLike = bizType === 'retail' || bizType === 'licoreria' || bizType === 'carniceria'
+      const tiendaLike = bizType === 'retail' || bizType === 'licoreria' || bizType === 'meat_market'
       const subtypeToWrite = bizType === 'licoreria' ? 'licoreria'
-                           : bizType === 'carniceria' ? 'otro'
+                           : bizType === 'meat_market' ? 'otro'
                            : tiendaSub
       const payload = { business_type: bizType }
       if (tiendaLike) payload.tienda_subtype = subtypeToWrite
