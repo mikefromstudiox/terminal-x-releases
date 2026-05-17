@@ -2880,7 +2880,11 @@ export function createWebAPI(supabase, businessId) {
                 cost:               i.cost != null ? Number(i.cost) : (i.service_id ? (svcCostById.get(i.service_id) || 0) : 0),
                 itbis: (() => {
                   const aplica = i.aplica_itbis !== undefined ? i.aplica_itbis : (i.service_id ? (svcItbisById.get(i.service_id) ?? 1) : 1)
-                  return aplica !== 0 ? parseFloat((i.price * itbisFactor).toFixed(2)) : 0
+                  if (aplica === 0) return 0
+                  // DR retail convention: `i.price` is GROSS (price tag includes ITBIS).
+                  // Extract embedded ITBIS: gross - gross/(1+factor). Storing `price * factor`
+                  // would over-count by ~18% (e.g. RD$829.20 gross → RD$126.49 ITBIS, not RD$149.26).
+                  return parseFloat((Number(i.price) - Number(i.price) / (1 + itbisFactor)).toFixed(2))
                 })(),
                 is_wash:            i.is_wash ?? true,
                 quantity:           i.quantity || 1,
