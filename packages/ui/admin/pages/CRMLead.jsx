@@ -49,7 +49,7 @@ export default function CRMLead({ getToken, isDark, lang }) {
   const [noteKind, setNoteKind] = useState('note')
   const [posting, setPosting] = useState(false)
   const [showActivate, setShowActivate] = useState(false)
-  const [activateForm, setActivateForm] = useState({ email: '', password: '', plan: 'pro', platform: 'web' })
+  const [activateForm, setActivateForm] = useState({ email: '', password: '', pin: '', plan: 'pro', platform: 'web' })
   const [activating, setActivating] = useState(false)
   const [activateErr, setActivateErr] = useState('')
   const [activatedKey, setActivatedKey] = useState('')
@@ -109,6 +109,7 @@ export default function CRMLead({ getToken, isDark, lang }) {
       email: lead?.email || '',
       phone: lead?.phone || '',
       password: '',
+      pin: '',
       // Default to pro_max so the activated client gets the full 7-day-trial
       // experience that self-signup gives. Mike can downgrade later if needed.
       // Falling back to 'pro' silently locks Pro PLUS+ vertical features
@@ -125,6 +126,9 @@ export default function CRMLead({ getToken, isDark, lang }) {
     const lead = data?.lead
     if (!activateForm.email.trim() || !activateForm.password.trim()) { setActivateErr('Email y contraseña requeridos'); return }
     if (activateForm.password.length < 6) { setActivateErr('Contraseña mínimo 6 caracteres'); return }
+    const pin = (activateForm.pin || '').trim()
+    if (!pin) { setActivateErr('PIN del POS requerido (4-6 dígitos)'); return }
+    if (!/^\d{4,6}$/.test(pin)) { setActivateErr('PIN debe ser 4-6 dígitos numéricos'); return }
     setActivating(true); setActivateErr('')
     try {
       const resp = await fetch('/api/panel?action=clients', {
@@ -135,6 +139,7 @@ export default function CRMLead({ getToken, isDark, lang }) {
           rnc: lead?.rnc || '',
           phone: activateForm.phone.trim() || lead?.phone || '',
           email: activateForm.email.trim(), password: activateForm.password,
+          pin,
           plan: activateForm.plan, platform: activateForm.platform,
         }),
       })
@@ -298,10 +303,10 @@ export default function CRMLead({ getToken, isDark, lang }) {
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {[{ k: 'email', label: 'Email', type: 'email' }, { k: 'phone', label: L('Teléfono (opcional)', 'Phone (optional)'), type: 'tel' }, { k: 'password', label: L('Contraseña', 'Password'), type: 'password' }].map(f => (
+                  {[{ k: 'email', label: 'Email', type: 'email' }, { k: 'phone', label: L('Teléfono (opcional)', 'Phone (optional)'), type: 'tel' }, { k: 'password', label: L('Contraseña', 'Password'), type: 'password' }, { k: 'pin', label: L('PIN del POS (4-6 dígitos)', 'POS PIN (4-6 digits)'), type: 'password', inputMode: 'numeric', maxLength: 6 }].map(f => (
                     <div key={f.k}>
                       <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{f.label}</label>
-                      <input type={f.type} value={activateForm[f.k]} onChange={e => setActivateForm({ ...activateForm, [f.k]: e.target.value })} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${inputBase}`} />
+                      <input type={f.type} inputMode={f.inputMode} maxLength={f.maxLength} value={activateForm[f.k]} onChange={e => setActivateForm({ ...activateForm, [f.k]: f.k === 'pin' ? e.target.value.replace(/\D/g, '').slice(0, 6) : e.target.value })} className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${inputBase}`} />
                     </div>
                   ))}
                   <div className="grid grid-cols-2 gap-2">
