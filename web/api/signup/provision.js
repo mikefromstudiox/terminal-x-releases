@@ -74,9 +74,21 @@ async function handler(req, res) {
     const ncfTypes = bizType === 'contabilidad'
       ? ['E31', 'E32', 'E33', 'E34']
       : ['B01', 'B02', 'B14', 'B15', 'E31', 'E32', 'E33', 'E34']
+    // Live schema columns are `current_number` + `limit_number` (NOT
+    // `next_number` / `max_number`). PostgREST silently drops unknown keys
+    // per CLAUDE.md hard rule, so the old payload was writing rows with
+    // defaults only. The old code also used a one-off limit_number=999999999
+    // that didn't match the rest of the codebase. Canonical defaults across
+    // desktop seeder (electron/database.js:3594), web saveNcfSequence
+    // (packages/data/web.js:4785), and admin update paths are all (0, 500).
+    // Match them. Trials needing higher caps should use the admin UI to bump
+    // limit_number per type, or for E-series request a real range via DGII
+    // postulación.
     for (const type of ncfTypes) {
       const { error: ncfErr } = await supabase.from('ncf_sequences').upsert({
-        business_id: biz.id, type, prefix: type, next_number: 1, max_number: 999999999,
+        business_id: biz.id, type, prefix: type,
+        current_number: 0, limit_number: 500,
+        active: true, enabled: true, supabase_id: crypto.randomUUID(),
       }, { onConflict: 'business_id,type', ignoreDuplicates: true })
       if (ncfErr && !ncfErr.message?.includes('duplicate')) throw ncfErr
     }
