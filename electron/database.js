@@ -6185,6 +6185,122 @@ function ticketGetActiveByMesa(mesaId) {
   return ticket
 }
 
+// ─── 2026-05-17 Mesas add-on: running-tab append flow ─────────────────────
+// Web-parity lookup keyed by mesa_supabase_id (web/web-mobile flow uses uuid;
+// legacy ticketGetActiveByMesa keys by int mesa_id). Returns null if no open
+// ticket. Items are tagged `_wasExisting=true` so the POS can distinguish
+// already-saved lines from the new lines the cashier is about to add.
+function ticketGetActiveByMesaSupabaseId(mesaSupabaseId) {
+  if (!db || !mesaSupabaseId) return null
+  _selfHealOpenTicketsCols()
+  const ticket = db.prepare(
+    `SELECT * FROM tickets WHERE mesa_supabase_id=? AND open_status='open' ORDER BY id DESC LIMIT 1`
+  ).get(mesaSupabaseId)
+  if (!ticket) return null
+  const items = db.prepare(
+    `SELECT * FROM ticket_items WHERE ticket_id=? ORDER BY id ASC`
+  ).all(ticket.id)
+  ticket.items = items.map(it => ({
+    ...it,
+    qty: it.quantity,
+    _cartKey: it.supabase_id || `tk-${it.id}`,
+    _wasExisting: true,
+  }))
+  return ticket
+}
+
+// Append NEW items to an already-open ticket (mesa running tab) and recompute
+// subtotal/itbis/total. Fails loudly if the ticket was closed/voided between
+// load and save. Sync.js pushes ticket_items by ticket_supabase_id, so no
+// descriptor change is needed.
+function ticketAppendItems({ ticket_supabase_id, items, business_id } = {}) {
+  if (!db) throw new Error('DB no inicializada')
+  if (!ticket_supabase_id) throw new Error('Falta ticket_supabase_id')
+  if (!Array.isArray(items) || items.length === 0) throw new Error('No hay items para agregar')
+
+  return db.transaction(() => {
+    const ticket = db.prepare(
+      `SELECT id, supabase_id, business_id, mesa_id, mesa_supabase_id, open_status, status, doc_number FROM tickets WHERE supabase_id=?`
+    ).get(ticket_supabase_id)
+    if (!ticket) throw new Error('Ticket no encontrado')
+    if (ticket.open_status !== 'open' || ['cobrado','done','cancelled','voided','nula','anulado'].includes(String(ticket.status || '').toLowerCase())) {
+      throw new Error('Ticket ya cerrado')
+    }
+
+    // Resolve ITBIS rate (per-business from app_settings).
+    let itbisFactor = 0.18
+    try {
+      const row = db.prepare(`SELECT value FROM app_settings WHERE business_id=? AND key='itbis_pct' LIMIT 1`).get(ticket.business_id || business_id || null)
+      const pct = Number(row?.value)
+      if (Number.isFinite(pct) && pct >= 0) itbisFactor = pct / 100
+    } catch {}
+
+    const insStmt = db.prepare(`INSERT INTO ticket_items (
+      supabase_id, ticket_id, ticket_supabase_id, service_id, service_supabase_id,
+      inventory_item_id, inventory_item_supabase_id, name, price, cost, itbis,
+      is_wash, quantity, sku, weight, preparation_notes, created_at, updated_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))`)
+
+    let svcItbisById = new Map(), svcCostById = new Map()
+    const svcIds = items.map(i => i.service_id).filter(Boolean)
+    if (svcIds.length) {
+      const ph = svcIds.map(() => '?').join(',')
+      try {
+        const rows = db.prepare(`SELECT id, cost, aplica_itbis FROM services WHERE id IN (${ph})`).all(...svcIds)
+        for (const r of rows) { svcItbisById.set(r.id, r.aplica_itbis ?? 1); svcCostById.set(r.id, r.cost || 0) }
+      } catch {}
+    }
+
+    let added = 0
+    for (const i of items) {
+      const aplica = i.aplica_itbis !== undefined ? i.aplica_itbis : (i.service_id ? (svcItbisById.get(i.service_id) ?? 1) : 1)
+      const price  = Number(i.price) || 0
+      const itbis  = aplica === 0 ? 0 : parseFloat((price - price / (1 + itbisFactor)).toFixed(2))
+      const cost   = i.cost != null ? Number(i.cost) : (i.service_id ? (svcCostById.get(i.service_id) || 0) : 0)
+      insStmt.run(
+        i.supabase_id || crypto.randomUUID(),
+        ticket.id,
+        ticket.supabase_id,
+        i.service_id || null,
+        i.service_supabase_id || null,
+        i.inventory_item_id || null,
+        i.inventory_item_supabase_id || null,
+        i.name,
+        price,
+        cost,
+        itbis,
+        (i.is_wash ?? 1) ? 1 : 0,
+        i.quantity || i.qty || 1,
+        i.sku || null,
+        i.weight != null ? Number(i.weight) : null,
+        i.preparation_notes || null,
+      )
+      added++
+    }
+
+    // Recompute totals from ALL items.
+    const totals = db.prepare(`SELECT COALESCE(SUM(price * quantity), 0) AS sub, COALESCE(SUM(itbis * quantity), 0) AS itb FROM ticket_items WHERE ticket_id=?`).get(ticket.id)
+    const subtotal = parseFloat((Number(totals?.sub) || 0).toFixed(2))
+    const itbis    = parseFloat((Number(totals?.itb) || 0).toFixed(2))
+    const total    = subtotal
+
+    db.prepare(`UPDATE tickets SET subtotal=?, itbis=?, total=?, updated_at=datetime('now') WHERE id=?`)
+      .run(subtotal, itbis, total, ticket.id)
+
+    try {
+      activityLogRecord({
+        event_type: 'ticket_append_items', severity: 'info',
+        target_type: 'ticket', target_id: ticket.id,
+        target_name: ticket.doc_number || `#${ticket.id}`,
+        amount: parseFloat((items.reduce((s, i) => s + (Number(i.price) || 0) * (i.quantity || i.qty || 1), 0)).toFixed(2)),
+        metadata: { ticket_supabase_id: ticket.supabase_id, mesa_supabase_id: ticket.mesa_supabase_id, added_count: added, new_total: total },
+      })
+    } catch {}
+
+    return { ok: true, ticket_supabase_id: ticket.supabase_id, added, subtotal, itbis, total }
+  })()
+}
+
 // ─── v2.16.3 H3 — Restaurante "Mover" (transfer to mesa) ──────────────────
 function ticketTransferToMesa({ ticket_supabase_id, new_mesa_id } = {}) {
   if (!db) throw new Error('DB no inicializada')
@@ -14245,6 +14361,8 @@ module.exports = {
   // Tickets
   ticketsGetAll, ticketGetById, ticketCreate, ticketMarkPaid, ticketVoid, ticketGetByDateRange, ticketGetByDateRangeWithItems,
   ticketOpenForMesa, ticketAddItem, ticketUpdateItemQty, ticketRemoveItem, ticketGetActiveByMesa, ticketCloseWithPayment,
+  // 2026-05-17 Mesas add-on running-tab append
+  ticketGetActiveByMesaSupabaseId, ticketAppendItems,
   // v2.16.3 H3 — Restaurante Mover/Juntar
   ticketTransferToMesa, ticketMerge,
   // v2.16.3 H4 — Restaurant front-of-house reservations

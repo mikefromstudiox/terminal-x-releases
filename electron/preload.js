@@ -656,6 +656,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     updateItemQty:     (data) => call('tickets:updateItemQty', data),
     removeItem:        (data) => call('tickets:removeItem', data),
     getActiveByMesa:   (mesaId) => call('tickets:getActiveByMesa', { mesa_id: mesaId }),
+    // 2026-05-17 Mesas add-on: web-parity by-supabase-id lookup + append.
+    byMesa:            (mesaSupabaseId) => call('tickets:byMesa', { mesa_supabase_id: mesaSupabaseId }),
+    appendItems:       (data) => call('tickets:appendItems', data || {}),
     closeWithPayment:  (ticketId, payload) =>
       call('tickets:closeWithPayment', {
         ticket_id: typeof ticketId === 'object' ? ticketId?.ticket_id : ticketId,
