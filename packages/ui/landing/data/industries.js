@@ -7,7 +7,7 @@
 import {
   Receipt, Droplets, Store, UtensilsCrossed, Wrench, Building2, Car,
   Wine, Pill, ShoppingBasket, ShoppingCart, Hammer, BookOpen, Shirt, Boxes,
-  Scissors, HandCoins, Briefcase,
+  Scissors, HandCoins, Briefcase, Truck, Beef, LayoutGrid, Calculator,
 } from 'lucide-react'
 
 export const INDUSTRIES = {
@@ -432,6 +432,179 @@ export const INDUSTRIES = {
       { q: '¿Qué pasa si despido a alguien?', a: 'Liquidación Ley 16-92 instantánea: preaviso, cesantía acumulada, vacaciones pendientes, salario de Navidad proporcional.' },
     ],
   },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  contabilidad: {
+    slug: 'contabilidad',
+    icon: Calculator,
+    eyebrow: 'CONTADORES · FIRMAS · OFICINAS',
+    title: 'Tu contador trabaja más rápido cuando tu negocio está en Terminal X.',
+    lede: 'Si eres contador: maneja todos tus clientes desde un solo cockpit, descarga sus e-CFs automáticamente cada noche del portal DGII, genera 606/607/608/609 + IR-17 + IT-1 de TODOS tus clientes con un click. Si eres dueño de negocio: tu contador trabaja directo en tu cuenta, sin pedirte capturas de pantalla ni mandarte Excels — un cierre que tomaba 3 días ahora le toma 4 horas.',
+    heroBadges: ['Cockpit multi-cliente', 'Auto-pull DGII nocturno', 'Reportes 606/607/608/609 + IR-17 + IT-1'],
+    plan: { name: 'Pro MAX', price: 'desde RD$6,990/mes', anchor: 'pro_max' },
+    pdf: null,
+    howItWorks: [
+      { n: 1, title: 'Conectas todos tus clientes', body: 'En el Portfolio configuras la sesión DGII de cada cliente (pegas el ASP.NET_SessionId desde DevTools — F12 → Application → Cookies — o usuario/contraseña cifrado con AES-256-GCM). Sin límite de clientes — cada uno es solo un RNC más.' },
+      { n: 2, title: 'Sistema baja datos cada noche', body: 'A las 03:00 AST un cron worker se conecta al portal DGII Oficina Virtual de cada cliente, descarga e-CFs Recibidos vía ConsultaRCF.aspx, parsea el XLS y guarda los registros. Cada mañana ves todos los comprobantes nuevos listos para clasificar.' },
+      { n: 3, title: 'Conciliación automática', body: 'Cuando un cliente no te ha enviado un comprobante que el portal DGII sí tiene registrado, el botón "Conciliar con DGII" lo detecta y te ofrece importarlo con un click, o generar un mensaje WhatsApp con los NCFs exactos que faltan.' },
+      { n: 4, title: 'Reportes masivos un-click', body: 'Generas 606, 607, 608, 609, IR-17, IT-1 y anticipos ISR PJ (Art. 314) para TODOS tus clientes con un click — descarga un ZIP listo para subir al portal DGII.' },
+    ],
+    features: [
+      'Cockpit Portfolio: 32+ clientes en una sola pantalla con semáforo (verde radicado, ámbar listo, rojo vencido)',
+      'Auto-pull nocturno de e-CFs Recibidos desde portal DGII (cron a las 03:00 AST)',
+      'Conciliación automática DGII ↔ POS del cliente — detecta NCFs faltantes',
+      'Reportes 606 (compras), 607 (ventas), 608 (anulados), 609 (servicios pagados al exterior)',
+      'IR-17 mensual con casillas pre-llenadas listas para copiar',
+      'IT-1 con cálculo automático del ITBIS adeudado',
+      'Anticipos ISR PJ calculados por Artículo 314 (cuota mensual)',
+      'Activos fijos con depreciación y flujo de venta',
+      'Pago masivo bancario para BHD León y Banreservas',
+      'Modo "Ver como cliente" auditado — entras al POS del cliente para soporte directo',
+      'Cliente paga su mensualidad — el contador no paga por cada cliente',
+      'Sin límite de clientes en Pro MAX',
+    ],
+    screens: [
+      { name: 'Portfolio', detail: 'Lista de clientes con semáforo de obligaciones' },
+      { name: 'Cliente Detalle', detail: 'Auto-pull DGII, e-CFs, conciliación' },
+      { name: 'Reportes', detail: '606/607/608/609 + IR-17 + IT-1 masivos' },
+      { name: 'Ver como cliente', detail: 'Entras al POS del cliente con auditoría' },
+    ],
+    faq: [
+      { q: '¿Por qué le digo a mi cliente que se monte en Terminal X?', a: 'Una sola línea: "Si estás en Terminal X, te cierro el mes en 4 horas en lugar de 3 días — sin pedirte capturas ni Excel". Tu cuenta de Contabilidad se conecta directo a su POS, ves sus ventas, sus e-CFs y su inventario en vivo. El cliente paga su mensualidad y tú no le pagas a Terminal X por incluirlo — es bilateral.' },
+      { q: '¿Cuánto cuesta para el cliente?', a: 'Cualquier plan POS (Pro RD$2,490/mes, Pro PLUS RD$4,490/mes, Pro MAX RD$6,990/mes) o el plan Facturación desde RD$490/mes. Tú como contador necesitas Pro MAX (RD$6,990/mes) que ya incluye el cockpit multi-cliente sin límite.' },
+      { q: '¿Cuántos clientes puedo manejar en Pro MAX?', a: 'Sin límite. Perla, nuestra contadora piloto, pasó de 3 días por cierre a 4 horas manejando 32 clientes desde una sola pantalla. Cada cliente extra es solo un RNC más en el Portfolio.' },
+      { q: '¿Cómo funciona el auto-pull DGII si no tengo la sesión del cliente?', a: 'Dos opciones: (a) cliente pega el ASP.NET_SessionId desde DevTools (F12 → Application → Cookies) y lo renueva cuando expira, o (b) cliente te da usuario/contraseña y el sistema lo cifra con AES-256-GCM. El cron worker lo usa cada noche sin exponer credenciales.' },
+      { q: '¿El cliente ve que entro a su sistema?', a: 'Sí. El modo "Ver como cliente" queda auditado en activity_log con tu nombre, fecha y qué consultaste. Total transparencia — el cliente confía porque ve la pista.' },
+      { q: '¿Funciona si el cliente usa otro POS?', a: 'Solo el auto-pull DGII y los reportes manuales. Toda la magia (conciliación automática, sin pedir capturas, ver inventario en vivo, ver ventas del día) requiere que el cliente esté en Terminal X. Por eso vale la pena migrarlos.' },
+    ],
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  food_truck: {
+    slug: 'food_truck',
+    icon: Truck,
+    eyebrow: 'FOOD TRUCK · COMIDA RÁPIDA',
+    title: 'POS para food truck — rápido, móvil, 100% offline.',
+    lede: 'Para food trucks, chimi trucks, pizza trucks y comida rápida dominicana: menú simple, cobro express en tablet o teléfono, modo offline real (la calle se queda sin señal y tú sigues vendiendo), e-CF E32 al instante por WhatsApp.',
+    heroBadges: ['100% offline', 'Tablet/Móvil', 'Cobro express'],
+    plan: { name: 'Pro PLUS', price: 'desde RD$4,490/mes', anchor: 'pro_plus' },
+    pdf: null,
+    howItWorks: [
+      { n: 1, title: 'Cargas tu menú', body: 'Categorías simples (chimis, pizzas, bebidas, extras). Cada ítem con precio y modificadores rápidos (sin lechuga, extra queso). MenuBuilder en menos de 10 minutos.' },
+      { n: 2, title: 'Vendes desde tablet o teléfono', body: 'Tu cajero abre el POS web en cualquier dispositivo. Cobra en efectivo, tarjeta o transferencia. Imprime ticket en impresora térmica USB o Bluetooth.' },
+      { n: 3, title: 'La calle se queda sin señal', body: 'Modo offline real: sigues cobrando, imprimes recibos, las ventas se encolan locales y el e-CF se firma con IndicadorEnvioDiferido=1 cuando vuelve internet. Cero ventas perdidas.' },
+      { n: 4, title: 'Cierras el día', body: 'Cuadre rápido: efectivo + tarjeta + transferencia + propinas. Resumen de top ítems del día. Comisión al cocinero o repartidor si aplica.' },
+    ],
+    features: [
+      'Menú simple con categorías y modificadores rápidos',
+      'Cobro express desde tablet, móvil o laptop',
+      'Modo offline real con cola de 72 horas',
+      'Impresora térmica USB o Bluetooth compatible',
+      'Comprobantes E32 (Consumo Final) y E43 (Gastos Menores) directos a DGII',
+      'WhatsApp del recibo en un click',
+      'Comisiones por cocinero o repartidor (opcional)',
+      'Cuadre del día con varianza',
+      'Multi-truck (Pro MAX) — varios food trucks en una sola cuenta con dashboard remoto',
+      'Reportes: top ítems, hora pico, ventas por día/semana',
+    ],
+    screens: [
+      { name: 'POS Móvil', detail: 'Menú con tabs y cobro en 2 toques' },
+      { name: 'Menú', detail: 'Categorías, items, modificadores' },
+      { name: 'Cuadre', detail: 'Cierre del día con varianza' },
+      { name: 'Reportes', detail: 'Top ítems + hora pico + ventas' },
+    ],
+    faq: [
+      { q: '¿Funciona si no tengo internet en el food truck?', a: 'Sí, 100%. Modo offline real: cobras, imprimes recibos, encolas e-CFs. Cuando vuelves a tener señal (WiFi de casa, hotspot del celular), todo se sincroniza con la cola DGII de 72 horas.' },
+      { q: '¿Necesito una computadora o sirve mi tablet?', a: 'Tablet o teléfono Android/iOS. Terminal X web es PWA — se instala como app desde Chrome o Safari, funciona offline igual que una app nativa.' },
+      { q: '¿Cómo cobro tarjeta en el food truck?', a: 'Terminal X registra la venta como "tarjeta" y tu lector externo (Square, Stripe, BHD, Banreservas) procesa el pago. El sistema solo te ayuda con el comprobante DGII y la cuadratura del día.' },
+      { q: '¿Soporta varios food trucks de la misma marca?', a: 'Sí, en Pro MAX. Multi-ubicación con dashboard remoto unificado — ves las ventas en vivo de los 3 trucks desde tu casa.' },
+    ],
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  carniceria: {
+    slug: 'carniceria',
+    icon: Beef,
+    eyebrow: 'CARNICERÍA · POLLERA · PESCADERÍA',
+    title: 'Carnicería: venta por peso, cortes, mayoreo, frescura.',
+    lede: 'El POS especializado para carnicerías, pollerías y pescaderías dominicanas. Catálogo de cortes con precio por libra, venta con báscula, mayoreo con descuento por volumen, alertas de frescura por lote y rotación FEFO automática.',
+    heroBadges: ['Venta por peso', 'Mayoreo con descuento', 'Alertas de frescura'],
+    plan: { name: 'Pro PLUS', price: 'desde RD$4,490/mes', anchor: 'pro_plus' },
+    pdf: null,
+    howItWorks: [
+      { n: 1, title: 'Defines tu catálogo de cortes', body: 'Cada corte (chuleta, lomo, costilla, pollo entero, filete) con precio por libra o por kilo, ITBIS si aplica y categoría. Plantilla pre-cargada para arrancar rápido.' },
+      { n: 2, title: 'Recibes el lote', body: 'Cargas el ingreso con peso total, costo, fecha de vencimiento o caducidad. Sistema asigna número de lote y empieza el reloj de frescura.' },
+      { n: 3, title: 'Vendes por peso', body: 'Cajero pesa en báscula, mete los gramos/libras al POS, sistema calcula precio. Mayoreo automático: si compra arriba de X libras, descuento por volumen se aplica solo.' },
+      { n: 4, title: 'Frescura controlada', body: 'Sistema te avisa cuando un lote llega a 70% y 90% de su vida útil. Rotación FEFO (First Expired First Out) sugiere vender primero los lotes más viejos.' },
+    ],
+    features: [
+      'Catálogo de cortes con precio por libra o kilo',
+      'Venta por peso con báscula USB o entrada manual',
+      'Mayoreo con descuento automático por umbral de cantidad',
+      'Gestión de lotes con fecha de vencimiento y trazabilidad',
+      'Alertas de frescura 70% y 90% de vida útil',
+      'Rotación FEFO automática (vende primero lo que vence primero)',
+      'Categorías pre-cargadas: res, pollo, cerdo, pescado, embutidos',
+      'Recetas (BOM) para preparados — kibbeh, longaniza, pernil sazonado',
+      'Cobro con E31/E32 directo a DGII',
+      'Inventario con costo + margen ex-ITBIS por corte',
+      'Reportes: cortes más vendidos, mermas por lote, rotación',
+    ],
+    screens: [
+      { name: 'POS Carnicería', detail: 'Selección de corte + peso + descuento' },
+      { name: 'Cortes', detail: 'Catálogo con precios y categorías' },
+      { name: 'Lotes', detail: 'Frescura, vencimientos, trazabilidad' },
+      { name: 'Mayoreo', detail: 'Reglas de descuento por volumen' },
+    ],
+    faq: [
+      { q: '¿Soporta báscula USB?', a: 'Sí. Si tu báscula manda HID emulado (la mayoría de las modernas), Terminal X lee el peso directo. También entrada manual.' },
+      { q: '¿Cómo manejo las mermas?', a: 'Cada lote tracked: si vence, marcas la merma con motivo y queda en el reporte de mermas. Inventario y margen se actualizan automáticamente.' },
+      { q: '¿Sirve para pescadería o pollería?', a: 'Sí. La misma estructura aplica: catálogo de cortes/piezas, venta por peso, lotes con vencimiento corto, alertas de frescura. Pre-cargado funciona para los tres tipos de negocio.' },
+      { q: '¿Puedo hacer ventas al por mayor a restaurantes?', a: 'Sí. Crea cliente con tipo "mayorista" + precios especiales por cliente. Su descuento se aplica solo al cobrar. Comprobante E31 (Crédito Fiscal) con su RNC.' },
+    ],
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  hybrid: {
+    slug: 'hybrid',
+    icon: LayoutGrid,
+    eyebrow: 'NEGOCIO HÍBRIDO · MULTI-VERTICAL',
+    title: 'Un negocio, varios mundos. Una sola cuenta.',
+    lede: 'Café que también vende ropa, restaurante con tienda de souvenirs, salón con productos al estante, gasolinera con colmado — Terminal X combina dos o más verticales en una sola cuenta con un solo cierre fiscal.',
+    heroBadges: ['2+ verticales', 'Un solo cierre', 'NCF unificado'],
+    plan: { name: 'Pro PLUS', price: 'desde RD$4,490/mes', anchor: 'pro_plus' },
+    pdf: null,
+    howItWorks: [
+      { n: 1, title: 'Escoges tus verticales', body: 'Al activar Híbrido eliges 2 o más componentes: restaurant + retail, carwash + tienda, salón + productos, food_truck + catering. Cada uno trae sus pantallas, reglas y reportes.' },
+      { n: 2, title: 'Un POS para todo', body: 'El cajero ve tabs por vertical. Cobra una mesa del restaurante y un suéter de la tienda en el mismo ticket. Inventario y comisiones se separan automáticamente por vertical.' },
+      { n: 3, title: 'Un solo cierre fiscal', body: 'NCF unificado bajo un solo RNC. El 606 y 607 mensual junta todas las ventas. Tu contador maneja UNA empresa, no dos.' },
+      { n: 4, title: 'Reportes por vertical y consolidados', body: 'Ves cuánto vendió el restaurante vs cuánto vendió la tienda, costos por vertical, margen por vertical — pero al cerrar el día es un solo cuadre.' },
+    ],
+    features: [
+      'Combina 2 o más verticales: restaurant + retail + carwash + servicios + salón + más',
+      'Tabs por vertical en el POS — cajero cambia de modo sin cerrar sesión',
+      'Inventario separado por vertical pero un solo cierre',
+      'Comisiones separadas: mesero del restaurante vs vendedor de la tienda',
+      'NCF unificado bajo un solo RNC — un solo 606, un solo 607',
+      'Reportes por vertical (ventas, margen, top ítems) + dashboard consolidado',
+      'KDS para la parte de restaurante + códigos de barra para la parte de tienda',
+      'Roles que ven solo su vertical (cocinero solo cocina, vendedor solo tienda)',
+      'Multi-impresora con ruteo por vertical (cocina al restaurante, mostrador a la tienda)',
+      'Cuadre del día consolidado con desglose por vertical',
+    ],
+    screens: [
+      { name: 'POS Híbrido', detail: 'Tabs por vertical en una sola pantalla' },
+      { name: 'Inventario', detail: 'Stock separado por vertical' },
+      { name: 'Reportes', detail: 'Por vertical + consolidados' },
+      { name: 'Cuadre', detail: 'Cierre único con desglose' },
+    ],
+    faq: [
+      { q: '¿Por qué no abrir dos cuentas separadas?', a: 'Porque pagarías dos suscripciones, tendrías dos NCFs, dos 606/607, dos cuadres, dos contadores. Híbrido te da las pantallas separadas pero un solo cierre fiscal — más barato y más simple.' },
+      { q: '¿Cuántos verticales puedo combinar?', a: 'Hasta 5. Los más comunes: restaurant + retail (café con tienda), carwash + tienda (lavadero con accesorios), salón + retail (productos al estante), food_truck + catering.' },
+      { q: '¿Necesito Pro MAX para esto?', a: 'No. Pro PLUS soporta híbrido completo. Pro MAX agrega multi-ubicación si tienes el mismo híbrido en varios locales.' },
+      { q: '¿Puedo agregar un vertical después?', a: 'Sí. Empezaste con restaurant + retail y luego abriste un carwash en el mismo local — lo agregas desde Settings sin perder data ni cerrar el negocio.' },
+    ],
+  },
 }
 
 // Index used by tab linking and sitemap.
@@ -451,4 +624,5 @@ export const TAB_TO_INDUSTRY = {
   restaurantes: 'restaurantes',
   servicios: 'servicios',
   empresas: 'empresas',
+  contabilidad: 'contabilidad',
 }

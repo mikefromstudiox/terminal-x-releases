@@ -3,7 +3,7 @@ import {
   Receipt, Droplets, Store, UtensilsCrossed, Wrench, Building2,
   Check, Wine, Pill, ShoppingBasket, ShoppingCart, Hammer,
   BookOpen, Shirt, Boxes, ChevronDown, ChevronUp, ArrowRight,
-  Briefcase
+  Briefcase, Calculator
 } from 'lucide-react'
 
 // VerticalFeatures — tabbed mega-section, replaces flat 10-card grid.
@@ -29,7 +29,7 @@ const TABS = {
     { key: 'restaurantes', label: 'Restaurantes', icon: UtensilsCrossed, planAnchor: 'pro_plus' },
     { key: 'servicios', label: 'Servicios', icon: Wrench, planAnchor: 'pro_plus' },
     { key: 'empresas', label: 'Empresas', icon: Building2, planAnchor: 'pro_max' },
-    { key: 'contabilidad', label: 'Contabilidad', icon: Briefcase, planAnchor: 'pro_max' },
+    { key: 'contabilidad', label: 'Contabilidad', icon: Calculator, planAnchor: 'pro_max' },
   ],
   en: [
     { key: 'facturacion', label: 'Invoicing', icon: Receipt, planAnchor: 'facturacion' },
@@ -38,7 +38,7 @@ const TABS = {
     { key: 'restaurantes', label: 'Restaurants', icon: UtensilsCrossed, planAnchor: 'pro_plus' },
     { key: 'servicios', label: 'Services', icon: Wrench, planAnchor: 'pro_plus' },
     { key: 'empresas', label: 'Enterprise', icon: Building2, planAnchor: 'pro_max' },
-    { key: 'contabilidad', label: 'Accounting', icon: Briefcase, planAnchor: 'pro_max' },
+    { key: 'contabilidad', label: 'Accounting', icon: Calculator, planAnchor: 'pro_max' },
   ],
 }
 
