@@ -7713,6 +7713,7 @@ function queueGetActive() {
      // string of every worker on the ticket — Queue.jsx maps it for display.
     return db.prepare(
       `SELECT q.*, t.doc_number, t.total, t.vehicle_plate, t.created_at as ticket_created,
+              t.mesa_id, t.mesa_supabase_id, m.name as mesa_name,
               c.name as client_name, c.phone as client_phone,
               (SELECT GROUP_CONCAT(ti.name, ' + ') FROM ticket_items ti WHERE ti.ticket_id = t.id) as services,
               e.nombre as washer_name,
@@ -7724,6 +7725,7 @@ function queueGetActive() {
        JOIN tickets t ON (t.id = q.ticket_id OR t.supabase_id = q.ticket_supabase_id)
        LEFT JOIN clients c ON (c.id = t.client_id OR c.supabase_id = t.client_supabase_id)
        LEFT JOIN empleados e ON e.supabase_id = q.empleado_supabase_id
+       LEFT JOIN mesas m ON (m.id = t.mesa_id OR m.supabase_id = t.mesa_supabase_id)
        WHERE q.status NOT IN ('done', 'cancelled')
        ORDER BY q.created_at ASC`
     ).all()

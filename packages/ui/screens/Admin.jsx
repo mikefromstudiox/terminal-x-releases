@@ -13,6 +13,7 @@ import { useLang } from '../i18n'
 import { useAPI, usePrinterAPI } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import { useBusinessType } from '../hooks/useBusinessType.jsx'
+import { usePlan } from '../hooks/usePlan.jsx'
 import { ECF_TYPES, BUSINESS_TYPES, testDGIIConnection, DGII_CONFIGURED } from '@terminal-x/services/ecf'
 import { testConnection } from '@terminal-x/services/supabase'
 import { WhatsAppSettings } from './Sistema'
@@ -1828,6 +1829,185 @@ function AccountantPromoCard({ onSwitchTab, L }) {
   )
 }
 
+// ── Mesas Add-on Card (2026-05-17) ────────────────────────────────────────────
+// Lightweight tables for non-restaurant verticals. Owner toggles on, picks a
+// count (2/4/6/8), and a row of circles appears in the POS so the cashier can
+// stamp the in-progress ticket with a mesa. Restaurant + hybrid get hidden
+// (they already have the full mesas flow). Gated at Pro PLUS+ via `tables_addon`.
+function MesasAddonCard() {
+  const { lang } = useLang()
+  const L = (es, en) => lang === 'es' ? es : en
+  const api = useAPI()
+  const { hasFeature: planHas } = usePlan()
+  const { isRestaurant, isHybrid, featureOverrides, setFeatureOverride } = useBusinessType()
+  const [count, setCount] = useState('4')
+  const [busy, setBusy] = useState(false)
+  const [savedTick, setSavedTick] = useState(false)
+  const [err, setErr] = useState('')
+
+  // Hide entirely on restaurant/hybrid — they own the real mesas surface.
+  if (isRestaurant || isHybrid) return null
+
+  const planUnlocked = planHas('tables_addon')
+  const enabled = String(featureOverrides?.tables_addon ?? '').toLowerCase() === 'true'
+
+  useEffect(() => {
+    let cancelled = false
+    api?.settings?.get?.().then(s => {
+      if (cancelled) return
+      const raw = String(s?.tables_addon_count ?? '4').trim()
+      if (['2', '4', '6', '8'].includes(raw)) setCount(raw)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [api])
+
+  // Provision: insert mesas named "1".."N" that don't already exist.
+  // Does NOT delete extras when count decreases — owner removes manually.
+  async function provisionMesas(targetN) {
+    const existing = await api?.mesas?.list?.() || []
+    const have = new Set(
+      existing.filter(m => m && m.active !== false).map(m => String(m.name ?? '').trim())
+    )
+    const toCreate = []
+    for (let i = 1; i <= targetN; i++) if (!have.has(String(i))) toCreate.push(i)
+    for (const n of toCreate) {
+      await api.mesas.create({
+        name: String(n),
+        zone: null,
+        capacity: 4,
+        status: 'libre',
+        sort_order: n,
+      })
+    }
+    return toCreate.length
+  }
+
+  async function handleToggle() {
+    if (!planUnlocked) return
+    setBusy(true); setErr('')
+    try {
+      const next = !enabled
+      await setFeatureOverride('tables_addon', next)
+      if (next) {
+        const created = await provisionMesas(Number(count) || 4)
+        try {
+          await api?.activity?.record?.({
+            event_type: 'tables_addon_toggle',
+            severity: 'info',
+            target_type: 'app_settings',
+            target_name: 'tables_addon',
+            new_value: `on (n=${count}, +${created})`,
+          })
+        } catch {}
+      } else {
+        try {
+          await api?.activity?.record?.({
+            event_type: 'tables_addon_toggle',
+            severity: 'info',
+            target_type: 'app_settings',
+            target_name: 'tables_addon',
+            new_value: 'off',
+          })
+        } catch {}
+      }
+      setSavedTick(true); setTimeout(() => setSavedTick(false), 1500)
+    } catch (e) {
+      setErr(e?.message || 'Error')
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'tables_addon.provision', extra: { count, enabled } }) } catch {}
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleCount(next) {
+    if (!planUnlocked) return
+    setCount(next)
+    setBusy(true); setErr('')
+    try {
+      await api?.settings?.update?.({ tables_addon_count: String(next) })
+      if (enabled) await provisionMesas(Number(next) || 4)
+      setSavedTick(true); setTimeout(() => setSavedTick(false), 1500)
+    } catch (e) {
+      setErr(e?.message || 'Error')
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'tables_addon.provision', extra: { count: next, enabled } }) } catch {}
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const counts = ['2', '4', '6', '8']
+
+  return (
+    <div className="border border-slate-200 dark:border-white/10 rounded-2xl p-4 space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-bold text-slate-700 dark:text-white">
+            {L('Mesas', 'Tables')}
+            <span className="ml-2 text-[10px] font-semibold text-slate-400 dark:text-white/40 uppercase tracking-wider">Pro PLUS+</span>
+          </p>
+          <p className="text-[11px] text-slate-500 dark:text-white/60 mt-0.5 leading-snug">
+            {L(
+              'Activa una fila de mesas en el POS y la Cola. Numeradas 1 al N.',
+              'Enable a row of tables in the POS and the Queue. Numbered 1 to N.',
+            )}
+          </p>
+          {!planUnlocked && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+              {L('Disponible en Pro PLUS o Pro MAX.', 'Available on Pro PLUS or Pro MAX.')}
+            </p>
+          )}
+        </div>
+        <button
+          onClick={handleToggle}
+          disabled={busy || !planUnlocked}
+          aria-pressed={enabled}
+          className={`shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            enabled ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-white/20'
+          } disabled:opacity-50`}
+        >
+          <span
+            className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+              enabled ? 'translate-x-5' : 'translate-x-0.5'
+            }`}
+          />
+        </button>
+      </div>
+
+      <div>
+        <label className="block text-[11px] font-semibold text-slate-500 dark:text-white/60 mb-2">
+          {L('Cantidad de mesas', 'Number of tables')}
+        </label>
+        <div className="flex items-center gap-2">
+          {counts.map(c => {
+            const active = count === c
+            return (
+              <button
+                key={c}
+                onClick={() => handleCount(c)}
+                disabled={busy || !planUnlocked}
+                className={`min-w-[44px] h-10 rounded-xl text-[13px] font-bold border transition-colors disabled:opacity-50 ${
+                  active
+                    ? 'bg-[#b3001e] text-white border-[#b3001e]'
+                    : 'bg-white dark:bg-white/5 text-slate-700 dark:text-white border-slate-200 dark:border-white/10 hover:border-[#b3001e]/40'
+                }`}
+              >
+                {c}
+              </button>
+            )
+          })}
+          {savedTick && <CheckCircle2 size={16} className="text-emerald-500 ml-1" />}
+        </div>
+        <p className="text-[10px] text-slate-400 dark:text-white/40 mt-2">
+          {L('Numeradas 1 al N. Visibles en el POS y en la Cola.',
+             'Numbered 1 to N. Visible in the POS and the Queue.')}
+        </p>
+      </div>
+
+      {err && <p className="text-[11px] text-red-500 dark:text-red-400 font-medium">{err}</p>}
+    </div>
+  )
+}
+
 function MiEmpresa({ onSwitchTab }) {
   const api                   = useAPI()
   const { lang }              = useLang()
@@ -2079,6 +2259,8 @@ function MiEmpresa({ onSwitchTab }) {
       </div>
 
       {error && <p className="text-[12px] text-red-500 dark:text-red-400 font-medium">{error}</p>}
+
+      <MesasAddonCard />
 
       <button onClick={handleSave} disabled={saving}
         className="flex items-center gap-2 px-6 py-2.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white font-bold rounded-xl text-[13px] transition-colors">

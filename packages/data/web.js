@@ -4267,7 +4267,15 @@ export function createWebAPI(supabase, businessId) {
         // Resolve tickets — by ticket_supabase_id only
         const tSids  = [...new Set(rows.map(q => q.ticket_supabase_id).filter(Boolean))]
         const ticketMap = {}
-        if (tSids.length)  { const { data: tr } = await supabase.from('tickets').select('id, supabase_id, doc_number, total, vehicle_plate, created_at, client_supabase_id').in('supabase_id', tSids); for (const t of (tr || [])) ticketMap[t.supabase_id] = t }
+        if (tSids.length)  { const { data: tr } = await supabase.from('tickets').select('id, supabase_id, doc_number, total, vehicle_plate, created_at, client_supabase_id, mesa_supabase_id').in('supabase_id', tSids); for (const t of (tr || [])) ticketMap[t.supabase_id] = t }
+
+        // Mesa-name lookup (Mesas add-on badge on Queue cards).
+        const mSids = [...new Set(Object.values(ticketMap).map(t => t.mesa_supabase_id).filter(Boolean))]
+        const mesaMap = {}
+        if (mSids.length) {
+          const { data: mr } = await supabase.from('mesas').select('supabase_id, name').in('supabase_id', mSids)
+          for (const m of (mr || [])) mesaMap[m.supabase_id] = m.name
+        }
 
         // Resolve washers — empleados.supabase_id (washer_supabase_id holds the lavador's supabase_id)
         const wSids  = [...new Set(rows.map(q => q.washer_supabase_id).filter(Boolean))]
@@ -4299,6 +4307,8 @@ export function createWebAPI(supabase, businessId) {
             client_phone:   clientMap[cKey]?.phone || null,
             services:       (itemsMap[tKey] || []).join(' + '),
             washer_name:    washerMap[wKey]   || null,
+            mesa_supabase_id: t.mesa_supabase_id || null,
+            mesa_name:        t.mesa_supabase_id ? (mesaMap[t.mesa_supabase_id] || null) : null,
           }
         })
       }, []),
