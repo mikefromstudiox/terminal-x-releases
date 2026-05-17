@@ -75,7 +75,9 @@ scripts/
 15. **`mesas` and `tickets` status changes need `rev: OLD_REV + 1`** — `trg_*_rev_guard()` triggers reject status updates that don't strictly advance `rev`. Web/desktop sync handle this; ad-hoc scripts must too.
 16. **New sidebar route = new web/main.jsx redirect.** Adding `to: '/X'` in `Sidebar.jsx` requires a matching `<Route path="/X" element={<Navigate to="/pos/X" replace />} />` in `web/main.jsx` or the tab bounces to LandingPage via the catch-all. Fullscreen routes (KDS) also need `if (window.location.pathname === '/pos/X')` in App.jsx.
 17. **Use `api.services.all()` — `getAll()` does not exist** on either web or electron. Same for `api.categorias.all()`. Optional-chain (`?.()`) hides this as silent empty results.
-18. **Provisioning a new business** must include: `businesses.is_demo: false`, a `licenses` row, and `app_settings` upserts with `is_device_local: false` + `supabase_id: crypto.randomUUID()` + `device_hwid: null`. Skip any one and the client gets locked-feature surprises.
+18. **Provisioning a new business** must include: `businesses.is_demo: false`, a `licenses` row, and `app_settings` upserts with `is_device_local: false` + `supabase_id: crypto.randomUUID()` + `device_hwid: null`. Skip any one and the client gets locked-feature surprises. Reusable script: `scripts/activate-client.mjs`.
+19. **Per-item `ticket_items.itbis` = `price - price/(1+factor)`** (embedded extraction from gross). NEVER `price * factor`. `ticket_items.price` is the GROSS customer-facing price in DR retail convention; multiplying by 0.18 over-counts itbis by ~18% per line. Fixed 2026-05-17 in web.js:3110 + electron/database.js:6790 — see `memory/feedback_per_item_itbis_extraction.md`.
+20. **Any new financial mutation must also post `journal_entries`** via the helpers in `packages/services/journal.js`, behind the `app_settings.journal_entries_v1` flag. `tryWrite` only, never `tryOr`. Append-only — reversals are NEW rows. See `memory/project_journal_entries_spine_20260517.md`.
 
 ## supabase_id Architecture (MANDATORY for every synced table)
 - SQLite: `id INTEGER PRIMARY KEY` + `supabase_id TEXT` (UUID v4 from `crypto.randomUUID()` at insert).
@@ -212,21 +214,24 @@ npm run dist:mac     # macOS DMG
 ```
 
 ## Web Deploy (terminalxpos.com)
+
+**Primary path (since 2026-05-17):** auto-deploy from GitHub.
+```bash
+git push origin main   # Vercel detects, builds, deploys ~1.5 min later
+```
+Repo-root `vercel.json` + `scripts/prepare-vercel.mjs` drive the build. Linked: `mikefromstudiox/terminal-x-releases` → Vercel project `terminalx`, production branch `main`. Preview branches auto-deploy to `*.vercel.app` URLs.
+
+**Manual fallback** (only if Vercel-Git is down or for testing locally):
 ```bash
 cd "A:\Studio X HUB\Terminal X"
 npm run build:web
-echo '{"private":true,"type":"module","dependencies":{"@supabase/supabase-js":"^2.49.4","xml-crypto":"^2.1.5","@xmldom/xmldom":"^0.8.6","jsonwebtoken":"^9.0.2","dgii-ecf":"^1.6.8","node-forge":"^1.3.3","busboy":"^1.6.0","bcryptjs":"^2.4.3","source-map":"^0.7.4"}}' > dist-web/package.json
-cp web/vercel.json dist-web/
-mkdir -p dist-web/api/signup dist-web/api/digest dist-web/lib dist-web/.vercel
-cp web/api/panel.js web/api/validate.js web/api/rnc.js web/api/ecf-sign.js web/api/dgii-cert-upload.js web/api/staff-verify-auth.js web/api/fe.js dist-web/api/
-cp web/api/signup/provision.js web/api/signup/lead.js dist-web/api/signup/
-cp web/api/digest/daily.js dist-web/api/digest/
-cp web/lib/*.js dist-web/lib/  # sync ALL libs — cherry-picking caused FUNCTION_INVOCATION_FAILED when new lib files (salon-wa-templates.js, dgii-seed-verify.js) were added without updating this line. Wildcard prevents recurrence.
-cp web/middleware.js dist-web/middleware.js
-echo '{"projectId":"prj_AjhpUcrbNGuSWZrs9CLxQmKkGXnL","orgId":"team_J0ZQKmOPRiXDLC7I1RA00PM9"}' > dist-web/.vercel/project.json
-cd dist-web && npm install --silent && npx vercel --prod --yes
+node scripts/prepare-vercel.mjs                       # copies API + lib + middleware into dist-web/, writes package.json + .vercel/project.json
+cd dist-web && npm install --silent && NODE_OPTIONS=--use-system-ca npx vercel --prod --yes
 ```
-Catch-all SPA rewrite blocks `sitemap.xml` / `robots.txt` — add explicit rewrites first. Every deploy wipes `dist-web/.vercel/project.json` — re-run the full chain.
+
+`NODE_OPTIONS=--use-system-ca` is required on Mike's Windows network (TLS interception breaks Node's bundled CA — see `memory/feedback_use_system_ca_on_windows.md`).
+
+Catch-all SPA rewrite blocks `sitemap.xml` / `robots.txt` — add explicit rewrites in `web/vercel.json` first.
 
 ## Desktop Release Gotchas (load-bearing)
 - `gh release upload` reports 404 on 220MB .exe but the upload **actually succeeds**. Verify with `gh release view v<ver> --json assets` before retrying — a retry fails with `already_exists`. Pattern: create release first, upload assets separately, verify.
@@ -248,10 +253,18 @@ Hosts DGII e-CF Receiver (`fe.terminalxpos.com`, Express:3100) and Content X. Cl
 - Tier 1 audit-flows harness: `node scripts/audit-flows.mjs` — schema-payload contract + side-effect rules + LWW sync + RLS. See `scripts/audit-flows.README.md`. Four-script release gate alongside `rls-policy-audit.mjs`, `ranoza-e2e-smoke.mjs`, and `restaurant-e2e-smoke.mjs`.
 - Skip verification ONLY for: doc-only edits, git ops, single-line obvious fixes on a passing build.
 
-## Current Release — v2.16.9 (2026-04-27)
-RLS sync JWT fix (critical, system-wide).
+## Current Release — 2026-05-17 sprint
+**Live on main + terminalxpos.com:**
+- Per-item ITBIS fix (over-counting by ~18% on every line since launch — invisible because ticket-level totals are correct; surfaced when journal_entries spine tried to reconcile per-line itbis).
+- PIN field in Admin → Activar cuenta — owner staff PIN set during provisioning, no first-login prompt.
+- Vercel auto-deploy from `git push origin main` (replaces 15-step manual chain).
+- Onboarding scripts: `activate-client.mjs`, `clone-from-sxad.mjs`, `seed-carwash-bar-starter.mjs`, `wipe-test-data.mjs`.
+- First hybrid carwash+restaurant client (CAR WASH DJ — Darling Disla, Pro MAX trial).
+
+**On `feat/journal-entries-spine` branch (not yet merged):** Double-entry `journal_entries` ledger as single source of truth. Phase 1-4 complete (table+RLS+helpers+15 tests+wire-forward on 7 mutation sites+12mo backfill+FK indexes+BRIN→Btree swap). Phase 3.5 scaling test validated real capacity of **1,000-3,000 concurrent customers on current Pro/Micro tier** ($25/mo). Decision ladder in `FUTUREX.md`. Phase 5 (Estado de Resultados screen reading from spine) in progress. See `memory/project_journal_entries_spine_20260517.md`.
 
 Recent (release notes detail in `git log` + `memory/project_release_history.md`):
+- **v2.16.9** (2026-04-27) — RLS sync JWT fix (critical, system-wide).
 - **v2.16.8** — PG17 optimization sprint: GIN(jsonb_path_ops) on hot jsonb cols, BRIN(created_at) on append-mostly tables, `transaction_timeout` per-role, autovacuum tuning, server-side `sync_merge_upsert` RPC behind `sync_use_merge_v17` flag (default OFF, auto-fallback). Health 97 → ~99.5.
 - **v2.16.3** — Restaurante hardening: course pacing, pre-cuenta print, 10% Servicio (Ley 16-92), mover/juntar mesas, BOM `service_recipe_items` auto-deducting inventory, `restaurant_reservations`, Resumen del Salón, 86-list (`services.in_stock`), ManagerAuthGate on void of fired-to-kitchen items, comisiones por mesero, KDS reconnect banner + audio-gesture banner.
 - **v2.16.2** — Concesionario hardening: matriculas + INTRANT stub, reservations w/ deposit, warranties + claims, bank pre-approvals, UAF Ley 155-17 modal, RNC guard for E31, dynamic ITBIS, lead scoring, conversion funnel report, inventory aging report, WhatsApp triggers, AppraisalChecklist with photo upload.
