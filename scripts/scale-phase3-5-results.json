@@ -1,0 +1,162 @@
+{
+  "startedAt": "2026-05-17T18:09:19.277Z",
+  "demoCount": 12,
+  "tiers": [
+    {
+      "tier": "baseline_12",
+      "biz_count": 12,
+      "duration_s": 331.2,
+      "write_inserts": 3605,
+      "write_per_sec": 10.89,
+      "write_p50_ms": 75.6,
+      "write_p95_ms": 85.8,
+      "write_p99_ms": 135.8,
+      "read_samples": 158,
+      "read_p50_ms": 84.5,
+      "read_p95_ms": 106.3,
+      "read_p99_ms": 226.1,
+      "txns_delta": 3966,
+      "wal_bytes": 128564664,
+      "wal_per_sec": 388234,
+      "active_conns_after": 1,
+      "total_conns_after": 18,
+      "error_count": 0,
+      "error_rate": 0,
+      "last_error": null,
+      "aborted": false,
+      "abort_reason": null
+    },
+    {
+      "tier": "step_25",
+      "biz_count": 25,
+      "duration_s": 242.5,
+      "write_inserts": 4517,
+      "write_per_sec": 18.63,
+      "write_p50_ms": 82.6,
+      "write_p95_ms": 91.2,
+      "write_p99_ms": 150.7,
+      "read_samples": 115,
+      "read_p50_ms": 91.4,
+      "read_p95_ms": 155,
+      "read_p99_ms": 219.4,
+      "txns_delta": 4838,
+      "wal_bytes": 140229760,
+      "wal_per_sec": 578310,
+      "active_conns_after": 1,
+      "total_conns_after": 18,
+      "error_count": 0,
+      "error_rate": 0,
+      "last_error": null,
+      "aborted": false,
+      "abort_reason": null
+    },
+    {
+      "tier": "step_50",
+      "biz_count": 50,
+      "duration_s": 59.8,
+      "write_inserts": 355,
+      "write_per_sec": 5.94,
+      "write_p50_ms": 84.4,
+      "write_p95_ms": 250.4,
+      "write_p99_ms": 1022.4,
+      "read_samples": 14,
+      "read_p50_ms": 81.7,
+      "read_p95_ms": 678.3,
+      "read_p99_ms": 678.3,
+      "txns_delta": 645,
+      "wal_bytes": 21383344,
+      "wal_per_sec": 357603,
+      "active_conns_after": 2,
+      "total_conns_after": 27,
+      "error_count": 0,
+      "error_rate": 0,
+      "last_error": null,
+      "aborted": true,
+      "abort_reason": "p99_write_1368ms>500"
+    }
+  ],
+  "summary": {
+    "breaking_tier": "step_50",
+    "breaking_reason": "p99_write_1368ms>500",
+    "recommended_ceiling_biz": 25,
+    "recommended_ceiling_sales_per_sec": 18.63,
+    "recommended_ceiling_p99_write_ms": 150.7,
+    "next_tier_upgrade_at_biz": 20,
+    "note": "Current Supabase tier supports 25 concurrent businesses sustaining 18.63 writes/sec each. p99 write latency at 25: 150.7ms. Upgrade recommended at >80% of ceiling (20 biz) to maintain headroom."
+  },
+  "flagFlippedOn": 12,
+  "topQueries": [
+    {
+      "q": "WITH pgrst_source AS (INSERT INTO \"public\".\"journal_entries\"(\"account\", \"business_id\", \"category\", \"client_id\", \"created",
+      "calls": 8477,
+      "total_ms": "36261.7",
+      "mean_ms": "4.28",
+      "rows": 8477
+    },
+    {
+      "q": "WITH pgrst_source AS ( SELECT \"public\".\"journal_entries\".\"account\", \"public\".\"journal_entries\".\"debit\", \"public\".\"journa",
+      "calls": 287,
+      "total_ms": "1212.5",
+      "mean_ms": "4.22",
+      "rows": 287
+    },
+    {
+      "q": "select set_config('search_path', $1, true), set_config($2, $3, true), set_config('role', $4, true), set_config('request.",
+      "calls": 8885,
+      "total_ms": "272.3",
+      "mean_ms": "0.03",
+      "rows": 8885
+    },
+    {
+      "q": "insert into app_settings (supabase_id, business_id, key, value, is_device_local, device_hwid, updated_at)\n      values (",
+      "calls": 50,
+      "total_ms": "166.2",
+      "mean_ms": "3.32",
+      "rows": 50
+    },
+    {
+      "q": "WITH pgrst_source AS (INSERT INTO \"public\".\"businesses\"(\"id\", \"is_demo\", \"name\", \"plan\", \"rnc\", \"settings\") SELECT \"pgrs",
+      "calls": 2,
+      "total_ms": "112.7",
+      "mean_ms": "56.33",
+      "rows": 2
+    },
+    {
+      "q": "WITH pgrst_source AS ( SELECT \"public\".\"app_settings\".\"key\", \"public\".\"app_settings\".\"value\" FROM \"public\".\"app_settings",
+      "calls": 29,
+      "total_ms": "112.0",
+      "mean_ms": "3.86",
+      "rows": 29
+    },
+    {
+      "q": "INSERT INTO \"refresh_tokens\" (\"created_at\", \"instance_id\", \"parent\", \"revoked\", \"session_id\", \"token\", \"updated_at\", \"us",
+      "calls": 3,
+      "total_ms": "52.5",
+      "mean_ms": "17.50",
+      "rows": 3
+    },
+    {
+      "q": "INSERT INTO \"sessions\" (\"aal\", \"created_at\", \"factor_id\", \"id\", \"ip\", \"not_after\", \"oauth_client_id\", \"refresh_token_cou",
+      "calls": 2,
+      "total_ms": "48.4",
+      "mean_ms": "24.19",
+      "rows": 2
+    },
+    {
+      "q": "DELETE FROM sessions WHERE user_id = $1",
+      "calls": 1,
+      "total_ms": "34.3",
+      "mean_ms": "34.30",
+      "rows": 4
+    },
+    {
+      "q": "WITH pgrst_source AS ( SELECT \"public\".\"app_settings\".\"key\", \"public\".\"app_settings\".\"value\" FROM \"public\".\"app_settings",
+      "calls": 3,
+      "total_ms": "33.3",
+      "mean_ms": "11.10",
+      "rows": 3
+    }
+  ],
+  "flagResetOff": 12,
+  "endedAt": "2026-05-17T18:26:21.011Z"
+}
