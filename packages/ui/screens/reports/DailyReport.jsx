@@ -935,13 +935,13 @@ export default function DailyReport() {
 
         {/* Row 2: type tabs + date pills */}
         <div className="flex flex-col md:flex-row md:items-center justify-between px-3 md:px-6 pb-0 gap-1 md:gap-0">
-          {/* Type tabs */}
-          <div className="flex gap-0.5 flex-wrap">
+          {/* Type tabs — horizontal scroll on mobile to prevent ugly wrap */}
+          <div className="flex gap-0.5 overflow-x-auto scrollbar-none -mb-px">
             {TAB_FILTERS.map(f => (
               <button
                 key={f.id}
                 onClick={() => setTab(f.id)}
-                className={`flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3.5 py-2.5 text-[11px] md:text-[12px] font-medium border-b-2 -mb-px transition-colors shrink-0 ${
+                className={`flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3.5 py-2.5 text-[11px] md:text-[12px] font-medium border-b-2 transition-colors shrink-0 whitespace-nowrap ${
                   tab === f.id ? 'border-slate-800 text-slate-800 dark:border-white dark:text-white' : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-800 dark:hover:text-white'
                 }`}
               >
@@ -1223,34 +1223,40 @@ export default function DailyReport() {
         </div>
       </div>
 
-      {/* ── Bottom action bar (when row selected) ─────────────────────────── */}
+      {/* ── Bottom action bar (when row selected) ───────────────────────────
+          Mobile: 2-row stack (info row → action row) so 3 buttons + ticket
+          info don't overlap. Desktop: single row. Buttons collapse to
+          icon-only on very narrow screens via hidden xs:inline label spans. */}
       {selectedTicket && (
-        <div className="shrink-0 bg-white dark:bg-white/5 border-t border-slate-200 dark:border-white/10 px-6 py-3 flex items-center gap-4">
-          <button onClick={() => setSelectedId(null)} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">
-            <X size={15} />
-          </button>
-          <div className="flex-1 min-w-0">
-            <span className="text-[13px] font-bold text-sky-600">{selectedTicket.ticketNo}</span>
-            {showVehicle && selectedTicket.vehicle && selectedTicket.vehicle !== '—' && (
-              <span className="text-[13px] text-slate-500 dark:text-white/60 ml-2">{selectedTicket.vehicle}</span>
-            )}
-            <span className="text-[13px] font-semibold text-slate-800 dark:text-white ml-3">{fmtRD(selectedTicket.total)}</span>
+        <div className="shrink-0 bg-white dark:bg-white/5 border-t border-slate-200 dark:border-white/10 px-3 md:px-6 py-2.5 md:py-3 flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
+          <div className="flex items-center gap-2 md:gap-4 min-w-0">
+            <button onClick={() => setSelectedId(null)} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 transition-colors shrink-0">
+              <X size={15} />
+            </button>
+            <div className="flex-1 min-w-0 flex items-baseline gap-2 md:gap-3 flex-wrap">
+              <span className="text-[13px] font-bold text-sky-600 truncate">{selectedTicket.ticketNo}</span>
+              {showVehicle && selectedTicket.vehicle && selectedTicket.vehicle !== '—' && (
+                <span className="text-[12px] md:text-[13px] text-slate-500 dark:text-white/60 truncate">{selectedTicket.vehicle}</span>
+              )}
+              <span className="text-[13px] font-semibold text-slate-800 dark:text-white tabular-nums">{fmtRD(selectedTicket.total)}</span>
+            </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 md:gap-2 overflow-x-auto scrollbar-none -mx-3 px-3 md:mx-0 md:px-0 md:ml-auto">
             <button
               onClick={() => setDetailModal(selectedTicket)}
-              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors shrink-0 min-h-[40px]"
             >
               <Eye size={13} />
-              {lang === 'es' ? 'Ver Detalle' : 'View Detail'}
+              <span className="hidden sm:inline">{lang === 'es' ? 'Ver Detalle' : 'View Detail'}</span>
+              <span className="sm:hidden">{lang === 'es' ? 'Ver' : 'View'}</span>
             </button>
-            <div className="relative">
+            <div className="relative shrink-0">
               <button
                 onClick={() => setReprintMenu(v => !v)}
-                className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors min-h-[40px]"
               >
                 <Printer size={13} />
-                {lang === 'es' ? 'Reimprimir' : 'Reprint'}
+                <span className="hidden sm:inline">{lang === 'es' ? 'Reimprimir' : 'Reprint'}</span>
                 <ChevronDown size={12} className={`transition-transform ${reprintMenu ? 'rotate-180' : ''}`} />
               </button>
               {reprintMenu && (
@@ -1276,14 +1282,15 @@ export default function DailyReport() {
             <button
               onClick={() => selectedTicket.estado !== 'nula' && setAnularModal(selectedTicket)}
               disabled={selectedTicket.estado === 'nula'}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold transition-colors shrink-0 min-h-[40px] ${
                 selectedTicket.estado === 'nula'
                   ? 'bg-slate-50 dark:bg-white/5 text-slate-300 cursor-not-allowed border border-slate-100 dark:border-white/10'
                   : 'bg-red-50 hover:bg-red-100 border border-red-200 text-red-600'
               }`}
             >
               <Ban size={13} />
-              {lang === 'es' ? 'Anular Factura' : 'Void Invoice'}
+              <span className="hidden sm:inline">{lang === 'es' ? 'Anular Factura' : 'Void Invoice'}</span>
+              <span className="sm:hidden">{lang === 'es' ? 'Anular' : 'Void'}</span>
             </button>
           </div>
         </div>

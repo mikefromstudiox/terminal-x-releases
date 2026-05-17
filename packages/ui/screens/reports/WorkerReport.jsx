@@ -635,35 +635,37 @@ export default function WorkerReport() {
       )}
 
       {/* Header */}
-      <div className="shrink-0 bg-white dark:bg-white/5 border-b border-slate-200 dark:border-white/10 px-6 py-4">
-        <div className="flex items-center justify-between mb-3">
-          <div>
+      <div className="shrink-0 bg-white dark:bg-white/5 border-b border-slate-200 dark:border-white/10 px-3 md:px-6 py-3 md:py-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-3 mb-3">
+          <div className="min-w-0">
             <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800 dark:text-white">{lang === 'es' ? 'Comisiones' : 'Commissions'}</h2>
-            <p className="text-[11px] text-slate-400 dark:text-white/40 mt-0.5">
+            <p className="text-[11px] text-slate-400 dark:text-white/40 mt-0.5 hidden md:block">
               {lang === 'es'
                 ? (showWashers ? `Calculado sobre base pre-ITBIS. Bebidas y snacks excluidos para ${(workerSet.plural.es || 'lavadores').toLowerCase()}/vendedores.` : 'Calculado sobre base pre-ITBIS.')
                 : (showWashers ? `Calculated on pre-ITBIS base. Beverages excluded for ${(workerSet.plural.en || 'washers').toLowerCase()}/sellers.` : 'Calculated on pre-ITBIS base.')}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 overflow-x-auto scrollbar-none -mx-3 px-3 md:mx-0 md:px-0">
             <button onClick={handleExport}
-              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors">
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors shrink-0 min-h-[40px]">
               <Download size={13} />
-              {lang === 'es' ? 'Exportar CSV' : 'Export CSV'}
+              <span className="hidden sm:inline">{lang === 'es' ? 'Exportar CSV' : 'Export CSV'}</span>
+              <span className="sm:hidden">CSV</span>
             </button>
             <button onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors">
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors shrink-0 min-h-[40px]">
               <Printer size={13} />
-              Imprimir
+              <span className="hidden sm:inline">Imprimir</span>
+              <span className="sm:hidden">Print</span>
             </button>
           </div>
         </div>
 
         {/* Sub-tabs: Lavadores / Vendedores / Cajeras */}
-        <div className="flex items-center gap-1 mb-3">
+        <div className="flex items-center gap-1 mb-3 overflow-x-auto scrollbar-none -mx-3 px-3 md:mx-0 md:px-0">
           {SUB_TABS.map(st => (
             <button key={st.id} onClick={() => setSubTab(st.id)}
-              className={`px-4 py-2 rounded-xl text-[12px] font-semibold transition-colors ${
+              className={`px-4 py-2 rounded-xl text-[12px] font-semibold transition-colors shrink-0 whitespace-nowrap ${
                 subTab === st.id
                   ? 'bg-slate-800 text-white'
                   : 'bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-white/60 hover:bg-slate-200 dark:hover:bg-white/20'
@@ -674,17 +676,17 @@ export default function WorkerReport() {
         </div>
 
         {/* Period selector */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-none -mx-3 px-3 md:mx-0 md:px-0 pb-1">
           {PILLS.map(p => (
             <button key={p.id} onClick={() => setPeriod(p.id)}
-              className={`px-3.5 py-1.5 rounded-full text-[11px] font-semibold border transition-colors ${
+              className={`px-3.5 py-1.5 rounded-full text-[11px] font-semibold border transition-colors shrink-0 whitespace-nowrap ${
                 period === p.id ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-500 dark:text-white/60 hover:border-slate-400 dark:hover:border-white/30'
               }`}>
               {lang === 'es' ? p.es : p.en}
             </button>
           ))}
-          <div className="w-px h-5 bg-slate-200 dark:bg-white/10 mx-1" />
-          <div className="flex items-center gap-2">
+          <div className="w-px h-5 bg-slate-200 dark:bg-white/10 mx-1 shrink-0" />
+          <div className="flex items-center gap-2 shrink-0">
             <select value={customM} onChange={e => { setCustomM(+e.target.value); setPeriod('custom') }}
               className="appearance-none pl-3 pr-7 py-1.5 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[12px] text-slate-700 dark:text-white focus:outline-none focus:border-sky-400 cursor-pointer">
               {PAST_MONTHS.map(pm => (
@@ -707,7 +709,7 @@ export default function WorkerReport() {
       </div>
 
       {/* Scrollable content */}
-      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 px-6 py-4">
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 px-3 md:px-6 py-3 md:py-4">
 
         {subTab === 'lavadores' && (
           <CommissionPanel

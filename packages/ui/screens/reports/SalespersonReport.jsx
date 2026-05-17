@@ -383,41 +383,41 @@ export default function SalespersonReport() {
     <div className="h-full flex flex-col bg-slate-50 dark:bg-black overflow-hidden">
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <div className="shrink-0 bg-white dark:bg-white/5 border-b border-slate-200 dark:border-white/10 px-6 py-4">
-        <div className="flex items-center justify-between mb-4">
-          <div>
+      <div className="shrink-0 bg-white dark:bg-white/5 border-b border-slate-200 dark:border-white/10 px-3 md:px-6 py-3 md:py-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-3 mb-3 md:mb-4">
+          <div className="min-w-0">
             <h2 className="text-[14px] md:text-[16px] font-bold text-slate-800 dark:text-white">
               {L('Comisiones de Vendedores', 'Salesperson Commissions')}
             </h2>
-            <p className="text-[11px] text-slate-400 dark:text-white/40 mt-0.5">
+            <p className="text-[11px] text-slate-400 dark:text-white/40 mt-0.5 hidden md:block">
               {L('Calculado sobre subtotal del ticket (pre-ITBIS/Ley).', 'Calculated on ticket subtotal (pre-ITBIS/Ley).')}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 overflow-x-auto scrollbar-none -mx-3 px-3 md:mx-0 md:px-0">
             <button
               onClick={handleExport}
-              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors shrink-0 min-h-[40px]"
             >
               <Download size={13} />
-              {L('Exportar CSV', 'Export CSV')}
+              <span className="hidden sm:inline">{L('Exportar CSV', 'Export CSV')}</span><span className="sm:hidden">CSV</span>
             </button>
             <button
               onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 rounded-xl text-[12px] font-semibold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors shrink-0 min-h-[40px]"
             >
               <Printer size={13} />
-              Imprimir
+              <span className="hidden sm:inline">Imprimir</span><span className="sm:hidden">Print</span>
             </button>
           </div>
         </div>
 
         {/* Period selector */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-none -mx-3 px-3 md:mx-0 md:px-0 pb-1">
           {PILLS.map(p => (
             <button
               key={p.id}
               onClick={() => setPeriod(p.id)}
-              className={`px-3.5 py-1.5 rounded-full text-[11px] font-semibold border transition-colors ${
+              className={`px-3.5 py-1.5 rounded-full text-[11px] font-semibold border transition-colors shrink-0 whitespace-nowrap ${
                 period === p.id
                   ? 'bg-slate-800 border-slate-800 text-white'
                   : 'bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-500 dark:text-white/60 hover:border-slate-400 dark:hover:border-white/30'
@@ -427,9 +427,9 @@ export default function SalespersonReport() {
             </button>
           ))}
 
-          <div className="w-px h-5 bg-slate-200 dark:bg-white/10 mx-1" />
+          <div className="w-px h-5 bg-slate-200 dark:bg-white/10 mx-1 shrink-0" />
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <select
               value={customM}
               onChange={e => { setCustomM(+e.target.value); setPeriod('custom') }}
@@ -458,10 +458,10 @@ export default function SalespersonReport() {
       </div>
 
       {/* ── Scrollable content ───────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto flex flex-col gap-4 px-6 py-4">
+      <div className="flex-1 overflow-y-auto flex flex-col gap-4 px-3 md:px-6 py-3 md:py-4">
 
         {/* ── Summary cards ─────────────────────────────────────────────────── */}
-        <div className="flex gap-3">
+        <div className="grid grid-cols-2 md:flex md:flex-row gap-2 md:gap-3">
           <MetricCard
             icon={CircleDollarSign}
             label={L('Total Comisiones', 'Total Commissions')}
@@ -537,38 +537,38 @@ export default function SalespersonReport() {
                       <button
                         key={g.key}
                         onClick={() => setSellerId(g.key)}
-                        className="w-full flex items-center gap-4 px-5 py-3.5 border-b border-slate-50 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors text-left last:border-0 group"
+                        className="w-full flex items-center gap-3 md:gap-4 px-3 md:px-5 py-3 md:py-3.5 border-b border-slate-50 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors text-left last:border-0 group"
                       >
                         {/* Avatar */}
                         <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-[11px] font-bold shrink-0 ${g.palette.bg} ${g.palette.text}`}>
                           {g.name.slice(0, 2).toUpperCase()}
                         </div>
-                        {/* Name + % */}
-                        <div className="w-[130px] shrink-0">
-                          <p className="text-[13px] font-bold text-slate-800 dark:text-white">{g.name}</p>
-                          <p className="text-[11px] text-slate-400 dark:text-white/40">
-                            {g.commissionPct}% {L('comisión', 'commission')}
+                        {/* Name + % — flex on mobile, fixed on desktop */}
+                        <div className="flex-1 md:flex-none md:w-[130px] min-w-0">
+                          <p className="text-[13px] font-bold text-slate-800 dark:text-white truncate">{g.name}</p>
+                          <p className="text-[11px] text-slate-400 dark:text-white/40 truncate">
+                            {g.commissionPct}% · {g.ticketCount} {L('tickets', 'tickets')}
                           </p>
                         </div>
-                        {/* Ticket count */}
-                        <div className="w-[80px] shrink-0 text-center">
+                        {/* Ticket count — desktop only */}
+                        <div className="hidden md:block w-[80px] shrink-0 text-center">
                           <p className="text-[15px] font-bold text-slate-700 dark:text-white">{g.ticketCount}</p>
                           <p className="text-[10px] text-slate-400 dark:text-white/40">{L('tickets', 'tickets')}</p>
                         </div>
-                        {/* Total billed */}
-                        <div className="w-[130px] shrink-0 text-right">
+                        {/* Total billed — desktop only */}
+                        <div className="hidden md:block w-[130px] shrink-0 text-right">
                           <p className="text-[12px] font-semibold text-emerald-700">{fmtRD(g.totalBilled)}</p>
                           <p className="text-[10px] text-slate-400 dark:text-white/40">{L('facturado', 'billed')}</p>
                         </div>
-                        {/* Commission + bar */}
-                        <div className="flex-1 flex items-center gap-3">
-                          <div className="flex-1 h-2 bg-slate-100 dark:bg-white/10 rounded-full overflow-hidden">
+                        {/* Commission + bar — bar hidden on mobile */}
+                        <div className="flex items-center gap-3 shrink-0 md:flex-1">
+                          <div className="hidden md:block flex-1 h-2 bg-slate-100 dark:bg-white/10 rounded-full overflow-hidden">
                             <div
                               className={`h-full ${g.palette.bar} rounded-full transition-all duration-500`}
                               style={{ width: `${(g.commission / maxComm) * 100}%` }}
                             />
                           </div>
-                          <span className="text-[14px] font-bold text-sky-700 w-[110px] text-right shrink-0">{fmtRD(g.commission)}</span>
+                          <span className="text-[13px] md:text-[14px] font-bold text-sky-700 md:w-[110px] text-right shrink-0 tabular-nums">{fmtRD(g.commission)}</span>
                         </div>
                         <ChevronRight size={14} className="text-slate-300 dark:text-white/30 group-hover:text-sky-500 transition-colors shrink-0" />
                       </button>

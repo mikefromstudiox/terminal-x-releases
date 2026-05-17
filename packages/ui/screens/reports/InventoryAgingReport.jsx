@@ -38,11 +38,21 @@ function bucketOf(days) {
 
 function bucketRowCls(b) {
   switch (b) {
-    case '0-30':  return 'bg-white'
-    case '31-60': return 'bg-slate-50 dark:bg-white/5'
-    case '61-90': return 'bg-amber-50 text-amber-900 dark:bg-amber-900/20'
-    case '>90':   return 'bg-red-50 text-red-900 dark:bg-red-900/20 border-l-4 border-[#b3001e]'
+    case '0-30':  return ''
+    case '31-60': return ''
+    case '61-90': return 'bg-amber-50/60 dark:bg-amber-500/[0.06]'
+    case '>90':   return 'bg-[#b3001e]/[0.05] dark:bg-[#b3001e]/[0.1] border-l-4 border-l-[#b3001e]'
     default:      return ''
+  }
+}
+
+function bucketBadgeCls(b) {
+  switch (b) {
+    case '0-30':  return 'bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-white/70 border border-slate-200 dark:border-white/10'
+    case '31-60': return 'bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-white/70 border border-slate-200 dark:border-white/10'
+    case '61-90': return 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-500/30'
+    case '>90':   return 'bg-[#b3001e]/10 dark:bg-[#b3001e]/20 text-[#b3001e] border border-[#b3001e]/20'
+    default:      return 'bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-white/70'
   }
 }
 
@@ -207,83 +217,111 @@ export default function InventoryAgingReport() {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-[#b3001e] text-white px-5 py-3 mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-bold flex items-center gap-2"><FileText size={20} />{L('Reporte de Antigüedad de Inventario', 'Inventory Aging Report')}</h1>
-        <div className="text-xs">{L('Dias en lote por unidad', 'Days on lot per unit')}</div>
-      </div>
-
-      <div className="flex flex-wrap items-end gap-3 mb-5">
-        <label className="text-xs">
-          <span className="block font-semibold mb-1 flex items-center gap-1"><Filter size={12}/>{L('Estado', 'Status')}</span>
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-black px-2 py-1.5">
-            {STATUS_TABS.map(s => <option key={s.v} value={s.v}>{lang === 'es' ? s.es : s.en}</option>)}
-          </select>
-        </label>
-        <label className="text-xs">
-          <span className="block font-semibold mb-1">{L('Bucket', 'Bucket')}</span>
-          <select value={bucketFilter} onChange={e => setBucketFilter(e.target.value)} className="border border-black px-2 py-1.5">
-            {BUCKET_TABS.map(b => <option key={b.v} value={b.v}>{b.label}</option>)}
-          </select>
-        </label>
-        <div className="ml-auto flex gap-2">
-          <button onClick={exportCSV} disabled={loading || filtered.length === 0} className="px-3 py-2 border border-black text-xs font-semibold inline-flex items-center gap-2 disabled:opacity-50">
-            <Download size={14}/>{L('Exportar CSV', 'Export CSV')}
-          </button>
-          <button onClick={exportPDF} disabled={loading || filtered.length === 0 || exportingPdf} className="px-3 py-2 bg-black text-white text-xs font-semibold inline-flex items-center gap-2 disabled:opacity-50">
-            {exportingPdf ? <Loader2 size={14} className="animate-spin"/> : <Download size={14}/>}
-            {L('Exportar PDF', 'Export PDF')}
-          </button>
+    <div className="h-full overflow-y-auto bg-slate-50 dark:bg-black">
+      <div className="p-3 md:p-6 max-w-7xl mx-auto space-y-4 md:space-y-5">
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#b3001e] via-[#9a0019] to-[#7a0014] text-white px-4 md:px-6 py-4 md:py-5 shadow-sm">
+          <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-white/[0.06] blur-2xl pointer-events-none" />
+          <div className="absolute -bottom-16 -left-10 w-44 h-44 rounded-full bg-white/[0.04] blur-2xl pointer-events-none" />
+          <div className="relative flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center"><FileText size={18} /></div>
+              <h1 className="text-[18px] md:text-[22px] font-black tracking-tight">{L('Antigüedad de Inventario', 'Inventory Aging')}</h1>
+            </div>
+            <div className="text-[10px] uppercase tracking-[3px] text-white/85">{L('Dias en lote por unidad', 'Days on lot per unit')}</div>
+          </div>
         </div>
-      </div>
 
-      {loading ? (
-        <div className="p-12 text-center"><Loader2 className="animate-spin mx-auto"/></div>
-      ) : filtered.length === 0 ? (
-        <div className="border border-black p-12 text-center text-sm">{L('Sin unidades en inventario.', 'No units in inventory.')}</div>
-      ) : (
-        <div className="border border-black overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-black text-white">
-              <tr>
-                <th className="text-left px-3 py-2">Stock</th>
-                <th className="text-left px-3 py-2">VIN</th>
-                <th className="text-left px-3 py-2">{L('Vehiculo', 'Vehicle')}</th>
-                <th className="text-left px-3 py-2">{L('Color', 'Color')}</th>
-                <th className="text-right px-3 py-2">{L('Dias en lote', 'Days on lot')}</th>
-                <th className="text-left px-3 py-2">{L('Estado', 'Status')}</th>
-                <th className="text-right px-3 py-2">{L('Precio', 'Price')}</th>
-                <th className="text-left px-3 py-2">{L('Condicion', 'Condition')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(u => (
-                <tr key={u.id} className={`border-t border-black/10 ${bucketRowCls(u._bucket)}`}>
-                  <td className="px-3 py-2 font-mono text-xs">{u.stock_number || '—'}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{u.vin || '—'}</td>
-                  <td className="px-3 py-2 font-semibold">{u.year || ''} {u.make || ''} {u.model || ''}</td>
-                  <td className="px-3 py-2">{u.color || '—'}</td>
-                  <td className="px-3 py-2 text-right tabular-nums font-semibold">{u._days}</td>
-                  <td className="px-3 py-2">
-                    <span className="inline-block px-2 py-0.5 text-xs font-semibold border border-black bg-white text-black">{u.status || '—'}</span>
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{fmtMoney.format(Number(u.listing_price) || 0)}</td>
-                  <td className="px-3 py-2 capitalize">{u.condition || '—'}</td>
-                </tr>
-              ))}
-              <tr className="border-t-2 border-[#b3001e] bg-black/5 font-bold">
-                <td className="px-3 py-2" colSpan={4}>
-                  {L('Totales por bucket', 'Bucket totals')}: 0-30={totals['0-30'] || 0} · 31-60={totals['31-60'] || 0} · 61-90={totals['61-90'] || 0} · &gt;90={totals['>90'] || 0}
-                </td>
-                <td className="px-3 py-2 text-right">{filtered.length}</td>
-                <td className="px-3 py-2"></td>
-                <td className="px-3 py-2 text-right">{fmtMoney.format(totals.value)}</td>
-                <td className="px-3 py-2"></td>
-              </tr>
-            </tbody>
-          </table>
+        <div className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-3 md:p-4">
+          <div className="flex flex-col md:flex-row md:flex-wrap md:items-end gap-3">
+            <div className="grid grid-cols-2 gap-2 md:flex md:gap-3">
+              <label className="text-xs">
+                <span className="font-semibold mb-1 flex items-center gap-1 text-slate-600 dark:text-white/70"><Filter size={12}/>{L('Estado', 'Status')}</span>
+                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full md:w-auto rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-[#b3001e] outline-none transition px-2 py-1.5 min-h-[40px] text-slate-800 dark:text-white">
+                  {STATUS_TABS.map(s => <option key={s.v} value={s.v}>{lang === 'es' ? s.es : s.en}</option>)}
+                </select>
+              </label>
+              <label className="text-xs">
+                <span className="block font-semibold mb-1 text-slate-600 dark:text-white/70">{L('Bucket', 'Bucket')}</span>
+                <select value={bucketFilter} onChange={e => setBucketFilter(e.target.value)} className="w-full md:w-auto rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-[#b3001e] outline-none transition px-2 py-1.5 min-h-[40px] text-slate-800 dark:text-white">
+                  {BUCKET_TABS.map(b => <option key={b.v} value={b.v}>{b.label}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="md:ml-auto flex gap-2 overflow-x-auto scrollbar-none -mx-3 px-3 md:mx-0 md:px-0">
+              <button onClick={exportCSV} disabled={loading || filtered.length === 0} className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 text-xs font-semibold inline-flex items-center gap-2 disabled:opacity-50 shrink-0 min-h-[40px] transition-colors">
+                <Download size={14}/><span className="hidden sm:inline">{L('Exportar CSV', 'Export CSV')}</span><span className="sm:hidden">CSV</span>
+              </button>
+              <button onClick={exportPDF} disabled={loading || filtered.length === 0 || exportingPdf} className="px-3 py-2 rounded-xl bg-[#b3001e] hover:bg-[#9a0019] text-white text-xs font-semibold inline-flex items-center gap-2 disabled:opacity-50 shrink-0 min-h-[40px] transition-colors">
+                {exportingPdf ? <Loader2 size={14} className="animate-spin"/> : <Download size={14}/>}
+                <span className="hidden sm:inline">{L('Exportar PDF', 'Export PDF')}</span><span className="sm:hidden">PDF</span>
+              </button>
+            </div>
+          </div>
         </div>
-      )}
+
+        {loading ? (
+          <div className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-10 md:p-12 text-center">
+            <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center mx-auto mb-3">
+              <Loader2 className="animate-spin text-slate-400 dark:text-white/40" size={20} />
+            </div>
+            <div className="text-[14px] font-bold text-slate-700 dark:text-white">{L('Cargando...', 'Loading...')}</div>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-10 md:p-12 text-center">
+            <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center mx-auto mb-3">
+              <Filter className="text-slate-400 dark:text-white/40" size={20} />
+            </div>
+            <div className="text-[14px] font-bold text-slate-700 dark:text-white">{L('Sin unidades en inventario.', 'No units in inventory.')}</div>
+            <div className="text-[11px] text-slate-400 dark:text-white/40 mt-1">{L('Cambia los filtros para ver más resultados.', 'Adjust filters to see more results.')}</div>
+          </div>
+        ) : (
+          <div className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 dark:bg-white/[0.03] text-[10px] uppercase tracking-wider text-slate-400 dark:text-white/40">
+                  <tr>
+                    <th className="text-left px-3 py-2.5 font-bold">Stock</th>
+                    <th className="text-left px-3 py-2.5 font-bold">VIN</th>
+                    <th className="text-left px-3 py-2.5 font-bold">{L('Vehiculo', 'Vehicle')}</th>
+                    <th className="text-left px-3 py-2.5 font-bold">{L('Color', 'Color')}</th>
+                    <th className="text-right px-3 py-2.5 font-bold">{L('Dias en lote', 'Days on lot')}</th>
+                    <th className="text-left px-3 py-2.5 font-bold">{L('Estado', 'Status')}</th>
+                    <th className="text-right px-3 py-2.5 font-bold">{L('Precio', 'Price')}</th>
+                    <th className="text-left px-3 py-2.5 font-bold">{L('Condicion', 'Condition')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(u => (
+                    <tr key={u.id} className={`border-t border-slate-100 dark:border-white/5 hover:bg-slate-50/70 dark:hover:bg-white/[0.03] transition-colors ${bucketRowCls(u._bucket)}`}>
+                      <td className="px-3 py-2.5 font-mono text-xs font-semibold text-slate-800 dark:text-white">{u.stock_number || '—'}</td>
+                      <td className="px-3 py-2.5 font-mono text-xs text-slate-600 dark:text-white/70">{u.vin || '—'}</td>
+                      <td className="px-3 py-2.5 font-semibold text-slate-800 dark:text-white">{u.year || ''} {u.make || ''} {u.model || ''}</td>
+                      <td className="px-3 py-2.5 text-slate-700 dark:text-white/80">{u.color || '—'}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums font-semibold">
+                        <span className={`inline-block px-2 py-0.5 rounded-md text-xs ${bucketBadgeCls(u._bucket)}`}>{u._days}</span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="inline-block px-2 py-0.5 rounded-md text-xs font-semibold bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-white/70 border border-slate-200 dark:border-white/10 capitalize">{u.status || '—'}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-800 dark:text-white">{fmtMoney.format(Number(u.listing_price) || 0)}</td>
+                      <td className="px-3 py-2.5 capitalize text-slate-700 dark:text-white/80">{u.condition || '—'}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t-2 border-[#b3001e] bg-[#b3001e]/[0.04] dark:bg-[#b3001e]/[0.08] font-bold">
+                    <td className="px-3 py-2.5 text-slate-900 dark:text-white" colSpan={4}>
+                      {L('Totales por bucket', 'Bucket totals')}: 0-30={totals['0-30'] || 0} · 31-60={totals['31-60'] || 0} · 61-90={totals['61-90'] || 0} · &gt;90={totals['>90'] || 0}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-900 dark:text-white">{filtered.length}</td>
+                    <td className="px-3 py-2.5"></td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-900 dark:text-white">{fmtMoney.format(totals.value)}</td>
+                    <td className="px-3 py-2.5"></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

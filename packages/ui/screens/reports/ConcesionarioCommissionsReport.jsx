@@ -194,71 +194,97 @@ export default function ConcesionarioCommissionsReport() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="bg-[#b3001e] text-white px-5 py-3 mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-bold flex items-center gap-2"><FileText size={20} />{L('Comisiones Concesionario', 'Dealership Commissions')}</h1>
-        <div className="text-xs">{L('Tratos cerrados en el periodo', 'Closed deals in period')}</div>
-      </div>
-
-      <div className="flex flex-wrap items-end gap-3 mb-5">
-        <label className="text-xs">
-          <span className="block font-semibold mb-1 flex items-center gap-1"><Calendar size={12} />{L('Desde', 'From')}</span>
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="border border-black px-2 py-1.5" />
-        </label>
-        <label className="text-xs">
-          <span className="block font-semibold mb-1">{L('Hasta', 'To')}</span>
-          <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border border-black px-2 py-1.5" />
-        </label>
-        <div className="ml-auto flex gap-2">
-          <button onClick={exportCSV} disabled={loading || rows.length === 0} className="px-3 py-2 border border-black text-xs font-semibold inline-flex items-center gap-2 disabled:opacity-50">
-            <Download size={14} />{L('Exportar CSV', 'Export CSV')}
-          </button>
-          <button onClick={exportPDF} disabled={loading || rows.length === 0 || exportingPdf} className="px-3 py-2 bg-black text-white text-xs font-semibold inline-flex items-center gap-2 disabled:opacity-50">
-            {exportingPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}{L('Exportar PDF', 'Export PDF')}
-          </button>
+    <div className="h-full overflow-y-auto bg-slate-50 dark:bg-black">
+      <div className="p-3 md:p-6 max-w-6xl mx-auto space-y-4 md:space-y-5">
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#b3001e] via-[#9a0019] to-[#7a0014] text-white px-4 md:px-6 py-4 md:py-5 shadow-sm">
+          <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-white/[0.06] blur-2xl pointer-events-none" />
+          <div className="absolute -bottom-16 -left-10 w-44 h-44 rounded-full bg-white/[0.04] blur-2xl pointer-events-none" />
+          <div className="relative flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center"><FileText size={18} /></div>
+              <h1 className="text-[18px] md:text-[22px] font-black tracking-tight">{L('Comisiones', 'Commissions')}</h1>
+            </div>
+            <div className="text-[10px] uppercase tracking-[3px] text-white/85">{L('Tratos cerrados en el periodo', 'Closed deals in period')}</div>
+          </div>
         </div>
-      </div>
 
-      {loading ? (
-        <div className="p-12 text-center"><Loader2 className="animate-spin mx-auto" /></div>
-      ) : rows.length === 0 ? (
-        <div className="border border-black p-12 text-center text-sm">{L('Sin tratos cerrados en el periodo.', 'No closed deals in the period.')}</div>
-      ) : (
-        <div className="border border-black overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-black text-white">
-              <tr>
-                <th className="text-left px-3 py-2">{L('Vendedor', 'Salesperson')}</th>
-                <th className="text-right px-3 py-2">{L('# Tratos', '# Deals')}</th>
-                <th className="text-right px-3 py-2">{L('Total Ventas', 'Total Sales')}</th>
-                <th className="text-right px-3 py-2">{L('Comision Bruta', 'Gross Commission')}</th>
-                <th className="text-right px-3 py-2">{L('Pagada', 'Paid')}</th>
-                <th className="text-right px-3 py-2">{L('Pendiente', 'Pending')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(r => (
-                <tr key={r.key} className="border-t border-black/10 hover:bg-black/5">
-                  <td className="px-3 py-2 font-semibold">{r.name}</td>
-                  <td className="px-3 py-2 text-right">{r.deal_count}</td>
-                  <td className="px-3 py-2 text-right">{fmtMoney.format(r.total_ventas)}</td>
-                  <td className="px-3 py-2 text-right font-semibold">{fmtMoney.format(r.comision_bruta)}</td>
-                  <td className="px-3 py-2 text-right">{fmtMoney.format(r.pagada)}</td>
-                  <td className="px-3 py-2 text-right">{r.pendiente > 0 ? <span className="text-[#b3001e] font-semibold">{fmtMoney.format(r.pendiente)}</span> : fmtMoney.format(0)}</td>
-                </tr>
-              ))}
-              <tr className="border-t-2 border-[#b3001e] bg-black/5 font-bold">
-                <td className="px-3 py-2">{L('TOTAL', 'TOTAL')}</td>
-                <td className="px-3 py-2 text-right">{totals.deal_count}</td>
-                <td className="px-3 py-2 text-right">{fmtMoney.format(totals.total_ventas)}</td>
-                <td className="px-3 py-2 text-right">{fmtMoney.format(totals.comision_bruta)}</td>
-                <td className="px-3 py-2 text-right">{fmtMoney.format(totals.pagada)}</td>
-                <td className="px-3 py-2 text-right">{fmtMoney.format(totals.pendiente)}</td>
-              </tr>
-            </tbody>
-          </table>
+        <div className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-3 md:p-4">
+          <div className="flex flex-col md:flex-row md:flex-wrap md:items-end gap-3">
+            <div className="flex gap-2 flex-1 md:flex-none">
+              <label className="text-xs flex-1 md:flex-none">
+                <span className="font-semibold mb-1 flex items-center gap-1 text-slate-600 dark:text-white/70"><Calendar size={12} />{L('Desde', 'From')}</span>
+                <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="w-full md:w-auto rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-[#b3001e] outline-none transition px-2 py-1.5 min-h-[40px] text-slate-800 dark:text-white" />
+              </label>
+              <label className="text-xs flex-1 md:flex-none">
+                <span className="block font-semibold mb-1 text-slate-600 dark:text-white/70">{L('Hasta', 'To')}</span>
+                <input type="date" value={to} onChange={e => setTo(e.target.value)} className="w-full md:w-auto rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-[#b3001e] outline-none transition px-2 py-1.5 min-h-[40px] text-slate-800 dark:text-white" />
+              </label>
+            </div>
+            <div className="md:ml-auto flex gap-2 overflow-x-auto scrollbar-none -mx-3 px-3 md:mx-0 md:px-0">
+              <button onClick={exportCSV} disabled={loading || rows.length === 0} className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 text-xs font-semibold inline-flex items-center gap-2 disabled:opacity-50 shrink-0 min-h-[40px] transition-colors">
+                <Download size={14} /><span className="hidden sm:inline">{L('Exportar CSV', 'Export CSV')}</span><span className="sm:hidden">CSV</span>
+              </button>
+              <button onClick={exportPDF} disabled={loading || rows.length === 0 || exportingPdf} className="px-3 py-2 rounded-xl bg-[#b3001e] hover:bg-[#9a0019] text-white text-xs font-semibold inline-flex items-center gap-2 disabled:opacity-50 shrink-0 min-h-[40px] transition-colors">
+                {exportingPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}<span className="hidden sm:inline">{L('Exportar PDF', 'Export PDF')}</span><span className="sm:hidden">PDF</span>
+              </button>
+            </div>
+          </div>
         </div>
-      )}
+
+        {loading ? (
+          <div className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-10 md:p-12 text-center">
+            <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center mx-auto mb-3">
+              <Loader2 className="animate-spin text-slate-400 dark:text-white/40" size={20} />
+            </div>
+            <div className="text-[14px] font-bold text-slate-700 dark:text-white">{L('Cargando...', 'Loading...')}</div>
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-10 md:p-12 text-center">
+            <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center mx-auto mb-3">
+              <FileText className="text-slate-400 dark:text-white/40" size={20} />
+            </div>
+            <div className="text-[14px] font-bold text-slate-700 dark:text-white">{L('Sin tratos cerrados en el periodo.', 'No closed deals in the period.')}</div>
+            <div className="text-[11px] text-slate-400 dark:text-white/40 mt-1">{L('Ajusta el rango de fechas.', 'Adjust the date range.')}</div>
+          </div>
+        ) : (
+          <div className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 dark:bg-white/[0.03] text-[10px] uppercase tracking-wider text-slate-400 dark:text-white/40">
+                  <tr>
+                    <th className="text-left px-3 py-2.5 font-bold">{L('Vendedor', 'Salesperson')}</th>
+                    <th className="text-right px-3 py-2.5 font-bold">{L('# Tratos', '# Deals')}</th>
+                    <th className="text-right px-3 py-2.5 font-bold">{L('Total Ventas', 'Total Sales')}</th>
+                    <th className="text-right px-3 py-2.5 font-bold">{L('Comision Bruta', 'Gross Commission')}</th>
+                    <th className="text-right px-3 py-2.5 font-bold">{L('Pagada', 'Paid')}</th>
+                    <th className="text-right px-3 py-2.5 font-bold">{L('Pendiente', 'Pending')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr key={r.key} className="border-t border-slate-100 dark:border-white/5 hover:bg-slate-50/70 dark:hover:bg-white/[0.03] transition-colors">
+                      <td className="px-3 py-2.5 font-semibold text-slate-800 dark:text-white">{r.name}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 dark:text-white/80">{r.deal_count}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 dark:text-white/80">{fmtMoney.format(r.total_ventas)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-slate-800 dark:text-white">{fmtMoney.format(r.comision_bruta)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 dark:text-white/80">{fmtMoney.format(r.pagada)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{r.pendiente > 0 ? <span className="text-[#b3001e] font-semibold">{fmtMoney.format(r.pendiente)}</span> : <span className="text-slate-400 dark:text-white/40">{fmtMoney.format(0)}</span>}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t-2 border-[#b3001e] bg-[#b3001e]/[0.04] dark:bg-[#b3001e]/[0.08] font-bold">
+                    <td className="px-3 py-2.5 text-slate-900 dark:text-white">{L('TOTAL', 'TOTAL')}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-900 dark:text-white">{totals.deal_count}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-900 dark:text-white">{fmtMoney.format(totals.total_ventas)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-900 dark:text-white">{fmtMoney.format(totals.comision_bruta)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-900 dark:text-white">{fmtMoney.format(totals.pagada)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-[#b3001e]">{fmtMoney.format(totals.pendiente)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
