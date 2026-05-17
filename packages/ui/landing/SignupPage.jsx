@@ -85,6 +85,16 @@ export default function SignupPage({ supabase, forceLang }) {
         setError(L('Para Híbrido, elige al menos 2 tipos de negocio.', 'For Hybrid, pick at least 2 business types.'))
         return
       }
+      // Recommend the right plan BEFORE firing the lead, so CRM stores the
+      // plan that actually matches the chosen vertical. Visitors landing from
+      // ?plan=facturacion who pick a POS vertical (restaurant/carwash/etc.)
+      // need a POS plan, not facturacion.
+      const suggested = recommendedPlanFor(businessType)
+      let effectivePlan = plan
+      if (effectivePlan === 'facturacion' && businessType !== 'contabilidad') effectivePlan = suggested
+      if (suggested === 'pro_plus' && effectivePlan === 'pro') effectivePlan = 'pro_plus'
+      if (effectivePlan !== plan) setPlan(effectivePlan)
+
       // Fire-and-forget lead capture WITH the chosen business_type so CRM has
       // the correct vertical from the very first interaction. We don't await:
       // even if the request hasn't finished by the time we navigate, keepalive
@@ -98,7 +108,7 @@ export default function SignupPage({ supabase, forceLang }) {
             business_name: form.business_name.trim(),
             rnc: form.rnc.trim(),
             phone: form.phone.trim(),
-            plan,
+            plan: effectivePlan,
             business_type: businessType,
             hybrid_components: businessType === 'hybrid' ? normalizeHybridComponents(hybridComps).join(',') : null,
             utm_source: params.get('utm_source') || null,
@@ -108,9 +118,6 @@ export default function SignupPage({ supabase, forceLang }) {
           keepalive: true,
         }).catch(() => {})
       } catch (_) { /* non-fatal */ }
-      // Recommend pro_plus for verticals that need it before launching demo.
-      const suggested = recommendedPlanFor(businessType)
-      if (suggested === 'pro_plus' && plan === 'pro') setPlan('pro_plus')
       // Stash form state so the demo's "Crear cuenta" CTA can resume the user
       // at step 3 (password) without losing what they typed.
       try {

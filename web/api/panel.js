@@ -605,10 +605,14 @@ async function handleCrmList(req, res) {
     //   3. email matches *.demo.terminalxpos.com (legacy demo accounts)
     const leadBids = [...new Set((leads || []).map(l => l.business_id).filter(Boolean))]
     let demoBidSet = new Set()
+    let bizPlanMap = {}
     if (leadBids.length) {
-      const { data: demoBizRows } = await supabase.from('businesses')
-        .select('id').in('id', leadBids).eq('is_demo', true)
-      demoBidSet = new Set((demoBizRows || []).map(r => r.id))
+      const { data: bizRows } = await supabase.from('businesses')
+        .select('id, plan, is_demo').in('id', leadBids)
+      for (const r of (bizRows || [])) {
+        if (r.is_demo) demoBidSet.add(r.id)
+        bizPlanMap[r.id] = r.plan
+      }
     }
     const isDemoLead = (l) => {
       if (l.business_id && demoBidSet.has(l.business_id)) return true
@@ -630,7 +634,7 @@ async function handleCrmList(req, res) {
           || (l.email || '').toLowerCase().includes(s)
           || (l.phone || '').includes(s)
           || (l.rnc || '').includes(s)
-    }).map(l => ({ ...l, assigned_to_name: adminMap[l.assigned_to] || null }))
+    }).map(l => ({ ...l, assigned_to_name: adminMap[l.assigned_to] || null, active_plan: l.business_id ? (bizPlanMap[l.business_id] || null) : null }))
     return res.json({ data: filtered })
   } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }

@@ -31,6 +31,18 @@ async function handler(req, res) {
   const supabase = getClient()
   const emailNorm = String(email).trim().toLowerCase()
 
+  // Normalize plan vs business_type. Visitors landing from /signup?plan=facturacion
+  // who then pick a POS vertical (restaurant/carwash/foodtruck/etc.) need a POS plan,
+  // not facturacion. Without this the CRM tags them as "Facturación" leads even
+  // though their business needs full POS — and they never finish signup because
+  // the implied plan doesn't fit. Facturacion stays only for contabilidad/accounting.
+  const FACTURACION_ONLY_TYPES = new Set(['contabilidad', 'accounting', 'facturacion'])
+  const PLUS_TYPES = new Set(['restaurant', 'food_truck', 'hybrid'])
+  let normalizedPlan = plan || null
+  if (normalizedPlan === 'facturacion' && business_type && !FACTURACION_ONLY_TYPES.has(business_type)) {
+    normalizedPlan = PLUS_TYPES.has(business_type) ? 'pro_plus' : 'pro'
+  }
+
   try {
     const { data: existing } = await supabase
       .from('crm_leads')
@@ -47,7 +59,7 @@ async function handler(req, res) {
       contact_name: (business_name || '').trim() || null,
       business_name: (business_name || '').trim() || null,
       rnc: (rnc || '').trim() || null,
-      requested_plan: plan || null,
+      requested_plan: normalizedPlan,
       business_type: business_type || null,
       utm_source: utm_source || null,
       utm_medium: utm_medium || null,

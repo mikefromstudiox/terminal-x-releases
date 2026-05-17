@@ -237,13 +237,23 @@ export default function CRM({ getToken, isDark, lang }) {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        {l.requested_plan && (
-                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                            l.requested_plan === 'facturacion'
-                              ? 'bg-[#b3001e]/15 text-[#b3001e]'
-                              : isDark ? 'bg-white/10 text-white/70' : 'bg-slate-100 text-slate-600'
-                          }`}>{PLAN_LABEL[l.requested_plan] || l.requested_plan}</span>
-                        )}
+                        <div className="flex flex-col gap-1 items-start">
+                          {l.active_plan ? (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                              {PLAN_LABEL[l.active_plan] || l.active_plan}
+                            </span>
+                          ) : (
+                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${isDark ? 'bg-white/5 text-white/40 border-white/10' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                              {L('Sin cuenta', 'No account')}
+                            </span>
+                          )}
+                          {l.requested_plan && (
+                            <span className={`inline-flex items-center gap-1 text-[10px] ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                              <span className="opacity-70">{L('Interés:', 'Interest:')}</span>
+                              <span className="font-semibold">{PLAN_LABEL[l.requested_plan] || l.requested_plan}</span>
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-4">
                         <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${STATUS_TONE[l.status] || STATUS_TONE.new}`}>
