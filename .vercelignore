@@ -1,0 +1,44 @@
+# Anything Vercel doesn't need to upload to its build runner.
+# (Vercel still runs `installCommand` + `buildCommand`; this just skips
+# files that bloat the upload + don't matter for the web bundle.)
+
+# Electron — Vercel deploys web, not desktop
+electron/
+build/
+dist/
+release/
+release-staging/
+*.exe
+*.dmg
+*.blockmap
+
+# Local dev artifacts
+.demo-userdata/
+node_modules/
+dist-web/
+
+# Memory + plans (Claude state)
+memory/
+plans/
+.claude/
+
+# Tooling output
+graphify-out/
+graphify-vault/
+docs/training/
+docs/onboarding/
+docs/*.zip
+
+# Cert work — sensitive
+tools/cert-step*/
+*.p12
+*.pem
+*.crt
+.env
+.env.local
+.env.*.local
+
+# Large media + design assets not used by the web build
+promo/
+Studio X Brand/
+public/photos/
