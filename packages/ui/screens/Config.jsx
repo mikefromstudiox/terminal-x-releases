@@ -27,8 +27,46 @@ import ConfigSecurity from './config-sections/ConfigSecurity'
 import ConfigFeatures from './config-sections/ConfigFeatures'
 import ConfigSalon from './config-sections/ConfigSalon'
 import ConfigNCF from './config-sections/ConfigNCF'
+import { Link } from 'react-router-dom'
+import { Crown, ArrowRight } from 'lucide-react'
 
 const ADMIN_SECTIONS = ['empresa', 'usuarios', 'servicios']
+
+// 2026-05-18 — Placeholder for the upcoming standalone Membresías config
+// panel. The functional management of memberships lives in
+// /pos/memberships (Clients sidebar). This page exists so the Config grid
+// card has a home that explains what's coming instead of redirecting to
+// the Clients-tab module (which confused owners — same screen via two
+// menus). Replace this component when the bigger config UI ships.
+function ConfigMembershipsSoon() {
+  return (
+    <div className="min-h-screen bg-white dark:bg-black flex items-start justify-center p-6 md:p-12">
+      <div className="max-w-xl w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-8 text-center space-y-5 mt-12">
+        <div className="mx-auto w-14 h-14 rounded-2xl bg-[#b3001e]/10 flex items-center justify-center">
+          <Crown size={28} className="text-[#b3001e]" />
+        </div>
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Membresías — Próximamente</h1>
+        <p className="text-sm text-slate-600 dark:text-white/70 leading-relaxed">
+          Estamos construyendo una versión más completa: planes recurrentes con
+          débito automático, agrupación de miembros por familia, recordatorios
+          de renovación por WhatsApp y reportes de membresía. Por ahora la
+          administración de membresías sigue activa en la sección de Clientes.
+        </p>
+        <Link
+          to="/pos/memberships"
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#b3001e] hover:bg-[#8c0017] text-white font-semibold text-sm transition-colors"
+        >
+          Ir a Membresías en Clientes
+          <ArrowRight size={16} />
+        </Link>
+        <p className="text-[11px] text-slate-400 dark:text-white/40 pt-2">
+          Vuelve por aquí pronto — esta página tendrá toda la configuración
+          avanzada cuando esté lista.
+        </p>
+      </div>
+    </div>
+  )
+}
 
 export default function Config() {
   const { section } = useParams()
@@ -80,6 +118,7 @@ export default function Config() {
   if (section === 'funciones')   return <ConfigFeatures />
   if (section === 'salon')       return <ConfigSalon />
   if (section === 'ncf')         return <ConfigNCF />
+  if (section === 'memberships') return <ConfigMembershipsSoon />
 
   return <Navigate to="/config/empresa" replace />
 }

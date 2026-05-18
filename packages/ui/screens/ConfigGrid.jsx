@@ -111,9 +111,14 @@ const ALL_CARDS = [
     id: 'memberships',
     icon: Crown,
     title: { es: 'Membresías', en: 'Memberships' },
-    desc:  { es: 'Planes recurrentes, débito automático, miembros activos.',
-             en: 'Recurring plans, autopay, active members.' },
-    to: '/memberships',
+    desc:  { es: 'Próximamente · planes recurrentes con débito automático y recordatorios.',
+             en: 'Coming soon · recurring plans with autopay and reminders.' },
+    // 2026-05-18 — Points to the placeholder ConfigMembershipsSoon instead
+    // of redirecting to /pos/memberships (the Clients-tab module). Same
+    // screen via two menus confused owners. The functional management
+    // stays in Clients → Membresías; this Config card now explains the
+    // upcoming standalone config.
+    to: '/config/memberships',
     feature: 'salon_memberships',
     when: ({ isSalon, isCarWash }) => isSalon || isCarWash,
   },
